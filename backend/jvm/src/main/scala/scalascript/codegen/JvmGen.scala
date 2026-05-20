@@ -320,6 +320,12 @@ class JvmGen(
     if sqlBlockCounter > 0 then
       sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
 
+    // Mark the boundary between fixed preamble and user-generated code.
+    // colonObjectsToBraces / hoistSscImportsIntoObjectStd / mergeDuplicatePackageObjects
+    // must only run on the user section — the preamble uses colon-style objects like
+    // `object Actor:` intentionally and must NOT be rewritten.
+    val preambleLen = sb.length
+
     blocks.foreach { block =>
       sb.append(emitBlock(block).stripTrailing())
       sb.append("\n\n")
@@ -337,7 +343,12 @@ class JvmGen(
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"$name()\n") }
 
-    mergeDuplicatePackageObjects(sb.toString.stripTrailing()) + "\n"
+    val fixedHead = sb.substring(0, preambleLen)
+    val userSrc   = sb.substring(preambleLen)
+    val braced    = colonObjectsToBraces(userSrc).stripTrailing()
+    val hoisted   = hoistSscImportsIntoObjectStd(braced)
+    val merged    = mergeDuplicatePackageObjects(hoisted)
+    fixedHead + merged + "\n"
 
   /** Merge multiple `object X { object Y { ... } }` declarations sharing
    *  the same outer chain into one — needed when several inlined imports
@@ -348,6 +359,47 @@ class JvmGen(
    *  by name, merge their bodies pairwise (recursively for matching
    *  inner objects), emit the merged form back. Non-object top-level
    *  statements pass through unchanged in their original order. */
+  /** Convert column-0 colon-indent `object NAME:` blocks to brace-style
+   *  `object NAME { … }` so that [[mergeDuplicatePackageObjectsOnce]] can
+   *  see and merge them.  Recursively descends into each block's body so
+   *  nested `object ui:` / `object nodes:` chains are also converted.
+   *
+   *  Only exact `object NAME:` lines (colon immediately follows the name,
+   *  nothing else on the line) at the current column-0 level are touched;
+   *  arbitrary inner braces / definitions are passed through unchanged. */
+  private def colonObjectsToBraces(src: String): String =
+    val lines    = src.split('\n')
+    val n        = lines.length
+    val result   = new StringBuilder(src.length)
+    var i        = 0
+    val ColonObj = "^(object \\w+):$".r
+    while i < n do
+      lines(i) match
+        case ColonObj(header) =>
+          // Collect body: all lines that are blank OR indented (start with space/tab).
+          i += 1
+          val body = new StringBuilder()
+          while i < n && (lines(i).isEmpty || lines(i).charAt(0) == ' ' || lines(i).charAt(0) == '\t') do
+            body.append(lines(i)).append('\n')
+            i += 1
+          // Strip trailing blank lines so the closing `}` lands cleanly.
+          var bodyStr = body.toString
+          while bodyStr.endsWith("\n\n") do bodyStr = bodyStr.dropRight(1)
+          // Dedent by 2 spaces, then recurse to convert nested colon objects.
+          val dedented = bodyStr.linesWithSeparators.map(l => if l.startsWith("  ") then l.drop(2) else l).mkString
+          val inner    = colonObjectsToBraces(dedented.stripTrailing)
+          // Re-indent the converted body back to 2 spaces.
+          val reindented = inner.linesWithSeparators.map { l =>
+            if l.forall(_.isWhitespace) then l else "  " + l
+          }.mkString.stripTrailing
+          result.append(header).append(" {\n")
+          result.append(reindented).append('\n')
+          result.append("}\n")
+        case line =>
+          result.append(line).append('\n')
+          i += 1
+    result.toString.stripTrailing
+
   /** Brace-balanced scanner. Walks `src` looking for top-level `object X { … }`
    *  blocks (column-0 `object` keyword); groups by name; merges bodies of
    *  same-name blocks into the FIRST occurrence and removes the rest.
@@ -416,6 +468,82 @@ class JvmGen(
         out.append(src.charAt(i)); i += 1
     out.toString
 
+  /** After `colonObjectsToBraces`, alias import blocks like
+   *  `import std.ui.nodes.{TkNode,...}` end up between (or after) the
+   *  `object std { ... }` blocks they were generated alongside.  Once
+   *  `mergeDuplicatePackageObjects` merges all `object std` blocks into ONE,
+   *  those imports land AFTER the merged block's closing `}` — outside the
+   *  scope of nested `object lower { def lower(n: TkNode,...) }`.
+   *
+   *  Fix: hoist top-level `import std.*` lines that export ONLY TYPE names
+   *  (first character uppercase) to the start of `object std`'s body.
+   *  Convert `import std.X.Y.{A,B}` → `import X.Y.{A,B}` (drop `std.`)
+   *  since the injection site is already inside `object std`.
+   *
+   *  Imports for value-level names (functions/vals starting lowercase, e.g.
+   *  `import std.ui.primitives.{signal, serve, ...}`) are left in place —
+   *  those names don't exist as Scala members of the package objects (extern
+   *  defs are filtered) and are only needed by user code at the file level.
+   *
+   *  Additionally: if `object std.ui.primitives` is present in the output
+   *  (std/ui is in use), inject `import ui.primitives.{Signal, View,
+   *  EventHandler}` at the start of `object std` so opaque type annotations
+   *  in dep code (e.g. `: View` return in `object lower`) resolve correctly.
+   *
+   *  After this pass, `mergeDuplicatePackageObjects` sees the type imports as
+   *  body content of the first `object std` block and keeps them there,
+   *  making TkNode / Theme / View / etc. visible inside all nested objects. */
+  private def hoistSscImportsIntoObjectStd(src: String): String =
+    val lines = src.split('\n')
+    val n     = lines.length
+    // Find the first column-0 "object std {" line.
+    val firstStdObj = lines.indexWhere { l =>
+      l == "object std {" || l.startsWith("object std {")
+    }
+    if firstStdObj < 0 then return src
+
+    // Collect `import std.*` lines that export ONLY type names (uppercase).
+    // Heuristic: extract names between `{` and `}`, check each starts uppercase.
+    def isTypeOnlyImport(line: String): Boolean =
+      val lb = line.lastIndexOf('{')
+      val rb = line.lastIndexOf('}')
+      if lb < 0 || rb <= lb then false
+      else
+        val namesPart = line.substring(lb + 1, rb)
+        val names = namesPart.split(",").map(_.trim).map { s =>
+          if s.contains(" as ") then s.substring(0, s.indexOf(" as ")).trim else s
+        }
+        names.nonEmpty && names.forall(n => n.headOption.exists(_.isUpper))
+
+    val importBuf    = scala.collection.mutable.ListBuffer.empty[String]
+    val removedLines = scala.collection.mutable.Set.empty[Int]
+    for idx <- firstStdObj + 1 until n do
+      val l = lines(idx)
+      if l.startsWith("import std.") && isTypeOnlyImport(l) then
+        val relative = "  " + l.replaceFirst("import std\\.", "import ")
+        importBuf   += relative
+        removedLines += idx
+
+    // Inject std/ui opaque type aliases at the start if std.ui.primitives is present.
+    val hasPrimitivesObj = lines.exists(l => l.trim == "object primitives {" || l.contains("object primitives {"))
+    if hasPrimitivesObj && !importBuf.exists(_.contains("ui.primitives.{")) then
+      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler}")
+
+    if importBuf.isEmpty && !hasPrimitivesObj then return src
+
+    // Reassemble: copy all lines, skip removed ones, inject hoisted imports
+    // as the first lines of object std's body (right after firstStdObj).
+    val out = new StringBuilder(src.length)
+    for idx <- 0 until n do
+      val l = lines(idx)
+      if removedLines.contains(idx) then
+        ()  // dropped — will appear inside object std instead
+      else
+        out.append(l).append('\n')
+        if idx == firstStdObj then
+          importBuf.foreach { il => out.append(il).append('\n') }
+    out.toString.stripTrailing
+
   private def mergeDuplicatePackageObjectsOnce(src: String): String =
     case class Block(name: String, indent: Int, start: Int, end: Int, headerEnd: Int, bodyEnd: Int)
     val blocks = scala.collection.mutable.ListBuffer.empty[Block]
@@ -473,12 +601,16 @@ class JvmGen(
     for (_, group) <- grouped do
       val first = group.head
       val sb    = new StringBuilder
+      val firstBodyText = src.substring(first.headerEnd, first.bodyEnd).stripTrailing()
+      var accumulated   = firstBodyText
       group.tail.foreach { b =>
         // Inner body text, trimmed of leading/trailing whitespace and outer
         // braces (we keep the original first block's outer braces).
         val body = src.substring(b.headerEnd, b.bodyEnd).stripTrailing()
-        if body.nonEmpty then
+        // Skip duplicate bodies (same content already present from an earlier inline).
+        if body.nonEmpty && !accumulated.contains(body.trim) then
           sb.append("\n").append(body)
+          accumulated += "\n" + body
         toDrop += b.start  // identify by start position
       }
       mergeInto(first.start) = sb

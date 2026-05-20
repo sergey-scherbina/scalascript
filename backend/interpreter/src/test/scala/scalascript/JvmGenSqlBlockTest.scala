@@ -182,7 +182,7 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
          |```
          |""".stripMargin
     )
-    assert(code.contains("object Users:"))
+    assert(code.contains("object Users:") || code.contains("object Users {"))
     assert(code.contains("lazy val sql: scalascript.sql.SqlResult = _sqlBlock_0"))
   }
 
