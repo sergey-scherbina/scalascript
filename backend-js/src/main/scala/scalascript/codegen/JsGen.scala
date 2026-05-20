@@ -2184,6 +2184,18 @@ function serve(port, _tlsCfg) {
 
 let _activeServer = null;
 
+// Non-blocking variant of `serve` — mirrors the interpreter's
+// `serveAsync` semantics.  In Node `serve` is already non-blocking
+// (the event loop keeps the process alive while the server has open
+// listeners), so `serveAsync` just delegates to `serve`.  The caller's
+// script continues immediately; the server runs in the Node event
+// loop in the background.  Required for Tier 4 codegen multi-backend
+// cluster tests where a single Node process must both bind its WS
+// server AND run an actor scheduler (see docs/cluster-codegen-gap.md).
+function serveAsync(port, _tlsCfg) {
+  return serve(port, _tlsCfg);
+}
+
 function stop() {
   if (_activeServer) { _activeServer.close(); _activeServer = null; }
 }

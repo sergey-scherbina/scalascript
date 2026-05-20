@@ -246,3 +246,125 @@ class NodeBackendTest extends AnyFunSuite:
     assert(out == "not-a-number",
       s"expected 'not-a-number' (untyped runtime), got:\n$out")
   }
+
+  // ── serveAsync(port[, tls]) — Tier 4 codegen multi-backend unblocker ───
+  //
+  // INT spawns a virtual thread; on Node the existing `serve` is already
+  // non-blocking (the event loop holds the process alive while the server
+  // has open listeners), so `serveAsync` delegates to `serve` and the
+  // caller continues immediately.  See docs/cluster-codegen-gap.md.
+
+  test("codegen: serveAsync(port) emits a non-blocking listen, no keep-alive loop") {
+    val src =
+      """|# Server
+         |
+         |```scalascript
+         |serveAsync(8080)
+         |println("after-serve")
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    // 1. The runtime defines serveAsync as a thin delegator.
+    assert(code.contains("function serveAsync(port, _tlsCfg)"),
+      s"runtime must define serveAsync, got:\n$code")
+    // 2. The runtime defines server.listen on top of http.createServer.
+    assert(code.contains("server.listen(port"),
+      s"runtime must wire .listen() under serve(), got:\n$code")
+    // 3. The emitted user code calls serveAsync(8080).
+    assert(code.contains("serveAsync(8080)"),
+      s"emitted JS must invoke serveAsync, got:\n$code")
+    // 4. No blocking keep-alive around the call (no while-true / await on
+    //    a never-resolving promise wrapping serveAsync).  The event loop
+    //    holds the process alive on its own.
+    val callIdx = code.indexOf("serveAsync(8080)")
+    val before  = code.substring(math.max(0, callIdx - 200), callIdx)
+    val after   = code.substring(callIdx, math.min(code.length, callIdx + 200))
+    assert(!before.contains("while (true)") && !after.contains("while (true)"),
+      s"serveAsync call must not be wrapped in a while(true) keep-alive, got window:\n$before>>>$after")
+    assert(!after.contains("await new Promise"),
+      s"serveAsync call must not be followed by a never-resolving await, got:\n$after")
+  }
+
+  test("codegen: serveAsync(port, tls(cert, key)) reuses the same TLS form as serve") {
+    val src =
+      """|# Server
+         |
+         |```scalascript
+         |serveAsync(8443, tls("cert.pem", "key.pem"))
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    assert(code.contains("serveAsync(8443, tls(\"cert.pem\", \"key.pem\"))"),
+      s"emitted JS must pass tls(...) to serveAsync, got:\n$code")
+    // serveAsync delegates to serve, which already handles _tlsCfg →
+    // require('https').createServer(...).listen(port).
+    assert(code.contains("function tls(cert, key)"),
+      s"runtime must define tls(), got:\n$code")
+    assert(code.contains("require('https')"),
+      s"runtime must use https when _tlsCfg is set, got:\n$code")
+  }
+
+  test("integration: serveAsync(port) returns immediately; server binds in background; stop() exits cleanly") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    // Pick a random ephemeral port; bind, schedule stop() after a beat,
+    // print a sentinel.  Two properties to pin:
+    //   (a) `after-serve` appears — proving serveAsync returned to the
+    //       caller and didn't loop / await forever.
+    //   (b) The script terminates within a sane wall-clock budget after
+    //       stop() — proving the only event-loop-hold was the listening
+    //       server, and stop() released it.
+    // The "actually serves HTTP" property is exercised by the codegen
+    // string-assertion above (same .listen() emission as `serve`, which
+    // is covered by interpreter-side and JVM-side tests) — round-tripping
+    // an HTTP request in the same single-threaded Node process while it
+    // also synchronously waits on the response would deadlock the event
+    // loop, so we don't try.
+    val port = {
+      val s = new java.net.ServerSocket(0)
+      val p = s.getLocalPort
+      s.close()
+      p
+    }
+    val src =
+      s"""|# Server
+          |
+          |```node.js
+          |// External TCP probe: schedule a connect() against the bound port
+          |// after a short delay and stop() the server on connect.  This runs
+          |// on the same event loop *after* the user code's synchronous
+          |// portion returns control, so it proves the listener is actually
+          |// up (Node accepts the connection) and that stop() unwinds it.
+          |globalThis.scheduleProbe = (port) => {
+          |  setTimeout(() => {
+          |    const sock = require('net').connect(port, '127.0.0.1');
+          |    sock.on('connect', () => {
+          |      console.log('probe-connected');
+          |      sock.end();
+          |      stop();
+          |    });
+          |    sock.on('error', e => { console.log('probe-error:' + e.code); stop(); });
+          |  }, 100);
+          |};
+          |```
+          |
+          |```scalascript
+          |extern def scheduleProbe(port: Int): Unit
+          |
+          |route("GET", "/ping") { req => Response.text("pong") }
+          |serveAsync($port)
+          |println("after-serve")
+          |scheduleProbe($port)
+          |```
+          |""".stripMargin
+    val code = compile(src)
+    val t0   = System.currentTimeMillis()
+    val out  = runUnderNode(code)
+    val dur  = System.currentTimeMillis() - t0
+    val lines = out.split("\n").map(_.trim).filter(_.nonEmpty).toList
+    assert(lines.contains("after-serve"),
+      s"caller did not continue past serveAsync — output:\n$out")
+    assert(lines.contains("probe-connected"),
+      s"external probe could not connect — serveAsync did not bind port — output:\n$out")
+    assert(dur < 10_000,
+      s"script did not terminate within 10s of stop() — duration=$dur ms, output:\n$out")
+  }

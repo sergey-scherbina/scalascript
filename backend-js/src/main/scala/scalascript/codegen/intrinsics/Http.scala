@@ -14,6 +14,7 @@ val JsHttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("route")               -> RuntimeCall("route"),
   QualifiedName("tls")                 -> RuntimeCall("tls"),
   QualifiedName("serve")               -> RuntimeCall("serve"),
+  QualifiedName("serveAsync")          -> RuntimeCall("serveAsync"),
   QualifiedName("stop")                -> RuntimeCall("stop"),
   // Outbound HTTP client
   QualifiedName("httpGet")             -> RuntimeCall("httpGet"),
