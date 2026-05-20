@@ -190,3 +190,27 @@ class SparkRuntimeSmokeTest extends AnyFunSuite:
     // brings in via `types._`.
     compileExample("spark-streaming-file-parquet.ssc")
   }
+
+  /** Kafka-specific gate.  The Kafka smoke test resolves the
+   *  `spark-sql-kafka-0-10_2.13` JAR (~30MB cold) AND needs a Kafka
+   *  broker available during compile (Spark's Kafka connector
+   *  doesn't itself require a broker at compile time, but the
+   *  example reads `localhost:9092` so a developer trying to
+   *  actually run it does).  Separate gate on top of the base
+   *  `RUN_SPARK_INTEGRATION` flag so a teammate without Kafka
+   *  isn't blocked. */
+  private def requireKafka(): Unit =
+    requireIntegration()
+    if !sys.env.get("RUN_SPARK_KAFKA").contains("1") then
+      cancel("RUN_SPARK_KAFKA=1 not set — opt in to resolve the spark-sql-kafka connector JAR")
+
+  test("spark-streaming-kafka.ssc compiles under Phase F.4") {
+    // Phase F.4 — auto-emitted `spark-sql-kafka-0-10_2.13` dep
+    // when `.format("kafka")` appears in user code.  Compile alone
+    // doesn't need a running broker; this test verifies the dep
+    // resolves and the generated source type-checks.  Actually
+    // running the example end-to-end requires a broker (see the
+    // example's `## Running` section) which is out of scope here.
+    requireKafka()
+    compileExample("spark-streaming-kafka.ssc")
+  }

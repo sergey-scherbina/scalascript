@@ -6888,11 +6888,28 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >       parquet input dir, transforms, writes parquet output with
 >       a checkpoint dir; smoke-test verified.  5 new SparkGenTest
 >       cases pin the emission/suppression semantics.
-> - [~] F.4 — Kafka source/sink: dep auto-emit landed with F.2
->       (`.format("kafka")` detection → `//> using dep
->       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`); example
->       `examples/spark-streaming-kafka.ssc` and the
->       `RUN_SPARK_KAFKA=1`-gated smoke test still to land.
+> - [x] F.4 — Kafka source/sink (2026-05-20): dep auto-emit landed
+>       with F.2 (`.format("kafka")` detection → `//> using dep
+>       "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`).  New
+>       `examples/spark-streaming-kafka.ssc` (Kafka topic in →
+>       upper-case → Kafka topic out, with checkpoint).  Smoke test
+>       added behind double-gate `RUN_SPARK_INTEGRATION=1` +
+>       `RUN_SPARK_KAFKA=1` — keeps default `sbt test` green on
+>       machines without Kafka.
+>
+> **Phase F status: F.1–F.4 all landed.**  Structured Streaming end
+> to end on Scala 3.7.1 + Spark 4.0.0 — rate/console smoke-tested,
+> file/parquet smoke-tested, Kafka dep + example landed
+> (broker-gated smoke).  No Spark 4 + Scala 3 interop surprises:
+> Structured Streaming reuses the same Catalyst / Encoder machinery
+> Phase E already proved works.  Two non-blockers surfaced for
+> follow-up: (a) the streaming guard pins
+> `spark.streams.active.headOption` which awaits only the FIRST
+> started query (multi-query programs need explicit
+> `awaitAnyTermination`); (b) the `\$$` Scala 3 string-interp warning
+> in the Phase E shim's `Ordering[T]` extension is unrelated to
+> streaming but surfaces on every emitted file as a deprecation
+> hint (cosmetic; doesn't block compile).
 >
 > Natural fit: ScalaScript's existing `Dataset[T]` API maps directly to Spark.
 

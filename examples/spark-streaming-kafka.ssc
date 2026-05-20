@@ -1,0 +1,86 @@
+---
+name: spark-streaming-kafka
+backend: spark
+spark-app-name: Phase F Streaming Demo (kafka -> kafka)
+description: Spark Structured Streaming — Kafka topic source -> Kafka topic sink
+---
+
+# Phase F — Structured Streaming (Kafka -> Kafka)
+
+End-to-end Kafka streaming pipeline.  Reads JSON-encoded events from
+the Kafka topic `ssc-streaming-in` on `localhost:9092`, upper-cases
+the value column, and writes the transformed events to the topic
+`ssc-streaming-out` on the same broker.
+
+Phase F.4's `.format("kafka")` detection auto-emits the
+`spark-sql-kafka-0-10_2.13` dep at the top of the generated source so
+`scala-cli` resolves the Kafka connector JAR via Coursier — no manual
+front-matter `dependencies:` entry needed.  Phase F.3's
+checkpoint-location reminder is suppressed because the user code sets
+the option explicitly; Phase F.2's `awaitTermination()` shim still
+fires to keep the driver alive.
+
+## Running
+
+Prerequisites — a Kafka broker on `localhost:9092` with both topics
+provisioned:
+
+```
+kafka-topics --bootstrap-server localhost:9092 --create --topic ssc-streaming-in  --partitions 1 --replication-factor 1
+kafka-topics --bootstrap-server localhost:9092 --create --topic ssc-streaming-out --partitions 1 --replication-factor 1
+```
+
+Then:
+
+```
+mkdir -p /tmp/ssc-kafka-ckpt
+ssc run --backend spark examples/spark-streaming-kafka.ssc &
+
+# In another terminal — publish a few events:
+kafka-console-producer --bootstrap-server localhost:9092 --topic ssc-streaming-in <<< "hello"
+kafka-console-producer --bootstrap-server localhost:9092 --topic ssc-streaming-in <<< "spark"
+
+# Consume the transformed events:
+kafka-console-consumer --bootstrap-server localhost:9092 --topic ssc-streaming-out --from-beginning
+# expected output: HELLO, SPARK
+```
+
+The smoke test for this example is gated by `RUN_SPARK_KAFKA=1`
+(on top of `RUN_SPARK_INTEGRATION=1`) because a default test run
+shouldn't require a Kafka broker to be available.
+
+## Pipeline
+
+```scalascript
+// Kafka source.  `kafka.bootstrap.servers` and `subscribe` are the
+// only mandatory options — `startingOffsets` defaults to `latest`
+// (only new events after the query starts).  Set to `earliest` here
+// so a fresh smoke-test run sees the events the producer just
+// pushed.  Each row arrives as a (key, value, topic, partition,
+// offset, timestamp, ...) tuple; we project just `value` cast to
+// string for this demo.
+val raw = spark.readStream
+  .format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("subscribe",               "ssc-streaming-in")
+  .option("startingOffsets",         "earliest")
+  .load()
+
+val transformed = raw.selectExpr("UPPER(CAST(value AS STRING)) AS value")
+
+// Kafka sink.  The output rows need a `value` column (and optionally
+// `key`, `topic`, `partition`, `headers`); we keep the bare `value`
+// shape.  `checkpointLocation` is required by Kafka sink the same
+// way file sinks need it — Spark tracks progress per (source, sink)
+// pair using the checkpoint dir.
+val query = transformed.writeStream
+  .format("kafka")
+  .option("kafka.bootstrap.servers", "localhost:9092")
+  .option("topic",                   "ssc-streaming-out")
+  .option("checkpointLocation",      "/tmp/ssc-kafka-ckpt")
+  .outputMode("append")
+  .trigger(Trigger.ProcessingTime("2 seconds"))
+  .start()
+
+println("STREAMING_STARTED kafka -> kafka")
+```
