@@ -220,7 +220,7 @@ class Interpreter(
 
   // ── Phase 3 — distributed node state ────────────────────────────────
   // "" means this process has not called startNode and is local-only.
-  @volatile private var localNodeId: String = ""
+  @volatile private[interpreter] var localNodeId: String = ""
   @volatile private var localNodeUrl: String = ""   // set by startNode(nodeId, url); shared in peers_resp
   // join-cluster mode: when true, each new handshake auto-requests peer list
   @volatile private var joinMode:  Boolean = false
@@ -235,7 +235,7 @@ class Interpreter(
   private val peerUrls =
     new java.util.concurrent.ConcurrentHashMap[String, String]()
   // nodeId → send-function (delivers serialized JSON envelope to peer)
-  private val peerChannels =
+  private[interpreter] val peerChannels =
     new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
   // Thread-safe queue for messages arriving from remote nodes on WS threads.
   private val remoteInbox  =
@@ -272,7 +272,7 @@ class Interpreter(
   private val peerPhiViews =
     new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
   // v1.23 — leader election (Bully) state.
-  private val currentLeader =
+  private[interpreter] val currentLeader =
     new java.util.concurrent.atomic.AtomicReference[String]("")
   @volatile private var electionInProgress: Boolean = false
   @volatile private var electionStartedAt:  Long    = 0L
@@ -289,7 +289,7 @@ class Interpreter(
   // Default reads `SSC_CLUSTER_TOKEN` env at construction; runtime
   // override via the `setClusterAuthToken` intrinsic.  Empty string ⇒
   // endpoints are open (backwards compatible).
-  @volatile private var clusterAuthToken: String =
+  @volatile private[interpreter] var clusterAuthToken: String =
     sys.env.getOrElse("SSC_CLUSTER_TOKEN", "")
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
   // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
@@ -387,7 +387,7 @@ class Interpreter(
   @volatile private var autoReelect: Boolean = false
   // v1.23 — protocol dispatch (cluster-raft.md §6).  "bully" today;
   //   Phase 3a flips to "raft", Phase 3b flips to "coord".
-  private val leaderProtocolRef =
+  private[interpreter] val leaderProtocolRef =
     new java.util.concurrent.atomic.AtomicReference[String]("bully")
   @scala.annotation.unused
   @volatile private var leaderCoordinator: Value = Value.UnitV
@@ -398,7 +398,7 @@ class Interpreter(
   @scala.annotation.unused
   @volatile private var coordReleaseFn: Value = Value.UnitV
   @volatile private var coordHolderFn:  Value = Value.UnitV
-  @volatile private var coordIsLeader:  Boolean = false
+  @volatile private[interpreter] var coordIsLeader:  Boolean = false
   private val coordTickThread =
     new java.util.concurrent.atomic.AtomicReference[Thread](null)
   private val CoordLeaseTimeoutMs  = 5000L
@@ -444,7 +444,7 @@ class Interpreter(
     }
     if !coordTickThread.compareAndSet(null, t) then t.interrupt()
   // v1.23 — drain-aware step-down (cluster-raft.md §7).
-  private def stepDownIfLeader(): Unit =
+  private[interpreter] def stepDownIfLeader(): Unit =
     leaderProtocolRef.get() match
       case "raft" =>
         if raftStateName == "leader" then
@@ -475,10 +475,10 @@ class Interpreter(
     leaderHist.offer((term, leaderId, System.currentTimeMillis()))
     while leaderHist.size() > LeaderHistMax do leaderHist.pollFirst()
   // v1.23 — Raft state (cluster-raft.md §4.1).
-  @volatile private var raftCurrentTerm: Long   = 0L
+  @volatile private[interpreter] var raftCurrentTerm: Long   = 0L
   @volatile private var raftVotedFor:    String = ""
-  @volatile private var raftStateName:   String = "follower"
-  @volatile private var raftLeaderId:    String = ""
+  @volatile private[interpreter] var raftStateName:   String = "follower"
+  @volatile private[interpreter] var raftLeaderId:    String = ""
   @volatile private var raftElectionDue: Long   = 0L
   @volatile private var raftVotes:       Int    = 0
   private val RaftElectionLo  = 150L
@@ -576,9 +576,9 @@ class Interpreter(
           if qe > qi then raftVotedFor = s.substring(qi + 1, qe)
     catch case _: Throwable => ()
   // v1.23 — drain / rolling-restart state.
-  private val isDrainingSelf =
+  private[interpreter] val isDrainingSelf =
     new java.util.concurrent.atomic.AtomicBoolean(false)
-  private val drainingPeers =
+  private[interpreter] val drainingPeers =
     new java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
   private val drainEventSubs =
     new java.util.concurrent.CopyOnWriteArrayList[java.lang.Long]()
@@ -599,7 +599,7 @@ class Interpreter(
       val t = schedulerThread; if t != null then t.interrupt()
   private val drainEventQueue =
     new java.util.concurrent.ConcurrentLinkedQueue[Value]()
-  private def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
+  private[interpreter] def enqueueDrainEvent(nodeId: String, draining: Boolean): Unit =
     val ts = System.currentTimeMillis()
     recordEventLog(s"""{"ts":$ts,"type":"DrainStateChanged","nodeId":${jsonStr(nodeId)},"draining":$draining}""")
     if !drainEventSubs.isEmpty then
@@ -612,7 +612,7 @@ class Interpreter(
       val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":true}"""
       try target(payload) catch case _: Throwable => ()
   // v1.23 — cluster metrics aggregation: per-node gauges.
-  private val clusterMetrics =
+  private[interpreter] val clusterMetrics =
     new java.util.concurrent.ConcurrentHashMap[String,
       java.util.concurrent.ConcurrentHashMap[String, java.lang.Double]]()
   private val metricEventSubs =
@@ -793,7 +793,7 @@ class Interpreter(
    *  `GET /_ssc-cluster/events` endpoint always has data for ops
    *  tooling.  Cap 200 entries — older lines drop oldest-first. */
   private val ClusterEventLogMax = 200
-  private val clusterEventLog =
+  private[interpreter] val clusterEventLog =
     new java.util.concurrent.ConcurrentLinkedDeque[String]()
 
   private def recordEventLog(jsonObj: String): Unit =
@@ -1340,7 +1340,7 @@ class Interpreter(
           s"""{"t":"msg","to":{"nodeId":${jsonStr(nodeId)},"localId":$toId},"from":{"nodeId":${jsonStr(localNodeId)},"localId":$fromId},"body":$body}"""
         send(envelope)
 
-  private def jsonStr(s: String): String =
+  private[interpreter] def jsonStr(s: String): String =
     val sb = new StringBuilder(s.length + 2)
     sb.append('"')
     s.foreach {
@@ -1503,307 +1503,25 @@ class Interpreter(
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
 
-  // ─── Health-route defaults ────────────────────────────────────────
+  // ─── Health + cluster control routes — see ClusterRoutesRuntime.scala ──────
 
-  // Extracted from initBuiltins so installNativeIntrinsics' NativeContext
-  // can forward to it via ctx.registerHealthDefaults().
   private def registerHealthDefaults(): Unit =
-    def isRegistered(path: String): Boolean =
-      scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
-    val okResponse = Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200),
-      "headers" -> Value.MapV(Map(
-        Value.StringV("Content-Type") -> Value.StringV("application/json")
-      )),
-      "body"    -> Value.StringV("""{"status":"ok"}""")
-    ))
-    val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
-    if !isRegistered("/_health") then
-      scalascript.server.Routes.register("GET", "/_health", handler, this)
-    if !isRegistered("/_ready") then
-      scalascript.server.Routes.register("GET", "/_ready", handler, this)
+    ClusterRoutesRuntime.registerHealthDefaults(this)
 
-  /** v1.23 — register `GET /_ssc-cluster/status` returning a JSON
-   *  snapshot.  Idempotent: subsequent `startNode` calls are no-ops
-   *  for the route table.  Reads volatile / concurrent state with no
-   *  locks — values are observation-grade, not a transactional
-   *  snapshot.  Used by `ssc cluster status` and ops dashboards. */
-
-  /** v1.23 — Bearer-token check shared by every cluster control
-   *  route (status / drain / events).  Returns either `None` (caller
-   *  proceeds) or `Some(401-resp)` (route handler short-circuits with
-   *  the rejection).  When `clusterAuthToken` is empty the endpoints
-   *  are open. */
-  private def clusterAuthReject(args: List[Value]): Option[Value] =
-    val token = clusterAuthToken
-    if token.isEmpty then None
-    else
-      val hdr = args.headOption.flatMap {
-        case Value.InstanceV("Request", fs) =>
-          fs.get("headers") match
-            case Some(Value.MapV(m)) =>
-              m.collectFirst {
-                case (Value.StringV(k), Value.StringV(v))
-                    if k.equalsIgnoreCase("authorization") => v
-              }
-            case _ => None
-        case _ => None
-      }.getOrElse("")
-      val expected = "Bearer " + token
-      if hdr == expected then None
-      else
-        Some(Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(401),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("application/json")
-          )),
-          "body"    -> Value.StringV(
-            """{"error":"unauthorized","hint":"set Authorization: Bearer <token>"}""")
-        )))
-
-  /** v1.23 — register `POST /_ssc-cluster/drain` toggling local drain
-   *  state.  Body is JSON `{"enabled":true|false}` (or empty body =
-   *  enable).  Mirrors the in-process `setDraining` intrinsic's
-   *  effects: flips `isDrainingSelf`, broadcasts DrainStateChanged
-   *  to peers, steps down if we were leader.  Used by
-   *  `ssc cluster drain <url> [--off]`. */
   private def registerClusterDrainRoute(): Unit =
-    val path = "/_ssc-cluster/drain"
-    val already = scalascript.server.Routes.all.exists(e =>
-      e.method == "POST" && e.path == path)
-    if already then return
-    val handler = Value.NativeFnV("_clusterDrain", Computation.pureFn { args =>
-      clusterAuthReject(args).getOrElse {
-        val body = args.headOption.flatMap {
-          case Value.InstanceV("Request", fs) =>
-            fs.get("body").collect { case Value.StringV(s) => s }
-          case _ => None
-        }.getOrElse("")
-        val enabled: Boolean =
-          if body.trim.isEmpty then true
-          else
-            val needle = "\"enabled\":"
-            val i = body.indexOf(needle)
-            if i < 0 then true
-            else
-              val rest = body.substring(i + needle.length).trim
-              !rest.startsWith("false")
-        val prev = isDrainingSelf.getAndSet(enabled)
-        if prev != enabled then
-          val payload = s"""{"t":"drain","from":${jsonStr(localNodeId)},"draining":$enabled}"""
-          peerChannels.forEach { (_, send) =>
-            try send(payload) catch case _: Throwable => ()
-          }
-          enqueueDrainEvent(localNodeId, enabled)
-          if enabled then stepDownIfLeader()
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("application/json")
-          )),
-          "body"    -> Value.StringV(
-            s"""{"drainingSelf":${if enabled then "true" else "false"}}""")
-        ))
-      }
-    })
-    scalascript.server.Routes.register("POST", path, handler, this)
+    ClusterRoutesRuntime.registerClusterDrainRoute(this)
 
-  /** v1.23 — register `GET /_ssc-cluster/events` returning the recent
-   *  events ring buffer as a JSON array.  Optional `?since=<ts>`
-   *  query filters to entries strictly newer than the given epoch-ms,
-   *  so dashboards can long-poll without re-streaming everything.
-   *  No-op if already registered. */
-
-  /** v1.23 — register `POST /_ssc-cluster/step-down`.  If this node
-   *  is the current leader, step down (clear `currentLeader`, broadcast
-   *  the change via `LeaderLost`, surrender any external coordinator
-   *  lease).  If it's not the leader, returns 409 Conflict so the
-   *  operator notices.  Apps with `setAutoReelect(true)` re-elect
-   *  automatically — that's the rolling-restart pattern. */
   private def registerClusterStepDownRoute(): Unit =
-    val path = "/_ssc-cluster/step-down"
-    val already = scalascript.server.Routes.all.exists(e =>
-      e.method == "POST" && e.path == path)
-    if already then return
-    val handler = Value.NativeFnV("_clusterStepDown", Computation.pureFn { args =>
-      clusterAuthReject(args).getOrElse {
-        val wasLeader =
-          leaderProtocolRef.get() match
-            case "raft"  => raftStateName == "leader"
-            case "coord" => coordIsLeader
-            case _       => currentLeader.get() == localNodeId
-        if !wasLeader then
-          Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(409),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("application/json")
-            )),
-            "body"    -> Value.StringV(
-              s"""{"error":"not_leader","leader":${jsonStr(currentLeader.get())}}""")
-          ))
-        else
-          stepDownIfLeader()
-          Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(200),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("application/json")
-            )),
-            "body"    -> Value.StringV(
-              s"""{"steppedDown":true,"nodeId":${jsonStr(localNodeId)}}""")
-          ))
-      }
-    })
-    scalascript.server.Routes.register("POST", path, handler, this)
+    ClusterRoutesRuntime.registerClusterStepDownRoute(this)
 
-  /** v1.23 — register `GET /_ssc-cluster/metrics-prom`.  Returns the
-   *  `clusterMetrics` gauges in Prometheus text exposition format —
-   *  one `<sanitized-name>{nodeId="<id>"} <value>` line per
-   *  (metric, peer) pair, plus `# TYPE … gauge` declarations.
-   *  Honours the same Bearer-token gate as the other cluster routes. */
   private def registerClusterMetricsPromRoute(): Unit =
-    val path = "/_ssc-cluster/metrics-prom"
-    val already = scalascript.server.Routes.all.exists(e =>
-      e.method == "GET" && e.path == path)
-    if already then return
-    val handler = Value.NativeFnV("_clusterMetricsProm", Computation.pureFn { args =>
-      clusterAuthReject(args).getOrElse {
-        // Prometheus metric names must match `[a-zA-Z_:][a-zA-Z0-9_:]*`.
-        // Sanitize by replacing every non-allowed char with `_`.
-        def sanitize(s: String): String =
-          val sb = new StringBuilder(s.length)
-          var i = 0
-          while i < s.length do
-            val c = s.charAt(i)
-            val ok =
-              (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '_' || c == ':'
-            sb.append(if ok then c else '_')
-            i += 1
-          val out = sb.toString
-          // Names can't start with a digit.
-          if out.nonEmpty && out.charAt(0) >= '0' && out.charAt(0) <= '9'
-          then "_" + out else out
-        def escLabel(s: String): String =
-          s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
-        val sb = new StringBuilder()
-        clusterMetrics.forEach { (name, inner) =>
-          val pName = sanitize(name)
-          sb.append("# TYPE ").append(pName).append(" gauge\n")
-          inner.forEach { (nodeId, value) =>
-            sb.append(pName)
-              .append("{nodeId=\"").append(escLabel(nodeId)).append("\"} ")
-              .append(value.doubleValue())
-              .append('\n')
-          }
-        }
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") ->
-              Value.StringV("text/plain; version=0.0.4; charset=utf-8")
-          )),
-          "body"    -> Value.StringV(sb.toString)
-        ))
-      }
-    })
-    scalascript.server.Routes.register("GET", path, handler, this)
+    ClusterRoutesRuntime.registerClusterMetricsPromRoute(this)
 
   private def registerClusterEventsRoute(): Unit =
-    val path = "/_ssc-cluster/events"
-    val already = scalascript.server.Routes.all.exists(e =>
-      e.method == "GET" && e.path == path)
-    if already then return
-    val handler = Value.NativeFnV("_clusterEvents", Computation.pureFn { args =>
-      clusterAuthReject(args).getOrElse {
-        // Pull `since` from Request.query["since"] if present.
-        val sinceMs: Long = args.headOption.flatMap {
-          case Value.InstanceV("Request", fs) =>
-            fs.get("query") match
-              case Some(Value.MapV(m)) =>
-                m.collectFirst {
-                  case (Value.StringV("since"), Value.StringV(v)) => v
-                }.flatMap(_.toLongOption)
-              case _ => None
-          case _ => None
-        }.getOrElse(0L)
-        val sb = new StringBuilder("[")
-        var first = true
-        val it = clusterEventLog.iterator()
-        while it.hasNext do
-          val line = it.next()
-          // Each line is a `{"ts":<n>,...}` literal; cheap filter on
-          // the leading prefix avoids parsing JSON.
-          val tsMatch =
-            if sinceMs <= 0L then true
-            else
-              val tsPrefix = "{\"ts\":"
-              if line.startsWith(tsPrefix) then
-                val end = line.indexOf(',', tsPrefix.length)
-                if end > 0 then
-                  line.substring(tsPrefix.length, end).toLongOption
-                    .exists(_ > sinceMs)
-                else false
-              else false
-          if tsMatch then
-            if !first then sb.append(',')
-            sb.append(line)
-            first = false
-        sb.append(']')
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("application/json")
-          )),
-          "body"    -> Value.StringV(sb.toString)
-        ))
-      }
-    })
-    scalascript.server.Routes.register("GET", path, handler, this)
+    ClusterRoutesRuntime.registerClusterEventsRoute(this)
 
   private def registerClusterStatusRoute(): Unit =
-    val path = "/_ssc-cluster/status"
-    val already = scalascript.server.Routes.all.exists(e =>
-      e.method == "GET" && e.path == path)
-    if already then return
-    val handler = Value.NativeFnV("_clusterStatus", Computation.pureFn { args =>
-      clusterAuthReject(args).getOrElse {
-        val sb = new StringBuilder("{")
-        def kv(k: String, jsonVal: String, first: Boolean = false): Unit =
-          if !first then sb.append(',')
-          sb.append('"').append(k).append("\":").append(jsonVal)
-        def jsonStrLit(s: String): String =
-          "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-        def jsonStrArr(xs: Iterable[String]): String =
-          xs.map(jsonStrLit).mkString("[", ",", "]")
-        val members = scala.collection.mutable.ListBuffer.empty[String]
-        peerChannels.keySet().forEach(members += _)
-        val drainPeers = scala.collection.mutable.ListBuffer.empty[String]
-        drainingPeers.forEach { (nid, dr) =>
-          if dr.booleanValue() then drainPeers += nid
-        }
-        val leaderNow =
-          leaderProtocolRef.get() match
-            case "raft" => raftLeaderId
-            case _      => currentLeader.get()
-        kv("nodeId",    jsonStrLit(localNodeId), first = true)
-        kv("leader",    jsonStrLit(leaderNow))
-        kv("protocol",  jsonStrLit(leaderProtocolRef.get()))
-        kv("members",   jsonStrArr(members.toList))
-        kv("drainingSelf", if isDrainingSelf.get() then "true" else "false")
-        kv("drainingPeers", jsonStrArr(drainPeers.toList))
-        kv("raftTerm",  raftCurrentTerm.toString)
-        kv("raftState", jsonStrLit(raftStateName))
-        sb.append('}')
-        Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
-          "headers" -> Value.MapV(Map(
-            Value.StringV("Content-Type") -> Value.StringV("application/json")
-          )),
-          "body"    -> Value.StringV(sb.toString)
-        ))
-      }
-    })
-    scalascript.server.Routes.register("GET", path, handler, this)
+    ClusterRoutesRuntime.registerClusterStatusRoute(this)
 
   // ─── Built-ins — see BuiltinsRuntime.scala ────────────────────────────
 
