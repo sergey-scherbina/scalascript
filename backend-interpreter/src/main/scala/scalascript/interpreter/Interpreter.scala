@@ -4239,59 +4239,7 @@ class Interpreter(
     // ─── Infix operators ──────────────────────────────────────────────
 
   private[interpreter] def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
-    val rhs = args.headOption.getOrElse(Value.UnitV)
-    (lhs, op, rhs) match
-      // HTML DSL: `cls := "hero"` builds an Attr instance that tag fns
-      // recognise as an attribute pair.
-      case (Value.InstanceV("AttrKey", fields), ":=", v) =>
-        val name = fields.get("name").map(Value.show).getOrElse("")
-        Pure(Value.InstanceV("Attr", Map(
-          "name"  -> Value.StringV(name),
-          "value" -> Value.StringV(Value.show(v))
-        )))
-      // v1.6 actors — Pid ! msg fires off to the addressee's mailbox.
-      // No-op if Pid is unknown (Erlang semantics).
-      case (pid @ Value.InstanceV("Pid", _), "!", msg) =>
-        Perform("Actor", "send", List(pid, msg))
-      case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.IntV(a + b))
-      case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.IntV(a - b))
-      case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.IntV(a * b))
-      case (Value.IntV(a),    "/",  Value.IntV(b))    => Pure(Value.IntV(a / b))
-      case (Value.IntV(a),    "%",  Value.IntV(b))    => Pure(Value.IntV(a % b))
-      case (Value.DoubleV(a), "+",  Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-      case (Value.DoubleV(a), "-",  Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-      case (Value.DoubleV(a), "*",  Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-      case (Value.DoubleV(a), "/",  Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-      case (Value.IntV(a),    "+",  Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-      case (Value.DoubleV(a), "+",  Value.IntV(b))    => Pure(Value.DoubleV(a + b))
-      case (Value.IntV(a),    "*",  Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-      case (Value.DoubleV(a), "*",  Value.IntV(b))    => Pure(Value.DoubleV(a * b))
-      case (Value.IntV(a),    "-",  Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-      case (Value.DoubleV(a), "-",  Value.IntV(b))    => Pure(Value.DoubleV(a - b))
-      case (Value.IntV(a),    "/",  Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-      case (Value.DoubleV(a), "/",  Value.IntV(b))    => Pure(Value.DoubleV(a / b))
-      case (Value.StringV(a), "+",  b)                => Pure(Value.StringV(a + Value.show(b)))
-      case (Value.StringV(a), "*",  Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
-      case (a, "==",  b) => Pure(Value.BoolV(a == b))
-      case (a, "!=",  b) => Pure(Value.BoolV(a != b))
-      case (Value.IntV(a),    "<",  Value.IntV(b))    => Pure(Value.BoolV(a < b))
-      case (Value.IntV(a),    ">",  Value.IntV(b))    => Pure(Value.BoolV(a > b))
-      case (Value.IntV(a),    "<=", Value.IntV(b))    => Pure(Value.BoolV(a <= b))
-      case (Value.IntV(a),    ">=", Value.IntV(b))    => Pure(Value.BoolV(a >= b))
-      case (Value.DoubleV(a), "<",  Value.DoubleV(b)) => Pure(Value.BoolV(a < b))
-      case (Value.DoubleV(a), ">",  Value.DoubleV(b)) => Pure(Value.BoolV(a > b))
-      case (Value.DoubleV(a), "<=", Value.DoubleV(b)) => Pure(Value.BoolV(a <= b))
-      case (Value.DoubleV(a), ">=", Value.DoubleV(b)) => Pure(Value.BoolV(a >= b))
-      case (Value.BoolV(a),   "&&", Value.BoolV(b))   => Pure(Value.BoolV(a && b))
-      case (Value.BoolV(a),   "||", Value.BoolV(b))   => Pure(Value.BoolV(a || b))
-      case (v, "::",  Value.ListV(ls))                => Pure(Value.ListV(v :: ls))
-      case (Value.ListV(a), "++", Value.ListV(b))     => Pure(Value.ListV(a ++ b))
-      case (Value.ListV(a), ":::", Value.ListV(b))    => Pure(Value.ListV(a ++ b))
-      case (Value.ListV(ls), ":+", v)                 => Pure(Value.ListV(ls :+ v))
-      case (v, "+:",  Value.ListV(ls))                => Pure(Value.ListV(v +: ls))
-      case (k, "->", v)                               => Pure(Value.TupleV(List(k, v)))
-      // Fallback: method call on lhs
-      case _ => DispatchRuntime.dispatch(lhs, op, args, env, this)
+    DispatchRuntime.infix(lhs, op, args, env, this)
 
 
   // ─── Dispatch — see DispatchRuntime.scala ────────────────────────────────
