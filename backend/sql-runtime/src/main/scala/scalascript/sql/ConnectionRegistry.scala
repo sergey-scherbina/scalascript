@@ -67,6 +67,8 @@ object EnvResolver:
           val f = java.io.File(ref)
           if !f.exists() || !f.canRead then throw MissingFile(ref, configKey, dbName)
           scala.io.Source.fromFile(f).mkString.strip()
+        case "sops" =>
+          SopsSecrets.get(ref).getOrElse(throw MissingSops(ref, configKey, dbName))
         case s =>
           plugins.get(s) match
             case Some(r) => r.resolve(ref)
@@ -88,13 +90,21 @@ final class MissingFile(val path: String, val configKey: String, val dbName: Str
       s"secret file `$path` referenced from databases.$dbName.$configKey does not exist or is not readable"
     )
 
+/** Raised when a `${sops:KEY}` reference is used but no YAML was piped
+ *  to stdin (or the key is absent from the piped document). */
+final class MissingSops(val key: String, val configKey: String, val dbName: String)
+    extends RuntimeException(
+      s"sops key `$key` referenced from databases.$dbName.$configKey was not found " +
+      s"— pipe a decrypted YAML document to ssc: `sops -d secrets.enc.yaml | ssc myapp.ssc`"
+    )
+
 /** Raised when a `${scheme:ref}` reference uses a scheme that has no
  *  built-in handler and no registered [[SecretResolver]] plugin. */
 final class UnknownScheme(val scheme: String, val configKey: String, val dbName: String)
     extends RuntimeException(
       s"no SecretResolver registered for scheme `$scheme` " +
       s"(referenced from databases.$dbName.$configKey); " +
-      s"built-in schemes: `env`, `file`"
+      s"built-in schemes: `env`, `file`, `sops`"
     )
 
 /** Raised when an `sql` block resolves to a database name that has

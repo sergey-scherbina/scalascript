@@ -39,6 +39,14 @@ import scalascript.codegen.SparkBackend
   val (globalFlags, args) = GlobalFlags.parse(rawArgs.toList)
   globalFlags.applyToRegistry()
 
+  // If stdin is a pipe (not a TTY) and the command is not one that owns
+  // stdin itself (lsp uses JSON-RPC; repl uses interactive readline),
+  // read the piped content as a YAML secrets document — the typical
+  // source is `sops -d secrets.enc.yaml | ssc myapp.ssc`.
+  val stdinCommand = args.headOption.getOrElse("")
+  if System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
+    loadSopsSecrets()
+
   // Standalone meta-commands that don't dispatch to a command handler.
   if globalFlags.listBackends then
     println(BackendRegistry.describe)
@@ -102,6 +110,48 @@ private def dispatchCommand(args: List[String]): Unit =
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case _                     => runCommand(args)
+
+/** Read stdin as a YAML secrets document and load the flattened key→value
+ *  map into [[scalascript.sql.SopsSecrets]].
+ *
+ *  Nested YAML keys are joined with `.` so the document:
+ *  {{{
+ *  db:
+ *    prod:
+ *      password: "s3cr3t"
+ *  TOP_SECRET: "value"
+ *  }}}
+ *  produces `db.prod.password` and `TOP_SECRET`.
+ *
+ *  List elements are keyed by index (`hosts.0`, `hosts.1`, …).
+ *
+ *  A blank or non-YAML stdin is silently ignored — no error is raised
+ *  so that scripts piped other content don't break unexpectedly. */
+private def loadSopsSecrets(): Unit =
+  try
+    val raw = scala.io.Source.stdin.mkString
+    if raw.nonEmpty then
+      val doc = new org.yaml.snakeyaml.Yaml().load[Any](raw)
+      val flat = flattenYaml("", doc)
+      if flat.nonEmpty then
+        scalascript.sql.SopsSecrets.load(flat)
+  catch case _: Throwable => () // non-YAML or empty stdin — ignore
+
+private def flattenYaml(prefix: String, node: Any): Map[String, String] =
+  import scala.jdk.CollectionConverters.*
+  node match
+    case m: java.util.Map[?, ?] =>
+      m.asScala.flatMap { case (k, v) =>
+        val key = if prefix.isEmpty then k.toString else s"$prefix.$k"
+        flattenYaml(key, v)
+      }.toMap
+    case l: java.util.List[?] =>
+      l.asScala.zipWithIndex.flatMap { case (v, i) =>
+        val key = if prefix.isEmpty then i.toString else s"$prefix.$i"
+        flattenYaml(key, v)
+      }.toMap
+    case null  => if prefix.nonEmpty then Map(prefix -> "") else Map.empty
+    case other => if prefix.nonEmpty then Map(prefix -> other.toString) else Map.empty
 
 /** Global, non-command-specific CLI flags. */
 case class GlobalFlags(
