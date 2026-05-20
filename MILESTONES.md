@@ -7819,10 +7819,18 @@ Landed in tandem with blockchain-spi Phase 1.
 - [x] `wallet-connect` — protocol shape + scaffolded
       `WalletConnectConnector` (JVM)
 - [x] Multi-chain via CAIP-2 namespaces (`WcNamespace`)
-- [ ] JVM production transport — JDK `java.net.http.WebSocket` +
-      ed25519/JWT relay auth + chacha20-poly1305 envelope encryption
-      (current `WcRelayTransport` is a trait + mock; production impl
-      is the next finalisation slice)
+- [x] Transport-layer cryptography (2026-05-20):
+  - [x] `RelayJwt` — EdDSA(ed25519) JWT signing + did:key encoding
+        (W3C `z6Mk…` multicodec prefix); JWT payload carries
+        `iss`/`aud`/`iat`/`exp`/`sub`.
+  - [x] `WcEnvelope` — Type 0 + Type 1 ChaCha20-Poly1305 envelopes
+        (JCE `ChaCha20-Poly1305`), base64 transport framing.
+  - [x] `WcKeyAgreement` — X25519 keypair / ECDH / HKDF-SHA256 →
+        session symKey / topic = sha256(symKey); `wc:` pairing-URI
+        parser (validates topic = sha256(symKey)).
+- [ ] JVM transport composition — `JvmRelayTransport` wiring the
+      primitives above to JDK `java.net.http.WebSocket` and the
+      `irn_publish` / `irn_subscribe` JSON-RPC frames (next slice).
 - [ ] JS: facade over `@walletconnect/sign-client`
 - [ ] Resolves WC project-ID open question
 

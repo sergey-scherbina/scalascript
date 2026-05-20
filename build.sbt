@@ -913,11 +913,12 @@ lazy val walletConnectorEip1193 = project
 
 lazy val walletConnect = project
   .in(file("wallet-connect"))
-  .dependsOn(walletSpi, blockchainSpi)
+  .dependsOn(walletSpi, blockchainSpi, cryptoBouncycastle % Test)
   .settings(
     name := "scalascript-wallet-connect",
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "upickle" % "3.3.1",
+      "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
