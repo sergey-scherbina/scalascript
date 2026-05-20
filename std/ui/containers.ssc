@@ -1,0 +1,37 @@
+---
+name: ui-containers
+version: 1.0.0
+description: Container widget constructors — card, modal. Return TkNode; lower with lower.ssc.
+package: std.ui.containers
+exports:
+  - card
+  - modal
+---
+
+# `std.ui.containers` — container constructors
+
+`card` wraps content in a bordered, rounded surface.
+`modal` shows an overlay dialog when `open` signal is true.
+
+Tabs are deferred to a later iteration (requires derived signals).
+
+```scalascript
+[TkNode, CardNode, ModalNode](std/ui/nodes.ssc)
+
+// header and footer are optional — pass null to omit.
+def card(body: TkNode*): TkNode =
+  CardNode(null, body.toList, null)
+
+def cardWithHeader(header: TkNode)(body: TkNode*): TkNode =
+  CardNode(header, body.toList, null)
+
+def cardWithFooter(footer: TkNode)(body: TkNode*): TkNode =
+  CardNode(null, body.toList, footer)
+
+def cardFull(header: TkNode, footer: TkNode)(body: TkNode*): TkNode =
+  CardNode(header, body.toList, footer)
+
+// open: Signal[Boolean] — show the modal when true.
+def modal(open: Any, title: String)(body: TkNode*): TkNode =
+  ModalNode(open, title, body.toList)
+```

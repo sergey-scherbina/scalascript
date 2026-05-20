@@ -17,7 +17,8 @@ then call `serve(lower(tree, defaultTheme), 8080)`.
 [TkNode, VStackNode, HStackNode, DividerNode, SpacerNode,
  HeadingNode, TextNode_, ShowWhenNode, SignalTextNode,
  FragmentNode, RawTextNode, TextFieldNode, CheckboxNode,
- SignalButtonNode, BadgeNode, SpinnerNode](std/ui/nodes.ssc)
+ SignalButtonNode, BadgeNode, SpinnerNode,
+ CardNode, ModalNode](std/ui/nodes.ssc)
 [Theme](std/ui/theme.ssc)
 [element, textNode, signalText, showSignal, fragment, setSignal](std/ui/primitives.ssc)
 
@@ -156,4 +157,46 @@ def lower(n: TkNode, theme: Theme): View = n match
                      s"border-top-color:${theme.colors.primary}; border-radius:50%; " +
                      s"animation:ssc-spin 0.8s linear infinite"),
       Map(), List())
+
+  // ── Containers ───────────────────────────────────────────────────────
+  case CardNode(headerAny, body, footerAny) =>
+    val sp      = theme.spacing
+    val cardStyle = s"background:${theme.colors.surface}; border:1px solid ${theme.colors.muted}; " +
+                    s"border-radius:${theme.radii.md}px; overflow:hidden"
+    val bodyEl  = element("div",
+      Map("style" -> s"padding:${sp.md}px"),
+      Map(), body.map(lower(_, theme)))
+    val headerParts = headerAny match
+      case h: TkNode =>
+        List(element("div",
+          Map("style" -> s"padding:${sp.sm}px ${sp.md}px; border-bottom:1px solid ${theme.colors.muted}; font-weight:600"),
+          Map(), List(lower(h, theme))))
+      case _ => List()
+    val footerParts = footerAny match
+      case f: TkNode =>
+        List(element("div",
+          Map("style" -> s"padding:${sp.sm}px ${sp.md}px; border-top:1px solid ${theme.colors.muted}"),
+          Map(), List(lower(f, theme))))
+      case _ => List()
+    element("div", Map("style" -> cardStyle), Map(),
+      headerParts ++ List(bodyEl) ++ footerParts)
+
+  case ModalNode(open, title, body) =>
+    val sp          = theme.spacing
+    val overlayStyle = "position:fixed; inset:0; background:rgba(0,0,0,0.5); " +
+                       "display:flex; align-items:center; justify-content:center; z-index:1000"
+    val dialogStyle  = s"background:${theme.colors.background}; border-radius:${theme.radii.lg}px; " +
+                       s"padding:${sp.lg}px; min-width:320px; max-width:90vw; " +
+                       s"box-shadow:0 20px 60px rgba(0,0,0,0.3)"
+    val titleEl  = element("div",
+      Map("style" -> s"font-size:18px; font-weight:600; font-family:${theme.typography.heading.fontFamily}; " +
+                     s"margin-bottom:${sp.md}px; color:${theme.colors.onSurface}"),
+      Map(), List(textNode(title)))
+    val bodyEl   = element("div", Map(), Map(), body.map(lower(_, theme)))
+    val dialogEl = element("div", Map("style" -> dialogStyle, "role" -> "dialog",
+                                       "aria-modal" -> true, "aria-label" -> title),
+      Map(), List(titleEl, bodyEl))
+    val overlay  = element("div", Map("style" -> overlayStyle), Map(), List(dialogEl))
+    showSignal(open, overlay, element("span", Map("style" -> "display:none"), Map(), List()))
+
 ```

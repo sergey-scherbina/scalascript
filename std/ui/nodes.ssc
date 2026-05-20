@@ -20,6 +20,8 @@ exports:
   - SignalButtonNode
   - BadgeNode
   - SpinnerNode
+  - CardNode
+  - ModalNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -63,4 +65,15 @@ case class SignalButtonNode(signal: Any,
 // ── Display ───────────────────────────────────────────────────────────────
 case class BadgeNode(content: String, variant: String)  extends TkNode
 case class SpinnerNode()                                 extends TkNode
+
+// ── Containers ────────────────────────────────────────────────────────────
+// Card: optional header/footer; pass header/footer as TkNode or null/None.
+case class CardNode(header: Any,
+                    body: List[TkNode],
+                    footer: Any)                         extends TkNode
+
+// Modal: open is Signal[Boolean]; body children shown inside overlay.
+case class ModalNode(open: Any,
+                     title: String,
+                     body: List[TkNode])                 extends TkNode
 ```
