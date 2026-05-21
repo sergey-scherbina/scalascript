@@ -401,6 +401,7 @@ def printUsage(): Unit =
     |    registry remove <id>   Remove a registry entry
     |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
+    |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  watch                  Run .ssc and re-run on every file change
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
@@ -1800,6 +1801,9 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |  :serve [port]         — start HTTP server in background (default: 8080)
              |  :stop [--keep-routes] — stop server; clears routes unless --keep-routes
              |  :clear                — clear route table without stopping server
+             |  :mount M /path { expr }           — register inline handler
+             |  :mount M /path name               — register function from REPL bindings
+             |  :mount M /path file.ssc [k=v ...] — register handler from file
              |
              |Breakpoints & stepping:
              |  :break <N>         — set breakpoint at snippet line N
@@ -1827,6 +1831,8 @@ def replCommand(@annotation.unused args: List[String]): Unit =
       case Some(":clear") =>
         scalascript.server.Routes.clear()
         System.err.println("Routes cleared.")
+      case Some(s) if s.startsWith(":mount ") =>
+        replHandleMount(s.trim, interp)
       case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
       case Some(":step")                          =>
         dbgHooks.enableStepIn()
@@ -1892,6 +1898,75 @@ def replHandleStop(
       else
         scalascript.server.Routes.clear()
         System.err.println("Server stopped. Routes cleared.")
+
+/** Handle `:mount METHOD /path REST` in the REPL.
+ *
+ *  Three forms are supported:
+ *  - Inline:    `:mount GET /ping { _ => Response.text("pong") }`
+ *  - By name:   `:mount GET /greet greet`
+ *  - From file: `:mount GET /items/:id handlers/entity.ssc [key=value ...]`
+ */
+def replHandleMount(cmd: String, interp: Interpreter): Unit =
+  import scalascript.server.Routes
+  import scalascript.interpreter.Value
+  // Strip ":mount " prefix and split into at most 3 parts: method, path, rest
+  val rest0 = cmd.stripPrefix(":mount").trim
+  val parts = rest0.split("\\s+", 3)
+  if parts.length < 3 then
+    System.err.println("Usage: :mount METHOD /path { expr | name | file.ssc [k=v ...] }")
+    return
+  val method = parts(0).toUpperCase
+  val path   = parts(1)
+  val rest   = parts(2)
+
+  if rest.startsWith("{") then
+    // ── Form 1: inline handler expression ────────────────────────────────
+    try
+      interp.runSnippet(rest)
+      val handler = interp.lastResult
+      handler match
+        case fn: Value.FunV =>
+          Routes.register(method, path, fn, interp, source = None, mountCtx = Map.empty)
+          System.err.println(s"Mounted: $method $path")
+        case other =>
+          // Auto-wrap bare Response values
+          val wrapped = Value.NativeFnV("mount.static",
+            scalascript.interpreter.Computation.pureFn(_ => other))
+          Routes.register(method, path, wrapped, interp, source = None, mountCtx = Map.empty)
+          System.err.println(s"Mounted: $method $path")
+    catch
+      case e: Exception => System.err.println(s"Error evaluating handler: ${e.getMessage}")
+
+  else if rest.contains(".ssc") && (rest.endsWith(".ssc") || rest.contains(".ssc ")) then
+    // ── Form 3: file + optional ctx key=value tokens ──────────────────────
+    val tokens = rest.split("\\s+").toList
+    val file   = tokens.head
+    val ctx: Map[String, Value] = tokens.drop(1).flatMap { t =>
+      val pair = t.split("=", 2)
+      if pair.length == 2 then Some(pair(0) -> (Value.StringV(pair(1)): Value))
+      else None
+    }.toMap
+    val absPath = java.nio.file.Paths.get(file).toAbsolutePath.normalize().toString
+    try
+      interp.mountFileAsRoute(method, path, absPath, ctx)
+      val ctxStr = if ctx.nonEmpty then
+        s", ctx: {${ctx.map((k, v) => s"$k=${Value.show(v)}").mkString(", ")}}"
+      else ""
+      System.err.println(s"Mounted: $method $path  ($file$ctxStr)")
+    catch
+      case e: Exception => System.err.println(s"Error mounting $file: ${e.getMessage}")
+
+  else
+    // ── Form 2: function name from REPL globals ───────────────────────────
+    val name = rest.trim
+    interp.globalsView.get(name) match
+      case None =>
+        System.err.println(s"Unknown name: $name")
+      case Some(fn: Value.FunV) =>
+        Routes.register(method, path, fn, interp, source = None, mountCtx = Map.empty)
+        System.err.println(s"Mounted: $method $path  ($name)")
+      case Some(_) =>
+        System.err.println(s"Not a function: $name")
 
 def replHandleBreak(cmd: String, hooks: ReplDebugHooks): Unit =
   cmd match
@@ -2778,10 +2853,15 @@ def emitIrCommand(args: List[String]): Unit =
  *  on disk.  Requires `scala-cli` on PATH. */
 /** Compile `path` via JvmGen and write the result to a `.scjvm` artifact at
  *  `scjvmPath` for future cache hits.  Returns the generated Scala 3 source. */
-private def compileJvmAndCache(path: os.Path, baseName: String, scjvmPath: os.Path): String =
+private def compileJvmAndCache(
+    path:            os.Path,
+    baseName:        String,
+    scjvmPath:       os.Path,
+    frontendOverride: Option[String] = None
+): String =
   val module    = Parser.parse(os.read(path))
   val baseDir   = Some(path / os.up)
-  val source    = JvmGen.generate(module, baseDir)
+  val source    = JvmGen.generate(module, baseDir, frontendOverride = frontendOverride)
   scala.util.Try {
     val sourceHash = InterfaceExtractor.sha256(os.read.bytes(path))
     val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
@@ -2794,9 +2874,24 @@ private def compileJvmAndCache(path: os.Path, baseName: String, scjvmPath: os.Pa
 
 def runJvmCommand(args: List[String]): Unit =
   if args.isEmpty then
-    System.err.println("Usage: ssc run-jvm <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue>] <file.ssc>")
     System.exit(1)
-  val file = args.head
+  var jvmFrontendFlag: Option[String] = None
+  var jvmFileArg:      Option[String] = None
+  val jvmIt = args.iterator
+  while jvmIt.hasNext do
+    jvmIt.next() match
+      case "--frontend" if jvmIt.hasNext =>
+        val name = jvmIt.next()
+        if !validFrontendNames(name) then
+          System.err.println(s"run-jvm: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+          System.exit(1)
+        jvmFrontendFlag = Some(name)
+      case f => jvmFileArg = Some(f)
+  val file = jvmFileArg.getOrElse {
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue>] <file.ssc>")
+    System.exit(1); ""
+  }
   val path = os.Path(file, os.pwd)
   if !os.exists(path) then
     System.err.println(s"Error: File not found: $file"); System.exit(1)
@@ -2807,17 +2902,18 @@ def runJvmCommand(args: List[String]): Unit =
   // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
   // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
   // invalidated by a SHA-256 mismatch against the current source bytes.
+  // When --frontend is specified, bypass the cache to recompile with the selected backend.
   import scalascript.artifact.ModuleGraph
   val artDir    = AutoResolve.defaultArtifactDir(path)
   val baseName  = path.last.stripSuffix(".ssc")
   val scjvmPath = artDir / (baseName + ".scjvm")
   val raw =
-    if !ModuleGraph.isJvmStale(path, artDir) then
+    if jvmFrontendFlag.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
       JvmArtifactIO.readJvmFile(scjvmPath) match
         case Right(art) => art.scalaSource
         case Left(_)    => compileJvmAndCache(path, baseName, scjvmPath)
     else
-      compileJvmAndCache(path, baseName, scjvmPath)
+      compileJvmAndCache(path, baseName, scjvmPath, jvmFrontendFlag)
 
   val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
   val source = jarsDir match
@@ -2888,9 +2984,27 @@ private def runNodeAndWait(cmd: Seq[String], cwd: Option[os.Path]): Unit =
 
 def runJsCommand(args: List[String]): Unit =
   if args.isEmpty then
-    System.err.println("Usage: ssc run-js <file.ssc>")
+    System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
     System.exit(1)
-  val file = args.head
+  var jsFrontendFlag: Option[String] = None
+  var jsFileArg:      Option[String] = None
+  val jsIt = args.iterator
+  while jsIt.hasNext do
+    jsIt.next() match
+      case "--frontend" if jsIt.hasNext =>
+        val name = jsIt.next()
+        if !validFrontendNames(name) then
+          System.err.println(s"run-js: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+          System.exit(1)
+        jsFrontendFlag = Some(name)
+      case f => jsFileArg = Some(f)
+  val file = jsFileArg.getOrElse {
+    System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
+    System.exit(1); ""
+  }
+  // Node.js execution doesn't use FrontendFrameworks (browser-side concern),
+  // but we accept the flag for consistency.
+  jsFrontendFlag.foreach(applyFrontendBackend)
   val path = os.Path(file, os.pwd)
   if !os.exists(path) then
     System.err.println(s"Error: File not found: $file"); System.exit(1)
@@ -5394,6 +5508,14 @@ def checkCommand(args: List[String]): Unit =
               Nil
         }.toMap
 
+  // Collect intrinsic names from all loaded backend plugins so the typer
+  // does not flag extern-def names (route, Async, Response, …) as undefined.
+  val pluginBuiltins: Set[String] =
+    BackendRegistry.inProcess
+      .flatMap(_.intrinsics.keys)
+      .map(_.value)
+      .toSet
+
   var hasErrors = false
 
   for file <- files.toList do
@@ -5409,8 +5531,8 @@ def checkCommand(args: List[String]): Unit =
           hasErrors = true
         else
           val typed =
-            if interfaces.isEmpty then Typer.typeCheckStrict(module)
-            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
+            if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
+            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
           if typed.hasErrors then
             hasErrors = true
             typed.errors.foreach { e =>

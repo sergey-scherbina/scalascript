@@ -21,7 +21,8 @@ import java.security.MessageDigest
  */
 class Typer(
     importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
-    strict: Boolean = false
+    strict: Boolean = false,
+    extraBuiltins: Set[String] = Set.empty
 ):
   private val errors      = ListBuffer[TypeError]()
   /** Registry of user-defined type aliases: name → (typeParams, expandedRhs).
@@ -223,6 +224,7 @@ class Typer(
       "main", "test", "describe", "it", "expect", "check"
     )
     effectBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
+    extraBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     s
 
   private def typeCheckSection(section: Section, parent: Scope): TypedSection =
@@ -1074,12 +1076,28 @@ object Typer:
       strict:     Boolean
   ): TypedModule = Typer(interfaces, strict).typeCheck(module)
 
+  def typeCheckWithInterfaces(
+      module:        Module,
+      interfaces:    Map[String, scalascript.ir.ModuleInterface],
+      strict:        Boolean,
+      extraBuiltins: Set[String]
+  ): TypedModule = Typer(interfaces, strict, extraBuiltins).typeCheck(module)
+
   /** Strict variant for callers that don't have any imported interfaces.
    *
    *  v2.0 — typer strict mode (undefined-name diagnostics).
    */
   def typeCheckStrict(module: Module): TypedModule =
     Typer(Map.empty, strict = true).typeCheck(module)
+
+  /** Strict variant with additional builtin names injected into the prelude.
+   *
+   *  Used by `ssc check` to seed plugin-provided intrinsic names (from
+   *  `BackendRegistry.inProcess`) so that `extern def route(...)` etc. do
+   *  not produce false-positive "undefined name" errors.
+   */
+  def typeCheckStrict(module: Module, extraBuiltins: Set[String]): TypedModule =
+    Typer(Map.empty, strict = true, extraBuiltins).typeCheck(module)
 
   /** Incremental type-check — companion factory (no imported interfaces, non-strict).
    *

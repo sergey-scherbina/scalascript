@@ -95,20 +95,38 @@ jobs:
         run: |
           ./bin/ssc check \
             examples/actors-pingpong.ssc \
+            examples/auth-demo.ssc \
+            examples/auth-full.ssc \
             examples/content.ssc \
+            examples/direct-syntax-demo.ssc \
             examples/generators.ssc \
             examples/health-defaults.ssc \
             examples/hello.ssc \
+            examples/imports.ssc \
             examples/index.ssc \
             examples/js-glue-component.ssc \
+            examples/mcp-agent.ssc \
+            examples/mcp-client-discover.ssc \
+            examples/mcp-filesystem-server.ssc \
+            examples/mcp-keyvalue-server.ssc \
+            examples/mcp-server-tools.ssc \
+            examples/middleware-demo.ssc \
+            examples/oauth-demo.ssc \
+            examples/rest-api.ssc \
+            examples/spa-demo.ssc \
             examples/spark-streaming-file-parquet.ssc \
             examples/spark-streaming-kafka.ssc \
             examples/spark-streaming-rate-console.ssc \
             examples/sql-sqlite-file.ssc \
+            examples/uploads.ssc \
+            examples/validation-demo.ssc \
             examples/wasm-collections.ssc \
             examples/wasm-matrix.ssc \
             examples/wasm-primes.ssc \
-            examples/wc-card.ssc
+            examples/wc-card.ssc \
+            examples/webauthn-demo.ssc \
+            examples/ws-chat.ssc \
+            examples/ws-recv-demo.ssc
 
   sbt:
     name: sbt — compile and test
