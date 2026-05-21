@@ -4,21 +4,31 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.Value
 
-/** Dynamic SQL intrinsics for route handlers and other runtime contexts.
+/** SQL intrinsics: `DriverManager.getConnection` factory + dynamic
+ *  `Db.query` / `Db.execute` for route handlers and runtime contexts.
  *
  *  `sql` fenced blocks run at module-load time against a static connection.
- *  These intrinsics let ordinary `.ssc` closures (route handlers, callbacks)
- *  issue parameterised queries against a named `databases:` entry at runtime.
- *
- *  Both intrinsics use `ctx.dbConnect(dbName)` to obtain a JDBC connection
- *  from the interpreter's `sqlRegistry` (populated from front-matter
- *  `databases:`), so no extra wiring is needed in user code.
+ *  `Db.*` intrinsics let closures issue queries via `ctx.dbConnect` at runtime.
  *
  *  Return values use plain Scala primitives and `Value.ListV` / `Value.MapV`
  *  so the interpreter's `wrapAnyAsValue` converts them correctly. */
 object SqlIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
+
+    // DriverManager.getConnection(url): Connection
+    // DriverManager.getConnection(url, user, password): Connection
+    QualifiedName("DriverManager.getConnection") -> NativeImpl((_, args) =>
+      args match
+        case List(url: String) =>
+          Value.Foreign("Connection", java.sql.DriverManager.getConnection(url))
+        case List(url: String, user: String, password: String) =>
+          Value.Foreign("Connection", java.sql.DriverManager.getConnection(url, user, password))
+        case other =>
+          throw new RuntimeException(
+            s"DriverManager.getConnection expects (url) or (url, user, password), " +
+              s"got: ${other.map(_.getClass.getSimpleName).mkString(", ")}")
+    ),
 
     // Db.query("default", sql, List(p1, p2, ...)): List[Map[String, Any]]
     // Runs a SELECT and returns each row as a Map keyed by column name.
