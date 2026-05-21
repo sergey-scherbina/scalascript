@@ -344,6 +344,13 @@ in-flight edits depend on; skipping the rebase means you're building
 on stale assumptions and will hit merge conflicts later.  Cheap to do,
 expensive to skip.
 
+**`git log origin/main` is the ground truth — not `git log`.**  After a
+context-overflow session, local `main` may lag behind `origin/main` by
+one or more commits that were already pushed.  `git log` shows the
+*local* branch HEAD; `git log origin/main -10` shows what actually
+landed on the remote.  Always use the latter to decide whether a task
+is already done before starting it.
+
 **Re-read `AGENTS.md` and `MILESTONES.md` after every rebase.**  Both
 files are living documents — workflow rules and the backlog change
 between sessions.  After `git rebase origin/main`, check whether
@@ -403,11 +410,18 @@ git rebase origin/main           # if origin/main moved
 # re-run the suite if the rebase touched anything
 <merge or fast-forward into main>
 git push origin main
+git branch -f main origin/main   # keep local main in sync after push
 ```
 
 No "accumulate and push at the end of the sprint". Each piece gets its
 own CI run; the user sees progress item-by-item and can redirect after
 any of them.
+
+The `git branch -f main origin/main` line is mandatory: when pushing
+from a worktree with `git push origin <branch>:main`, the local `main`
+branch is **not** updated automatically.  Without this step the next
+session sees a stale local `main`, thinks the work was not pushed, and
+may redo it.
 
 ### 4. After merge — delete worktree + branch immediately
 
