@@ -1807,6 +1807,9 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |  :load file.ssc        — run file's route() calls; hot-reloads cleanly
              |  :reload file.ssc      — re-run without repeating method/path
              |  :unmount M /path      — remove a specific route
+             |  :routes              — list registered routes
+             |  :http M /path [body] [-H "K: V"]  — real HTTP request to localhost:<port>
+             |  :call M /path [body] [-H "K: V"]  — in-process dispatch (no server needed)
              |
              |Breakpoints & stepping:
              |  :break <N>         — set breakpoint at snippet line N
@@ -1842,6 +1845,12 @@ def replCommand(@annotation.unused args: List[String]): Unit =
         replHandleReload(s.trim, interp)
       case Some(s) if s.startsWith(":unmount ") =>
         replHandleUnmount(s.trim)
+      case Some(":routes") =>
+        replHandleRoutes()
+      case Some(s) if s == ":http" || s.startsWith(":http ") =>
+        replHandleHttp(s.trim, serverPort)
+      case Some(s) if s == ":call" || s.startsWith(":call ") =>
+        replHandleCall(s.trim, interp)
       case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
       case Some(":step")                          =>
         dbgHooks.enableStepIn()
@@ -2077,6 +2086,304 @@ def replHandleUnmount(cmd: String): Unit =
     System.err.println(s"Unmounted: $method $path")
   else
     System.err.println(s"Not mounted: $method $path")
+
+/** Handle `:routes` in the REPL.
+ *
+ *  Prints a formatted table of all registered routes:
+ *    method (padded to 6) | path (padded to longest+2) | source | ctx
+ *
+ *  If no routes are registered: prints `(no routes registered)`. */
+def replHandleRoutes(): Unit =
+  import scalascript.server.Routes
+  import scalascript.interpreter.Value
+  val entries = Routes.all
+  if entries.isEmpty then
+    System.err.println("(no routes registered)")
+  else
+    val pathWidth = (entries.map(_.path.length) :+ 4).max + 2
+    entries.foreach { e =>
+      val method  = e.method.padTo(6, ' ')
+      val path    = e.path.padTo(pathWidth, ' ')
+      val src     = e.source match
+        case None       => "<inline>"
+        case Some(abs)  =>
+          // Try to make it relative to CWD; fall back to basename only
+          val cwd = java.nio.file.Paths.get("").toAbsolutePath
+          try
+            val rel = cwd.relativize(java.nio.file.Paths.get(abs)).toString
+            if rel.length < abs.length then rel else java.nio.file.Paths.get(abs).getFileName.toString
+          catch case _: Throwable => java.nio.file.Paths.get(abs).getFileName.toString
+      val ctxStr  = if e.mountCtx.nonEmpty then
+        "  {" + e.mountCtx.map((k, v) => s"$k=${Value.show(v)}").mkString(", ") + "}"
+      else ""
+      System.err.println(s"  $method $path $src$ctxStr")
+    }
+
+/** Parse `-H "Key: Value"` flags and body tokens from REPL `:http`/`:call` args.
+ *
+ *  Returns `(headers: Map[String,String], bodyTokens: List[String])`.
+ *  Tokens following `-H` (each must be a single "Key: Value" string) are
+ *  consumed as headers; all remaining tokens are joined as the body. */
+private def parseHttpArgs(tokens: List[String]): (Map[String, String], String) =
+  val headers = scala.collection.mutable.LinkedHashMap.empty[String, String]
+  val body    = scala.collection.mutable.ListBuffer.empty[String]
+  var i = 0
+  val arr = tokens.toArray
+  while i < arr.length do
+    if arr(i) == "-H" && i + 1 < arr.length then
+      val hv = arr(i + 1)
+      val colon = hv.indexOf(':')
+      if colon > 0 then
+        headers(hv.take(colon).trim) = hv.drop(colon + 1).trim
+      i += 2
+    else
+      body += arr(i)
+      i += 1
+  (headers.toMap, body.mkString(" "))
+
+/** Map an HTTP numeric status code to its standard reason phrase. */
+private def httpStatusText(status: Int): String = status match
+  case 100 => "Continue"
+  case 101 => "Switching Protocols"
+  case 200 => "OK"
+  case 201 => "Created"
+  case 202 => "Accepted"
+  case 204 => "No Content"
+  case 206 => "Partial Content"
+  case 301 => "Moved Permanently"
+  case 302 => "Found"
+  case 303 => "See Other"
+  case 304 => "Not Modified"
+  case 307 => "Temporary Redirect"
+  case 308 => "Permanent Redirect"
+  case 400 => "Bad Request"
+  case 401 => "Unauthorized"
+  case 403 => "Forbidden"
+  case 404 => "Not Found"
+  case 405 => "Method Not Allowed"
+  case 409 => "Conflict"
+  case 410 => "Gone"
+  case 422 => "Unprocessable Entity"
+  case 429 => "Too Many Requests"
+  case 500 => "Internal Server Error"
+  case 501 => "Not Implemented"
+  case 502 => "Bad Gateway"
+  case 503 => "Service Unavailable"
+  case _   => ""
+
+/** Print a `:http` / `:call` response line in the format:
+ *  {{{
+ *  → 200 OK  text/plain
+ *  pong
+ *  }}}
+ */
+private def printHttpResponse(status: Int, contentType: String, body: String): Unit =
+  val reason = httpStatusText(status)
+  val statusLine = if reason.nonEmpty then s"→ $status $reason" else s"→ $status"
+  val ctLine = if contentType.nonEmpty then s"$statusLine  $contentType" else statusLine
+  System.err.println(ctLine)
+  if body.nonEmpty then System.err.println(body)
+
+/** Handle `:http METHOD /path [body] [-H "Key: Value" ...]` in the REPL.
+ *
+ *  Sends a real HTTP/1.1 request over a raw `java.net.Socket` to
+ *  `localhost:<port>`.  Requires a server started with `:serve`. */
+def replHandleHttp(
+    cmd:        String,
+    serverPort: java.util.concurrent.atomic.AtomicReference[Option[Int]]
+): Unit =
+  serverPort.get() match
+    case None =>
+      System.err.println("No server running. Use :serve [port] first.")
+    case Some(port) =>
+      val rest = cmd.stripPrefix(":http").trim
+      val tokens = splitRespectingQuotes(rest)
+      if tokens.length < 2 then
+        System.err.println("Usage: :http METHOD /path [body] [-H \"Key: Value\"] ...")
+        return
+      val method = tokens(0).toUpperCase
+      val path   = tokens(1)
+      val (headers, body) = parseHttpArgs(tokens.drop(2))
+      try
+        val sock  = java.net.Socket("localhost", port)
+        try
+          val out  = sock.getOutputStream
+          val bodyBytes = body.getBytes("UTF-8")
+          val sb = new StringBuilder
+          sb.append(s"$method $path HTTP/1.1\r\n")
+          sb.append(s"Host: localhost\r\n")
+          if bodyBytes.nonEmpty then
+            sb.append(s"Content-Length: ${bodyBytes.length}\r\n")
+          headers.foreach { case (k, v) => sb.append(s"$k: $v\r\n") }
+          sb.append("\r\n")
+          out.write(sb.toString.getBytes("UTF-8"))
+          if bodyBytes.nonEmpty then out.write(bodyBytes)
+          out.flush()
+
+          // Read response
+          val in = sock.getInputStream
+          val response = readHttpResponse(in)
+          val (status, contentType, respBody) = response
+          printHttpResponse(status, contentType, respBody)
+        finally
+          sock.close()
+      catch
+        case e: Exception =>
+          System.err.println(s"HTTP error: ${e.getMessage}")
+
+/** Read a minimal HTTP/1.1 response from an InputStream.
+ *  Returns `(statusCode, contentType, body)`. */
+private def readHttpResponse(in: java.io.InputStream): (Int, String, String) =
+  var endOfHeaders = false
+  val headers = scala.collection.mutable.LinkedHashMap.empty[String, String]
+  var status  = 200
+  var statusParsed = false
+  // Read line-by-line through the header section
+  val lineBytes = new java.io.ByteArrayOutputStream
+  var b = in.read()
+  while b != -1 && !endOfHeaders do
+    if b == '\n' then
+      val line = lineBytes.toString("UTF-8").stripTrailing()
+      lineBytes.reset()
+      if !statusParsed then
+        // HTTP/1.1 200 OK
+        val parts = line.split(" +", 3)
+        if parts.length >= 2 then
+          status = parts(1).toIntOption.getOrElse(200)
+        statusParsed = true
+      else if line.isEmpty then
+        endOfHeaders = true
+      else
+        val colon = line.indexOf(':')
+        if colon > 0 then
+          headers(line.take(colon).trim.toLowerCase) = line.drop(colon + 1).trim
+    else if b != '\r' then
+      lineBytes.write(b)
+    b = in.read()
+  // Read body: Content-Length if present, else read until EOF
+  val ct = headers.getOrElse("content-type", "")
+  val contentType = ct.split(";").headOption.map(_.trim).getOrElse(ct)
+  val bodyStr =
+    headers.get("content-length") match
+      case Some(lenStr) =>
+        val len = lenStr.toIntOption.getOrElse(0)
+        if len > 0 then
+          val bodyArr = new Array[Byte](len)
+          var total = 0
+          while total < len do
+            val n = in.read(bodyArr, total, len - total)
+            if n < 0 then total = len else total += n
+          new String(bodyArr, "UTF-8")
+        else ""
+      case None =>
+        // No Content-Length — read until connection close
+        val bodyBuf = new java.io.ByteArrayOutputStream
+        val chunk = new Array[Byte](4096)
+        var n = in.read(chunk)
+        while n > 0 do
+          bodyBuf.write(chunk, 0, n)
+          n = in.read(chunk)
+        bodyBuf.toString("UTF-8")
+  (status, contentType, bodyStr)
+
+/** Tokenize a string respecting double-quoted groups.
+ *  `foo "bar baz" qux` → `List("foo", "bar baz", "qux")`. */
+private def splitRespectingQuotes(s: String): List[String] =
+  val tokens = scala.collection.mutable.ListBuffer.empty[String]
+  val cur    = new StringBuilder
+  var inQ    = false
+  for ch <- s do
+    if ch == '"' then
+      inQ = !inQ
+    else if ch == ' ' && !inQ then
+      if cur.nonEmpty then { tokens += cur.toString(); cur.clear() }
+    else
+      cur += ch
+  if cur.nonEmpty then tokens += cur.toString()
+  tokens.toList
+
+/** Handle `:call METHOD /path [body] [-H "Key: Value" ...]` in the REPL.
+ *
+ *  In-process dispatch — no network, no `:serve` needed.  Builds a synthetic
+ *  `Request` value from the parsed tokens, dispatches via `Routes.matchRequest`,
+ *  invokes the handler, and prints the result. */
+def replHandleCall(cmd: String, @annotation.unused interp: Interpreter): Unit =
+  import scalascript.server.Routes
+  import scalascript.interpreter.Value
+  val rest = cmd.stripPrefix(":call").trim
+  val tokens = splitRespectingQuotes(rest)
+  if tokens.length < 2 then
+    System.err.println("Usage: :call METHOD /path [body] [-H \"Key: Value\"] ...")
+    return
+  val method = tokens(0).toUpperCase
+  // Path may contain a query string
+  val rawPath = tokens(1)
+  val (pathOnly, queryStr) =
+    val q = rawPath.indexOf('?')
+    if q >= 0 then (rawPath.take(q), rawPath.drop(q + 1)) else (rawPath, "")
+  val (headers, body) = parseHttpArgs(tokens.drop(2))
+  // Parse query string into Map[Value, Value] (required by MapV)
+  val query: Map[Value, Value] = queryStr.split('&').flatMap { kv =>
+    val eq = kv.indexOf('=')
+    if eq > 0 then
+      Some((Value.StringV(kv.take(eq)): Value) -> (Value.StringV(kv.drop(eq + 1)): Value))
+    else if kv.nonEmpty then
+      Some((Value.StringV(kv): Value) -> (Value.StringV(""): Value))
+    else None
+  }.toMap
+  Routes.matchRequest(method, pathOnly) match
+    case None =>
+      System.err.println("→ 404 Not Found")
+    case Some((entry, params)) =>
+      val req = Value.InstanceV("Request", Map(
+        "method"      -> Value.StringV(method),
+        "path"        -> Value.StringV(pathOnly),
+        "params"      -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
+        "query"       -> Value.MapV(query),
+        "headers"     -> Value.MapV(headers.map((k, v) => (Value.StringV(k): Value) -> (Value.StringV(v): Value))),
+        "body"        -> Value.StringV(body),
+        "form"        -> Value.MapV(Map.empty),
+        "files"       -> Value.MapV(Map.empty),
+        "session"     -> Value.MapV(Map.empty),
+        "bearerToken" -> Value.OptionV(None),
+        "jwtClaims"   -> Value.OptionV(None),
+        "basicAuth"   -> Value.OptionV(None)
+      ))
+      try
+        val result = entry.interpreter.invoke(entry.handler, List(req))
+        val (status, contentType, respBody) = extractCallResponse(result)
+        printHttpResponse(status, contentType, respBody)
+      catch
+        case e: Exception =>
+          System.err.println(s"→ 500 Internal Server Error")
+          System.err.println(s"Error: ${e.getMessage}")
+
+/** Extract status, content-type, and body from an invoked handler's result
+ *  for `:call` (in-process dispatch, no HTTP socket). */
+private def extractCallResponse(v: scalascript.interpreter.Value): (Int, String, String) =
+  import scalascript.interpreter.Value
+  v match
+    case Value.InstanceV("Response", fields) =>
+      val status = fields.get("status") match
+        case Some(Value.IntV(n)) => n.toInt
+        case _                   => 200
+      val ct = fields.get("headers") match
+        case Some(Value.MapV(m)) =>
+          m.collectFirst {
+            case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase("content-type") => v
+          }.getOrElse("").split(";").headOption.map(_.trim).getOrElse("")
+        case _ => ""
+      val body = fields.get("body") match
+        case Some(Value.StringV(s)) => s
+        case Some(other)            => Value.show(other)
+        case None                   => ""
+      (status, ct, body)
+    case Value.StringV(s) =>
+      (200, "text/plain", s)
+    case Value.UnitV =>
+      (204, "", "")
+    case other =>
+      (200, "text/plain", Value.show(other))
 
 def replHandleBreak(cmd: String, hooks: ReplDebugHooks): Unit =
   cmd match

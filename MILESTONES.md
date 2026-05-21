@@ -9421,11 +9421,25 @@ hook now reads `currentLoadingFile` to set `source` + `style = "load"` when insi
 
 12 new tests in `ReplLoadTest`; all green (209 passing in `cli/test`).
 
-### Phase 6 — `:routes` / `:http` / `:call`
+### Phase 6 — `:routes` / `:http` / `:call` ✓ Landed (2026-05-21)
 
-- [ ] `:routes` — tabular display: method, path, source, ctx
-- [ ] `:http METHOD /path [body] [-H "K: V" ...]` — real HTTP/1.1 over Socket
-- [ ] `:call METHOD /path [body] [-H "K: V" ...]` — in-process via synthetic `Request`
+`:routes` prints a tabular route table (method padded to 6 chars, path padded to
+longest+2, source as `<inline>` or relative/basename path, ctx map if non-empty).
+Empty table prints `(no routes registered)`.
+
+`:http METHOD /path [body] [-H "K: V" ...]` sends a real HTTP/1.1 request over
+`java.net.Socket` to `localhost:<port>`.  Parses `-H` flags (quote-aware tokenizer)
+into headers; remaining tokens joined as body.  Reads response status line + headers
++ body (Content-Length or close-delimited).  Prints `→ <status> <reason>  <ct>` +
+body.  Requires a running server; prints error if `serverPort` is `None`.
+
+`:call METHOD /path [body] [-H "K: V" ...]` dispatches in-process via
+`Routes.matchRequest`.  Builds a synthetic `Request` InstanceV with params, query
+(from `?` suffix), headers, and body.  Invokes `entry.interpreter.invoke(handler, List(req))`.
+Prints result same as `:http`.  Returns `→ 404 Not Found` if no route matches.
+
+`:help` updated with all three command descriptions.
+13 new tests in `ReplRoutesTest`; 222 tests passing in `cli/test`.
 
 ### Phase 7 — Typed handlers
 
