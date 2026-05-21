@@ -125,22 +125,19 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedJdbcUrls(module, cap, backendId)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId)
 
-  /** v1.27 Phase 6 — JS-family targets (`js` / `node` / `wasm`)
-   *  declare `Lang.Sql` in `blockLanguages` but route sql blocks
-   *  through `backend-sql-runtime-js`, which only accepts
-   *  `sqlite:` / `duckdb:` URLs.  A `jdbc:*` URL in such a module is
-   *  a build-time error — the offending entry's name + url + backend
-   *  id land in `Diagnostic.UnsupportedJdbcUrl` so the renderer can
-   *  point the user at the JVM target or at a different URL scheme.
+  /** Validate `databases:` URL schemes against the target backend.
    *
-   *  Heuristic for "JS-family target": at least one of the declared
-   *  outputs is `JavaScriptSource` or `WasmBytecode`.  JVM /
-   *  interpreter targets declare `JvmBytecode` / `ExecutionResult`
-   *  and accept jdbc: URLs natively, so this check never fires for
-   *  them — even though they too declare `Lang.Sql`. */
-  private def unsupportedJdbcUrls(
+   *  JS-family targets (js / node / wasm) only support schemes that have a
+   *  `jsPrefix` in [[scalascript.db.DbScheme]] (currently `sqlite:` and
+   *  `duckdb:`).  Any other scheme — including raw `jdbc:` URLs — produces
+   *  `Diagnostic.UnsupportedJdbcUrl` so the renderer can direct the user to
+   *  use a supported scheme or switch to the JVM target.
+   *
+   *  JVM / interpreter targets accept all canonical schemes (DbUrl.toJdbc
+   *  handles translation at connect time), so this check never fires for them. */
+  private def unsupportedDbUrls(
     module:    ir.NormalizedModule,
     cap:       Capabilities,
     backendId: String
@@ -150,7 +147,7 @@ object CapabilityCheck:
                      cap.outputs.contains(OutputKind.WasmBytecode)
     if !isJsFamily then return Nil
     module.manifest.toList.flatMap(_.databases)
-      .filter(_.url.startsWith("jdbc:"))
+      .filterNot(d => scalascript.db.DbUrl.isJsSupported(d.url))
       .map(d => Diagnostic.UnsupportedJdbcUrl(d.name, d.url, backendId))
 
   // ─── Internal: tiny tokenisation that ignores comments ──────────────────

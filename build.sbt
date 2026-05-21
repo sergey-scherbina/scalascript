@@ -58,7 +58,7 @@ lazy val backendSpi = project
 
 lazy val core = project
   .in(file("core"))
-  .dependsOn(backendSpi)
+  .dependsOn(backendSpi, dbUrl)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
@@ -831,13 +831,26 @@ lazy val backendConfigRuntime = project
   )
 
 // v1.26 — JDBC execution runtime consumed by interpreter + JvmGen.
+// Canonical database URL scheme registry.  Pure Scala, no external deps.
+// Maps user-facing prefixes (sqlite:, duckdb:, postgres:, …) to their
+// JVM (JDBC) and JS-native forms.  Depended on by core (CapabilityCheck),
+// backendSqlRuntime (ConnectionRegistry), and backendSqlRuntimeJs (ProviderId).
+lazy val dbUrl = project
+  .in(file("backend/db-url"))
+  .settings(
+    name := "scalascript-db-url",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Self-contained (no `ir` / `backend-spi` / `core` deps): takes a
 // `java.sql.Connection`, a `?`-templated SQL string, and an ordered
 // bind list, returns a `Row`-based result.  Bundles H2 + SQLite so
 // the standard examples / quickstarts work with zero configuration.
 lazy val backendSqlRuntime = project
   .in(file("backend/sql-runtime"))
-  .dependsOn(backendConfigRuntime)
+  .dependsOn(backendConfigRuntime, dbUrl)
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(
@@ -858,12 +871,9 @@ lazy val backendSqlRuntime = project
 //     backend-js/node/wasm to decide which npm deps to emit
 //   * `SqlRuntimeJsEmit` — codegen helper that exposes the bundled
 //     `.mjs` source as a String for JsGen to prepend to its output
-//
-// No backend SPI / ir dependency — same standalone shape as
-// `backendSqlRuntime` so backend-js, backend-node, backend-wasm can
-// all dependsOn without dragging the compiler frontend.
 lazy val backendSqlRuntimeJs = project
   .in(file("backend/sql-runtime-js"))
+  .dependsOn(dbUrl)
   .settings(
     name := "scalascript-backend-sql-runtime-js",
     libraryDependencies ++= Seq(
@@ -1907,7 +1917,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, dbUrl, backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

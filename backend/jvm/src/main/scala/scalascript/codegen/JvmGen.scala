@@ -1308,13 +1308,7 @@ class JvmGen(
       sb.append("  scalascript.sql.ConnectionRegistry(List(\n")
       val specs = databases.map { d =>
         val name = escapeStringLit(d.name)
-        // Translate JS-style short URLs to JDBC form so front-matter can use
-        // sqlite: / duckdb: and work on both the JS and JVM backends.
-        val rawUrl = d.url match
-          case u if u.startsWith("sqlite:") => "jdbc:" + u
-          case u if u.startsWith("duckdb:") => "jdbc:duckdb:" + u.stripPrefix("duckdb:")
-          case u                             => u
-        val url  = escapeStringLit(rawUrl)
+        val url  = escapeStringLit(d.url)
         val user = d.user.map(u => s"""Some("${escapeStringLit(u)}")""").getOrElse("None")
         val pass = d.password.map(p => s"""Some("${escapeStringLit(p)}")""").getOrElse("None")
         val drv  = d.driver.map(c => s"""Some("${escapeStringLit(c)}")""").getOrElse("None")

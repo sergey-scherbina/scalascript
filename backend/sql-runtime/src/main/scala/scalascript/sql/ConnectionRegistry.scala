@@ -188,7 +188,8 @@ final class ConnectionRegistry(specs: Iterable[DatabaseSpec], envLookup: String 
 
   private def open(spec: DatabaseSpec): Connection =
     spec.driver.foreach(Class.forName)
-    val url = EnvResolver.resolve(spec.url, "url", spec.name, envLookup)
+    val rawUrl = EnvResolver.resolve(spec.url, "url", spec.name, envLookup)
+    val url    = scalascript.db.DbUrl.toJdbc(rawUrl)
     (spec.user, spec.password) match
       case (Some(u), Some(p)) =>
         DriverManager.getConnection(
