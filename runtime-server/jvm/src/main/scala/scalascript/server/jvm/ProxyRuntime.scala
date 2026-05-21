@@ -238,8 +238,18 @@ def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
   val backend = HttpServerBackends.current()
   _spiBackend = backend
   val scheme = if tlsCfg != null then "https" else "http"
+  // Register shutdown hook so Ctrl+C / SIGTERM releases the port cleanly.
+  // Without this the non-daemon accept thread keeps the JVM alive and the
+  // port remains bound until the OS reclaims it.
+  Runtime.getRuntime.addShutdownHook(Thread(() => stop()))
+  try
+    backend.start(port, tlsOpt, handler)
+  catch
+    case _: java.net.BindException =>
+      System.err.println(s"ssc: cannot bind port $port — address already in use.")
+      System.err.println(s"ssc: stop the previous server or choose a different port.")
+      System.exit(1)
   println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name})")
-  backend.start(port, tlsOpt, handler)
   _stopLatch.await()
 
 // Non-blocking variant of `serve` — launches the HTTP/WS accept loop on
@@ -272,16 +282,21 @@ def serveAsync(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): U
   val backend = HttpServerBackends.current()
   _spiBackend = backend
   val scheme = if tlsCfg != null then "https" else "http"
-  println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}, async)")
+  Runtime.getRuntime.addShutdownHook(Thread(() => stop()))
   // Launch the (blocking) backend start on a virtual thread so the
   // caller's thread is freed immediately.  The SPI's `start` typically
   // returns after binding (the read loops run on their own threads),
   // so this is belt-and-suspenders — if a future SPI impl blocks until
   // shutdown, the virtual thread absorbs that.
   Thread.ofVirtual().name(s"ssc-serve-async-$port").start { () =>
-    try backend.start(port, tlsOpt, handler)
-    catch case e: Throwable =>
-      _proxyLog.error(s"serveAsync($port) failed: ${e.getMessage}", e)
+    try
+      backend.start(port, tlsOpt, handler)
+      println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}, async)")
+    catch
+      case _: java.net.BindException =>
+        System.err.println(s"ssc: cannot bind port $port — address already in use.")
+      case e: Throwable =>
+        _proxyLog.error(s"serveAsync($port) failed: ${e.getMessage}", e)
   }
   ()
 
