@@ -37,5 +37,40 @@ class JsBackend extends Backend:
         }
         CompileResult.Segmented(segments)
       case _ =>
-        val code = preamble + JsGen.generate(astModule, baseDir, intrinsics)
-        CompileResult.TextOutput(code = code, language = "javascript", sources = Nil)
+        val code    = preamble + JsGen.generate(astModule, baseDir, intrinsics)
+        val sources = emitPackageJson(module)
+        CompileResult.TextOutput(code = code, language = "javascript", sources = sources)
+
+  private def emitPackageJson(module: ir.NormalizedModule): List[SourceArtifact] =
+    if !hasSqlBlock(module) then Nil
+    else
+      import scalascript.sql.js.ProviderId
+      val declared = module.manifest.toList.flatMap(_.databases)
+      val refs =
+        if declared.isEmpty then ProviderId.all
+        else declared.iterator.flatMap(d => ProviderId.fromUrl(d.url).toOption).toSet
+      val pinned = scala.collection.mutable.LinkedHashMap.empty[String, String]
+      if refs.contains(ProviderId.SqlJs)      then pinned += ProviderId.SqlJs.npmPackage      -> ProviderId.SqlJs.npmVersionRange
+      if refs.contains(ProviderId.SqliteWasm) then pinned += ProviderId.SqliteWasm.npmPackage -> ProviderId.SqliteWasm.npmVersionRange
+      if refs.contains(ProviderId.DuckDbWasm) then
+        pinned += ProviderId.DuckDbWasm.npmPackage -> ProviderId.DuckDbWasm.npmVersionRange
+        pinned += "web-worker" -> "^1.5.0"
+      val depsJson =
+        if pinned.isEmpty then "{}"
+        else pinned.map { case (k, v) => s"""    "$k": "$v"""" }.mkString("{\n", ",\n", "\n  }")
+      val pkg =
+        s"""{
+           |  "name": "scalascript-module",
+           |  "version": "0.0.0",
+           |  "private": true,
+           |  "main": "main.cjs",
+           |  "dependencies": $depsJson
+           |}
+           |""".stripMargin
+      List(SourceArtifact("package.json", pkg))
+
+  private def hasSqlBlock(module: ir.NormalizedModule): Boolean =
+    def walk(s: ir.Section): Boolean =
+      s.content.exists(_ match { case _: ir.Content.SqlBlock => true; case _ => false }) ||
+      s.subsections.exists(walk)
+    module.sections.exists(walk)

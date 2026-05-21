@@ -1764,12 +1764,19 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn
   val interp = Interpreter()
   interp.run(Parser.parse("# REPL\n"))   // initialise builtins, no code runs
+  val dbgHooks = ReplDebugHooks()
+  interp.setDebugSourceFile("<repl>")
+  interp.setDebugHooks(Some(dbgHooks.mkHooks()))
   System.err.println("ScalaScript REPL  (blank line to run, :quit to exit)")
+  System.err.println("Debug: :break <N>  :step  — :help inside (debug) prompt")
   var running = true
   while running do
     Option(StdIn.readLine("ssc> ")) match
-      case None                          => running = false
-      case Some(":quit" | ":q" | ":exit") => running = false
+      case None | Some(":quit" | ":q" | ":exit") => running = false
+      case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
+      case Some(":step")                          =>
+        dbgHooks.enableStepIn()
+        System.err.println("[step] step-in enabled — enter your snippet")
       case Some(first) =>
         val lines = scala.collection.mutable.ArrayBuffer(first)
         var more = true
@@ -1779,8 +1786,149 @@ def replCommand(@annotation.unused args: List[String]): Unit =
             case Some(next)      => lines += next
         val code = lines.mkString("\n").trim
         if code.nonEmpty then
-          try   interp.runSnippet(code)
-          catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+          if dbgHooks.isDebugActive then
+            runReplSnippetDebug(code, interp, dbgHooks)
+          else
+            try   interp.runSnippet(code)
+            catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+
+def replHandleBreak(cmd: String, hooks: ReplDebugHooks): Unit =
+  cmd match
+    case ":break clear" | ":b clear" =>
+      hooks.clearAllBreakpoints()
+      System.err.println("[break] all breakpoints cleared")
+    case ":break list" | ":b list" =>
+      val bps = hooks.listBreakpoints
+      if bps.isEmpty then System.err.println("[break] no breakpoints set")
+      else System.err.println(s"[break] lines: ${bps.mkString(", ")}")
+    case s =>
+      s.stripPrefix(":break").stripPrefix(":b").trim.toIntOption match
+        case Some(n) =>
+          hooks.setBreakpoint(n)
+          System.err.println(s"[break] set at line $n")
+        case None =>
+          System.err.println("Usage: :break <N> | :break clear | :break list")
+
+/** Run a snippet on a background thread with debug hooks active.
+ *  Blocks the calling (REPL main) thread until execution completes or the user quits. */
+def runReplSnippetDebug(code: String, interp: Interpreter, hooks: ReplDebugHooks): Unit =
+  val codeLines = code.linesIterator.toVector
+  hooks.resetForNewSnippet()
+  val thread = Thread.ofVirtual().start { () =>
+    try   interp.runSnippet(code)
+    catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+    finally hooks.signalFinished()
+  }
+  var inSnippet = true
+  while inSnippet do
+    val item = hooks.stoppedQueue.take()
+    item match
+      case None        => inSnippet = false
+      case Some(frame) =>
+        replPrintStop(frame, codeLines, hooks.blockDocLine)
+        inSnippet = replDebugSubLoop(frame, thread, interp, hooks)
+  thread.join()
+  hooks.clearStepMode()
+
+/** Interactive `(debug) ` sub-loop for one stop.
+ *  Returns true = snippet still running (user resumed), false = user quit. */
+def replDebugSubLoop(
+    frame:  scalascript.interpreter.debug.DebugFrame,
+    thread: Thread,
+    interp: Interpreter,
+    hooks:  ReplDebugHooks
+): Boolean =
+  import scala.io.StdIn
+  import ReplDebugHooks.StepMode
+  var resume    = false
+  var keepGoing = true
+  while !resume do
+    Option(StdIn.readLine("(debug) ")) match
+      case None | Some(":quit" | ":q") =>
+        thread.interrupt()
+        keepGoing = false
+        resume    = true
+      case Some(":continue" | ":c") =>
+        hooks.resume(StepMode.Off)
+        resume = true
+      case Some(":next" | ":n") =>
+        hooks.resume(StepMode.StepOver(frame.callDepth))
+        resume = true
+      case Some(":step" | ":s") =>
+        hooks.resume(StepMode.StepIn)
+        resume = true
+      case Some(":out") =>
+        hooks.resume(StepMode.StepOut(frame.callDepth))
+        resume = true
+      case Some(":locals" | ":l") =>
+        replPrintLocals(frame)
+      case Some(":stack" | ":bt") =>
+        replPrintCallStack(frame, hooks.blockDocLine)
+      case Some(s) if s.startsWith(":print ") =>
+        replEvalPrint(s.drop(7).trim, frame, interp)
+      case Some(":help" | ":h") =>
+        replPrintDebugHelp()
+      case Some("") => ()
+      case Some(other) =>
+        System.err.println(s"  Unknown: $other  (:help for commands)")
+  keepGoing
+
+def replPrintStop(
+    frame:        scalascript.interpreter.debug.DebugFrame,
+    codeLines:    Vector[String],
+    blockDocLine: Int
+): Unit =
+  val snippetLine = frame.line - blockDocLine
+  val lineText    = codeLines.lift(snippetLine - 1).getOrElse("???")
+  System.err.println(s"[stopped] at line $snippetLine")
+  System.err.println(s"  > $lineText")
+
+def replPrintLocals(frame: scalascript.interpreter.debug.DebugFrame): Unit =
+  val visible = frame.locals
+    .filter { case (k, v) =>
+      !k.startsWith("_") && !k.startsWith("$") &&
+      !v.isInstanceOf[scalascript.interpreter.Value.NativeFnV]
+    }
+    .toList.sortBy(_._1)
+  if visible.isEmpty then System.err.println("  (no locals)")
+  else visible.foreach { case (n, v) =>
+    System.err.println(s"  $n = ${scalascript.interpreter.Value.show(v)}")
+  }
+
+def replPrintCallStack(
+    frame:        scalascript.interpreter.debug.DebugFrame,
+    blockDocLine: Int
+): Unit =
+  val snippetLine = frame.line - blockDocLine
+  System.err.println(s"  [0] ${frame.name} : line $snippetLine")
+  frame.callFrames.reverseIterator.zipWithIndex.foreach { case (cf, i) =>
+    val cfLine = cf.line - blockDocLine
+    System.err.println(s"  [${i + 1}] ${cf.name} : line $cfLine")
+  }
+
+def replEvalPrint(
+    exprSrc: String,
+    frame:   scalascript.interpreter.debug.DebugFrame,
+    interp:  Interpreter
+): Unit =
+  try
+    val v = interp.evalExpr(exprSrc, frame.locals)
+    System.err.println(s"  = ${scalascript.interpreter.Value.show(v)}")
+  catch case e: Exception =>
+    System.err.println(s"  Error: ${e.getMessage}")
+
+def replPrintDebugHelp(): Unit =
+  System.err.println(
+    """|  Debug commands:
+       |    :continue | :c      — resume to next breakpoint or end
+       |    :next     | :n      — step over to next line
+       |    :step     | :s      — step into next expression
+       |    :out               — step out of current function
+       |    :locals   | :l      — show local variables
+       |    :stack    | :bt     — show call stack
+       |    :print <expr>      — evaluate expression in current context
+       |    :quit     | :q      — stop and return to REPL""".stripMargin
+  )
 
 def watchCommand(args: List[String]): Unit =
   import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
@@ -2582,10 +2730,11 @@ private def patchLocalSscDeps(source: String, jarsDir: os.Path): String =
 
 /** `ssc run-js <file.ssc>`
  *
- *  One-shot: compile `.ssc` via JsGen, write to a temp `.js` file, and
- *  run it immediately with `node`.  Equivalent to `compile-js` + `link
- *  --backend js` but without leaving any artifacts on disk.  Requires
- *  `node` on PATH. */
+ *  One-shot: compile `.ssc` via JsGen (runtime preamble + user code),
+ *  write to a temp `.cjs` file, and run it immediately with `node`.
+ *  When the module has sql blocks the command installs the required npm
+ *  deps (e.g. sql.js) via `npm install` in a temp work dir first.
+ *  Requires `node` on PATH; `npm` required only when sql blocks present. */
 def runJsCommand(args: List[String]): Unit =
   if args.isEmpty then
     System.err.println("Usage: ssc run-js <file.ssc>")
@@ -2599,15 +2748,51 @@ def runJsCommand(args: List[String]): Unit =
   }.getOrElse(false)
   if !nodeAvailable then
     System.err.println("run-js: node not found on PATH"); System.exit(1)
-  val source = expectText(compileViaBackend("js", path), s"run-js $file")
-  val tmp = os.temp(source, suffix = ".js", deleteOnExit = true)
-  try
-    val res = os.proc("node", tmp.toString)
-      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-    if res.exitCode != 0 then System.exit(res.exitCode)
-  catch case e: Exception =>
-    System.err.println(s"run-js: node invocation failed: ${e.getMessage}")
-    System.exit(1)
+  // Detect capabilities to build the runtime preamble, then compile user code.
+  val module  = Parser.parse(os.read(path))
+  val baseDir = Some(path / os.up)
+  val caps    = JsGen.detectCapabilities(module, baseDir)
+  val runtime = JsGen.generateRuntime(caps)
+  val result  = compileViaBackend("js", path)
+  result match
+    case CompileResult.Failed(diags) =>
+      diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+    case CompileResult.TextOutput(userCode, _, sources) =>
+      val bundle  = runtime + "\n" + userCode
+      val pkgJson = sources.collectFirst { case scalascript.backend.spi.SourceArtifact("package.json", c) => c }
+      pkgJson match
+        case None =>
+          // No npm deps — write single temp file and run directly.
+          val tmp = os.temp(bundle, suffix = ".cjs", deleteOnExit = true)
+          try
+            val res = os.proc("node", tmp.toString)
+              .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+            if res.exitCode != 0 then System.exit(res.exitCode)
+          catch case e: Exception =>
+            System.err.println(s"run-js: node invocation failed: ${e.getMessage}"); System.exit(1)
+        case Some(pkg) =>
+          // SQL deps present — set up a temp work dir, npm install, then run.
+          val npmAvailable = scala.util.Try {
+            os.proc("npm", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+          }.getOrElse(false)
+          if !npmAvailable then
+            System.err.println("run-js: npm not found on PATH (required for sql blocks)"); System.exit(1)
+          val workDir = os.temp.dir(deleteOnExit = true)
+          os.write(workDir / "main.cjs", bundle)
+          os.write(workDir / "package.json", pkg)
+          try
+            val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent")
+              .call(cwd = workDir, check = false, stdout = os.Pipe, stderr = os.Pipe)
+            if inst.exitCode != 0 then
+              System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
+              System.exit(1)
+            val res = os.proc("node", "main.cjs")
+              .call(cwd = workDir, stdout = os.Inherit, stderr = os.Inherit, check = false)
+            if res.exitCode != 0 then System.exit(res.exitCode)
+          catch case e: Exception =>
+            System.err.println(s"run-js: node invocation failed: ${e.getMessage}"); System.exit(1)
+    case other =>
+      System.err.println(s"run-js: unexpected compile result ${other.getClass.getSimpleName}"); System.exit(1)
 
 /** `ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]`
  *
