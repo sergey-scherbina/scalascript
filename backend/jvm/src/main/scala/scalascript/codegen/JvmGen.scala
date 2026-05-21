@@ -1332,20 +1332,14 @@ class JvmGen(
     sb.append("""|object Db:
                  |  def query(dbName: String, sql: String, params: List[Any]): List[Map[String, Any]] =
                  |    val conn = _ssc_sql_registry.connect(dbName)
-                 |    try
-                 |      scalascript.sql.SqlRuntime.execute(conn, sql, params) match
-                 |        case scalascript.sql.SqlResult.Rows(rows) => rows.map(_.toMap).toList
-                 |        case scalascript.sql.SqlResult.UpdateCount(_) => Nil
-                 |    finally
-                 |      conn.close()
+                 |    scalascript.sql.SqlRuntime.execute(conn, sql, params) match
+                 |      case scalascript.sql.SqlResult.Rows(rows) => rows.map(_.toMap).toList
+                 |      case scalascript.sql.SqlResult.UpdateCount(_) => Nil
                  |  def execute(dbName: String, sql: String, params: List[Any]): Int =
                  |    val conn = _ssc_sql_registry.connect(dbName)
-                 |    try
-                 |      scalascript.sql.SqlRuntime.execute(conn, sql, params) match
-                 |        case scalascript.sql.SqlResult.UpdateCount(n) => n
-                 |        case scalascript.sql.SqlResult.Rows(_) => 0
-                 |    finally
-                 |      conn.close()
+                 |    scalascript.sql.SqlRuntime.execute(conn, sql, params) match
+                 |      case scalascript.sql.SqlResult.UpdateCount(n) => n
+                 |      case scalascript.sql.SqlResult.Rows(_) => 0
                  |
                  |""".stripMargin)
     sb.toString
