@@ -1773,6 +1773,20 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   while running do
     Option(StdIn.readLine("ssc> ")) match
       case None | Some(":quit" | ":q" | ":exit") => running = false
+      case Some(":help" | ":h") =>
+        System.err.println(
+          """|ScalaScript REPL commands:
+             |  :help  :h          — this message
+             |  :quit  :q  :exit   — exit the REPL
+             |  :reset             — clear bindings and restart interpreter
+             |  :break <N>         — set breakpoint at snippet line N
+             |  :break clear       — remove all breakpoints
+             |  :step              — enable step-in for next snippet
+             |  (blank line)       — evaluate the current snippet
+             |""".stripMargin)
+      case Some(":reset") =>
+        interp.run(Parser.parse("# REPL\n"))
+        System.err.println("[reset] interpreter cleared")
       case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
       case Some(":step")                          =>
         dbgHooks.enableStepIn()
