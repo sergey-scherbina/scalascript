@@ -275,9 +275,12 @@ class JvmGen(
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
     // sql don't pull these onto their scala-cli classpath.
+    // db-url is listed explicitly because backendSqlRuntime depends on it
+    // and older locally-published ivy metadata may not include the transitive dep.
     if sqlBlockCounter > 0 then
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
+      sb.append("""//> using lib "io.scalascript::scalascript-db-url:0.1.0-SNAPSHOT"""" + "\n")
       sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
 
     sb.append(preamble)
