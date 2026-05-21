@@ -302,11 +302,21 @@ out-of-tree plugin path is one ServiceLoader-discovery wire-up.
 Remaining UX/distribution work (not blocking the SPI mechanism):
 
   - **Package format** (`.sscpkg` archive with manifest + sources +
-    optional pre-compiled IR) — mentioned in v0.7 as future.
-  - **Plugin resolver** — `--plugin <jar>` / `~/.scalascript/compiler/plugins/`
-    discovery already in §12.1 design; verify end-to-end.
-  - **Registry** — `registry.scalascript.io` with semver + lock
-    file (v0.7 future, deferred).
+    optional pre-compiled IR) — ✅ **LANDED** (2026-05-21).
+  - **Plugin resolver** — ✅ **LANDED** (2026-05-21): `pkg:` URI in
+    `ImportResolver` + `BackendRegistry.findInstalledPkg` + auto-download
+    via `LocalRegistry`.  `ssc install` shortcut also landed.
+  - **Registry** — local registry (`~/.scalascript/registry.yaml`) with
+    pre-seeded entries landed.  Remote registry (`registry.scalascript.io`)
+    deferred; no concrete demand yet.
+
+  Post-migration follow-ons (not blocking; tracked in `docs/intrinsics-migration.md` §11):
+
+  - **Plugin test harness** — `test-utils` submodule + per-plugin `src/test/` not yet built.
+  - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
+  - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
+  - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
+  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
 
 ### Effort to "extensibility done"
 
@@ -5662,6 +5672,27 @@ worth a separate fix when somebody has cycles.
   per-family `.sscpkg` plugins.  Interpreter core ships with zero
   domain-specific intrinsics; third-party plugins can now extend the table
   without forking.  Full migration spec: `docs/intrinsics-migration.md`.
+
+- **Post-migration follow-ons** (not blocking; spec §11 of
+  `docs/intrinsics-migration.md`):
+  - **Plugin test harness** — `test-utils` sbt submodule + `TestInterpreter(plugins =
+    List(p))` + per-plugin `src/test/` trees.  All 10 plugin families currently
+    tested only via the main conformance suite.  Effort: M.
+  - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
+    intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
+    import lines, relying on ServiceLoader classpath discovery.  Effort: S.
+  - **Jdbc `runSqlBlock` refactor** — `Interpreter.scala` still wires
+    `sql { }` fenced blocks directly through `ConnectionRegistry`.  A
+    `SqlBlockRunner` SPI hook on `NativeContext` is required before Jdbc can
+    run as a true plugin.  Effort: M.
+  - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
+    migrated using all 21 existing named methods; bag deferred.  Needed when
+    the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
+  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/
+    scalascript/server/` (WebServer, WsRoutes, WsConnection, TlsProxy, etc.)
+    still lives in the interpreter module; Ws and Http plugins depend on it
+    via classpath.  Clean move to `runtime-server-interpreter` subproject
+    deferred.  Effort: M.
 
 - ~~**WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**~~  ✓ **Landed (2026-05-21)** —

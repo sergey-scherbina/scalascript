@@ -78,39 +78,31 @@ migration PRs do not open prematurely.
 
 ### 3.1 BuiltinsRuntime merges plugin intrinsics
 
+**Status: LANDED (2026-05-21)**
+
 **File**: `backend-interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala:17`
 
-```scala
-// today
-interp.installNativeIntrinsics(InterpreterIntrinsics)
+`BuiltinsRuntime.initBuiltins` now calls `BackendRegistry.inProcess` (ServiceLoader
+discovery) and merges `NativeImpl` entries from all discovered plugins before
+calling `installNativeIntrinsics`.  Only `NativeImpl` entries are accepted —
+`RuntimeCall`/`InlineCode` entries from code-generating backends are silently
+skipped so they cannot shadow a bundled entry.
 
-// after patch (pseudocode — see plugin-architecture.md §5.1)
-val pluginIntrinsics = BackendRegistry.inProcess().values
-  .flatMap(_.intrinsics)
-  .toMap
-interp.installNativeIntrinsics(InterpreterIntrinsics ++ pluginIntrinsics)
-```
+This is the wire that lets all `std/*-plugin` intrinsics reach the interpreter
+automatically when their JARs are on the classpath (in tests / dev).  In
+production, a `pkg:` import line triggers `BackendRegistry.loadAndExtract`
+before the script starts so the plugin JAR is registered.
 
-This is the one-line wire that lets plugin intrinsics reach the
-interpreter.  Without it, `loadSscpkg` registers the JAR but the
-interpreter never sees the entries.
+### 3.2 `NativeContext` state bag
 
-### 3.2 `NativeContext` gains a generic state bag
+**Status: DEFERRED** — Http (§4.8) migrated using the 21 existing named
+`NativeContext` methods rather than the generic bag.  The bag
+(`featureGet[A]`/`featureSet[A]`) is a future cleanup that would let *new*
+plugins store feature state without amending the SPI trait each time.
 
-**File**: `backend-spi/src/main/scala/scalascript/backend/spi/IntrinsicImpl.scala:50`
-
-`NativeContext` currently has 23 hardcoded methods — every new
-server feature adds another one.  The Http plugin alone uses 21 of
-them.  Before Http migrates, the trait must grow:
-
-```scala
-def featureGet[A](key: String): Option[A]
-def featureSet[A](key: String, value: A): Unit
-```
-
-This lets the Http plugin store `(router, corsConfig, tlsConfig, …)` in
-the session bag without amending the SPI for each sub-feature.
-See `plugin-architecture.md` §5.3 for the full amendment spec.
+Not blocking any current migration.  When it eventually lands, Http and Mcp
+can migrate their NativeContext surface to the bag as a non-breaking
+refactor.  See §11 for the open-item entry.
 
 ### 3.3 `pkg:` URI in `ImportResolver`
 
@@ -543,9 +535,14 @@ one family may require cutting a new std meta-package).
 
 ## 6. Test migration strategy
 
+**Status: OPEN** — `std/*-plugin` directories have no `src/test/` trees and
+the `test-utils` sbt submodule does not yet exist.  Plugin correctness is
+currently covered by the main conformance suite (which loads all plugins via
+ServiceLoader).  See §11 for the open-item entry.
+
 Each `.sscpkg` is a self-contained sbt subproject with its own test suite.
 
-**Harness pattern** (demonstrated by the Json pilot):
+**Harness pattern** (designed but not yet built):
 
 ```scala
 // json-plugin/src/test/scala/JsonPluginSpec.scala
@@ -580,9 +577,13 @@ on the plugin — not both on the same family.
 
 ## 7. Examples sweep
 
-94 `.ssc` files live under `examples/`.  Each migration PR must audit
-which examples use the migrating family's entry points and add `pkg:`
-import lines.
+**Status: OPEN** — examples and conformance tests currently rely on
+ServiceLoader classpath-level discovery (all plugins on classpath at test
+time).  No `pkg:` import lines have been added to any example yet.  See §11
+for the open-item entry.
+
+94 `.ssc` files live under `examples/`.  Each family PR must audit which
+examples use its entry points and add explicit `pkg:` import lines.
 
 **Template** (Json pilot):
 
@@ -631,44 +632,45 @@ procedure:
 ## 9. Migration sequence and dependencies
 
 ```
-Phase 0 (blocking):
-  ┌── BuiltinsRuntime plugin-merge patch (§3.1) ──────────────┐
-  ├── pkg: URI in ImportResolver (§3.3) ──────────────────────┤  must all land
-  ├── LocalRegistry seeding + ssc install (§3.4) ─────────────┤  before any
-  └── test-utils TestInterpreter harness (§6) ────────────────┘  family moves
+Phase 0 (blocking):  ✅ ALL LANDED (2026-05-21)
+  ✅ BuiltinsRuntime plugin-merge patch (§3.1)
+  ✅ pkg: URI in ImportResolver (§3.3)
+  ✅ LocalRegistry seeding + ssc install (§3.4)
+  ⬜ test-utils TestInterpreter harness (§6)  ← still open (see §11)
 
-Phase 1 (no NativeContext, no JVM deps):
-  Json (§4.1) → Frontend (§4.2) → Request (§4.3)
+Phase 1 (no NativeContext, no JVM deps):  ✅ LANDED (2026-05-21)
+  ✅ Json (§4.1) → ✅ Frontend (§4.2) → ✅ Request (§4.3)
 
-Phase 2 (JVM deps, no NativeContext):
-  Auth (§4.4) → OAuthClient (§4.5) → Ws (§4.6)
+Phase 2 (JVM deps, no NativeContext):  ✅ LANDED (2026-05-21)
+  ✅ Auth (§4.4) → ✅ OAuthClient (§4.5) → ✅ Ws (§4.6)
+  Note: interpreter-server extraction deferred; Ws depends on
+  backend/interpreter/src/main/scala/scalascript/server/ via classpath.
 
-  Ws also requires:
-    interpreter-server extraction to runtime-server-interpreter (§4.6 blocker)
+Phase 3 (ctx.invokeCallback only):  ✅ LANDED (2026-05-21)
+  ✅ OAuth (§4.7)
 
-Phase 3 (ctx.invokeCallback only):
-  OAuth (§4.7)
-
-Phase 4 (state-bag + interpreter-server extraction):
-  NativeContext state-bag (§3.2) must land first
-  → Http (§4.8)   ← largest NativeContext surface; requires state-bag
-  → Mcp (§4.9)    ← follows Http to reuse the state-bag pattern
+Phase 4 (Http + Mcp):  ✅ LANDED (2026-05-21)
+  Note: state-bag (§3.2) was NOT required; Http migrated via existing
+  named NativeContext methods.
+  ✅ Http (§4.8)
+  ✅ Mcp (§4.9)
 
 Phase 5 (deferred):
-  ToolkitDsl: deleted when ui-toolkit.sscpkg ships (§4.10)
-  Jdbc: migrate after Interpreter.runSqlBlock refactor (§4.11)
+  ✅ ToolkitDsl: deleted (§4.10)
+  ⬜ Jdbc: blocked on Interpreter.runSqlBlock refactor (§4.11, see §11)
 ```
 
-Effort estimates:
+Effort estimates (actual):
 
-| Phase | PRs | Effort |
+| Phase | Status | Notes |
 |---|---|---|
-| Phase 0 | 4 | M + M + S + S |
-| Phase 1 (Json + Frontend + Request) | 3 × S | S each |
-| Phase 2 (Auth + OAuthClient + Ws) | 3 × M + interpreter-server extraction | M each; extraction = L |
-| Phase 3 (OAuth) | 1 × M | M |
-| Phase 4 (Http + Mcp) | 2 × L | L each |
-| Phase 5 (ToolkitDsl delete, Jdbc) | 2 × M + Jdbc refactor | M + L |
+| Phase 0 (3 of 4 items) | ✅ Landed | TestInterpreter harness open |
+| Phase 1 (Json + Frontend + Request) | ✅ Landed | — |
+| Phase 2 (Auth + OAuthClient + Ws) | ✅ Landed | interpreter-server not extracted |
+| Phase 3 (OAuth) | ✅ Landed | — |
+| Phase 4 (Http + Mcp) | ✅ Landed | state-bag not needed |
+| Phase 5 (ToolkitDsl delete) | ✅ Landed | — |
+| Phase 5 (Jdbc) | ⬜ Blocked | runSqlBlock refactor required |
 
 ---
 
@@ -676,7 +678,7 @@ Effort estimates:
 
 1. **`pkg:scalascript/std:1.0` meta-plugin**: real package or
    convenience doc concept?  If real, who maintains version
-   synchronization across the 8 member packages?
+   synchronization across the 8 member packages?  Still open.
 
 2. **`ssc install` network access**: v1 is local-only (registry
    pre-seeded by `setup.sh`).  When does it gain the ability to pull
@@ -684,23 +686,85 @@ Effort estimates:
 
 3. **QualifiedName conflicts**: Auth and OAuth share some entry-point
    names (e.g., `signJwt`, `verifyJwt`).  If both are installed, the
-   last one registered wins.  The migration spec defers conflict
-   resolution to `plugin-architecture.md §8` (open question there
-   too).
+   last one registered wins.  Defers to `plugin-architecture.md §8`.
 
 4. **Version contract**: are plugin versions semver, calver, or
    content-hash pinned?  This affects the `pkg:` URI syntax accepted
    by the import resolver.
 
-5. **`runtime-server-common` in multiple plugin archives**: in v1,
-   each plugin archive bundles its own copy of
-   `runtime-server-common.jar`.  This works but wastes disk and risks
-   classloader isolation issues if two plugins load different versions
-   of the same class.  A shared-dependency mechanism should be
-   designed before Auth, Ws, OAuth, Http, and Mcp all land.
+5. **`runtime-server-common` in multiple plugin archives**: Auth, Ws,
+   OAuth, Http, and Mcp each bundle their own copy.  Works for v1 but
+   risks classloader isolation issues with differing versions.  A
+   shared-dependency mechanism is deferred.
 
-6. **`backend-interpreter/src/main/scala/scalascript/server/`
-   extraction**: the interpreter-server subproject must exist before
-   Ws and Http migrate.  Its name, sbt coordinates, and scope
-   (interpreter-only vs. shared with JVM-compiled backends) are not
-   yet decided.
+6. **`backend/interpreter/src/main/scala/scalascript/server/`
+   extraction**: Ws and Http plugins depend on these classes via classpath
+   (interpreter subproject), not via a clean `dependsOn`.  Moving them to
+   `runtime-server-interpreter` is cleanup deferred to §11.  Name, sbt
+   coordinates, and scope (interpreter-only vs. shared with JVM backends)
+   are not yet decided.
+
+---
+
+## 11. Post-migration open items
+
+The Phase 0–4 + Phase 5 (ToolkitDsl) migration is complete.  The following
+items were explicitly not in scope and remain open.  They are tracked here and
+in `MILESTONES.md` (post-migration follow-ons block).
+
+### 11.1 Plugin test harness (`test-utils` + per-plugin `src/test/`)
+
+`std/*-plugin` directories have no `src/test/` tree.  A `test-utils` sbt
+submodule should provide:
+
+```scala
+class TestInterpreter(plugins: List[Backend]):
+  def eval(snippet: String): Any   // runs snippet, returns unwrapped Value
+```
+
+Each plugin then gets a `src/test/` with a `*PluginSpec` that tests its
+intrinsics in isolation, without depending on the full conformance suite.
+
+**Effort**: S (test-utils harness) + S per plugin × 10 plugins = ~M total.
+
+### 11.2 Examples `pkg:` import sweep
+
+No `pkg:scalascript/...` import lines exist in any example or conformance
+test yet.  They rely on ServiceLoader auto-discovery.  For production
+distribution hygiene (minimal-interpreter deployments), ~20–30 affected
+`.ssc` files under `examples/` should declare explicit imports.
+
+**Effort**: S (mechanical — grep + sed per family, one PR).
+
+### 11.3 Jdbc `runSqlBlock` refactor (§4.11)
+
+`Interpreter.scala` still wires `sql { }` blocks directly through
+`ConnectionRegistry` / `sqlRegistry`.  Required before Jdbc can be a true
+plugin:
+
+1. Add `SqlBlockRunner` SPI method to `NativeContext` (or use state-bag).
+2. Move `runSqlBlock` logic into the Jdbc plugin so the plugin owns the
+   connection and the executor.
+3. Make `sql { }` block dispatch generic (routes to registered executor).
+
+**Effort**: M (non-trivial; touches interpreter block-execution path).
+
+### 11.4 `NativeContext` state-bag
+
+Add `featureGet[A](key: String): Option[A]` and `featureSet[A](key: String,
+value: A): Unit` to `NativeContext`.  This lets future plugins store feature
+state without amending the SPI trait.  Http and Mcp can then migrate their
+21 / 5 named methods to the bag as a follow-on cleanup.
+
+**Effort**: S (trait change) + M (migration of Http + Mcp surfaces).
+
+### 11.5 `interpreter-server` extraction
+
+Move `backend/interpreter/src/main/scala/scalascript/server/` (`WebServer`,
+`WsConnection`, `WsProxy`, `WsRoutes`, `TlsProxy`, `WsClientSession`,
+`WsRateLimiter`, `InterpreterHttpHandler`) into a new
+`runtime-server-interpreter` sbt subproject.  Ws and Http plugins then
+declare it as a proper sbt `dependsOn` rather than relying on being bundled
+with the interpreter on the classpath.
+
+**Effort**: M (refactor; no behavior change).
