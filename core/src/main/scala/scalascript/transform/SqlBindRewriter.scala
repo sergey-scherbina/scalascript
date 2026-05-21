@@ -95,6 +95,38 @@ object SqlBindRewriter:
         i += 1
     Result(out.toString, binds.toList)
 
+  /** Split `src` on `;` that lie outside any `${...}` interpolation block.
+   *  Used by `transaction` fenced blocks to recover individual SQL statements.
+   *  Returns non-empty, trimmed fragments; a trailing `;` produces no extra entry.
+   *
+   *  `$$` sequences are treated as a literal `$` (not an interpolation open),
+   *  consistent with `rewrite`.  Malformed `${` (unterminated) causes the
+   *  remainder of the source to be appended verbatim to the current fragment
+   *  rather than silently discarding it — the downstream `rewriteJdbc` call
+   *  on each fragment will surface the diagnostic. */
+  def splitStatements(src: String): List[String] =
+    val stmts = scala.collection.mutable.ListBuffer.empty[String]
+    val cur   = StringBuilder()
+    var i     = 0
+    val len   = src.length
+    while i < len do
+      val c = src.charAt(i)
+      if c == '$' && i + 1 < len && src.charAt(i + 1) == '{' then
+        val close = findMatchingClose(src, i + 2)
+        if close < 0 then
+          cur.append(src.substring(i)); i = len
+        else
+          cur.append(src.substring(i, close + 1)); i = close + 1
+      else if c == ';' then
+        val stmt = cur.toString.trim
+        if stmt.nonEmpty then stmts += stmt
+        cur.clear(); i += 1
+      else
+        cur.append(c); i += 1
+    val last = cur.toString.trim
+    if last.nonEmpty then stmts += last
+    stmts.toList
+
   /** Scan forward from `from` (the position just after `${`) until the
    *  matching `}` is found.  Counts brace depth, but skips over braces
    *  that appear inside Scala string literals (`"..."`, `'...'`,

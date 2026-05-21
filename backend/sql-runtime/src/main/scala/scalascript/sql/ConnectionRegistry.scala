@@ -172,6 +172,24 @@ final class ConnectionRegistry(specs: Iterable[DatabaseSpec], envLookup: String 
     )
     open(spec)
 
+  /** Open a fresh (uncached) connection, disable auto-commit, run `f`,
+   *  commit on success, roll back on any exception, and always close the
+   *  connection on exit.  The caller must not commit, roll back, or close
+   *  inside `f`. */
+  def withTransaction[A](dbName: String = "default")(f: Connection => A): A =
+    val conn = fresh(dbName)
+    try
+      conn.setAutoCommit(false)
+      val result = f(conn)
+      conn.commit()
+      result
+    catch
+      case t: Throwable =>
+        try conn.rollback() catch case _: Throwable => ()
+        throw t
+    finally
+      try conn.close() catch case _: Throwable => ()
+
   /** Close every cached connection.  Idempotent.  Subsequent
    *  `connect` calls reopen on demand. */
   def close(): Unit =

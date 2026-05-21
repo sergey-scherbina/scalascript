@@ -37,4 +37,8 @@ class SqlConformanceCaptureTest extends AnyFunSuite {
   test("conformance/sql-basic.ssc matches expected stdout under interpreter") {
     runConformance("sql-basic")
   }
+
+  test("conformance/sql-transaction.ssc matches expected stdout under interpreter") {
+    runConformance("sql-transaction")
+  }
 }

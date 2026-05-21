@@ -1273,6 +1273,16 @@ class JvmGen(
           val tree = dialects.Scala3(Input.VirtualFile(s"<sql-block-$n>", sqlSrc))
             .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
           tree.map(t => JvmGen.Block(t, sqlSrc)).toList
+        // transaction fenced blocks: emit a `withTransaction` call that
+        // wraps all `;`-separated statements in one atomic JDBC transaction.
+        case cb: Content.CodeBlock if Lang.isTransaction(cb.lang) =>
+          val n = sqlBlockCounter
+          sqlBlockCounter += 1
+          val txSrc = transactionBlockToScala(cb.source, cb.attrs.get("db"), n)
+          import scala.meta.{dialects, *}
+          val tree = dialects.Scala3(Input.VirtualFile(s"<tx-block-$n>", txSrc))
+            .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
+          tree.map(t => JvmGen.Block(t, txSrc)).toList
         case imp: Content.Import =>
           val (blocks, importedPkg) = inlineImport(imp.path)
           blocks ++ aliasBlock(imp.bindings, importedPkg).toList
@@ -1395,6 +1405,41 @@ class JvmGen(
         execLine + "\n" +
         s"object $secId:\n" +
         s"  lazy val sql: scalascript.sql.SqlResult = $valName"
+
+  /** Translate a `transaction` fenced block to emitted Scala source.
+   *  Splits the source on `;` (outside `${...}`), rewrites each statement
+   *  through `SqlBindRewriter.rewriteJdbc`, and wraps all statements in a
+   *  `_ssc_sql_registry.withTransaction(dbName) { conn => List(...) }` call.
+   *
+   *  The result is a `val _sqlBlock_<n>: List[scalascript.sql.SqlResult]`
+   *  holding the results of every statement in the transaction. */
+  private def transactionBlockToScala(
+    source: String,
+    dbName: Option[String],
+    n:      Int
+  ): String =
+    val stmts    = scalascript.transform.SqlBindRewriter.splitStatements(source)
+    val rewrites = stmts.map(scalascript.transform.SqlBindRewriter.rewriteJdbc)
+    val valName  = s"_sqlBlock_$n"
+    val db       = dbName.getOrElse("default")
+    val dbLit    = escapeStringLit(db)
+    val stmtLines = rewrites.map { r =>
+      val sqlLit =
+        if r.sql.contains("\"\"\"") then
+          "\"" + r.sql.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        else
+          "\"\"\"" + r.sql + "\"\"\""
+      val bindsArg =
+        if r.binds.isEmpty then "Nil"
+        else "List(" + r.binds.mkString(", ") + ")"
+      s"      scalascript.sql.SqlRuntime.execute(_ssc_tx_conn, $sqlLit, $bindsArg)"
+    }.mkString(",\n")
+    s"""val $valName: List[scalascript.sql.SqlResult] =
+       |  _ssc_sql_registry.withTransaction("$dbLit") { _ssc_tx_conn =>
+       |    List(
+       |$stmtLines
+       |    )
+       |  }""".stripMargin
 
   /** Mirror Interpreter / JsGen `sectionIdent`. */
   private def sectionIdent(text: String): Option[String] =

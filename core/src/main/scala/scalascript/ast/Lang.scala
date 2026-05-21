@@ -43,6 +43,7 @@ object Lang:
   val Node        = "node.js"
   val NodeShort   = "node"         // alias for node.js
   val Sql         = "sql"
+  val Transaction = "transaction"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
@@ -59,6 +60,9 @@ object Lang:
   def isSql(lang: String): Boolean =
     lang == Sql
 
+  def isTransaction(lang: String): Boolean =
+    lang == Transaction
+
   /** True for blocks whose body is a `String` value with `${expr}`
    *  interpolation (html, css, javascript). Not parsed by scalameta. */
   def isStringBlock(lang: String): Boolean =
@@ -74,18 +78,19 @@ object Lang:
    *  `Capabilities.blockLanguages` recognise these; all others emit
    *  `Diagnostic.UnknownBlockLanguage`.
    *
-   *  Today: `node.js` (consumed by the Node backend) and `sql`
-   *  (consumed by the JVM target via `backend-sql-runtime`). */
+   *  Today: `node.js` (consumed by the Node backend), `sql`
+   *  (consumed by the JVM target via `backend-sql-runtime`), and
+   *  `transaction` (multi-statement JDBC transaction, JVM only). */
   def isOpaqueExec(lang: String): Boolean =
-    isNode(lang) || isSql(lang)
+    isNode(lang) || isSql(lang) || isTransaction(lang)
 
   /** True for opaque-exec blocks whose source is rewritten by the
    *  front-end into a `(template, binds)` pair before the backend
-   *  sees it — currently just `sql`, where every `${expr}` becomes
+   *  sees it — `sql` and `transaction`, where every `${expr}` becomes
    *  a positional `?` placeholder with the expression captured in
    *  an ordered bind list.  See SPEC.md § 3.3.1. */
   def isParameterizedExec(lang: String): Boolean =
-    isSql(lang)
+    isSql(lang) || isTransaction(lang)
 
   /** Human-readable label for a lang tag. */
   def label(lang: String): String = lang match
@@ -97,4 +102,5 @@ object Lang:
     case Js | JsShort              => "JavaScript"
     case Node | NodeShort          => "Node.js"
     case Sql                       => "SQL"
+    case Transaction               => "SQL Transaction"
     case other                     => other

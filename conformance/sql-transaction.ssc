@@ -1,0 +1,62 @@
+#!/usr/bin/env ssc
+---
+name: sql-transaction
+description: v1.28 — `transaction` fenced blocks execute multiple SQL statements atomically
+backends: [int]
+databases:
+  default:
+    url: "jdbc:h2:mem:sql-tx;DB_CLOSE_DELAY=-1"
+---
+
+# SQL transaction blocks — atomic multi-statement execution
+
+Pins the `transaction` fenced-block contract on the interpreter
+target.  A single `transaction` fence contains multiple `;`-separated
+SQL statements; they execute inside one JDBC transaction via
+`ConnectionRegistry.withTransaction`.  On success all statements commit
+atomically; any exception rolls back the entire batch.
+
+## Schema
+
+```sql
+CREATE TABLE accounts (id INT PRIMARY KEY, balance INT NOT NULL)
+```
+
+```sql
+INSERT INTO accounts VALUES (1, 100)
+```
+
+```sql
+INSERT INTO accounts VALUES (2, 200)
+```
+
+## Transfer
+
+Atomic credit + debit — both rows must update together.
+
+```scala
+val fromId = 1
+val toId   = 2
+val amount = 50
+```
+
+```transaction
+UPDATE accounts SET balance = balance - ${amount} WHERE id = ${fromId};
+UPDATE accounts SET balance = balance + ${amount} WHERE id = ${toId}
+```
+
+```scala
+println("updated=" + Transfer.sql)
+```
+
+## Verify
+
+```sql
+SELECT id, balance FROM accounts ORDER BY id
+```
+
+```scala
+val rows = Verify.sql
+for row <- rows do
+  println("id=" + row("ID") + " balance=" + row("BALANCE"))
+```

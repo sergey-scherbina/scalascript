@@ -25,6 +25,8 @@ private[interpreter] object SectionRuntime:
         runStringBlock(cb, section, interp)
       case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
         runSqlBlock(cb, section, interp)
+      case cb: Content.CodeBlock if Lang.isTransaction(cb.lang) =>
+        runTransactionBlock(cb, section, interp)
       case imp: Content.Import =>
         runImport(imp, interp)
       case _ => ()
@@ -47,6 +49,36 @@ private[interpreter] object SectionRuntime:
         Value.ListV(rows.map(rowToValue).toList)
       case scalascript.sql.SqlResult.UpdateCount(n) =>
         Value.IntV(n.toLong)
+    val ordinal = interp.sqlBlockCounter
+    interp.sqlBlockCounter += 1
+    interp.globals(s"_sqlBlock_$ordinal") = resultValue
+    sectionIdent(section.heading.text).foreach { id =>
+      val existing = interp.globals.get(id) match
+        case Some(Value.InstanceV(_, fields)) => fields
+        case _                                => Map.empty[String, Value]
+      interp.globals(id) = Value.InstanceV(id, existing + ("sql" -> resultValue))
+    }
+
+  def runTransactionBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
+    val stmts  = scalascript.transform.SqlBindRewriter.splitStatements(cb.source)
+    val dbName = cb.attrs.getOrElse("db", "default")
+    val results = interp.sqlRegistry.withTransaction(dbName) { conn =>
+      stmts.map { stmtSrc =>
+        val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(stmtSrc)
+        val binds: List[Any] = rewritten.binds.map { exprSrc =>
+          val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
+            "<tx-bind>", exprSrc
+          )).parse[scala.meta.Term].get
+          val v = Computation.run(interp.eval(expr, interp.globals.toMap))
+          unwrapForJdbc(v)
+        }
+        scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
+      }
+    }
+    val resultValue: Value = results.lastOption match
+      case Some(scalascript.sql.SqlResult.Rows(rows))      => Value.ListV(rows.map(rowToValue).toList)
+      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.IntV(n.toLong)
+      case None                                            => Value.UnitV
     val ordinal = interp.sqlBlockCounter
     interp.sqlBlockCounter += 1
     interp.globals(s"_sqlBlock_$ordinal") = resultValue

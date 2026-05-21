@@ -115,6 +115,23 @@ object Normalize:
           )
         catch case _: SqlBindRewriter.RewriteError =>
           ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
+      else if ast.Lang.isTransaction(lang) then
+        // transaction fenced blocks: split on `;` outside `${...}`,
+        // rewrite each statement with the bind-parameter rewriter, and
+        // store as a `TransactionBlock` IR node.  A `RewriteError` on any
+        // statement falls back to `EmbeddedBlock` so one bad block doesn't
+        // abort the pipeline.
+        try
+          val stmts     = SqlBindRewriter.splitStatements(source)
+          val rewritten = stmts.map(SqlBindRewriter.rewriteJdbc)
+          ir.Content.TransactionBlock(
+            sources = stmts,
+            binds   = rewritten.map(_.binds),
+            dbName  = attrs.get("db"),
+            span    = sp.map(span)
+          )
+        catch case _: SqlBindRewriter.RewriteError =>
+          ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
       else
         // Stage 9+/A — ask the SourceLanguage registry first.  A
         // plugin claiming this fence tag produces the IR fragment

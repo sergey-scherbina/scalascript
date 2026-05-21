@@ -40,7 +40,9 @@ val InterpreterCapabilities: Capabilities = Capabilities(
   // `java.sql.Connection` resolved from the surrounding
   // `given Connection` scope, falling back to the
   // ConnectionRegistry built from front-matter `databases:`.
-  blockLanguages = Set(scalascript.ast.Lang.Sql)
+  // `transaction` blocks execute all statements atomically via
+  // `ConnectionRegistry.withTransaction`.
+  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction)
 )
 
 /** Intrinsics the interpreter routes through `Backend.intrinsics`
