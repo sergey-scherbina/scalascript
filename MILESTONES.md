@@ -8031,10 +8031,7 @@ time a plugin needs to surface it.
 - Cross-runtime data sharing — JVM-process in-memory data is not
   visible to JS-process runs of the same module.
 - Static SQL type-checking — inherits v1.26's deferral.
-- `transaction { ... }` block-level helper — inherits v1.26's
-  deferral; when it lands, it lands once in
-  `backend-sql-runtime` + `backend-sql-runtime-js` so both runtimes
-  pick it up together.
+- ~~`transaction { ... }` block-level helper~~ — **✓ Landed v1.31 (2026-05-21).**
 
 ---
 
@@ -9455,3 +9452,51 @@ behaviour unchanged).
 - [ ] End-to-end example: `frontend: react` module with both
       `@side=server` Postgres routes and `@side=client` sqlite-opfs
       local cache.
+
+---
+
+## v1.31 — `transaction` fenced block ✓ Complete (2026-05-21)
+
+**Status: complete (2026-05-21).**
+
+Atomic multi-statement SQL transactions as a first-class fenced block type.
+Deferred from v1.26/v1.27 scope; landed as a standalone milestone.
+
+### What landed
+
+- **`Lang.Transaction = "transaction"`** — new fenced block tag; `isTransaction`,
+  updated `isOpaqueExec` / `isParameterizedExec` / `label`.
+- **`Content.TransactionBlock`** IR node — `sources: List[String]` (original SQL per
+  statement), `binds: List[List[String]]` (bind expressions), `dbName`, `span`.
+- **`SqlBindRewriter.splitStatements`** — splits on `;` outside `${...}` blocks.
+- **`Normalize`** — `isTransaction` branch: split + per-statement rewrite →
+  `TransactionBlock`; `RewriteError` fallback to `EmbeddedBlock`.
+- **`Denormalize`** — round-trip: `TransactionBlock` → `CodeBlock(lang="transaction",
+  source=stmts.mkString(";\n"))`.
+- **`CapabilityCheck`** — `TransactionBlock` fires `UnknownBlockLanguage` on
+  backends that don't declare `Lang.Transaction` in `blockLanguages`.
+- **`ConnectionRegistry.withTransaction[A]`** — fresh uncached connection,
+  `autoCommit=false`, commit on success, rollback + rethrow on exception,
+  always closes.
+- **`SectionRuntime.runTransactionBlock`** — re-splits denormalized source,
+  rewrites + executes each statement via `withTransaction`; last result
+  exposed as `<Section>.sql`.
+- **`InterpreterCapabilities` + `JvmCapabilities`** — `Lang.Transaction` in
+  `blockLanguages`.
+- **`JvmGen.transactionBlockToScala`** — emits
+  `_ssc_sql_registry.withTransaction("db") { conn => List(...) }` val;
+  `sqlBlockCounter` gates preamble emission so transaction-only modules
+  get the registry + `scala-cli` deps.
+
+### Tests
+
+- `SqlBindRewriterTest`: 6 new `splitStatements` tests (20 total).
+- `NormalizeRoundTripTest`: auto-picks up `conformance/sql-transaction.ssc` (240 total).
+- `SqlConformanceCaptureTest`: atomic debit/credit against H2 in-memory.
+- `JvmGenSqlBlockTest`: 4 new transaction emission shape tests (18 total).
+
+### Docs
+
+- `README.md`: capabilities table + examples table.
+- `docs/user-guide.md` §6: new subsection "`transaction` fenced blocks".
+- `docs/tutorial.md` Tutorial 4 Step 2: tip box for atomic multi-statement changes.
