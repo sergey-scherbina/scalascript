@@ -80,6 +80,14 @@ case class Section(
 
 case class Heading(level: Int, text: String, span: Option[Span] = None) derives ReadWriter
 
+// ─── SQL execution side (v1.30) ──────────────────────────────────────────────
+
+/** Whether a `sql` block runs in the server bundle or the browser bundle.
+ *  Only meaningful in `frontend:` modules; ignored by pure JVM / pure JS targets. */
+enum SqlSide derives ReadWriter:
+  case Server  // default — runs in the server / JVM route handler
+  case Client  // runs in the browser bundle (JS-supported URL schemes only)
+
 // ─── Content (per-section payload) ─────────────────────────────────────────
 
 enum Content derives ReadWriter:
@@ -107,7 +115,12 @@ enum Content derives ReadWriter:
     source: String,
     binds:  List[String]    = Nil,
     dbName: Option[String]  = None,
-    span:   Option[Span]    = None
+    span:   Option[Span]    = None,
+    /** v1.30 — execution side in full-stack (frontend:) modules.
+     *  `Server` (default): runs in the server/JVM bundle.
+     *  `Client`: runs in the browser bundle; only JS-supported URL
+     *  schemes are valid (`sqlite:`, `sqlite-opfs:`, `duckdb:`). */
+    side:   SqlSide         = SqlSide.Server
   )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)

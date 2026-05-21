@@ -125,7 +125,7 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module)
 
   /** Validate `databases:` URL schemes against the target backend.
    *
@@ -149,6 +149,24 @@ object CapabilityCheck:
     module.manifest.toList.flatMap(_.databases)
       .filterNot(d => scalascript.db.DbUrl.isJsSupported(d.url))
       .map(d => Diagnostic.UnsupportedJdbcUrl(d.name, d.url, backendId))
+
+  /** v1.30 — `@side=client` sql blocks may only reference databases whose
+   *  URL scheme is JS-supported (sqlite:, sqlite-opfs:, duckdb:).  Fires on
+   *  all targets — the constraint is about client-side executability, not
+   *  about which target is currently being compiled. */
+  private def unsupportedClientSideDbUrls(module: ir.NormalizedModule): List[Diagnostic] =
+    val dbByName: Map[String, String] =
+      module.manifest.toList.flatMap(_.databases).map(d => d.name -> d.url).toMap
+    module.sections.flatMap(_.content).collect {
+      case ir.Content.SqlBlock(src, _, Some(dbName), _, ir.SqlSide.Client) =>
+        dbByName.get(dbName).filterNot(scalascript.db.DbUrl.isJsSupported).map { url =>
+          Diagnostic.UnsupportedClientSideDbUrl(dbName, url, src.take(40).trim)
+        }
+      case ir.Content.SqlBlock(src, _, None, _, ir.SqlSide.Client) =>
+        dbByName.get("default").filterNot(scalascript.db.DbUrl.isJsSupported).map { url =>
+          Diagnostic.UnsupportedClientSideDbUrl("default", url, src.take(40).trim)
+        }
+    }.flatten
 
   // ─── Internal: tiny tokenisation that ignores comments ──────────────────
 

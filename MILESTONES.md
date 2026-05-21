@@ -9413,3 +9413,48 @@ config files and re-evaluates affected outputs on change.
   priority override, JS/Scala binding, hot reload, full example.
 - `README.md`: config system row in platform features table.
 - Quick Reference: §22 link added.
+
+---
+
+## v1.30 — `@side=client|server` for SQL blocks in full-stack modules
+
+**Status: in progress (2026-05-21). Phase 1–3 landed; Phase 4 pending.**
+
+In `frontend:` modules a `sql` block now carries an optional `@side`
+attribute that controls whether the block runs in the server bundle or
+the browser bundle:
+
+```sql @db=local @side=client
+SELECT * FROM cache WHERE key = ${k}
+```
+
+Without the attribute the block defaults to `@side=server` (existing
+behaviour unchanged).
+
+### Phase 1 — Spec ✓ Landed (2026-05-21)
+
+- [x] `SPEC.md` §3.3.1: `@side` attribute table, allowed schemes per
+      side, `UnsupportedDbUrl` diagnostic for wrong-side schemes,
+      backward-compat note (`@side=server` default).
+
+### Phase 2 — Milestone ✓ Landed (2026-05-21)
+
+- [x] This `MILESTONES.md` v1.30 entry.
+
+### Phase 3 — IR + parser ✓ Landed (2026-05-21)
+
+- [x] `SqlBlock.side: Side` (`Side.Server` default / `Side.Client`)
+      added to the IR node.
+- [x] `Normalize` reads `@side` fence attribute → `SqlBlock.side`.
+- [x] `CapabilityCheck`: new `UnsupportedClientSideDbUrl` diagnostic
+      when `@side=client` references a non-JS-supported URL scheme.
+
+### Phase 4 — Codegen ✗ Not yet landed
+
+- [ ] `JvmGen`: emit `@side=client` blocks into the browser JS bundle
+      (SPA `<script>`) instead of server Scala; currently omitted
+      with a TODO comment.
+- [ ] `JsGen` / `NodeBackend`: propagate `side` to the right call-site.
+- [ ] End-to-end example: `frontend: react` module with both
+      `@side=server` Postgres routes and `@side=client` sqlite-opfs
+      local cache.

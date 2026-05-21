@@ -107,11 +107,15 @@ object Normalize:
         // diagnostic at compile / run time.
         try
           val rewritten = SqlBindRewriter.rewriteJdbc(source)
+          val side = attrs.get("side") match
+            case Some("client") => ir.SqlSide.Client
+            case _              => ir.SqlSide.Server
           ir.Content.SqlBlock(
             source = source,
             binds  = rewritten.binds,
             dbName = attrs.get("db"),
-            span   = sp.map(span)
+            span   = sp.map(span),
+            side   = side
           )
         catch case _: SqlBindRewriter.RewriteError =>
           ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))

@@ -309,6 +309,55 @@ class CapabilityCheckTest extends AnyFunSuite:
     assert(diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
       s"Wasm output kind should trigger jdbc: gating, got: $diags")
 
+  // ── v1.30 — @side=client validation ─────────────────────────────────────
+
+  private def moduleWithClientSideSql(dbUrl: String, side: String = "client"): ir.NormalizedModule =
+    val src =
+      s"""|---
+          |databases:
+          |  local:
+          |    url: "$dbUrl"
+          |---
+          |# Q
+          |
+          |```sql @db=local @side=$side
+          |SELECT 1
+          |```
+          |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  test("validate — @side=client with sqlite: → no UnsupportedClientSideDbUrl"):
+    val m     = moduleWithClientSideSql("sqlite::memory:")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedClientSideDbUrl]),
+      s"sqlite: should be allowed on @side=client, got: $diags")
+
+  test("validate — @side=client with sqlite-opfs: → no UnsupportedClientSideDbUrl"):
+    val m     = moduleWithClientSideSql("sqlite-opfs:./app.db")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedClientSideDbUrl]),
+      s"sqlite-opfs: should be allowed on @side=client, got: $diags")
+
+  test("validate — @side=client with postgres: → UnsupportedClientSideDbUrl"):
+    val m     = moduleWithClientSideSql("postgres://localhost/db")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    val bad   = diags.collect { case d: Diagnostic.UnsupportedClientSideDbUrl => d }
+    assert(bad.size == 1, s"expected one UnsupportedClientSideDbUrl, got: $diags")
+    assert(bad.head.db == "local")
+    assert(bad.head.url == "postgres://localhost/db")
+
+  test("validate — @side=client with h2: → UnsupportedClientSideDbUrl"):
+    val m     = moduleWithClientSideSql("h2:mem:test")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    assert(diags.exists(_.isInstanceOf[Diagnostic.UnsupportedClientSideDbUrl]),
+      s"h2: should not be allowed on @side=client, got: $diags")
+
+  test("validate — @side=server (default) with postgres: → no UnsupportedClientSideDbUrl"):
+    val m     = moduleWithClientSideSql("postgres://localhost/db", side = "server")
+    val diags = CapabilityCheck.validate(m, jvmFamilyCap, "jvm")
+    assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedClientSideDbUrl]),
+      s"@side=server should not trigger client-side URL check, got: $diags")
+
   test("validate — target without sql in blockLanguages → no UnsupportedJdbcUrl (orthogonal)"):
     // A backend that doesn't declare sql at all — UnknownBlockLanguage
     // fires for the sql fence; UnsupportedJdbcUrl is irrelevant.

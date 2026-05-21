@@ -266,11 +266,40 @@ standard `dep:` link from the front-matter:
 [postgres](dep:org.postgresql/postgresql:42.7.4)
 ```
 
-**Target support.**  `sql` is JVM-only: the interpreter and JVM
-backend execute the block via JDBC; the JS, Node, and WASM backends
-emit `UnknownBlockLanguage` (the source is preserved in the IR so
-future browser-side or Wasm-side SQL engines can pick it up without a
-spec change).
+**Target support.**  `sql` blocks run on all backends that declare
+`Lang.Sql` in their `Capabilities.blockLanguages`:
+
+| Backend | Engine | Notes |
+|---------|--------|-------|
+| JVM / interpreter | JDBC (`backend-sql-runtime`) | All canonical URL schemes; `sqlite:` → `jdbc:sqlite:`, etc. |
+| JS / Node | sql.js (`sqlite:`) or DuckDB-Wasm (`duckdb:`) | Async by construction |
+| Wasm | sql.js / DuckDB-Wasm | Same as JS/Node |
+
+`jdbc:*` URLs on JS-family targets produce a build-time
+`UnsupportedJdbcUrl` diagnostic.  Use the canonical scheme (e.g.
+`sqlite:` instead of `jdbc:sqlite:`) to target all backends from one
+front-matter entry — each backend translates at connect time.
+
+**`@side` attribute — client vs. server SQL (v1.30).**
+In modules that compile to both a server and a browser bundle
+(`frontend: react` / `frontend: solid` / etc.), a `sql` block may
+carry `@side=server` (default) or `@side=client`:
+
+```sql @db=local @side=client
+SELECT * FROM cache WHERE key = ${k}
+```
+
+| `@side` | Where the block runs | Allowed URL schemes |
+|---------|---------------------|---------------------|
+| `server` (default) | Server/JVM route handler | Any scheme |
+| `client` | Browser bundle | `sqlite:`, `sqlite-opfs:`, `duckdb:` |
+
+A `@side=client` block may only reference a `databases:` entry whose
+URL scheme is JS-supported; a non-JS-supported scheme on `@side=client`
+is a build-time `UnsupportedDbUrl` diagnostic.
+
+`@side=server` is the default everywhere; existing code without the
+attribute is unaffected.
 
 ### 3.4 Inline Interpolation
 

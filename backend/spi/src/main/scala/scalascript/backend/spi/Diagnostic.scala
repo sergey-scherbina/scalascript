@@ -21,3 +21,8 @@ enum Diagnostic:
   // changing the URL scheme.  JVM / interpreter targets accept jdbc:
   // URLs natively, so this diagnostic never fires for them.
   case UnsupportedJdbcUrl(db: String, url: String, backend: String)
+  // v1.30 — a `sql` block carrying `@side=client` references a
+  // `databases:` entry whose URL scheme is not supported in the
+  // browser (e.g. `h2:`, `postgres:`).  Only JS-supported schemes
+  // (`sqlite:`, `sqlite-opfs:`, `duckdb:`) are allowed on the client side.
+  case UnsupportedClientSideDbUrl(db: String, url: String, block: String)
