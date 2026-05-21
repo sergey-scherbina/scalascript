@@ -1,0 +1,39 @@
+---
+name: std-pwa
+version: 0.1.0
+description: Progressive Web App support — registers /manifest.json and /sw.js routes
+package: std.pwa
+exports:
+  - pwa
+---
+
+# `std.pwa` — Progressive Web App support
+
+Turns any `.ssc` web app into a PWA in two lines:
+register the plugin routes **before** `serve(port)`.
+
+```scalascript
+// Register GET /manifest.json and GET /sw.js before serve(port).
+//
+// Parameters (all optional except name):
+//   name            — full app name shown in the OS launcher
+//   shortName       — short label (dock, home screen); defaults to name
+//   description     — human-readable description
+//   themeColor      — toolbar / status-bar colour, e.g. "#4285F4"
+//   backgroundColor — splash-screen background, e.g. "#ffffff"
+//   display         — "standalone" | "fullscreen" | "minimal-ui" | "browser"
+//   startUrl        — URL opened when launched from home screen, default "/"
+//   icons           — list of icon URLs (serve them as static files)
+//   precache        — URLs cached on service-worker install (cache-first on fetch)
+extern def pwa(
+  name:            String,
+  shortName:       String        = "",
+  description:     String        = "",
+  themeColor:      String        = "#ffffff",
+  backgroundColor: String        = "#ffffff",
+  display:         String        = "standalone",
+  startUrl:        String        = "/",
+  icons:           List[String]  = List(),
+  precache:        List[String]  = List()
+): Unit
+```

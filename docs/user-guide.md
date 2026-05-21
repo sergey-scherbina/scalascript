@@ -2653,6 +2653,91 @@ println(s"Dark mode: ${flags.darkMode}")
 
 ---
 
+## 23. Progressive Web App (`std.pwa`)
+
+Turn any `.ssc` web app into a PWA in two lines.  The `pwa(...)` call
+registers `GET /manifest.json` (W3C Web App Manifest) and `GET /sw.js`
+(a precaching service worker) as ordinary routes — **before** `serve(port)`.
+
+Works identically in `ssc run` (interpreter) and `ssc run-jvm` (JVM codegen).
+
+### 23.1 Setup
+
+Add `std.pwa` to your `requires:` front-matter and call `pwa(...)`:
+
+```scalascript
+---
+requires:
+  - std.http
+  - std.pwa
+---
+
+pwa(
+  name            = "My App",
+  shortName       = "App",
+  description     = "A ScalaScript web app",
+  themeColor      = "#4285F4",
+  backgroundColor = "#ffffff",
+  display         = "standalone",   // standalone | fullscreen | minimal-ui | browser
+  startUrl        = "/",
+  icons           = List("/icon-192.png", "/icon-512.png"),
+  precache        = List("/", "/styles.css", "/app.js"),
+)
+
+route("GET", "/") { _ => Response.html("...") }
+serve(8080)
+```
+
+All parameters except `name` are optional.
+
+### 23.2 Frontend wiring
+
+Add to your HTML `<head>`:
+
+```html
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#4285F4">
+```
+
+Add before `</body>`:
+
+```html
+<script>
+  if ('serviceWorker' in navigator)
+    navigator.serviceWorker.register('/sw.js');
+</script>
+```
+
+### 23.3 Service worker strategy
+
+Phase 1 implements **cache-first with precaching**: URLs in `precache` are
+fetched and cached on SW `install`; every `GET` is served from cache if
+present, falling back to the network otherwise.  Old cache versions are
+cleaned up on `activate`.
+
+Network-first, stale-while-revalidate, and push notifications are
+Phase 2 features.
+
+### 23.4 Registered routes
+
+| Route | Content-Type | Description |
+|-------|--------------|-------------|
+| `GET /manifest.json` | `application/manifest+json` | W3C Web App Manifest built from `pwa(...)` config |
+| `GET /sw.js` | `application/javascript` | Precaching service worker |
+
+### 23.5 Icon sizing
+
+`icons` entries are matched against `192` / `512` in the URL to auto-assign
+the `sizes` field in the manifest.  Serve your icons as static files in the
+same directory you run `ssc` from.
+
+### 23.6 Full example
+
+See [examples/pwa/pwa-demo.ssc](../examples/pwa/pwa-demo.ssc) and
+[docs/pwa-plugin.md](pwa-plugin.md) for the full spec and architecture notes.
+
+---
+
 ## Quick Reference
 
 ### CLI
@@ -2697,3 +2782,4 @@ ssc plugin install X      # install plugin
 - Backend SPI: [docs/backend-spi.md](backend-spi.md)
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
 - Config system (YAML/HOCON/JSON + typed binding): §22 above, [docs/config-system.md](config-system.md)
+- Progressive Web App: §23 above, [docs/pwa-plugin.md](pwa-plugin.md)

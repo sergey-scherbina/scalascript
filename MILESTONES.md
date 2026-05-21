@@ -9507,3 +9507,48 @@ Deferred from v1.26/v1.27 scope; landed as a standalone milestone.
 - `README.md`: capabilities table + examples table.
 - `docs/user-guide.md` §6: new subsection "`transaction` fenced blocks".
 - `docs/tutorial.md` Tutorial 4 Step 2: tip box for atomic multi-statement changes.
+
+---
+
+## v1.32 — `std/pwa-plugin`: Progressive Web App support ✓ Complete (2026-05-21)
+
+**Status: complete (2026-05-21).**
+
+Turns any `.ssc` web app into a Progressive Web App in two lines.
+`pwa(name, ...)` registers `GET /manifest.json` (W3C Web App Manifest)
+and `GET /sw.js` (cache-first precaching service worker) before `serve(port)`.
+
+### What landed
+
+- **`std/pwa.ssc`** — `extern def pwa(...)` declaration (package `std.pwa`).
+- **`std/pwa-plugin/`** — `PwaInterpreterPlugin` + `PwaIntrinsics` table:
+  interprets `pwa(...)` by calling `ctx.registerRoute` for both routes;
+  builds the W3C manifest JSON and the service-worker JS inline.
+- **`RestRuntime.scala`** — `def pwa(...)` for JvmGen / `ssc run-jvm`:
+  calls the existing `route()` primitive to register the same two routes;
+  private helpers `_pwaManifest` and `_pwaServiceWorker` build the payloads.
+- **`build.sbt`** — `lazy val pwaPlugin`, wired into root aggregate and `cli/stage`
+  packaging (`pwaPlugin / packagePlugin`).
+- **`docs/pwa-plugin.md`** — full spec (goals, architecture, API, phases).
+- **`examples/pwa/pwa-demo.ssc`** — golden-path runnable example.
+- **`README.md`** — PWA row in capabilities table.
+- **`docs/user-guide.md`** §20: `std.pwa` plugin section.
+
+### Service-worker strategy
+
+Phase 1 uses cache-first with precaching on `install`.  Network-first,
+stale-while-revalidate, and push-notification setup are deferred to Phase 2.
+
+### Frontend wiring (user responsibility)
+
+```html
+<!-- in <head> -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#4285F4">
+
+<!-- before </body> -->
+<script>
+  if ('serviceWorker' in navigator)
+    navigator.serviceWorker.register('/sw.js');
+</script>
+```

@@ -800,6 +800,7 @@ lazy val cli = project
         (httpPlugin     / packagePlugin).value,
         (wsPlugin       / packagePlugin).value,
         (mcpPlugin      / packagePlugin).value,
+        (pwaPlugin      / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -1928,6 +1929,16 @@ lazy val mcpPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.mcp"))
 
+lazy val pwaPlugin = project
+  .in(file("std/pwa-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-pwa-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.pwa"))
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1949,7 +1960,7 @@ lazy val root = project
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, sqlPlugin,
-    httpPlugin, wsPlugin, mcpPlugin,
+    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin,
   )
   .settings(
     publish / skip := true

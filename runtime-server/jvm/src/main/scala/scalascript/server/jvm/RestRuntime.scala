@@ -717,6 +717,84 @@ def cacheable(r: Response, maxAge: Long, etag: String = ""): Response =
 def noCache(r: Response): Response =
   r.copy(headers = r.headers + ("Cache-Control" -> "no-store, no-cache, must-revalidate"))
 
+// ── Progressive Web App ────────────────────────────────────────────────
+// Call pwa(...) before serve(port).  Registers GET /manifest.json and
+// GET /sw.js with a cache-first precaching service worker.
+def pwa(
+  name:            String,
+  shortName:       String       = "",
+  description:     String       = "",
+  themeColor:      String       = "#ffffff",
+  backgroundColor: String       = "#ffffff",
+  display:         String       = "standalone",
+  startUrl:        String       = "/",
+  icons:           List[String] = Nil,
+  precache:        List[String] = Nil,
+): Unit =
+  val short    = if shortName.isEmpty then name else shortName
+  val manifest = _pwaManifest(name, short, description, themeColor, backgroundColor, display, startUrl, icons)
+  val swJs     = _pwaServiceWorker(precache)
+  route("GET", "/manifest.json")(_ =>
+    Response(200, Map("Content-Type" -> "application/manifest+json"), manifest))
+  route("GET", "/sw.js")(_ =>
+    Response(200, Map("Content-Type" -> "application/javascript"), swJs))
+
+private def _pwaJsonStr(s: String): String =
+  "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+private def _pwaManifest(
+    name: String, short: String, desc: String,
+    theme: String, bg: String, display: String,
+    start: String, icons: List[String],
+): String =
+  val iconsJson =
+    if icons.isEmpty then "[]"
+    else
+      val entries = icons.map { url =>
+        val size = if url.contains("512") then "512x512"
+                   else if url.contains("192") then "192x192"
+                   else "any"
+        s"""    {"src":${_pwaJsonStr(url)},"sizes":${_pwaJsonStr(size)},"type":"image/png"}"""
+      }
+      "[\n" + entries.mkString(",\n") + "\n  ]"
+  s"""{
+  "name":${_pwaJsonStr(name)},
+  "short_name":${_pwaJsonStr(short)},
+  "description":${_pwaJsonStr(desc)},
+  "theme_color":${_pwaJsonStr(theme)},
+  "background_color":${_pwaJsonStr(bg)},
+  "display":${_pwaJsonStr(display)},
+  "start_url":${_pwaJsonStr(start)},
+  "icons":$iconsJson
+}"""
+
+private def _pwaServiceWorker(precache: List[String]): String =
+  val urlsJson = precache.map(u => _pwaJsonStr(u)).mkString("[", ", ", "]")
+  s"""const CACHE = "ssc-pwa-v1";
+const PRECACHE = $urlsJson;
+
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    caches.match(e.request).then(cached => cached || fetch(e.request))
+  );
+});
+"""
+
 private def _applyCors(ex: com.sun.net.httpserver.HttpExchange): Unit =
   CorsHelpers(ex, _corsOrigins, _corsMethods, _corsHeaders)
 

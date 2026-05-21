@@ -1,0 +1,66 @@
+---
+name: pwa-demo
+version: 0.1.0
+description: Progressive Web App demo — shows /manifest.json and /sw.js registration
+requires:
+  - std.http
+  - std.pwa
+---
+
+# PWA Demo
+
+A minimal `.ssc` web app that registers itself as a Progressive Web App.
+Open in Chrome or Safari and use "Add to Home Screen" / "Install App".
+
+```scalascript
+// 1. Register the manifest + service-worker routes.
+pwa(
+  name            = "ScalaScript PWA Demo",
+  shortName       = "SSC Demo",
+  description     = "A minimal ScalaScript Progressive Web App",
+  themeColor      = "#4285F4",
+  backgroundColor = "#ffffff",
+  display         = "standalone",
+  startUrl        = "/",
+  icons           = List("/icon-192.png", "/icon-512.png"),
+  precache        = List("/", "/styles.css"),
+)
+
+// 2. Home page — instructs the user to wire up the manifest + SW.
+route("GET", "/") { _ =>
+  Response.html("""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ScalaScript PWA Demo</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4285F4">
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    a  { color: #4285F4; }
+    pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>ScalaScript PWA Demo</h1>
+  <p>This app is registered as a Progressive Web App.</p>
+  <ul>
+    <li><a href="/manifest.json">/manifest.json</a> — W3C Web App Manifest</li>
+    <li><a href="/sw.js">/sw.js</a> — Precaching service worker</li>
+  </ul>
+  <p>In Chrome: open the address bar menu → <strong>Install app</strong>.</p>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(r => console.log('SW registered', r.scope))
+        .catch(e => console.error('SW error', e));
+    }
+  </script>
+</body>
+</html>""")
+}
+
+// 3. Serve.
+serve(8080)
+```

@@ -216,6 +216,7 @@ compiles them via Scala.js.
 | REST ergonomics | `jsonParse/jsonStringify/jsonRead`, `req.json`, `JsonValue`, `validate { }`, middleware |
 | SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; ` ```transaction ``` ` fenced blocks run multiple `;`-separated statements atomically (JDBC transaction, commit/rollback); `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
 | Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
+| Progressive Web App | `pwa(name, themeColor, icons, precache)` — registers `GET /manifest.json` + `GET /sw.js`; cache-first precaching service worker; works in `ssc run` and `ssc run-jvm` |
 
 ### Auth and security
 
@@ -346,6 +347,7 @@ compiles them via Scala.js.
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [sql-transaction.ssc](conformance/sql-transaction.ssc) | Atomic multi-statement `transaction` block — debit + credit in one JDBC transaction |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
+| [pwa-demo.ssc](examples/pwa/pwa-demo.ssc) | Progressive Web App — `pwa(name, icons, precache)`, `GET /manifest.json` + `GET /sw.js` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |
 | [tls-demo.ssc](examples/tls-demo.ssc) | HTTPS + WSS server with `tls(cert, key)` |
