@@ -3567,40 +3567,121 @@ function _ssc_ui_emit(tree, outDir) {}
 // Walk the View IR tree and produce a static HTML string.
 // Reactive nodes (SignalText, ShowSignal, etc.) are rendered with their
 // current / initial values so the page is useful for run-js inspection.
-function _ssc_ui_viewToHtml(v) {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'string') return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  if (typeof v !== 'object') return String(v);
-  switch (v._type) {
-    case '_Element': {
-      const tag   = v.tag || 'div';
-      const attrs = v.attrs || {};
-      let attrStr = '';
-      for (const [k, val] of Object.entries(attrs)) {
-        const resolved = (val && typeof val === 'object' && typeof val.get === 'function') ? val.get() : val;
-        if (resolved !== undefined && resolved !== null && resolved !== false)
-          attrStr += ` ${k}="${String(resolved).replace(/"/g,'&quot;')}"`;
-      }
-      const kids = (v.children || []).map(_ssc_ui_viewToHtml).join('');
-      const voids = new Set(['br','hr','img','input','link','meta','area','base','col','embed','param','source','track','wbr']);
-      return voids.has(tag) ? `<${tag}${attrStr}>` : `<${tag}${attrStr}>${kids}</${tag}>`;
-    }
-    case '_TextNode': return _ssc_ui_viewToHtml(v.s);
-    case '_SignalText': return _ssc_ui_viewToHtml(v.sig && v.sig.get ? v.sig.get() : '');
-    case '_ShowSignal': {
-      const show = v.cond && v.cond.get ? v.cond.get() : false;
-      return _ssc_ui_viewToHtml(show ? v.whenTrue : v.whenFalse);
-    }
-    case '_Fragment': return (v.children || []).map(_ssc_ui_viewToHtml).join('');
-    case '_FetchTableView': return `<div class="fetch-table" data-fetch="${v.fetchUrl}"></div>`;
-    default: return '';
+function _ssc_ui_renderPage(view) {
+  const _esc  = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const _escT = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const sigs  = new Map(); // Signal id -> initial value (collected during walk)
+  const voids = new Set(['br','hr','img','input','link','meta','area','base','col','embed','param','source','track','wbr']);
+
+  function collectSig(s) {
+    if (s && s._type === 'Signal' && !sigs.has(s.id))
+      sigs.set(s.id, s.get());
   }
+
+  function walk(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'string') return _escT(v);
+    if (typeof v !== 'object') return String(v);
+    switch (v._type) {
+      case '_Element': {
+        const tag    = v.tag || 'div';
+        const attrs  = v.attrs  || {};
+        const events = v.events || {};
+        let   aStr   = '';
+        for (const [k, val] of Object.entries(attrs)) {
+          const r = (val && typeof val === 'object' && typeof val.get === 'function') ? (collectSig(val), val.get()) : val;
+          if (r !== undefined && r !== null && r !== false)
+            aStr += ` ${k}="${_esc(r)}"`;
+        }
+        for (const [, h] of Object.entries(events)) {
+          if (!h || typeof h !== 'object') continue;
+          if (h._type === '_ToggleSignal' && h.s) { collectSig(h.s); aStr += ` data-ssc-toggle="${h.s.id}"`; }
+          else if (h._type === '_SetSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-set="${h.s.id}" data-ssc-set-val="${_esc(JSON.stringify(h.v))}"`; }
+          else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
+        }
+        const kids = (v.children || []).map(walk).join('');
+        return voids.has(tag) ? `<${tag}${aStr}>` : `<${tag}${aStr}>${kids}</${tag}>`;
+      }
+      case '_TextNode':   return walk(v.s);
+      case '_SignalText': {
+        collectSig(v.sig);
+        const id  = v.sig && v.sig.id;
+        const txt = _escT(v.sig && v.sig.get ? String(v.sig.get()) : '');
+        return id ? `<span data-ssc-text="${id}">${txt}</span>` : txt;
+      }
+      case '_ShowSignal': {
+        collectSig(v.cond);
+        const id   = v.cond && v.cond.id;
+        const show = v.cond && v.cond.get ? v.cond.get() : false;
+        const tHtml = walk(v.whenTrue);
+        const fHtml = walk(v.whenFalse);
+        if (!id) return show ? tHtml : fHtml;
+        const tStyle = show ? ' style="display:contents"' : ' style="display:none"';
+        const fStyle = show ? ' style="display:none"' : ' style="display:contents"';
+        return `<span data-ssc-cond="${id}" style="display:contents"><span data-ssc-branch="true"${tStyle}>${tHtml}</span><span data-ssc-branch="false"${fStyle}>${fHtml}</span></span>`;
+      }
+      case '_Fragment':      return (v.children || []).map(walk).join('');
+      case '_FetchTableView': return `<div class="fetch-table" data-fetch="${v.fetchUrl}"></div>`;
+      default: return '';
+    }
+  }
+
+  const body = walk(view);
+
+  // Serialize initial signal values for the boot script
+  const sigJson = JSON.stringify(Object.fromEntries(sigs));
+
+  const script = `<script>
+(function(){
+  var _sv = ${sigJson};
+  var _sb = {};
+  function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
+  function _set(id, v) {
+    _sv[id] = v;
+    (_sb[id] || []).forEach(function(fn){ fn(v); });
+  }
+  // show/hide branches
+  document.querySelectorAll('[data-ssc-cond]').forEach(function(el) {
+    var id = el.getAttribute('data-ssc-cond');
+    var tBranch = el.querySelector('[data-ssc-branch="true"]');
+    var fBranch = el.querySelector('[data-ssc-branch="false"]');
+    _sub(id, function(v) {
+      if (tBranch) tBranch.style.display = v ? 'contents' : 'none';
+      if (fBranch) fBranch.style.display = v ? 'none' : 'contents';
+    });
+  });
+  // signal text spans
+  document.querySelectorAll('[data-ssc-text]').forEach(function(el) {
+    var id = el.getAttribute('data-ssc-text');
+    _sub(id, function(v) { el.textContent = v == null ? '' : String(v); });
+  });
+  // checkbox toggle
+  document.querySelectorAll('[data-ssc-toggle]').forEach(function(el) {
+    var id = el.getAttribute('data-ssc-toggle');
+    el.addEventListener('change', function() { _set(id, el.checked); });
+    _sub(id, function(v) { el.checked = !!v; });
+  });
+  // button setSignal
+  document.querySelectorAll('[data-ssc-set]').forEach(function(el) {
+    var id  = el.getAttribute('data-ssc-set');
+    var val = JSON.parse(el.getAttribute('data-ssc-set-val'));
+    el.addEventListener('click', function() { _set(id, val); });
+  });
+  // text input change
+  document.querySelectorAll('[data-ssc-change]').forEach(function(el) {
+    var id = el.getAttribute('data-ssc-change');
+    el.addEventListener('input', function() { _set(id, el.value); });
+    _sub(id, function(v) { el.value = v == null ? '' : String(v); });
+  });
+})();
+</script>`;
+
+  return { body, script };
 }
 
 function _ssc_ui_serve(view, port) {
-  // Register GET / to render the View tree as a minimal HTML page.
   route('GET', '/')((_req) => {
-    const body = _ssc_ui_viewToHtml(view);
+    const { body, script } = _ssc_ui_renderPage(view);
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3609,8 +3690,9 @@ function _ssc_ui_serve(view, port) {
 input,button{font:inherit;padding:6px 10px;border:1px solid #ccc;border-radius:4px}
 button{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
+[data-ssc-cond]{display:contents}
 hr{border:none;border-top:1px solid #e5e7eb;margin:12px 0}
-</style></head><body>${body}</body></html>`;
+</style></head><body>${body}${script}</body></html>`;
     return Response.html(html);
   });
   _ssc_http_serve(port);
