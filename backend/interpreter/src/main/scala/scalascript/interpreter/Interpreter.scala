@@ -206,10 +206,17 @@ class Interpreter(
     val child    = Interpreter(this.out, Some(childDir), lockPath = this.lockPath)
     child.run(Parser.parse(os.read(filePath)))
     val rawResult = child.lastExprResult
-    val handler: Value = rawResult match
+    val baseHandler: Value = rawResult match
       case fn: Value.FunV if fn.params.length >= 1 => fn
       case other =>
         Value.NativeFnV("mount.static", scalascript.interpreter.Computation.pureFn(_ => other))
+    // Wrap typed handlers: auto-deser/ser if the handler uses typed params.
+    val handler = TypedHandlerWrapper.wrapIfTyped(
+      baseHandler,
+      invoke      = (fn, args) => child.invoke(fn, args),
+      globalsView = child.globalsView,
+      mountedPath = path,
+    )
     scalascript.server.Routes.register(
       method.toUpperCase, path, handler, this,
       source   = Some(absFile),
@@ -469,7 +476,7 @@ class Interpreter(
         }
       val merged = scalascript.config.MergeEngine.mergeAll(
         frontmatter   = fmCv,
-        externalFiles = Nil,
+        externalFiles = scalascript.config.ConfigRegistry.getSidecar.toList,
         blocks        = fencedCvs,
       )
       // Resolve substitutions (${env:X} and ${config:X}) on the merged tree.

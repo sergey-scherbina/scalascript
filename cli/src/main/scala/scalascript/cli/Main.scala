@@ -369,6 +369,31 @@ private[cli] val validFrontendNames: Set[String] =
 private[cli] def applyFrontendBackend(name: String): Unit =
   scalascript.frontend.FrontendFrameworks.setBackend(name)
 
+/** Load a sidecar config file alongside `sscPath`.
+ *  Tries `<base>.conf`, `<base>.yaml`, `<base>.json` in that order
+ *  (first found wins).  Supports HOCON (including `include` directives),
+ *  YAML, and JSON via the existing [[ConfigParser]].
+ *  Returns `None` when no sidecar file exists. */
+private[cli] def loadSidecarConfig(sscPath: os.Path): Option[scalascript.config.ConfigValue] =
+  val base = sscPath / os.up / sscPath.last.stripSuffix(".ssc")
+  val exts = List("conf", "hocon", "yaml", "yml", "json")
+  exts.iterator
+    .map(ext => os.Path(base.toString + "." + ext))
+    .find(os.exists)
+    .flatMap { p =>
+      try
+        val content = os.read(p)
+        val fmt     = scalascript.config.ConfigParser.detectFormat(p.last)
+        scalascript.config.ConfigParser.parse(content, fmt, java.nio.file.Path.of(p.toString).getParent) match
+          case Right(cv) => Some(cv)
+          case Left(err) =>
+            System.err.println(s"[warn] sidecar config ${p.last}: ${err.getMessage}")
+            None
+      catch case e: Exception =>
+        System.err.println(s"[warn] sidecar config ${p.last}: ${e.getMessage}")
+        None
+    }
+
 def printUsage(): Unit =
   println("""
     |ScalaScript (ssc)
@@ -1688,6 +1713,15 @@ def runCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
+        // Load sidecar config (<script>.conf/.yaml/.json) before running.
+        // Priority: frontmatter < sidecar < fenced blocks < CLI flags.
+        val sidecarCv = loadSidecarConfig(path)
+        sidecarCv.foreach(scalascript.config.ConfigRegistry.setSidecar)
+        // Apply sidecar frontend: key when no --frontend CLI flag was given.
+        if frontendFlag.isEmpty then
+          sidecarCv.flatMap(_.get("frontend").flatMap(_.getString))
+            .filter(validFrontendNames)
+            .foreach(applyFrontendBackend)
         val module = Parser.parse(os.read(path))
         val effectiveBackend =
           if backendId == "int" then
@@ -1768,6 +1802,7 @@ def runCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
+      finally scalascript.config.ConfigRegistry.clearSidecar()
 
 def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn
@@ -1779,8 +1814,7 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
   var running = true
   // Global REPL setting: include handler deserialization details in 400 errors.
-  // Phase 7 (typed handlers) will read this; for now it is write-only from :set.
-  @annotation.nowarn("msg=local variable was mutated but not read")
+  // Read by replHandleMount for typed handler wrapping (Phase 7).
   var errorDetails: Boolean = true
   // Tracks the port the HTTP server is currently listening on (None = stopped).
   val serverPort = new java.util.concurrent.atomic.AtomicReference[Option[Int]](None)
@@ -1849,7 +1883,7 @@ def replCommand(@annotation.unused args: List[String]): Unit =
         scalascript.server.Routes.clear()
         System.err.println("Routes cleared.")
       case Some(s) if s.startsWith(":mount ") =>
-        replHandleMount(s.trim, interp)
+        replHandleMount(s.trim, interp, errorDetails)
       case Some(s) if s.startsWith(":load ") =>
         replHandleLoad(s.trim, interp)
       case Some(s) if s.startsWith(":reload ") =>
@@ -1955,10 +1989,12 @@ def replHandleSet(cmd: String, setFn: Boolean => Unit): Unit =
  *  - Inline:    `:mount GET /ping { _ => Response.text("pong") }`
  *  - By name:   `:mount GET /greet greet`
  *  - From file: `:mount GET /items/:id handlers/entity.ssc [key=value ...]`
+ *
+ *  `errorDetails` is the global REPL setting from `:set errorDetails`.
  */
-def replHandleMount(cmd: String, interp: Interpreter): Unit =
+def replHandleMount(cmd: String, interp: Interpreter, errorDetails: Boolean = true): Unit =
   import scalascript.server.Routes
-  import scalascript.interpreter.Value
+  import scalascript.interpreter.{Value, TypedHandlerWrapper}
   // Strip ":mount " prefix and split into at most 3 parts: method, path, rest
   val rest0 = cmd.stripPrefix(":mount").trim
   val parts = rest0.split("\\s+", 3)
@@ -1973,17 +2009,22 @@ def replHandleMount(cmd: String, interp: Interpreter): Unit =
     // ── Form 1: inline handler expression ────────────────────────────────
     try
       interp.runSnippet(rest)
-      val handler = interp.lastResult
-      handler match
-        case fn: Value.FunV =>
-          Routes.register(method, path, fn, interp, source = None, mountCtx = Map.empty)
-          System.err.println(s"Mounted: $method $path")
+      val rawHandler = interp.lastResult
+      val baseHandler: Value = rawHandler match
+        case fn: Value.FunV => fn
         case other =>
           // Auto-wrap bare Response values
-          val wrapped = Value.NativeFnV("mount.static",
+          Value.NativeFnV("mount.static",
             scalascript.interpreter.Computation.pureFn(_ => other))
-          Routes.register(method, path, wrapped, interp, source = None, mountCtx = Map.empty)
-          System.err.println(s"Mounted: $method $path")
+      val handler = TypedHandlerWrapper.wrapIfTyped(
+        baseHandler,
+        invoke      = (fn, args) => interp.invoke(fn, args),
+        globalsView = interp.globalsView,
+        mountedPath = path,
+        errorDetails = errorDetails,
+      )
+      Routes.register(method, path, handler, interp, source = None, mountCtx = Map.empty)
+      System.err.println(s"Mounted: $method $path")
     catch
       case e: Exception => System.err.println(s"Error evaluating handler: ${e.getMessage}")
 
@@ -2013,7 +2054,14 @@ def replHandleMount(cmd: String, interp: Interpreter): Unit =
       case None =>
         System.err.println(s"Unknown name: $name")
       case Some(fn: Value.FunV) =>
-        Routes.register(method, path, fn, interp, source = None, mountCtx = Map.empty)
+        val handler = TypedHandlerWrapper.wrapIfTyped(
+          fn,
+          invoke       = (fn2, args) => interp.invoke(fn2, args),
+          globalsView  = interp.globalsView,
+          mountedPath  = path,
+          errorDetails = errorDetails,
+        )
+        Routes.register(method, path, handler, interp, source = None, mountCtx = Map.empty)
         System.err.println(s"Mounted: $method $path  ($name)")
       case Some(_) =>
         System.err.println(s"Not a function: $name")
@@ -3351,18 +3399,25 @@ def runJvmCommand(args: List[String]): Unit =
   // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
   // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
   // invalidated by a SHA-256 mismatch against the current source bytes.
-  // When --frontend is specified, bypass the cache to recompile with the selected backend.
+  // --frontend CLI flag or sidecar config frontend: key bypass the cache.
   import scalascript.artifact.ModuleGraph
   val artDir    = AutoResolve.defaultArtifactDir(path)
   val baseName  = path.last.stripSuffix(".ssc")
   val scjvmPath = artDir / (baseName + ".scjvm")
+  // Load sidecar config (<script>.conf/.yaml/.json) for run-jvm.
+  val jvmSidecar = loadSidecarConfig(path)
+  val sidecarFrontend = jvmSidecar
+    .flatMap(_.get("frontend").flatMap(_.getString))
+    .filter(validFrontendNames)
+  // CLI flag beats sidecar; both beat frontmatter.
+  val frontendOverride = jvmFrontendFlag.orElse(sidecarFrontend)
   val raw =
-    if jvmFrontendFlag.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
+    if frontendOverride.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
       JvmArtifactIO.readJvmFile(scjvmPath) match
         case Right(art) => art.scalaSource
         case Left(_)    => compileJvmAndCache(path, baseName, scjvmPath)
     else
-      compileJvmAndCache(path, baseName, scjvmPath, jvmFrontendFlag)
+      compileJvmAndCache(path, baseName, scjvmPath, frontendOverride)
 
   val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
   val source = jarsDir match

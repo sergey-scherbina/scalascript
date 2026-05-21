@@ -73,7 +73,7 @@ final class VueFrameworkBackend extends FrontendFrameworkSpi:
        |  <script type="importmap">
        |  {
        |    "imports": {
-       |      "vue": "https://esm.sh/vue@3.4.0"
+       |      "vue": "https://unpkg.com/vue@3.4.0/dist/vue.esm-browser.prod.js"
        |    }
        |  }
        |  </script>

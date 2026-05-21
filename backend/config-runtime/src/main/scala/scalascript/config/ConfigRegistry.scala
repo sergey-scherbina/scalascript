@@ -7,7 +7,8 @@ package scalascript.config
  *  any user code runs).  The interpreter's `config` intrinsic reads
  *  from here. */
 object ConfigRegistry:
-  @volatile private var current: ConfigValue = ConfigValue.empty
+  @volatile private var current: ConfigValue       = ConfigValue.empty
+  @volatile private var _sidecar: Option[ConfigValue] = None
 
   def set(cv: ConfigValue): Unit = current = cv
 
@@ -18,3 +19,10 @@ object ConfigRegistry:
     current.get(path).flatMap(_.getString)
 
   def reset(): Unit = current = ConfigValue.empty
+
+  /** Sidecar config loaded from <script>.conf/.yaml/.json by the CLI.
+   *  Priority: frontmatter < sidecar < fenced blocks.
+   *  Set by the CLI before running; read by the Interpreter during module setup. */
+  def setSidecar(cv: ConfigValue): Unit  = _sidecar = Some(cv)
+  def getSidecar: Option[ConfigValue]    = _sidecar
+  def clearSidecar(): Unit               = _sidecar = None
