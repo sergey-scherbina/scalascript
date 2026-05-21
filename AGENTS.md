@@ -397,3 +397,35 @@ context rotations — `MILESTONES.md` does. Use it to:
 
 **Work in your own worktree, push the moment it's shippable, clean up
 after yourself.**
+
+---
+
+## Autonomous continuous-delivery flow
+
+When the user says "work through tasks in order", use this loop without
+asking for permission between items:
+
+```
+while true:
+    1. git fetch origin; read MILESTONES.md "Known issues" + "Next wave"
+    2. Pick the highest-priority open item (bugs before features)
+    3. If the item is genuinely ambiguous (design choice, unclear scope,
+       risk of breaking something non-obvious) → ask the user ONE clear
+       question, wait for answer, then proceed
+    4. EnterWorktree("feature/<short-name>") off origin/main
+    5. Implement, run tests, fix until green
+    6. Commit + update MILESTONES.md in the same commit
+    7. Rebase on origin/main if it moved; push to origin/main
+    8. ExitWorktree(remove); delete remote branch
+    9. Report ONE line of progress to the user: "✓ <what landed>"
+   10. Go to step 1
+```
+
+Stop only when:
+- No open items remain that are safe to pick (everything is blocked or
+  needs a design decision).
+- The user interrupts or redirects.
+
+**Progress cadence**: one short message per shipped item, no wall-of-text
+summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
+enough. Detailed context goes in the commit message and MILESTONES.md.
