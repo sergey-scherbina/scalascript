@@ -374,7 +374,7 @@ private[vue] object VueEmitter:
     case AttrValue.Bool(value)    => Some(value.toString)
     case AttrValue.Num(value)     => Some(formatNumber(value))
     case AttrValue.Dynamic(read)    => Some(jsLiteral(read()))
-    case AttrValue.Reactive(signal) => Some(jsLiteral(signal())) // snapshot; Vue reactive support coming later
+    case AttrValue.Reactive(signal) => Some(s"this.${signal.jsName}")
     case AttrValue.Absent           => None
     case AttrValue.RefBinding(_)    => None  // handled inline in renderProps as the Vue `ref` prop
 
@@ -414,7 +414,9 @@ private[vue] object VueEmitter:
         val clearJs  = if clearBody then s" this.${body.jsName} = '';" else ""
         Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.jsName}})" +
           s".then(r => r.text()).then(_ => { this.${tick.jsName}++;$clearJs }); }")
-      case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
+      case EventHandler.InputChange(signal) =>
+        Some(s"'onInput': (e) => { this.${signal.jsName} = e.target.value; }")
+      case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 
   /** Vue uses camelCase event props: 'click' → 'onClick'. */
