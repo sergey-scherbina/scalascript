@@ -31,3 +31,20 @@ class ConfigAccessorSpec extends AnyFunSuite with Matchers:
 
   test("requireInt works"):
     acc.requireInt("server.port") shouldBe 8080
+
+  test("selectDynamic chains"):
+    val root2 = ConfigValue.Map(Map(
+      "server" -> ConfigValue.Map(Map(
+        "port" -> ConfigValue.Num(9000),
+        "host" -> ConfigValue.Str("api.example.com"),
+      ))
+    ))
+    val acc2 = ConfigAccessor(root2)
+    val srv = acc2.selectDynamic("server")
+    srv.getInt("port")    shouldBe Some(9000)
+    srv.getString("host") shouldBe Some("api.example.com")
+
+  test("selectDynamic on missing key returns empty accessor"):
+    val acc2 = ConfigAccessor(ConfigValue.empty)
+    val sub = acc2.selectDynamic("missing")
+    sub.getString("anything") shouldBe None

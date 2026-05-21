@@ -47,6 +47,11 @@ final class ConfigAccessor(private val root: ConfigValue):
   def section(name: String): ConfigAccessor =
     new ConfigAccessor(root.get(name).getOrElse(ConfigValue.empty))
 
+  /** Dynamic field access: `acc.selectDynamic("server")` → sub-accessor rooted at "server".
+   *  Enables `config.server.port` chaining in the interpreter without scala.Dynamic.
+   *  The interpreter dispatches `config.server` as `config.selectDynamic("server")`. */
+  def selectDynamic(name: String): ConfigAccessor = section(name)
+
   /** Raw underlying value — for tests and serialization. */
   def raw: ConfigValue = root
 

@@ -85,6 +85,18 @@ final class ConfigLoader(
       catch case e: Exception =>
         Left(ConfigError.FileLoadError(f.path, e.getMessage))
 
+  /** Return a new ConfigLoader with a different priority order. */
+  def withPriority(order: List[Priority]): ConfigLoader =
+    new ConfigLoader(
+      frontmatterYaml = frontmatterYaml,
+      fencedBlocks    = fencedBlocks,
+      externalFiles   = externalFiles,
+      priorityOrder   = order,
+      envLookup       = envLookup,
+      sopsLookup      = sopsLookup,
+      basePath        = basePath,
+    )
+
   private def resolveSubstitutions(cv: ConfigValue): Either[ConfigError, ConfigValue] =
     // Build a config-cross-reference lookup from the merged (pre-substitution) tree
     val configLookup: String => Option[String] = path =>
@@ -105,7 +117,7 @@ object ConfigLoader:
     sopsLookup:      String => Option[String] = _ => None,
   ): ConfigLoader =
     val externalFiles = extractFileList(frontmatterYaml, basePath, envLookup)
-    new ConfigLoader(
+    val loader = new ConfigLoader(
       frontmatterYaml = frontmatterYaml,
       fencedBlocks    = fencedBlocks,
       externalFiles   = externalFiles,
@@ -113,6 +125,10 @@ object ConfigLoader:
       sopsLookup      = sopsLookup,
       basePath        = basePath,
     )
+    // Auto-detect `config.priority` override from front-matter
+    val parsed  = ConfigParser.parseFrontmatter(frontmatterYaml).getOrElse(ConfigValue.empty)
+    val orderOv = PriorityConfig.fromConfigValue(parsed)
+    orderOv.fold(loader)(loader.withPriority)
 
   private def extractFileList(
     yaml:      String,
