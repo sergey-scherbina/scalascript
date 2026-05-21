@@ -2707,6 +2707,22 @@ def emitIrCommand(args: List[String]): Unit =
  *  run it immediately with `scala-cli run --server=false`.  Equivalent to
  *  `compile-jvm` + `link --backend jvm` but without leaving any artifacts
  *  on disk.  Requires `scala-cli` on PATH. */
+/** Compile `path` via JvmGen and write the result to a `.scjvm` artifact at
+ *  `scjvmPath` for future cache hits.  Returns the generated Scala 3 source. */
+private def compileJvmAndCache(path: os.Path, baseName: String, scjvmPath: os.Path): String =
+  val module    = Parser.parse(os.read(path))
+  val baseDir   = Some(path / os.up)
+  val source    = JvmGen.generate(module, baseDir)
+  scala.util.Try {
+    val sourceHash = InterfaceExtractor.sha256(os.read.bytes(path))
+    val moduleId   = module.manifest.flatMap(_.name).getOrElse(baseName)
+    val pkg        = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val moduleName = module.manifest.flatMap(_.name)
+    os.makeDir.all(scjvmPath / os.up)
+    JvmArtifactIO.writeJvmFile(moduleId, pkg, moduleName, sourceHash, source, Nil, scjvmPath)
+  }.recover { case e => System.err.println(s"[warn] artifact write failed: $e") }
+  source
+
 def runJvmCommand(args: List[String]): Unit =
   if args.isEmpty then
     System.err.println("Usage: ssc run-jvm <file.ssc>")
@@ -2718,7 +2734,22 @@ def runJvmCommand(args: List[String]): Unit =
   if !JvmBytecode.scalaCliAvailable then
     System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
     System.exit(1)
-  val raw    = expectText(compileViaBackend("jvm", path), s"run-jvm $file")
+
+  // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
+  // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
+  // invalidated by a SHA-256 mismatch against the current source bytes.
+  import scalascript.artifact.ModuleGraph
+  val artDir    = AutoResolve.defaultArtifactDir(path)
+  val baseName  = path.last.stripSuffix(".ssc")
+  val scjvmPath = artDir / (baseName + ".scjvm")
+  val raw =
+    if !ModuleGraph.isJvmStale(path, artDir) then
+      JvmArtifactIO.readJvmFile(scjvmPath) match
+        case Right(art) => art.scalaSource
+        case Left(_)    => compileJvmAndCache(path, baseName, scjvmPath)
+    else
+      compileJvmAndCache(path, baseName, scjvmPath)
+
   val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
   val source = jarsDir match
     case Some(jars) => patchLocalSscDeps(raw, jars)
