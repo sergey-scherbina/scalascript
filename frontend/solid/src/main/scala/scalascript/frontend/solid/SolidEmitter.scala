@@ -164,10 +164,14 @@ private[solid] object SolidEmitter:
               statements += s"${ref.jsName} = $v;"
             case AttrValue.Bool(value) =>
               // Boolean IDL attributes (disabled, checked, required, …) must be
-              // set as DOM properties, not via setAttribute: setAttribute("disabled","false")
-              // leaves the attribute present so the browser still disables the element.
-              // Property assignment respects the actual boolean value.
-              statements += s"$v.${k} = $value;"
+              // set as DOM properties — setAttribute("disabled","false") leaves
+              // the attribute present so the browser still disables the element.
+              // Hyphenated names (aria-*, data-*) are not valid JS identifiers,
+              // so they go through setAttribute with the string value instead.
+              if k.contains('-') then
+                statements += s"$v.setAttribute(${jsString(k)}, ${jsString(value.toString)});"
+              else
+                statements += s"$v.$k = $value;"
             case _ =>
               attrValueJs(av) match
                 case Some(value) => statements += s"$v.setAttribute(${jsString(k)}, $value);"
