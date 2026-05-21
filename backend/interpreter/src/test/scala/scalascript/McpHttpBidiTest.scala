@@ -62,7 +62,7 @@ class McpHttpBidiTest extends AnyFunSuite with Matchers:
         unsub()
         try os.close() catch case _: Throwable => ()
     })
-    server.setExecutor(Executors.newCachedThreadPool())
+    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     server.start()
 
     try

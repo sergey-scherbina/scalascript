@@ -60,7 +60,7 @@ class McpStreamableHttpTest extends AnyFunSuite with Matchers:
         ex.sendResponseHeaders(200, bytes.length.toLong)
         val os = ex.getResponseBody; os.write(bytes); os.close()
     })
-    server.setExecutor(Executors.newCachedThreadPool())
+    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     server.start()
     try
       val client = new McpHttpClient(s"http://127.0.0.1:$port/mcp", 5_000L)
@@ -97,7 +97,7 @@ class McpStreamableHttpTest extends AnyFunSuite with Matchers:
       ex.sendResponseHeaders(200, bytes.length.toLong)
       val os = ex.getResponseBody; os.write(bytes); os.close()
     })
-    server.setExecutor(Executors.newCachedThreadPool())
+    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     server.start()
     try
       val client = new McpHttpClient(s"http://127.0.0.1:$port/mcp", 5_000L)

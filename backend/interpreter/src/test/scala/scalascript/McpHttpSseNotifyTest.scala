@@ -67,7 +67,7 @@ class McpHttpSseNotifyTest extends AnyFunSuite with Matchers:
         try os.close() catch case _: Throwable => ()
     })
 
-    server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool())
+    server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
     server.start()
     try
       val notif = """{"jsonrpc":"2.0","method":"notifications/progress","params":{"step":3}}"""
