@@ -96,6 +96,108 @@ ssc repl
 42
 ```
 
+The REPL accepts multi-line input (blank line runs the snippet) and supports
+in-session HTTP server control and route testing via `:` commands.
+
+#### REPL HTTP commands (web-aware mode)
+
+Start an HTTP server, register handlers, and test them — all without leaving
+the REPL prompt.
+
+**Server lifecycle:**
+
+```
+ssc> :serve           # start on default port 8080
+Listening on :8080
+
+ssc> :serve 9000      # custom port
+Listening on :9000
+
+ssc> :stop            # stop + clear routes
+Server stopped. Routes cleared.
+
+ssc> :stop --keep-routes   # stop but keep registered routes
+Server stopped. Routes kept (3 routes).
+```
+
+**Registering routes:**
+
+```
+# Inline lambda
+ssc> :mount GET /ping { _ => Response.text("pong") }
+Mounted: GET /ping
+
+# Function already defined in the REPL
+ssc> def greet(req: Request) = Response.text(s"Hi ${req.params("name")}!")
+ssc> :mount GET /hi/:name greet
+Mounted: GET /hi/:name  (greet)
+
+# Handler file (last expression is used as handler)
+ssc> :mount GET /items/:id handlers/entity.ssc coll=items
+Mounted: GET /items/:id  (handlers/entity.ssc, ctx: {coll=items})
+
+# Load a .ssc file that contains route() calls
+ssc> :load api/users.ssc
+Loaded api/users.ssc:
+  GET  /users
+  POST /users
+
+# Hot-reload after editing the file
+ssc> :reload api/users.ssc
+```
+
+**Inspecting and removing routes:**
+
+```
+ssc> :routes
+  GET    /ping           <inline>
+  GET    /hi/:name       <inline>
+  GET    /items/:id      handlers/entity.ssc  {coll=items}
+  GET    /users          api/users.ssc
+  POST   /users          api/users.ssc
+
+ssc> :unmount GET /ping
+Unmounted: GET /ping
+
+ssc> :clear    # remove all routes (server keeps running)
+Routes cleared.
+```
+
+**Testing handlers:**
+
+```
+# Real HTTP request (requires :serve)
+ssc> :http GET /hi/alice
+→ 200 OK  text/plain
+Hi alice!
+
+ssc> :http POST /users {"name":"bob"} -H "Authorization: Bearer tok"
+→ 201 Created  application/json
+{"id":1,"name":"bob"}
+
+# In-process dispatch — no server needed
+ssc> :call GET /items/99
+→ 200 OK
+{"collection":"items","id":"99"}
+
+ssc> :call GET /hi/carol?format=upper
+→ 200 OK
+HI CAROL!
+```
+
+**Settings:**
+
+```
+ssc> :set errorDetails false   # suppress verbose deserialization errors in 400 responses
+errorDetails = false
+
+ssc> :set errorDetails true    # re-enable (default)
+errorDetails = true
+```
+
+See [`docs/repl-web.md`](repl-web.md) and [`docs/mount-handlers.md`](mount-handlers.md)
+for the full command reference, handler-file contract, and typed-handler deserialization rules.
+
 ### `run-jvm` and `run-js` — compile and run in one step
 
 `ssc run` interprets the script with the tree-walking interpreter — no

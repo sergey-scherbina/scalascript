@@ -9450,12 +9450,19 @@ Prints result same as `:http`.  Returns `→ 404 Not Found` if no route matches.
 - [ ] `errorDetails` 4-level priority: global REPL setting > front-matter > per-`mount()` param > default `true`
 - [ ] `TypedHandlerTest` — 6×3 matrix, deser priority, both error modes
 
-### Phase 8 — `:help` + tests + polish
+### Phase 8 — `:help` + tests + polish ✓ Landed (2026-05-21)
 
-- [ ] `:help` — all commands with one-line descriptions
-- [ ] `:set errorDetails true|false` REPL command
-- [ ] `ReplWebTest` integration suite (all commands, ctx forwarding, error paths)
-- [ ] Update `docs/user-guide.md` + `README.md`
+`:help` fully consolidated into one clean block covering all commands (General /
+HTTP server / Routes / Testing / Breakpoints & stepping / Debug sub-prompt).
+`:set errorDetails true|false` command added — stores the boolean in a local
+`var errorDetails` inside `replCommand`; passes it to a callback via
+`replHandleSet`; Phase 7 will read it.  `ReplWebIntegrationTest` added with
+11 end-to-end tests covering inline handler lifecycle (mount→routes→call→unmount),
+file handler + reload, ctx forwarding, multiple routes, idempotent second mount,
+and all `:set` error paths.  `docs/user-guide.md` updated with full REPL HTTP
+commands subsection (examples for :serve/:stop/:mount/:load/:reload/:unmount/
+:routes/:http/:call/:set).  `README.md` capabilities table updated with REPL
+web mode row.
 
 ---
 

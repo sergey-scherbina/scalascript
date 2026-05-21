@@ -1778,6 +1778,10 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   interp.setDebugHooks(Some(dbgHooks.mkHooks()))
   System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
   var running = true
+  // Global REPL setting: include handler deserialization details in 400 errors.
+  // Phase 7 (typed handlers) will read this; for now it is write-only from :set.
+  @annotation.nowarn("msg=local variable was mutated but not read")
+  var errorDetails: Boolean = true
   // Tracks the port the HTTP server is currently listening on (None = stopped).
   val serverPort = new java.util.concurrent.atomic.AtomicReference[Option[Int]](None)
   while running do
@@ -1789,47 +1793,54 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |
              |Input:
              |  Type code and press Enter to add a line.
-             |  Blank line  — run the accumulated snippet.
+             |  Blank line          — run the accumulated snippet.
              |  Multi-line input is shown with the "   | " continuation prompt.
              |
-             |Commands:
-             |  :help  :h          — this message
-             |  :quit  :q  :exit   — exit the REPL
-             |  :reset             — clear all bindings, restart the interpreter
+             |General:
+             |  :help  :h           — this message
+             |  :quit  :q  :exit    — exit the REPL
+             |  :reset              — clear all bindings, restart interpreter
+             |  :set errorDetails <true|false>  — verbose deser errors (default: true)
              |
              |HTTP server:
-             |  :serve [port]         — start HTTP server in background (default: 8080)
+             |  :serve [port]       — start HTTP server in background (default: 8080)
              |  :stop [--keep-routes] — stop server; clears routes unless --keep-routes
-             |  :clear                — clear route table without stopping server
-             |  :mount M /path { expr }           — register inline handler
-             |  :mount M /path name               — register function from REPL bindings
-             |  :mount M /path file.ssc [k=v ...] — register handler from file
-             |  :load file.ssc        — run file's route() calls; hot-reloads cleanly
-             |  :reload file.ssc      — re-run without repeating method/path
-             |  :unmount M /path      — remove a specific route
-             |  :routes              — list registered routes
+             |  :clear              — clear route table without stopping server
+             |
+             |Routes:
+             |  :mount M /path { expr }         — register inline handler
+             |  :mount M /path name             — register function from REPL bindings
+             |  :mount M /path file.ssc [k=v]  — register handler from file
+             |  :load file.ssc      — run file's route() calls; replaces previous routes
+             |  :reload file.ssc    — re-run without repeating method/path
+             |  :unmount M /path    — remove a specific route
+             |  :routes             — list all registered routes
+             |
+             |Testing:
              |  :http M /path [body] [-H "K: V"]  — real HTTP request to localhost:<port>
              |  :call M /path [body] [-H "K: V"]  — in-process dispatch (no server needed)
              |
              |Breakpoints & stepping:
-             |  :break <N>         — set breakpoint at snippet line N
-             |  :break list        — list all breakpoints
-             |  :break clear       — remove all breakpoints
-             |  :step              — enable step-in for the next snippet
+             |  :break <N>          — set breakpoint at snippet line N
+             |  :break list         — list all breakpoints
+             |  :break clear        — remove all breakpoints
+             |  :step               — enable step-in for the next snippet
              |
              |Debug sub-prompt (appears when a breakpoint is hit):
-             |  :continue  :c      — resume to next breakpoint or end
-             |  :next      :n      — step over (next line)
-             |  :step      :s      — step into the next expression
-             |  :out               — step out of the current function
-             |  :locals    :l      — show local variables at the current frame
-             |  :stack     :bt     — show the call stack
-             |  :print <expr>      — evaluate an expression in the current frame
-             |  :quit      :q      — abort the running snippet, return to ssc>
+             |  :continue  :c       — resume to next breakpoint or end
+             |  :next      :n       — step over
+             |  :step      :s       — step into
+             |  :out                — step out of current function
+             |  :locals    :l       — show local variables
+             |  :stack     :bt      — show call stack
+             |  :print <expr>       — evaluate expression in current frame
+             |  :quit      :q       — abort snippet, return to ssc>
              |""".stripMargin)
       case Some(":reset") =>
         interp.run(Parser.parse("# REPL\n"))
         System.err.println("[reset] interpreter cleared")
+      case Some(s) if s.startsWith(":set ") =>
+        replHandleSet(s.trim, { v => errorDetails = v })
       case Some(s) if s == ":serve" || s.startsWith(":serve ") =>
         replHandleServe(s.trim, serverPort, interp)
       case Some(s) if s == ":stop" || s == ":stop --keep-routes" =>
@@ -1916,6 +1927,27 @@ def replHandleStop(
       else
         scalascript.server.Routes.clear()
         System.err.println("Server stopped. Routes cleared.")
+
+/** Handle `:set <key> <value>` in the REPL.
+ *
+ *  Currently supported keys:
+ *  - `errorDetails` — `true` or `false`; controls verbose deser errors (Phase 7).
+ *
+ *  `setFn` is a callback that receives the parsed Boolean; the caller stores it in
+ *  its local `var errorDetails`.  This avoids threading a mutable cell through all
+ *  other helpers. */
+def replHandleSet(cmd: String, setFn: Boolean => Unit): Unit =
+  val rest = cmd.stripPrefix(":set").trim
+  rest.split("\\s+", 2).toList match
+    case List("errorDetails", value) =>
+      value match
+        case "true"  => setFn(true);  System.err.println("errorDetails = true")
+        case "false" => setFn(false); System.err.println("errorDetails = false")
+        case _       => System.err.println("Expected true or false")
+    case List(key, _) =>
+      System.err.println(s"Unknown setting: $key. Known: errorDetails")
+    case _ =>
+      System.err.println("Usage: :set errorDetails true|false")
 
 /** Handle `:mount METHOD /path REST` in the REPL.
  *

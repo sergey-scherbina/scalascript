@@ -207,6 +207,7 @@ compiles them via Scala.js.
 | Feature | Syntax |
 |---------|--------|
 | HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
+| REPL web mode | `:serve`/`:stop`/`:clear`/`:mount`/`:load`/`:reload`/`:unmount`/`:routes`/`:http`/`:call` — mount handlers and test routes interactively; `:set errorDetails true\|false` |
 | HTTP streaming | `streamResponse`, SSE via `sse(req)` |
 | HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready` |
 | WebSocket server | `onWebSocket(path)`, `ws.send/recv/close/ping`, rate limiting, per-route `maxConnections` |
