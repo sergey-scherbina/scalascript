@@ -5835,6 +5835,9 @@ a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
   - `JvmGen.scala` generated `_runAsyncParallel`: same replacement in emitted code.
 - [x] Note Java 21 requirement in docs
   - One-line comment added next to each change site.
+- [x] MCP test servers switched from `newCachedThreadPool()` to
+  `newVirtualThreadPerTaskExecutor()` (2026-05-21) — `McpHttpBidiTest`,
+  `McpHttpSseNotifyTest`, `McpStreamableHttpTest`; all 4 tests green.
 - [ ] Smoke test: 10 000 concurrent WS connections without OOM
   - Deferred: requires a dedicated load-test harness; core change is in place.
 
@@ -9785,3 +9788,54 @@ source SHA-256 matches, bypassing JvmGen codegen entirely.
 - **`cli/src/main/scala/scalascript/cli/Main.scala`** —
   `compileJvmAndCache` (new helper) + `runJvmCommand` extended with
   cache lookup via `ModuleGraph.isJvmStale` / `JvmArtifactIO.readJvmFile`.
+
+---
+
+## v1.36 — Parser bugfix: preprocessInlineImports ordering ✓ Complete (2026-05-21)
+
+**Status:** complete
+
+Fixed a regression introduced in the list/map literal sugar commit
+(`0435deba`): `preprocessListLiterals` ran before `preprocessInlineImports`
+in the preprocessor chain, so list-form imports like `[ToolResult](./types.ssc)`
+inside scalascript code blocks were rewritten to `List(ToolResult)(./types.ssc)`
+before the import-stripping step could remove them.  Scalameta then failed
+to parse the block (`cb.tree = None`), silently hiding all symbols exported
+from that file.
+
+### Root cause
+
+Preprocessor chain order (before fix):
+```
+preprocessListLiterals → preprocessSlashImports → preprocessInlineImports → …
+```
+
+`preprocessListLiterals` matched `[ToolResult]` (no preceding identifier
+→ not a type application) and rewrote it to `List(ToolResult)`.
+`preprocessInlineImports` never saw the original `[…](path.ssc)` form.
+
+### Fix
+
+Move `preprocessInlineImports` to the innermost position (first to run):
+```
+preprocessInlineImports → preprocessListLiterals → preprocessSlashImports → …
+```
+
+List-import lines become `// list-import: …` comments first; the comment
+`[` is then ignored by `preprocessListLiterals`'s `//` skip path.
+Both call sites updated: `wrapSectionInPackage` and `parseScalaWithDiagnostic`.
+
+### Impact
+
+4 pre-existing test failures in `PreprocessExternTest` now pass:
+- `single-line [Name](path.ssc) is stripped`
+- `multi-name [A, B, C](path.ssc) is stripped`
+- `multi-line list import (continuation after comma) is stripped`
+- `alias-form [Card as UICard](path) is stripped`
+
+All 699 core tests green after fix.
+
+### Implementation
+
+- **`core/src/main/scala/scalascript/parser/Parser.scala`** — two chain
+  lines reordered (lines 86 and 821).
