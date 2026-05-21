@@ -91,6 +91,25 @@ jobs:
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 
+      - name: Type-check examples (ssc check)
+        run: |
+          ./bin/ssc check \
+            examples/actors-pingpong.ssc \
+            examples/content.ssc \
+            examples/generators.ssc \
+            examples/health-defaults.ssc \
+            examples/hello.ssc \
+            examples/index.ssc \
+            examples/js-glue-component.ssc \
+            examples/spark-streaming-file-parquet.ssc \
+            examples/spark-streaming-kafka.ssc \
+            examples/spark-streaming-rate-console.ssc \
+            examples/sql-sqlite-file.ssc \
+            examples/wasm-collections.ssc \
+            examples/wasm-matrix.ssc \
+            examples/wasm-primes.ssc \
+            examples/wc-card.ssc
+
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
