@@ -43,28 +43,19 @@ produce a design doc + prototype + go/no-go decision.
 
 ## 2. Runtime optimizations
 
-### 2a. Project Loom — virtual threads (quick win)
+### 2a. Project Loom — virtual threads ✓ Landed (pre-v1.33)
 
-**Effort: ~2 hours. Impact: large.**
+**Status: complete.** Virtual threads are used everywhere in production:
 
-The HTTP server currently assigns one OS thread per connection.
-Java 21 ships Project Loom (virtual threads) as a stable feature.
-Switching the executor requires one line in the server configuration:
+- `JdkServerBackend` — `newThreadPerTaskExecutor(Thread.ofVirtual()...)` for
+  per-connection dispatch; 10 000 WS connections need no OS threads.
+- `WsProxy` — `Thread.ofVirtual()` for each proxied connection.
+- `AsyncRuntime` — `newVirtualThreadPerTaskExecutor()` for `Async.parallel`.
+- `TlsContextBuilder.vthreadPool()` — shared factory used by `ProxyRuntime`.
 
-```scala
-// before
-Executors.newCachedThreadPool()
-
-// after
-Executors.newVirtualThreadPerTaskExecutor()
-```
-
-Virtual threads are scheduled onto a small pool of carrier threads by
-the JVM.  10 000 concurrent WebSocket connections no longer require
-10 000 OS threads.  No API changes, no NIO migration needed.
-
-Affects: `runtime-server-common`, `runtimeServerJvm`, possibly the
-actor scheduler.
+Remaining `newSingleThreadExecutor` calls are intentional (serial
+interpreter handler dispatch; JDK HttpServer accept loop; heartbeat
+scheduler) and must stay as platform threads.
 
 ### 2b. Value boxing — numeric specialization
 
@@ -131,19 +122,12 @@ uses).  The existing `Typer` already has an `errors` list and a strict
 mode; an incremental mode would reuse the existing typed environment
 for unchanged blocks.
 
-### 3c. JvmGen artifact caching at `ssc run`
+### 3c. JvmGen artifact caching at `ssc run-jvm` ✓ Landed (v1.35, 2026-05-21)
 
-**Effort: ~3 days. Impact: JVM startup time.**
-
-`sscc` (JVM backend) compiles `.ssc` → Scala 3 → bytecode via
-scala-cli on every invocation.  The v2.0 `.scjvm` artifact format
-stores the compiled Scala source, but `ssc run --backend jvm` doesn't
-reuse it.
-
-Proposed: check for a fresh `.scjvm` in `.ssc-artifacts/`; if present
-and not stale, skip re-generation and pass the cached source directly
-to scala-cli.  Cuts the common case from 8 s → 2–3 s (scala-cli
-compilation of a pre-generated source is faster than full pipeline).
+**Status: complete.** `ssc run-jvm` now writes a `.scjvm` artifact to
+`.ssc-artifacts/` after each compile and reads it on the next run when
+the source SHA-256 matches, bypassing JvmGen codegen entirely.
+Uses `JvmGen.generate` directly (same path as `compile-jvm`).
 
 ---
 
@@ -239,12 +223,13 @@ standalone (without interface files) is straightforward.  Effort: ~1 day.
 
 | Priority | Item | Why |
 |----------|------|-----|
-| 1 | Project Loom (2a) | 2 hours, massive runtime benefit |
-| 2 | `ssc check` (6c) | 1 day, high CI value |
-| 3 | Interpreter split (2c) | Prerequisite for modularity + startup |
-| 4 | AST cache / watch latency (3a) | Biggest developer-experience win |
-| 5 | JS tree-shaking (4a) | Bundle size matters for browser |
-| 6 | Library modularity (5) | Enables embedding use cases |
-| 7 | v1.16 Restartable errors | Language feature, unblocked |
-| 8 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
-| 9 | Incremental type-checking (3b) | Depends on 3a |
+| ✓ | Project Loom (2a) | Done pre-v1.33 |
+| ✓ | Interpreter split (2c) | Done v1.33 |
+| ✓ | JvmGen artifact caching (3c) | Done v1.35 |
+| 1 | `ssc check` (6c) | 1 day, high CI value |
+| 2 | AST cache / watch latency (3a) | Biggest developer-experience win |
+| 3 | JS tree-shaking (4a) | Bundle size matters for browser |
+| 4 | Library modularity (5) | Enables embedding use cases |
+| 5 | v1.16 Restartable errors | Language feature, unblocked |
+| 6 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
+| 7 | Incremental type-checking (3b) | Depends on AST cache (3a) |
