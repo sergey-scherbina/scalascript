@@ -5881,9 +5881,9 @@ significantly for pure scripts.
 - [ ] Phase 2: All existing tests green after lazy split
 - [ ] Phase 2: Benchmark: `ssc run hello.ssc` cold-start vs baseline
 
-### Compiler — AST cache between watch cycles
+### Compiler — AST cache between watch cycles ✓ Landed (2026-05-21)
 
-**Status: section-diff landed (2026-05-19). Effort: ~3 days. Priority: 4.**
+**Status: fully landed (2026-05-21). Effort: ~3 days. Priority: 4.**
 
 `ssc watch` re-parses the full file on every save.  Cache
 `(path, mtime, hash) → ParsedModule`; diff at section granularity and
@@ -5895,8 +5895,12 @@ re-evaluate only changed sections and their dependents.
       removed; `ssc watch` logs which sections changed and skips the interpreter
       re-run entirely on false-positive OS watch events (mtime touched but
       content unchanged).  9 tests in `SectionDiffTest`.
-- [ ] Re-evaluate only changed + dependent sections (requires interpreter
-      partial-reset; deferred until Interpreter split lands)
+- [x] Re-evaluate only changed + dependent sections — `InterpCheckpoint` +
+      `Interpreter.runWithCheckpoints` + `runSectionsIncremental`; watch
+      keeps interpreter alive across cycles, restores to checkpoint before
+      first changed section, re-runs only the changed suffix.  5 tests in
+      `WatchIncrementalTest`.  Server files (headless hot-reload) excluded
+      to avoid route-table state issues.
 - [ ] Target: watch cycle on `rest-api.ssc` drops < 100 ms
 
 ### Generated code — JS tree-shaking
