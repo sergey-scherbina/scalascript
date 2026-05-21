@@ -22,10 +22,17 @@ import scalascript.codegen.SparkSubmit
 import scalascript.codegen.SparkBackend
 
 @main def ssc(rawArgs: String*): Unit =
+  // --quiet silences third-party SLF4J library output (commonmark, snakeyaml, …)
+  // by raising the slf4j-simple threshold to error.  Must run before any SLF4J
+  // logger is first touched.
+  val (quietFlags, args0) = rawArgs.partition(_ == "--quiet")
+  if quietFlags.nonEmpty then
+    System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "error")
+
   // --logs.key=value → System.setProperty("scalascript.logger.key", "value").
   // Must run first so the logger reads properties before any first log call.
   // Examples:  --logs.defaultLevel=debug   --logs.scalascript.server.level=info
-  val (logFlags, filteredArgs) = rawArgs.partition(_.startsWith("--logs."))
+  val (logFlags, filteredArgs) = args0.partition(_.startsWith("--logs."))
   logFlags.foreach { flag =>
     val kv  = flag.drop("--logs.".length)
     val eq  = kv.indexOf('=')
@@ -458,11 +465,13 @@ def printUsage(): Unit =
     |  --force, -f            Overwrite existing output
     |  (any other scala-cli package flag is forwarded as-is)
     |
-    |Logging flags (prefix alias for -Dscalascript.logger.<key>=<value>):
-    |  --logs.defaultLevel=<level>              Set root log level (warn|info|debug|error; default: warn)
-    |  --logs.<name>.level=<level>              Set level for a specific logger, e.g. --logs.scalascript.server.level=info
-    |  --logs.logFile=System.out                Write log output to stdout instead of stderr
+    |Logging flags:
+    |  --quiet                                  Silence third-party library logs (sets SLF4J threshold to error)
+    |  --logs.defaultLevel=<level>              ssc logger root level (warn|info|debug|error; default: warn)
+    |  --logs.<name>.level=<level>              Per-logger level, e.g. --logs.scalascript.server.level=info
+    |  --logs.logFile=System.out                Write ssc logs to stdout instead of stderr
     |  Any --logs.KEY=VALUE maps to -Dscalascript.logger.KEY=VALUE
+    |  Third-party lib SLF4J level: edit simplelogger.properties on the classpath
     |
     |Examples:
     |  ssc examples/hello.ssc
