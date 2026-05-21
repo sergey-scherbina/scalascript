@@ -415,7 +415,7 @@ lazy val frontendExamples = project
 
 lazy val backendJvm = project
   .in(file("backend/jvm"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-jvm",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

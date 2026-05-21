@@ -9412,7 +9412,7 @@ config files and re-evaluates affected outputs on change.
 
 ## v1.30 — `@side=client|server` for SQL blocks in full-stack modules
 
-**Status: in progress (2026-05-21). Phase 1–3 landed; Phase 4 pending.**
+**Status: complete (2026-05-21). Phases 1–4 all landed.**
 
 In `frontend:` modules a `sql` block now carries an optional `@side`
 attribute that controls whether the block runs in the server bundle or
@@ -9443,15 +9443,22 @@ behaviour unchanged).
 - [x] `CapabilityCheck`: new `UnsupportedClientSideDbUrl` diagnostic
       when `@side=client` references a non-JS-supported URL scheme.
 
-### Phase 4 — Codegen ✗ Not yet landed
+### Phase 4 — Codegen ✓ Landed (2026-05-21)
 
-- [ ] `JvmGen`: emit `@side=client` blocks into the browser JS bundle
-      (SPA `<script>`) instead of server Scala; currently omitted
-      with a TODO comment.
-- [ ] `JsGen` / `NodeBackend`: propagate `side` to the right call-site.
-- [ ] End-to-end example: `frontend: react` module with both
-      `@side=server` Postgres routes and `@side=client` sqlite-opfs
-      local cache.
+- [x] `JvmGen`: `@side=client` blocks skipped from server Scala; collected
+      into `_ssc_client_sql_js` (sql-runtime.mjs inlined + async IIFE with
+      registry + block calls) appended to `app.js` by
+      `_ssc_ui_emit_to_dir` / `_ssc_ui_emit_to_tempdir`.
+- [x] `JsGen`: `@side=server` blocks skipped (not emitted into the JS bundle).
+      `hasSqlBlocks` also excludes server-only blocks so the SQL preamble is
+      not injected when all sql blocks are `@side=server`.
+- [x] `SqlRuntimeJs` namespace in JsGen updated to include `SqliteWasmProvider`.
+- [x] `build.sbt`: `backendJvm` now depends on `backendSqlRuntimeJs` so
+      `SqlRuntimeJsEmit.runtimeSource` is available at JvmGen's own compile
+      time (the mjs source is inlined into the emitted `.sc` string, no extra
+      `//> using lib` needed at run time).
+- [x] End-to-end example: `examples/frontend/local-first/local-first.ssc` —
+      `@side=server` SQLite REST API + `@side=client` sqlite-opfs local cache.
 
 ---
 

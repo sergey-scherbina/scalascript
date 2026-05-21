@@ -301,6 +301,20 @@ is a build-time `UnsupportedDbUrl` diagnostic.
 `@side=server` is the default everywhere; existing code without the
 attribute is unaffected.
 
+**Codegen behaviour (v1.30 Phase 4).**
+
+| Target | `@side=server` | `@side=client` |
+|--------|---------------|----------------|
+| JvmGen (full-stack) | Emitted as server JDBC `_sqlBlock_N` | Inlined into `app.js` as async IIFE; result exposed on `window._ssc_client[sectionAlias]` |
+| JsGen / NodeBackend | Skipped (not relevant in JS-only target) | Emitted as `_sqlBlock_N` (normal JS path) |
+| Interpreter | Executed server-side (client attr ignored) | — |
+
+JvmGen appends the `@side=client` bundle to `app.js` via an async IIFE
+wrapping the inlined `sql-runtime.mjs`, a per-module `ConnectionRegistry`,
+and one `await SqlRuntimeJs.execute(...)` per block.  The section alias
+(e.g. `CacheSetup`) is exposed as `window._ssc_client['CacheSetup'].sql`
+for the React/Solid/Vue app to consume.
+
 ### 3.4 Inline Interpolation
 
 Inline code with `${}` is evaluated and interpolated:

@@ -2,6 +2,7 @@ package scalascript.codegen
 
 import scalascript.ast.*
 import scalascript.transform.{DirectAnorm, DirectTypeUtils, EffectAnalysis}
+import scalascript.sql.js.SqlRuntimeJsEmit
 import scala.collection.mutable
 import scala.meta.*
 
@@ -177,6 +178,11 @@ class JvmGen(
   // Phase C.2 convention).
   private var sqlBlockCounter: Int = 0
   private val sqlPerSection = mutable.Map.empty[String, Int]
+  // v1.30 Phase 4 — @side=client sql blocks collected during collectBlocks;
+  // injected into the browser JS bundle for frontend (SPA) modules only.
+  // Each entry: (source, dbName, sectionAlias)
+  private val clientSqlBlocksList =
+    mutable.ListBuffer.empty[(String, Option[String], Option[String])]
   // Maps resolved path → pkg segments so the alias generator can qualify names
   // even when a file was already inlined (diamond import case).
   private val importedPkgs  = mutable.Map.empty[String, List[String]]
@@ -330,6 +336,15 @@ class JvmGen(
     // that don't use sql pay nothing.
     if sqlBlockCounter > 0 then
       sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
+
+    // v1.30 Phase 4 — browser JS for @side=client sql blocks.  Always
+    // emitted in frontend modules so uiHelperFunctions can reference
+    // _ssc_client_sql_js unconditionally; empty string when no client blocks.
+    if frontendFramework.isDefined then
+      val clientJs = emitClientSqlJs(module)
+      sb.append("val _ssc_client_sql_js: String = ")
+      sb.append(scalaStringLiteral(clientJs))
+      sb.append("\n\n")
 
     // Mark the boundary between fixed preamble and user-generated code.
     // colonObjectsToBraces / hoistSscImportsIntoObjectStd / mergeDuplicatePackageObjects
@@ -1243,21 +1258,30 @@ class JvmGen(
         // a `given java.sql.Connection` in scope first, then falls back to
         // `_ssc_sql_registry.connect(name)`.  First sql block per section
         // also gets a friendly `<sectionId>.sql` alias (Phase C.2 convention).
+        // v1.30 Phase 4 — @side=client blocks are collected for browser JS
+        // injection instead of server JDBC emit.
         case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
-          val n = sqlBlockCounter
-          sqlBlockCounter += 1
-          val aliasable = sectionId.filter { id =>
-            val prior = sqlPerSection.getOrElse(id, 0)
-            sqlPerSection(id) = prior + 1
-            prior == 0
-          }
-          val sqlSrc = sqlBlockToScala(cb.source, cb.attrs.get("db"), n, aliasable)
-          // Parse the emitted Scala back to a tree so downstream rewrites
-          // (effect lowering, etc.) treat it like any other parseable block.
-          import scala.meta.{dialects, *}
-          val tree = dialects.Scala3(Input.VirtualFile(s"<sql-block-$n>", sqlSrc))
-            .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
-          tree.map(t => JvmGen.Block(t, sqlSrc)).toList
+          if cb.attrs.get("side").contains("client") then
+            val alias = sectionId.filter { id =>
+              val prior = sqlPerSection.getOrElse(id, 0)
+              sqlPerSection(id) = prior + 1
+              prior == 0
+            }
+            clientSqlBlocksList += ((cb.source, cb.attrs.get("db"), alias))
+            Nil
+          else
+            val n = sqlBlockCounter
+            sqlBlockCounter += 1
+            val aliasable = sectionId.filter { id =>
+              val prior = sqlPerSection.getOrElse(id, 0)
+              sqlPerSection(id) = prior + 1
+              prior == 0
+            }
+            val sqlSrc = sqlBlockToScala(cb.source, cb.attrs.get("db"), n, aliasable)
+            import scala.meta.{dialects, *}
+            val tree = dialects.Scala3(Input.VirtualFile(s"<sql-block-$n>", sqlSrc))
+              .parse[Source].toOption.map(scalascript.ast.ScalaNode(_))
+            tree.map(t => JvmGen.Block(t, sqlSrc)).toList
         // transaction fenced blocks: emit a `withTransaction` call that
         // wraps all `;`-separated statements in one atomic JDBC transaction.
         case cb: Content.CodeBlock if Lang.isTransaction(cb.lang) =>
@@ -1342,6 +1366,70 @@ class JvmGen(
   /** Minimal escape for emitted Scala string literals. */
   private def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+  /** Wrap `s` as a properly-escaped Scala double-quoted string literal,
+   *  safe for embedding in emitted `.sc` source. */
+  private def scalaStringLiteral(s: String): String =
+    "\"" + s
+      .replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+      .replace("\n", "\\n")
+      .replace("\r", "\\r")
+      .replace("\t", "\\t")
+      + "\""
+
+  /** Escape a string for inclusion in a double-quoted JS literal inside
+   *  the emitted client-SQL JS bundle. */
+  private def jsLitForClientSql(s: String): String =
+    val sb = StringBuilder("\"")
+    s.foreach {
+      case '\\' => sb.append("\\\\")
+      case '"'  => sb.append("\\\"")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
+      case c    => sb.append(c)
+    }
+    sb.append("\"").toString
+
+  /** Build the JS content for `_ssc_client_sql_js`.
+   *
+   *  Inline the sql-runtime.mjs (export-stripped) + registry init +
+   *  one `await SqlRuntimeJs.execute(...)` per collected @side=client
+   *  block, all wrapped in an async IIFE so `await` is valid.  The
+   *  results are exposed on `window._ssc_client[sectionAlias]` for
+   *  the React app to consume (e.g. via `useEffect` + state). */
+  private def emitClientSqlJs(module: Module): String =
+    if clientSqlBlocksList.isEmpty then return ""
+    val sb = StringBuilder()
+    sb.append("// ── @side=client sql blocks (injected by JvmGen v1.30) ──────────────\n")
+    sb.append("(async function() {\n")
+    val runtimeSrc = SqlRuntimeJsEmit.runtimeSource.replace("export ", "")
+    sb.append(runtimeSrc)
+    sb.append("\nconst SqlRuntimeJs = { execute, ConnectionRegistry, makeRow, isResultSetProducer, Providers, SqlJsProvider, SqliteWasmProvider, DuckDbWasmProvider };\n")
+    val databases = module.manifest.toList.flatMap(_.databases)
+    val entries   = databases.map { d =>
+      SqlRuntimeJsEmit.DatabaseEntry(
+        name = d.name, url = d.url, user = d.user, password = d.password, driver = d.driver
+      )
+    }
+    sb.append(SqlRuntimeJsEmit.emitRegistryInit(entries))
+    sb.append("\n")
+    sb.append("  if (typeof window !== 'undefined') { if (!window._ssc_client) window._ssc_client = {}; }\n")
+    clientSqlBlocksList.zipWithIndex.foreach { case ((source, dbNameOpt, alias), i) =>
+      val rewrite = scalascript.transform.SqlBindRewriter.rewriteJdbc(source)
+      val sqlLit  = jsLitForClientSql(rewrite.sql)
+      val bindsJs = rewrite.binds.map(_.trim).mkString(", ")
+      val dbArg   = dbNameOpt.map(jsLitForClientSql).getOrElse("undefined")
+      sb.append(s"  const _clientSqlBlock_$i = await SqlRuntimeJs.execute(await _ssc_sql_resolve($dbArg), $sqlLit, [$bindsJs]);\n")
+      alias.foreach { aliasId =>
+        val aliasLit = jsLitForClientSql(aliasId)
+        sb.append(s"  if (typeof window !== 'undefined') window._ssc_client[$aliasLit] = { sql: _clientSqlBlock_$i };\n")
+      }
+    }
+    sb.append("})().catch(function(e) { console.error('[ssc] @side=client sql error:', e); });\n")
+    sb.toString
 
   /** Translate a `sql` fenced block to its emitted Scala source.  Walks
    *  the block through `SqlBindRewriter.rewriteJdbc` to get a
@@ -8536,7 +8624,9 @@ class JvmGen(
        |  val _p = java.nio.file.Paths.get(dir)
        |  java.nio.file.Files.createDirectories(_p)
        |  java.nio.file.Files.writeString(_p.resolve("index.html"), _emitted.html)
-       |  java.nio.file.Files.writeString(_p.resolve("app.js"),     _emitted.js)
+       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\n" + _ssc_client_sql_js
+       |               else _emitted.js
+       |  java.nio.file.Files.writeString(_p.resolve("app.js"), _appJs)
        |  if _emitted.css.nonEmpty then
        |    java.nio.file.Files.writeString(_p.resolve("app.css"), _emitted.css)
        |
@@ -8545,7 +8635,9 @@ class JvmGen(
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
        |  java.nio.file.Files.writeString(_tmpDir.resolve("index.html"), _emitted.html)
-       |  java.nio.file.Files.writeString(_tmpDir.resolve("app.js"),     _emitted.js)
+       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\n" + _ssc_client_sql_js
+       |               else _emitted.js
+       |  java.nio.file.Files.writeString(_tmpDir.resolve("app.js"), _appJs)
        |  if _emitted.css.nonEmpty then
        |    java.nio.file.Files.writeString(_tmpDir.resolve("app.css"), _emitted.css)
        |  _tmpDir.toString

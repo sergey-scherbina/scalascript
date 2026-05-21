@@ -204,3 +204,57 @@ class JsGenSqlBlockTest extends AnyFunSuite:
          |```
          |""".stripMargin)
     assert(code.contains("_ssc_sql_resolve(undefined)"))
+
+  // ── v1.30 Phase 4 — @side=server / @side=client in JS targets ──────
+
+  test("@side=server sql block is skipped in JS output"):
+    val code = emit(
+      """|# Q
+         |
+         |```sql @side=server
+         |SELECT 1
+         |```
+         |""".stripMargin)
+    assert(!code.contains("_sqlBlock_0"), "@side=server block must not be emitted in JS")
+    assert(!code.contains("SqlRuntimeJs.execute"), "no execute call for server-only block")
+
+  test("@side=server block does not trigger sql preamble in JS output"):
+    val code = emit(
+      """|# Q
+         |
+         |```sql @side=server
+         |SELECT 1
+         |```
+         |""".stripMargin)
+    assert(!code.contains("_ssc_sql_registry"), "server-only sql must not emit JS sql registry")
+
+  test("@side=client sql block emits normally in JS target"):
+    val code = emit(
+      """|# Setup
+         |
+         |```sql @side=client
+         |CREATE TABLE IF NOT EXISTS cache (k TEXT)
+         |```
+         |""".stripMargin)
+    assert(code.contains("_sqlBlock_0"), "@side=client block must be emitted in JS")
+    assert(code.contains("SqlRuntimeJs.execute"), "must emit JS execute call")
+
+  test("mixed @side=server + @side=client: only client block is emitted in JS"):
+    val code = emit(
+      """|# Server
+         |
+         |```sql @side=server
+         |SELECT 1
+         |```
+         |
+         |# Client
+         |
+         |```sql @side=client
+         |CREATE TABLE IF NOT EXISTS cache (k TEXT)
+         |```
+         |""".stripMargin)
+    assert(!code.contains("SELECT 1"), "server block SQL must not appear in JS")
+    assert(code.contains("CREATE TABLE IF NOT EXISTS cache"), "client block SQL must appear")
+    // Only one block emitted → _sqlBlock_0, NOT _sqlBlock_1
+    assert(code.contains("_sqlBlock_0"), "client block becomes _sqlBlock_0")
+    assert(!code.contains("_sqlBlock_1"), "no _sqlBlock_1 (server block was skipped)")

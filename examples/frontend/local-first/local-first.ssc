@@ -1,0 +1,92 @@
+#!/usr/bin/env ssc
+---
+name: local-first
+version: 1.0.0
+description: >
+  Full-stack demo — server-side SQLite for REST data, client-side
+  SQLite OPFS for browser-local cache (v1.30 @side=client).
+frontend: react
+databases:
+  server:
+    url: "sqlite:./server-notes.db"
+  local:
+    url: "sqlite-opfs:./local-cache.db"
+---
+
+# Local-First Notes
+
+A notes app where notes persist on the server (`@side=server`)
+and a read-through cache lives in the browser (`@side=client`).
+
+## Server database setup
+
+```sql @side=server @db=server
+CREATE TABLE IF NOT EXISTS notes (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT    NOT NULL
+)
+```
+
+## Client cache setup
+
+```sql @side=client @db=local
+CREATE TABLE IF NOT EXISTS note_cache (
+  id      INTEGER PRIMARY KEY,
+  text    TEXT NOT NULL,
+  synced  INTEGER DEFAULT 1
+)
+```
+
+## REST API
+
+```scalascript
+route("GET", "/api/notes") { req =>
+  val rows = Db.query("server", "SELECT id, text FROM notes ORDER BY id", [])
+  val body = "[" + rows.map(r => s"""{"id":${r("id")},"text":"${r("text")}"}""").mkString(",") + "]"
+  Response.text(body)
+}
+
+route("POST", "/api/notes") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    Db.execute("server", "INSERT INTO notes(text) VALUES (?)", [text])
+    Response.status(201, "created")
+}
+
+route("POST", "/api/notes/delete") { req =>
+  val id = req.body.trim
+  Db.execute("server", "DELETE FROM notes WHERE id = ?", [id.toInt])
+  Response.status(204)
+}
+```
+
+## Imports and signals
+
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textInput, button](std/ui/form.ssc)
+
+## App
+
+```scalascript
+val newNote = signal("newNote", "")
+val tick    = signal("tick", 0)
+val notes   = fetchUrlSignal("notes", "/api/notes", tick)
+
+val view = lower(defaultTheme(vstack([
+  heading("Local-First Notes", 1),
+  text("Notes are stored server-side (SQLite) and locally cached (@side=client sqlite-opfs:)."),
+  divider(),
+  hstack([
+    textInput(newNote, "Add a note..."),
+    button("Add", fetchActionClear("POST", "/api/notes", newNote, tick))
+  ]),
+  fetchTableView("/api/notes", "/api/notes/delete", tick)
+])))
+
+serve(view, 8080)
+```

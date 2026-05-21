@@ -6732,7 +6732,7 @@ class JsGen(
     // `genSqlBlock`-emitted call sites.
     val stripped   = runtimeSrc.replace("export ", "")
     sb.append(stripped)
-    sb.append("\nconst SqlRuntimeJs = { execute, ConnectionRegistry, makeRow, isResultSetProducer, Providers, SqlJsProvider, DuckDbWasmProvider };\n")
+    sb.append("\nconst SqlRuntimeJs = { execute, ConnectionRegistry, makeRow, isResultSetProducer, Providers, SqlJsProvider, SqliteWasmProvider, DuckDbWasmProvider };\n")
     sb.append(scalascript.sql.js.SqlRuntimeJsEmit.emitRegistryInit(entries))
     sb.append("\n")
 
@@ -7050,6 +7050,8 @@ class JsGen(
    *      the same section skip the alias (the first-only book-keeping
    *      in `sqlPerSection` enforces this). */
   private def genSqlBlock(cb: Content.CodeBlock, section: Section): Unit =
+    // v1.30 Phase 4 — @side=server blocks are server-only; skip in JS targets.
+    if cb.attrs.get("side").contains("server") then return
     val n = sqlBlockCounter
     sqlBlockCounter += 1
     val rewrite = scalascript.transform.SqlBindRewriter.rewriteJdbc(cb.source)
@@ -7110,8 +7112,11 @@ class JsGen(
   private def hasSqlBlocks(module: Module): Boolean =
     def go(s: Section): Boolean =
       s.content.exists {
-        case cb: Content.CodeBlock => Lang.isSql(cb.lang)
-        case _                     => false
+        // v1.30 — @side=server blocks are server-only; don't count them as
+        // requiring the SQL preamble in a JS-family bundle.
+        case cb: Content.CodeBlock =>
+          Lang.isSql(cb.lang) && !cb.attrs.get("side").contains("server")
+        case _ => false
       } || s.subsections.exists(go)
     module.sections.exists(go)
 

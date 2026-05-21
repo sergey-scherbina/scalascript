@@ -329,4 +329,131 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
     assert(code.contains(hostMarker), s"missing $hostMarker")
     assert(code.contains(userMarker), s"missing $userMarker")
   }
+
+  // ── v1.30 Phase 4 — @side=client / @side=server codegen ────────────
+
+  test("@side=server sql block emits server JDBC code (existing behaviour)") {
+    val code = emit(
+      """|# Q
+         |
+         |```sql @side=server
+         |SELECT 1
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("_sqlBlock_0"), "server block must emit _sqlBlock_0")
+    assert(code.contains("scalascript.sql.SqlRuntime.execute("))
+    assert(!code.contains("_ssc_client_sql_js"), "@side=server module without frontend should not emit _ssc_client_sql_js")
+  }
+
+  test("@side=client sql block does NOT emit server JDBC _sqlBlock_N") {
+    val code = emit(
+      """|---
+         |frontend: react
+         |databases:
+         |  local:
+         |    url: "sqlite-opfs:./cache.db"
+         |---
+         |# Setup
+         |
+         |```sql @side=client @db=local
+         |CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("val _sqlBlock_0"), "@side=client must NOT emit server _sqlBlock_0")
+    assert(!code.contains("SqlRuntime.execute("), "@side=client must NOT emit JDBC execute call")
+  }
+
+  test("@side=client sql block emits _ssc_client_sql_js val in frontend modules") {
+    val code = emit(
+      """|---
+         |frontend: react
+         |databases:
+         |  local:
+         |    url: "sqlite-opfs:./cache.db"
+         |---
+         |# Setup
+         |
+         |```sql @side=client @db=local
+         |CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("val _ssc_client_sql_js"), "must emit _ssc_client_sql_js")
+    assert(code.contains("(async function()"), "must contain async IIFE in embedded JS")
+    assert(code.contains("CREATE TABLE IF NOT EXISTS cache"), "SQL source must be in client JS")
+  }
+
+  test("frontend module with no @side=client sql emits empty _ssc_client_sql_js") {
+    val code = emit(
+      """|---
+         |frontend: react
+         |databases:
+         |  server:
+         |    url: "sqlite:./data.db"
+         |---
+         |# Setup
+         |
+         |```sql @side=server @db=server
+         |SELECT 1
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("val _ssc_client_sql_js"), "frontend module always emits _ssc_client_sql_js")
+    // The val should be an empty string literal when no client blocks
+    assert(code.contains("_ssc_client_sql_js: String = \"\""), "no client blocks → empty string val")
+  }
+
+  test("mixed @side=client + @side=server blocks: server → JDBC, client → browser JS") {
+    val code = emit(
+      """|---
+         |frontend: react
+         |databases:
+         |  local:
+         |    url: "sqlite-opfs:./cache.db"
+         |  server:
+         |    url: "sqlite:./data.db"
+         |---
+         |# Server query
+         |
+         |```sql @side=server @db=server
+         |SELECT id, text FROM notes ORDER BY id
+         |```
+         |
+         |# Client setup
+         |
+         |```sql @side=client @db=local
+         |CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY)
+         |```
+         |""".stripMargin
+    )
+    // Server block → ordinary JDBC emit
+    assert(code.contains("val _sqlBlock_0"), "server block must be _sqlBlock_0")
+    assert(code.contains("SELECT id, text FROM notes ORDER BY id"))
+    // Client block → browser JS bundle
+    assert(code.contains("_ssc_client_sql_js"))
+    assert(code.contains("CREATE TABLE IF NOT EXISTS cache"))
+    // Server JDBC count should be 1, client should NOT be _sqlBlock_1
+    assert(!code.contains("_sqlBlock_1"), "client block must not increment server counter")
+  }
+
+  test("_ssc_ui_emit_to_dir and _ssc_ui_emit_to_tempdir append _ssc_client_sql_js to app.js") {
+    val code = emit(
+      """|---
+         |frontend: react
+         |databases:
+         |  local:
+         |    url: "sqlite-opfs:./cache.db"
+         |---
+         |# Setup
+         |
+         |```sql @side=client @db=local
+         |CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("_ssc_client_sql_js.nonEmpty"), "ui helpers must check client JS")
+    assert(code.contains("_emitted.js + \"\\n\" + _ssc_client_sql_js"), "must append client JS to app.js")
+  }
 }
