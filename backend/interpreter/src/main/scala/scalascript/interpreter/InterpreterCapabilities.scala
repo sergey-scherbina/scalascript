@@ -68,7 +68,6 @@ val InterpreterIntrinsics: Map[QualifiedName, IntrinsicImpl] =
   ) ++ CoreIntrinsics     // Stage 5+/E — Core:     intrinsics/Core.scala
     // HTTP / WS / MCP / JSON / Request / Frontend / Auth / OAuth now ship as plugins.
     ++ JdbcIntrinsics     // v1.26     — JDBC:         intrinsics/Jdbc.scala (blocked on runSqlBlock refactor)
-    ++ UiPrimitivesIntrinsics // v1.29 7a  — std/ui prims: intrinsics/UiPrimitives.scala (blocked on interpreter-server extraction)
 
 /** Same shape as `Value.show` but works on the `Any` payload an
  *  intrinsic sees post-unwrap.  Critical: doubles render without the
