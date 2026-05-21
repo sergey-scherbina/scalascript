@@ -3,10 +3,11 @@ package scalascript.dap
 import ujson.*
 import java.net.Socket
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.{CountDownLatch, ConcurrentHashMap}
+import scalascript.interpreter.{Value => IValue}
 import scalascript.interpreter.debug.{DebugFrame, DebugHooks, StepAction, StopReason}
 
-/** Handles one DAP client connection. Phase 3: step execution (next/stepIn/stepOut).
+/** Handles one DAP client connection. Phase 4: variable inspection (scopes/variables).
  *
  *  Threading model:
  *  - The DAP message loop runs on the caller's thread (inside [[run]]).
@@ -19,7 +20,14 @@ import scalascript.interpreter.debug.{DebugFrame, DebugHooks, StepAction, StopRe
  *  - [[stepMode]] is set by `next`/`stepIn`/`stepOut` before calling [[resume]].
  *  - [[stepSkipLine]] is set to the resumed-from line so the interpreter skips
  *    sub-expressions on the same line after a resume.
- *  - [[lastFrame]] remembers the last stopped frame for depth-based step decisions.
+ *  - [[lastFrame]] remembers the last stopped frame for depth-based step decisions
+ *    and also carries the locals snapshot for variable inspection.
+ *
+ *  Variable registry:
+ *  - [[varRefCounter]] allocates variablesReference integers (non-zero = has children).
+ *  - [[varRegistry]] maps each reference to its (name, Value) pairs.
+ *  - Registry is reset on each [[handleScopes]] call so stale refs from a previous
+ *    stop can't be dereferenced after the interpreter resumes.
  */
 final class DapSession(conn: Socket):
   private val in        = conn.getInputStream
@@ -27,30 +35,31 @@ final class DapSession(conn: Socket):
   private val writeLock = Object()
   private var seq       = 0
 
-  private val breakpoints = scalascript.interpreter.debug.BreakpointRegistry()
-  private val readyLatch  = CountDownLatch(1)
+  private val breakpoints  = scalascript.interpreter.debug.BreakpointRegistry()
+  private val readyLatch   = CountDownLatch(1)
   private val suspendLatch = AtomicReference[CountDownLatch](null)
 
   // Phase 3: step mode and associated state.
   private val stepMode     = AtomicReference[StepMode](StepMode.Off)
-  private val stepSkipLine = AtomicInteger(-1)   // skip this line when checking step-stop
+  private val stepSkipLine = AtomicInteger(-1)
   private val lastFrame    = AtomicReference[Option[DebugFrame]](None)
+
+  // Phase 4: variable registry.
+  private val varRefCounter = AtomicInteger(0)
+  private val varRegistry   = ConcurrentHashMap[Int, IndexedSeq[(String, IValue)]]()
 
   private enum StepMode:
     case Off
     case StepIn
-    case StepOver(targetDepth: Int)   // stop when callDepth <= targetDepth
-    case StepOut(targetDepth: Int)    // stop when callDepth < targetDepth
+    case StepOver(targetDepth: Int)
+    case StepOut(targetDepth: Int)
 
   def awaitReady(): Unit = readyLatch.await()
 
-  /** Resume the blocked interpreter thread. Does NOT clear stepMode — callers
-   *  must set stepMode before calling resume() so the interpreter picks it up. */
   private def resume(): Unit =
     val latch = suspendLatch.getAndSet(null)
     if latch != null then latch.countDown()
 
-  /** Block the interpreter thread, send a `stopped` event, wait for resume. */
   private def suspendUntilResume(@annotation.unused frame: DebugFrame, reason: String): Unit =
     val latch = CountDownLatch(1)
     suspendLatch.set(latch)
@@ -67,26 +76,9 @@ final class DapSession(conn: Socket):
     def isBreakpoint(sourceFile: String, line: Int): Boolean =
       breakpoints.contains(sourceFile, line)
 
-    /** Called for every evaluated term. Decides whether to suspend based on
-     *  breakpoints and current step mode.
-     *
-     *  Line dedup: once we stop at line L, [[stepSkipLine]] is set to L so
-     *  subsequent sub-expression evals on the same line (same resume cycle)
-     *  are skipped. [[stepSkipLine]] is reset only when we stop at a *different*
-     *  line, preventing the interpreter from immediately re-stopping on the
-     *  same line after a `next`/`stepIn`/`stepOut` resume.
-     *
-     *  Breakpoints bypass the skip check: a breakpoint on line L must fire even
-     *  on revisits (e.g., inside a loop). Within a single stop-cycle, further
-     *  sub-expressions on L are still skipped via the `suspendLatch != null` guard
-     *  embedded in the single-threaded interpreter flow.
-     */
     def onStep(frame: DebugFrame): StepAction =
       val docLine  = frame.line
       val skipLine = stepSkipLine.get()
-      // A breakpoint on the resumed-from line is skipped for the current resume cycle.
-      // This prevents re-firing on sub-expressions of the same statement after next/stepIn/stepOut.
-      // The skip is cleared when we stop at a different line.
       val bp = breakpoints.contains(frame.sourceFile, docLine) && docLine != skipLine
       val sm = stepMode.get()
 
@@ -139,31 +131,116 @@ final class DapSession(conn: Socket):
           stepSkipLine.set(-1)
           resume()
           sendResponse(reqSeq, "continue", Obj("allThreadsContinued" -> True))
-        case "next"              => handleStep(reqSeq, "next"):
-          f => StepMode.StepOver(f.callDepth)
-        case "stepIn"            => handleStep(reqSeq, "stepIn"):
-          _ => StepMode.StepIn
-        case "stepOut"           => handleStep(reqSeq, "stepOut"):
-          f => StepMode.StepOut(f.callDepth)
-        case "pause"             =>
-          // Stop at next evaluated line (no resume needed — interpreter is running).
+        case "next"    => handleStep(reqSeq, "next")(f => StepMode.StepOver(f.callDepth))
+        case "stepIn"  => handleStep(reqSeq, "stepIn")(_ => StepMode.StepIn)
+        case "stepOut" => handleStep(reqSeq, "stepOut")(f => StepMode.StepOut(f.callDepth))
+        case "pause"  =>
           stepSkipLine.set(-1)
           stepMode.set(StepMode.StepIn)
           sendResponse(reqSeq, "pause", Obj())
-        case "threads"           =>
+        case "threads" =>
           sendResponse(reqSeq, "threads", Obj(
             "threads" -> Arr(Obj("id" -> Num(1), "name" -> Str("main")))
           ))
-        case "disconnect"        => handleDisconnect(reqSeq, msg)
-        case other               => sendResponse(reqSeq, other, Obj(), success = false, message = s"unknown command: $other")
+        case "scopes"     => handleScopes(reqSeq, msg)
+        case "variables"  => handleVariables(reqSeq, msg)
+        case "disconnect" => handleDisconnect(reqSeq, msg)
+        case other        => sendResponse(reqSeq, other, Obj(), success = false, message = s"unknown command: $other")
 
-  /** Common handler for next/stepIn/stepOut: sets step mode then resumes. */
   private def handleStep(reqSeq: Int, cmd: String)(mkMode: DebugFrame => StepMode): Unit =
     val frame = lastFrame.get().getOrElse(DebugFrame(0, "", "", 0, 0))
     stepSkipLine.set(frame.line)
     stepMode.set(mkMode(frame))
     resume()
     sendResponse(reqSeq, cmd, Obj())
+
+  // ─── Variable inspection ──────────────────────────────────────────────────
+
+  /** Reset the variable registry and allocate a new ref for the given pairs. */
+  private def allocRef(pairs: IndexedSeq[(String, IValue)]): Int =
+    val ref = varRefCounter.incrementAndGet()
+    varRegistry.put(ref, pairs)
+    ref
+
+  /** Allocate a variablesReference for a Value's children, or 0 if leaf. */
+  private def childrenRef(v: IValue): Int = v match
+    case IValue.InstanceV(_, fields) =>
+      allocRef(fields.toIndexedSeq.sortBy(_._1))
+    case IValue.ListV(items) =>
+      allocRef(items.zipWithIndex.map { case (v, i) => (s"[$i]", v) }.toIndexedSeq)
+    case IValue.MapV(entries) =>
+      allocRef(entries.toIndexedSeq.map { case (k, v) => (IValue.show(k), v) })
+    case IValue.TupleV(elems) =>
+      allocRef(elems.zipWithIndex.map { case (v, i) => (s"_${i + 1}", v) }.toIndexedSeq)
+    case IValue.OptionV(Some(inner)) =>
+      allocRef(IndexedSeq(("value", inner)))
+    case _ => 0
+
+  /** Convert one (name, Value) pair to a DAP Variable JSON object. */
+  private def valueToDap(name: String, v: IValue): Value =
+    val (display, typeName) = v match
+      case IValue.IntV(n)            => (n.toString, "Int")
+      case IValue.DoubleV(d)         =>
+        val s = if d == d.toLong.toDouble then d.toLong.toString else d.toString
+        (s, "Double")
+      case IValue.StringV(s)         => (s""""$s"""", "String")
+      case IValue.BoolV(b)           => (b.toString, "Boolean")
+      case IValue.CharV(c)           => (s"'$c'", "Char")
+      case IValue.UnitV              => ("()", "Unit")
+      case IValue.NullV              => ("null", "Null")
+      case IValue.FunV(ps, _, _, n, _, _, _, _) =>
+        val nm = if n.nonEmpty then n else "<anon>"
+        (s"<function($nm/${ps.length})>", "Function")
+      case IValue.NativeFnV(nm, _)   => (s"<native:$nm>", "Function")
+      case IValue.InstanceV(t, fs)   =>
+        val preview = if fs.isEmpty then t else s"$t { ${fs.size} field(s) }"
+        (preview, t)
+      case IValue.ListV(items)       => (s"List(${items.length})", "List")
+      case IValue.MapV(m)            => (s"Map(${m.size})", "Map")
+      case IValue.TupleV(elems)      => (s"Tuple${elems.length}", s"Tuple${elems.length}")
+      case IValue.OptionV(None)      => ("None", "Option")
+      case IValue.OptionV(Some(i))   => (s"Some(${IValue.show(i)})", "Option")
+      case IValue.DocV(_)            => ("<doc>", "Doc")
+      case IValue.Foreign(t, _)      => (s"<foreign:$t>", t)
+    Obj(
+      "name"               -> Str(name),
+      "value"              -> Str(display),
+      "type"               -> Str(typeName),
+      "variablesReference" -> Num(childrenRef(v)),
+    )
+
+  /** Filter env snapshot to user-visible variables (drop built-in native fns and internal names). */
+  private def visibleLocals(env: Map[String, IValue]): IndexedSeq[(String, IValue)] =
+    env.toIndexedSeq
+      .filter { case (name, value) =>
+        !name.startsWith("_") &&
+        !name.startsWith("$") &&
+        !value.isInstanceOf[IValue.NativeFnV]
+      }
+      .sortBy(_._1)
+
+  private def handleScopes(reqSeq: Int, @annotation.unused msg: Value): Unit =
+    // Reset variable registry for this stop — client will fetch fresh refs.
+    varRefCounter.set(0)
+    varRegistry.clear()
+    val locals    = lastFrame.get().map(f => visibleLocals(f.locals)).getOrElse(IndexedSeq.empty)
+    val localsRef = allocRef(locals)
+    sendResponse(reqSeq, "scopes", Obj(
+      "scopes" -> Arr(Obj(
+        "name"               -> Str("Locals"),
+        "variablesReference" -> Num(localsRef),
+        "presentationHint"   -> Str("locals"),
+        "expensive"          -> False,
+      ))
+    ))
+
+  private def handleVariables(reqSeq: Int, msg: Value): Unit =
+    val ref   = msg("arguments")("variablesReference").num.toInt
+    val pairs = Option(varRegistry.get(ref)).getOrElse(IndexedSeq.empty)
+    val dapVars = pairs.map { case (name, value) => valueToDap(name, value) }
+    sendResponse(reqSeq, "variables", Obj("variables" -> Arr(dapVars.toSeq*)))
+
+  // ─── Protocol helpers ─────────────────────────────────────────────────────
 
   private def handleInitialize(reqSeq: Int, @annotation.unused msg: Value): Unit =
     val caps = Obj(

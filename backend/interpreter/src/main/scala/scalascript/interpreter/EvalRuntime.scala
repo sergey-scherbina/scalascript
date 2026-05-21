@@ -19,7 +19,7 @@ private[interpreter] object EvalRuntime:
     interp.debugHooks.foreach { hooks =>
       interp.currentSpan.foreach { case (blockLine, _) =>
         val docLine = interp.debugBlockDocLine + blockLine + 1
-        val frame   = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStack.length)
+        val frame   = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStack.length, env)
         hooks.onStep(frame)
       }
     }

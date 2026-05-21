@@ -24,4 +24,5 @@ case class DebugFrame(
   sourceFile: String,
   line:       Int,
   callDepth:  Int = 0,
+  locals:     Map[String, scalascript.interpreter.Value] = Map.empty,
 )

@@ -9278,15 +9278,21 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - [x] Call-depth tracking via `interp.callStack.length`; `stopped(reason: "step")`
 - [x] `DapStepTest` (3 tests)
 
-### Phase 4 — Variable inspection
+### Phase 4 — Variable inspection ✓ Landed
 
-- Handle `scopes` + `variables` requests; `Value` → DAP `Variable` JSON.
-- Nested `Value.Obj` / `Value.List` with `variablesReference`.
-- Tests: `DapVariablesTest`.
+- `locals: Map[String, Value]` added to `DebugFrame`; populated from `env` in `EvalRuntime.eval`.
+- `varRefCounter` + `varRegistry` in `DapSession` allocate `variablesReference` integers per stop.
+- `handleScopes`: resets registry on each stop, registers filtered locals, returns "Locals" scope.
+- `handleVariables`: looks up registered pairs, converts each `Value` → DAP `Variable` JSON.
+- `valueToDap`: typed display strings for all Value cases (Int, String, Boolean, List, Map, InstanceV, …).
+- Nested structures (ListV, MapV, InstanceV, TupleV, OptionV(Some)) get positive `variablesReference`
+  so the client can expand them recursively.
+- `visibleLocals`: filters out `NativeFnV` built-ins and `_`/`$`-prefixed internal names.
+- 3 new tests in `DapVariablesTest`: scopes ref positive, user-defined scalar values, List expansion.
 
-- [ ] `variables` + `scopes` request handlers
-- [ ] `Value.toDapString` helper
-- [ ] `DapVariablesTest`
+- [x] `scopes` + `variables` request handlers
+- [x] `valueToDap` helper (typed display for all Value cases)
+- [x] `DapVariablesTest` (3 tests)
 
 ### Phase 5 — Stack frames + source mapping
 
