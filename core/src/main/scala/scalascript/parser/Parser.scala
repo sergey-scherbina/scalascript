@@ -83,7 +83,7 @@ object Parser:
         // that scalameta sees and the whole block silently fails to parse
         // (cb.tree = None → imports from this file see no symbols).
         val preprocessed =
-          preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(preprocessListLiterals(cb.source)))))
+          preprocessExtern(preprocessEffects(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(cb.source)))))
         val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
@@ -818,7 +818,7 @@ object Parser:
   def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessExtern(preprocessEffects(preprocessInlineImports(preprocessSlashImports(preprocessListLiterals(code)))))
+    val processed = preprocessExtern(preprocessEffects(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(code)))))
     processed.parse[Source] match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>
