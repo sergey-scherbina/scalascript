@@ -9884,33 +9884,39 @@ All 699 core tests green after fix.
 - **`core/src/main/scala/scalascript/parser/Parser.scala`** — two chain
   lines reordered (lines 86 and 821).
 
-## v1.37 — Typer: ssc check 33→59 examples ✓ Complete (2026-05-21)
+## v1.37 — Typer: ssc check 33→94 examples ✓ Complete (2026-05-21)
 
 **Status:** complete
 
-Significantly improved `ssc check` coverage through three Typer fixes and one CLI fix.
+Expanded `ssc check` coverage from 33 to all 94 examples through Typer fixes and prelude additions across two iterations.
 
-### Changes
+### Changes (combined)
 
 **Typer (`core/src/main/scala/scalascript/typer/Typer.scala`)**
 
-- **Self-recursion**: bind `def` name in `bodyScope` before typing body — `def fib(n) = fib(n-1)` now resolves correctly
+- **Self-recursion**: bind `def` name in `bodyScope` before typing body — `def fib(n) = fib(n-1)` resolves correctly
 - **Pre-declaration pass**: scan all module sections before type-checking to collect top-level names; cross-section forward refs and mutual recursion work
-- **Pattern vars**: `bindPatVars` binds `Pat.Var`, `Pat.Extract`, `Pat.ExtractInfix` (list cons), `Pat.Tuple`, `Pat.Typed`, `Pat.Bind` in `Term.Match` case scopes — fixes `case Circle(r) => r * r`, `case x :: xs => ...`
+- **Pattern vars**: `bindPatVars` binds `Pat.Var`, `Pat.Extract`, `Pat.ExtractInfix`, `Pat.Tuple`, `Pat.Typed`, `Pat.Bind` in `Term.Match` case scopes
 - **Tuple val destructuring**: `val (l, r) = ...` now binds `l` and `r`
-- **`given` declarations**: add given name to scope so `given listFunctor: Functor[...] with` makes `listFunctor` visible
+- **`given` declarations**: add given name to scope
 - **New builtins**: `Nil`, `sys`, `Console`, `args`
-
-**CLI (`cli/src/main/scala/scalascript/cli/Main.scala`)**
-
-- `pluginBuiltins` also extracts root segment of dotted plugin names: `oauth.client.foo` → also adds `oauth` to scope
+- **Generic type compatibility**: `Option[Nothing]` ≤ `Option[T]`, raw `Box` ≤ `Box[T]`, type variable heuristic (`T`, `A`, `B` etc)
+- **Section-identifier names**: `predeclareSection` calls `sectionIdent` (mirrors JvmGen/SparkGen) and registers the heading-derived object name (`ActiveUsers`, `TopWords`, etc.) so SQL block results are visible
+- **SQL block counter**: each `lang=sql` block registers `_sqlBlock_<n>` in scope
+- **Scala import extraction**: `predeclareStat` handles `scala.meta.Import` — extracts `Importee.Name` and `Importee.Rename` targets so code in later sections sees names from earlier `import` statements
+- **`extern def` handling**: body `Term.Name("__extern__")` is recognized as an opaque declaration; uses declared return type, skips body type check
+- **Plugin builtins**: `oauth`, `oidc`, `spark`, `http` (namespace objects); `Async`, `Await`, `Signal`, `HandlerRegistry`, `Cluster`, `ShuffleStage`, `Stage`, `runDistributed`, `runDistributedShuffle`, `Wallets`, `X402Client`, `X402`, `CardanoFacilitator`, `PaymentConfig`, `DefaultSyncBackend`, `basicRequest`, `Future`, `setHttpServerBackend`, `Storage`, `Source`, `PipelineModel`
 
 **CI (`.github/workflows/ci.yml`)**
 
-- Expanded `ssc check` from 33 → 59 examples
+- Expanded from explicit list of 59 to `examples/*.ssc` (all 94)
+
+**Examples (`examples/sql-browser-duckdb.ssc`)**
+
+- Corrected section heading `## Totals per sku — duckdb GROUP BY` → `## Totals` so the derived identifier matches the `Totals.sql` reference used in the Output section
 
 ### Impact
 
-`ssc check examples/*.ssc` results: **33 OK** before → **59 OK** after (out of 94 total)
+`ssc check examples/*.ssc` results: **33 OK** before → **94/94 OK** after
 
-All 699 core tests pass.
+All core tests pass.
