@@ -2178,11 +2178,12 @@ function _ssc_http_serve(port, _tlsCfg) {
   // WebSocket upgrade lives on the same server — Node hands us the raw
   // socket (post-headers) and stays out of the way after.
   server.on('upgrade', (req, socket, _head) => _wsHandleUpgrade(req, socket));
-  server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/`));
+  server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/  (backend=node${_ssc_frontend_name ? ', frontend=' + _ssc_frontend_name : ''})`));
   _activeServer = server;
 }
 
 let _activeServer = null;
+let _ssc_frontend_name = '';
 
 // Non-blocking variant of `serve` — mirrors the interpreter's
 // `serveAsync` semantics.  In Node `serve` is already non-blocking
@@ -3598,6 +3599,13 @@ function _ssc_ui_renderPage(view) {
           if (h._type === '_ToggleSignal' && h.s) { collectSig(h.s); aStr += ` data-ssc-toggle="${h.s.id}"`; }
           else if (h._type === '_SetSignal'  && h.s) { collectSig(h.s); aStr += ` data-ssc-set="${h.s.id}" data-ssc-set-val="${_esc(JSON.stringify(h.v))}"`; }
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
+          else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && h.url) {
+            if (h.body) collectSig(h.body); if (h.tick) collectSig(h.tick);
+            const bId = (h.body && h.body.id) ? h.body.id : '';
+            const tId = (h.tick && h.tick.id) ? h.tick.id : '';
+            aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url)}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
+            if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
+          }
         }
         const kids = (v.children || []).map(walk).join('');
         return voids.has(tag) ? `<${tag}${aStr}>` : `<${tag}${aStr}>${kids}</${tag}>`;
@@ -3621,7 +3629,11 @@ function _ssc_ui_renderPage(view) {
         return `<span data-ssc-cond="${id}" style="display:contents"><span data-ssc-branch="true"${tStyle}>${tHtml}</span><span data-ssc-branch="false"${fStyle}>${fHtml}</span></span>`;
       }
       case '_Fragment':      return (v.children || []).map(walk).join('');
-      case '_FetchTableView': return `<div class="fetch-table" data-fetch="${v.fetchUrl}"></div>`;
+      case '_FetchTableView': {
+        if (v.tick) collectSig(v.tick);
+        const ftTick = (v.tick && v.tick.id) ? v.tick.id : '';
+        return `<div data-ssc-fetch-table="${_esc(v.fetchUrl)}" data-ssc-fetch-delete="${_esc(v.deleteUrl||'')}" data-ssc-fetch-tick="${_esc(ftTick)}" style="overflow-x:auto"></div>`;
+      }
       default: return '';
     }
   }
@@ -3673,6 +3685,58 @@ function _ssc_ui_renderPage(view) {
     el.addEventListener('input', function() { _set(id, el.value); });
     _sub(id, function(v) { el.value = v == null ? '' : String(v); });
   });
+  // fetch action buttons (fetchAction / fetchActionClear)
+  document.querySelectorAll('[data-ssc-fetch-url]').forEach(function(el) {
+    var method = el.getAttribute('data-ssc-fetch-method') || 'POST';
+    var url    = el.getAttribute('data-ssc-fetch-url');
+    var bodyId = el.getAttribute('data-ssc-fetch-body');
+    var tickId = el.getAttribute('data-ssc-fetch-tick');
+    var clear  = el.getAttribute('data-ssc-fetch-clear');
+    el.addEventListener('click', function() {
+      var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
+      fetch(url, {method: method, body: body})
+        .then(function(r) { return r.text(); })
+        .then(function() {
+          if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
+          if (clear && bodyId) _set(bodyId, '');
+        });
+    });
+  });
+  // fetch tables (fetchTableView)
+  document.querySelectorAll('[data-ssc-fetch-table]').forEach(function(container) {
+    var fetchUrl  = container.getAttribute('data-ssc-fetch-table');
+    var deleteUrl = container.getAttribute('data-ssc-fetch-delete');
+    var tickId    = container.getAttribute('data-ssc-fetch-tick');
+    var thStyle  = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827';
+    var tdStyle  = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle';
+    var btnStyle = 'background:#ef4444;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:13px';
+    function renderTable(rows) {
+      container.innerHTML = '';
+      var tbl = document.createElement('table');
+      tbl.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px');
+      var thead = document.createElement('thead'); thead.setAttribute('style', 'background:#f9fafb');
+      var trH = document.createElement('tr');
+      var th1 = document.createElement('th'); th1.setAttribute('style', thStyle); th1.textContent = 'Task'; trH.appendChild(th1);
+      var th2 = document.createElement('th'); th2.setAttribute('style', thStyle); th2.textContent = ''; trH.appendChild(th2);
+      thead.appendChild(trH); tbl.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      (rows || []).forEach(function(row) {
+        var tr = document.createElement('tr');
+        var td1 = document.createElement('td'); td1.setAttribute('style', tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);
+        var td2 = document.createElement('td'); td2.setAttribute('style', tdStyle);
+        var btn = document.createElement('button'); btn.setAttribute('style', btnStyle); btn.textContent = 'Delete';
+        btn.addEventListener('click', function() {
+          fetch(deleteUrl, {method: 'POST', body: String(row.id)}).then(function(r) { return r.text(); })
+            .then(function() { if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1); });
+        });
+        td2.appendChild(btn); tr.appendChild(td2); tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody); container.appendChild(tbl);
+    }
+    function doFetch() { fetch(fetchUrl).then(function(r) { return r.json(); }).then(renderTable); }
+    doFetch();
+    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
+  });
 })();
 </script>`;
 
@@ -3692,16 +3756,18 @@ button{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 [data-ssc-cond]{display:contents}
 hr{border:none;border-top:1px solid #e5e7eb;margin:12px 0}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.ssc-spin{animation:spin 0.8s linear infinite}
 </style></head><body>${body}${script}</body></html>`;
     return Response.html(html);
   });
   _ssc_http_serve(port);
 }
 function _ssc_ui_fetchUrlSignal(name, url, tick) { return Signal(''); }
-function _ssc_ui_fetchAction(method, url, body, tick) { return { _type: '_FetchAction', method, url }; }
+function _ssc_ui_fetchAction(method, url, body, tick) { return { _type: '_FetchAction', method, url, body, tick }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
-function _ssc_ui_fetchActionClear(method, url, body, tick) { return { _type: '_FetchActionClear', method, url }; }
-function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick) { return { _type: '_FetchTableView', fetchUrl, deleteUrl }; }
+function _ssc_ui_fetchActionClear(method, url, body, tick) { return { _type: '_FetchActionClear', method, url, body, tick }; }
+function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick) { return { _type: '_FetchTableView', fetchUrl, deleteUrl, tick }; }
 """
 
 val JsRuntime: String =
