@@ -2446,6 +2446,183 @@ Third-party plugins follow the same `.sscpkg` format.  See
 
 ---
 
+## 22. Config System (v1.28)
+
+ScalaScript v1.28 introduces first-class configuration: YAML, JSON, and HOCON config
+sources that merge into a single typed tree, with uniform secret substitution and typed
+bindings in ScalaScript, Scala, and JavaScript.
+
+### 22.1 Config sources
+
+Three sources can be used simultaneously — they merge according to a priority order
+(highest to lowest by default: fenced blocks > external files > front-matter).
+
+**Front-matter** — the entire front-matter is the config root.  Existing keys
+(`databases:`, `frontend:`, `dep:`) remain fully backward-compatible:
+
+```yaml
+---
+frontend: react
+config:
+  server:
+    port: 8080
+    host: "0.0.0.0"
+  files: [app.yaml, "${env:ENV}.hocon"]   # external files
+---
+```
+
+**Fenced config blocks** — inline config in the `.ssc` file:
+
+````
+```yaml config "server"
+port: ${env:PORT | 8080}
+host: "0.0.0.0"
+tls:
+  cert: ${file:/run/secrets/cert.pem}
+```
+
+```json config "features"
+{"dark_mode": true, "beta": false}
+```
+````
+
+Named blocks (e.g. `"server"`) are scoped to `config.server.*`.
+Unnamed blocks (` ```yaml config `) merge at the root.
+
+**External files** — referenced from front-matter:
+
+```yaml
+---
+config:
+  files:
+    - path: defaults.yaml
+    - path: "${env:ENV}.hocon"
+      optional: true
+---
+```
+
+Or shorthand: `config: [app.yaml, prod.hocon]`
+
+### 22.2 Substitution syntax
+
+All config formats support the unified `${scheme:ref}` syntax plus HOCON-style variables:
+
+| Pattern | Meaning |
+|---------|---------|
+| `${env:PORT}` | Required environment variable |
+| `${env:PORT \| 8080}` | Env var with default |
+| `${file:/run/secrets/pw}` | File contents (trimmed) |
+| `${sops:db.password}` | sops-decrypted YAML key |
+| `${vault:secret/app#field}` | Vault plugin |
+| `${config:server.port}` | Cross-reference another config key |
+| `${?VAR}` | HOCON optional — empty string if missing |
+| `${VAR}` | HOCON required env var |
+
+### 22.3 Using config in ScalaScript code
+
+The `config` global is always available (no import needed):
+
+```scala
+// Dynamic path accessor (no type annotation needed)
+val port = config.server.port.getInt("port")    // or:
+val port = config.getInt("server.port")          // Option[Int]
+val host = config.getString("server.host")       // Option[String]
+val host = config.requireString("server.host")   // String (throws if missing)
+
+// Section accessor
+val srv = config.section("server")
+val port: Int = srv.requireInt("port")
+```
+
+**Typed binding with `derives Config`:**
+
+```scala
+case class ServerConfig(port: Int, host: String, tls: Boolean) derives Config
+case class AppConfig(server: ServerConfig, debug: Boolean) derives Config
+
+val app = config.as[AppConfig]               // Either[ConfigError, AppConfig]
+val srv = config[ServerConfig]("server")     // Either[ConfigError, ServerConfig]
+```
+
+### 22.4 Priority override
+
+Default order: fenced blocks > external files > front-matter.
+
+Override in front-matter:
+```yaml
+---
+config:
+  priority: [frontmatter, files, blocks]   # frontmatter wins
+---
+```
+
+Override in code:
+```scala
+val loader = ConfigLoader.fromFrontmatter(yaml)
+  .withPriority(List(Priority.Frontmatter, Priority.Files, Priority.Blocks))
+```
+
+### 22.5 JavaScript and Scala binding
+
+**JavaScript** — select strategy via `config.js-binding`:
+
+```yaml
+config:
+  js-binding: bake         # embed as const __ssc_config = {...}  (default)
+  js-binding: process-env  # use process.env.KEY  (Node.js)
+  js-binding: runtime      # load window.__SSC_CONFIG || config.json
+```
+
+**Scala** — select strategy via `config.scala-output`:
+
+```yaml
+config:
+  scala-output: embedded          # val __ssc_config: Map[String, Any] = Map(...)  (default)
+  scala-output: application.conf  # write TypesafeConfig application.conf alongside .sc
+  scala-output: object            # generate object AppConfig { val port: Int = 8080 }
+```
+
+### 22.6 Hot reload
+
+In `ssc watch` mode, changes to any external config file referenced in front-matter
+automatically trigger a reload — no restart needed.
+
+### 22.7 Full example
+
+```ssc
+---
+databases:
+  prod:
+    url:      "${env:DB_URL | jdbc:sqlite:./dev.db}"
+    password: "${sops:db.password}"
+config:
+  server:
+    port: 8080
+    host: "0.0.0.0"
+  files: [app.yaml]
+  js-binding: bake
+  priority: [blocks, files, frontmatter]
+---
+
+```yaml config "feature-flags"
+dark-mode: true
+beta-users: [alice, bob]
+```
+
+```scala
+case class ServerConfig(port: Int, host: String) derives Config
+case class Flags(darkMode: Boolean) derives Config
+
+val srv   = config[ServerConfig]("server").fold(throw _, identity)
+val flags = config[Flags]("feature-flags").fold(throw _, identity)
+
+println(s"Serving on ${srv.host}:${srv.port}")
+println(s"Dark mode: ${flags.darkMode}")
+```
+```
+
+---
+
 ## Quick Reference
 
 ### CLI
@@ -2489,3 +2666,4 @@ ssc plugin install X      # install plugin
 - Error handling: [docs/error-handling.md](error-handling.md)
 - Backend SPI: [docs/backend-spi.md](backend-spi.md)
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
+- Config system (YAML/HOCON/JSON + typed binding): §22 above, [docs/config-system.md](config-system.md)

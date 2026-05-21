@@ -29,13 +29,13 @@ final case class ExternalConfigFile(
  *  }}}
  */
 final class ConfigLoader(
-  frontmatterYaml: String                   = "",
-  fencedBlocks:    List[FencedConfigBlock]  = Nil,
-  externalFiles:   List[ExternalConfigFile] = Nil,
-  priorityOrder:   List[Priority]           = Priority.DefaultOrder,
-  envLookup:       String => Option[String] = sys.env.get,
-  sopsLookup:      String => Option[String] = _ => None,
-  @annotation.unused basePath: Path         = Path.of("."),
+  frontmatterYaml:       String                   = "",
+  fencedBlocks:          List[FencedConfigBlock]  = Nil,
+  val externalFiles:     List[ExternalConfigFile] = Nil,
+  priorityOrder:         List[Priority]           = Priority.DefaultOrder,
+  envLookup:             String => Option[String] = sys.env.get,
+  sopsLookup:            String => Option[String] = _ => None,
+  @annotation.unused basePath: Path               = Path.of("."),
 ):
 
   def load(): Either[ConfigError, ConfigValue] =
