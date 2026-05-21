@@ -1,0 +1,4 @@
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String, length: Int)
+
+(input: GreetInput) => GreetOutput(s"Hello, ${input.name}!", input.name.length)

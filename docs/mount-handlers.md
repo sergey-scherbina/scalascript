@@ -1,6 +1,6 @@
 # Mount handlers
 
-**Status:** spec — not yet implemented  
+**Status:** implemented (v1.30)  
 **Milestone:** v1.30  
 **See also:** [`docs/repl-web.md`](repl-web.md) — REPL commands that use this mechanic
 

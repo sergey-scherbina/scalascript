@@ -651,6 +651,68 @@ existing entry (idempotent — safe to call on hot-reload).
 
 See [`examples/mount-demo/`](../examples/mount-demo/) for a runnable example.
 
+### Typed handlers
+
+If a handler file's last expression is a function whose parameters are **not** `Request`, the runtime treats it as a typed handler: it auto-deserializes the input from the request and auto-serializes the output to JSON 200.
+
+**Deserialization priority** (first match wins, by field name):
+1. Path params (`:name` segments in the mounted path)
+2. Query params (`?name=alice`)
+3. JSON body (field with the same name)
+
+**Simple example — case class in, case class out:**
+
+```scalascript
+// handlers/greet.ssc
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String)
+
+(input: GreetInput) => GreetOutput(s"Hello, ${input.name}!")
+```
+
+Mounted as `mount("GET", "/greet/:name", "handlers/greet.ssc")`, a `GET /greet/alice` request fills `GreetInput(name = "alice")` from the path param and returns `{"greeting":"Hello, alice!"}`.
+
+**Multi-field example — fields from different sources:**
+
+```scalascript
+// handlers/greet-extended.ssc
+case class GreetInput(name: String, lang: String)
+case class GreetOutput(greeting: String)
+
+(input: GreetInput) =>
+  val msg = if input.lang == "es" then s"Hola, ${input.name}!" else s"Hello, ${input.name}!"
+  GreetOutput(msg)
+```
+
+Mounted on `/greet/:name`, a request `GET /greet/alice?lang=es` fills `name` from the path param and `lang` from the query string.
+
+**Explicit deserialization error handling** — use `Either[Request, Input]`:
+
+```scalascript
+(req: Either[Request, GreetInput]) =>
+  req match
+    case Left(raw)    => Response.json("""{"error":"missing name"}""", status = 400)
+    case Right(input) => GreetOutput(s"Hello, ${input.name}!")
+```
+
+**Output types:**
+
+| Return type | Result |
+|---|---|
+| Case class / named tuple | JSON object, status 200 |
+| Unnamed tuple (e.g. `(a + b, a * b)`) | JSON array, status 200 |
+| `Either[Response, Output]` | `Left(resp)` used as-is; `Right(output)` → JSON 200 |
+
+**Special trailing parameters** — the last parameter(s) may be `Request` and/or `Map[String, Any]` (in that order); these are never deserialized:
+
+```scalascript
+(name: String, req: Request)                        // deser name; req = raw request
+(name: String, ctx: Map[String, Any])               // deser name; ctx = mount context
+(name: String, req: Request, ctx: Map[String, Any]) // all three
+```
+
+See [`docs/mount-handlers.md`](mount-handlers.md) for the full typed handler signature table and deserialization rules.
+
 ### Request and Response
 
 ```scalascript

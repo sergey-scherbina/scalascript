@@ -315,6 +315,20 @@ mount("GET",  "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
   Response.json(db.findIn(coll, id))
 ```
 
+Handler files can also use **typed handlers**: if the last expression is `CaseClass1 => CaseClass2`, the runtime automatically deserializes the input from path params, query params, or JSON body, and serializes the output to JSON 200:
+
+```scala
+// handlers/greet.ssc
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String)
+
+(input: GreetInput) => GreetOutput(s"Hello, ${input.name}!")
+```
+
+Mounted as `mount("GET", "/greet/:name", "handlers/greet.ssc")`, a `GET /greet/alice` request automatically fills `GreetInput(name = "alice")` from the path param and returns `{"greeting": "Hello, alice!"}`.
+
+See [`docs/mount-handlers.md`](../docs/mount-handlers.md) for the full typed handler spec.
+
 See [`examples/mount-demo/`](../examples/mount-demo/) for a runnable example.
 
 ---

@@ -1,0 +1,7 @@
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String)
+
+(req: Either[Request, GreetInput]) =>
+  req match
+    case Left(raw)    => Response.json("""{"error":"missing name"}""", status = 400)
+    case Right(input) => GreetOutput(s"Hello, ${input.name}!")

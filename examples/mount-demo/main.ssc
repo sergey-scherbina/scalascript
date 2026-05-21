@@ -13,5 +13,14 @@ mount("GET", "/hello/:name", "handlers/hello.ssc")
 mount("GET", "/users/:id",    "handlers/entity.ssc", Map("coll" -> "users"))
 mount("GET", "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
 
+// Typed handler: case class in → case class out (auto-deser from path param, auto-ser to JSON)
+mount("GET", "/greet/:name", "handlers/greet.ssc")
+
+// Typed handler: two Int params, unnamed tuple out → JSON array
+mount("POST", "/add", "handlers/add.ssc")
+
+// Typed handler: Either[Request, Input] — explicit deser error handling
+mount("GET", "/safe/:name", "handlers/safe-greet.ssc")
+
 serve(8080)
 ```
