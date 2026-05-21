@@ -1666,13 +1666,21 @@ def runCommand(args: List[String]): Unit =
   // so they don't get treated as paths.
   var sparkVersionFlag: Option[String] = None
   var sparkMasterFlag:  Option[String] = None
+  var frontendFlag:     Option[String] = None
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--spark-version" if it.hasNext => sparkVersionFlag = Some(it.next())
       case "--spark-master"  if it.hasNext => sparkMasterFlag  = Some(it.next())
+      case "--frontend"      if it.hasNext =>
+        val name = it.next()
+        if !validFrontendNames(name) then
+          System.err.println(s"run: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+          System.exit(1)
+        frontendFlag = Some(name)
       case f                               => fileArgs += f
+  frontendFlag.foreach(applyFrontendBackend)
   val backendId = ActiveFlags.current.backend.getOrElse("int")
   for file <- fileArgs.toList do
     val path = os.Path(file, os.pwd)
@@ -1769,6 +1777,8 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   interp.setDebugHooks(Some(dbgHooks.mkHooks()))
   System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
   var running = true
+  // Tracks the port the HTTP server is currently listening on (None = stopped).
+  val serverPort = new java.util.concurrent.atomic.AtomicReference[Option[Int]](None)
   while running do
     Option(StdIn.readLine("ssc> ")) match
       case None | Some(":quit" | ":q" | ":exit") => running = false
@@ -1785,6 +1795,11 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |  :help  :h          — this message
              |  :quit  :q  :exit   — exit the REPL
              |  :reset             — clear all bindings, restart the interpreter
+             |
+             |HTTP server:
+             |  :serve [port]         — start HTTP server in background (default: 8080)
+             |  :stop [--keep-routes] — stop server; clears routes unless --keep-routes
+             |  :clear                — clear route table without stopping server
              |
              |Breakpoints & stepping:
              |  :break <N>         — set breakpoint at snippet line N
@@ -1805,6 +1820,13 @@ def replCommand(@annotation.unused args: List[String]): Unit =
       case Some(":reset") =>
         interp.run(Parser.parse("# REPL\n"))
         System.err.println("[reset] interpreter cleared")
+      case Some(s) if s == ":serve" || s.startsWith(":serve ") =>
+        replHandleServe(s.trim, serverPort, interp)
+      case Some(s) if s == ":stop" || s == ":stop --keep-routes" =>
+        replHandleStop(s.trim, serverPort)
+      case Some(":clear") =>
+        scalascript.server.Routes.clear()
+        System.err.println("Routes cleared.")
       case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
       case Some(":step")                          =>
         dbgHooks.enableStepIn()
@@ -1823,6 +1845,53 @@ def replCommand(@annotation.unused args: List[String]): Unit =
           else
             try   interp.runSnippet(code)
             catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+
+/** Handle `:serve [port]` in the REPL.
+ *  Starts WebServer in a background virtual thread (non-blocking).
+ *  `serverPort` tracks the running port; call is a no-op if already serving. */
+def replHandleServe(
+    cmd:        String,
+    serverPort: java.util.concurrent.atomic.AtomicReference[Option[Int]],
+    interp:     Interpreter
+): Unit =
+  serverPort.get() match
+    case Some(p) =>
+      System.err.println(s"Already serving on :$p.")
+    case None =>
+      val portOpt: Option[Int] = cmd.stripPrefix(":serve").trim match
+        case ""  => Some(8080)
+        case s   => s.toIntOption.orElse { System.err.println(s"Invalid port: $s"); None }
+      portOpt.foreach { port =>
+        val dir = System.getProperty("user.dir")
+        serverPort.set(Some(port))
+        Thread.ofVirtual().start { () =>
+          try
+            scalascript.server.WebServer.start(port, dir, interp.out,
+              wsRoutes = interp.wsRoutes)
+          catch
+            case _: Throwable => serverPort.set(None)
+        }
+        System.err.println(s"Listening on :$port")
+      }
+
+/** Handle `:stop [--keep-routes]` in the REPL.
+ *  Stops the running server; clears routes unless `--keep-routes` is present. */
+def replHandleStop(
+    cmd:        String,
+    serverPort: java.util.concurrent.atomic.AtomicReference[Option[Int]]
+): Unit =
+  serverPort.get() match
+    case None =>
+      System.err.println("No server running.")
+    case Some(_) =>
+      scalascript.server.WebServer.stop()
+      serverPort.set(None)
+      val keepRoutes = cmd.endsWith("--keep-routes")
+      if keepRoutes then
+        System.err.println("Server stopped. Routes kept.")
+      else
+        scalascript.server.Routes.clear()
+        System.err.println("Server stopped. Routes cleared.")
 
 def replHandleBreak(cmd: String, hooks: ReplDebugHooks): Unit =
   cmd match

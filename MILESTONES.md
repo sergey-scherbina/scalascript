@@ -9373,11 +9373,15 @@ auto-wrapped as `_ => value`.  `source` and `mountCtx` stored in
 updated to pass `mountCtx` as second arg to 2-arg handlers at dispatch time.
 Example at `examples/mount-demo/`.
 
-### Phase 3 — `:serve` / `:stop` / `:clear`
+### Phase 3 — `:serve` / `:stop` / `:clear` ✓ Landed (2026-05-21)
 
-- [ ] `:serve [port]` — `WebServer` in background virtual thread, non-blocking
-- [ ] `:stop [--keep-routes]` — closes server; default clears routes; `--keep-routes` keeps them
-- [ ] `:clear` — `Routes.clear()` without stopping server
+`:serve [port]` starts `WebServer` in a background virtual thread (non-blocking,
+default port 8080); tracks running port via `AtomicReference[Option[Int]]`; prints
+`Already serving on :<port>.` if already up.  `:stop [--keep-routes]` calls
+`WebServer.stop()`, resets port tracking, and clears `Routes` unless `--keep-routes`
+is given.  `:clear` calls `Routes.clear()` without touching the server.
+All three commands added to `:help` output.  `replHandleServe` / `replHandleStop`
+extracted as top-level helpers.  9 new tests in `ReplWebTest`; all green.
 
 ### Phase 4 — `:mount` (inline / function name / file + ctx)
 
