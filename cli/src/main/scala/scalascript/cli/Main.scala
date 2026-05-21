@@ -3523,11 +3523,16 @@ def runJsCommand(args: List[String]): Unit =
   val caps    = JsGen.detectCapabilities(module, baseDir)
   val runtime = JsGen.generateRuntime(caps)
   val result  = compileViaBackend("js", path)
+  val effectiveFrontendName: Option[String] =
+    jsFrontendFlag
+      .orElse(loadSidecarConfig(path).flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames))
+      .orElse(module.manifest.flatMap(_.frontendFramework))
   result match
     case CompileResult.Failed(diags) =>
       diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
     case CompileResult.TextOutput(userCode, _, sources) =>
-      val bundle  = runtime + "\n" + userCode
+      val frontendInit = effectiveFrontendName.fold("")(n => s"_ssc_frontend_name = '${n.replace("'", "\\'")}'; // injected by ssc\n")
+      val bundle  = runtime + "\n" + frontendInit + userCode
       val pkgJson = sources.collectFirst { case scalascript.backend.spi.SourceArtifact("package.json", c) => c }
       pkgJson match
         case None =>
