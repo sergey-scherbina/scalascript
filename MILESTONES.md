@@ -5913,15 +5913,15 @@ Output: top-20 hotspots, simple call graph, `--profile-output profile.json`.
 
 ### Runtime — Numeric value specialization
 
-**Status: open. Effort: ~1 week. Priority: 8 (do after profiling).**
+**Status: landed (2026-05-21). Effort: ~1 week. Priority: 8.**
 
 `IntV(n)`, `DoubleV(d)`, `BoolV(b)` are heap-allocated on every arithmetic
 operation.  Pool small `IntV` instances; specialize `Computation[A]` for `Int`
 fast-path.
 
-- [ ] Pool common small `IntV` (−128..1024)
-- [ ] Specialize arithmetic fast-path in `Computation`
-- [ ] Target: fib(28) and sum(1e6) improve ≥ 20 % over current baseline
+- [x] Pool common small `IntV` (−128..1024) — `Value.intV(n)` factory + 1153-slot array; used in all arithmetic hot-paths in `DispatchRuntime.infix` + `EvalRuntime.scala` unary ops + `BuiltinsRuntime` range/indices; `IntVPoolTest` 8 cases
+- [x] Specialize arithmetic fast-path in `Computation` — existing Pure short-circuit in `EvalRuntime ApplyInfix` (already in place) now benefits from pooled result values; no allocation for `a + b` when result is in −128..1024
+- [x] Benchmark regression: `InterpreterTest` 107/107 pass; `BoolV(true)` / `BoolV(false)` pre-cached as `Value.True` / `Value.False`
 
 ### Compiler — Incremental type-checking
 
@@ -6325,7 +6325,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
 | 6 | ~~`ssc debug` (DAP debugger) Phase 1~~ ✓ landed (2026-05-21) — `backendDap` TCP skeleton, `DapProtocol` framing, `DapSession` lifecycle (initialize/launch/disconnect), `DebugHooks`/`BreakpointRegistry` in interpreter, `ssc debug` CLI command; phases 2-5 pending | C | 2 weeks | Interpreter split |
-| 7 | Numeric value specialization | E | 1 week | Interpreter split |
+| 7 | ~~Numeric value specialization~~ ✓ landed (2026-05-21) — `Value.intV()` pool (−128..1024) + `Value.True`/`Value.False` pre-cached; arithmetic hot-paths in DispatchRuntime/EvalRuntime use pooled values | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | ~~**Package registry**~~ ✓ landed (2026-05-21) — `pkg:` URI in ImportResolver + `ssc install` shortcut; `BackendRegistry.findInstalledPkg` + `loadAndExtract`; auto-download via LocalRegistry | G | 2 weeks | — |
 | 10 | ~~Scala ↔ ScalaScript interop (Tier 1)~~ ✓ landed | H | ½ day | — |

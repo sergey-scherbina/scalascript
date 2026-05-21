@@ -23,15 +23,15 @@ private[interpreter] object DispatchRuntime:
     else
     (recv, name, args) match
       // ── String ──────────────────────────────────────────────────
-      case (Value.StringV(s), "length",       Nil) => Pure(Value.IntV(s.length.toLong))
-      case (Value.StringV(s), "size",         Nil) => Pure(Value.IntV(s.length.toLong))
+      case (Value.StringV(s), "length",       Nil) => Pure(Value.intV(s.length.toLong))
+      case (Value.StringV(s), "size",         Nil) => Pure(Value.intV(s.length.toLong))
       case (Value.StringV(s), "isEmpty",      Nil) => Pure(Value.BoolV(s.isEmpty))
       case (Value.StringV(s), "nonEmpty",     Nil) => Pure(Value.BoolV(s.nonEmpty))
       case (Value.StringV(s), "trim",         Nil) => Pure(Value.StringV(s.trim))
       case (Value.StringV(s), "toUpperCase",  Nil) => Pure(Value.StringV(s.toUpperCase))
       case (Value.StringV(s), "toLowerCase",  Nil) => Pure(Value.StringV(s.toLowerCase))
       case (Value.StringV(s), "reverse",      Nil) => Pure(Value.StringV(s.reverse))
-      case (Value.StringV(s), "toInt",        Nil) => Pure(Value.IntV(s.toLong))
+      case (Value.StringV(s), "toInt",        Nil) => Pure(Value.intV(s.toLong))
       case (Value.StringV(s), "toDouble",     Nil) => Pure(Value.DoubleV(s.toDouble))
       case (Value.StringV(s), "toString",     Nil) => Pure(Value.StringV(s))
       case (Value.StringV(s), "contains",     List(Value.StringV(t))) => Pure(Value.BoolV(s.contains(t)))
@@ -63,14 +63,14 @@ private[interpreter] object DispatchRuntime:
         if s.isEmpty then interp.located("head on empty String") else Pure(Value.CharV(s.head))
       case (Value.StringV(s), "last",         Nil) =>
         if s.isEmpty then interp.located("last on empty String") else Pure(Value.CharV(s.last))
-      case (Value.StringV(s), "indexOf",      List(Value.StringV(t))) => Pure(Value.IntV(s.indexOf(t).toLong))
-      case (Value.StringV(s), "indexOf",      List(Value.CharV(c)))   => Pure(Value.IntV(s.indexOf(c.toInt).toLong))
+      case (Value.StringV(s), "indexOf",      List(Value.StringV(t))) => Pure(Value.intV(s.indexOf(t).toLong))
+      case (Value.StringV(s), "indexOf",      List(Value.CharV(c)))   => Pure(Value.intV(s.indexOf(c.toInt).toLong))
       case (Value.StringV(s), "codePointAt",  List(Value.IntV(i)))    =>
         if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
-        else Pure(Value.IntV(s.codePointAt(i.toInt).toLong))
+        else Pure(Value.intV(s.codePointAt(i.toInt).toLong))
       // ── Char ────────────────────────────────────────────────────
-      case (Value.CharV(c), "toInt",      Nil) => Pure(Value.IntV(c.toInt.toLong))
-      case (Value.CharV(c), "toLong",     Nil) => Pure(Value.IntV(c.toLong))
+      case (Value.CharV(c), "toInt",      Nil) => Pure(Value.intV(c.toInt.toLong))
+      case (Value.CharV(c), "toLong",     Nil) => Pure(Value.intV(c.toLong))
       case (Value.CharV(c), "toString",   Nil) => Pure(Value.StringV(c.toString))
       case (Value.CharV(c), "isDigit",    Nil) => Pure(Value.BoolV(c.isDigit))
       case (Value.CharV(c), "isLetter",   Nil) => Pure(Value.BoolV(c.isLetter))
@@ -96,9 +96,9 @@ private[interpreter] object DispatchRuntime:
           }
         loop(0)
       // ── List ────────────────────────────────────────────────────
-      case (Value.ListV(ls), "length",     Nil)  => Pure(Value.IntV(ls.length.toLong))
-      case (Value.ListV(ls), "size",       Nil)  => Pure(Value.IntV(ls.size.toLong))
-      case (Value.ListV(ls), "indices",    Nil)  => Pure(Value.ListV(ls.indices.map(i => Value.IntV(i.toLong)).toList))
+      case (Value.ListV(ls), "length",     Nil)  => Pure(Value.intV(ls.length.toLong))
+      case (Value.ListV(ls), "size",       Nil)  => Pure(Value.intV(ls.size.toLong))
+      case (Value.ListV(ls), "indices",    Nil)  => Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
       case (Value.ListV(ls), "apply",      List(Value.IntV(i))) =>
         if i < 0 || i >= ls.length then interp.located(s"index $i out of bounds for list of length ${ls.length}")
         else Pure(ls(i.toInt))
@@ -114,7 +114,7 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "toList",     Nil)  => Pure(Value.ListV(ls))
       case (Value.ListV(ls), "toSet",      Nil)  => Pure(Value.ListV(ls.distinct))
       case (Value.ListV(ls), "contains",   List(v)) => Pure(Value.BoolV(ls.contains(v)))
-      case (Value.ListV(ls), "indexOf",    List(v)) => Pure(Value.IntV(ls.indexOf(v).toLong))
+      case (Value.ListV(ls), "indexOf",    List(v)) => Pure(Value.intV(ls.indexOf(v).toLong))
       case (Value.ListV(ls), "take",       List(Value.IntV(n))) => Pure(Value.ListV(ls.take(n.toInt)))
       case (Value.ListV(ls), "drop",       List(Value.IntV(n))) => Pure(Value.ListV(ls.drop(n.toInt)))
       case (Value.ListV(ls), "splitAt",    List(Value.IntV(n))) =>
@@ -150,8 +150,8 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "count",      List(f)) =>
         Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
           case Value.ListV(flags) =>
-            Value.IntV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
-          case _ => Value.IntV(0)
+            Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
+          case _ => Value.intV(0)
         }
       case (Value.ListV(ls), "find",       List(f)) =>
         def loop(remaining: List[Value]): Computation = remaining match
@@ -189,15 +189,15 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "zip",        List(Value.ListV(other))) =>
         Pure(Value.ListV(ls.zip(other).map { case (a, b) => Value.TupleV(List(a, b)) }))
       case (Value.ListV(ls), "zipWithIndex", Nil) =>
-        Pure(Value.ListV(ls.zipWithIndex.map { case (a, i) => Value.TupleV(List(a, Value.IntV(i.toLong))) }))
+        Pure(Value.ListV(ls.zipWithIndex.map { case (a, i) => Value.TupleV(List(a, Value.intV(i.toLong))) }))
       case (Value.ListV(ls), "mkString",   Nil)  => Pure(Value.StringV(ls.map(Value.show).mkString))
       case (Value.ListV(ls), "mkString",   List(Value.StringV(sep))) =>
         Pure(Value.StringV(ls.map(Value.show).mkString(sep)))
       case (Value.ListV(ls), "mkString",   List(Value.StringV(s), Value.StringV(sep), Value.StringV(e))) =>
         Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
       case (Value.ListV(ls), "sum",        Nil)  =>
-        Pure(ls.foldLeft[Value](Value.IntV(0)) {
-          case (Value.IntV(a),    Value.IntV(b))    => Value.IntV(a + b)
+        Pure(ls.foldLeft[Value](Value.intV(0)) {
+          case (Value.IntV(a),    Value.IntV(b))    => Value.intV(a + b)
           case (Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(a + b)
           case (Value.IntV(a),    Value.DoubleV(b)) => Value.DoubleV(a + b)
           case (Value.DoubleV(a), Value.IntV(b))    => Value.DoubleV(a + b)
@@ -242,7 +242,7 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "appended",   List(v)) => Pure(Value.ListV(ls :+ v))
       case (Value.ListV(ls), "prepended",  List(v)) => Pure(Value.ListV(v +: ls))
       // ── Map ─────────────────────────────────────────────────────
-      case (Value.MapV(m), "size",       Nil)     => Pure(Value.IntV(m.size.toLong))
+      case (Value.MapV(m), "size",       Nil)     => Pure(Value.intV(m.size.toLong))
       case (Value.MapV(m), "isEmpty",    Nil)     => Pure(Value.BoolV(m.isEmpty))
       case (Value.MapV(m), "nonEmpty",   Nil)     => Pure(Value.BoolV(m.nonEmpty))
       case (Value.MapV(m), "keys",       Nil)     => Pure(Value.ListV(m.keys.toList))
@@ -325,19 +325,19 @@ private[interpreter] object DispatchRuntime:
       case (opt: Value.OptionV,     "orElse",     _) => Pure(opt)
       // ── Int / Double ─────────────────────────────────────────────
       case (Value.IntV(n),    "toDouble",  Nil) => Pure(Value.DoubleV(n.toDouble))
-      case (Value.IntV(n),    "toLong",    Nil) => Pure(Value.IntV(n))
-      case (Value.IntV(n),    "toInt",     Nil) => Pure(Value.IntV(n))
-      case (Value.IntV(n),    "abs",       Nil) => Pure(Value.IntV(math.abs(n)))
+      case (Value.IntV(n),    "toLong",    Nil) => Pure(Value.intV(n))
+      case (Value.IntV(n),    "toInt",     Nil) => Pure(Value.intV(n))
+      case (Value.IntV(n),    "abs",       Nil) => Pure(Value.intV(math.abs(n)))
       case (Value.IntV(n),    "toString",  Nil) => Pure(Value.StringV(n.toString))
       case (Value.IntV(n),    "to",        List(Value.IntV(m))) =>
         Pure(Value.ListV((n to m).map(Value.IntV(_)).toList))
       case (Value.IntV(n),    "until",     List(Value.IntV(m))) =>
         Pure(Value.ListV((n until m).map(Value.IntV(_)).toList))
-      case (Value.DoubleV(d), "toInt",     Nil) => Pure(Value.IntV(d.toLong))
-      case (Value.DoubleV(d), "toLong",    Nil) => Pure(Value.IntV(d.toLong))
+      case (Value.DoubleV(d), "toInt",     Nil) => Pure(Value.intV(d.toLong))
+      case (Value.DoubleV(d), "toLong",    Nil) => Pure(Value.intV(d.toLong))
       case (Value.DoubleV(d), "abs",       Nil) => Pure(Value.DoubleV(math.abs(d)))
       case (Value.DoubleV(d), "toString",  Nil) => Pure(Value.StringV(d.toString))
-      case (Value.DoubleV(d), "round",     Nil) => Pure(Value.IntV(math.round(d)))
+      case (Value.DoubleV(d), "round",     Nil) => Pure(Value.intV(math.round(d)))
       case (Value.DoubleV(d), "floor",     Nil) => Pure(Value.DoubleV(math.floor(d)))
       case (Value.DoubleV(d), "ceil",      Nil) => Pure(Value.DoubleV(math.ceil(d)))
       // ── Tuple ────────────────────────────────────────────────────
@@ -458,11 +458,11 @@ private[interpreter] object DispatchRuntime:
         )))
       case (pid @ Value.InstanceV("Pid", _), "!", msg) =>
         Perform("Actor", "send", List(pid, msg))
-      case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.IntV(a + b))
-      case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.IntV(a - b))
-      case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.IntV(a * b))
-      case (Value.IntV(a),    "/",  Value.IntV(b))    => Pure(Value.IntV(a / b))
-      case (Value.IntV(a),    "%",  Value.IntV(b))    => Pure(Value.IntV(a % b))
+      case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.intV(a + b))
+      case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.intV(a - b))
+      case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.intV(a * b))
+      case (Value.IntV(a),    "/",  Value.IntV(b))    => Pure(Value.intV(a / b))
+      case (Value.IntV(a),    "%",  Value.IntV(b))    => Pure(Value.intV(a % b))
       case (Value.DoubleV(a), "+",  Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
       case (Value.DoubleV(a), "-",  Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
       case (Value.DoubleV(a), "*",  Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))

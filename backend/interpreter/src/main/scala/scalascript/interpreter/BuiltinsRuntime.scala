@@ -87,9 +87,9 @@ private[interpreter] object BuiltinsRuntime:
     })
     interp.globals("List.range") = Value.NativeFnV("List.range", {
       case List(Value.IntV(from), Value.IntV(until)) =>
-        Pure(Value.ListV((from.toInt until until.toInt).map(i => Value.IntV(i)).toList))
+        Pure(Value.ListV((from.toInt until until.toInt).map(i => Value.intV(i)).toList))
       case List(Value.IntV(from), Value.IntV(until), Value.IntV(step)) =>
-        Pure(Value.ListV((from.toInt until until.toInt by step.toInt).map(i => Value.IntV(i)).toList))
+        Pure(Value.ListV((from.toInt until until.toInt by step.toInt).map(i => Value.intV(i)).toList))
       case _ => throw InterpretError("List.range(from, until[, step])")
     })
     val listNative = interp.globals("List")

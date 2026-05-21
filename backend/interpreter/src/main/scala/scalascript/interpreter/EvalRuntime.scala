@@ -714,11 +714,11 @@ private[interpreter] object EvalRuntime:
       eval(t.arg, env, interp).flatMap { v =>
         (t.op.value, v) match
           case ("!", Value.BoolV(b))   => Pure(Value.BoolV(!b))
-          case ("-", Value.IntV(n))    => Pure(Value.IntV(-n))
+          case ("-", Value.IntV(n))    => Pure(Value.intV(-n))
           case ("-", Value.DoubleV(d)) => Pure(Value.DoubleV(-d))
           case ("+", n: Value.IntV)    => Pure(n)
           case ("+", d: Value.DoubleV) => Pure(d)
-          case ("~", Value.IntV(n))    => Pure(Value.IntV(~n))
+          case ("~", Value.IntV(n))    => Pure(Value.intV(~n))
           case (op, other)             => interp.located(s"Cannot apply unary $op to ${Value.show(other)}")
       }
 
