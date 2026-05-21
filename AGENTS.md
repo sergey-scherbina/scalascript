@@ -372,8 +372,30 @@ git fetch origin && git rebase origin/main
 
 ### 3. Every finished piece → straight to `origin/main`
 
-The moment a piece is independently shippable (compile clean + tests pass
-+ `MILESTONES.md` updated to mark the item landed):
+The moment a piece is independently shippable (compile clean + tests pass),
+run this checklist **before** merging:
+
+#### 3a. Update documentation
+
+Every user-facing feature must ship with matching doc updates in the same
+push.  Four places to check:
+
+| Doc | When to update |
+|-----|---------------|
+| `README.md` | Every feature — add or update the capabilities-table row, CLI flag line, or examples-table entry |
+| `docs/user-guide.md` | New block type, new front-matter key, new CLI flag, new API — add a subsection under the relevant section |
+| `docs/tutorial.md` | Feature changes a pattern users follow step-by-step — update the relevant tutorial |
+| `docs/<feature>.md` | Feature has its own spec doc — keep it in sync with what was actually built (see "Keep the spec in sync" above) |
+
+A feature with no doc update is **incomplete** — treat it the same as a
+failing test.  The doc commit may land on the same branch as the code,
+pushed together or as a follow-up commit in the same push.
+
+#### 3b. Update `MILESTONES.md`
+
+Mark the phase or item landed in the same push.
+
+#### 3c. Merge and push
 
 ```bash
 git fetch origin
@@ -471,10 +493,11 @@ while true:
        question, wait for answer, then proceed
     4. EnterWorktree("feature/<short-name>") off origin/main
     5. Implement, run tests, fix until green
-    6. Commit + update MILESTONES.md in the same commit
-    7. Rebase on origin/main if it moved; push to origin/main
-    8. ExitWorktree(remove); delete remote branch
-    9. Report ONE line of progress to the user: "✓ <what landed>"
+    6. Update docs: README.md + docs/user-guide.md + docs/tutorial.md (see Rule 3a)
+    7. Commit + update MILESTONES.md in the same commit
+    8. Rebase on origin/main if it moved; push to origin/main
+    9. ExitWorktree(remove); delete remote branch
+   10. Report ONE line of progress to the user: "✓ <what landed>"
    10. Go to step 1
 ```
 
