@@ -175,3 +175,64 @@ class PgClientTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
         .flatMap(_ => tx.queryOne[LocalDate]("SELECT d FROM tx_dates WHERE id = ?", 1))
     })
     assert(result == Some(d))
+
+  // ── stream + foldLeft ─────────────────────────────────────────
+
+  test("stream delivers all rows via callback"):
+    val buf = List.newBuilder[String]
+    await(db.stream[String]("SELECT name FROM users WHERE id <= 3 ORDER BY id") { name =>
+      buf += name
+    })
+    buf.result() shouldBe List("Alice", "Bob", "Carol")
+
+  test("stream respects WHERE params"):
+    val buf = List.newBuilder[Int]
+    await(db.stream[Int]("SELECT id FROM users WHERE id > ? AND id <= 3", 1) { id =>
+      buf += id
+    })
+    buf.result() shouldBe List(2, 3)
+
+  test("stream works with case class RowDecoder"):
+    val buf = List.newBuilder[User]
+    await(db.stream[User]("SELECT id, name, email FROM users WHERE id <= 3 ORDER BY id") { u =>
+      buf += u
+    })
+    buf.result() shouldBe List(
+      User(1, "Alice", "alice@example.com"),
+      User(2, "Bob",   "bob@example.com"),
+      User(3, "Carol", "carol@example.com"),
+    )
+
+  test("stream inside transaction"):
+    val buf = List.newBuilder[String]
+    await(db.transaction { tx =>
+      tx.stream[String]("SELECT name FROM users WHERE id <= 3 ORDER BY id") { name =>
+        buf += name
+      }
+    })
+    buf.result() shouldBe List("Alice", "Bob", "Carol")
+
+  test("foldLeft sums values"):
+    val total = await(db.foldLeft[Int, Int]("SELECT id FROM users WHERE id <= 3")(0) { (acc, id) =>
+      acc + id
+    })
+    total shouldBe 6  // 1 + 2 + 3
+
+  test("foldLeft builds a list in order"):
+    val names = await(db.foldLeft[String, List[String]](
+      "SELECT name FROM users WHERE id <= 3 ORDER BY id")(Nil) { (acc, name) =>
+      acc :+ name
+    })
+    names shouldBe List("Alice", "Bob", "Carol")
+
+  test("foldLeft with params"):
+    val count = await(db.foldLeft[Int, Int]("SELECT id FROM users WHERE id >= ? AND id <= 3", 2)(0) { (acc, _) =>
+      acc + 1
+    })
+    count shouldBe 2
+
+  test("foldLeft inside transaction"):
+    val sum = await(db.transaction { tx =>
+      tx.foldLeft[Int, Int]("SELECT id FROM users WHERE id <= 3")(0) { (acc, id) => acc + id }
+    })
+    sum shouldBe 6

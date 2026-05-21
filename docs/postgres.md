@@ -15,12 +15,13 @@ HikariCP + JDBC; queries run on a blocking thread pool wrapped in
 
 ```scalascript
 case class PgConfig(
-  host:     String = "localhost",
-  port:     Int    = 5432,
-  database: String,
-  user:     String,
-  password: String,
-  poolSize: Int    = 10,
+  host:      String = "localhost",
+  port:      Int    = 5432,
+  database:  String,
+  user:      String,
+  password:  String,
+  poolSize:  Int    = 10,
+  fetchSize: Int    = 1000,  // rows per server-side cursor fetch (stream/foldLeft)
 )
 ```
 
@@ -74,11 +75,16 @@ trait PgClient:
   def queryOne[A](sql: String, params: Any*)(using RowDecoder[A]): Future[Option[A]]
   def execute(sql: String, params: Any*): Future[Int]               // affected rows
   def transaction[A](f: PgClient => Future[A]): Future[A]
+
+  // cursor-based streaming (does not load the full result into memory)
+  def stream[A](sql: String, params: Any*)(f: A => Unit)(using RowDecoder[A]): Future[Unit]
+  def foldLeft[A, B](sql: String, params: Any*)(init: B)(f: (B, A) => B)(using RowDecoder[A]): Future[B]
+
   def close(): Unit
 
 object PgClient:
   def connect(config: PgConfig)(using ExecutionContext): PgClient
-  def connect(url: String)(using ExecutionContext): PgClient        // JDBC URL
+  def connect(url: String, fetchSize: Int = 1000)(using ExecutionContext): PgClient
 ```
 
 Parameter binding is delegated to
@@ -90,6 +96,14 @@ accepts via `setObject`.
 `transaction { f }` runs `f` on a single connection with
 `autoCommit = false`; commits on `Future.success`, rolls back on
 `Future.failure`.
+
+`stream` and `foldLeft` use JDBC `setFetchSize(fetchSize)` with
+`TYPE_FORWARD_ONLY / CONCUR_READ_ONLY` cursor to avoid loading the full
+result set into memory.  PostgreSQL requires `autoCommit = false` to
+hold a server-side cursor; the client saves and restores the original
+`autoCommit` state around each call.  Both methods are also available
+inside `transaction { tx => tx.stream(...) }` (the cursor reuses the
+existing transaction connection).
 
 ## Usage
 
@@ -114,10 +128,16 @@ db.transaction { tx =>
                     price, userId)
   yield ()
 }
-```
 
-Streaming is not currently exposed; rows materialise eagerly through
-`Future[List[A]]`.
+// cursor-based streaming (does not hold all rows in memory)
+val total: Future[BigDecimal] =
+  db.foldLeft[Order, BigDecimal]("SELECT * FROM orders WHERE user_id = ?", userId)(
+    BigDecimal(0)) { (acc, order) => acc + order.amount }
+
+db.stream[Event]("SELECT * FROM events ORDER BY created_at") { event =>
+  println(event.id)
+}
+```
 
 ## Used by
 
