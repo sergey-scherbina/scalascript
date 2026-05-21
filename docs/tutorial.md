@@ -1176,6 +1176,22 @@ CREATE TABLE IF NOT EXISTS todos (
 Running `ssc todos.ssc` after this step creates the table (no error if it
 already exists).
 
+**Tip — atomic multi-statement changes with `transaction`:**
+
+When you need multiple SQL statements to succeed or fail together, use a
+` ```transaction ``` ` block instead of separate ` ```sql ``` ` blocks:
+
+````ssc
+```transaction
+INSERT INTO audit_log (event, ts) VALUES ('todo_created', ${now});
+INSERT INTO todos (text) VALUES (${text})
+```
+````
+
+Both inserts run in one JDBC transaction — if the second fails, the first
+is rolled back automatically.  Statements are separated by `;`; `${expr}`
+bind parameters work exactly like in regular `sql` blocks.
+
 ---
 
 ## Step 3: REST API

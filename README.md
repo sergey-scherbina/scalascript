@@ -214,7 +214,7 @@ compiles them via Scala.js.
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
 | WebSocket client | `wsConnect(url) { ws => }`, `wss://` |
 | REST ergonomics | `jsonParse/jsonStringify/jsonRead`, `req.json`, `JsonValue`, `validate { }`, middleware |
-| SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
+| SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; ` ```transaction ``` ` fenced blocks run multiple `;`-separated statements atomically (JDBC transaction, commit/rollback); `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
 | Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
 
 ### Auth and security
@@ -344,6 +344,7 @@ compiles them via Scala.js.
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
+| [sql-transaction.ssc](conformance/sql-transaction.ssc) | Atomic multi-statement `transaction` block — debit + credit in one JDBC transaction |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |
 | [auth-demo.ssc](examples/auth-demo.ssc) | Login / logout with signed cookie sessions + CSRF tokens |
 | [oauth-demo.ssc](examples/oauth-demo.ssc) | Full OAuth2 sign-in (GitHub or Google) — state, exchange, userinfo |

@@ -707,6 +707,36 @@ Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
+### `transaction` fenced blocks
+
+A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements
+atomically in one JDBC transaction.  If any statement throws, all prior statements
+are rolled back.
+
+````ssc
+```transaction
+UPDATE accounts SET balance = balance - ${amount} WHERE id = ${fromId};
+UPDATE accounts SET balance = balance + ${amount} WHERE id = ${toId}
+```
+````
+
+- Statements are separated by `;`.  A trailing `;` is ignored.
+- `${expr}` bind parameters work exactly like in ` ```sql ``` ` blocks — safe,
+  `PreparedStatement`-based, no string substitution.
+- `$$` is an escaped literal `$`.
+- The block's return value is the result of the **last** statement: an `Int`
+  (affected-row count) for DML, or `List[Map[String, Any]]` for a SELECT.
+- Target the block at a named database with `@db=name`:
+
+````ssc
+```transaction @db=payments
+INSERT INTO events (type, amount) VALUES ('debit', ${amount});
+UPDATE balances SET total = total - ${amount} WHERE user_id = ${userId}
+```
+````
+
+Connections come from `databases:` front-matter; the default name is `"default"`.
+
 ### REST API + SQLite example
 
 A complete todo list with SQLite persistence and a JSON REST API:
