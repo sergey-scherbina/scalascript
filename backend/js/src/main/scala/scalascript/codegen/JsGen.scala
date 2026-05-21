@@ -3563,7 +3563,58 @@ function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
 function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
 function _ssc_ui_hashSignal() { return Signal(''); }
 function _ssc_ui_emit(tree, outDir) {}
-function _ssc_ui_serve(view, port) { _ssc_http_serve(port); }
+
+// Walk the View IR tree and produce a static HTML string.
+// Reactive nodes (SignalText, ShowSignal, etc.) are rendered with their
+// current / initial values so the page is useful for run-js inspection.
+function _ssc_ui_viewToHtml(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (typeof v !== 'object') return String(v);
+  switch (v._type) {
+    case '_Element': {
+      const tag   = v.tag || 'div';
+      const attrs = v.attrs || {};
+      let attrStr = '';
+      for (const [k, val] of Object.entries(attrs)) {
+        const resolved = (val && typeof val === 'object' && typeof val.get === 'function') ? val.get() : val;
+        if (resolved !== undefined && resolved !== null && resolved !== false)
+          attrStr += ` ${k}="${String(resolved).replace(/"/g,'&quot;')}"`;
+      }
+      const kids = (v.children || []).map(_ssc_ui_viewToHtml).join('');
+      const voids = new Set(['br','hr','img','input','link','meta','area','base','col','embed','param','source','track','wbr']);
+      return voids.has(tag) ? `<${tag}${attrStr}>` : `<${tag}${attrStr}>${kids}</${tag}>`;
+    }
+    case '_TextNode': return _ssc_ui_viewToHtml(v.s);
+    case '_SignalText': return _ssc_ui_viewToHtml(v.sig && v.sig.get ? v.sig.get() : '');
+    case '_ShowSignal': {
+      const show = v.cond && v.cond.get ? v.cond.get() : false;
+      return _ssc_ui_viewToHtml(show ? v.whenTrue : v.whenFalse);
+    }
+    case '_Fragment': return (v.children || []).map(_ssc_ui_viewToHtml).join('');
+    case '_FetchTableView': return `<div class="fetch-table" data-fetch="${v.fetchUrl}"></div>`;
+    default: return '';
+  }
+}
+
+function _ssc_ui_serve(view, port) {
+  // Register GET / to render the View tree as a minimal HTML page.
+  route('GET', '/')((_req) => {
+    const body = _ssc_ui_viewToHtml(view);
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ScalaScript App</title>
+<style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:0;padding:16px}
+input,button{font:inherit;padding:6px 10px;border:1px solid #ccc;border-radius:4px}
+button{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+hr{border:none;border-top:1px solid #e5e7eb;margin:12px 0}
+</style></head><body>${body}</body></html>`;
+    return Response.html(html);
+  });
+  _ssc_http_serve(port);
+}
 function _ssc_ui_fetchUrlSignal(name, url, tick) { return Signal(''); }
 function _ssc_ui_fetchAction(method, url, body, tick) { return { _type: '_FetchAction', method, url }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
