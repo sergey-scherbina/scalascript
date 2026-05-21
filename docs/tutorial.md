@@ -273,6 +273,50 @@ curl http://localhost:8080/todos
 # 401 Not logged in (not authenticated yet)
 ```
 
+### Aside: File-based handlers with `mount()`
+
+For larger APIs it helps to split each handler into its own `.ssc` file.
+`mount()` evaluates a file once at startup and registers its last expression
+as the handler:
+
+```scala
+// server.ssc — thin orchestrator
+mount("GET",  "/todos",     "handlers/list-todos.ssc")
+mount("POST", "/todos",     "handlers/create-todo.ssc")
+mount("GET",  "/todos/:id", "handlers/get-todo.ssc")
+serve(8080)
+```
+
+```scala
+// handlers/list-todos.ssc
+req =>
+  req.session.get("user") match
+    case None       => Response.status(401, "Not logged in")
+    case Some(user) => Response.json(db.listTodos(user))
+```
+
+Each file receives the same `req: Request` (path params, query, headers,
+body) as a regular `route()` handler. A second `mount()` for the same
+`(method, path)` silently replaces the previous one — useful for hot-reload
+patterns.
+
+Pass shared dependencies via the `ctx` map so handler files stay stateless:
+
+```scala
+mount("GET",  "/users/:id",    "handlers/entity.ssc", Map("coll" -> "users"))
+mount("GET",  "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
+```
+
+```scala
+// handlers/entity.ssc — reused for two routes
+(req, ctx) =>
+  val id   = req.params("id")
+  val coll = ctx("coll").toString
+  Response.json(db.findIn(coll, id))
+```
+
+See [`examples/mount-demo/`](../examples/mount-demo/) for a runnable example.
+
 ---
 
 ## Step 5: Authentication
