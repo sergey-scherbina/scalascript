@@ -598,8 +598,12 @@ private[interpreter] object EvalRuntime:
       // a param like `a` for `def adder(a)` is stripped because interp.globals also
       // hold the `<a>` HTML tag under that name, and the inner `b => a + b`
       // would resolve `a` to the tag instead of the captured Int.
-      val closure = env.filter { case (k, v) => !interp.globals.get(k).contains(v) }
-      Pure(Value.FunV(paramClause.values.map(_.name.value), body, closure))
+      val closure    = env.filter { case (k, v) => !interp.globals.get(k).contains(v) }
+      val paramNames = paramClause.values.map(_.name.value)
+      // Extract declared type annotations so TypedHandlerWrapper can detect
+      // typed route handlers at mount time.  Empty string for unannotated params.
+      val paramTypes = paramClause.values.map(p => p.decltpe.fold("")(interp.typeToString))
+      Pure(Value.FunV(paramNames, body, closure, paramTypes = paramTypes))
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
     case Term.PartialFunction(cases) =>

@@ -470,7 +470,7 @@ object HttpIntrinsics:
     val absPath = baseDir.resolve(file).normalize().toAbsolutePath.toString
     val rawResult = ctx.evalFileGetResult(absPath).asInstanceOf[Value]
     // Shape detection: wrap bare values into a constant handler
-    val handler: Value = rawResult match
+    val baseHandler: Value = rawResult match
       case fn @ Value.FunV(params, _, _, _, _, _, _, _) if params.length >= 1 =>
         fn  // 1-param or 2-param FunV — used as-is; dispatcher passes ctx for 2-param
       case other =>
@@ -478,6 +478,11 @@ object HttpIntrinsics:
         Value.NativeFnV("mount.static", scalascript.interpreter.Computation.pureFn {
           _ => other
         })
+    // Wrap typed handlers: auto-deser/ser if the handler uses typed params.
+    val invoke: (Value, List[Value]) => Value = (fn, args) =>
+      ctx.invokeCallback(fn, args).asInstanceOf[Value]
+    val handler = scalascript.interpreter.TypedHandlerWrapper.wrapIfTyped(
+      baseHandler, invoke, Map.empty, path, errorDetails = true)
     ctx.registerMountedRoute(method, path, handler, source = Some(absPath), mountCtx = mountCtx)
     Value.UnitV
 
