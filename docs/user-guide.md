@@ -2765,6 +2765,82 @@ ssc plugin install X      # install plugin
 | `SSC_STORAGE_PATH` | Default path for Storage effect JSON file |
 | `SSC_NO_NETWORK` | Set to `1` to disable URL imports |
 
+## 24. REPL Debugger (v1.34)
+
+`ssc repl` has a built-in interactive debugger — no IDE or TCP connection
+needed.  Set breakpoints and step through your snippets directly from the
+`ssc>` prompt.
+
+### 24.1 Setting breakpoints
+
+```
+ssc> :break 2           # break at line 2 of the next snippet
+[break] set at line 2
+
+ssc> :break list        # list active breakpoints
+[break] lines: 2
+
+ssc> :break clear       # clear all breakpoints
+[break] all breakpoints cleared
+```
+
+### 24.2 Running a snippet with a breakpoint
+
+```
+ssc> :break 2
+[break] set at line 2
+
+ssc> val x = 10
+   | val y = x * 2
+   | y + 1
+   |
+[stopped] at line 2
+  > val y = x * 2
+
+(debug) :locals
+  x = 10
+
+(debug) :next
+[stopped] at line 3
+  > y + 1
+
+(debug) :continue
+=> 21
+```
+
+### 24.3 Step mode
+
+```
+ssc> :step              # stop at every line of the next snippet
+[step] step-in enabled — enter your snippet
+
+ssc> 1 + 2
+   |
+[stopped] at line 1
+  > 1 + 2
+(debug) :continue
+=> 3
+```
+
+### 24.4 Commands at the `(debug)` prompt
+
+| Command | Alias | Description |
+|---|---|---|
+| `:continue` | `:c` | Resume to next breakpoint or end |
+| `:next` | `:n` | Step over to next line |
+| `:step` | `:s` | Step into next expression |
+| `:out` | | Step out of current function |
+| `:locals` | `:l` | Show local variables |
+| `:stack` | `:bt` | Show call stack |
+| `:print <expr>` | | Evaluate expression in current frame |
+| `:help` | `:h` | Show all debug commands |
+| `:quit` | `:q` | Stop snippet, return to `ssc>` |
+
+See [docs/repl-debugger.md](repl-debugger.md) for the full reference including
+threading model, `:print` semantics, and known limitations.
+
+---
+
 ### Feature Quick-Links
 
 - Algebraic effects: §4, `docs/architecture.md`
@@ -2784,3 +2860,4 @@ ssc plugin install X      # install plugin
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
 - Config system (YAML/HOCON/JSON + typed binding): §22 above, [docs/config-system.md](config-system.md)
 - Progressive Web App: §23 above, [docs/pwa-plugin.md](pwa-plugin.md)
+- REPL debugger: §24 above, [docs/repl-debugger.md](repl-debugger.md)
