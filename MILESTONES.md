@@ -9329,58 +9329,67 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 
 ---
 
-## v1.30 — REPL web-aware mode
+## v1.30 — REPL web-aware mode + `mount()` intrinsic
 
 **Status: spec** | **Spec:** `docs/repl-web.md`
 
-Interactive HTTP development inside `ssc repl`: mount handlers (inline,
-by function name, or from a `.ssc` handler file), start/stop a background
-HTTP server, inspect the live route table, fire real or in-process test
-requests — all without leaving the REPL.
+Two orthogonal additions sharing the same infrastructure:
 
-Key infrastructure change: `Routes` backing store becomes
-`LinkedHashMap[(method, path), Entry]` with a `source: Option[String]`
-field for file-tracking, eliminating duplicates and enabling clean hot-reload
-of individual files.
+1. **`mount()` language intrinsic** — mount a `.ssc` handler file to a route from
+   any `.ssc` program (not just REPL). Optional `ctx` map passes extra context
+   to the handler. Handler file's last expr: `Request => Response`,
+   `(Request, Map) => Response`, or bare `Response` (auto-wrapped).
+2. **REPL web commands** — `:serve`/`:stop`/`:clear`/`:mount`/`:load`/`:reload`/
+   `:unmount`/`:routes`/`:http`/`:call`. REPL `:mount file.ssc` is a thin shell
+   over the same `mount()` logic. `:http` and `:call` both support `-H` headers.
+
+Key infrastructure: `Routes` backing store → `LinkedHashMap[(method,path), Entry]`
++ `source: Option[String]` + `mountCtx: Map[String,Value]` on `Entry`.
+Eliminates duplicates; enables clean hot-reload per file.
 
 ### Phase 1 — Routes refactor
 
-- `Routes`: `ArrayBuffer` → `LinkedHashMap[(String,String), Entry]`; add `source` field.
-- All existing tests green.
+- [ ] `Routes`: `ArrayBuffer` → `LinkedHashMap[(String,String), Entry]`
+- [ ] Add `source: Option[String]` and `mountCtx: Map[String, Value]` to `Entry`
+- [ ] `Routes.register` replaces in place; `Routes.removeBySource(absPath)`
+- [ ] All existing tests green
 
-- [ ] `LinkedHashMap` backing store + `source: Option[String]` on `Entry`
-- [ ] `Routes.register` replaces in place; `Routes.removeBySource(path)` for reload
-- [ ] Existing tests green
+### Phase 2 — `mount()` intrinsic
 
-### Phase 2 — `:serve` / `:stop`
+- [ ] `mount(method, path, file)` and `mount(method, path, file, ctx)` in http-plugin
+- [ ] File resolved relative to caller's `interp.baseDir`; evaluated once via `runSnippet`
+- [ ] Handler shape detection: 1-arg → `handler(req)`; 2-arg → `handler(req, ctx)`; bare `Response` → auto-wrap
+- [ ] `source` + `mountCtx` stored in `Routes.Entry`
 
-- [ ] `:serve [port]` — starts `WebServer` in background virtual thread, non-blocking
-- [ ] `:stop` — closes server + `Routes.clear()`
-- [ ] Guard: `:serve` while already running warns and no-ops
+### Phase 3 — `:serve` / `:stop` / `:clear`
 
-### Phase 3 — `:mount` (inline / function name / file)
+- [ ] `:serve [port]` — `WebServer` in background virtual thread, non-blocking
+- [ ] `:stop [--keep-routes]` — closes server; default clears routes; `--keep-routes` keeps them
+- [ ] `:clear` — `Routes.clear()` without stopping server
 
-- [ ] `:mount METHOD /path { handler }` — inline ScalaScript expression
-- [ ] `:mount METHOD /path functionName` — function already in REPL globals
-- [ ] `:mount METHOD /path file.ssc` — runs file once, last expr = handler; auto-wraps bare `Response`
+### Phase 4 — `:mount` (inline / function name / file + ctx)
 
-### Phase 4 — `:load` / `:reload` / `:unmount`
+- [ ] `:mount METHOD /path { handler }` — inline expression
+- [ ] `:mount METHOD /path functionName` — from REPL globals
+- [ ] `:mount METHOD /path file.ssc [key=value ...]` — delegates to `mount()` logic; ctx from tokens
 
-- [ ] `:load file.ssc` — removes file's previous routes, sets source, runs file
-- [ ] `:reload file.ssc` — re-runs `:load` or re-mounts depending on how file was registered
-- [ ] `:unmount METHOD /path` — removes one route
+### Phase 5 — `:load` / `:reload` / `:unmount`
 
-### Phase 5 — `:routes` / `:http` / `:call`
+- [ ] `:load file.ssc` — `removeBySource` then run with `currentSource` set
+- [ ] `:reload file.ssc` — looks up `source` in `Routes.Entry`; dispatches to load or re-mount
+- [ ] `:unmount METHOD /path` — `Routes.remove((method, path))`
 
-- [ ] `:routes` — tabular display with source column
-- [ ] `:http METHOD /path [body]` — real HTTP/1.1 request to localhost:port
-- [ ] `:call METHOD /path [body]` — in-process dispatch via `Routes.matchRequest`, no network
+### Phase 6 — `:routes` / `:http` / `:call`
 
-### Phase 6 — `:help` + tests
+- [ ] `:routes` — tabular display: method, path, source, ctx
+- [ ] `:http METHOD /path [body] [-H "K: V" ...]` — real HTTP/1.1 over Socket
+- [ ] `:call METHOD /path [body] [-H "K: V" ...]` — in-process via synthetic `Request`
 
-- [ ] `:help` lists all REPL commands
-- [ ] `ReplWebTest` integration suite (all commands, error paths)
-- [ ] Update `docs/user-guide.md` + `README.md` with new commands
+### Phase 7 — `:help` + tests
+
+- [ ] `:help` — all commands with one-line descriptions
+- [ ] `ReplWebTest` integration suite (all commands, ctx forwarding, error paths)
+- [ ] Update `docs/user-guide.md` + `README.md`
 
 ---
 
