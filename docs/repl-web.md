@@ -406,6 +406,197 @@ ssc> :call GET /protected -H "Authorization: Bearer tok"
 
 ---
 
+## Handler file contract
+
+A handler file (used by `:mount METHOD /path file.ssc` or `mount()` in code)
+must end with one of these forms:
+
+| Last expression | Interpretation |
+|---|---|
+| `Request => Response` | used directly as the handler |
+| `(Request, Map[String, Value]) => Response` | handler with mount context |
+| Typed handler (see §Typed handlers) | auto-deser/ser wrapper applied |
+| `Response` | auto-wrapped as `_ => <response>` |
+
+The `req` argument gives access to:
+
+| Field | Type | Description |
+|---|---|---|
+| `req.method` | `String` | `"GET"`, `"POST"`, … |
+| `req.path` | `String` | `/hello/alice` |
+| `req.params` | `Map[String,String]` | path params (`:name` segments) |
+| `req.query` | `Map[String,String]` | parsed query string |
+| `req.headers` | `Map[String,String]` | request headers |
+| `req.body` | `Option[String]` | raw body |
+| `req.json` | `Option[Map[String,Value]]` | body parsed as JSON |
+
+---
+
+## `mount()` as a language intrinsic
+
+`mount()` is available as a regular function in any `.ssc` program, not
+just in the REPL.  It has exactly the same semantics as `:mount METHOD /path
+file.ssc` but can be called from code, enabling server programs to compose
+routes from separate handler files:
+
+```scala
+// server.ssc
+mount("GET",  "/ping",        "handlers/ping.ssc")
+mount("GET",  "/hello/:name", "handlers/hello.ssc")
+mount("POST", "/users",       "handlers/create-user.ssc", Map("db" -> db))
+
+serve(8080)
+```
+
+**Signature:**
+
+```scala
+def mount(
+  method:       String,
+  path:         String,
+  handlerFile:  String,
+  ctx:          Map[String, Value] = Map.empty,
+  errorDetails: Boolean = true,    // see §Error mode
+): Unit
+```
+
+**Semantics:**
+
+- `handlerFile` is resolved relative to the calling file's directory (same
+  as `import`).
+- The file is evaluated **once** at call time — not per request.
+- The resulting handler is registered in the shared `Routes` table, replacing
+  any existing entry for the same `(method, path)` key.
+- `ctx` is passed as the second argument to handlers declared as
+  `(Request, Map[String, Value]) => Response` or `(Input, Map[String, Value]) => Output`.
+  Useful for threading config, database handles, or other dependencies into
+  handler files without global state.
+
+**REPL equivalence:**
+
+```
+ssc> :mount GET /ping handlers/ping.ssc
+```
+
+is identical to calling `mount("GET", "/ping", "handlers/ping.ssc")` in a
+running script.
+
+---
+
+## Typed handlers
+
+A handler file may end with a **typed handler** — a function whose parameter
+is a case class (or any ScalaScript structural type) other than `Request`.
+The runtime detects the shape of the last expression at mount time and wraps
+it automatically.
+
+### Deserialization — input
+
+Field values are filled in this priority order, stopping at the first match:
+
+1. **Path params** — `:name` segment in the mounted path.
+2. **Query params** — `?name=alice` in the URL.
+3. **JSON body** — field with the same name in a JSON object body.
+
+Fields not found in any source cause a `400 Bad Request` (body describes the
+missing field when `errorDetails = true`).
+
+### Full input signatures
+
+| Parameter type | Behaviour |
+|---|---|
+| `Request` | raw request, no deserialization |
+| `Input` | Input deserialized from path / query / body |
+| `(Input, Request)` | deserialized Input **+** raw Request for extra access |
+| `(Input, Map[String, Value])` | deserialized Input **+** mount context `ctx` |
+| `(Input, Request, Map[String, Value])` | all three |
+| `Either[Request, Input]` | explicit error mode: `Left(req)` on deser failure, `Right(input)` on success |
+
+### Full output signatures
+
+| Return type | Behaviour |
+|---|---|
+| `Response` | used as-is |
+| `Output` | serialized to JSON, status 200 |
+| `Either[Response, Output]` | `Left(resp)` → used as-is; `Right(output)` → JSON 200 |
+
+### Examples
+
+```scala
+// greet.ssc — simple typed handler
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String)
+
+(input: GreetInput) => GreetOutput(s"Hello, ${input.name}!")
+```
+
+Mounted as:
+```
+:mount GET /hello/:name greet.ssc
+```
+
+Request `GET /hello/alice` → deserialization: `name = "alice"` from path
+param → `GreetInput("alice")` → `GreetOutput("Hello, alice!")` → JSON 200
+`{"greeting": "Hello, alice!"}`.
+
+---
+
+```scala
+// create-user.ssc — POST with typed input + explicit error handling
+case class CreateUserInput(name: String, email: String)
+case class UserCreated(id: Int, name: String)
+
+(req: Either[Request, CreateUserInput]) =>
+  req match
+    case Left(raw) =>
+      Response.json("""{"error":"invalid body"}""", status = 400)
+    case Right(input) =>
+      val id = db.insert(input.name, input.email)
+      UserCreated(id, input.name)
+```
+
+With `Either[Request, Input]` the caller handles deser failure explicitly;
+the `errorDetails` setting is not consulted for the 400 body.
+
+---
+
+```scala
+// get-user.ssc — typed input + raw request (for headers)
+case class GetUserInput(id: Int)
+case class User(id: Int, name: String)
+
+(input: GetUserInput, req: Request) =>
+  if req.headers.get("Authorization").isEmpty then
+    Response.text("Unauthorized", status = 401)
+  else
+    User(input.id, db.findById(input.id).name)
+```
+
+---
+
+### Error mode (`errorDetails`)
+
+Controls whether deserialization errors include a description in the response
+body.
+
+| `errorDetails` | 400 response body |
+|---|---|
+| `true` (default) | `{"error": "missing field: email"}` |
+| `false` | `{}` (empty JSON object) |
+
+**4-level priority (highest wins):**
+
+1. **Global REPL setting** — `:set errorDetails false` (persists for the
+   session).
+2. **Front-matter** — `# errorDetails: false` at the top of the handler file.
+3. **Per-`mount()` param** — `mount("POST", "/users", "create-user.ssc", errorDetails = false)`.
+4. **Default** — `true`.
+
+Same priority applies when using `:mount METHOD /path file.ssc` from the REPL
+(no per-mount param there; global setting and front-matter apply).
+
+---
+
 ## Full session example
 
 ```
@@ -501,9 +692,23 @@ Listening on :9000
 - `:http` — raw HTTP/1.1 over `Socket`; parse `-H` flags and body.
 - `:call` — synthetic `Request` from path + body + headers; dispatch in-process.
 
-### Phase 7 — `:help` + tests
+### Phase 7 — Typed handlers
+
+- At mount time, inspect the last expression's type annotation via scalameta.
+- Detect typed input forms (`Input`, `(Input, Request)`, `(Input, Map)`,
+  `(Input, Request, Map)`, `Either[Request, Input]`).
+- Detect typed output forms (`Output`, `Either[Response, Output]`).
+- Generate a wrapping `Request => Response` that:
+  - Deserializes fields from path params → query params → JSON body.
+  - Calls the typed function.
+  - Serializes the result to JSON 200, or passes through a `Response`/`Left`.
+  - Honors `errorDetails` priority rules for 400 bodies.
+- Tests: `TypedHandlerTest` — all 6 × 3 combinations, deser priority, error modes.
+
+### Phase 8 — `:help` + tests + polish
 
 - `:help` — list all commands with one-line descriptions.
+- `:set errorDetails true|false` REPL command.
 - Error messages standardised.
 - `ReplWebTest` integration suite (all commands, error paths, ctx forwarding).
 - Update `docs/user-guide.md` + `README.md`.
@@ -515,10 +720,24 @@ Listening on :9000
 - **Handler shape detection**: distinguish `req => ...` from `(req, ctx) => ...`
   at runtime — check arity of the `Value.FunV`. If arity == 1: `handler(req)`;
   if arity == 2: `handler(req, ctx)`; if it's a non-function value: auto-wrap.
-  Needs verification that FunV arity is always available (it is: `f.params.length`).
+  Confirmed: `f.params.length` is always available on `FunV`.
 - **`:call` query string with spaces** — URL-encode automatically or require
-  the user to encode? Decision deferred.
+  the user to encode? Deferred to Phase 8 polish.
 - **`ctx` value types** — `:mount` context values come in as strings
-  (`key=value` tokens). `mount()` in code can use any `Map[String, Any]`.
-  Inside the handler, `ctx("key")` returns the raw value — string from REPL,
-  any `Value` from code. Document this asymmetry clearly.
+  (`key=value` tokens); `mount()` in code uses any `Map[String, Any]`.
+  Document this asymmetry in Phase 8.
+- **Prefix-mounting** — `:mount /api-prefix file.ssc` where the file contains
+  `route()` calls: how do inner `route()` calls interact with the external
+  prefix? Deferred; needs more design.
+- **Well-known root resolution** for handler file paths (e.g. `@std/hello.ssc`)
+  — same open question as for `import`. Deferred.
+
+**Resolved:**
+
+- Relative path resolution: relative to CWD (same as `ssc run`). ✓
+- `:stop --keep-routes`: added. ✓
+- `:clear` (routes without stop): added. ✓
+- `:reload` knows method+path: stored in `Routes.Entry.source`. ✓
+- `mount()` as language intrinsic: Phase 2. ✓
+- Typed handlers (`CaseClass1 => CaseClass2`): Phase 7. ✓
+- `errorDetails` 4-level priority: global > front-matter > per-mount param > default `true`. ✓

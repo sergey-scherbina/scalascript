@@ -5988,11 +5988,16 @@ it hits a breakpoint or step stop it blocks and the REPL main thread enters a
 
 ### New tool — REPL web-aware mode
 
-**Status: open. Effort: ~3 days.**
+**Status: spec (v1.30). Effort: ~5 days, 8 phases.**
 
-- `:mount GET /hello { req => Response.text("hi") }` — register a route live
-- `:routes` — print the live route table
-- `:http GET /hello` — fire a synthetic request and print the response
+- `:serve`/`:stop --keep-routes`/`:clear` — background server lifecycle
+- `:mount GET /hello { req => ... }` / `file.ssc` / `fnName` — live route registration
+- `:load`/`:reload`/`:unmount` — file-based route management
+- `:routes` — tabular live route table
+- `:http GET /hello` — real HTTP request to localhost
+- `:call GET /hello` — in-process dispatch, no network
+- `mount()` as language intrinsic — usable in any `.ssc` program
+- Typed handlers: `CaseClass1 => CaseClass2` with auto-deser/ser, 4-level `errorDetails` config
 
 ---
 
@@ -6385,7 +6390,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
 | 13 | ~~Scala interop (Tier 4 metadata + flag)~~ ✓ landed | H | 2 days | Tier 2 ✓ |
 | 14 | ~~Scala interop Tier 5 — JvmGen package-clause emit~~ ✓ landed | H | 2-3 days | — |
-| 15 | **REPL web-aware mode** (v1.30) — `:serve`/`:stop`/`:mount`/`:load`/`:reload`/`:routes`/`:http`/`:call`; Routes → LinkedHashMap; spec done | I | ~3 days | — |
+| 15 | **REPL web-aware mode** (v1.30) — `:serve`/`:stop --keep-routes`/`:clear`/`:mount`/`:load`/`:reload`/`:routes`/`:http`/`:call`; Routes → LinkedHashMap; `mount()` intrinsic; typed handlers (`Input => Output`, auto-deser/ser, `errorDetails` 4-level config); 8 phases; spec done | I | ~5 days | — |
 
 Track D is serial.  All other tracks can run in parallel.
 
@@ -9385,9 +9390,19 @@ Eliminates duplicates; enables clean hot-reload per file.
 - [ ] `:http METHOD /path [body] [-H "K: V" ...]` — real HTTP/1.1 over Socket
 - [ ] `:call METHOD /path [body] [-H "K: V" ...]` — in-process via synthetic `Request`
 
-### Phase 7 — `:help` + tests
+### Phase 7 — Typed handlers
+
+- [ ] Detect typed input shape at mount time via scalameta type annotation inspection
+- [ ] All 6 input signatures: `Input`, `(Input, Request)`, `(Input, Map)`, `(Input, Request, Map)`, `Either[Request, Input]`
+- [ ] All 3 output signatures: `Response`, `Output` (→ JSON 200), `Either[Response, Output]`
+- [ ] Deserialization priority: path params → query params → JSON body (by field name)
+- [ ] `errorDetails` 4-level priority: global REPL setting > front-matter > per-`mount()` param > default `true`
+- [ ] `TypedHandlerTest` — 6×3 matrix, deser priority, both error modes
+
+### Phase 8 — `:help` + tests + polish
 
 - [ ] `:help` — all commands with one-line descriptions
+- [ ] `:set errorDetails true|false` REPL command
 - [ ] `ReplWebTest` integration suite (all commands, ctx forwarding, error paths)
 - [ ] Update `docs/user-guide.md` + `README.md`
 
