@@ -6451,7 +6451,13 @@ function serve(/* ignored */) {
 class JsGen(
     baseDir:    Option[os.Path] = None,
     intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-    lockPath:   Option[os.Path] = None):
+    lockPath:   Option[os.Path] = None,
+    // Shared across parent + all child generators to track which top-level `const X` names
+    // have been declared.  When two package-qualified imports share the same top-level namespace
+    // (e.g. std.ui.primitives and std.ui.nodes both wrap content in `object std { ... }`), the
+    // second occurrence merges via _ssc_mergeDeep instead of re-declaring the const.
+    private[codegen] val topLevelConsts: mutable.Set[String] = mutable.Set.empty,
+    private[codegen] val mergeHelperEmitted: Array[Boolean]  = Array(false)):
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -7195,7 +7201,7 @@ class JsGen(
       importedFiles += key
       val childDir = resolvedPath / os.up
       val childModule = Parser.parse(os.read(resolvedPath))
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath)
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted)
       childGen.importedFiles ++= importedFiles
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
@@ -7251,8 +7257,23 @@ class JsGen(
             case _ => ()
           line(genExpr(t) + ";")
         case stat =>
-          genStat(stat)
+          stat match
+            case d: Defn.Object if topLevel =>
+              val name = d.name.value
+              if topLevelConsts.contains(name) then
+                emitMergeHelper()
+                line(s"_ssc_mergeDeep($name, ${genObjectAsExpr(d)});")
+              else
+                topLevelConsts += name
+                genStat(stat)
+            case _ =>
+              genStat(stat)
     }
+
+  private def emitMergeHelper(): Unit =
+    if !mergeHelperEmitted(0) then
+      mergeHelperEmitted(0) = true
+      line("function _ssc_mergeDeep(dst, src) { for (const k of Object.keys(src)) { if (dst[k] !== null && typeof dst[k] === 'object' && typeof src[k] === 'object') _ssc_mergeDeep(dst[k], src[k]); else dst[k] = src[k]; } }")
 
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, _, rhs) =>
