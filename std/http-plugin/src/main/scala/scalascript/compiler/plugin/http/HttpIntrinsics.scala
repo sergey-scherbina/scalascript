@@ -412,6 +412,15 @@ object HttpIntrinsics:
       args match
         case List(v) =>
           httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
+        case List(v, statusV) =>
+          val code = statusV match
+            case n: Long   => n.toInt
+            case n: Int    => n
+            case Value.IntV(n) => n.toInt
+            case s: String => s.toIntOption.getOrElse(200)
+            case Value.StringV(s) => s.toIntOption.getOrElse(200)
+            case _ => 200
+          httpMkResponse(code, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
         case _ => throw InterpretError("Response.text(body)")
     ),
 

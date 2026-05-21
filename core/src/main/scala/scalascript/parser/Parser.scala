@@ -836,11 +836,53 @@ object Parser:
         s"{\n$processed\n}".parse[Term] match
           case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
           case _: Parsed.Error      =>
-            // Both attempts failed.  We prefer the source-mode error since
-            // its positions map 1:1 to the user's block body (no wrap-line
-            // shift); the term-mode error tends to be misleading anyway
-            // (it complains about an unexpected `{` introduction).
-            (None, Some(buildParseError(code, sourceErr)))
+            // Try 3: "mixed" mode — declarations (Source) followed by a trailing
+            // expression (Term).  This handles handler files of the form:
+            //   case class Input(...)
+            //   case class Output(...)
+            //   (input: Input) => Output(...)
+            // where scalameta fails to parse the typed lambda after class defs in a
+            // single block.  We try every split point from the bottom up, returning
+            // on the first (prefix-as-Source, suffix-as-Term) pair that works.
+            val splitResult = trySplitParse(processed)
+            splitResult match
+              case Some(tree) => (Some(ScalaNode(tree)), None)
+              case None       =>
+                // All attempts failed.  We prefer the source-mode error since
+                // its positions map 1:1 to the user's block body (no wrap-line
+                // shift); the term-mode error tends to be misleading anyway
+                // (it complains about an unexpected `{` introduction).
+                (None, Some(buildParseError(code, sourceErr)))
+
+  /** Third-pass fallback: try splitting `code` into a declarations prefix (parsed
+   *  as `Source`) and a trailing expression (parsed as `Term`).  Used when both
+   *  the plain Source parse AND the `{...}` block-wrap fail — this covers the
+   *  handler-file pattern:
+   *    case class Input(...)
+   *    case class Output(...)
+   *    (input: Input) => Output(...)
+   *  where scalameta can't parse a typed lambda after class defs in one block.
+   *
+   *  Tries every split point from the bottom up (suffix = last N lines).
+   *  Returns the first `Source` that combines a valid declaration prefix with
+   *  a valid trailing term, or `None` if no split works. */
+  private def trySplitParse(code: String): Option[scala.meta.Source] =
+    import scala.meta.*
+    given Dialect = dialects.Scala3
+    val lines = code.linesIterator.toVector
+    // Only attempt when there are at least 2 lines to split.
+    if lines.length < 2 then return None
+    (lines.length - 1 to 1 by -1).view.flatMap { k =>
+      val prefix = lines.take(k).mkString("\n").trim
+      val suffix = lines.drop(k).mkString("\n").trim
+      if prefix.isEmpty || suffix.isEmpty then None
+      else
+        prefix.parse[Source].toOption.flatMap { src =>
+          suffix.parse[Term].toOption.map { term =>
+            Source(src.stats :+ term)
+          }
+        }
+    }.headOption
 
   /** Build a `CodeBlockParseError` from scalameta's `Parsed.Error` against the
    *  ORIGINAL block source `code`.  Scalameta's `pos.startLine` / `startColumn`

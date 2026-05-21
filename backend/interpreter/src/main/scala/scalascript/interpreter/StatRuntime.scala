@@ -109,6 +109,9 @@ private[interpreter] object StatRuntime:
       val typeName = d.name.value
       val ctorEnv = env.toMap
       interp.typeFieldOrder(typeName) = paramNames
+      interp.typeFieldTypes(typeName) = params.map(p =>
+        p.decltpe.fold("String")(interp.typeToString)
+      )
       if d.mods.exists {
         case Mod.Annot(Init.After_4_6_0(Type.Name("noTrace"), _, _)) => true
         case _ => false

@@ -320,13 +320,14 @@ class TypedHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
     println(s"Wrapped handler: ${handler.getClass.getSimpleName}")
     // Try invoking
     val req = mkReq(pathParams = Map("name" -> "alice"))
-    val result = interp.invoke(handler, List(req))
+    val result = child.invoke(handler, List(req))
     println(s"Result: $result")
     result match
       case Value.InstanceV("Response", f) => println(s"Response body: ${f("body")}")
       case other                          => println(s"Not a response: $other")
+    result shouldBe a[Value.InstanceV]
 
-  // Debug: check paramTypes are extracted and handler is wrapped
+  // Debug: check paramTypes are extracted and handler is wrapped as "typed-handler" NativeFnV
   test("debug: typed handler gets wrapped as NativeFnV"):
     val file = handlerFile("dbg.ssc",
       """case class GreetInput(name: String)
@@ -338,9 +339,10 @@ class TypedHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
     interp.mountFileAsRoute("GET", "/dbg/:name", file, Map.empty)
     val Some((entry, _)) = Routes.matchRequest("GET", "/dbg/alice"): @unchecked
     println(s"Handler class: ${entry.handler.getClass.getSimpleName}")
-    // If wrapping worked, entry.handler should be a NativeFnV
+    // If wrapping worked, entry.handler should be the "typed-handler" NativeFnV (not "mount.static")
     entry.handler match
-      case _: Value.NativeFnV => // good — typed handler got wrapped
+      case n: Value.NativeFnV if n.name == "typed-handler" => // good
+      case n: Value.NativeFnV => fail(s"Got NativeFnV but name='${n.name}', expected 'typed-handler'")
       case f: Value.FunV      => fail(s"Expected NativeFnV wrapper, got FunV with paramTypes=${f.paramTypes}")
       case other              => fail(s"Unexpected: $other")
 

@@ -62,6 +62,7 @@ private[scalascript] case class InterpCheckpoint(
   parentTypes:         Map[String, String],
   typeMethods:         Map[String, Map[String, Value.FunV]],
   typeFieldOrder:      Map[String, List[String]],
+  typeFieldTypes:      Map[String, List[String]],
   givenFactories:      IndexedSeq[ParametricGiven],
   givenCandidateCount: Map[String, Int],
   mainCalled:          Boolean,
@@ -108,6 +109,10 @@ class Interpreter(
   // since `InstanceV.fields` is an unordered Map for instances with more
   // than four fields.
   private[interpreter] val typeFieldOrder = mutable.Map.empty[String, List[String]]
+  // Field type names for each case class, parallel to typeFieldOrder.
+  // Populated in StatRuntime when a Defn.Class is processed; used by
+  // TypedHandlerWrapper.deserializeCaseClass to coerce path/query/body values.
+  private[interpreter] val typeFieldTypes = mutable.Map.empty[String, List[String]]
   // Parametric given factories — givens with type parameters and/or using clauses.
   // Stored separately because they can't be stored as plain Values until their type
   // variables are resolved at the call site.
@@ -178,8 +183,33 @@ class Interpreter(
     debugHooks = hooks
 
   /** Public read-only view of the REPL's live global bindings.
-   *  Used by `:mount name` to look up a previously-defined function. */
-  def globalsView: collection.Map[String, Value] = globals
+   *  Used by `:mount name` to look up a previously-defined function.
+   *
+   *  The returned map is ENRICHED with synthetic `Value.FunV` entries for every
+   *  registered case class (keyed by type name).  These FunV entries carry only
+   *  `params` / `paramTypes` metadata; their body is a placeholder `Lit.Unit()`
+   *  that is never evaluated.  `TypedHandlerWrapper.deserializeCaseClass` reads
+   *  the metadata from these entries when the actual constructor `NativeFnV`
+   *  would otherwise cause a `case Some(ctor: Value.FunV)` match to fall through. */
+  def globalsView: collection.Map[String, Value] =
+    if typeFieldOrder.isEmpty then globals
+    else
+      val enriched = scala.collection.mutable.Map.from(globals)
+      typeFieldOrder.foreach { (typeName, fieldNames) =>
+        // Only add/replace if the constructor in globals is NOT already a FunV.
+        // (After this PR it always will be NativeFnV, but guard for future changes.)
+        globals.get(typeName) match
+          case Some(_: Value.FunV) => () // already has FunV metadata — skip
+          case _ =>
+            val fieldTypes = typeFieldTypes.getOrElse(typeName, fieldNames.map(_ => "String"))
+            enriched(typeName) = Value.FunV(
+              params     = fieldNames,
+              body       = scala.meta.Lit.Unit(),
+              closure    = Map.empty,
+              paramTypes = fieldTypes,
+            )
+      }
+      enriched
 
   /** The value of the last top-level expression evaluated via [[runSnippet]]
    *  or [[run]].  Used by `:mount { expr }` to retrieve the handler value. */
@@ -543,6 +573,7 @@ class Interpreter(
       parentTypes         = parentTypes.toMap,
       typeMethods         = typeMethods.toMap,
       typeFieldOrder      = typeFieldOrder.toMap,
+      typeFieldTypes      = typeFieldTypes.toMap,
       givenFactories      = givenFactories.toIndexedSeq,
       givenCandidateCount = givenCandidateCount.toMap,
       mainCalled          = mainCalled,
@@ -557,6 +588,7 @@ class Interpreter(
     parentTypes.clear();         parentTypes         ++= cp.parentTypes
     typeMethods.clear();         typeMethods         ++= cp.typeMethods
     typeFieldOrder.clear();      typeFieldOrder      ++= cp.typeFieldOrder
+    typeFieldTypes.clear();      typeFieldTypes      ++= cp.typeFieldTypes
     givenFactories.clear();      givenFactories      ++= cp.givenFactories
     givenCandidateCount.clear(); givenCandidateCount ++= cp.givenCandidateCount
     mainCalled      = cp.mainCalled
@@ -858,6 +890,7 @@ class Interpreter(
   def exportedExtensions:    Map[(String, String), Value.FunV] = extensions.toMap
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
+  def exportedTypeFieldTypes: Map[String, List[String]]        = typeFieldTypes.toMap
 
   // Deep-merge overlay into base so multiple code blocks sharing the same
   // package prefix (e.g. `object std { object lib { ... } }` appearing in
