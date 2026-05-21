@@ -25,12 +25,12 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 - **Future backends**: WASM, native, embedded — added incrementally without changing source semantics.
 - **AI role**: development-time only (spec authoring, linting, dialect translation assistance). Not in the compiler pipeline. Not at runtime.
 
-## Open questions (resolve before first commit)
+## Bootstrap decisions (resolved)
 
-- [ ] Final project name (`ScalaScript` vs. trademark-safer alternative — "Scala" is an EPFL/Scala Center trademark)
-- [ ] License (Apache 2.0 recommended for language projects: patent grant, OSS-standard)
-- [ ] Repo visibility (public / private at start)
-- [ ] Primary spec language (English-only vs. trilingual EN/UK/RU like the actor-model paper)
+- **Name**: ScalaScript (trademark risk acknowledged and accepted)
+- **License**: Apache 2.0
+- **Repo**: private
+- **Spec language**: English (primary), Russian in comments / design discussions
 
 ## Immediate next steps for Claude Code
 
@@ -133,6 +133,39 @@ A spec covers, at minimum:
 
 Trivial changes (bug fixes, single-file refactors, dependency bumps,
 doc edits, hardcoded-value tweaks) do **not** need a spec.
+
+### Keep the spec in sync with the implementation
+
+If reality diverges from the spec during implementation (an API turns
+out differently, a design choice changes, a phase gets split or
+merged), **update the spec in the same commit** — not in a follow-up.
+A spec that describes what was originally planned rather than what was
+actually built is worse than no spec: it misleads future agents.
+
+What "spec drift" looks like and what to do:
+
+- API signature changed → update `docs/<feature>.md` architecture section
+- Phase split into two → update phases list + MILESTONES.md phases
+- A non-goal turned out to be necessary → move it to Goals, note why
+- An approach was abandoned → add a "Design notes" section explaining
+  what was tried and why it was replaced
+
+Never leave a "TODO: update spec" comment — do it now.
+
+### Every user-facing feature needs an example
+
+Any feature that a `.ssc` user would call directly gets a working
+example in `examples/`. The example must:
+
+- Be self-contained (runnable with `ssc run examples/<name>.ssc`)
+- Demonstrate the golden path, not edge cases
+- Be referenced from the feature's spec and from `README.md` examples table
+
+Minimum: one `.ssc` file. For multi-file features (plugin + consumer,
+REST API + client): a subdirectory `examples/<feature>/`.
+
+This is not optional for features shipped in a milestone. A feature
+with no example is considered incomplete for milestone-closure purposes.
 
 Existing specs to mirror in style and depth:
 [`docs/backend-spi.md`](docs/backend-spi.md),
