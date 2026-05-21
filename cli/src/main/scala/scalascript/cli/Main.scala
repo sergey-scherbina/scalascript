@@ -1803,7 +1803,6 @@ def watchCommand(args: List[String]): Unit =
         // `serve(port)` is a no-op.  Routes are freshly re-registered
         // from the new evaluation; the HTTP server keeps its port bound.
         scalascript.server.Routes.clear()
-        scalascript.server.WsRoutes.clear()
         Interpreter(baseDir = Some(osPath / os.up), headless = true).run(module)
       else
         // First run: execute normally.  `serve(port)` starts the listener
