@@ -2513,12 +2513,24 @@ def runJvmCommand(args: List[String]): Unit =
     case None       => raw
   val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
   try
-    val res = os.proc("scala-cli", "run", tmp, "--server=false")
-      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-    if res.exitCode != 0 then System.exit(res.exitCode)
-  catch case e: Exception =>
-    System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
-    System.exit(1)
+    val sub = os.proc("scala-cli", "run", tmp, "--server=false")
+      .spawn(stdout = os.Inherit, stderr = os.Inherit)
+    // Kill the entire scala-cli process tree on JVM shutdown so the server
+    // doesn't linger after Ctrl+C or SIGTERM.
+    def killTree(ph: ProcessHandle): Unit =
+      ph.descendants().forEach(killTree(_))
+      ph.destroyForcibly()
+    val hook = new Thread(() => killTree(sub.wrapped.toHandle))
+    Runtime.getRuntime.addShutdownHook(hook)
+    sub.waitFor()
+    Runtime.getRuntime.removeShutdownHook(hook)
+    val exitCode = sub.wrapped.exitValue()
+    if exitCode != 0 then System.exit(exitCode)
+  catch
+    case _: IllegalStateException => () // shutdown already in progress — process tree killed by hook
+    case e: Exception =>
+      System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
+      System.exit(1)
 
 /** Replace `//> using (lib|dep) "io.scalascript::artifact:version"` lines
  *  with `//> using jar <jarsDir>/artifact_3-version.jar` so that run-jvm
