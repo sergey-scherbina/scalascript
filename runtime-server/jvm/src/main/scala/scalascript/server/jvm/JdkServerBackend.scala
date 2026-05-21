@@ -63,7 +63,9 @@ class JdkServerBackend extends HttpServerSpi:
     // Loopback ephemeral port.  Its handler translates the JDK
     // HttpExchange into a POJO Request, calls `handler.onHttpRequest`,
     // and writes the result back through the shared writers.
-    val internalExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    val internalExec = java.util.concurrent.Executors.newSingleThreadExecutor(r => {
+      val t = Thread(r, "jdk-backend-http"); t.setDaemon(true); t
+    })
     val internal     = JHttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     internal.createContext("/", (ex: HttpExchange) => dispatchHttp(ex, handler))
     internal.setExecutor(internalExec)

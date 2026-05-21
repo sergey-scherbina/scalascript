@@ -63,11 +63,18 @@ object WebServer:
     val latch    = java.util.concurrent.CountDownLatch(1)
     _latch = latch
 
+    // Shut down cleanly on Ctrl+C / SIGTERM: stop the SPI backend (closes
+    // the server socket so the accept loop exits) and count down the latch
+    // so latch.await() below returns and this thread can finish.
+    Runtime.getRuntime.addShutdownHook(Thread(() => stop()))
+
     // Single-thread executor shared with the SPI's WS user-callback
     // dispatch + HTTP-handler bodies.  Interpreter globals / call-stack
     // / position tracker aren't thread-safe, so handler bodies must run
-    // serially across both protocols.
-    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    // serially across both protocols.  Daemon so it never prevents JVM exit.
+    val executor = java.util.concurrent.Executors.newSingleThreadExecutor(r => {
+      val t = Thread(r, "ssc-ws-handler"); t.setDaemon(true); t
+    })
 
     // SPI discovery — resolved via the shared `HttpServerBackends`
     // registry which honors the most-recent `setHttpServerBackend(name)`
