@@ -812,6 +812,7 @@ lazy val backendConfigRuntime = project
 // the standard examples / quickstarts work with zero configuration.
 lazy val backendSqlRuntime = project
   .in(file("backend/sql-runtime"))
+  .dependsOn(backendConfigRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(

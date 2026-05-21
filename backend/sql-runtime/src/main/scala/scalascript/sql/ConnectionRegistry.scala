@@ -69,6 +69,11 @@ object EnvResolver:
           scala.io.Source.fromFile(f).mkString.strip()
         case "sops" =>
           SopsSecrets.get(ref).getOrElse(throw MissingSops(ref, configKey, dbName))
+        case "config" =>
+          // Cross-reference into the global config tree.
+          // Import is late to avoid circular dependency: sql-runtime → config-runtime
+          scalascript.config.ConfigRegistry.lookup(ref)
+            .getOrElse(throw UnknownScheme("config", configKey, dbName))
         case s =>
           plugins.get(s) match
             case Some(r) => r.resolve(ref)
@@ -104,7 +109,7 @@ final class UnknownScheme(val scheme: String, val configKey: String, val dbName:
     extends RuntimeException(
       s"no SecretResolver registered for scheme `$scheme` " +
       s"(referenced from databases.$dbName.$configKey); " +
-      s"built-in schemes: `env`, `file`, `sops`"
+      s"built-in schemes: `env`, `file`, `sops`, `config`"
     )
 
 /** Raised when an `sql` block resolves to a database name that has

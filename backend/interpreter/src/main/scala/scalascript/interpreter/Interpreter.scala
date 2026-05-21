@@ -321,6 +321,53 @@ class Interpreter(
           }
         )
     }
+    // Populate the global config registry from front-matter raw map.
+    // m.raw contains the full snakeyaml-parsed front-matter; we lift it
+    // into a ConfigValue tree so ${config:path} cross-refs work in
+    // databases: secrets, and the `config` intrinsic is available in code.
+    module.manifest.foreach { m =>
+      if m.raw.nonEmpty then
+        val cv = scalascript.config.ConfigValue.Map(
+          m.raw.map { case (k, v) => k -> scalascript.config.ConfigValue.from(v) }
+        )
+        scalascript.config.ConfigRegistry.set(cv)
+    }
+    // Register the `config` global: an InstanceV whose native methods delegate
+    // to ConfigAccessor so ScalaScript code can call
+    //   config.getString("server.port")
+    //   config.getInt("server.port").getOrElse(8080)
+    //   config.getBool("features.darkMode").getOrElse(false)
+    val cfgAccessor = scalascript.config.ConfigAccessor.fromRegistry()
+    globals("config") = Value.InstanceV("Config", Map(
+      "getString" -> Value.NativeFnV("config.getString", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getString(path).map(Value.StringV(_)))
+        case _ => throw InterpretError("config.getString(path: String)")
+      }),
+      "getInt" -> Value.NativeFnV("config.getInt", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getInt(path).map(n => Value.IntV(n.toLong)))
+        case _ => throw InterpretError("config.getInt(path: String)")
+      }),
+      "getDouble" -> Value.NativeFnV("config.getDouble", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getDouble(path).map(Value.DoubleV(_)))
+        case _ => throw InterpretError("config.getDouble(path: String)")
+      }),
+      "getBool" -> Value.NativeFnV("config.getBool", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getBool(path).map(Value.BoolV(_)))
+        case _ => throw InterpretError("config.getBool(path: String)")
+      }),
+      "requireString" -> Value.NativeFnV("config.requireString", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.StringV(cfgAccessor.requireString(path))
+        case _ => throw InterpretError("config.requireString(path: String)")
+      }),
+      "requireInt" -> Value.NativeFnV("config.requireInt", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.IntV(cfgAccessor.requireInt(path).toLong)
+        case _ => throw InterpretError("config.requireInt(path: String)")
+      }),
+      "requireBool" -> Value.NativeFnV("config.requireBool", Computation.pureFn {
+        case List(Value.StringV(path)) => Value.BoolV(cfgAccessor.requireBool(path))
+        case _ => throw InterpretError("config.requireBool(path: String)")
+      }),
+    ))
     module.manifest.foreach { m =>
       m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
     }
