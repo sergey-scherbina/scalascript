@@ -297,6 +297,8 @@ object Parser:
         val s = Section(f.heading, f.content.toList, f.subsections.toList)
         if stack.nonEmpty then stack.top.subsections += s else roots += s
 
+    val preContent = ListBuffer[Content]()  // content before the first heading
+
     var node = doc.getFirstChild
     while node != null do
       node match
@@ -311,10 +313,15 @@ object Parser:
         case other =>
           toContent(other, mdLineToFileLine).foreach { c =>
             if stack.nonEmpty then stack.top.content += c
+            else preContent += c
           }
       node = node.getNext
 
     flush(0)
+    // Headingless scripts: all content landed in preContent.  Wrap it in a
+    // synthetic unnamed section so JvmGen and other consumers see the blocks.
+    if roots.isEmpty && preContent.nonEmpty then
+      roots += Section(Heading(0, ""), preContent.toList, Nil)
     roots.toList
 
   // ─── Node → Content ──────────────────────────────────────────────

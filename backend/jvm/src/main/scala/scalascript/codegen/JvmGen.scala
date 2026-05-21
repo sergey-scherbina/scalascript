@@ -303,7 +303,7 @@ class JvmGen(
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
-    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) then sb.append(serveRuntime)
+    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) || effectiveFrontend.isDefined then sb.append(serveRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
@@ -8628,7 +8628,7 @@ class JvmGen(
        |  val _p = java.nio.file.Paths.get(dir)
        |  java.nio.file.Files.createDirectories(_p)
        |  java.nio.file.Files.writeString(_p.resolve("index.html"), _emitted.html)
-       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\n" + _ssc_client_sql_js
+       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\\n" + _ssc_client_sql_js
        |               else _emitted.js
        |  java.nio.file.Files.writeString(_p.resolve("app.js"), _appJs)
        |  if _emitted.css.nonEmpty then
@@ -8639,7 +8639,7 @@ class JvmGen(
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
        |  java.nio.file.Files.writeString(_tmpDir.resolve("index.html"), _emitted.html)
-       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\n" + _ssc_client_sql_js
+       |  val _appJs = if _ssc_client_sql_js.nonEmpty then _emitted.js + "\\n" + _ssc_client_sql_js
        |               else _emitted.js
        |  java.nio.file.Files.writeString(_tmpDir.resolve("app.js"), _appJs)
        |  if _emitted.css.nonEmpty then
@@ -8655,7 +8655,7 @@ class JvmGen(
        |// serve(view, port): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
        |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
        |// text(String): beats extension (r: Response.type) def text(body: Any)
-       |def text(content: String): std.ui.nodes.TkNode = std.ui.typography.text(content)
+       |def text(content: String) = std.ui.typography.text(content)
        |
        |""".stripMargin
 
