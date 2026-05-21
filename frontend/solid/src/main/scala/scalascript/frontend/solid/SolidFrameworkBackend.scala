@@ -60,19 +60,23 @@ final class SolidFrameworkBackend extends FrontendFrameworkSpi:
     EmittedSpa(js = js, html = html, css = "")
 
   private def htmlShell(initialRoute: String): String =
-    // ES-module import-maps so the bundle can `import` solid-js
-    // directly from esm.sh without a bundler step.  We only need
-    // `solid-js` itself — the emit avoids `solid-js/h` (upstream-
-    // broken in 1.8+) by hand-writing the DOM construction.
+    // jsDelivr +esm converts the npm package to ESM on-the-fly — more
+    // reliable than esm.sh which closes connections intermittently.
+    // We only need solid-js itself; the emitter avoids solid-js/web by
+    // writing imperative DOM directly (createSignal + createEffect only).
     s"""<!DOCTYPE html>
        |<html lang="en">
        |<head>
        |  <meta charset="UTF-8">
        |  <title>ScalaScript SPA (Solid)</title>
+       |  <style>
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .ssc-spin { animation: spin 0.8s linear infinite; }
+  </style>
        |  <script type="importmap">
        |  {
        |    "imports": {
-       |      "solid-js": "https://esm.sh/solid-js@1.8.0"
+       |      "solid-js": "https://cdn.jsdelivr.net/npm/solid-js@1.8.0/+esm"
        |    }
        |  }
        |  </script>
