@@ -28,6 +28,21 @@ final class ConfigAccessor(private val root: ConfigValue):
   def requireInt(path: String): Int         = getInt(path).getOrElse(throw ConfigError.MissingKey(path))
   def requireBool(path: String): Boolean    = getBool(path).getOrElse(throw ConfigError.MissingKey(path))
 
+  /** Decode a section of the config as type `T`.
+   *  {{{
+   *  case class Srv(port: Int, host: String) derives Config
+   *  val srv = acc[Srv]("server")
+   *  }}}
+   */
+  def apply[A](section: String)(using ConfigDecoder[A]): Either[ConfigError, A] =
+    root.get(section) match
+      case None     => Left(ConfigError.MissingKey(section))
+      case Some(cv) => ConfigDecoder[A].decode(cv)
+
+  /** Decode the entire config root as type `T`. */
+  def as[A](using ConfigDecoder[A]): Either[ConfigError, A] =
+    ConfigDecoder[A].decode(root)
+
   /** Sub-accessor rooted at `section`. Returns an accessor over the subtree, or empty if not found. */
   def section(name: String): ConfigAccessor =
     new ConfigAccessor(root.get(name).getOrElse(ConfigValue.empty))
