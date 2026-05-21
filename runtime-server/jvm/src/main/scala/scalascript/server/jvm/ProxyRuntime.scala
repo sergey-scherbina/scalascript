@@ -333,7 +333,18 @@ private object _CodegenHttpHandler extends HttpHandler:
       .nextOption()
     matched match
       case None =>
-        HttpResult.Reject(404, s"Not Found: ${req.path}")
+        // Fall through to static files (e.g. SPA emitted by serve(view, port))
+        // before 404'ing.  Only GET requests can serve static assets.
+        if method == "GET" then
+          StaticAssetServer.resolve(_ssc_static_root, req.path) match
+            case Some(file) =>
+              val bytes = java.nio.file.Files.readAllBytes(file.toPath)
+              val ct    = HttpHelpers.contentTypeFor(file.getName)
+              HttpResult.PlainResp(Response(200, Map("Content-Type" -> ct), new String(bytes, "UTF-8")))
+            case None =>
+              HttpResult.Reject(404, s"Not Found: ${req.path}")
+        else
+          HttpResult.Reject(404, s"Not Found: ${req.path}")
       case Some((r, params)) =>
         val reqWithParams = req.copy(params = params)
         def baseHandler(): Any =
