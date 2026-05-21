@@ -232,6 +232,19 @@ class Typer(
     )
     effectBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     extraBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
+    // Plugin namespaces not bundled in the CLI assembly — avoids false-positive
+    // "undefined name" errors in `ssc check` for plugin-backed examples.
+    val pluginObjects = List("oauth", "oidc", "spark", "http")
+    pluginObjects.foreach(n => s.define(Symbol(n, SType.Named(n, Nil), SymbolKind.Object)))
+    val pluginBuiltins = List(
+      "Async", "Await", "Signal",
+      "HandlerRegistry", "Cluster", "ShuffleStage", "Stage",
+      "runDistributed", "runDistributedShuffle",
+      "Wallets", "X402Client", "X402", "CardanoFacilitator", "PaymentConfig",
+      "DefaultSyncBackend", "basicRequest", "Future",
+      "setHttpServerBackend", "Storage", "Source", "PipelineModel",
+    )
+    pluginBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     s
 
   // ─── Pre-declaration pass ──────────────────────────────────────────────────
@@ -242,10 +255,26 @@ class Typer(
   // entry with the correctly-inferred type.
 
   private def predeclareModuleNames(module: Module, scope: Scope): Unit =
-    module.sections.foreach(predeclareSection(_, scope))
+    var sqlBlockCounter = 0
+    module.sections.foreach(predeclareSection(_, scope, sqlBlockCounter, { n => sqlBlockCounter = n }))
 
-  private def predeclareSection(section: Section, scope: Scope): Unit =
+  private def predeclareSection(
+      section: Section,
+      scope: Scope,
+      sqlStart: Int,
+      updateSqlCount: Int => Unit
+  ): Unit =
+    var sqlCount = sqlStart
+    // Declare section-identifier-derived name (mirrors JvmGen/SparkGen sectionIdent).
+    sectionIdent(section.heading.text).foreach { id =>
+      scope.define(Symbol(id, SType.Any, SymbolKind.Object))
+    }
     section.content.foreach {
+      case cb: Content.CodeBlock if cb.lang == "sql" =>
+        // Each sql block produces a `_sqlBlock_<n>` binding visible to later sections.
+        scope.define(Symbol(s"_sqlBlock_$sqlCount", SType.Any, SymbolKind.Val))
+        sqlCount += 1
+        updateSqlCount(sqlCount)
       case cb: Content.CodeBlock if cb.tree.isDefined =>
         cb.tree.foreach { node =>
           ScalaNode.fold(node) {
@@ -258,7 +287,20 @@ class Typer(
         imp.bindings.foreach(b => scope.define(Symbol(b.name, SType.Any, SymbolKind.Val)))
       case _ => ()
     }
-    section.subsections.foreach(predeclareSection(_, scope))
+    var subsqlCount = sqlCount
+    section.subsections.foreach { sub =>
+      predeclareSection(sub, scope, subsqlCount, { n => subsqlCount = n })
+    }
+    updateSqlCount(subsqlCount)
+
+  private def sectionIdent(text: String): Option[String] =
+    val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
+    if parts.isEmpty then None
+    else
+      val head = parts.head
+      val tail = parts.tail.map(p => s"${p.head.toUpper}${p.tail}")
+      val raw  = head + tail.mkString
+      Some(if raw.head.isDigit then "_" + raw else raw)
 
   private def predeclareStat(stat: scala.meta.Tree, scope: Scope): Unit = stat match
     case Defn.Val(_, pats, _, _) =>
@@ -284,6 +326,15 @@ class Typer(
     case d: Defn.Given  =>
       val n = d.name.value
       if n.nonEmpty then scope.define(Symbol(n, SType.Any, SymbolKind.Val))
+    case i: Import =>
+      i.importers.foreach { importer =>
+        importer.importees.foreach {
+          case Importee.Name(n)        => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
+          case Importee.Rename(_, n)   => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
+          case Importee.Wildcard()     => () // can't know names; ignored
+          case _                       => ()
+        }
+      }
     case _ => ()
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -381,20 +432,27 @@ class Typer(
       // simple arithmetic, blocks, if/else) — anything richer falls back to
       // SType.Any.
       val declaredRet = d.decltpe.map(typeAnnotToSType)
+      // `extern def` compiles to Defn.Def with body Term.Name("__extern__").
+      // Treat as an opaque declaration: use declared return type, skip body check.
+      val isExternDef = d.body match { case Term.Name("__extern__") => true; case _ => false }
       // Allow self-recursion: bind the function name in bodyScope before
       // typing the body so `def fib(n) = fib(n-1)` resolves correctly.
       bodyScope.define(Symbol(d.name.value,
         SType.Function(paramSTypes, declaredRet.getOrElse(SType.Any)),
         SymbolKind.Def))
-      val bodyType    = inferType(d.body, bodyScope)
-      val retType     = declaredRet.getOrElse(bodyType)
-      val fnType      = SType.Function(paramSTypes, retType)
+      val retType =
+        if isExternDef then declaredRet.getOrElse(SType.Any)
+        else
+          val bodyType = inferType(d.body, bodyScope)
+          val rt = declaredRet.getOrElse(bodyType)
+          declaredRet.foreach { declared =>
+            if declared != SType.Any then
+              checkAssignable(bodyType, declared, d.body.pos)
+          }
+          rt
+      val fnType = SType.Function(paramSTypes, retType)
       scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
       out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
-      declaredRet.foreach { declared =>
-        if declared != SType.Any then
-          checkAssignable(bodyType, declared, d.body.pos)
-      }
 
     // class Name(params...)
     case d: Defn.Class =>
@@ -713,6 +771,12 @@ class Typer(
     // Numeric widening: Int literal is valid where Long or Double is expected
     (actual == SType.Int  && (expected == SType.Long || expected == SType.Double)) ||
     (actual == SType.Long && expected == SType.Double) ||
+    // Generic type application compatibility:
+    //  - Raw type (no args) is assignable to its parameterised form: Box ≤ Box[T]
+    //  - Named(n, [Nothing, ...]) is assignable to Named(n, _): Option[Nothing] ≤ Option[T]
+    //  - Type variable heuristic: if either side looks like a type parameter (all-uppercase,
+    //    ≤3 chars, no type args) the check is skipped — the typer lacks full poly inference.
+    genericCompatible(actual, expected) ||
     // Union subtyping: `A <: A | B` — actual is assignable to a union if it
     // is assignable to at least one member of the union.
     (expected match
@@ -727,6 +791,21 @@ class Typer(
   private def isNullable(t: SType): Boolean = t match
     case SType.Named(_, _) => true
     case _                 => false
+
+  private def looksLikeTypeVar(name: String): Boolean =
+    name.length <= 3 && name.nonEmpty && name.forall(c => c.isLetter && c.isUpper || c.isDigit)
+
+  private def genericCompatible(actual: SType, expected: SType): Boolean =
+    (actual, expected) match
+      case (SType.Named(an, Nil), SType.Named(en, _)) if an == en => true
+      case (SType.Named(an, aArgs), SType.Named(en, eArgs))
+          if an == en && aArgs.length == eArgs.length =>
+        aArgs.zip(eArgs).forall { (a, e) =>
+          a == SType.Nothing || a == SType.Any || e == SType.Any || isCompatible(a, e)
+        }
+      case (SType.Named(an, Nil), _) if looksLikeTypeVar(an) => true
+      case (_, SType.Named(en, Nil)) if looksLikeTypeVar(en) => true
+      case _ => false
 
   /** Basic type rules for infix operators. */
   private def checkBinaryOp(lhs: SType, op: String, rhs: SType, pos: scala.meta.Position): SType =

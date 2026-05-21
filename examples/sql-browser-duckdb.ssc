@@ -44,7 +44,7 @@ CREATE TABLE events (sku VARCHAR, units INTEGER)
 INSERT INTO events VALUES ('apple', 15), ('banana', 9), ('cherry', 3)
 ```
 
-## Totals per sku — duckdb GROUP BY
+## Totals
 
 ```sql @db=analytics
 SELECT sku, SUM(units) AS total FROM events GROUP BY sku ORDER BY sku
