@@ -19,12 +19,13 @@ import scala.meta.*
 object JvmGen:
 
   def generate(
-      module:     Module,
-      baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-      lockPath:   Option[os.Path] = None
+      module:          Module,
+      baseDir:         Option[os.Path] = None,
+      intrinsics:      Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:        Option[os.Path] = None,
+      frontendOverride: Option[String] = None
   ): String =
-    JvmGen(baseDir, intrinsics, lockPath).genModule(module)
+    JvmGen(baseDir, intrinsics, lockPath, frontendOverride).genModule(module)
 
   // ─── v2.0 Phase 2 — split-runtime emit ──────────────────────────────────
   //
@@ -158,9 +159,10 @@ object JvmGen:
   private case class StringBlockEntry(lang: String, src: String, sectionId: String, order: Int)
 
 class JvmGen(
-    baseDir:    Option[os.Path] = None,
-    intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-    lockPath:   Option[os.Path] = None):
+    baseDir:          Option[os.Path] = None,
+    intrinsics:       Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+    lockPath:         Option[os.Path] = None,
+    frontendOverride: Option[String]  = None):
   // Effect operations declared in the module, keyed as "Eff.op".
   private val effectOps     = mutable.Set.empty[String]
   // Functions whose body transitively performs effects; their bodies are
@@ -268,15 +270,16 @@ class JvmGen(
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val frontendFramework = module.manifest.flatMap(_.frontendFramework)
+    val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
 
-    // Frontend SPA — pull in the frontend-core + frontend-react JARs so the
-    // UI primitive implementations (element / signal / serve(view, port) / …)
-    // can reference scalascript.frontend.* types at runtime.
-    if frontendFramework.isDefined then
+    // Frontend SPA — pull in the frontend-core + framework-specific JARs so
+    // the UI primitives can reference scalascript.frontend.* types at runtime.
+    if effectiveFrontend.isDefined then
       sb.append("""//> using lib "io.scalascript::scalascript-frontend-core:0.1.0-SNAPSHOT"""" + "\n")
-      sb.append("""//> using lib "io.scalascript::scalascript-frontend-react:0.1.0-SNAPSHOT"""" + "\n")
+      val fwLib = effectiveFrontend.getOrElse("react")
+      sb.append(s"""//> using lib "io.scalascript::scalascript-frontend-$fwLib:0.1.0-SNAPSHOT"\n""")
 
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
@@ -340,7 +343,7 @@ class JvmGen(
     // v1.30 Phase 4 — browser JS for @side=client sql blocks.  Always
     // emitted in frontend modules so uiHelperFunctions can reference
     // _ssc_client_sql_js unconditionally; empty string when no client blocks.
-    if frontendFramework.isDefined then
+    if effectiveFrontend.isDefined then
       val clientJs = emitClientSqlJs(module)
       sb.append("val _ssc_client_sql_js: String = ")
       sb.append(scalaStringLiteral(clientJs))
@@ -378,8 +381,8 @@ class JvmGen(
     // it.  The primitives colon-block is appended so `mergeDuplicatePackageObjects`
     // merges it with the existing (extern-filtered, empty) object from primitives.ssc.
     val withUi =
-      if frontendFramework.isDefined then
-        uiHelperFunctions + "\n" + userSrc + "\n" + uiPrimitivesBlock
+      if effectiveFrontend.isDefined then
+        uiHelperFunctions(effectiveFrontend.getOrElse("react")) + "\n" + userSrc + "\n" + uiPrimitivesBlock
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
@@ -8593,9 +8596,10 @@ class JvmGen(
    *  section so they're defined BEFORE the `import std.ui.primitives.{serve,...}`
    *  line — this ensures `serve(port)` inside `_ssc_ui_serve` resolves to the
    *  preamble's `serve(port: Int, ...)` rather than the opaque-typed wrapper. */
-  private val uiHelperFunctions: String =
-    """|
+  private def uiHelperFunctions(frontendName: String): String =
+    s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
+       |scalascript.frontend.FrontendFrameworks.setBackend("$frontendName")
        |def _ssc_ui_decodeAttrs(m: Map[String, Any]): Map[String, scalascript.frontend.AttrValue] =
        |  m.collect {
        |    case (k, v: String)  => k -> scalascript.frontend.AttrValue.Str(v)
@@ -8643,7 +8647,6 @@ class JvmGen(
        |  _tmpDir.toString
        |
        |def _ssc_ui_serve(tree: Any, port: Int): Unit =
-       |  scalascript.frontend.FrontendFrameworks.setBackend("react")
        |  val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View])
        |  _ssc_static_root = _outDir
        |  serve(port)
