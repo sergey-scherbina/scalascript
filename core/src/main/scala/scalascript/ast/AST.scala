@@ -10,9 +10,10 @@ case class Span(start: Position, end: Position):
 // ─── Document structure ───────────────────────────────────────────
 
 case class Module(
-  manifest: Option[Manifest],
-  sections: List[Section],
-  span: Option[Span] = None
+  manifest:   Option[Manifest],
+  sections:   List[Section],
+  span:       Option[Span]   = None,
+  sourceText: Option[String] = None
 )
 
 case class Manifest(

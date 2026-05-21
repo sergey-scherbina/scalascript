@@ -321,17 +321,46 @@ class Interpreter(
           }
         )
     }
-    // Populate the global config registry from front-matter raw map.
-    // m.raw contains the full snakeyaml-parsed front-matter; we lift it
-    // into a ConfigValue tree so ${config:path} cross-refs work in
-    // databases: secrets, and the `config` intrinsic is available in code.
-    module.manifest.foreach { m =>
-      if m.raw.nonEmpty then
-        val cv = scalascript.config.ConfigValue.Map(
-          m.raw.map { case (k, v) => k -> scalascript.config.ConfigValue.from(v) }
-        )
-        scalascript.config.ConfigRegistry.set(cv)
-    }
+    // Populate the global config registry from front-matter raw map and any
+    // fenced config blocks (```yaml/json/hocon config ["name"] ... ```) in the source.
+    // m.raw contains the full snakeyaml-parsed front-matter; we lift it into a
+    // ConfigValue tree so ${config:path} cross-refs work in databases: secrets,
+    // and the `config` intrinsic is available in code.
+    // Fenced blocks are extracted from the raw source text (Phase 4) and merged
+    // on top: named blocks scope to config.<name>.*, unnamed blocks merge at root.
+    // Later blocks win within their tier (document order).
+    val fencedBlocks: List[scalascript.config.FencedConfigBlock] =
+      module.sourceText match
+        case Some(src) => scalascript.config.FencedConfigExtractor.extractAndParse(src)
+        case None      => Nil
+    val hasFrontmatter: Boolean =
+      module.manifest.exists(_.raw.nonEmpty)
+    if hasFrontmatter || fencedBlocks.nonEmpty then
+      // Build a base ConfigValue from front-matter (direct lift, no re-serialization).
+      val fmCv: scalascript.config.ConfigValue =
+        module.manifest.filter(_.raw.nonEmpty).map { m =>
+          scalascript.config.ConfigValue.Map(
+            m.raw.map { case (k, v) => k -> scalascript.config.ConfigValue.from(v) }
+          )
+        }.getOrElse(scalascript.config.ConfigValue.empty)
+      // Parse and scope fenced blocks, then merge on top of front-matter.
+      // Blocks win over front-matter (Priority.Blocks > Priority.Frontmatter).
+      val fencedCvs: List[scalascript.config.ConfigValue] =
+        fencedBlocks.flatMap { block =>
+          scalascript.config.ConfigParser.parse(block.content, block.format).toOption.map { parsed =>
+            if block.name.isEmpty then parsed
+            else scalascript.config.ConfigValue.empty.set(block.name, parsed)
+          }
+        }
+      val merged = scalascript.config.MergeEngine.mergeAll(
+        frontmatter   = fmCv,
+        externalFiles = Nil,
+        blocks        = fencedCvs,
+      )
+      // Resolve substitutions (${env:X} and ${config:X}) on the merged tree.
+      scalascript.config.SubstitutionEngine.resolveTree(merged, sys.env.get,
+        configLookup = path => merged.get(path).flatMap(_.getString)
+      ).foreach(scalascript.config.ConfigRegistry.set)
     // Register the `config` global: an InstanceV whose native methods delegate
     // to ConfigAccessor so ScalaScript code can call
     //   config.getString("server.port")

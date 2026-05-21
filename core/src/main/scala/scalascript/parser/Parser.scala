@@ -66,8 +66,8 @@ object Parser:
         (mdLine: Int) => base + mdLine
     val sections = extractSections(doc, mdLineToFileLine)
     val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
-    if pkg.isEmpty then Module(manifest, sections)
-    else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)))
+    if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
+    else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
 
   /** Wrap every scalascript-block's contents in nested `object`s matching
    *  the front-matter `package:` segments.  `package: org.example.ui`
