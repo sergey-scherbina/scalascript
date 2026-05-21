@@ -1767,22 +1767,40 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   val dbgHooks = ReplDebugHooks()
   interp.setDebugSourceFile("<repl>")
   interp.setDebugHooks(Some(dbgHooks.mkHooks()))
-  System.err.println("ScalaScript REPL  (blank line to run, :quit to exit)")
-  System.err.println("Debug: :break <N>  :step  — :help inside (debug) prompt")
+  System.err.println("ScalaScript REPL  (:help for commands, blank line to run)")
   var running = true
   while running do
     Option(StdIn.readLine("ssc> ")) match
       case None | Some(":quit" | ":q" | ":exit") => running = false
       case Some(":help" | ":h") =>
         System.err.println(
-          """|ScalaScript REPL commands:
+          """|ScalaScript REPL
+             |
+             |Input:
+             |  Type code and press Enter to add a line.
+             |  Blank line  — run the accumulated snippet.
+             |  Multi-line input is shown with the "   | " continuation prompt.
+             |
+             |Commands:
              |  :help  :h          — this message
              |  :quit  :q  :exit   — exit the REPL
-             |  :reset             — clear bindings and restart interpreter
+             |  :reset             — clear all bindings, restart the interpreter
+             |
+             |Breakpoints & stepping:
              |  :break <N>         — set breakpoint at snippet line N
+             |  :break list        — list all breakpoints
              |  :break clear       — remove all breakpoints
-             |  :step              — enable step-in for next snippet
-             |  (blank line)       — evaluate the current snippet
+             |  :step              — enable step-in for the next snippet
+             |
+             |Debug sub-prompt (appears when a breakpoint is hit):
+             |  :continue  :c      — resume to next breakpoint or end
+             |  :next      :n      — step over (next line)
+             |  :step      :s      — step into the next expression
+             |  :out               — step out of the current function
+             |  :locals    :l      — show local variables at the current frame
+             |  :stack     :bt     — show the call stack
+             |  :print <expr>      — evaluate an expression in the current frame
+             |  :quit      :q      — abort the running snippet, return to ssc>
              |""".stripMargin)
       case Some(":reset") =>
         interp.run(Parser.parse("# REPL\n"))
