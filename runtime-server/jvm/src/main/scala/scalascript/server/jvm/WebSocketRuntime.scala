@@ -20,6 +20,8 @@ import scalascript.server.WsFraming
 import scalascript.server.spi.WsControls
 // BUILD-ONLY:end
 
+private val _svcLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+
 // ── WebSocket support (RFC 6455) ───────────────────────────────────────
 //
 // Asymmetric design vs the interpreter: the interpreter runs an NIO
@@ -221,7 +223,7 @@ class WebSocket(
         // for tests that have already torn down their executor.
         try _executor.execute { () =>
           try cb() catch case e: Throwable =>
-            System.err.println(s"WS close handler: ${e.getMessage}")
+            _svcLog.warn(s"WS close handler: ${e.getMessage}")
         }
         catch case _: java.util.concurrent.RejectedExecutionException => ()
       // Wake any parked recv consumers with a sentinel `null`.
@@ -289,15 +291,15 @@ class WebSocket(
   def _spiFireMessage(s: String): Unit =
     val cb = onMessageCb
     if cb != null then try cb(s) catch case e: Throwable =>
-      System.err.println(s"WS message handler: ${e.getMessage}")
+      _svcLog.warn(s"WS message handler: ${e.getMessage}")
   def _spiFirePong(p: String): Unit =
     val cb = onPongCb
     if cb != null then try cb(p) catch case e: Throwable =>
-      System.err.println(s"WS onPong handler: ${e.getMessage}")
+      _svcLog.warn(s"WS onPong handler: ${e.getMessage}")
   def _spiFireClose(): Unit =
     val cb = onCloseCb.getAndSet(null)
     if cb != null then try cb() catch case e: Throwable =>
-      System.err.println(s"WS close handler: ${e.getMessage}")
+      _svcLog.warn(s"WS close handler: ${e.getMessage}")
 
   // ── Async-style blocking recv (alternative to onMessage cb) ────
   //
@@ -407,7 +409,7 @@ class WebSocket(
                     val payload = new String(p, "ISO-8859-1")
                     _executor.execute { () =>
                       try cb(payload) catch case e: Throwable =>
-                        System.err.println(s"WS onPong handler: ${e.getMessage}")
+                        _svcLog.warn(s"WS onPong handler: ${e.getMessage}")
                     }
                 },
                 onPeerClose = (status, _) => close(status, ""),
@@ -451,7 +453,7 @@ class WebSocket(
     _executor.execute { () =>
       val cb = onMessageCb
       if cb != null then try cb(msg) catch case e: Throwable =>
-        System.err.println(s"WS message handler: ${e.getMessage}")
+        _svcLog.warn(s"WS message handler: ${e.getMessage}")
     }
 
 private final case class _WsRoute(

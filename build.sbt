@@ -62,6 +62,7 @@ lazy val core = project
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
+      "org.slf4j"      %  "slf4j-api"  % "2.0.18",
       "org.yaml"       %  "snakeyaml"  % "2.6",
       "com.lihaoyi"    %% "os-lib"     % "0.11.4",
       "org.scalameta"  %% "scalameta"  % "4.17.0",
@@ -134,7 +135,10 @@ lazy val runtimeServerCommon = project
   .in(file("runtime-server/common"))
   .settings(
     name := "scalascript-runtime-server-common",
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= Seq(
+      "org.slf4j" % "slf4j-api" % "2.0.18",
+      scalatestTest
+    ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
     // Phase 1b: copy our own .scala sources into the classpath under
@@ -591,7 +595,7 @@ lazy val cli = project
       // via commonmark).  Logs to stderr at WARN+ by default; tunable via
       // simplelogger.properties on the classpath or system properties at runtime
       // (e.g. -Dorg.slf4j.simpleLogger.defaultLogLevel=debug).
-      "org.slf4j" % "slf4j-simple" % "1.7.36",
+      "org.slf4j" % "slf4j-simple" % "2.0.18",
       // v2.0 Phase 3 — in-process Scala 3 compiler driver
       // (`scalascript.cli.Scala3Driver`).  Replaces the per-module
       // `scala-cli compile` subprocess (~1 s JVM startup × N modules) with

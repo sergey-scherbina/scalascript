@@ -26,6 +26,7 @@ import java.security.MessageDigest
  *  tokens whose `exp` claim is in the past.  Other claim semantics
  *  (`nbf`, `iss`, `aud`) are left to the caller. */
 object Jwt:
+  private val _log = org.slf4j.LoggerFactory.getLogger("scalascript.server")
   private val b64Enc = Base64.getUrlEncoder.withoutPadding
   private val b64Dec = Base64.getUrlDecoder
 
@@ -40,7 +41,7 @@ object Jwt:
       case None    =>
         val bytes = new Array[Byte](32)
         java.security.SecureRandom().nextBytes(bytes)
-        System.err.println(
+        _log.warn(
           "[ssc] SSC_JWT_SECRET / SSC_SESSION_SECRET not set; JWTs signed " +
           "with a process-local random key.  Tokens will not survive a restart."
         )

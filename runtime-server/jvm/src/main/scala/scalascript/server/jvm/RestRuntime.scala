@@ -24,6 +24,8 @@ import scalascript.server.*
 // so no build-only stub is needed here.
 // BUILD-ONLY:end
 
+private val _restLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // `UploadedFile` is inlined from runtime-server-common via commonRuntime —
 // the case class definition lives there as the single source of truth.
@@ -49,7 +51,7 @@ private lazy val _sessionSecret: Array[Byte] =
     case None    =>
       val bytes = new Array[Byte](32)
       java.security.SecureRandom().nextBytes(bytes)
-      System.err.println(
+      _restLog.warn(
         "[ssc] SSC_SESSION_SECRET not set; using a process-local random key. " +
         "Sessions will not survive a server restart."
       )
@@ -762,7 +764,7 @@ private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
               sessionStorePut     = _sessionStorePut,
               buildSetCookie      = _buildSetCookie),
             fiveXxCounter = _Metrics.http5xx),
-          onError = e => System.err.println(s"route error: ${e.getMessage}"))
+          onError = e => _restLog.error(s"route error: ${e.getMessage}", e))
       case None =>
         // Fall through to a static file under the current directory
         // before 404'ing — mirrors the interpreter's WebServer.
@@ -776,7 +778,7 @@ private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
     }
   catch
     case e: Exception =>
-      System.err.println(s"route error: ${e.getMessage}")
+      _restLog.error(s"route error: ${e.getMessage}", e)
       _Metrics.http5xx.incrementAndGet()
   finally
     val code = try ex.getResponseCode catch case _: Throwable => -1

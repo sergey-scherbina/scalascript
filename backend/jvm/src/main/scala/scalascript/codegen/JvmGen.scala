@@ -283,7 +283,7 @@ class JvmGen(
     // SLF4J simple binding — silences the StaticLoggerBinder warning from
     // transitive deps (commonmark etc.).  Configured to WARN+stderr by default;
     // any -Dorg.slf4j.simpleLogger.* passed to scala-cli takes precedence.
-    sb.append("""//> using dep "org.slf4j:slf4j-simple:1.7.36"""" + "\n")
+    sb.append("""//> using dep "org.slf4j:slf4j-simple:2.0.18"""" + "\n")
     sb.append(
       """|locally {
          |  def _slf4jDefault(k: String, v: String): Unit =

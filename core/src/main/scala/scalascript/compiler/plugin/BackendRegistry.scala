@@ -1,6 +1,7 @@
 package scalascript.compiler.plugin
 
 import scalascript.backend.spi.{Backend, InteractiveBackend}
+import scalascript.logging.Logger
 import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
@@ -21,6 +22,8 @@ import scala.jdk.CollectionConverters.*
  *  when the plugin is actually looked up.  This keeps `--list-backends`
  *  fast (it reads manifests but doesn't fork). */
 object BackendRegistry:
+
+  private val log = Logger(getClass)
 
   /** Discard the cached subprocess plugins so the next lookup re-scans
    *  the filesystem.  Tests use this when installing plugins
@@ -78,7 +81,7 @@ object BackendRegistry:
 
     // SPI compatibility warning (not hard failure — keeps old plugins usable).
     if manifest.spiVersion != SpiVersion then
-      System.err.println(
+      log.warn(
         s"[ssc] warning: plugin '${manifest.id}' spiVersion=${manifest.spiVersion}," +
         s" compiler supports $SpiVersion — may be incompatible")
 

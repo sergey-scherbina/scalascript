@@ -1,5 +1,6 @@
 package scalascript.compiler.plugin
 
+import scalascript.logging.Logger
 import org.yaml.snakeyaml.Yaml
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
@@ -44,6 +45,8 @@ case class PluginManifest(
 
 
 object PluginManifest:
+
+  private val log = Logger(getClass)
 
   def parseFile(path: os.Path): Try[PluginManifest] =
     Try(parseString(os.read(path)).get).map(_.copy(manifestPath = Some(path)))
@@ -131,7 +134,7 @@ object PluginManifest:
             parseFile(yamlPath) match
               case Success(m)   => List(m)
               case Failure(err) =>
-                System.err.println(s"[plugin] failed to load $yamlPath: ${err.getMessage}")
+                log.warn(s"[plugin] failed to load $yamlPath: ${err.getMessage}")
                 Nil
           else Nil
         }

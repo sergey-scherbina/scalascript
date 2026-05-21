@@ -21,6 +21,8 @@ import scalascript.server.*
 import scalascript.server.spi.*
 // BUILD-ONLY:end
 
+private val _proxyLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+
 // ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
 //
 // Legacy entry point — pre-S1c the codegen `serve(port, tls)` opened
@@ -83,7 +85,7 @@ private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
             case Some(v) => _authPayload = Some(v)
             case None    => _authReject  = true
           catch case e: Throwable =>
-            System.err.println(s"WS auth hook: ${e.getMessage}")
+            _proxyLog.warn(s"WS auth hook: ${e.getMessage}")
             _authReject = true
         }
         if _authReject then
@@ -135,7 +137,7 @@ private def _proxyConnection(client: java.net.Socket, internalPort: Int): Unit =
         // later `onMessage` / `onClose` callbacks.
         _serverExecutor.execute { () =>
           try r.handler(ws) catch case e: Throwable =>
-            System.err.println(s"WS upgrade handler: ${e.getMessage}")
+            _proxyLog.warn(s"WS upgrade handler: ${e.getMessage}")
         }
         // Read-loop stays on this thread (cached pool) so a slow
         // socket can't block the executor; only the dispatched
@@ -278,7 +280,7 @@ def serveAsync(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): U
   Thread.ofVirtual().name(s"ssc-serve-async-$port").start { () =>
     try backend.start(port, tlsOpt, handler)
     catch case e: Throwable =>
-      System.err.println(s"serveAsync($port) failed: ${e.getMessage}")
+      _proxyLog.error(s"serveAsync($port) failed: ${e.getMessage}", e)
   }
   ()
 
@@ -368,7 +370,7 @@ private object _CodegenHttpHandler extends HttpHandler:
               Map("Content-Type" -> "text/plain; charset=utf-8"),
               _show(other)))
         catch case e: Throwable =>
-          System.err.println(s"route error: ${e.getMessage}")
+          _proxyLog.error(s"route error: ${e.getMessage}", e)
           _Metrics.http5xx.incrementAndGet()
           HttpResult.Reject(500, "Internal Server Error")
 
@@ -396,7 +398,7 @@ private object _CodegenHttpHandler extends HttpHandler:
             case Some(v) => authPayload = Some(v)
             case None    => authReject  = true
           catch case e: Throwable =>
-            System.err.println(s"WS auth hook: ${e.getMessage}")
+            _proxyLog.warn(s"WS auth hook: ${e.getMessage}")
             authReject = true
         }
         if authReject then
@@ -468,7 +470,7 @@ private final class _CodegenWsListener(
     _serverExecutor.execute { () =>
       try route.handler(view)
       catch case e: Throwable =>
-        System.err.println(s"WS upgrade handler: ${e.getMessage}")
+        _proxyLog.warn(s"WS upgrade handler: ${e.getMessage}")
     }
 
   override def onMessage(text: String): Unit =
@@ -492,5 +494,5 @@ private final class _CodegenWsListener(
       _serverExecutor.execute { () => v._spiFireClose() }
 
   override def onError(t: Throwable): Unit =
-    System.err.println(s"WS error: ${t.getMessage}")
+    _proxyLog.error(s"WS error: ${t.getMessage}", t)
 

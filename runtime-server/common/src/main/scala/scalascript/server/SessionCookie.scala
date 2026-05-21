@@ -23,6 +23,7 @@ import java.security.MessageDigest
  *       restart in that mode — fine for dev, surfaced via stderr.
  */
 object SessionCookie:
+  private val _log = org.slf4j.LoggerFactory.getLogger("scalascript.server")
   private val b64Enc = Base64.getUrlEncoder.withoutPadding
   private val b64Dec = Base64.getUrlDecoder
 
@@ -47,7 +48,7 @@ object SessionCookie:
     case _ =>
       val bytes = new Array[Byte](32)
       java.security.SecureRandom().nextBytes(bytes)
-      System.err.println(
+      _log.warn(
         "[ssc] SSC_SESSION_SECRET not set; using a process-local random key. " +
         "Sessions will not survive a server restart."
       )

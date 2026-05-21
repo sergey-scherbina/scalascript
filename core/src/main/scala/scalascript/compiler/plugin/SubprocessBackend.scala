@@ -1,5 +1,6 @@
 package scalascript.compiler.plugin
 
+import scalascript.logging.Logger
 import scalascript.backend.spi.*
 import scalascript.ir
 import upickle.default.*
@@ -34,6 +35,8 @@ class SubprocessBackend private (
     framing:      WireFraming
 ) extends InteractiveBackend:
 
+  private val log = Logger(getClass)
+
   /** Set once the initial `describe` handshake completes inside
    *  `SubprocessBackend.spawn`; never mutated thereafter.  Held as a
    *  var so the spawn path can construct the instance, kick off the
@@ -63,7 +66,7 @@ class SubprocessBackend private (
       val r = new BufferedReader(new InputStreamReader(proc.getErrorStream, "UTF-8"))
       var line = r.readLine()
       while line != null do
-        System.err.println(s"[plugin/${descriptor.id}] $line")
+        log.info(s"[plugin/${descriptor.id}] $line")
         line = r.readLine())
     t.setDaemon(true)
     t.setName(s"scalascript.compiler.plugin-stderr-pump")

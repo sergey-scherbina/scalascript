@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.*
 import scalascript.ir
+import scalascript.logging.Logger
 import scalascript.transform.Denormalize
 
 /** Backend SPI adapter for the tree-walking Interpreter (target id `"int"`).
@@ -14,6 +15,8 @@ import scalascript.transform.Denormalize
  *  returns `CompileResult.Executed` with captured stdout / stderr.
  *  `openSession` exposes the live interpreter for incremental use. */
 class InterpreterBackend extends InteractiveBackend:
+  private val log = Logger(getClass)
+
   def id:              String                              = "int"
   def displayName:     String                              = "Interpreter (tree-walking)"
   def spiVersion:      String                              = SpiVersion.Current
@@ -39,7 +42,7 @@ class InterpreterBackend extends InteractiveBackend:
         Interpreter.run(astModule, System.out, baseDir)
         0
       catch case t: Throwable =>
-        System.err.println(t.getMessage)
+        log.error(t.getMessage, t)
         1
     CompileResult.Executed(stdout = "", stderr = "", exit = exit)
 
