@@ -6324,7 +6324,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
 | 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
-| 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
+| 6 | `ssc debug` (DAP debugger) — spec: `docs/dap-debugger.md`, milestone: v1.29 | C | 2 weeks | Interpreter split |
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | ~~**Package registry**~~ ✓ landed (2026-05-21) — `pkg:` URI in ImportResolver + `ssc install` shortcut; `BackendRegistry.findInstalledPkg` + `loadAndExtract`; auto-download via LocalRegistry | G | 2 weeks | — |
@@ -9187,6 +9187,72 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 (waits TxValid for txId from receipt), `settle()` (Close → HeadIsClosed → Fanout → HeadIsFinalized).
 `HydraHeadProvider` — opens channel against a connected Hydra node; `stub()` helper for tests.
 18 tests (pay/receive lifecycle, TxInvalid error, settle path, threshold policy, provider, message parsing).
+
+---
+
+## v1.29 — DAP Debugger (`ssc debug`)
+
+**Status:** open | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
+
+IDE-friendly step-debugger for `.ssc` files using the Debug Adapter Protocol (DAP).
+`ssc debug file.ssc [--port 5678]` starts a DAP TCP server; VS Code / IntelliJ / Cursor
+connect and drive the session with standard breakpoints, next/stepIn/stepOut, variables,
+and stack-trace requests. The interpreter evaluates on a normal thread; pausing is done
+by blocking that thread at the `DebugHooks.onStep` call site.
+
+### Phase 1 — TCP skeleton + initialize/launch/disconnect
+
+- New `backendDap` sbt project (`backend/dap/`), depends on `backendInterpreter`.
+- `DapServer`: TCP accept + Content-Length frame read/write (DAP/LSP framing).
+- `DapProtocol`: parse/emit `Request`, `Response`, `Event` via `ujson`.
+- Handle `initialize` (return capabilities), `launch`, `configurationDone`, `disconnect`.
+- `DebugCommand.scala` in `cli/`: `ssc debug <file.ssc> [--port N]` — start `DapServer`,
+  wait for one connection, interpret the file with a no-op `DebugHooks`.
+- Tests: `DapFramingTest`, `DapSessionPhase1Test`.
+
+- [ ] `backendDap` sbt project + `DapServer.scala` + `DapProtocol.scala`
+- [ ] `DebugHooks` trait + `BreakpointRegistry` in `backend/interpreter/debug/`
+- [ ] `DebugCommand.scala` in CLI; `ssc debug <file> [--port N]`
+- [ ] `DapFramingTest` + `DapSessionPhase1Test`
+
+### Phase 2 — Breakpoints
+
+- `BreakpointRegistry` integration with `EvalRuntime.eval` / `trackPos`.
+- Handle `setBreakpoints` request; send `stopped(reason: "breakpoint")` event.
+- Tests: `DapBreakpointTest`.
+
+- [ ] Wire `isBreakpoint` check into interpreter eval loop
+- [ ] Handle `setBreakpoints` + `stopped` event
+- [ ] `DapBreakpointTest`
+
+### Phase 3 — Step execution
+
+- Handle `next` / `stepIn` / `stepOut` / `continue`.
+- `StepMode` with call-depth tracking for `StepOver`.
+- Tests: `DapStepTest`.
+
+- [ ] `StepMode` + `DapSession.stepMode`
+- [ ] Call-depth tracking; `stopped(reason: "step")`
+- [ ] `DapStepTest`
+
+### Phase 4 — Variable inspection
+
+- Handle `scopes` + `variables` requests; `Value` → DAP `Variable` JSON.
+- Nested `Value.Obj` / `Value.List` with `variablesReference`.
+- Tests: `DapVariablesTest`.
+
+- [ ] `variables` + `scopes` request handlers
+- [ ] `Value.toDapString` helper
+- [ ] `DapVariablesTest`
+
+### Phase 5 — Stack frames + source mapping
+
+- Handle `stackTrace` request; map `.ssc` section headings to frame names.
+- Tests: `DapStackTraceTest`.
+
+- [ ] Expose call stack to `DebugHooks`
+- [ ] `stackTrace` request handler
+- [ ] `DapStackTraceTest`
 
 ---
 
