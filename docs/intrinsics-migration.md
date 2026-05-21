@@ -114,36 +114,55 @@ See `plugin-architecture.md` §5.3 for the full amendment spec.
 
 ### 3.3 `pkg:` URI in `ImportResolver`
 
+**Status: LANDED (2026-05-21)**
+
 **File**: `core/src/main/scala/scalascript/imports/ImportResolver.scala`
 
-The resolver currently handles `dep://`, `http://`, `https://`,
-`file://`, and local relative paths.  A `pkg:` branch must:
+The resolver now handles `pkg:` as the first scheme branch before `dep:`.
+Resolution steps:
 
-1. parse `[sym,…](pkg:org/name:ver)` to extract the package coordinate
-2. consult `LocalRegistry` for a local match
-3. call `BackendRegistry.loadSscpkg(archivePath)` to load + register the JAR
-4. bind the requested symbols in the calling module's scope
+1. Parse `pkg:org/name:ver` (or `pkg:name:ver` or `pkg:name`) to extract
+   the coordinate.
+2. Call `BackendRegistry.findInstalledPkg(coord)` — searches
+   `~/.scalascript/compiler/plugins/` and any dirs added via `--plugin-dir`.
+3. If found: call `BackendRegistry.loadAndExtract(path)` — loads intrinsics
+   via `loadSscpkg` and extracts `sources/*.ssc` to a temp dir.
+4. If not found locally: look up `coord` in `LocalRegistry`; if a URL is
+   found, download + install to the plugins dir, then load.
+5. If still not found: throw a helpful error:
+   ```
+   plugin 'scalascript/http:1.0' is not installed.
+   Run: ssc install scalascript/http:1.0
+   ```
+6. Return the entry-point `.ssc` path from the extracted sources dir
+   (`index.ssc` if present, otherwise the lexicographically first `.ssc`).
 
-Until this lands, scripts cannot import plugins by reference — they can
-only use the classpath ServiceLoader path (zero-arg, pre-staged).
+New helpers added:
+- `SscpkgLoader.extractSources(pkg: os.Path): os.Path` — extracts
+  `sources/*.ssc` from a ZIP archive to a fresh temp dir.
+- `BackendRegistry.findInstalledPkg(coord: String): Option[os.Path]` —
+  searches all plugin dirs for a matching `.sscpkg` by name and version.
+- `BackendRegistry.loadAndExtract(pkg: os.Path): os.Path` — idempotent
+  load + extract; cached so repeated imports don't re-extract.
 
 ### 3.4 Registry seeding and `ssc install`
 
-`LocalRegistry`
-(`core/src/main/scala/scalascript/plugin/LocalRegistry.scala`) today
-stores JARs under `~/.scalascript/registry/`.  Before the lean-core
-model is live, a distribution mechanism must exist:
+**Status: LANDED (2026-05-21)**
 
-- **`ssc install <pkg>`** — command that copies a `.sscpkg` archive
-  from the release bundle (or a future remote registry) into
-  `~/.scalascript/registry/`.
-- **`setup.sh`** (or `bin/ssc setup`) — seeds the registry from the
-  repo's own `plugins/` tree on first run.
+`LocalRegistry` (`core/src/main/scala/scalascript/compiler/plugin/LocalRegistry.scala`)
+stores registry entries under `~/.scalascript/registry.yaml`.
+
+- **`ssc install <pkg>`** — top-level command shortcut (delegates to
+  `ssc plugin install`).  Copies a `.sscpkg` archive from a local path,
+  HTTPS URL, or short registry name into `~/.scalascript/compiler/plugins/`.
+- **Auto-install on first use**: when a `pkg:` import references a package
+  that is not installed but has a URL in `LocalRegistry`, `ImportResolver`
+  downloads and installs it automatically (respects `SSC_NO_NETWORK=1`).
 - **Error UX**: when a script references
   `pkg:scalascript/http:1.0` and the package is not in the registry,
   the interpreter prints:
   ```
-  error: plugin 'scalascript/http:1.0' is not installed.
+  plugin 'scalascript/http:1.0' is not installed.
   Run: ssc install scalascript/http:1.0
   ```
   rather than a `NoSuchElementException` from the registry lookup.

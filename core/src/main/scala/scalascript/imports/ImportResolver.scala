@@ -46,7 +46,11 @@ object ImportResolver:
       deps:     Map[String, String],
       lockPath: Option[os.Path] = None
   ): os.Path =
-    // 1. dep: scheme — always resolved through dep-sources chain
+    // 1. pkg: scheme — installed plugin packages
+    if rawPath.startsWith("pkg:") then
+      return resolvePkg(rawPath)
+
+    // 2. dep: scheme — always resolved through dep-sources chain
     if rawPath.startsWith("dep:") then
       return resolveDep(rawPath, lockPath)
 
@@ -85,6 +89,90 @@ object ImportResolver:
 
   private def isUrl(s: String): Boolean =
     s.startsWith("http://") || s.startsWith("https://")
+
+  // ─── pkg: scheme ─────────────────────────────────────────────────
+
+  /** Default directory where installed `.sscpkg` files live.
+   *  Mirrors the `pluginsDir` constant in the CLI. */
+  private val pkgPluginsDir: os.Path =
+    os.home / ".scalascript" / "compiler" / "plugins"
+
+  /** Resolve `pkg:org/name:version` to the entry-point `.ssc` extracted
+   *  from the matching installed `.sscpkg` archive.
+   *
+   *  Resolution order:
+   *  1. Search `~/.scalascript/compiler/plugins/` (and any dirs registered
+   *     via `BackendRegistry.addPluginDir`) for a matching `.sscpkg`.
+   *  2. If not found locally, look in `LocalRegistry` for a download URL
+   *     and call `ssc plugin install` logic to fetch + install first.
+   *  3. If still not found, throw a clear "not installed" error.
+   *
+   *  When a matching archive is found, `BackendRegistry.loadAndExtract`
+   *  loads the intrinsics and unpacks the source `.ssc` files to a temp dir.
+   *  The entry point is `index.ssc` if present, otherwise the first `.ssc`.
+   *
+   *  Additive: scripts that don't use `pkg:` are unaffected. */
+  private def resolvePkg(pkgUri: String): os.Path =
+    val coord = pkgUri.stripPrefix("pkg:")
+    import scalascript.compiler.plugin.{BackendRegistry, LocalRegistry}
+
+    // Try to find an already-installed .sscpkg.
+    val maybePkg = BackendRegistry.findInstalledPkg(coord)
+
+    val pkgPath = maybePkg.getOrElse {
+      // Not installed locally — check the local registry for a URL.
+      val entry = LocalRegistry.resolve(coord)
+      entry match
+        case None =>
+          throw new RuntimeException(
+            s"plugin '$coord' is not installed.\n" +
+            s"Run: ssc install $coord"
+          )
+        case Some(e) =>
+          // Download from the registry URL and install.
+          val bytes = downloadBytes(e.url, coord)
+          val tmp   = os.temp(bytes, suffix = ".sscpkg")
+          val manifest =
+            try scalascript.compiler.plugin.SscpkgLoader.load(tmp).manifest
+            finally os.remove(tmp)
+          os.makeDir.all(pkgPluginsDir)
+          val dest = pkgPluginsDir / s"${manifest.id}-${manifest.version}.sscpkg"
+          os.write.over(dest, bytes)
+          dest
+    }
+
+    // Load the plugin (registers intrinsics) and extract sources.
+    val srcDir = BackendRegistry.loadAndExtract(pkgPath)
+
+    // Pick the entry-point .ssc file.
+    if !os.isDir(srcDir) || os.list(srcDir).isEmpty then
+      throw new RuntimeException(
+        s"pkg '$coord': archive has no sources (resolved to $pkgPath)"
+      )
+    val index = srcDir / "index.ssc"
+    if os.exists(index) then index
+    else os.list(srcDir).filter(_.ext == "ssc").sorted.headOption.getOrElse(
+      throw new RuntimeException(
+        s"pkg '$coord': no .ssc source found in extracted archive $pkgPath"
+      )
+    )
+
+  /** Download bytes from a URL, used when auto-installing a plugin on first use. */
+  private def downloadBytes(url: String, label: String): Array[Byte] =
+    if sys.env.get("SSC_NO_NETWORK").contains("1") then
+      throw new RuntimeException(
+        s"Plugin '$label' is not installed and SSC_NO_NETWORK=1 blocks auto-download.\n" +
+        s"Run: ssc install $label"
+      )
+    val req  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url)).GET().build()
+    val resp = java.net.http.HttpClient.newHttpClient()
+      .send(req, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
+    if resp.statusCode() != 200 then
+      throw new RuntimeException(
+        s"pkg install: HTTP ${resp.statusCode()} downloading '$label' from $url\n" +
+        s"Run: ssc install $label"
+      )
+    resp.body()
 
   // ─── dep: scheme ─────────────────────────────────────────────────
 

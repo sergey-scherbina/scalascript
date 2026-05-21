@@ -79,3 +79,26 @@ object SscpkgLoader:
       LoadResult(manifest, intrinsicJars, runtimeStrings, sourcePaths)
     finally
       zip.close()
+
+  /** Extract source `.ssc` entries from a `.sscpkg` archive (under `sources/`)
+   *  into a fresh temp directory and return the directory path.
+   *
+   *  The directory lives for the JVM process lifetime (no explicit cleanup).
+   *  If the archive has a single source file the caller may use it directly;
+   *  if there are multiple, prefer `index.ssc` as the entry point. */
+  def extractSources(pkg: os.Path): os.Path =
+    val zip = new ZipFile(pkg.toIO)
+    try
+      val entries    = zip.entries().asScala.toList
+      val srcEntries = entries.filter(e =>
+        !e.isDirectory && e.getName.startsWith("sources/") && e.getName.endsWith(".ssc"))
+      val tmpDir = os.temp.dir(prefix = s"sscpkg-${pkg.last.stripSuffix(".sscpkg")}-sources")
+      srcEntries.foreach { e =>
+        val relName = e.getName.stripPrefix("sources/")
+        val dest    = tmpDir / os.RelPath(relName)
+        os.makeDir.all(dest / os.up)
+        os.write(dest, zip.getInputStream(e).readAllBytes())
+      }
+      tmpDir
+    finally
+      zip.close()

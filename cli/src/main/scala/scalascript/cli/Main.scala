@@ -99,6 +99,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "build"               => buildCommand(args.tail)
     case "bundle"              => bundleCommand(args.tail)
     case "plugin"              => pluginCommand(args.tail)
+    case "install"             => pluginInstall(args.tail)  // shortcut for `ssc plugin install`
     case "lock"                => lockCommand(args.tail)
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
@@ -370,6 +371,7 @@ def printUsage(): Unit =
     |                         imports into a .sscpkg zip archive.  External imports
     |                         (above the entry directory) are flattened into
     |                         `_external/` with path references rewritten.
+    |  install <path|name>    Install a .sscpkg (shortcut for `ssc plugin install`)
     |  plugin <sub>           Manage installed .sscpkg plugins:
     |    install <path|name>    Install a .sscpkg from a local path, HTTPS URL, or registry name
     |    list                   List installed plugins

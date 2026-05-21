@@ -136,3 +136,21 @@ class PluginCliTest extends AnyFunSuite with Matchers with BeforeAndAfterEach:
     r.sourcePaths           should contain ("sources/api.ssc")
     r.runtimeStrings.keys   should contain ("jvm")
     r.runtimeStrings("jvm") should include ("_helper")
+
+  // ── ssc install shortcut ─────────────────────────────────────────────
+
+  test("pluginInstall logic installs .sscpkg to destination dir"):
+    // This test mirrors what `ssc install <path>` does:
+    // read bytes, parse manifest, write to plugins dir.
+    val pkg     = makePackage("org.example.installtest", "3.0.0")
+    val destDir = tmpHome / "compiler" / "plugins"
+    os.makeDir.all(destDir)
+    val bytes = os.read.bytes(pkg)
+    val m     = SscpkgLoader.load(pkg).manifest
+    val dest  = destDir / s"${m.id}-${m.version}.sscpkg"
+    os.write.over(dest, bytes)
+    // Verify the result is re-loadable and has the right id.
+    val r = SscpkgLoader.load(dest)
+    r.manifest.id      shouldBe "org.example.installtest"
+    r.manifest.version shouldBe "3.0.0"
+    os.exists(dest)    shouldBe true

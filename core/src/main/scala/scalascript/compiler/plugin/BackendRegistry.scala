@@ -36,6 +36,7 @@ object BackendRegistry:
     extraPreambles.clear()
     extraSourcePaths.clear()
     loadedPkgIds.clear()
+    pkgSourceDirCache.clear()
 
   // ── Extension points wired by CLI / tests ──────────────────────────
 
@@ -224,3 +225,64 @@ object BackendRegistry:
       case _                    => ()
     }
     pluginCache.clear()
+
+  // ── pkg: URI support ───────────────────────────────────────────────
+
+  /** Find an installed `.sscpkg` file matching `coord`.
+   *
+   *  `coord` is `org/name:version`, `name:version`, or plain `name`.
+   *  Candidate filenames tried (in order), searching all plugin dirs:
+   *    1. `<org>.<name>-<version>.sscpkg`
+   *    2. `<name>-<version>.sscpkg`
+   *    3. `scalascript-<name>-<version>.sscpkg`
+   *    4. Any file starting with `<qualifiedId>-` or `<name>-` (newest wins)
+   *    5. (no-version case) `<qualifiedId>.sscpkg` or `<name>.sscpkg`
+   *
+   *  Searches `PluginManifest.defaultSearchPaths` plus any extra dirs
+   *  registered via `addPluginDir`. */
+  def findInstalledPkg(coord: String): Option[os.Path] =
+    // Parse coord: optional "org/" prefix, required name, optional ":version"
+    val colonIdx = coord.lastIndexOf(':')
+    val (orgName, version) =
+      if colonIdx >= 0 then (coord.substring(0, colonIdx), Some(coord.substring(colonIdx + 1)))
+      else (coord, None)
+    val slashIdx = orgName.indexOf('/')
+    val (org, name) =
+      if slashIdx >= 0 then (orgName.substring(0, slashIdx), orgName.substring(slashIdx + 1))
+      else ("", orgName)
+    val qualifiedId = if org.nonEmpty then s"$org.$name" else name
+    val dirs = (PluginManifest.defaultSearchPaths ++ extraPluginDirs.toList).distinct
+    def scanDirs(pred: String => Boolean): Option[os.Path] =
+      dirs.flatMap { dir =>
+        if !os.isDir(dir) then Nil
+        else os.list(dir).filter(p => p.ext == "sscpkg" && pred(p.last))
+      }.headOption
+    version match
+      case Some(v) =>
+        scanDirs(f =>
+          f == s"$qualifiedId-$v.sscpkg" || f == s"$name-$v.sscpkg" ||
+          f == s"scalascript-$name-$v.sscpkg"
+        ).orElse(
+          scanDirs(f => f.startsWith(s"$qualifiedId-") || f.startsWith(s"$name-"))
+        )
+      case None =>
+        scanDirs(f => f == s"$qualifiedId.sscpkg" || f == s"$name.sscpkg")
+          .orElse(
+            scanDirs(f => f.startsWith(s"$qualifiedId-") || f.startsWith(s"$name-"))
+          )
+
+  /** Cache of already-extracted pkg source directories (pkgPath → extractedDir). */
+  private val pkgSourceDirCache =
+    scala.collection.mutable.Map.empty[os.Path, os.Path]
+
+  /** Load a `.sscpkg` (registering its intrinsics) and extract its sources
+   *  to a temp directory.  Returns the directory containing the unpacked
+   *  source .ssc files.  Idempotent: repeated calls return the same dir.
+   *
+   *  Callers should pick the entry-point `.ssc` from the returned directory:
+   *  prefer `index.ssc` if present, otherwise the lexicographically first `.ssc`. */
+  def loadAndExtract(pkg: os.Path): os.Path =
+    pkgSourceDirCache.getOrElseUpdate(pkg, {
+      loadSscpkg(pkg)
+      SscpkgLoader.extractSources(pkg)
+    })
