@@ -507,6 +507,49 @@ The JavaScript backend handles two block types differently:
 When a `.ssc` file contains both, the Scala.js-compiled section runs first, followed by
 the ScalaScript transpiled section.
 
+## Compiler Plugins with Intrinsics
+
+A **compiler plugin** lets you extend ScalaScript with new native capabilities —
+cryptographic primitives, ML inference, GPU kernels, hardware I/O — by mapping
+`extern def` declarations in a `.ssc` source to platform-specific implementations.
+
+```scala
+// crypto.ssc  (shipped inside the .sscpkg)
+extern def sha256(input: String): String
+extern def hmacSha256(key: String, data: String): String
+```
+
+Call it from any `.ssc` file just like a normal function:
+
+```scala
+import [Crypto](crypto)
+
+val digest = sha256("hello, world")
+println(hmacSha256("secret", digest))
+```
+
+Each `extern def` maps to an `IntrinsicImpl`:
+
+| Variant | When to use |
+|---------|------------|
+| `NativeImpl(fn)` | Interpreter — call the JVM lambda directly |
+| `RuntimeCall(sym)` | JVM / JS codegen — emit `sym(args…)` and ship `sym` as a runtime helper |
+| `InlineCode(emit)` | Emit arbitrary target code at each call site |
+| `HostCallback(name)` | Out-of-process backends — route through the host wire protocol |
+
+Plugins are packaged as `.sscpkg` (a ZIP containing `manifest.yaml`,
+`sources/*.ssc`, `runtime/jvm.scala` + `runtime/js.js`, and an `intrinsics/*.jar`
+that registers a `Backend` via `ServiceLoader`):
+
+```bash
+ssc plugin pack  _pkg/   -o org.example.crypto-1.0.0.sscpkg
+ssc plugin install      ./org.example.crypto-1.0.0.sscpkg   # permanent
+ssc --plugin ./org.example.crypto-1.0.0.sscpkg run use-crypto.ssc  # ad-hoc
+```
+
+See [`examples/plugins/crypto-plugin/`](examples/plugins/crypto-plugin/) for a
+complete worked example and `docs/user-guide.md §21` for the full API reference.
+
 ## CLI Commands
 
 ```bash

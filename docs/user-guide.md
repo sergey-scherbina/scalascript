@@ -2238,6 +2238,214 @@ Cardano flow with CIP-8 wallet + Scalus escrow validator).
 
 ---
 
+## 21. Compiler Plugins with Intrinsics
+
+ScalaScript's backend is open to extension: any capability not built into
+the language — cryptographic hashing, ML inference, GPU kernels, custom
+IO — can be packaged as a **plugin** and distributed as a single
+`.sscpkg` file.
+
+### 21.1 What an intrinsic is
+
+An **intrinsic** is an `extern def` in a `.ssc` source file whose body
+is supplied by a plugin rather than written in ScalaScript.  From the
+caller's perspective it looks like an ordinary function:
+
+```scala
+import [Crypto](crypto)
+
+val digest = sha256("hello, world")
+val token  = base64Encode(digest)
+```
+
+The `extern def` declaration lives in the plugin's bundled `.ssc` source
+(e.g. `sources/crypto.ssc`) and is imported like any other module:
+
+```scala
+// sources/crypto.ssc  (shipped inside the .sscpkg)
+extern def sha256(input: String): String
+extern def base64Encode(s: String): String
+extern def base64Decode(s: String): String
+extern def hmacSha256(key: String, data: String): String
+```
+
+The compiler knows the type signature; the actual implementation is
+provided by the plugin's `IntrinsicImpl` entries.
+
+### 21.2 The `IntrinsicImpl` variants
+
+Each `extern def` maps to one of four strategies in
+`scalascript.backend.spi.IntrinsicImpl`:
+
+| Variant | When to use |
+|---------|------------|
+| `NativeImpl(fn)` | Interpreter backend — `fn` is called directly with evaluated args; no code generation needed |
+| `RuntimeCall(sym)` | Code-generating backends (JVM, JS) — the call site becomes `sym(args…)`; the function is defined in `runtime/jvm.scala` or `runtime/js.js` bundled with the plugin |
+| `InlineCode(emit)` | Inline target-source at each call site when `RuntimeCall` is too coarse-grained |
+| `HostCallback(name)` | Out-of-process backends — routes the call back through the host wire protocol |
+
+**Typical pattern:** supply both `RuntimeCall` and `NativeImpl` for the same
+symbol, registered in separate `Backend` classes — one for JVM/JS code
+generation, one for the interpreter.
+
+```scala
+// For JVM/JS backends — emitted as a call to a runtime helper
+QualifiedName("std.crypto.sha256") -> RuntimeCall("_cryptoSha256")
+
+// For the interpreter — direct JVM call, no code emission
+QualifiedName("std.crypto.sha256") -> NativeImpl { (_, args) =>
+  val md = java.security.MessageDigest.getInstance("SHA-256")
+  md.digest(args.head.toString.getBytes("UTF-8")).map("%02x".format(_)).mkString
+}
+```
+
+### 21.3 Runtime helpers
+
+For `RuntimeCall`, the function `_cryptoSha256` must exist in the
+generated output.  The plugin ships platform-specific helpers that
+`BackendRegistry` prepends to every compiled file:
+
+```scala
+// runtime/jvm.scala  — injected before user code for JVM output
+private def _cryptoSha256(input: Any): String =
+  val md = java.security.MessageDigest.getInstance("SHA-256")
+  md.digest(input.toString.getBytes("UTF-8")).map("%02x".format(_)).mkString
+```
+
+```javascript
+// runtime/js.js  — injected for JS/Node output
+const _cryptoSha256 = (input) => {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(String(input), 'utf8').digest('hex');
+};
+```
+
+### 21.4 The `Backend` SPI
+
+A plugin exposes its intrinsic table by implementing `scalascript.backend.spi.Backend`:
+
+```scala
+class CryptoBackendPlugin extends Backend:
+  def id          = "crypto-intrinsics-jvm"
+  def displayName = "Crypto Intrinsics (JVM/JS)"
+  def spiVersion  = SpiVersion.Current
+
+  def capabilities    = Capabilities(features = Set.empty, outputs = Set.empty,
+                                     options  = Set.empty,
+                                     spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current))
+  def intrinsics      = CryptoIntrinsics.table   // Map[QualifiedName, IntrinsicImpl]
+  def acceptedSources = Set.empty
+
+  // Pure intrinsic-provider plugin — does not compile standalone programs.
+  def compile(ir, opts) =
+    CompileResult.Failed(List("use jvm or js backend"))
+```
+
+Register it with Java's `ServiceLoader` by creating:
+
+```
+META-INF/services/scalascript.backend.spi.Backend
+```
+
+containing the fully-qualified class name.
+
+### 21.5 The `.sscpkg` format
+
+A plugin is distributed as a ZIP file with a `.sscpkg` extension and the
+following layout:
+
+```
+manifest.yaml          # package metadata
+sources/               # .ssc files with extern def declarations
+  crypto.ssc
+runtime/               # target-platform helpers
+  jvm.scala
+  js.js
+intrinsics/            # JAR(s) with Backend SPI implementations
+  crypto-plugin-1.0.0.jar
+```
+
+**`manifest.yaml`** example:
+
+```yaml
+id:         org.example.crypto
+version:    1.0.0
+spiVersion: "0.1.0"
+kind:       [library, plugin]
+targets:    [jvm, interpreter]
+
+capabilities:
+  features:   []
+  declares:   [CryptoUtils]
+
+exports:
+  externDefs:
+    - std.crypto.sha256
+    - std.crypto.base64Encode
+    - std.crypto.base64Decode
+    - std.crypto.hmacSha256
+```
+
+Build the `.sscpkg` with:
+
+```bash
+# Compile the plugin JAR (scala-cli or sbt)
+scala-cli package . --assembly -o crypto-plugin-1.0.0.jar
+
+# Pack
+mkdir -p _pkg/intrinsics _pkg/sources _pkg/runtime
+cp manifest.yaml _pkg/
+cp -r sources/ _pkg/sources/
+cp -r runtime/ _pkg/runtime/
+cp crypto-plugin-1.0.0.jar _pkg/intrinsics/
+ssc plugin pack _pkg -o org.example.crypto-1.0.0.sscpkg
+```
+
+### 21.6 Installing and using plugins
+
+```bash
+# Install permanently in ~/.scalascript/plugins/
+ssc plugin install ./org.example.crypto-1.0.0.sscpkg
+
+# Ad-hoc for a single run
+ssc --plugin ./org.example.crypto-1.0.0.sscpkg run my-script.ssc
+
+# Inspect installed plugins
+ssc plugin list
+
+# Check compatibility without running
+ssc plugin check ./org.example.crypto-1.0.0.sscpkg
+
+# Uninstall
+ssc plugin uninstall org.example.crypto
+```
+
+The compiler discovers plugins via a registry file at
+`~/.scalascript/registry.yaml`.  Plugins are loaded lazily on first
+import — an unused plugin adds zero overhead.
+
+### 21.7 Built-in plugins
+
+All standard capabilities beyond the core language are shipped as
+`.sscpkg` plugins bundled with `ssc`:
+
+| Plugin | Intrinsics it provides |
+|--------|----------------------|
+| `std/json-plugin` | `jsonStringify`, `jsonParse`, `jsonRead`, `lookup`, `lookupOpt` |
+| `std/http-plugin` | `serve`, `route`, `httpGet`, `httpPost`, `Response.*` |
+| `std/sql-plugin` | `Db.query`, `Db.execute`, `Db.transaction` |
+| `std/ws-plugin` | `wsRoute`, `wsBroadcast`, `WsSession.*` |
+| `std/frontend-plugin` | `lower`, `serve` (UI), `emit` |
+| `std/fetch-plugin` | `fetchAction`, `fetchUrlSignal`, `incSignal` |
+| `std/auth-plugin` | `session`, `jwt`, `oauth2` |
+| `std/mcp-plugin` | `mcpServer`, `mcpTool` |
+
+Third-party plugins follow the same `.sscpkg` format.  See
+`examples/plugins/crypto-plugin/` for a complete worked example and
+`examples/plugins/hello-backend/` for a minimal skeleton.
+
+---
+
 ## Quick Reference
 
 ### CLI
@@ -2280,3 +2488,4 @@ ssc plugin install X      # install plugin
 - Metaprogramming: [docs/metaprogramming.md](metaprogramming.md)
 - Error handling: [docs/error-handling.md](error-handling.md)
 - Backend SPI: [docs/backend-spi.md](backend-spi.md)
+- Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
