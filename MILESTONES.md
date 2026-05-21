@@ -6313,8 +6313,8 @@ Sorted by priority.  Run one agent per track simultaneously.
 | Pri | Item | Track | Effort | Depends on |
 |-----|------|-------|--------|------------|
 | 1 | ~~Fix SupervisorTest + v1.22 distributed tests~~ ✓ landed (2026-05-21) | A | 2 days | — |
-| 2 | Incremental type-checking | B | 1 week | AST cache ✓ |
-| 3 | LSP server (`ssc lsp`) | C | 2 weeks | — |
+| 2 | ~~Incremental type-checking~~ ✓ landed (2026-05-19) | B | 1 week | AST cache ✓ |
+| 3 | ~~LSP server (`ssc lsp`)~~ ✓ landed Phase 1+2 (2026-05-20) | C | 2 weeks | — |
 | 4 | Interpreter split | D | 1 week | — (serial, risky) |
 | 5 | Library modularity | D | 3 days | Interpreter split |
 | 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
