@@ -1,7 +1,7 @@
 # ScalaScript — Optimization and Modularity Roadmap
 
 > Planning document. Items progress to MILESTONES.md when scheduled.
-> Last updated: 2026-05-19.
+> Last updated: 2026-05-21.
 
 ---
 
@@ -84,29 +84,23 @@ Options:
 Benchmark target: fib(28) and sum(1e6) should improve ≥ 20 % over
 the current already-optimized baseline (3-8× faster than original).
 
-### 2c. Interpreter.scala split — lazy capability loading
+### 2c. Interpreter.scala split — lazy capability loading ✓ Landed (v1.33, 2026-05-21)
 
-**Effort: ~1 week. Impact: startup time + maintainability.**
+**Phase 1** (file split): `Interpreter.scala` split from ~2900 → ~600 lines;
+actor/cluster scheduler extracted to `ActorInterp.scala` (self-type trait).
 
-`Interpreter.scala` is 7 567 lines and contains: core evaluation,
-HTTP/WS runtime, actor runtime, MCP runtime, Dataset runtime, signal
-runtime, coroutine runtime.  All of it loads on every `ssc run hello.ssc`.
+**Phase 2** (lazy plugin loading): `BackendRegistry.inProcess` (ServiceLoader
+scan for HTTP/SQL/OAuth/etc. plugins) deferred until first use via a
+`_pluginsLoaded` flag + `ensurePluginsLoaded()`.  Triggered from:
+- `EvalRuntime` `Term.Name` miss
+- `StatRuntime` `extern def` case (covers child interpreters for import files)
 
-Proposed split into separate files (all within `backend-interpreter`):
+`globalOrStub` companion proxies resolve at call time rather than storing dead
+stubs at construction time.  Cold-start: **0.35 s → 0.31 s** for `hello.ssc`.
 
-| File | Content |
-|------|---------|
-| `CoreInterpreter.scala` | `eval`, `dispatch`, `callValue`, intrinsics |
-| `HttpRuntime.scala` | `serve`, `route`, `onWebSocket`, `sse` |
-| `ActorRuntime.scala` | `spawn`, `receive`, cluster, Phi-accrual |
-| `McpRuntime.scala` | `mcpServer`, `mcpConnect` |
-| `DatasetRuntime.scala` | `Dataset[T]`, MapReduce |
-| `SignalRuntime.scala` | `Signal`, `computed`, `effect` |
-| `CoroutineRuntime.scala` | `coroutineCreate`, `coroutineResume`, generators |
-
-Each runtime installs itself via a registration hook — `CoreInterpreter`
-calls the hook only when the capability is first used.  Cold-start for
-pure scripts drops significantly.
+The deeper per-file split (separate `HttpRuntime.scala`, `ActorRuntime.scala`,
+etc. each self-registering) remains a future option if the residual ~40 ms
+becomes a target.
 
 ---
 

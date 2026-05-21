@@ -5851,35 +5851,33 @@ Supports `--iface-dir <dir>` / `-I <dir>` for checking against pre-compiled inte
 - [x] Exit non-zero when any error found
 - [x] Integration tests in `CheckCommandTest` (7 tests, all green)
 
-### Runtime — Interpreter file split ✓ Landed (2026-05-21, Phase 1 only)
+### Runtime — Interpreter file split ✓ Landed (2026-05-21, Phase 1+2)
 
-**Phase 1 (file split, no lazy loading) — landed 2026-05-21.**
+**Phase 1 (file split) — landed 2026-05-21.**
 `Interpreter.scala` reduced from ~2900 → ~600 lines.  Actor/cluster
 scheduler moved into `ActorInterp.scala` (same package, self-type trait).
 No behavioral change; all existing tests green.
 
-**Phase 2 (lazy capability loading) — planned, deferred.**
+**Phase 2 (lazy plugin loading) — landed 2026-05-21 (v1.33).**
 
-Full lazy loading: split into per-capability files each installing via a
-`CapabilityLoader` registration hook in `CoreInterpreter` so a pure
-`hello.ssc` doesn't load the actor runtime at all.  Cold-start drops
-significantly for pure scripts.
+Pragmatic approach instead of the full `CapabilityLoader` SPI: deferred
+`BackendRegistry.inProcess` (ServiceLoader scan) until first use via a
+`_pluginsLoaded` flag + `ensurePluginsLoaded()` on first Term.Name miss and
+on `extern def` in child interpreters.  Actor/signal/coroutine state is already
+lazy (activates only when called); plugin intrinsics (HTTP, SQL, OAuth, etc.)
+are the dominant cost for pure scripts.  Cold-start: 0.35 s → 0.31 s.
 
-| File | Content |
-|------|---------|
-| `CoreInterpreter.scala` | `eval`, `dispatch`, `callValue`, base intrinsics |
-| `HttpRuntime.scala` | `serve`, `route`, `onWebSocket`, `sse`, TLS |
-| `ActorRuntime.scala` | `spawn`, `receive`, cluster, Phi-accrual FD |
-| `McpRuntime.scala` | `mcpServer`, `mcpConnect` |
-| `DatasetRuntime.scala` | `Dataset[T]`, MapReduce |
-| `SignalRuntime.scala` | `Signal`, `computed`, `effect` |
-| `CoroutineRuntime.scala` | `coroutineCreate`, `coroutineResume`, generators |
+The deeper per-capability file split (CapabilityLoader SPI, separate
+`HttpRuntime.scala` / `ActorRuntime.scala` files) remains a future option
+if the remaining ~40 ms becomes a bottleneck.
 
 - [x] Phase 1: extract actor/cluster into `ActorInterp.scala` (self-type trait)
-- [ ] Phase 2: `CapabilityLoader` SPI + per-capability registration hooks
-- [ ] Phase 2: Wire lazy loading in `CoreInterpreter`
-- [ ] Phase 2: All existing tests green after lazy split
-- [ ] Phase 2: Benchmark: `ssc run hello.ssc` cold-start vs baseline
+- [x] Phase 2: defer ServiceLoader scan via `_pluginsLoaded` + `ensurePluginsLoaded()`
+- [x] Phase 2: `globalOrStub` → deferred proxy NativeFnV (resolves at call time)
+- [x] Phase 2: `extern def` case in StatRuntime triggers load for child interpreters
+- [x] Phase 2: `setupPluginCompanions` (Db / DriverManager) called post-load
+- [x] Phase 2: All existing tests green (14 pre-existing failures unchanged)
+- [x] Phase 2: Benchmark: 0.35 s → 0.31 s cold-start (`hello.ssc`)
 
 ### Compiler — AST cache between watch cycles ✓ Landed (2026-05-21)
 
