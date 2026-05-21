@@ -172,6 +172,16 @@ private[solid] object SolidEmitter:
                 statements += s"$v.setAttribute(${jsString(k)}, ${jsString(value.toString)});"
               else
                 statements += s"$v.$k = $value;"
+            case AttrValue.Reactive(signal) =>
+              // Reactive attrs must stay live — a snapshot via setAttribute
+              // would bake in the initial value and never update.
+              // Use createEffect so the property re-evaluates whenever
+              // the signal changes.  Hyphenated names go via setAttribute.
+              registerSignal(signal)
+              if k.contains('-') then
+                statements += s"createEffect(() => { $v.setAttribute(${jsString(k)}, String(${signal.jsName}())); });"
+              else
+                statements += s"createEffect(() => { $v.$k = ${signal.jsName}(); });"
             case _ =>
               attrValueJs(av) match
                 case Some(value) => statements += s"$v.setAttribute(${jsString(k)}, $value);"
@@ -322,17 +332,57 @@ private[solid] object SolidEmitter:
         }
         null
 
-      case _: View.FetchTable =>
-        val v = freshVar()
-        statements += s"const $v = document.createTextNode('[FetchTable: React only]');"
-        v
+      case View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick) =>
+        registerSignal(tick)
+        if !signals.contains(tableJsName) then signals.update(tableJsName, "[]")
+        val setRows  = setterName(tableJsName)
+        val setTick  = setterName(tick.jsName)
+        val urlJs    = jsString(fetchUrl)
+        val delUrlJs = jsString(deleteUrl)
+        val tickName = tick.jsName
+        val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
+        val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
+        val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:13px")
+        val tableStyle = jsString("border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px")
+        val theadStyle = jsString("background:#f9fafb")
+        val tableVar = freshVar()
+        val tbodyVar = freshVar()
+        val th1Var   = freshVar()
+        val th2Var   = freshVar()
+        val trHVar   = freshVar()
+        val theadVar = freshVar()
+        statements += s"const $tableVar = document.createElement('table'); $tableVar.setAttribute('style', $tableStyle);"
+        statements += s"const $theadVar = document.createElement('thead'); $theadVar.setAttribute('style', $theadStyle);"
+        statements += s"const $trHVar = document.createElement('tr');"
+        statements += s"const $th1Var = document.createElement('th'); $th1Var.setAttribute('style', $thStyle); $th1Var.textContent = 'Task'; $trHVar.appendChild($th1Var);"
+        statements += s"const $th2Var = document.createElement('th'); $th2Var.setAttribute('style', $thStyle); $th2Var.textContent = ''; $trHVar.appendChild($th2Var);"
+        statements += s"$theadVar.appendChild($trHVar); $tableVar.appendChild($theadVar);"
+        statements += s"const $tbodyVar = document.createElement('tbody'); $tableVar.appendChild($tbodyVar);"
+        statements += s"fetch($urlJs).then(r => r.json()).then(data => $setRows(data));"
+        statements += s"createEffect(() => { const t = $tickName(); if (t > 0) fetch($urlJs).then(r => r.json()).then(data => $setRows(data)); });"
+        statements += s"createEffect(() => {"
+        statements += s"  while ($tbodyVar.firstChild) $tbodyVar.removeChild($tbodyVar.firstChild);"
+        statements += s"  for (const row of $tableJsName()) {"
+        statements += s"    const tr = document.createElement('tr');"
+        statements += s"    const td1 = document.createElement('td'); td1.setAttribute('style', $tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);"
+        statements += s"    const td2 = document.createElement('td'); td2.setAttribute('style', $tdStyle);"
+        statements += s"    const btn = document.createElement('button'); btn.setAttribute('style', $btnStyle); btn.textContent = 'Delete';"
+        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)}).then(r => r.text()).then(_ => $setTick(t => t + 1)));"
+        statements += s"    td2.appendChild(btn); tr.appendChild(td2); $tbodyVar.appendChild(tr);"
+        statements += s"  }"
+        statements += s"});"
+        tableVar
 
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
-        case EventHandler.Simple(_) | EventHandler.WithEvent(_) | EventHandler.InputChange(_) =>
+        case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
           statements +=
             s"// $targetVar: '$eventName' handler is a JVM closure — A4 can't translate;" +
             " richer IR coming later."
+        case EventHandler.InputChange(signal) =>
+          registerSignal(signal)
+          val setter = setterName(signal.jsName)
+          statements += s"$targetVar.addEventListener('input', (e) => $setter(e.target.value));"
         case EventHandler.SetSignalLiteral(signal, value) =>
           registerSignal(signal)
           val setter = setterName(signal.jsName)
@@ -355,15 +405,17 @@ private[solid] object SolidEmitter:
           registerList(list)
           val setter = setterName(list.jsName)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
-        case EventHandler.FetchAction(method, url, body, tick, _) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
           registerSignal(body)
           registerSignal(tick)
           val setTick  = setterName(tick.jsName)
+          val setBody  = setterName(body.jsName)
           val urlJs    = jsString(url)
           val methodJs = jsString(method)
+          val clearJs  = if clearBody then s" $setBody('');" else ""
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
             s"fetch($urlJs, {method: $methodJs, body: ${body.jsName}()})" +
-            s".then(r => r.text()).then(_ => $setTick(t => t + 1)));"
+            s".then(r => r.text()).then(_ => { $setTick(t => t + 1);$clearJs }));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template.  Capture
           // __idx in an IIFE so each emitted listener remembers its
@@ -388,7 +440,7 @@ private[solid] object SolidEmitter:
       case AttrValue.Bool(_)        => None  // handled as property assignment before attrValueJs is called
       case AttrValue.Num(value)     => Some(formatNumber(value))
       case AttrValue.Dynamic(read)    => Some(jsString(String.valueOf(read())))
-      case AttrValue.Reactive(signal) => Some(jsString(String.valueOf(signal()))) // snapshot
+      case AttrValue.Reactive(_) => None  // handled as createEffect binding in View.Element
       case AttrValue.Absent           => None
       case AttrValue.RefBinding(_)    => None  // ref binding is wired imperatively in the Element case; no setAttribute
 
