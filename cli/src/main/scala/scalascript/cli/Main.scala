@@ -1803,6 +1803,15 @@ def watchCommand(args: List[String]): Unit =
   // re-checking: only sections whose content hash changed are re-typed.
   var prevTyperSnapshots: List[SectionSnapshot] = Nil
 
+  // ── Incremental interpreter state (non-server mode only) ─────────────
+  // Reusing the same Interpreter across cycles lets us skip re-running
+  // unchanged sections.  Checkpoints(i) = interpreter state before section i.
+  // Length = module.sections.length + 1 after each run.
+  // Server files are excluded: route-table mutations live outside `globals`,
+  // so checkpoint restore would leave stale routes in scalascript.server.Routes.
+  var theInterp: Interpreter = null
+  var interpCheckpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
+
   def timestamp(): String =
     val now = java.time.LocalTime.now()
     f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
@@ -1827,15 +1836,32 @@ def watchCommand(args: List[String]): Unit =
       if !diff.isEmpty && oldSnaps.nonEmpty then
         System.err.println(s"[${timestamp()}] changed: ${diff.show}")
       if headless then
-        // Hot-reload path: clear old routes, re-run in headless mode so
-        // `serve(port)` is a no-op.  Routes are freshly re-registered
-        // from the new evaluation; the HTTP server keeps its port bound.
+        // Server hot-reload: full re-run on a fresh interpreter so the route
+        // table is rebuilt cleanly (Routes.clear + new headless Interpreter).
         scalascript.server.Routes.clear()
         Interpreter(baseDir = Some(osPath / os.up), headless = true).run(module)
+      else if theInterp != null && interpCheckpoints.nonEmpty then
+        // Incremental path: find first changed section and re-run only from there.
+        val prevHashes = oldSnaps.map(_.sectionHash)
+        val currHashes = newSnaps.map(_.sectionHash)
+        val firstChanged = currHashes.zipWithIndex.collectFirst {
+          case (h, i) if prevHashes.lift(i).forall(_ != h) => i
+        }.getOrElse(module.sections.length)
+        val skipped = module.sections.length - (module.sections.length - firstChanged)
+        val t0 = System.nanoTime()
+        interpCheckpoints = theInterp.runSectionsIncremental(
+          module.sections, firstChanged, interpCheckpoints
+        )
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        if skipped > 0 then
+          System.err.println(
+            s"[${timestamp()}] incremental: skipped $skipped/${module.sections.length} sections (${ms}ms)"
+          )
       else
-        // First run: execute normally.  `serve(port)` starts the listener
-        // and blocks the calling thread.
-        Interpreter(baseDir = Some(osPath / os.up), headless = false).run(module)
+        // First run for non-server file: run everything and record checkpoints.
+        val interp = Interpreter(baseDir = Some(osPath / os.up), headless = false)
+        theInterp = interp
+        interpCheckpoints = interp.runWithCheckpoints(module)
     catch
       case e: Exception =>
         System.err.println(s"[${timestamp()}] Error: ${e.getMessage}")

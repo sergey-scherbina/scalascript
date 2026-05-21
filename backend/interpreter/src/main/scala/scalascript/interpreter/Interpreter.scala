@@ -48,6 +48,26 @@ private case class ParametricGiven(
   capturedEnv:        Map[String, Value]
 )
 
+/** Shallow snapshot of all section-populated mutable state in [[Interpreter]].
+ *  Used by `ssc watch` to restore the interpreter to its state just before a
+ *  changed section, enabling incremental re-eval of only the changed suffix.
+ *
+ *  Closures in `globals` look up names from `interp.globals` at call time
+ *  (see `EvalRuntime` name-lookup — line starting "Pure(env.getOrElse(name,
+ *  interp.globals.getOrElse(...)))" ), so restoring the map is safe without
+ *  deep-copying the values themselves. */
+private[scalascript] case class InterpCheckpoint(
+  globals:             Map[String, Value],
+  extensions:          Map[(String, String), Value.FunV],
+  parentTypes:         Map[String, String],
+  typeMethods:         Map[String, Map[String, Value.FunV]],
+  typeFieldOrder:      Map[String, List[String]],
+  givenFactories:      IndexedSeq[ParametricGiven],
+  givenCandidateCount: Map[String, Int],
+  mainCalled:          Boolean,
+  sqlBlockCounter:     Int
+)
+
 /** Tree-walking interpreter for ScalaScript documents.
  *
  *  Execution model:
@@ -328,6 +348,13 @@ class Interpreter(
   private[interpreter] var sqlBlockCounter: Int = 0
 
   def run(module: Module): Unit =
+    runInit(module)
+    module.sections.foreach(SectionRuntime.runSection(_, this))
+    autoCallMain()
+
+  /** Builtins + manifest/config setup without running sections.
+   *  Extracted so [[runWithCheckpoints]] can share it without duplicating code. */
+  private def runInit(module: Module): Unit =
     BuiltinsRuntime.initBuiltins(this)
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
@@ -420,12 +447,89 @@ class Interpreter(
       m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
     }
     registerFrontmatterRoutes(module)
-    module.sections.foreach(SectionRuntime.runSection(_, this))
+
+  private def autoCallMain(): Unit =
     if !mainCalled then
       globals.get("main").foreach {
         case f: Value.FunV if f.params.isEmpty => Computation.run(callFun(f, Nil)); mainCalled = true
         case _ => ()
       }
+
+  /** Snapshot the section-populated mutable state for incremental re-eval.
+   *  Called by [[runWithCheckpoints]] after each section. */
+  private[interpreter] def takeCheckpoint(): InterpCheckpoint =
+    InterpCheckpoint(
+      globals             = globals.toMap,
+      extensions          = extensions.toMap,
+      parentTypes         = parentTypes.toMap,
+      typeMethods         = typeMethods.toMap,
+      typeFieldOrder      = typeFieldOrder.toMap,
+      givenFactories      = givenFactories.toIndexedSeq,
+      givenCandidateCount = givenCandidateCount.toMap,
+      mainCalled          = mainCalled,
+      sqlBlockCounter     = sqlBlockCounter
+    )
+
+  /** Restore interpreter to an earlier checkpoint, undoing any state added
+   *  after that checkpoint was taken. */
+  private[interpreter] def restoreCheckpoint(cp: InterpCheckpoint): Unit =
+    globals.clear();             globals             ++= cp.globals
+    extensions.clear();          extensions          ++= cp.extensions
+    parentTypes.clear();         parentTypes         ++= cp.parentTypes
+    typeMethods.clear();         typeMethods         ++= cp.typeMethods
+    typeFieldOrder.clear();      typeFieldOrder      ++= cp.typeFieldOrder
+    givenFactories.clear();      givenFactories      ++= cp.givenFactories
+    givenCandidateCount.clear(); givenCandidateCount ++= cp.givenCandidateCount
+    mainCalled      = cp.mainCalled
+    sqlBlockCounter = cp.sqlBlockCounter
+
+  /** Run `module` and record a checkpoint after every top-level section.
+   *  Used by `ssc watch` on the first cycle so subsequent cycles can use
+   *  [[runSectionsIncremental]] to skip unchanged sections.
+   *
+   *  Returns a vector of length `module.sections.length + 1`:
+   *  - index 0 = post-init state (before any section runs)
+   *  - index i+1 = state after running section i */
+  def runWithCheckpoints(module: Module): Vector[InterpCheckpoint] =
+    runInit(module)
+    val cps = new mutable.ArrayBuffer[InterpCheckpoint](module.sections.length + 1)
+    cps += takeCheckpoint()
+    module.sections.foreach { s =>
+      SectionRuntime.runSection(s, this)
+      cps += takeCheckpoint()
+    }
+    autoCallMain()
+    cps.toVector
+
+  /** Re-evaluate from `firstChanged` onward, reusing state from `prevCheckpoints`
+   *  for unchanged sections.  Used by `ssc watch` on cycles 2+.
+   *
+   *  `prevCheckpoints` must be the vector returned by the previous
+   *  [[runWithCheckpoints]] or [[runSectionsIncremental]] call.
+   *
+   *  @param sections        module.sections (may have grown or shrunk)
+   *  @param firstChanged    first section index whose content hash changed
+   *  @param prevCheckpoints checkpoint vector from previous run
+   *  @return new checkpoint vector, length = sections.length + 1
+   */
+  def runSectionsIncremental(
+      sections:        List[Section],
+      firstChanged:    Int,
+      prevCheckpoints: Vector[InterpCheckpoint]
+  ): Vector[InterpCheckpoint] =
+    // Find the last valid restore point we have from the previous run.
+    // prevCheckpoints(k) = state before section k.
+    val restoreIdx = firstChanged.min(prevCheckpoints.length - 1).max(0)
+    restoreCheckpoint(prevCheckpoints(restoreIdx))
+    // Carry forward unchanged checkpoints (indices 0..restoreIdx inclusive).
+    val reused = prevCheckpoints.take(restoreIdx + 1)
+    // Re-run changed sections, collecting fresh checkpoints.
+    val newCps = sections.drop(restoreIdx).map { s =>
+      SectionRuntime.runSection(s, this)
+      takeCheckpoint()
+    }
+    autoCallMain()
+    reused ++ newCps
 
   /** Register each `routes:` entry from front-matter as if the user had
    *  written `route(method, path) { req => handler(req) }` inline.  We
