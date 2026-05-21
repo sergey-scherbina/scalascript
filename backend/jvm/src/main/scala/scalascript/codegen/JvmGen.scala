@@ -8600,6 +8600,7 @@ class JvmGen(
     s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
        |scalascript.frontend.FrontendFrameworks.setBackend("$frontendName")
+       |_ssc_frontend_name = "$frontendName"
        |def _ssc_ui_decodeAttrs(m: Map[String, Any]): Map[String, scalascript.frontend.AttrValue] =
        |  m.collect {
        |    case (k, v: String)  => k -> scalascript.frontend.AttrValue.Str(v)

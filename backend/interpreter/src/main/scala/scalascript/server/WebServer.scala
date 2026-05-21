@@ -109,7 +109,9 @@ object WebServer:
 
     val scheme = if useTls then "https" else "http"
     log.println(s"ScalaScript web · $scheme://localhost:${backend.localPort}/  (root: $root)")
-    log.println(s"  (backend=${backend.name})")
+    val _feName = scalascript.frontend.FrontendFrameworks.selectedName
+    val _feInfo = _feName.map(n => s", frontend=$n").getOrElse("")
+    log.println(s"  (backend=${backend.name}$_feInfo)")
     log.println("Ctrl+C to stop.")
     latch.await()
 

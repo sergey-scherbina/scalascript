@@ -513,7 +513,10 @@ class Interpreter(
       }),
     ))
     module.manifest.foreach { m =>
-      m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
+      // Only apply frontmatter frontend: when --frontend was NOT passed on the CLI.
+      // CLI selection takes precedence; frontmatter is the per-file default.
+      if scalascript.frontend.FrontendFrameworks.selectedName.isEmpty then
+        m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
     }
     registerFrontmatterRoutes(module)
 

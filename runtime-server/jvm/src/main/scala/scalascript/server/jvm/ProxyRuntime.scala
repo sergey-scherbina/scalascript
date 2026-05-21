@@ -24,6 +24,9 @@ import scalascript.logging.Logger
 
 private val _proxyLog = Logger("scalascript.server")
 
+// Set by uiHelperFunctions for frontend modules; empty for non-UI scripts.
+var _ssc_frontend_name: String = ""
+
 // ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
 //
 // Legacy entry point — pre-S1c the codegen `serve(port, tls)` opened
@@ -249,7 +252,8 @@ def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
       System.err.println(s"ssc: cannot bind port $port — address already in use.")
       System.err.println(s"ssc: stop the previous server or choose a different port.")
       System.exit(1)
-  println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name})")
+  val _feInfo = if _ssc_frontend_name.nonEmpty then s", frontend=$_ssc_frontend_name" else ""
+  println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}$_feInfo)")
   _stopLatch.await()
 
 // Non-blocking variant of `serve` — launches the HTTP/WS accept loop on
@@ -291,7 +295,8 @@ def serveAsync(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): U
   Thread.ofVirtual().name(s"ssc-serve-async-$port").start { () =>
     try
       backend.start(port, tlsOpt, handler)
-      println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}, async)")
+      val _feInfo2 = if _ssc_frontend_name.nonEmpty then s", frontend=$_ssc_frontend_name" else ""
+      println(s"Listening on $scheme://localhost:$port/  (backend=${backend.name}$_feInfo2, async)")
     catch
       case _: java.net.BindException =>
         System.err.println(s"ssc: cannot bind port $port — address already in use.")
