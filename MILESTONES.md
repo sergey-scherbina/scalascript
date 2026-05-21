@@ -9750,3 +9750,34 @@ ssc> val x = 1
   to `ReplDebugHooks`; `runReplSnippetDebug` / `replDebugSubLoop` + display
   helpers.
 - **`cli/src/test/scala/scalascript/cli/ReplDebugTest.scala`** (new) — 7 tests.
+
+---
+
+## v1.35 — `run-jvm` artifact caching ✓ Complete (2026-05-21)
+
+**Status:** complete
+
+`ssc run-jvm` now writes a `.scjvm` artifact to `.ssc-artifacts/` after
+each JvmGen compile and reads it back on the next invocation when the
+source SHA-256 matches, bypassing JvmGen codegen entirely.
+
+### Design
+
+- **Cache key**: SHA-256 of the `.ssc` source bytes (via
+  `InterfaceExtractor.sha256`).  Staleness is checked by
+  `ModuleGraph.isJvmStale(path, artDir)`.
+- **Artifact location**: `<file-dir>/.ssc-artifacts/<name>.scjvm` —
+  same directory and format used by `compile-jvm`.
+- **Code path**: `compileJvmAndCache` calls `JvmGen.generate(module,
+  baseDir)` directly (identical to `compile-jvm`), avoiding the
+  `Normalize → Denormalize` round-trip that previously dropped user code.
+- **Cache miss**: recompiles via JvmGen and atomically overwrites the
+  artifact; artifact write failure is non-fatal (warns to stderr).
+- **Cache hit**: reads `art.scalaSource` from the `.scjvm` JSON; skips
+  JvmGen entirely and proceeds to `scala-cli run`.
+
+### Implementation
+
+- **`cli/src/main/scala/scalascript/cli/Main.scala`** —
+  `compileJvmAndCache` (new helper) + `runJvmCommand` extended with
+  cache lookup via `ModuleGraph.isJvmStale` / `JvmArtifactIO.readJvmFile`.
