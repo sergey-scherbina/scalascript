@@ -6521,12 +6521,12 @@ glue blocks in front of the user code.
 
 **Follow-up (separate milestone, not blocking v1.25 close):**
 
-- [ ] Dedicated conformance fixtures for the `node` target —
-      requires the conformance harness to gain a notion of
-      backend-specific golden outputs (today it runs every fixture
-      against every bundled backend with a single expected file).
-      Filed for whoever next extends the conformance suite to
-      support backend-specific gates.
+- [x] Dedicated conformance fixtures for the `node` target —
+      `NodeConformanceCaptureTest` (in `backend/node/`) compiles
+      `conformance/node-*.ssc` through `NodeBackend` and runs each
+      bundle via `node`, comparing stdout against
+      `conformance/expected/node-*.txt`.  Landed 2026-05-21.
+      First fixture: `node-basic.ssc` (node.js glue + `extern def` FFI).
 
 ### Open questions
 

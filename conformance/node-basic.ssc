@@ -1,0 +1,23 @@
+---
+name: node-basic
+backends: [node]
+---
+
+# Node.js FFI — basic glue blocks
+
+Pins the v1.25 `node.js` fenced-block contract: glue code installed on
+`globalThis` is visible to ScalaScript `extern def` call sites.
+
+```node.js
+globalThis.add    = function(a, b) { return a + b; };
+globalThis.repeat = function(s, n) { return s.repeat(n); };
+```
+
+```scalascript
+extern def add(a: Int, b: Int): Int
+extern def repeat(s: String, n: Int): String
+
+println(add(3, 4))
+println(repeat("ab", 3))
+println("node glue ok")
+```
