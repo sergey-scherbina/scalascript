@@ -19,9 +19,10 @@ package scalascript.server.jvm
 // BUILD-ONLY:start
 import scalascript.server.*
 import scalascript.server.spi.*
+import scalascript.logging.Logger
 // BUILD-ONLY:end
 
-private val _proxyLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+private val _proxyLog = Logger("scalascript.server")
 
 // ── Proxy: blocking accept + sniff + forward / upgrade ───────────────
 //

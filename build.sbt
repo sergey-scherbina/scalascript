@@ -56,13 +56,33 @@ lazy val backendSpi = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Self-contained logger SPI — no external dependencies.
+// Logger.scala is also packaged as a JAR resource so JvmGen can inline
+// it verbatim into generated scala-cli scripts, making the same
+// scalascript.logging.Logger type available in those scripts without
+// an external dep or publishLocal.
+lazy val logger = project
+  .in(file("logger"))
+  .settings(
+    name := "scalascript-logger",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Compile / resourceGenerators += Def.task {
+      val srcFile = (Compile / scalaSource).value / "scalascript" / "logging" / "Logger.scala"
+      val outBase = (Compile / resourceManaged).value / "logger-sources" / "scalascript" / "logging"
+      IO.createDirectory(outBase)
+      val target = outBase / "Logger.scala"
+      IO.copyFile(srcFile, target)
+      Seq(target)
+    }.taskValue
+  )
+
 lazy val core = project
   .in(file("core"))
-  .dependsOn(backendSpi, dbUrl)
+  .dependsOn(backendSpi, dbUrl, logger)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
-      "org.slf4j"      %  "slf4j-api"  % "2.0.18",
       "org.yaml"       %  "snakeyaml"  % "2.6",
       "com.lihaoyi"    %% "os-lib"     % "0.11.4",
       "org.scalameta"  %% "scalameta"  % "4.17.0",
@@ -133,10 +153,10 @@ lazy val scalascriptInterpreterAgg = project
 // self-contained Scala classes / objects.
 lazy val runtimeServerCommon = project
   .in(file("runtime-server/common"))
+  .dependsOn(logger)
   .settings(
     name := "scalascript-runtime-server-common",
     libraryDependencies ++= Seq(
-      "org.slf4j" % "slf4j-api" % "2.0.18",
       scalatestTest
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1911,7 +1931,7 @@ lazy val mcpPlugin = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, core, interop,
+    backendSpi, ir, logger, core, interop,
     scalascriptCore, scalascriptInterpreterAgg,
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,

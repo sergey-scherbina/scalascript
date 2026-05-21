@@ -280,24 +280,6 @@ class JvmGen(
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
       sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
 
-    // SLF4J simple binding — silences the StaticLoggerBinder warning from
-    // transitive deps (commonmark etc.).  Configured to WARN+stderr by default;
-    // any -Dorg.slf4j.simpleLogger.* passed to scala-cli takes precedence.
-    sb.append("""//> using dep "org.slf4j:slf4j-simple:2.0.18"""" + "\n")
-    sb.append(
-      """|locally {
-         |  def _slf4jDefault(k: String, v: String): Unit =
-         |    if System.getProperty(k) == null then System.setProperty(k, v)
-         |  _slf4jDefault("org.slf4j.simpleLogger.defaultLogLevel",  "warn")
-         |  _slf4jDefault("org.slf4j.simpleLogger.showDateTime",     "false")
-         |  _slf4jDefault("org.slf4j.simpleLogger.showThreadName",   "false")
-         |  _slf4jDefault("org.slf4j.simpleLogger.showLogName",      "false")
-         |  _slf4jDefault("org.slf4j.simpleLogger.showShortLogName", "false")
-         |  _slf4jDefault("org.slf4j.simpleLogger.logFile",          "System.err")
-         |}
-         |""".stripMargin
-    )
-
     sb.append(preamble)
     sb.append(commonRuntime)
     sb.append(generatorRuntime)
@@ -5018,11 +5000,36 @@ class JvmGen(
   private def loadSpiRuntimeSource(name: String): String =
     loadRuntimeSource("runtime-server-spi-sources", "scalascript/server/spi", name)
 
+  /** Inline `scalascript.logging.Logger` from the `logger` module's JAR
+   *  resource.  Strips the `package scalascript.logging` declaration so the
+   *  class lands at the generated script's top level, where inlined
+   *  runtime-server sources can reference it by the unqualified name `Logger`
+   *  (their BUILD-ONLY import blocks provide the qualified name for the
+   *  module build). */
+  private lazy val loggerRuntime: String =
+    val path = "/logger-sources/scalascript/logging/Logger.scala"
+    val stream = getClass.getResourceAsStream(path)
+    if stream == null then
+      throw new RuntimeException(s"logger resource missing: $path " +
+        "— is `logger / copyResources` up to date?")
+    val raw = try
+      new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    finally stream.close()
+    val header =
+      "\n// ── scalascript-logger (inlined from classpath resources) ─────────────\n" +
+      "// Source of truth: logger/src/main/scala/scalascript/logging/Logger.scala\n"
+    header + raw.linesIterator
+      .dropWhile(l => l.trim.startsWith("package ") || l.trim.isEmpty)
+      .mkString("\n", "\n", "\n")
+
   /** Concatenate the pure-primitive sources from runtime-server-common in
    *  a deterministic order.  Emitted as a `commonRuntime` block at the
    *  top of the generated script (before `serveRuntime`) so the inlined
    *  objects (WsFraming, Password, Jwt, …) are in scope for adapter
-   *  shims inside `serveRuntime` and for user code. */
+   *  shims inside `serveRuntime` and for user code.
+   *
+   *  Logger is prepended first so runtime-server sources that reference
+   *  the unqualified `Logger` name find it in scope. */
   private lazy val commonRuntime: String =
     val files = List(
       "RestValidationError", "DerCodec", "WsFraming", "Metrics",
@@ -5037,7 +5044,7 @@ class JvmGen(
     val header =
       "\n// ── runtime-server-common (inlined from classpath resources) ──────────\n" +
       "// Source of truth: runtime-server-common/src/main/scala/scalascript/server/*.scala\n"
-    header + files.map(loadCommonSource).mkString("\n")
+    loggerRuntime + header + files.map(loadCommonSource).mkString("\n")
 
   /** Server-side runtime (routes, sessions, JWT, OAuth, WS, …).
    *

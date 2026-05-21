@@ -26,7 +26,10 @@ import java.security.MessageDigest
  *  tokens whose `exp` claim is in the past.  Other claim semantics
  *  (`nbf`, `iss`, `aud`) are left to the caller. */
 object Jwt:
-  private val _log = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+  // BUILD-ONLY:start
+  import scalascript.logging.Logger
+  // BUILD-ONLY:end
+  private val _log = Logger("scalascript.server")
   private val b64Enc = Base64.getUrlEncoder.withoutPadding
   private val b64Dec = Base64.getUrlDecoder
 

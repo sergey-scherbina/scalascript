@@ -18,13 +18,14 @@ package scalascript.server.jvm
 // loadJvmRuntimeSource at codegen-inline time; the real definitions
 // come from elsewhere in the generated script.
 import scalascript.server.*
+import scalascript.logging.Logger
 
 @scala.annotation.unused private def _show(v: Any): String = String.valueOf(v)
 // _Metrics is now a real val in WebSocketRuntime.scala (same package),
 // so no build-only stub is needed here.
 // BUILD-ONLY:end
 
-private val _restLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+private val _restLog = Logger("scalascript.server")
 
 // ── REST routing + serve(port) ─────────────────────────────────────────
 // `UploadedFile` is inlined from runtime-server-common via commonRuntime —

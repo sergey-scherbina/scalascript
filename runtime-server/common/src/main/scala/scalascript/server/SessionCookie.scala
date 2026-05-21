@@ -23,7 +23,10 @@ import java.security.MessageDigest
  *       restart in that mode — fine for dev, surfaced via stderr.
  */
 object SessionCookie:
-  private val _log = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+  // BUILD-ONLY:start
+  import scalascript.logging.Logger
+  // BUILD-ONLY:end
+  private val _log = Logger("scalascript.server")
   private val b64Enc = Base64.getUrlEncoder.withoutPadding
   private val b64Dec = Base64.getUrlDecoder
 

@@ -18,9 +18,10 @@ package scalascript.server.jvm
 import scalascript.server.*
 import scalascript.server.WsFraming
 import scalascript.server.spi.WsControls
+import scalascript.logging.Logger
 // BUILD-ONLY:end
 
-private val _svcLog = org.slf4j.LoggerFactory.getLogger("scalascript.server")
+private val _svcLog = Logger("scalascript.server")
 
 // ── WebSocket support (RFC 6455) ───────────────────────────────────────
 //
