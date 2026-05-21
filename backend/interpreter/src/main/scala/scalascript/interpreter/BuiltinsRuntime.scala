@@ -11,6 +11,13 @@ private[interpreter] object BuiltinsRuntime:
   def initBuiltins(interp: Interpreter): Unit =
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       interp.globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
+    // Safe lookup: returns the global if present, or a stub that throws a
+    // "plugin not loaded" error at call time.  Used for plugin-provided globals
+    // that may not be on the classpath (e.g. in minimal test environments).
+    def globalOrStub(name: String): Value =
+      interp.globals.getOrElse(name,
+        Value.NativeFnV(name, _ => throw InterpretError(s"'$name' requires a plugin that is not loaded"))
+      )
 
     // println / print / route / serve / stop now live in InterpreterIntrinsics
     // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
@@ -295,33 +302,33 @@ private[interpreter] object BuiltinsRuntime:
     // for .ssc apps (auth-code+PKCE, refresh, client_credentials,
     // TokenHolder).
     val oauthClient = Value.InstanceV("oauth.client", Map(
-      "discoverAs"                 -> interp.globals("oauth.client.discoverAs"),
-      "discoverRs"                 -> interp.globals("oauth.client.discoverRs"),
-      "freshPkce"                  -> interp.globals("oauth.client.freshPkce"),
-      "freshState"                 -> interp.globals("oauth.client.freshState"),
-      "verifyState"                -> interp.globals("oauth.client.verifyState"),
-      "authorizationUrl"           -> interp.globals("oauth.client.authorizationUrl"),
-      "exchangeAuthorizationCode"  -> interp.globals("oauth.client.exchangeAuthorizationCode"),
-      "refresh"                    -> interp.globals("oauth.client.refresh"),
-      "clientCredentials"          -> interp.globals("oauth.client.clientCredentials"),
-      "tokenHolder"                -> interp.globals("oauth.client.tokenHolder")
+      "discoverAs"                 -> globalOrStub("oauth.client.discoverAs"),
+      "discoverRs"                 -> globalOrStub("oauth.client.discoverRs"),
+      "freshPkce"                  -> globalOrStub("oauth.client.freshPkce"),
+      "freshState"                 -> globalOrStub("oauth.client.freshState"),
+      "verifyState"                -> globalOrStub("oauth.client.verifyState"),
+      "authorizationUrl"           -> globalOrStub("oauth.client.authorizationUrl"),
+      "exchangeAuthorizationCode"  -> globalOrStub("oauth.client.exchangeAuthorizationCode"),
+      "refresh"                    -> globalOrStub("oauth.client.refresh"),
+      "clientCredentials"          -> globalOrStub("oauth.client.clientCredentials"),
+      "tokenHolder"                -> globalOrStub("oauth.client.tokenHolder")
     ))
     interp.globals("oauth") = Value.InstanceV("oauth", Map(
-      "authServer"          -> interp.globals("oauth.authServer"),
-      "serveAuthServer"     -> interp.globals("oauth.serveAuthServer"),
-      "issueHmacToken"      -> interp.globals("oauth.issueHmacToken"),
-      "pkceVerifier"        -> interp.globals("oauth.pkceVerifier"),
-      "pkceChallenge"       -> interp.globals("oauth.pkceChallenge"),
-      "guard"               -> interp.globals("oauth.guard"),
-      "guardWithValidator"  -> interp.globals("oauth.guardWithValidator"),
-      "hmacValidator"       -> interp.globals("oauth.hmacValidator"),
+      "authServer"          -> globalOrStub("oauth.authServer"),
+      "serveAuthServer"     -> globalOrStub("oauth.serveAuthServer"),
+      "issueHmacToken"      -> globalOrStub("oauth.issueHmacToken"),
+      "pkceVerifier"        -> globalOrStub("oauth.pkceVerifier"),
+      "pkceChallenge"       -> globalOrStub("oauth.pkceChallenge"),
+      "guard"               -> globalOrStub("oauth.guard"),
+      "guardWithValidator"  -> globalOrStub("oauth.guardWithValidator"),
+      "hmacValidator"       -> globalOrStub("oauth.hmacValidator"),
       "client"              -> oauthClient
     ))
     // v1.17.x — oidc namespace: OpenID Connect Identity Provider on top
     // of the OAuth Authorization Server.
     interp.globals("oidc") = Value.InstanceV("oidc", Map(
-      "server" -> interp.globals("oidc.server"),
-      "serve"  -> interp.globals("oidc.serve")
+      "server" -> globalOrStub("oidc.server"),
+      "serve"  -> globalOrStub("oidc.serve")
     ))
 
     // escape / collectCss / collectJs / scope now live in CoreIntrinsics
@@ -484,13 +491,13 @@ private[interpreter] object BuiltinsRuntime:
           Pure(Value.InstanceV("Response", Map("status" -> status, "headers" -> headers, "body" -> body)))
         case _ => throw InterpretError("Response(status, headers, body) expects 3 arguments")
       }),
-      "html"               -> interp.globals("Response.html"),
-      "text"               -> interp.globals("Response.text"),
-      "json"               -> interp.globals("Response.json"),
-      "redirect"           -> interp.globals("Response.redirect"),
-      "notFound"           -> interp.globals("Response.notFound"),
-      "status"             -> interp.globals("Response.status"),
-      "basicAuthChallenge" -> interp.globals("Response.basicAuthChallenge")
+      "html"               -> globalOrStub("Response.html"),
+      "text"               -> globalOrStub("Response.text"),
+      "json"               -> globalOrStub("Response.json"),
+      "redirect"           -> globalOrStub("Response.redirect"),
+      "notFound"           -> globalOrStub("Response.notFound"),
+      "status"             -> globalOrStub("Response.status"),
+      "basicAuthChallenge" -> globalOrStub("Response.basicAuthChallenge")
     ))
 
     // csrfToken / csrfValid / base64Url* / webauthn* / rateLimit* / totp* /

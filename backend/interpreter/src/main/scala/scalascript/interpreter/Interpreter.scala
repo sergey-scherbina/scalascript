@@ -112,6 +112,25 @@ class Interpreter(
   // top-level expressions, every scalameta position is shifted down by one
   // line. `lineOffset` compensates so error messages report the user's line.
   private[interpreter] var lineOffset: Int = 0
+  // Phase 2 DAP: source file being debugged (set by DebugCommand before run()).
+  private[interpreter] var debugSourceFile: String = ""
+  // Phase 2 DAP: debug hooks; None means no-op (normal run).
+  private[interpreter] var debugHooks: Option[scalascript.interpreter.debug.DebugHooks] = None
+  // Phase 2 DAP: document-level line offset of the current code block.
+  // Set by SectionRuntime to cb.lineOffset (0-based line in the .ssc file
+  // where the first code line starts), so EvalRuntime can translate
+  // scalameta block-relative positions to document-level positions.
+  private[interpreter] var debugBlockDocLine: Int = 0
+
+  /** Set the source file path used for breakpoint matching.  Called by
+   *  DebugCommand (and tests) before [[run]]. */
+  def setDebugSourceFile(path: String): Unit = debugSourceFile = path
+
+  /** Attach debug hooks (e.g. a DAP session's breakpoint handler).  None
+   *  means no-op — normal (non-debug) execution.  Called before [[run]]. */
+  def setDebugHooks(hooks: Option[scalascript.interpreter.debug.DebugHooks]): Unit =
+    debugHooks = hooks
+
   // Phase 6: interpreter call stack for currentStackTrace().
   private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.

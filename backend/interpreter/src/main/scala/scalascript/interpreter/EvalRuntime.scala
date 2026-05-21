@@ -12,6 +12,18 @@ private[interpreter] object EvalRuntime:
 
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
+    // Phase 2 DAP: check breakpoints / step hooks.
+    // currentSpan holds block-relative 0-based line after lineOffset subtraction.
+    // debugBlockDocLine holds the 0-based document line where the code block starts.
+    // DAP uses 1-based document lines, so docLine = debugBlockDocLine + blockLine + 1.
+    interp.debugHooks.foreach { hooks =>
+      interp.currentSpan.foreach { case (blockLine, _) =>
+        val docLine = interp.debugBlockDocLine + blockLine + 1
+        if hooks.isBreakpoint(interp.debugSourceFile, docLine) then
+          val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine)
+          hooks.onStep(frame)
+      }
+    }
     term match
     // Literals — interned by Lit identity so a hot loop reuses the same
     // `Pure(Value)` instance instead of reallocating on every eval. The

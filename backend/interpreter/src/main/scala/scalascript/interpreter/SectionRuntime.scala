@@ -18,6 +18,8 @@ private[interpreter] object SectionRuntime:
             case _             => 0
           }
           case None => 0
+        // Phase 2 DAP: record document-level line where this code block starts.
+        interp.debugBlockDocLine = cb.lineOffset
         cb.tree.foreach(t => execBlock(t, interp))
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         runStringBlock(cb, section, interp)

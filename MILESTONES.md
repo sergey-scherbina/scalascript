@@ -9192,7 +9192,7 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 
 ## v1.29 — DAP Debugger (`ssc debug`)
 
-**Status:** open | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
+**Status:** Phase 1+2 landed | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
 
 IDE-friendly step-debugger for `.ssc` files using the Debug Adapter Protocol (DAP).
 `ssc debug file.ssc [--port 5678]` starts a DAP TCP server; VS Code / IntelliJ / Cursor
@@ -9200,7 +9200,7 @@ connect and drive the session with standard breakpoints, next/stepIn/stepOut, va
 and stack-trace requests. The interpreter evaluates on a normal thread; pausing is done
 by blocking that thread at the `DebugHooks.onStep` call site.
 
-### Phase 1 — TCP skeleton + initialize/launch/disconnect
+### Phase 1 — TCP skeleton + initialize/launch/disconnect ✓ Landed (9b8e0512)
 
 - New `backendDap` sbt project (`backend/dap/`), depends on `backendInterpreter`.
 - `DapServer`: TCP accept + Content-Length frame read/write (DAP/LSP framing).
@@ -9210,20 +9210,25 @@ by blocking that thread at the `DebugHooks.onStep` call site.
   wait for one connection, interpret the file with a no-op `DebugHooks`.
 - Tests: `DapFramingTest`, `DapSessionPhase1Test`.
 
-- [ ] `backendDap` sbt project + `DapServer.scala` + `DapProtocol.scala`
-- [ ] `DebugHooks` trait + `BreakpointRegistry` in `backend/interpreter/debug/`
-- [ ] `DebugCommand.scala` in CLI; `ssc debug <file> [--port N]`
-- [ ] `DapFramingTest` + `DapSessionPhase1Test`
+- [x] `backendDap` sbt project + `DapServer.scala` + `DapProtocol.scala`
+- [x] `DebugHooks` trait + `BreakpointRegistry` in `backend/interpreter/debug/`
+- [x] `DebugCommand.scala` in CLI; `ssc debug <file> [--port N]`
+- [x] `DapFramingTest` + `DapSessionPhase1Test`
 
-### Phase 2 — Breakpoints
+### Phase 2 — Breakpoints ✓ Landed
 
 - `BreakpointRegistry` integration with `EvalRuntime.eval` / `trackPos`.
 - Handle `setBreakpoints` request; send `stopped(reason: "breakpoint")` event.
-- Tests: `DapBreakpointTest`.
+- `DapSession.awaitReady()` latch: interpreter blocks until `configurationDone` so
+  all breakpoints are registered before user code executes.
+- `DebugCommand` restructured: interpreter thread + `session.run()` DAP loop on caller thread.
+- `BuiltinsRuntime.globalOrStub()`: safe plugin-global lookup — stub instead of crash
+  when a plugin (oauth, http, …) is not on the classpath.
+- Tests: `DapBreakpointTest` — full integration: setBreakpoints → stopped event → continue.
 
-- [ ] Wire `isBreakpoint` check into interpreter eval loop
-- [ ] Handle `setBreakpoints` + `stopped` event
-- [ ] `DapBreakpointTest`
+- [x] Wire `isBreakpoint` check into interpreter eval loop
+- [x] Handle `setBreakpoints` + `stopped` event
+- [x] `DapBreakpointTest`
 
 ### Phase 3 — Step execution
 
