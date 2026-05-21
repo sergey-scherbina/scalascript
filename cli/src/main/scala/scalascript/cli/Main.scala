@@ -1767,7 +1767,7 @@ def replCommand(@annotation.unused args: List[String]): Unit =
   val dbgHooks = ReplDebugHooks()
   interp.setDebugSourceFile("<repl>")
   interp.setDebugHooks(Some(dbgHooks.mkHooks()))
-  System.err.println("ScalaScript REPL  (:help for commands, blank line to run)")
+  System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
   var running = true
   while running do
     Option(StdIn.readLine("ssc> ")) match
