@@ -9187,3 +9187,135 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 (waits TxValid for txId from receipt), `settle()` (Close → HeadIsClosed → Fanout → HeadIsFinalized).
 `HydraHeadProvider` — opens channel against a connected Hydra node; `stub()` helper for tests.
 18 tests (pay/receive lifecycle, TxInvalid error, settle path, threshold policy, provider, message parsing).
+
+---
+
+## v1.28 — Config System
+
+**Status:** open | **Spec:** `docs/config-system.md` | **Branch:** `feature/config-system`
+
+First-class configuration support for `.ssc` files. Config blocks (YAML, JSON, HOCON),
+external config files, and the existing front-matter are unified into a single typed config
+tree. Substitution syntax (`${env:VAR}`, `${file:…}`, `${sops:…}`, `${vault:…}`,
+`${config:…}`) works uniformly across all formats. Typed binding is available via
+`derives Config` (explicit case class), auto-generated structural types (from named fenced
+blocks), or the dynamic path-based API. The config tree is exposed in ScalaScript as the
+built-in `config` global and as the `Config` module. Generated output covers JS baking,
+`process.env` passthrough, runtime `config.json`, and `window.__SSC_CONFIG` for browsers;
+and Scala embedded map, `application.conf`, or companion object for JVM targets. The entire
+front-matter continues to serve as the config root — all existing keys (`databases:`, `dep:`,
+`frontend:`) remain fully backward-compatible. Hot reload in `ssc watch` mode tracks external
+config files and re-evaluates affected outputs on change.
+
+### Phase 1 — Spec + milestone (this iteration)
+
+- Write `docs/config-system.md` — full spec covering all sources, substitution, binding modes,
+  JS/Scala output, priority override, and hot reload.
+- Add v1.28 milestone entry to `MILESTONES.md`.
+- Open `feature/config-system` branch.
+
+### Phase 2 — Core infrastructure: ConfigParser, MergeEngine, SubstitutionEngine
+
+- Implement `ConfigParser` supporting YAML (SnakeYAML), JSON, and HOCON (Lightbend Config)
+  formats; all produce a unified `ConfigNode` AST.
+- Implement `MergeEngine`: deep merge with configurable priority order; handle object/scalar
+  conflict modes (`error` / `warn` / `use-higher`).
+- Implement `SubstitutionEngine`: resolve `${env:…}`, `${env:… | default}`, `${file:…}`,
+  and `${config:…}` (post-merge cross-reference pass); plugin interface for `sops:` / `vault:`.
+- Unit tests for all three engines covering happy path and error cases.
+
+### Phase 3 — Front-matter integration: existing front-matter becomes config root
+
+- Extend `FrontMatterParser` to expose the full parsed YAML document as a `ConfigNode` root.
+- Map existing keys (`databases:`, `dep:`, `frontend:`, `config:`) to config paths; no
+  behaviour changes for consumers of those keys.
+- Parse `config.priority` and `config.files` from front-matter; validate token sets.
+- Regression suite: all existing `.ssc` files compile and behave identically.
+
+### Phase 4 — Fenced config blocks: parser, named/unnamed blocks, structural type synthesis
+
+- Extend the `.ssc` fenced-block parser to recognise `lang config` and `lang config "name"`
+  headers; extract block content as raw text.
+- Parse each block via `ConfigParser` using the declared format; scope named blocks under
+  their name key in the config tree.
+- Implement `StructuralTypeSynthesiser`: walk named block ASTs, infer scalar types, emit
+  structural type definitions into the typer symbol table.
+- Integration tests: fenced YAML, JSON, and HOCON blocks; named and unnamed; type inference.
+
+### Phase 5 — External config file loading: file resolver, optional files, HOCON include
+
+- Implement file resolver: resolve relative paths against the `.ssc` file location; apply
+  path substitutions from `${env:…}` in `path` values.
+- Support `optional: true` (skip silently) and `priority: fallback` per-file options.
+- Support HOCON `include "other.conf"` within HOCON external files (relative resolution).
+- Integration tests: missing required file → error; missing optional file → skipped; include
+  chain; `${env:ENV}.hocon` path substitution.
+
+### Phase 6 — Typed binding: ConfigDecoder typeclass, `derives Config`, dynamic API
+
+- Implement `ConfigDecoder[T]` typeclass with given instances for primitives, `Option[T]`,
+  `List[T]`, `Map[String, T]`.
+- Implement `derives Config` macro: generate a `ConfigDecoder` that decodes a case class from
+  a `ConfigNode` subtree; accumulate all errors (not fail-fast); support `@ConfigKey`.
+- Expose the dynamic API on the `Config` trait: `get[T]`, `getOpt[T]`, `getString`,
+  `getInt`, `getBool`, `has`, `keys`, `getRaw`.
+- Unit tests for derived decoders (missing fields, type mismatches, optional fields, nested).
+
+### Phase 7 — Auto-generated structural types from named blocks
+
+- Wire `StructuralTypeSynthesiser` output into the `Typer`: emit synthesised structural types
+  for each named fenced block visible in the file.
+- Generate path accessor methods (`config.server.port`) that delegate to the dynamic API with
+  compile-time-known paths and inferred return types.
+- Verify that unknown paths produce a compile error (no such member on structural type).
+- Integration tests: structural accessor chain, optional nested key, `List[T]` field.
+
+### Phase 8 — Priority override: front-matter `priority:` + code-level API
+
+- Parse `config.priority: [token, …]` from front-matter; validate all four tokens present;
+  reject duplicates and unknowns as compile errors.
+- Implement `Priority` sealed hierarchy and fluent builder (`EnvFirst.thenBlocks.thenFiles…`).
+- Implement `config.withPriority(p)` returning a new `Config` view that re-merges sources
+  with the given order; cache the result (re-merge is lazy).
+- Unit tests: all 24 permutations of four-token priority; compile-error on bad token.
+
+### Phase 9 — JavaScript binding: bake / process-env / runtime / window.__SSC_CONFIG
+
+- Parse `js-binding` and `js-binding-override` front-matter keys; validate strategy names.
+- Implement **bake**: emit config values as JS `const` literals in the generated bundle; warn
+  on unresolved `${env:…}` and emit `null` / placeholder.
+- Implement **process-env**: emit `process.env.VAR` for `${env:VAR}` references; bake
+  static values.
+- Implement **runtime**: write `config.json` alongside `.js`; emit `require`-based preamble.
+- Implement **window**: serialise config to `window.__SSC_CONFIG` `<script>` tag in HTML entry.
+- Integration tests for each strategy; mixed `js-binding-override` test.
+
+### Phase 10 — Scala binding: application.conf / companion object / embedded map
+
+- Implement **embedded map** (default): emit a `Map[String, Any]` initialised from config
+  literals; `${env:VAR}` becomes `sys.env.getOrElse(…)`.
+- Implement **application.conf**: serialise merged config tree to HOCON; write file; emit
+  `ConfigFactory.load()` call in generated Scala.
+- Implement **companion object**: emit a typed `object AppConfig` with `val` fields; nested
+  objects for subtrees; `sys.env` lookups for env substitutions.
+- Integration tests: embedded map round-trip; `application.conf` valid HOCON; companion
+  object compiles and holds correct values.
+
+### Phase 11 — Hot reload (watch mode integration)
+
+- Register external config file paths (from `config.files`) with the `WatchMode` file-watch
+  graph at compile time.
+- On config-file change event: re-run `ConfigParser` + `MergeEngine` + `SubstitutionEngine`;
+  diff the resulting `ConfigNode`; re-emit only affected JS/Scala outputs.
+- Re-run structural type synthesis if a named fenced block changed (always a full `.ssc`
+  re-parse event).
+- Integration test: modify an external YAML file during `ssc watch`; verify the output is
+  updated within one watch cycle.
+
+### Phase 12 — Documentation, examples, user-guide §22
+
+- Add §22 "Config System" to `docs/user-guide.md` covering all features with worked examples.
+- Add `examples/config-demo/` — a self-contained `.ssc` file demonstrating all three source
+  types, structural type accessors, `derives Config`, JS `process-env` binding, and hot reload.
+- Update `docs/targets.md` to note JS binding strategy options.
+- Final cross-review of `docs/config-system.md` against the implementation; fix any drifts.
