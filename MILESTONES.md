@@ -3275,7 +3275,9 @@ spec would have been ~1 week and is left as a future optional
 cleanup if measurements ever show the cooperative scheduler is a
 bottleneck.
 
-## v1.17 — MCP support (client + server)
+## v1.17 — MCP support (client + server) ✓ Complete (2026-05-19)
+
+**Status: complete.** All phases + v1.17.x iterations landed. 76+ tests across 14+ suites. Feature-complete on all 5 transport surfaces (Stdio / Spawn / Http / Ws / Browser-XHR + Browser-fetch) with full bidirectional capability, typed-schema tool registration, RAII resource scoping, live-updating resource subscriptions, OAuth/OIDC AS + RS + Client, x402 payment integration, and production hardening.
 
 Model Context Protocol — Anthropic's JSON-RPC 2.0-based
 protocol for connecting LLM applications to external tools,
@@ -6389,9 +6391,9 @@ view so they shape near-term decisions.
   for prerequisites, effort estimates, and why each is on hold
   until a concrete user surfaces.
 
-## v1.25 — JavaScript / Node.js fenced code blocks
+## v1.25 — JavaScript / Node.js fenced code blocks ✓ Complete (2026-05-20)
 
-**Status: Phases 1–5 landed. Branch `worktree-js-node-blocks`.**
+**Status: complete.** Phases 1–5 all landed. `javascript`/`js` string blocks, `node.js`/`node` opaque-exec blocks, `Capabilities.blockLanguages` SPI axis, `CapabilityCheck` validation, full Node backend with `extern def` FFI, examples, conformance fixtures. Plus § 9.5 Spark backend (Phases A–E, DataFrames, UDFs, Scala 3 native `Encoder` derivation).
 
 Symmetry fix and new target.  Pre-v1.25, `html` and `css` were
 first-class string blocks (§ 3.3 of `SPEC.md`) but `javascript` was
@@ -9220,9 +9222,9 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 
 ---
 
-## v1.29 — DAP Debugger (`ssc debug`)
+## v1.29 — DAP Debugger (`ssc debug`) ✓ Complete (2026-05-21)
 
-**Status:** Phases 1–5 landed ✓ | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
+**Status:** complete | **Spec:** `docs/dap-debugger.md`
 
 IDE-friendly step-debugger for `.ssc` files using the Debug Adapter Protocol (DAP).
 `ssc debug file.ssc [--port 5678]` starts a DAP TCP server; VS Code / IntelliJ / Cursor
