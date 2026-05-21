@@ -539,3 +539,33 @@ Stop only when:
 **Progress cadence**: one short message per shipped item, no wall-of-text
 summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
 enough. Detailed context goes in the commit message and MILESTONES.md.
+
+### 7. After a complete task — suggest `/compact` to the user
+
+Once **all** of the following are true:
+- Code committed and pushed to `origin/main`
+- Local `main` synced (`git branch -f main origin/main`)
+- `MILESTONES.md` updated
+- Worktree deleted (Rule 4)
+
+…and you are reporting "done" to the user — add this one line at the end
+of your status message if the session has been long (multi-phase feature,
+autonomous loop, or any task with significant context accumulated):
+
+> To free context for the next task, run `/compact` in the prompt.
+
+**When to suggest:**
+- After completing a multi-phase milestone or a long autonomous loop
+- After any session you estimate is more than ~50% of context capacity
+- Any time you feel the next task would benefit from a clean context
+
+**When NOT to suggest:**
+- Mid-task — in-flight details not yet in git may be lost in the summary
+- Before pushing — if the summary forgets what was built, the next session
+  may redo it (this is exactly the stale-main problem from AGENTS.md §2)
+- After a trivial single-file change — not worth the overhead
+
+**Why the agent cannot do it itself:** `/compact` is a user CLI command.
+The agent has no way to invoke it. Without a timely suggestion from you,
+context accumulates silently until the system is forced to auto-compact —
+which often loses more detail than a deliberate compaction would.
