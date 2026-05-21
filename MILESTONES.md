@@ -6367,6 +6367,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
 | 13 | ~~Scala interop (Tier 4 metadata + flag)~~ ✓ landed | H | 2 days | Tier 2 ✓ |
 | 14 | ~~Scala interop Tier 5 — JvmGen package-clause emit~~ ✓ landed | H | 2-3 days | — |
+| 15 | **REPL web-aware mode** (v1.30) — `:serve`/`:stop`/`:mount`/`:load`/`:reload`/`:routes`/`:http`/`:call`; Routes → LinkedHashMap; spec done | I | ~3 days | — |
 
 Track D is serial.  All other tracks can run in parallel.
 
@@ -9307,6 +9308,61 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - [x] Expose call stack to `DebugHooks` (via `callFrames` field on `DebugFrame`)
 - [x] `stackTrace` request handler
 - [x] `DapStackTraceTest` (3 tests)
+
+---
+
+## v1.30 — REPL web-aware mode
+
+**Status: spec** | **Spec:** `docs/repl-web.md`
+
+Interactive HTTP development inside `ssc repl`: mount handlers (inline,
+by function name, or from a `.ssc` handler file), start/stop a background
+HTTP server, inspect the live route table, fire real or in-process test
+requests — all without leaving the REPL.
+
+Key infrastructure change: `Routes` backing store becomes
+`LinkedHashMap[(method, path), Entry]` with a `source: Option[String]`
+field for file-tracking, eliminating duplicates and enabling clean hot-reload
+of individual files.
+
+### Phase 1 — Routes refactor
+
+- `Routes`: `ArrayBuffer` → `LinkedHashMap[(String,String), Entry]`; add `source` field.
+- All existing tests green.
+
+- [ ] `LinkedHashMap` backing store + `source: Option[String]` on `Entry`
+- [ ] `Routes.register` replaces in place; `Routes.removeBySource(path)` for reload
+- [ ] Existing tests green
+
+### Phase 2 — `:serve` / `:stop`
+
+- [ ] `:serve [port]` — starts `WebServer` in background virtual thread, non-blocking
+- [ ] `:stop` — closes server + `Routes.clear()`
+- [ ] Guard: `:serve` while already running warns and no-ops
+
+### Phase 3 — `:mount` (inline / function name / file)
+
+- [ ] `:mount METHOD /path { handler }` — inline ScalaScript expression
+- [ ] `:mount METHOD /path functionName` — function already in REPL globals
+- [ ] `:mount METHOD /path file.ssc` — runs file once, last expr = handler; auto-wraps bare `Response`
+
+### Phase 4 — `:load` / `:reload` / `:unmount`
+
+- [ ] `:load file.ssc` — removes file's previous routes, sets source, runs file
+- [ ] `:reload file.ssc` — re-runs `:load` or re-mounts depending on how file was registered
+- [ ] `:unmount METHOD /path` — removes one route
+
+### Phase 5 — `:routes` / `:http` / `:call`
+
+- [ ] `:routes` — tabular display with source column
+- [ ] `:http METHOD /path [body]` — real HTTP/1.1 request to localhost:port
+- [ ] `:call METHOD /path [body]` — in-process dispatch via `Routes.matchRequest`, no network
+
+### Phase 6 — `:help` + tests
+
+- [ ] `:help` lists all REPL commands
+- [ ] `ReplWebTest` integration suite (all commands, error paths)
+- [ ] Update `docs/user-guide.md` + `README.md` with new commands
 
 ---
 
