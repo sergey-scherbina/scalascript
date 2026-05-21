@@ -23,4 +23,5 @@ case class DebugFrame(
   name:       String,
   sourceFile: String,
   line:       Int,
+  callDepth:  Int = 0,
 )

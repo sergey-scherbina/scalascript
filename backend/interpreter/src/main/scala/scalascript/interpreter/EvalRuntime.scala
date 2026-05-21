@@ -12,16 +12,15 @@ private[interpreter] object EvalRuntime:
 
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
-    // Phase 2 DAP: check breakpoints / step hooks.
-    // currentSpan holds block-relative 0-based line after lineOffset subtraction.
-    // debugBlockDocLine holds the 0-based document line where the code block starts.
-    // DAP uses 1-based document lines, so docLine = debugBlockDocLine + blockLine + 1.
+    // DAP step/breakpoint hook: called for every term so DebugHooks can decide
+    // whether to suspend (breakpoint, stepIn, stepOver, stepOut).
+    // currentSpan: block-relative 0-based line; docLine = debugBlockDocLine + blockLine + 1.
+    // callStack.length is the current call depth (0 at top level).
     interp.debugHooks.foreach { hooks =>
       interp.currentSpan.foreach { case (blockLine, _) =>
         val docLine = interp.debugBlockDocLine + blockLine + 1
-        if hooks.isBreakpoint(interp.debugSourceFile, docLine) then
-          val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine)
-          hooks.onStep(frame)
+        val frame   = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStack.length)
+        hooks.onStep(frame)
       }
     }
     term match

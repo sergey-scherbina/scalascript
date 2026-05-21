@@ -9261,15 +9261,22 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - [x] Handle `setBreakpoints` + `stopped` event
 - [x] `DapBreakpointTest`
 
-### Phase 3 — Step execution
+### Phase 3 — Step execution ✓ Landed
 
-- Handle `next` / `stepIn` / `stepOut` / `continue`.
-- `StepMode` with call-depth tracking for `StepOver`.
-- Tests: `DapStepTest`.
+- `StepMode` private enum (Off / StepIn / StepOver(targetDepth) / StepOut(targetDepth)) in `DapSession`.
+- `stepSkipLine: AtomicInteger` — deduplicates sub-expression evals on the resumed-from line so the
+  interpreter doesn't immediately re-stop at the same line after `next`/`stepIn`/`stepOut`.
+- `callDepth: Int` added to `DebugFrame`; populated from `interp.callStack.length` in `EvalRuntime`.
+- `EvalRuntime.eval` now always calls `hooks.onStep(frame)` (removed the `isBreakpoint` guard);
+  breakpoint + step-mode logic unified in `SessionHooks.onStep`.
+- Handle `next` / `stepIn` / `stepOut` / `pause` requests; `continue` clears step mode and `stepSkipLine`.
+- `stopped(reason: "step")` event for step stops; `stopped(reason: "breakpoint")` for breakpoints.
+- 3 new tests in `DapStepTest`: `next` over sequential statements, `stepIn` into function body,
+  `stepOut` back to caller.
 
-- [ ] `StepMode` + `DapSession.stepMode`
-- [ ] Call-depth tracking; `stopped(reason: "step")`
-- [ ] `DapStepTest`
+- [x] `StepMode` + `DapSession.stepMode`
+- [x] Call-depth tracking via `interp.callStack.length`; `stopped(reason: "step")`
+- [x] `DapStepTest` (3 tests)
 
 ### Phase 4 — Variable inspection
 
