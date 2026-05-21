@@ -472,8 +472,10 @@ ScalaScript supports the following bundled backends, all loaded through the
 | Command | Backend id | How it works |
 |---------|------------|--------------|
 | `bin/ssc file.ssc`         | `int`         | Tree-walking interpreter — instant startup, no compilation |
-| `bin/jssc file.ssc`        | `js`          | `scalascript` blocks → custom JS transpiler; `scala` blocks → **Scala.js** via scala-cli |
-| `bin/sscc file.ssc`        | `jvm`         | Generates a `.sc` script and compiles via scala-cli |
+| `ssc run-jvm file.ssc`     | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
+| `ssc run-js  file.ssc`     | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
+| `bin/jssc file.ssc`        | `js`          | Alias for `ssc run-js` via `bin/` wrapper |
+| `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
 | `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
 | `bin/ssc-spark file.ssc`   | `spark`       | Apache Spark 4 — generates a Scala 3.7.1 `.sc` script with `//> using dep` directives, runs via `scala-cli`. Auto-detects `sql` blocks, `@SqlFn` UDFs, `readStream`/`writeStream`, `.format("delta")`, `@TempView`, MLlib imports. See [§13 of the User Guide](docs/user-guide.md#13-apache-spark). |
 | `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
@@ -508,7 +510,9 @@ the ScalaScript transpiled section.
 ## CLI Commands
 
 ```bash
-ssc run file.ssc              # interpret
+ssc run file.ssc              # interpret (tree-walking, instant startup)
+ssc run-jvm file.ssc          # compile via JvmGen + run with scala-cli (no artifacts)
+ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
 ssc watch file.ssc            # watch mode (re-run on change)
 ssc repl                      # interactive REPL
 ssc compile-jvm file.ssc      # compile to .scjvm artifact

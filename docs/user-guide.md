@@ -53,15 +53,17 @@ println(greet("World"))
 ```
 ````
 
-Run it three ways:
+Run it four ways:
 
 ```bash
-ssc hello.ssc           # interpreter — instant
-jssc hello.ssc          # transpile to JS, run via Node
-sscc hello.ssc          # compile to JVM bytecode, run via scala-cli
+ssc hello.ssc           # interpreter — instant, no compilation
+ssc run-jvm hello.ssc   # compile via JvmGen + run with scala-cli
+ssc run-js  hello.ssc   # compile via JsGen  + run with Node.js
+jssc hello.ssc          # alias for run-js via bin/ wrapper
+sscc hello.ssc          # alias for run-jvm via bin/ wrapper
 ```
 
-All three print `Hello, World!` with byte-identical output.
+All five produce `Hello, World!` with byte-identical output.
 
 ### Watch Mode
 
@@ -92,6 +94,51 @@ ssc repl
 > def f(x: Int) = x * 2
 > f(21)
 42
+```
+
+### `run-jvm` and `run-js` — compile and run in one step
+
+`ssc run` interprets the script with the tree-walking interpreter — no
+compilation, instant startup.  When you need true JVM or Node.js
+execution semantics (or want to benchmark performance) use `run-jvm` and
+`run-js`:
+
+```bash
+ssc run-jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
+ssc run-js  hello.ssc   # JsGen  → temp .js → node
+```
+
+Both commands:
+- compile the `.ssc` file through the respective backend codegen
+- write the output to a temporary file (deleted after the run)
+- execute it and forward stdout/stderr transparently
+- leave **no artifacts on disk** — use `ssc compile-jvm` / `ssc compile-js`
+  if you want reusable `.scjvm` / `.scjs` artifacts
+
+When to use each:
+
+| Command | Runtime | When to use |
+|---------|---------|-------------|
+| `ssc run` | Interpreter | Day-to-day scripting, fast iteration, REPL-style |
+| `ssc run-jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
+| `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
+
+**Requirements:** `ssc run-jvm` requires `scala-cli` on PATH; `ssc run-js`
+requires `node` on PATH.
+
+```bash
+# Example: same file, three runtimes
+ssc run     examples/recursion.ssc    # interpreter
+ssc run-jvm examples/recursion.ssc    # JVM bytecode
+ssc run-js  examples/recursion.ssc    # Node.js
+
+# HTTP server on JVM (real threads, JDBC available)
+ssc run-jvm myapp.ssc
+
+# Verify JS output matches interpreter output
+ssc run     examples/hello.ssc > out-int.txt
+ssc run-js  examples/hello.ssc > out-js.txt
+diff out-int.txt out-js.txt   # should be empty
 ```
 
 ---
