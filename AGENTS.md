@@ -344,6 +344,22 @@ in-flight edits depend on; skipping the rebase means you're building
 on stale assumptions and will hit merge conflicts later.  Cheap to do,
 expensive to skip.
 
+**Re-read `AGENTS.md` and `MILESTONES.md` after every rebase.**  Both
+files are living documents — workflow rules and the backlog change
+between sessions.  After `git rebase origin/main`, check whether
+either file was updated:
+
+```bash
+git diff HEAD~1..HEAD -- AGENTS.md MILESTONES.md
+```
+
+If `AGENTS.md` changed: re-read it fully before proceeding — new rules
+may affect how you should do the current task.  If `MILESTONES.md`
+changed: re-read the relevant milestone sections to pick up scope
+changes, completed phases from other agents, or new follow-ups that
+were appended.  Never assume your in-memory picture of the backlog or
+the rules is still current after a rebase.
+
 If your worktree was switched to `main` between turns (this happens —
 other agents do `git checkout main` in the shared repo), **don't start
 editing on main**.  Switch back to your feature branch first per Rule 1:
@@ -351,6 +367,7 @@ editing on main**.  Switch back to your feature branch first per Rule 1:
 ```bash
 git checkout feature/<name>           # back to your branch
 git fetch origin && git rebase origin/main
+# then re-read AGENTS.md + MILESTONES.md as above
 ```
 
 ### 3. Every finished piece → straight to `origin/main`
