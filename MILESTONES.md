@@ -5817,9 +5817,9 @@ Release workflow (GitHub Actions):
 Full planning document: [`docs/optimization-roadmap.md`](docs/optimization-roadmap.md).
 Items below are the actionable milestones extracted from that document.
 
-### Runtime — Project Loom (virtual threads)
+### Runtime — Project Loom (virtual threads) ✓ Complete (2026-05-21)
 
-**Status: landed. Effort: ~2 hours. Priority: 1.**
+**Status: complete. Effort: ~2 hours. Priority: 1.**
 
 Switch the HTTP/WS server executor to `Executors.newVirtualThreadPerTaskExecutor()`
 (Java 21 LTS, stable).  Removes the one-thread-per-connection bottleneck without
