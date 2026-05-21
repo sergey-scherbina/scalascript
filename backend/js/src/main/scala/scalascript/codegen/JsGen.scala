@@ -3557,7 +3557,7 @@ function _ssc_ui_textNode(s) { return { _type: '_TextNode', s }; }
 function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
 function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
 function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
-function _ssc_ui_setSignal(s, v) { if (s && s.set) s.set(v); }
+function _ssc_ui_setSignal(s, v) { return { _type: '_SetSignal', s, v }; }
 function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
 function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
