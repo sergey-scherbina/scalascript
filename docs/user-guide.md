@@ -99,7 +99,8 @@ ssc repl
 ### `run-jvm` and `run-js` — compile and run in one step
 
 `ssc run` interprets the script with the tree-walking interpreter — no
-compilation, instant startup.  When you need true JVM or Node.js
+compilation, instant startup (~0.31 s cold start for a script that uses no
+plugins; plugin intrinsics load lazily on first access).  When you need true JVM or Node.js
 execution semantics (or want to benchmark performance) use `run-jvm` and
 `run-js`:
 

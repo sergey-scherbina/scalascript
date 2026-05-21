@@ -396,6 +396,19 @@ For SSR (`Ssr.renderToHtml`) and the full widget catalog see
 
 ## Benchmarks
 
+### Cold start (interpreter)
+
+The interpreter uses lazy plugin loading (v1.33): the ServiceLoader scan for
+HTTP/SQL/OAuth/etc. plugins is deferred until the first plugin name is actually
+accessed.  Scripts that never call a plugin skip the scan entirely.
+
+| Script | Steady-state cold start |
+|--------|------------------------|
+| `hello.ssc` (no plugins) | ~0.31 s |
+| Script with HTTP/SQL/auth | ~0.35 s (scan runs on first access) |
+
+### Cross-backend micro-benchmarks
+
 Cross-backend micro-benchmarks (fib, tail-recursive sum, list ops) comparing
 ScalaScript's three backends against hand-written Scala 3 and JavaScript:
 
