@@ -952,12 +952,16 @@ See the [User Guide](user-guide.md) and [SPEC.md](../SPEC.md) for full API refer
 
 ---
 
-# Tutorial 3: Frontend Toolkit demo
+# Tutorial 3: Frontend Toolkit demo — Scala API
 
 Build a small but real SPA through the high-level Frontend Toolkit
-(`Tk` facade), compile it to React / Vue / Solid / Custom, and serve
-it via the bundled scalascript HTTP server.  No JS, no Python, no
-Node.  Everything end-to-end in ScalaScript / Scala 3.
+(`Tk` facade) accessed from the sbt API, compile it to React / Vue /
+Solid / Custom, and serve it via the bundled scalascript HTTP server.
+No JS, no Python, no Node.  Everything end-to-end in ScalaScript / Scala 3.
+
+> **Tip:** For a simpler scripting-first approach that doesn't require sbt,
+> see [Tutorial 4](tutorial.md#tutorial-4-full-stack-ssc--sqlite-todo-app-with-reactive-ui)
+> and [User Guide §17](user-guide.md#17-frontend-toolkit--stdui).
 
 The finished demo has:
 - A heading + paragraph

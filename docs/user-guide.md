@@ -1582,7 +1582,449 @@ under `examples/frontend/`.
 
 ---
 
-## 17. Frontend Toolkit (v1.18 B / B+ / B++ / C)
+## 17. Frontend Toolkit — `std/ui`
+
+The `std/ui` toolkit lets you build reactive browser SPAs directly from a
+`.ssc` script — no separate build step, no npm, no webpack.
+
+- **One file** — routes, backend logic, and frontend UI in the same `.ssc`
+- **React target** — emitted as React 18 hooks + JSX; `frontend: react` in front-matter
+- **Theme-aware** — all widgets read design tokens from a `Theme` value
+- **Fully reactive** — `Signal[T]` binds two-way to inputs, conditionals,
+  text nodes, and REST fetch loops
+- **Hot-reload** — `ssc serve myapp.ssc` hot-reloads on save
+
+---
+
+### 17.1 Architecture
+
+Three layers, each with a single responsibility:
+
+```
+Widget constructors          lower()              serve() / emit()
+(layout, input, display…)  ──────────►  View IR  ────────────────►  React SPA
+return TkNode                            (pure)                       or bundle
+```
+
+1. **`TkNode`** — sealed ADT of case classes; pure data, no DOM, no extern.
+   Widget constructors (`vstack`, `textField`, `badge`, …) build this tree.
+2. **`lower(tree: TkNode, theme: Theme): View`** — converts the tree to the
+   backend-agnostic `View` IR, threading in design tokens from the theme.
+3. **`serve(view: View, port: Int)`** — starts the HTTP server; the React emitter
+   compiles `View` to React hooks + JSX, served at `/`.
+   **`emit(view: View, outDir: String)`** — writes a self-contained `index.html`
+   + `app.js` bundle to `outDir` for static hosting.
+
+---
+
+### 17.2 Front-matter
+
+```yaml
+frontend: react
+```
+
+This key activates the React emitter.  It is required for any script that
+calls `serve(lower(...), port)` or `emit(lower(...), dir)`.
+
+---
+
+### 17.3 Import pattern
+
+Import selectively from each `std/ui` sub-module:
+
+```markdown
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
+[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
+[badge, spinner, signalPre, fetchTable](std/ui/display.ssc)
+[card, cardWithHeader, modal](std/ui/containers.ssc)
+[tableCol, tableRow, table, sortableTable](std/ui/data.ssc)
+[route, router, link, hashRouter](std/ui/routing.ssc)
+```
+
+Only import what you use — unused imports do not affect bundle size.
+
+---
+
+### 17.4 Signals
+
+Signals are the reactive primitive.  Each signal has a stable string `name`
+used as the JS variable name in the emitted code.
+
+```scalascript
+val count   = signal[Int]("count",   0)
+val name    = signal[String]("name", "")
+val open    = signal[Boolean]("open", false)
+val refresh = signal[Int]("refresh", 0)
+```
+
+The React emitter turns each `signal(name, default)` call into:
+```js
+const [count, setCount] = useState(0)
+```
+
+---
+
+### 17.5 Widget catalog
+
+#### Layout
+
+| Constructor | Description |
+|-------------|-------------|
+| `vstack(gap = 0)(children*)` | Vertical flex column; `gap` is pixel spacing between children |
+| `hstack(gap = 0)(children*)` | Horizontal flex row |
+| `divider()` | Horizontal rule styled with `theme.colors.muted` |
+| `spacer(grow = false)` | Fixed 8 px gap; `grow = true` fills remaining space (use inside `hstack` to right-align) |
+
+```scalascript
+hstack(gap = 12)(
+  heading(2, "My App"),
+  spacer(grow = true),
+  badge("v1.0", "success")
+)
+```
+
+#### Typography
+
+| Constructor | Description |
+|-------------|-------------|
+| `heading(level: Int, text: String)` | `h1`–`h6`; font size from theme |
+| `text(content: String)` | `<p>` paragraph |
+
+#### Input
+
+| Constructor | Description |
+|-------------|-------------|
+| `textField(value, label, disabled, required)` | Labeled text input; `value` must be `Signal[String]`; two-way bound |
+| `checkbox(checked, label, disabled)` | Checkbox; `checked` must be `Signal[Boolean]`; two-way bound |
+| `signalButton(signal, value, label, disabled)` | Button that sets `signal` to `value` on click |
+| `actionButton(handler, label, disabled)` | Button wired to an `EventHandler` (`fetchAction`, `incSignal`, …) |
+
+```scalascript
+val name    = signal[String]("name", "")
+val agreed  = signal[Boolean]("agreed", false)
+val submitted = signal[Boolean]("submitted", false)
+
+vstack(gap = 12)(
+  textField(value = name, label = "Your name"),
+  checkbox(checked = agreed, label = "I accept the terms"),
+  signalButton(submitted, true, "Submit", disabled = !agreed)
+)
+```
+
+#### Reactive helpers
+
+| Constructor | Description |
+|-------------|-------------|
+| `showWhen(signal, whenTrue, whenFalse)` | Conditional render; `signal` must be `Signal[Boolean]` |
+| `signalText_(signal)` | Inline reactive text node; re-renders when signal changes |
+| `fragment_(children*)` | Group children without a wrapper `<div>` |
+| `rawText(text: String)` | Literal text inline (no element, no binding) |
+
+```scalascript
+showWhen(submitted,
+  hstack(gap = 4)(rawText("Welcome, "), signalText_(name), rawText("!")),
+  text("Please fill out the form above.")
+)
+```
+
+#### Display
+
+| Constructor | Description |
+|-------------|-------------|
+| `badge(content, variant)` | Colored pill badge; variants: `"success"` `"warning"` `"danger"` `"notification"` `"default"` |
+| `spinner()` | CSS spinning loader |
+| `signalPre(signal)` | `<pre>` block showing a `Signal[String]`; preserves newlines |
+| `fetchTable(fetchUrl, deleteUrl, tick)` | Reactive table — GETs `fetchUrl` on mount and on `tick` change; renders rows with a Delete button per row that POSTs the row's `id` to `deleteUrl` |
+
+```scalascript
+val logs = signal[String]("logs", "")
+// ...
+signalPre(logs)
+
+badge("3 new",  "notification")
+badge("saved",  "success")
+badge("error",  "danger")
+```
+
+#### Containers
+
+| Constructor | Description |
+|-------------|-------------|
+| `card(body*)` | Bordered, rounded card |
+| `cardWithHeader(header)(body*)` | Card with a bold header bar |
+| `cardWithFooter(footer)(body*)` | Card with a footer bar |
+| `cardFull(header, footer)(body*)` | Card with both |
+| `modal(open, title)(body*)` | Full-screen overlay dialog; shown when `open` (`Signal[Boolean]`) is `true` |
+
+```scalascript
+val showModal = signal[Boolean]("showModal", false)
+
+cardWithHeader(heading(4, "Settings"))(
+  text("Manage your account"),
+  actionButton(setSignal(showModal, true), "Open settings")
+)
+
+modal(showModal, "Account Settings")(
+  text("Settings form goes here"),
+  actionButton(setSignal(showModal, false), "Close")
+)
+```
+
+#### Data
+
+| Constructor | Description |
+|-------------|-------------|
+| `tableCol(label, key)` | Column definition — `label` shown in header, `key` used for sort |
+| `tableRow(cells*)` | Row; each cell is a `TkNode` |
+| `table(cols, rows)` | Plain table |
+| `sortableTable(sortCol, cols, rows)` | Clicking a header sets `sortCol` (`Signal[String]`) to that column's key; caller sorts `rows` accordingly |
+
+```scalascript
+val cols = [tableCol("Name", "name"), tableCol("Score", "score")]
+val rows = users.map(u => tableRow(text(u.name), text(u.score.toString)))
+table(cols, rows)
+```
+
+---
+
+### 17.6 Fetch primitives
+
+These event handlers and signals bridge the browser UI to the server REST API.
+
+#### `fetchUrlSignal` — live data binding
+
+```scalascript
+// GETs /api/todos on mount; re-GETs whenever refresh changes.
+val todosJson = fetchUrlSignal("todos", "/api/todos", refresh)
+signalPre(todosJson)  // display raw JSON, or parse and render
+```
+
+#### `fetchAction` — POST / PUT / DELETE on click
+
+```scalascript
+val text = signal[String]("text", "")
+val refresh = signal[Int]("refresh", 0)
+
+// On click: POST /api/todos with body = text.value, then refresh += 1
+actionButton(fetchAction("POST", "/api/todos", text, refresh), "Add")
+```
+
+#### `fetchActionClear` — submit and clear input
+
+```scalascript
+// Same as fetchAction, but also resets text to "" after success.
+actionButton(fetchActionClear("POST", "/api/todos", text, refresh), "Add")
+```
+
+#### `incSignal` — manual refresh
+
+```scalascript
+// Bump refresh by 1 — any fetchUrlSignal watching it will re-fetch.
+actionButton(incSignal(refresh), "Reload")
+```
+
+#### `fetchTable` — reactive REST table
+
+```scalascript
+val refresh = signal[Int]("refresh", 0)
+
+// Fetches GET /api/todos → renders rows; each row has a Delete button
+// that POSTs {id} to /api/todos/delete, then bumps refresh.
+fetchTable("/api/todos", "/api/todos/delete", refresh)
+```
+
+`fetchTable` expects the server to return a JSON array:
+```json
+[{"id": 1, "text": "Buy milk"}, {"id": 2, "text": "Write tests"}]
+```
+
+---
+
+### 17.7 Client-side routing
+
+```scalascript
+val page = signal[String]("page", "/")
+
+val tree = vstack(gap = 0)(
+  hstack(gap = 16)(
+    link("/",       "Home",  page),
+    link("/about",  "About", page),
+    link("/todos",  "Todos", page)
+  ),
+  divider(),
+  router(page, [
+    route("/",       [heading(1, "Home"),  text("Welcome!")]),
+    route("/about",  [heading(1, "About"), text("Built with std/ui.")]),
+    route("/todos",  [heading(1, "Todos"), todosPanel])
+  ])
+)
+```
+
+`link` renders `<a href=path>` and sets `page` signal on click (no page
+reload — SPA navigation).  `router` shows exactly one route at a time via
+`eqSignal` guards compiled to React conditionals.
+
+#### Hash-based routing
+
+`hashRouter` uses `window.location.hash` as the current path — works with
+static hosting (no server-side routing needed):
+
+```scalascript
+hashRouter([
+  route("#/",      [heading(1, "Home")]),
+  route("#/about", [heading(1, "About")])
+])
+```
+
+---
+
+### 17.8 Themes
+
+```scalascript
+// Built-in themes
+serve(lower(tree, defaultTheme), 8080)   // light
+serve(lower(tree, darkTheme),    8080)   // dark
+
+// Custom theme
+val myTheme = Theme(
+  ColorPalette(
+    primary    = "#0f766e",   // teal
+    onPrimary  = "#ffffff",
+    secondary  = "#6d28d9",
+    surface    = "#f0fdfa",
+    onSurface  = "#134e4a",
+    background = "#ffffff",
+    muted      = "#94a3b8",
+    danger     = "#dc2626",
+    success    = "#16a34a",
+    warning    = "#d97706"
+  ),
+  SpacingScale(xs = 4, sm = 8, md = 16, lg = 24, xl = 32, xxl = 48),
+  TypographyScale(
+    body    = TypographyItem(16, "Inter, system-ui, sans-serif"),
+    heading = TypographyItem(24, "Inter, system-ui, sans-serif")
+  ),
+  RadiusScale(sm = 4, md = 8, lg = 16, full = 9999)
+)
+```
+
+All widget constructors are theme-unaware — themes are applied exclusively
+inside `lower`.  Switching themes is a single argument change.
+
+---
+
+### 17.9 Serve vs emit
+
+| | `serve(lower(tree, theme), port)` | `emit(lower(tree, theme), dir)` |
+|---|---|---|
+| **Use case** | Development / production server | Static hosting (S3, GitHub Pages, CDN) |
+| **Registers `route()` handlers** | Yes | No |
+| **Output** | HTTP on `port` | `dir/index.html` + `dir/app.js` |
+| **Hot reload** | `ssc serve myapp.ssc` | Re-run `ssc myapp.ssc` |
+
+```bash
+ssc serve myapp.ssc               # dev server with hot reload
+ssc myapp.ssc                     # emit bundle to ./dist/
+```
+
+---
+
+### 17.10 Full example
+
+A minimal but complete SPA: sign-up form + modal confirmation.
+
+````ssc
+#!/usr/bin/env ssc
+---
+name: signup
+version: 1.0.0
+frontend: react
+---
+
+# Sign-up demo
+
+[signal, serve](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
+[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
+[badge](std/ui/display.ssc)
+[cardWithHeader, modal](std/ui/containers.ssc)
+
+```scalascript
+val name      = signal[String]("name",      "")
+val email     = signal[String]("email",     "")
+val agreed    = signal[Boolean]("agreed",   false)
+val submitted = signal[Boolean]("submitted", false)
+val showInfo  = signal[Boolean]("showInfo",  false)
+
+val form = cardWithHeader(heading(3, "Create account"))(
+  vstack(gap = 12)(
+    textField(value = name,  label = "Display name"),
+    textField(value = email, label = "Email address"),
+    checkbox(checked = agreed, label = "I accept the terms of service"),
+    hstack(gap = 8)(
+      signalButton(submitted, true, "Sign up", disabled = !agreed),
+      actionButton(setSignal(showInfo, true), "?")
+    )
+  )
+)
+
+val confirmModal = modal(showInfo, "What happens next?")(
+  text("We will send a confirmation email to the address you entered."),
+  actionButton(setSignal(showInfo, false), "Got it")
+)
+
+val tree = vstack(gap = 24)(
+  heading(1, "Welcome"),
+  showWhen(submitted,
+    hstack(gap = 4)(
+      badge("Done", "success"),
+      rawText(" Signed up as "),
+      signalText_(name)
+    ),
+    form
+  ),
+  confirmModal
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```
+````
+
+---
+
+### 17.11 React emitter internals
+
+How the React emitter translates `View` IR to React code:
+
+| `View` / `EventHandler` | Emitted React code |
+|-------------------------|-------------------|
+| `signal("x", 0)` | `const [x, setX] = useState(0)` |
+| `inputChange(sig)` | `onChange={e => setSig(e.target.value)}` |
+| `toggleSignal(sig)` | `onChange={e => setSig(e.target.checked)}` |
+| `setSignal(sig, v)` | `onClick={() => setSig(v)}` |
+| `showSignal(cond, t, f)` | `{cond ? t : f}` |
+| `signalText(sig)` | `{sig}` inline JSX |
+| `eqSignal(sig, v)` | `sig === v` computed inline |
+| `fetchUrlSignal(name, url, tick)` | `useState("")` + `useEffect([tick], () => fetch(url).then(r=>r.text()).then(setName))` |
+| `fetchAction(m, url, body, tick)` | `() => fetch(url,{method:m,body:getBody()}).then(()=>setTick(t=>t+1))` |
+| `fetchActionClear(m, url, body, tick)` | Same + `setBody("")` on success |
+| `hashSignal()` | `useState(location.hash)` + `hashchange` listener |
+
+The emitter produces a single self-contained `app.js` with no external
+runtime dependencies beyond React 18 (loaded from CDN in `index.html`).
+
+---
+
+## 18. Frontend Toolkit — Scala API (v1.18 B / B+ / B++ / C)
 
 Higher-level declarative UI on top of the framework SPI.  Lives in
 the `frontend-toolkit` sbt module; user code reaches for the `Tk`
@@ -1696,7 +2138,7 @@ Cross-backend integration: [`docs/frontend-usage.md`](frontend-usage.md).
 
 ---
 
-## 18. Cluster management
+## 19. Cluster management
 
 Distributed actors + cluster primitives baked in across all server backends:
 
@@ -1717,7 +2159,7 @@ Specs: [`docs/cluster-management.md`](cluster-management.md),
 
 ---
 
-## 19. x402 micropayments
+## 20. x402 micropayments
 
 HTTP 402 → typed payment challenge / settlement. Same `.ssc` source describes
 both client and server; the protocol layer wires the payment family

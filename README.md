@@ -274,7 +274,10 @@ compiles them via Scala.js.
 | Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
 | Frontend Framework SPI | One `.ssc` source compiled to **React**, **Vue 3**, **Solid**, or a **custom** runtime via `frontend-{react,vue,solid,custom}` backends |
 | Reactive primitives | `Signal[T]`, `ShowSignal` (conditional render), `ToggleSignal`, `ForSignal[T]` (list render) — uniform semantics across all 4 frontend backends |
-| Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`, `select/radioGroup/textarea/datePicker/numberInput`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
+| `std/ui` script toolkit | Declarative widget DSL from a `.ssc` file — `vstack/hstack`, `textField`, `checkbox`, `signalButton`, `actionButton`, `badge`, `spinner`, `card`, `modal`, `table`, `router` + `hashRouter`, `fetchTable`, `fetchAction`; `lower(tree, theme)` + `serve(view, port)` pattern; `frontend: react` front-matter |
+| Fetch primitives | `fetchUrlSignal` — live GET binding; `fetchAction/fetchActionClear` — POST/PUT/DELETE on button click; `incSignal` — manual refresh |
+| Themes | `defaultTheme` (light) · `darkTheme` · custom `Theme(ColorPalette, SpacingScale, TypographyScale, RadiusScale)` |
+| Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade (sbt API) — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
 | WebAssembly target | `ssc emit-wasm file.ssc` — `scalascript` blocks lowered to Wasm; cross-backend `sql` fenced blocks supported |
 | i18n | `translations:` frontmatter, `t(key)`, `setLocale(code)` |
 | Env access | `getenv(key)` / `getenv(key, default)` |
