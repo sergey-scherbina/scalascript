@@ -65,6 +65,9 @@ class Typer(
       else
         import scalascript.artifact.InterfaceScope
         InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
+    // Pre-declare all top-level names from every section so cross-section
+    // forward references and mutual recursion work in ssc check.
+    predeclareModuleNames(module, baseScope)
     val sections = module.sections.map(s => typeCheckSection(s, baseScope))
     TypedModule(
       name     = module.manifest.flatMap(_.name).getOrElse("<anonymous>"),
@@ -167,6 +170,7 @@ class Typer(
     // Option / collection constructors
     s.define(Symbol("Some",    SType.Function(List(SType.Any), SType.option(SType.Any)), SymbolKind.Def))
     s.define(Symbol("None",    SType.option(SType.Nothing), SymbolKind.Val))
+    s.define(Symbol("Nil",     SType.list(SType.Nothing),   SymbolKind.Val))
     s.define(Symbol("List",    SType.Function(List(SType.Any), SType.list(SType.Any)), SymbolKind.Def))
     s.define(Symbol("Vector",  SType.Function(List(SType.Any), SType.Named("Vector", List(SType.Any))), SymbolKind.Def))
     s.define(Symbol("Set",     SType.Function(List(SType.Any), SType.Named("Set",    List(SType.Any))), SymbolKind.Def))
@@ -180,6 +184,9 @@ class Typer(
     s.define(Symbol("scala",   SType.Named("scala", Nil), SymbolKind.Object))
     s.define(Symbol("java",    SType.Named("java", Nil), SymbolKind.Object))
     s.define(Symbol("compiletime", SType.Named("compiletime", Nil), SymbolKind.Object))
+    s.define(Symbol("sys",     SType.Named("sys", Nil), SymbolKind.Object))
+    s.define(Symbol("Console", SType.Named("Console", Nil), SymbolKind.Object))
+    s.define(Symbol("args",    SType.Named("Array", List(SType.String)), SymbolKind.Val))
     // Doc / render / serve
     s.define(Symbol("doc",     SType.Function(List(SType.Any), SType.Any), SymbolKind.Def))
     s.define(Symbol("render",  SType.Function(List(SType.Any), SType.Unit), SymbolKind.Def))
@@ -226,6 +233,60 @@ class Typer(
     effectBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     extraBuiltins.foreach(n => s.define(Symbol(n, variadic, SymbolKind.Def)))
     s
+
+  // ─── Pre-declaration pass ──────────────────────────────────────────────────
+  // Collects every top-level name defined in the module (across all sections)
+  // into `scope` as SType.Any before the real type-check runs.  This lets the
+  // type-checker resolve cross-section forward references without false
+  // "undefined name" errors.  The full typeCheckBlock pass overwrites each
+  // entry with the correctly-inferred type.
+
+  private def predeclareModuleNames(module: Module, scope: Scope): Unit =
+    module.sections.foreach(predeclareSection(_, scope))
+
+  private def predeclareSection(section: Section, scope: Scope): Unit =
+    section.content.foreach {
+      case cb: Content.CodeBlock if cb.tree.isDefined =>
+        cb.tree.foreach { node =>
+          ScalaNode.fold(node) {
+            case Source(stats)     => stats.foreach(predeclareStat(_, scope))
+            case Term.Block(stats) => stats.foreach(predeclareStat(_, scope))
+            case _                 => ()
+          }
+        }
+      case imp: Content.Import =>
+        imp.bindings.foreach(b => scope.define(Symbol(b.name, SType.Any, SymbolKind.Val)))
+      case _ => ()
+    }
+    section.subsections.foreach(predeclareSection(_, scope))
+
+  private def predeclareStat(stat: scala.meta.Tree, scope: Scope): Unit = stat match
+    case Defn.Val(_, pats, _, _) =>
+      pats.foreach {
+        case Pat.Var(n) => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
+        case _          => ()
+      }
+    case d: Defn.Var =>
+      d.pats.foreach {
+        case Pat.Var(n) => scope.define(Symbol(n.value, SType.Any, SymbolKind.Var, mutable = true))
+        case _          => ()
+      }
+    case d: Defn.Def    => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Def))
+    case d: Defn.Class  => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Class))
+    case d: Defn.Object => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Object))
+    case d: Defn.Trait  => scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Trait))
+    case d: Defn.Enum   =>
+      scope.define(Symbol(d.name.value, SType.Any, SymbolKind.Enum))
+      d.templ.body.stats.foreach {
+        case ec: Defn.EnumCase => scope.define(Symbol(ec.name.value, SType.Any, SymbolKind.Val))
+        case _                 => ()
+      }
+    case d: Defn.Given  =>
+      val n = d.name.value
+      if n.nonEmpty then scope.define(Symbol(n, SType.Any, SymbolKind.Val))
+    case _ => ()
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   private def typeCheckSection(section: Section, parent: Scope): TypedSection =
     val scope = parent.child(section.heading.text)
@@ -287,7 +348,9 @@ class Typer(
         case Pat.Var(name) =>
           scope.define(Symbol(name.value, declType, SymbolKind.Val))
           out += DefSummary(name.value, SymbolKind.Val, declType, Nil)
-        case _ => ()
+        case other =>
+          // Tuple/extractor patterns: `val (l, r) = ...`, `val Some(x) = ...`
+          bindPatVars(other, scope)
       }
 
     // var name: T = rhs
@@ -318,6 +381,11 @@ class Typer(
       // simple arithmetic, blocks, if/else) — anything richer falls back to
       // SType.Any.
       val declaredRet = d.decltpe.map(typeAnnotToSType)
+      // Allow self-recursion: bind the function name in bodyScope before
+      // typing the body so `def fib(n) = fib(n-1)` resolves correctly.
+      bodyScope.define(Symbol(d.name.value,
+        SType.Function(paramSTypes, declaredRet.getOrElse(SType.Any)),
+        SymbolKind.Def))
       val bodyType    = inferType(d.body, bodyScope)
       val retType     = declaredRet.getOrElse(bodyType)
       val fnType      = SType.Function(paramSTypes, retType)
@@ -397,6 +465,13 @@ class Typer(
           typeAliases(typeName) = (typeParamNames, rhsSType)
           scope.defineType(typeName, TypeScheme(Nil, rhsSType))
           out += DefSummary(typeName, SymbolKind.Type, rhsSType, Nil)
+
+    // given declarations — `given listFunctor: Functor[List[Int]] with { ... }`
+    case d: Defn.Given =>
+      val n = d.name.value
+      if n.nonEmpty then
+        scope.define(Symbol(n, SType.Any, SymbolKind.Val))
+        out += DefSummary(n, SymbolKind.Val, SType.Any, Nil)
 
     // Top-level expressions
     case t: Term => val _ = inferType(t, scope)
@@ -565,12 +640,27 @@ class Typer(
     // scope, so references to pattern vars surface as `Any` and we
     // stay sound by not pretending we know more.
     case t: Term.Match =>
-      val armTypes = t.casesBlock.cases.map(c => inferType(c.body, scope))
+      val armTypes = t.casesBlock.cases.map { c =>
+        val caseScope = scope.child("<case>")
+        bindPatVars(c.pat, caseScope)
+        inferType(c.body, caseScope)
+      }
       armTypes.headOption match
         case None      => SType.Any
         case Some(t0)  => if armTypes.forall(_ == t0) then t0 else SType.Any
 
     case _                        => SType.Any
+
+  private def bindPatVars(pat: scala.meta.Tree, scope: Scope): Unit = pat match
+    case Pat.Var(n)          => scope.define(Symbol(n.value, SType.Any, SymbolKind.Val))
+    case p: Pat.Extract      => p.argClause.values.foreach(bindPatVars(_, scope))
+    case Pat.ExtractInfix.After_4_6_0(lhs, _, argClause) =>
+      bindPatVars(lhs, scope)
+      argClause.values.foreach(bindPatVars(_, scope))
+    case Pat.Tuple(args)     => args.foreach(bindPatVars(_, scope))
+    case p: Pat.Typed        => bindPatVars(p.lhs, scope)
+    case p: Pat.Bind         => bindPatVars(p.lhs, scope); bindPatVars(p.rhs, scope)
+    case _                   => ()
 
   /** Best-effort field-access inference for `qual.field`:
    *

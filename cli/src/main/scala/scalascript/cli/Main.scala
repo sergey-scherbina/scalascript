@@ -5513,7 +5513,12 @@ def checkCommand(args: List[String]): Unit =
   val pluginBuiltins: Set[String] =
     BackendRegistry.inProcess
       .flatMap(_.intrinsics.keys)
-      .map(_.value)
+      .flatMap { qn =>
+        val full = qn.value
+        // Include both the full qualified name and its root segment so
+        // `oauth.client.foo` also makes `oauth` visible as a namespace.
+        full :: full.split('.').headOption.toList
+      }
       .toSet
 
   var hasErrors = false
