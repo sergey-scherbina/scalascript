@@ -231,11 +231,20 @@ class Interpreter(
       ctx:     Map[String, Value]
   ): Unit =
     import scalascript.parser.Parser
-    val filePath = os.Path(absFile)
+    // Parse optional #functionName suffix
+    val (actualFile, fnNameOpt) = if absFile.contains("#") then
+      val i = absFile.lastIndexOf('#')
+      (absFile.substring(0, i), Some(absFile.substring(i + 1)))
+    else (absFile, None)
+    val filePath = os.Path(actualFile)
     val childDir = filePath / os.up
     val child    = Interpreter(this.out, Some(childDir), lockPath = this.lockPath)
     child.run(Parser.parse(os.read(filePath)))
-    val rawResult = child.lastExprResult
+    val rawResult = fnNameOpt match
+      case Some(fn) =>
+        child.globalsView.getOrElse(fn,
+          throw InterpretError(s"function '$fn' not found in $actualFile"))
+      case None => child.lastExprResult
     val baseHandler: Value = rawResult match
       case fn: Value.FunV if fn.params.length >= 1 => fn
       case other =>
@@ -249,7 +258,7 @@ class Interpreter(
     )
     scalascript.server.Routes.register(
       method.toUpperCase, path, handler, this,
-      source   = Some(absFile),
+      source   = Some(actualFile),
       mountCtx = ctx,
       style    = "mount")
 
@@ -802,6 +811,14 @@ class Interpreter(
         val child    = Interpreter(Interpreter.this.out, Some(childDir), lockPath = Interpreter.this.lockPath)
         child.run(Parser.parse(os.read(path)))
         child.lastExprResult
+      override def evalFileGetNamedResult(absPath: String, fnName: String): Any =
+        import scalascript.parser.Parser
+        val path     = os.Path(absPath)
+        val childDir = path / os.up
+        val child    = Interpreter(Interpreter.this.out, Some(childDir), lockPath = Interpreter.this.lockPath)
+        child.run(Parser.parse(os.read(path)))
+        child.globalsView.getOrElse(fnName,
+          throw InterpretError(s"function '$fnName' not found in $absPath"))
       override def registerMountedRoute(
           method:   String,
           path:     String,

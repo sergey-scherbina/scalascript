@@ -9483,6 +9483,17 @@ commands subsection (examples for :serve/:stop/:mount/:load/:reload/:unmount/
 :routes/:http/:call/:set).  `README.md` capabilities table updated with REPL
 web mode row.
 
+**Follow-up**: `mount("file.ssc#fnName")` syntax — mount specific function from
+multi-function file. ✓ Landed (2026-05-21)
+
+`NativeContext` extended with `evalFileGetNamedResult(absPath, fnName)`.
+`mountFileAsRoute` and `HttpIntrinsics.mountFile` both parse the `#fnName` suffix:
+split on last `#`, evaluate the file normally, then look up `fnName` in the child's
+`globalsView` instead of using `lastExprResult`. Mount-time `InterpretError` if the
+name is not found. Works with typed handlers (wrapIfTyped applied as usual).
+5 new tests in `MountHandlerTest`; docs updated in `mount-handlers.md`,
+`repl-web.md`, and `user-guide.md`.
+
 ---
 
 ## v1.28 — Config System ✓ Complete (2026-05-21)

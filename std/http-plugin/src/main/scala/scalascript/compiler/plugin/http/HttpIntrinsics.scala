@@ -476,8 +476,15 @@ object HttpIntrinsics:
     val baseDir = ctx.baseDirPath match
       case Some(d) => java.nio.file.Paths.get(d)
       case None    => java.nio.file.Paths.get(System.getProperty("user.dir"))
-    val absPath = baseDir.resolve(file).normalize().toAbsolutePath.toString
-    val rawResult = ctx.evalFileGetResult(absPath).asInstanceOf[Value]
+    // Parse optional #functionName suffix
+    val (actualFile, fnNameOpt) = if file.contains("#") then
+      val i = file.lastIndexOf('#')
+      (file.substring(0, i), Some(file.substring(i + 1)))
+    else (file, None)
+    val absPath = baseDir.resolve(actualFile).normalize().toAbsolutePath.toString
+    val rawResult = fnNameOpt match
+      case Some(fn) => ctx.evalFileGetNamedResult(absPath, fn).asInstanceOf[Value]
+      case None     => ctx.evalFileGetResult(absPath).asInstanceOf[Value]
     // Shape detection: wrap bare values into a constant handler
     val baseHandler: Value = rawResult match
       case fn @ Value.FunV(params, _, _, _, _, _, _, _) if params.length >= 1 =>

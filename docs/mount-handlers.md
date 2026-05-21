@@ -35,6 +35,10 @@ mount("GET", "/ping", "handlers/ping.ssc")
 mount("GET",    "/users/:id",    "handlers/entity.ssc", Map("coll" -> "users"))
 mount("GET",    "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
 
+// Named function from a multi-function file (file#fnName syntax)
+mount("GET", "/greet/:name",   "handlers.ssc#greet")
+mount("GET", "/farewell/:name", "handlers.ssc#farewell")
+
 serve(8080)
 ```
 
@@ -51,14 +55,39 @@ serve(8080)
   If the handler doesn't declare one, `ctx` is silently ignored.
 - `errorDetails` controls deserialization error verbosity (see §Error mode).
 
+**Mounting a specific function from a multi-function file (`file#fnName`):**
+
+If the `file` path contains `#`, the part after it is the name of a function
+to look up in the file's globals after evaluation. The file is still evaluated
+once in full (all definitions run); only the named function is used as the handler.
+
+```scala
+// handlers.ssc — multiple handlers in one file
+case class GreetInput(name: String)
+case class GreetOutput(greeting: String)
+
+def greet(input: GreetInput)    = GreetOutput(s"Hello, ${input.name}!")
+def farewell(input: GreetInput) = GreetOutput(s"Goodbye, ${input.name}!")
+```
+
+```scala
+// server.ssc
+mount("GET", "/greet/:name",    "handlers.ssc#greet")
+mount("GET", "/farewell/:name", "handlers.ssc#farewell")
+serve(8080)
+```
+
+If the named function is not found after evaluation: mount-time error.
+
 **REPL equivalence:**
 
 ```
 ssc> :mount GET /ping handlers/ping.ssc
+ssc> :mount GET /greet/:name handlers.ssc#greet
 ```
 
-is identical to calling `mount("GET", "/ping", "handlers/ping.ssc")` in a
-running script.
+is identical to calling `mount("GET", "/ping", "handlers/ping.ssc")` (or
+`mount("GET", "/greet/:name", "handlers.ssc#greet")`) in a running script.
 
 ---
 

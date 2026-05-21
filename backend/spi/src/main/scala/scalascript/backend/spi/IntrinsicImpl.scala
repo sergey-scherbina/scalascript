@@ -109,6 +109,14 @@ trait NativeContext:
     throw new UnsupportedOperationException(
       s"evalFileGetResult not available in this context"
     )
+  // Evaluate a `.ssc` file at `absPath` and return the Value of the named
+  // global `fnName` from the child interpreter's globals after the run.
+  // Throws InterpretError if `fnName` is not found.
+  // Default throws; the interpreter overrides in installNativeIntrinsics.
+  def evalFileGetNamedResult(absPath: String, fnName: String): Any =
+    throw new UnsupportedOperationException(
+      s"evalFileGetNamedResult not available in this context"
+    )
   // Register a route with full mount metadata (source + ctx).
   // Default delegates to `registerRoute` (no source/ctx) for backwards compat.
   def registerMountedRoute(

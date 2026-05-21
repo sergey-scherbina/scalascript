@@ -245,3 +245,72 @@ class MountHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
     Routes.removeBySource(absPath)
     Routes.all.length shouldBe 0
     Routes.matchRequest("GET", "/bye") shouldBe None
+
+  // ── file#fnName syntax ────────────────────────────────────────────────────
+
+  // Multi-handler file used by file#fnName tests via mount() (full HTTP plugins available).
+  private val multiHandlerSsc =
+    """|def greet(req: Request)    = Response.text(s"Hello, ${req.params("name")}!")
+       |def farewell(req: Request) = Response.text(s"Goodbye, ${req.params("name")}!")
+       |""".stripMargin
+
+  // Multi-handler file used by mountFileAsRoute tests (plain string result — no HTTP plugin needed).
+  private val multiHandlerSimpleSsc =
+    """|def greet(req: Request)    = s"Hello, ${req.params("name")}!"
+       |def farewell(req: Request) = s"Goodbye, ${req.params("name")}!"
+       |""".stripMargin
+
+  test("mount() file#fnName — mounts named function, not last expr"):
+    handlerFile("multi.ssc", multiHandlerSsc)
+    runWithBaseDir("""mount("GET", "/greet/:name", "multi.ssc#greet")""")
+    val resp = invoke("GET", "/greet/alice")
+    resp match
+      case Value.InstanceV("Response", fields) =>
+        fields("body") shouldBe Value.StringV("Hello, alice!")
+      case other => fail(s"Expected Response, got $other")
+
+  test("mount() file#fnName — different functions from same file"):
+    handlerFile("multi.ssc", multiHandlerSsc)
+    runWithBaseDir(
+      """mount("GET", "/greet/:name",   "multi.ssc#greet")
+        |mount("GET", "/farewell/:name", "multi.ssc#farewell")
+        |""".stripMargin)
+    Routes.all.length shouldBe 2
+
+    val greetResp = invoke("GET", "/greet/bob")
+    greetResp match
+      case Value.InstanceV("Response", fields) =>
+        fields("body") shouldBe Value.StringV("Hello, bob!")
+      case other => fail(s"Unexpected: $other")
+
+    val farewellResp = invoke("GET", "/farewell/bob")
+    farewellResp match
+      case Value.InstanceV("Response", fields) =>
+        fields("body") shouldBe Value.StringV("Goodbye, bob!")
+      case other => fail(s"Unexpected: $other")
+
+  test("mount() file#nonexistent — error at mount time"):
+    handlerFile("multi.ssc", multiHandlerSsc)
+    val ex = intercept[scalascript.interpreter.InterpretError]:
+      runWithBaseDir("""mount("GET", "/greet/:name", "multi.ssc#nonexistent")""")
+    ex.getMessage should include("nonexistent")
+
+  test("mountFileAsRoute file#fnName — mounts named function"):
+    handlerFile("simple.ssc", multiHandlerSimpleSsc)
+    val buf    = java.io.ByteArrayOutputStream()
+    val ps     = java.io.PrintStream(buf, true)
+    val interp = Interpreter(ps, Some(os.Path(tmpDir.toAbsolutePath.toString)))
+    val absSpec = tmpDir.resolve("simple.ssc").toAbsolutePath.toString + "#greet"
+    interp.mountFileAsRoute("GET", "/greet/:name", absSpec, Map.empty)
+    val resp = invoke("GET", "/greet/carol")
+    resp shouldBe Value.StringV("Hello, carol!")
+
+  test("mountFileAsRoute file#nonexistent — error"):
+    handlerFile("simple.ssc", multiHandlerSimpleSsc)
+    val buf    = java.io.ByteArrayOutputStream()
+    val ps     = java.io.PrintStream(buf, true)
+    val interp = Interpreter(ps, Some(os.Path(tmpDir.toAbsolutePath.toString)))
+    val absSpec = tmpDir.resolve("simple.ssc").toAbsolutePath.toString + "#nonexistent"
+    val ex = intercept[scalascript.interpreter.InterpretError]:
+      interp.mountFileAsRoute("GET", "/greet/:name", absSpec, Map.empty)
+    ex.getMessage should include("nonexistent")

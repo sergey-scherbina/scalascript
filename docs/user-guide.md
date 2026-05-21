@@ -136,6 +136,10 @@ Mounted: GET /hi/:name  (greet)
 ssc> :mount GET /items/:id handlers/entity.ssc coll=items
 Mounted: GET /items/:id  (handlers/entity.ssc, ctx: {coll=items})
 
+# Named function from a multi-function file
+ssc> :mount GET /greet/:name handlers.ssc#greet
+Mounted: GET /greet/:name  (handlers.ssc#greet)
+
 # Load a .ssc file that contains route() calls
 ssc> :load api/users.ssc
 Loaded api/users.ssc:

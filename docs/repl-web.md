@@ -273,6 +273,20 @@ Mounted: GET /products/:id  (handlers/entity.ssc, ctx: {coll=products})
 
 Same file can be mounted on multiple paths with different contexts.
 
+To mount a specific named function from a file instead of its last expression,
+use the `file#fnName` syntax:
+
+```
+ssc> :mount GET /greet/:name handlers.ssc#greet
+Mounted: GET /greet/:name  (handlers.ssc#greet)
+
+ssc> :mount GET /farewell/:name handlers.ssc#farewell
+Mounted: GET /farewell/:name  (handlers.ssc#farewell)
+```
+
+The file is evaluated once in full; the named function is looked up in its
+globals. Mount-time error if the function is not found.
+
 ### `:load file.ssc`
 
 Runs `file.ssc` as a normal ScalaScript program. Any `route(...)` calls
