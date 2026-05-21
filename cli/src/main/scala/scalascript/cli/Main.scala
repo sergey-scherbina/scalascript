@@ -2735,6 +2735,25 @@ private def patchLocalSscDeps(source: String, jarsDir: os.Path): String =
  *  When the module has sql blocks the command installs the required npm
  *  deps (e.g. sql.js) via `npm install` in a temp work dir first.
  *  Requires `node` on PATH; `npm` required only when sql blocks present. */
+/** Spawn a node process, register a JVM shutdown hook to kill it on
+ *  exit (Ctrl+C / SIGTERM / normal return), and wait for it to finish.
+ *  Without the hook the child becomes an orphan when the JVM is killed. */
+private def runNodeAndWait(cmd: Seq[String], cwd: Option[os.Path]): Unit =
+  val pb = new ProcessBuilder(cmd*)
+  pb.inheritIO()
+  cwd.foreach(p => pb.directory(p.toIO))
+  val proc = pb.start()
+  val hook = new Thread(() => proc.destroy())
+  Runtime.getRuntime.addShutdownHook(hook)
+  try
+    val exitCode = proc.waitFor()
+    Runtime.getRuntime.removeShutdownHook(hook)
+    if exitCode != 0 then System.exit(exitCode)
+  catch
+    case _: InterruptedException =>
+      proc.destroy()
+      System.exit(1)
+
 def runJsCommand(args: List[String]): Unit =
   if args.isEmpty then
     System.err.println("Usage: ssc run-js <file.ssc>")
@@ -2764,12 +2783,7 @@ def runJsCommand(args: List[String]): Unit =
         case None =>
           // No npm deps — write single temp file and run directly.
           val tmp = os.temp(bundle, suffix = ".cjs", deleteOnExit = true)
-          try
-            val res = os.proc("node", tmp.toString)
-              .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-            if res.exitCode != 0 then System.exit(res.exitCode)
-          catch case e: Exception =>
-            System.err.println(s"run-js: node invocation failed: ${e.getMessage}"); System.exit(1)
+          runNodeAndWait(Seq("node", tmp.toString), cwd = None)
         case Some(pkg) =>
           // SQL deps present — set up a temp work dir, npm install, then run.
           val npmAvailable = scala.util.Try {
@@ -2780,17 +2794,12 @@ def runJsCommand(args: List[String]): Unit =
           val workDir = os.temp.dir(deleteOnExit = true)
           os.write(workDir / "main.cjs", bundle)
           os.write(workDir / "package.json", pkg)
-          try
-            val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent")
-              .call(cwd = workDir, check = false, stdout = os.Pipe, stderr = os.Pipe)
-            if inst.exitCode != 0 then
-              System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
-              System.exit(1)
-            val res = os.proc("node", "main.cjs")
-              .call(cwd = workDir, stdout = os.Inherit, stderr = os.Inherit, check = false)
-            if res.exitCode != 0 then System.exit(res.exitCode)
-          catch case e: Exception =>
-            System.err.println(s"run-js: node invocation failed: ${e.getMessage}"); System.exit(1)
+          val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent")
+            .call(cwd = workDir, check = false, stdout = os.Pipe, stderr = os.Pipe)
+          if inst.exitCode != 0 then
+            System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
+            System.exit(1)
+          runNodeAndWait(Seq("node", "main.cjs"), cwd = Some(workDir))
     case other =>
       System.err.println(s"run-js: unexpected compile result ${other.getClass.getSimpleName}"); System.exit(1)
 
