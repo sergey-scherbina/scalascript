@@ -2025,7 +2025,7 @@ function httpPostStream(url, body, headers) {
   return function(handler) { return _httpStreamFetch('POST', url, body, h, handler); };
 }
 
-function serve(port, _tlsCfg) {
+function _ssc_http_serve(port, _tlsCfg) {
   _registerHealthDefaults();
   const _useTls = !!_tlsCfg;
   const http = _useTls ? require('https') : require('http');
@@ -2051,7 +2051,7 @@ function serve(port, _tlsCfg) {
       console.log(`http\tip=${_accessIp}\tmethod=${_accessMethod}\tpath=${_accessPath}\tstatus=${c}\tduration_ms=${dur}\tua="${_accessUa}"`);
     });
     req.on('data', c => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const bodyBuf = Buffer.concat(chunks);
         if (_maxBodySizeBytes > 0 && bodyBuf.length > _maxBodySizeBytes) {
@@ -2092,7 +2092,7 @@ function serve(port, _tlsCfg) {
             _chain = () => _mw(request, _inner);
           }
           let result;
-          result = _chain();
+          result = await _chain();
           try {
             // Streaming response — invoke the writer block with a chunk callback
             if (result && result._streaming) {
@@ -2193,7 +2193,7 @@ let _activeServer = null;
 // cluster tests where a single Node process must both bind its WS
 // server AND run an actor scheduler (see docs/cluster-codegen-gap.md).
 function serveAsync(port, _tlsCfg) {
-  return serve(port, _tlsCfg);
+  return _ssc_http_serve(port, _tlsCfg);
 }
 
 function stop() {
@@ -3429,6 +3429,146 @@ function exists(path) {
   if (!_fsMod) return false;
   return _fsMod.existsSync(path);
 }
+
+// ── Reactive signals (fine-grained reactivity) ────────────────────────────
+//
+// Same push model as the interpreter and JvmGen: signals are mutable
+// cells with a subscriber set; reading inside an active `effect`/
+// `computed` registers a mutual subscription; writes queue subscribers
+// into a `LinkedHashSet` and a single flush drains it, so the diamond
+// (root → derived → consumer; consumer also reads root) sees each
+// effect at most once per synchronous transaction.
+
+let _signalSeq = 0;
+const _signals = new Map();   // id → { value, subs:Set<eid> }
+const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
+const _effectStack = [];
+const _pendingEffects = new Set();  // insertion-ordered in JS Sets
+let _reactiveFlushing = false;
+
+function _freshReactiveId() { _signalSeq += 1; return _signalSeq; }
+
+function _signalGet(id) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  if (_effectStack.length > 0) {
+    const eid = _effectStack[_effectStack.length - 1];
+    s.subs.add(eid);
+    const e = _effects.get(eid);
+    if (e) e.deps.add(id);
+  }
+  return s.value;
+}
+
+function _signalSet(id, v) {
+  const s = _signals.get(id);
+  if (!s) throw new Error('Signal disposed or unknown id');
+  s.value = v;
+  for (const eid of s.subs) {
+    if (_effectStack.indexOf(eid) < 0) _pendingEffects.add(eid);
+  }
+  if (!_reactiveFlushing) _reactiveFlush();
+}
+
+function _reactiveFlush() {
+  _reactiveFlushing = true;
+  try {
+    while (_pendingEffects.size > 0) {
+      const eid = _pendingEffects.values().next().value;
+      _pendingEffects.delete(eid);
+      _runEffect(eid);
+    }
+  } finally { _reactiveFlushing = false; }
+}
+
+function _clearEffectDeps(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  for (const sid of e.deps) {
+    const s = _signals.get(sid);
+    if (s) s.subs.delete(eid);
+  }
+  e.deps.clear();
+}
+
+function _runEffect(eid) {
+  const e = _effects.get(eid);
+  if (!e) return;
+  _clearEffectDeps(eid);
+  _effectStack.push(eid);
+  try { e.thunk(); }
+  finally { _effectStack.pop(); }
+}
+
+function Signal(initial) {
+  const id = _freshReactiveId();
+  _signals.set(id, { value: initial, subs: new Set() });
+  return {
+    _type: 'Signal',
+    id,
+    get:   () => _signalGet(id),
+    set:   (v) => _signalSet(id, v),
+    apply: () => _signalGet(id),
+  };
+}
+
+function effect(thunk) {
+  const eid = _freshReactiveId();
+  _effects.set(eid, { thunk, deps: new Set() });
+  _runEffect(eid);
+}
+
+function computed(thunk) {
+  const sid = _freshReactiveId();
+  const eid = _freshReactiveId();
+  _signals.set(sid, { value: undefined, subs: new Set() });
+  const updater = () => _signalSet(sid, thunk());
+  _effects.set(eid, { thunk: updater, deps: new Set() });
+  _runEffect(eid);
+  return {
+    _type: 'Signal',
+    id: sid,
+    get:   () => _signalGet(sid),
+    set:   () => { throw new Error('computed signal is read-only'); },
+    apply: () => _signalGet(sid),
+  };
+}
+
+// ── Node.js HTTP serve wrapper ─────────────────────────────────────────────
+// Backwards-compatible: handles both serve(port) and serve(view, port).
+// Browser extern def std.ui.primitives.serve declares serve(view, port);
+// non-frontend scripts call serve(port) directly — both routes work here.
+function serve(treeOrPort, portOrUndef) {
+  const port = (typeof treeOrPort === 'number') ? treeOrPort : portOrUndef;
+  _ssc_http_serve(port);
+}
+
+// ── Node.js stubs for std/ui/primitives.ssc extern defs ───────────────────
+// Provide real implementations for run-js mode so extern def symbols
+// are non-undefined when extracted from std.ui.primitives namespace.
+function _ssc_ui_signal(name, initial) { return Signal(initial); }
+function _ssc_ui_element(tag, attrs, events, children) {
+  return { _type: '_Element', tag,
+    attrs: (attrs instanceof Map) ? Object.fromEntries(attrs) : (attrs || {}),
+    events: (events instanceof Map) ? Object.fromEntries(events) : (events || {}),
+    children: children || [] };
+}
+function _ssc_ui_textNode(s) { return { _type: '_TextNode', s }; }
+function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
+function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
+function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
+function _ssc_ui_setSignal(s, v) { if (s && s.set) s.set(v); }
+function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
+function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
+function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
+function _ssc_ui_hashSignal() { return Signal(''); }
+function _ssc_ui_emit(tree, outDir) {}
+function _ssc_ui_serve(view, port) { _ssc_http_serve(port); }
+function _ssc_ui_fetchUrlSignal(name, url, tick) { return Signal(''); }
+function _ssc_ui_fetchAction(method, url, body, tick) { return { _type: '_FetchAction', method, url }; }
+function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
+function _ssc_ui_fetchActionClear(method, url, body, tick) { return { _type: '_FetchActionClear', method, url }; }
+function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick) { return { _type: '_FetchTableView', fetchUrl, deleteUrl }; }
 """
 
 val JsRuntime: String =
@@ -5818,112 +5958,6 @@ function _seqFoldLeft(arr, init, fn) {
   }
   return loop(0, init);
 }
-
-// ── Reactive signals (fine-grained reactivity) ────────────────────────────
-//
-// Same push model as the interpreter and JvmGen: signals are mutable
-// cells with a subscriber set; reading inside an active `effect`/
-// `computed` registers a mutual subscription; writes queue subscribers
-// into a `LinkedHashSet` and a single flush drains it, so the diamond
-// (root → derived → consumer; consumer also reads root) sees each
-// effect at most once per synchronous transaction.
-
-let _signalSeq = 0;
-const _signals = new Map();   // id → { value, subs:Set<eid> }
-const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
-const _effectStack = [];
-const _pendingEffects = new Set();  // insertion-ordered in JS Sets
-let _reactiveFlushing = false;
-
-function _freshReactiveId() { _signalSeq += 1; return _signalSeq; }
-
-function _signalGet(id) {
-  const s = _signals.get(id);
-  if (!s) throw new Error('Signal disposed or unknown id');
-  if (_effectStack.length > 0) {
-    const eid = _effectStack[_effectStack.length - 1];
-    s.subs.add(eid);
-    const e = _effects.get(eid);
-    if (e) e.deps.add(id);
-  }
-  return s.value;
-}
-
-function _signalSet(id, v) {
-  const s = _signals.get(id);
-  if (!s) throw new Error('Signal disposed or unknown id');
-  s.value = v;
-  // Skip subscribers currently running — without this, an effect
-  // that writes a signal it also reads infinite-loops itself.
-  for (const eid of s.subs) {
-    if (_effectStack.indexOf(eid) < 0) _pendingEffects.add(eid);
-  }
-  if (!_reactiveFlushing) _reactiveFlush();
-}
-
-function _reactiveFlush() {
-  _reactiveFlushing = true;
-  try {
-    while (_pendingEffects.size > 0) {
-      const eid = _pendingEffects.values().next().value;
-      _pendingEffects.delete(eid);
-      _runEffect(eid);
-    }
-  } finally { _reactiveFlushing = false; }
-}
-
-function _clearEffectDeps(eid) {
-  const e = _effects.get(eid);
-  if (!e) return;
-  for (const sid of e.deps) {
-    const s = _signals.get(sid);
-    if (s) s.subs.delete(eid);
-  }
-  e.deps.clear();
-}
-
-function _runEffect(eid) {
-  const e = _effects.get(eid);
-  if (!e) return;
-  _clearEffectDeps(eid);
-  _effectStack.push(eid);
-  try { e.thunk(); }
-  finally { _effectStack.pop(); }
-}
-
-function Signal(initial) {
-  const id = _freshReactiveId();
-  _signals.set(id, { value: initial, subs: new Set() });
-  return {
-    _type: 'Signal',
-    id,
-    get:   () => _signalGet(id),
-    set:   (v) => _signalSet(id, v),
-    apply: () => _signalGet(id),
-  };
-}
-
-function effect(thunk) {
-  const eid = _freshReactiveId();
-  _effects.set(eid, { thunk, deps: new Set() });
-  _runEffect(eid);
-}
-
-function computed(thunk) {
-  const sid = _freshReactiveId();
-  const eid = _freshReactiveId();
-  _signals.set(sid, { value: undefined, subs: new Set() });
-  const updater = () => _signalSet(sid, thunk());
-  _effects.set(eid, { thunk: updater, deps: new Set() });
-  _runEffect(eid);
-  return {
-    _type: 'Signal',
-    id: sid,
-    get:   () => _signalGet(sid),
-    set:   () => { throw new Error('computed signal is read-only'); },
-    apply: () => _signalGet(sid),
-  };
-}
 """
 
 /** v1.4 built-in effects: Logger, Random, Clock, Env.
@@ -6457,7 +6491,11 @@ class JsGen(
     // (e.g. std.ui.primitives and std.ui.nodes both wrap content in `object std { ... }`), the
     // second occurrence merges via _ssc_mergeDeep instead of re-declaring the const.
     private[codegen] val topLevelConsts: mutable.Set[String] = mutable.Set.empty,
-    private[codegen] val mergeHelperEmitted: Array[Boolean]  = Array(false)):
+    private[codegen] val mergeHelperEmitted: Array[Boolean]  = Array(false),
+    // Shared across parent + all child generators to track which import-binding `const` names
+    // have been declared.  A module imported transitively (e.g. nodes.ssc pulled in by both
+    // primitives.ssc and layout.ssc) must not emit duplicate `const TkNode = …` lines.
+    private[codegen] val declaredBindings: mutable.Set[String] = mutable.Set.empty):
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -6700,6 +6738,13 @@ class JsGen(
       line("    Console.print   = _print;")
       line("  }")
       line("}")
+    // Pre-connect all databases declared in frontmatter so that the
+    // synchronous Db facade (defined in emitSqlPreamble) can serve
+    // route-handler Db.query / Db.execute calls without awaiting.
+    if needSqlPreamble then
+      val dbNames = module.manifest.toList.flatMap(_.databases).map(_.name)
+      for dbName <- dbNames do
+        line(s"Db._conns[${jsQuote(dbName)}] = await _ssc_sql_resolve(${jsQuote(dbName)});")
     module.sections.foreach(genSection)
     // Auto-call main() if defined and not already called
     if hasMain && !mainCalled then
@@ -6742,6 +6787,37 @@ class JsGen(
     sb.append(stripped)
     sb.append("\nconst SqlRuntimeJs = { execute, ConnectionRegistry, makeRow, isResultSetProducer, Providers, SqlJsProvider, SqliteWasmProvider, DuckDbWasmProvider };\n")
     sb.append(scalascript.sql.js.SqlRuntimeJsEmit.emitRegistryInit(entries))
+    // Synchronous Db facade.  Connections are pre-initialized inside the
+    // async IIFE (see genModule) and stored in Db._conns so that route
+    // handlers can call Db.query / Db.execute synchronously.  sql.js is
+    // itself synchronous once connected; only the initial load is async.
+    sb.append("""const Db = {
+  _conns: {},
+  query(dbName, sql, params) {
+    const conn = Db._conns[dbName || 'default'];
+    if (!conn || !conn._db) throw new Error('Db: no connection for "' + (dbName || 'default') + '"');
+    const p = Array.isArray(params) ? params : (params ? [...params] : []);
+    const stmt = conn._db.prepare(sql);
+    try {
+      stmt.bind(p.map(toSqlJsBind));
+      if (isResultSetProducer(sql)) {
+        const rows = [];
+        let columns = null;
+        while (stmt.step()) {
+          if (columns === null) columns = stmt.getColumnNames();
+          rows.push(makeRow(columns, stmt.get().map(fromSqlJsValue)));
+        }
+        return rows;
+      }
+      while (stmt.step()) {}
+      return conn._db.getRowsModified();
+    } finally {
+      stmt.free();
+    }
+  },
+  execute(dbName, sql, params) { return Db.query(dbName, sql, params); }
+};
+""")
     sb.append("\n")
 
   // ─── v2.0 Phase 2 — capability detection ─────────────────────────────
@@ -6786,7 +6862,13 @@ class JsGen(
     // also need the Free Monad runtime that ships in `JsRuntimeAsync`.
     // Include bare actor API calls (`runActors`, `spawn`, `receive`, `send`)
     // in addition to the qualified `Actor.*` / `Async.*` namespace markers.
-    val hasAsync = allText.contains("Async.") || allText.contains("Actor.") ||
+    // SQL blocks and Db.* calls also require the async runtime: sql blocks
+    // compile to `await` expressions and `Db.*` intrinsics are async.
+    val hasSql = hasSqlBlocks(module) || module.manifest.exists(_.databases.nonEmpty)
+    val hasAsync = hasSql ||
+                   allText.contains("Db.") ||
+                   allText.contains("route(") ||
+                   allText.contains("Async.") || allText.contains("Actor.") ||
                    allText.contains("Storage.") || userEffectDecl ||
                    allText.contains("runAsync") || allText.contains("runActors") ||
                    allText.contains("handle(") || allText.contains("spawn {") ||
@@ -7196,12 +7278,13 @@ class JsGen(
     val resolvedPath =
       try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps, lockPath)
       catch case _: Throwable => base / os.RelPath(imp.path)
-    val key = resolvedPath.toString
-    if os.exists(resolvedPath) && !importedFiles.contains(key) then
+    if !os.exists(resolvedPath) then return
+    val key         = resolvedPath.toString
+    val childModule = Parser.parse(os.read(resolvedPath))
+    if !importedFiles.contains(key) then
       importedFiles += key
       val childDir = resolvedPath / os.up
-      val childModule = Parser.parse(os.read(resolvedPath))
-      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted)
+      val childGen = new JsGen(Some(childDir), lockPath = lockPath, topLevelConsts = topLevelConsts, mergeHelperEmitted = mergeHelperEmitted, declaredBindings = declaredBindings)
       childGen.importedFiles ++= importedFiles
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
@@ -7220,17 +7303,21 @@ class JsGen(
       sb.append(childGen.sb)
       // Pull cycle-protection state back so siblings don't re-import
       importedFiles ++= childGen.importedFiles
-      // For each binding, emit `const localName = fullName;`.
-      // When the imported module has a `package:` prefix the symbols live
-      // under nested objects (e.g. `org.example.ui.Card`), so we qualify
-      // all names — including bare ones that carry no `as` alias.
-      val childPkg   = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
-      val pkgPrefix  = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
-      imp.bindings.foreach { b =>
-        val fullName  = s"$pkgPrefix${b.name}"
-        val localName = b.alias.getOrElse(b.name)
-        if fullName != localName then line(s"const $localName = $fullName;")
-      }
+    // Always extract bindings, even when this module was already imported by
+    // a transitive dependency.  Cycle-protection only guards code emission —
+    // each explicit import still needs its `const x = pkg.x;` binding.
+    // `declaredBindings` prevents duplicate `const` declarations when the same
+    // symbol is extracted more than once (e.g. TkNode from nodes.ssc imported
+    // by both primitives.ssc and layout.ssc).
+    val childPkg   = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val pkgPrefix  = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
+    imp.bindings.foreach { b =>
+      val fullName  = s"$pkgPrefix${b.name}"
+      val localName = b.alias.getOrElse(b.name)
+      if fullName != localName && !declaredBindings.contains(localName) then
+        declaredBindings += localName
+        line(s"const $localName = $fullName;")
+    }
 
   private[codegen] def genScalaNode(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
@@ -7527,7 +7614,14 @@ class JsGen(
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
     d.templ.body.stats.foreach {
-      case dd: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(dd.body) => ()
+      case dd: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
+        val fname = dd.name.value
+        val stub = s"_ssc_ui_$fname"
+        // Forward to the corresponding Node.js runtime stub if present,
+        // otherwise leave as undefined.  Avoids TDZ issues that occur when
+        // the parent scope later does `const fname = pkg.fname` (shadowing).
+        decls += s"const $fname = (typeof $stub !== 'undefined') ? $stub : undefined;"
+        names += fname
       case dd: Defn.Def if isEffectOpDef(dd.body) =>
         val opName = dd.name.value
         val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -7537,19 +7631,57 @@ class JsGen(
         decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
         names += opName
       case dd: Defn.Def =>
-        val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-        val paramsStr = paramListWithDefaults(paramVals)
+        val fname = dd.name.value
+        val allClauses = dd.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
         val bodyJs = dd.body match
           case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
           case expr                   => genExpr(expr)
-        decls += s"const ${dd.name.value} = ($paramsStr) => $bodyJs;"
-        names += dd.name.value
+        def clauseSig(params: List[Term.Param]): String =
+          if params.nonEmpty && params.last.decltpe.exists(_.isInstanceOf[Type.Repeated]) then
+            val nonVararg = params.init
+            val vararg    = params.last.name.value
+            if nonVararg.isEmpty then s"(...$vararg)"
+            else s"(${paramListWithDefaults(nonVararg)}, ...$vararg)"
+          else s"(${paramListWithDefaults(params)})"
+        if allClauses.length <= 1 then
+          val sig = clauseSig(allClauses.flatMap(_.values))
+          decls += s"const $fname = $sig => $bodyJs;"
+        else
+          val innerFn = allClauses.init.foldRight(clauseSig(allClauses.last.values) + s" => $bodyJs") {
+            (clause, inner) => clauseSig(clause.values) + s" => $inner"
+          }
+          decls += s"const $fname = $innerFn;"
+        names += fname
       case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
         decls += s"const ${n.value} = ${genExpr(rhs)};"
         names += n.value
       case nested: Defn.Object =>
         decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested)};"
         names += nested.name.value
+      case d: Defn.Class =>
+        val paramVals = d.ctor.paramClauses.flatMap(_.values)
+        val params    = paramVals.map(_.name.value)
+        val typeName  = d.name.value
+        val paramsStr = paramListWithDefaults(paramVals)
+        val fields    = params.map(p => s"$p: $p").mkString(", ")
+        decls += s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }"
+        names += typeName
+      case d: Defn.Enum =>
+        d.templ.body.stats.foreach {
+          case ec: Defn.EnumCase =>
+            val caseName  = ec.name.value
+            val paramVals = ec.ctor.paramClauses.flatMap(_.values)
+            val params    = paramVals.map(_.name.value)
+            if params.isEmpty then
+              decls += s"const $caseName = {_type: '$caseName'};"
+              names += caseName
+            else
+              val paramsStr = paramListWithDefaults(paramVals)
+              val fields    = params.map(p => s"$p: $p").mkString(", ")
+              decls += s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }"
+              names += caseName
+          case _ => ()
+        }
       case _ => ()
     }
     val body = decls.mkString(" ")
