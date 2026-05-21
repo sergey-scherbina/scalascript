@@ -29,12 +29,13 @@ final case class ExternalConfigFile(
  *  }}}
  */
 final class ConfigLoader(
-  frontmatterYaml: String                  = "",
-  fencedBlocks:    List[FencedConfigBlock] = Nil,
+  frontmatterYaml: String                   = "",
+  fencedBlocks:    List[FencedConfigBlock]  = Nil,
   externalFiles:   List[ExternalConfigFile] = Nil,
-  priorityOrder:   List[Priority]          = Priority.DefaultOrder,
+  priorityOrder:   List[Priority]           = Priority.DefaultOrder,
   envLookup:       String => Option[String] = sys.env.get,
   sopsLookup:      String => Option[String] = _ => None,
+  @annotation.unused basePath: Path         = Path.of("."),
 ):
 
   def load(): Either[ConfigError, ConfigValue] =
@@ -80,7 +81,7 @@ final class ConfigLoader(
       try
         val content = Files.readString(resolved)
         val fmt     = ConfigParser.detectFormat(f.path)
-        ConfigParser.parse(content, fmt)
+        ConfigParser.parse(content, fmt, resolved.getParent)
       catch case e: Exception =>
         Left(ConfigError.FileLoadError(f.path, e.getMessage))
 
@@ -90,3 +91,60 @@ final class ConfigLoader(
       cv.get(path).flatMap(_.getString)
     SubstitutionEngine.resolveTree(cv, envLookup, configLookup = configLookup,
       sopsLookup = sopsLookup)
+
+object ConfigLoader:
+
+  /** Build a ConfigLoader from raw front-matter YAML + optional extras.
+   *  Automatically extracts the `config.files` list from parsed front-matter,
+   *  resolving `${env:...}` substitutions in file paths. */
+  def fromFrontmatter(
+    frontmatterYaml: String,
+    fencedBlocks:    List[FencedConfigBlock] = Nil,
+    basePath:        Path                    = Path.of("."),
+    envLookup:       String => Option[String] = sys.env.get,
+    sopsLookup:      String => Option[String] = _ => None,
+  ): ConfigLoader =
+    val externalFiles = extractFileList(frontmatterYaml, basePath, envLookup)
+    new ConfigLoader(
+      frontmatterYaml = frontmatterYaml,
+      fencedBlocks    = fencedBlocks,
+      externalFiles   = externalFiles,
+      envLookup       = envLookup,
+      sopsLookup      = sopsLookup,
+      basePath        = basePath,
+    )
+
+  private def extractFileList(
+    yaml:      String,
+    basePath:  Path,
+    envLookup: String => Option[String],
+  ): List[ExternalConfigFile] =
+    if yaml.isBlank then return Nil
+    ConfigParser.parseFrontmatter(yaml) match
+      case Left(_)   => Nil
+      case Right(cv) =>
+        // config: [file1, file2]  OR  config.files: [...]
+        val filesNode: List[ConfigValue] = cv.get("config") match
+          case Some(ConfigValue.Lst(items)) =>
+            // config: [app.yaml, prod.hocon]  shorthand
+            items
+          case Some(ConfigValue.Map(m)) =>
+            m.get("files") match
+              case Some(ConfigValue.Lst(items)) => items
+              case _                             => Nil
+          case _ => Nil
+
+        filesNode.flatMap {
+          case ConfigValue.Str(path) =>
+            SubstitutionEngine.resolveString(path, envLookup = envLookup).toOption
+              .map(resolved => ExternalConfigFile(resolved, optional = false, basePath = basePath))
+          case ConfigValue.Map(m) =>
+            val path     = m.get("path").flatMap(_.getString).getOrElse("")
+            val optional = m.get("optional").flatMap(_.getBool).getOrElse(false)
+            val resolved = SubstitutionEngine.resolveString(path, envLookup = envLookup)
+              .getOrElse(path)
+            if resolved.nonEmpty then
+              Some(ExternalConfigFile(resolved, optional = optional, basePath = basePath))
+            else None
+          case _ => None
+        }
