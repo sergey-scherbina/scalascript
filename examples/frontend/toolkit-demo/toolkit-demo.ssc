@@ -6,7 +6,7 @@ description: Interactive sign-up form + REST todo list (SQLite, persists across 
 frontend: react
 databases:
   default:
-    url: "jdbc:sqlite:./todos.db"
+    url: "sqlite:./todos.db"
 ---
 
 # Toolkit Demo
