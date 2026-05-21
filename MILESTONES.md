@@ -5818,15 +5818,19 @@ Supports `--iface-dir <dir>` / `-I <dir>` for checking against pre-compiled inte
 - [x] Exit non-zero when any error found
 - [x] Integration tests in `CheckCommandTest` (7 tests, all green)
 
-### Runtime — Interpreter split (lazy capability loading)
+### Runtime — Interpreter file split ✓ Landed (2026-05-21, Phase 1 only)
 
-**Status: open. Effort: ~1 week. Priority: 3.**
+**Phase 1 (file split, no lazy loading) — landed 2026-05-21.**
+`Interpreter.scala` reduced from ~2900 → ~600 lines.  Actor/cluster
+scheduler moved into `ActorInterp.scala` (same package, self-type trait).
+No behavioral change; all existing tests green.
 
-`Interpreter.scala` is 7 567 lines containing core eval + HTTP + Actors + MCP +
-Dataset + Signals + Coroutines — all loaded on every `ssc run hello.ssc`.
+**Phase 2 (lazy capability loading) — planned, deferred.**
 
-Split into per-capability files, each installing via a registration hook in
-`CoreInterpreter`.  Cold-start for pure scripts drops significantly.
+Full lazy loading: split into per-capability files each installing via a
+`CapabilityLoader` registration hook in `CoreInterpreter` so a pure
+`hello.ssc` doesn't load the actor runtime at all.  Cold-start drops
+significantly for pure scripts.
 
 | File | Content |
 |------|---------|
@@ -5838,9 +5842,11 @@ Split into per-capability files, each installing via a registration hook in
 | `SignalRuntime.scala` | `Signal`, `computed`, `effect` |
 | `CoroutineRuntime.scala` | `coroutineCreate`, `coroutineResume`, generators |
 
-- [ ] Extract each runtime file with registration hook
-- [ ] Wire lazy loading in `CoreInterpreter`
-- [ ] All existing tests green after split
+- [x] Phase 1: extract actor/cluster into `ActorInterp.scala` (self-type trait)
+- [ ] Phase 2: `CapabilityLoader` SPI + per-capability registration hooks
+- [ ] Phase 2: Wire lazy loading in `CoreInterpreter`
+- [ ] Phase 2: All existing tests green after lazy split
+- [ ] Phase 2: Benchmark: `ssc run hello.ssc` cold-start vs baseline
 
 ### Compiler — AST cache between watch cycles
 
@@ -6315,12 +6321,13 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 1 | ~~Fix SupervisorTest + v1.22 distributed tests~~ ✓ landed (2026-05-21) | A | 2 days | — |
 | 2 | ~~Incremental type-checking~~ ✓ landed (2026-05-19) | B | 1 week | AST cache ✓ |
 | 3 | ~~LSP server (`ssc lsp`)~~ ✓ landed Phase 1+2 (2026-05-20) | C | 2 weeks | — |
-| 4 | Interpreter split | D | 1 week | — (serial, risky) |
+| 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
+| 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
 | 5 | Library modularity | D | 3 days | Interpreter split |
 | 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
-| 9 | Package registry | G | 2 weeks | — |
+| 9 | **Package registry** | G | 2 weeks | — |
 | 10 | ~~Scala ↔ ScalaScript interop (Tier 1)~~ ✓ landed | H | ½ day | — |
 | 11 | ~~Scala ↔ ScalaScript interop (Tier 2)~~ ✓ landed | H | 1 week | Tier 1 ✓ |
 | 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
