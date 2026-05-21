@@ -162,6 +162,12 @@ private[solid] object SolidEmitter:
               // requires the JSX path we don't transpile).
               registerRef(ref)
               statements += s"${ref.jsName} = $v;"
+            case AttrValue.Bool(value) =>
+              // Boolean IDL attributes (disabled, checked, required, …) must be
+              // set as DOM properties, not via setAttribute: setAttribute("disabled","false")
+              // leaves the attribute present so the browser still disables the element.
+              // Property assignment respects the actual boolean value.
+              statements += s"$v.${k} = $value;"
             case _ =>
               attrValueJs(av) match
                 case Some(value) => statements += s"$v.setAttribute(${jsString(k)}, $value);"
@@ -375,7 +381,7 @@ private[solid] object SolidEmitter:
 
     private def attrValueJs(av: AttrValue): Option[String] = av match
       case AttrValue.Str(value)     => Some(jsString(value))
-      case AttrValue.Bool(value)    => Some(jsString(value.toString))
+      case AttrValue.Bool(_)        => None  // handled as property assignment before attrValueJs is called
       case AttrValue.Num(value)     => Some(formatNumber(value))
       case AttrValue.Dynamic(read)    => Some(jsString(String.valueOf(read())))
       case AttrValue.Reactive(signal) => Some(jsString(String.valueOf(signal()))) // snapshot
