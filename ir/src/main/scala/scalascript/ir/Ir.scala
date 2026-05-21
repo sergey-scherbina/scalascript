@@ -122,6 +122,18 @@ enum Content derives ReadWriter:
      *  schemes are valid (`sqlite:`, `sqlite-opfs:`, `duckdb:`). */
     side:   SqlSide         = SqlSide.Server
   )
+  /** A `transaction` fence — multiple `;`-separated SQL statements
+   *  executed atomically via a single JDBC transaction.  `sources` holds
+   *  each statement with `${expr}` / `$$` markers preserved (round-trip
+   *  surface for `Denormalize`); `binds(i)` is the ordered bind-expression
+   *  list for `sources(i)`.  `dbName` selects the registry connection
+   *  (defaults to `"default"` when absent). */
+  case TransactionBlock(
+    sources: List[String],
+    binds:   List[List[String]] = Nil,
+    dbName:  Option[String]     = None,
+    span:    Option[Span]       = None
+  )
   /** Markdown link that acts as a module import: `[Name, …](path)`. */
   case Import(path: String, bindings: List[ImportBinding], span: Option[Span] = None)
   /** Ordered or unordered list. */

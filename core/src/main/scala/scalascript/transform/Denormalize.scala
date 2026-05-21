@@ -89,6 +89,16 @@ object Denormalize:
         span   = sp.map(span),
         attrs  = attrs
       )
+    case ir.Content.TransactionBlock(sources, _, dbName, sp) =>
+      // Round-trip: rejoin statements with ";\n" so the interpreter /
+      // JvmGen can re-split via `SqlBindRewriter.splitStatements`.
+      ast.Content.CodeBlock(
+        lang   = ast.Lang.Transaction,
+        source = sources.mkString(";\n"),
+        tree   = None,
+        span   = sp.map(span),
+        attrs  = dbName.fold(Map.empty[String, String])(n => Map("db" -> n))
+      )
     case ir.Content.Import(path, bindings, sp) =>
       ast.Content.Import(path, bindings.map(importBinding), sp.map(span))
     case ir.Content.DataList(items, ordered, sp) =>

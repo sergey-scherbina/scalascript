@@ -131,3 +131,42 @@ class SqlBindRewriterTest extends AnyFunSuite:
     }
     assert(ex.message.contains("bare '$'"))
   }
+
+  // ── splitStatements ───────────────────────────────────────────────────────
+
+  test("splitStatements — single statement, no semicolon") {
+    assert(SqlBindRewriter.splitStatements("SELECT 1") == List("SELECT 1"))
+  }
+
+  test("splitStatements — two statements separated by semicolon") {
+    val stmts = SqlBindRewriter.splitStatements(
+      "INSERT INTO t VALUES (1);\nUPDATE t SET v = 2"
+    )
+    assert(stmts == List("INSERT INTO t VALUES (1)", "UPDATE t SET v = 2"))
+  }
+
+  test("splitStatements — trailing semicolon produces no empty fragment") {
+    val stmts = SqlBindRewriter.splitStatements("DELETE FROM t;")
+    assert(stmts == List("DELETE FROM t"))
+  }
+
+  test("splitStatements — semicolons inside ${} interpolation are not split points") {
+    val src   = "CALL p(${if ok then 1; else 0}); UPDATE done SET n = 1"
+    val stmts = SqlBindRewriter.splitStatements(src)
+    assert(stmts.length == 2)
+    assert(stmts(0) == "CALL p(${if ok then 1; else 0})")
+    assert(stmts(1) == "UPDATE done SET n = 1")
+  }
+
+  test("splitStatements — blank-only source returns empty list") {
+    assert(SqlBindRewriter.splitStatements("   ") == Nil)
+  }
+
+  test("splitStatements — three statements, each with binds") {
+    val src = "INSERT INTO a VALUES (${x});\nINSERT INTO b VALUES (${y});\nSELECT * FROM a"
+    val stmts = SqlBindRewriter.splitStatements(src)
+    assert(stmts.length == 3)
+    assert(stmts(0).contains("${x}"))
+    assert(stmts(1).contains("${y}"))
+    assert(stmts(2) == "SELECT * FROM a")
+  }

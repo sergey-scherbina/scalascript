@@ -39,7 +39,9 @@ val JvmCapabilities: Capabilities = Capabilities(
   spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
   // v1.26 Phase 6 — JvmGen emits JDBC execution via
   // `scalascript.sql.SqlRuntime` for `sql` fenced blocks.
-  blockLanguages = Set(scalascript.ast.Lang.Sql)
+  // `transaction` blocks emit a `withTransaction` call wrapping
+  // all statements in one atomic JDBC transaction.
+  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction)
 )
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as `def`

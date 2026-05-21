@@ -103,6 +103,8 @@ object CapabilityCheck:
         seen += language
       case _: ir.Content.SqlBlock if !cap.blockLanguages.contains(Lang.Sql) =>
         seen += Lang.Sql
+      case _: ir.Content.TransactionBlock if !cap.blockLanguages.contains(Lang.Transaction) =>
+        seen += Lang.Transaction
       case _ => ()
 
     def scanSection(s: ir.Section): Unit =

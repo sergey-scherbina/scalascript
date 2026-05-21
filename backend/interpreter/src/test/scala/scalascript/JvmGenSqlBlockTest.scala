@@ -236,6 +236,73 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
     assert(code.contains("_ssc_sql_resolve(None)"))
   }
 
+  // ── transaction block emission ──────────────────────────────────────
+
+  test("transaction block emits withTransaction wrapping multiple SqlRuntime.execute calls") {
+    val code = emit(
+      """|# Transfer
+         |
+         |```transaction
+         |INSERT INTO a VALUES (1);
+         |INSERT INTO b VALUES (2)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("_ssc_sql_registry.withTransaction(\"default\")"))
+    assert(code.contains("_ssc_tx_conn"))
+    assert(code.contains("List("))
+    assert(code.contains("scalascript.sql.SqlRuntime.execute(_ssc_tx_conn"))
+    assert(code.contains("INSERT INTO a VALUES (1)"))
+    assert(code.contains("INSERT INTO b VALUES (2)"))
+  }
+
+  test("transaction block with binds splices expressions into each statement") {
+    val code = emit(
+      """|# Tx
+         |
+         |```transaction
+         |UPDATE a SET v = ${x};
+         |UPDATE b SET v = ${y}
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("UPDATE a SET v = ?"))
+    assert(code.contains("UPDATE b SET v = ?"))
+    assert(code.contains("List(x)"))
+    assert(code.contains("List(y)"))
+  }
+
+  test("transaction block uses `@db=name` attribute in withTransaction call") {
+    val code = emit(
+      """|---
+         |databases:
+         |  ops:
+         |    url: jdbc:postgresql://h/db
+         |---
+         |
+         |# Tx
+         |
+         |```transaction @db=ops
+         |DELETE FROM tmp
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("_ssc_sql_registry.withTransaction(\"ops\")"))
+  }
+
+  test("transaction block increments sqlBlockCounter (triggers sql preamble emission)") {
+    val code = emit(
+      """|# X
+         |
+         |```transaction
+         |INSERT INTO t VALUES (1)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("_ssc_sql_registry"))
+    assert(code.contains("val _sqlBlock_0"))
+  }
+
   // ── ${env:NAME} preserved through to DatabaseSpec ───────────────────
 
   test("`${env:NAME}` references in databases survive into the emitted DatabaseSpec") {
