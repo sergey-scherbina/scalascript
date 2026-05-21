@@ -22,9 +22,8 @@ import scala.concurrent.duration.*
 class WsBinaryTest extends AnyFunSuite with Matchers:
 
   test("ws.sendBytes — binary round-trip with non-UTF-8 bytes") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/bin") { ws =>
   ws.onMessage { msg =>
@@ -44,7 +43,8 @@ onWebSocket("/bin") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -86,8 +86,6 @@ onWebSocket("/bin") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readAtLeast(in: java.io.InputStream, buf: Array[Byte], minBytes: Int, within: FiniteDuration): Int =

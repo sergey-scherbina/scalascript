@@ -19,15 +19,14 @@ import java.util.concurrent.Executors
 class WsOriginTest extends AnyFunSuite with Matchers:
 
   test("Origin allowlist — 101 on match, 403 on mismatch / missing") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     val script = """# Test
 ```scala
 onWebSocket("/open") { ws => () }
 onWebSocket("/guarded", List("https://app.example.com")) { ws => () }
 ```
 """
-    Interpreter().run(Parser.parse(script))
+    val interp = Interpreter()
+    interp.run(Parser.parse(script))
 
     val executor = Executors.newSingleThreadExecutor()
     val internal = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -39,7 +38,8 @@ onWebSocket("/guarded", List("https://app.example.com")) { ws => () }
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -60,8 +60,6 @@ onWebSocket("/guarded", List("https://app.example.com")) { ws => () }
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   /** Open a fresh socket, send a WS upgrade request, return the status

@@ -17,8 +17,6 @@ import java.util.concurrent.Executors
 class WsSubprotocolFieldTest extends AnyFunSuite with Matchers:
 
   test("ws.subprotocol — set to server's pick after successful negotiation") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     val captured = ByteArrayOutputStream()
     val out      = PrintStream(captured, true, "UTF-8")
     val interp   = Interpreter(out = out)
@@ -47,7 +45,8 @@ onWebSocket("/free") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -73,8 +72,6 @@ onWebSocket("/free") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def upgrade(port: Int, path: String, proto: Option[String]): Unit =

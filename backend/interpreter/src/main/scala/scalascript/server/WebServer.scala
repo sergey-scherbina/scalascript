@@ -56,7 +56,8 @@ object WebServer:
     _latch match { case l if l != null => l.countDown(); case _ => () }
 
   def start(port: Int, root: String, log: java.io.PrintStream,
-            certPath: String = "", keyPath: String = ""): Unit =
+            certPath: String = "", keyPath: String = "",
+            wsRoutes: WsRoutes = new WsRoutes()): Unit =
     val useTls = certPath.nonEmpty && keyPath.nonEmpty
 
     val latch    = java.util.concurrent.CountDownLatch(1)
@@ -83,6 +84,7 @@ object WebServer:
     val handler = new InterpreterHttpHandler(
       log               = log,
       wsExecutor        = executor,
+      wsRoutes          = wsRoutes,
       fallbackRenderer  = req => renderFallback(root, req),
       maxBodySizeBytes  = () => _maxBodySizeBytes,
       spoolThreshold    = () => _spoolThreshold,

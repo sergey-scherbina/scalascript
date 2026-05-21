@@ -18,9 +18,8 @@ import java.util.concurrent.Executors
 class WsPingPongTest extends AnyFunSuite with Matchers:
 
   test("ws.ping + ws.onPong — payload echoes back to handler") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/pp") { ws =>
   ws.onPong { payload => ws.send("pong:" + payload) }
@@ -40,6 +39,7 @@ onWebSocket("/pp") { ws =>
       internalAddr         = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor           = executor,
       log                  = devNull,
+      wsRoutes             = interp.wsRoutes,
       heartbeatIntervalMs  = 600_000L,
       heartbeatDeadAfterMs = 1_800_000L
     )
@@ -99,8 +99,6 @@ onWebSocket("/pp") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readLine(in: java.io.InputStream): String =

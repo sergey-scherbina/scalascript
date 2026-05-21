@@ -18,7 +18,6 @@ class PubSubTest extends AnyFunSuite with Matchers:
 
   private def runScript(src: String): List[String] = {
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val buf = java.io.ByteArrayOutputStream()
     Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
     buf.toString.linesIterator.toList

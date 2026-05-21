@@ -13,7 +13,6 @@ class ClusterEventsRouteTest extends AnyFunSuite with Matchers:
 
   test("events ring buffer captures LeaderElected + DrainStateChanged"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
@@ -45,7 +44,6 @@ runActors {
 
   test("?since=<ts> filter drops older entries"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {

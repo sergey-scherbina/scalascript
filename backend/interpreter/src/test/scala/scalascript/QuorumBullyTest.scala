@@ -12,7 +12,6 @@ class QuorumBullyTest extends AnyFunSuite with Matchers:
 
   test("setQuorumSize(3) blocks self-claim when only one node is visible"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
@@ -31,7 +30,6 @@ runActors {
 
   test("setQuorumSize(1) lets a single node claim self"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
@@ -49,7 +47,6 @@ runActors {
 
   test("setQuorumSize(0) is the legacy no-quorum behaviour"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {

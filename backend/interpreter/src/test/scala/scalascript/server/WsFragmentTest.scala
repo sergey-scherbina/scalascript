@@ -18,8 +18,6 @@ import scala.concurrent.duration.*
 class WsFragmentTest extends AnyFunSuite with Matchers:
 
   test("fragmented client message — opcode=text FIN=0 + continuation FIN=1") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     val script = """# Test
 ```scala
 onWebSocket("/frag") { ws =>
@@ -29,7 +27,8 @@ onWebSocket("/frag") { ws =>
 }
 ```
 """
-    Interpreter().run(Parser.parse(script))
+    val interp = Interpreter()
+    interp.run(Parser.parse(script))
 
     val executor = Executors.newSingleThreadExecutor()
     val internal = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -42,7 +41,8 @@ onWebSocket("/frag") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -84,8 +84,6 @@ onWebSocket("/frag") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readLine(in: java.io.InputStream): String =

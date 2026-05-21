@@ -15,7 +15,6 @@ class ClusterStatusRouteTest extends AnyFunSuite with Matchers:
     // Fresh route table each test — Routes.clear() so re-runs in one JVM
     // don't see stale entries.
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
 
     val src = """# T
 ```scalascript
@@ -57,7 +56,6 @@ runActors {
 
   test("/_ssc-cluster/status shows leader=self when not draining"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {

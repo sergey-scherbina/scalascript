@@ -22,9 +22,8 @@ import java.util.concurrent.Executors
 class WsSubprotocolTest extends AnyFunSuite with Matchers:
 
   test("subprotocol negotiation — picks first server proto in client's list") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/free") { ws => () }
 onWebSocket("/proto", List(), List("v2.echo", "echo-protocol")) { ws => () }
@@ -41,7 +40,8 @@ onWebSocket("/proto", List(), List("v2.echo", "echo-protocol")) { ws => () }
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -71,8 +71,6 @@ onWebSocket("/proto", List(), List("v2.echo", "echo-protocol")) { ws => () }
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   /** Open a fresh socket, send a WS upgrade with optional

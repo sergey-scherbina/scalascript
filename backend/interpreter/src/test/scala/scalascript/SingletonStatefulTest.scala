@@ -13,7 +13,6 @@ class SingletonStatefulTest extends AnyFunSuite with Matchers:
 
   test("Singleton.useStateful bootstraps from initialState; saveState persists") {
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val repoRoot = os.pwd / os.up
     val src = """# T
 

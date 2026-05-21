@@ -271,9 +271,9 @@ Stages already designed and planned in `docs/spi-followups-plan.md`
     in InterpreterIntrinsics + JvmHttpIntrinsics + JsHttpIntrinsics.
     NativeContext extended.  std/http.ssc has Request/Response declarations.
   - **5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
-    extraction.**  **Next step.**  Same pattern as 5+/B, one package
-    per iteration.  Requires extending NativeContext or adding new hooks
-    per intrinsic group.
+    extraction.**  ✅ **LANDED**.  Same pattern as 5+/B; all 11
+    intrinsic families migrated to `.sscpkg` plugins (2026-05-21).
+    See `docs/intrinsics-migration.md`.
 
 ### Expected deflation
 
@@ -5654,14 +5654,22 @@ worth a separate fix when somebody has cycles.
 
 - ~~**`actors-process-info.ssc` JVM compile failures (Term.Match pattern-bind)**~~  ✓ **Landed (2026-05-20)** — `emitCpsExpr` `Term.Match` arm was not registering `Pat.Var` names in `anyBoundNames`, so `case Some(info) => info.links.length` emitted `info.links` directly on an `Any`-typed scrutinee binding, causing Scala compile errors. Fix: collect `Pat.Var` names per case arm and wrap with `withAnyBoundNames(...)` (mirrors the identical treatment in the `Term.PartialFunction` arm). Also fixed: `import actors.ProcessInfo` dropped via `sscDepModulePrefixes`; `_dispatch` Map key-access fallback for `processInfo`'s `Map[String,Any]` return; `object Overflow` added to runtime preamble; `_FlatMap((), senderK)` deferred resume in `_resumeBlockedSender` so `Block`-overflow sender continuation runs in its own scheduler turn (fixes `actors-bounded-mailbox.ssc` output ordering).
 
-- **WS test cross-suite isolation goes through a process-global
-  `WsRoutes` table + `WsTestLock` monitor.**  Works, but the lock
-  serialises ScalaTest's default parallel suite execution for every
-  `Ws*E2ETest`.  Cleaner fix would be a per-Interpreter routes
-  registry — `WsRoutes` becomes `class WsRoutes` owned by the
-  `Interpreter` instance, `WsProxy` consults the interpreter passed
-  in.  Half-day refactor.  Worth it if a third WS-touching suite
-  lands.
+- ~~**Intrinsics migration — all 11 in-tree families to `.sscpkg`.**~~
+  ✓ **Landed (2026-05-21)** — `HttpIntrinsics`, `WsIntrinsics`,
+  `AuthIntrinsics`, `CoreIntrinsics`, `JsonIntrinsics`, `RequestIntrinsics`,
+  `McpIntrinsics`, `OAuthIntrinsics`, `OAuthClientIntrinsics`,
+  `JdbcIntrinsics`, `FrontendIntrinsics` (UiPrimitives) all migrated to
+  per-family `.sscpkg` plugins.  Interpreter core ships with zero
+  domain-specific intrinsics; third-party plugins can now extend the table
+  without forking.  Full migration spec: `docs/intrinsics-migration.md`.
+
+- ~~**WS test cross-suite isolation goes through a process-global
+  `WsRoutes` table + `WsTestLock` monitor.**~~  ✓ **Landed (2026-05-21)** —
+  `WsRoutes` refactored from a global `object` to `final class WsRoutes`
+  owned by the `Interpreter` instance; `WsProxy` / `InterpreterHttpHandler`
+  / `TlsProxy` / `WebServer` all receive the per-interpreter instance.
+  `WsTestLock` deleted; 18 WS test files and 10 non-WS test files updated.
+  All 18 WS suites now run fully in parallel — no lock, no `WsRoutes.clear()`.
 
 - ~~**Scala compiler warnings in our own code.**~~  ✓ Landed (2026-05-19).
   All 13 warnings fixed across 8 files (5 scalameta `After_X_Y_Z` migrations
@@ -5673,10 +5681,10 @@ worth a separate fix when somebody has cycles.
   intentional mocks.  Future warnings now fail the build before they
   accumulate.
 
-- **`SupervisorTest` — 4 pre-existing failures.**  `OneForOne` permanent /
-  transient / temporary restart specs and the `MaxRestarts` budget spec
-  all fail on clean `main` (independent of the warnings cleanup).  Not
-  blocking landed work — worth a dedicated fix when somebody has cycles.
+- ~~**`SupervisorTest` — 4 pre-existing failures.**~~  ✓ **Landed (2026-05-21)** —
+  `OneForOne` permanent / transient / temporary restart specs and the
+  `MaxRestarts` budget spec all pass.  Fixed as part of the v1.22 distributed
+  tests + SupervisorTest track (Next wave item 1).
 
 ## CLI — native binary (GraalVM native-image) — BLOCKED (not doing this)
 
@@ -6304,7 +6312,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 
 | Pri | Item | Track | Effort | Depends on |
 |-----|------|-------|--------|------------|
-| 1 | Fix SupervisorTest + v1.22 distributed tests | A | 2 days | — |
+| 1 | ~~Fix SupervisorTest + v1.22 distributed tests~~ ✓ landed (2026-05-21) | A | 2 days | — |
 | 2 | Incremental type-checking | B | 1 week | AST cache ✓ |
 | 3 | LSP server (`ssc lsp`) | C | 2 weeks | — |
 | 4 | Interpreter split | D | 1 week | — (serial, risky) |

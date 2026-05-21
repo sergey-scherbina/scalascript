@@ -28,6 +28,10 @@ final class InterpreterHttpHandler(
     /** Reused for HTTP handler bodies AND WS user callbacks so global
      *  state mutations stay serial across both protocols. */
     wsExecutor:         java.util.concurrent.Executor,
+    /** Per-interpreter WS route table.  Passed in from the owning
+     *  `Interpreter` so concurrent interpreters in the same JVM each
+     *  consult their own isolated route set. */
+    wsRoutes:           WsRoutes,
     /** Fallback `.ssc` / static-asset renderer.  Called when no route
      *  matches `req.path`.  Returns `None` to fall through to a 404. */
     fallbackRenderer:   Request => Option[Response],
@@ -85,7 +89,7 @@ final class InterpreterHttpHandler(
   // onWebSocket handler via the shared executor. ─────────────────────
 
   override def onWsUpgrade(req: Request): WsUpgradeResult =
-    WsRoutes.matchPath(req.path) match
+    wsRoutes.matchPath(req.path) match
       case None =>
         WsUpgradeResult.Reject(404, "Not Found")
       case Some((entry, params)) =>

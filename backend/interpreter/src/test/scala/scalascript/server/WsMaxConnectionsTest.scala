@@ -18,12 +18,11 @@ import scala.concurrent.duration.*
 class WsMaxConnectionsTest extends AnyFunSuite with Matchers:
 
   test("setMaxWsConnections — 503 past the cap; slot reclaims on close") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     // Reset the global counters in case a previous test left them
     // populated (closeNow runs async and can lag).
     WsConnection.activeCount.set(0)
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 setMaxWsConnections(2)
 onWebSocket("/cap") { ws => () }
@@ -40,7 +39,8 @@ onWebSocket("/cap") { ws => () }
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -77,8 +77,6 @@ onWebSocket("/cap") { ws => () }
       // Reset globals for the next test in the suite.
       WsConnection.activeCount.set(0)
       WsConnection.maxActive.set(Int.MaxValue)
-      WsRoutes.clear()
-    }
   }
 
   private def handshake(port: Int, path: String): Socket =

@@ -14,7 +14,6 @@ class SingletonModuleTest extends AnyFunSuite with Matchers:
 
   test("Singleton.use spawns factory on self-elected leader; send delivers"):
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val repoRoot = TestPaths.repoRoot
     val src = """# T
 

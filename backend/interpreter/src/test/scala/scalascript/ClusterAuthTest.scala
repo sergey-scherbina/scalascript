@@ -13,7 +13,6 @@ class ClusterAuthTest extends AnyFunSuite with Matchers:
 
   private def runWithRoutes(src: String): Unit =
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val buf = java.io.ByteArrayOutputStream()
     Interpreter(java.io.PrintStream(buf)).run(Parser.parse(src))
 

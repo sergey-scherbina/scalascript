@@ -1,5 +1,9 @@
 # Intrinsics Migration — All In-Tree Families to `.sscpkg`
 
+Status: **COMPLETE** (2026-05-21) — All 11 intrinsic families migrated to
+`.sscpkg` plugins; interpreter core ships with zero domain-specific
+intrinsics. See `MILESTONES.md` for the landed entry.
+
 Companion to [`docs/plugin-architecture.md`](plugin-architecture.md).
 That document answers *how* a single new intrinsic family ships as a
 plugin.  This document answers *how we migrate every existing

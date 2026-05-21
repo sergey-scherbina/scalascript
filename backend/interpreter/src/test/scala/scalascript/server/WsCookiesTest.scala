@@ -19,9 +19,8 @@ import scala.concurrent.duration.*
 class WsCookiesTest extends AnyFunSuite with Matchers:
 
   test("ws.request.cookies — multi-cookie parsing") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/c") { ws =>
   ws.onMessage { _ =>
@@ -45,6 +44,7 @@ onWebSocket("/c") { ws =>
       internalAddr         = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor           = executor,
       log                  = devNull,
+      wsRoutes             = interp.wsRoutes,
       heartbeatIntervalMs  = 600_000L,
       heartbeatDeadAfterMs = 1_800_000L
     )
@@ -82,8 +82,6 @@ onWebSocket("/c") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readLine(in: java.io.InputStream): String =

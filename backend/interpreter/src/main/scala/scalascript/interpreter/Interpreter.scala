@@ -72,6 +72,10 @@ class Interpreter(
      *  synthetic requests. */
     headless: Boolean              = false,
     private[interpreter] val lockPath: Option[os.Path]      = None):
+  /** Per-interpreter WebSocket route table.  Owning this here means each
+   *  `Interpreter` instance has an isolated WS route set — no global lock
+   *  or `WsTestLock` synchronization required in tests. */
+  val wsRoutes: scalascript.server.WsRoutes = new scalascript.server.WsRoutes()
   private[interpreter] val globals      = mutable.Map.empty[String, Value]
   private[interpreter] val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Concrete type → declared parent type (from `extends` clause).  Used by
@@ -1449,14 +1453,17 @@ class Interpreter(
         _httpMaxRetries.set(maxAttempts); _httpRetryDelayMs.set(delayMs)
       override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
         if !Interpreter.this.headless then
-          scalascript.server.WebServer.start(port, dir, Interpreter.this.out, cert, key)
+          scalascript.server.WebServer.start(port, dir, Interpreter.this.out, cert, key,
+            wsRoutes = Interpreter.this.wsRoutes)
       override def startServer(port: Int, dir: String): Unit =
         if !Interpreter.this.headless then
-          scalascript.server.WebServer.start(port, dir, Interpreter.this.out)
+          scalascript.server.WebServer.start(port, dir, Interpreter.this.out,
+            wsRoutes = Interpreter.this.wsRoutes)
       override def startServerAsync(port: Int, dir: String): Unit =
         if !Interpreter.this.headless then
           Thread.ofVirtual().start { () =>
-            try scalascript.server.WebServer.start(port, dir, Interpreter.this.out)
+            try scalascript.server.WebServer.start(port, dir, Interpreter.this.out,
+              wsRoutes = Interpreter.this.wsRoutes)
             catch case _: Throwable => ()
           }
       override def stopServer(): Unit =
@@ -1465,10 +1472,10 @@ class Interpreter(
         _root_.scalascript.server.jvm._wsMaxActive.set(n)
       override def registerWsRoute(path: String, origins: List[String], protocols: List[String],
                                     maxConn: Int, maxRate: Int, handler: Any): Unit =
-        scalascript.server.WsRoutes.register(
+        Interpreter.this.wsRoutes.register(
           path, handler.asInstanceOf[Value], Interpreter.this, origins, protocols, maxConn, maxRate)
       override def registerWsAuthRoute(path: String, authFn: Any, handler: Any): Unit =
-        scalascript.server.WsRoutes.register(
+        Interpreter.this.wsRoutes.register(
           path, handler.asInstanceOf[Value], Interpreter.this, auth = Some(authFn.asInstanceOf[Value]))
       override def wsConnectSync(url: String, headers: Map[String, String],
                                   protocols: List[String], handler: Any): Unit =
@@ -2191,7 +2198,7 @@ class Interpreter(
         } // close Thread.ofVirtual().start
         Pure(Value.UnitV)
       })
-      scalascript.server.WsRoutes.register(
+      wsRoutes.register(
         path      = "/_ssc-actors",
         handler   = peersRoute,
         interp    = this,

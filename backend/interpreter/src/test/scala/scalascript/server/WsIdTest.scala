@@ -17,9 +17,6 @@ import java.util.concurrent.Executors
 class WsIdTest extends AnyFunSuite with Matchers:
 
   test("ws.id — two consecutive upgrades get distinct UUID-v4 strings") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-
     // Capture the interpreter's println output — that's how user code
     // surfaces `ws.id` to the test (no public API on Interpreter for
     // registering ad-hoc natives in-test).
@@ -50,7 +47,8 @@ onWebSocket("/id") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val publicPort = proxy.localPort
@@ -110,6 +108,4 @@ onWebSocket("/id") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }

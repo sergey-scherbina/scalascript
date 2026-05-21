@@ -10,7 +10,6 @@ class ShardModuleTest extends AnyFunSuite with Matchers:
 
   private def runScript(src: String): List[String] =
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val repoRoot = os.pwd / os.up
     val buf = java.io.ByteArrayOutputStream()
     Interpreter(java.io.PrintStream(buf), baseDir = Some(repoRoot)).run(Parser.parse(src))

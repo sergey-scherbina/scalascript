@@ -19,8 +19,6 @@ import scala.concurrent.duration.*
 class WsRequestTest extends AnyFunSuite with Matchers:
 
   test("ws.request — headers, params, query reach the handler") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     val script = """# Test
 ```scala
 onWebSocket("/room/:room") { ws =>
@@ -33,7 +31,8 @@ onWebSocket("/room/:room") { ws =>
 }
 ```
 """
-    Interpreter().run(Parser.parse(script))
+    val interp = Interpreter()
+    interp.run(Parser.parse(script))
 
     val executor = Executors.newSingleThreadExecutor()
     val internal = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -46,7 +45,8 @@ onWebSocket("/room/:room") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -83,8 +83,6 @@ onWebSocket("/room/:room") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readLine(in: java.io.InputStream): String =

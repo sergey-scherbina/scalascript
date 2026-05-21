@@ -18,9 +18,8 @@ import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, Executors, T
 class WsRoomTest extends AnyFunSuite with Matchers:
 
   test("WsRoom — add / broadcast / remove via onClose") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 val room = WsRoom()
 onWebSocket("/room") { ws =>
@@ -46,6 +45,7 @@ onWebSocket("/room") { ws =>
       internalAddr         = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor           = executor,
       log                  = devNull,
+      wsRoutes             = interp.wsRoutes,
       heartbeatIntervalMs  = 600_000L,
       heartbeatDeadAfterMs = 1_800_000L
     )
@@ -104,8 +104,6 @@ onWebSocket("/room") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def handshake(port: Int): Socket =

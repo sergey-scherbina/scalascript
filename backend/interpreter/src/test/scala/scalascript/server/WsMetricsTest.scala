@@ -20,8 +20,6 @@ import scala.concurrent.duration.*
 class WsMetricsTest extends AnyFunSuite with Matchers:
 
   test("metrics() — upgrade + message round-trip + 404 increments") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     Metrics.reset()
 
     val captured = ByteArrayOutputStream()
@@ -46,7 +44,8 @@ onWebSocket("/m") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -138,7 +137,5 @@ onWebSocket("/m") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
       Metrics.reset()
-    }
   }

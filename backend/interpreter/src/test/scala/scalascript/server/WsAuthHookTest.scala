@@ -18,8 +18,6 @@ import java.util.concurrent.Executors
 class WsAuthHookTest extends AnyFunSuite with Matchers:
 
   test("onWebSocketAuth — accepts valid bearer, rejects missing / wrong with 401") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     WsConnection.activeCount.set(0)
     WsConnection.maxActive.set(Int.MaxValue)
 
@@ -50,7 +48,8 @@ onWebSocketAuth("/admin", auth) { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = System.err
+      log          = System.err,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -77,8 +76,6 @@ onWebSocketAuth("/admin", auth) { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def attempt(port: Int, path: String, auth: Option[String]): (String, Map[String, String]) =

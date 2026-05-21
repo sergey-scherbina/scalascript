@@ -1,6 +1,6 @@
 package scalascript.bench
 
-import scalascript.server.{WsProxy, WsRoutes, WsConnection, WsFraming}
+import scalascript.server.{WsProxy, WsConnection, WsFraming}
 import scalascript.parser.Parser
 import scalascript.interpreter.Interpreter
 
@@ -55,11 +55,11 @@ private def _spawnVirtualOrDaemon(body: () => Unit): Thread =
   println(s"  ulimit -n=$ulimit · in-process server+client = 2 fd per connection")
 
   // ─── Server ─────────────────────────────────────────────────────
-  WsRoutes.clear()
   WsConnection.maxActive.set(Int.MaxValue)
   WsConnection.activeCount.set(0)
 
-  Interpreter().run(Parser.parse("""# bench
+  val interp = Interpreter()
+  interp.run(Parser.parse("""# bench
 ```scala
 var clients: List[WebSocket] = List()
 onWebSocket("/bench") { ws =>
@@ -86,6 +86,7 @@ onWebSocket("/bench") { ws =>
     internalAddr         = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
     wsExecutor           = executor,
     log                  = devNull,
+    wsRoutes             = interp.wsRoutes,
     heartbeatIntervalMs  = 600_000L,
     heartbeatDeadAfterMs = 1_800_000L
   )

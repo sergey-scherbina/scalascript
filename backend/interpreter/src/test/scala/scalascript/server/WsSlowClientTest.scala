@@ -29,8 +29,6 @@ import scala.concurrent.duration.*
 class WsSlowClientTest extends AnyFunSuite with Matchers:
 
   test("broadcast — slow peer does not stall the rest") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     val script = """# Test
 ```scala
 var clients: List[WebSocket] = List()
@@ -46,7 +44,8 @@ onWebSocket("/bus") { ws =>
 }
 ```
 """
-    Interpreter().run(Parser.parse(script))
+    val interp = Interpreter()
+    interp.run(Parser.parse(script))
 
     val executor = Executors.newSingleThreadExecutor()
     val internal = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -59,7 +58,8 @@ onWebSocket("/bus") { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -123,8 +123,6 @@ onWebSocket("/bus") { ws =>
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────────

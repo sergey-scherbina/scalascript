@@ -21,7 +21,8 @@ object TlsProxy:
       client:       Socket,
       internalPort: Int,
       wsExecutor:   Executor,
-      log:          java.io.PrintStream
+      log:          java.io.PrintStream,
+      wsRoutes:     WsRoutes
   ): Unit =
     try
       client.setKeepAlive(true)
@@ -32,7 +33,7 @@ object TlsProxy:
 
       val parsed = HttpHelpers.parseHttpHead(head)
       if parsed.isUpgradeWebSocket then
-        handleWsUpgrade(client, cout, parsed.path, parsed.rawQuery, parsed.headers, wsExecutor, log)
+        handleWsUpgrade(client, cout, parsed.path, parsed.rawQuery, parsed.headers, wsExecutor, log, wsRoutes)
       else
         forwardHttp(client, cin, cout, head, internalPort)
     catch case _: Throwable => try client.close() catch case _: Throwable => ()
@@ -49,9 +50,10 @@ object TlsProxy:
       rawQuery:   String,
       headers:    Map[String, String],
       wsExecutor: Executor,
-      log:        java.io.PrintStream
+      log:        java.io.PrintStream,
+      wsRoutes:   WsRoutes
   ): Unit =
-    WsRoutes.matchPath(path) match
+    wsRoutes.matchPath(path) match
       case None =>
         cout.write(httpResp(404, "Not Found", s"No WebSocket route for $path"))
         cout.flush(); client.close()

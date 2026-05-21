@@ -18,14 +18,13 @@ import scala.concurrent.duration.*
 class WsRateLimitTest extends AnyFunSuite with Matchers:
 
   test("maxMessagesPerSec — flooding past cap closes the connection with 1008") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     WsConnection.activeCount.set(0)
     WsConnection.maxActive.set(Int.MaxValue)
 
     // cap = 5 msgs/sec; we send 20 in a tight loop and expect a
     // server-initiated Close with status 1008.
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/r", List(), List(), 0, 5) { ws =>
   ws.onMessage { _ => () }
@@ -43,7 +42,8 @@ onWebSocket("/r", List(), List(), 0, 5) { ws =>
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -111,6 +111,4 @@ onWebSocket("/r", List(), List(), 0, 5) { ws =>
       executor.shutdownNow()
       WsConnection.activeCount.set(0)
       WsConnection.maxActive.set(Int.MaxValue)
-      WsRoutes.clear()
-    }
   }

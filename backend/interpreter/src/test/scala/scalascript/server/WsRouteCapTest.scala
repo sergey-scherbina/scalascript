@@ -20,12 +20,11 @@ import scala.concurrent.duration.*
 class WsRouteCapTest extends AnyFunSuite with Matchers:
 
   test("per-route maxConnections — cap=2 admits two, refuses a third, recovers on close") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
     WsConnection.activeCount.set(0)
     WsConnection.maxActive.set(Int.MaxValue)
 
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/chat", List(), List(), 2) { ws => () }
 onWebSocket("/admin") { ws => () }
@@ -42,7 +41,8 @@ onWebSocket("/admin") { ws => () }
       publicPort   = 0,
       internalAddr = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor   = executor,
-      log          = devNull
+      log          = devNull,
+      wsRoutes     = interp.wsRoutes
     )
     proxy.start()
     val port = proxy.localPort
@@ -67,7 +67,7 @@ onWebSocket("/admin") { ws => () }
       a.close()
       // Wait for the per-route counter to recover.
       val deadline = System.nanoTime() + 3.seconds.toNanos
-      val chatEntry = WsRoutes.all.find(_.path == "/chat").get
+      val chatEntry = interp.wsRoutes.all.find(_.path == "/chat").get
       while chatEntry.activeCount.get > 1 && System.nanoTime() < deadline do Thread.sleep(20)
       val e = handshake(port, "/chat"); sockets += e
       readStatus(e) should startWith("HTTP/1.1 101")
@@ -78,8 +78,6 @@ onWebSocket("/admin") { ws => () }
       executor.shutdownNow()
       WsConnection.activeCount.set(0)
       WsConnection.maxActive.set(Int.MaxValue)
-      WsRoutes.clear()
-    }
   }
 
   private def handshake(port: Int, path: String): Socket =

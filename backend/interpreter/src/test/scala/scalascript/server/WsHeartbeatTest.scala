@@ -21,9 +21,8 @@ import scala.concurrent.duration.*
 class WsHeartbeatTest extends AnyFunSuite with Matchers:
 
   test("heartbeat — server sends Ping; missing Pong triggers drop") {
-    WsTestLock.synchronized {
-    WsRoutes.clear()
-    Interpreter().run(Parser.parse("""# Test
+    val interp = Interpreter()
+    interp.run(Parser.parse("""# Test
 ```scala
 onWebSocket("/hb") { ws => () }
 ```
@@ -40,6 +39,7 @@ onWebSocket("/hb") { ws => () }
       internalAddr         = InetSocketAddress("127.0.0.1", internal.getAddress.getPort),
       wsExecutor           = executor,
       log                  = devNull,
+      wsRoutes             = interp.wsRoutes,
       heartbeatIntervalMs  = 100L,
       heartbeatDeadAfterMs = 400L
     )
@@ -97,8 +97,6 @@ onWebSocket("/hb") { ws => () }
       proxy.stop()
       internal.stop(0)
       executor.shutdownNow()
-      WsRoutes.clear()
-    }
   }
 
   private def readLine(in: java.io.InputStream): String =

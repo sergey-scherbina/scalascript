@@ -34,6 +34,10 @@ final class WsProxy(
     internalAddr: InetSocketAddress,
     wsExecutor:   Executor,
     log:          java.io.PrintStream,
+    /** Per-interpreter WS route table.  Each `Interpreter` owns one
+     *  `WsRoutes` instance; passing it here isolates this proxy's route
+     *  lookups from any other interpreter running in the same JVM. */
+    wsRoutes:     WsRoutes,
     /** Heartbeat tuning forwarded to every accepted [[WsConnection]].
      *  Defaults match the production policy (30 s ping, 90 s dead-after);
      *  tests may shrink both to assert the round-trip in seconds. */
@@ -117,7 +121,7 @@ final class WsProxy(
       rawQuery: String,
       headers:  Map[String, String]
   ): Unit =
-    WsRoutes.matchPath(path) match
+    wsRoutes.matchPath(path) match
       case None =>
         try
           cout.write(WsHandshake.rejectResponse(404, "Not Found"))

@@ -13,7 +13,6 @@ class ClusterMetricsPromTest extends AnyFunSuite with Matchers:
 
   test("startNode registers /_ssc-cluster/metrics-prom returning Prom text") {
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
@@ -52,7 +51,6 @@ runActors {
 
   test("metric names with illegal chars get sanitized") {
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
@@ -77,7 +75,6 @@ runActors {
 
   test("token-gated 401 when SSC_CLUSTER_TOKEN is set") {
     scalascript.server.Routes.clear()
-    scalascript.server.WsRoutes.clear()
     val src = """# T
 ```scalascript
 runActors {
