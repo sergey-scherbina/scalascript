@@ -280,6 +280,24 @@ class JvmGen(
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
       sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
 
+    // SLF4J simple binding — silences the StaticLoggerBinder warning from
+    // transitive deps (commonmark etc.).  Configured to WARN+stderr by default;
+    // any -Dorg.slf4j.simpleLogger.* passed to scala-cli takes precedence.
+    sb.append("""//> using dep "org.slf4j:slf4j-simple:1.7.36"""" + "\n")
+    sb.append(
+      """|locally {
+         |  def _slf4jDefault(k: String, v: String): Unit =
+         |    if System.getProperty(k) == null then System.setProperty(k, v)
+         |  _slf4jDefault("org.slf4j.simpleLogger.defaultLogLevel",  "warn")
+         |  _slf4jDefault("org.slf4j.simpleLogger.showDateTime",     "false")
+         |  _slf4jDefault("org.slf4j.simpleLogger.showThreadName",   "false")
+         |  _slf4jDefault("org.slf4j.simpleLogger.showLogName",      "false")
+         |  _slf4jDefault("org.slf4j.simpleLogger.showShortLogName", "false")
+         |  _slf4jDefault("org.slf4j.simpleLogger.logFile",          "System.err")
+         |}
+         |""".stripMargin
+    )
+
     sb.append(preamble)
     sb.append(commonRuntime)
     sb.append(generatorRuntime)

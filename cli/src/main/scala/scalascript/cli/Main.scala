@@ -22,14 +22,14 @@ import scalascript.codegen.SparkSubmit
 import scalascript.codegen.SparkBackend
 
 @main def ssc(rawArgs: String*): Unit =
-  // -logs.key=value → System.setProperty("org.slf4j.simpleLogger.key", "value").
+  // --logs.key=value → System.setProperty("org.slf4j.simpleLogger.key", "value").
   // Must run first, before any library touches SLF4J (the SimpleLogger reads
   // system properties once, on first use).  Shorthand for the full
   // -Dorg.slf4j.simpleLogger.key=value JVM flag.
-  // Examples:  -logs.defaultLogLevel=debug   -logs.log.org.eclipse.jetty=info
-  val (logFlags, filteredArgs) = rawArgs.partition(_.startsWith("-logs."))
+  // Examples:  --logs.defaultLogLevel=debug   --logs.log.org.eclipse.jetty=info
+  val (logFlags, filteredArgs) = rawArgs.partition(_.startsWith("--logs."))
   logFlags.foreach { flag =>
-    val kv  = flag.drop("-logs.".length)
+    val kv  = flag.drop("--logs.".length)
     val eq  = kv.indexOf('=')
     if eq > 0 then
       System.setProperty(s"org.slf4j.simpleLogger.${kv.take(eq)}", kv.drop(eq + 1))
@@ -461,11 +461,11 @@ def printUsage(): Unit =
     |  (any other scala-cli package flag is forwarded as-is)
     |
     |Logging flags (prefix alias for -Dorg.slf4j.simpleLogger.<key>=<value>):
-    |  -logs.defaultLogLevel=<level>   Set root log level (warn|info|debug|trace; default: warn)
-    |  -logs.log.<name>=<level>        Set level for a specific logger, e.g. -logs.log.org.eclipse.jetty=info
-    |  -logs.showDateTime=true         Include timestamps in log output
-    |  -logs.dateTimeFormat=HH:mm:ss   Timestamp format (java.text.SimpleDateFormat pattern)
-    |  Any -logs.KEY=VALUE maps to -Dorg.slf4j.simpleLogger.KEY=VALUE
+    |  --logs.defaultLogLevel=<level>   Set root log level (warn|info|debug|trace; default: warn)
+    |  --logs.log.<name>=<level>        Set level for a specific logger, e.g. --logs.log.org.eclipse.jetty=info
+    |  --logs.showDateTime=true         Include timestamps in log output
+    |  --logs.dateTimeFormat=HH:mm:ss   Timestamp format (java.text.SimpleDateFormat pattern)
+    |  Any --logs.KEY=VALUE maps to -Dorg.slf4j.simpleLogger.KEY=VALUE
     |
     |Examples:
     |  ssc examples/hello.ssc
