@@ -65,6 +65,10 @@ final class CustomFrameworkBackend extends FrontendFrameworkSpi:
        |<head>
        |  <meta charset="UTF-8">
        |  <title>ScalaScript SPA</title>
+       |  <style>
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .ssc-spin { animation: spin 0.8s linear infinite; }
+  </style>
        |</head>
        |<body>
        |  <div id="app"></div>
