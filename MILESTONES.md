@@ -6356,7 +6356,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 2 | ~~Incremental type-checking~~ ✓ landed (2026-05-19) | B | 1 week | AST cache ✓ |
 | 3 | ~~LSP server (`ssc lsp`)~~ ✓ landed Phase 1+2 (2026-05-20) | C | 2 weeks | — |
 | 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
-| 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
+| 4b | ~~Interpreter lazy loading (Phase 2)~~ ✓ landed (2026-05-21) | D | 1 week | Phase 1 ✓ |
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
 | 6 | ~~`ssc debug` (DAP debugger) Phases 1–5~~ ✓ all landed (2026-05-21) — TCP skeleton, framing, breakpoints, step execution, variable inspection, stack frames; 16 integration tests | C | 2 weeks | Interpreter split |
 | 7 | ~~Numeric value specialization~~ ✓ landed (2026-05-21) — `Value.intV()` pool (−128..1024) + `Value.True`/`Value.False` pre-cached; arithmetic hot-paths in DispatchRuntime/EvalRuntime use pooled values | E | 1 week | Interpreter split |
@@ -9612,3 +9612,36 @@ stale-while-revalidate, and push-notification setup are deferred to Phase 2.
     navigator.serviceWorker.register('/sw.js');
 </script>
 ```
+
+## v1.33 — Interpreter lazy loading Phase 2 ✓ Complete (2026-05-21)
+
+Deferred `BackendRegistry.inProcess` (ServiceLoader scan) until first use,
+so scripts that never call a plugin (e.g. `hello.ssc`) skip the scan entirely.
+
+### Benchmark
+
+| Build | hello.ssc cold start |
+|-------|---------------------|
+| main (eager) | ~0.35 s |
+| v1.33 (lazy) | ~0.31 s |
+
+### Changed files
+
+- **`BuiltinsRuntime.scala`**:
+  - Removed eager `BackendRegistry.inProcess` scan from `initBuiltins`;
+    only core (`InterpreterIntrinsics`) installed eagerly.
+  - `globalOrStub` now returns a deferred proxy `NativeFnV` that resolves
+    the plugin global at call time (triggering `ensurePluginsLoaded` if needed),
+    instead of storing a dead stub at construction time.
+  - New `setupPluginCompanions(interp)` sets up `Db` / `DriverManager`
+    companions after plugin intrinsics are registered.
+- **`Interpreter.scala`**:
+  - `private[interpreter] var _pluginsLoaded: Boolean` flag.
+  - `private[interpreter] def ensurePluginsLoaded(): Unit` — idempotent;
+    runs `BackendRegistry.inProcess`, calls `installNativeIntrinsics`,
+    then `setupPluginCompanions`.
+- **`EvalRuntime.scala`** — `Term.Name` case: on miss, calls `ensurePluginsLoaded()`
+  before reporting `Undefined`.
+- **`StatRuntime.scala`** — `extern def` case: if the intrinsic name is not yet
+  in globals, triggers `ensurePluginsLoaded()` so child interpreter exports
+  include plugin-provided intrinsics.

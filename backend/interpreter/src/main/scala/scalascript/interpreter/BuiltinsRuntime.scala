@@ -11,61 +11,45 @@ private[interpreter] object BuiltinsRuntime:
   def initBuiltins(interp: Interpreter): Unit =
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       interp.globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
-    // Safe lookup: returns the global if present, or a stub that throws a
-    // "plugin not loaded" error at call time.  Used for plugin-provided globals
-    // that may not be on the classpath (e.g. in minimal test environments).
+    // Deferred lookup: always returns a proxy NativeFnV that resolves the real
+    // global at call time.  This supports Phase 2 lazy loading — plugin intrinsics
+    // are not registered during initBuiltins, so we cannot look them up eagerly.
+    // On first call, if the global is still missing, ensurePluginsLoaded() runs
+    // to give the ServiceLoader a chance to register it.
     def globalOrStub(name: String): Value =
-      interp.globals.getOrElse(name,
-        Value.NativeFnV(name, _ => throw InterpretError(s"'$name' requires a plugin that is not loaded"))
+      Value.NativeFnV(name, args =>
+        interp.globals.get(name) match
+          case Some(fn) => interp.callValue(fn, args, Map.empty)
+          case None if interp._pluginsLoaded =>
+            throw InterpretError(s"'$name' requires a plugin that is not loaded")
+          case None =>
+            interp.ensurePluginsLoaded()
+            interp.globals.get(name) match
+              case Some(fn) => interp.callValue(fn, args, Map.empty)
+              case None     => throw InterpretError(s"'$name' requires a plugin that is not loaded")
       )
 
-    // println / print / route / serve / stop now live in InterpreterIntrinsics
-    // (Stage 5+/B); installNativeIntrinsics routes them through Backend.intrinsics.
-    // Plugin intrinsics (loaded via ServiceLoader) are merged in at the right side.
-    // Only NativeImpl entries are relevant for the interpreter; RuntimeCall/InlineCode
-    // entries from code-generating backends on the classpath are ignored so they
-    // cannot accidentally shadow a bundled NativeImpl.
-    import scalascript.backend.spi.NativeImpl
-    val pluginNativeImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
-      scalascript.compiler.plugin.BackendRegistry.inProcess
-        .iterator.flatMap(_.intrinsics)
-        .collect { case entry @ (_, _: NativeImpl) => entry }
-        .toMap
-    interp.installNativeIntrinsics(InterpreterIntrinsics ++ pluginNativeImpls)
+    // Phase 2 lazy loading: install only the built-in interpreter intrinsics
+    // (Console.println, assert, etc.) eagerly.  Plugin intrinsics (HTTP, SQL,
+    // auth, …) are installed on first use via Interpreter.ensurePluginsLoaded()
+    // so scripts like `hello.ssc` that never call a plugin never pay the
+    // ServiceLoader scan cost.
+    interp.installNativeIntrinsics(InterpreterIntrinsics)
 
-    // Stage 5+/B.3 — Console companion object mirrors math / Response companions.
+    // Stage 5+/B.3 — Console companion object.
     // Normalize rewrites bare `println` → `Console.println`; the companion lets
     // user code also call `Console.println(...)` explicitly without the rewrite.
     interp.globals("Console") = Value.InstanceV("Console", Map(
       "println" -> interp.globals("Console.println"),
       "print"   -> interp.globals("Console.print")
     ))
-    // Backward-compat aliases: bare `println` / `print` still work in code that
-    // bypasses the Normalize pass (tests, runSnippet, direct Interpreter.run calls).
+    // Backward-compat aliases for tests / runSnippet callers that bypass Normalize.
     interp.globals("println") = interp.globals("Console.println")
     interp.globals("print")   = interp.globals("Console.print")
 
-    // v1.26 — DriverManager companion so user code can write
-    // `DriverManager.getConnection("jdbc:h2:mem:test")` directly (resolves
-    // through the Select-on-interp.globals path).  The actual native impl is
-    // registered as `QualifiedName("DriverManager.getConnection")` via
-    // `JdbcIntrinsics`; the companion just routes the name lookup.
-    interp.globals.get("DriverManager.getConnection").foreach { impl =>
-      interp.globals("DriverManager") = Value.InstanceV("DriverManager", Map(
-        "getConnection" -> impl
-      ))
-    }
-
-    // Db companion object — dynamic SQL from route handlers.
-    // `Db.query(dbName, sql, params)` and `Db.execute(dbName, sql, params)`
-    // are registered via JdbcIntrinsics; the companion routes name lookup.
-    (interp.globals.get("Db.query"), interp.globals.get("Db.execute")) match
-      case (Some(queryFn), Some(executeFn)) =>
-        interp.globals("Db") = Value.InstanceV("Db", Map(
-          "query"   -> queryFn,
-          "execute" -> executeFn,
-        ))
-      case _ => ()
+    // Plugin-provided companion objects (Db, DriverManager) are set up in
+    // setupPluginCompanions, called from ensurePluginsLoaded after the plugin
+    // intrinsics have been registered.
 
     // assert / require / nanoTime / getenv / doc / render / Some / List now
     // live in CoreIntrinsics (Stage 5+/E); installNativeIntrinsics routes them.
@@ -605,6 +589,24 @@ private[interpreter] object BuiltinsRuntime:
         Pure(Value.BoolV(java.nio.file.Files.exists(java.nio.file.Paths.get(path))))
       case _ => throw InterpretError("exists(path: String): Boolean")
     })
+
+  /** Install plugin-provided companion objects (Db, DriverManager) after their
+   *  NativeImpl intrinsics have been registered via `ensurePluginsLoaded`.
+   *  Must be called after `installNativeIntrinsics(pluginImpls)` so the
+   *  underlying globals are present. */
+  def setupPluginCompanions(interp: Interpreter): Unit =
+    interp.globals.get("DriverManager.getConnection").foreach { impl =>
+      interp.globals("DriverManager") = Value.InstanceV("DriverManager", Map(
+        "getConnection" -> impl
+      ))
+    }
+    (interp.globals.get("Db.query"), interp.globals.get("Db.execute")) match
+      case (Some(queryFn), Some(executeFn)) =>
+        interp.globals("Db") = Value.InstanceV("Db", Map(
+          "query"   -> queryFn,
+          "execute" -> executeFn,
+        ))
+      case _ => ()
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

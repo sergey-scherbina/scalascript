@@ -49,9 +49,18 @@ private[interpreter] object EvalRuntime:
         interp.litCache.put(lit, c)
         c
 
-    // Name lookup: local env first, then interp.globals
+    // Name lookup: local env first, then interp.globals.
+    // Phase 2 lazy loading: on first miss we trigger the plugin ServiceLoader
+    // scan (ensurePluginsLoaded) so scripts like `hello.ssc` that never touch
+    // a plugin never pay the cost.  After plugins load we re-check globals; if
+    // still missing, the name is genuinely undefined.
     case Term.Name(name) =>
-      Pure(env.getOrElse(name, interp.globals.getOrElse(name, interp.located(s"Undefined: $name"))))
+      val v = env.getOrElse(name, interp.globals.getOrElse(name, null))
+      if v != null then Pure(v)
+      else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
+      else
+        interp.ensurePluginsLoaded()
+        Pure(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
 
     // Special form: handle(body) { case Eff.op(args, resume) => ... }
     case Term.Apply.After_4_6_0(

@@ -32,7 +32,12 @@ private[interpreter] object StatRuntime:
       // Skip the def so the runtime keeps the intrinsic binding
       // (otherwise our FunV would shadow it with a body that fails
       // when called — `__extern__` is undefined).
-      ()
+      // Phase 2 lazy loading: if the intrinsic isn't installed yet (plugin not
+      // loaded), trigger ensurePluginsLoaded() now.  This covers child
+      // interpreters used to process import files whose exported globals must
+      // include plugin-provided intrinsics even when no Term.Name lookup fires.
+      if !interp.globals.contains(d.name.value) && !interp._pluginsLoaded then
+        interp.ensurePluginsLoaded()
 
     case d: Defn.Def =>
       val allClauses      = d.paramClauseGroups.flatMap(_.paramClauses)

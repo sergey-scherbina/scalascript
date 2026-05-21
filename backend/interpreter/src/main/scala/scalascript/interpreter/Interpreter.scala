@@ -119,6 +119,24 @@ class Interpreter(
   // by parametric factory registrations.
   private[interpreter] val givenCandidateCount = mutable.Map.empty[String, Int]
   private[interpreter] var mainCalled   = false
+  // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
+  private[interpreter] var _pluginsLoaded = false
+
+  /** Load plugin intrinsics on first use.  Called from EvalRuntime when a
+   *  Term.Name lookup misses both env and globals — at that point we may have
+   *  a plugin-provided name that hasn't been registered yet.  Idempotent. */
+  private[interpreter] def ensurePluginsLoaded(): Unit =
+    if _pluginsLoaded then return
+    _pluginsLoaded = true
+    import scalascript.backend.spi.NativeImpl
+    val pluginImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
+      scalascript.compiler.plugin.BackendRegistry.inProcess
+        .iterator.flatMap(_.intrinsics)
+        .collect { case entry @ (_, _: NativeImpl) => entry }
+        .toMap
+    installNativeIntrinsics(pluginImpls)
+    BuiltinsRuntime.setupPluginCompanions(this)
+
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private[interpreter] val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)
   private inline def placeholderIdx: Int          = _phIdxTL.get()
