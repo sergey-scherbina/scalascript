@@ -409,15 +409,31 @@ No "accumulate and push at the end of the sprint". Each piece gets its
 own CI run; the user sees progress item-by-item and can redirect after
 any of them.
 
-### 4. After merge — delete worktree + branch
+### 4. After merge — delete worktree + branch immediately
+
+**This is mandatory, not optional.** The moment work is merged and pushed
+to `origin/main`, clean up:
 
 ```bash
-ExitWorktree(action: "remove")          # or: git worktree remove <path>
+# From inside the worktree:
+git push origin main                              # if not already pushed
+cd /Users/sergiy/work/my/scalascript             # go to main repo
+git worktree remove --force <path-to-worktree>   # remove working dir
+git branch -D <branch-name>                      # delete local branch
+git push origin --delete <branch-name>           # delete remote branch (if pushed)
+```
+
+Or equivalently via the tool:
+```bash
+ExitWorktree(action: "remove")
 git branch -D feature/<name>
-git push origin --delete feature/<name>
 ```
 
 No dangling feature branches. The worktree branch dies with the merge.
+
+**Why this matters:** orphaned worktree directories accumulate on disk,
+pollute `git worktree list`, and mislead the next session into thinking
+work is still in progress.  A clean repo state is part of "done".
 
 ### 5. Exception — large features with intermediate broken state
 
