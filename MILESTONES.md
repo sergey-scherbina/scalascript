@@ -6324,7 +6324,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
 | 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
-| 6 | `ssc debug` (DAP debugger) — spec: `docs/dap-debugger.md`, milestone: v1.29 | C | 2 weeks | Interpreter split |
+| 6 | ~~`ssc debug` (DAP debugger) Phase 1~~ ✓ landed (2026-05-21) — `backendDap` TCP skeleton, `DapProtocol` framing, `DapSession` lifecycle (initialize/launch/disconnect), `DebugHooks`/`BreakpointRegistry` in interpreter, `ssc debug` CLI command; phases 2-5 pending | C | 2 weeks | Interpreter split |
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | ~~**Package registry**~~ ✓ landed (2026-05-21) — `pkg:` URI in ImportResolver + `ssc install` shortcut; `BackendRegistry.findInstalledPkg` + `loadAndExtract`; auto-download via LocalRegistry | G | 2 weeks | — |

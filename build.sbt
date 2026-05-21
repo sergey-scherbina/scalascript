@@ -511,6 +511,21 @@ lazy val backendInterpreter = project
     }.taskValue
   )
 
+// DAP debugger backend — Phase 1 TCP skeleton (docs/dap-debugger.md).
+// Provides Content-Length framing, DapServer TCP accept loop, and DapSession
+// lifecycle handler (initialize / launch / configurationDone / disconnect).
+// cli depends on this % Test only so the DAP classes are on cli's test CP;
+// DebugCommand links against it at compile time via the normal dependency.
+lazy val backendDap = project
+  .in(file("backend/dap"))
+  .dependsOn(backendInterpreter, ir)
+  .settings(
+    name := "scalascript-backend-dap",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // Apache Spark backend — Phase 1 (local SparkSession).
 // SparkGen is a pure code-emitter (generates Scala 3 source strings) — it
 // does not import any Spark classes itself.  Spark JARs are therefore NOT
@@ -566,7 +581,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -1881,7 +1896,7 @@ lazy val root = project
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
-    backendScalaSource, backendHtml, backendCss, backendSpark,
+    backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,

@@ -106,6 +106,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "fmt"                 => fmtCommand(args.tail)
     case "profile"             => profileCommand(args.tail)
     case "lsp"                 => lspCommand(args.tail)
+    case "debug"               => DebugCommand.run(args.tail)
     case "cluster"             => clusterCommand(args.tail)
     case "oauth"               => OAuthCli.run(args.tail)
     case "help" | "--help" | "-h" => printUsage()
