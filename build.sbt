@@ -586,6 +586,12 @@ lazy val cli = project
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "pprint" % "0.9.6",
+      // SLF4J simple binding — silences the "Failed to load StaticLoggerBinder"
+      // warning printed by the SLF4J 1.7.x API that arrives transitively (e.g.
+      // via commonmark).  Logs to stderr at WARN+ by default; tunable via
+      // simplelogger.properties on the classpath or system properties at runtime
+      // (e.g. -Dorg.slf4j.simpleLogger.defaultLogLevel=debug).
+      "org.slf4j" % "slf4j-simple" % "1.7.36",
       // v2.0 Phase 3 — in-process Scala 3 compiler driver
       // (`scalascript.cli.Scala3Driver`).  Replaces the per-module
       // `scala-cli compile` subprocess (~1 s JVM startup × N modules) with
