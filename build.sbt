@@ -465,7 +465,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -748,6 +748,30 @@ lazy val clientPostgres = project
       "org.postgresql"     %  "postgresql"      % "42.7.3",
       "com.zaxxer"         %  "HikariCP"        % "5.1.0",
       "com.h2database"     %  "h2"              % "2.2.224"   % Test,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// v1.28 — Config system runtime.  Spec: docs/config-system.md.
+//
+// Standalone module — no dependency on ir/spi/core — so the CLI,
+// backendInterpreter, and all backend codegen modules can depend on it
+// without pulling in the full compiler frontend.
+//
+// Responsibilities:
+//   ConfigValue   — unified value ADT (Str/Num/Bool/Null/Lst/Map)
+//   ConfigParser  — YAML + JSON → ConfigValue (snakeyaml)
+//   SubstitutionEngine — ${scheme:ref}, ${env:VAR | default}, ${?VAR}
+//   MergeEngine   — priority-based multi-source merge
+//   ConfigLoader  — ties all of the above together
+lazy val backendConfigRuntime = project
+  .in(file("backend/config-runtime"))
+  .settings(
+    name := "scalascript-backend-config-runtime",
+    libraryDependencies ++= Seq(
+      "org.yaml" % "snakeyaml" % "2.6",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -1829,7 +1853,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime, backendSqlRuntimeJs,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
