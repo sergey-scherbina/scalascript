@@ -161,3 +161,40 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
       code should include ("import mylib.functor")
       code should not include "val Functor ="
     finally os.remove.all(dir)
+
+// ─── JS reserved-keyword parameter names ─────────────────────────────────────
+
+class JsGenReservedParamTest extends AnyFunSuite with Matchers:
+
+  private def generate(code: String): String =
+    JsGen.generate(Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n"))
+
+  test("parameter named 'default' is renamed to 'default_p' in emitted JS"):
+    val js = generate("def foo(default: Int): Int = default + 1")
+    js should not include "(default)"
+    js should include ("default_p")
+
+  test("extern def inside object body is not emitted into the JS IIFE"):
+    val js = generate("""
+      object Prims:
+        extern def signal(name: String, default: Int): Int
+        def add(a: Int, b: Int): Int = a + b
+    """)
+    js should not include "__extern__"
+    js should not include "(name, default)"
+    js should include ("add")
+
+  test("reserved-keyword params do not cause a JS syntax error at parse time"):
+    assume(
+      try { ProcessBuilder("node", "--version").start().waitFor() == 0 }
+      catch case _: Throwable => false,
+      "node not available"
+    )
+    val js = generate("def foo(default: Int): Int = default + 1\nprintln(foo(42))")
+    val tmp = java.io.File.createTempFile("ssc-reserved-", ".cjs")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath,
+      (JsRuntime + "\n" + js).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("node", "--check", tmp.getAbsolutePath)
+      .redirectErrorStream(true).start()
+    proc.waitFor() shouldBe 0

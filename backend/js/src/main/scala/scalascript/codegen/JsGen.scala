@@ -6459,6 +6459,8 @@ class JsGen(
   private var tmpIdx = 0
   private var hasMain = false
   private var mainCalled = false
+  // Active parameter renames for JS reserved-word param names (e.g. `default` → `default_p`).
+  private val paramRenames = mutable.Map.empty[String, String]
   // Set when the module uses runAsyncParallel; causes the user code sections to
   // be wrapped in a top-level async IIFE so `await _runAsyncParallel(...)` works.
   private var usesRunAsyncParallel: Boolean = false
@@ -7280,6 +7282,7 @@ class JsGen(
       val params      = paramVals.map(_.name.value)
       val hasDefaults = paramVals.exists(_.default.isDefined)
       val fname       = d.name.value
+      val defRenames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
       // Context-bound type params [A: TC] → synthetic JS param "A$TC", summon key "TC_A"
       @annotation.nowarn("msg=deprecated")
       val cbParams: List[(String, String)] =
@@ -7341,15 +7344,17 @@ class JsGen(
       // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
       else if params.nonEmpty && fname.nonEmpty && !hasDefaults &&
               !hasNonTailSelfCall(d.body, fname, tailPos = true) then
-        // Formals are _p shadow-names so we can declare mutable let params inside
+        // Formals are _p shadow-names so we can declare mutable let params inside.
+        // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
+        val renames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
         val formals  = params.map(p => s"_$p").mkString(", ")
-        val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
+        val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
         line(s"function $fname($formals) {")
         indent += 1
         line(s"$letDecls;")
         line("while(true) {")
         indent += 1
-        genTcoBody(d.body, fname, params)
+        withParamRenames(renames)(genTcoBody(d.body, fname, params))
         indent -= 1
         line("}")
         indent -= 1
@@ -7359,11 +7364,11 @@ class JsGen(
           case Term.Block(bodyStats) =>
             line(s"function $fname($paramsStr) {")
             indent += 1
-            genFunctionBody(bodyStats)
+            withParamRenames(defRenames)(genFunctionBody(bodyStats))
             indent -= 1
             line("}")
           case expr =>
-            line(s"function $fname($paramsStr) { return ${genExpr(expr)}; }")
+            line(s"function $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
       cbSummonMap.clear()
       cbSummonMap ++= savedCbMap
 
@@ -7501,6 +7506,7 @@ class JsGen(
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
     d.templ.body.stats.foreach {
+      case dd: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(dd.body) => ()
       case dd: Defn.Def if isEffectOpDef(dd.body) =>
         val opName = dd.name.value
         val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -7545,9 +7551,23 @@ class JsGen(
   private def paramListWithDefaults(paramVals: Seq[Term.Param]): String =
     paramVals.map(formalWithDefault).mkString(", ")
 
-  private def formalWithDefault(p: Term.Param): String = p.default match
-    case Some(d) => s"${p.name.value} = ${genExpr(d)}"
-    case None    => p.name.value
+  // JS reserved words that cannot appear as parameter names (ES2022 strict mode).
+  private val jsReservedWords = Set(
+    "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+    "default", "delete", "do", "else", "export", "extends", "false", "finally",
+    "for", "function", "if", "import", "in", "instanceof", "let", "new", "null",
+    "return", "static", "super", "switch", "this", "throw", "true", "try",
+    "typeof", "var", "void", "while", "with", "yield"
+  )
+
+  private def safeJsParam(name: String): String =
+    if jsReservedWords.contains(name) then s"${name}_p" else name
+
+  private def formalWithDefault(p: Term.Param): String =
+    val n = safeJsParam(p.name.value)
+    p.default match
+      case Some(d) => s"$n = ${genExpr(d)}"
+      case None    => n
 
   // ─── Mutual TCO helpers ──────────────────────────────────────────
 
@@ -7555,14 +7575,15 @@ class JsGen(
   private def genMutualTcoFun(d: Defn.Def, fname: String, params: List[String]): Unit =
     val implName = s"_${fname}_impl"
     val friends  = mutualGroups(fname) - fname
+    val renames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
     val formals  = params.map(p => s"_$p").mkString(", ")
-    val letDecls = "let " + params.map(p => s"$p = _$p").mkString(", ")
+    val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
     line(s"function $implName($formals) {")
     indent += 1
     line(s"$letDecls;")
     line("while(true) {")
     indent += 1
-    genMutualTcoBody(d.body, fname, params, friends)
+    withParamRenames(renames)(genMutualTcoBody(d.body, fname, params, friends))
     indent -= 1
     line("}")
     indent -= 1
@@ -9534,7 +9555,11 @@ class JsGen(
     case "print"   => "_print"
     case "Some"    => "_Some"
     case "None"    => "_None"
-    case other     => other
+    case other     => paramRenames.getOrElse(other, other)
+
+  private def withParamRenames[A](renames: Map[String, String])(f: => A): A =
+    paramRenames ++= renames
+    try f finally paramRenames --= renames.keys
 
   /** Returns true if the term is provably integer-valued (no decimal arithmetic). */
   private def isIntExpr(t: Term): Boolean = t match
