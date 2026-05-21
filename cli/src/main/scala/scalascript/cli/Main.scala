@@ -1804,6 +1804,9 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |  :mount M /path { expr }           — register inline handler
              |  :mount M /path name               — register function from REPL bindings
              |  :mount M /path file.ssc [k=v ...] — register handler from file
+             |  :load file.ssc        — run file's route() calls; hot-reloads cleanly
+             |  :reload file.ssc      — re-run without repeating method/path
+             |  :unmount M /path      — remove a specific route
              |
              |Breakpoints & stepping:
              |  :break <N>         — set breakpoint at snippet line N
@@ -1833,6 +1836,12 @@ def replCommand(@annotation.unused args: List[String]): Unit =
         System.err.println("Routes cleared.")
       case Some(s) if s.startsWith(":mount ") =>
         replHandleMount(s.trim, interp)
+      case Some(s) if s.startsWith(":load ") =>
+        replHandleLoad(s.trim, interp)
+      case Some(s) if s.startsWith(":reload ") =>
+        replHandleReload(s.trim, interp)
+      case Some(s) if s.startsWith(":unmount ") =>
+        replHandleUnmount(s.trim)
       case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
       case Some(":step")                          =>
         dbgHooks.enableStepIn()
@@ -1967,6 +1976,107 @@ def replHandleMount(cmd: String, interp: Interpreter): Unit =
         System.err.println(s"Mounted: $method $path  ($name)")
       case Some(_) =>
         System.err.println(s"Not a function: $name")
+
+/** Handle `:load file.ssc` in the REPL.
+ *
+ *  Resolves the file to an absolute path, clears any routes previously
+ *  registered by that file (via [[Routes.removeBySource]]), then parses and
+ *  runs the file with [[Interpreter.setLoadingFile]] set so that every
+ *  `route()` call inside records `source = Some(absPath)` and `style = "load"`.
+ *  The file is executed in the existing REPL interpreter's context so that
+ *  all its globals and plugins are available.  Prints the newly registered
+ *  routes on success.
+ */
+def replHandleLoad(cmd: String, interp: Interpreter): Unit =
+  import scalascript.server.Routes
+  import scalascript.parser.Parser
+  val file = cmd.stripPrefix(":load").trim
+  if file.isEmpty then
+    System.err.println("Usage: :load file.ssc")
+    return
+  val absPath = java.nio.file.Paths.get(file).toAbsolutePath.normalize().toString
+  val f = new java.io.File(absPath)
+  if !f.exists() then
+    System.err.println(s"File not found: $file")
+    return
+  // Remove stale routes from a previous load of this file
+  Routes.removeBySource(absPath)
+  // Tag all route() calls inside with source + style="load"
+  interp.setLoadingFile(Some(absPath))
+  try
+    val contents = scala.io.Source.fromFile(absPath).mkString
+    // Use run() rather than runSections() so that builtins and plugin
+    // intrinsics are (re-)initialised before the file's sections execute.
+    // run() is additive — it does not clear existing REPL globals, it
+    // only (re-)installs builtins on top.
+    interp.run(Parser.parse(contents))
+  catch
+    case e: Exception =>
+      System.err.println(s"Error loading $file: ${e.getMessage}")
+  finally
+    interp.setLoadingFile(None)
+  // Print registered routes from this file
+  val registered = Routes.all.filter(_.source.contains(absPath))
+  if registered.isEmpty then
+    System.err.println(s"Loaded $file: (no routes registered)")
+  else
+    System.err.println(s"Loaded $file:")
+    registered.foreach { e =>
+      System.err.println(s"  ${e.method.padTo(6, ' ')} ${e.path}")
+    }
+
+/** Handle `:reload file.ssc` in the REPL.
+ *
+ *  Looks up existing [[Routes.Entry]] records with `source == Some(absPath)`.
+ *  If the entries have `style == "load"` (registered via `:load`), re-runs
+ *  [[replHandleLoad]].  If they have `style == "mount"` (registered via
+ *  `:mount file.ssc`), re-mounts each one using the stored method, path,
+ *  and mountCtx.  Mixed styles in the same file are handled entry-by-entry.
+ */
+def replHandleReload(cmd: String, interp: Interpreter): Unit =
+  import scalascript.server.Routes
+  val file = cmd.stripPrefix(":reload").trim
+  if file.isEmpty then
+    System.err.println("Usage: :reload file.ssc")
+    return
+  val absPath = java.nio.file.Paths.get(file).toAbsolutePath.normalize().toString
+  val existing = Routes.all.filter(_.source.contains(absPath))
+  if existing.isEmpty then
+    System.err.println(s"Unknown file: $file — use :mount or :load first.")
+    return
+  val f = new java.io.File(absPath)
+  if !f.exists() then
+    System.err.println(s"File not found: $file")
+    return
+  // Partition by registration style
+  val (loadEntries, mountEntries) = existing.partition(_.style == "load")
+  // Re-load style: clear + rerun (replHandleLoad handles printing)
+  if loadEntries.nonEmpty then
+    replHandleLoad(s":load $file", interp)
+  // Re-mount style: re-mount each entry with its original method/path/ctx
+  mountEntries.foreach { entry =>
+    try
+      interp.mountFileAsRoute(entry.method, entry.path, absPath, entry.mountCtx)
+      System.err.println(s"Reloaded: ${entry.method} ${entry.path}  ($file)")
+    catch
+      case e: Exception =>
+        System.err.println(s"Error reloading ${entry.method} ${entry.path}: ${e.getMessage}")
+  }
+
+/** Handle `:unmount METHOD /path` in the REPL. */
+def replHandleUnmount(cmd: String): Unit =
+  import scalascript.server.Routes
+  val rest = cmd.stripPrefix(":unmount").trim
+  val parts = rest.split("\\s+", 2)
+  if parts.length < 2 then
+    System.err.println("Usage: :unmount METHOD /path")
+    return
+  val method = parts(0).toUpperCase
+  val path   = parts(1)
+  if Routes.remove(method, path) then
+    System.err.println(s"Unmounted: $method $path")
+  else
+    System.err.println(s"Not mounted: $method $path")
 
 def replHandleBreak(cmd: String, hooks: ReplDebugHooks): Unit =
   cmd match

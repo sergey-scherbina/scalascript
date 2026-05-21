@@ -28,6 +28,10 @@ object Routes:
    *                  Set by `mount()` to enable `removeBySource` / hot-reload.
    *  @param mountCtx Extra context map supplied by the `mount(method, path, file, ctx)`
    *                  overload.  Passed as the second argument to 2-arg handlers.
+   *  @param style    How the route was registered: `"route"` (via `route()` intrinsic
+   *                  or inline `:mount`), `"mount"` (via `:mount file.ssc`), or
+   *                  `"load"` (via `:load file.ssc`).  Used by `:reload` to pick
+   *                  the right re-registration path.
    */
   final case class Entry(
       method:      String,
@@ -36,7 +40,8 @@ object Routes:
       handler:     Value,
       interpreter: Interpreter,
       source:      Option[String]        = None,
-      mountCtx:    Map[String, Value]    = Map.empty
+      mountCtx:    Map[String, Value]    = Map.empty,
+      style:       String                = "route"
   )
 
   sealed trait Segment
@@ -57,11 +62,18 @@ object Routes:
       handler:  Value,
       interp:   Interpreter,
       source:   Option[String]     = None,
-      mountCtx: Map[String, Value] = Map.empty
+      mountCtx: Map[String, Value] = Map.empty,
+      style:    String             = "route"
   ): Unit =
     val m   = method.toUpperCase
     val key = (m, path)
-    entries(key) = Entry(m, path, parsePath(path), handler, interp, source, mountCtx)
+    entries(key) = Entry(m, path, parsePath(path), handler, interp, source, mountCtx, style)
+
+  /** Remove the entry with the given `(method.toUpperCase, path)` key.
+   *  Returns `true` if an entry was removed, `false` if it was not found. */
+  def remove(method: String, path: String): Boolean =
+    val key = (method.toUpperCase, path)
+    entries.remove(key).isDefined
 
   /** Remove all entries whose `source` matches `absPath`.
    *  Used by hot-reload (`:reload file.ssc`) to evict stale handlers

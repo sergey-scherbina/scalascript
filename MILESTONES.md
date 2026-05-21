@@ -9397,11 +9397,29 @@ same logic as Phase 2.  `Interpreter` gained public API: `globalsView`,
 `lastResult`, and `mountFileAsRoute`.  `:help` updated with all three forms.
 11 new tests in `ReplMountTest`; all green.
 
-### Phase 5 — `:load` / `:reload` / `:unmount`
+### Phase 5 — `:load` / `:reload` / `:unmount` ✓ Landed (2026-05-21)
 
-- [ ] `:load file.ssc` — `removeBySource` then run with `currentSource` set
-- [ ] `:reload file.ssc` — looks up `source` in `Routes.Entry`; dispatches to load or re-mount
-- [ ] `:unmount METHOD /path` — `Routes.remove((method, path))`
+`:load file.ssc` resolves the file to an absolute path, calls `Routes.removeBySource`
+to evict stale handlers, sets `Interpreter.currentLoadingFile` so every `route()` call
+inside records `source = Some(absPath)` and `style = "load"`, then runs the file via
+`interp.run(Parser.parse(contents))`.  Prints the newly-registered routes on success.
+
+`:reload file.ssc` looks up `Routes.all` for entries with matching source.  If none:
+`Unknown file: …`.  Partitions by `style` field: `"load"` entries trigger
+`replHandleLoad`; `"mount"` entries call `interp.mountFileAsRoute` for each.
+
+`:unmount METHOD /path` calls `Routes.remove(method, path)` (new method returning
+`Boolean`); prints `Unmounted:` or `Not mounted:`.
+
+Infrastructure changes: `Routes.Entry` gained a `style: String` field (values `"route"`,
+`"mount"`, `"load"`).  `Routes.register` accepts an optional `style` param.
+`Interpreter.mountFileAsRoute` passes `style = "mount"`.  The `NativeContext.registerRoute`
+hook now reads `currentLoadingFile` to set `source` + `style = "load"` when inside a
+`:load` run.  `Interpreter` gained `setLoadingFile(Option[String])` and
+`runSections(Module)` public APIs.  `build.sbt`: `cli` gained `httpPlugin % Test` so
+`route()` is available in the `cli/test` classpath.
+
+12 new tests in `ReplLoadTest`; all green (209 passing in `cli/test`).
 
 ### Phase 6 — `:routes` / `:http` / `:call`
 

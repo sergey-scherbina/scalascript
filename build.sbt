@@ -605,7 +605,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(

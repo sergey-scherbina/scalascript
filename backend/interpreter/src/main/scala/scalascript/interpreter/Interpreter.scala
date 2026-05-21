@@ -152,6 +152,14 @@ class Interpreter(
   private[interpreter] var lineOffset: Int = 0
   // Phase 2 DAP: source file being debugged (set by DebugCommand before run()).
   private[interpreter] var debugSourceFile: String = ""
+  // Phase 5 REPL: when `:load file.ssc` is running, this holds the canonical
+  // abs path of the file so that `route()` calls inside register with
+  // `source = Some(currentLoadingFile)` and `style = "load"`.
+  private[interpreter] var currentLoadingFile: Option[String] = None
+
+  /** Set the `:load`-source hint so that `route()` calls inside the file
+   *  record their origin file.  Call with `None` after the load completes. */
+  def setLoadingFile(path: Option[String]): Unit = currentLoadingFile = path
   // Phase 2 DAP: debug hooks; None means no-op (normal run).
   private[interpreter] var debugHooks: Option[scalascript.interpreter.debug.DebugHooks] = None
   // Phase 2 DAP: document-level line offset of the current code block.
@@ -205,7 +213,8 @@ class Interpreter(
     scalascript.server.Routes.register(
       method.toUpperCase, path, handler, this,
       source   = Some(absFile),
-      mountCtx = ctx)
+      mountCtx = ctx,
+      style    = "mount")
 
   // Phase 5 DAP: call stack — (frameName, sourceFile, absDocLine).
   private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, String, Int)]
@@ -680,7 +689,11 @@ class Interpreter(
       def err = System.err
       override def headless = Interpreter.this.headless
       override def registerRoute(method: String, path: String, handler: Any): Unit =
-        scalascript.server.Routes.register(method, path, handler.asInstanceOf[Value], Interpreter.this)
+        scalascript.server.Routes.register(
+          method, path, handler.asInstanceOf[Value], Interpreter.this,
+          source   = Interpreter.this.currentLoadingFile,
+          style    = if Interpreter.this.currentLoadingFile.isDefined then "load" else "route"
+        )
       override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
@@ -938,6 +951,14 @@ class Interpreter(
     import scalascript.parser.Parser
     val src    = s"# Snippet\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
+    module.sections.foreach(SectionRuntime.runSection(_, this))
+
+  /** Run all sections of a pre-parsed [[scalascript.ast.Module]] in this
+   *  interpreter's current context (globals, plugins).  Unlike [[run]], this
+   *  does **not** reinitialise builtins — it continues the existing REPL
+   *  session.  Used by `:load file.ssc` to execute a `.ssc` file that was
+   *  already parsed with [[scalascript.parser.Parser.parse]]. */
+  def runSections(module: scalascript.ast.Module): Unit =
     module.sections.foreach(SectionRuntime.runSection(_, this))
 
   /** Evaluate a single Scala 3 expression in the current globals + [[extraEnv]].
