@@ -203,18 +203,20 @@ function defaultEnvLookup(name) {
 export const Providers = Object.freeze({
   fromUrl(url) {
     if (typeof url !== 'string') throw new SqlRuntimeError(`URL must be a string, got ${typeof url}`)
-    if (url.startsWith('sqlite:')) return SqlJsProvider
-    if (url.startsWith('duckdb:')) return DuckDbWasmProvider
-    if (url.startsWith('jdbc:'))   throw new UnsupportedJdbcUrl(url)
-    throw new SqlRuntimeError(`No provider matches URL "${url}". Supported prefixes: sqlite:, duckdb:`)
+    if (url.startsWith('sqlite-opfs:')) return SqliteWasmProvider
+    if (url.startsWith('sqlite:'))      return SqlJsProvider
+    if (url.startsWith('duckdb:'))      return DuckDbWasmProvider
+    if (url.startsWith('jdbc:'))        throw new UnsupportedJdbcUrl(url)
+    throw new SqlRuntimeError(`No provider matches URL "${url}". Supported prefixes: sqlite-opfs:, sqlite:, duckdb:`)
   },
-  available() { return ['sqlite:', 'duckdb:'] }
+  available() { return ['sqlite-opfs:', 'sqlite:', 'duckdb:'] }
 })
 
 // Lazy-loaded provider singletons.  initSqlJs() / duckdb.AsyncDuckDB
 // initialisation runs once per process; cached on the module object.
-let _sqlJsModule = null
-let _duckDbBundle = null
+let _sqlJsModule    = null
+let _duckDbBundle   = null
+let _sqliteWasMod   = null
 
 async function loadSqlJs() {
   if (_sqlJsModule) return _sqlJsModule
@@ -378,6 +380,91 @@ function toSqlJsBind(v) {
  *  passes through.  sql.js already returns numbers / strings / null. */
 function fromSqlJsValue(v) {
   return v
+}
+
+// ── @sqlite.org/sqlite-wasm provider (OPFS) ─────────────────────────────────
+
+async function loadSqliteWasm() {
+  if (_sqliteWasMod) return _sqliteWasMod
+  const mod = await import('@sqlite.org/sqlite-wasm')
+  const initModule = mod.default ?? mod
+  // Suppress the module's own verbose console output.
+  _sqliteWasMod = await initModule({ print: () => {}, printErr: () => {} })
+  return _sqliteWasMod
+}
+
+/** Official SQLite Wasm provider (@sqlite.org/sqlite-wasm).
+ *
+ *  URL shapes:
+ *   sqlite-opfs:./myapp.db   → OPFS-backed persistent DB in browser,
+ *                               or file-backed on Node via the node VFS
+ *   sqlite-opfs::memory:     → in-memory (same as sqlite::memory:)
+ *
+ *  Browser persistence requires OPFS, which is available when
+ *  `globalThis.crossOriginIsolated === true` (the page is served with
+ *  Cross-Origin-Opener-Policy + Cross-Origin-Embedder-Policy headers).
+ *  Without COOP/COEP the provider falls back to an in-memory DB and
+ *  logs a console.warn so the developer notices. */
+export const SqliteWasmProvider = Object.freeze({
+  id: 'sqlite-wasm',
+
+  async open({ url }) {
+    const sqlite3 = await loadSqliteWasm()
+    const rawPath = url.slice('sqlite-opfs:'.length)   // '' | ':memory:' | './foo.db' | …
+    const isMemory = !rawPath || rawPath === ':memory:'
+
+    let db
+    if (isMemory) {
+      db = new sqlite3.oo1.DB(':memory:')
+    } else {
+      const isNode = !!(globalThis.process?.versions?.node)
+      if (isNode) {
+        // Node.js: use the regular file VFS
+        db = new sqlite3.oo1.DB(rawPath, 'ct')
+      } else if (sqlite3.oo1.OpfsDb && globalThis.crossOriginIsolated) {
+        // Browser + COOP/COEP: OPFS synchronous VFS
+        const opfsPath = rawPath.startsWith('/') ? rawPath : '/' + rawPath
+        db = new sqlite3.oo1.OpfsDb(opfsPath)
+      } else {
+        // Browser without COOP/COEP: no persistent OPFS access.
+        console.warn(
+          `[ssc] sqlite-opfs: OPFS requires crossOriginIsolated (COOP+COEP headers). ` +
+          `"${url}" falls back to :memory: — data will not persist across page reloads. ` +
+          `Set Cross-Origin-Opener-Policy: same-origin and ` +
+          `Cross-Origin-Embedder-Policy: require-corp on your server to enable OPFS.`
+        )
+        db = new sqlite3.oo1.DB(':memory:')
+      }
+    }
+    return new SqliteWasmConnection(db, url)
+  }
+})
+
+class SqliteWasmConnection {
+  constructor(db, url) {
+    this._db     = db
+    this._url    = url
+    this._closed = false
+  }
+
+  async execute(sql, binds) {
+    if (this._closed) throw new SqlRuntimeError(`Connection to "${this._url}" is closed`)
+    if (isResultSetProducer(sql)) {
+      const resultRows  = []
+      const columnNames = []
+      this._db.exec({ sql, bind: binds.length ? binds : undefined,
+                      resultRows, columnNames, rowMode: 'array' })
+      return { kind: 'rows', rows: resultRows.map(row => makeRow(columnNames, row)) }
+    }
+    this._db.exec({ sql, bind: binds.length ? binds : undefined })
+    return { kind: 'update', count: this._db.changes() }
+  }
+
+  async close() {
+    if (this._closed) return
+    this._closed = true
+    try { this._db.close() } catch (_) {}
+  }
 }
 
 // ── DuckDB-Wasm provider ────────────────────────────────────────────────────

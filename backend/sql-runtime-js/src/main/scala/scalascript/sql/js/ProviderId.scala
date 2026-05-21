@@ -16,8 +16,9 @@ enum ProviderId(val id: String, val scheme: DbScheme, val npmPackage: String, va
   /** The URL prefix this provider handles — kept for stable API surface. */
   def urlPrefix: String = scheme.prefix
 
-  case SqlJs      extends ProviderId("sql.js",      DbScheme.Sqlite, "sql.js",              "^1.10.3")
-  case DuckDbWasm extends ProviderId("duckdb-wasm", DbScheme.DuckDb, "@duckdb/duckdb-wasm", "^1.28.0")
+  case SqlJs      extends ProviderId("sql.js",       DbScheme.Sqlite,     "sql.js",                 "^1.10.3")
+  case SqliteWasm extends ProviderId("sqlite-wasm",  DbScheme.SqliteOpfs, "@sqlite.org/sqlite-wasm", "^3.46.0")
+  case DuckDbWasm extends ProviderId("duckdb-wasm",  DbScheme.DuckDb,     "@duckdb/duckdb-wasm",     "^1.28.0")
 
 /** URL → provider dispatch.  Pure: no I/O, no engine init.  Same
  *  semantics as the JS-side `Providers.fromUrl` so build-time and

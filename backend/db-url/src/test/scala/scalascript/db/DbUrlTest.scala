@@ -12,6 +12,10 @@ class DbUrlTest extends AnyFunSuite:
   test("sqlite::memory: → jdbc:sqlite::memory:"):
     assert(DbUrl.toJdbc("sqlite::memory:") == "jdbc:sqlite::memory:")
 
+  test("sqlite-opfs: → jdbc:sqlite: (JVM uses regular file-backed SQLite)"):
+    assert(DbUrl.toJdbc("sqlite-opfs:./mydb.db") == "jdbc:sqlite:./mydb.db")
+    assert(DbUrl.toJdbc("sqlite-opfs::memory:") == "jdbc:sqlite::memory:")
+
   test("duckdb: → jdbc:duckdb:"):
     assert(DbUrl.toJdbc("duckdb:") == "jdbc:duckdb:")
 
@@ -38,6 +42,9 @@ class DbUrlTest extends AnyFunSuite:
 
   test("sqlite: is JS-supported"):
     assert(DbUrl.isJsSupported("sqlite:./todos.db"))
+
+  test("sqlite-opfs: is JS-supported"):
+    assert(DbUrl.isJsSupported("sqlite-opfs:./mydb.db"))
 
   test("duckdb: is JS-supported"):
     assert(DbUrl.isJsSupported("duckdb:"))

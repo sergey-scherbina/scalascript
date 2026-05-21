@@ -68,6 +68,7 @@ class NodeBackend extends Backend:
       import scalascript.sql.js.ProviderId
       val pinned = scala.collection.mutable.LinkedHashMap.empty[String, String]
       if refs.contains(ProviderId.SqlJs)      then pinned += ProviderId.SqlJs.npmPackage      -> ProviderId.SqlJs.npmVersionRange
+      if refs.contains(ProviderId.SqliteWasm) then pinned += ProviderId.SqliteWasm.npmPackage -> ProviderId.SqliteWasm.npmVersionRange
       if refs.contains(ProviderId.DuckDbWasm) then
         pinned += ProviderId.DuckDbWasm.npmPackage -> ProviderId.DuckDbWasm.npmVersionRange
         // DuckDB-Wasm's Node code path needs `web-worker` over

@@ -17,6 +17,12 @@ class ProviderIdTest extends AnyFunSuite:
   test("ProviderId: sqlite: → SqlJs (empty path also routes to sql.js)"):
     assert(ProviderId.fromUrl("sqlite:") == Right(ProviderId.SqlJs))
 
+  test("ProviderId: sqlite-opfs:./app.db → SqliteWasm"):
+    assert(ProviderId.fromUrl("sqlite-opfs:./app.db") == Right(ProviderId.SqliteWasm))
+
+  test("ProviderId: sqlite-opfs::memory: → SqliteWasm"):
+    assert(ProviderId.fromUrl("sqlite-opfs::memory:") == Right(ProviderId.SqliteWasm))
+
   test("ProviderId: duckdb: → DuckDbWasm"):
     assert(ProviderId.fromUrl("duckdb:") == Right(ProviderId.DuckDbWasm))
 
@@ -63,11 +69,17 @@ class ProviderIdTest extends AnyFunSuite:
     assert(ProviderId.SqlJs.npmPackage      == "sql.js")
     assert(ProviderId.SqlJs.npmVersionRange.startsWith("^"))
 
+  test("ProviderId.SqliteWasm: id / urlPrefix / npmPackage stable"):
+    assert(ProviderId.SqliteWasm.id              == "sqlite-wasm")
+    assert(ProviderId.SqliteWasm.urlPrefix       == "sqlite-opfs:")
+    assert(ProviderId.SqliteWasm.npmPackage      == "@sqlite.org/sqlite-wasm")
+    assert(ProviderId.SqliteWasm.npmVersionRange.startsWith("^"))
+
   test("ProviderId.DuckDbWasm: id / urlPrefix / npmPackage stable"):
     assert(ProviderId.DuckDbWasm.id              == "duckdb-wasm")
     assert(ProviderId.DuckDbWasm.urlPrefix       == "duckdb:")
     assert(ProviderId.DuckDbWasm.npmPackage      == "@duckdb/duckdb-wasm")
     assert(ProviderId.DuckDbWasm.npmVersionRange.startsWith("^"))
 
-  test("ProviderId.all: both providers present"):
-    assert(ProviderId.all == Set(ProviderId.SqlJs, ProviderId.DuckDbWasm))
+  test("ProviderId.all: all three providers present"):
+    assert(ProviderId.all == Set(ProviderId.SqlJs, ProviderId.SqliteWasm, ProviderId.DuckDbWasm))

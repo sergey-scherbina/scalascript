@@ -14,8 +14,9 @@ enum DbScheme(
   val jdbcPrefix: String,
   val jsPrefix:  Option[String]
 ):
-  case Sqlite   extends DbScheme("sqlite:",   "jdbc:sqlite:",       Some("sqlite:"))
-  case DuckDb   extends DbScheme("duckdb:",   "jdbc:duckdb:",       Some("duckdb:"))
+  case Sqlite     extends DbScheme("sqlite:",      "jdbc:sqlite:",  Some("sqlite:"))
+  case SqliteOpfs extends DbScheme("sqlite-opfs:", "jdbc:sqlite:",  Some("sqlite-opfs:"))
+  case DuckDb     extends DbScheme("duckdb:",      "jdbc:duckdb:",  Some("duckdb:"))
   case H2       extends DbScheme("h2:",       "jdbc:h2:",           None)
   case Postgres extends DbScheme("postgres:", "jdbc:postgresql:",   None)
   case Mysql    extends DbScheme("mysql:",    "jdbc:mysql:",        None)
