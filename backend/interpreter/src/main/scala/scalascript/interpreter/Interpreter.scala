@@ -871,6 +871,18 @@ class Interpreter(
     val module = Parser.parse(src)
     module.sections.foreach(SectionRuntime.runSection(_, this))
 
+  /** Evaluate a single Scala 3 expression in the current globals + [[extraEnv]].
+   *  Debug hooks are suppressed during evaluation so the REPL `:print` command
+   *  does not trigger spurious breakpoints. */
+  def evalExpr(exprSrc: String, extraEnv: Map[String, Value] = Map.empty): Value =
+    val savedHooks = debugHooks
+    debugHooks = None
+    try
+      val parsed = scala.meta.dialects.Scala3(exprSrc).parse[scala.meta.Term].get
+      Computation.run(eval(parsed, extraEnv ++ globals.toMap))
+    finally
+      debugHooks = savedHooks
+
   // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //
   // loggerRun / randomRun / clockRun / envRun / httpRun /

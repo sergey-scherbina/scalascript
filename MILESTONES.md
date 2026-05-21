@@ -5968,6 +5968,24 @@ fast-path.
 - [x] Restore snapshot, re-run typer from changed section forward — Landed 2026-05-19
 - [x] Test: changing a leaf section does not re-check unrelated sections — Landed 2026-05-19
 
+### New tool — REPL debugger ✓ Landed (2026-05-21)
+
+**Status: complete.** Interactive step-debugger built directly into `ssc repl`,
+reusing the `DebugHooks` / `BreakpointRegistry` infrastructure from the DAP
+debugger (v1.29).  The interpreter runs on a background virtual thread; when
+it hits a breakpoint or step stop it blocks and the REPL main thread enters a
+`(debug) ` sub-prompt.
+
+- [x] `ReplDebugHooks` — breakpoints, step modes (StepIn/StepOver/StepOut),
+      `stoppedQueue` + `suspendLatch` threading model; `mkHooks(): DebugHooks`
+- [x] `Interpreter.evalExpr` — evaluate an expression in current globals +
+      extra env with hooks suppressed (used by `:print`)
+- [x] `replCommand` — wires `ReplDebugHooks`, dispatches `:break`/`:step`
+      top-level commands, runs debug snippets on background thread
+- [x] Debug sub-prompt commands: `:continue`/`:c`, `:next`/`:n`, `:step`/`:s`,
+      `:out`, `:locals`/`:l`, `:stack`/`:bt`, `:print <expr>`, `:help`
+- [x] 7 tests in `ReplDebugTest`
+
 ### New tool — REPL web-aware mode
 
 **Status: open. Effort: ~3 days.**
@@ -9645,3 +9663,59 @@ so scripts that never call a plugin (e.g. `hello.ssc`) skip the scan entirely.
 - **`StatRuntime.scala`** — `extern def` case: if the intrinsic name is not yet
   in globals, triggers `ensurePluginsLoaded()` so child interpreter exports
   include plugin-provided intrinsics.
+
+---
+
+## v1.34 — REPL Debugger ✓ Complete (2026-05-21)
+
+**Status:** complete
+
+Interactive step-debugger for `ssc repl`.  Reuses `DebugHooks` / `BreakpointRegistry`
+from the DAP debugger (v1.29); no new interpreter changes beyond adding
+`Interpreter.evalExpr` for `:print` support.
+
+```
+ssc> :break 2           ← set breakpoint at snippet line 2
+[break] set at line 2
+ssc> val x = 1
+   | val y = x + 1
+   | 
+[stopped] at line 2
+  > val y = x + 1
+(debug) :locals
+  x = 1
+(debug) :continue
+=> 2
+```
+
+### Commands
+
+| At `ssc>` prompt | |
+|---|---|
+| `:break <N>` | Set breakpoint at snippet line N |
+| `:break clear` | Clear all breakpoints |
+| `:break list` | List active breakpoints |
+| `:step` | Enable step-in for the next snippet |
+
+| At `(debug)` prompt | |
+|---|---|
+| `:continue` / `:c` | Resume to next breakpoint or end |
+| `:next` / `:n` | Step over to next line |
+| `:step` / `:s` | Step into next expression |
+| `:out` | Step out of current function |
+| `:locals` / `:l` | Show local variables |
+| `:stack` / `:bt` | Show call stack |
+| `:print <expr>` | Evaluate expression in current context |
+| `:quit` / `:q` | Stop and return to REPL |
+
+### Implementation
+
+- **`cli/src/main/scala/scalascript/cli/ReplDebugHooks.scala`** (new) —
+  `ReplDebugHooks`: breakpoint registry, `StepMode` enum, `stoppedQueue` +
+  `suspendLatch` threading model; `mkHooks(): DebugHooks` factory.
+- **`backend/interpreter/…/Interpreter.scala`** — `evalExpr(exprSrc, extraEnv)`:
+  evaluates a Scala 3 expression with hooks suppressed; used by `:print`.
+- **`cli/src/main/scala/scalascript/cli/Main.scala`** — `replCommand` wired
+  to `ReplDebugHooks`; `runReplSnippetDebug` / `replDebugSubLoop` + display
+  helpers.
+- **`cli/src/test/scala/scalascript/cli/ReplDebugTest.scala`** (new) — 7 tests.
