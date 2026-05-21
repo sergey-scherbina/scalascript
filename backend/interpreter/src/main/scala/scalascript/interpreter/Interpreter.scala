@@ -169,6 +169,44 @@ class Interpreter(
   def setDebugHooks(hooks: Option[scalascript.interpreter.debug.DebugHooks]): Unit =
     debugHooks = hooks
 
+  /** Public read-only view of the REPL's live global bindings.
+   *  Used by `:mount name` to look up a previously-defined function. */
+  def globalsView: collection.Map[String, Value] = globals
+
+  /** The value of the last top-level expression evaluated via [[runSnippet]]
+   *  or [[run]].  Used by `:mount { expr }` to retrieve the handler value. */
+  def lastResult: Value = lastExprResult
+
+  /** Evaluate `absFilePath` once, detect handler shape, and register it in
+   *  [[scalascript.server.Routes]] for `method` + `path`.  `ctx` key-value
+   *  pairs are stored in the [[scalascript.server.Routes.Entry]] and passed
+   *  as the second argument to 2-arg handler functions.
+   *
+   *  Called by the REPL `:mount METHOD /path file.ssc [k=v …]` command.
+   *  Mirrors the logic in [[scalascript.compiler.plugin.http.HttpIntrinsics]]
+   *  `mountFile` helper so both the language intrinsic and the REPL command
+   *  share the same file-eval + shape-detection semantics. */
+  def mountFileAsRoute(
+      method:  String,
+      path:    String,
+      absFile: String,
+      ctx:     Map[String, Value]
+  ): Unit =
+    import scalascript.parser.Parser
+    val filePath = os.Path(absFile)
+    val childDir = filePath / os.up
+    val child    = Interpreter(this.out, Some(childDir), lockPath = this.lockPath)
+    child.run(Parser.parse(os.read(filePath)))
+    val rawResult = child.lastExprResult
+    val handler: Value = rawResult match
+      case fn: Value.FunV if fn.params.length >= 1 => fn
+      case other =>
+        Value.NativeFnV("mount.static", scalascript.interpreter.Computation.pureFn(_ => other))
+    scalascript.server.Routes.register(
+      method.toUpperCase, path, handler, this,
+      source   = Some(absFile),
+      mountCtx = ctx)
+
   // Phase 5 DAP: call stack — (frameName, sourceFile, absDocLine).
   private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, String, Int)]
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.

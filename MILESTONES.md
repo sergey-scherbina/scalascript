@@ -9386,11 +9386,16 @@ is given.  `:clear` calls `Routes.clear()` without touching the server.
 All three commands added to `:help` output.  `replHandleServe` / `replHandleStop`
 extracted as top-level helpers.  9 new tests in `ReplWebTest`; all green.
 
-### Phase 4 — `:mount` (inline / function name / file + ctx)
+### Phase 4 — `:mount` (inline / function name / file + ctx) ✓ Landed (2026-05-21)
 
-- [ ] `:mount METHOD /path { handler }` — inline expression
-- [ ] `:mount METHOD /path functionName` — from REPL globals
-- [ ] `:mount METHOD /path file.ssc [key=value ...]` — delegates to `mount()` logic; ctx from tokens
+All three `:mount` forms implemented via `replHandleMount` top-level helper in
+`cli/Main.scala`.  Inline form evaluates the `{ expr }` via `runSnippet` +
+`lastResult`; name form looks up `interp.globalsView`; file form calls the new
+`Interpreter.mountFileAsRoute(method, path, absFile, ctx)` public method that
+evaluates the file in a child interpreter and delegates shape detection to the
+same logic as Phase 2.  `Interpreter` gained public API: `globalsView`,
+`lastResult`, and `mountFileAsRoute`.  `:help` updated with all three forms.
+11 new tests in `ReplMountTest`; all green.
 
 ### Phase 5 — `:load` / `:reload` / `:unmount`
 
