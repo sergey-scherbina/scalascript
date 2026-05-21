@@ -344,6 +344,7 @@ compiles them via Scala.js.
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
 | [rest-api.ssc](examples/rest-api.ssc) | Tiny in-memory REST API — `route()`, `html"..."`, `serve()` |
+| [mount-demo/](examples/mount-demo/) | `mount()` intrinsic — file-based handlers, 1-arg, 2-arg with ctx, static response |
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [sql-transaction.ssc](conformance/sql-transaction.ssc) | Atomic multi-statement `transaction` block — debit + credit in one JDBC transaction |
 | [spa-demo.ssc](examples/spa-demo.ssc) | Same `route()` / `serve()` source, browser SPA via `ssc emit-spa` |

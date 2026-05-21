@@ -517,6 +517,38 @@ route("DELETE", "/users/:id") { req =>
 serve(8080)
 ```
 
+### File-based handlers (`mount()`)
+
+`mount()` evaluates a `.ssc` file once at startup and registers the result
+as the handler for a given method + path. The file's last expression determines
+the handler shape:
+
+| Last expression | Behaviour |
+|---|---|
+| `Response` value | auto-wrapped as `_ => response` (static reply) |
+| `req => Response` | used directly (1-arg handler) |
+| `(req, ctx) => Response` | called with `req` and the `ctx` map from `mount()` |
+
+```scalascript
+// Static response — ping.ssc contains: Response.text("pong")
+mount("GET", "/ping", "handlers/ping.ssc")
+
+// 1-arg handler — hello.ssc contains: req => Response.text(s"Hello, ${req.params("name")}!")
+mount("GET", "/hello/:name", "handlers/hello.ssc")
+
+// Same handler file reused for two routes via ctx map
+mount("GET", "/users/:id",    "handlers/entity.ssc", Map("coll" -> "users"))
+mount("GET", "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
+
+serve(8080)
+```
+
+`file` is resolved relative to the calling `.ssc` file's directory (same as
+`import`).  A second `mount()` for the same `(method, path)` replaces the
+existing entry (idempotent — safe to call on hot-reload).
+
+See [`examples/mount-demo/`](../examples/mount-demo/) for a runnable example.
+
 ### Request and Response
 
 ```scalascript

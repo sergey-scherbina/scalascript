@@ -1,0 +1,12 @@
+# Entity handler
+
+Two-argument handler — `(Request, Map[String, Any]) => Response`.
+The `ctx` map is supplied by `mount()` and distinguishes which collection to serve.
+
+```scala
+(req, ctx) => {
+  val coll = ctx("coll").toString
+  val id   = req.params("id")
+  Response.json(s"""{"collection":"$coll","id":"$id"}""")
+}
+```

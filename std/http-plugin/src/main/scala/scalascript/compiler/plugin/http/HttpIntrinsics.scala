@@ -380,6 +380,21 @@ object HttpIntrinsics:
         case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
     ),
 
+    // ── mount(method, path, file[, ctx]) ────────────────────────────────
+
+    QualifiedName("mount") -> NativeImpl((ctx, args) =>
+      args match
+        case List(method: String, path: String, file: String) =>
+          mountFile(ctx, method, path, file, Map.empty)
+        case List(method: String, path: String, file: String, Value.MapV(rawCtx)) =>
+          val mountCtx: Map[String, Any] = rawCtx.collect {
+            case (Value.StringV(k), v) => k -> (v: Any)
+          }.toMap
+          mountFile(ctx, method, path, file, mountCtx)
+        case _ =>
+          throw InterpretError("mount(method, path, file[, ctx: Map[String, Any]])")
+    ),
+
     // ── Response builders (Stage 5+/E) ────────────────────────────────────
 
     QualifiedName("Response.html") -> NativeImpl((_, args) =>
@@ -432,6 +447,39 @@ object HttpIntrinsics:
   )
 
   // ── Private helpers ────────────────────────────────────────────────────
+
+  /** Evaluate a handler file and register it as a route.
+   *
+   *  1. Resolve `file` relative to `ctx.baseDirPath` (same as import resolution).
+   *  2. Evaluate the file once via `ctx.evalFileGetResult`; take the last value.
+   *  3. Detect handler shape:
+   *     - `FunV` with 1 param → use directly as `req => response`
+   *     - `FunV` with 2 params → use as `(req, ctx) => response`
+   *     - Any other value → auto-wrap as `_ => value` (static response)
+   *  4. Register via `ctx.registerMountedRoute` with source + mountCtx. */
+  private def mountFile(
+      ctx:      scalascript.backend.spi.NativeContext,
+      method:   String,
+      path:     String,
+      file:     String,
+      mountCtx: Map[String, Any]
+  ): Value =
+    val baseDir = ctx.baseDirPath match
+      case Some(d) => java.nio.file.Paths.get(d)
+      case None    => java.nio.file.Paths.get(System.getProperty("user.dir"))
+    val absPath = baseDir.resolve(file).normalize().toAbsolutePath.toString
+    val rawResult = ctx.evalFileGetResult(absPath).asInstanceOf[Value]
+    // Shape detection: wrap bare values into a constant handler
+    val handler: Value = rawResult match
+      case fn @ Value.FunV(params, _, _, _, _, _, _, _) if params.length >= 1 =>
+        fn  // 1-param or 2-param FunV — used as-is; dispatcher passes ctx for 2-param
+      case other =>
+        // Static response — auto-wrap as `_ => other`
+        Value.NativeFnV("mount.static", scalascript.interpreter.Computation.pureFn {
+          _ => other
+        })
+    ctx.registerMountedRoute(method, path, handler, source = Some(absPath), mountCtx = mountCtx)
+    Value.UnitV
 
   private def headersArg(v: Any): Map[String, String] = v match
     case Value.MapV(m) => m.collect {

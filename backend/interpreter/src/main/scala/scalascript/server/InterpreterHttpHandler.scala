@@ -56,9 +56,19 @@ final class InterpreterHttpHandler(
       case Some((entry, params)) =>
         val request = liftRequest(req.copy(params = params))
         val interp  = entry.interpreter
+        // Determine the argument list: 2-arg FunV (Request, Map) => Response gets
+        // the mountCtx map as a second argument; all other handlers get only request.
+        val handlerArgs: List[Value] = entry.handler match
+          case Value.FunV(ps, _, _, _, _, _, _, _) if ps.length >= 2 =>
+            val ctxMap = Value.MapV(entry.mountCtx.map { (k, v) =>
+              (Value.StringV(k): Value) -> v
+            })
+            List(request, ctxMap)
+          case _ =>
+            List(request)
         val baseHandler: () => Any =
           () =>
-            try unwrap(interp.invoke(entry.handler, List(request)))
+            try unwrap(interp.invoke(entry.handler, handlerArgs))
             catch case ve: RestValidationError =>
               Response(400,
                 Map("Content-Type" -> "text/plain; charset=utf-8"),

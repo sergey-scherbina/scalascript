@@ -1,0 +1,7 @@
+# Ping handler
+
+Static response — auto-wrapped as `_ => response` by `mount()`.
+
+```scala
+Response.text("pong")
+```

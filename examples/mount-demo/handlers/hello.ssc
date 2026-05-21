@@ -1,0 +1,10 @@
+# Hello handler
+
+One-argument handler — `Request => Response`.
+
+```scala
+req => {
+  val name = req.params("name")
+  Response.text(s"Hello, $name!")
+}
+```

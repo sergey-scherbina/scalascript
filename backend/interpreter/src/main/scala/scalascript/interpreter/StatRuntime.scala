@@ -274,6 +274,7 @@ private[interpreter] object StatRuntime:
       t match
         case Term.Apply.After_4_6_0(Term.Name("main"), _) => interp.mainCalled = true
         case _                                => ()
+      interp.lastExprResult = result
       if printResult then interp.autoOutput(result)
       else result: @annotation.nowarn("msg=Discarded")
 

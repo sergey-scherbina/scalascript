@@ -98,3 +98,23 @@ trait NativeContext:
     throw new UnsupportedOperationException(
       s"No database registry for '$dbName' — add a databases: section to front-matter"
     )
+  // mount() intrinsic — file evaluation hooks.
+  // `baseDirPath` is the interpreter's current base directory (absolute string).
+  // Returns None when the interpreter has no base dir (e.g. pure REPL snippets).
+  def baseDirPath: Option[String] = None
+  // Evaluate a `.ssc` file at `absPath` and return the last Value produced by
+  // the run.  The returned `Any` is always a `scalascript.interpreter.Value`.
+  // Default throws; the interpreter overrides in installNativeIntrinsics.
+  def evalFileGetResult(absPath: String): Any =
+    throw new UnsupportedOperationException(
+      s"evalFileGetResult not available in this context"
+    )
+  // Register a route with full mount metadata (source + ctx).
+  // Default delegates to `registerRoute` (no source/ctx) for backwards compat.
+  def registerMountedRoute(
+      method:   String,
+      path:     String,
+      handler:  Any,
+      @annotation.unused source:   Option[String],
+      @annotation.unused mountCtx: Map[String, Any]
+  ): Unit = registerRoute(method, path, handler)

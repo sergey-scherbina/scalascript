@@ -1,0 +1,17 @@
+# Mount handlers demo
+
+Demonstrates `mount()` — registering `.ssc` handler files as HTTP routes.
+
+```scala
+// Static handler — bare Response, auto-wrapped
+mount("GET", "/ping", "handlers/ping.ssc")
+
+// 1-arg handler: Request => Response
+mount("GET", "/hello/:name", "handlers/hello.ssc")
+
+// 2-arg handler reused for two routes via ctx
+mount("GET", "/users/:id",    "handlers/entity.ssc", Map("coll" -> "users"))
+mount("GET", "/products/:id", "handlers/entity.ssc", Map("coll" -> "products"))
+
+serve(8080)
+```

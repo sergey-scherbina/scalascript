@@ -9350,19 +9350,28 @@ Key infrastructure: `Routes` backing store → `LinkedHashMap[(method,path), Ent
 + `source: Option[String]` + `mountCtx: Map[String,Value]` on `Entry`.
 Eliminates duplicates; enables clean hot-reload per file.
 
-### Phase 1 — Routes refactor
+### Phase 1 — Routes refactor ✓ Landed (2026-05-21)
 
-- [ ] `Routes`: `ArrayBuffer` → `LinkedHashMap[(String,String), Entry]`
-- [ ] Add `source: Option[String]` and `mountCtx: Map[String, Value]` to `Entry`
-- [ ] `Routes.register` replaces in place; `Routes.removeBySource(absPath)`
-- [ ] All existing tests green
+`Routes` backing store changed from `ArrayBuffer[Entry]` to
+`LinkedHashMap[(method, rawPath), Entry]`.  Added `source: Option[String]`
+and `mountCtx: Map[String, Value]` to `Entry`.  `register()` now replaces
+existing entries in-place (idempotent).  `removeBySource(absPath)` removes
+all entries matching a given handler file.  `Interpreter.lastExprResult`
+added so handler-file evaluation can return the last top-level value.
+15 new tests in `MountHandlerTest`; all existing tests green.
 
-### Phase 2 — `mount()` intrinsic
+### Phase 2 — `mount()` intrinsic ✓ Landed (2026-05-21)
 
-- [ ] `mount(method, path, file)` and `mount(method, path, file, ctx)` in http-plugin
-- [ ] File resolved relative to caller's `interp.baseDir`; evaluated once via `runSnippet`
-- [ ] Handler shape detection: 1-arg → `handler(req)`; 2-arg → `handler(req, ctx)`; bare `Response` → auto-wrap
-- [ ] `source` + `mountCtx` stored in `Routes.Entry`
+`mount(method, path, file)` and `mount(method, path, file, ctx)` added to
+`HttpIntrinsics`.  File resolved relative to `interp.baseDir` (same as
+`import`).  File is evaluated once via a child interpreter; last expression
+result is used as the handler.  Shape detection: 1-arg `FunV` → used
+directly; 2-arg `FunV` → called with `(req, ctxMap)`; bare value →
+auto-wrapped as `_ => value`.  `source` and `mountCtx` stored in
+`Routes.Entry`.  `NativeContext` extended with `baseDirPath`,
+`evalFileGetResult`, and `registerMountedRoute` hooks.  `InterpreterHttpHandler`
+updated to pass `mountCtx` as second arg to 2-arg handlers at dispatch time.
+Example at `examples/mount-demo/`.
 
 ### Phase 3 — `:serve` / `:stop` / `:clear`
 

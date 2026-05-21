@@ -175,6 +175,10 @@ class Interpreter(
   private[interpreter] var traceVerbose: Boolean = false
   // Types declared with @noTrace — throw uses ScriptExceptionNoTrace to skip JVM fillInStackTrace.
   private[interpreter] val noTraceTypes = mutable.HashSet.empty[String]
+  // Last top-level Term result — updated by StatRuntime on every top-level Term eval.
+  // Used by evalFileGetResult (mount() intrinsic) to retrieve the handler value from
+  // a handler file without requiring the file to assign it to a named binding.
+  private[interpreter] var lastExprResult: Value = Value.UnitV
   // Phase 3.2: flag indicating we are inside a direct[Either[...]] block so
   // throw expressions lower to Left(...) instead of raising a ScriptException.
   private[interpreter] val _insideDirectBlock = new java.lang.ThreadLocal[Boolean] {
@@ -696,6 +700,33 @@ class Interpreter(
           case None      => throw new scalascript.server.RestValidationError(msg)
       override def dbConnect(dbName: String): java.sql.Connection =
         Interpreter.this.sqlRegistry.connect(dbName)
+      override def baseDirPath: Option[String] =
+        Interpreter.this.baseDir.map(_.toString)
+      override def evalFileGetResult(absPath: String): Any =
+        import scalascript.parser.Parser
+        val path     = os.Path(absPath)
+        val childDir = path / os.up
+        val child    = Interpreter(Interpreter.this.out, Some(childDir), lockPath = Interpreter.this.lockPath)
+        child.run(Parser.parse(os.read(path)))
+        child.lastExprResult
+      override def registerMountedRoute(
+          method:   String,
+          path:     String,
+          handler:  Any,
+          source:   Option[String],
+          mountCtx: Map[String, Any]
+      ): Unit =
+        val ctx: Map[String, Value] = mountCtx.map {
+          case (k, v: Value) => k -> v
+          case (k, s: String) => k -> Value.StringV(s)
+          case (k, n: Long)   => k -> Value.IntV(n)
+          case (k, d: Double) => k -> Value.DoubleV(d)
+          case (k, b: Boolean) => k -> Value.BoolV(b)
+          case (k, _)          => k -> Value.UnitV
+        }
+        scalascript.server.Routes.register(
+          method, path, handler.asInstanceOf[Value], Interpreter.this,
+          source = source, mountCtx = ctx)
     intrinsics.foreach {
       case (qn, scalascript.backend.spi.NativeImpl(eval)) =>
         registerNative(qn.value, args =>

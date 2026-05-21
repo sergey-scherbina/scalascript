@@ -3,25 +3,40 @@ package scalascript.server
 import scalascript.interpreter.{Interpreter, Value}
 
 /** Global REST route table — populated by `route(method, path)(handler)` calls
- *  inside the running interpreter and consulted by [[WebServer]] on each
- *  request before falling back to file rendering.
+ *  and `mount(method, path, file)` calls inside the running interpreter and
+ *  consulted by [[WebServer]] on each request before falling back to file rendering.
  *
  *  A single in-process registry is intentional: a `.ssc` document is a
  *  single program, and routes belong to that program for as long as the
  *  interpreter (or compiled server) keeps the JVM alive.  Subsequent
  *  invocations call [[clear]] before re-running.
+ *
+ *  Backed by `LinkedHashMap[(method, rawPath), Entry]` so that:
+ *  - `register` with the same `(method, path)` key replaces in place
+ *    (idempotent — e.g. hot-reload via `:reload file.ssc`).
+ *  - Iteration order is stable (insertion order), matching the behaviour
+ *    callers had with the old `ArrayBuffer`.
  */
 object Routes:
 
   /** A single registered route plus the interpreter session that owns it.
    *  We need the interpreter to invoke the handler closure with the right
-   *  evaluation rules and global environment. */
+   *  evaluation rules and global environment.
+   *
+   *  @param source   Canonical absolute path of the handler file.  `None`
+   *                  for handlers registered via `route()` (inline closures).
+   *                  Set by `mount()` to enable `removeBySource` / hot-reload.
+   *  @param mountCtx Extra context map supplied by the `mount(method, path, file, ctx)`
+   *                  overload.  Passed as the second argument to 2-arg handlers.
+   */
   final case class Entry(
       method:      String,
       path:        String,
       pathPattern: List[Segment],
       handler:     Value,
-      interpreter: Interpreter
+      interpreter: Interpreter,
+      source:      Option[String]        = None,
+      mountCtx:    Map[String, Value]    = Map.empty
   )
 
   sealed trait Segment
@@ -29,25 +44,43 @@ object Routes:
     case class Literal(s: String) extends Segment
     case class Capture(name: String) extends Segment
 
-  private val entries     = scala.collection.mutable.ArrayBuffer.empty[Entry]
+  private val entries      = scala.collection.mutable.LinkedHashMap.empty[(String, String), Entry]
   private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Value, Interpreter)]
 
   def clear(): Unit = { entries.clear(); _middlewares.clear() }
 
-  def register(method: String, path: String, handler: Value, interp: Interpreter): Unit =
-    entries += Entry(method.toUpperCase, path, parsePath(path), handler, interp)
+  /** Register a route.  Replaces any existing entry with the same
+   *  `(method.toUpperCase, path)` key (idempotent mount). */
+  def register(
+      method:   String,
+      path:     String,
+      handler:  Value,
+      interp:   Interpreter,
+      source:   Option[String]     = None,
+      mountCtx: Map[String, Value] = Map.empty
+  ): Unit =
+    val m   = method.toUpperCase
+    val key = (m, path)
+    entries(key) = Entry(m, path, parsePath(path), handler, interp, source, mountCtx)
+
+  /** Remove all entries whose `source` matches `absPath`.
+   *  Used by hot-reload (`:reload file.ssc`) to evict stale handlers
+   *  before re-mounting. */
+  def removeBySource(absPath: String): Unit =
+    val toRemove = entries.collect { case (k, e) if e.source.contains(absPath) => k }.toList
+    toRemove.foreach(entries.remove)
 
   def addMiddleware(fn: Value, interp: Interpreter): Unit = _middlewares += ((fn, interp))
 
   def middlewares: List[(Value, Interpreter)] = _middlewares.toList
 
-  def all: List[Entry] = entries.toList
+  def all: List[Entry] = entries.values.toList
 
   /** Returns the first matching entry and the captured path parameters. */
   def matchRequest(method: String, path: String): Option[(Entry, Map[String, String])] =
-    val m = method.toUpperCase
+    val m        = method.toUpperCase
     val segments = splitSegments(path)
-    entries.iterator
+    entries.valuesIterator
       .filter(_.method == m)
       .flatMap(e => matchSegments(e.pathPattern, segments).map(params => (e, params)))
       .nextOption()
