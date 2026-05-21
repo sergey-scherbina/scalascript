@@ -97,6 +97,33 @@ lazy val interop = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// ── Library modularity: publishing aggregates (Priority 6) ───────────────────
+//
+// `scalascriptCore` — the stable compiler-facing API for linters and tool
+// builders.  A single `sbt scalascriptCore/publishLocal` publishes the three
+// modules that make up the public surface: ir + backendSpi + core.
+// (No new sources — pure sbt aggregate shortcut.)
+//
+// `scalascriptInterpreterAgg` — the embedding surface: everything needed to
+// run `.ssc` code in a JVM application.  Phase 2 lazy loading (deferred) will
+// let callers skip HTTP/actor deps; for now the full backendInterpreter is the
+// embedding unit.
+lazy val scalascriptCore = project
+  .in(file("bundles/core"))
+  .aggregate(ir, backendSpi, core)
+  .settings(
+    name := "scalascript-core-all",
+    publish / skip := true
+  )
+
+lazy val scalascriptInterpreterAgg = project
+  .in(file("bundles/interpreter"))
+  .aggregate(ir, backendSpi, core, backendInterpreter)
+  .settings(
+    name := "scalascript-interpreter-all",
+    publish / skip := true
+  )
+
 // Phase 1a of the runtime-consolidation refactor (see
 // PLAN-runtime-consolidation.md): pure protocol primitives extracted out
 // of backend-interpreter so they can later be reused by the JVM codegen
@@ -465,7 +492,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -1849,6 +1876,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     backendSpi, ir, core, interop,
+    scalascriptCore, scalascriptInterpreterAgg,
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,

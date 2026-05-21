@@ -5887,16 +5887,16 @@ What landed:
 
 ### Library modularity
 
-**Status: open. Effort: ~3 days. Priority: 6. Depends on: Interpreter split.**
+**Status: landed (2026-05-21). Effort: ~3 days. Priority: 6. Depends on: Interpreter split.**
 
 1. Fix `backendInterpreter / backendJvm` dependency to `% Test` only.
 2. Publish `scalascript-core` artifact (`ir + backendSpi + core`) for linters
    and tool builders.
 3. Publish `scalascript-interpreter` (core eval, no HTTP/actors) for embedding.
 
-- [ ] Fix test-scope dep leak
-- [ ] Add `scalascript-core` aggregate in `build.sbt`
-- [ ] Add `scalascript-interpreter` aggregate
+- [x] Fix test-scope dep leak — `frontendPlugin` moved to `% Test` in `backendInterpreter`
+- [x] Add `scalascript-core` aggregate in `build.sbt` — `scalascriptCore` aggregates `ir + backendSpi + core`
+- [x] Add `scalascript-interpreter` aggregate — `scalascriptInterpreterAgg` aggregates eval stack (full HTTP/actor decoupling deferred to Phase 2 lazy loading)
 
 ### New tool — `ssc profile file.ssc`
 
@@ -6323,7 +6323,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 3 | ~~LSP server (`ssc lsp`)~~ ✓ landed Phase 1+2 (2026-05-20) | C | 2 weeks | — |
 | 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
 | 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
-| 5 | Library modularity | D | 3 days | Interpreter split |
+| 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
 | 6 | `ssc debug` (DAP debugger) | C | 2 weeks | Interpreter split |
 | 7 | Numeric value specialization | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
