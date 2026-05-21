@@ -197,9 +197,10 @@ private[interpreter] object CallRuntime:
           val names = ps.toArray
           val arr   = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, withSelf)
-      val frameName = if f.name.nonEmpty then f.name else "<anon>"
-      val lineNum   = interp.currentSpan.map(_._1 + 1).getOrElse(0)
-      interp.callStack += ((frameName, lineNum))
+      val frameName  = if f.name.nonEmpty then f.name else "<anon>"
+      val relLine    = interp.currentSpan.map(_._1 + 1).getOrElse(0)
+      val absDocLine = interp.debugBlockDocLine + relLine
+      interp.callStack += ((frameName, interp.debugSourceFile, absDocLine))
       val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))

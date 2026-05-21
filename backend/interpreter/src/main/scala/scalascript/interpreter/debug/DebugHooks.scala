@@ -18,11 +18,15 @@ enum StepAction:
 enum StopReason:
   case Breakpoint, Step, Pause, Entry
 
+/** One entry in the DAP call stack: (frameName, sourceFile, absDocLine). */
+case class CallFrameEntry(name: String, sourceFile: String, line: Int)
+
 case class DebugFrame(
-  id:         Int,
-  name:       String,
-  sourceFile: String,
-  line:       Int,
-  callDepth:  Int = 0,
-  locals:     Map[String, scalascript.interpreter.Value] = Map.empty,
+  id:          Int,
+  name:        String,
+  sourceFile:  String,
+  line:        Int,
+  callDepth:   Int = 0,
+  locals:      Map[String, scalascript.interpreter.Value] = Map.empty,
+  callFrames:  IndexedSeq[CallFrameEntry] = IndexedSeq.empty,
 )

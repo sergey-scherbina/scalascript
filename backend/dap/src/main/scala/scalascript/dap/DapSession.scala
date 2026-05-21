@@ -7,7 +7,7 @@ import java.util.concurrent.{CountDownLatch, ConcurrentHashMap}
 import scalascript.interpreter.{Value => IValue}
 import scalascript.interpreter.debug.{DebugFrame, DebugHooks, StepAction, StopReason}
 
-/** Handles one DAP client connection. Phase 4: variable inspection (scopes/variables).
+/** Handles one DAP client connection. Phase 5: stack frames + source mapping (stackTrace).
  *
  *  Threading model:
  *  - The DAP message loop runs on the caller's thread (inside [[run]]).
@@ -142,6 +142,7 @@ final class DapSession(conn: Socket):
           sendResponse(reqSeq, "threads", Obj(
             "threads" -> Arr(Obj("id" -> Num(1), "name" -> Str("main")))
           ))
+        case "stackTrace" => handleStackTrace(reqSeq)
         case "scopes"     => handleScopes(reqSeq, msg)
         case "variables"  => handleVariables(reqSeq, msg)
         case "disconnect" => handleDisconnect(reqSeq, msg)
@@ -153,6 +154,36 @@ final class DapSession(conn: Socket):
     stepMode.set(mkMode(frame))
     resume()
     sendResponse(reqSeq, cmd, Obj())
+
+  // ─── Stack trace ──────────────────────────────────────────────────────────
+
+  private def handleStackTrace(reqSeq: Int): Unit =
+    val stopped = lastFrame.get()
+    // Build innermost-first list: stopped frame + callers from callStack (reversed).
+    val frames: Seq[Value] = stopped match
+      case None => Seq.empty
+      case Some(f) =>
+        val callers = f.callFrames.reverseIterator.zipWithIndex.map { case (entry, i) =>
+          Obj(
+            "id"     -> Num(i + 1),
+            "name"   -> Str(entry.name),
+            "source" -> Obj("path" -> Str(entry.sourceFile)),
+            "line"   -> Num(entry.line),
+            "column" -> Num(1),
+          )
+        }.toSeq
+        val top = Obj(
+          "id"     -> Num(0),
+          "name"   -> Str(f.name),
+          "source" -> Obj("path" -> Str(f.sourceFile)),
+          "line"   -> Num(f.line),
+          "column" -> Num(1),
+        )
+        top +: callers
+    sendResponse(reqSeq, "stackTrace", Obj(
+      "stackFrames" -> Arr(frames*),
+      "totalFrames" -> Num(frames.length),
+    ))
 
   // ─── Variable inspection ──────────────────────────────────────────────────
 

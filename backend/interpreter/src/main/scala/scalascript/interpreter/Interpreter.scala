@@ -131,8 +131,8 @@ class Interpreter(
   def setDebugHooks(hooks: Option[scalascript.interpreter.debug.DebugHooks]): Unit =
     debugHooks = hooks
 
-  // Phase 6: interpreter call stack for currentStackTrace().
-  private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
+  // Phase 5 DAP: call stack — (frameName, sourceFile, absDocLine).
+  private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, String, Int)]
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
   private[interpreter] var traceVerbose: Boolean = false
   // Types declared with @noTrace — throw uses ScriptExceptionNoTrace to skip JVM fillInStackTrace.

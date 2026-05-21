@@ -6355,7 +6355,7 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 4 | ~~Interpreter file split (Phase 1)~~ ✓ landed (2026-05-21) | D | 1-2 days | — |
 | 4b | Interpreter lazy loading (Phase 2) — planned, deferred | D | 1 week | Phase 1 ✓ |
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
-| 6 | ~~`ssc debug` (DAP debugger) Phase 1~~ ✓ landed (2026-05-21) — `backendDap` TCP skeleton, `DapProtocol` framing, `DapSession` lifecycle (initialize/launch/disconnect), `DebugHooks`/`BreakpointRegistry` in interpreter, `ssc debug` CLI command; phases 2-5 pending | C | 2 weeks | Interpreter split |
+| 6 | ~~`ssc debug` (DAP debugger) Phases 1–5~~ ✓ all landed (2026-05-21) — TCP skeleton, framing, breakpoints, step execution, variable inspection, stack frames; 16 integration tests | C | 2 weeks | Interpreter split |
 | 7 | ~~Numeric value specialization~~ ✓ landed (2026-05-21) — `Value.intV()` pool (−128..1024) + `Value.True`/`Value.False` pre-cached; arithmetic hot-paths in DispatchRuntime/EvalRuntime use pooled values | E | 1 week | Interpreter split |
 | 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
 | 9 | ~~**Package registry**~~ ✓ landed (2026-05-21) — `pkg:` URI in ImportResolver + `ssc install` shortcut; `BackendRegistry.findInstalledPkg` + `loadAndExtract`; auto-download via LocalRegistry | G | 2 weeks | — |
@@ -9222,7 +9222,7 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 
 ## v1.29 — DAP Debugger (`ssc debug`)
 
-**Status:** Phase 1+2 landed | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
+**Status:** Phases 1–5 landed ✓ | **Spec:** `docs/dap-debugger.md` | **Branch:** `feature/dap-debugger`
 
 IDE-friendly step-debugger for `.ssc` files using the Debug Adapter Protocol (DAP).
 `ssc debug file.ssc [--port 5678]` starts a DAP TCP server; VS Code / IntelliJ / Cursor
@@ -9293,14 +9293,20 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - [x] `valueToDap` helper (typed display for all Value cases)
 - [x] `DapVariablesTest` (3 tests)
 
-### Phase 5 — Stack frames + source mapping
+### Phase 5 — Stack frames + source mapping ✓ Landed (2026-05-21)
 
-- Handle `stackTrace` request; map `.ssc` section headings to frame names.
-- Tests: `DapStackTraceTest`.
+- `callStack` in `Interpreter` changed to `ArrayBuffer[(String, String, Int)]` — (frameName, sourceFile, absDocLine).
+  `absDocLine` computed at push time in `CallRuntime.callFun` so absolute doc lines are always correct.
+- `CallFrameEntry(name, sourceFile, line)` case class added to `DebugHooks.scala`.
+- `callFrames: IndexedSeq[CallFrameEntry]` added to `DebugFrame`; populated from `interp.callStack` snapshot in `EvalRuntime.eval`.
+- `handleStackTrace` in `DapSession`: builds innermost-first frame list — stopped frame (id=0) + callers
+  from `callFrames` reversed (id=1, 2, …); each frame carries `{id, name, source: {path}, line, column}`.
+- `BuiltinsRuntime.currentStackTrace` updated to pattern-match new 3-tuple; `file` field now populated.
+- 3 new tests in `DapStackTraceTest`: multi-frame (function call), single top-level frame, source path check.
 
-- [ ] Expose call stack to `DebugHooks`
-- [ ] `stackTrace` request handler
-- [ ] `DapStackTraceTest`
+- [x] Expose call stack to `DebugHooks` (via `callFrames` field on `DebugFrame`)
+- [x] `stackTrace` request handler
+- [x] `DapStackTraceTest` (3 tests)
 
 ---
 

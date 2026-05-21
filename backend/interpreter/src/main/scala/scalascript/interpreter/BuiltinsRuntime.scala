@@ -175,12 +175,12 @@ private[interpreter] object BuiltinsRuntime:
     // Call setTraceVerbose(true) to include all frames.
     interp.globals("currentStackTrace") = Value.NativeFnV("currentStackTrace", _ =>
       Pure(Value.ListV(interp.callStack.toList.reverse
-        .filter { case (fn, _) =>
+        .filter { case (fn, _, _) =>
           interp.traceVerbose || (fn != "<anon>" && !fn.startsWith("_"))
         }
-        .map { case (fn, line) =>
+        .map { case (fn, file, line) =>
           Value.InstanceV("Frame", Map(
-            "file" -> Value.StringV(""),
+            "file" -> Value.StringV(file),
             "line" -> Value.IntV(line),
             "fn"   -> Value.StringV(fn)
           ))
