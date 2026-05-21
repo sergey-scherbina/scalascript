@@ -664,6 +664,9 @@ def maxBodySize(n: Int): Unit = _maxBodySizeBytes = n.toLong
 def uploadSpoolThreshold(n: Int): Unit = _spoolThreshold = n.toLong
 def uploadDir(path: String): Unit      = _uploadDir = path
 
+// ── Static file root (set by serve(view, port) before serve(port)) ────
+@volatile var _ssc_static_root: String = "."
+
 // ── Streaming response sentinel ────────────────────────────────────────
 // `_StreamResponse` aliases to the POJO `StreamResponse` inlined from
 // runtime-server-common — kept as a local name so existing call sites
@@ -790,11 +793,11 @@ private def _handle(ex: com.sun.net.httpserver.HttpExchange): Unit =
             "\tua=\""             + _uaSan + "\"")
     ex.close()
 
-/** Try to serve a static asset under the cwd — delegates to the
- *  shared `StaticAssetServer.tryServe` (resolve + traversal guard +
- *  .ssc skip + mime-typed write). */
+/** Try to serve a static asset — delegates to `StaticAssetServer.tryServe`
+ *  using `_ssc_static_root` as the document root (default `"."`, overridden
+ *  by `serve(view, port)` to the emitted SPA temp directory). */
 private def _serveStatic(ex: com.sun.net.httpserver.HttpExchange, urlPath: String): Option[Unit] =
-  StaticAssetServer.tryServe(ex, urlPath)
+  StaticAssetServer.tryServe(ex, urlPath, _ssc_static_root)
 
 private def _contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
 

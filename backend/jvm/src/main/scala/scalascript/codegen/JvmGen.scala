@@ -261,15 +261,23 @@ class JvmGen(
     }
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    val frontendFramework = module.manifest.flatMap(_.frontendFramework)
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
+
+    // Frontend SPA — pull in the frontend-core + frontend-react JARs so the
+    // UI primitive implementations (element / signal / serve(view, port) / …)
+    // can reference scalascript.frontend.* types at runtime.
+    if frontendFramework.isDefined then
+      sb.append("""//> using lib "io.scalascript::scalascript-frontend-core:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append("""//> using lib "io.scalascript::scalascript-frontend-react:0.1.0-SNAPSHOT"""" + "\n")
 
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
     // sql don't pull these onto their scala-cli classpath.
     if sqlBlockCounter > 0 then
-      sb.append("""//> using dep "com.h2database:h2:2.2.224"""" + "\n")
-      sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.45.3.0"""" + "\n")
+      sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
+      sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
       sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
 
     sb.append(preamble)
@@ -345,7 +353,17 @@ class JvmGen(
 
     val fixedHead = sb.substring(0, preambleLen)
     val userSrc   = sb.substring(preambleLen)
-    val braced    = colonObjectsToBraces(userSrc).stripTrailing()
+    // Inject UI helper functions (top-level) + primitives object block when
+    // the module uses a frontend framework.  Helpers are prepended so they're
+    // defined before the `import std.ui.primitives.{serve,...}` line and can
+    // therefore call the preamble's `serve(port)` without the import shadowing
+    // it.  The primitives colon-block is appended so `mergeDuplicatePackageObjects`
+    // merges it with the existing (extern-filtered, empty) object from primitives.ssc.
+    val withUi =
+      if frontendFramework.isDefined then
+        uiHelperFunctions + "\n" + userSrc + "\n" + uiPrimitivesBlock
+      else userSrc
+    val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
     fixedHead + merged + "\n"
@@ -525,9 +543,11 @@ class JvmGen(
         removedLines += idx
 
     // Inject std/ui opaque type aliases at the start if std.ui.primitives is present.
+    // Replace any partial ui.primitives.{ import (types-only) with the full one.
     val hasPrimitivesObj = lines.exists(l => l.trim == "object primitives {" || l.contains("object primitives {"))
-    if hasPrimitivesObj && !importBuf.exists(_.contains("ui.primitives.{")) then
-      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler}")
+    if hasPrimitivesObj then
+      importBuf.filterInPlace(!_.contains("ui.primitives.{"))
+      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler, signal, element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emit, serve, fetchUrlSignal, fetchAction, incSignal, fetchActionClear, fetchTableView}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
 
@@ -1288,6 +1308,28 @@ class JvmGen(
     sb.append("    case _                       => _ssc_sql_registry.connect(dbName.getOrElse(\"default\"))\n")
     sb.append("  }\n")
     sb.append("\n")
+    // Db object — mirrors the interpreter's Db.query / Db.execute intrinsics.
+    // Acquires a per-call connection from the registry, delegates to SqlRuntime,
+    // and closes the connection regardless of outcome.
+    sb.append("""|object Db:
+                 |  def query(dbName: String, sql: String, params: List[Any]): List[Map[String, Any]] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    try
+                 |      scalascript.sql.SqlRuntime.execute(conn, sql, params) match
+                 |        case scalascript.sql.SqlResult.Rows(rows) => rows.map(_.toMap).toList
+                 |        case scalascript.sql.SqlResult.UpdateCount(_) => Nil
+                 |    finally
+                 |      conn.close()
+                 |  def execute(dbName: String, sql: String, params: List[Any]): Int =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    try
+                 |      scalascript.sql.SqlRuntime.execute(conn, sql, params) match
+                 |        case scalascript.sql.SqlResult.UpdateCount(n) => n
+                 |        case scalascript.sql.SqlResult.Rows(_) => 0
+                 |    finally
+                 |      conn.close()
+                 |
+                 |""".stripMargin)
     sb.toString
 
   /** Minimal escape for emitted Scala string literals. */
@@ -8389,5 +8431,156 @@ class JvmGen(
        |  _effects(eid) = _Effect(updater, scala.collection.mutable.HashSet.empty)
        |  _runEffect(eid)
        |  new Signal[A](sid)
+       |
+       |""".stripMargin
+
+  /** Top-level helper functions for frontend modules.  Prepended to the user
+   *  section so they're defined BEFORE the `import std.ui.primitives.{serve,...}`
+   *  line — this ensures `serve(port)` inside `_ssc_ui_serve` resolves to the
+   *  preamble's `serve(port: Int, ...)` rather than the opaque-typed wrapper. */
+  private val uiHelperFunctions: String =
+    """|
+       |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
+       |def _ssc_ui_decodeAttrs(m: Map[String, Any]): Map[String, scalascript.frontend.AttrValue] =
+       |  m.collect {
+       |    case (k, v: String)  => k -> scalascript.frontend.AttrValue.Str(v)
+       |    case (k, v: Boolean) => k -> scalascript.frontend.AttrValue.Bool(v)
+       |    case (k, v: Int)     => k -> scalascript.frontend.AttrValue.Num(v.toDouble)
+       |    case (k, v: Long)    => k -> scalascript.frontend.AttrValue.Num(v.toDouble)
+       |    case (k, v: Double)  => k -> scalascript.frontend.AttrValue.Num(v)
+       |    case (k, v: scalascript.frontend.ReactiveSignal[?]) =>
+       |      k -> scalascript.frontend.AttrValue.Reactive(v)
+       |  }
+       |
+       |def _ssc_ui_decodeEvents(m: Map[String, Any]): Map[String, scalascript.frontend.EventHandler] =
+       |  m.collect { case (k, v: scalascript.frontend.EventHandler) => k -> v }
+       |
+       |def _ssc_ui_buildModule(view: scalascript.frontend.View): scalascript.frontend.FrontendModule =
+       |  scalascript.frontend.FrontendModule(
+       |    List(scalascript.frontend.ComponentDef("App", Nil, _ =>
+       |      scalascript.frontend.View.Element("div",
+       |        Map("id" -> scalascript.frontend.AttrValue.Str("ui-app")),
+       |        Map.empty, Seq(view)))),
+       |    "App", "/")
+       |
+       |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View, dir: String): Unit =
+       |  val _mod     = _ssc_ui_buildModule(view)
+       |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
+       |  val _p = java.nio.file.Paths.get(dir)
+       |  java.nio.file.Files.createDirectories(_p)
+       |  java.nio.file.Files.writeString(_p.resolve("index.html"), _emitted.html)
+       |  java.nio.file.Files.writeString(_p.resolve("app.js"),     _emitted.js)
+       |  if _emitted.css.nonEmpty then
+       |    java.nio.file.Files.writeString(_p.resolve("app.css"), _emitted.css)
+       |
+       |def _ssc_ui_emit_to_tempdir(view: scalascript.frontend.View): String =
+       |  val _mod     = _ssc_ui_buildModule(view)
+       |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
+       |  val _tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
+       |  java.nio.file.Files.writeString(_tmpDir.resolve("index.html"), _emitted.html)
+       |  java.nio.file.Files.writeString(_tmpDir.resolve("app.js"),     _emitted.js)
+       |  if _emitted.css.nonEmpty then
+       |    java.nio.file.Files.writeString(_tmpDir.resolve("app.css"), _emitted.css)
+       |  _tmpDir.toString
+       |
+       |def _ssc_ui_serve(tree: Any, port: Int): Unit =
+       |  scalascript.frontend.FrontendFrameworks.setBackend("react")
+       |  val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View])
+       |  _ssc_static_root = _outDir
+       |  serve(port)
+       |
+       |// ── Overloads to shadow preamble names that conflict with UI widget imports ──
+       |// serve(view, port): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
+       |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
+       |// text(String): beats extension (r: Response.type) def text(body: Any)
+       |def text(content: String): std.ui.nodes.TkNode = std.ui.typography.text(content)
+       |
+       |""".stripMargin
+
+  /** Colon-style `object std:` block injected into the user section and merged
+   *  (via `mergeDuplicatePackageObjects`) with the extern-filtered primitives.ssc
+   *  object.  Provides JVM implementations for all UI extern defs so that
+   *  `import std.ui.primitives.{signal, element, serve, ...}` resolves. */
+  private val uiPrimitivesBlock: String =
+    """|object std:
+       |  object ui:
+       |    object primitives:
+       |      // Signal[T] params/returns use Any: opaque Signal[T]=Any, but callers
+       |      // may pass Any-typed fields (e.g. case class fields typed as Any in nodes.ssc).
+       |      def signal[T](name: String, default: T): Any =
+       |        new scalascript.frontend.ReactiveSignal[T](name, default)
+       |
+       |      def element(tag: String, attrs: Map[String, Any], events: Map[String, Any], children: List[View]): View =
+       |        scalascript.frontend.View.Element(tag,
+       |          _ssc_ui_decodeAttrs(attrs), _ssc_ui_decodeEvents(events),
+       |          children.asInstanceOf[Seq[scalascript.frontend.View]])
+       |
+       |      def textNode(s: String): View =
+       |        scalascript.frontend.View.TextNode(() => s)
+       |
+       |      def signalText(s: Any): View =
+       |        scalascript.frontend.View.SignalText(
+       |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]])
+       |
+       |      def showSignal(cond: Any, whenTrue: View, whenFalse: View): View =
+       |        scalascript.frontend.View.ShowSignal(
+       |          cond.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]],
+       |          whenTrue.asInstanceOf[scalascript.frontend.View],
+       |          whenFalse.asInstanceOf[scalascript.frontend.View])
+       |
+       |      def fragment(children: List[View]): View =
+       |        scalascript.frontend.View.Fragment(
+       |          children.asInstanceOf[Seq[scalascript.frontend.View]])
+       |
+       |      def setSignal(s: Any, v: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.SetSignalLiteral(
+       |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]], v)
+       |
+       |      def inputChange(s: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.InputChange(
+       |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |
+       |      def toggleSignal(s: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.ToggleSignal(
+       |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]])
+       |
+       |      def eqSignal(s: Any, value: Any): Any =
+       |        val _jsName     = s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].jsName
+       |        val _initial    = s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].apply().asInstanceOf[Any] == value
+       |        val _safeSuffix = value.toString.replaceAll("[^A-Za-z0-9]", "_")
+       |        new scalascript.frontend.ReactiveSignal[Boolean](_jsName + "__eq__" + _safeSuffix, _initial)
+       |
+       |      def hashSignal(): Any =
+       |        new scalascript.frontend.ReactiveSignal[String]("__hash__", "")
+       |
+       |      def fetchUrlSignal(name: String, url: String, refreshTick: Any): Any =
+       |        new scalascript.frontend.FetchUrlSignal(name, url,
+       |          refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].jsName)
+       |
+       |      def fetchAction(method: String, url: String, body: Any, onSuccessTick: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.FetchAction(method, url,
+       |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]])
+       |
+       |      def incSignal(s: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.IncrementSignal(
+       |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], 1)
+       |
+       |      def fetchActionClear(method: String, url: String, body: Any, onSuccessTick: Any): EventHandler =
+       |        scalascript.frontend.EventHandler.FetchAction(method, url,
+       |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+       |          clearBody = true)
+       |
+       |      def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Any): View =
+       |        val _tableJsName = "sscRows_" + fetchUrl.replaceAll("[^A-Za-z0-9]", "_")
+       |        scalascript.frontend.View.FetchTable(_tableJsName, fetchUrl, deleteUrl,
+       |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]])
+       |
+       |      def emit(tree: View, outDir: String): Unit =
+       |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View], outDir)
+       |
+       |      def serve(tree: View, port: Int): Unit =
+       |        _ssc_ui_serve(tree, port)
        |
        |""".stripMargin
