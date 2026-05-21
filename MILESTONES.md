@@ -5956,12 +5956,9 @@ fast-path.
 - [x] Specialize arithmetic fast-path in `Computation` — existing Pure short-circuit in `EvalRuntime ApplyInfix` (already in place) now benefits from pooled result values; no allocation for `a + b` when result is in −128..1024
 - [x] Benchmark regression: `InterpreterTest` 107/107 pass; `BoolV(true)` / `BoolV(false)` pre-cached as `Value.True` / `Value.False`
 
-### Compiler — Incremental type-checking
+### Compiler — Incremental type-checking ✓ Landed (2026-05-19)
 
-**Status: open. Effort: ~1 week. Priority: 9. Depends on: AST cache.**
-
-Re-check only the changed block and its transitive dependents.  Snapshot
-`TypedEnv` per section; restore from last unchanged section on re-check.
+**Status: complete.** `TypedEnv` snapshot per section; restore + re-run typer from changed section forward; leaf-section isolation test.
 
 - [x] `TypedEnv` snapshot per section — Landed 2026-05-19
 - [x] Restore snapshot, re-run typer from changed section forward — Landed 2026-05-19
@@ -6015,9 +6012,9 @@ ssc fmt --stdout file.ssc          # print to stdout
 
 ---
 
-## v1.24 — Language features (TOP PRIORITY)
+## v1.24 — Language features ✓ Complete (2026-05-19)
 
-**Status: open. All items parallel-safe with each other.**
+**Status: complete.** All 7 items landed: pattern matching (nested/guards/@), type aliases, opaque types, union types, extension methods, named args, given/using improvements.
 
 This milestone covers language ergonomics gaps most felt in real ScalaScript code.
 All 7 items can be assigned to parallel agents simultaneously — they touch different
