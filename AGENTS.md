@@ -390,6 +390,13 @@ context rotations — `MILESTONES.md` does. Use it to:
   that don't conflict).
 - **Mark items landed** in the same commit that closes them — never push
   a finished feature whose milestone entry is still open.
+- **Mark phases complete** after each iteration: as soon as a phase or
+  sub-milestone is done, update its heading with `✓ Landed (YYYY-MM-DD)`
+  and replace the bullet points with a short summary of what was actually
+  built.  Do this in the same push as the implementation — not later.
+- **Mark the top-level milestone complete** once all phases are done:
+  change `**Status:** open` → `**Status:** complete` and append
+  `✓ Complete (YYYY-MM-DD)` to the heading.
 - **Capture follow-ups** discovered while working: append to the right
   sprint or to "Known issues / latent flakes" before moving on.
 
