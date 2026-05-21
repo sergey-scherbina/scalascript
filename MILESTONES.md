@@ -9335,9 +9335,9 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 
 ---
 
-## v1.30 — REPL web-aware mode + `mount()` intrinsic
+## v1.30 — REPL web-aware mode + `mount()` intrinsic ✓ Complete (2026-05-21)
 
-**Status: spec** | **Spec:** `docs/repl-web.md`
+**Status: complete** | **Spec:** `docs/repl-web.md`
 
 Two orthogonal additions sharing the same infrastructure:
 
@@ -9441,14 +9441,33 @@ Prints result same as `:http`.  Returns `→ 404 Not Found` if no route matches.
 `:help` updated with all three command descriptions.
 13 new tests in `ReplRoutesTest`; 222 tests passing in `cli/test`.
 
-### Phase 7 — Typed handlers
+### Phase 7 — Typed handlers ✓ Landed (2026-05-21)
 
-- [ ] Detect typed input shape at mount time via scalameta type annotation inspection
-- [ ] All 6 input signatures: `Input`, `(Input, Request)`, `(Input, Map)`, `(Input, Request, Map)`, `Either[Request, Input]`
-- [ ] All 3 output signatures: `Response`, `Output` (→ JSON 200), `Either[Response, Output]`
-- [ ] Deserialization priority: path params → query params → JSON body (by field name)
-- [ ] `errorDetails` 4-level priority: global REPL setting > front-matter > per-`mount()` param > default `true`
-- [ ] `TypedHandlerTest` — 6×3 matrix, deser priority, both error modes
+`TypedHandlerWrapper` detects non-special typed parameters at mount time and
+wraps the handler with automatic deserialization (path params → query params →
+JSON body, by field name) and JSON serialization of the output.
+
+Input signatures supported: `(Input)`, `(Input, Request)`, `(Input, Map)`,
+`(Input, Request, Map)`, `Either[Request, Input]` (Left on deser failure).
+Output signatures: `Response` (pass-through), `Output` case class (→ JSON 200),
+`Either[Response, Output]` (Left → pass-through resp, Right → JSON 200).
+
+Type metadata: `Interpreter` gained `typeFieldTypes` map (parallel to existing
+`typeFieldOrder`) populated by `StatRuntime` when processing `Defn.Class`.
+`globalsView` enriched with synthetic `FunV` entries carrying field metadata so
+`TypedHandlerWrapper` can find constructor signatures even when globals stores
+a `NativeFnV` constructor.
+
+Parser: `trySplitParse` fallback added — handler files with class definitions
+followed by a typed lambda now parse correctly (scalameta rejects the mix in
+block mode; split-parse handles it cleanly).
+
+`errorDetails` default (`true`) wired; full 4-level priority deferred (REPL
+`:set errorDetails` hook is ready from Phase 8; connecting it is a follow-up).
+
+17 `TypedHandlerTest` cases pass: case class in/out, path/query/body deser,
+priority ordering, missing-field 400, `(Input, Request)`, `Either[Response, Output]`,
+`Either[Request, Input]`, primitive scalars, raw Request pass-through.
 
 ### Phase 8 — `:help` + tests + polish ✓ Landed (2026-05-21)
 
