@@ -79,7 +79,7 @@ lazy val logger = project
 
 lazy val core = project
   .in(file("lang/core"))
-  .dependsOn(backendSpi, dbUrl, logger)
+  .dependsOn(backendSpi, backendSqlRuntime, logger)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
@@ -857,24 +857,14 @@ lazy val backendConfigRuntime = project
 // v1.26 — JDBC execution runtime consumed by interpreter + JvmGen.
 // Canonical database URL scheme registry.  Pure Scala, no external deps.
 // Maps user-facing prefixes (sqlite:, duckdb:, postgres:, …) to their
-// JVM (JDBC) and JS-native forms.  Depended on by core (CapabilityCheck),
-// backendSqlRuntime (ConnectionRegistry), and backendSqlRuntimeJs (ProviderId).
-lazy val dbUrl = project
-  .in(file("backend/db-url"))
-  .settings(
-    name := "scalascript-db-url",
-    libraryDependencies ++= Seq(scalatestTest),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
-
 // Self-contained (no `ir` / `backend-spi` / `core` deps): takes a
 // `java.sql.Connection`, a `?`-templated SQL string, and an ordered
 // bind list, returns a `Row`-based result.  Bundles H2 + SQLite so
 // the standard examples / quickstarts work with zero configuration.
+// DbUrl (canonical DB URL scheme mapping) lives here.
 lazy val backendSqlRuntime = project
   .in(file("backend/sql-runtime"))
-  .dependsOn(backendConfigRuntime, dbUrl)
+  .dependsOn(backendConfigRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(
@@ -897,7 +887,7 @@ lazy val backendSqlRuntime = project
 //     `.mjs` source as a String for JsGen to prepend to its output
 lazy val backendSqlRuntimeJs = project
   .in(file("backend/sql-runtime-js"))
-  .dependsOn(dbUrl)
+  .dependsOn(backendSqlRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime-js",
     libraryDependencies ++= Seq(
@@ -1951,7 +1941,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase, dbUrl, backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
