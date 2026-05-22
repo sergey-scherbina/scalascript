@@ -288,7 +288,7 @@ private def compileViaBackend(
     file:      os.Path,
     extras:    Map[String, String] = Map.empty
 ): CompileResult =
-  val module  = Parser.parse(os.read(file))
+  val module  = loadModule(file)
   val ir      = Normalize(module)
   val backend = resolveBackend(backendId)
   val diags   = CapabilityCheck.validate(ir, backend.capabilities, backendId)
