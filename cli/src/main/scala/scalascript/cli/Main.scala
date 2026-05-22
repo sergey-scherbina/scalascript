@@ -1059,33 +1059,224 @@ private def buildArtifactsInto(
 
   (compiled, skipped, failed)
 
-/** `ssc build <src-dir> [<out-dir>]` — batch static-site generation.
+// ─── Fat-JAR entry point ────────────────────────────────────────────────────
+
+/** Main class written into fat JARs by `ssc build --target jvm`.
+ *  Reads the `.ssc` source packed at `META-INF/ssc/main.ssc`, writes
+ *  it to a temp file, then calls `runCommand` exactly as `ssc run` would. */
+object SscJarMain:
+  def main(argv: Array[String]): Unit =
+    val stream = getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc")
+    if stream == null then
+      System.err.println("ssc: no embedded main.ssc found in JAR (corrupt build?)")
+      System.exit(1)
+    val content = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    val tmp = java.nio.file.Files.createTempFile("ssc-jar-", ".ssc")
+    tmp.toFile.deleteOnExit()
+    java.nio.file.Files.writeString(tmp, content)
+    runCommand(tmp.toString :: argv.toList)
+
+// ─── Fat-JAR packaging ───────────────────────────────────────────────────────
+
+/** Pack `sscFile` together with the full ssc interpreter runtime into
+ *  a self-contained fat JAR at `outJar`.  Running `java -jar outJar`
+ *  launches the `.ssc` program via the embedded interpreter.
  *
- *  Walks `src-dir` for top-level `.ssc` files (subdirectories are
- *  treated as imported modules, not pages, and skipped).  For each
- *  file, runs the interpreter in headless mode and renders every
- *  registered literal GET route into `<out-dir>/<route>.html`:
+ *  All JARs from `<ssc.lib.path>/bin/lib/jars/` and `bin/lib/ssc.jar`
+ *  are merged; duplicate entries (other than `META-INF/MANIFEST.MF`) are
+ *  silently deduplicated (first-seen wins — safe for class files). */
+private def buildFatJar(sscFile: os.Path, outJar: os.Path): Unit =
+  import java.util.zip.{ZipEntry, ZipInputStream}
+  import java.util.jar.JarOutputStream
+  import java.io.{FileOutputStream, FileInputStream}
+
+  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val runtimeJars =
+    os.list(libRoot / "jars").filter(_.ext == "jar").sorted.toList :+
+    (libRoot / "ssc.jar")
+
+  os.makeDir.all(outJar / os.up)
+
+  val seen = scala.collection.mutable.HashSet.empty[String]
+  val fos  = new FileOutputStream(outJar.toIO)
+  val jos  = new JarOutputStream(fos)
+  try
+    // Merge runtime JARs (skip META-INF/MANIFEST.MF — we write our own)
+    for jar <- runtimeJars if os.exists(jar) do
+      val zis = new ZipInputStream(new FileInputStream(jar.toIO))
+      try
+        var entry = zis.getNextEntry()
+        while entry != null do
+          val name = entry.getName
+          if name != "META-INF/MANIFEST.MF" && !seen.contains(name) then
+            seen += name
+            jos.putNextEntry(new ZipEntry(name))
+            if !entry.isDirectory then zis.transferTo(jos)
+            jos.closeEntry()
+          zis.closeEntry()
+          entry = zis.getNextEntry()
+      finally zis.close()
+
+    // Embed the .ssc source
+    jos.putNextEntry(new ZipEntry("META-INF/ssc/main.ssc"))
+    jos.write(os.read.bytes(sscFile))
+    jos.closeEntry()
+
+    // Write manifest last so Main-Class wins over any runtime manifest
+    val manifest =
+      s"""Manifest-Version: 1.0
+Main-Class: scalascript.cli.SscJarMain
+Ssc-Source: ${sscFile.last}
+"""
+    jos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"))
+    jos.write(manifest.getBytes("UTF-8"))
+    jos.closeEntry()
+  finally
+    jos.close()
+
+// ─── Project-file build ───────────────────────────────────────────────────────
+
+/** Build a single `.ssc` (or sidecar config) project file.
  *
- *    /          →  <out-dir>/index.html
- *    /about     →  <out-dir>/about.html
- *    /blog/x    →  <out-dir>/blog/x.html
+ *  @param projectFile  The `.ssc` / `.yaml` / `.conf` / `.json` entry.
+ *  @param targetOpt    Explicit `--target` from CLI; `None` = read frontmatter.
+ *  @param outDir       Output directory (`dist/` by default). */
+private def buildProjectFileCommand(
+    projectFile: os.Path,
+    targetOpt: Option[String],
+    outDir: os.Path
+): Unit =
+  // Resolve ssc file: if a sidecar yaml/conf/json was passed, look for the .ssc
+  val sscFile =
+    if projectFile.ext == "ssc" then projectFile
+    else
+      val stem = projectFile.last.reverse.dropWhile(_ != '.').drop(1).reverse
+      val candidate = projectFile / os.up / s"$stem.ssc"
+      if os.exists(candidate) then candidate
+      else projectFile // use as-is; loadSidecarConfig will read config from it
+
+  val manifest =
+    scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest)
+      .toOption.flatten
+
+  val name   = manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  // Merge sidecar configs (all formats at once via loadSidecarConfig)
+  val sidecar = loadSidecarConfig(sscFile)
+
+  val target = targetOpt
+    .orElse(manifest.flatMap(_.targets.headOption))
+    .orElse(sidecar.flatMap(_.get("target").flatMap(_.getString)))
+    .getOrElse("jvm")
+
+  os.makeDir.all(outDir)
+
+  target match
+    case "jvm" =>
+      val outJar = outDir / s"$name.jar"
+      print(s"Building $name.jar (jvm, interpreter fat-JAR)... ")
+      buildFatJar(sscFile, outJar)
+      println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024 / 1024} MB)")
+
+    case "js" =>
+      val outJs = outDir / s"$name.js"
+      print(s"Building $name.js (js)... ")
+      val oldOut = System.out
+      val buf    = new java.io.ByteArrayOutputStream
+      System.setOut(new java.io.PrintStream(buf))
+      try emitJsCommand(List(sscFile.toString))
+      finally System.setOut(oldOut)
+      os.write.over(outJs, buf.toByteArray)
+      println(s"→ ${displayPath(outJs)}")
+
+    case "web" =>
+      println(s"Building web (static HTML) → ${displayPath(outDir)}")
+      buildSingleFileSite(sscFile, outDir)
+
+    case other =>
+      System.err.println(s"ssc build: target '$other' is not yet supported by project-file build")
+      System.exit(1)
+
+private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
+  import scalascript.interpreter.Interpreter
+  import scalascript.server.Routes
+  Routes.clear()
+  val nullOut = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+  val interp  = Interpreter(out = nullOut, baseDir = Some(sscFile / os.up), headless = true)
+  try interp.run(scalascript.parser.Parser.parse(os.read(sscFile)))
+  catch case e: Exception =>
+    System.err.println(s"  [fail] ${e.getMessage}"); System.exit(1)
+  val literalGets = Routes.all.filter { e =>
+    e.method == "GET" && e.pathPattern.forall(_.isInstanceOf[Routes.Segment.Literal])
+  }
+  if literalGets.isEmpty then
+    println("  (no GET routes registered — nothing to render)")
+  for entry <- literalGets do
+    val req    = syntheticRequest("GET", entry.path, Map.empty)
+    val result = entry.interpreter.invoke(entry.handler, List(req))
+    val body   = extractResponseBody(result)
+    val out    = outPathFor(outDir, entry.path)
+    os.makeDir.all(out / os.up)
+    os.write.over(out, body)
+    println(s"  ${entry.path} → ${displayPath(out)}")
+
+/** `ssc build [<project-file>] [--target <t>] [--out <dir>]`
  *
- *  Routes with `:capture` segments are skipped (no data source).
- *  Files that register no GET routes are also skipped.  Default
- *  out-dir is `dist/`. */
+ *  Project-file mode (new): when the first positional argument is a
+ *  `.ssc`, `.yaml`, `.conf`, or `.json` file (or absent — auto-discover
+ *  by directory name), build that single project for the requested
+ *  target:
+ *
+ *    jvm (default)  →  fat JAR at `<out>/name.jar` (interpreter-based)
+ *    js             →  JS bundle at `<out>/name.js`
+ *    web            →  static HTML/assets in `<out>/`
+ *
+ *  Directory mode (legacy, unchanged): when the first positional
+ *  argument is a directory, walk it for `.ssc` pages and render HTML. */
 def buildCommand(args: List[String]): Unit =
   // v2.0: --incremental flag routes to separate-compilation build orchestrator.
   if args.contains("--incremental") then
     val rest = args.filterNot(_ == "--incremental")
     incrementalBuildCommand(rest)
     return
+
+  // Parse --target and --out flags, collect remaining positionals.
+  var targetFlag: Option[String] = None
+  var outFlag:    Option[String] = None
+  val positional = scala.collection.mutable.ListBuffer.empty[String]
+  val remaining  = args.iterator
+  while remaining.hasNext do
+    remaining.next() match
+      case "--target" if remaining.hasNext => targetFlag = Some(remaining.next())
+      case "--out"    if remaining.hasNext => outFlag    = Some(remaining.next())
+      case other                           => positional += other
+
+  // Determine whether this is project-file mode or legacy dir mode.
+  val projectExts = Set("ssc", "yaml", "yml", "conf", "hocon", "json")
+
+  val projectFile: Option[os.Path] = positional.headOption match
+    case Some(arg) =>
+      val p = os.Path(arg, os.pwd)
+      if os.exists(p) && os.isFile(p) && projectExts.contains(p.ext) then Some(p)
+      else None
+    case None =>
+      // Auto-discover: directory name match, then any single .ssc
+      findProjectSsc()
+
+  projectFile match
+    case Some(pf) =>
+      val outDir = os.Path(outFlag.getOrElse("dist"), os.pwd)
+      buildProjectFileCommand(pf, targetFlag, outDir)
+      return
+    case None => // fall through to legacy dir mode
+
+  // ─── Legacy directory mode ────────────────────────────────────────
   import scalascript.interpreter.Interpreter
   import scalascript.server.Routes
-  if args.isEmpty then
-    System.err.println("Usage: ssc build <src-dir> [<out-dir>]")
+  if positional.isEmpty then
+    System.err.println("Usage: ssc build <src-dir> [<out-dir>]  |  ssc build [<project.ssc>] [--target jvm|js|web] [--out <dir>]")
     System.exit(1)
-  val srcArg = args.head
-  val outArg = args.drop(1).headOption.getOrElse("dist")
+  val srcArg = positional.head
+  val outArg = positional.drop(1).headOption.orElse(outFlag).getOrElse("dist")
   val srcDir = os.Path(srcArg, os.pwd)
   val outDir = os.Path(outArg, os.pwd)
   if !os.exists(srcDir) || !os.isDir(srcDir) then
@@ -5706,38 +5897,94 @@ def compileCommand(args: List[String]): Unit =
         System.err.println(s"Compile error: ${e.getMessage}")
         System.exit(1)
 
+/** `ssc package [<project-file>] [--target <t>] [--out <dir>] [--compiled]`
+ *
+ *  Builds distributable packages for all targets in `targets:` frontmatter
+ *  (or a single `--target` override).  Default target: `jvm`.
+ *
+ *  jvm (default)  →  fat JAR at `<out>/name.jar` (interpreter-based)
+ *  jvm --compiled →  Scala source via JvmGen → `scala-cli package` (needs scala-cli)
+ *  js             →  JS bundle at `<out>/name.js`
+ *  web            →  static HTML + assets in `<out>/`
+ *
+ *  Auto-discovers the project file by directory name when none is given,
+ *  exactly like `ssc build`. */
 def packageCommand(args: List[String]): Unit =
-  // Separate the .ssc input file from scala-cli flags
-  val (sscFiles, scalaCliFlags) = args.partition(_.endsWith(".ssc"))
-  if sscFiles.isEmpty then
-    System.err.println("Error: No .ssc file specified")
-    System.err.println("Usage: ssc package [scala-cli-package-flags] <file.ssc>")
-    System.exit(1)
-  for file <- sscFiles do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
-    else
-      try
-        val script = expectText(compileViaBackend("jvm", path), "package")
-        val tmp    = os.temp(script, suffix = ".sc")
+  val compiled = args.contains("--compiled")
+  val rest     = args.filterNot(_ == "--compiled")
+
+  // Parse --target, --out, positionals (same as buildCommand)
+  var targetFlag: Option[String] = None
+  var outFlag:    Option[String] = None
+  val positional = scala.collection.mutable.ListBuffer.empty[String]
+  val it = rest.iterator
+  while it.hasNext do
+    it.next() match
+      case "--target" if it.hasNext => targetFlag = Some(it.next())
+      case "--out"    if it.hasNext => outFlag    = Some(it.next())
+      case other                    => positional += other
+
+  val projectExts = Set("ssc", "yaml", "yml", "conf", "hocon", "json")
+  val projectFile: Option[os.Path] = positional.headOption match
+    case Some(arg) =>
+      val p = os.Path(arg, os.pwd)
+      if os.exists(p) && os.isFile(p) && projectExts.contains(p.ext) then Some(p)
+      else None
+    case None => findProjectSsc()
+
+  // Legacy scala-cli mode: explicit .ssc file + --compiled flag
+  if compiled then
+    val sscPath = projectFile.getOrElse {
+      System.err.println("ssc package --compiled: no project file found"); System.exit(1); ???
+    }
+    val sscFiles = List(sscPath)
+    val scalaCliFlags = positional.drop(1).toList
+    for path <- sscFiles do
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $path"); System.exit(1) }
+      else
         try
-          // Default output name: same as input file without .ssc extension
-          val hasOutput = scalaCliFlags.exists(f => f == "-o" || f == "--output")
-          val outputFlags =
-            if hasOutput then Nil
-            else List("--output", path.last.stripSuffix(".ssc"))
-          val result = os.proc(
-            "scala-cli", "--power", "package", tmp,
-            "--server=false",
-            outputFlags,
-            scalaCliFlags
-          ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
-          if result.exitCode != 0 then System.exit(result.exitCode)
-        finally
-          os.remove(tmp)
-      catch case e: Exception =>
-        System.err.println(s"Package error: ${e.getMessage}")
-        System.exit(1)
+          val script = expectText(compileViaBackend("jvm", path), "package")
+          val tmp    = os.temp(script, suffix = ".sc")
+          try
+            val hasOutput = scalaCliFlags.exists(f => f == "-o" || f == "--output")
+            val outputFlags =
+              if hasOutput then Nil
+              else List("--output", path.last.stripSuffix(".ssc"))
+            val result = os.proc(
+              "scala-cli", "--power", "package", tmp,
+              "--server=false",
+              outputFlags,
+              scalaCliFlags
+            ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+            if result.exitCode != 0 then System.exit(result.exitCode)
+          finally os.remove(tmp)
+        catch case e: Exception =>
+          System.err.println(s"Package error: ${e.getMessage}")
+          System.exit(1)
+    return
+
+  // Project-file mode (default)
+  projectFile match
+    case None =>
+      System.err.println("ssc package: no project file found (pass a .ssc / .yaml / .conf or run from a project directory)")
+      System.exit(1)
+    case Some(pf) =>
+      val sscFile = if pf.ext == "ssc" then pf
+                    else
+                      val stem = pf.last.reverse.dropWhile(_ != '.').drop(1).reverse
+                      val c = pf / os.up / s"$stem.ssc"
+                      if os.exists(c) then c else pf
+      val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest).toOption.flatten
+      val name     = manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+      val targets  = targetFlag.map(List(_))
+        .orElse(manifest.map(_.targets).filter(_.nonEmpty))
+        .getOrElse(List("jvm"))
+      val outDir   = os.Path(outFlag.getOrElse("dist"), os.pwd)
+      os.makeDir.all(outDir)
+
+      println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}")
+      for t <- targets do
+        buildProjectFileCommand(pf, Some(t), outDir)
 
 def lockCommand(args: List[String]): Unit =
   args match
