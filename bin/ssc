@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
+exec java -Dssc.lib.path="$_SSC_ROOT" -Dssc.std.path="$_SSC_ROOT/runtime" -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"

@@ -34,6 +34,17 @@ object ImportResolver:
       .map(s => os.Path(s, os.pwd))
       .filter(os.exists)
 
+  /** Separate root searched for stdlib imports (`std/foo.ssc`).
+   *  Defaults to `libPath` so installed releases need no extra property.
+   *  The dev launcher sets `-Dssc.std.path=<root>/runtime` so that
+   *  `std/ui/primitives.ssc` resolves as `runtime/std/ui/primitives.ssc`
+   *  without affecting the `bin/lib/jars/` lookup that uses `libPath`. */
+  val stdPath: Option[os.Path] =
+    sys.props.get("ssc.std.path")
+      .map(s => os.Path(s, os.pwd))
+      .filter(os.exists)
+      .orElse(libPath)
+
   def resolve(rawPath: String, baseDir: os.Path): os.Path =
     resolve(rawPath, baseDir, Map.empty, lockPath = None)
 
@@ -63,8 +74,8 @@ object ImportResolver:
         else
           // Library fallback: bare paths like `std/actors.ssc` that don't
           // exist relative to the importing file are re-resolved against
-          // ssc.lib.path (the project/install root, parent of std/).
-          val fromLib = libPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
+          // ssc.std.path (dev: runtime/, installed: same as lib.path).
+          val fromLib = stdPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
           fromLib.getOrElse(
             cacheBackedRelative(pathThroughDep, baseDir, lockPath).getOrElse(local)
           )
