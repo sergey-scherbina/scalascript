@@ -18,7 +18,7 @@ What landed (Stages 1–9.1):
   (IR + JSON/MsgPack codecs), `core/` (parser/typer/transform/
   validate/plugin), `backend-jvm/` / `-js/` / `-scalajs/` /
   `-interpreter/`, `backend-scala-source/` (SourceLanguage skeleton),
-  `cli/`.  Old `compiler/` single-module gone.
+  `cli/`.  Old `lang/compiler/` single-module gone.
 - **SPI surface** (`backend-spi/`):  `Backend` /
   `InteractiveBackend` / `Session` / `SourceLanguage` traits;
   `Capabilities` + `Feature` (18 cases) + `OutputKind` (9);
@@ -54,9 +54,9 @@ What landed (Stages 1–9.1):
   `emit-js`/`emit-spa` through `BackendRegistry.lookup` instead of
   importing codegen classes directly.
 - **Two worked plugin examples**:
-  - `examples/plugins/hello-backend/` — in-process JAR variety
+  - `examples/plugins/hello-runtime/backend/` — in-process JAR variety
     (~30 LOC + META-INF entry; builds via scala-cli).
-  - `examples/plugins/canned-backend/` — subprocess variety
+  - `examples/plugins/canned-runtime/backend/` — subprocess variety
     (~50-line scala-cli script speaking stdio-json).
 - **Docs**:  `docs/architecture.md` §4 rewritten against post-SPI
   reality; new `docs/writing-a-backend.md` (third-party guide);
@@ -74,7 +74,7 @@ Branch `feature/spi-followups` (merged to `main`).
 - **5+/A — Intrinsic plumbing.**  `extern def` parser modifier;
   `ExternCall` IR node; per-call-site intrinsic dispatch in all three
   codegens; `Backend.runtimePreamble`; `Sys.nowMillis()` demo.
-- **5+/B.1 — `std/http.ssc` extern def signatures.**  `extern def route / serve / stop`
+- **5+/B.1 — `runtime/std/http.ssc` extern def signatures.**  `extern def route / serve / stop`
   declarations.
 - **9+/A.1 — Parser ↔ SourceLanguageRegistry.**  Unknown fence tags
   dispatched through `SourceLanguageRegistry.lookup` at parse time.
@@ -89,7 +89,7 @@ Branch `feature/spi-followups` (merged to `main`).
   route/serve/stop migrated from `nativeP` to `IntrinsicImpl` pipeline;
   `NativeContext` extended with HTTP hooks; `backend-*/intrinsics/Http.scala`
   created; Request/Response lifted to typed case-class declarations in
-  `std/http.ssc`.
+  `runtime/std/http.ssc`.
 
 **Landed in `main` (2026-05-18):**
 - **5+/D — `std.ws` / `std.auth` extraction.**  ✅ **LANDED**.
@@ -144,7 +144,7 @@ Branch `feature/spi-followups` (merged to `main`).
 Remaining: SourceLanguage role through subprocess (parked; lands with 9+/B
 and 9+/C full extractions).
 
-### After Phase 9 — `std/*` becomes a hybrid Predef
+### After Phase 9 — `runtime/std/*` becomes a hybrid Predef
 
 Once Phase 9 introduces `PreludeContribution`, the user-space
 typeclass hierarchy that landed in v1.1 ships as a bundled
@@ -154,13 +154,13 @@ abstractions auto-import, specialised ones remain explicit.
 
 | Tier                            | Files                                        | How imported |
 |---------------------------------|----------------------------------------------|--------------|
-| **Auto-prelude (always visible)** | `functor-applicative-monad.ssc`, `foldable-traversable.ssc`, `either.ssc` | Loaded as `preludeFiles` of the bundled plugin; symbols (`Functor`, `Applicative`, `Monad`, `Foldable`, `Traversable`, `Either`, `Left`, `Right`, the universally applicable `given` instances for `List` / `Option` / `Either`) visible globally without any `[X](./std/…)` line. |
-| **Explicit (specialised)**      | `monaderror.ssc`, `selective.ssc`, `bifunctor.ssc`, `semigroup-monoid.ssc` | Still imported via `[X](./std/…)` (or `[X](std/…)` once Phase 9 lets the std-prelude plugin advertise its own paths).  Reason: each is domain-specific — error-typed monads, selective effects, profunctors, algebraic structures — not every program needs them. |
+| **Auto-prelude (always visible)** | `functor-applicative-monad.ssc`, `foldable-traversable.ssc`, `either.ssc` | Loaded as `preludeFiles` of the bundled plugin; symbols (`Functor`, `Applicative`, `Monad`, `Foldable`, `Traversable`, `Either`, `Left`, `Right`, the universally applicable `given` instances for `List` / `Option` / `Either`) visible globally without any `[X](./runtime/std/…)` line. |
+| **Explicit (specialised)**      | `monaderror.ssc`, `selective.ssc`, `bifunctor.ssc`, `semigroup-monoid.ssc` | Still imported via `[X](./runtime/std/…)` (or `[X](runtime/std/…)` once Phase 9 lets the std-prelude plugin advertise its own paths).  Reason: each is domain-specific — error-typed monads, selective effects, profunctors, algebraic structures — not every program needs them. |
 
 The exact line between tiers is debatable and may shift; principle is
 **pre-import what every program plausibly uses; leave explicit what's
 domain-specific.** Concrete split TBD during the Phase 9 follow-up.
-The user-space `std/*.ssc` files themselves are not touched — they
+The user-space `runtime/std/*.ssc` files themselves are not touched — they
 just get loaded automatically for the auto-prelude tier.
 
 ### Open questions
@@ -211,7 +211,7 @@ don't re-propose them without new evidence.
        tree-walking interpreter).  `JvmGen` and `JsGen` already
        delegate to the platform stdlib, so the duplication isn't
        multi-backend — it's a single-backend implementation detail.
-    2. The v1.1 `std/*` typeclass hierarchy already builds *on top
+    2. The v1.1 `runtime/std/*` typeclass hierarchy already builds *on top
        of* these primitives.  Replacing them with `.ssc`
        implementations would slow the interpreter without
        architectural payoff — typeclasses are the right place for
@@ -265,11 +265,11 @@ Stages already designed and planned in `docs/spi-followups-plan.md`
     migrated intrinsics.  Per-intrinsic match arms removed for all migrated
     functions.
   - **5+/A.5 — `extern def` parser + `Backend.runtimePreamble`.**
-    Declarations live in `std/*.ssc`; backends ship runtime helpers
+    Declarations live in `runtime/std/*.ssc`; backends ship runtime helpers
     (e.g. emitted `class WebSocket`) via a single string field.
   - **5+/B — `std.http` extraction.**  ✅ **LANDED**.  route/serve/stop
     in InterpreterIntrinsics + JvmHttpIntrinsics + JsHttpIntrinsics.
-    NativeContext extended.  std/http.ssc has Request/Response declarations.
+    NativeContext extended.  runtime/std/http.ssc has Request/Response declarations.
   - **5+/D — `std.ws` / `std.auth` / `std.fs` / `std.crypto`
     extraction.**  ✅ **LANDED**.  Same pattern as 5+/B; all 11
     intrinsic families migrated to `.sscpkg` plugins (2026-05-21).
@@ -316,7 +316,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
-  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
+  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
 
 ### Effort to "extensibility done"
 
@@ -396,7 +396,7 @@ unblocks downstream features as early as possible.
  12. **v1.5 Tier 5 — REST ergonomics** ✓ Landed.
  13. **v1.8 — Direct-syntax do-notation** ✓ Landed.
      All 6 phases in main: interpreter, JvmGen+JsGen codegen,
-     conformance tests, `std/monad-control.ssc`, diagnostics,
+     conformance tests, `runtime/std/monad-control.ssc`, diagnostics,
      `direct-syntax-demo.ssc`.
  14. **v1.9 — Coroutine primitive** ✓ Landed.
      All 4 phases; interpreter + JvmGen + JsGen; 19 conformance tests.
@@ -408,7 +408,7 @@ unblocks downstream features as early as possible.
      reduction target on flatMap-heavy workloads.  User code
      unchanged — conformance gates the merge.
  17. **v1.11.5 — `Free[F, A]` as stdlib type** ✓ Landed
-     User-facing `Free` monad in `std/free.ssc` built on v1.1
+     User-facing `Free` monad in `runtime/std/free.ssc` built on v1.1
      typeclasses + v1.9 coroutines.  Program-as-data complement
      to coroutine's program-as-control-flow.  Pure library work,
      no compiler changes.  Parallel with v1.11 if scheduling
@@ -424,7 +424,7 @@ unblocks downstream features as early as possible.
      inheritance with HKT, sealed-trait extension dispatch in INT.
      Full design in [`docs/final-tagless.md`](docs/final-tagless.md).
      Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
-     across `std/*` and unblocks v1.14 `derives` + v1.15 `throws`.
+     across `runtime/std/*` and unblocks v1.14 `derives` + v1.15 `throws`.
  19. **v1.15 — Checked errors via `throws`** ✓ Landed.
      **Higher priority than v1.14** — closes the everyday
      error-handling story; prerequisite for many real apps.
@@ -466,7 +466,7 @@ unblocks downstream features as early as possible.
      −211 LOC) ✓ Landed; v1.17.4 full (real `McpServerSession`
      dispatch + SDK import fixes) ✓ Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
-     in a separate namespace (`std/mcp/*`).  Intrinsic-first:
+     in a separate namespace (`runtime/std/tools/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
@@ -913,10 +913,10 @@ unblocks downstream features as early as possible.
      resolver, both with `ssc.lock` SHA-256 integrity-check.
      `ssc lock` / `ssc lock check` CLI.  Central registry
      deferred to v1.19.x.
- 24. **v1.20 — DSL primitives + `std/parsing`** (~2.5 weeks).
+ 24. **v1.20 — DSL primitives + `runtime/std/parsing`** (~2.5 weeks).
      User-defined string interpolators cross-backend +
-     parser-combinator library (`std/parsing/*`) + AST/pretty-
-     printer helpers (`std/dsl/*`).  Reified-by-default; Parser
+     parser-combinator library (`runtime/std/parsing/*`) + AST/pretty-
+     printer helpers (`runtime/std/dsl/*`).  Reified-by-default; Parser
      as ADT; left-recursion combinator family; context-in-parser
      via ADT nodes (foundation for v1.20.2).  Full design in
      [`docs/dsl.md`](docs/dsl.md).
@@ -924,15 +924,15 @@ unblocks downstream features as early as possible.
      Three recovery strategies (skip-to-sync, error nodes,
      multi-error accumulation) as opt-in extensions on the
      v1.20 Parser ADT.  LSP-friendly DSL'и become viable.
-     Ships as `std/parsing/recovery.ssc`.  Independent —
+     Ships as `runtime/std/parsing/recovery.ssc`.  Independent —
      can ship in any order after v1.20.
  24b. **v1.20.2 — DSL: indentation-aware parsing** (~3-5 days).
-     `std/parsing/layout.ssc` built on the v1.20 context
+     `runtime/std/parsing/layout.ssc` built on the v1.20 context
      ADT-nodes (§5.8): `withIndent`, `sameIndent`, `block`,
      `line` combinators.  Indent-significant DSLs (config
      formats, query languages).  Independent of v1.20.1 / v1.20.3.
  24c. **v1.20.3 — DSL: multi-pass pipeline** (~1 week).
-     `std/dsl/passes.ssc` with `Pass[A, B]` combinators
+     `runtime/std/dsl/passes.ssc` with `Pass[A, B]` combinators
      (`andThen` / `parallel` / `recover`) + walker helpers
      for name resolution / type check / evaluation.
      Foundation for full external DSLs.  Independent — can
@@ -1117,7 +1117,7 @@ work, just a few diffs that double as documentation.
 
 ## v0.9 — Standard component pack — cross-cutting follow-ups ✓ Landed
 
-The eight tiers of `std/ui/*` (forms, layout, navigation, feedback,
+The eight tiers of `runtime/std/ui/*` (forms, layout, navigation, feedback,
 data, content/typography, widgets, theming) all landed in v0.9.
 The tooling that the pack motivates has now landed too:
 
@@ -1134,7 +1134,7 @@ The tooling that the pack motivates has now landed too:
     and serves it on a free port — opening the browser automatically.
     `SscPreviewVariantsTest` (5 cases) validates variant parsing.
     `variants:` added to `spinner.ssc` (3 sizes) and `badge.ssc` (5 tones).
-  - **`std/ui/index.ssc` aggregator** ✓ Already landed.  Lives at
+  - **`runtime/std/ui/index.ssc` aggregator** ✓ Already landed.  Lives at
     `examples/std-ui/index.ssc`; the v0.9.1 directory-as-index resolver
     (`ImportResolver`) was already in place; `conformance/std-ui-aggregator.ssc`
     smoke-tests it across all backends.
@@ -1278,7 +1278,7 @@ Shipped pieces (each on main):
     primitive (hashPassword/verifyPassword, withSession, csrfValid,
     rateLimit, totp, JWT, /api/me protection).
   - **WebAuthn server primitives** in
-    `compiler/src/main/scala/scalascript/server/WebAuthn.scala`:
+    `lang/compiler/src/main/scala/scalascript/server/WebAuthn.scala`:
       - `WebAuthn.challenge(userId)` — fresh base64url challenge
       - `WebAuthnStore` (in-memory) for `credentialId → publicKey`
       - `verifyRegistration` — `none`-attestation parser, COSE
@@ -1679,7 +1679,7 @@ after them.
     ~120 LOC × 3 (uPickle is already in deps from v1.0; pure
     binding work per backend).
 
-18. **Middleware composition — landed.**  `std/middleware.ssc` ships
+18. **Middleware composition — landed.**  `runtime/std/middleware.ssc` ships
     `withRequestId`, `withTiming`, `withRequestLog`, and `compose` /
     `compose3` helpers.  Middleware is plain function composition —
     `(Request => Response) => (Request => Response)` — no runtime
@@ -1822,7 +1822,7 @@ items inside the phase pushed individually.
     - D′.1 — JSON read side (`jsonParse`, `jsonStringify`,
       `req.json`) (#17) — **landed** (PR #47).
     - D′.2 — Middleware composition convention + std helpers
-      (#18) — **landed**.  `std/middleware.ssc` ships per-route helpers
+      (#18) — **landed**.  `runtime/std/middleware.ssc` ships per-route helpers
       (`withRequestId`, `withTiming`, `withRequestLog`, `compose`,
       `compose3`) plus global `use(fn: (Request, () => Response) =>
       Response)` builtin (all three backends) and matching
@@ -1914,7 +1914,7 @@ runtime, supervision is a library on top of Phase 1.
 - `demonitor(ref)` — cancels a monitor before the watched actor exits.
 - `trapExit(b)` — toggle current actor's exit-signal handling.
 - `killActor` propagates EXIT/Down signals; cascade-kill when `trapExit = false`.
-- `Supervisor.start(specs, strategy, MaxRestarts)` in `std/actors.ssc` — pure
+- `Supervisor.start(specs, strategy, MaxRestarts)` in `runtime/std/actors.ssc` — pure
   ScalaScript; supports `one_for_one` / `one_for_all` / `rest_for_one` strategies,
   `permanent` / `transient` / `temporary` restart classifiers.
 - 7 unit tests in `ActorSupervisionTest`; conformance `actors-supervision.ssc`.
@@ -1922,7 +1922,7 @@ runtime, supervision is a library on top of Phase 1.
 ### Phase 3 — Distributed via WS (~1 week) — **landed** (all three backends)
 
 Full design: [`docs/actors-dist.md §Phase 3`](docs/actors-dist.md).
-Std library module: [`std/nodes.ssc`](std/nodes.ssc).
+Std library module: [`runtime/std/nodes.ssc`](runtime/std/nodes.ssc).
 
 Location-transparent PIDs and remote sends, riding the existing WS
 client stack (v1.5 Tier 3, prerequisite).  **Architectural decisions
@@ -2020,14 +2020,14 @@ PR that doesn't gate the core landing.
    backends: `Overflow.DropOldest`, `DropNewest`, `Fail`, and
    `Block` (cooperative sender-suspend).  Conformance test
    `actors-bounded-mailbox.ssc` covers DropOldest / DropNewest /
-   Block; Fail is exercised via linked-actor pattern.  `std/actors.ssc`
+   Block; Fail is exercised via linked-actor pattern.  `runtime/std/actors.ssc`
    bumped to v1.1.0.
 
 2. **Actor tracing & introspection.**  ✓ **Landed (v1.6.x).**
    `processInfo(pid): Option[ProcessInfo]` returns `mailboxSize`,
    `links`, and `status` ("running" | "blocked") for any live actor.
    Returns `None` for dead / unknown PIDs.  All three backends.
-   Conformance test `actors-process-info.ssc`.  `std/actors.ssc`
+   Conformance test `actors-process-info.ssc`.  `runtime/std/actors.ssc`
    bumped to v1.2.0.  *(JVM compile-clean after Term.Match pattern-bind
    fix landed 2026-05-20; see "Known issues" above.)*
 
@@ -2041,7 +2041,7 @@ PR that doesn't gate the core landing.
    `globalRegister(name, pid)` stores a PID cluster-wide by broadcasting
    `{"t":"global_reg",...}` to all connected peers (last-write-wins).
    `globalWhereis(name): Option[Pid]` reads the local cache populated by
-   incoming broadcasts.  All three backends.  `std/actors.ssc` bumped to
+   incoming broadcasts.  All three backends.  `runtime/std/actors.ssc` bumped to
    v1.3.0.  Conformance test `actors-global-registry.ssc`.
 
 5. **Scheduled / delayed sends.**  `sendAfter(delayMs, pid, msg)`
@@ -2056,8 +2056,8 @@ PR that doesn't gate the core landing.
    `clusterMembers(): List[String]` snapshots the connected peer node IDs;
    `subscribeClusterEvents()` registers the calling actor for `NodeJoined` /
    `NodeLeft` delivery as peers come and go.  All three backends.
-   `std/actors.ssc` bumped to v1.4.0.  Conformance test
-   `actors-cluster-visibility.ssc`.  `std/cluster/*` module skeleton
+   `runtime/std/actors.ssc` bumped to v1.4.0.  Conformance test
+   `actors-cluster-visibility.ssc`.  `runtime/std/cluster/*` module skeleton
    (`types.ssc` / `membership.ssc` / `index.ssc`) provides a `Cluster.*`
    namespace on top.
 
@@ -2178,11 +2178,11 @@ ecosystem with at least one canonical external plugin.
 **Landing notes:** All 6 phases merged to main.
 - Phase 1+2 ✓: `direct[M] { ... }` — interpreter + JvmGen/JsGen codegen
 - Phase 3 ✓: conformance test (`direct[M] { ... }` do-notation)
-- Phase 4 ✓: `std/monad-control.ssc` + `direct-control-flow` conformance
+- Phase 4 ✓: `runtime/std/monad-control.ssc` + `direct-control-flow` conformance
 - Phase 5 ✓: diagnostics — `return`-in-direct detection across all backends
 - Phase 6 ✓: `direct-syntax-demo.ssc` canonical example
 
-Pure sugar over the v1.1 `std/monad` machinery — zero new runtime,
+Pure sugar over the v1.1 `runtime/std/monad` machinery — zero new runtime,
 zero new type-system primitives.  Replaces nested `flatMap`
 callbacks and `for { x <- … } yield …` boilerplate with code that
 reads like sync but types honestly carry the monad:
@@ -2230,8 +2230,8 @@ Detect "implicit direct block": a block whose expected type is
 
 ### Phase 4 — Control flow + traverse helpers (~2 days)
 
-- Add `whileM_` to a new `std/monad-control.ssc` for `Monad[M]`.
-- Verify `xs.traverse_` from `std/foldable-traversable.ssc` lowers
+- Add `whileM_` to a new `runtime/std/monad-control.ssc` for `Monad[M]`.
+- Verify `xs.traverse_` from `runtime/std/foldable-traversable.ssc` lowers
   correctly inside direct blocks.
 - Conformance: `direct-control-flow.ssc`.
 
@@ -2265,7 +2265,7 @@ demo.ssc` to direct syntax as the canonical demos.
 2. ~~**Effect-row union types** — `direct[Async | Random]`.~~  Landed v1.8.1.
 3. ~~**Transformer-aware lift** — auto `OptionT.liftF` inside an
    outer `Async` direct block.~~  Landed v1.8.1.
-4. ~~**`std/monad-control.ssc` expansion** — `untilM`,
+4. ~~**`runtime/std/monad-control.ssc` expansion** — `untilM`,
    `iterateWhileM`.~~  Landed v1.8.x: `untilMResult{Option,Either}`
    and `iterateWhileM{Option,Either}`, plus 7 conformance cases in
    `direct-control-flow.ssc`.
@@ -2331,7 +2331,7 @@ Implementation: `DirectMonadTag` enum + `liftBindValue` in
 **Landing notes:** All 4 phases completed across all three backends.
 - Phase 1 ✓: Interpreter — virtual-thread handshake (`coroutineCreate` / `coroutineResume` / `suspend`)
 - Phase 2 ✓: JsGen — JS native `function*` generator wrapper; JvmGen — virtual-thread handshake
-- Phase 3 ✓: `Step[Y,T]` ADT (`Yielded` / `Returned` / `Errored`); `std/coroutine.ssc` spec
+- Phase 3 ✓: `Step[Y,T]` ADT (`Yielded` / `Returned` / `Errored`); `runtime/std/coroutine.ssc` spec
 - Phase 4 ✓: 19 conformance tests (`CoroutineTest`, `CoroutineCodegenTest`); error diagnostics
 - `docs/coroutines.md` — full design doc
 - **v1.9.x — cancellation (2026-05-19)** ✓: `coroutineCancel(co)` primitive on INT backend;
@@ -2543,7 +2543,7 @@ to the performance gate and the compatibility shim.
 
 ## v1.11.5 — `Free[F, A]` as stdlib type ✓ Landed
 
-User-facing `Free` monad as a new stdlib module `std/free.ssc`.
+User-facing `Free` monad as a new stdlib module `runtime/std/free.ssc`.
 Not a runtime primitive — pure ScalaScript code built on top of
 v1.1 typeclasses (`Monad`, `Functor`) and v1.9 coroutines.
 
@@ -2552,7 +2552,7 @@ gives us **program as data**.  Both stay; they're complementary
 (see `docs/coroutines.md` §6.5).
 
 ```scala
-[Free, Pure, Suspend, FlatMap, foldMap, runM, liftF](./std/free.ssc)
+[Free, Pure, Suspend, FlatMap, foldMap, runM, liftF](./runtime/std/free.ssc)
 
 // Define an effect as a Functor
 enum ConsoleF[A]:
@@ -2704,11 +2704,11 @@ handles this via `_typeOf`; JVM relies on Scala's own dispatch.
   `tagless-sealed-dispatch.ssc` (§3.4 sealed-parent dispatch),
   `tagless-program.ssc` (§4 Console[F] with two interpreters),
   `tagless-direct-syntax.ssc` (§5 direct[F] synergy).
-- `std/semigroup-monoid.ssc`: `combineAll` rewritten with
+- `runtime/std/semigroup-monoid.ssc`: `combineAll` rewritten with
   `[A: Monoid]` context-bound; `combineAllOption` with `[A: Semigroup]`.
-- `std/bifunctor.ssc`: `eitherBifunctor` given with `bimap`/`leftMap`/
+- `runtime/std/bifunctor.ssc`: `eitherBifunctor` given with `bimap`/`leftMap`/
   `rightMap` extensions — sealed-parent dispatch covers `Right`/`Left`.
-- `std/monaderror.ssc`: `handleError` standalone extension on
+- `runtime/std/monaderror.ssc`: `handleError` standalone extension on
   `Either[String, A]` — dispatches from `Right`/`Left` via parent-chain walk.
 
 ### Hard-no list (locked by design — `docs/final-tagless.md` §7)
@@ -2758,7 +2758,7 @@ Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
 - **Phase 3** ✓ — `derives` clause on `Defn.Class` and `Defn.Trait` auto-generates `given TC[A]`
   instances via `synthesizeDerivedInstance`; structural helpers `structuralEq`, `structuralShow`,
   `structuralHash`, `structuralCompare` walk `Value.InstanceV` using `typeFieldOrder`.
-- **Phase 4** ✓ — `std/eq.ssc`, `std/show.ssc`, `std/hash.ssc`, `std/order.ssc` with trait
+- **Phase 4** ✓ — `runtime/std/eq.ssc`, `runtime/std/show.ssc`, `runtime/std/hash.ssc`, `runtime/std/order.ssc` with trait
   definitions and primitive instances for Int/Long/Double/String/Boolean; helper functions.
 - **Phase 5** ✓ — 15 conformance tests in `InlineDerivesTest.scala`; 378 total tests pass.
 
@@ -2824,7 +2824,7 @@ auto-derivation matches hand-written instances.
 
 - Six conformance tests for `inline`-specific behaviour.
 - Five for `derives` per Tier 1 typeclass.
-- Optionally: rewrite a couple of std/examples files to use
+- Optionally: rewrite a couple of runtime/std/examples files to use
   `derives` where applicable.
 
 ### Hard-no list (locked by design)
@@ -2880,7 +2880,7 @@ Full design in [`docs/error-handling.md`](docs/error-handling.md).
   wraps non-Either results; `Left`/`Right` constructors in `CoreIntrinsics`; full Either
   method dispatch (`isLeft`, `isRight`, `getOrElse`, `map`, `flatMap`, `fold`, `toOption`,
   `swap`, `toSeq`).
-- **Phase 4** ✓ — `std/error-handling.ssc` shims: `parseInt`, `parseLong`, `parseDouble`,
+- **Phase 4** ✓ — `runtime/std/error-handling.ssc` shims: `parseInt`, `parseLong`, `parseDouble`,
   `requireNonNull`, `divideOrError`; `Term.Throw` (throws `ScriptException`); `Term.Try`
   (catches `ScriptException` + any JVM `Throwable`); exception constructors
   (`RuntimeException`, `NumberFormatException`, `ArithmeticException`, etc.).
@@ -2892,10 +2892,10 @@ Full design in [`docs/error-handling.md`](docs/error-handling.md).
   `ArrayBuffer` in interpreter pushed/popped in `callFun`; `currentStackTrace()` native.
 - **Phase 8** ✓ — `infix type throwsRaw[A, E] = A | E` type alias in stdlib; functions with
   `throwsRaw` return type return values as-is (default behaviour — no interpreter changes).
-- **Phase 9** ✓ — `unbox`, `box` helpers in `std/error-handling.ssc`; `attemptCatchRaw`
+- **Phase 9** ✓ — `unbox`, `box` helpers in `runtime/std/error-handling.ssc`; `attemptCatchRaw`
   native function registered in `initBuiltins`.
 - **Phase 7** ✓ — `fromError(e: HasStackTrace, dev: Boolean): Response` helper in
-  `std/error-handling.ssc`; `HasStackTrace` + `fromError` added to exports; 8
+  `runtime/std/error-handling.ssc`; `HasStackTrace` + `fromError` added to exports; 8
   conformance tests in `ThrowsTest` (fail, user mixin, auto-Right, Left return,
   direct+throws chain, short-circuit, fromError prod/dev modes).
 - **55 conformance tests** green; full suite passes.
@@ -2931,7 +2931,7 @@ typeclass instance reads on `A throws E` unchanged.
 
 ### Phase 2 — Return-site auto-conversion givens (~1 day) ✓ Landed
 
-Two givens in std (`std/error-handling.ssc`):
+Two givens in std (`runtime/std/error-handling.ssc`):
 
   `given [E, A] => Conversion[A, Either[E, A]] = Right(_)`
   `given [E, A] => Conversion[E, Either[E, A]] = Left(_)`
@@ -3282,7 +3282,7 @@ bottleneck.
 Model Context Protocol — Anthropic's JSON-RPC 2.0-based
 protocol for connecting LLM applications to external tools,
 resources, and prompts.  Ships as **separate namespace and
-modules** (`std/mcp/server`, `std/mcp/client`, `std/mcp/types`),
+modules** (`runtime/std/tools/mcp/server`, `runtime/std/tools/mcp/client`, `runtime/std/tools/mcp/types`),
 intentionally orthogonal to the existing REST stack — same
 shape API, different protocol.
 
@@ -3322,7 +3322,7 @@ a standard SDK defer to v1.17.x own-implementation.
 | interpreter | ❌ deferred to v1.17.x | ❌ deferred |
 | scalajs-spa | ❌ (server makes no sense in browser) | ❌ (HTTP+SSE in browser plausible v1.17.x) |
 
-Interpreter and scalajs-spa imports of `std/mcp/server` raise
+Interpreter and scalajs-spa imports of `runtime/std/tools/mcp/server` raise
 an actionable Feature-not-supported error at typecheck time
 per SPI §8 — not a runtime surprise.
 
@@ -3344,7 +3344,7 @@ v1.17.1 add-on once v1.14 `derives` lands.
 
 ### Phase 1 — Types + namespace skeleton (~2 days)
 
-`std/mcp/types.ssc` + skeleton `server.ssc` + skeleton
+`runtime/std/tools/mcp/types.ssc` + skeleton `server.ssc` + skeleton
 `client.ssc`.  Pure types; no runtime dependency.
 
 ### Phase 2 — JS server intrinsic (~5 days)
@@ -3392,7 +3392,7 @@ client and server in one script).  `docs/mcp.md` walkthroughs.
   transports are an SDK-extension concern
 - **Schema validation in std layer** — SDK handles
   JSON-Schema validation; std doesn't re-validate
-- **MCP-versioned namespaces** in v1.17 — single `std/mcp/*`
+- **MCP-versioned namespaces** in v1.17 — single `runtime/std/tools/mcp/*`
   for now; versioned namespaces when MCP protocol diverges
 - **Bidirectional sampling** — MCP advanced feature; defer
 
@@ -3403,7 +3403,7 @@ and "actually reliable":
 
 1. ✓ **`CapabilityCheck.validate` wired into CLI** — `compileViaBackend`
    in `cli/Main.scala` now calls `CapabilityCheck.validate` between
-   `Normalize` and `backend.compile`; programs using `std/mcp/*` on
+   `Normalize` and `backend.compile`; programs using `runtime/std/tools/mcp/*` on
    INT now produce `[error] Unsupported(McpServer, int)` instead of
    crashing at runtime.
 2. ✓ **Conformance runner `requires:` parsing** — `conformance/run.sc`
@@ -3433,7 +3433,7 @@ reason; they are manually smoke-tested (see examples/mcp-*.ssc demos).
 POST messages to the matching session via `transport.handlePostMessage`.
 CORS headers + OPTIONS pre-flight included.  `onConnected` /
 `onDisconnected` lifecycle hooks fire per-client-connection.
-`std/mcp/server.ssc` bumped to v0.2.0; `Transport.Http` comment
+`runtime/std/tools/mcp/server.ssc` bumped to v0.2.0; `Transport.Http` comment
 updated to document SSE mechanics.  Manual smoke: connect Claude
 Desktop (or `npx @modelcontextprotocol/inspector`) to
 `http://localhost:3000/mcp`.
@@ -4112,7 +4112,7 @@ the codegen output.
     27 new tests.
 
   - **Phase 7a–7d ✓ Landed (2026-05-20)** — Pure `.ssc` rewrite of
-    the toolkit under `std/ui/`.  Replaces `ToolkitDsl.scala`
+    the toolkit under `runtime/std/ui/`.  Replaces `ToolkitDsl.scala`
     intrinsics with 11 `extern def` primitives (`signal`, `element`,
     `textNode`, `signalText`, `showSignal`, `fragment`, `setSignal`,
     `eqSignal`, `hashSignal`, `emit`, `serve`) backed by
@@ -4121,14 +4121,14 @@ the codegen output.
     Delivered: `primitives.ssc`, `theme.ssc`, `layout.ssc`,
     `typography.ssc`, `reactive.ssc`, `input.ssc`, `display.ssc`,
     `containers.ssc`, `data.ssc`, `routing.ssc`.
-    Demo (`toolkit-demo.ssc`) rewritten to use `std/ui` imports.
+    Demo (`toolkit-demo.ssc`) rewritten to use `runtime/std/ui` imports.
 
   - **Phase 7e ✓ Landed (2026-05-20)** — Retire `frontend-toolkit` sbt
     module; add `StdUiSmokeTest` (interpreter smoke test running
     `smoke-test.ssc` covering all 10 widget modules); fix interpreter
     for cross-module closure enrichment, vararg packing, partial
     application, and `eqSignal` jsName sanitization; fix all
-    `std/ui/*.ssc` imports to use Markdown-level paragraphs with
+    `runtime/std/ui/*.ssc` imports to use Markdown-level paragraphs with
     relative paths; simplify `data.ssc` and `routing.ssc` APIs to flat
     `List[T]` params. 1240 tests pass.
 
@@ -4408,7 +4408,7 @@ Packages assigned:
 | `http.ssc` | `std.http` |
 | `index.ssc` | `std` |
 | `mapreduce/*.ssc` | `std.mapreduce` |
-| `mcp/*.ssc` | `std.mcp` |
+| `tools/mcp/*.ssc` | `std.mcp` |
 | `middleware.ssc` | `std.middleware` |
 | `monad-control.ssc` | `std.monad_control` |
 | `monaderror.ssc` | `std.monaderror` |
@@ -4552,14 +4552,14 @@ paths.  ~1 day × 3 backends.
 Five phases, ~2 weeks end-to-end.  Independent of v1.18
 beyond the policy-level dependency.
 
-## v1.20 — DSL primitives + `std/parsing` ✓ Landed (Phases 1–6)
+## v1.20 — DSL primitives + `runtime/std/parsing` ✓ Landed (Phases 1–6)
 
 **Landing notes (2026-05-19):**
 - Phase 1 ✓: User-defined string interpolators — `StringContext` extension methods on all backends; `DslInterpolatorTest` suite.
-- Phase 2 ✓: `std/parsing/core.ssc` — `Parser[A]` ADT + primitive constructors + `ParseResult` / `Span`.
-- Phase 3 ✓: `std/parsing/combinators.ssc` — combinator ADT + recursive-descent interpreter.
-- Phase 4 ✓: `std/parsing/helpers.ssc` — tokenization helpers; JSON parser conformance test.
-- Phase 5 ✓: `std/dsl/` — `ast.ssc`, `pretty.ssc`, `builders.ssc`; `DslTest` suite.
+- Phase 2 ✓: `runtime/std/parsing/core.ssc` — `Parser[A]` ADT + primitive constructors + `ParseResult` / `Span`.
+- Phase 3 ✓: `runtime/std/parsing/combinators.ssc` — combinator ADT + recursive-descent interpreter.
+- Phase 4 ✓: `runtime/std/parsing/helpers.ssc` — tokenization helpers; JSON parser conformance test.
+- Phase 5 ✓: `runtime/std/dsl/` — `ast.ssc`, `pretty.ssc`, `builders.ssc`; `DslTest` suite.
 - Phase 6 ✓: `docs/dsl.md` + examples (`examples/dsl/`).
 - v1.20.1–v1.20.3 (error recovery, indentation-aware, multi-pass) — deferred sub-milestones.
 
@@ -4567,7 +4567,7 @@ Ships infrastructure for three flavours of DSL: internal
 eDSL (works today, just document the patterns),
 interpolator DSL (`extension (sc: StringContext) def
 myDsl(args)...` cross-backend), and external DSL via a new
-`std/parsing/*` parser-combinator library and `std/dsl/*`
+`runtime/std/parsing/*` parser-combinator library and `runtime/std/dsl/*`
 helpers for AST + pretty-printing.
 
 **Architectural lock — reified by default** (see
@@ -4591,7 +4591,7 @@ extension (sc: StringContext)
 
 val q = sql"SELECT * FROM users WHERE age > $minAge"
 
-// External — v1.20 ships std/parsing combinators
+// External — v1.20 ships runtime/std/parsing combinators
 val expr: Parser[Double] = (term ~ (char('+') ~> term).*).map(...)
 val parsed = expr.parse("1 + 2 * 3")  // Ok(7.0)
 ```
@@ -4604,7 +4604,7 @@ arg substitution.  Largest risk: interpreter may not
 natively support StringContext-based interpolators — Phase
 1 surfaces the cost.
 
-### Phase 2 — `std/parsing/core.ssc` — reified `Parser[A]` ADT + primitives + context nodes (~2.5 days)
+### Phase 2 — `runtime/std/parsing/core.ssc` — reified `Parser[A]` ADT + primitives + context nodes (~2.5 days)
 
 `enum Parser[+A]` (case-class-per-combinator-node per
 `docs/dsl.md` §5.2), `Position`, `Span` (locked per §5.6),
@@ -4618,7 +4618,7 @@ Conformance: each constructor builds the right ADT node;
 pattern-matchable; context nodes round-trip through
 identity evaluator.
 
-### Phase 3 — `std/parsing/combinators.ssc` + default interpreter (~3 days)
+### Phase 3 — `runtime/std/parsing/combinators.ssc` + default interpreter (~3 days)
 
 Combinator extensions producing `Parser.X` nodes (per
 §5.3).  **Includes left-recursion family** (§5.3.1):
@@ -4637,15 +4637,15 @@ calculator using `chainLeft`; context round-trip via
 read + local-update; alternative interpreters in
 v1.20.x.
 
-### Phase 4 — `std/parsing/helpers.ssc` (~2 days)
+### Phase 4 — `runtime/std/parsing/helpers.ssc` (~2 days)
 
 Tokenization: `whitespace`, `identifier`, `number`,
 `stringLit`, `keyword(s)`.  Conformance: JSON parser
 written entirely from helpers.
 
-### Phase 5 — `std/dsl/*` helpers (~3-4 days)
+### Phase 5 — `runtime/std/dsl/*` helpers (~3-4 days)
 
-Ships in `std/dsl/`:
+Ships in `runtime/std/dsl/`:
 
   - **`types.ssc`** — `Span` + `HasSpan` (locked, per
     `docs/dsl.md` §5.6); `Param[T]` + `RawInline` hygiene
@@ -4672,9 +4672,9 @@ compile-error on missing required field.
     interpolator with compile-time validation
   - `examples/dsl-calc-parser.ssc` — calculator with parser
     combinators
-  - `examples/dsl-json-parser.ssc` — JSON parser from `std/parsing`
+  - `examples/dsl-json-parser.ssc` — JSON parser from `runtime/std/parsing`
   - `examples/dsl-typed-builder.ssc` — phantom-typed
-    builder pattern from `std/dsl/builders.ssc`
+    builder pattern from `runtime/std/dsl/builders.ssc`
   - `examples/dsl-multi-flavour.ssc` — canonical
     composition: internal eDSL + interpolator + direct-
     syntax in one route handler (per `docs/dsl.md` §3.7)
@@ -4702,7 +4702,7 @@ verification.
 Closes the "DSL fail-fasts on first parse error → useless
 for IDE / config files" gap.  Independent from v1.20 core
 parser; opt-in extensions on the same `Parser[A]` ADT.
-Ships as `std/parsing/recovery.ssc`.
+Ships as `runtime/std/parsing/recovery.ssc`.
 
 What landed (2026-05-19):
 
@@ -4734,7 +4734,7 @@ What landed (2026-05-19):
   `PReadContext` ADT nodes added to `core.ssc` (v1.1.0); `localCtx` /
   `readCtx` extension methods; `runParser` in `combinators.ssc` (v1.1.0)
   threads context through all nodes; `parseWith` entry point added.
-  `std/parsing/layout.ssc` (new): `IndentContext(currentLevel, stack)`;
+  `runtime/std/parsing/layout.ssc` (new): `IndentContext(currentLevel, stack)`;
   `columnOf` helper; `PSameIndent` / `PDeeperIndent` guard nodes;
   `runLayout` interpreter; `withIndent` / `sameIndent` / `deeperIndent` /
   `block` / `line` extension methods; `parseLayout` / `parseLayoutWith`
@@ -4747,10 +4747,10 @@ What landed (2026-05-19):
 Layout-sensitive parsing for DSLs with significant
 indentation (config formats, query languages, scripting
 DSLs).  Built on the §5.8 context-in-parser mechanism
-shipped in v1.20 Phase 2.  Ships as `std/parsing/layout.ssc`.
+shipped in v1.20 Phase 2.  Ships as `runtime/std/parsing/layout.ssc`.
 
 ```scala
-[withIndent, sameIndent, deeperIndent, block, line](../std/parsing/layout.ssc)
+[withIndent, sameIndent, deeperIndent, block, line](../runtime/std/parsing/layout.ssc)
 
 case class QueryItem(field: String, value: String)
 
@@ -4772,7 +4772,7 @@ query users
 
 `case class IndentContext(currentLevel: Int, stack:
 List[Int]) extends ParserContext` in
-`std/parsing/layout.ssc`.  `withIndent` /
+`runtime/std/parsing/layout.ssc`.  `withIndent` /
 `sameIndent` / `deeperIndent` / `block` / `line`
 extension methods built on `localCtx` / `readCtx`
 primitives from v1.20 §5.8.
@@ -4803,14 +4803,14 @@ formalise the multi-pass pattern.
 
 **What landed:**
 
-- **`std/dsl/passes.ssc`** — `type Pass[A, B] = A => Either[List[PassError], B]`;
+- **`runtime/std/dsl/passes.ssc`** — `type Pass[A, B] = A => Either[List[PassError], B]`;
   `PassError(phase, message, source, line, col)`; combinators `andThen`
   (fail-fast sequential), `parallel` (fan-out, errors unioned), `recover`
   (fallback on failure), `traceAll` (log errors + success); `accumulate`
   (collect all errors from a list of passes without short-circuit);
   `withPhase` (annotate errors with a phase name); `PipelineReport` +
   `pipelineReport` + `formatReport` for phase-by-phase diagnostics.
-- **`std/dsl/walker.ssc`** — `Visitor[A]` (pre/post hooks + children
+- **`runtime/std/dsl/walker.ssc`** — `Visitor[A]` (pre/post hooks + children
   extractor); `walk[A](ast)(visitor)` (bottom-up traversal); `cata`
   (catamorphism / fold); `ana` (anamorphism / unfold); `transformChildren`.
 - **`examples/dsl-mini-language.ssc`** — toy language (Num/Var/Add/Sub/Mul/Div)
@@ -4828,7 +4828,7 @@ parallel deferred); cooperative on INT.  Streaming interop via
 `fromGenerator` / `toGenerator`.
 
 **What landed:**
-- `std/mapreduce/{dataset,index}.ssc` — `extern class Dataset[T]` + `extern object Dataset`
+- `runtime/std/mapreduce/{dataset,index}.ssc` — `extern class Dataset[T]` + `extern object Dataset`
   with full API: `map`, `filter`, `flatMap`, `take`, `drop`, `distinct`,
   `groupBy`, `reduceByKey`, `sortBy`, `collect`, `count`, `reduce`,
   `fold`, `foreach`, `first`, `toGenerator`, `runLocal`, `runParallel`;
@@ -4867,7 +4867,7 @@ parallel deferred); cooperative on INT.  Streaming interop via
     `case e: RuntimeException` matches (was InterpretError, opaque).
   - INT `.getMessage` aliased to the `.message` field for exception
     InstanceV, matching JVM behaviour.
-  - `std/fs.ssc` with `writeFile / readFile / deleteFile / exists`
+  - `runtime/std/fs.ssc` with `writeFile / readFile / deleteFile / exists`
     externs (gated by `Feature.FileSystem`); all three backends wire
     blocking primitives via `java.nio.file` (INT, JVM) and Node `fs.*`
     (JS). `JsRuntimeDataset.fromFile` strips trailing empty after final
@@ -4926,25 +4926,25 @@ Full design in [`docs/mapreduce.md`](docs/mapreduce.md) §4.
 
 What landed (Phases 1–6):
 
-- **Phase 1 — `std/mapreduce/cluster.ssc`**: `Node`, `Cluster.connect/connectList`,
+- **Phase 1 — `runtime/std/mapreduce/cluster.ssc`**: `Node`, `Cluster.connect/connectList`,
   `cluster.healthCheck(timeoutMs)`, `cluster.close()`.  Thin wrapper over
   v1.6 `connectNode`.  Explicit node list only; no auto-discovery.
-- **Phase 2 — `std/mapreduce/handlers.ssc`**: `NamedHandler[A,B]`, process-global
+- **Phase 2 — `runtime/std/mapreduce/handlers.ssc`**: `NamedHandler[A,B]`, process-global
   `HandlerRegistry` (register/lookup/apply/applyPredicate/applyKey/
   applyCombine/clear/registeredNames), `named("fn")` DSL helper producing
   `NamedRef`.  No closure serialisation per hard-no list.
-- **Phase 3 — `std/mapreduce/distributed.ssc`**: `StageOp` ADT
+- **Phase 3 — `runtime/std/mapreduce/distributed.ssc`**: `StageOp` ADT
   (MapOp/FilterOp/FlatMapOp), `Stage`, request-reply wire protocol
   (ProcessPartition/PartitionResult/PartitionFailed), `WorkerProtocol`
   actor loop, `runDistributed` coordinator (partitions data, spawns
   remote workers via `spawnOn`, collects results via `trapExit` +
   `link`), `DistributedError`, `DistributedResult[T]`.
-- **Phase 4 — `std/mapreduce/shuffle.ssc`**: `GroupByOp`/`ReduceByKeyOp`
+- **Phase 4 — `runtime/std/mapreduce/shuffle.ssc`**: `GroupByOp`/`ReduceByKeyOp`
   stage ops, `ShufflePartial`/`ProcessKeyPartition`/`KeyResult` wire
   protocol, `ShuffleProtocol` worker loop (phase-A bucket building,
   phase-B reduce/group via HandlerRegistry), `runDistributedShuffle`
   coordinator (two-phase all-to-all via coordinator hub).
-- **Phase 5 — `std/mapreduce/failure.ssc`**: `FailurePolicy` descriptor
+- **Phase 5 — `runtime/std/mapreduce/failure.ssc`**: `FailurePolicy` descriptor
   with named presets (failWhole/retryOnce/retryThrice/partial/retryPartial),
   `DistributedJobError`, `RetryState` per-partition bookkeeping,
   `withFailurePolicy` coordinator helper routing retry/partial/fail-whole.
@@ -4979,19 +4979,19 @@ when Phase 3 is firm.
 
 ### Phase 1 — `Cluster` handle (~3 days)
 
-`std/mapreduce/cluster.ssc`.  Thin wrapper over v1.6
+`runtime/std/mapreduce/cluster.ssc`.  Thin wrapper over v1.6
 `connectNode`.  `Cluster.connect(nodes...)`, `.close()`,
 health-check probe.
 
 ### Phase 2 — Named-handler registry (~3 days)
 
-`std/mapreduce/handlers.ssc`.  Each node registers
+`runtime/std/mapreduce/handlers.ssc`.  Each node registers
 mappers / reducers by name at startup; messages refer to
 handlers by name, never serialise closures.
 
 ### Phase 3 — Coordinator + worker actors (~5 days)
 
-`std/mapreduce/distributed.ssc`.  Coordinator spawns
+`runtime/std/mapreduce/distributed.ssc`.  Coordinator spawns
 worker actors via v1.6 Phase 3 `connectNode` + `spawn`.
 Worker processes partitions sequentially using v1.21
 local-parallel for in-worker speedup.  Standard
@@ -5165,9 +5165,9 @@ Stage 5.5 / robustness + ergonomics (landed 2026-05-19):
   exit non-zero with clear diagnostics.
 
 Stage 5.6 / battle-test + JvmGen fixes (landed 2026-05-19):
-- **Battle-test against real std/ modules**: 10 new tests against
-  `std/eq.ssc`, `std/show.ssc`, `std/hash.ssc`, `std/order.ssc`,
-  `std/dsl/*.ssc`, `std/parsing/*.ssc`.  ~50 % of std/ compiles and links
+- **Battle-test against real runtime/std/ modules**: 10 new tests against
+  `runtime/std/eq.ssc`, `runtime/std/show.ssc`, `runtime/std/hash.ssc`, `runtime/std/order.ssc`,
+  `runtime/std/dsl/*.ssc`, `runtime/std/parsing/*.ssc`.  ~50 % of runtime/std/ compiles and links
   end-to-end (the typeclass + ADT + dsl combinator idiom).  Surfaced
   4 concrete bugs documented in test TODO markers — see "Known gaps".
 - **JvmGen effect-runtime emission fixes**:
@@ -5201,7 +5201,7 @@ Stage 5.7 / production blockers fixed (landed 2026-05-19):
   (or just `given_Eq_Int` when `pkg` is empty).  Pure structural identity
   — no hashes, deterministic across builds.  Type-arg type variables are
   dropped from the head name for cross-build stability (so `given Eq[List[A]]`
-  → `given_Eq_List`).  Affects every typeclass instance in `std/`.
+  → `given_Eq_List`).  Affects every typeclass instance in `runtime/std/`.
 - **Structured parse diagnostics**: `Content.CodeBlock` carries an optional
   `parseError: Option[CodeBlockParseError]` with `(message, line, column,
   snippet)`.  All 8 CLI surfaces (`compile-jvm`/`-js`, `emit-interface`,
@@ -5212,7 +5212,7 @@ Stage 5.7 / production blockers fixed (landed 2026-05-19):
   `ScannerException` to add the offending source line + `^` pointer + a
   targeted hint when the line contains `': '` (the most common cause:
   unquoted colons in string values).  Also quoted the `description:` in
-  `std/parsing/recovery.ssc` so the parsing module set builds clean.
+  `runtime/std/parsing/recovery.ssc` so the parsing module set builds clean.
 - **`ssc deps <file.ssc> [--graph]`**: prints the resolved import
   closure in topo order with `from → to` edges.
 
@@ -5359,10 +5359,10 @@ Phase 3+ / final tooling round (landed 2026-05-19):
       covering all new methods; `withLspServer` / `initialize` / `didOpen`
       / `req` helpers eliminate per-test subprocess boilerplate.
     - 46 unit handler tests + 7 integration tests — all green.
-  - **`std/actors.ssc` compile-jvm flip (2026-05-20)** — `V2RealStdModulesTest`
+  - **`runtime/std/actors.ssc` compile-jvm flip (2026-05-20)** — `V2RealStdModulesTest`
     expectation updated from "must fail" to "must succeed (exit 0, produces
     `.scjvm`)" after the codegen caught up with every `extern def` in
-    `std/actors.ssc`.
+    `runtime/std/actors.ssc`.
   - **SectionDiff / AST-cache diff (2026-05-19)** — `SectionDiff` computes
     structural diffs between two parsed `Module`s at the section level; the
     incremental JVM/JS build pipelines consult it to skip re-emitting
@@ -5419,7 +5419,7 @@ After Phase 4, the documented gaps are:
   needs per-section interface extraction infrastructure.
 
 - **Scale benchmark** — perf measured on trivial 2-module fixture.
-  A real benchmark over 30+ `std/` modules at full `--bytecode
+  A real benchmark over 30+ `runtime/std/` modules at full `--bytecode
   --section-cache --source-map --strict` toggles is owed.
 
 - **Cross-platform smoke** — all tests assume Unix paths.  Windows
@@ -5467,7 +5467,7 @@ Post-MVP additions (also landed 2026-05-19):
   names appear in `.scim`; private helpers stay invisible to consumers.
 - `InterfaceExtractor` walks package-wrapped nested objects — `Parser.wrapSectionInPackage`
   rewrites blocks as `object foo: object bar: <body>`; extractor now
-  recurses into nested `Defn.Object` so packaged modules (e.g. `std/dsl/pretty.ssc`)
+  recurses into nested `Defn.Object` so packaged modules (e.g. `runtime/std/dsl/pretty.ssc`)
   expose their inner types in `.scim`.
 - `Linker` FQN-rewrite end-to-end tests (`LinkerRewriteTest`, 7 cases):
   top-level `VarRef` rewrite, lambda shadowing, multi-import multi-call-site,
@@ -5482,7 +5482,7 @@ Post-MVP additions (also landed 2026-05-19):
   string splitting (handles generic, union, and intersection types).
 - `Normalize` emits `IrExpr` bodies to unblock Linker rewrites.
 - `wrapSectionInPackage` now applies `preprocessExtern` / `preprocessEffects`
-  before wrapping — fixes silent parse failures for `std/*` files with
+  before wrapping — fixes silent parse failures for `runtime/std/*` files with
   both `package:` frontmatter and `extern def` surface forms.
 
 Stage 5.3 / typer / JVM-incremental (landed 2026-05-19):
@@ -5643,8 +5643,8 @@ that uses them lands.
 
 1. **Sealed-trait extension dispatch in the interpreter.** ✓ Landed
    with v1.13.  `sealedParents` registry walks the parent chain so
-   `Right(…)` reaches extensions on `Either`.  `std/bifunctor.ssc`
-   and `std/monaderror.ssc` now use full extension dispatch.
+   `Right(…)` reaches extensions on `Either`.  `runtime/std/bifunctor.ssc`
+   and `runtime/std/monaderror.ssc` now use full extension dispatch.
 
 2. **`using`-clause auto-resolution.** ✓ Landed with v1.13.
    Context-bound desugaring, `summon`, and `using` auto-resolution
@@ -5690,7 +5690,7 @@ worth a separate fix when somebody has cycles.
   - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
     migrated using all 21 existing named methods; bag deferred.  Needed when
     the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
-  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/
+  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/
     scalascript/server/` (WebServer, WsRoutes, WsConnection, TlsProxy, etc.)
     still lives in the interpreter module; Ws and Http plugins depend on it
     via classpath.  Clean move to `runtime-server-interpreter` subproject
@@ -6221,7 +6221,7 @@ ABI policy: additive optional field, absent-tolerant — fits the
 
 Pure Scala 3 module providing the runtime glue + facade-source
 generator that Tier 3 will consume.  Lives in this repo as
-`interop/` subproject (dependsOn ir + core only — no backend deps so
+`lang/interop/` subproject (dependsOn ir + core only — no backend deps so
 downstream consumers don't pull in JvmGen / scalameta etc.).
 
 - [x] `scalascript.interop.facade.FacadeGenerator` — reads `.scim`,
@@ -6345,7 +6345,7 @@ What landed:
       natural FQN works directly via `import a.b.f`).  Legacy entries
       starting with `_ssc_runtime.` still emit re-exports for
       pre-Tier-5 artifacts on disk.
-- [x] Scale benchmark held: 47/49 → 48/49 std/ modules cleared (one
+- [x] Scale benchmark held: 47/49 → 48/49 runtime/std/ modules cleared (one
       more passed after the `package`-clause change).
 - [x] 7 CLI subprocess tests in `EmitScalaFacadeCliTest` (incl. new
       Tier-5 layout-pinning test that asserts `demo/a/*.class` +
@@ -6551,7 +6551,7 @@ glue blocks in front of the user code.
 **Follow-up (separate milestone, not blocking v1.25 close):**
 
 - [x] Dedicated conformance fixtures for the `node` target —
-      `NodeConformanceCaptureTest` (in `backend/node/`) compiles
+      `NodeConformanceCaptureTest` (in `runtime/backend/node/`) compiles
       `conformance/node-*.ssc` through `NodeBackend` and runs each
       bundle via `node`, comparing stdout against
       `conformance/expected/node-*.txt`.  Landed 2026-05-21.
@@ -6659,7 +6659,7 @@ SPEC §5.5 / README "What Works" updated as each stage landed.
 
 ## v1.1 — Standard type-class hierarchy — landed
 
-Small, principled std library of FP type classes living in `std/`,
+Small, principled std library of FP type classes living in `runtime/std/`,
 with instances for the built-in types (`List`, `Option`, `Either`,
 `Tuple2`).  All declarations use existing Scala 3 `trait` + `given`
 machinery — no new keywords, no new parser syntax.  Ten classes
@@ -6710,7 +6710,7 @@ Landed in seven incremental PRs (each useful in isolation):
   `traverse`.  Uncurried `foldLeft(z, f)` so `List`'s built-in
   curried form doesn't accidentally shadow.  (PR #38)
 
-- **Step 4 — Either + Selective.**  Ships `std/either.ssc` (sealed
+- **Step 4 — Either + Selective.**  Ships `runtime/std/either.ssc` (sealed
   trait + `Left` / `Right`) plus the `Selective[F]` typeclass with
   instances for `List` and `Option`.  JS dispatch fix: extensions
   are now keyed by `(receiver type, method)` via a new `_typeOf`
@@ -6729,7 +6729,7 @@ Landed in seven incremental PRs (each useful in isolation):
   `extensionDispatch` now recognises `TupleV` (routed as
   `Tuple2` / `Tuple3` / …) so `(a, b).bimap(…)` works.  (PR #41)
 
-- **Step 7 — Aggregator + transitive imports.**  `std/index.ssc`
+- **Step 7 — Aggregator + transitive imports.**  `runtime/std/index.ssc`
   pulls the whole library in through one import; JS `genImport`
   now propagates nested `Content.Import` (with cycle protection
   mirroring `JvmGen.importedFiles`), so a downstream lib's `Left`
@@ -7379,7 +7379,7 @@ Same source, same semantics, different scale.
    readers return real `Dataset[T]`.
 8. ✓ Case-class declarations map to Spark `StructType` via
    `Dataset.schemaOf[T : Encoder] = summon[Encoder[T]].schema`.  This
-   subsumes the original "map `std/parsing` schemas" goal: case classes
+   subsumes the original "map `runtime/std/parsing` schemas" goal: case classes
    are the canonical schema declaration in Scala, and Spark's existing
    Encoder mechanism already derives the StructType from them — a custom
    parser-combinator → StructType layer would have been wasted work
@@ -7568,7 +7568,7 @@ from JvmGen-emitted code.
 
 ### Phase 5 — Connection plumbing
 
-- [x] `schemas/frontmatter.yaml`: `databases:` map — keys are
+- [x] `lang/schemas/frontmatter.yaml`: `databases:` map — keys are
       connection names referenced by `@db=`, values carry
       `{url, user?, password?, driver?}`.  Strings may contain
       `${env:VAR}` references.
@@ -8205,7 +8205,7 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
 
 - [x] `x402-core/MiniCbor` — moved from facilitator, now shared
 - [x] `Network.CardanoMainnet/Preprod/Preview`; `Network.isCardano`
-- [x] `x402-client/Cip8Signer` — COSE_Sign1 + COSE_Key assembly
+- [x] `x402-ui/client/Cip8Signer` — COSE_Sign1 + COSE_Key assembly
 - [x] `CardanoPrivateKeyWallet` via `RawPrivateKeyVault(Ed25519)`
 - [x] `Wallets.cardano` / `Wallets.cardanoEnvKey` factories
 - [x] `PayloadBuilder.buildCardano` + `encode` cardanoProof field
@@ -8702,7 +8702,7 @@ Stage 5a — light up the deferred KDF + AEAD primitives in
 
 Stage 5b — cross-compile `wallet-vault-encrypted`:
 
-- [x] `shared/src/main/scala/scalascript/wallet/vault/encrypted/`:
+- [x] `shared/src/main/scala/scalascript/payments/wallet/vault/encrypted/`:
   - `Bip39.scala` + `Bip39Wordlist.scala` (embedded 2048-word
     English wordlist as a Scala const; old `bip39-english.txt`
     resource removed — Scala.js has no classpath).
@@ -8807,7 +8807,7 @@ Stage 6b — refactor `wallet-connect` to route through the SPI:
 
 Stage 6c — `CrossType.Full` source split:
 
-- [x] `shared/src/main/scala/scalascript/wallet/walletconnect/`:
+- [x] `shared/src/main/scala/scalascript/payments/wallet/walletconnect/`:
       `WcTypes`, `WcRelayTransport` (trait), `WcSessionStore` (now
       `mutable.HashMap` + `synchronized` — TrieMap isn't on Scala.js),
       `RelayJsonRpc`, `WsChannel` (trait), `RelayJwt`, `WcEnvelope`,
@@ -9257,7 +9257,7 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 
 ### Phase 1 — TCP skeleton + initialize/launch/disconnect ✓ Landed (9b8e0512)
 
-- New `backendDap` sbt project (`backend/dap/`), depends on `backendInterpreter`.
+- New `backendDap` sbt project (`runtime/backend/dap/`), depends on `backendInterpreter`.
 - `DapServer`: TCP accept + Content-Length frame read/write (DAP/LSP framing).
 - `DapProtocol`: parse/emit `Request`, `Response`, `Event` via `ujson`.
 - Handle `initialize` (return capabilities), `launch`, `configurationDone`, `disconnect`.
@@ -9266,7 +9266,7 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - Tests: `DapFramingTest`, `DapSessionPhase1Test`.
 
 - [x] `backendDap` sbt project + `DapServer.scala` + `DapProtocol.scala`
-- [x] `DebugHooks` trait + `BreakpointRegistry` in `backend/interpreter/debug/`
+- [x] `DebugHooks` trait + `BreakpointRegistry` in `runtime/backend/interpreter/debug/`
 - [x] `DebugCommand.scala` in CLI; `ssc debug <file> [--port N]`
 - [x] `DapFramingTest` + `DapSessionPhase1Test`
 
@@ -9522,7 +9522,7 @@ config files and re-evaluates affected outputs on change.
 
 ### Phase 2 — Core infrastructure: ConfigParser, MergeEngine, SubstitutionEngine ✓ Landed (2026-05-21)
 
-- `backend/config-runtime/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
+- `runtime/backend/config-runtime/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
 - `ConfigValue` ADT (`Str/Num/Bool/Null/Lst/Map`) + `deepMerge`, dotted-path `get`/`set`.
 - `ConfigParser`: YAML + JSON via snakeyaml; `Format` enum; `detectFormat` by extension.
 - `SubstitutionEngine`: `${scheme:ref | default}`, `${?VAR}`, `${VAR}`, recursive tree resolution.
@@ -9700,7 +9700,7 @@ Deferred from v1.26/v1.27 scope; landed as a standalone milestone.
 
 ---
 
-## v1.32 — `std/pwa-plugin`: Progressive Web App support ✓ Complete (2026-05-21)
+## v1.32 — `runtime/std/pwa-plugin`: Progressive Web App support ✓ Complete (2026-05-21)
 
 **Status: complete (2026-05-21).**
 
@@ -9710,8 +9710,8 @@ and `GET /sw.js` (cache-first precaching service worker) before `serve(port)`.
 
 ### What landed
 
-- **`std/pwa.ssc`** — `extern def pwa(...)` declaration (package `std.pwa`).
-- **`std/pwa-plugin/`** — `PwaInterpreterPlugin` + `PwaIntrinsics` table:
+- **`runtime/std/pwa.ssc`** — `extern def pwa(...)` declaration (package `std.pwa`).
+- **`runtime/std/pwa-plugin/`** — `PwaInterpreterPlugin` + `PwaIntrinsics` table:
   interprets `pwa(...)` by calling `ctx.registerRoute` for both routes;
   builds the W3C manifest JSON and the service-worker JS inline.
 - **`RestRuntime.scala`** — `def pwa(...)` for JvmGen / `ssc run-jvm`:
@@ -9825,7 +9825,7 @@ ssc> val x = 1
 - **`cli/src/main/scala/scalascript/cli/ReplDebugHooks.scala`** (new) —
   `ReplDebugHooks`: breakpoint registry, `StepMode` enum, `stoppedQueue` +
   `suspendLatch` threading model; `mkHooks(): DebugHooks` factory.
-- **`backend/interpreter/…/Interpreter.scala`** — `evalExpr(exprSrc, extraEnv)`:
+- **`runtime/backend/interpreter/…/Interpreter.scala`** — `evalExpr(exprSrc, extraEnv)`:
   evaluates a Scala 3 expression with hooks suppressed; used by `:print`.
 - **`cli/src/main/scala/scalascript/cli/Main.scala`** — `replCommand` wired
   to `ReplDebugHooks`; `runReplSnippetDebug` / `replDebugSubLoop` + display

@@ -42,8 +42,8 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
    - `docs/markdown-as-syntax.md` — how each Markdown construct maps to AST nodes, with worked examples
    - `docs/targets.md` — backend translation model and target capability matrix
    - `docs/architecture.md` — pipeline: source → tokens → AST → typed IR → backend
-   - `grammar/scalascript.ebnf` — formal grammar
-   - `schemas/frontmatter.yaml` — JSON Schema for the module-manifest YAML
+   - `lang/grammar/scalascript.ebnf` — formal grammar
+   - `lang/schemas/frontmatter.yaml` — JSON Schema for the module-manifest YAML
    - `examples/hello.ssc`, `examples/typed-data.ssc`, `examples/imports.ssc`
    - `LICENSE`, `CONTRIBUTING.md`, `.gitignore`
 4. First commit: **spec only, no compiler**. Compiler comes in subsequent milestones.
@@ -73,19 +73,19 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 
 ## Codebase architecture rules (binding)
 
-### New intrinsics always go to `std/` plugins, never to core
+### New intrinsics always go to `runtime/std/` plugins, never to core
 
 When implementing a new `extern def` (intrinsic), **always** create or extend a
-plugin in `std/<feature>-plugin/`, not the interpreter core.
+plugin in `runtime/std/<feature>-plugin/`, not the interpreter core.
 
 **Wrong** — adding `NativeImpl` to any of:
-- `backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
+- `runtime/backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
 - `core/` directly
 
 **Right** — creating a new plugin:
-1. `std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Plugin.scala`
-2. `std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Intrinsics.scala`
-3. `std/<feature>-plugin/src/main/resources/META-INF/services/scalascript.backend.spi.Backend`
+1. `runtime/std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Plugin.scala`
+2. `runtime/std/<feature>-plugin/src/main/scala/scalascript/compiler/plugin/<feature>/<Feature>Intrinsics.scala`
+3. `runtime/std/<feature>-plugin/src/main/resources/META-INF/services/scalascript.backend.spi.Backend`
 4. Register in `build.sbt`: new `lazy val`, add `% Test` to `backendInterpreter`, add to root aggregate and CLI plugin list.
 
 The plugin may import `scalascript.interpreter.{Value, InterpretError}` and
@@ -94,10 +94,10 @@ plugins already depend on.
 
 Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbConnect`,
 `NativeContext.registerRoute`) are the only intrinsic-related code that belongs in
-`backend/spi` or the interpreter — they are the SPI contract, not the intrinsics themselves.
+`runtime/backend/spi` or the interpreter — they are the SPI contract, not the intrinsics themselves.
 
-**Examples of correct plugin layout:** `std/json-plugin`, `std/auth-plugin`,
-`std/oauth-plugin`, `std/sql-plugin`, `std/ui-fetch-plugin`.
+**Examples of correct plugin layout:** `runtime/std/json-plugin`, `runtime/std/auth-plugin`,
+`runtime/std/oauth-plugin`, `runtime/std/sql-plugin`, `runtime/std/ui-fetch-plugin`.
 
 ---
 

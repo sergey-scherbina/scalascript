@@ -24,9 +24,9 @@ exec java -Dssc.lib.path="$_SSC_ROOT" -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ss
 LAUNCHER
 chmod +x "$BIN/ssc"
 
-for launcher in "$ROOT"/scripts/launchers/*; do
+for launcher in "$ROOT"/tools/scripts/launchers/*; do
     name="$(basename "$launcher")"
-    ln -sf "../scripts/launchers/$name" "$BIN/$name"
+    ln -sf "../tools/scripts/launchers/$name" "$BIN/$name"
 done
 
 echo "Staged bin/ launchers:"

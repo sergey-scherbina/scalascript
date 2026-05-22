@@ -53,8 +53,8 @@ git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
 # One-time setup: builds the self-contained ssc launcher and symlinks the
-# scripts/launchers/* wrappers into bin/.  The entire bin/ is generated
-# and gitignored — sources live in scripts/launchers/.
+# tools/scripts/launchers/* wrappers into bin/.  The entire bin/ is generated
+# and gitignored — sources live in tools/scripts/launchers/.
 ./install.sh
 
 # Pipe sops-decrypted secrets into a script (${sops:key} references in databases:)
@@ -95,7 +95,7 @@ bin/http.ssc
 | [Tutorial 1 — Todo API](docs/tutorial.md#tutorial-1-collaborative-todo-api) | Build a todo API step by step — data model → REST → auth → WebSocket → TLS → MCP |
 | [Tutorial 2 — Spark ETL](docs/tutorial.md#tutorial-2-etl-pipeline-with-apache-spark) | End-to-end Spark pipeline — `Dataset[T]` → `@SqlFn` UDF → `@TempView` → Delta Lake |
 | [Tutorial 3 — Frontend Toolkit demo](docs/tutorial.md#tutorial-3-frontend-toolkit-demo) | Compile + emit + serve a toolkit SPA through React / Vue / Solid / Custom + SSR via `ssc serve` |
-| [Tutorial 4 — Full-stack .ssc](docs/tutorial.md#tutorial-4-full-stack-ssc--sqlite-todo-app-with-reactive-ui) | SQLite + REST API + reactive `std/ui` frontend in one `.ssc` file — `databases:`, `sql` blocks, `serve(lower(tree, theme), port)` |
+| [Tutorial 4 — Full-stack .ssc](docs/tutorial.md#tutorial-4-full-stack-ssc--sqlite-todo-app-with-reactive-ui) | SQLite + REST API + reactive `runtime/std/ui` frontend in one `.ssc` file — `databases:`, `sql` blocks, `serve(lower(tree, theme), port)` |
 
 **Language reference**
 
@@ -106,7 +106,7 @@ bin/http.ssc
 | [Algebraic Effects](docs/coroutines.md) | Coroutine primitive underlying effects and generators |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
 | [Metaprogramming](docs/metaprogramming.md) | `inline`, `derives`, `compiletime.*` |
-| [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `std/parsing/*` |
+| [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `runtime/std/parsing/*` |
 
 **Platform & runtime**
 
@@ -193,7 +193,7 @@ compiles them via Scala.js.
 | Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
 | Generators | `generator[T] { yield(v) }`, `fromGenerator`, streaming interop |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush |
-| Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `std/free.ssc` |
+| Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `runtime/std/free.ssc` |
 
 ### Actors
 
@@ -250,8 +250,8 @@ compiles them via Scala.js.
 
 | Feature | Syntax |
 |---------|--------|
-| Parser combinators | `std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
-| Multi-pass pipelines | `std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
+| Parser combinators | `runtime/std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
+| Multi-pass pipelines | `runtime/std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
 | Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error` |
 | Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
 | Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
@@ -275,10 +275,10 @@ compiles them via Scala.js.
 | Browser SPA target | `ssc emit-spa file.ssc` — same `route()` source runs as a single-page app |
 | Web Components | `ssc emit-wc`, `customElements.define` |
 | SSR + hydration | `wc(tag, component, args*)` declarative shadow DOM |
-| Component library | `std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
+| Component library | `runtime/std/ui/*` — Button, Input, Select, Modal, Card, Spinner, Alert, DatePicker, Combobox, and more |
 | Frontend Framework SPI | One `.ssc` source compiled to **React**, **Vue 3**, **Solid**, or a **custom** runtime via `frontend-{react,vue,solid,custom}` backends |
 | Reactive primitives | `Signal[T]`, `ShowSignal` (conditional render), `ToggleSignal`, `ForSignal[T]` (list render) — uniform semantics across all 4 frontend backends |
-| `std/ui` script toolkit | Declarative widget DSL from a `.ssc` file — `vstack/hstack`, `textField`, `checkbox`, `signalButton`, `actionButton`, `badge`, `spinner`, `card`, `modal`, `table`, `router` + `hashRouter`, `fetchTable`, `fetchAction`; `lower(tree, theme)` + `serve(view, port)` pattern; `frontend: react` front-matter |
+| `runtime/std/ui` script toolkit | Declarative widget DSL from a `.ssc` file — `vstack/hstack`, `textField`, `checkbox`, `signalButton`, `actionButton`, `badge`, `spinner`, `card`, `modal`, `table`, `router` + `hashRouter`, `fetchTable`, `fetchAction`; `lower(tree, theme)` + `serve(view, port)` pattern; `frontend: react` front-matter |
 | Fetch primitives | `fetchUrlSignal` — live GET binding; `fetchAction/fetchActionClear` — POST/PUT/DELETE on button click; `incSignal` — manual refresh |
 | Themes | `defaultTheme` (light) · `darkTheme` · custom `Theme(ColorPalette, SpacingScale, TypographyScale, RadiusScale)` |
 | Frontend Toolkit (v1.18 B+ / B++ / C) | High-level declarative UI via `Tk` facade (sbt API) — `vstack/hstack`, `card`, `textField`, `form` with validators, `router`, `modal/drawer/tabs`, `table`.  Backend-agnostic: lowers to React / Vue / Solid / Custom or to static HTML via `Ssr.renderToHtml`. |
@@ -618,7 +618,7 @@ bin/
   ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
-backend/spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
+runtime/backend/spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
 ir/                         # IR types + JSON/MsgPack codecs
 core/
   src/main/scala/scalascript/
@@ -629,16 +629,16 @@ core/
     interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
     transform/ # Normalize, DirectDesugar, EffectAnalysis
     plugin/    # BackendRegistry, SubprocessBackend, WireProtocol
-backend/jvm/      # JvmGen — emits Scala 3 source
-backend/js/       # JsGen — transpiles to JavaScript
-backend/scalajs/  # ScalaJsBackend — emits SPA via Scala.js
-backend/interpreter/
+runtime/backend/jvm/      # JvmGen — emits Scala 3 source
+runtime/backend/js/       # JsGen — transpiles to JavaScript
+runtime/backend/scalajs/  # ScalaJsBackend — emits SPA via Scala.js
+runtime/backend/interpreter/
   src/main/scala/scalascript/
     interpreter/    # Tree-walking interpreter
     server/         # Built-in HTTP / WebSocket / Actor / MCP runtime
     bench/          # WsStress benchmark
-runtime-server/common/      # Shared HTTP/WS server primitives (all backends)
-mcp/common/                 # Shared MCP protocol types + codec
+runtime/runtime-server/common/      # Shared HTTP/WS server primitives (all backends)
+tools/mcp/common/                 # Shared MCP protocol types + codec
 cli/                        # Main entry point (ssc command)
 
 conformance/     # Cross-backend conformance test suite
@@ -669,7 +669,7 @@ docs/            # Architecture, spec, design docs
   targets.md             # Target Backends
   user-guide.md          # Practical user reference
   tutorial.md            # Step-by-step todo-list application tutorial
-scripts/         # launchers/ and validate-frontmatter.scala
+tools/scripts/         # launchers/ and validate-frontmatter.scala
 ```
 
 ## Installing as a Binary
