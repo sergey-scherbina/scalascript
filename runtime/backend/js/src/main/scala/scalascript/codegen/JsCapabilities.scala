@@ -33,7 +33,8 @@ val JsCapabilities: Capabilities = Capabilities(
     Feature.Crypto,
     Feature.McpServer,
     Feature.McpClient,
-    Feature.Dataset
+    Feature.Dataset,
+    Feature.PaymentRequest
   ),
   outputs        = Set(OutputKind.JavaScriptSource),
   options        = Set("optimizationLevel", "emitAssertions", "target"),
@@ -66,3 +67,4 @@ val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JsRequestIntrinsics  // Stage 5+/E — Request:  intrinsics/Request.scala
     ++ JsMcpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala
     ++ JsDatasetIntrinsics  // v1.21     — Dataset:   intrinsics/Dataset.scala
+    ++ JsPaymentIntrinsics  // v1.38     — Payment:   intrinsics/Payment.scala

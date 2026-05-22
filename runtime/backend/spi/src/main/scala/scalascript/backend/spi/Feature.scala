@@ -34,3 +34,4 @@ enum Feature:
   case McpServer                 // std.mcp server-side (jvm, js)
   case McpClient                 // std.mcp client-side (jvm, js)
   case Dataset                   // std.mapreduce Dataset[T] (jvm, js, int)
+  case PaymentRequest            // std.payment — W3C Payment Request API (browser) + Apple/Google Pay server

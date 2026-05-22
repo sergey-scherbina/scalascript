@@ -1910,6 +1910,26 @@ lazy val pwaPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.pwa"))
 
+// ── Payment Request API — interpreter plugin ──────────────────────────────
+lazy val paymentRequestPlugin = project
+  .in(file("runtime/std/payment-request-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-payment-request-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.payment"))
+
+// ── Payment Request API — server-side Apple Pay + Google Pay (JVM) ────────
+lazy val paymentRequest = project
+  .in(file("payments/payment-request"))
+  .settings(
+    name := "scalascript-payment-request",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -1932,6 +1952,7 @@ lazy val root = project
     jsonPlugin, frontendPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, sqlPlugin,
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin,
+    paymentRequestPlugin, paymentRequest,
   )
   .settings(
     publish / skip := true

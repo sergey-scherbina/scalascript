@@ -9950,3 +9950,49 @@ Expanded `ssc check` coverage from 33 to all 94 examples through Typer fixes and
 `ssc check examples/*.ssc` results: **33 OK** before → **94/94 OK** after
 
 All core tests pass.
+
+## v1.38 — Payment Request API (browser + server)
+
+**Status:** Complete
+**Spec:** [`docs/payment-request.md`](docs/payment-request.md)
+
+Adds first-class support for the W3C Payment Request API with server-side
+Apple Pay merchant validation and Google Pay token decryption. The same `.ssc`
+file hosts both the browser-side payment sheet and the server verification
+routes.
+
+### Scope
+
+**Browser (JS/SPA target)**
+- [x] `PaymentRequest` DSL — `methods`, `total`, `items`, `options`, `shippingOptions`
+- [x] `PaymentMethod.Card`, `PaymentMethod.ApplePay`, `PaymentMethod.GooglePay`
+- [x] `request.show()`, `canMakePayment()`, `abort()`
+- [x] `onMerchantValidation`, `onShippingAddressChange`, `onShippingOptionChange` hooks
+- [x] JS preamble: `_prMethodData`, `_prDetails`, `_prOptions` helpers
+- [x] `JsPaymentIntrinsics` — `RuntimeCall` table in `runtime/backend/js/intrinsics/Payment.scala`
+
+**Server (JVM target)**
+- [x] `ApplePay.validateMerchant(...)` — mTLS HTTPS POST to Apple's validation URL
+- [x] `ApplePay.decryptToken(...)` — ECDH + AES-256-GCM decryption of Apple Pay token
+- [x] `GooglePay.decryptToken(...)` — ECv2 signature verification + ECDH decryption
+- [x] `JvmPaymentIntrinsics` — `RuntimeCall` table in `runtime/backend/jvm/intrinsics/Payment.scala`
+- [x] `payments/payment-request/` sbt module with JVM implementation classes
+
+**Interpreter**
+- [x] Mock implementations for all intrinsics (always returns success)
+- [x] `PaymentRequestIntrinsics` + `PaymentRequestPlugin` in `runtime/std/payment-request-plugin/`
+
+**Types**
+- [x] `Amount`, `PaymentItem`, `ShippingOption`, `PaymentOptions`, `PaymentResponse`
+- [x] `CardDetails`, `ApplePayToken`, `GooglePayToken`, `GooglePayDecryptedCard`
+- [x] `PaymentError` hierarchy
+
+**build.sbt**
+- [x] `paymentRequest` project (`payments/payment-request/`)
+- [x] `paymentRequestPlugin` project (`runtime/std/payment-request-plugin/`)
+
+### Out of scope
+
+- Stripe / Adyen adapter (separate milestone)
+- Open Banking / PSD2 (separate milestone)
+- Payment Request API in Scala.js / WASM targets

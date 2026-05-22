@@ -79,9 +79,10 @@ object JsGen:
     case object Async   extends Capability  // `JsRuntimeAsync` — Async + Actor + Storage
     case object Effects extends Capability  // `JsRuntimeV14Effects` — Logger/Random/Clock/Env/Auth
     case object Mcp     extends Capability  // `JsRuntimeMcp` — MCP server / client
-    case object Dataset extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
+    case object Dataset  extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
+    case object Payment  extends Capability  // `JsRuntimePayment` — Payment Request API
 
-    val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset)
+    val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset, Payment)
 
     /** Encode a capability as a stable, persistence-safe string.
      *  These strings appear in `.scjs-runtime` envelopes — do not rename. */
@@ -90,7 +91,8 @@ object JsGen:
       case Async   => "async"
       case Effects => "effects"
       case Mcp     => "mcp"
-      case Dataset => "dataset"
+      case Dataset  => "dataset"
+      case Payment  => "payment"
 
     def decode(s: String): Option[Capability] = s match
       case "core"    => Some(Core)
@@ -98,6 +100,7 @@ object JsGen:
       case "effects" => Some(Effects)
       case "mcp"     => Some(Mcp)
       case "dataset" => Some(Dataset)
+      case "payment" => Some(Payment)
       case _         => None
 
   /** Inspect `module` and return the capability set its emitted JS would
@@ -140,6 +143,9 @@ object JsGen:
     if caps.contains(Capability.Dataset) then
       sb.append(JsRuntimeDataset)
       if !JsRuntimeDataset.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Payment) then
+      sb.append(JsRuntimePayment)
+      if !JsRuntimePayment.endsWith("\n") then sb.append('\n')
     sb.toString
 
   /** Emit user code only — no runtime preamble.  In JS this is a synonym
@@ -7096,6 +7102,9 @@ class JsGen(
     // Dataset[T] — `JsRuntimeDataset`.
     val hasDataset = allText.contains("Dataset.") || allText.contains("Dataset(")
     if hasDataset then caps += Dataset
+    // Payment Request — `JsRuntimePayment`.
+    val hasPayment = allText.contains("PaymentRequest") || allText.contains("PaymentMethod.")
+    if hasPayment then caps += Payment
     caps.toSet
 
   /** Emit `route(method, path)(handler)` registrations for every
