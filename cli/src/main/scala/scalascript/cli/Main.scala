@@ -2280,13 +2280,15 @@ def runCommand(args: List[String]): Unit =
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        // Load sidecar config (<script>.conf/.yaml/.json) before running.
-        // Priority: frontmatter < sidecar < fenced blocks < CLI flags.
+        // Load config: frontmatter < sidecar < fenced blocks < -Dscalascript.* < CLI flags.
         val sidecarCv = loadSidecarConfig(path)
-        sidecarCv.foreach(scalascript.config.ConfigRegistry.setSidecar)
-        // Apply sidecar frontend: key when no --frontend CLI flag was given.
+        val sysPropsCv = scalascript.config.ConfigValue.fromSystemProperties()
+        // System props merged over sidecar so the registry sees the highest-priority layer.
+        val effectiveSidecar = sysPropsCv.deepMerge(sidecarCv.getOrElse(scalascript.config.ConfigValue.empty))
+        scalascript.config.ConfigRegistry.setSidecar(effectiveSidecar)
+        // Apply frontend: key — system props win over sidecar, both over frontmatter.
         if frontendFlag.isEmpty then
-          sidecarCv.flatMap(_.get("frontend").flatMap(_.getString))
+          effectiveSidecar.get("frontend").flatMap(_.getString)
             .filter(validFrontendNames)
             .foreach(applyFrontendBackend)
         val module = loadModule(path)
@@ -3971,12 +3973,12 @@ def runJvmCommand(args: List[String]): Unit =
   val artDir    = AutoResolve.defaultArtifactDir(path)
   val baseName  = path.last.stripSuffix(".ssc")
   val scjvmPath = artDir / (baseName + ".scjvm")
-  // Load sidecar config (<script>.conf/.yaml/.json) for run-jvm.
-  val jvmSidecar = loadSidecarConfig(path)
-  val sidecarFrontend = jvmSidecar
-    .flatMap(_.get("frontend").flatMap(_.getString))
-    .filter(validFrontendNames)
-  // CLI flag beats sidecar; both beat frontmatter.
+  // Load config for run-jvm: frontmatter < sidecar < -Dscalascript.* < CLI flag.
+  val jvmSidecar   = loadSidecarConfig(path)
+  val jvmSysProps  = scalascript.config.ConfigValue.fromSystemProperties()
+  val jvmEffective = jvmSysProps.deepMerge(jvmSidecar.getOrElse(scalascript.config.ConfigValue.empty))
+  val sidecarFrontend = jvmEffective.get("frontend").flatMap(_.getString).filter(validFrontendNames)
+  // CLI flag beats system props; system props beat sidecar; sidecar beats frontmatter.
   val frontendOverride = jvmFrontendFlag.orElse(sidecarFrontend)
   val raw =
     if frontendOverride.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then

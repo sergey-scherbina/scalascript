@@ -15,6 +15,17 @@ object ConfigValue:
 
   val empty: ConfigValue = Map(IMap.empty)
 
+  /** Build a [[ConfigValue]] tree from JVM system properties with the given prefix.
+   *  `-Dscalascript.frontend=vue` → `Map("frontend" -> Str("vue"))`.
+   *  Dotted sub-keys are split into nested maps:
+   *  `-Dscalascript.server.port=9090` → `Map("server" -> Map("port" -> Str("9090")))`. */
+  def fromSystemProperties(prefix: String = "scalascript"): ConfigValue =
+    import scala.jdk.CollectionConverters.*
+    val p = prefix + "."
+    System.getProperties.asScala
+      .collect { case (k: String, v: String) if k.startsWith(p) => k.stripPrefix(p) -> v }
+      .foldLeft(ConfigValue.empty) { case (acc, (key, value)) => acc.set(key, Str(value)) }
+
   /** Lift a snakeyaml-parsed raw value into ConfigValue. */
   def from(raw: Any): ConfigValue =
     import scala.jdk.CollectionConverters.*

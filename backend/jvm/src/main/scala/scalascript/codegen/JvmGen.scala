@@ -8614,8 +8614,12 @@ class JvmGen(
   private def uiHelperFunctions(frontendName: String): String =
     s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
-       |scalascript.frontend.FrontendFrameworks.setBackend("$frontendName")
-       |_ssc_frontend_name = "$frontendName"
+       |{
+       |  val _fe_prop = System.getProperty("scalascript.frontend")
+       |  val _fe_name = if _fe_prop != null && _fe_prop.nonEmpty then _fe_prop else "$frontendName"
+       |  scalascript.frontend.FrontendFrameworks.setBackend(_fe_name)
+       |  _ssc_frontend_name = _fe_name
+       |}
        |def _ssc_ui_decodeAttrs(m: Map[String, Any]): Map[String, scalascript.frontend.AttrValue] =
        |  m.collect {
        |    case (k, v: String)  => k -> scalascript.frontend.AttrValue.Str(v)

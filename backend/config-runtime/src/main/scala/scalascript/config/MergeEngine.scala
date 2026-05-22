@@ -2,12 +2,13 @@ package scalascript.config
 
 /** Priority levels for config sources (highest to lowest in default order). */
 enum Priority:
-  case Blocks      // fenced config blocks — highest by default
-  case Files       // external config files
-  case Frontmatter // YAML front-matter — lowest by default
+  case SystemProperties // -Dscalascript.* JVM system properties — always highest
+  case Blocks           // fenced config blocks
+  case Files            // external config files
+  case Frontmatter      // YAML front-matter — lowest
 
 object Priority:
-  val DefaultOrder: List[Priority] = List(Blocks, Files, Frontmatter)
+  val DefaultOrder: List[Priority] = List(SystemProperties, Blocks, Files, Frontmatter)
 
 /** Merges multiple [[ConfigValue]] trees according to a priority order.
  *
@@ -27,14 +28,16 @@ object MergeEngine:
     val byTier = reverseTiers.flatMap(p => sources.collect { case (`p`, v) => v })
     byTier.foldLeft(ConfigValue.empty)(_.deepMerge(_))
 
-  /** Convenience: merge frontmatter + external files + fenced blocks with default priority. */
+  /** Convenience: merge system properties + frontmatter + external files + fenced blocks.
+   *  System properties (-Dscalascript.*) always win over all other sources. */
   def mergeAll(
-    frontmatter:  ConfigValue,
+    frontmatter:   ConfigValue,
     externalFiles: List[ConfigValue],  // in listed order (later wins within tier)
-    blocks:       List[ConfigValue],   // in document order (later wins within tier)
-    order:        List[Priority] = Priority.DefaultOrder
+    blocks:        List[ConfigValue],  // in document order (later wins within tier)
+    order:         List[Priority] = Priority.DefaultOrder
   ): ConfigValue =
     val sources: List[(Priority, ConfigValue)] =
+      List((Priority.SystemProperties, ConfigValue.fromSystemProperties())) ++
       List((Priority.Frontmatter, frontmatter)) ++
       externalFiles.map(Priority.Files -> _) ++
       blocks.map(Priority.Blocks -> _)
