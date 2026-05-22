@@ -1395,7 +1395,7 @@ def buildCommand(args: List[String]): Unit =
 
   projectFile match
     case Some(pf) =>
-      val outDir = os.Path(outFlag.getOrElse("target"), os.pwd)
+      val outDir = os.Path(outFlag.getOrElse("target/build"), os.pwd)
       buildProjectFileCommand(pf, targetFlag, outDir)
       return
     case None => // fall through to legacy dir mode
@@ -6071,7 +6071,7 @@ def packageCommand(args: List[String]): Unit =
       val targets  = targetFlag.map(List(_))
         .orElse(manifest.map(_.targets).filter(_.nonEmpty))
         .getOrElse(List("ssc"))
-      val outDir   = os.Path(outFlag.getOrElse("target"), os.pwd)
+      val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
       os.makeDir.all(outDir)
 
       println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
