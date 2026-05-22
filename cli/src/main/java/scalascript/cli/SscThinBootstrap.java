@@ -66,9 +66,16 @@ public class SscThinBootstrap {
         // Parent = system classloader keeps META-INF/ssc/main.ssc visible if needed later.
         URLClassLoader cl = new URLClassLoader(urls, SscThinBootstrap.class.getClassLoader());
         Thread.currentThread().setContextClassLoader(cl);
-        cl.loadClass("scalascript.cli.ssc")
-          .getMethod("main", String[].class)
-          .invoke(null, (Object) allArgs);
+        try {
+            cl.loadClass("scalascript.cli.ssc")
+              .getMethod("main", String[].class)
+              .invoke(null, (Object) allArgs);
+            System.exit(0);
+        } catch (java.lang.reflect.InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            if (cause != null) cause.printStackTrace(System.err);
+            System.exit(1);
+        }
     }
 
     /**

@@ -111,7 +111,7 @@ class JdkServerBackend extends HttpServerSpi:
           case _: java.net.SocketException if !_running => () // shutting down
           case _: Throwable if _running                 => ()
     }, s"jdk-backend-accept-$port")
-    accept.setDaemon(false)
+    accept.setDaemon(true)
     _acceptThread = accept
 
     _running = true
