@@ -79,7 +79,7 @@ Recognized front-matter keys:
 | `translations` | Map | Locale → key → string for `t(key)` |
 | `routes` | List | Declarative HTTP route table |
 | `databases` | Map | JDBC connection registry consumed by `sql` blocks (§ 3.3.1) |
-| `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
+| `backend` | String | Preferred backend id for `ssc run` when no `--backend` flag is supplied (`int` / `ssc` / `jvm` / `js` / `node` / `scalajs-spa` / `wasm` / `spark`). § 9.2. |
 | `spark-version` | String | Apache Spark version pinned for the Spark backend.  Resolution order: CLI `--spark-version` flag → this key → `SparkGen.DefaultVersion`. § 9.5. |
 | `spark-master` | String | Spark master URL passed to `SparkSession.builder().master(...)` (`local[*]` / `local[N]` / `spark://...` / `yarn` / `k8s://...`).  Resolution order: CLI `--spark-master` flag → this key → `SparkGen.DefaultMaster` (= `local[*]`). § 9.5. |
 | `spark-config` | Map[String, String] | Ad-hoc Spark configuration entries.  Each pair emits one `.config(key, value)` line on `SparkSession.builder()` in sorted-key order, between the fixed defaults and `.getOrCreate()`.  User keys that collide with fixed defaults win (Spark's builder is last-write).  Values are coerced via `toString` so YAML scalars (`200`, `true`) survive intact. § 9.5. |

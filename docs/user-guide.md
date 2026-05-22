@@ -202,45 +202,50 @@ errorDetails = true
 See [`docs/repl-web.md`](repl-web.md) and [`docs/mount-handlers.md`](mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
-### `run-jvm` and `run-js` — compile and run in one step
+### `run --target jvm`, `run-jvm`, and `run-js` — compile and run in one step
 
 `ssc run` interprets the script with the tree-walking interpreter — no
 compilation, instant startup (~0.31 s cold start for a script that uses no
 plugins; plugin intrinsics load lazily on first access).  When you need true JVM or Node.js
-execution semantics (or want to benchmark performance) use `run-jvm` and
+execution semantics (or want to benchmark performance) use `--target jvm` or
 `run-js`:
 
 ```bash
-ssc run-jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
-ssc run-js  hello.ssc   # JsGen  → temp .js → node
+ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
+ssc run-jvm          hello.ssc   # same — backward-compat alias
+ssc run-js           hello.ssc   # JsGen  → temp .js → node
 ```
 
-Both commands:
+All three commands:
 - compile the `.ssc` file through the respective backend codegen
 - write the output to a temporary file (deleted after the run)
 - execute it and forward stdout/stderr transparently
 - leave **no artifacts on disk** — use `ssc compile-jvm` / `ssc compile-js`
   if you want reusable `.scjvm` / `.scjs` artifacts
 
+`ssc run --target jvm` also accepts `--server-backend jdk|jetty|netty` to
+select the HTTP server implementation when the script defines HTTP routes.
+
 When to use each:
 
 | Command | Runtime | When to use |
 |---------|---------|-------------|
 | `ssc run` | Interpreter | Day-to-day scripting, fast iteration, REPL-style |
-| `ssc run-jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
+| `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
+| `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
 | `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
 
-**Requirements:** `ssc run-jvm` requires `scala-cli` on PATH; `ssc run-js`
-requires `node` on PATH.
+**Requirements:** `ssc run --target jvm` / `ssc run-jvm` require `scala-cli`
+on PATH; `ssc run-js` requires `node` on PATH.
 
 ```bash
 # Example: same file, three runtimes
-ssc run     examples/recursion.ssc    # interpreter
-ssc run-jvm examples/recursion.ssc    # JVM bytecode
-ssc run-js  examples/recursion.ssc    # Node.js
+ssc run                    examples/recursion.ssc    # interpreter
+ssc run --target jvm       examples/recursion.ssc    # JVM bytecode
+ssc run-js                 examples/recursion.ssc    # Node.js
 
 # HTTP server on JVM (real threads, JDBC available)
-ssc run-jvm myapp.ssc
+ssc run --target jvm myapp.ssc
 
 # Verify JS output matches interpreter output
 ssc run     examples/hello.ssc > out-int.txt
@@ -831,7 +836,8 @@ serve(443, tls = tlsCfg)
 
 ```bash
 ssc render server.ssc /about   # print response body for GET /about
-ssc build src/ dist/           # full static site generator
+ssc build src/ dist/           # dir-walk static site generator (backward compat)
+ssc build server.ssc --target web --out dist/   # project-file mode, web target
 ```
 
 ### Development Server with Hot Reload
@@ -2944,16 +2950,22 @@ See [examples/pwa/pwa-demo.ssc](../examples/pwa/pwa-demo.ssc) and
 ### CLI
 
 ```bash
-ssc run file.ssc          # interpret
-ssc watch file.ssc        # watch mode
-ssc repl                  # REPL
-ssc test file.ssc         # run tests
-ssc fmt file.ssc          # format .ssc files
-ssc emit-js file.ssc      # transpile to JS
-ssc emit-spa file.ssc     # SPA bundle
-ssc emit-wc file.ssc      # Web Components
-ssc build src/            # static site / project build
-ssc plugin install X      # install plugin
+ssc run file.ssc                    # interpret
+ssc run --target jvm file.ssc       # compile + run on JVM (scala-cli)
+ssc run-js file.ssc                 # compile + run with node
+ssc watch file.ssc                  # watch mode
+ssc repl                            # REPL
+ssc test file.ssc                   # run tests
+ssc fmt file.ssc                    # format .ssc files
+ssc emit-js file.ssc                # transpile to JS
+ssc emit-spa file.ssc               # SPA bundle
+ssc emit-wc file.ssc                # Web Components
+ssc build myapp.ssc                 # build project file → dist/
+ssc build                           # auto-discover .ssc in cwd
+ssc build src/                      # dir-walk mode (backward compat)
+ssc package myapp.ssc               # build all targets: from frontmatter
+ssc install [--prefix <dir>]        # install ssc to ~/.local
+ssc plugin install X                # install plugin
 ```
 
 ### Key Environment Variables

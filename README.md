@@ -491,9 +491,10 @@ ScalaScript supports the following bundled backends, all loaded through the
 
 | Command | Backend id | How it works |
 |---------|------------|--------------|
-| `bin/ssc file.ssc`         | `int`         | Tree-walking interpreter — instant startup, no compilation |
-| `ssc run-jvm file.ssc`     | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
-| `ssc run-js  file.ssc`     | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
+| `bin/ssc file.ssc`                   | `int`         | Tree-walking interpreter — instant startup, no compilation |
+| `ssc run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
+| `ssc run-jvm file.ssc`               | `jvm`         | Alias for `ssc run --target jvm` (kept for backward compatibility) |
+| `ssc run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
 | `bin/jssc file.ssc`        | `js`          | Alias for `ssc run-js` via `bin/` wrapper |
 | `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
 | `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
@@ -574,10 +575,16 @@ complete worked example and `docs/user-guide.md §21` for the full API reference
 
 ```bash
 ssc run file.ssc              # interpret (tree-walking, instant startup)
-ssc run-jvm file.ssc          # compile via JvmGen + run with scala-cli (no artifacts)
+ssc run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no artifacts)
+ssc run-jvm file.ssc          # same as above (backward-compat alias)
 ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
 ssc watch file.ssc            # watch mode (re-run on change)
 ssc repl                      # interactive REPL
+ssc build myapp.ssc           # build project file → dist/ (--target ssc|jvm|js|web)
+ssc build                     # auto-discover <dirname>.ssc or single .ssc in cwd
+ssc build src/                # dir-walk mode (backward compat)
+ssc package myapp.ssc         # build all targets: listed in frontmatter
+ssc install [--prefix <dir>]  # install ssc to ~/.local (or custom prefix)
 ssc compile-jvm file.ssc      # compile to .scjvm artifact
 ssc compile-js file.ssc       # compile to .scjs artifact
 ssc emit-interface file.ssc   # emit .scim interface

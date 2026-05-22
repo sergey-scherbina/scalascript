@@ -235,8 +235,10 @@ Based on context:
 ### Manual
 
 ```bash
-ssc compile --target=jvm myfile.ssc
-ssc compile --target=js myfile.ssc
+ssc run --target jvm myfile.ssc       # compile via JvmGen + run (no artifacts)
+ssc build --target jvm myfile.ssc     # compile to distributable JAR in dist/
+ssc run-js myfile.ssc                 # compile via JsGen + run with node
+ssc build --target js myfile.ssc      # compile to JS bundle in dist/
 ```
 
 Or in front-matter:
