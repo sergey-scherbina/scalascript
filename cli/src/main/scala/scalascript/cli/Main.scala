@@ -1061,7 +1061,7 @@ private def buildArtifactsInto(
 
 // ─── Fat-JAR entry point ────────────────────────────────────────────────────
 
-/** Main class written into fat JARs by `ssc build --target jvm`.
+/** Main class written into fat JARs by `ssc build --target ssc`.
  *  Reads the `.ssc` source packed at `META-INF/ssc/main.ssc`, writes
  *  it to a temp file, then calls `runCommand` exactly as `ssc run` would. */
 object SscJarMain:
@@ -1138,7 +1138,7 @@ Ssc-Source: ${sscFile.last}
 
 /** Build a single `.ssc` (or sidecar config) project file.
  *
- *  @param projectFile  The `.ssc` / `.yaml` / `.conf` / `.json` entry.
+ *  @param projectFile  The `.ssc` entry point.
  *  @param targetOpt    Explicit `--target` from CLI; `None` = read frontmatter.
  *  @param outDir       Output directory (`dist/` by default). */
 private def buildProjectFileCommand(
@@ -1146,36 +1146,44 @@ private def buildProjectFileCommand(
     targetOpt: Option[String],
     outDir: os.Path
 ): Unit =
-  // Resolve ssc file: if a sidecar yaml/conf/json was passed, look for the .ssc
-  val sscFile =
-    if projectFile.ext == "ssc" then projectFile
-    else
-      val stem = projectFile.last.reverse.dropWhile(_ != '.').drop(1).reverse
-      val candidate = projectFile / os.up / s"$stem.ssc"
-      if os.exists(candidate) then candidate
-      else projectFile // use as-is; loadSidecarConfig will read config from it
-
   val manifest =
-    scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest)
+    scala.util.Try(scalascript.parser.Parser.parse(os.read(projectFile)).manifest)
       .toOption.flatten
 
-  val name   = manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
-  // Merge sidecar configs (all formats at once via loadSidecarConfig)
-  val sidecar = loadSidecarConfig(sscFile)
+  val name   = manifest.flatMap(_.name).getOrElse(projectFile.last.stripSuffix(".ssc"))
+  val sidecar = loadSidecarConfig(projectFile)
 
   val target = targetOpt
     .orElse(manifest.flatMap(_.targets.headOption))
     .orElse(sidecar.flatMap(_.get("target").flatMap(_.getString)))
-    .getOrElse("jvm")
+    .getOrElse("ssc")
 
   os.makeDir.all(outDir)
 
   target match
-    case "jvm" =>
+    case "ssc" =>
+      // Interpreter-based fat JAR: bundles runtime + .ssc source.
+      // Runs via `java -jar name.jar`; no scalac required.
       val outJar = outDir / s"$name.jar"
-      print(s"Building $name.jar (jvm, interpreter fat-JAR)... ")
-      buildFatJar(sscFile, outJar)
+      print(s"Building $name.jar (ssc, interpreter fat-JAR)... ")
+      buildFatJar(projectFile, outJar)
       println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024 / 1024} MB)")
+
+    case "jvm" =>
+      // Full JVM compilation: JvmGen → Scala source → scala-cli package → JAR.
+      // Requires scala-cli on PATH.
+      println(s"Building $name.jar (jvm, compiled)...")
+      val scalaSource = expectText(compileViaBackend("jvm", projectFile), "build --target jvm")
+      val tmp = os.temp(scalaSource, suffix = ".sc")
+      try
+        val outJar = outDir / s"$name.jar"
+        val result = os.proc(
+          "scala-cli", "--power", "package", tmp,
+          "--server=false", "-o", outJar.toString
+        ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+        if result.exitCode != 0 then System.exit(result.exitCode)
+        println(s"→ ${displayPath(outJar)}")
+      finally os.remove(tmp)
 
     case "js" =>
       val outJs = outDir / s"$name.js"
@@ -1183,17 +1191,17 @@ private def buildProjectFileCommand(
       val oldOut = System.out
       val buf    = new java.io.ByteArrayOutputStream
       System.setOut(new java.io.PrintStream(buf))
-      try emitJsCommand(List(sscFile.toString))
+      try emitJsCommand(List(projectFile.toString))
       finally System.setOut(oldOut)
       os.write.over(outJs, buf.toByteArray)
       println(s"→ ${displayPath(outJs)}")
 
     case "web" =>
       println(s"Building web (static HTML) → ${displayPath(outDir)}")
-      buildSingleFileSite(sscFile, outDir)
+      buildSingleFileSite(projectFile, outDir)
 
     case other =>
-      System.err.println(s"ssc build: target '$other' is not yet supported by project-file build")
+      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web)")
       System.exit(1)
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
@@ -1219,19 +1227,26 @@ private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
     os.write.over(out, body)
     println(s"  ${entry.path} → ${displayPath(out)}")
 
-/** `ssc build [<project-file>] [--target <t>] [--out <dir>]`
+/** `ssc build [<name|name.ssc>] [--target <t>] [--out <dir>]`
  *
- *  Project-file mode (new): when the first positional argument is a
- *  `.ssc`, `.yaml`, `.conf`, or `.json` file (or absent — auto-discover
- *  by directory name), build that single project for the requested
- *  target:
+ *  Project-file mode: resolves the project `.ssc` file and builds it for the
+ *  requested target.  The first positional arg is optional:
  *
- *    jvm (default)  →  fat JAR at `<out>/name.jar` (interpreter-based)
+ *    (absent)    →  auto-discover: `<dirname>.ssc` or single `.ssc` in cwd
+ *    `myapp`     →  resolves to `myapp.ssc` in cwd
+ *    `myapp.ssc` →  that exact file
+ *
+ *  Targets (`--target`; default from frontmatter `targets:`, else `ssc`):
+ *
+ *    ssc (default)  →  fat JAR at `<out>/name.jar` — interpreter-based,
+ *                      no compiler required, `java -jar` runnable
+ *    jvm            →  fully compiled via JvmGen → scala-cli → bytecode JAR
+ *                      (requires scala-cli on PATH)
  *    js             →  JS bundle at `<out>/name.js`
- *    web            →  static HTML/assets in `<out>/`
+ *    web            →  static HTML/assets rendered to `<out>/`
  *
- *  Directory mode (legacy, unchanged): when the first positional
- *  argument is a directory, walk it for `.ssc` pages and render HTML. */
+ *  Directory mode (legacy): when the first positional is a *directory*, walk
+ *  it for `.ssc` pages and render static HTML (old `ssc build <src-dir>`). */
 def buildCommand(args: List[String]): Unit =
   // v2.0: --incremental flag routes to separate-compilation build orchestrator.
   if args.contains("--incremental") then
@@ -1250,16 +1265,18 @@ def buildCommand(args: List[String]): Unit =
       case "--out"    if remaining.hasNext => outFlag    = Some(remaining.next())
       case other                           => positional += other
 
-  // Determine whether this is project-file mode or legacy dir mode.
-  val projectExts = Set("ssc", "yaml", "yml", "conf", "hocon", "json")
-
+  // Resolve project file from first positional or auto-discover.
   val projectFile: Option[os.Path] = positional.headOption match
     case Some(arg) =>
       val p = os.Path(arg, os.pwd)
-      if os.exists(p) && os.isFile(p) && projectExts.contains(p.ext) then Some(p)
-      else None
+      if os.exists(p) && os.isFile(p) && p.ext == "ssc" then
+        Some(p)   // explicit .ssc file
+      else if !os.exists(p) || os.isFile(p) then
+        // Bare name (no extension or unknown extension): look for <arg>.ssc
+        val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
+        if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
+      else None   // it's a directory → fall through to legacy dir mode
     case None =>
-      // Auto-discover: directory name match, then any single .ssc
       findProjectSsc()
 
   projectFile match
@@ -1273,7 +1290,7 @@ def buildCommand(args: List[String]): Unit =
   import scalascript.interpreter.Interpreter
   import scalascript.server.Routes
   if positional.isEmpty then
-    System.err.println("Usage: ssc build <src-dir> [<out-dir>]  |  ssc build [<project.ssc>] [--target jvm|js|web] [--out <dir>]")
+    System.err.println("Usage: ssc build [<name|name.ssc>] [--target ssc|jvm|js|web] [--out <dir>]  |  ssc build <src-dir>")
     System.exit(1)
   val srcArg = positional.head
   val outArg = positional.drop(1).headOption.orElse(outFlag).getOrElse("dist")
@@ -5900,10 +5917,10 @@ def compileCommand(args: List[String]): Unit =
 /** `ssc package [<project-file>] [--target <t>] [--out <dir>] [--compiled]`
  *
  *  Builds distributable packages for all targets in `targets:` frontmatter
- *  (or a single `--target` override).  Default target: `jvm`.
+ *  (or a single `--target` override).  Default target: `ssc`.
  *
- *  jvm (default)  →  fat JAR at `<out>/name.jar` (interpreter-based)
- *  jvm --compiled →  Scala source via JvmGen → `scala-cli package` (needs scala-cli)
+ *  ssc (default)  →  fat JAR at `<out>/name.jar` (interpreter-based)
+ *  jvm            →  fully compiled via JvmGen → scala-cli → bytecode JAR
  *  js             →  JS bundle at `<out>/name.js`
  *  web            →  static HTML + assets in `<out>/`
  *
@@ -5924,11 +5941,13 @@ def packageCommand(args: List[String]): Unit =
       case "--out"    if it.hasNext => outFlag    = Some(it.next())
       case other                    => positional += other
 
-  val projectExts = Set("ssc", "yaml", "yml", "conf", "hocon", "json")
   val projectFile: Option[os.Path] = positional.headOption match
     case Some(arg) =>
       val p = os.Path(arg, os.pwd)
-      if os.exists(p) && os.isFile(p) && projectExts.contains(p.ext) then Some(p)
+      if os.exists(p) && os.isFile(p) && p.ext == "ssc" then Some(p)
+      else if !os.exists(p) || os.isFile(p) then
+        val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
+        if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
       else None
     case None => findProjectSsc()
 
@@ -5966,19 +5985,14 @@ def packageCommand(args: List[String]): Unit =
   // Project-file mode (default)
   projectFile match
     case None =>
-      System.err.println("ssc package: no project file found (pass a .ssc / .yaml / .conf or run from a project directory)")
+      System.err.println("ssc package: no project file found (pass a name, name.ssc, or run from a project directory)")
       System.exit(1)
     case Some(pf) =>
-      val sscFile = if pf.ext == "ssc" then pf
-                    else
-                      val stem = pf.last.reverse.dropWhile(_ != '.').drop(1).reverse
-                      val c = pf / os.up / s"$stem.ssc"
-                      if os.exists(c) then c else pf
-      val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest).toOption.flatten
-      val name     = manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+      val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(pf)).manifest).toOption.flatten
+      val name     = manifest.flatMap(_.name).getOrElse(pf.last.stripSuffix(".ssc"))
       val targets  = targetFlag.map(List(_))
         .orElse(manifest.map(_.targets).filter(_.nonEmpty))
-        .getOrElse(List("jvm"))
+        .getOrElse(List("ssc"))
       val outDir   = os.Path(outFlag.getOrElse("dist"), os.pwd)
       os.makeDir.all(outDir)
 

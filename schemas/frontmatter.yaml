@@ -95,18 +95,22 @@ properties:
 
   targets:
     type: array
-    description: Supported compilation targets
+    description: |
+      Build targets.  `ssc` = interpreter fat-JAR (default, no compiler needed);
+      `jvm` = fully compiled via JvmGen → scalac bytecode; `js` = JS bundle;
+      `web` = static HTML; `wasm` / `native` = future.
     items:
       type: string
       enum:
+        - ssc
         - jvm
         - js
+        - web
         - wasm
         - native
     uniqueItems: true
     default:
-      - jvm
-      - js
+      - ssc
 
   scala:
     type: object
