@@ -12,10 +12,11 @@ import scala.util.Try
  *    Bytes 5+   msgpack-encoded Module
  *  }}}
  *
- *  [[Content.CodeBlock.tree]] is NOT serialized — it is always written as nil
- *  and reconstructed from [[Content.CodeBlock.source]] on load via scalameta.
- *  This eliminates the redundant pretty-printed Scala source that `.syntax`
- *  would otherwise embed alongside the original source text.
+ *  For parseable (Scala/ScalaScript) [[Content.CodeBlock]]s the `source` field
+ *  is replaced with the normalized `tree.syntax` before serialization — this
+ *  stores a canonical AST form rather than the original verbatim source text.
+ *  [[Content.CodeBlock.tree]] is always written as nil; at load time it is
+ *  reconstructed by parsing the (normalized) `source`.
  *
  *  [[Module.sourceText]] is NOT serialized — the raw file content has no
  *  place in a pre-compiled binary artifact; runtime paths that need it handle
@@ -33,8 +34,8 @@ object SsccFormat:
   given ReadWriter[Position] = macroRW
   given ReadWriter[Span]     = macroRW
 
-  // ScalaNode is not serialized: always emit nil, always read back as empty.
-  // Trees are reconstructed from CodeBlock.source after the module is loaded.
+  // ScalaNode is not stored in .sscc — always emit nil, always read back empty.
+  // The tree is reconstructed at load time from the normalized CodeBlock.source.
   given ReadWriter[ScalaNode] = readwriter[ujson.Value].bimap(
     _  => ujson.Null,
     _  => ScalaNode(scala.meta.Source(Nil))
@@ -129,15 +130,17 @@ object SsccFormat:
 
   // ─── Public API ──────────────────────────────────────────────────────────
 
-  /** Serialize a [[Module]] to `.sscc` bytes (magic + version + msgpack). */
+  /** Serialize a [[Module]] to `.sscc` bytes (magic + version + msgpack).
+   *  For parseable code blocks, `source` is replaced with the normalized
+   *  `tree.syntax` so the binary stores the canonical AST form, not the
+   *  original verbatim text. */
   def write(module: Module): Array[Byte] =
-    val payload = writeBinary(module)
+    val payload = writeBinary(normalizeForWrite(module))
     Magic ++ Array(CurrentVersion) ++ payload
 
   /** Deserialize a [[Module]] from `.sscc` bytes.
    *  Returns [[Left]] with a human-readable message on any error.
-   *  Scala code-block trees are reconstructed from their `source` text
-   *  (they are not stored in the binary — see class-level doc). */
+   *  Scala code-block trees are reconstructed from their (normalized) `source`. */
   def read(bytes: Array[Byte]): Either[String, Module] =
     if bytes.length < 5 then
       Left("truncated .sscc header")
@@ -153,6 +156,31 @@ object SsccFormat:
       else
         Try(readBinary[Module](bytes.drop(5))).toEither.left.map(_.getMessage)
           .map(reconstructTrees)
+
+  // ─── Pre-write normalization ──────────────────────────────────────────────
+
+  // Replace CodeBlock.source with tree.syntax for parseable blocks so the
+  // binary holds the canonical parsed form, not the original verbatim text.
+  private def normalizeForWrite(module: Module): Module =
+    module.copy(sections = module.sections.map(normalizeSection))
+
+  private def normalizeSection(section: Section): Section =
+    section.copy(
+      content     = section.content.map(normalizeContent),
+      subsections = section.subsections.map(normalizeSection)
+    )
+
+  private def normalizeContent(content: Content): Content = content match
+    case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+      cb.tree match
+        case Some(t) =>
+          val syntax = ScalaNode.fold(t) { tree =>
+            import scala.meta.XtensionSyntax
+            tree.syntax
+          }
+          cb.copy(source = syntax)
+        case None => cb  // parse failed — keep original source as fallback
+    case other => other
 
   // ─── Post-load tree reconstruction ───────────────────────────────────────
 
