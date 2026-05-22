@@ -109,7 +109,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "clean"               => cleanCommand(args.tail)
     case "verify"              => verifyCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
-    case "compile"             => compileCommand(args.tail)
+    case "compile"             => runCommand("--target" :: "jvm" :: args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
     case "render"              => renderCommand(args.tail)
@@ -1723,7 +1723,7 @@ private def scriptCommand(cmd: String, extraArgs: List[String]): Unit =
                 case "serve"   => serveCommand(cmdArgs)
                 case "test"    => testCommand(cmdArgs)
                 case "check"   => checkCommand(cmdArgs)
-                case "compile" => compileCommand(cmdArgs)
+                case "compile" => runCommand("--target" :: "jvm" :: cmdArgs)
                 case "fmt"     => fmtCommand(cmdArgs)
                 case "bundle"  => bundleCommand(cmdArgs)
                 case "preview" => previewCommand(cmdArgs)
@@ -2044,22 +2044,46 @@ def runCommand(args: List[String]): Unit =
   // BackendOptions.extra("sparkVersion") / ("sparkMaster") respectively,
   // consumed by SparkBackend.compile.  Stripped here before file dispatch
   // so they don't get treated as paths.
-  var sparkVersionFlag: Option[String] = None
-  var sparkMasterFlag:  Option[String] = None
-  var frontendFlag:     Option[String] = None
+  var sparkVersionFlag:  Option[String] = None
+  var sparkMasterFlag:   Option[String] = None
+  var frontendFlag:      Option[String] = None
+  var targetFlag:        Option[String] = None
+  var serverBackendFlag: String         = "jdk"
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
-      case "--spark-version" if it.hasNext => sparkVersionFlag = Some(it.next())
-      case "--spark-master"  if it.hasNext => sparkMasterFlag  = Some(it.next())
-      case "--frontend"      if it.hasNext =>
+      case "--spark-version"    if it.hasNext => sparkVersionFlag  = Some(it.next())
+      case "--spark-master"     if it.hasNext => sparkMasterFlag   = Some(it.next())
+      case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
+      case "--target"           if it.hasNext => targetFlag        = Some(it.next())
+      case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
           System.err.println(s"run: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
           System.exit(1)
         frontendFlag = Some(name)
-      case f                               => fileArgs += f
+      case f => fileArgs += f
+
+  // --target jvm: compile via JvmGen → scala-cli → execute
+  if targetFlag.contains("jvm") then
+    for file <- fileArgs.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then { System.err.println(s"run: file not found: $file"); System.exit(1) }
+      else
+        try
+          val rawScript = expectText(compileViaBackend("jvm", path), "run --target jvm")
+          val script    = injectServerBackend(rawScript, serverBackendFlag)
+          val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
+          try
+            val result = os.proc("scala-cli", "run", tmp, "--server=false")
+              .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+            if result.exitCode != 0 then System.exit(result.exitCode)
+          finally os.remove(tmp)
+        catch case e: Exception =>
+          System.err.println(s"run: ${e.getMessage}"); System.exit(1)
+    return
+
   frontendFlag.foreach(applyFrontendBackend)
   val backendId = ActiveFlags.current.backend.getOrElse("int")
   for file <- fileArgs.toList do
@@ -5854,65 +5878,8 @@ private def stagePrecompiledDepArtifacts(
       case None => ()
   tallies.toMap
 
-def compileCommand(args: List[String]): Unit =
-  // Optional --server-backend <name> flag picks which HttpServerSpi
-  // impl the generated script will use at runtime (jdk / jetty / netty).
-  // For "jetty" / "netty" we inject a //> using dep directive so
-  // scala-cli pulls the impl jar from Maven, plus a setHttpServerBackend
-  // call at the top of the user code so HttpServerBackends.current()
-  // returns the chosen one.  v1.17.6 / Phase v1.17.6 CLI work.
-  var serverBackend: String = "jdk"
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--server-backend" if it.hasNext =>
-        val name = it.next()
-        if !Set("jdk", "jetty", "netty").contains(name) then
-          System.err.println(s"compile: unknown --server-backend '$name' (valid: jdk / jetty / netty)")
-          System.exit(1)
-        serverBackend = name
-      case f => files += f
-  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
-    else
-      try
-        // Pre-walk the local-import graph so cycles surface as a clear
-        // error rather than a confusing duplicate-definition spam from
-        // scala-cli. JvmGen.inlineImport handles the actual inlining of
-        // `[name](path.ssc)` markdown-link imports — but it currently
-        // emits each dep's `package:` wrapper independently, so a test
-        // that pulls in multiple modules sharing a `package` prefix
-        // (e.g. several files from `std/mapreduce/*`) produces duplicate
-        // `object std { object mapreduce { … } }` blocks and won't
-        // compile. See "Known issues" in MILESTONES.md for the deeper
-        // fix; for now AutoResolve just catches cycles.
-        val resolution = AutoResolve.resolve(path)
-        if resolution.cycles.nonEmpty then
-          System.err.println(s"compile: ${resolution.cycles.length} import cycle(s) detected:")
-          resolution.cycles.foreach { cycle =>
-            System.err.println(s"  ${cycle.map(_.last).mkString(" → ")}")
-          }
-          System.exit(1)
-        @annotation.unused val _ar = resolution
-        val rawScript = expectText(compileViaBackend("jvm", path), "compile")
-        val script    = injectServerBackend(rawScript, serverBackend)
-
-        val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
-        try
-          val result = os.proc("scala-cli", "run", tmp, "--server=false").call(
-            stdout = os.Inherit,
-            stderr = os.Inherit,
-            check  = false
-          )
-          if result.exitCode != 0 then System.exit(result.exitCode)
-        finally
-          os.remove(tmp)
-      catch case e: Exception =>
-        System.err.println(s"Compile error: ${e.getMessage}")
-        System.exit(1)
+// `ssc compile` is kept as a backward-compatible alias for `ssc run --target jvm`.
+// The two dispatch sites above redirect here via runCommand("--target" :: "jvm" :: args).
 
 /** `ssc package [<project-file>] [--target <t>] [--out <dir>] [--compiled]`
  *
