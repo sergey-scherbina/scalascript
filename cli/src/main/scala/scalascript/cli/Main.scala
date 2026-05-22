@@ -1190,7 +1190,7 @@ private def buildJvmBootstrapJar(sscFile: os.Path, name: String, outJar: os.Path
     val r = os.proc(
       "scala-cli", "--power", "package", tmpSc,
       "--library", "--server=false", "-o", compiledJar.toString
-    ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = tmpDir, check = false)
+    ).call(stdout = os.Pipe, stderr = os.Inherit, cwd = tmpDir, check = false)
     if r.exitCode != 0 then System.exit(r.exitCode)
 
     os.makeDir.all(outJar / os.up)
@@ -1351,7 +1351,7 @@ private def buildProjectFileCommand(
           val result = os.proc(
             "scala-cli", "--power", "package", tmp,
             "--assembly", "--server=false", "-o", outJar.toString
-          ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+          ).call(stdout = os.Pipe, stderr = os.Inherit, cwd = os.pwd, check = false)
           if result.exitCode != 0 then System.exit(result.exitCode)
           println(s"→ ${displayPath(outJar)}")
         finally os.remove(tmp)
