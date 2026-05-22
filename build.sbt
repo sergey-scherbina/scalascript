@@ -83,11 +83,13 @@ lazy val core = project
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
-      "org.yaml"       %  "snakeyaml"  % "2.6",
-      "com.lihaoyi"    %% "os-lib"     % "0.11.4",
-      "com.lihaoyi"    %% "upickle"    % "4.4.2",
-      "org.scalameta"  %% "scalameta"  % "4.17.0",
-      "org.commonmark" %  "commonmark" % "0.28.0",
+      "org.yaml"       %  "snakeyaml"        % "2.6",
+      "com.lihaoyi"    %% "os-lib"           % "0.11.4",
+      "com.lihaoyi"    %% "upickle"          % "4.4.2",
+      "org.scalameta"  %% "scalameta"        % "4.17.0",
+      "org.commonmark" %  "commonmark"       % "0.28.0",
+      "io.bullet"      %% "borer-core"       % "1.16.2",
+      "io.bullet"      %% "borer-derivation" % "1.16.2",
       scalatestTest
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
