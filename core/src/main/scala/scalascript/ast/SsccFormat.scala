@@ -12,11 +12,17 @@ import scala.util.Try
  *    Bytes 5+   msgpack-encoded Module
  *  }}}
  *
- *  [[ScalaNode]] (opaque `scala.meta.Tree`) is serialized as its
- *  pretty-printed syntax and re-parsed with Scala 3 dialect on load.
+ *  [[Content.CodeBlock.tree]] is NOT serialized — it is always written as nil
+ *  and reconstructed from [[Content.CodeBlock.source]] on load via scalameta.
+ *  This eliminates the redundant pretty-printed Scala source that `.syntax`
+ *  would otherwise embed alongside the original source text.
+ *
+ *  [[Module.sourceText]] is NOT serialized — the raw file content has no
+ *  place in a pre-compiled binary artifact; runtime paths that need it handle
+ *  `None` already.
+ *
  *  [[Manifest.raw]] (`Map[String, Any]`) is narrowed to
- *  `Map[String, String]`; non-String values are dropped (they are not
- *  used by any caller at runtime). */
+ *  `Map[String, String]`; non-String values are dropped (not used at runtime). */
 object SsccFormat:
 
   val Magic: Array[Byte]   = Array(0x73.toByte, 0x73.toByte, 0x63.toByte, 0x63.toByte)
@@ -27,15 +33,11 @@ object SsccFormat:
   given ReadWriter[Position] = macroRW
   given ReadWriter[Span]     = macroRW
 
-  // ScalaNode is opaque over scala.meta.Tree.
-  // Serialize as pretty-printed syntax; re-parse on load.
-  given ReadWriter[ScalaNode] = readwriter[String].bimap(
-    node => ScalaNode.fold(node)(t => { import scala.meta.XtensionSyntax; t.syntax }),
-    src =>
-      import scala.meta.*
-      dialects.Scala3(Input.VirtualFile("<sscc>", src)).parse[Source] match
-        case Parsed.Success(tree) => ScalaNode(tree)
-        case _                    => ScalaNode(Source(Nil))
+  // ScalaNode is not serialized: always emit nil, always read back as empty.
+  // Trees are reconstructed from CodeBlock.source after the module is loaded.
+  given ReadWriter[ScalaNode] = readwriter[ujson.Value].bimap(
+    _  => ujson.Null,
+    _  => ScalaNode(scala.meta.Source(Nil))
   )
 
   given ReadWriter[CodeBlockParseError]  = macroRW
@@ -110,7 +112,20 @@ object SsccFormat:
 
   given ReadWriter[Heading] = macroRW
   given ReadWriter[Section] = macroRW
-  given ReadWriter[Module]  = macroRW
+
+  // Module: drop sourceText — raw file content has no place in a pre-compiled
+  // binary artifact.  Set to None on load; runtime paths that need it handle
+  // None already (e.g. FencedConfigExtractor returns Nil for None).
+  case class ModulePickle(
+    manifest: Option[Manifest],
+    sections: List[Section],
+    span:     Option[Span] = None
+  ) derives ReadWriter
+
+  given ReadWriter[Module] = readwriter[ModulePickle].bimap(
+    m  => ModulePickle(m.manifest, m.sections, m.span),
+    pk => Module(pk.manifest, pk.sections, pk.span, sourceText = None)
+  )
 
   // ─── Public API ──────────────────────────────────────────────────────────
 
@@ -120,7 +135,9 @@ object SsccFormat:
     Magic ++ Array(CurrentVersion) ++ payload
 
   /** Deserialize a [[Module]] from `.sscc` bytes.
-   *  Returns [[Left]] with a human-readable message on any error. */
+   *  Returns [[Left]] with a human-readable message on any error.
+   *  Scala code-block trees are reconstructed from their `source` text
+   *  (they are not stored in the binary — see class-level doc). */
   def read(bytes: Array[Byte]): Either[String, Module] =
     if bytes.length < 5 then
       Left("truncated .sscc header")
@@ -135,3 +152,24 @@ object SsccFormat:
         )
       else
         Try(readBinary[Module](bytes.drop(5))).toEither.left.map(_.getMessage)
+          .map(reconstructTrees)
+
+  // ─── Post-load tree reconstruction ───────────────────────────────────────
+
+  private def reconstructTrees(module: Module): Module =
+    module.copy(sections = module.sections.map(reconstructSection))
+
+  private def reconstructSection(section: Section): Section =
+    section.copy(
+      content     = section.content.map(reconstructContent),
+      subsections = section.subsections.map(reconstructSection)
+    )
+
+  private def reconstructContent(content: Content): Content = content match
+    case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+      import scala.meta.*
+      val tree = dialects.Scala3(Input.VirtualFile("<sscc>", cb.source)).parse[Source] match
+        case Parsed.Success(t) => Some(ScalaNode(t))
+        case _                 => None
+      cb.copy(tree = tree)
+    case other => other
