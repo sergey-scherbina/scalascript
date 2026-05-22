@@ -277,9 +277,9 @@ class JvmGen(
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
     if effectiveFrontend.isDefined then
-      sb.append("""//> using lib "io.scalascript::scalascript-frontend-core:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append("""//> using dep "io.scalascript::scalascript-frontend-core:0.1.0-SNAPSHOT"""" + "\n")
       val fwLib = effectiveFrontend.getOrElse("react")
-      sb.append(s"""//> using lib "io.scalascript::scalascript-frontend-$fwLib:0.1.0-SNAPSHOT"\n""")
+      sb.append(s"""//> using dep "io.scalascript::scalascript-frontend-$fwLib:0.1.0-SNAPSHOT"\n""")
 
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
@@ -289,8 +289,8 @@ class JvmGen(
     if sqlBlockCounter > 0 then
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
-      sb.append("""//> using lib "io.scalascript::scalascript-db-url:0.1.0-SNAPSHOT"""" + "\n")
-      sb.append("""//> using lib "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append("""//> using dep "io.scalascript::scalascript-db-url:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append("""//> using dep "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
 
     sb.append(preamble)
     sb.append(commonRuntime)
