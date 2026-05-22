@@ -253,6 +253,29 @@ ssc run-js  examples/hello.ssc > out-js.txt
 diff out-int.txt out-js.txt   # should be empty
 ```
 
+#### `ssc build --target jvm` output
+
+`ssc build myapp.ssc --target jvm` compiles to a bootstrap JAR and prints:
+
+```
+Building myapp.jar (jvm, bootstrap)...
+→ target/build/jvm/myapp.jar
+```
+
+`ssc package myapp.ssc --target jvm` (fat assembly with all deps) prints:
+
+```
+Building myapp.jar (jvm, fat assembly)...
+→ target/build/jvm/myapp.jar
+```
+
+To override config at runtime without recompiling:
+
+```bash
+java -Dscalascript.frontend=vue -jar target/build/jvm/myapp.jar
+java -Dscalascript.server.port=9090 -jar target/build/jvm/myapp.jar
+```
+
 ---
 
 ## 3. Language Basics
@@ -2976,6 +2999,26 @@ ssc plugin install X                # install plugin
 | `SSC_JWT_SECRET` | JWT signing secret (falls back to session secret) |
 | `SSC_STORAGE_PATH` | Default path for Storage effect JSON file |
 | `SSC_NO_NETWORK` | Set to `1` to disable URL imports |
+
+### JVM System Properties as Config
+
+When running on the JVM (interpreter, `ssc run`, or a packaged JAR), all system properties
+with the prefix `scalascript.` or its alias `ssc.` are injected as the highest-priority
+config layer — overriding sidecar files, fenced config blocks, and front-matter.
+
+```bash
+# Override the frontend framework for an already-compiled JAR
+java -Dscalascript.frontend=vue -jar myapp.jar
+
+# Override any config key (dotted keys become nested maps)
+java -Dscalascript.server.port=9090 -jar myapp.jar
+java -Dssc.features.darkMode=true   -jar myapp.jar
+
+# Same with ssc run (interpreter path)
+ssc run -J-Dscalascript.frontend=vue myapp.ssc
+```
+
+See [`docs/config-system.md`](config-system.md) §2.4 and §3.1 for the full priority order.
 
 ## 24. REPL Debugger (v1.34)
 

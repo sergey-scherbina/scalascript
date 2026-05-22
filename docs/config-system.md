@@ -115,6 +115,28 @@ Multiple fenced blocks may appear anywhere in the `.ssc` file. Document order ap
 a block appearing later in the file wins over an earlier block at the same path (within
 the same priority tier — see §3).
 
+### 2.4 JVM System Properties
+
+When running on the JVM (interpreter, `ssc run`, `ssc build --target jvm`, or a packaged JAR),
+all system properties with the prefix `scalascript.` or the alias `ssc.` are automatically
+injected as the **highest-priority** config layer — always winning over every file-based source.
+
+```bash
+# Override the frontend framework at runtime
+java -Dscalascript.frontend=vue -jar myapp.jar
+
+# Set any config path (dotted sub-keys become nested maps)
+java -Dscalascript.server.port=9090 -jar myapp.jar
+java -Dssc.features.darkMode=true -jar myapp.jar
+
+# Both aliases are equivalent — scalascript.* wins over ssc.* on key conflict
+java -Dssc.frontend=vue -Dscalascript.frontend=react -jar myapp.jar
+# → frontend = "react"  (scalascript.* has higher intra-prefix priority)
+```
+
+No configuration is required to enable this behaviour — system properties are always read.
+The `ssc.` prefix is a short alias for `scalascript.`; the long form wins on conflict.
+
 ### 2.3 External Config Files
 
 External files are listed in the front-matter `config:` key. Two shorthand forms and one
@@ -165,15 +187,19 @@ Supported per-file options:
 
 ### 3.1 Default Priority Order (highest → lowest)
 
-1. **Environment variables** — substitutions resolved from the process environment at load time.
-2. **Fenced blocks** — evaluated in document order; later block wins over earlier block.
-3. **External files** — evaluated in listed order; later file wins over earlier file.
-4. **Front-matter `config:` section** — lowest priority by default.
+1. **JVM system properties** (`-Dscalascript.*` / `-Dssc.*`) — always the highest priority; cannot be overridden by any file-based source. Only available on JVM targets; silently ignored on JS targets.
+2. **Environment variables** — substitutions resolved from the process environment at load time.
+3. **Fenced blocks** — evaluated in document order; later block wins over earlier block.
+4. **External files** — evaluated in listed order; later file wins over earlier file.
+5. **Front-matter `config:` section** — lowest priority by default.
 
 "Wins" means: when the same path exists in two sources at the same tier, the higher-priority
 source's value is used. Merge is **deep** for objects; scalar values are replaced entirely.
 
 ### 3.2 Overriding the Priority Order
+
+**JVM system properties are always first and cannot be moved.** The declarative override
+applies only to the four file-based tiers below them.
 
 **Declaratively in front-matter:**
 
@@ -185,7 +211,7 @@ config:
 ```
 
 Valid tokens: `env`, `frontmatter`, `files`, `blocks`. All four must be listed; the compiler
-rejects partial lists.
+rejects partial lists. The `props` tier (JVM system properties) is implicit and always highest.
 
 **In ScalaScript code:**
 
@@ -746,7 +772,8 @@ config:
 ```
 
 All four tokens (`env`, `frontmatter`, `files`, `blocks`) must be present. Duplicates and
-unknown tokens are compile errors.
+unknown tokens are compile errors. JVM system properties (`props`) are always the implicit
+highest tier and are not part of the list.
 
 ### 11.2 Code-Level Override
 
@@ -760,9 +787,9 @@ val myCfg = config.withPriority(
 )
 
 // Named constructors
-Priority.default           // env > blocks > files > frontmatter
-Priority.EnvFirst          // shorthand for env-first
-Priority.FrontmatterFirst  // env > frontmatter > blocks > files
+Priority.default           // props > env > blocks > files > frontmatter
+Priority.EnvFirst          // shorthand for env-first (props still above env)
+Priority.FrontmatterFirst  // props > env > frontmatter > blocks > files
 ```
 
 Code-level priority overrides the front-matter declaration. The `config` global always uses
