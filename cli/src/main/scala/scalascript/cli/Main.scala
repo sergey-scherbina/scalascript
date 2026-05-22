@@ -109,7 +109,6 @@ private def dispatchCommand(args: List[String]): Unit =
     case "clean"               => cleanCommand(args.tail)
     case "verify"              => verifyCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
-    case "compile"             => runCommand("--target" :: "jvm" :: args.tail)
     case "package"             => packageCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
     case "render"              => renderCommand(args.tail)
@@ -1723,7 +1722,6 @@ private def scriptCommand(cmd: String, extraArgs: List[String]): Unit =
                 case "serve"   => serveCommand(cmdArgs)
                 case "test"    => testCommand(cmdArgs)
                 case "check"   => checkCommand(cmdArgs)
-                case "compile" => runCommand("--target" :: "jvm" :: cmdArgs)
                 case "fmt"     => fmtCommand(cmdArgs)
                 case "bundle"  => bundleCommand(cmdArgs)
                 case "preview" => previewCommand(cmdArgs)
@@ -5878,8 +5876,6 @@ private def stagePrecompiledDepArtifacts(
       case None => ()
   tallies.toMap
 
-// `ssc compile` is kept as a backward-compatible alias for `ssc run --target jvm`.
-// The two dispatch sites above redirect here via runCommand("--target" :: "jvm" :: args).
 
 /** `ssc package [<project-file>] [--target <t>] [--out <dir>] [--compiled]`
  *
