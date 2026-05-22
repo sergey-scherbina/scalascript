@@ -638,7 +638,7 @@ backend/interpreter/
     server/         # Built-in HTTP / WebSocket / Actor / MCP runtime
     bench/          # WsStress benchmark
 runtime/runtime-server/common/      # Shared HTTP/WS server primitives (all backends)
-tools/mcp/common/                 # Shared MCP protocol types + codec
+mcp/common/                 # Shared MCP protocol types + codec
 cli/                        # Main entry point (ssc command)
 
 conformance/     # Cross-backend conformance test suite

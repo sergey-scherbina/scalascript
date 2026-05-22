@@ -189,7 +189,7 @@ lazy val runtimeServerCommon = project
 // client lives in `backend-scalajs` as a JS preamble (uses Scala.js DOM
 // APIs that can't cross-build with the JVM types here).
 lazy val mcpCommon = project
-  .in(file("tools/mcp/common"))
+  .in(file("mcp/common"))
   .settings(
     name := "scalascript-mcp-common",
     libraryDependencies ++= Seq(
@@ -1612,7 +1612,7 @@ lazy val walletConnectorWalletStdJs  = walletConnectorWalletStdCross.js
 lazy val walletConnectorWalletStd    = walletConnectorWalletStdJvm
 
 lazy val mcpWallet = project
-  .in(file("tools/mcp/wallet"))
+  .in(file("mcp/wallet"))
   .dependsOn(
     mcpCommon,
     walletSpi,
@@ -1642,7 +1642,7 @@ lazy val mcpWallet = project
   )
 
 lazy val mcpX402 = project
-  .in(file("tools/mcp/x402"))
+  .in(file("mcp/x402"))
   .dependsOn(
     mcpCommon, x402Core,
     // Test-scope: the composition demo wires mcp-wallet + blockchain-evm

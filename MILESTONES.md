@@ -466,7 +466,7 @@ unblocks downstream features as early as possible.
      −211 LOC) ✓ Landed; v1.17.4 full (real `McpServerSession`
      dispatch + SDK import fixes) ✓ Landed (all 2026-05-19).
      Anthropic's Model Context Protocol via REST-shaped API
-     in a separate namespace (`runtime/std/tools/mcp/*`).  Intrinsic-first:
+     in a separate namespace (`runtime/std/mcp/*`).  Intrinsic-first:
      wraps `@modelcontextprotocol/sdk` on Node and
      `io.modelcontextprotocol:sdk` on JVM; interpreter +
      scalajs-spa reject at typecheck via SPI feature flags.
@@ -3282,7 +3282,7 @@ bottleneck.
 Model Context Protocol — Anthropic's JSON-RPC 2.0-based
 protocol for connecting LLM applications to external tools,
 resources, and prompts.  Ships as **separate namespace and
-modules** (`runtime/std/tools/mcp/server`, `runtime/std/tools/mcp/client`, `runtime/std/tools/mcp/types`),
+modules** (`runtime/std/mcp/server`, `runtime/std/mcp/client`, `runtime/std/mcp/types`),
 intentionally orthogonal to the existing REST stack — same
 shape API, different protocol.
 
@@ -3322,7 +3322,7 @@ a standard SDK defer to v1.17.x own-implementation.
 | interpreter | ❌ deferred to v1.17.x | ❌ deferred |
 | scalajs-spa | ❌ (server makes no sense in browser) | ❌ (HTTP+SSE in browser plausible v1.17.x) |
 
-Interpreter and scalajs-spa imports of `runtime/std/tools/mcp/server` raise
+Interpreter and scalajs-spa imports of `runtime/std/mcp/server` raise
 an actionable Feature-not-supported error at typecheck time
 per SPI §8 — not a runtime surprise.
 
@@ -3344,7 +3344,7 @@ v1.17.1 add-on once v1.14 `derives` lands.
 
 ### Phase 1 — Types + namespace skeleton (~2 days)
 
-`runtime/std/tools/mcp/types.ssc` + skeleton `server.ssc` + skeleton
+`runtime/std/mcp/types.ssc` + skeleton `server.ssc` + skeleton
 `client.ssc`.  Pure types; no runtime dependency.
 
 ### Phase 2 — JS server intrinsic (~5 days)
@@ -3392,7 +3392,7 @@ client and server in one script).  `docs/mcp.md` walkthroughs.
   transports are an SDK-extension concern
 - **Schema validation in std layer** — SDK handles
   JSON-Schema validation; std doesn't re-validate
-- **MCP-versioned namespaces** in v1.17 — single `runtime/std/tools/mcp/*`
+- **MCP-versioned namespaces** in v1.17 — single `runtime/std/mcp/*`
   for now; versioned namespaces when MCP protocol diverges
 - **Bidirectional sampling** — MCP advanced feature; defer
 
@@ -3403,7 +3403,7 @@ and "actually reliable":
 
 1. ✓ **`CapabilityCheck.validate` wired into CLI** — `compileViaBackend`
    in `cli/Main.scala` now calls `CapabilityCheck.validate` between
-   `Normalize` and `backend.compile`; programs using `runtime/std/tools/mcp/*` on
+   `Normalize` and `backend.compile`; programs using `runtime/std/mcp/*` on
    INT now produce `[error] Unsupported(McpServer, int)` instead of
    crashing at runtime.
 2. ✓ **Conformance runner `requires:` parsing** — `conformance/run.sc`
@@ -3433,7 +3433,7 @@ reason; they are manually smoke-tested (see examples/mcp-*.ssc demos).
 POST messages to the matching session via `transport.handlePostMessage`.
 CORS headers + OPTIONS pre-flight included.  `onConnected` /
 `onDisconnected` lifecycle hooks fire per-client-connection.
-`runtime/std/tools/mcp/server.ssc` bumped to v0.2.0; `Transport.Http` comment
+`runtime/std/mcp/server.ssc` bumped to v0.2.0; `Transport.Http` comment
 updated to document SSE mechanics.  Manual smoke: connect Claude
 Desktop (or `npx @modelcontextprotocol/inspector`) to
 `http://localhost:3000/mcp`.
@@ -4408,7 +4408,7 @@ Packages assigned:
 | `http.ssc` | `std.http` |
 | `index.ssc` | `std` |
 | `mapreduce/*.ssc` | `std.mapreduce` |
-| `tools/mcp/*.ssc` | `std.mcp` |
+| `mcp/*.ssc` | `std.mcp` |
 | `middleware.ssc` | `std.middleware` |
 | `monad-control.ssc` | `std.monad_control` |
 | `monaderror.ssc` | `std.monaderror` |
