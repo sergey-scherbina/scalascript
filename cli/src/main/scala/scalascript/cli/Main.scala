@@ -1245,18 +1245,20 @@ Ssc-Source: ${sscFile.last}
  *
  *  @param projectFile  The `.ssc` entry point.
  *  @param targetOpt    Explicit `--target` from CLI; `None` = read frontmatter.
- *  @param outDir       Output directory (`dist/` by default). */
+ *  @param baseOutDir   Root output directory (`target/` by default).
+ *                      Artifacts land in `baseOutDir/<target>/` — e.g. `target/ssc/` or `target/jvm/`.
+ *  @param fat          `true` when called from `ssc package` — produces self-contained artifacts. */
 private def buildProjectFileCommand(
     projectFile: os.Path,
     targetOpt: Option[String],
-    outDir: os.Path,
+    baseOutDir: os.Path,
     fat: Boolean = false
 ): Unit =
   val manifest =
     scala.util.Try(scalascript.parser.Parser.parse(os.read(projectFile)).manifest)
       .toOption.flatten
 
-  val name   = manifest.flatMap(_.name).getOrElse(projectFile.last.stripSuffix(".ssc"))
+  val name    = manifest.flatMap(_.name).getOrElse(projectFile.last.stripSuffix(".ssc"))
   val sidecar = loadSidecarConfig(projectFile)
 
   val target = targetOpt
@@ -1264,34 +1266,31 @@ private def buildProjectFileCommand(
     .orElse(sidecar.flatMap(_.get("target").flatMap(_.getString)))
     .getOrElse("ssc")
 
+  val outDir = baseOutDir / target
   os.makeDir.all(outDir)
 
   target match
     case "ssc" =>
       val outJar = outDir / s"$name.jar"
       if fat then
-        // ssc package: standalone fat JAR, bundles full interpreter runtime + source.
         print(s"Building $name.jar (ssc, standalone fat-JAR)... ")
         buildFatJar(projectFile, outJar)
         println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024 / 1024} MB)")
       else
-        // ssc build: thin launcher JAR, embeds source only; runtime resolved from lib at run time.
         print(s"Building $name.jar (ssc, thin launcher)... ")
         buildThinJar(projectFile, outJar)
         println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024} KB)")
 
     case "jvm" =>
-      // Full JVM compilation: JvmGen → Scala source → scala-cli package → JAR.
-      // Requires scala-cli on PATH.
-      // fat=false (ssc build): --library → thin JAR, just compiled bytecode, no runtime bundled.
+      // fat=false (ssc build): --library → thin JAR, just compiled bytecode.
       // fat=true  (ssc package): --assembly → standalone fat JAR with all dependencies.
       val jarKind = if fat then "fat assembly" else "compiled library"
       println(s"Building $name.jar (jvm, $jarKind)...")
       val scalaSource = expectText(compileViaBackend("jvm", projectFile), "build --target jvm")
       val tmp = os.temp(scalaSource, suffix = ".sc")
       try
-        val outJar    = outDir / s"$name.jar"
-        val kindFlag  = if fat then "--assembly" else "--library"
+        val outJar   = outDir / s"$name.jar"
+        val kindFlag = if fat then "--assembly" else "--library"
         val result = os.proc(
           "scala-cli", "--power", "package", tmp,
           kindFlag, "--server=false", "-o", outJar.toString
@@ -1396,7 +1395,7 @@ def buildCommand(args: List[String]): Unit =
 
   projectFile match
     case Some(pf) =>
-      val outDir = os.Path(outFlag.getOrElse("dist"), os.pwd)
+      val outDir = os.Path(outFlag.getOrElse("target"), os.pwd)
       buildProjectFileCommand(pf, targetFlag, outDir)
       return
     case None => // fall through to legacy dir mode
@@ -6072,10 +6071,10 @@ def packageCommand(args: List[String]): Unit =
       val targets  = targetFlag.map(List(_))
         .orElse(manifest.map(_.targets).filter(_.nonEmpty))
         .getOrElse(List("ssc"))
-      val outDir   = os.Path(outFlag.getOrElse("dist"), os.pwd)
+      val outDir   = os.Path(outFlag.getOrElse("target"), os.pwd)
       os.makeDir.all(outDir)
 
-      println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}")
+      println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
       for t <- targets do
         buildProjectFileCommand(pf, Some(t), outDir, fat = true)
 
