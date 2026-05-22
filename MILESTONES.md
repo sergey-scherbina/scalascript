@@ -9522,7 +9522,7 @@ config files and re-evaluates affected outputs on change.
 
 ### Phase 2 — Core infrastructure: ConfigParser, MergeEngine, SubstitutionEngine ✓ Landed (2026-05-21)
 
-- `backend/config-runtime/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
+- `backend/config/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
 - `ConfigValue` ADT (`Str/Num/Bool/Null/Lst/Map`) + `deepMerge`, dotted-path `get`/`set`.
 - `ConfigParser`: YAML + JSON via snakeyaml; `Format` enum; `detectFormat` by extension.
 - `SubstitutionEngine`: `${scheme:ref | default}`, `${?VAR}`, `${VAR}`, recursive tree resolution.

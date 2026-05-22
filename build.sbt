@@ -843,7 +843,7 @@ lazy val clientPostgres = project
 //   MergeEngine   — priority-based multi-source merge
 //   ConfigLoader  — ties all of the above together
 lazy val backendConfigRuntime = project
-  .in(file("backend/config-runtime"))
+  .in(file("backend/config"))
   .settings(
     name := "scalascript-backend-config-runtime",
     libraryDependencies ++= Seq(
