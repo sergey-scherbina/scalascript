@@ -863,7 +863,7 @@ lazy val backendConfigRuntime = project
 // the standard examples / quickstarts work with zero configuration.
 // DbUrl (canonical DB URL scheme mapping) lives here.
 lazy val backendSqlRuntime = project
-  .in(file("backend/sql-runtime"))
+  .in(file("backend/sql"))
   .dependsOn(backendConfigRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime",
@@ -886,7 +886,7 @@ lazy val backendSqlRuntime = project
 //   * `SqlRuntimeJsEmit` — codegen helper that exposes the bundled
 //     `.mjs` source as a String for JsGen to prepend to its output
 lazy val backendSqlRuntimeJs = project
-  .in(file("backend/sql-runtime-js"))
+  .in(file("backend/sql-js"))
   .dependsOn(backendSqlRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime-js",
