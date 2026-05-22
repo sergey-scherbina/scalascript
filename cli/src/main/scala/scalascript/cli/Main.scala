@@ -1060,9 +1060,10 @@ private def buildArtifactsInto(
 
 // ─── Fat-JAR entry point ────────────────────────────────────────────────────
 
-/** Main class written into fat JARs by `ssc build --target ssc`.
- *  Reads the `.ssc` source packed at `META-INF/ssc/main.ssc`, writes
- *  it to a temp file, then calls `runCommand` exactly as `ssc run` would. */
+/** Entry point written into *fat* JARs by `ssc package --target ssc`.
+ *  Reads the `.ssc` source packed at `META-INF/ssc/main.ssc`, writes it to a
+ *  temp file, then calls `runCommand` exactly as `ssc run` would.
+ *  (Thin-JAR builds use `SscThinLauncher` instead.) */
 object SscJarMain:
   def main(argv: Array[String]): Unit =
     val stream = getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc")
@@ -1074,6 +1075,111 @@ object SscJarMain:
     tmp.toFile.deleteOnExit()
     java.nio.file.Files.writeString(tmp, content)
     runCommand(tmp.toString :: argv.toList)
+
+// ─── Thin-JAR launcher ───────────────────────────────────────────────────────
+
+/** Entry point written into *thin* JARs produced by `ssc build --target ssc`.
+ *
+ *  The thin JAR contains only this class and the embedded `.ssc` source; at
+ *  runtime it locates the ssc lib directory (installed by `ssc install`) and
+ *  delegates execution via URLClassLoader — no interpreter bundled.
+ *
+ *  Lookup order for the lib:
+ *    1. `$SSC_HOME/lib/jars/`
+ *    2. `~/.local/lib/ssc/jars/`
+ *    3. sibling `lib/` directory next to the JAR itself */
+object SscThinLauncher:
+  def main(argv: Array[String]): Unit =
+    val stream = getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc")
+    if stream == null then
+      System.err.println("ssc: no embedded main.ssc found (corrupt thin JAR?)")
+      System.exit(1)
+    val content = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    val tmp = java.nio.file.Files.createTempFile("ssc-jar-", ".ssc")
+    tmp.toFile.deleteOnExit()
+    java.nio.file.Files.writeString(tmp, content)
+
+    val jars = findSscLib()
+    if jars.isEmpty then
+      System.err.println(
+        "ssc: cannot locate ssc runtime.\n" +
+        "  Set SSC_HOME to the ssc installation directory, or run: ssc install"
+      )
+      System.exit(1)
+
+    val urls = jars.map(_.toURI.toURL).toArray
+    val cl   = new java.net.URLClassLoader(urls, ClassLoader.getPlatformClassLoader)
+    Thread.currentThread.setContextClassLoader(cl)
+    // @main def ssc compiles to class `ssc` with static main(Array[String])
+    cl.loadClass("ssc")
+      .getMethod("main", classOf[Array[String]])
+      .invoke(null, (Array(tmp.toString) ++ argv): Array[String])
+
+  private def findSscLib(): Array[java.io.File] =
+    import java.nio.file.Paths
+    val home = System.getProperty("user.home")
+    val candidates = List(
+      Option(System.getenv("SSC_HOME"))
+        .map(h => Paths.get(h, "lib", "jars").toFile),
+      Some(Paths.get(home, ".local", "lib", "ssc", "jars").toFile),
+      Option(getClass.getProtectionDomain.getCodeSource).flatMap(cs =>
+        scala.util.Try(new java.io.File(cs.getLocation.toURI)).toOption
+          .map(f => f.getParentFile.toPath.resolve("lib").toFile))
+    ).flatten
+    candidates
+      .find(d => d.isDirectory && d.listFiles != null)
+      .map(_.listFiles.filter(_.getName.endsWith(".jar")))
+      .getOrElse(Array.empty)
+
+// ─── Thin-JAR build ──────────────────────────────────────────────────────────
+
+/** Pack `sscFile` + `SscThinLauncher*.class` (extracted from the live ssc.jar)
+ *  into a minimal thin JAR.  The result is small; it requires a matching ssc
+ *  installation at runtime (`ssc install` or `SSC_HOME`). */
+private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
+  import java.util.zip.{ZipEntry, ZipInputStream}
+  import java.util.jar.JarOutputStream
+  import java.io.{FileOutputStream, FileInputStream}
+
+  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val sscJar  = libRoot / "ssc.jar"
+
+  os.makeDir.all(outJar / os.up)
+
+  val fos = new FileOutputStream(outJar.toIO)
+  val jos = new JarOutputStream(fos)
+  val seen = scala.collection.mutable.HashSet.empty[String]
+  try
+    // Extract only SscThinLauncher*.class from ssc.jar
+    if os.exists(sscJar) then
+      val zis = new ZipInputStream(new FileInputStream(sscJar.toIO))
+      try
+        var entry = zis.getNextEntry()
+        while entry != null do
+          val n = entry.getName
+          if !entry.isDirectory && n.contains("SscThinLauncher") && seen.add(n) then
+            jos.putNextEntry(new ZipEntry(n))
+            zis.transferTo(jos)
+            jos.closeEntry()
+          zis.closeEntry()
+          entry = zis.getNextEntry()
+      finally zis.close()
+
+    // Embed the .ssc source
+    jos.putNextEntry(new ZipEntry("META-INF/ssc/main.ssc"))
+    jos.write(os.read.bytes(sscFile))
+    jos.closeEntry()
+
+    val manifest =
+      s"""Manifest-Version: 1.0
+Main-Class: scalascript.cli.SscThinLauncher
+Ssc-Source: ${sscFile.last}
+"""
+    jos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"))
+    jos.write(manifest.getBytes("UTF-8"))
+    jos.closeEntry()
+  finally
+    jos.close()
 
 // ─── Fat-JAR packaging ───────────────────────────────────────────────────────
 
@@ -1162,12 +1268,17 @@ private def buildProjectFileCommand(
 
   target match
     case "ssc" =>
-      // Interpreter-based fat JAR: bundles runtime + .ssc source.
-      // Runs via `java -jar name.jar`; no scalac required.
       val outJar = outDir / s"$name.jar"
-      print(s"Building $name.jar (ssc, interpreter fat-JAR)... ")
-      buildFatJar(projectFile, outJar)
-      println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024 / 1024} MB)")
+      if fat then
+        // ssc package: standalone fat JAR, bundles full interpreter runtime + source.
+        print(s"Building $name.jar (ssc, standalone fat-JAR)... ")
+        buildFatJar(projectFile, outJar)
+        println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024 / 1024} MB)")
+      else
+        // ssc build: thin launcher JAR, embeds source only; runtime resolved from lib at run time.
+        print(s"Building $name.jar (ssc, thin launcher)... ")
+        buildThinJar(projectFile, outJar)
+        println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024} KB)")
 
     case "jvm" =>
       // Full JVM compilation: JvmGen → Scala source → scala-cli package → JAR.
