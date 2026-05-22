@@ -54,9 +54,9 @@ What landed (Stages 1–9.1):
   `emit-js`/`emit-spa` through `BackendRegistry.lookup` instead of
   importing codegen classes directly.
 - **Two worked plugin examples**:
-  - `examples/plugins/hello-runtime/backend/` — in-process JAR variety
+  - `examples/plugins/hello-backend/` — in-process JAR variety
     (~30 LOC + META-INF entry; builds via scala-cli).
-  - `examples/plugins/canned-runtime/backend/` — subprocess variety
+  - `examples/plugins/canned-backend/` — subprocess variety
     (~50-line scala-cli script speaking stdio-json).
 - **Docs**:  `docs/architecture.md` §4 rewritten against post-SPI
   reality; new `docs/writing-a-backend.md` (third-party guide);
@@ -316,7 +316,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
-  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
+  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
 
 ### Effort to "extensibility done"
 
@@ -5690,7 +5690,7 @@ worth a separate fix when somebody has cycles.
   - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
     migrated using all 21 existing named methods; bag deferred.  Needed when
     the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
-  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/
+  - **`interpreter-server` extraction** — `backend/interpreter/src/main/scala/
     scalascript/server/` (WebServer, WsRoutes, WsConnection, TlsProxy, etc.)
     still lives in the interpreter module; Ws and Http plugins depend on it
     via classpath.  Clean move to `runtime-server-interpreter` subproject
@@ -6551,7 +6551,7 @@ glue blocks in front of the user code.
 **Follow-up (separate milestone, not blocking v1.25 close):**
 
 - [x] Dedicated conformance fixtures for the `node` target —
-      `NodeConformanceCaptureTest` (in `runtime/backend/node/`) compiles
+      `NodeConformanceCaptureTest` (in `backend/node/`) compiles
       `conformance/node-*.ssc` through `NodeBackend` and runs each
       bundle via `node`, comparing stdout against
       `conformance/expected/node-*.txt`.  Landed 2026-05-21.
@@ -9257,7 +9257,7 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 
 ### Phase 1 — TCP skeleton + initialize/launch/disconnect ✓ Landed (9b8e0512)
 
-- New `backendDap` sbt project (`runtime/backend/dap/`), depends on `backendInterpreter`.
+- New `backendDap` sbt project (`backend/dap/`), depends on `backendInterpreter`.
 - `DapServer`: TCP accept + Content-Length frame read/write (DAP/LSP framing).
 - `DapProtocol`: parse/emit `Request`, `Response`, `Event` via `ujson`.
 - Handle `initialize` (return capabilities), `launch`, `configurationDone`, `disconnect`.
@@ -9266,7 +9266,7 @@ by blocking that thread at the `DebugHooks.onStep` call site.
 - Tests: `DapFramingTest`, `DapSessionPhase1Test`.
 
 - [x] `backendDap` sbt project + `DapServer.scala` + `DapProtocol.scala`
-- [x] `DebugHooks` trait + `BreakpointRegistry` in `runtime/backend/interpreter/debug/`
+- [x] `DebugHooks` trait + `BreakpointRegistry` in `backend/interpreter/debug/`
 - [x] `DebugCommand.scala` in CLI; `ssc debug <file> [--port N]`
 - [x] `DapFramingTest` + `DapSessionPhase1Test`
 
@@ -9522,7 +9522,7 @@ config files and re-evaluates affected outputs on change.
 
 ### Phase 2 — Core infrastructure: ConfigParser, MergeEngine, SubstitutionEngine ✓ Landed (2026-05-21)
 
-- `runtime/backend/config-runtime/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
+- `backend/config-runtime/` — new standalone sbt module (no `ir`/`spi`/`core` deps).
 - `ConfigValue` ADT (`Str/Num/Bool/Null/Lst/Map`) + `deepMerge`, dotted-path `get`/`set`.
 - `ConfigParser`: YAML + JSON via snakeyaml; `Format` enum; `detectFormat` by extension.
 - `SubstitutionEngine`: `${scheme:ref | default}`, `${?VAR}`, `${VAR}`, recursive tree resolution.
@@ -9825,7 +9825,7 @@ ssc> val x = 1
 - **`cli/src/main/scala/scalascript/cli/ReplDebugHooks.scala`** (new) —
   `ReplDebugHooks`: breakpoint registry, `StepMode` enum, `stoppedQueue` +
   `suspendLatch` threading model; `mkHooks(): DebugHooks` factory.
-- **`runtime/backend/interpreter/…/Interpreter.scala`** — `evalExpr(exprSrc, extraEnv)`:
+- **`backend/interpreter/…/Interpreter.scala`** — `evalExpr(exprSrc, extraEnv)`:
   evaluates a Scala 3 expression with hooks suppressed; used by `:print`.
 - **`cli/src/main/scala/scalascript/cli/Main.scala`** — `replCommand` wired
   to `ReplDebugHooks`; `runReplSnippetDebug` / `replDebugSubLoop` + display

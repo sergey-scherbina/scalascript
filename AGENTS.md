@@ -79,7 +79,7 @@ When implementing a new `extern def` (intrinsic), **always** create or extend a
 plugin in `runtime/std/<feature>-plugin/`, not the interpreter core.
 
 **Wrong** — adding `NativeImpl` to any of:
-- `runtime/backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
+- `backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
 - `core/` directly
 
 **Right** — creating a new plugin:
@@ -94,7 +94,7 @@ plugins already depend on.
 
 Bridge hooks that the interpreter exposes *to* plugins (e.g. `NativeContext.dbConnect`,
 `NativeContext.registerRoute`) are the only intrinsic-related code that belongs in
-`runtime/backend/spi` or the interpreter — they are the SPI contract, not the intrinsics themselves.
+`backend/spi` or the interpreter — they are the SPI contract, not the intrinsics themselves.
 
 **Examples of correct plugin layout:** `runtime/std/json-plugin`, `runtime/std/auth-plugin`,
 `runtime/std/oauth-plugin`, `runtime/std/sql-plugin`, `runtime/std/ui-fetch-plugin`.
