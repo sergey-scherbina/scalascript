@@ -133,7 +133,7 @@ lazy val interop = project
 // let callers skip HTTP/actor deps; for now the full backendInterpreter is the
 // embedding unit.
 lazy val scalascriptCore = project
-  .in(file("dist/bundles/core"))
+  .in(file("tools/bundles/core"))
   .aggregate(ir, backendSpi, core)
   .settings(
     name := "scalascript-core-all",
@@ -141,7 +141,7 @@ lazy val scalascriptCore = project
   )
 
 lazy val scalascriptInterpreterAgg = project
-  .in(file("dist/bundles/interpreter"))
+  .in(file("tools/bundles/interpreter"))
   .aggregate(ir, backendSpi, core, backendInterpreter)
   .settings(
     name := "scalascript-interpreter-all",
