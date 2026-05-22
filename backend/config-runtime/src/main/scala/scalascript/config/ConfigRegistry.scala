@@ -21,8 +21,11 @@ object ConfigRegistry:
   def reset(): Unit = current = ConfigValue.empty
 
   /** Sidecar config loaded from <script>.conf/.yaml/.json by the CLI.
-   *  Priority: frontmatter < sidecar < fenced blocks.
+   *  Priority: frontmatter < sidecar < fenced blocks < -Dscalascript.* system props.
+   *  System properties are merged in automatically here so all readers (CLI and
+   *  interpreter alike) see a consistent view without each having to merge manually.
    *  Set by the CLI before running; read by the Interpreter during module setup. */
-  def setSidecar(cv: ConfigValue): Unit  = _sidecar = Some(cv)
+  def setSidecar(cv: ConfigValue): Unit  =
+    _sidecar = Some(ConfigValue.fromSystemProperties().deepMerge(cv))
   def getSidecar: Option[ConfigValue]    = _sidecar
   def clearSidecar(): Unit               = _sidecar = None
