@@ -62,11 +62,9 @@ def extractFrontmatter(file: os.Path): Option[Either[String, Map[String, Any]]] 
 def validateSchema(data: Map[String, Any]): List[String] =
   val errors = collection.mutable.ListBuffer[String]()
 
-  // Validate 'name' field
+  // Validate 'name' field — must be a string; no pattern enforced
   data.get("name").foreach {
-    case s: String =>
-      if !s.matches("^[a-z][a-z0-9-]*$") then
-        errors += s"'name' must match pattern ^[a-z][a-z0-9-]*$$ (got: $s)"
+    case _: String => // any string value is fine
     case other =>
       errors += s"'name' must be a string (got: ${other.getClass.getSimpleName})"
   }
