@@ -15,16 +15,25 @@ object ConfigValue:
 
   val empty: ConfigValue = Map(IMap.empty)
 
-  /** Build a [[ConfigValue]] tree from JVM system properties with the given prefix.
+  /** Build a [[ConfigValue]] tree from JVM system properties matching any of the given prefixes.
+   *  Both `ssc.` and `scalascript.` are canonical aliases — keys from later prefixes in the
+   *  list win on conflict, so pass the canonical name last:
+   *  {{{
+   *    fromSystemProperties("ssc", "scalascript")   // scalascript.* wins over ssc.*
+   *  }}}
    *  `-Dscalascript.frontend=vue` → `Map("frontend" -> Str("vue"))`.
-   *  Dotted sub-keys are split into nested maps:
+   *  Dotted sub-keys after the prefix become nested maps:
    *  `-Dscalascript.server.port=9090` → `Map("server" -> Map("port" -> Str("9090")))`. */
-  def fromSystemProperties(prefix: String = "scalascript"): ConfigValue =
+  def fromSystemProperties(prefixes: String*): ConfigValue =
+    val ps = if prefixes.isEmpty then Seq("ssc", "scalascript") else prefixes
     import scala.jdk.CollectionConverters.*
-    val p = prefix + "."
-    System.getProperties.asScala
-      .collect { case (k: String, v: String) if k.startsWith(p) => k.stripPrefix(p) -> v }
-      .foldLeft(ConfigValue.empty) { case (acc, (key, value)) => acc.set(key, Str(value)) }
+    val props = System.getProperties.asScala
+    ps.foldLeft(ConfigValue.empty) { (acc, prefix) =>
+      val p = prefix + "."
+      props
+        .collect { case (k: String, v: String) if k.startsWith(p) => k.stripPrefix(p) -> v }
+        .foldLeft(acc) { case (a, (key, value)) => a.set(key, Str(value)) }
+    }
 
   /** Lift a snakeyaml-parsed raw value into ConfigValue. */
   def from(raw: Any): ConfigValue =
