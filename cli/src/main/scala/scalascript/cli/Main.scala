@@ -1143,7 +1143,8 @@ Ssc-Source: ${sscFile.last}
 private def buildProjectFileCommand(
     projectFile: os.Path,
     targetOpt: Option[String],
-    outDir: os.Path
+    outDir: os.Path,
+    fat: Boolean = false
 ): Unit =
   val manifest =
     scala.util.Try(scalascript.parser.Parser.parse(os.read(projectFile)).manifest)
@@ -1171,14 +1172,18 @@ private def buildProjectFileCommand(
     case "jvm" =>
       // Full JVM compilation: JvmGen → Scala source → scala-cli package → JAR.
       // Requires scala-cli on PATH.
-      println(s"Building $name.jar (jvm, compiled)...")
+      // fat=false (ssc build): --library → thin JAR, just compiled bytecode, no runtime bundled.
+      // fat=true  (ssc package): --assembly → standalone fat JAR with all dependencies.
+      val jarKind = if fat then "fat assembly" else "compiled library"
+      println(s"Building $name.jar (jvm, $jarKind)...")
       val scalaSource = expectText(compileViaBackend("jvm", projectFile), "build --target jvm")
       val tmp = os.temp(scalaSource, suffix = ".sc")
       try
-        val outJar = outDir / s"$name.jar"
+        val outJar    = outDir / s"$name.jar"
+        val kindFlag  = if fat then "--assembly" else "--library"
         val result = os.proc(
           "scala-cli", "--power", "package", tmp,
-          "--server=false", "-o", outJar.toString
+          kindFlag, "--server=false", "-o", outJar.toString
         ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
         if result.exitCode != 0 then System.exit(result.exitCode)
         println(s"→ ${displayPath(outJar)}")
@@ -5961,7 +5966,7 @@ def packageCommand(args: List[String]): Unit =
 
       println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}")
       for t <- targets do
-        buildProjectFileCommand(pf, Some(t), outDir)
+        buildProjectFileCommand(pf, Some(t), outDir, fat = true)
 
 def lockCommand(args: List[String]): Unit =
   args match
