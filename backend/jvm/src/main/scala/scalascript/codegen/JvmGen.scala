@@ -277,9 +277,9 @@ class JvmGen(
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
     if effectiveFrontend.isDefined then
-      sb.append("""//> using dep "io.scalascript::scalascript-frontend-core:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append(sscJarDirective("scalascript-frontend-core"))
       val fwLib = effectiveFrontend.getOrElse("react")
-      sb.append(s"""//> using dep "io.scalascript::scalascript-frontend-$fwLib:0.1.0-SNAPSHOT"\n""")
+      sb.append(sscJarDirective(s"scalascript-frontend-$fwLib"))
 
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
@@ -289,8 +289,8 @@ class JvmGen(
     if sqlBlockCounter > 0 then
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
-      sb.append("""//> using dep "io.scalascript::scalascript-db-url:0.1.0-SNAPSHOT"""" + "\n")
-      sb.append("""//> using dep "io.scalascript::scalascript-backend-sql-runtime:0.1.0-SNAPSHOT"""" + "\n")
+      sb.append(sscJarDirective("scalascript-db-url"))
+      sb.append(sscJarDirective("scalascript-backend-sql-runtime"))
 
     sb.append(preamble)
     sb.append(commonRuntime)
@@ -406,6 +406,21 @@ class JvmGen(
    *  Only exact `object NAME:` lines (colon immediately follows the name,
    *  nothing else on the line) at the current column-0 level are touched;
    *  arbitrary inner braces / definitions are passed through unchanged. */
+  // Resolve an io.scalascript artifact to an absolute //> using jar path so that
+  // scala-cli/Coursier never tries Maven Central for internal packages.
+  // Falls back to //> using dep if the jar directory cannot be found.
+  private def sscJarDirective(artifactBase: String): String =
+    val libPath = Option(System.getProperty("ssc.lib.path")).getOrElse(".")
+    val jarsDir = java.nio.file.Paths.get(libPath, "bin", "lib", "jars")
+    val found =
+      if java.nio.file.Files.isDirectory(jarsDir) then
+        import scala.jdk.CollectionConverters.*
+        java.nio.file.Files.list(jarsDir).iterator.asScala
+          .find(p => p.getFileName.toString.startsWith(s"${artifactBase}_"))
+          .map(p => s"""//> using jar "${p.toAbsolutePath}"\n""")
+      else None
+    found.getOrElse(s"""//> using dep "io.scalascript::$artifactBase:0.1.0-SNAPSHOT"\n""")
+
   private def colonObjectsToBraces(src: String): String =
     val lines    = src.split('\n')
     val n        = lines.length

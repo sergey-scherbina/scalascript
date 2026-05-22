@@ -37,15 +37,23 @@ public class SscThinBootstrap {
             return;
         }
 
-        // Extract embedded .ssc to a temp file before delegating
+        // Try .sscc (pre-compiled AST) first, fall back to .ssc (source)
         InputStream stream = SscThinBootstrap.class.getClassLoader()
-                .getResourceAsStream("META-INF/ssc/main.ssc");
+                .getResourceAsStream("META-INF/ssc/main.sscc");
+        String suffix;
+        if (stream != null) {
+            suffix = ".sscc";
+        } else {
+            stream = SscThinBootstrap.class.getClassLoader()
+                    .getResourceAsStream("META-INF/ssc/main.ssc");
+            suffix = ".ssc";
+        }
         if (stream == null) {
-            System.err.println("ssc: no embedded main.ssc found (corrupt thin JAR?)");
+            System.err.println("ssc: no embedded main.sscc or main.ssc found (corrupt thin JAR?)");
             System.exit(1);
             return;
         }
-        Path tmp = Files.createTempFile("ssc-jar-", ".ssc");
+        Path tmp = Files.createTempFile("ssc-jar-", suffix);
         tmp.toFile().deleteOnExit();
         Files.write(tmp, stream.readAllBytes());
         stream.close();

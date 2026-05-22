@@ -85,6 +85,7 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "org.yaml"       %  "snakeyaml"  % "2.6",
       "com.lihaoyi"    %% "os-lib"     % "0.11.4",
+      "com.lihaoyi"    %% "upickle"    % "4.4.2",
       "org.scalameta"  %% "scalameta"  % "4.17.0",
       "org.commonmark" %  "commonmark" % "0.28.0",
       scalatestTest

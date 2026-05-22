@@ -1079,32 +1079,49 @@ object SscJarMain:
 // ─── Thin-JAR launcher (Scala, lives in lib/ssc.jar) ────────────────────────
 
 /** Called by {@code SscThinBootstrap} (Java) after the ssc lib is loaded via
- *  URLClassLoader.  Reads the embedded {@code .ssc} from the thin JAR — visible
- *  through the parent classloader chain — then runs it via {@code runCommand}. */
+ *  URLClassLoader.  Reads the embedded `.sscc` (pre-compiled AST) or `.ssc`
+ *  (source fallback) from the thin JAR and runs via {@code runCommand}. */
 object SscThinLauncher:
   def main(argv: Array[String]): Unit =
-    val stream = getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc")
-    if stream == null then
-      System.err.println("ssc: no embedded main.ssc found (corrupt thin JAR?)")
-      System.exit(1)
-    val content = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-    val tmp = java.nio.file.Files.createTempFile("ssc-jar-", ".ssc")
+    // Try .sscc first (pre-compiled AST), fall back to .ssc source
+    val (bytes, suffix) =
+      Option(getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.sscc"))
+        .map(s => (s.readAllBytes(), ".sscc"))
+        .orElse(
+          Option(getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc"))
+            .map(s => (s.readAllBytes(), ".ssc"))
+        )
+        .getOrElse {
+          System.err.println("ssc: no embedded main.sscc or main.ssc found (corrupt thin JAR?)")
+          System.exit(1)
+          throw new AssertionError()
+        }
+    val tmp = java.nio.file.Files.createTempFile("ssc-jar-", suffix)
     tmp.toFile.deleteOnExit()
-    java.nio.file.Files.writeString(tmp, content)
+    java.nio.file.Files.write(tmp, bytes)
     runCommand(tmp.toString :: argv.toList)
 
 // ─── Thin-JAR build ──────────────────────────────────────────────────────────
 
 /** Pack `sscFile` + `SscThinBootstrap*.class` (extracted from the live ssc.jar)
- *  into a minimal thin JAR.  `SscThinBootstrap` is a pure-Java class that locates
- *  the ssc lib at runtime and delegates via URLClassLoader — no Scala runtime bundled. */
+ *  into a minimal thin JAR.  The `.ssc` source is parsed at build time and
+ *  embedded as a `.sscc` binary (magic + version + msgpack AST) so that the
+ *  runtime can skip markdown/YAML/scalameta parsing entirely.
+ *  `SscThinBootstrap` is a pure-Java class that locates the ssc lib at
+ *  runtime and delegates via URLClassLoader — no Scala runtime bundled. */
 private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
   import java.util.zip.{ZipEntry, ZipInputStream}
   import java.util.jar.JarOutputStream
   import java.io.{FileOutputStream, FileInputStream}
+  import scalascript.ast.SsccFormat
+  import scalascript.parser.Parser
 
   val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
   val sscJar  = libRoot / "ssc.jar"
+
+  // Parse and serialize the AST now so the runtime skips parsing entirely.
+  val module    = Parser.parse(os.read(sscFile))
+  val ssccBytes = SsccFormat.write(module)
 
   os.makeDir.all(outJar / os.up)
 
@@ -1127,15 +1144,16 @@ private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
           entry = zis.getNextEntry()
       finally zis.close()
 
-    // Embed the .ssc source
-    jos.putNextEntry(new ZipEntry("META-INF/ssc/main.ssc"))
-    jos.write(os.read.bytes(sscFile))
+    // Embed the pre-compiled AST as .sscc (SscThinBootstrap tries this first)
+    jos.putNextEntry(new ZipEntry("META-INF/ssc/main.sscc"))
+    jos.write(ssccBytes)
     jos.closeEntry()
 
     val manifest =
       s"""Manifest-Version: 1.0
 Main-Class: scalascript.cli.SscThinBootstrap
 Ssc-Source: ${sscFile.last}
+Ssc-Format: sscc/${SsccFormat.CurrentVersion}
 """
     jos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"))
     jos.write(manifest.getBytes("UTF-8"))
@@ -2195,6 +2213,20 @@ def parseCommand(args: List[String]): Unit =
       try   printModule(Parser.parse(os.read(path)))
       catch case e: Exception => println(s"Parse error: ${e.getMessage}")
 
+/** Load a [[scalascript.ast.Module]] from an `.ssc` source or a pre-compiled
+ *  `.sscc` binary.  `.sscc` files skip markdown/YAML/scalameta parsing;
+ *  all other extensions fall through to [[Parser.parse]]. */
+private def loadModule(path: os.Path): scalascript.ast.Module =
+  if path.last.endsWith(".sscc") then
+    scalascript.ast.SsccFormat.read(os.read.bytes(path)) match
+      case Right(m)  => m
+      case Left(err) =>
+        System.err.println(s"ssc: cannot load ${path.last}: $err")
+        System.exit(1)
+        throw new AssertionError()
+  else
+    Parser.parse(os.read(path))
+
 def runCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
   // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -2257,7 +2289,7 @@ def runCommand(args: List[String]): Unit =
           sidecarCv.flatMap(_.get("frontend").flatMap(_.getString))
             .filter(validFrontendNames)
             .foreach(applyFrontendBackend)
-        val module = Parser.parse(os.read(path))
+        val module = loadModule(path)
         val effectiveBackend =
           if backendId == "int" then
             // Check front-matter `backend:` for a per-file default.
