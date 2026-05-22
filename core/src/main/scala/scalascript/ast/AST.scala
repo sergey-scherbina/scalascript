@@ -44,6 +44,11 @@ case class Manifest(
    *  The interpreter calls `FrontendFrameworks.setBackend(name)` before
    *  running the module, equivalent to an inline `setFrontendFramework(name)`. */
   frontendFramework: Option[String] = None,
+  /** Named project scripts declared in `scripts:` front-matter.
+   *  Each key is a short alias (e.g. `dev`, `build`, `test`); the value is
+   *  an `ssc` subcommand string (e.g. `"watch"`, `"build --target web"`).
+   *  The source .ssc file is appended automatically when the script is run. */
+  scripts: Map[String, String] = Map.empty,
   raw: Map[String, Any],
   span: Option[Span] = None
 )

@@ -116,7 +116,10 @@ private def dispatchCommand(args: List[String]): Unit =
     case "build"               => buildCommand(args.tail)
     case "bundle"              => bundleCommand(args.tail)
     case "plugin"              => pluginCommand(args.tail)
-    case "install"             => pluginInstall(args.tail)  // shortcut for `ssc plugin install`
+    case "install"             =>
+      // No args or --prefix flag → install ssc itself; otherwise → plugin install shortcut.
+      if args.tail.isEmpty || args.tail.headOption.contains("--prefix") then selfInstallCommand(args.tail)
+      else pluginInstall(args.tail)
     case "lock"                => lockCommand(args.tail)
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
@@ -128,7 +131,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "oauth"               => OAuthCli.run(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
-    case _                     => runCommand(args)
+    case cmd                   => scriptCommand(cmd, args.tail)
 
 /** Read stdin as a YAML secrets document and load the flattened key→value
  *  map into [[scalascript.sql.SopsSecrets]].
@@ -369,30 +372,52 @@ private[cli] val validFrontendNames: Set[String] =
 private[cli] def applyFrontendBackend(name: String): Unit =
   scalascript.frontend.FrontendFrameworks.setBackend(name)
 
-/** Load a sidecar config file alongside `sscPath`.
- *  Tries `<base>.conf`, `<base>.yaml`, `<base>.json` in that order
- *  (first found wins).  Supports HOCON (including `include` directives),
- *  YAML, and JSON via the existing [[ConfigParser]].
- *  Returns `None` when no sidecar file exists. */
+/** Load sidecar config files alongside `sscPath`.
+ *
+ *  Loads ALL of `<base>.conf`, `<base>.yaml`, `<base>.json`, and frontmatter
+ *  from `<base>.ssc` that exist, then deep-merges them in ascending priority:
+ *  ssc (lowest) → json → yaml → conf (highest).  On key conflicts the higher-
+ *  priority file wins; maps are merged recursively via [[ConfigValue.deepMerge]].
+ *
+ *  Returns `None` when no sidecar files exist at all. */
 private[cli] def loadSidecarConfig(sscPath: os.Path): Option[scalascript.config.ConfigValue] =
   val base = sscPath / os.up / sscPath.last.stripSuffix(".ssc")
-  val exts = List("conf", "hocon", "yaml", "yml", "json")
-  exts.iterator
-    .map(ext => os.Path(base.toString + "." + ext))
-    .find(os.exists)
-    .flatMap { p =>
+  // Priority order ascending (last = highest priority = wins conflicts).
+  val exts = List("ssc", "json", "yml", "yaml", "hocon", "conf")
+
+  def loadOne(p: os.Path): Option[scalascript.config.ConfigValue] =
+    if !os.exists(p) then None
+    else
       try
-        val content = os.read(p)
-        val fmt     = scalascript.config.ConfigParser.detectFormat(p.last)
-        scalascript.config.ConfigParser.parse(content, fmt, java.nio.file.Path.of(p.toString).getParent) match
-          case Right(cv) => Some(cv)
-          case Left(err) =>
-            System.err.println(s"[warn] sidecar config ${p.last}: ${err.getMessage}")
-            None
+        // .ssc files contain frontmatter + Scala code; extract only the YAML
+        // frontmatter (between the first pair of `---` delimiters) before parsing.
+        val raw = os.read(p)
+        val content =
+          if p.ext == "ssc" then
+            val lines = raw.linesIterator.toList
+            if lines.headOption.exists(_.trim == "---") then
+              val body = lines.tail
+              val end  = body.indexWhere(_.trim == "---")
+              if end >= 0 then body.take(end).mkString("\n") else ""
+            else ""
+          else raw
+        if content.isBlank then None
+        else
+          val fmt = scalascript.config.ConfigParser.detectFormat(p.last)
+          scalascript.config.ConfigParser.parse(content, fmt, java.nio.file.Path.of(p.toString).getParent) match
+            case Right(cv) => Some(cv)
+            case Left(err) =>
+              System.err.println(s"[warn] sidecar config ${p.last}: ${err.getMessage}")
+              None
       catch case e: Exception =>
         System.err.println(s"[warn] sidecar config ${p.last}: ${e.getMessage}")
         None
-    }
+
+  val loaded = exts.flatMap { ext =>
+    loadOne(os.Path(base.toString + "." + ext))
+  }
+  if loaded.isEmpty then None
+  else Some(loaded.reduce((a, b) => a.deepMerge(b)))
 
 def printUsage(): Unit =
   println("""
@@ -414,7 +439,12 @@ def printUsage(): Unit =
     |                         imports into a .sscpkg zip archive.  External imports
     |                         (above the entry directory) are flattened into
     |                         `_external/` with path references rewritten.
-    |  install <path|name>    Install a .sscpkg (shortcut for `ssc plugin install`)
+    |  install [--prefix <dir>]
+    |                         Install ssc to a system prefix (default: ~/.local).
+    |                         Copies runtime libs and std/ to <prefix>/lib/ssc/,
+    |                         writes a launcher to <prefix>/bin/ssc.
+    |                         Pass a plugin path/name to install a .sscpkg instead:
+    |                           ssc install <path|name>  (shortcut for ssc plugin install)
     |  plugin <sub>           Manage installed .sscpkg plugins:
     |    install <path|name>    Install a .sscpkg from a local path, HTTPS URL, or registry name
     |    list                   List installed plugins
@@ -1448,6 +1478,122 @@ def pluginCommand(args: List[String]): Unit =
     case Nil =>
       System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
       System.exit(1)
+
+/** Find the "project" `.ssc` file for the current directory.
+ *  Prefers a file whose stem matches the directory name (`myapp/myapp.ssc`);
+ *  falls back to the single `.ssc` file in the directory if there is exactly one. */
+private def findProjectSsc(): Option[os.Path] =
+  val dir     = os.pwd
+  val byName  = dir / s"${dir.last}.ssc"
+  if os.exists(byName) then Some(byName)
+  else
+    val found = os.list(dir).filter(p => p.ext == "ssc" && os.isFile(p))
+    if found.length == 1 then Some(found.head) else None
+
+/** `ssc <script>` — run a named script from the project .ssc frontmatter.
+ *  Falls back to `runCommand` if no project file is found or the script is
+ *  not declared, so `ssc somefile.ssc` continues to work as before. */
+private def scriptCommand(cmd: String, extraArgs: List[String]): Unit =
+  findProjectSsc() match
+    case None => runCommand(cmd :: extraArgs)
+    case Some(sscFile) =>
+      val scripts =
+        scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest)
+          .toOption.flatten.map(_.scripts).getOrElse(Map.empty)
+      scripts.get(cmd) match
+        case None => runCommand(cmd :: extraArgs)
+        case Some(scriptStr) =>
+          val parts = scriptStr.trim.split("\\s+").toList.filterNot(_.isEmpty)
+          parts match
+            case Nil => ()
+            case subCmd :: rest =>
+              val cmdArgs = rest ::: sscFile.toString :: extraArgs
+              subCmd match
+                case "run"     => runCommand(cmdArgs)
+                case "watch"   => watchCommand(cmdArgs)
+                case "build"   => buildCommand(cmdArgs)
+                case "serve"   => serveCommand(cmdArgs)
+                case "test"    => testCommand(cmdArgs)
+                case "check"   => checkCommand(cmdArgs)
+                case "compile" => compileCommand(cmdArgs)
+                case "fmt"     => fmtCommand(cmdArgs)
+                case "bundle"  => bundleCommand(cmdArgs)
+                case "preview" => previewCommand(cmdArgs)
+                case "emit-js" => emitJsCommand(cmdArgs)
+                case other     =>
+                  System.err.println(
+                    s"ssc: script '$cmd' maps to unknown subcommand '$other'\n" +
+                    s"  Defined in: $sscFile")
+                  System.exit(1)
+
+/** `ssc install [--prefix <dir>]` — install ssc to a system prefix (default: `~/.local`).
+ *  Copies `bin/lib/` (JARs) and `std/` from the current installation root to
+ *  `<prefix>/lib/ssc/`, then writes a self-contained launcher at `<prefix>/bin/ssc`.
+ *  The launcher hard-codes the prefix so the binary works from any directory. */
+def selfInstallCommand(args: List[String]): Unit =
+  val prefix: os.Path = args match
+    case "--prefix" :: p :: _ => os.Path(p, os.pwd)
+    case Nil                  => os.home / ".local"
+    case _ =>
+      System.err.println("Usage: ssc install [--prefix <dir>]")
+      System.exit(1); os.pwd
+
+  val libRoot: os.Path = scalascript.imports.ImportResolver.libPath.getOrElse {
+    System.err.println(
+      "ssc install: cannot determine current install root.\n" +
+      "  ssc must be launched via the bin/ssc launcher (ssc.lib.path must be set).")
+    System.exit(1); os.pwd
+  }
+
+  val destRoot = prefix / "lib" / "ssc"
+  val destBin  = prefix / "bin"
+
+  println(s"Installing ssc → $prefix")
+
+  // Copy bin/lib/ (runtime JARs + thin ssc.jar)
+  val srcLib = libRoot / "bin" / "lib"
+  if !os.exists(srcLib) then
+    System.err.println(s"ssc install: bin/lib not found at $srcLib"); System.exit(1)
+  os.makeDir.all(destRoot / "bin")
+  os.walk(srcLib).foreach { src =>
+    val dest = destRoot / "bin" / "lib" / src.relativeTo(srcLib)
+    if os.isDir(src) then os.makeDir.all(dest)
+    else { os.makeDir.all(dest / os.up); os.copy.over(src, dest) }
+  }
+  val jarCount = os.walk(destRoot / "bin" / "lib").count(_.ext == "jar")
+  println(s"  ✓  Library   → $destRoot/bin/lib/  ($jarCount jars)")
+
+  // Copy std/ (standard library .ssc files)
+  val srcStd = libRoot / "std"
+  if os.exists(srcStd) then
+    os.walk(srcStd).foreach { src =>
+      val dest = destRoot / "std" / src.relativeTo(srcStd)
+      if os.isDir(src) then os.makeDir.all(dest)
+      else { os.makeDir.all(dest / os.up); os.copy.over(src, dest) }
+    }
+    println(s"  ✓  Stdlib    → $destRoot/std/")
+
+  // Write a self-contained launcher with hard-coded prefix
+  os.makeDir.all(destBin)
+  val launcher = destBin / "ssc"
+  os.write.over(launcher,
+    s"""#!/usr/bin/env bash
+       |exec java -Dssc.lib.path="$destRoot" \\
+       |  -cp "$destRoot/bin/lib/jars/*:$destRoot/bin/lib/ssc.jar" \\
+       |  scalascript.cli.ssc "$$@"
+       |""".stripMargin)
+  java.nio.file.Files.setPosixFilePermissions(
+    launcher.toNIO,
+    java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"))
+  println(s"  ✓  Launcher  → $launcher")
+  println()
+
+  val pathDirs = sys.env.getOrElse("PATH", "").split(':').toSet
+  if pathDirs.contains(destBin.toString) then
+    println(s"$destBin is already in PATH — done.")
+  else
+    println(s"Add to PATH (not yet present):")
+    println(s"""  echo 'export PATH="$$PATH:$destBin"' >> ~/.zshrc""")
 
 /** `ssc plugin install <path-or-url-or-name>` — copy/download a
  *  `.sscpkg` to `~/.scalascript/compiler/plugins/` and print a confirmation.

@@ -147,6 +147,21 @@ properties:
           - esnext
         default: es2020
 
+  scripts:
+    type: object
+    description: |
+      Project scripts, run with `ssc <name>` from the project directory.
+      Each key is a short alias; the value is an ssc subcommand string
+      (e.g. "watch", "build --target web"). The .ssc file is appended
+      automatically, so you don't need to repeat it.
+    additionalProperties:
+      type: string
+    examples:
+      - dev: watch
+        build: build --target web
+        test: test
+        check: check
+
   main:
     type: string
     description: Entry point function for executable modules

@@ -60,6 +60,7 @@ case class Manifest(
   pkg:          Option[List[String]],
   databases:         List[DatabaseDecl] = Nil,
   frontendFramework: Option[String] = None,
+  scripts:           Map[String, String] = Map.empty,
   span:              Option[Span] = None
 ) derives ReadWriter
 

@@ -51,6 +51,7 @@ object Denormalize:
       databases         = m.databases.map(databaseDecl),
       raw               = Map.empty,
       frontendFramework = m.frontendFramework,
+      scripts           = m.scripts,
       span              = m.span.map(span)
     )
 

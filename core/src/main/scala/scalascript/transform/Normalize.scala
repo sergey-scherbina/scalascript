@@ -51,6 +51,7 @@ object Normalize:
       pkg          = m.pkg,
       databases         = m.databases.map(databaseDecl),
       frontendFramework = m.frontendFramework,
+      scripts           = m.scripts,
       span              = m.span.map(span)
     )
 

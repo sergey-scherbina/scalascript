@@ -1,7 +1,7 @@
 # Native Platform Support
 
-> **Status: DRAFT v0.2 — Candidate** — Architecture decisions are settled; implementation details subject to revision.
-> Version: 0.2 — May 2026
+> **Status: DRAFT v0.3 — Candidate** — Architecture decisions are settled; implementation details subject to revision.
+> Version: 0.3 — May 2026
 
 ---
 
@@ -35,7 +35,7 @@
 Parser → AST (Module)
     │
     ├─ Compilation Backend  ─────────────────────────────────────────────────────┐
-    │  (js | jvm | kotlin | swift | scala-native | graalvm)                     │
+    │  (js | jvm | kotlin | swift | scala-native)                               │
     │  Translates business logic to target language source.                      │
     │  Standard intrinsics (httpGet, Db.query, loadConfig) are emitted           │
     │  as platform-idiomatic calls — fetch / Ktor / URLSession / libcurl.        │
@@ -83,16 +83,15 @@ enum AppFormat:
   case ComposeMultiplatform    // Kotlin + Compose → Desktop + Mobile
   case SwiftUIApp              // Swift Package + SwiftUI
   case ScalaNativeBinary       // Scala Native → LLVM → native binary
-  case GraalVMNativeImage      // GraalVM AOT → native binary (with JavaFX)
+  case GraalVMNativeImage      // JVM + native-image packaging → native binary (with JavaFX)
   case KotlinAndroidApk        // Kotlin → Android APK / AAB
 
 enum CompilationBackend:
   case Js
-  case Jvm
+  case Jvm                     // also used for GraalVM packaging (AppFormat.GraalVMNativeImage)
   case Kotlin
   case Swift
   case ScalaNative
-  case GraalVM
 ```
 
 ---
@@ -184,7 +183,7 @@ enum View[+A]:
     style: Style  = Style()
   ) extends View[Nothing]
 
-  /** Option selector — NET-NEW (replaces toolkit SelectNode[T]).
+  /** Option selector.
    *  Web: <select> | Compose: ExposedDropdownMenuBox | SwiftUI: Picker | GTK: GtkComboBoxText */
   case Picker[T](
     options:     Seq[(String, T)],
@@ -284,8 +283,8 @@ enum View[+A]:
   ) extends View[Nothing]
 
   // ── Web-only cases ────────────────────────────────────────────────────────────
-  // Using any of these on a non-web target emits a compile error.
-  // FetchTable and FetchUrlSignal live in frontend/core (not in the toolkit).
+  // Codegen contract: using these in a non-web target build emits a compile error
+  // pointing to the sourceloc of the offending View case.
 
   /** Raw HTML element. Compile error on non-web targets. */
   case Element(
@@ -295,18 +294,15 @@ enum View[+A]:
     children: Seq[View[?]]
   ) extends View[Nothing]
 
-  /** DOM portal. No-op on non-web targets (compile warning). */
+  /** DOM portal. Compile error on non-web targets. */
   case Portal(target: String, children: Seq[View[?]]) extends View[Nothing]
-
-  /** Reactive data table backed by a REST endpoint.
-   *  Lives in frontend/core. Deprecated for non-web targets. */
-  case FetchTable(
-    tableJsName: String,
-    fetchUrl:    String,
-    deleteUrl:   String,
-    tick:        ReactiveSignal[Int]
-  ) extends View[Nothing]
 ```
+
+> **Note**: `FetchTable` (data table backed by a REST endpoint) was part of View IR in v0.2. In v0.3 it is a **helper function** in `frontend/core/toolkit`:
+> ```scala
+> def fetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int]): View[?]
+> ```
+> It composes `Element`, `Column`, and `Button` — it is not a primitive View case.
 
 ### 5.3 Supporting types
 
@@ -340,76 +336,83 @@ enum ImageSource:
 
 ### 6.1 Style record
 
+`Style` is composed of four sub-records plus cross-cutting fields. This separates concerns and makes platform lowering tables self-contained per sub-record.
+
 ```scala
 final case class Style(
-  // ── Layout ───────────────────────────────────────────────────────────────────
-  padding:        EdgeInsets           = EdgeInsets.zero,
-  margin:         EdgeInsets           = EdgeInsets.zero,
-  width:          Dimension            = Dimension.Auto,
-  height:         Dimension            = Dimension.Auto,
-  minWidth:       Option[Double]       = None,
-  maxWidth:       Option[Double]       = None,
-  minHeight:      Option[Double]       = None,
-  maxHeight:      Option[Double]       = None,
-  flex:           Option[Double]       = None,
-  flexShrink:     Option[Double]       = None,
-  flexBasis:      Option[Dimension]    = None,
-  alignSelf:      Option[Align]        = None,
-  gap:            Option[Double]       = None,
-  zIndex:         Option[Int]          = None,
-
-  // ── Color ─────────────────────────────────────────────────────────────────────
-  background:     Option[Color]        = None,
-  foreground:     Option[Color]        = None,
-
-  // ── Typography ────────────────────────────────────────────────────────────────
-  fontSize:       Option[Double]       = None,
-  fontWeight:     Option[FontWeight]   = None,
-  fontFamily:     Option[String]       = None,
-  fontStyle:      FontStyle            = FontStyle.Normal,
-  lineHeight:     Option[Double]       = None,
-  letterSpacing:  Option[Double]       = None,
-  textDecoration: Set[TextDecoration]  = Set.empty,
-  textAlign:      TextAlign            = TextAlign.Start,
-  textOverflow:   TextOverflow         = TextOverflow.Clip,
-  maxLines:       Option[Int]          = None,
-
-  // ── Border ────────────────────────────────────────────────────────────────────
-  borderColor:    Option[Color]        = None,
-  borderWidth:    Option[Double]       = None,
-  borderRadius:   BorderRadius         = BorderRadius.zero,
-  borderStyle:    BorderLineStyle      = BorderLineStyle.Solid,
-
-  // ── Shadow ────────────────────────────────────────────────────────────────────
-  shadow:         Option[Shadow]       = None,
-
-  // ── Effects ───────────────────────────────────────────────────────────────────
-  opacity:        Double               = 1.0,
-  overflow:       Overflow             = Overflow.Visible,
-  cursor:         Option[Cursor]       = None,   // web-only; ignored on native
-
-  // ── Transform ─────────────────────────────────────────────────────────────────
-  transform:      List[Transform]      = Nil,
-
-  // ── Animations ────────────────────────────────────────────────────────────────
-  animation:      Option[Transition]   = None,
-
-  // ── Gestures ──────────────────────────────────────────────────────────────────
-  gestures:       List[Gesture]        = Nil,
-
-  // ── Accessibility ─────────────────────────────────────────────────────────────
-  a11y:           A11y                 = A11y(),
-
-  // ── Platform overrides ────────────────────────────────────────────────────────
-  web:            Map[String, String]  = Map.empty,   // raw CSS properties
-  native:         Map[String, String]  = Map.empty    // platform-specific hints
+  layout:     LayoutStyle      = LayoutStyle(),
+  text:       TextStyle        = TextStyle(),   // see frontend/toolkit/Theme.scala
+  decoration: DecorationStyle  = DecorationStyle(),
+  effects:    EffectsStyle     = EffectsStyle(),
+  transform:  List[Transform]  = Nil,
+  animation:  Option[Transition] = None,
+  gestures:   List[Gesture]    = Nil,
+  a11y:       A11y             = A11y(),
+  web:        Map[String, String] = Map.empty,  // raw CSS properties
+  native:     Map[String, String] = Map.empty   // platform-specific hints
 )
 
 object Style:
   val empty: Style = Style()
 ```
 
-### 6.2 Supporting types
+### 6.2 Sub-record types
+
+```scala
+// ── Layout ───────────────────────────────────────────────────────────────────
+final case class LayoutStyle(
+  padding:    EdgeInsets           = EdgeInsets.zero,
+  margin:     EdgeInsets           = EdgeInsets.zero,
+  width:      Dimension            = Dimension.Auto,
+  height:     Dimension            = Dimension.Auto,
+  minWidth:   Option[Double]       = None,
+  maxWidth:   Option[Double]       = None,
+  minHeight:  Option[Double]       = None,
+  maxHeight:  Option[Double]       = None,
+  flex:       Option[Double]       = None,
+  flexShrink: Option[Double]       = None,
+  flexBasis:  Option[Dimension]    = None,
+  alignSelf:  Option[Align]        = None,
+  gap:        Option[Double]       = None,
+  zIndex:     Option[Int]          = None
+)
+
+// ── Typography ────────────────────────────────────────────────────────────────
+// Extends the existing TextStyle from frontend/toolkit/Theme.scala with
+// rendering-relevant fields (foreground, textDecoration, overflow, maxLines).
+final case class TextStyle(
+  fontSize:       Option[Double]      = None,
+  fontWeight:     Option[FontWeight]  = None,
+  fontFamily:     Option[String]      = None,
+  fontStyle:      FontStyle           = FontStyle.Normal,
+  lineHeight:     Option[Double]      = None,
+  letterSpacing:  Option[Double]      = None,
+  textDecoration: Set[TextDecoration] = Set.empty,
+  textAlign:      TextAlign           = TextAlign.Start,
+  textOverflow:   TextOverflow        = TextOverflow.Clip,
+  maxLines:       Option[Int]         = None,
+  foreground:     Option[Color]       = None   // text / foreground color
+)
+
+// ── Decoration ────────────────────────────────────────────────────────────────
+final case class DecorationStyle(
+  background:   Option[Color]      = None,
+  borderColor:  Option[Color]      = None,
+  borderWidth:  Option[Double]     = None,
+  borderRadius: BorderRadius       = BorderRadius.zero,
+  borderStyle:  BorderLineStyle    = BorderLineStyle.Solid
+)
+
+// ── Effects ───────────────────────────────────────────────────────────────────
+final case class EffectsStyle(
+  shadow:   Option[Shadow] = None,
+  opacity:  Double         = 1.0,
+  overflow: Overflow       = Overflow.Visible,
+  cursor:   Option[Cursor] = None   // web-only; ignored on native
+)
+```
+
+**Scalar supporting types** (unchanged from v0.2):
 
 ```scala
 final case class EdgeInsets(top: Double, right: Double, bottom: Double, left: Double)
@@ -446,8 +449,7 @@ enum Color:
   case Rgb(r: Int, g: Int, b: Int)
   case Rgba(r: Int, g: Int, b: Int, a: Double)
   case Named(name: String)
-  /** Cross-platform semantic token — "primary", "onSurface", "label", "systemBackground", etc.
-   *  Resolved by each renderer against the active theme / platform color system. */
+  /** Cross-platform semantic token — see §6.4b for canonical vocabulary. */
   case System(token: String)
   case Transparent
 
@@ -474,50 +476,52 @@ enum Transform:
 
 ### 6.3 Modifier-chain extension methods
 
+The public modifier DSL is unchanged. The internal `copy` paths now traverse the sub-record.
+
 ```scala
 extension (v: View[?])
   // Layout
-  def padding(all: Double): View[?]                    = styled(_.copy(padding = EdgeInsets.all(all)))
-  def padding(h: Double, vert: Double): View[?]        = styled(_.copy(padding = EdgeInsets.symmetric(h, vert)))
-  def padding(e: EdgeInsets): View[?]                  = styled(_.copy(padding = e))
-  def margin(all: Double): View[?]                     = styled(_.copy(margin = EdgeInsets.all(all)))
-  def margin(e: EdgeInsets): View[?]                   = styled(_.copy(margin = e))
-  def frame(w: Double, h: Double): View[?]             = styled(_.copy(width = Dimension.Fixed(w), height = Dimension.Fixed(h)))
-  def width(d: Dimension): View[?]                     = styled(_.copy(width = d))
-  def height(d: Dimension): View[?]                    = styled(_.copy(height = d))
-  def fill: View[?]                                    = styled(_.copy(width = Dimension.Fill, height = Dimension.Fill))
-  def fillWidth: View[?]                               = styled(_.copy(width = Dimension.Fill))
-  def fillHeight: View[?]                              = styled(_.copy(height = Dimension.Fill))
-  def flex(factor: Double = 1): View[?]                = styled(_.copy(flex = Some(factor)))
-  def minWidth(v: Double): View[?]                     = styled(_.copy(minWidth = Some(v)))
-  def maxWidth(v: Double): View[?]                     = styled(_.copy(maxWidth = Some(v)))
-  def zIndex(z: Int): View[?]                          = styled(_.copy(zIndex = Some(z)))
+  def padding(all: Double): View[?]                    = styled(s => s.copy(layout = s.layout.copy(padding = EdgeInsets.all(all))))
+  def padding(h: Double, vert: Double): View[?]        = styled(s => s.copy(layout = s.layout.copy(padding = EdgeInsets.symmetric(h, vert))))
+  def padding(e: EdgeInsets): View[?]                  = styled(s => s.copy(layout = s.layout.copy(padding = e)))
+  def margin(all: Double): View[?]                     = styled(s => s.copy(layout = s.layout.copy(margin = EdgeInsets.all(all))))
+  def margin(e: EdgeInsets): View[?]                   = styled(s => s.copy(layout = s.layout.copy(margin = e)))
+  def frame(w: Double, h: Double): View[?]             = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fixed(w), height = Dimension.Fixed(h))))
+  def width(d: Dimension): View[?]                     = styled(s => s.copy(layout = s.layout.copy(width = d)))
+  def height(d: Dimension): View[?]                    = styled(s => s.copy(layout = s.layout.copy(height = d)))
+  def fill: View[?]                                    = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fill, height = Dimension.Fill)))
+  def fillWidth: View[?]                               = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fill)))
+  def fillHeight: View[?]                              = styled(s => s.copy(layout = s.layout.copy(height = Dimension.Fill)))
+  def flex(factor: Double = 1): View[?]                = styled(s => s.copy(layout = s.layout.copy(flex = Some(factor))))
+  def minWidth(v: Double): View[?]                     = styled(s => s.copy(layout = s.layout.copy(minWidth = Some(v))))
+  def maxWidth(v: Double): View[?]                     = styled(s => s.copy(layout = s.layout.copy(maxWidth = Some(v))))
+  def zIndex(z: Int): View[?]                          = styled(s => s.copy(layout = s.layout.copy(zIndex = Some(z))))
 
   // Color
-  def background(c: Color): View[?]                   = styled(_.copy(background = Some(c)))
-  def foreground(c: Color): View[?]                   = styled(_.copy(foreground = Some(c)))
+  def background(c: Color): View[?]                   = styled(s => s.copy(decoration = s.decoration.copy(background = Some(c))))
+  def foreground(c: Color): View[?]                   = styled(s => s.copy(text = s.text.copy(foreground = Some(c))))
 
   // Typography
-  def fontSize(s: Double): View[?]                    = styled(_.copy(fontSize = Some(s)))
-  def fontWeight(w: FontWeight): View[?]              = styled(_.copy(fontWeight = Some(w)))
+  def fontSize(sz: Double): View[?]                   = styled(s => s.copy(text = s.text.copy(fontSize = Some(sz))))
+  def fontWeight(w: FontWeight): View[?]              = styled(s => s.copy(text = s.text.copy(fontWeight = Some(w))))
   def bold: View[?]                                   = fontWeight(FontWeight.Bold)
   def light: View[?]                                  = fontWeight(FontWeight.Light)
-  def italic: View[?]                                 = styled(_.copy(fontStyle = FontStyle.Italic))
-  def underline: View[?]                              = styled(s => s.copy(textDecoration = s.textDecoration + TextDecoration.Underline))
-  def strikethrough: View[?]                          = styled(s => s.copy(textDecoration = s.textDecoration + TextDecoration.Strikethrough))
-  def textAlign(a: TextAlign): View[?]                = styled(_.copy(textAlign = a))
-  def lineLimit(n: Int): View[?]                      = styled(_.copy(maxLines = Some(n)))
+  def italic: View[?]                                 = styled(s => s.copy(text = s.text.copy(fontStyle = FontStyle.Italic)))
+  def underline: View[?]                              = styled(s => s.copy(text = s.text.copy(textDecoration = s.text.textDecoration + TextDecoration.Underline)))
+  def strikethrough: View[?]                          = styled(s => s.copy(text = s.text.copy(textDecoration = s.text.textDecoration + TextDecoration.Strikethrough)))
+  def textAlign(a: TextAlign): View[?]                = styled(s => s.copy(text = s.text.copy(textAlign = a)))
+  def lineLimit(n: Int): View[?]                      = styled(s => s.copy(text = s.text.copy(maxLines = Some(n))))
 
   // Border / shape
-  def border(color: Color, width: Double = 1): View[?] = styled(_.copy(borderColor = Some(color), borderWidth = Some(width)))
-  def cornerRadius(r: Double): View[?]                  = styled(_.copy(borderRadius = BorderRadius.all(r)))
+  def border(color: Color, width: Double = 1): View[?] = styled(s => s.copy(decoration = s.decoration.copy(borderColor = Some(color), borderWidth = Some(width))))
+  def cornerRadius(r: Double): View[?]                  = styled(s => s.copy(decoration = s.decoration.copy(borderRadius = BorderRadius.all(r))))
 
   // Shadow / effects
-  def shadow(s: Shadow): View[?]                      = styled(_.copy(shadow = Some(s)))
+  def shadow(sh: Shadow): View[?]                     = styled(s => s.copy(effects = s.effects.copy(shadow = Some(sh))))
   def shadow(blur: Double = 8, color: Color = Color.Rgba(0, 0, 0, 0.15)): View[?] =
-    styled(_.copy(shadow = Some(Shadow(color, blur = blur))))
-  def opacity(v: Double): View[?]                     = styled(_.copy(opacity = v))
-  def clip: View[?]                                   = styled(_.copy(overflow = Overflow.Hidden))
+    styled(s => s.copy(effects = s.effects.copy(shadow = Some(Shadow(color, blur = blur)))))
+  def opacity(v: Double): View[?]                     = styled(s => s.copy(effects = s.effects.copy(opacity = v)))
+  def clip: View[?]                                   = styled(s => s.copy(effects = s.effects.copy(overflow = Overflow.Hidden)))
 
   // Transform
   def rotate(deg: Double): View[?]                    = appendTransform(Transform.Rotate(deg))
@@ -561,15 +565,15 @@ extension (v: View[?])
 
 | Style property | CSS | Compose Modifier | SwiftUI modifier | GTK |
 |----------------|-----|-----------------|-----------------|-----|
-| `padding` | `padding: 16px` | `.padding(16.dp)` | `.padding(16)` | `gtk_widget_set_margin_*` |
-| `background` | `background: #fff` | `.background(Color(...))` | `.background(.white)` | CSS provider |
-| `cornerRadius` | `border-radius: 8px` | `.clip(RoundedCornerShape(8.dp))` | `.cornerRadius(8)` | CSS provider |
-| `fontSize` | `font-size: 18px` | `.fontSize(18.sp)` | `.font(.system(size: 18))` | `PangoFontDescription` |
-| `bold` | `font-weight: bold` | `.fontWeight(FontWeight.Bold)` | `.bold()` | `PANGO_WEIGHT_BOLD` |
-| `shadow` | `box-shadow: ...` | `.shadow(...)` | `.shadow(...)` | CSS provider |
-| `opacity` | `opacity: 0.5` | `.alpha(0.5f)` | `.opacity(0.5)` | `gtk_widget_set_opacity` |
-| `foreground` | `color: #333` | `.color(Color(...))` | `.foregroundColor(.gray)` | CSS override |
-| `width(Fill)` | `width: 100%` | `.fillMaxWidth()` | `.frame(maxWidth: .infinity)` | `gtk_widget_set_hexpand(TRUE)` |
+| `layout.padding` | `padding: 16px` | `.padding(16.dp)` | `.padding(16)` | `gtk_widget_set_margin_*` |
+| `decoration.background` | `background: #fff` | `.background(Color(...))` | `.background(.white)` | CSS provider |
+| `decoration.cornerRadius` | `border-radius: 8px` | `.clip(RoundedCornerShape(8.dp))` | `.cornerRadius(8)` | CSS provider |
+| `text.fontSize` | `font-size: 18px` | `.fontSize(18.sp)` | `.font(.system(size: 18))` | `PangoFontDescription` |
+| `text.fontWeight(Bold)` | `font-weight: bold` | `.fontWeight(FontWeight.Bold)` | `.bold()` | `PANGO_WEIGHT_BOLD` |
+| `effects.shadow` | `box-shadow: ...` | `.shadow(...)` | `.shadow(...)` | CSS provider |
+| `effects.opacity` | `opacity: 0.5` | `.alpha(0.5f)` | `.opacity(0.5)` | `gtk_widget_set_opacity` |
+| `text.foreground` | `color: #333` | `.color(Color(...))` | `.foregroundColor(.gray)` | CSS override |
+| `layout.width(Fill)` | `width: 100%` | `.fillMaxWidth()` | `.frame(maxWidth: .infinity)` | `gtk_widget_set_hexpand(TRUE)` |
 | `animation` | CSS `transition: all Xms` | `animate*(state, animationSpec)` | `.animation(.easeOut, value: state)` | Cairo transition |
 
 ### 6.4a Theme integration
@@ -578,15 +582,36 @@ extension (v: View[?])
 
 ```scala
 // Color.System tokens resolve against Theme:
-Style(background = Some(Color.System("surface")))
+Style(decoration = DecorationStyle(background = Some(Color.System("surface"))))
 // → CSS: var(--color-surface, #fff) | Compose: MaterialTheme.colorScheme.surface
 // → SwiftUI: Color(.systemBackground) | GTK: CSS --theme-surface
 
 // None fields fall back to theme:
-Style(fontSize = None)  // → Theme.typography.body.size (if set), else platform default
+Style()  // → theme defaults for all typography (Theme.typography.body)
 ```
 
-Naming conflict: the existing `Theme.TextStyle` (in `frontend/toolkit/Theme.scala`) is the sub-record for typography; `Style` supersedes it as the top-level styling API. `TextStyle` is retained inside `Theme` as an internal type but is no longer part of the public View IR surface.
+`TextStyle` (the sub-record on `Style.text`) supersedes `Theme.TextStyle` as the top-level styling API for View IR. `Theme.TextStyle` is retained internally but is no longer part of the public View IR surface.
+
+### 6.4b Color System Tokens
+
+`Color.System(token)` must use one of the following canonical tokens. Each renderer resolves to its platform color system.
+
+| Token | Web (CSS var) | Compose (Material You) | SwiftUI | GTK |
+|-------|---------------|------------------------|---------|-----|
+| `background` | `--color-background` | `colorScheme.background` | `Color(.systemBackground)` | `@theme_bg_color` |
+| `surface` | `--color-surface` | `colorScheme.surface` | `Color(.secondarySystemBackground)` | `@theme_base_color` |
+| `foreground` | `--color-foreground` | `colorScheme.onBackground` | `Color(.label)` | `@theme_fg_color` |
+| `primary` | `--color-primary` | `colorScheme.primary` | `Color.accentColor` | accent (CSS) |
+| `onPrimary` | `--color-on-primary` | `colorScheme.onPrimary` | `Color(.systemBackground)` | inverted fg |
+| `secondary` | `--color-secondary` | `colorScheme.secondary` | `Color.secondary` | dim fg |
+| `onSecondary` | `--color-on-secondary` | `colorScheme.onSecondary` | `Color(.systemBackground)` | inverted dim |
+| `error` | `--color-error` | `colorScheme.error` | `Color(.systemRed)` | red accent |
+| `onError` | `--color-on-error` | `colorScheme.onError` | `Color(.white)` | inverted error |
+| `border` | `--color-border` | `colorScheme.outline` | `Color(.separator)` | `@borders` |
+| `muted` | `--color-muted` | `colorScheme.surfaceVariant` | `Color(.tertiaryLabel)` | dim alt |
+| `accent` | `--color-accent` | `colorScheme.tertiary` | `Color.accentColor` | accent alt |
+
+Unknown tokens fall back to `Color.Transparent` with a warning at codegen time.
 
 ### 6.5 Accessibility
 
@@ -636,13 +661,9 @@ enum Curve:
   case EaseOut
   case EaseInOut
   case Spring(stiffness: Double = 300, damping: Double = 30)
-
-/** Animated value that can be driven to a target with a Transition. */
-final class Animatable[T](val id: String, val initial: T):
-  def animateTo(target: T, transition: Transition = Transition()): Unit
 ```
 
-`View.Animated(child, transition)` applies the transition on every state change that triggers a re-render of `child`. Platform mapping:
+`View.Animated(child, transition)` applies the transition on every state change that triggers a re-render of `child`. `Style.animation: Option[Transition]` applies an ambient transition to all state-driven changes in the node. Platform mapping:
 
 | Renderer | Mechanism |
 |----------|-----------|
@@ -696,30 +717,18 @@ class ReactiveSignalList[T](val id: String, val initial: Seq[T])
 class FetchUrlSignal(id: String, val fetchUrl: String, val tickId: String)
   extends ReactiveSignal[String](id, "")
 final class WidgetRef(val id: String)
-
-@deprecated("use WidgetRef", "v1.31")
-type DomRef = WidgetRef
 ```
 
-Deprecated `jsName` val accessors are retained for one minor version:
+No deprecated aliases — the codemod rewrites all call sites as part of the v0.3 cut (see §21).
 
-```scala
-class ReactiveSignal[T](val id: String, ...):
-  @deprecated("use id", "v1.31") def jsName: String = id
-```
-
-### 7.2 Web-only cases — convention
-
-The `@webOnly` annotation is **not** introduced as a Scala annotation type. Instead, `View.Element`, `View.Portal`, and `View.FetchTable` are documented in a "Web-only cases" subsection (§5.2). The codegen raises a compile error when it encounters these cases during a non-web target build.
-
-### 7.3 Signal → platform mapping
+### 7.2 Signal → platform mapping
 
 | ScalaScript | JS / custom | Compose | SwiftUI | GTK |
 |------------|-------------|---------|---------|-----|
 | `ReactiveSignal[T](id, v)` | `let <id> = <v>` + subscriber set | `var <id> by mutableStateOf(<v>)` | `@State var <id> = <v>` | mutable var + update callback |
 | `signal.set(v)` | `__setSignal("<id>", v)` | `<id> = v` | `<id> = v` | `<id> = v; gtk_widget_queue_draw(...)` |
 
-### 7.4 Capability enum additions
+### 7.3 Capability enum additions
 
 New capabilities in `enum Capability` (no conflicts with existing values):
 
@@ -728,25 +737,22 @@ New capabilities in `enum Capability` (no conflicts with existing values):
 // ComponentTree, SignalState, ComputedDerived, EffectLifecycle,
 // DomRefs, Context, Portals, Suspense, Untrack, TwoWayBinding
 
-// New universal view capabilities:
-case NativeLayout       // Column / Row / Stack / ScrollView / Spacer / Divider
-case NativeControls     // Button / TextInput / Toggle / Slider / Picker / Image / Icon
-case NativeNavigation   // TabBar / NavigationStack
-case NativeOverlays     // Sheet / AlertDialog
-case NativeForms        // Form / FormField
-case LazyCollections    // LazyList / LazyGrid
-
-// Platform feature capabilities (via declared dependencies):
+// Platform feature capabilities.
+// On native targets these gate manifest permission injection + optional extra deps.
+// On web, the browser enforces its own permission model — these capabilities are
+// informational only and do not affect the build.
 case Camera
 case Biometrics
 case PushNotifications
 case LocalStorage
-case Geolocation
+case Geolocation      // web: browser prompt; native: manifest injection (no extra dep)
 case Haptics
 case DeepLinks
 case BackgroundTasks
 case FileSystem
 ```
+
+> **Note**: there are no separate `NativeLayout` / `NativeControls` / etc. capabilities — every native renderer implements the full View IR. Capability flags only gate platform-specific *feature* dependencies listed above.
 
 ---
 
@@ -804,26 +810,36 @@ dep "native:gtk-4.0"
 - Add `app`, `native`, `assets` as optional object keys.
 - `validate-frontmatter.scala`: add list validation for `dependencies` matching the same pattern.
 
-Schema update is a prerequisite for P0 (see §23).
+Schema update is a prerequisite for P0 (see §22).
 
 ---
 
 ## 9. Frontend SPI
 
-### 9.1 Backward-compatible wrapping
+### 9.1 Single trait
 
-`EmittedSpa` stays unchanged — all four existing web backends (`custom`/`react`/`solid`/`vue`) continue to override `def emit(...): EmittedSpa` without modification.
-
-`EmittedArtifact` is a new **sum-type wrapper** introduced for native output. Web backends produce `EmittedArtifact.Spa(emit(module))` via the helper in `UniversalFrontendSpi`.
+`FrontendFrameworkSpi` is extended in-place. All four existing web backends continue to override `emit(...)` without modification. Native backends additionally override `emitNative` and `supportedPlatforms`.
 
 ```scala
-// Unchanged — existing backends implement this:
+// Unchanged for web backends:
 trait FrontendFrameworkSpi:
   def name: String
   def capabilities: Set[Capability]
   def jsDeps: List[JsDep]
   def emit(module: FrontendModule): EmittedSpa
+
+  // New — native-capable backends override these:
   def supportedPlatforms: Set[Platform] = Set(Platform.Web)
+  def emitNative(module: FrontendModule, platform: Platform): Option[EmittedArtifact.NativeApp] = None
+
+object FrontendFrameworkSpi:
+  extension (spi: FrontendFrameworkSpi)
+    def emitForPlatform(module: FrontendModule, platform: Platform): EmittedArtifact =
+      platform match
+        case Platform.Web => EmittedArtifact.Spa(spi.emit(module))
+        case p            => spi.emitNative(module, p).getOrElse(
+          throw UnsupportedOperationException(s"${spi.name} does not support platform $p")
+        )
 
 // New enum wrapping EmittedSpa:
 enum EmittedArtifact:
@@ -836,29 +852,9 @@ enum EmittedArtifact:
     format:      AppFormat,
     target:      Platform
   )
-
-// Deprecated alias for one version:
-@deprecated("use EmittedArtifact.Spa", "v1.31")
-type EmittedSpaArtifact = EmittedArtifact.Spa
 ```
 
-### 9.2 Native SPI extensions
-
-```scala
-// Extension for native-capable backends:
-trait NativeFrontendSpi extends FrontendFrameworkSpi:
-  override def supportedPlatforms: Set[Platform]
-  def emitNative(module: FrontendModule, platform: Platform): EmittedArtifact.NativeApp
-
-// Convenience — handles both web and native:
-trait UniversalFrontendSpi extends NativeFrontendSpi:
-  final def emitForPlatform(module: FrontendModule, platform: Platform): EmittedArtifact =
-    platform match
-      case Platform.Web => EmittedArtifact.Spa(emit(module))
-      case p            => emitNative(module, p)
-```
-
-### 9.3 FrontendModule
+### 9.2 FrontendModule
 
 ```scala
 final case class FrontendModule(
@@ -884,11 +880,10 @@ final case class AppManifest(
 | Backend | Generates | Primary use |
 |---------|-----------|-------------|
 | `js` | `.js` (CJS / ESM) | Web, React Native, Electron |
-| `jvm` | `.scala` (Scala 3) | Server, GraalVM native-image |
+| `jvm` | `.scala` (Scala 3) | Server, GraalVM native-image packaging |
 | `kotlin` | `.kt` | Compose Multiplatform, Android, Kotlin/Native |
 | `swift` | `.swift` | SwiftUI (macOS + iOS) |
 | `scala-native` | `.scala` + `@extern` C bindings | GTK (Linux), Cocoa (macOS), Win32 |
-| `graalvm` | `.scala` + native-image config | Standalone desktop binary with JavaFX |
 
 ### 10.1 Kotlin backend
 
@@ -922,9 +917,16 @@ import scala.scalanative.unsafe.*
   def gtk_button_new_with_label(label: CString): Ptr[Byte]    = extern
 ```
 
-### 10.4 GraalVM backend
+### 10.4 GraalVM packaging (jvm backend)
 
-Extends the JVM backend. Generates `reflect-config.json`, `resource-config.json`, and a build script that calls `native-image`. Primary renderer target: JavaFX.
+GraalVM is **not a separate codegen backend** — it is a packaging step on top of the `jvm` backend. When `AppFormat.GraalVMNativeImage` is selected, the build pipeline:
+
+1. Generates `.scala` source via the `jvm` backend (identical codegen).
+2. Compiles with `scalac`.
+3. Generates `reflect-config.json` and `resource-config.json` from the class graph.
+4. Invokes `native-image` to produce a standalone binary.
+
+Primary renderer: `javafx`.
 
 ---
 
@@ -943,7 +945,7 @@ Extends the JVM backend. Generates `reflect-config.json`, `resource-config.json`
 | `compose` | kotlin | Desktop (all) + Mobile (all) | ComposeMultiplatform |
 | `swiftui` | swift | Desktop (macOS) + Mobile (iOS) | SwiftUIApp |
 | `gtk` | scala-native | Desktop (Linux, macOS) | ScalaNativeBinary |
-| `javafx` | graalvm | Desktop (all) | GraalVMNativeImage |
+| `javafx` | jvm | Desktop (all) | GraalVMNativeImage |
 
 ### 11.2 View IR → renderer mapping
 
@@ -976,7 +978,7 @@ JetBrains' extension of Jetpack Compose to Desktop (macOS, Windows, Linux), iOS,
 
 ### 11.4 EventHandler native lowering
 
-All 9 `EventHandler` cases from `frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`:
+All 10 `EventHandler` cases from `frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`:
 
 | `EventHandler` case | Web | Compose | SwiftUI | GTK | RN |
 |---|---|---|---|---|---|
@@ -1076,10 +1078,10 @@ ssc build --target mobile-android      my-app.ssc   # → Compose APK
 # override renderer
 ssc build --target mobile-android --frontend react-native  my-app.ssc
 
-# dev run with hot-reload
+# dev run — see §19 for hot-reload support per target
 ssc run --target desktop-electron      my-app.ssc
-ssc run --target mobile-ios            my-app.ssc   # → xcrun simctl
-ssc run --target mobile-android        my-app.ssc   # → adb + emulator
+ssc run --target mobile-ios            my-app.ssc
+ssc run --target mobile-android        my-app.ssc
 
 # existing commands — unchanged
 ssc run-js    my-app.ssc
@@ -1098,41 +1100,12 @@ ssc compile   my-app.ssc   # defaults to --backend js
 | `desktop` | `js` | `electron` |
 | `desktop-macos` | `swift` | `swiftui` |
 | `desktop-linux` | `scala-native` | `gtk` |
-| `desktop-windows` | `graalvm` | `javafx` |
+| `desktop-windows` | `jvm` | `javafx` |
 | `mobile` | `kotlin` | `compose` |
 | `mobile-ios` | `swift` | `swiftui` |
 | `mobile-android` | `kotlin` | `compose` |
 
-### 13.3 Simulator / emulator integration
-
-```bash
-# iOS Simulator — requires Xcode / xcrun
-ssc run --target mobile-ios my-app.ssc
-# 1. xcrun simctl list devices → pick first booted or boot "iPhone 15 Pro"
-# 2. build → xcrun simctl install booted <app.app>
-# 3. xcrun simctl launch booted <bundle-id>
-# 4. hot-reload via active renderer (Metro fast refresh / SwiftUI #Preview)
-
-# Android Emulator — requires Android SDK / adb
-ssc run --target mobile-android my-app.ssc
-# 1. adb devices → use running emulator or prompt
-# 2. gradle assembleDebug
-# 3. adb install -r app-debug.apk
-# 4. adb shell am start -n <package>/<activity>
-# 5. hot-reload via Compose hot-reload-runtime or Metro fast refresh
-```
-
-### 13.4 Hot reload per renderer
-
-| Renderer | Hot reload mechanism |
-|----------|---------------------|
-| `custom / react / solid / vue` | Vite HMR (existing) |
-| `electron` | Electron + Vite HMR |
-| `react-native` | Metro fast refresh |
-| `compose` | `compose-hot-reload-runtime` (JetBrains, experimental) |
-| `swiftui` | SwiftUI `#Preview` pipeline in dev mode |
-| `gtk` | Incremental recompile + re-exec (~3–8 s) |
-| `javafx` | JVM classloader reload (limited) |
+> For dev-loop details (simulator launch, hot-reload) see §19.
 
 ---
 
@@ -1212,7 +1185,7 @@ API is synchronous at the source level; each backend rewrites to its platform-ap
 | `kotlin` | `runBlocking { httpClient.get(url) { headers {...} } }` (Ktor) |
 | `swift` | `try await URLSession.shared.data(from: URL(string: url)!)` |
 | `scala-native` | `curl_easy_perform` via `libcurl @extern` bindings |
-| `graalvm` / `jvm` | `java.net.http.HttpClient.newHttpClient().send(...)` |
+| `jvm` / GraalVM | `java.net.http.HttpClient.newHttpClient().send(...)` |
 
 The existing `FetchUrlSignal` remains in `frontend/core` as the reactive signal wrapper around `httpGet`.
 
@@ -1241,7 +1214,7 @@ Database connections are declared in the existing `databases:` frontmatter (`Man
 | `kotlin` (Desktop) | `org.xerial:sqlite-jdbc`; `org.duckdb:duckdb_jdbc` for DuckDB |
 | `swift` | `SQLite3` system framework; `GRDB.swift` |
 | `scala-native` | `libsqlite3` via `@extern` |
-| `graalvm` / `jvm` | `org.xerial:sqlite-jdbc`; `org.duckdb:duckdb_jdbc` |
+| `jvm` / GraalVM | `org.xerial:sqlite-jdbc`; `org.duckdb:duckdb_jdbc` |
 
 ### 15.3 Config — `backend/config-runtime`
 
@@ -1259,7 +1232,65 @@ Sidecar `.conf`/`.yaml`/`.json`/`.hocon` beside the `.ssc` file is also picked u
 | `kotlin` (Android) | `assets/config.yaml` + `SharedPreferences` for user overrides |
 | `swift` (iOS / macOS) | App bundle resource + `UserDefaults` |
 | `scala-native` | Filesystem read from exe-adjacent directory |
-| `graalvm` / `jvm` | Classpath resource + `-Dssc.config.path` system property |
+| `jvm` / GraalVM | Classpath resource + `-Dssc.config.path` system property |
+
+### 15.4 Geolocation — `std/geo.ssc`
+
+```
+getCurrentPosition(opts: GeoOptions = GeoOptions()): Position   // throws GeoError
+watchPosition(onPosition: Position => Unit, ...): WatchHandle
+requestGeoPermission(): GeoPermission
+geoPermissionStatus(): GeoPermission
+```
+
+Works on **all targets** — web, Electron, React Native, and native. On web the browser's built-in permission model applies; no `Capability.Geolocation` declaration or `requestGeoPermission()` call is needed. On native targets, importing `std.geo` auto-injects the required manifest permission declarations.
+
+**Permissions auto-injected on native targets only:**
+
+| Platform | Injected declaration |
+|----------|---------------------|
+| iOS | `NSLocationWhenInUseUsageDescription` in `Info.plist` |
+| Android | `ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION` in `AndroidManifest.xml` |
+| macOS | `NSLocationUsageDescription` in `Info.plist` |
+| Web | Browser prompts on first `getCurrentPosition` call (no injection needed) |
+| Linux | GeoClue2 D-Bus policy; no manifest change |
+| Windows | `Location` capability in `Package.appxmanifest` |
+
+**Backend implementations:**
+
+| Backend | Provider | Notes |
+|---------|----------|-------|
+| `js` (web) | `navigator.geolocation` | `getCurrentPosition` / `watchPosition` / `clearWatch` |
+| `js` (Electron) | `navigator.geolocation` via renderer process | Same browser API |
+| `js` (React Native) | `@react-native-community/geolocation` | Polyfills `navigator.geolocation` |
+| `kotlin` (Android) | `FusedLocationProviderClient` (Play Services) or `LocationManager` | `getCurrentLocation` / `requestLocationUpdates` |
+| `swift` (iOS / macOS) | `CoreLocation.CLLocationManager` | `requestLocation` / `startUpdatingLocation` |
+| `scala-native` (Linux) | `GeoClue2` via D-Bus (`org.freedesktop.GeoClue2`) | Async D-Bus call, bridged to blocking |
+| `jvm` / GraalVM | OS-specific: GeoClue2 (Linux), CoreLocation JNA (macOS), Windows.Devices.Geolocation (Windows) | Requires `native: "geoclue-2.0"` on Linux |
+
+**GeoOptions fields:**
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `enableHighAccuracy` | `false` | `true` = prefer GPS; `false` = prefer battery-efficient (WiFi/cell) |
+| `timeout` | `5000` | ms before `GeoError.Timeout`; `0` = no timeout |
+| `maximumAge` | `0` | max age of a cached fix in ms; `0` = always fresh |
+
+**Error handling:**
+
+`getCurrentPosition` throws on failure; `watchPosition` delivers errors to the `onError` callback (defaults to no-op). Error types: `GeoError.PermissionDenied`, `GeoError.PositionUnavailable`, `GeoError.Timeout`.
+
+**Reactive wrapper (frontend only):**
+
+For reactive UIs, `frontend/toolkit` provides a `LocationSignal` helper:
+
+```scala
+// In .ssc frontend code — reactive position signal, updates on each watch event
+val location: ReactiveSignal[Option[Position]] = LocationSignal()
+val location: ReactiveSignal[Option[Position]] = LocationSignal(GeoOptions(enableHighAccuracy = true))
+```
+
+`LocationSignal` calls `watchPosition` under the hood and sets the signal on each callback. The signal holds `None` until the first fix arrives. Cancels automatically on component unmount.
 
 ---
 
@@ -1380,33 +1411,48 @@ Form(
 ssc run --target <target> my-app.ssc
 ```
 
+### Hot-reload support
+
 | Target / Renderer | Hot reload | Dev server |
 |---|---|---|
 | `web` (any renderer) | Vite HMR | `ssc serve` |
 | `desktop-electron` | Electron + Vite HMR | `ssc serve` |
 | `mobile` (React Native) | Metro fast refresh | Metro dev server |
-| `mobile` (Compose) | `compose-hot-reload-runtime` (experimental) | Gradle dev mode |
-| `desktop-macos` (SwiftUI) | `#Preview` pipeline | No |
-| `desktop-linux` (GTK) | Incremental recompile + re-exec | No |
-| `desktop-windows` (JavaFX) | JVM classloader reload (limited) | No |
+| `mobile-android` (Compose) | build + reinstall | Gradle |
+| `desktop-macos` (SwiftUI) | build + relaunch | — |
+| `desktop-linux` (GTK) | build + relaunch | — |
+| `desktop-windows` (JavaFX) | build + relaunch | — |
 
-### iOS/Android launch flow
+For non-web/non-RN targets, `ssc run` performs: **build → install → launch**. There is no in-process hot-reload in v1.0 for native renderers (see Future Work below).
+
+### iOS launch flow
 
 ```bash
-# iOS
 ssc run --target mobile-ios my-app.ssc
-# 1. probe xcrun simctl list — pick/boot "iPhone 15 Pro"
+# 1. xcrun simctl list devices → pick first booted or boot "iPhone 15 Pro"
 # 2. ssc build --target mobile-ios
 # 3. xcrun simctl install booted <app.app>
 # 4. xcrun simctl launch booted <bundle-id>
+```
 
-# Android
+### Android launch flow
+
+```bash
 ssc run --target mobile-android my-app.ssc
-# 1. adb devices — use running emulator or prompt to start one
+# 1. adb devices → use running emulator or prompt to start one
 # 2. gradle assembleDebug
 # 3. adb install -r app-debug.apk
 # 4. adb shell am start -n <package>/<activity>
 ```
+
+### Future Work — Native HMR
+
+Native hot-reload is deferred post-v1.0 due to platform tooling constraints:
+
+- **Compose**: `compose-hot-reload-runtime` (JetBrains, experimental) — Gradle classpath reload
+- **SwiftUI**: `#Preview` pipeline requires Xcode build system; not available from CLI
+- **GTK**: incremental recompile + re-exec (~3–8 s); feasible but not seamless
+- **JavaFX**: JVM classloader reload (limited; full restart for most changes)
 
 ---
 
@@ -1417,9 +1463,9 @@ ssc run --target mobile-android my-app.ssc
 Serialize any `View[?]` to a canonical indented string; diff against `.snap` gold files. Renderer-agnostic and fast.
 
 ```
-Column(spacing=8) [style: padding=16]
+Column(spacing=8) [layout.padding=16]
   Text("Hello")
-  Button(enabled=true) [style: cornerRadius=8]
+  Button(enabled=true) [decoration.cornerRadius=8]
     label: Text("Click")
     action: SetSignalLiteral(id="count", value=0)
 ```
@@ -1452,8 +1498,10 @@ CI matrix: `web`, `electron`, `react-native`, `compose-android`, `compose-deskto
 Three breaking changes land together so codebase is never in a half-migrated state:
 
 1. `sealed trait View` → `enum View[+A]` (all codegen + frontend backends)
-2. `jsName` → `id` on four types in `Primitives.scala`
+2. `jsName` → `id` on four types in `Primitives.scala`; `DomRef` → `WidgetRef`
 3. `Manifest.dependencies: Map[String, String]` → `List[String]`
+
+No deprecated aliases — the codemod covers all call sites.
 
 ### Codemod
 
@@ -1461,21 +1509,12 @@ Three breaking changes land together so codebase is never in a half-migrated sta
 
 - Rewrites `dependencies: {name: version}` map → `- jvm: "name:version"` list (keys without a scheme default to `jvm:`).
 - Renames `.jsName` → `.id` and `.tickJsName` → `.tickId` in `.ssc` and generated Scala source.
+- Renames `DomRef` → `WidgetRef`, `EmittedSpaArtifact` → `EmittedArtifact.Spa`.
 - Reports files it could not rewrite automatically.
 
 ```bash
 ssc migrate-deps my-app.ssc           # rewrite deps format
 ssc migrate-deps examples/            # rewrite entire directory
-```
-
-### Deprecated aliases (one minor version)
-
-```scala
-class ReactiveSignal[T](val id: String, ...):
-  @deprecated("use id", "v1.31") def jsName: String = id
-
-@deprecated("use WidgetRef", "v1.31") type DomRef = WidgetRef
-@deprecated("use EmittedArtifact.Spa", "v1.31") type EmittedSpaArtifact = EmittedArtifact.Spa
 ```
 
 ### Schema files
@@ -1488,7 +1527,7 @@ class ReactiveSignal[T](val id: String, ...):
 
 ### MIGRATION.md entry (v1.31)
 
-Step-by-step: run `ssc migrate-deps`, rename `jsName` refs, update frontmatter, rebuild. Include the codemod invocation and a checklist of affected `examples/` files.
+Step-by-step: run `ssc migrate-deps`, run `ssc migrate-native-platform`, rebuild. Include the codemod invocation and a checklist of affected `examples/` files.
 
 ---
 
@@ -1497,23 +1536,38 @@ Step-by-step: run `ssc migrate-deps`, rename `jsName` refs, update frontmatter, 
 | Phase | Deliverable | Complexity | Est. |
 |-------|-------------|------------|------|
 | **P0 — Spec & migration** | Schema update (`schemas/frontmatter.yaml`), `validate-frontmatter.scala` extension, `scripts/migrate-native-platform.scala` codemod, `MIGRATION.md` entry | Low | 1 w |
-| **P1 — IR Foundation** | `enum View[+A]`, Style system, `WidgetRef`, `id` rename (4 sites), Platform enum, `NativeFrontendSpi`, `EmittedArtifact`, `--target` dispatch in CLI | Medium | 3–4 w |
-| **P2 — Web renderer update** | Custom / Vue / React / Solid updated for new `View[+A]` and `Style`; deprecated shims | Medium | 2 w |
+| **P1 — IR Foundation** | `enum View[+A]`, Style sub-records, `WidgetRef`, `id` rename (4 sites), Platform enum, `FrontendFrameworkSpi` extension, `EmittedArtifact`, `--target` dispatch in CLI | Medium | 3–4 w |
+| **P2 — Web renderer update** | Custom / Vue / React / Solid updated for new `View[+A]` and `Style`; `fetchTable` toolkit helper | Medium | 2 w |
 | **P2 — Toolchain UX** | `ssc toolchain check/install`, interactive prompt, auto-install via Coursier / mise / Homebrew / apt / scoop | Low | 1 w |
 | **P2 — Std intrinsics on native** | `httpGet` / `Db.query` / `loadConfig` — native backend mappings (Ktor, URLSession, libcurl, Room, GRDB, libsqlite3) | Medium | 2 w |
 | **P3 — Electron** | `electron` renderer, `--target desktop`, `electron-main.js` generation + packaging | Low | 1–2 w |
 | **P3 — React Native** | `react-native` renderer (JS backend), `--target mobile`, Expo project generation | Medium | 2–3 w |
 | **P4 — Kotlin backend** | Kotlin codegen, Compose Multiplatform renderer, `--target mobile-android`, `--target desktop` | High | 4–6 w |
 | **P5 — Swift backend** | Swift codegen, SwiftUI renderer, `--target mobile-ios`, `--target desktop-macos` | High | 4–6 w |
-| **P6 — GraalVM** | `native-image` pipeline, JavaFX renderer, `--target desktop-windows` | Medium | 3–4 w |
+| **P6 — GraalVM packaging** | `native-image` pipeline on top of jvm backend, JavaFX renderer, `--target desktop-windows` | Medium | 3–4 w |
 | **P7 — Scala Native** | LLVM pipeline, GTK renderer (Linux), Cocoa / AppKit (macOS), `--target desktop-linux` | Very high | 6–8 w |
+| **Post-v1.0 — Native HMR** | Compose hot-reload-runtime, SwiftUI CLI Preview, GTK incremental daemon | High | TBD |
 
 ---
 
 ## 23. Open Questions
 
-- **`Color.System` token vocabulary**: need to standardise the cross-platform token set (Material You / Cupertino / Fluent Design mapping). A dedicated `color-tokens.md` spec.
-- **Hot reload fidelity**: Compose hot-reload-runtime is experimental; SwiftUI `#Preview` works best in Xcode (not CLI). Production-grade `ssc run` hot reload for native targets may need platform tooling wrappers.
+- **Hot reload fidelity**: deferred to post-v1.0 (see §19 Future Work). Production-grade native HMR is platform-tooling-constrained.
 - **View IR snapshot serialisation format**: exact canonical string format for `.snap` files needs a formal grammar to avoid renderer-specific drift.
-- **`Animatable[T]` generation**: cross-backend code generation for `animateTo` calls requires careful handling of each platform's animation scheduler (JS rAF / Compose coroutine / SwiftUI `withAnimation` / GTK event loop).
 - **MILESTONES.md integration**: each phase above needs a corresponding milestone entry before implementation starts (per AGENTS.md workflow).
+
+---
+
+## 24. Changes from v0.2
+
+1. **`Animatable[T]` removed** — speculative imperative animation runtime; declarative `View.Animated` + `Style.animation` cover the use case.
+2. **`GraalVM` demoted from `CompilationBackend` to packaging step** — codegen is identical to `jvm`; `GraalVMNativeImage` stays as `AppFormat`.
+3. **`NativeLayout` / `NativeControls` / `NativeNavigation` / `NativeOverlays` / `NativeForms` / `LazyCollections` capabilities removed** — every native renderer supports all View IR cases; capability flags only gate platform-feature dependencies.
+4. **`NativeFrontendSpi` / `UniversalFrontendSpi` removed** — collapsed into single `FrontendFrameworkSpi` with optional `emitNative` / `supportedPlatforms`.
+5. **iOS/Android launch flow and hot-reload tables deduplicated** — §13.3 and §13.4 removed; §19 is the single source-of-truth.
+6. **Native HMR deferred to post-v1.0** — §19 now clearly states build + relaunch for native targets; Future Work section added.
+7. **`Style` refactored into sub-records** — `LayoutStyle`, `TextStyle`, `DecorationStyle`, `EffectsStyle`; public modifier DSL unchanged.
+8. **Deprecated aliases removed** — `jsName`, `DomRef`, `EmittedSpaArtifact`; codemod covers all call sites.
+9. **`Color.System` token vocabulary closed** — 12 canonical tokens with platform mapping table added as §6.4b.
+10. **`FetchTable` removed from View IR** — now a `def fetchTable(...): View[?]` helper in `frontend/core/toolkit`.
+11. **Web-only codegen contract clarified** — `View.Element` / `View.Portal` on non-web targets emit a compile error with sourceloc; §7.2 "convention" wording replaced with explicit contract.

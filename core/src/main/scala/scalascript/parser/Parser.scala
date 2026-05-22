@@ -196,6 +196,10 @@ object Parser:
       }.getOrElse(Map.empty),
       databases = parseDatabases(raw),
       frontendFramework = raw.get("frontend").orElse(raw.get("frontend-framework")).collect { case s: String => s },
+      scripts = raw.get("scripts").collect {
+        case m: java.util.Map[?, ?] =>
+          m.asScala.collect { case (k, v) => k.toString -> v.toString }.toMap
+      }.getOrElse(Map.empty),
       raw = raw
     )
 

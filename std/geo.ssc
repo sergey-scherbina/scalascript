@@ -1,0 +1,129 @@
+---
+name: std-geo
+version: 0.1.0
+description: Geolocation — getCurrentPosition, watchPosition, requestGeoPermission. Gated by Capability.Geolocation.
+package: std.geo
+exports:
+  - getCurrentPosition
+  - watchPosition
+  - requestGeoPermission
+  - geoPermissionStatus
+  - Position
+  - GeoOptions
+  - GeoPermission
+  - GeoError
+  - WatchHandle
+---
+
+# `std.geo` — Geolocation
+
+Cross-platform geolocation API. Works on **all targets** including web.
+
+`Capability.Geolocation` is required only for **native targets**: importing
+`std.geo` in a native build automatically injects the required permission
+declarations (iOS `Info.plist`, Android `AndroidManifest.xml`, etc.). On web,
+the browser enforces its own permission model — no capability declaration or
+`requestGeoPermission()` call is needed before the first `getCurrentPosition`.
+
+```scalascript
+// One-shot: resolve the current position or throw GeoError.
+// Blocks (or awaits) until the platform returns a fix or errors out.
+extern def getCurrentPosition(): Position
+extern def getCurrentPosition(opts: GeoOptions): Position
+
+// Watch: deliver position updates via callback until the handle is cancelled.
+// Does not throw — errors are delivered to onError (defaults to no-op).
+extern def watchPosition(onPosition: Position => Unit): WatchHandle
+extern def watchPosition(onPosition: Position => Unit, opts: GeoOptions): WatchHandle
+extern def watchPosition(onPosition: Position => Unit, onError: GeoError => Unit): WatchHandle
+extern def watchPosition(onPosition: Position => Unit, onError: GeoError => Unit, opts: GeoOptions): WatchHandle
+
+// Permission — call before getCurrentPosition on mobile targets to
+// trigger the OS permission dialog. On web the browser prompts automatically
+// on the first getCurrentPosition call; this call is a no-op there.
+extern def requestGeoPermission(): GeoPermission
+extern def geoPermissionStatus(): GeoPermission
+```
+
+# Position
+
+```scalascript
+case class Position(
+  latitude:         Double,           // WGS84 decimal degrees; positive = north
+  longitude:        Double,           // WGS84 decimal degrees; positive = east
+  altitude:         Option[Double],   // meters above WGS84 ellipsoid; None if unavailable
+  accuracy:         Double,           // horizontal accuracy radius in meters
+  altitudeAccuracy: Option[Double],   // vertical accuracy in meters; None if unavailable
+  heading:          Option[Double],   // degrees clockwise from true north (0–360); None when stationary
+  speed:            Option[Double],   // m/s ground speed; None if unavailable
+  timestamp:        Long              // milliseconds since Unix epoch
+)
+```
+
+# GeoOptions
+
+```scalascript
+case class GeoOptions(
+  enableHighAccuracy: Boolean = false, // true = prefer GPS; false = prefer battery-efficient (WiFi/cell)
+  timeout:            Int    = 5000,   // ms before GeoError.Timeout fires; 0 = no timeout
+  maximumAge:         Int    = 0       // max acceptable age of a cached fix in ms; 0 = always fresh
+)
+```
+
+# GeoPermission
+
+```scalascript
+enum GeoPermission:
+  case Granted
+  case Denied
+  case Restricted    // iOS/macOS: parental controls or MDM profile
+  case NotDetermined // permission dialog has not been shown yet
+```
+
+# GeoError
+
+Thrown by `getCurrentPosition`; delivered to `onError` in `watchPosition`.
+
+```scalascript
+sealed trait GeoError extends Exception:
+  def message: String
+
+object GeoError:
+  final case class PermissionDenied(message: String)    extends GeoError
+  final case class PositionUnavailable(message: String) extends GeoError
+  final case class Timeout(message: String)             extends GeoError
+```
+
+# WatchHandle
+
+```scalascript
+// Returned by watchPosition. Call cancel() to stop position updates.
+extern class WatchHandle:
+  def cancel(): Unit
+  val id: String   // platform watch ID, for debugging
+```
+
+# Usage
+
+```scalascript
+import std.geo.*
+
+// One-shot, web or desktop
+val here = getCurrentPosition(GeoOptions(enableHighAccuracy = true))
+println(s"${here.latitude}, ${here.longitude} ±${here.accuracy}m")
+
+// Mobile: request permission first
+val perm = requestGeoPermission()
+if perm == GeoPermission.Granted then
+  val pos = getCurrentPosition()
+  showOnMap(pos)
+
+// Continuous tracking
+val handle = watchPosition(
+  pos     => updateMapMarker(pos),
+  err     => showError(err.message),
+  GeoOptions(enableHighAccuracy = true, maximumAge = 1000)
+)
+// later:
+handle.cancel()
+```
