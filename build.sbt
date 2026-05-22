@@ -133,7 +133,7 @@ addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;
 // JvmGen.serveRuntime.  No interpreter coupling — all definitions are
 // self-contained Scala classes / objects.
 lazy val runtimeServerCommon = project
-  .in(file("runtime/runtime-server/common"))
+  .in(file("runtime/http-server/common"))
   .dependsOn(logger)
   .settings(
     name := "scalascript-runtime-server-common",
@@ -143,13 +143,13 @@ lazy val runtimeServerCommon = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
     // Phase 1b: copy our own .scala sources into the classpath under
-    // `runtime-server-common-sources/scalascript/server/*.scala` so the JVM
+    // `http-server-common-sources/scalascript/server/*.scala` so the JVM
     // codegen backend can read them at codegen time and inline them into
     // generated scala-cli scripts (replacing the duplicated copies that
     // previously lived inside JvmGen.serveRuntime as a string template).
     Compile / resourceGenerators += Def.task {
       val srcDir  = (Compile / scalaSource).value / "scalascript" / "server"
-      val outBase = (Compile / resourceManaged).value / "runtime-server-common-sources" / "scalascript" / "server"
+      val outBase = (Compile / resourceManaged).value / "http-server-common-sources" / "scalascript" / "server"
       IO.createDirectory(outBase)
       (srcDir ** "*.scala").get.map { f =>
         val target = outBase / f.getName
@@ -187,7 +187,7 @@ lazy val mcpCommon = project
 // Depends on runtimeServerCommon for the POJO HTTP model
 // (Request / Response / StreamResponse) the traits reference.
 lazy val runtimeServerSpi = project
-  .in(file("runtime/runtime-server/spi"))
+  .in(file("runtime/http-server/spi"))
   .dependsOn(runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-spi",
@@ -195,7 +195,7 @@ lazy val runtimeServerSpi = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
     // v1.17.6 / Phase S1c — copy SPI sources into the classpath under
-    // `runtime-server-spi-sources/scalascript/server/spi/` so JvmGen can
+    // `http-server-spi-sources/scalascript/server/spi/` so JvmGen can
     // inline them into generated scala-cli scripts.  Mirrors the
     // `runtimeServerCommon` / `runtimeServerJvm` resource-bundle pattern.
     // The inlined SPI traits let the codegen-emitted `serve(port, tls)`
@@ -203,7 +203,7 @@ lazy val runtimeServerSpi = project
     // interpreter does.
     Compile / resourceGenerators += Def.task {
       val srcDir  = (Compile / scalaSource).value / "scalascript" / "server" / "spi"
-      val outBase = (Compile / resourceManaged).value / "runtime-server-spi-sources" / "scalascript" / "server" / "spi"
+      val outBase = (Compile / resourceManaged).value / "http-server-spi-sources" / "scalascript" / "server" / "spi"
       IO.createDirectory(outBase)
       (srcDir ** "*.scala").get.map { f =>
         val target = outBase / f.getName
@@ -218,7 +218,7 @@ lazy val runtimeServerSpi = project
 // `serveRuntime` triple-quoted string in JvmGen.scala.  Same
 // resource-bundle pattern as `runtimeServerCommon`: real .scala
 // sources here are copied into the classpath under
-// `runtime-server-jvm-sources/...` so JvmGen.scala can read them
+// `http-server-jvm-sources/...` so JvmGen.scala can read them
 // at codegen time and inline them into generated scala-cli scripts.
 //
 // Depends on `runtimeServerCommon` so the JVM-specific code can
@@ -227,7 +227,7 @@ lazy val runtimeServerSpi = project
 // already live there.  Now also dependsOn(runtimeServerSpi) so the
 // JdkServerBackend can implement HttpServerSpi.
 lazy val runtimeServerJvm = project
-  .in(file("runtime/runtime-server/jvm"))
+  .in(file("runtime/http-server/jvm"))
   .dependsOn(runtimeServerCommon, runtimeServerSpi)
   .settings(
     name := "scalascript-runtime-server-jvm",
@@ -236,7 +236,7 @@ lazy val runtimeServerJvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
     Compile / resourceGenerators += Def.task {
       val srcDir  = (Compile / scalaSource).value / "scalascript" / "server" / "jvm"
-      val outBase = (Compile / resourceManaged).value / "runtime-server-jvm-sources" / "scalascript" / "server" / "jvm"
+      val outBase = (Compile / resourceManaged).value / "http-server-jvm-sources" / "scalascript" / "server" / "jvm"
       IO.createDirectory(outBase)
       (srcDir ** "*.scala").get.map { f =>
         val target = outBase / f.getName
@@ -254,7 +254,7 @@ lazy val runtimeServerJvm = project
 // registration in place so the SPI is discoverable.  S2 fills in
 // the actual Jetty integration.
 lazy val runtimeServerJvmJetty = project
-  .in(file("runtime/runtime-server/jvm-jetty"))
+  .in(file("runtime/http-server/jvm-jetty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-jetty",
@@ -277,7 +277,7 @@ lazy val runtimeServerJvmJetty = project
 // stub — module declaration + dep + ServiceLoader registration in
 // place.  S3 fills in the actual Netty integration.
 lazy val runtimeServerJvmNetty = project
-  .in(file("runtime/runtime-server/jvm-netty"))
+  .in(file("runtime/http-server/jvm-netty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
   .settings(
     name := "scalascript-runtime-server-jvm-netty",

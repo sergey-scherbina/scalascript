@@ -5083,10 +5083,10 @@ class JvmGen(
    *  Imports inside the file are preserved.
    *
    *  Two bundles exist:
-   *    - `runtime-server-common-sources/scalascript/server/`
+   *    - `http-server-common-sources/scalascript/server/`
    *      (Phase 1b — pure protocol primitives + POJO HTTP model +
    *      shared dispatch loops; shared with the interpreter)
-   *    - `runtime-server-jvm-sources/scalascript/server/jvm/`
+   *    - `http-server-jvm-sources/scalascript/server/jvm/`
    *      (Phase 3 — JVM-specific server lifecycle, route / WS
    *      registration, proxy, outbound clients; what used to be
    *      `serveRuntime`'s `"""|..."""` string template)
@@ -5137,14 +5137,14 @@ class JvmGen(
 
   /** Phase 1b loader — pulls files from `runtime-server-common`. */
   private def loadCommonSource(name: String): String =
-    loadRuntimeSource("runtime-server-common-sources", "scalascript/server", name)
+    loadRuntimeSource("http-server-common-sources", "scalascript/server", name)
 
   /** Phase 3 loader — pulls files from `runtime-server-jvm`.  Will
    *  be used by Phase 3b–3e as the migration of `serveRuntime` content
    *  proceeds; suppress the "unused" warning until then. */
   @scala.annotation.unused
   private def loadJvmRuntimeSource(name: String): String =
-    loadRuntimeSource("runtime-server-jvm-sources", "scalascript/server/jvm", name)
+    loadRuntimeSource("http-server-jvm-sources", "scalascript/server/jvm", name)
 
   /** v1.17.6 / Phase S1c loader — pulls SPI traits from
    *  `runtime-server-spi`.  Same shape as the common / JVM loaders
@@ -5152,7 +5152,7 @@ class JvmGen(
    *  `serve(port, tls)` can route through `HttpServerBackends.current()`
    *  exactly like the interpreter does. */
   private def loadSpiRuntimeSource(name: String): String =
-    loadRuntimeSource("runtime-server-spi-sources", "scalascript/server/spi", name)
+    loadRuntimeSource("http-server-spi-sources", "scalascript/server/spi", name)
 
   /** Inline `scalascript.logging.Logger` from the `logger` module's JAR
    *  resource.  Strips the `package scalascript.logging` declaration so the
