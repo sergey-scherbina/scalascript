@@ -48,7 +48,7 @@ lazy val ir = project
   )
 
 lazy val backendSpi = project
-  .in(file("backend/spi"))
+  .in(file("runtime/backend/spi"))
   .dependsOn(ir)
   .settings(
     name := "scalascript-backend-spi",
@@ -417,7 +417,7 @@ lazy val frontendExamples = project
   )
 
 lazy val backendJvm = project
-  .in(file("backend/jvm"))
+  .in(file("runtime/backend/jvm"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-jvm",
@@ -426,7 +426,7 @@ lazy val backendJvm = project
   )
 
 lazy val backendJs = project
-  .in(file("backend/js"))
+  .in(file("runtime/backend/js"))
   .dependsOn(backendSpi, core, backendSqlRuntimeJs)
   .settings(
     name := "scalascript-backend-js",
@@ -439,7 +439,7 @@ lazy val backendJs = project
 // blocks verbatim as a glue prefix.  Depends on backendJs to share
 // JsGen + JsCapabilities helpers and intrinsic tables.
 lazy val backendNode = project
-  .in(file("backend/node"))
+  .in(file("runtime/backend/node"))
   .dependsOn(backendSpi, core, backendJs)
   .settings(
     name := "scalascript-backend-node",
@@ -449,7 +449,7 @@ lazy val backendNode = project
   )
 
 lazy val backendScalajs = project
-  .in(file("backend/scalajs"))
+  .in(file("runtime/backend/scalajs"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scalajs",
@@ -458,7 +458,7 @@ lazy val backendScalajs = project
   )
 
 lazy val backendWasm = project
-  .in(file("backend/wasm"))
+  .in(file("runtime/backend/wasm"))
   // v1.27 Phase 5 — backendSqlRuntimeJs for ProviderId / SqlRuntimeJsEmit
   // shared with backend-js + backend-node.  sql blocks routed through the
   // JS shim that already accompanies the .wasm blob.
@@ -475,7 +475,7 @@ lazy val backendWasm = project
 // existing in-core `scala`-block handling stays in place until the
 // follow-up actually routes through here.
 lazy val backendScalaSource = project
-  .in(file("backend/scala-source"))
+  .in(file("runtime/backend/scala-source"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-scala-source",
@@ -492,7 +492,7 @@ lazy val backendScalaSource = project
 // real DSL / interpolator / containerTagNames logic out of the
 // codegens.
 lazy val backendHtml = project
-  .in(file("backend/html"))
+  .in(file("runtime/backend/html"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-html",
@@ -504,7 +504,7 @@ lazy val backendHtml = project
 // `css"…"` interpolator and `Css` type via prelude.  Stage 9+/C.1
 // skeleton — same shape as backend-html.
 lazy val backendCss = project
-  .in(file("backend/css"))
+  .in(file("runtime/backend/css"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-css",
@@ -518,7 +518,7 @@ lazy val backendCss = project
 // HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
 // backends no longer reference each other.
 lazy val backendInterpreter = project
-  .in(file("backend/interpreter"))
+  .in(file("runtime/backend/interpreter"))
   .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
@@ -544,7 +544,7 @@ lazy val backendInterpreter = project
 // cli depends on this % Test only so the DAP classes are on cli's test CP;
 // DebugCommand links against it at compile time via the normal dependency.
 lazy val backendDap = project
-  .in(file("backend/dap"))
+  .in(file("runtime/backend/dap"))
   .dependsOn(backendInterpreter, ir)
   .settings(
     name := "scalascript-backend-dap",
@@ -559,7 +559,7 @@ lazy val backendDap = project
 // needed on the sbt compile classpath; they are resolved at runtime via
 // `scala-cli --dep` flags when the generated program is executed.
 lazy val backendSpark = project
-  .in(file("backend/spark"))
+  .in(file("runtime/backend/spark"))
   .dependsOn(backendSpi, core)
   .settings(
     name := "scalascript-backend-spark",

@@ -79,7 +79,7 @@ When implementing a new `extern def` (intrinsic), **always** create or extend a
 plugin in `runtime/std/<feature>-plugin/`, not the interpreter core.
 
 **Wrong** — adding `NativeImpl` to any of:
-- `backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
+- `runtime/backend/interpreter/src/.../intrinsics/*.scala`  (e.g. `Jdbc.scala`, `UiPrimitives.scala`)
 - `core/` directly
 
 **Right** — creating a new plugin:

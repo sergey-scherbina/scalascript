@@ -618,7 +618,7 @@ bin/
   ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
-backend/spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
+runtime/backend/spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
 ir/                         # IR types + JSON/MsgPack codecs
 core/
   src/main/scala/scalascript/
@@ -629,10 +629,10 @@ core/
     interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
     transform/ # Normalize, DirectDesugar, EffectAnalysis
     plugin/    # BackendRegistry, SubprocessBackend, WireProtocol
-backend/jvm/      # JvmGen — emits Scala 3 source
-backend/js/       # JsGen — transpiles to JavaScript
-backend/scalajs/  # ScalaJsBackend — emits SPA via Scala.js
-backend/interpreter/
+runtime/backend/jvm/      # JvmGen — emits Scala 3 source
+runtime/backend/js/       # JsGen — transpiles to JavaScript
+runtime/backend/scalajs/  # ScalaJsBackend — emits SPA via Scala.js
+runtime/backend/interpreter/
   src/main/scala/scalascript/
     interpreter/    # Tree-walking interpreter
     server/         # Built-in HTTP / WebSocket / Actor / MCP runtime
