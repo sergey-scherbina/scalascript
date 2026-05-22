@@ -8205,7 +8205,7 @@ declares `signCip8`; EVM and Cardano wallets reject the wrong shape.
 
 - [x] `x402-core/MiniCbor` — moved from facilitator, now shared
 - [x] `Network.CardanoMainnet/Preprod/Preview`; `Network.isCardano`
-- [x] `x402-ui/client/Cip8Signer` — COSE_Sign1 + COSE_Key assembly
+- [x] `x402-payments/client/Cip8Signer` — COSE_Sign1 + COSE_Key assembly
 - [x] `CardanoPrivateKeyWallet` via `RawPrivateKeyVault(Ed25519)`
 - [x] `Wallets.cardano` / `Wallets.cardanoEnvKey` factories
 - [x] `PayloadBuilder.buildCardano` + `encode` cardanoProof field

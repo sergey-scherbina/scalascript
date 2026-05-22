@@ -816,7 +816,7 @@ lazy val cli = project
 // stresses the interpreter's WS runtime.
 
 lazy val clientPostgres = project
-  .in(file("ui/client/postgres"))
+  .in(file("payments/client/postgres"))
   .dependsOn(backendSqlRuntime)
   .settings(
     name := "scalascript-client-postgres",
@@ -908,7 +908,7 @@ lazy val backendSqlRuntimeJs = project
   )
 
 lazy val clientRedis = project
-  .in(file("ui/client/redis"))
+  .in(file("payments/client/redis"))
   .settings(
     name := "scalascript-client-redis",
     libraryDependencies ++= Seq(
@@ -920,7 +920,7 @@ lazy val clientRedis = project
   )
 
 lazy val clientEvm = project
-  .in(file("ui/client/evm"))
+  .in(file("payments/client/evm"))
   .settings(
     name := "scalascript-client-evm",
     libraryDependencies ++= Seq(
@@ -934,7 +934,7 @@ lazy val clientEvm = project
   )
 
 lazy val clientKafka = project
-  .in(file("ui/client/kafka"))
+  .in(file("payments/client/kafka"))
   .settings(
     name := "scalascript-client-kafka",
     libraryDependencies ++= Seq(
@@ -946,7 +946,7 @@ lazy val clientKafka = project
   )
 
 lazy val clientCoinbase = project
-  .in(file("ui/client/coinbase"))
+  .in(file("payments/client/coinbase"))
   .settings(
     name := "scalascript-client-coinbase",
     libraryDependencies ++= Seq(
@@ -1071,7 +1071,7 @@ lazy val x402NonceRedis = project
   )
 
 lazy val clientBlockfrost = project
-  .in(file("ui/client/blockfrost"))
+  .in(file("payments/client/blockfrost"))
   .settings(
     name := "scalascript-client-blockfrost",
     libraryDependencies ++= Seq(
