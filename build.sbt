@@ -62,7 +62,7 @@ lazy val backendSpi = project
 // scalascript.logging.Logger type available in those scripts without
 // an external dep or publishLocal.
 lazy val logger = project
-  .in(file("tools/logger"))
+  .in(file("backend/logger"))
   .settings(
     name := "scalascript-logger",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
