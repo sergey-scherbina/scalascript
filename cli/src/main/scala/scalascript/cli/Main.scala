@@ -1143,6 +1143,85 @@ Ssc-Source: ${sscFile.last}
   finally
     jos.close()
 
+// ─── JVM bootstrap-JAR build ─────────────────────────────────────────────────
+
+/** Compile `sscFile` via JvmGen → scala-cli `--library`, then pack the compiled
+ *  classes together with `SscJvmBootstrap.class` into a thin bootstrap JAR.
+ *
+ *  The `.sc` temp file is named `<sanitizedName>.sc` so the compiled main class
+ *  is predictably `<sanitizedName>_sc` (scala-cli derives the class name from
+ *  the filename).  The name is stored in `Ssc-Main-Class` in the manifest so
+ *  `SscJvmBootstrap` can find it at runtime without scanning. */
+private def buildJvmBootstrapJar(sscFile: os.Path, name: String, outJar: os.Path): Unit =
+  import java.util.zip.{ZipEntry, ZipInputStream}
+  import java.util.jar.JarOutputStream
+  import java.io.{FileOutputStream, FileInputStream}
+
+  val scalaSource   = expectText(compileViaBackend("jvm", sscFile), "build --target jvm")
+  val sanitized     = name.replaceAll("[^a-zA-Z0-9_]", "_")
+  val mainClass     = s"${sanitized}_sc"
+
+  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val sscJar  = libRoot / "ssc.jar"
+
+  val tmpDir      = os.temp.dir()
+  val tmpSc       = tmpDir / s"$sanitized.sc"
+  val compiledJar = tmpDir / "compiled.jar"
+  try
+    os.write(tmpSc, scalaSource)
+    val r = os.proc(
+      "scala-cli", "--power", "package", tmpSc,
+      "--library", "--server=false", "-o", compiledJar.toString
+    ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = tmpDir, check = false)
+    if r.exitCode != 0 then System.exit(r.exitCode)
+
+    os.makeDir.all(outJar / os.up)
+    val seen = scala.collection.mutable.HashSet.empty[String]
+    val jos  = new JarOutputStream(new FileOutputStream(outJar.toIO))
+    try
+      // SscJvmBootstrap.class from ssc.jar
+      if os.exists(sscJar) then
+        val zis = new ZipInputStream(new FileInputStream(sscJar.toIO))
+        try
+          var entry = zis.getNextEntry()
+          while entry != null do
+            val n = entry.getName
+            if !entry.isDirectory && n.contains("SscJvmBootstrap") && seen.add(n) then
+              jos.putNextEntry(new ZipEntry(n))
+              zis.transferTo(jos)
+              jos.closeEntry()
+            zis.closeEntry()
+            entry = zis.getNextEntry()
+        finally zis.close()
+
+      // Compiled app classes from scala-cli --library output
+      val zis2 = new ZipInputStream(new FileInputStream(compiledJar.toIO))
+      try
+        var entry = zis2.getNextEntry()
+        while entry != null do
+          val n = entry.getName
+          if n != "META-INF/MANIFEST.MF" && seen.add(n) then
+            jos.putNextEntry(new ZipEntry(n))
+            if !entry.isDirectory then zis2.transferTo(jos)
+            jos.closeEntry()
+          zis2.closeEntry()
+          entry = zis2.getNextEntry()
+      finally zis2.close()
+
+      val manifest =
+        s"""Manifest-Version: 1.0
+Main-Class: scalascript.cli.SscJvmBootstrap
+Ssc-Main-Class: $mainClass
+Ssc-Source: ${sscFile.last}
+"""
+      jos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"))
+      jos.write(manifest.getBytes("UTF-8"))
+      jos.closeEntry()
+    finally jos.close()
+    println(s"→ ${displayPath(outJar)}")
+  finally
+    os.remove.all(tmpDir)
+
 // ─── Fat-JAR packaging ───────────────────────────────────────────────────────
 
 /** Pack `sscFile` together with the full ssc interpreter runtime into
@@ -1244,22 +1323,24 @@ private def buildProjectFileCommand(
         println(s"→ ${displayPath(outJar)}  (${outJar.toIO.length / 1024} KB)")
 
     case "jvm" =>
-      // fat=false (ssc build): --library → thin JAR, just compiled bytecode.
-      // fat=true  (ssc package): --assembly → standalone fat JAR with all dependencies.
-      val jarKind = if fat then "fat assembly" else "compiled library"
-      println(s"Building $name.jar (jvm, $jarKind)...")
-      val scalaSource = expectText(compileViaBackend("jvm", projectFile), "build --target jvm")
-      val tmp = os.temp(scalaSource, suffix = ".sc")
-      try
-        val outJar   = outDir / s"$name.jar"
-        val kindFlag = if fat then "--assembly" else "--library"
-        val result = os.proc(
-          "scala-cli", "--power", "package", tmp,
-          kindFlag, "--server=false", "-o", outJar.toString
-        ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
-        if result.exitCode != 0 then System.exit(result.exitCode)
-        println(s"→ ${displayPath(outJar)}")
-      finally os.remove(tmp)
+      val outJar = outDir / s"$name.jar"
+      if fat then
+        // ssc package: --assembly → standalone fat JAR with all dependencies.
+        println(s"Building $name.jar (jvm, fat assembly)...")
+        val scalaSource = expectText(compileViaBackend("jvm", projectFile), "package --target jvm")
+        val tmp = os.temp(scalaSource, suffix = ".sc")
+        try
+          val result = os.proc(
+            "scala-cli", "--power", "package", tmp,
+            "--assembly", "--server=false", "-o", outJar.toString
+          ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+          if result.exitCode != 0 then System.exit(result.exitCode)
+          println(s"→ ${displayPath(outJar)}")
+        finally os.remove(tmp)
+      else
+        // ssc build: bootstrap JAR — compiled bytecode + SscJvmBootstrap; lib resolved at runtime.
+        println(s"Building $name.jar (jvm, bootstrap)...")
+        buildJvmBootstrapJar(projectFile, name, outJar)
 
     case "js" =>
       val outJs = outDir / s"$name.js"
@@ -1357,8 +1438,9 @@ def buildCommand(args: List[String]): Unit =
 
   projectFile match
     case Some(pf) =>
-      val outDir = os.Path(outFlag.getOrElse("target/build"), os.pwd)
-      buildProjectFileCommand(pf, targetFlag, outDir)
+      val outDir    = os.Path(outFlag.getOrElse("target/build"), os.pwd)
+      val effective = targetFlag.orElse(ActiveFlags.current.target)
+      buildProjectFileCommand(pf, effective, outDir)
       return
     case None => // fall through to legacy dir mode
 
@@ -6030,7 +6112,8 @@ def packageCommand(args: List[String]): Unit =
     case Some(pf) =>
       val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(pf)).manifest).toOption.flatten
       val name     = manifest.flatMap(_.name).getOrElse(pf.last.stripSuffix(".ssc"))
-      val targets  = targetFlag.map(List(_))
+      val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
+      val targets  = effectiveTarget.map(List(_))
         .orElse(manifest.map(_.targets).filter(_.nonEmpty))
         .getOrElse(List("ssc"))
       val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
