@@ -121,32 +121,10 @@ lazy val interop = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
-// ── Library modularity: publishing aggregates (Priority 6) ───────────────────
-//
-// `scalascriptCore` — the stable compiler-facing API for linters and tool
-// builders.  A single `sbt scalascriptCore/publishLocal` publishes the three
-// modules that make up the public surface: ir + backendSpi + core.
-// (No new sources — pure sbt aggregate shortcut.)
-//
-// `scalascriptInterpreterAgg` — the embedding surface: everything needed to
-// run `.ssc` code in a JVM application.  Phase 2 lazy loading (deferred) will
-// let callers skip HTTP/actor deps; for now the full backendInterpreter is the
-// embedding unit.
-lazy val scalascriptCore = project
-  .in(file("tools/bundles/core"))
-  .aggregate(ir, backendSpi, core)
-  .settings(
-    name := "scalascript-core-all",
-    publish / skip := true
-  )
-
-lazy val scalascriptInterpreterAgg = project
-  .in(file("tools/bundles/interpreter"))
-  .aggregate(ir, backendSpi, core, backendInterpreter)
-  .settings(
-    name := "scalascript-interpreter-all",
-    publish / skip := true
-  )
+// ── Publish shortcuts ─────────────────────────────────────────────────────────
+// Publish shortcuts — replaces the old bundle aggregate projects
+addCommandAlias("publishCore",        ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal")
+addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal;backendInterpreter/publishLocal")
 
 // Phase 1a of the runtime-consolidation refactor (see
 // PLAN-runtime-consolidation.md): pure protocol primitives extracted out
@@ -1936,7 +1914,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     backendSpi, ir, logger, core, interop,
-    scalascriptCore, scalascriptInterpreterAgg,
+
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
