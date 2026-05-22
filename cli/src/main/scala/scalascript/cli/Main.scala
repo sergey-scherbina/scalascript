@@ -1076,18 +1076,11 @@ object SscJarMain:
     java.nio.file.Files.writeString(tmp, content)
     runCommand(tmp.toString :: argv.toList)
 
-// ─── Thin-JAR launcher ───────────────────────────────────────────────────────
+// ─── Thin-JAR launcher (Scala, lives in lib/ssc.jar) ────────────────────────
 
-/** Entry point written into *thin* JARs produced by `ssc build --target ssc`.
- *
- *  The thin JAR contains only this class and the embedded `.ssc` source; at
- *  runtime it locates the ssc lib directory (installed by `ssc install`) and
- *  delegates execution via URLClassLoader — no interpreter bundled.
- *
- *  Lookup order for the lib:
- *    1. `$SSC_HOME/lib/jars/`
- *    2. `~/.local/lib/ssc/jars/`
- *    3. sibling `lib/` directory next to the JAR itself */
+/** Called by {@code SscThinBootstrap} (Java) after the ssc lib is loaded via
+ *  URLClassLoader.  Reads the embedded {@code .ssc} from the thin JAR — visible
+ *  through the parent classloader chain — then runs it via {@code runCommand}. */
 object SscThinLauncher:
   def main(argv: Array[String]): Unit =
     val stream = getClass.getClassLoader.getResourceAsStream("META-INF/ssc/main.ssc")
@@ -1098,44 +1091,13 @@ object SscThinLauncher:
     val tmp = java.nio.file.Files.createTempFile("ssc-jar-", ".ssc")
     tmp.toFile.deleteOnExit()
     java.nio.file.Files.writeString(tmp, content)
-
-    val jars = findSscLib()
-    if jars.isEmpty then
-      System.err.println(
-        "ssc: cannot locate ssc runtime.\n" +
-        "  Set SSC_HOME to the ssc installation directory, or run: ssc install"
-      )
-      System.exit(1)
-
-    val urls = jars.map(_.toURI.toURL).toArray
-    val cl   = new java.net.URLClassLoader(urls, ClassLoader.getPlatformClassLoader)
-    Thread.currentThread.setContextClassLoader(cl)
-    // @main def ssc compiles to class `ssc` with static main(Array[String])
-    cl.loadClass("ssc")
-      .getMethod("main", classOf[Array[String]])
-      .invoke(null, (Array(tmp.toString) ++ argv): Array[String])
-
-  private def findSscLib(): Array[java.io.File] =
-    import java.nio.file.Paths
-    val home = System.getProperty("user.home")
-    val candidates = List(
-      Option(System.getenv("SSC_HOME"))
-        .map(h => Paths.get(h, "lib", "jars").toFile),
-      Some(Paths.get(home, ".local", "lib", "ssc", "jars").toFile),
-      Option(getClass.getProtectionDomain.getCodeSource).flatMap(cs =>
-        scala.util.Try(new java.io.File(cs.getLocation.toURI)).toOption
-          .map(f => f.getParentFile.toPath.resolve("lib").toFile))
-    ).flatten
-    candidates
-      .find(d => d.isDirectory && d.listFiles != null)
-      .map(_.listFiles.filter(_.getName.endsWith(".jar")))
-      .getOrElse(Array.empty)
+    runCommand(tmp.toString :: argv.toList)
 
 // ─── Thin-JAR build ──────────────────────────────────────────────────────────
 
-/** Pack `sscFile` + `SscThinLauncher*.class` (extracted from the live ssc.jar)
- *  into a minimal thin JAR.  The result is small; it requires a matching ssc
- *  installation at runtime (`ssc install` or `SSC_HOME`). */
+/** Pack `sscFile` + `SscThinBootstrap*.class` (extracted from the live ssc.jar)
+ *  into a minimal thin JAR.  `SscThinBootstrap` is a pure-Java class that locates
+ *  the ssc lib at runtime and delegates via URLClassLoader — no Scala runtime bundled. */
 private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
   import java.util.zip.{ZipEntry, ZipInputStream}
   import java.util.jar.JarOutputStream
@@ -1146,18 +1108,18 @@ private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
 
   os.makeDir.all(outJar / os.up)
 
-  val fos = new FileOutputStream(outJar.toIO)
-  val jos = new JarOutputStream(fos)
+  val fos  = new FileOutputStream(outJar.toIO)
+  val jos  = new JarOutputStream(fos)
   val seen = scala.collection.mutable.HashSet.empty[String]
   try
-    // Extract only SscThinLauncher*.class from ssc.jar
+    // Extract only SscThinBootstrap*.class from ssc.jar (pure Java, no Scala runtime dep)
     if os.exists(sscJar) then
       val zis = new ZipInputStream(new FileInputStream(sscJar.toIO))
       try
         var entry = zis.getNextEntry()
         while entry != null do
           val n = entry.getName
-          if !entry.isDirectory && n.contains("SscThinLauncher") && seen.add(n) then
+          if !entry.isDirectory && n.contains("SscThinBootstrap") && seen.add(n) then
             jos.putNextEntry(new ZipEntry(n))
             zis.transferTo(jos)
             jos.closeEntry()
@@ -1172,7 +1134,7 @@ private def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
 
     val manifest =
       s"""Manifest-Version: 1.0
-Main-Class: scalascript.cli.SscThinLauncher
+Main-Class: scalascript.cli.SscThinBootstrap
 Ssc-Source: ${sscFile.last}
 """
     jos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"))
