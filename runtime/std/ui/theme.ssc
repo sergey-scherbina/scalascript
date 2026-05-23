@@ -61,12 +61,12 @@ val defaultTheme = Theme(
     success    = "#16a34a",
     warning    = "#d97706"
   ),
-  SpacingScale(xs = 24, sm = 40, md = 72, lg = 100, xl = 120, xxl = 160),
+  SpacingScale(xs = 4, sm = 8, md = 16, lg = 24, xl = 32, xxl = 48),
   TypographyScale(
-    TypographyItem(fontSize = 32, fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"),
-    TypographyItem(fontSize = 52, fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif")
+    TypographyItem(fontSize = 16, fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"),
+    TypographyItem(fontSize = 24, fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif")
   ),
-  RadiusScale(sm = 24, md = 36, lg = 56, full = 9999)
+  RadiusScale(sm = 4, md = 8, lg = 12, full = 9999)
 )
 
 val darkTheme = Theme(

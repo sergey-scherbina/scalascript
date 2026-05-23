@@ -46,7 +46,7 @@ def lower(n: TkNode, theme: Theme): View = n match
 
   // ── Typography ───────────────────────────────────────────────────────
   case HeadingNode(level, text) =>
-    val sizes = [56, 44, 36, 30, 24, 20]
+    val sizes = [32, 24, 20, 18, 16, 14]
     val sz    = if level >= 1 && level <= 6 then sizes(level - 1) else 20
     val ff    = theme.typography.heading.fontFamily
     element(s"h${level}",
