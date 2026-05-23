@@ -3761,7 +3761,7 @@ function _ssc_ui_serve(view, port) {
 <style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%}
 .ssc-page{max-width:700px;margin:0 auto;padding:24px 20px;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
-@media(max-width:767px){body{font-size:32px!important}p,label,span{font-size:32px!important}h1{font-size:56px!important}h2{font-size:44px!important}h3{font-size:36px!important}h4{font-size:30px!important}h5{font-size:24px!important}h6{font-size:20px!important}input[type=text],input[type=email],input[type=password]{font-size:32px!important;padding:40px!important;border-radius:24px!important}button{font-size:32px!important;padding:40px 72px!important;border-radius:36px!important}input[type=checkbox]{width:40px!important;height:40px!important}}
+@media(max-width:767px){body{font-size:18px!important}p,label,span{font-size:18px!important}h1{font-size:28px!important}h2{font-size:22px!important}h3{font-size:18px!important}h4,h5,h6{font-size:16px!important}input[type=text],input[type=email],input[type=password]{font-size:18px!important;padding:18px!important;border-radius:12px!important}button{font-size:18px!important;padding:18px 32px!important;border-radius:18px!important}input[type=checkbox]{width:22px!important;height:22px!important}}
 input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}
 button{touch-action:manipulation;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
