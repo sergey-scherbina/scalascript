@@ -3713,13 +3713,15 @@ function _ssc_ui_renderPage(view) {
     var fetchUrl  = container.getAttribute('data-ssc-fetch-table');
     var deleteUrl = container.getAttribute('data-ssc-fetch-delete');
     var tickId    = container.getAttribute('data-ssc-fetch-tick');
-    var thStyle  = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827';
-    var tdStyle  = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle';
-    var btnStyle = 'background:#ef4444;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:13px';
+    var cs = window.getComputedStyle(container);
+    var fs = cs.fontSize; var ff = cs.fontFamily;
+    var thStyle  = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827;font-size:'+fs+';font-family:'+ff;
+    var tdStyle  = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle;font-size:'+fs+';font-family:'+ff;
+    var btnStyle = 'background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff;
     function renderTable(rows) {
       container.innerHTML = '';
       var tbl = document.createElement('table');
-      tbl.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px');
+      tbl.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:'+ff+';font-size:'+fs);
       var thead = document.createElement('thead'); thead.setAttribute('style', 'background:#f9fafb');
       var trH = document.createElement('tr');
       var th1 = document.createElement('th'); th1.setAttribute('style', thStyle); th1.textContent = 'Task'; trH.appendChild(th1);
@@ -3756,15 +3758,18 @@ function _ssc_ui_serve(view, port) {
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ScalaScript App</title>
-<style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:0;padding:16px}
-input,button{font:inherit;padding:6px 10px;border:1px solid #ccc;border-radius:4px}
-button{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}
+<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%}
+.ssc-page{max-width:700px;margin:0 auto;padding:24px 20px;font-size:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}
+button{touch-action:manipulation;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 [data-ssc-cond]{display:contents}
-hr{border:none;border-top:1px solid #e5e7eb;margin:12px 0}
+hr{border:none;border-top:1px solid #e5e7eb;margin:0}
+[data-ssc-fetch-table] table,[data-ssc-fetch-table] th,[data-ssc-fetch-table] td,[data-ssc-fetch-table] button{font-size:32px!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .ssc-spin{animation:spin 0.8s linear infinite}
-</style></head><body>${body}${script}</body></html>`;
+</style></head><body><div class="ssc-page">${body}</div>${script}</body></html>`;
     return Response.html(html);
   });
   _ssc_http_serve(port);

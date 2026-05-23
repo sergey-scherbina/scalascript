@@ -46,7 +46,7 @@ def lower(n: TkNode, theme: Theme): View = n match
 
   // ── Typography ───────────────────────────────────────────────────────
   case HeadingNode(level, text) =>
-    val sizes = [32, 24, 20, 18, 16, 14]
+    val sizes = [56, 44, 36, 30, 24, 20]
     val sz    = if level >= 1 && level <= 6 then sizes(level - 1) else 20
     val ff    = theme.typography.heading.fontFamily
     element(s"h${level}",
@@ -67,19 +67,27 @@ def lower(n: TkNode, theme: Theme): View = n match
     showSignal(sig, lower(whenTrue, theme), lower(whenFalse, theme))
 
   case SignalTextNode(sig) =>
-    signalText(sig)
+    val fs = theme.typography.body.fontSize
+    val ff = theme.typography.body.fontFamily
+    element("span",
+      ["style" -> s"font-size:${fs}px; font-family:${ff}; color:${theme.colors.onSurface}"],
+      Map(), [signalText(sig)])
 
   case FragmentNode(kids) =>
     fragment(kids.map(lower(_, theme)))
 
   case RawTextNode(text) =>
-    textNode(text)
+    val fs = theme.typography.body.fontSize
+    val ff = theme.typography.body.fontFamily
+    element("span",
+      ["style" -> s"font-size:${fs}px; font-family:${ff}; color:${theme.colors.onSurface}"],
+      Map(), [textNode(text)])
 
   // ── Input ────────────────────────────────────────────────────────────
   case TextFieldNode(value, label, disabled, required) =>
     val sp    = theme.spacing
     val base  = s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; " +
-                s"padding:${sp.xs}px ${sp.sm}px; border:1px solid ${theme.colors.muted}; " +
+                s"padding:${sp.sm}px ${sp.sm}px; border:1px solid ${theme.colors.muted}; " +
                 s"border-radius:${theme.radii.sm}px; width:100%; box-sizing:border-box"
     val style = if disabled then base + "; background:#f3f4f6; color:#9ca3af; cursor:not-allowed" else base
     val inputEl = element("input",
@@ -167,14 +175,16 @@ def lower(n: TkNode, theme: Theme): View = n match
       case "notification" => theme.colors.danger
       case _              => theme.colors.secondary
     val sp = theme.spacing
-    val badgeStyle = s"background:${bg}; color:#ffffff; font-size:12px; font-weight:600; padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"
+    val fs = theme.typography.body.fontSize
+    val badgeStyle = s"background:${bg}; color:#ffffff; font-size:${fs}px; font-weight:600; padding:2px ${sp.xs}px; border-radius:${theme.radii.full}px; white-space:nowrap"
     element("span",
       ["style" -> badgeStyle],
       Map(),
       [textNode(content)])
 
   case SpinnerNode() =>
-    val spinnerStyle = s"display:inline-block; width:16px; height:16px; border:2px solid #e5e7eb; border-top-color:${theme.colors.primary}; border-radius:50%"
+    val sz = theme.typography.body.fontSize
+    val spinnerStyle = s"display:inline-block; width:${sz}px; height:${sz}px; border:2px solid #e5e7eb; border-top-color:${theme.colors.primary}; border-radius:50%"
     element("span",
       ["style" -> spinnerStyle, "class" -> "ssc-spin"],
       Map(), [])
