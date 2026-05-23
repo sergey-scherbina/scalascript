@@ -67,6 +67,7 @@ final class ReactFrameworkBackend extends FrontendFrameworkSpi:
        |<html lang="en">
        |<head>
        |  <meta charset="UTF-8">
+       |  <meta name="viewport" content="width=device-width,initial-scale=1">
        |  <title>ScalaScript SPA (React)</title>
        |  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
        |  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>

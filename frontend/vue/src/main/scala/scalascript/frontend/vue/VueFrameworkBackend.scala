@@ -69,6 +69,7 @@ final class VueFrameworkBackend extends FrontendFrameworkSpi:
        |<html lang="en">
        |<head>
        |  <meta charset="UTF-8">
+       |  <meta name="viewport" content="width=device-width,initial-scale=1">
        |  <title>ScalaScript SPA (Vue)</title>
        |  <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
