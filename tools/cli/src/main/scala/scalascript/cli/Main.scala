@@ -301,6 +301,25 @@ private def compileViaBackend(
     )
     backend.compile(ir, opts)
 
+private def compileJsSegments(path: os.Path): List[Segment] =
+  val module  = loadModule(path)
+  val ir      = Normalize(module)
+  val backend = resolveBackend("js")
+  val diags   = CapabilityCheck.validate(ir, backend.capabilities, "js")
+  if diags.nonEmpty then
+    diags.foreach(d => System.err.println(s"[error] $d"))
+    System.exit(1)
+    Nil
+  else
+    val baseDir  = Some(path / os.up)
+    val preamble = if backend.runtimePreamble.isEmpty then "" else backend.runtimePreamble + "\n"
+    JsGen.generateSegmented(module, baseDir, backend.intrinsics).map {
+      case JsGen.Segment.ScalaScriptJs(code) =>
+        Segment.Code(language = "javascript", code = preamble + code)
+      case JsGen.Segment.ScalaSource(src) =>
+        Segment.Source(language = "scala", source = src)
+    }
+
 private def expectText(r: CompileResult, what: String): String = r match
   case CompileResult.TextOutput(code, _, _) => code
   case CompileResult.Failed(diags) =>
@@ -1403,19 +1422,14 @@ private def buildElectronBundle(sscFile: os.Path, outDir: os.Path): Unit =
   val module   = scalascript.parser.Parser.parse(os.read(sscFile))
   val title    = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
   val baseDir  = Some(sscFile / os.up)
-  val segments = compileViaBackend("js", sscFile, Map("mode" -> "segmented")) match
-    case CompileResult.Segmented(segs) => segs
-    case CompileResult.Failed(diags) =>
-      diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
-    case other =>
-      System.err.println(s"build-electron: unexpected ${other.getClass.getSimpleName}")
-      System.exit(1); Nil
+  val segments = compileJsSegments(sscFile)
   val userJs  = segments.collect {
     case Segment.Code("javascript", code) => code
     case Segment.Source("scala", src)     => ScalaJsBackend.compileSourceToJs(src, baseDir)
   }.filter(_.nonEmpty).mkString("\n")
   val caps    = JsGen.detectCapabilities(module, baseDir) - JsGen.Capability.Mcp - JsGen.Capability.Dataset
-  val appJs   = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$userJs"
+  val frontendInit = "_ssc_frontend_name = 'electron'; // injected by ssc\n"
+  val appJs   = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$frontendInit$userJs"
   os.makeDir.all(outDir)
   os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))
   os.write.over(outDir / "app.js",     appJs)
@@ -3421,13 +3435,7 @@ def emitJsCommand(args: List[String]): Unit =
     else
       try
         val module   = Parser.parse(os.read(path))
-        val segments = compileViaBackend("js", path, Map("mode" -> "segmented")) match
-          case CompileResult.Segmented(segs) => segs
-          case CompileResult.Failed(diags) =>
-            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
-          case other =>
-            System.err.println(s"emit-js: unexpected ${other.getClass.getSimpleName}")
-            System.exit(1); Nil
+        val segments = compileJsSegments(path)
         val hasSSBlocks = segments.exists {
           case Segment.Code("javascript", _) => true
           case _                             => false
@@ -3509,13 +3517,7 @@ def emitSpaCommand(args: List[String]): Unit =
     else
       try
         val module = Parser.parse(os.read(path))
-        val segments = compileViaBackend("js", path, Map("mode" -> "segmented")) match
-          case CompileResult.Segmented(segs) => segs
-          case CompileResult.Failed(diags) =>
-            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
-          case other =>
-            System.err.println(s"emit-spa: unexpected ${other.getClass.getSimpleName}")
-            System.exit(1); Nil
+        val segments = compileJsSegments(path)
         val title    = module.manifest.flatMap(_.name).getOrElse(path.last.stripSuffix(".ssc"))
         // Concatenate user JS — same segment loop as emit-js but no
         // process.stdout flushes (browser-only output goes to console).

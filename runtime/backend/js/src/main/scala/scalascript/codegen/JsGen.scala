@@ -7530,9 +7530,12 @@ class JsGen(
   private def genImport(imp: Content.Import): Unit =
     import scalascript.parser.Parser
     val base = baseDir.getOrElse(os.pwd)
-    val resolvedPath =
+    val initiallyResolved =
       try scalascript.imports.ImportResolver.resolve(imp.path, base, moduleDeps, lockPath)
       catch case _: Throwable => base / os.RelPath(imp.path)
+    val resolvedPath =
+      if os.exists(initiallyResolved) then initiallyResolved
+      else resolveStdImportFromProjectTree(imp.path, base).getOrElse(initiallyResolved)
     if !os.exists(resolvedPath) then return
     val key         = resolvedPath.toString
     val childModule = Parser.parse(os.read(resolvedPath))
@@ -7577,6 +7580,21 @@ class JsGen(
         declaredBindings += localName
         line(s"const $localName = $fullName;")
     }
+
+  private def resolveStdImportFromProjectTree(rawPath: String, base: os.Path): Option[os.Path] =
+    if !rawPath.startsWith("std/") then None
+    else
+      val rel = os.RelPath(rawPath)
+      var cur = base
+      while true do
+        val runtimeStd = cur / "runtime" / rel
+        if os.exists(runtimeStd) then return Some(runtimeStd)
+        val installedStd = cur / rel
+        if os.exists(installedStd) then return Some(installedStd)
+        val parent = cur / os.up
+        if parent == cur then return None
+        cur = parent
+      None
 
   private[codegen] def genScalaNode(node: ScalaNode): Unit =
     ScalaNode.fold(node) {
@@ -9994,4 +10012,3 @@ class JsGen(
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
     case _ => false
-

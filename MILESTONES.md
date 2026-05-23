@@ -10159,3 +10159,8 @@ web emitters (React, Vue, Solid, Custom/StaticJs).
 **Example:** `examples/desktop-demo/desktop-demo.ssc` — counter + badges
 
 **Tests:** 10 passing (ElectronEmitterTest)
+
+**Follow-up fix ✓ Landed (2026-05-23):** Electron/SPA JS bundles now preserve
+Markdown-imported `std/ui/*.ssc` modules in segmented output, resolve bare
+`std/...` imports from the project `runtime/std/` tree in dev worktrees, and
+inject `_ssc_frontend_name = "electron"` for `ssc run --frontend electron`.
