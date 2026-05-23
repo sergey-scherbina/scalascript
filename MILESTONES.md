@@ -10125,3 +10125,37 @@ web emitters (React, Vue, Solid, Custom/StaticJs).
 
 **Tested manually:** `check --target web`, `check --target mobile-ios`,
 `list --target desktop`, `help`
+
+## v1.42 — Native Platform P3: Electron Renderer ✓ Complete (2026-05-23)
+
+**Status:** Complete
+**Spec:** [`docs/electron-renderer.md`](docs/electron-renderer.md)
+
+`electron` frontend renderer — run any `.ssc` app as a native desktop window.
+
+### What landed
+
+**`frontend/electron/` module (new)**
+- `ElectronFrameworkBackend extends FrontendFrameworkSpi`
+  - `name = "electron"`, `supportedPlatforms = Set(Desktop(MacOS/Linux/Windows))`
+  - `emit()` delegates to `CustomFrameworkBackend` for renderer-process content
+  - `emitNative()` wraps SPA content into `EmittedArtifact.NativeApp` with 5-file bundle
+- `ElectronEmitter` — generates `main.js` (BrowserWindow + lifecycle), `preload.js` (stub),
+  `package.json` (electron + electron-builder deps + build config), `indexHtml` (CSP-safe)
+- Service loader: `META-INF/services/scalascript.frontend.FrontendFrameworkSpi`
+- `build.sbt`: new `frontendElectron` project; added to `cli` deps + root aggregate
+
+**CLI (`tools/cli/Main.scala`)**
+- `"electron"` added to `validFrontendNames`
+- `buildElectronBundle(sscFile, outDir)` — compiles `.ssc` → JS via segmented backend,
+  wraps in Electron bundle, writes 5 files to `outDir`
+- `runElectronDev(sscFile)` — writes bundle to temp dir, launches `electron <dir>`,
+  blocks until window closes; friendly error if `electron` not on PATH
+- `runCommand`: early-return path for `--frontend electron` / `--target desktop[-electron]`
+- `buildProjectFileCommand`: new `case "desktop" | "desktop-electron"` → generates bundle
+- Help text updated
+
+**Spec:** `docs/electron-renderer.md` (new)
+**Example:** `examples/desktop-demo/desktop-demo.ssc` — counter + badges
+
+**Tests:** 10 passing (ElectronEmitterTest)

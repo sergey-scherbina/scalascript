@@ -376,6 +376,19 @@ lazy val frontendVue = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// P3 — Electron desktop renderer.  Wraps the custom (StaticJs) emitter output
+// in an Electron project bundle: main.js + preload.js + package.json +
+// index.html + app.js.  CLI: ssc run --frontend electron  /  ssc build --target desktop.
+lazy val frontendElectron = project
+  .in(file("frontend/electron"))
+  .dependsOn(frontendCore, frontendCustom)
+  .settings(
+    name := "scalascript-frontend-electron",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // v1.18 / Phase A8 — reference apps exercising the frontend SPI across
 // all four backends.  Three canonical demos (counter, show-hide,
 // todo-list) each rendered by Custom + React + Solid + Vue.  Ships
@@ -586,7 +599,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -1946,7 +1959,7 @@ lazy val root = project
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
-    frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue,
+    frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron,
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     jsonPlugin, frontendPlugin, requestPlugin,

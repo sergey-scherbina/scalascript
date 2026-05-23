@@ -358,7 +358,7 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
 private[cli] val validFrontendNames: Set[String] =
-  Set("custom", "react", "solid", "vue")
+  Set("custom", "react", "solid", "vue", "electron")
 
 /** v1.18 / Phase A7 — apply the `--frontend <name>` selection on the
  *  JVM side before any frontend codegen runs.  Mirrors
@@ -512,6 +512,8 @@ def printUsage(): Unit =
     |                         Run with lightweight call-level profiling; print top-N
     |                         hotspots by wall time.  --top defaults to 20.
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
+    |  run   --frontend electron <f>   Compile .ssc and open in an Electron desktop window
+    |  build --target desktop <f>      Generate Electron bundle; run npm run build to package
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
     |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
@@ -1383,9 +1385,43 @@ private def buildProjectFileCommand(
       println(s"Building web (static HTML) → ${displayPath(outDir)}")
       buildSingleFileSite(projectFile, outDir)
 
+    case "desktop" | "desktop-electron" =>
+      val bundleDir = outDir
+      println(s"Building Electron bundle → ${displayPath(bundleDir)}")
+      buildElectronBundle(projectFile, bundleDir)
+      println(s"  bundle written.  To package:")
+      println(s"    cd ${displayPath(bundleDir)} && npm install && npm run build")
+
     case other =>
-      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web)")
+      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop)")
       System.exit(1)
+
+/** Write an Electron app bundle (index.html, app.js, main.js, preload.js,
+ *  package.json) to `outDir`, compiled from the given `.ssc` file. */
+private def buildElectronBundle(sscFile: os.Path, outDir: os.Path): Unit =
+  import scalascript.frontend.electron.ElectronEmitter
+  val module   = scalascript.parser.Parser.parse(os.read(sscFile))
+  val title    = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  val baseDir  = Some(sscFile / os.up)
+  val segments = compileViaBackend("js", sscFile, Map("mode" -> "segmented")) match
+    case CompileResult.Segmented(segs) => segs
+    case CompileResult.Failed(diags) =>
+      diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1); Nil
+    case other =>
+      System.err.println(s"build-electron: unexpected ${other.getClass.getSimpleName}")
+      System.exit(1); Nil
+  val userJs  = segments.collect {
+    case Segment.Code("javascript", code) => code
+    case Segment.Source("scala", src)     => ScalaJsBackend.compileSourceToJs(src, baseDir)
+  }.filter(_.nonEmpty).mkString("\n")
+  val caps    = JsGen.detectCapabilities(module, baseDir) - JsGen.Capability.Mcp - JsGen.Capability.Dataset
+  val appJs   = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$userJs"
+  os.makeDir.all(outDir)
+  os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))
+  os.write.over(outDir / "app.js",     appJs)
+  os.write.over(outDir / "main.js",    ElectronEmitter.mainJs(title))
+  os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs)
+  os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title))
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -2281,6 +2317,15 @@ def runCommand(args: List[String]): Unit =
           System.err.println(s"run: ${e.getMessage}"); System.exit(1)
     return
 
+  // --target desktop / desktop-electron, or --frontend electron → Electron dev-run
+  val isElectronRun =
+    targetFlag.exists(t => t == "desktop" || t == "desktop-electron") ||
+    frontendFlag.contains("electron")
+  if isElectronRun then
+    for file <- fileArgs.toList do
+      runElectronDev(os.Path(file, os.pwd))
+    return
+
   frontendFlag.foreach(applyFrontendBackend)
   val backendId = ActiveFlags.current.backend.getOrElse("int")
   for file <- fileArgs.toList do
@@ -2382,6 +2427,30 @@ def runCommand(args: List[String]): Unit =
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
       finally scalascript.config.ConfigRegistry.clearSidecar()
+
+/** Compile `sscFile` to an Electron bundle in a temp dir and launch
+ *  `electron <tmpDir>`.  Blocks until the Electron window is closed. */
+private def runElectronDev(sscFile: os.Path): Unit =
+  if !os.exists(sscFile) then
+    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
+  val tmpDir = os.temp.dir(prefix = "ssc-electron-", deleteOnExit = true)
+  buildElectronBundle(sscFile, tmpDir)
+  val title = scalascript.parser.Parser.parse(os.read(sscFile)).manifest
+    .flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  println(s"ssc: launching Electron — $title")
+  println(s"     bundle: $tmpDir")
+  // Verify electron is on PATH before attempting launch.
+  val electronOk =
+    scala.util.Try(os.proc("electron", "--version").call(check = false).exitCode == 0)
+      .getOrElse(false)
+  if !electronOk then
+    System.err.println("ssc: 'electron' not found on PATH.  Install it:")
+    System.err.println("  npm install -g electron")
+    System.err.println("  ssc toolchain install --target desktop")
+    System.exit(1)
+  val result = os.proc("electron", tmpDir.toString)
+    .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+  if result.exitCode != 0 then System.exit(result.exitCode)
 
 def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn

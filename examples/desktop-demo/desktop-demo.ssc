@@ -1,0 +1,76 @@
+#!/usr/bin/env ssc
+---
+name: desktop-demo
+version: 1.0.0
+description: Counter + todo list running as a native desktop window via Electron
+frontend: electron
+---
+
+# Desktop Demo
+
+A simple ScalaScript app that runs as a native desktop window.
+Same source, multiple targets — run in a browser or as a desktop app.
+
+```
+ssc run --frontend electron examples/desktop-demo/desktop-demo.ssc
+ssc build --target desktop   examples/desktop-demo/desktop-demo.ssc
+```
+
+## Imports
+
+[signal, serve](std/ui/primitives.ssc)
+
+[lower, defaultTheme](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack, spacer, divider](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[signalButton](std/ui/input.ssc)
+
+[showWhen, signalText_](std/ui/reactive.ssc)
+
+[badge](std/ui/display.ssc)
+
+## State
+
+```scalascript
+val count    = signal("count",    0)
+val darkMode = signal("darkMode", false)
+```
+
+## UI
+
+```scalascript
+val counterPanel = vstack(gap = 12)(
+  heading(2, "Counter"),
+  hstack(gap = 8)(
+    signalButton(count, count() - 1, "−"),
+    signalText_(count),
+    signalButton(count, count() + 1, "+")
+  ),
+  showWhen(count,
+    badge("Non-zero", "success"),
+    badge("Zero", "warning")
+  )
+)
+
+val tree = vstack(gap = 20)(
+  heading(1, "Desktop Demo"),
+  divider(),
+  counterPanel,
+  spacer(grow = true),
+  hstack(gap = 8)(
+    text("Running via Electron"),
+    badge(s"${_ssc_frontend_name}", "info")
+  )
+)
+```
+
+## Serve
+
+```scalascript
+serve(lower(tree, defaultTheme), 0)
+```
