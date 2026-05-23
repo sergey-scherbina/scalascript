@@ -10064,3 +10064,37 @@ Three breaking changes land together per §21 of the spec.
 - Stripe / Adyen adapter (separate milestone)
 - Open Banking / PSD2 (separate milestone)
 - Payment Request API in Scala.js / WASM targets
+
+## v1.40 — Native Platform P2: Web Renderer Update ✓ Complete (2026-05-23)
+
+**Status:** Complete
+**Spec:** [`docs/native-platform.md`](docs/native-platform.md) §P2 (Web renderer update)
+
+Implements real DOM rendering for all `enum View[+A]` semantic cases in all 4
+web emitters (React, Vue, Solid, Custom/StaticJs).
+
+### What landed
+
+**Shared CSS utilities (`frontend/core`)**
+- `StyleUtils` object: `styleToCSS`, `mergeCSS`, `hAlignToCSS`, `vAlignToCSS`,
+  `colorToCSS`, `edgeInsetsToCSS`, `dimensionToCSS`, `fontWeightToCSS`,
+  `borderRadiusToCSS`, `shadowToCSS`, `transformToCSS`, `curveToCSS`,
+  `overflowToCSS`, `borderStyleToCSS`, `cursorToCSS`, `gridColumnsToCSS`
+
+**All 4 web emitters — new View cases handled**
+- Layout: `Column`, `Row`, `Stack`, `ScrollView`, `SafeArea`, `KeyboardAvoiding`,
+  `Animated`, `Styled`, `Adaptive`, `Spacer`, `Divider`
+- Content: `Text`, `Image`, `Icon`
+- Controls: `Button`, `TextInput`, `Toggle`, `Slider`, `Picker`
+- Data: `LazyList`, `LazyGrid`
+- Navigation: `TabBar`, `NavigationStack`
+- Overlays: `Sheet`, `AlertDialog`
+- Forms: `Form`, `FormField`
+- Removed unreachable `case v: View[?]` catch-alls (all cases now exhaustively handled)
+
+**Toolkit helper (`frontend/toolkit`)**
+- `fetchTable(tableId, fetchUrl, deleteUrl, tick): View[?]` — wraps deprecated
+  `View.FetchTable` IR primitive for migration continuity; full native
+  View reimplementation deferred to P3 when the IR case is removed
+
+**Tests:** 217 passing; 0 failures

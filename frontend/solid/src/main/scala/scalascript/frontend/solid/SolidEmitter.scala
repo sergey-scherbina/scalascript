@@ -375,10 +375,368 @@ private[solid] object SolidEmitter:
         statements += s"});"
         tableVar
 
-      case v: View[?] =>
-        val commentVar = freshVar()
-        statements += s"const $commentVar = document.createComment('[unsupported on web in P1: ${v.getClass.getSimpleName}]');"
-        commentVar
+      // ── P2 semantic View cases ───────────────────────────────────────────────
+
+      case View.Column(children, spacing, align, style) =>
+        val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+        val base   = s"display: flex; flex-direction: column; align-items: ${StyleUtils.hAlignToCSS(align)}$gapCss"
+        val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        children.foreach { child =>
+          val cVar = compile(child)
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+        }
+        v
+
+      case View.Row(children, spacing, align, style) =>
+        val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+        val base   = s"display: flex; flex-direction: row; align-items: ${StyleUtils.vAlignToCSS(align)}$gapCss"
+        val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        children.foreach { child =>
+          val cVar = compile(child)
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+        }
+        v
+
+      case View.Stack(children, style) =>
+        val css = StyleUtils.mergeCSS("position: relative", StyleUtils.styleToCSS(style))
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        children.foreach { child =>
+          val cVar = compile(child)
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+        }
+        v
+
+      case View.ScrollView(child, axis, style) =>
+        val base = axis match
+          case Axis.Horizontal => "overflow-x: auto; overflow-y: hidden"
+          case Axis.Vertical   => "overflow-y: auto; overflow-x: hidden"
+          case Axis.Both       => "overflow: auto"
+        val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v    = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        val cVar = compile(child)
+        if cVar != null then statements += s"$v.appendChild($cVar);"
+        v
+
+      case View.Spacer(size) =>
+        val css = size match
+          case Some(px) => s"width: ${px}px; height: ${px}px; flex-shrink: 0"
+          case None     => "flex: 1; align-self: stretch"
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        v
+
+      case View.Divider(axis, style) =>
+        val base = axis match
+          case Axis.Vertical => "width: 1px; height: 100%; background: currentColor; opacity: 0.2; flex-shrink: 0"
+          case _             => "width: 100%; height: 1px; background: currentColor; opacity: 0.2; flex-shrink: 0"
+        val css = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v   = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)}); $v.setAttribute('role', 'separator');"
+        v
+
+      case View.Text(content, style) =>
+        val css = StyleUtils.styleToCSS(style)
+        val v   = freshVar()
+        val txt = freshVar()
+        statements += s"const $v = document.createElement('span');"
+        if css.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(css)});"
+        statements += s"const $txt = document.createTextNode(${jsString(content())}); $v.appendChild($txt);"
+        v
+
+      case View.Image(source, style) =>
+        val src = source match
+          case ImageSource.Url(href)           => jsString(href)
+          case ImageSource.Asset(name)         => jsString(s"/assets/$name")
+          case ImageSource.Base64(data, mime)  => jsString(s"data:$mime;base64,$data")
+        val v   = freshVar()
+        val css = StyleUtils.styleToCSS(style)
+        statements += s"const $v = document.createElement('img'); $v.setAttribute('src', $src);"
+        if css.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(css)});"
+        v
+
+      case View.Icon(name, style) =>
+        val v   = freshVar()
+        val css = StyleUtils.styleToCSS(style)
+        statements += s"const $v = document.createElement('span'); $v.setAttribute('aria-hidden', 'true'); $v.setAttribute('data-icon', ${jsString(name)}); $v.textContent = ${jsString(name)};"
+        if css.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(css)});"
+        v
+
+      case View.Button(label, action, enabled, style) =>
+        val base = "cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: none; padding: 6px 16px; border-radius: 4px"
+        val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v    = freshVar()
+        statements += s"const $v = document.createElement('button'); $v.setAttribute('style', ${jsString(css)});"
+        if !enabled() then statements += s"$v.disabled = true;"
+        val labelVar = compile(label)
+        if labelVar != null then statements += s"$v.appendChild($labelVar);"
+        compileEventHandler(v, "click", action)
+        v
+
+      case View.TextInput(value, placeholder, multiline, secure, style) =>
+        registerSignal(value)
+        val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+        val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val setter = setterName(value.id)
+        val v = freshVar()
+        if multiline then
+          statements += s"const $v = document.createElement('textarea'); $v.setAttribute('style', ${jsString(css)}); $v.setAttribute('placeholder', ${jsString(placeholder)});"
+          statements += s"$v.value = ${value.id}();"
+          statements += s"createEffect(() => { $v.value = ${value.id}(); });"
+          statements += s"$v.addEventListener('input', (e) => $setter(e.target.value));"
+        else
+          val typeStr = if secure then "password" else "text"
+          statements += s"const $v = document.createElement('input'); $v.setAttribute('type', '$typeStr'); $v.setAttribute('style', ${jsString(css)}); $v.setAttribute('placeholder', ${jsString(placeholder)});"
+          statements += s"$v.value = ${value.id}();"
+          statements += s"createEffect(() => { $v.value = ${value.id}(); });"
+          statements += s"$v.addEventListener('input', (e) => $setter(e.target.value));"
+        v
+
+      case View.Toggle(checked, label, style) =>
+        registerSignal(checked)
+        val base = "display: inline-flex; align-items: center; gap: 6px; cursor: pointer"
+        val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val setter = setterName(checked.id)
+        val v   = freshVar()
+        val inp = freshVar()
+        statements += s"const $v = document.createElement('label'); $v.setAttribute('style', ${jsString(css)});"
+        statements += s"const $inp = document.createElement('input'); $inp.setAttribute('type', 'checkbox');"
+        statements += s"$inp.checked = ${checked.id}();"
+        statements += s"createEffect(() => { $inp.checked = ${checked.id}(); });"
+        statements += s"$inp.addEventListener('change', () => $setter(c => !c));"
+        statements += s"$v.appendChild($inp);"
+        if label.nonEmpty then
+          statements += s"$v.appendChild(document.createTextNode(${jsString(label)}));"
+        v
+
+      case View.Slider(value, min, max, step, style) =>
+        registerSignal(value)
+        val css    = StyleUtils.styleToCSS(style)
+        val setter = setterName(value.id)
+        val v = freshVar()
+        statements += s"const $v = document.createElement('input'); $v.setAttribute('type', 'range'); $v.setAttribute('min', '$min'); $v.setAttribute('max', '$max'); $v.setAttribute('step', '$step');"
+        if css.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(css)});"
+        statements += s"$v.value = ${value.id}();"
+        statements += s"createEffect(() => { $v.value = ${value.id}(); });"
+        statements += s"$v.addEventListener('input', (e) => $setter(Number(e.target.value)));"
+        v
+
+      case View.Picker(options, selected, placeholder, style) =>
+        registerSignal(selected)
+        val base   = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+        val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val setter = setterName(selected.id)
+        val v = freshVar()
+        statements += s"const $v = document.createElement('select'); $v.setAttribute('style', ${jsString(css)});"
+        if placeholder.nonEmpty then
+          statements += s"{ const o = document.createElement('option'); o.value = ''; o.disabled = true; o.hidden = true; o.textContent = ${jsString(placeholder)}; $v.appendChild(o); }"
+        options.foreach { (lbl, opt) =>
+          val vJs = try jsLiteral(opt) catch { case _: Throwable => jsString(String.valueOf(opt)) }
+          statements += s"{ const o = document.createElement('option'); o.value = $vJs; o.textContent = ${jsString(lbl)}; $v.appendChild(o); }"
+        }
+        statements += s"$v.value = String(${selected.id}());"
+        statements += s"createEffect(() => { $v.value = String(${selected.id}()); });"
+        statements += s"$v.addEventListener('change', (e) => $setter(e.target.value));"
+        v
+
+      case View.LazyList(items, render, _, style) =>
+        val css = StyleUtils.mergeCSS("overflow-y: auto", StyleUtils.styleToCSS(style))
+        val v   = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        items().toList.foreach { item =>
+          val cVar = compile(render(item))
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+        }
+        v
+
+      case View.LazyGrid(items, render, columns, spacing, style) =>
+        val colsCss = StyleUtils.gridColumnsToCSS(columns)
+        val gapCss  = if spacing > 0 then s"; gap: ${spacing}px" else ""
+        val base    = s"display: grid; grid-template-columns: $colsCss$gapCss"
+        val css     = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        items().toList.foreach { item =>
+          val cVar = compile(render(item))
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+        }
+        v
+
+      case View.TabBar(tabs, current, style) =>
+        registerSignal(current)
+        val outerCss  = StyleUtils.styleToCSS(style)
+        val headerCss = "display: flex; border-bottom: 1px solid #e5e7eb; margin-bottom: 8px"
+        val activeCss   = "cursor: pointer; padding: 8px 16px; border: none; background: transparent; font-family: inherit; font-size: inherit; border-bottom: 2px solid #3b82f6; font-weight: bold"
+        val inactiveCss = "cursor: pointer; padding: 8px 16px; border: none; background: transparent; font-family: inherit; font-size: inherit; border-bottom: 2px solid transparent"
+        val setter     = setterName(current.id)
+        val v          = freshVar()
+        val headerDiv  = freshVar()
+        val contentDiv = freshVar()
+        statements += s"const $v = document.createElement('div');"
+        if outerCss.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(outerCss)});"
+        statements += s"const $headerDiv = document.createElement('div'); $headerDiv.setAttribute('style', ${jsString(headerCss)}); $v.appendChild($headerDiv);"
+        statements += s"const $contentDiv = document.createElement('div'); $v.appendChild($contentDiv);"
+        val tabVars = tabs.zipWithIndex.map { (tab, i) =>
+          val btn = freshVar()
+          statements += s"const $btn = document.createElement('button'); $btn.textContent = ${jsString(tab.label)};"
+          statements += s"$btn.addEventListener('click', () => $setter($i));"
+          statements += s"$headerDiv.appendChild($btn);"
+          (i, btn, compile(tab.content))
+        }
+        statements += s"function __syncTabs_${v}() {"
+        statements += s"  const t = ${current.id}();"
+        tabVars.foreach { (i, btn, _) =>
+          statements += s"  $btn.setAttribute('style', t === $i ? ${jsString(activeCss)} : ${jsString(inactiveCss)});"
+        }
+        statements += s"  while ($contentDiv.firstChild) $contentDiv.removeChild($contentDiv.firstChild);"
+        tabVars.foreach { (i, _, cVar) =>
+          if cVar != null then
+            statements += s"  if (t === $i) $contentDiv.appendChild($cVar);"
+        }
+        statements += s"}"
+        statements += s"__syncTabs_${v}();"
+        statements += s"createEffect(() => __syncTabs_${v}());"
+        v
+
+      case View.NavigationStack(routes, current, style) =>
+        registerSignal(current)
+        val outerCss = StyleUtils.styleToCSS(style)
+        val v        = freshVar()
+        val content  = freshVar()
+        statements += s"const $v = document.createElement('div');"
+        if outerCss.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(outerCss)});"
+        statements += s"const $content = document.createElement('div'); $v.appendChild($content);"
+        val routeVars = routes.toList.map { (key, fn) => (key, compile(fn())) }
+        statements += s"function __syncNav_${v}() {"
+        statements += s"  const r = ${current.id}();"
+        statements += s"  while ($content.firstChild) $content.removeChild($content.firstChild);"
+        routeVars.foreach { (key, cVar) =>
+          if cVar != null then
+            statements += s"  if (r === ${jsString(key)}) $content.appendChild($cVar);"
+        }
+        statements += s"}"
+        statements += s"__syncNav_${v}();"
+        statements += s"createEffect(() => __syncNav_${v}());"
+        v
+
+      case View.Sheet(content, isPresented) =>
+        registerSignal(isPresented)
+        val overlayCss  = "position: fixed; bottom: 0; left: 0; right: 0; background: #fff; box-shadow: 0 -4px 12px rgba(0,0,0,0.15); border-radius: 12px 12px 0 0; padding: 16px; z-index: 1000"
+        val backdropCss = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999"
+        val setter = setterName(isPresented.id)
+        val wrap    = freshVar()
+        val backdrop = freshVar()
+        val overlay  = freshVar()
+        val contentVar = compile(content)
+        statements += s"const $wrap = document.createDocumentFragment();"
+        statements += s"const $backdrop = document.createElement('div'); $backdrop.setAttribute('style', ${jsString(backdropCss)}); $backdrop.addEventListener('click', () => $setter(false)); $backdrop.style.display = 'none';"
+        statements += s"const $overlay = document.createElement('div'); $overlay.setAttribute('style', ${jsString(overlayCss)}); $overlay.style.display = 'none';"
+        if contentVar != null then statements += s"$overlay.appendChild($contentVar);"
+        statements += s"$wrap.appendChild($backdrop); $wrap.appendChild($overlay);"
+        statements += s"createEffect(() => { const show = ${isPresented.id}(); $backdrop.style.display = show ? 'block' : 'none'; $overlay.style.display = show ? 'block' : 'none'; });"
+        wrap
+
+      case View.AlertDialog(title, message, buttons, isPresented) =>
+        registerSignal(isPresented)
+        val dialogCss   = "position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.2); z-index: 1001; min-width: 300px"
+        val backdropCss = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000"
+        val btnDefault     = "background: #3b82f6; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit"
+        val btnDestructive = "background: #ef4444; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit"
+        val setter = setterName(isPresented.id)
+        val wrap      = freshVar()
+        val backdrop  = freshVar()
+        val dialog    = freshVar()
+        statements += s"const $wrap = document.createDocumentFragment();"
+        statements += s"const $backdrop = document.createElement('div'); $backdrop.setAttribute('style', ${jsString(backdropCss)}); $backdrop.style.display = 'none';"
+        statements += s"const $dialog = document.createElement('div'); $dialog.setAttribute('style', ${jsString(dialogCss)}); $dialog.style.display = 'none';"
+        statements += s"{ const h3 = document.createElement('h3'); h3.textContent = ${jsString(title)}; $dialog.appendChild(h3); }"
+        statements += s"{ const p = document.createElement('p'); p.textContent = ${jsString(message)}; $dialog.appendChild(p); }"
+        statements += s"{ const row = document.createElement('div'); row.setAttribute('style', 'display: flex; gap: 8px; margin-top: 16px');"
+        buttons.foreach { btn =>
+          val css = if btn.role == ButtonRole.Destructive then btnDestructive else btnDefault
+          statements += s"  { const b = document.createElement('button'); b.setAttribute('style', ${jsString(css)}); b.textContent = ${jsString(btn.label)}; b.addEventListener('click', () => $setter(false)); row.appendChild(b); }"
+        }
+        statements += s"  $dialog.appendChild(row); }"
+        statements += s"$wrap.appendChild($backdrop); $wrap.appendChild($dialog);"
+        statements += s"createEffect(() => { const show = ${isPresented.id}(); $backdrop.style.display = show ? 'block' : 'none'; $dialog.style.display = show ? 'block' : 'none'; });"
+        wrap
+
+      case View.Form(child, onSubmit, style) =>
+        val css = StyleUtils.styleToCSS(style)
+        val v   = freshVar()
+        statements += s"const $v = document.createElement('form');"
+        if css.nonEmpty then statements += s"$v.setAttribute('style', ${jsString(css)});"
+        compileEventHandler(v, "submit", onSubmit)
+        // Also prevent default on submit
+        statements += s"$v.addEventListener('submit', (e) => e.preventDefault());"
+        val cVar = compile(child)
+        if cVar != null then statements += s"$v.appendChild($cVar);"
+        v
+
+      case View.FormField(label, value, validate, style) =>
+        registerSignal(value)
+        val errorMsg  = try validate(value().asInstanceOf[Nothing]) catch { case _: Throwable => None }
+        val inputBase = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; width: 100%; box-sizing: border-box; font-size: inherit; font-family: inherit"
+        val inputCss  = StyleUtils.mergeCSS(inputBase, StyleUtils.styleToCSS(style))
+        val labelCss  = "display: block; margin-bottom: 4px; font-size: 0.875em; font-weight: 500"
+        val setter    = setterName(value.id)
+        val v   = freshVar()
+        val inp = freshVar()
+        statements += s"const $v = document.createElement('label'); $v.setAttribute('style', ${jsString(labelCss)});"
+        statements += s"$v.appendChild(document.createTextNode(${jsString(label)}));"
+        statements += s"const $inp = document.createElement('input'); $inp.setAttribute('style', ${jsString(inputCss)});"
+        statements += s"$inp.value = String(${value.id}());"
+        statements += s"createEffect(() => { $inp.value = String(${value.id}()); });"
+        statements += s"$inp.addEventListener('input', (e) => $setter(e.target.value));"
+        statements += s"$v.appendChild($inp);"
+        errorMsg.foreach { msg =>
+          statements += s"{ const err = document.createElement('span'); err.setAttribute('style', ${jsString("color: #ef4444; font-size: 0.75em; display: block; margin-top: 2px")}); err.textContent = ${jsString(msg)}; $v.appendChild(err); }"
+        }
+        v
+
+      case View.SafeArea(child, edges) =>
+        val top    = if edges.contains(Edge.Top)      then "env(safe-area-inset-top, 0)" else "0"
+        val right  = if edges.contains(Edge.Trailing) then "env(safe-area-inset-right, 0)" else "0"
+        val bottom = if edges.contains(Edge.Bottom)   then "env(safe-area-inset-bottom, 0)" else "0"
+        val left   = if edges.contains(Edge.Leading)  then "env(safe-area-inset-left, 0)" else "0"
+        val css    = s"padding-top: $top; padding-right: $right; padding-bottom: $bottom; padding-left: $left"
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        val cVar = compile(child)
+        if cVar != null then statements += s"$v.appendChild($cVar);"
+        v
+
+      case View.KeyboardAvoiding(child) =>
+        compile(child)
+
+      case View.Animated(child, transition, style) =>
+        val dur    = transition.duration.toLong
+        val delay  = if transition.delay > 0 then s" ${transition.delay.toLong}ms" else ""
+        val base   = s"transition: all ${dur}ms ${StyleUtils.curveToCSS(transition.curve)}$delay"
+        val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+        val v = freshVar()
+        statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+        val cVar = compile(child)
+        if cVar != null then statements += s"$v.appendChild($cVar);"
+        v
+
+      case View.Styled(child, style) =>
+        val css = StyleUtils.styleToCSS(style)
+        if css.isEmpty then compile(child)
+        else
+          val v = freshVar()
+          statements += s"const $v = document.createElement('div'); $v.setAttribute('style', ${jsString(css)});"
+          val cVar = compile(child)
+          if cVar != null then statements += s"$v.appendChild($cVar);"
+          v
+
+      case View.Adaptive(web, _, _, fallback) =>
+        compile(web.getOrElse(fallback))
 
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match

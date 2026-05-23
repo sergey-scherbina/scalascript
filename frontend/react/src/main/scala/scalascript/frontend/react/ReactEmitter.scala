@@ -151,6 +151,41 @@ private[react] object ReactEmitter:
         children.foreach(walk)
       case View.FetchTable(_, _, _, tick) =>
         register(tick)
+      // P2 — new semantic View cases
+      case View.Column(children, _, _, _)     => children.foreach(walk)
+      case View.Row(children, _, _, _)        => children.foreach(walk)
+      case View.Stack(children, _)            => children.foreach(walk)
+      case View.ScrollView(child, _, _)       => walk(child)
+      case View.SafeArea(child, _)            => walk(child)
+      case View.KeyboardAvoiding(child)       => walk(child)
+      case View.Animated(child, _, _)         => walk(child)
+      case View.Styled(child, _)              => walk(child)
+      case View.Adaptive(web, _, _, fallback) =>
+        web.foreach(walk); walk(fallback)
+      case View.LazyList(items, render, _, _) => items().foreach(item => walk(render(item)))
+      case View.LazyGrid(items, render, _, _, _) => items().foreach(item => walk(render(item)))
+      case View.Button(label, action, _, _) =>
+        walkHandler(action); walk(label)
+      case View.TextInput(value, _, _, _, _)  => register(value)
+      case View.Toggle(checked, _, _)         => register(checked)
+      case View.Slider(value, _, _, _, _)     => register(value)
+      case View.Picker(_, selected, _, _)     => register(selected)
+      case View.TabBar(tabs, current, _) =>
+        register(current); tabs.foreach(t => walk(t.content))
+      case View.NavigationStack(routes, current, _) =>
+        register(current); routes.values.foreach(fn => walk(fn()))
+      case View.Sheet(content, isPresented) =>
+        register(isPresented); walk(content)
+      case View.AlertDialog(_, _, _, isPresented) => register(isPresented)
+      case View.Form(child, onSubmit, _)  => walkHandler(onSubmit); walk(child)
+      case View.FormField(_, value, _, _) => register(value)
+      case _ => ()
+    def walkHandler(h: EventHandler): Unit = h match
+      case EventHandler.SetSignalLiteral(sig, _)         => register(sig)
+      case EventHandler.IncrementSignal(sig, _)          => register(sig)
+      case EventHandler.ToggleSignal(sig)                => register(sig)
+      case EventHandler.InputChange(sig)                 => register(sig)
+      case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
       case _ => ()
     walk(view)
     acc
@@ -202,6 +237,23 @@ private[react] object ReactEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) =>
         children.foreach(walk)
+      // P2 — walk new containers for list signals inside them
+      case View.Column(children, _, _, _)     => children.foreach(walk)
+      case View.Row(children, _, _, _)        => children.foreach(walk)
+      case View.Stack(children, _)            => children.foreach(walk)
+      case View.ScrollView(child, _, _)       => walk(child)
+      case View.SafeArea(child, _)            => walk(child)
+      case View.KeyboardAvoiding(child)       => walk(child)
+      case View.Animated(child, _, _)         => walk(child)
+      case View.Styled(child, _)              => walk(child)
+      case View.Adaptive(web, _, _, fallback) => web.foreach(walk); walk(fallback)
+      case View.LazyList(items, render, _, _)    => items().foreach(item => walk(render(item)))
+      case View.LazyGrid(items, render, _, _, _) => items().foreach(item => walk(render(item)))
+      case View.Button(label, _, _, _)        => walk(label)
+      case View.TabBar(tabs, _, _)            => tabs.foreach(t => walk(t.content))
+      case View.NavigationStack(routes, _, _) => routes.values.foreach(fn => walk(fn()))
+      case View.Sheet(content, _)             => walk(content)
+      case View.Form(child, _, _)             => walk(child)
       case _ => ()
     walk(view)
     acc
@@ -413,10 +465,232 @@ private[react] object ReactEmitter:
         s"h('thead', { style: $theadStyle }, h('tr', null, h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, ''))), " +
         s"h('tbody', null, $rowFn))"
 
-    case v: View[?] =>
-      // Cross-platform View cases (Column, Row, Text, Button, etc.) are not yet
-      // rendered by web backends — that is P2 work.  Emit an error comment.
-      s"/* [unsupported on web in P1: ${v.getClass.getSimpleName}] */"
+    // ── P2 semantic View cases ─────────────────────────────────────────────────
+
+    case View.Column(children, spacing, align, style) =>
+      val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base   = s"display: flex; flex-direction: column; align-items: ${StyleUtils.hAlignToCSS(align)}$gapCss"
+      val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
+      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      if kids.isEmpty then s"h('div', { style: $styleObj })"
+      else s"h('div', { style: $styleObj }, $kids)"
+
+    case View.Row(children, spacing, align, style) =>
+      val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base   = s"display: flex; flex-direction: row; align-items: ${StyleUtils.vAlignToCSS(align)}$gapCss"
+      val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
+      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      if kids.isEmpty then s"h('div', { style: $styleObj })"
+      else s"h('div', { style: $styleObj }, $kids)"
+
+    case View.Stack(children, style) =>
+      val base   = "position: relative"
+      val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
+      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      if kids.isEmpty then s"h('div', { style: $styleObj })"
+      else s"h('div', { style: $styleObj }, $kids)"
+
+    case View.ScrollView(child, axis, style) =>
+      val base = axis match
+        case Axis.Horizontal => "overflow-x: auto; overflow-y: hidden"
+        case Axis.Vertical   => "overflow-y: auto; overflow-x: hidden"
+        case Axis.Both       => "overflow: auto"
+      val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
+      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx)})"
+
+    case View.Spacer(size) =>
+      val css = size match
+        case Some(px) => s"width: ${px}px; height: ${px}px; flex-shrink: 0"
+        case None     => "flex: 1; align-self: stretch"
+      s"h('div', { style: ${cssStringToReactObject(css)} })"
+
+    case View.Divider(axis, style) =>
+      val base = axis match
+        case Axis.Vertical   => "width: 1px; height: 100%; background: currentColor; opacity: 0.2; flex-shrink: 0"
+        case _               => "width: 100%; height: 1px; background: currentColor; opacity: 0.2; flex-shrink: 0"
+      val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
+      s"h('div', { 'role': 'separator', style: $styleObj })"
+
+    case View.Text(content, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
+      s"h('span', { ${styleField.dropWhile(_ == ',').trim} }, ${jsString(content())})"
+
+    case View.Image(source, style) =>
+      val src = source match
+        case ImageSource.Url(href)            => jsString(href)
+        case ImageSource.Asset(name)          => jsString(s"/assets/$name")
+        case ImageSource.Base64(data, mime)   => jsString(s"data:$mime;base64,$data")
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
+      s"h('img', { 'src': $src$styleField })"
+
+    case View.Icon(name, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
+      s"h('span', { 'aria-hidden': 'true', 'data-icon': ${jsString(name)}$styleField }, ${jsString(name)})"
+
+    case View.Button(label, action, enabled, style) =>
+      val base = "cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: none; padding: 6px 16px; border-radius: 4px"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj  = cssStringToReactObject(css)
+      val onClickJs = eventHandlerJs("click", action, itemCtx)
+      val disabledJs = if !enabled() then ", 'disabled': true" else ""
+      val clickField = onClickJs.map(f => s", $f").getOrElse("")
+      s"h('button', { style: $styleObj$clickField$disabledJs }, ${renderView(label, itemCtx)})"
+
+    case View.TextInput(value, placeholder, multiline, secure, style) =>
+      val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj = cssStringToReactObject(css)
+      val setter   = setterName(value.id)
+      if multiline then
+        s"h('textarea', { style: $styleObj, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value), 'placeholder': ${jsString(placeholder)} })"
+      else
+        val typeAttr = if secure then "'type': 'password'" else "'type': 'text'"
+        s"h('input', { style: $styleObj, $typeAttr, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value), 'placeholder': ${jsString(placeholder)} })"
+
+    case View.Toggle(checked, label, style) =>
+      val base = "display: inline-flex; align-items: center; gap: 6px; cursor: pointer"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj = cssStringToReactObject(css)
+      val setter   = setterName(checked.id)
+      val labelJs  = if label.isEmpty then "" else s", ${jsString(label)}"
+      s"h('label', { style: $styleObj }, h('input', { 'type': 'checkbox', 'checked': ${checked.id}, 'onChange': () => $setter(c => !c) })$labelJs)"
+
+    case View.Slider(value, min, max, step, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
+      val setter     = setterName(value.id)
+      s"h('input', { 'type': 'range', 'min': $min, 'max': $max, 'step': $step, 'value': ${value.id}, 'onChange': (e) => $setter(Number(e.target.value))$styleField })"
+
+    case View.Picker(options, selected, placeholder, style) =>
+      val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj  = cssStringToReactObject(css)
+      val setter    = setterName(selected.id)
+      val opts      = options.map { (lbl, v) =>
+        val vJs = try jsLiteral(v) catch { case _: Throwable => jsString(String.valueOf(v)) }
+        s"h('option', { 'value': $vJs }, ${jsString(lbl)})"
+      }
+      val phOpt = if placeholder.nonEmpty then
+        s"h('option', { 'value': '', 'disabled': true, 'hidden': true }, ${jsString(placeholder)})" +: opts
+      else opts
+      s"h('select', { style: $styleObj, 'value': ${selected.id}, 'onChange': (e) => $setter(e.target.value) }, ${phOpt.mkString(", ")})"
+
+    case View.LazyList(items, render, _, style) =>
+      val base = "overflow-y: auto"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj = cssStringToReactObject(css)
+      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      s"h('div', { style: $styleObj }, $kids)"
+
+    case View.LazyGrid(items, render, columns, spacing, style) =>
+      val colsCss = StyleUtils.gridColumnsToCSS(columns)
+      val gapCss  = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base    = s"display: grid; grid-template-columns: $colsCss$gapCss"
+      val css     = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj = cssStringToReactObject(css)
+      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      s"h('div', { style: $styleObj }, $kids)"
+
+    case View.TabBar(tabs, current, style) =>
+      val base     = StyleUtils.styleToCSS(style)
+      val outerObj = if base.isEmpty then "null" else cssStringToReactObject(base)
+      val headerObj = cssStringToReactObject("display: flex; border-bottom: 1px solid #e5e7eb; margin-bottom: 8px")
+      val tabHeaders = tabs.zipWithIndex.map { (tab, i) =>
+        val activeBase  = "cursor: pointer; padding: 8px 16px; border: none; background: transparent; font-family: inherit; font-size: inherit; border-bottom: 2px solid"
+        s"h('button', { style: ${current.id} === $i ? ${cssStringToReactObject(s"$activeBase #3b82f6; font-weight: bold")} : ${cssStringToReactObject(s"$activeBase transparent")}, 'onClick': () => ${setterName(current.id)}($i) }, ${jsString(tab.label)})"
+      }.mkString(", ")
+      val tabContents = tabs.zipWithIndex.map { (tab, i) =>
+        s"${current.id} === $i ? ${renderView(tab.content, itemCtx)} : null"
+      }.mkString(", ")
+      s"h('div', { style: $outerObj }, h('div', { style: $headerObj }, $tabHeaders), $tabContents)"
+
+    case View.NavigationStack(routes, current, style) =>
+      val base     = StyleUtils.styleToCSS(style)
+      val outerObj = if base.isEmpty then "null" else cssStringToReactObject(base)
+      val branches = routes.toList.map { (key, fn) =>
+        s"${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx)} : null"
+      }.mkString(", ")
+      s"h('div', { style: $outerObj }, $branches)"
+
+    case View.Sheet(content, isPresented) =>
+      val overlayObj  = cssStringToReactObject("position: fixed; bottom: 0; left: 0; right: 0; background: #fff; box-shadow: 0 -4px 12px rgba(0,0,0,0.15); border-radius: 12px 12px 0 0; padding: 16px; z-index: 1000")
+      val backdropObj = cssStringToReactObject("position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999")
+      val setter      = setterName(isPresented.id)
+      s"${isPresented.id} ? h('div', null, h('div', { style: $backdropObj, 'onClick': () => $setter(false) }), h('div', { style: $overlayObj }, ${renderView(content, itemCtx)})) : null"
+
+    case View.AlertDialog(title, message, buttons, isPresented) =>
+      val dialogObj   = cssStringToReactObject("position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.2); z-index: 1001; min-width: 300px")
+      val backdropObj = cssStringToReactObject("position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000")
+      val setter      = setterName(isPresented.id)
+      val btnObjDefault     = cssStringToReactObject("background: #3b82f6; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit")
+      val btnObjDestructive = cssStringToReactObject("background: #ef4444; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit")
+      val btnsJs = buttons.map { btn =>
+        val obj = if btn.role == ButtonRole.Destructive then btnObjDestructive else btnObjDefault
+        s"h('button', { style: $obj, 'onClick': () => $setter(false) }, ${jsString(btn.label)})"
+      }.mkString(", ")
+      val btnRowObj = cssStringToReactObject("display: flex; gap: 8px; margin-top: 16px")
+      s"${isPresented.id} ? h('div', null, h('div', { style: $backdropObj }), h('div', { style: $dialogObj }, h('h3', null, ${jsString(title)}), h('p', null, ${jsString(message)}), h('div', { style: $btnRowObj }, $btnsJs))) : null"
+
+    case View.Form(child, onSubmit, style) =>
+      val handlerBody = onSubmit match
+        case EventHandler.SetSignalLiteral(sig, v) => s"${setterName(sig.id)}(${jsLiteral(v)})"
+        case EventHandler.IncrementSignal(sig, by) => s"${setterName(sig.id)}(c => c + $by)"
+        case EventHandler.ToggleSignal(sig)        => s"${setterName(sig.id)}(c => !c)"
+        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
+          val setTick = setterName(tick.id)
+          val clear   = if clearBody then s" ${setterName(body.id)}('');" else ""
+          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: ${body.id}}).then(r => r.text()).then(_ => { $setTick(t => t + 1);$clear })"
+        case _ => ""
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
+      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }$styleField }, ${renderView(child, itemCtx)})"
+
+    case View.FormField(label, value, validate, style) =>
+      val currentVal = value()
+      val errorMsg   = try validate(currentVal.asInstanceOf[Nothing]) catch { case _: Throwable => None }
+      val inputType  = currentVal match
+        case _: Int | _: Double | _: Long | _: Float => "'number'"
+        case _: Boolean                               => "'checkbox'"
+        case _                                        => "'text'"
+      val setter     = setterName(value.id)
+      val labelObj   = cssStringToReactObject("display: block; margin-bottom: 4px; font-size: 0.875em; font-weight: 500")
+      val inputBase  = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; width: 100%; box-sizing: border-box; font-size: inherit; font-family: inherit"
+      val inputCss   = StyleUtils.mergeCSS(inputBase, StyleUtils.styleToCSS(style))
+      val inputObj   = cssStringToReactObject(inputCss)
+      val errorJs    = errorMsg.map { msg =>
+        s", h('span', { style: ${cssStringToReactObject("color: #ef4444; font-size: 0.75em; display: block; margin-top: 2px")} }, ${jsString(msg)})"
+      }.getOrElse("")
+      s"h('label', { style: $labelObj }, ${jsString(label)}, h('input', { 'type': $inputType, style: $inputObj, 'value': ${value.id}, 'onChange': (e) => $setter(e.target.value) })$errorJs)"
+
+    case View.SafeArea(child, edges) =>
+      val top    = if edges.contains(Edge.Top)      then "env(safe-area-inset-top, 0)" else "0"
+      val right  = if edges.contains(Edge.Trailing) then "env(safe-area-inset-right, 0)" else "0"
+      val bottom = if edges.contains(Edge.Bottom)   then "env(safe-area-inset-bottom, 0)" else "0"
+      val left   = if edges.contains(Edge.Leading)  then "env(safe-area-inset-left, 0)" else "0"
+      val css    = s"padding-top: $top; padding-right: $right; padding-bottom: $bottom; padding-left: $left"
+      s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx)})"
+
+    case View.KeyboardAvoiding(child) =>
+      renderView(child, itemCtx)
+
+    case View.Animated(child, transition, style) =>
+      val dur    = transition.duration.toLong
+      val delay  = if transition.delay > 0 then s" ${transition.delay.toLong}ms" else ""
+      val base   = s"transition: all ${dur}ms ${StyleUtils.curveToCSS(transition.curve)}$delay"
+      val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val styleObj = cssStringToReactObject(css)
+      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx)})"
+
+    case View.Styled(child, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      if css.isEmpty then renderView(child, itemCtx)
+      else s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx)})"
+
+    case View.Adaptive(web, _, _, fallback) =>
+      renderView(web.getOrElse(fallback), itemCtx)
 
   /** Props object — combines attributes + event handlers into the
    *  single second argument of `React.createElement`.  When

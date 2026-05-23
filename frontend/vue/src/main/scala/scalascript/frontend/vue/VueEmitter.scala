@@ -128,6 +128,38 @@ private[vue] object VueEmitter:
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
       case View.Portal(_, children) => children.foreach(walk)
       case View.FetchTable(_, _, _, tick) => register(tick)
+      // P2
+      case View.Column(children, _, _, _)     => children.foreach(walk)
+      case View.Row(children, _, _, _)        => children.foreach(walk)
+      case View.Stack(children, _)            => children.foreach(walk)
+      case View.ScrollView(child, _, _)       => walk(child)
+      case View.SafeArea(child, _)            => walk(child)
+      case View.KeyboardAvoiding(child)       => walk(child)
+      case View.Animated(child, _, _)         => walk(child)
+      case View.Styled(child, _)              => walk(child)
+      case View.Adaptive(web, _, _, fallback) => web.foreach(walk); walk(fallback)
+      case View.LazyList(items, render, _, _)    => items().foreach(item => walk(render(item)))
+      case View.LazyGrid(items, render, _, _, _) => items().foreach(item => walk(render(item)))
+      case View.Button(label, action, _, _)   => walkHandler(action); walk(label)
+      case View.TextInput(value, _, _, _, _)  => register(value)
+      case View.Toggle(checked, _, _)         => register(checked)
+      case View.Slider(value, _, _, _, _)     => register(value)
+      case View.Picker(_, selected, _, _)     => register(selected)
+      case View.TabBar(tabs, current, _) =>
+        register(current); tabs.foreach(t => walk(t.content))
+      case View.NavigationStack(routes, current, _) =>
+        register(current); routes.values.foreach(fn => walk(fn()))
+      case View.Sheet(content, isPresented)       => register(isPresented); walk(content)
+      case View.AlertDialog(_, _, _, isPresented) => register(isPresented)
+      case View.Form(child, onSubmit, _)  => walkHandler(onSubmit); walk(child)
+      case View.FormField(_, value, _, _) => register(value)
+      case _ => ()
+    def walkHandler(h: EventHandler): Unit = h match
+      case EventHandler.SetSignalLiteral(sig, _)         => register(sig)
+      case EventHandler.IncrementSignal(sig, _)          => register(sig)
+      case EventHandler.ToggleSignal(sig)                => register(sig)
+      case EventHandler.InputChange(sig)                 => register(sig)
+      case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
       case _ => ()
     walk(view)
     acc
@@ -344,8 +376,213 @@ private[vue] object VueEmitter:
         s"h('thead', { style: $theadStyle }, [h('tr', null, [h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, '')])]), " +
         s"h('tbody', null, $rowFn)])"
 
-    case v: View[?] =>
-      s"/* [unsupported on web in P1: ${v.getClass.getSimpleName}] */"
+    // ── P2 semantic View cases ─────────────────────────────────────────────────
+    // Vue h() children must be in an array; style prop accepts CSS string.
+
+    case View.Column(children, spacing, align, style) =>
+      val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base   = s"display: flex; flex-direction: column; align-items: ${StyleUtils.hAlignToCSS(align)}$gapCss"
+      val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val kids   = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      s"h('div', { style: ${jsString(css)} }, [$kids])"
+
+    case View.Row(children, spacing, align, style) =>
+      val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base   = s"display: flex; flex-direction: row; align-items: ${StyleUtils.vAlignToCSS(align)}$gapCss"
+      val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val kids   = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      s"h('div', { style: ${jsString(css)} }, [$kids])"
+
+    case View.Stack(children, style) =>
+      val css  = StyleUtils.mergeCSS("position: relative", StyleUtils.styleToCSS(style))
+      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      s"h('div', { style: ${jsString(css)} }, [$kids])"
+
+    case View.ScrollView(child, axis, style) =>
+      val base = axis match
+        case Axis.Horizontal => "overflow-x: auto; overflow-y: hidden"
+        case Axis.Vertical   => "overflow-y: auto; overflow-x: hidden"
+        case Axis.Both       => "overflow: auto"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+
+    case View.Spacer(size) =>
+      val css = size match
+        case Some(px) => s"width: ${px}px; height: ${px}px; flex-shrink: 0"
+        case None     => "flex: 1; align-self: stretch"
+      s"h('div', { style: ${jsString(css)} })"
+
+    case View.Divider(axis, style) =>
+      val base = axis match
+        case Axis.Vertical => "width: 1px; height: 100%; background: currentColor; opacity: 0.2; flex-shrink: 0"
+        case _             => "width: 100%; height: 1px; background: currentColor; opacity: 0.2; flex-shrink: 0"
+      val css = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      s"h('div', { role: 'separator', style: ${jsString(css)} })"
+
+    case View.Text(content, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "null" else s"{ style: ${jsString(css)} }"
+      s"h('span', $styleField, ${jsString(content())})"
+
+    case View.Image(source, style) =>
+      val src = source match
+        case ImageSource.Url(href)           => jsString(href)
+        case ImageSource.Asset(name)         => jsString(s"/assets/$name")
+        case ImageSource.Base64(data, mime)  => jsString(s"data:$mime;base64,$data")
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${jsString(css)}"
+      s"h('img', { 'src': $src$styleField })"
+
+    case View.Icon(name, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${jsString(css)}"
+      s"h('span', { 'aria-hidden': 'true', 'data-icon': ${jsString(name)}$styleField }, ${jsString(name)})"
+
+    case View.Button(label, action, enabled, style) =>
+      val base = "cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: none; padding: 6px 16px; border-radius: 4px"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val onClickJs = eventHandlerJs("click", action, itemCtx)
+      val disabledField = if !enabled() then ", 'disabled': true" else ""
+      val clickField    = onClickJs.map(f => s", $f").getOrElse("")
+      s"h('button', { style: ${jsString(css)}$clickField$disabledField }, [${renderView(label, itemCtx)}])"
+
+    case View.TextInput(value, placeholder, multiline, secure, style) =>
+      val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      if multiline then
+        s"h('textarea', { style: ${jsString(css)}, 'value': this.${value.id}, 'onInput': (e) => { this.${value.id} = e.target.value; }, 'placeholder': ${jsString(placeholder)} })"
+      else
+        val typeAttr = if secure then "'type': 'password'" else "'type': 'text'"
+        s"h('input', { style: ${jsString(css)}, $typeAttr, 'value': this.${value.id}, 'onInput': (e) => { this.${value.id} = e.target.value; }, 'placeholder': ${jsString(placeholder)} })"
+
+    case View.Toggle(checked, label, style) =>
+      val base = "display: inline-flex; align-items: center; gap: 6px; cursor: pointer"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val labelJs = if label.isEmpty then "" else s", ${jsString(label)}"
+      s"h('label', { style: ${jsString(css)} }, [h('input', { 'type': 'checkbox', 'checked': this.${checked.id}, 'onChange': () => { this.${checked.id} = !this.${checked.id}; } })$labelJs])"
+
+    case View.Slider(value, min, max, step, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "" else s", style: ${jsString(css)}"
+      s"h('input', { 'type': 'range', 'min': $min, 'max': $max, 'step': $step, 'value': this.${value.id}, 'onInput': (e) => { this.${value.id} = Number(e.target.value); }$styleField })"
+
+    case View.Picker(options, selected, placeholder, style) =>
+      val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
+      val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val opts = options.map { (lbl, v) =>
+        val vJs = try jsLiteral(v) catch { case _: Throwable => jsString(String.valueOf(v)) }
+        s"h('option', { 'value': $vJs }, ${jsString(lbl)})"
+      }
+      val phOpt = if placeholder.nonEmpty then
+        s"h('option', { 'value': '', 'disabled': true, 'hidden': true }, ${jsString(placeholder)})" +: opts
+      else opts
+      s"h('select', { style: ${jsString(css)}, 'value': this.${selected.id}, 'onChange': (e) => { this.${selected.id} = e.target.value; } }, [${phOpt.mkString(", ")}])"
+
+    case View.LazyList(items, render, _, style) =>
+      val css  = StyleUtils.mergeCSS("overflow-y: auto", StyleUtils.styleToCSS(style))
+      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      s"h('div', { style: ${jsString(css)} }, [$kids])"
+
+    case View.LazyGrid(items, render, columns, spacing, style) =>
+      val colsCss = StyleUtils.gridColumnsToCSS(columns)
+      val gapCss  = if spacing > 0 then s"; gap: ${spacing}px" else ""
+      val base    = s"display: grid; grid-template-columns: $colsCss$gapCss"
+      val css     = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      s"h('div', { style: ${jsString(css)} }, [$kids])"
+
+    case View.TabBar(tabs, current, style) =>
+      val outerCss  = StyleUtils.styleToCSS(style)
+      val outerField = if outerCss.isEmpty then "null" else s"{ style: ${jsString(outerCss)} }"
+      val headerCss  = "display: flex; border-bottom: 1px solid #e5e7eb; margin-bottom: 8px"
+      val activeBase  = "cursor: pointer; padding: 8px 16px; border: none; background: transparent; font-family: inherit; font-size: inherit; border-bottom: 2px solid #3b82f6; font-weight: bold"
+      val inactiveBase = "cursor: pointer; padding: 8px 16px; border: none; background: transparent; font-family: inherit; font-size: inherit; border-bottom: 2px solid transparent"
+      val tabHeaders = tabs.zipWithIndex.map { (tab, i) =>
+        val styleProp = s"this.${current.id} === $i ? ${jsString(activeBase)} : ${jsString(inactiveBase)}"
+        s"h('button', { style: $styleProp, 'onClick': () => { this.${current.id} = $i; } }, ${jsString(tab.label)})"
+      }.mkString(", ")
+      val tabContents = tabs.zipWithIndex.map { (tab, i) =>
+        s"this.${current.id} === $i ? ${renderView(tab.content, itemCtx)} : null"
+      }.mkString(", ")
+      s"h('div', $outerField, [h('div', { style: ${jsString(headerCss)} }, [$tabHeaders]), $tabContents])"
+
+    case View.NavigationStack(routes, current, style) =>
+      val outerCss   = StyleUtils.styleToCSS(style)
+      val outerField = if outerCss.isEmpty then "null" else s"{ style: ${jsString(outerCss)} }"
+      val branches   = routes.toList.map { (key, fn) =>
+        s"this.${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx)} : null"
+      }.mkString(", ")
+      s"h('div', $outerField, [$branches])"
+
+    case View.Sheet(content, isPresented) =>
+      val overlayCss  = "position: fixed; bottom: 0; left: 0; right: 0; background: #fff; box-shadow: 0 -4px 12px rgba(0,0,0,0.15); border-radius: 12px 12px 0 0; padding: 16px; z-index: 1000"
+      val backdropCss = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999"
+      s"this.${isPresented.id} ? h('div', null, [h('div', { style: ${jsString(backdropCss)}, 'onClick': () => { this.${isPresented.id} = false; } }), h('div', { style: ${jsString(overlayCss)} }, [${renderView(content, itemCtx)}])]) : null"
+
+    case View.AlertDialog(title, message, buttons, isPresented) =>
+      val dialogCss   = "position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.2); z-index: 1001; min-width: 300px"
+      val backdropCss = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000"
+      val btnDefault      = "background: #3b82f6; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit"
+      val btnDestructive  = "background: #ef4444; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: inherit"
+      val btnsJs = buttons.map { btn =>
+        val css = if btn.role == ButtonRole.Destructive then btnDestructive else btnDefault
+        s"h('button', { style: ${jsString(css)}, 'onClick': () => { this.${isPresented.id} = false; } }, ${jsString(btn.label)})"
+      }.mkString(", ")
+      val btnRowCss = "display: flex; gap: 8px; margin-top: 16px"
+      s"this.${isPresented.id} ? h('div', null, [h('div', { style: ${jsString(backdropCss)} }), h('div', { style: ${jsString(dialogCss)} }, [h('h3', null, ${jsString(title)}), h('p', null, ${jsString(message)}), h('div', { style: ${jsString(btnRowCss)} }, [$btnsJs])])]) : null"
+
+    case View.Form(child, onSubmit, style) =>
+      val handlerBody = onSubmit match
+        case EventHandler.SetSignalLiteral(sig, v) => s"this.${sig.id} = ${jsLiteral(v)};"
+        case EventHandler.IncrementSignal(sig, by) => s"this.${sig.id} = this.${sig.id} + $by;"
+        case EventHandler.ToggleSignal(sig)        => s"this.${sig.id} = !this.${sig.id};"
+        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
+          val clear = if clearBody then s" this.${body.id} = '';" else ""
+          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: this.${body.id}}).then(r => r.text()).then(_ => { this.${tick.id}++;$clear });"
+        case _ => ""
+      val css = StyleUtils.styleToCSS(style)
+      val styleField = if css.isEmpty then "null" else s"{ style: ${jsString(css)} }"
+      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }, ...($styleField === null ? {} : $styleField) }, [${renderView(child, itemCtx)}])"
+
+    case View.FormField(label, value, validate, style) =>
+      val errorMsg   = try validate(value().asInstanceOf[Nothing]) catch { case _: Throwable => None }
+      val inputType  = value() match
+        case _: Int | _: Double | _: Long | _: Float => "'number'"
+        case _: Boolean                               => "'checkbox'"
+        case _                                        => "'text'"
+      val inputBase  = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; width: 100%; box-sizing: border-box; font-size: inherit; font-family: inherit"
+      val inputCss   = StyleUtils.mergeCSS(inputBase, StyleUtils.styleToCSS(style))
+      val errorJs    = errorMsg.map { msg =>
+        s", h('span', { style: ${jsString("color: #ef4444; font-size: 0.75em; display: block; margin-top: 2px")} }, ${jsString(msg)})"
+      }.getOrElse("")
+      val labelCss   = "display: block; margin-bottom: 4px; font-size: 0.875em; font-weight: 500"
+      s"h('label', { style: ${jsString(labelCss)} }, [${jsString(label)}, h('input', { 'type': $inputType, style: ${jsString(inputCss)}, 'value': this.${value.id}, 'onInput': (e) => { this.${value.id} = e.target.value; } })$errorJs])"
+
+    case View.SafeArea(child, edges) =>
+      val top    = if edges.contains(Edge.Top)      then "env(safe-area-inset-top, 0)" else "0"
+      val right  = if edges.contains(Edge.Trailing) then "env(safe-area-inset-right, 0)" else "0"
+      val bottom = if edges.contains(Edge.Bottom)   then "env(safe-area-inset-bottom, 0)" else "0"
+      val left   = if edges.contains(Edge.Leading)  then "env(safe-area-inset-left, 0)" else "0"
+      val css    = s"padding-top: $top; padding-right: $right; padding-bottom: $bottom; padding-left: $left"
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+
+    case View.KeyboardAvoiding(child) =>
+      renderView(child, itemCtx)
+
+    case View.Animated(child, transition, style) =>
+      val dur    = transition.duration.toLong
+      val delay  = if transition.delay > 0 then s" ${transition.delay.toLong}ms" else ""
+      val base   = s"transition: all ${dur}ms ${StyleUtils.curveToCSS(transition.curve)}$delay"
+      val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+
+    case View.Styled(child, style) =>
+      val css = StyleUtils.styleToCSS(style)
+      if css.isEmpty then renderView(child, itemCtx)
+      else s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+
+    case View.Adaptive(web, _, _, fallback) =>
+      renderView(web.getOrElse(fallback), itemCtx)
 
   private def renderProps(
       attrs:     Map[String, AttrValue],
