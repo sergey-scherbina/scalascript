@@ -18,7 +18,7 @@ class RefPortalE2ETest extends AnyFunSuite:
   test("DomRef + Portal — React useRef + createPortal via emitted JS") {
     assume(nodeAvailable, "node not available")
     val backend = new ReactFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(

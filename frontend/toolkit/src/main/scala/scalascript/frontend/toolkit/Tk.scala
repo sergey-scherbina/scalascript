@@ -20,7 +20,7 @@ import scalascript.frontend.Signal
  *      button("Save", onClick = () => save(name(), agreed()))
  *    ))
  *
- *  // Compile to View via lower(app, Theme.default)
+ *  // Compile to View[?] via lower(app, Theme.default)
  *  ```
  *
  *  `Tk` exists alongside the case-class node constructors because

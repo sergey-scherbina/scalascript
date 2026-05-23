@@ -9,7 +9,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — element with RefBinding emits let + assignment + window exposure") {
     val backend = new CustomFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input",
       Map("ref" -> AttrValue.RefBinding(inputRef), "type" -> AttrValue.Str("text")),
@@ -37,7 +37,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — bad jsName rejected") {
     val backend = new CustomFrameworkBackend
-    val badRef  = new DomRef("123-bad")
+    val badRef  = new WidgetRef("123-bad")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input", Map("ref" -> AttrValue.RefBinding(badRef)), Map.empty, Seq.empty
     ))
@@ -94,7 +94,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("Refs + Portal compose — refs inside portal still get hoisted") {
     val backend = new CustomFrameworkBackend
-    val modalBtn = new DomRef("modalCloseBtn")
+    val modalBtn = new WidgetRef("modalCloseBtn")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(View.Portal("#modal-root", Seq(

@@ -1,5 +1,6 @@
 package scalascript.frontend.react
 
+import scala.annotation.nowarn
 import scalascript.frontend.*
 
 /** Two-pass emit:
@@ -22,9 +23,10 @@ import scalascript.frontend.*
  *  Pure-expression output is on purpose — React's mental model
  *  is "component is a function from props to a tree."  Imperative
  *  side-effects would be wrong (they'd run during render). */
+@nowarn("cat=deprecation")
 private[react] object ReactEmitter:
 
-  def emit(root: View): String =
+  def emit(root: View[?]): String =
     val signals      = collectSignals(root)
     val lists        = collectLists(root)
     val refs         = collectRefs(root)
@@ -46,8 +48,8 @@ private[react] object ReactEmitter:
     }
     // FetchTable rows state — one useState([]) per table.
     fetchTables.foreach { ft =>
-      val setter = setterName(ft.tableJsName)
-      sb ++= s"    const [${ft.tableJsName}, $setter] = useState([]);\n"
+      val setter = setterName(ft.tableId)
+      sb ++= s"    const [${ft.tableId}, $setter] = useState([]);\n"
     }
     // A6 — each DomRef gets a useRef(null) hoisted at the top of App.
     // Expose on window so imperative user JS can read <name>.current.
@@ -57,16 +59,16 @@ private[react] object ReactEmitter:
     }
     // Fetch signals: mount-fetch + tick-driven re-fetch via useEffect.
     fetchSignals.foreach { fs =>
-      val setter = setterName(fs.jsName)
+      val setter = setterName(fs.id)
       val urlJs  = jsString(fs.fetchUrl)
       sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, []);\n"
-      sb ++= s"    useEffect(() => { if (${fs.tickJsName} > 0) fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, [${fs.tickJsName}]);\n"
+      sb ++= s"    useEffect(() => { if (${fs.tickId} > 0) fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, [${fs.tickId}]);\n"
     }
     // FetchTable: mount-fetch + tick-driven re-fetch, parsed as JSON array.
     fetchTables.foreach { ft =>
-      val setter   = setterName(ft.tableJsName)
+      val setter   = setterName(ft.tableId)
       val urlJs    = jsString(ft.fetchUrl)
-      val tickName = ft.tick.jsName
+      val tickName = ft.tick.id
       sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.json()).then(data => $setter(data)); }, []);\n"
       sb ++= s"    useEffect(() => { if ($tickName > 0) fetch($urlJs).then(r => r.json()).then(data => $setter(data)); }, [$tickName]);\n"
     }
@@ -83,24 +85,24 @@ private[react] object ReactEmitter:
    *  signals.  Returns a LinkedHashMap so emit order is stable
    *  (first occurrence wins for ordering; duplicate names with
    *  different initial values throw). */
-  private def collectSignals(view: View): scala.collection.mutable.LinkedHashMap[String, String] =
+  private def collectSignals(view: View[?]): scala.collection.mutable.LinkedHashMap[String, String] =
     val acc = scala.collection.mutable.LinkedHashMap.empty[String, String]
     def register(signal: ReactiveSignal[?]): Unit =
-      val name = signal.jsName
+      val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignal jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignal id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsLiteral(signal())
       acc.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignal jsName '$name' registered twice with different " +
+            s"ReactiveSignal id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => acc.update(name, initJs)
-    def walk(v: View): Unit = v match
-      case View.SignalText(signal) =>
+    def walk(v: View[?]): Unit = v match
+      case View.SignalText(signal, _) =>
         register(signal)
       case View.Element(_, attrs, events, children) =>
         attrs.values.foreach {
@@ -149,7 +151,7 @@ private[react] object ReactEmitter:
         children.foreach(walk)
       case View.FetchTable(_, _, _, tick) =>
         register(tick)
-      case _: View.TextNode | View.ItemText => ()
+      case _ => ()
     walk(view)
     acc
 
@@ -158,23 +160,23 @@ private[react] object ReactEmitter:
    *  `useState`.  Visits the same View kinds that can carry a list
    *  reference: `ForSignal` itself + the list-mutation events
    *  (Push / Clear) attached to any Element. */
-  private def collectLists(view: View): scala.collection.mutable.LinkedHashMap[String, String] =
+  private def collectLists(view: View[?]): scala.collection.mutable.LinkedHashMap[String, String] =
     val acc = scala.collection.mutable.LinkedHashMap.empty[String, String]
     def register(list: ReactiveSignalList[?]): Unit =
-      val name = list.jsName
+      val name = list.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignalList jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignalList id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsArrayLiteral(list.initial)
       acc.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignalList jsName '$name' registered twice with different " +
+            s"ReactiveSignalList id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => acc.update(name, initJs)
-    def walk(v: View): Unit = v match
+    def walk(v: View[?]): Unit = v match
       case View.ForSignal(list, _, _, itemTemplate) =>
         register(list)
         // Walk the template so RemoveSelfFromList → useState is set up
@@ -200,7 +202,7 @@ private[react] object ReactEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) =>
         children.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
+      case _ => ()
     walk(view)
     acc
 
@@ -208,16 +210,16 @@ private[react] object ReactEmitter:
    *  `jsName` of every `AttrValue.RefBinding` so each becomes a
    *  `useRef(null)` hoisted at the top of App().  LinkedHashSet
    *  preserves first-seen order for deterministic output. */
-  private def collectRefs(view: View): scala.collection.mutable.LinkedHashSet[String] =
+  private def collectRefs(view: View[?]): scala.collection.mutable.LinkedHashSet[String] =
     val acc = scala.collection.mutable.LinkedHashSet.empty[String]
-    def register(ref: DomRef): Unit =
-      val name = ref.jsName
+    def register(ref: WidgetRef): Unit =
+      val name = ref.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"DomRef jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"WidgetRef id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       acc += name
-    def walk(v: View): Unit = v match
+    def walk(v: View[?]): Unit = v match
       case View.Element(_, attrs, _, children) =>
         attrs.values.foreach {
           case AttrValue.RefBinding(ref) => register(ref)
@@ -236,18 +238,18 @@ private[react] object ReactEmitter:
       case View.Portal(_, children) =>
         children.foreach(walk)
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
+      case _ => ()
     walk(view)
     acc
 
   /** Collect all FetchUrlSignal instances reachable from the view tree (stable order). */
-  private def collectFetchSignals(view: View): Seq[FetchUrlSignal] =
+  private def collectFetchSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     def checkSig(sig: ReactiveSignal[?]): Unit = sig match
-      case fs: FetchUrlSignal if !seen.contains(fs.jsName) => seen(fs.jsName) = fs
+      case fs: FetchUrlSignal if !seen.contains(fs.id) => seen(fs.id) = fs
       case _ => ()
-    def walk(v: View): Unit = v match
-      case View.SignalText(sig) => checkSig(sig)
+    def walk(v: View[?]): Unit = v match
+      case View.SignalText(sig, _) => checkSig(sig)
       case View.Element(_, attrs, events, children) =>
         attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
         events.foreach { (_, handler) =>
@@ -267,15 +269,15 @@ private[react] object ReactEmitter:
       case View.ForSignal(_, _, _, itemTemplate)         => itemTemplate.foreach(walk)
       case View.Portal(_, children)                      => children.foreach(walk)
       case View.ComponentInstance(component, props)      => walk(component.render(props.asInstanceOf[Nothing]))
-      case _: View.TextNode | View.ItemText | _: View.FetchTable => ()
+      case _ => ()
     walk(view)
     seen.values.toSeq
 
-  /** Collect all FetchTable instances reachable from the view tree (stable order, by tableJsName). */
-  private def collectFetchTables(view: View): Seq[View.FetchTable] =
+  /** Collect all FetchTable instances reachable from the view tree (stable order, by tableId). */
+  private def collectFetchTables(view: View[?]): Seq[View.FetchTable] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, View.FetchTable]
-    def walk(v: View): Unit = v match
-      case ft: View.FetchTable if !seen.contains(ft.tableJsName) => seen(ft.tableJsName) = ft
+    def walk(v: View[?]): Unit = v match
+      case ft: View.FetchTable if !seen.contains(ft.tableId) => seen(ft.tableId) = ft
       case View.Element(_, _, _, children)                        => children.foreach(walk)
       case View.Fragment(children)                                => children.foreach(walk)
       case View.ShowSignal(_, whenTrue, whenFalse)                => walk(whenTrue); walk(whenFalse)
@@ -296,7 +298,7 @@ private[react] object ReactEmitter:
    *  `EventHandler.RemoveSelfFromList` know they're inside an
    *  iteration and can emit code that references the `item` /
    *  `index` map-callback parameters. */
-  private def renderView(view: View, itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
+  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
     case View.Element(tag, attrs, events, children) =>
       val propsJs    = renderProps(attrs, events, itemCtx)
       val childrenJs = children.map(c => renderView(c, itemCtx)).mkString(", ")
@@ -306,9 +308,9 @@ private[react] object ReactEmitter:
     case View.TextNode(thunk) =>
       jsString(thunk())
 
-    case View.SignalText(signal) =>
+    case View.SignalText(signal, _) =>
       // Direct interpolation — React stringifies numbers / booleans.
-      signal.jsName
+      signal.id
 
     case View.ItemText =>
       // A2e.2 — inside an item template, reference the map-callback
@@ -334,7 +336,7 @@ private[react] object ReactEmitter:
       // Ternary inside render — React re-runs render on useState
       // change, the ternary re-evaluates, reconciliation handles
       // the DOM swap.  Idiomatic React conditional rendering.
-      s"(${cond.jsName} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
+      s"(${cond.id} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
 
     case View.For(items, render) =>
       // Emit a literal array; React handles list rendering.
@@ -364,7 +366,7 @@ private[react] object ReactEmitter:
           }
           val propsParts = "'key': String(item)" :: attrFields.toList
           val propsJs    = s"{ ${propsParts.mkString(", ")} }"
-          s"${list.jsName}.map((item, index) => h($tagJs, $propsJs, String(item)))"
+          s"${list.id}.map((item, index) => h($tagJs, $propsJs, String(item)))"
         case Some(template) =>
           // Inject a `key: String(item)` on the template's root
           // element so React's keyed reconciliation can reuse DOM
@@ -379,7 +381,7 @@ private[react] object ReactEmitter:
               s"h(${jsString(tag)}, $propsJs$tail)"
             case other =>
               renderView(other, Some(list))
-          s"${list.jsName}.map((item, index) => $body)"
+          s"${list.id}.map((item, index) => $body)"
 
     case View.Portal(target, children) =>
       // A6 — ReactDOM.createPortal(child, document.querySelector(target)).
@@ -392,8 +394,8 @@ private[react] object ReactEmitter:
         else s"h(Fragment, null, ${children.map(c => renderView(c, itemCtx)).mkString(", ")})"
       s"ReactDOM.createPortal($childJs, document.querySelector($targetJs))"
 
-    case View.FetchTable(tableJsName, _, deleteUrl, tick) =>
-      val setter       = setterName(tick.jsName)
+    case View.FetchTable(tableId, _, deleteUrl, tick) =>
+      val setter       = setterName(tick.id)
       val delUrlJs     = jsString(deleteUrl)
       val thStyle      = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827', fontSize: 'inherit', fontFamily: 'inherit' }"
       val tdStyle      = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle', fontSize: 'inherit', fontFamily: 'inherit' }"
@@ -401,7 +403,7 @@ private[react] object ReactEmitter:
       val tableStyle   = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'inherit', fontSize: 'inherit' }"
       val theadStyle   = "{ background: '#f9fafb' }"
       val rowFn =
-        s"$tableJsName.map((row, _i) => " +
+        s"$tableId.map((row, _i) => " +
         s"h('tr', { key: row.id }, " +
         s"h('td', { style: $tdStyle }, String(row.text)), " +
         s"h('td', { style: $tdStyle }, " +
@@ -410,6 +412,11 @@ private[react] object ReactEmitter:
       s"h('table', { style: $tableStyle }, " +
         s"h('thead', { style: $theadStyle }, h('tr', null, h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, ''))), " +
         s"h('tbody', null, $rowFn))"
+
+    case v: View[?] =>
+      // Cross-platform View cases (Column, Row, Text, Button, etc.) are not yet
+      // rendered by web backends — that is P2 work.  Emit an error comment.
+      s"/* [unsupported on web in P1: ${v.getClass.getSimpleName}] */"
 
   /** Props object — combines attributes + event handlers into the
    *  single second argument of `React.createElement`.  When
@@ -428,7 +435,7 @@ private[react] object ReactEmitter:
           // A6 — React reserves the `ref` prop; map any RefBinding to it
           // regardless of the attribute key the user picked.  The ref
           // variable is the useRef object hoisted at the top of App().
-          Some(s"'ref': ${ref.jsName}")
+          Some(s"'ref': ${ref.id}")
         case AttrValue.Str(css) if k == "style" =>
           // React requires style as a JS object, not a CSS string.
           Some(s"'style': ${cssStringToReactObject(css)}")
@@ -468,7 +475,7 @@ private[react] object ReactEmitter:
     case AttrValue.Bool(value)       => Some(value.toString)
     case AttrValue.Num(value)        => Some(formatNumber(value))
     case AttrValue.Dynamic(read)     => Some(jsLiteral(read()))
-    case AttrValue.Reactive(signal)  => Some(signal.jsName)
+    case AttrValue.Reactive(signal)  => Some(signal.id)
     case AttrValue.Absent            => None
     case AttrValue.RefBinding(_)     => None  // handled inline in renderProps as the React `ref` prop
 
@@ -486,41 +493,41 @@ private[react] object ReactEmitter:
     val onKey = onProp(eventName)
     handler match
       case EventHandler.SetSignalLiteral(signal, value) =>
-        val setter = setterName(signal.jsName)
+        val setter = setterName(signal.id)
         val v      = jsLiteral(value)
         Some(s"${jsString(onKey)}: () => $setter($v)")
       case EventHandler.IncrementSignal(signal, by) =>
-        val setter = setterName(signal.jsName)
+        val setter = setterName(signal.id)
         // Functional setState — avoids stale-closure read of `count`.
         Some(s"${jsString(onKey)}: () => $setter(c => c + $by)")
       case EventHandler.ToggleSignal(signal) =>
-        val setter = setterName(signal.jsName)
+        val setter = setterName(signal.id)
         Some(s"${jsString(onKey)}: () => $setter(c => !c)")
       case EventHandler.PushSignalLiteral(list, value) =>
-        val setter = setterName(list.jsName)
+        val setter = setterName(list.id)
         val v      = jsLiteral(value)
         // Functional setState — concat into the previous array snapshot
         // so concurrent updates don't lose entries.
         Some(s"${jsString(onKey)}: () => $setter(prev => prev.concat([$v]))")
       case EventHandler.ClearSignalList(list) =>
-        val setter = setterName(list.jsName)
+        val setter = setterName(list.id)
         Some(s"${jsString(onKey)}: () => $setter([])")
       case EventHandler.RemoveSelfFromList(list) =>
         // A2e.2 — only meaningful inside an itemTemplate.  Capture
         // the map-callback `index` in the arrow so each item's
         // handler removes its own slot.
-        if itemCtx.exists(_.jsName == list.jsName) then
-          val setter = setterName(list.jsName)
+        if itemCtx.exists(_.id == list.id) then
+          val setter = setterName(list.id)
           Some(s"${jsString(onKey)}: () => $setter(prev => prev.filter((_, i) => i !== index))")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.InputChange(signal) =>
-        val setter = setterName(signal.jsName)
+        val setter = setterName(signal.id)
         Some(s"'onChange': (e) => $setter(e.target.value)")
       case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
-        val getBody  = body.jsName
-        val setTick  = setterName(tick.jsName)
-        val setBody  = setterName(body.jsName)
+        val getBody  = body.id
+        val setTick  = setterName(tick.id)
+        val setBody  = setterName(body.id)
         val urlJs    = jsString(url)
         val methodJs = jsString(method)
         val clearJs  = if clearBody then s"; $setBody('')" else ""

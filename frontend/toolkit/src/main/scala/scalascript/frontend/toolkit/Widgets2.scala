@@ -5,7 +5,7 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal}
 /** v1.17 — Widgets v2 pack.  A second batch of widgets layered on top
  *  of the Phase B core (`Toolkit.scala`).  Each widget is a plain
  *  `case class extends ToolkitNode` with a companion `object`
- *  exposing a pure `lower(node, theme): View` — same shape as the
+ *  exposing a pure `lower(node, theme): View[?]` — same shape as the
  *  original widgets — wired into `Toolkit.lower` via one `case` per
  *  node type.
  *
@@ -40,7 +40,7 @@ final case class SliderNode(
 ) extends ToolkitNode
 
 object SliderNode:
-  def lower(n: SliderNode, theme: Theme): View =
+  def lower(n: SliderNode, theme: Theme): View[?] =
     val id = s"sl-${System.identityHashCode(n.value).toHexString}"
     val inputStyle =
       s"width: 100%; accent-color: ${theme.colors.primary}; " +
@@ -116,7 +116,7 @@ final case class TabsNode(
 ) extends ToolkitNode
 
 object TabsNode:
-  def lower(n: TabsNode, theme: Theme): View =
+  def lower(n: TabsNode, theme: Theme): View[?] =
     val currentId = n.active()
     // Pick the matching tab; fall through to the first if the active
     // signal references an unknown id.
@@ -128,7 +128,7 @@ object TabsNode:
       s"border-bottom: 1px solid ${theme.colors.border}; " +
       s"margin-bottom: ${theme.spacing.md}px;"
 
-    val tabButtons: Seq[View] = n.tabs.map { tab =>
+    val tabButtons: Seq[View[?]] = n.tabs.map { tab =>
       val isActive = activeEntry.exists(_.id == tab.id)
       val (bg, fg, borderBottom) =
         if isActive then (theme.colors.background, theme.colors.primary, theme.colors.primary)
@@ -167,7 +167,7 @@ object TabsNode:
     val panelStyle =
       s"padding: ${theme.spacing.md}px; " +
       s"background: ${theme.colors.background};"
-    val panelChildren: Seq[View] = activeEntry match
+    val panelChildren: Seq[View[?]] = activeEntry match
       case Some(t) => Seq(Toolkit.lower(t.content, theme))
       case None    => Nil
     val panel = View.Element(
@@ -201,7 +201,7 @@ final case class ModalNode(
 ) extends ToolkitNode
 
 object ModalNode:
-  def lower(n: ModalNode, theme: Theme): View =
+  def lower(n: ModalNode, theme: Theme): View[?] =
     if !n.open() then View.Fragment(Nil)
     else
       val backdropStyle =
@@ -217,7 +217,7 @@ object ModalNode:
         s"min-width: 320px; max-width: 90vw; max-height: 90vh; " +
         s"overflow: auto; color: ${theme.colors.text};"
 
-      val parts = scala.collection.mutable.ArrayBuffer.empty[View]
+      val parts = scala.collection.mutable.ArrayBuffer.empty[View[?]]
       n.title.foreach { t =>
         parts += Toolkit.lower(HeadingNode(3, t), theme)
       }
@@ -286,7 +286,7 @@ final case class DrawerNode(
 ) extends ToolkitNode
 
 object DrawerNode:
-  def lower(n: DrawerNode, theme: Theme): View =
+  def lower(n: DrawerNode, theme: Theme): View[?] =
     if !n.open() then View.Fragment(Nil)
     else
       val backdropStyle =
@@ -354,7 +354,7 @@ object DrawerNode:
 final case class TooltipNode(text: String, child: ToolkitNode) extends ToolkitNode
 
 object TooltipNode:
-  def lower(n: TooltipNode, theme: Theme): View =
+  def lower(n: TooltipNode, theme: Theme): View[?] =
     val wrapStyle = "display: inline-block;"
     View.Element(
       tag      = "span",
@@ -381,7 +381,7 @@ final case class BadgeNode(
 ) extends ToolkitNode
 
 object BadgeNode:
-  def lower(n: BadgeNode, theme: Theme): View =
+  def lower(n: BadgeNode, theme: Theme): View[?] =
     val (bg, fg) = n.variant match
       case BadgeVariant.Default      => (theme.colors.surface,  theme.colors.text)
       case BadgeVariant.Notification => (theme.colors.primary,  theme.colors.onPrimary)
@@ -415,7 +415,7 @@ final case class AvatarNode(
 ) extends ToolkitNode
 
 object AvatarNode:
-  def lower(n: AvatarNode, theme: Theme): View =
+  def lower(n: AvatarNode, theme: Theme): View[?] =
     val side = math.max(n.size, 1)
     val baseStyle =
       s"width: ${side}px; height: ${side}px; " +
@@ -476,7 +476,7 @@ final case class IconNode(
 ) extends ToolkitNode
 
 object IconNode:
-  def lower(n: IconNode, theme: Theme): View =
+  def lower(n: IconNode, theme: Theme): View[?] =
     val sidePx = n.size match
       case WidgetSize.Sm => theme.spacing.md       // ~16
       case WidgetSize.Md => theme.spacing.lg       // ~24
@@ -510,7 +510,7 @@ final case class SpinnerNode(
 ) extends ToolkitNode
 
 object SpinnerNode:
-  def lower(n: SpinnerNode, theme: Theme): View =
+  def lower(n: SpinnerNode, theme: Theme): View[?] =
     val sidePx = n.size match
       case WidgetSize.Sm => theme.spacing.md
       case WidgetSize.Md => theme.spacing.lg
@@ -546,7 +546,7 @@ final case class ProgressNode(
 ) extends ToolkitNode
 
 object ProgressNode:
-  def lower(n: ProgressNode, theme: Theme): View =
+  def lower(n: ProgressNode, theme: Theme): View[?] =
     val id = s"pg-${System.identityHashCode(n.value).toHexString}"
     val progressStyle =
       s"width: 100%; height: ${theme.spacing.sm}px; " +

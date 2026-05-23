@@ -43,16 +43,16 @@ private object FormInputs:
     theme: Theme,
     label: Option[String],
     required: Boolean,
-    input: View,
+    input: View[?],
     error: Option[String]
-  ): View =
+  ): View[?] =
     val labelStyle =
       s"color: ${theme.colors.text}; font-size: ${theme.typography.bodySmall.fontSize}px; " +
       s"display: block; margin-bottom: ${theme.spacing.xs}px; font-weight: 500;"
     val errorStyle =
       s"color: ${theme.colors.danger}; font-size: ${theme.typography.caption.fontSize}px; " +
       s"margin-top: ${theme.spacing.xs}px;"
-    val parts = scala.collection.mutable.ArrayBuffer.empty[View]
+    val parts = scala.collection.mutable.ArrayBuffer.empty[View[?]]
     label.foreach { l =>
       parts += View.Element("label",
         attrs    = Map("for" -> AttrValue.Str(id), "style" -> AttrValue.Str(labelStyle)),
@@ -104,7 +104,7 @@ final case class SelectNode[T](
 ) extends ToolkitNode
 
 object SelectNode:
-  def lower[T](n: SelectNode[T], theme: Theme): View =
+  def lower[T](n: SelectNode[T], theme: Theme): View[?] =
     val id  = s"sl-${System.identityHashCode(n.value).toHexString}"
     val err = FormInputs.readError(n.error)
     val (px, py, fs) = FormInputs.sizing(theme, n.size)
@@ -121,7 +121,7 @@ object SelectNode:
       catch case _: Throwable => ""
 
     // Build the list of option views (incl. the placeholder if any).
-    val optionViews = scala.collection.mutable.ArrayBuffer.empty[View]
+    val optionViews = scala.collection.mutable.ArrayBuffer.empty[View[?]]
     n.placeholder.foreach { p =>
       val selected = currentKey.isEmpty
       val attrs    = scala.collection.mutable.Map[String, AttrValue](
@@ -186,7 +186,7 @@ final case class RadioGroupNode[T](
 ) extends ToolkitNode
 
 object RadioGroupNode:
-  def lower[T](n: RadioGroupNode[T], theme: Theme): View =
+  def lower[T](n: RadioGroupNode[T], theme: Theme): View[?] =
     // One <input type=radio> + <label> pair per option, all sharing a
     // common `name` to make them mutually-exclusive in the browser.
     val groupName = s"rg-${System.identityHashCode(n.value).toHexString}"
@@ -263,7 +263,7 @@ final case class TextareaNode(
 ) extends ToolkitNode
 
 object TextareaNode:
-  def lower(n: TextareaNode, theme: Theme): View =
+  def lower(n: TextareaNode, theme: Theme): View[?] =
     val id  = s"ta-${System.identityHashCode(n.value).toHexString}"
     val err = FormInputs.readError(n.error)
     val (px, py, fs) = FormInputs.sizing(theme, n.size)
@@ -314,7 +314,7 @@ final case class DatePickerNode(
 ) extends ToolkitNode
 
 object DatePickerNode:
-  def lower(n: DatePickerNode, theme: Theme): View =
+  def lower(n: DatePickerNode, theme: Theme): View[?] =
     val id  = s"dp-${System.identityHashCode(n.value).toHexString}"
     val err = FormInputs.readError(n.error)
     val (px, py, fs) = FormInputs.sizing(theme, n.size)
@@ -367,7 +367,7 @@ final case class NumberInputNode(
 ) extends ToolkitNode
 
 object NumberInputNode:
-  def lower(n: NumberInputNode, theme: Theme): View =
+  def lower(n: NumberInputNode, theme: Theme): View[?] =
     val id  = s"ni-${System.identityHashCode(n.value).toHexString}"
     val err = FormInputs.readError(n.error)
     val (px, py, fs) = FormInputs.sizing(theme, n.size)

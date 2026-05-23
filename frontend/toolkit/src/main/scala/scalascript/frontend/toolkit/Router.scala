@@ -45,7 +45,7 @@ final case class RouterNode(
 ) extends ToolkitNode
 
 object RouterNode:
-  def lower(n: RouterNode, theme: Theme): View =
+  def lower(n: RouterNode, theme: Theme): View[?] =
     val path = n.currentPath()
     val matched = n.routes.iterator
       .map(r => Router.pathMatches(r.path, path).map(r -> _))
@@ -65,7 +65,7 @@ final case class LinkNode(
 ) extends ToolkitNode
 
 object LinkNode:
-  def lower(n: LinkNode, theme: Theme): View =
+  def lower(n: LinkNode, theme: Theme): View[?] =
     val attrs = Map[String, AttrValue]("href" -> AttrValue.Str(n.to))
     val events: Map[String, EventHandler] = n.currentPath match
       case Some(sig) =>

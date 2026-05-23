@@ -16,7 +16,7 @@ class RefPortalE2ETest extends AnyFunSuite:
   test("DomRef + Teleport — Vue ref + Teleport via emitted JS") {
     assume(nodeAvailable, "node not available")
     val backend = new VueFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(

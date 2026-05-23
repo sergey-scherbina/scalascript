@@ -1,265 +1,443 @@
 package scalascript.frontend
 
+// ── Reactive primitives ───────────────────────────────────────────────────────
+
 /** Reactive cell — universal primitive across React (`useState`),
- *  Vue (`ref`), Solid (`createSignal`), Svelte (`let`), and the
- *  in-house Custom runtime.  See `docs/frontend-abstract-model.md`.
- *
- *  Backends implement reads as either "snapshot of current value"
- *  (React — re-render on change) or "subscription" (Solid — only
- *  affected DOM nodes update); either way the user-code surface is
- *  the same: `count()` to read, `count := v` (or `count.set(v)`) to
- *  write. */
+ *  Vue (`ref`), Solid (`createSignal`), and the in-house Custom runtime. */
 trait Signal[T]:
-  /** Read the current value AND, if inside a reactive context
-   *  (component render / computed body / effect body), subscribe
-   *  that context to changes of this signal. */
   def apply(): T
-
-  /** Replace the current value, notifying subscribers. */
   def set(value: T): Unit
-
-  /** Apply a function — atomic in implementations that batch. */
   def update(f: T => T): Unit = set(f(apply()))
-
-  /** Syntactic sugar — `signal := 42` is `signal.set(42)`. */
   inline def `:=`(value: T): Unit = set(value)
 
-/** v1.18 / Phase A2b — minimal **reactive** signal cell that
- *  backends can wire to a JS-side observable.  Sits alongside the
- *  abstract `Signal[T]` trait because the trait alone is not enough
- *  for emit-time codegen: emit needs (a) a stable, JS-safe **name**
- *  to refer to the cell across the bundle and (b) the **initial
- *  value** to embed.
+/** Reactive signal with a stable cross-backend identity (`id`) and an
+ *  initial value for codegen embedding.
  *
- *  Naming contract: `jsName` becomes the value-cell variable
- *  (`__sig_<jsName>_value`) and the subscriber-Set
- *  (`__sig_<jsName>_subs`) in the emitted JS.  Names must match
- *  `[A-Za-z_][A-Za-z0-9_]*`; the emitter validates this and throws
- *  if not.  Two `ReactiveSignal`s with the same name collide — one
- *  ID per signal across a module is the user's responsibility.
- *
- *  Phase A2b restricts the value type to a primitive JSON literal
- *  (`String | Int | Long | Double | Boolean`) so the initial value
- *  can be embedded into JS without an `upickle`-style serialiser.
- *  Phase A3+ will broaden once we have a portable encoder. */
-class ReactiveSignal[T](val jsName: String, initial: T) extends Signal[T]:
+ *  The `id` field was named `jsName` in v0.2; renamed to `id` in v0.3
+ *  because it is now the canonical identifier across all backends
+ *  (JS, Kotlin, Swift, Scala Native), not just JavaScript. */
+class ReactiveSignal[T](val id: String, initial: T) extends Signal[T]:
   private var _value: T = initial
   override def apply(): T            = _value
   override def set(value: T): Unit   = _value = value
 
-/** v1.18 / Phase A2e — reactive **list** signal.  Backs
- *  `View.ForSignal` and the list-mutation event handlers
- *  (`PushSignalLiteral`, `ClearSignalList`).  Same naming
- *  contract as `ReactiveSignal`: `jsName` becomes the JS-side
- *  identifier the emitter uses for the list cell + its
- *  subscriber set.
- *
- *  Scope for A2e.1: `T` is restricted to a primitive JSON
- *  literal (`String | Int | Long | Double | Boolean`) so the
- *  initial list can be embedded into JS without a portable
- *  serialiser.  Later phases may widen. */
-final class ReactiveSignalList[T](val jsName: String, val initial: Seq[T])
+/** Reactive list signal.  Backs `View.ForSignal`.
+ *  `id` replaces `jsName` from v0.2 — same naming contract as `ReactiveSignal`. */
+final class ReactiveSignalList[T](val id: String, val initial: Seq[T])
 
-/** Memoised derived value.  Re-derived only when one of the
- *  signals it reads from changes.  Maps to React `useMemo`,
- *  Vue `computed`, Solid `createMemo`, Svelte `$:`. */
+/** Memoised derived value. */
 trait Computed[T]:
-  /** Read the current cached value; subscribes the current
-   *  reactive context the same way `Signal[T].apply` does. */
   def apply(): T
 
-/** A side action triggered when its tracked signals change.
- *  Maps to React `useEffect`, Vue `watchEffect`, Solid
- *  `createEffect`.  May return a cleanup function that runs
- *  before the next re-execution or on `stop()`. */
+/** A side action triggered when its tracked signals change. */
 trait Effect:
-  /** Cancel the effect — runs its current cleanup (if any) and
-   *  unsubscribes from all tracked signals.  Idempotent. */
   def stop(): Unit
 
-/** Tree of UI nodes.  Maps to JSX (React, Solid), templates
- *  (Vue, Svelte), or our own DSL builders. */
-sealed trait View
+// ── Platform ADT ─────────────────────────────────────────────────────────────
 
-object View:
-  /** A real DOM element — `div`, `button`, `span`, ... */
-  final case class Element(
-      tag:      String,
-      attrs:    Map[String, AttrValue],
-      events:   Map[String, EventHandler],
-      children: Seq[View]
-  ) extends View
+enum Platform:
+  case Web
+  case Desktop(os: DesktopOs = DesktopOs.All)
+  case Mobile(os: MobileOs = MobileOs.All)
+  case All
 
-  /** A text node.  `value` is a thunk so backends that support
-   *  fine-grained subscriptions (Solid / Custom) can re-evaluate
-   *  it on signal change without re-rendering the whole parent.
-   *  Pull-based backends (React) call it once per render. */
-  final case class TextNode(value: () => String) extends View
+enum DesktopOs:
+  case MacOS, Windows, Linux, All
 
-  /** v1.18 / Phase A2b — text node whose value is bound to a
-   *  reactive signal.  Any `ReactiveSignal[?]` works — the
-   *  backend stringifies on read (JS `textContent =` coerces
-   *  numbers / booleans automatically).  Use `TextNode` for
-   *  static / snapshot-only text. */
-  final case class SignalText(signal: ReactiveSignal[?]) extends View
+enum MobileOs:
+  case iOS, Android, All
 
-  /** Logical grouping with no DOM wrapper.  Like React `<>...</>`
-   *  or Vue / Solid Fragment. */
-  final case class Fragment(children: Seq[View]) extends View
+enum AppFormat:
+  case WebSpa
+  case ElectronApp
+  case ReactNativeBundle
+  case ComposeMultiplatform
+  case SwiftUIApp
+  case ScalaNativeBinary
+  case GraalVMNativeImage
+  case KotlinAndroidApk
 
-  /** A component invocation.  Backends instantiate the component
-   *  with the props and render its body in their own framework
-   *  semantics. */
-  final case class ComponentInstance[P](
-      component: Component[P],
-      props:     P
-  ) extends View
+enum CompilationBackend:
+  case Js
+  case Jvm
+  case Kotlin
+  case Swift
+  case ScalaNative
 
-  /** Conditional sub-tree — `if (cond()) view else otherView`.
-   *  Backends with fine-grained subscriptions can swap the
-   *  subtree without re-rendering the parent.
-   *
-   *  **Snapshot semantics.**  `cond` is evaluated at emit time;
-   *  subsequent signal changes do NOT swap the rendered subtree.
-   *  Use `ShowSignal` for reactive show/hide. */
-  final case class Show(
-      cond:     () => Boolean,
-      whenTrue: () => View,
-      whenFalse: () => View = () => Fragment(Nil)
-  ) extends View
+// ── Style system ──────────────────────────────────────────────────────────────
 
-  /** v1.18 / Phase A2d — reactive conditional sub-tree.  `cond`
-   *  is a `ReactiveSignal[Boolean]`; backends generate a
-   *  subscription so the subtree swaps whenever the signal
-   *  changes.
-   *
-   *  Lowerings per backend:
-   *    - Custom: subscribe-and-swap via `__ssc_signals[...].subs`
-   *    - React : ternary inside `render()` — useState change
-   *              triggers component re-render
-   *    - Solid : `createEffect` that swaps DOM children
-   *    - Vue   : ternary inside `render()` — proxy change
-   *              triggers component re-render */
-  final case class ShowSignal(
-      cond:      ReactiveSignal[Boolean],
-      whenTrue:  View,
-      whenFalse: View = Fragment(Nil)
-  ) extends View
+final case class EdgeInsets(top: Double, right: Double, bottom: Double, left: Double)
+object EdgeInsets:
+  val zero: EdgeInsets = EdgeInsets(0, 0, 0, 0)
+  def all(v: Double): EdgeInsets = EdgeInsets(v, v, v, v)
+  def symmetric(h: Double, v: Double): EdgeInsets = EdgeInsets(v, h, v, h)
+  def only(top: Double = 0, right: Double = 0, bottom: Double = 0, left: Double = 0): EdgeInsets =
+    EdgeInsets(top, right, bottom, left)
 
-  /** Repeated sub-trees — `items.map(item => view(item))`.  Same
-   *  optimisation opportunity as Show: backends can patch
-   *  insertions / deletions / reorders without full re-render. */
-  final case class For[T](
-      items:  () => Seq[T],
-      render: T => View
-  ) extends View
+enum Dimension:
+  case Auto
+  case Fixed(value: Double)
+  case Fraction(value: Double)
+  case Fill
 
-  /** v1.18 / Phase A2e — reactive **repeated** sub-trees backed
-   *  by a `ReactiveSignalList[T]`.  Backends subscribe to the
-   *  list signal and re-render children when it changes.
-   *
-   *  Scope: each item is rendered as
-   *  `<tag attrs>${String(item)}</tag>` — enough for the canonical
-   *  todo-list demo.  Richer per-item templates (nested elements,
-   *  per-item events) need either compile-time inlining of a
-   *  `T => View` JS template or a runtime view DSL, both of which
-   *  are deferred to a follow-up phase.
-   *
-   *  Lowerings per backend:
-   *    - Custom: wrapper span + subscription that wipes-and-rebuilds
-   *      children on each list change (no keyed reconciliation yet)
-   *    - React : `array.map(item => createElement(tag, { key }, item))`
-   *      inside `render()`; React's diff handles reuse
-   *    - Solid : `createEffect` that wipes-and-rebuilds (no native
-   *      `<For>` because solid-js/h is broken in this project; same
-   *      story as `SignalText`)
-   *    - Vue   : `this.<jsName>.map(item => h(tag, { key }, item))`
-   *      inside `render()` arrow */
-  final case class ForSignal[T](
-      items: ReactiveSignalList[T],
-      tag:   String                  = "li",
-      attrs: Map[String, AttrValue]  = Map.empty,
-      // v1.18 / Phase A2e.2 — optional richer per-item template.
-      // When `None`, the simple `<tag attrs>String(item)</tag>` shape
-      // (A2e) is emitted; when `Some(template)`, the backend walks
-      // the template and replaces every `View.ItemText` /
-      // `EventHandler.RemoveSelfFromList` hole with code that reads
-      // the iteration value / index in the emitted JS.  `tag` + `attrs`
-      // are IGNORED when `itemTemplate` is set — the template's root
-      // element fully determines per-item shape.
-      itemTemplate: Option[View]     = None
-  ) extends View
+enum Align:
+  case Start, Center, End, Stretch, Baseline
+enum HAlign:
+  case Start, Center, End, Stretch
+enum VAlign:
+  case Top, Center, Bottom, Stretch
+enum Axis:
+  case Horizontal, Vertical, Both
+enum ContentFit:
+  case Contain, Cover, Fill, None
+enum Edge:
+  case Top, Bottom, Leading, Trailing
+object Edge:
+  val all: Set[Edge] = Set(Edge.Top, Edge.Bottom, Edge.Leading, Edge.Trailing)
 
-  /** v1.18 / Phase A2e.2 — placeholder for the iteration value
-   *  inside a `ForSignal.itemTemplate`.  Each backend replaces it
-   *  with `String(<iteration-variable>)` when it walks the template
-   *  at emit time.  Outside a `ForSignal` template, this is a static
-   *  empty string (backends emit a literal "" — no runtime error,
-   *  just a no-op so misuse is graceful instead of crashing). */
-  case object ItemText extends View
+enum GridColumns:
+  case Fixed(count: Int)
+  case Adaptive(minWidth: Double)
+  case Fill
 
-  /** v1.18 / Phase A6 — render a subtree into a different DOM
-   *  location instead of the current parent.  Canonical use is
-   *  modal layers, tooltips, toasts — UI that visually belongs
-   *  outside its logical parent's DOM tree.
-   *
-   *  `target` is a DOM selector (`#modal-root`, `body`, ...) — the
-   *  emitter does NOT validate it at compile time; the runtime
-   *  fails loudly if the element is missing.
-   *
-   *  Per-backend lowerings:
-   *    - Custom: `document.querySelector(target).appendChild(...)`
-   *      instead of appending to the local parent (imperative DOM,
-   *      matches Custom's existing style)
-   *    - React : wraps the rendered children in
-   *      `ReactDOM.createPortal(child, document.querySelector(target))`
-   *    - Solid : imperative `document.querySelector(target).appendChild(...)`
-   *      (matches Solid's hand-written-imperative pattern; we don't
-   *      wire `solid-js/web`'s `<Portal>` because it requires JSX)
-   *    - Vue   : `h(Teleport, { to: target }, [...children])` */
-  final case class Portal(target: String, children: Seq[View]) extends View
+enum FontStyle:
+  case Normal, Italic
+enum TextAlign:
+  case Start, Center, End, Justify
+enum TextOverflow:
+  case Clip, Ellipsis
+enum Overflow:
+  case Visible, Hidden, Scroll, Auto
+enum BorderLineStyle:
+  case Solid, Dashed, Dotted, None
+enum TextDecoration:
+  case Underline, Strikethrough, Overline
 
-  /** Reactive table driven by a JSON array endpoint.  React emitter fetches
-   *  `fetchUrl` on mount and on every increment of `tick`, parses the response
-   *  as a JSON array of `{id, text}` objects, and renders a table with a
-   *  per-row Delete button that POSTs `{id}` to `deleteUrl` then re-fetches.
-   *  The rows array is stored in a `useState([])` under `tableJsName`.
-   *  Other backends (Vue, Solid, Custom) render a placeholder. */
-  final case class FetchTable(
-    tableJsName: String,
-    fetchUrl:    String,
-    deleteUrl:   String,
-    tick:        ReactiveSignal[Int]
-  ) extends View
+enum FontWeight:
+  case Thin, ExtraLight, Light, Regular, Medium, SemiBold, Bold, ExtraBold, Black
+  case Custom(value: Int)
 
-/** v1.18 / Phase A6 — a handle on a DOM element that user JS
- *  code can read after mount.  Each backend wires the ref so that
- *  after the element is mounted, the JS-side variable named
- *  `jsName` holds the underlying DOM node.
+enum Cursor:
+  case Default, Pointer, Text, Grab, Grabbing, NotAllowed, Crosshair
+
+enum Color:
+  case Hex(value: String)
+  case Rgb(r: Int, g: Int, b: Int)
+  case Rgba(r: Int, g: Int, b: Int, a: Double)
+  case Named(name: String)
+  /** Cross-platform semantic token — resolves against the ambient Theme.
+   *  Canonical tokens: background, surface, foreground, primary, onPrimary,
+   *  secondary, onSecondary, error, onError, border, muted, accent. */
+  case System(token: String)
+  case Transparent
+
+final case class BorderRadius(topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+object BorderRadius:
+  val zero: BorderRadius = BorderRadius(0, 0, 0, 0)
+  def all(r: Double): BorderRadius = BorderRadius(r, r, r, r)
+
+final case class Shadow(
+  color:   Color,
+  offsetX: Double = 0,
+  offsetY: Double = 4,
+  blur:    Double = 8,
+  spread:  Double = 0
+)
+
+enum Transform:
+  case Rotate(degrees: Double)
+  case Scale(x: Double, y: Double)
+  case Translate(x: Double, y: Double)
+  case SkewX(degrees: Double)
+  case SkewY(degrees: Double)
+
+final case class Transition(
+  curve:    Curve  = Curve.EaseInOut,
+  duration: Double = 300,
+  delay:    Double = 0
+)
+
+enum Curve:
+  case Linear
+  case EaseIn
+  case EaseOut
+  case EaseInOut
+  case Spring(stiffness: Double = 300, damping: Double = 30)
+
+enum SwipeDirection:
+  case Left, Right, Up, Down, Horizontal, Vertical, Any
+
+enum Gesture:
+  case Tap(handler: EventHandler)
+  case LongPress(handler: EventHandler, minDuration: Double = 500)
+  case Swipe(direction: SwipeDirection, handler: EventHandler)
+  case Drag(handler: EventHandler)
+
+enum A11yRole:
+  case Button, Link, Image, Heading, TextField, List, ListItem
+  case Switch, Slider, Tab, TabList, Alert, Dialog, None
+
+enum A11yTrait:
+  case Selected, Disabled, Bold, Italic, Placeholder, SearchField, StartsMediaSession
+
+enum LiveRegion:
+  case Polite, Assertive
+
+final case class A11y(
+  label:      Option[String]     = None,
+  hint:       Option[String]     = None,
+  role:       Option[A11yRole]   = None,
+  traits:     Set[A11yTrait]     = Set.empty,
+  focusable:  Option[Boolean]    = None,
+  focusOrder: Option[Int]        = None,
+  liveRegion: Option[LiveRegion] = None
+)
+
+final case class LayoutStyle(
+  padding:    EdgeInsets        = EdgeInsets.zero,
+  margin:     EdgeInsets        = EdgeInsets.zero,
+  width:      Dimension         = Dimension.Auto,
+  height:     Dimension         = Dimension.Auto,
+  minWidth:   Option[Double]    = None,
+  maxWidth:   Option[Double]    = None,
+  minHeight:  Option[Double]    = None,
+  maxHeight:  Option[Double]    = None,
+  flex:       Option[Double]    = None,
+  flexShrink: Option[Double]    = None,
+  flexBasis:  Option[Dimension] = None,
+  alignSelf:  Option[Align]     = None,
+  gap:        Option[Double]    = None,
+  zIndex:     Option[Int]       = None
+)
+
+final case class TextStyle(
+  fontSize:       Option[Double]      = None,
+  fontWeight:     Option[FontWeight]  = None,
+  fontFamily:     Option[String]      = None,
+  fontStyle:      FontStyle           = FontStyle.Normal,
+  lineHeight:     Option[Double]      = None,
+  letterSpacing:  Option[Double]      = None,
+  textDecoration: Set[TextDecoration] = Set.empty,
+  textAlign:      TextAlign           = TextAlign.Start,
+  textOverflow:   TextOverflow        = TextOverflow.Clip,
+  maxLines:       Option[Int]         = None,
+  foreground:     Option[Color]       = None
+)
+
+final case class DecorationStyle(
+  background:   Option[Color]   = None,
+  borderColor:  Option[Color]   = None,
+  borderWidth:  Option[Double]  = None,
+  borderRadius: BorderRadius    = BorderRadius.zero,
+  borderStyle:  BorderLineStyle = BorderLineStyle.Solid
+)
+
+final case class EffectsStyle(
+  shadow:   Option[Shadow] = None,
+  opacity:  Double         = 1.0,
+  overflow: Overflow       = Overflow.Visible,
+  cursor:   Option[Cursor] = None
+)
+
+final case class Style(
+  layout:     LayoutStyle             = LayoutStyle(),
+  text:       TextStyle               = TextStyle(),
+  decoration: DecorationStyle         = DecorationStyle(),
+  effects:    EffectsStyle            = EffectsStyle(),
+  transform:  List[Transform]         = Nil,
+  animation:  Option[Transition]      = None,
+  gestures:   List[Gesture]           = Nil,
+  a11y:       A11y                    = A11y(),
+  web:        Map[String, String]     = Map.empty,
+  native:     Map[String, String]     = Map.empty
+)
+object Style:
+  val empty: Style = Style()
+
+// ── Supporting View types ─────────────────────────────────────────────────────
+
+final case class Tab(label: String, icon: Option[String], content: View[?])
+enum ButtonRole:
+  case Default, Cancel, Destructive
+final case class AlertButton(label: String, action: () => Unit, role: ButtonRole = ButtonRole.Default)
+
+enum ImageSource:
+  case Url(href: String)
+  case Asset(name: String)
+  case Base64(data: String, mime: String)
+
+// ── View IR ───────────────────────────────────────────────────────────────────
+
+/** Unified View IR.  `A` carries the typed witness for cases that produce
+ *  a value (e.g. `Picker[T]`, `For[T]`); use `View[?]` when the type
+ *  parameter is irrelevant.
  *
- *  Naming contract: `jsName` must match `[A-Za-z_][A-Za-z0-9_]*`
- *  and is the exact identifier used in the emitted JS — pick a
- *  name you'll reference from your imperative JS (focus, measure,
- *  third-party-lib integration, ...).
- *
- *  Per-backend lowerings:
- *    - Custom: emits `let <jsName>;` at top of `mount()` and
- *      assigns `<jsName> = element;` right after `createElement`
- *    - React : emits `const <jsName> = React.useRef(null);`
- *      hoisted at the top of `App()` and passes `ref: <jsName>`
- *      in the element's `createElement` props.  Access the node
- *      via `<jsName>.current` (idiomatic React).
- *    - Solid : same imperative-DOM style as Custom (`let <jsName>;`
- *      + `<jsName> = el;` after createElement) — matches Solid's
- *      hand-written JSX-free output
- *    - Vue   : emits `const <jsName> = ref(null);` in setup() and
- *      passes `ref: <jsName>` in the `h()` props; access via
- *      `<jsName>.value` */
-final class DomRef(val jsName: String)
+ *  Migrated from `sealed trait View` in v0.3.  Call sites that accepted
+ *  `View` should be updated to `View[?]`. */
+enum View[+A]:
 
-/** Attribute value on a DOM element.  String / Boolean / Int for
- *  literals; `() => …` thunks for dynamic interpolation that
- *  participates in the reactivity system. */
+  // ── Layout ─────────────────────────────────────────────────────────────────
+  case Column(children: Seq[View[?]], spacing: Double = 0, align: HAlign = HAlign.Start, style: Style = Style()) extends View[Nothing]
+  case Row(children: Seq[View[?]], spacing: Double = 0, align: VAlign = VAlign.Center, style: Style = Style()) extends View[Nothing]
+  case Stack(children: Seq[View[?]], style: Style = Style()) extends View[Nothing]
+  case ScrollView(child: View[?], axis: Axis = Axis.Vertical, style: Style = Style()) extends View[Nothing]
+  case Spacer(size: Option[Double] = None) extends View[Nothing]
+  case Divider(axis: Axis = Axis.Horizontal, style: Style = Style()) extends View[Nothing]
+
+  // ── Content ─────────────────────────────────────────────────────────────────
+  case Text(content: () => String, style: Style = Style()) extends View[Nothing]
+  case SignalText(signal: ReactiveSignal[?], style: Style = Style()) extends View[Nothing]
+  case Image(source: ImageSource, style: Style = Style()) extends View[Nothing]
+  case Icon(name: String, style: Style = Style()) extends View[Nothing]
+
+  // ── Controls ────────────────────────────────────────────────────────────────
+  case Button(label: View[?], action: EventHandler, enabled: () => Boolean = () => true, style: Style = Style()) extends View[Nothing]
+  case TextInput(value: ReactiveSignal[String], placeholder: String = "", multiline: Boolean = false, secure: Boolean = false, style: Style = Style()) extends View[Nothing]
+  case Toggle(checked: ReactiveSignal[Boolean], label: String = "", style: Style = Style()) extends View[Nothing]
+  case Slider(value: ReactiveSignal[Double], min: Double, max: Double, step: Double = 1.0, style: Style = Style()) extends View[Nothing]
+  case Picker[T](options: Seq[(String, T)], selected: ReactiveSignal[T], placeholder: String = "", style: Style = Style()) extends View[T]
+
+  // ── Virtualized lists ───────────────────────────────────────────────────────
+  case LazyList[T](items: () => Seq[T], render: T => View[?], itemHeight: Option[Double] = None, style: Style = Style()) extends View[T]
+  case LazyGrid[T](items: () => Seq[T], render: T => View[?], columns: GridColumns = GridColumns.Fixed(2), spacing: Double = 8, style: Style = Style()) extends View[T]
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  case TabBar(tabs: Seq[Tab], current: ReactiveSignal[Int], style: Style = Style()) extends View[Nothing]
+  case NavigationStack(routes: Map[String, () => View[?]], current: ReactiveSignal[String], style: Style = Style()) extends View[Nothing]
+
+  // ── Overlays ────────────────────────────────────────────────────────────────
+  case Sheet(content: View[?], isPresented: ReactiveSignal[Boolean]) extends View[Nothing]
+  case AlertDialog(title: String, message: String, buttons: Seq[AlertButton], isPresented: ReactiveSignal[Boolean]) extends View[Nothing]
+
+  // ── Forms ───────────────────────────────────────────────────────────────────
+  case Form(child: View[?], onSubmit: EventHandler, style: Style = Style()) extends View[Nothing]
+  case FormField[T](label: String, value: ReactiveSignal[T], validate: T => Option[String] = (_: T) => None, style: Style = Style()) extends View[T]
+
+  // ── Mobile / platform UX ────────────────────────────────────────────────────
+  case SafeArea(child: View[?], edges: Set[Edge] = Edge.all) extends View[Nothing]
+  case KeyboardAvoiding(child: View[?]) extends View[Nothing]
+
+  // ── Animations ──────────────────────────────────────────────────────────────
+  case Animated(child: View[?], transition: Transition, style: Style = Style()) extends View[Nothing]
+
+  // ── Reactivity ──────────────────────────────────────────────────────────────
+  case Fragment(children: Seq[View[?]]) extends View[Nothing]
+  case ComponentInstance[P](component: Component[P], props: P) extends View[P]
+  case ShowSignal(cond: ReactiveSignal[Boolean], whenTrue: View[?], whenFalse: View[?] = Fragment(Nil)) extends View[Nothing]
+  case Show(cond: () => Boolean, whenTrue: () => View[?], whenFalse: () => View[?] = () => Fragment(Nil)) extends View[Nothing]
+  case ForSignal[T](items: ReactiveSignalList[T], tag: String = "li", attrs: Map[String, AttrValue] = Map.empty, itemTemplate: Option[View[?]] = None) extends View[T]
+  case For[T](items: () => Seq[T], render: T => View[?]) extends View[T]
+  case ItemText extends View[Nothing]
+
+  // ── Style wrapper ───────────────────────────────────────────────────────────
+  case Styled(child: View[?], style: Style) extends View[Nothing]
+
+  // ── Platform-adaptive escape hatch ──────────────────────────────────────────
+  case Adaptive(web: Option[View[?]] = None, desktop: Option[View[?]] = None, mobile: Option[View[?]] = None, fallback: View[?] = Fragment(Nil)) extends View[Nothing]
+
+  // ── Web-only cases ───────────────────────────────────────────────────────────
+  // Codegen contract: using these in a non-web target build emits a compile error.
+
+  /** Raw HTML element.  Compile error on non-web targets. */
+  case Element(tag: String, attrs: Map[String, AttrValue], events: Map[String, EventHandler], children: Seq[View[?]]) extends View[Nothing]
+
+  /** DOM portal.  Compile error on non-web targets. */
+  case Portal(target: String, children: Seq[View[?]]) extends View[Nothing]
+
+  /** Reactive data table backed by a REST endpoint.
+   *  @deprecated Use the `fetchTable` toolkit helper instead; this case will be removed in P2
+   *  when web renderers are updated to handle the new semantic View cases. */
+  @deprecated("Use the fetchTable toolkit helper; View.FetchTable will be removed in P2.", "v0.3")
+  case FetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int]) extends View[Nothing]
+
+  /** Static text node — internal use by web renderers.  Produced by the
+   *  toolkit lowering pass; app code should use `View.Text` instead. */
+  case TextNode(value: () => String) extends View[Nothing]
+
+// ── View modifier DSL ─────────────────────────────────────────────────────────
+
+extension (v: View[?])
+  // Layout
+  def padding(all: Double): View[?]             = styled(s => s.copy(layout = s.layout.copy(padding = EdgeInsets.all(all))))
+  def padding(h: Double, vert: Double): View[?] = styled(s => s.copy(layout = s.layout.copy(padding = EdgeInsets.symmetric(h, vert))))
+  def padding(e: EdgeInsets): View[?]           = styled(s => s.copy(layout = s.layout.copy(padding = e)))
+  def margin(all: Double): View[?]              = styled(s => s.copy(layout = s.layout.copy(margin = EdgeInsets.all(all))))
+  def margin(e: EdgeInsets): View[?]            = styled(s => s.copy(layout = s.layout.copy(margin = e)))
+  def frame(w: Double, h: Double): View[?]      = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fixed(w), height = Dimension.Fixed(h))))
+  def width(d: Dimension): View[?]              = styled(s => s.copy(layout = s.layout.copy(width = d)))
+  def height(d: Dimension): View[?]             = styled(s => s.copy(layout = s.layout.copy(height = d)))
+  def fill: View[?]                             = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fill, height = Dimension.Fill)))
+  def fillWidth: View[?]                        = styled(s => s.copy(layout = s.layout.copy(width = Dimension.Fill)))
+  def fillHeight: View[?]                       = styled(s => s.copy(layout = s.layout.copy(height = Dimension.Fill)))
+  def flex(factor: Double = 1): View[?]         = styled(s => s.copy(layout = s.layout.copy(flex = Some(factor))))
+  def minWidth(v2: Double): View[?]             = styled(s => s.copy(layout = s.layout.copy(minWidth = Some(v2))))
+  def maxWidth(v2: Double): View[?]             = styled(s => s.copy(layout = s.layout.copy(maxWidth = Some(v2))))
+  def zIndex(z: Int): View[?]                   = styled(s => s.copy(layout = s.layout.copy(zIndex = Some(z))))
+
+  // Color
+  def background(c: Color): View[?] = styled(s => s.copy(decoration = s.decoration.copy(background = Some(c))))
+  def foreground(c: Color): View[?] = styled(s => s.copy(text = s.text.copy(foreground = Some(c))))
+
+  // Typography
+  def fontSize(sz: Double): View[?]    = styled(s => s.copy(text = s.text.copy(fontSize = Some(sz))))
+  def fontWeight(w: FontWeight): View[?] = styled(s => s.copy(text = s.text.copy(fontWeight = Some(w))))
+  def bold: View[?]                    = fontWeight(FontWeight.Bold)
+  def light: View[?]                   = fontWeight(FontWeight.Light)
+  def italic: View[?]                  = styled(s => s.copy(text = s.text.copy(fontStyle = FontStyle.Italic)))
+  def underline: View[?]               = styled(s => s.copy(text = s.text.copy(textDecoration = s.text.textDecoration + TextDecoration.Underline)))
+  def strikethrough: View[?]           = styled(s => s.copy(text = s.text.copy(textDecoration = s.text.textDecoration + TextDecoration.Strikethrough)))
+  def textAlign(a: TextAlign): View[?] = styled(s => s.copy(text = s.text.copy(textAlign = a)))
+  def lineLimit(n: Int): View[?]       = styled(s => s.copy(text = s.text.copy(maxLines = Some(n))))
+
+  // Border / shape
+  def border(color: Color, width: Double = 1): View[?] = styled(s => s.copy(decoration = s.decoration.copy(borderColor = Some(color), borderWidth = Some(width))))
+  def cornerRadius(r: Double): View[?]                  = styled(s => s.copy(decoration = s.decoration.copy(borderRadius = BorderRadius.all(r))))
+
+  // Shadow / effects
+  def shadow(sh: Shadow): View[?]                                                         = styled(s => s.copy(effects = s.effects.copy(shadow = Some(sh))))
+  def shadow(blur: Double = 8, color: Color = Color.Rgba(0, 0, 0, 0.15)): View[?]        = styled(s => s.copy(effects = s.effects.copy(shadow = Some(Shadow(color, blur = blur)))))
+  def opacity(v2: Double): View[?]                                                         = styled(s => s.copy(effects = s.effects.copy(opacity = v2)))
+  def clip: View[?]                                                                        = styled(s => s.copy(effects = s.effects.copy(overflow = Overflow.Hidden)))
+
+  // Transform
+  def rotate(deg: Double): View[?]              = appendTransform(Transform.Rotate(deg))
+  def scale(f: Double): View[?]                 = appendTransform(Transform.Scale(f, f))
+  def scale(x: Double, y: Double): View[?]      = appendTransform(Transform.Scale(x, y))
+  def translate(x: Double, y: Double): View[?]  = appendTransform(Transform.Translate(x, y))
+
+  // Animation
+  def animated(t: Transition = Transition()): View[?]                 = styled(_.copy(animation = Some(t)))
+  def transition(t: Transition): View[?] = View.Animated(v, t)
+
+  // Gestures
+  def onTap(h: EventHandler): View[?]                          = gesture(Gesture.Tap(h))
+  def onLongPress(h: EventHandler, ms: Double = 500): View[?]  = gesture(Gesture.LongPress(h, ms))
+  def onSwipe(dir: SwipeDirection, h: EventHandler): View[?]   = gesture(Gesture.Swipe(dir, h))
+
+  // Accessibility
+  def accessibilityLabel(l: String): View[?]  = styled(s => s.copy(a11y = s.a11y.copy(label = Some(l))))
+  def accessibilityHint(h: String): View[?]   = styled(s => s.copy(a11y = s.a11y.copy(hint = Some(h))))
+  def accessibilityRole(r: A11yRole): View[?] = styled(s => s.copy(a11y = s.a11y.copy(role = Some(r))))
+  def focusOrder(n: Int): View[?]             = styled(s => s.copy(a11y = s.a11y.copy(focusOrder = Some(n))))
+
+  // Platform overrides
+  def css(prop: String, value: String): View[?]        = styled(s => s.copy(web = s.web + (prop -> value)))
+  def nativeHint(key: String, value: String): View[?]  = styled(s => s.copy(native = s.native + (key -> value)))
+
+  private def styled(f: Style => Style): View[?] = v match
+    case View.Styled(child, s) => View.Styled(child, f(s))
+    case other                 => View.Styled(other, f(Style()))
+
+  private def appendTransform(t: Transform): View[?] = v match
+    case View.Styled(child, s) => View.Styled(child, s.copy(transform = s.transform :+ t))
+    case other                 => View.Styled(other, Style(transform = List(t)))
+
+  private def gesture(g: Gesture): View[?] = v match
+    case View.Styled(child, s) => View.Styled(child, s.copy(gestures = s.gestures :+ g))
+    case other                 => View.Styled(other, Style(gestures = List(g)))
+
+// ── Attribute values ──────────────────────────────────────────────────────────
+
 sealed trait AttrValue
 object AttrValue:
   final case class Str(value: String)                  extends AttrValue
@@ -267,134 +445,74 @@ object AttrValue:
   final case class Num(value: Double)                  extends AttrValue
   final case class Dynamic[T](read: () => T)           extends AttrValue
   case object Absent                                   extends AttrValue
+  final case class RefBinding(ref: WidgetRef)          extends AttrValue
+  final case class Reactive(signal: ReactiveSignal[?]) extends AttrValue
 
-  /** v1.18 / Phase A6 — bind a `DomRef` to this element.  The
-   *  attribute key is conventionally `"ref"` but the emitter
-   *  doesn't enforce that; only the `RefBinding` shape matters.
-   *  Multiple `RefBinding`s on the same element bind the same
-   *  underlying node to multiple refs (each gets the assignment). */
-  final case class RefBinding(ref: DomRef)             extends AttrValue
+// ── Event handlers ────────────────────────────────────────────────────────────
 
-  /** Reactive attribute — emits the signal's JS variable name so
-   *  React/Vue re-evaluates the prop on every state change.  Use for
-   *  `checked`/`value` bindings that must round-trip with signal state.
-   *  Non-reactive backends fall back to snapshotting the initial value. */
-  final case class Reactive(signal: ReactiveSignal[?])  extends AttrValue
-
-/** An event handler — `() => Unit` for the simple case, with
- *  optional `Event` argument for keyboard / mouse / form events
- *  that need the raw `Event`. */
 sealed trait EventHandler
 object EventHandler:
-  /** Plain `() => Unit`.  By far the common case (e.g. button
-   *  click that bumps a counter). */
-  final case class Simple(action: () => Unit) extends EventHandler
+  final case class Simple(action: () => Unit)                                                                         extends EventHandler
+  final case class WithEvent(action: Any => Unit)                                                                     extends EventHandler
+  final case class SetSignalLiteral(signal: ReactiveSignal[?], value: Any)                                            extends EventHandler
+  final case class IncrementSignal(signal: ReactiveSignal[Int], by: Int = 1)                                          extends EventHandler
+  final case class ToggleSignal(signal: ReactiveSignal[Boolean])                                                      extends EventHandler
+  final case class PushSignalLiteral[T](list: ReactiveSignalList[T], value: T)                                        extends EventHandler
+  final case class ClearSignalList[T](list: ReactiveSignalList[T])                                                    extends EventHandler
+  final case class RemoveSelfFromList[T](list: ReactiveSignalList[T])                                                 extends EventHandler
+  final case class InputChange(signal: ReactiveSignal[String])                                                        extends EventHandler
+  final case class FetchAction(method: String, url: String, body: ReactiveSignal[String],
+                               onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false)                        extends EventHandler
 
-  /** Receives the framework-native event object as `Any` (raw
-   *  pass-through; the user code casts if it needs specific
-   *  fields like `e.target.value`). */
-  final case class WithEvent(action: Any => Unit) extends EventHandler
+// ── Reactive URL signal ───────────────────────────────────────────────────────
 
-  /** v1.18 / Phase A2c — set a reactive signal to a literal
-   *  value on the event.  Translatable to JS: emit generates an
-   *  `addEventListener` that calls `__setSignal(name, value)`.
-   *  The value's runtime type must match one of the backend's
-   *  supported JS-literal types (String / Int / Long / Double /
-   *  Boolean for the custom backend). */
-  final case class SetSignalLiteral(signal: ReactiveSignal[?], value: Any) extends EventHandler
-
-  /** v1.18 / Phase A2c — increment a numeric reactive signal by
-   *  `by` (default 1).  Canonical counter wiring.  Translatable
-   *  to JS: emit generates an `addEventListener` that reads the
-   *  current cell value, adds `by`, and calls `__setSignal`. */
-  final case class IncrementSignal(signal: ReactiveSignal[Int], by: Int = 1) extends EventHandler
-
-  /** v1.18 / Phase A2d — flip a Boolean reactive signal.  Pairs
-   *  with `ShowSignal` for click-to-toggle / show-hide UIs. */
-  final case class ToggleSignal(signal: ReactiveSignal[Boolean]) extends EventHandler
-
-  /** v1.18 / Phase A2e — append a literal value to the end of a
-   *  reactive list signal.  Canonical "add todo" wiring.  Value's
-   *  runtime type must match one of the JS-literal types
-   *  (String / Int / Long / Double / Boolean). */
-  final case class PushSignalLiteral[T](list: ReactiveSignalList[T], value: T) extends EventHandler
-
-  /** v1.18 / Phase A2e — replace a reactive list signal's value
-   *  with the empty list.  Canonical "clear all" wiring. */
-  final case class ClearSignalList[T](list: ReactiveSignalList[T]) extends EventHandler
-
-  /** v1.18 / Phase A2e.2 — remove the current iteration's entry
-   *  from a reactive list.  Only meaningful inside a
-   *  `ForSignal.itemTemplate`; backends use the iteration index
-   *  they're tracking anyway (React `array.map(item, index)`,
-   *  Custom + Solid `let i = 0; for (...) { i++ }`, Vue same).
-   *  Outside an item template the handler emits an inert
-   *  `addEventListener` that does nothing — graceful no-op rather
-   *  than an emit-time crash. */
-  final case class RemoveSelfFromList[T](list: ReactiveSignalList[T]) extends EventHandler
-
-  /** Text-input change handler — keeps a `ReactiveSignal[String]` in sync
-   *  with a text input on every keystroke.
-   *  React emitter: `'onChange': (e) => setter(e.target.value)`.
-   *  Non-React backends treat it as an untranslatable JVM closure. */
-  final case class InputChange(signal: ReactiveSignal[String]) extends EventHandler
-
-  /** REST fetch on click: POST/PUT/DELETE `url` with `body` signal value as request body,
-   *  then increment `onSuccessTick` to trigger dependent `FetchUrlSignal` re-fetches.
-   *  When `clearBody = true`, the body signal is reset to "" after a successful response. */
-  final case class FetchAction(
-    method:        String,
-    url:           String,
-    body:          ReactiveSignal[String],
-    onSuccessTick: ReactiveSignal[Int],
-    clearBody:     Boolean = false
-  ) extends EventHandler
-
-/** Signal backed by a REST GET fetch.  React emitter issues `fetch(fetchUrl)` on mount
- *  and re-fetches whenever the `tickJsName` signal increments. */
+/** Signal backed by a REST GET fetch.
+ *  `id` and `tickId` replace `jsName` / `tickJsName` from v0.2. */
 final class FetchUrlSignal(
-    jsName:         String,
-    val fetchUrl:   String,
-    val tickJsName: String
-) extends ReactiveSignal[String](jsName, "")
+    id2:          String,
+    val fetchUrl: String,
+    val tickId:   String
+) extends ReactiveSignal[String](id2, "")
 
-/** Composable UI unit — a function from props to a View that
- *  may close over signals + effects.  Backends interpret the
- *  body differently:
- *
- *    - React: re-runs on every state change (signals lower to
- *      `useState`; the whole body re-executes).
- *    - Solid: runs ONCE; signal subscriptions wire DOM nodes
- *      directly; the function body doesn't re-execute.
- *    - Vue: similar to React but with proxy-based dep tracking.
- *    - Custom: signal subscriptions trigger fine-grained patches;
- *      function body runs once.
- *
- *  User code is the same across all backends; the semantic
- *  difference of "does my closure see live state or render-time
- *  state" is backend-specific.  See `docs/frontend-abstract-model.md`
- *  "Semantic gotchas" for the honest list. */
+// ── Widget ref (formerly DomRef) ──────────────────────────────────────────────
+
+/** Handle on a rendered element that platform code can access after mount.
+ *  Renamed from `DomRef` in v0.3 — `WidgetRef` is backend-agnostic
+ *  (works on web DOM, Compose, SwiftUI, GTK, etc.). */
+final class WidgetRef(val id: String)
+
+/** Backward-compat alias — `DomRef` is deprecated, use `WidgetRef`. */
+@deprecated("Use WidgetRef instead of DomRef — renamed in v0.3 for cross-backend clarity.", "v0.3")
+type DomRef = WidgetRef
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 trait Component[P]:
-  def render(props: P): View
+  def render(props: P): View[?]
 
-/** Capability flag — used by feature-gating in the lowering pass
- *  + by backends to declare what they support.  Mirrors the
- *  pattern from `scalascript.server.spi.Capability`.
- *
- *  Backends declare via `FrontendFrameworkSpi.capabilities`;
- *  user code that uses an unsupported capability fails at compile
- *  time with a pointer to which backends DO support it. */
+// ── Capabilities ──────────────────────────────────────────────────────────────
+
 enum Capability:
-  /** Universal — every backend supports these. */
+  // Universal — every backend supports these
   case ComponentTree
   case SignalState
   case ComputedDerived
   case EffectLifecycle
-  /** Extensions — most production backends support; Custom may
-   *  approximate. */
+  // Web extensions
   case DomRefs
   case Context
   case Portals
   case Suspense
   case Untrack
   case TwoWayBinding
+  // Platform feature capabilities — on native targets gate manifest permission injection;
+  // on web these are informational only (browser enforces its own permission model).
+  case Camera
+  case Biometrics
+  case PushNotifications
+  case LocalStorage
+  case Geolocation
+  case Haptics
+  case DeepLinks
+  case BackgroundTasks
+  case FileSystem

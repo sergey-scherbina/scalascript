@@ -1,5 +1,6 @@
 package scalascript.frontend.vue
 
+import scala.annotation.nowarn
 import scalascript.frontend.*
 
 /** Two-pass emit (same shape as React / Solid):
@@ -31,9 +32,10 @@ import scalascript.frontend.*
  *  }}}
  *  Note `this.count` not `count.value` — Vue's component proxy
  *  unwraps refs exposed from `setup`. */
+@nowarn("cat=deprecation")
 private[vue] object VueEmitter:
 
-  def emit(root: View): String =
+  def emit(root: View[?]): String =
     val signals     = collectSignals(root)
     val lists       = collectLists(root)
     val refs        = collectRefs(root)
@@ -56,10 +58,10 @@ private[vue] object VueEmitter:
     // FetchTable: one ref([]) per table + initial fetch + watch on the tick signal.
     fetchTables.foreach { ft =>
       val urlJs    = jsString(ft.fetchUrl)
-      val tickName = ft.tick.jsName
-      sb ++= s"    const ${ft.tableJsName} = ref([]);\n"
-      sb ++= s"    fetch($urlJs).then(r => r.json()).then(data => { ${ft.tableJsName}.value = data; });\n"
-      sb ++= s"    watch($tickName, (t) => { if (t > 0) fetch($urlJs).then(r => r.json()).then(data => { ${ft.tableJsName}.value = data; }); });\n"
+      val tickName = ft.tick.id
+      sb ++= s"    const ${ft.tableId} = ref([]);\n"
+      sb ++= s"    fetch($urlJs).then(r => r.json()).then(data => { ${ft.tableId}.value = data; });\n"
+      sb ++= s"    watch($tickName, (t) => { if (t > 0) fetch($urlJs).then(r => r.json()).then(data => { ${ft.tableId}.value = data; }); });\n"
     }
     // A6 — DomRefs lower to setup-level `ref(null)`s.  Vue's template
     // ref system binds the underlying DOM element to the ref's .value
@@ -68,7 +70,7 @@ private[vue] object VueEmitter:
       sb ++= s"    const $name = ref(null);\n"
       sb ++= s"    if (typeof window !== 'undefined') window[${jsString(name)}] = $name;\n"
     }
-    val allNames = signals.keys.toList ++ lists.keys.toList ++ fetchTables.map(_.tableJsName) ++ refs.toList
+    val allNames = signals.keys.toList ++ lists.keys.toList ++ fetchTables.map(_.tableId) ++ refs.toList
     val returned =
       if allNames.isEmpty then "{}"
       else "{ " + allNames.mkString(", ") + " }"
@@ -83,24 +85,24 @@ private[vue] object VueEmitter:
     sb ++= "createApp(App).mount('#app');\n"
     sb.toString
 
-  private def collectSignals(view: View): scala.collection.mutable.LinkedHashMap[String, String] =
+  private def collectSignals(view: View[?]): scala.collection.mutable.LinkedHashMap[String, String] =
     val acc = scala.collection.mutable.LinkedHashMap.empty[String, String]
     def register(signal: ReactiveSignal[?]): Unit =
-      val name = signal.jsName
+      val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignal jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignal id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsLiteral(signal())
       acc.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignal jsName '$name' registered twice with different " +
+            s"ReactiveSignal id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => acc.update(name, initJs)
-    def walk(v: View): Unit = v match
-      case View.SignalText(signal) =>
+    def walk(v: View[?]): Unit = v match
+      case View.SignalText(signal, _) =>
         register(signal)
       case View.Element(_, _, events, children) =>
         events.foreach { (_, handler) =>
@@ -126,14 +128,14 @@ private[vue] object VueEmitter:
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
       case View.Portal(_, children) => children.foreach(walk)
       case View.FetchTable(_, _, _, tick) => register(tick)
-      case _: View.TextNode | View.ItemText => ()
+      case _ => ()
     walk(view)
     acc
 
-  private def collectFetchTables(view: View): Seq[View.FetchTable] =
+  private def collectFetchTables(view: View[?]): Seq[View.FetchTable] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, View.FetchTable]
-    def walk(v: View): Unit = v match
-      case ft: View.FetchTable if !seen.contains(ft.tableJsName) => seen(ft.tableJsName) = ft
+    def walk(v: View[?]): Unit = v match
+      case ft: View.FetchTable if !seen.contains(ft.tableId) => seen(ft.tableId) = ft
       case View.Element(_, _, _, children)               => children.foreach(walk)
       case View.Fragment(children)                       => children.foreach(walk)
       case View.ShowSignal(_, whenTrue, whenFalse)       => walk(whenTrue); walk(whenFalse)
@@ -146,23 +148,23 @@ private[vue] object VueEmitter:
     walk(view)
     seen.values.toSeq
 
-  private def collectLists(view: View): scala.collection.mutable.LinkedHashMap[String, String] =
+  private def collectLists(view: View[?]): scala.collection.mutable.LinkedHashMap[String, String] =
     val acc = scala.collection.mutable.LinkedHashMap.empty[String, String]
     def register(list: ReactiveSignalList[?]): Unit =
-      val name = list.jsName
+      val name = list.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignalList jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignalList id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsArrayLiteral(list.initial)
       acc.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignalList jsName '$name' registered twice with different " +
+            s"ReactiveSignalList id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => acc.update(name, initJs)
-    def walk(v: View): Unit = v match
+    def walk(v: View[?]): Unit = v match
       case View.ForSignal(list, _, _, itemTemplate) =>
         register(list)
         itemTemplate.foreach(walk)
@@ -185,22 +187,22 @@ private[vue] object VueEmitter:
       case View.For(items, render) =>
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
+      case _ => ()
     walk(view)
     acc
 
   /** A6 — DomRef collection.  Each becomes a `ref(null)` in setup()
    *  + a template-ref binding on the element. */
-  private def collectRefs(view: View): scala.collection.mutable.LinkedHashSet[String] =
+  private def collectRefs(view: View[?]): scala.collection.mutable.LinkedHashSet[String] =
     val acc = scala.collection.mutable.LinkedHashSet.empty[String]
-    def register(ref: DomRef): Unit =
-      val name = ref.jsName
+    def register(ref: WidgetRef): Unit =
+      val name = ref.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"DomRef jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"WidgetRef id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       acc += name
-    def walk(v: View): Unit = v match
+    def walk(v: View[?]): Unit = v match
       case View.Element(_, attrs, _, children) =>
         attrs.values.foreach {
           case AttrValue.RefBinding(ref) => register(ref)
@@ -218,7 +220,7 @@ private[vue] object VueEmitter:
         items().foreach(item => walk(render(item)))
       case View.Portal(_, children) => children.foreach(walk)
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
-      case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => ()
+      case _ => ()
     walk(view)
     acc
 
@@ -226,7 +228,7 @@ private[vue] object VueEmitter:
    *  `Teleport` from 'vue'.  Pulling the import in unconditionally
    *  is harmless but `containsPortal` keeps the generated bundle
    *  diff-free for portal-less apps. */
-  private def containsPortal(view: View): Boolean = view match
+  private def containsPortal(view: View[?]): Boolean = view match
     case _: View.Portal => true
     case View.Element(_, _, _, children) => children.exists(containsPortal)
     case View.Fragment(children) => children.exists(containsPortal)
@@ -240,9 +242,9 @@ private[vue] object VueEmitter:
       items().exists(item => containsPortal(render(item)))
     case View.ForSignal(_, _, _, itemTemplate) =>
       itemTemplate.exists(containsPortal)
-    case _: View.SignalText | _: View.TextNode | View.ItemText | _: View.FetchTable => false
+    case _ => false
 
-  private def renderView(view: View, itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
+  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
     case View.Element(tag, attrs, events, children) =>
       val propsJs = renderProps(attrs, events, itemCtx)
       val childrenJs =
@@ -253,9 +255,9 @@ private[vue] object VueEmitter:
     case View.TextNode(thunk) =>
       jsString(thunk())
 
-    case View.SignalText(signal) =>
+    case View.SignalText(signal, _) =>
       // `this.x` — Vue's component proxy auto-unwraps the ref.
-      "this." + signal.jsName
+      "this." + signal.id
 
     case View.ItemText =>
       // A2e.2 — `String(item)` when inside a render-arrow's
@@ -276,7 +278,7 @@ private[vue] object VueEmitter:
     case View.ShowSignal(cond, whenTrue, whenFalse) =>
       // Ternary inside render — Vue re-runs render when the ref
       // (read via proxy) changes; the ternary re-evaluates.
-      s"(this.${cond.jsName} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
+      s"(this.${cond.id} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
 
     case View.For(items, render) =>
       val realised = items().toList
@@ -300,7 +302,7 @@ private[vue] object VueEmitter:
           }
           val propsParts = "'key': String(item)" :: attrFields.toList
           val propsJs    = s"{ ${propsParts.mkString(", ")} }"
-          s"this.${list.jsName}.map((item, index) => h($tagJs, $propsJs, String(item)))"
+          s"this.${list.id}.map((item, index) => h($tagJs, $propsJs, String(item)))"
         case Some(template) =>
           val body = template match
             case View.Element(tag, attrs, events, children) =>
@@ -311,7 +313,7 @@ private[vue] object VueEmitter:
               s"h(${jsString(tag)}, $propsJs$childrenJs)"
             case other =>
               renderView(other, Some(list))
-          s"this.${list.jsName}.map((item, index) => $body)"
+          s"this.${list.id}.map((item, index) => $body)"
 
     case View.Portal(target, children) =>
       // A6 — Vue's Teleport renders its slot content into the DOM
@@ -323,8 +325,8 @@ private[vue] object VueEmitter:
         else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
       s"h(Teleport, { 'to': $targetJs }$childrenJs)"
 
-    case View.FetchTable(tableJsName, _, deleteUrl, tick) =>
-      val tickName   = tick.jsName
+    case View.FetchTable(tableId, _, deleteUrl, tick) =>
+      val tickName   = tick.id
       val delUrlJs   = jsString(deleteUrl)
       val thStyle    = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827' }"
       val tdStyle    = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle' }"
@@ -332,7 +334,7 @@ private[vue] object VueEmitter:
       val tableStyle = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'inherit', fontSize: 'inherit' }"
       val theadStyle = "{ background: '#f9fafb' }"
       val rowFn =
-        s"this.$tableJsName.map((row, _i) => " +
+        s"this.$tableId.map((row, _i) => " +
         s"h('tr', { key: String(row.id) }, [" +
         s"h('td', { style: $tdStyle }, String(row.text)), " +
         s"h('td', { style: $tdStyle }, [" +
@@ -341,6 +343,9 @@ private[vue] object VueEmitter:
       s"h('table', { style: $tableStyle }, [" +
         s"h('thead', { style: $theadStyle }, [h('tr', null, [h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, '')])]), " +
         s"h('tbody', null, $rowFn)])"
+
+    case v: View[?] =>
+      s"/* [unsupported on web in P1: ${v.getClass.getSimpleName}] */"
 
   private def renderProps(
       attrs:     Map[String, AttrValue],
@@ -355,7 +360,7 @@ private[vue] object VueEmitter:
           // object directly.  Vue assigns the DOM element to ref.value
           // after mount; ignore the user-picked attr key since Vue
           // reserves the `ref` name for this binding.
-          Some(s"'ref': ${ref.jsName}")
+          Some(s"'ref': ${ref.id}")
         case _ =>
           attrValueJs(v).map { value =>
             // Vue accepts `class` natively (same as Solid; unlike React).
@@ -374,7 +379,7 @@ private[vue] object VueEmitter:
     case AttrValue.Bool(value)    => Some(value.toString)
     case AttrValue.Num(value)     => Some(formatNumber(value))
     case AttrValue.Dynamic(read)    => Some(jsLiteral(read()))
-    case AttrValue.Reactive(signal) => Some(s"this.${signal.jsName}")
+    case AttrValue.Reactive(signal) => Some(s"this.${signal.id}")
     case AttrValue.Absent           => None
     case AttrValue.RefBinding(_)    => None  // handled inline in renderProps as the Vue `ref` prop
 
@@ -391,31 +396,31 @@ private[vue] object VueEmitter:
     handler match
       case EventHandler.SetSignalLiteral(signal, value) =>
         val v = jsLiteral(value)
-        Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = $v; }")
+        Some(s"${jsString(onKey)}: () => { this.${signal.id} = $v; }")
       case EventHandler.IncrementSignal(signal, by) =>
-        Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = this.${signal.jsName} + $by; }")
+        Some(s"${jsString(onKey)}: () => { this.${signal.id} = this.${signal.id} + $by; }")
       case EventHandler.ToggleSignal(signal) =>
-        Some(s"${jsString(onKey)}: () => { this.${signal.jsName} = !this.${signal.jsName}; }")
+        Some(s"${jsString(onKey)}: () => { this.${signal.id} = !this.${signal.id}; }")
       case EventHandler.PushSignalLiteral(list, value) =>
         val v = jsLiteral(value)
-        Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.concat([$v]); }")
+        Some(s"${jsString(onKey)}: () => { this.${list.id} = this.${list.id}.concat([$v]); }")
       case EventHandler.ClearSignalList(list) =>
-        Some(s"${jsString(onKey)}: () => { this.${list.jsName} = []; }")
+        Some(s"${jsString(onKey)}: () => { this.${list.id} = []; }")
       case EventHandler.RemoveSelfFromList(list) =>
         // A2e.2 — inside an item template, capture the map-callback
         // `index` so the listener filters its own slot out.
-        if itemCtx.exists(_.jsName == list.jsName) then
-          Some(s"${jsString(onKey)}: () => { this.${list.jsName} = this.${list.jsName}.filter((_, i) => i !== index); }")
+        if itemCtx.exists(_.id == list.id) then
+          Some(s"${jsString(onKey)}: () => { this.${list.id} = this.${list.id}.filter((_, i) => i !== index); }")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
         val urlJs    = jsString(url)
         val methodJs = jsString(method)
-        val clearJs  = if clearBody then s" this.${body.jsName} = '';" else ""
-        Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.jsName}})" +
-          s".then(r => r.text()).then(_ => { this.${tick.jsName}++;$clearJs }); }")
+        val clearJs  = if clearBody then s" this.${body.id} = '';" else ""
+        Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.id}})" +
+          s".then(r => r.text()).then(_ => { this.${tick.id}++;$clearJs }); }")
       case EventHandler.InputChange(signal) =>
-        Some(s"'onInput': (e) => { this.${signal.jsName} = e.target.value; }")
+        Some(s"'onInput': (e) => { this.${signal.id} = e.target.value; }")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 

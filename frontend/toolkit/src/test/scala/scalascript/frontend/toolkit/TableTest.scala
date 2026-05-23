@@ -282,20 +282,20 @@ class TableTest extends AnyFunSuite with Matchers:
 
   // ─── helpers ──────────────────────────────────────────────────
 
-  private def extractText(v: View): String = v match
+  private def extractText(v: View[?]): String = v match
     case View.Element(_, _, _, kids)   => kids.map(extractText).mkString
     case View.TextNode(thunk)          =>
       try thunk() catch case _: Throwable => ""
     case _                              => ""
 
   /** Depth-first collect every View.Element with the given tag. */
-  private def collectTags(v: View, tag: String): Seq[View.Element] = v match
+  private def collectTags(v: View[?], tag: String): Seq[View.Element] = v match
     case e @ View.Element(t, _, _, kids) =>
       val here = if t == tag then Seq(e) else Seq.empty
       here ++ kids.flatMap(collectTags(_, tag))
     case _ => Seq.empty
 
-  private def rowKeys(v: View): Seq[String] =
+  private def rowKeys(v: View[?]): Seq[String] =
     val view = v.asInstanceOf[View.Element]
     val tbody = view.children.collectFirst {
       case e: View.Element if e.tag == "tbody" => e
