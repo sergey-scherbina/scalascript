@@ -75,7 +75,11 @@ object ImportResolver:
           // Library fallback: bare paths like `std/actors.ssc` that don't
           // exist relative to the importing file are re-resolved against
           // ssc.std.path (dev: runtime/, installed: same as lib.path).
-          val fromLib = stdPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
+          // Secondary fallback: libPath/runtime/<path> covers the dev-tree
+          // layout (runtime/std/…) when ssc.std.path is not set separately.
+          val fromLib =
+            stdPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
+              .orElse(libPath.map(_ / "runtime" / os.RelPath(pathThroughDep)).filter(os.exists))
           fromLib.getOrElse(
             cacheBackedRelative(pathThroughDep, baseDir, lockPath).getOrElse(local)
           )

@@ -183,6 +183,7 @@ function _call(fn, ...args) {
   if (Array.isArray(fn) || fn instanceof Map) return _dispatch(fn, 'apply', args);
   // v1.5 Tier 5 #22 — `JsonValue` is a plain object with an `apply`
   // method, so `v("key")` and `v(0)` reach into the wrapper.
+  if (fn && fn._type === 'Signal' && typeof fn.apply === 'function') return fn.apply(...args);
   if (fn && fn._type === 'JsonValue' && typeof fn.apply === 'function') return fn.apply(...args);
   throw new Error('not callable: ' + _show(fn));
 }
@@ -3341,6 +3342,32 @@ function _isFree(c) {
 // O(1) — never inspects, just wraps.
 function _bind(c, f) { return new _FlatMap(c, f); }
 
+// Sequence an array of (Free | value); returns either the plain array
+// (when none are Free) or a Free that yields it.
+function _seq(comps) {
+  let anyFree = false;
+  for (let i = 0; i < comps.length; i++) if (_isFree(comps[i])) { anyFree = true; break; }
+  if (!anyFree) return comps;
+  function loop(i, acc) {
+    if (i === comps.length) return acc;
+    return _bind(comps[i], (v) => { acc.push(v); return loop(i + 1, acc); });
+  }
+  return loop(0, []);
+}
+function _seqMap(arr, fn)        { return _seq(arr.map(x => fn(x))); }
+function _seqFlatMap(arr, fn)    {
+  const s = _seqMap(arr, fn);
+  if (_isFree(s)) return _bind(s, (rs) => rs.flat());
+  return s.flat();
+}
+function _seqFilter(arr, fn, neg) {
+  const flags = arr.map(x => fn(x));
+  const seq   = _seq(flags);
+  const pick  = (bs) => arr.filter((_, i) => neg ? !bs[i] : bs[i]);
+  if (_isFree(seq)) return _bind(seq, pick);
+  return pick(seq);
+}
+
 function _perform(eff, op, args) { return new _Perform(eff, op, args); }
 
 // Top-level runner — errors on any unhandled Perform.
@@ -3541,17 +3568,6 @@ function computed(thunk) {
   };
 }
 
-// ── Node.js HTTP serve wrapper ─────────────────────────────────────────────
-// Backwards-compatible: handles both serve(port) and serve(view, port).
-// Browser extern def std.ui.primitives.serve declares serve(view, port);
-// non-frontend scripts call serve(port) directly — both routes work here.
-function serve(treeOrPort, portOrUndef, extraCssOrUndef) {
-  const port     = (typeof treeOrPort === 'number') ? treeOrPort : portOrUndef;
-  const extraCss = (typeof treeOrPort === 'number') ? '' : (extraCssOrUndef || '');
-  if (typeof treeOrPort === 'number') { _ssc_http_serve(port); }
-  else { _ssc_ui_serve(treeOrPort, port, extraCss); }
-}
-
 // ── Node.js stubs for std/ui/primitives.ssc extern defs ───────────────────
 // Provide real implementations for run-js mode so extern def symbols
 // are non-undefined when extracted from std.ui.primitives namespace.
@@ -3573,10 +3589,11 @@ function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get
 function _ssc_ui_hashSignal() { return Signal(''); }
 function _ssc_ui_emit(tree, outDir) {}
 
-// Walk the View IR tree and produce a static HTML string.
-// Reactive nodes (SignalText, ShowSignal, etc.) are rendered with their
-// current / initial values so the page is useful for run-js inspection.
-function _ssc_ui_renderPage(view) {
+// Walk the View IR tree and produce a static HTML string + a Map of signal
+// ids to their current values.  Split from _ssc_ui_renderPage so that the
+// BrowserPatch's serve can call _ssc_ui_mount(sigs) directly — avoiding
+// eval() or DOM <script> injection, both blocked by script-src 'self' CSP.
+function _ssc_ui_renderBody(view) {
   const _esc  = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const _escT = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const sigs  = new Map(); // Signal id -> initial value (collected during walk)
@@ -3647,19 +3664,18 @@ function _ssc_ui_renderPage(view) {
   }
 
   const body = walk(view);
+  return { body, sigs };
+}
 
-  // Serialize initial signal values for the boot script
-  const sigJson = JSON.stringify(Object.fromEntries(sigs));
-
-  const script = `<script>
-(function(){
-  var _sv = ${sigJson};
+// Set up DOM reactivity after _ssc_ui_renderBody has been injected into the
+// page.  Called directly from the BrowserPatch serve (no eval / no DOM script
+// injection) with the sigs Map returned by _ssc_ui_renderBody.
+function _ssc_ui_mount(sigs) {
+  var _sv = {};
+  sigs.forEach(function(v, id) { _sv[String(id)] = v; });
   var _sb = {};
   function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
-  function _set(id, v) {
-    _sv[id] = v;
-    (_sb[id] || []).forEach(function(fn){ fn(v); });
-  }
+  function _set(id, v) { _sv[id] = v; (_sb[id] || []).forEach(function(fn){ fn(v); }); }
   // show/hide branches
   document.querySelectorAll('[data-ssc-cond]').forEach(function(el) {
     var id = el.getAttribute('data-ssc-cond');
@@ -3747,16 +3763,29 @@ function _ssc_ui_renderPage(view) {
     doFetch();
     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
   });
-})();
-</script>`;
+}
 
+// Backward-compat wrapper: walk the view and return { body, script } where
+// script is an inline <script> IIFE — used by _ssc_ui_serve for server-rendered pages.
+function _ssc_ui_renderPage(view) {
+  const { body, sigs } = _ssc_ui_renderBody(view);
+  const sigJson = JSON.stringify(Object.fromEntries(sigs));
+  const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));</script>`;
   return { body, script };
 }
 
-function _ssc_ui_serve(view, port, extraCss) {
+// Handles both serve(port) [port-only] and serve(view, port[, extraCss]).
+// std.ui.primitives.serve extern def routes here; no top-level 'serve'
+// needed — the binding 'const serve = std.ui.primitives.serve' works.
+function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
+  if (typeof treeOrPort === 'number') { _ssc_http_serve(treeOrPort); return; }
+  const view     = treeOrPort;
+  const port     = portOrUndef;
+  const extraCss = extraCssOrUndef || '';
   route('GET', '/')((_req) => {
-    const { body, script } = _ssc_ui_renderPage(view);
-    const extra = extraCss || '';
+    const { body, sigs } = _ssc_ui_renderBody(view);
+    const sigJson = JSON.stringify(Object.fromEntries(sigs));
+    const script = `<script>_ssc_ui_mount(new Map(Object.entries(${sigJson})));</script>`;
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3772,7 +3801,7 @@ hr{border:none;border-top:1px solid #e5e7eb;margin:0}
 [data-ssc-fetch-table] table,[data-ssc-fetch-table] th,[data-ssc-fetch-table] td,[data-ssc-fetch-table] button{font-size:inherit;font-family:inherit}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .ssc-spin{animation:spin 0.8s linear infinite}
-${extra}</style></head><body><div class="ssc-page">${body}</div>${script}</body></html>`;
+${extraCss}</style></head><body><div class="ssc-page">${body}</div>${script}</body></html>`;
     return Response.html(html);
   });
   _ssc_http_serve(port);
@@ -6105,33 +6134,8 @@ function _runStorage(bodyFn, path) {
 // value.  These helpers detect that and stitch the per-element Free
 // values into a single sequenced Free that yields the final array.
 // Pure callbacks pass straight through with no overhead.
-//
-// `_seq(comps)` → sequence an array of (Free | value); returns either
-// the plain array (when none are Free) or a Free that yields it.
-function _seq(comps) {
-  let anyFree = false;
-  for (let i = 0; i < comps.length; i++) if (_isFree(comps[i])) { anyFree = true; break; }
-  if (!anyFree) return comps;
-  function loop(i, acc) {
-    if (i === comps.length) return acc;
-    return _bind(comps[i], (v) => { acc.push(v); return loop(i + 1, acc); });
-  }
-  return loop(0, []);
-}
-
-function _seqMap(arr, fn)        { return _seq(arr.map(x => fn(x))); }
-function _seqFlatMap(arr, fn)    {
-  const s = _seqMap(arr, fn);
-  if (_isFree(s)) return _bind(s, (rs) => rs.flat());
-  return s.flat();
-}
-function _seqFilter(arr, fn, neg) {
-  const flags = arr.map(x => fn(x));
-  const seq   = _seq(flags);
-  const pick  = (bs) => arr.filter((_, i) => neg ? !bs[i] : bs[i]);
-  if (_isFree(seq)) return _bind(seq, pick);
-  return pick(seq);
-}
+// (_seq, _seqMap, _seqFlatMap, _seqFilter are defined in JsRuntimePart2 so
+// they are available in the base runtime too.)
 function _seqForeach(arr, fn) {
   const comps = arr.map(x => fn(x));
   const s     = _seq(comps);
@@ -6680,20 +6684,45 @@ function _spaNavigate(pathname, replace) {
 }
 
 // In browser/Electron there's no port to bind.
-// If called as serve(view, port[, css]), register routes via _ssc_ui_serve
-// first (_ssc_http_serve is stubbed above), then dispatch the initial render.
-// Always dispatches to '/' — in file:// mode (Electron) location.pathname is
-// a filesystem path, not a route path.
-function serve(treeOrPort, portOrUndef, extraCssOrUndef) {
+// Overrides _ssc_ui_serve so that std.ui.primitives.serve = _ssc_ui_serve
+// dispatches here.  No eval(), no DOM <script> injection — both blocked by
+// script-src 'self' CSP (Electron default).
+function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
   if (typeof treeOrPort !== 'number') {
-    _ssc_ui_serve(treeOrPort, 0, extraCssOrUndef || '');
+    const extraCss = extraCssOrUndef || '';
+    const { body, sigs } = _ssc_ui_renderBody(treeOrPort);
+    const style = document.createElement('style');
+    style.textContent = [
+      '*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}',
+      'body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%}',
+      '.ssc-page{max-width:700px;margin:0 auto;padding:24px 20px;font-size:16px;',
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}',
+      'input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}',
+      'button{touch-action:manipulation;cursor:pointer}',
+      'button:disabled{opacity:.5;cursor:default}',
+      '[data-ssc-cond]{display:contents}',
+      'hr{border:none;border-top:1px solid #e5e7eb;margin:0}',
+      '[data-ssc-fetch-table] table,[data-ssc-fetch-table] th,',
+      '[data-ssc-fetch-table] td,[data-ssc-fetch-table] button{font-size:inherit;font-family:inherit}',
+      '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+      '.ssc-spin{animation:spin 0.8s linear infinite}',
+      extraCss
+    ].join('');
+    document.head.appendChild(style);
+    const app = document.getElementById('app') || document.body;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ssc-page';
+    wrapper.innerHTML = body;
+    app.appendChild(wrapper);
+    _ssc_ui_mount(sigs);
+    return;
   }
+  // Port-only serve: SPA router for apps that register routes via get()/post()
   document.addEventListener('click', e => {
     const a = e.target && e.target.closest && e.target.closest('a');
     if (!a) return;
     const href = a.getAttribute('href');
     if (!href) return;
-    // External / fragment / protocol-relative — let the browser handle.
     if (/^(https?:)?\/\//.test(href) || href.startsWith('#') || href.startsWith('mailto:')) return;
     e.preventDefault();
     _spaNavigate(href, false);
@@ -7535,12 +7564,16 @@ class JsGen(
     // `declaredBindings` prevents duplicate `const` declarations when the same
     // symbol is extracted more than once (e.g. TkNode from nodes.ssc imported
     // by both primitives.ssc and layout.ssc).
-    val childPkg   = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
-    val pkgPrefix  = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
+    val childPkg     = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val pkgPrefix    = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
+    val childExports = childModule.manifest.map(_.exports).getOrElse(Nil)
     imp.bindings.foreach { b =>
       val fullName  = s"$pkgPrefix${b.name}"
       val localName = b.alias.getOrElse(b.name)
-      if fullName != localName && !declaredBindings.contains(localName) then
+      // If the child module declares an exports list and this name is absent,
+      // skip — don't block a later import from the correct module.
+      val notExported = childExports.nonEmpty && !childExports.contains(b.name)
+      if fullName != localName && !notExported && !declaredBindings.contains(localName) then
         declaredBindings += localName
         line(s"const $localName = $fullName;")
     }
