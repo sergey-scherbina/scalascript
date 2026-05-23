@@ -125,7 +125,7 @@ val todoPanel = vstack(gap = 12)(
 )
 
 val tree = vstack(gap = 16)(
-  heading(1, "Toolkit demo"),
+  heading(1, s"Toolkit demo (${_ssc_frontend_name})"),
   divider(),
   showWhen(submitted, form(true), form(false)),
   reactiveBtn,

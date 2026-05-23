@@ -3248,7 +3248,10 @@ def watchCommand(args: List[String]): Unit =
         // Server hot-reload: full re-run on a fresh interpreter so the route
         // table is rebuilt cleanly (Routes.clear + new headless Interpreter).
         scalascript.server.Routes.clear()
-        Interpreter(baseDir = Some(osPath / os.up), headless = true).run(module)
+        val hi = Interpreter(baseDir = Some(osPath / os.up), headless = true)
+        frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
+          .foreach(n => hi.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
+        hi.run(module)
       else if theInterp != null && interpCheckpoints.nonEmpty then
         // Incremental path: find first changed section and re-run only from there.
         val prevHashes = oldSnaps.map(_.sectionHash)
@@ -3269,6 +3272,8 @@ def watchCommand(args: List[String]): Unit =
       else
         // First run for non-server file: run everything and record checkpoints.
         val interp = Interpreter(baseDir = Some(osPath / os.up), headless = false)
+        frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
+          .foreach(n => interp.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
         theInterp = interp
         interpCheckpoints = interp.runWithCheckpoints(module)
     catch
