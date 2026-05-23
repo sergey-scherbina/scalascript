@@ -131,6 +131,7 @@ object FrontendIntrinsics:
 
     // ── serve — frontend and REST variants ───────────────────────────────────
     // serve(tree, port)              — emit frontend, serve from temp dir
+    // serve(tree, port, extraCss)    — emit frontend with extra CSS injected
     // serve(port)                    — serve cwd as static/REST
     // serve(port, dir)               — serve dir as static/REST
     // serve(port, tls(cert, key))    — serve cwd with TLS
@@ -138,7 +139,11 @@ object FrontendIntrinsics:
       args match
         case List(Value.Foreign("View", view: View), port) =>
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
-          val outDir = uiEmitToTempDir(view)
+          val outDir = uiEmitToTempDir(view, "")
+          if !ctx.headless then ctx.startServer(p, outDir)
+        case List(Value.Foreign("View", view: View), port, extraCss: String) =>
+          val p      = port match { case n: Long => n.toInt; case _ => 8080 }
+          val outDir = uiEmitToTempDir(view, extraCss)
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(port: Long) =>
           ctx.registerHealthDefaults()
@@ -151,7 +156,7 @@ object FrontendIntrinsics:
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           ctx.startTlsServer(port.toInt, ".", cert, key)
-        case _ => throw InterpretError("serve(tree, port), serve(port), serve(port, dir), or serve(port, tls(cert, key))")
+        case _ => throw InterpretError("serve(tree, port), serve(tree, port, extraCss), serve(port), serve(port, dir), or serve(port, tls(cert, key))")
     ),
 
     // ── emit(tree: View, outDir: String): Unit ───────────────────────────────
@@ -195,13 +200,13 @@ object FrontendIntrinsics:
 
   // ── Emit helpers ──────────────────────────────────────────────────────────
 
-  private def uiBuildModule(view: View): FrontendModule =
+  private def uiBuildModule(view: View, extraCss: String = ""): FrontendModule =
     val app = ComponentDef("App", Nil, _ =>
       View.Element("div", Map("id" -> AttrValue.Str("ui-app")), Map.empty, Seq(view)))
-    FrontendModule(List(app), "App", "/")
+    FrontendModule(List(app), "App", "/", extraCss)
 
-  private def uiEmitToTempDir(view: View): String =
-    val module  = uiBuildModule(view)
+  private def uiEmitToTempDir(view: View, extraCss: String): String =
+    val module  = uiBuildModule(view, extraCss)
     val emitted = FrontendFrameworks.current().emit(module)
     val tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
     java.nio.file.Files.writeString(tmpDir.resolve("index.html"), emitted.html)

@@ -3545,9 +3545,11 @@ function computed(thunk) {
 // Backwards-compatible: handles both serve(port) and serve(view, port).
 // Browser extern def std.ui.primitives.serve declares serve(view, port);
 // non-frontend scripts call serve(port) directly — both routes work here.
-function serve(treeOrPort, portOrUndef) {
-  const port = (typeof treeOrPort === 'number') ? treeOrPort : portOrUndef;
-  _ssc_http_serve(port);
+function serve(treeOrPort, portOrUndef, extraCssOrUndef) {
+  const port     = (typeof treeOrPort === 'number') ? treeOrPort : portOrUndef;
+  const extraCss = (typeof treeOrPort === 'number') ? '' : (extraCssOrUndef || '');
+  if (typeof treeOrPort === 'number') { _ssc_http_serve(port); }
+  else { _ssc_ui_serve(treeOrPort, port, extraCss); }
 }
 
 // ── Node.js stubs for std/ui/primitives.ssc extern defs ───────────────────
@@ -3751,9 +3753,10 @@ function _ssc_ui_renderPage(view) {
   return { body, script };
 }
 
-function _ssc_ui_serve(view, port) {
+function _ssc_ui_serve(view, port, extraCss) {
   route('GET', '/')((_req) => {
     const { body, script } = _ssc_ui_renderPage(view);
+    const extra = extraCss || '';
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3761,16 +3764,15 @@ function _ssc_ui_serve(view, port) {
 <style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%}
 .ssc-page{max-width:700px;margin:0 auto;padding:24px 20px;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
-@media(max-width:767px){body{font-size:18px!important}p,label,span{font-size:18px!important}h1{font-size:28px!important}h2{font-size:22px!important}h3{font-size:18px!important}h4,h5,h6{font-size:16px!important}input[type=text],input[type=email],input[type=password]{font-size:18px!important;padding:18px!important;border-radius:12px!important}button{font-size:18px!important;padding:18px 32px!important;border-radius:18px!important}input[type=checkbox]{width:22px!important;height:22px!important}}
 input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}
 button{touch-action:manipulation;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 [data-ssc-cond]{display:contents}
 hr{border:none;border-top:1px solid #e5e7eb;margin:0}
-[data-ssc-fetch-table] table,[data-ssc-fetch-table] th,[data-ssc-fetch-table] td,[data-ssc-fetch-table] button{font-size:32px!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif!important}
+[data-ssc-fetch-table] table,[data-ssc-fetch-table] th,[data-ssc-fetch-table] td,[data-ssc-fetch-table] button{font-size:inherit;font-family:inherit}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .ssc-spin{animation:spin 0.8s linear infinite}
-</style></head><body><div class="ssc-page">${body}</div>${script}</body></html>`;
+${extra}</style></head><body><div class="ssc-page">${body}</div>${script}</body></html>`;
     return Response.html(html);
   });
   _ssc_http_serve(port);

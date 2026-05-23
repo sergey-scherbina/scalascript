@@ -2354,7 +2354,11 @@ def runCommand(args: List[String]): Unit =
             val withHive    = hiveMetastore.fold(withAppName)(uri => withAppName + (SparkBackend.SparkHiveMetastoreOption -> uri))
             warehouse.fold(withHive)(p => withHive + (SparkBackend.SparkWarehouseOption -> p))
           else Map.empty
-        compileViaBackend(effectiveBackend, path, extras) match
+        val frontendName = frontendFlag.orElse(
+          module.manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s }
+        )
+        val extrasWithFrontend = frontendName.fold(extras)(n => extras + ("frontendName" -> n))
+        compileViaBackend(effectiveBackend, path, extrasWithFrontend) match
           case CompileResult.Executed(stdout, stderr, exit) =>
             if stdout.nonEmpty then print(stdout)
             if stderr.nonEmpty then System.err.print(stderr)

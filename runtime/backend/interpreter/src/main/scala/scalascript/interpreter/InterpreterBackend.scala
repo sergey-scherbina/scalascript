@@ -39,7 +39,10 @@ class InterpreterBackend extends InteractiveBackend:
     val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     val exit =
       try
-        Interpreter.run(astModule, System.out, baseDir)
+        val interp = Interpreter(baseDir = baseDir)
+        opts.extra.get("frontendName")
+          .foreach(n => interp.injectGlobal("_ssc_frontend_name", Value.StringV(n)))
+        interp.run(astModule)
         0
       catch case t: Throwable =>
         log.error(t.getMessage, t)

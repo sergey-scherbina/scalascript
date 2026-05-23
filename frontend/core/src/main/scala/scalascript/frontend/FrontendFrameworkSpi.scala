@@ -79,9 +79,10 @@ final case class EmittedSpa(
  *  what the IR needs to carry.  See the spec doc for the
  *  primitive contract. */
 final case class FrontendModule(
-    components: List[ComponentDef],
-    entryPoint: String,    // name of the root Component to mount
-    initialRoute: String   // for SPA routing; ignored if no router
+    components:   List[ComponentDef],
+    entryPoint:   String,    // name of the root Component to mount
+    initialRoute: String,    // for SPA routing; ignored if no router
+    extraCss:     String = ""
 )
 
 /** Lowered component description.  Body is a function that, when

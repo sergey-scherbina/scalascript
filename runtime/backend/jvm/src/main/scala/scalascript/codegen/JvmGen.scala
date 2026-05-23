@@ -8634,16 +8634,16 @@ class JvmGen(
        |def _ssc_ui_decodeEvents(m: Map[String, Any]): Map[String, scalascript.frontend.EventHandler] =
        |  m.collect { case (k, v: scalascript.frontend.EventHandler) => k -> v }
        |
-       |def _ssc_ui_buildModule(view: scalascript.frontend.View): scalascript.frontend.FrontendModule =
+       |def _ssc_ui_buildModule(view: scalascript.frontend.View, extraCss: String = ""): scalascript.frontend.FrontendModule =
        |  scalascript.frontend.FrontendModule(
        |    List(scalascript.frontend.ComponentDef("App", Nil, _ =>
        |      scalascript.frontend.View.Element("div",
        |        Map("id" -> scalascript.frontend.AttrValue.Str("ui-app")),
        |        Map.empty, Seq(view)))),
-       |    "App", "/")
+       |    "App", "/", extraCss)
        |
-       |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View, dir: String): Unit =
-       |  val _mod     = _ssc_ui_buildModule(view)
+       |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View, dir: String, extraCss: String = ""): Unit =
+       |  val _mod     = _ssc_ui_buildModule(view, extraCss)
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _p = java.nio.file.Paths.get(dir)
        |  java.nio.file.Files.createDirectories(_p)
@@ -8654,8 +8654,8 @@ class JvmGen(
        |  if _emitted.css.nonEmpty then
        |    java.nio.file.Files.writeString(_p.resolve("app.css"), _emitted.css)
        |
-       |def _ssc_ui_emit_to_tempdir(view: scalascript.frontend.View): String =
-       |  val _mod     = _ssc_ui_buildModule(view)
+       |def _ssc_ui_emit_to_tempdir(view: scalascript.frontend.View, extraCss: String = ""): String =
+       |  val _mod     = _ssc_ui_buildModule(view, extraCss)
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
        |  java.nio.file.Files.writeString(_tmpDir.resolve("index.html"), _emitted.html)
@@ -8666,14 +8666,15 @@ class JvmGen(
        |    java.nio.file.Files.writeString(_tmpDir.resolve("app.css"), _emitted.css)
        |  _tmpDir.toString
        |
-       |def _ssc_ui_serve(tree: Any, port: Int): Unit =
-       |  val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View])
+       |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
+       |  val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View], extraCss)
        |  _ssc_static_root = _outDir
        |  serve(port)
        |
        |// ── Overloads to shadow preamble names that conflict with UI widget imports ──
-       |// serve(view, port): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
+       |// serve(view, port[, extraCss]): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
        |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
+       |def serve(tree: Any, port: Int, extraCss: String): Unit = _ssc_ui_serve(tree, port, extraCss)
        |// text(String): beats extension (r: Response.type) def text(body: Any)
        |def text(content: String) = std.ui.typography.text(content)
        |

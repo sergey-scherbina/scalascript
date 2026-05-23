@@ -5,6 +5,7 @@ description: "lower(TkNode, Theme): View — the single theme-aware lowering fun
 package: std.ui.lower
 exports:
   - lower
+  - mobileOverrideCss
 ---
 
 # `std.ui.lower` — TkNode → View
@@ -290,5 +291,15 @@ def lower(n: TkNode, theme: Theme): View = n match
 
   case FetchTableNode(fetchUrl, deleteUrl, tick) =>
     fetchTableView(fetchUrl, deleteUrl, tick)
+
+def mobileOverrideCss(breakpoint: Int, mobile: Theme): String =
+  val bp  = breakpoint
+  val fs  = mobile.typography.body.fontSize
+  val fh  = mobile.typography.heading.fontSize
+  val sp  = mobile.spacing
+  val rd  = mobile.radii
+  val fh2 = fh * 11 / 14
+  val fh3 = fh * 9 / 14
+  s"""@media(max-width:${bp}px){body,p,label,span{font-size:${fs}px!important}h1{font-size:${fh}px!important}h2{font-size:${fh2}px!important}h3{font-size:${fh3}px!important}h4,h5,h6{font-size:${fs}px!important}button{font-size:${fs}px!important;padding:${sp.sm}px ${sp.md}px!important;border-radius:${rd.md}px!important}input[type=text],input[type=email],input[type=password]{font-size:${fs}px!important;padding:${sp.sm}px!important;border-radius:${rd.sm}px!important}}"""
 
 ```

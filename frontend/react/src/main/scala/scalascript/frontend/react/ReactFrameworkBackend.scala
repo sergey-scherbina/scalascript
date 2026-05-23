@@ -57,10 +57,10 @@ final class ReactFrameworkBackend extends FrontendFrameworkSpi:
     )
     val rootView = entry.body(())
     val js   = ReactEmitter.emit(rootView)
-    val html = htmlShell(initialRoute = module.initialRoute)
+    val html = htmlShell(initialRoute = module.initialRoute, extraCss = module.extraCss)
     EmittedSpa(js = js, html = html, css = "")
 
-  private def htmlShell(initialRoute: String): String =
+  private def htmlShell(initialRoute: String, extraCss: String): String =
     // Standalone React + ReactDOM from a CDN for unbundled local demos.
     // Production builds would replace this with bundled output.
     s"""<!DOCTYPE html>
@@ -75,7 +75,7 @@ final class ReactFrameworkBackend extends FrontendFrameworkSpi:
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
     #app{max-width:700px;margin:0 auto;padding:24px 20px}
-    @media(max-width:767px){body{font-size:18px!important}p,label,span{font-size:18px!important}h1{font-size:28px!important}h2{font-size:22px!important}h3{font-size:18px!important}h4,h5,h6{font-size:16px!important}input[type=text],input[type=email],input[type=password]{font-size:18px!important;padding:18px!important;border-radius:12px!important}button{font-size:18px!important;padding:18px 32px!important;border-radius:18px!important}input[type=checkbox]{width:22px!important;height:22px!important}}
+    ${extraCss}
     button{touch-action:manipulation;cursor:pointer}
     button:disabled{opacity:.5;cursor:default}
     input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}

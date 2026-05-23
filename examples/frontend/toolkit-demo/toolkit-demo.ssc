@@ -51,9 +51,9 @@ route("POST", "/api/todos/delete") { req =>
 
 [signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
 
-[lower](std/ui/lower.ssc)
+[lower, mobileOverrideCss](std/ui/lower.ssc)
 
-[defaultTheme](std/ui/theme.ssc)
+[defaultTheme, mobileTheme](std/ui/theme.ssc)
 
 [vstack, hstack, divider, spacer](std/ui/layout.ssc)
 
@@ -142,5 +142,5 @@ val tree = vstack(gap = 16)(
 ## Serve
 
 ```scalascript
-serve(lower(tree, defaultTheme), 8080)
+serve(lower(tree, defaultTheme), 8080, mobileOverrideCss(767, mobileTheme))
 ```
