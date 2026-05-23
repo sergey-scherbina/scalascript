@@ -306,7 +306,7 @@ class ToolkitTest extends AnyFunSuite with Matchers:
 
   /** Recursively walk + concatenate every attribute string + child
    *  text — for smoke tests that scan the output. */
-  private def renderStructure(v: View): String = v match
+  private def renderStructure(v: View[?]): String = v match
     case View.Element(tag, attrs, _, kids) =>
       val attrStr = attrs.values.collect { case AttrValue.Str(s) => s }.mkString(" ")
       val kidStr  = kids.map(renderStructure).mkString(" ")

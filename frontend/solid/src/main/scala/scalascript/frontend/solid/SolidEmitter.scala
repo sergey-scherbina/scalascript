@@ -1,5 +1,6 @@
 package scalascript.frontend.solid
 
+import scala.annotation.nowarn
 import scalascript.frontend.*
 
 /** Emits idiomatic Solid that does NOT depend on `solid-js/h`.
@@ -30,9 +31,10 @@ import scalascript.frontend.*
  *    - `SetSignalLiteral` event     → `addEventListener(evt, () => setX(value))`
  *    - `IncrementSignal` event      → `addEventListener(evt, () => setX(c => c + by))`
  *    - JVM-closure events           → marker comment */
+@nowarn("cat=deprecation")
 private[solid] object SolidEmitter:
 
-  def emit(root: View): String =
+  def emit(root: View[?]): String =
     val ctx = new Ctx
     val rootVar = ctx.compile(root)
     val sb = new StringBuilder
@@ -111,45 +113,45 @@ private[solid] object SolidEmitter:
       v
 
     private def registerSignal(signal: ReactiveSignal[?]): Unit =
-      val name = signal.jsName
+      val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignal jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignal id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsLiteral(signal())
       signals.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignal jsName '$name' registered twice with different " +
+            s"ReactiveSignal id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => signals.update(name, initJs)
 
     private def registerList(list: ReactiveSignalList[?]): Unit =
-      val name = list.jsName
+      val name = list.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignalList jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignalList id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initJs = jsArrayLiteral(list.initial)
       lists.get(name) match
         case Some(existing) if existing != initJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignalList jsName '$name' registered twice with different " +
+            s"ReactiveSignalList id '$name' registered twice with different " +
             s"initial values ($existing vs $initJs)."
           )
         case _ => lists.update(name, initJs)
 
     /** A6 — register a DomRef name + identifier-shape validation. */
-    private def registerRef(ref: DomRef): Unit =
-      val name = ref.jsName
+    private def registerRef(ref: WidgetRef): Unit =
+      val name = ref.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"DomRef jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"WidgetRef id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       domRefs += name
 
-    def compile(view: View): String | Null = view match
+    def compile(view: View[?]): String | Null = view match
       case View.Element(tag, attrs, events, children) =>
         val v = freshVar()
         statements += s"const $v = document.createElement(${jsString(tag)});"
@@ -161,7 +163,7 @@ private[solid] object SolidEmitter:
               // Custom backend's style (Solid's idiomatic `ref={el => x=el}`
               // requires the JSX path we don't transpile).
               registerRef(ref)
-              statements += s"${ref.jsName} = $v;"
+              statements += s"${ref.id} = $v;"
             case AttrValue.Bool(value) =>
               // Boolean IDL attributes (disabled, checked, required, …) must be
               // set as DOM properties — setAttribute("disabled","false") leaves
@@ -179,9 +181,9 @@ private[solid] object SolidEmitter:
               // the signal changes.  Hyphenated names go via setAttribute.
               registerSignal(signal)
               if k.contains('-') then
-                statements += s"createEffect(() => { $v.setAttribute(${jsString(k)}, String(${signal.jsName}())); });"
+                statements += s"createEffect(() => { $v.setAttribute(${jsString(k)}, String(${signal.id}())); });"
               else
-                statements += s"createEffect(() => { $v.$k = ${signal.jsName}(); });"
+                statements += s"createEffect(() => { $v.$k = ${signal.id}(); });"
             case _ =>
               attrValueJs(av) match
                 case Some(value) => statements += s"$v.setAttribute(${jsString(k)}, $value);"
@@ -201,14 +203,14 @@ private[solid] object SolidEmitter:
         statements += s"const $v = document.createTextNode(${jsString(thunk())});"
         v
 
-      case View.SignalText(signal) =>
+      case View.SignalText(signal, _) =>
         registerSignal(signal)
         val v = freshVar()
         // Solid's createEffect auto-tracks the signal read.  When
         // the signal changes, only this text node updates — no
         // virtual-DOM diff, no parent re-render.
-        statements += s"const $v = document.createTextNode(${signal.jsName}());"
-        statements += s"createEffect(() => { $v.textContent = ${signal.jsName}(); });"
+        statements += s"const $v = document.createTextNode(${signal.id}());"
+        statements += s"createEffect(() => { $v.textContent = ${signal.id}(); });"
         v
 
       case View.Fragment(children) =>
@@ -243,10 +245,10 @@ private[solid] object SolidEmitter:
         val tNode = if tVar != null then tVar else placeholderNode()
         val fNode = if fVar != null then fVar else placeholderNode()
         val currentVar = s"__show_${wrap}_current"
-        statements += s"let $currentVar = ${cond.jsName}() ? $tNode : $fNode;"
+        statements += s"let $currentVar = ${cond.id}() ? $tNode : $fNode;"
         statements += s"$wrap.appendChild($currentVar);"
         statements += s"createEffect(() => {"
-        statements += s"  const next = ${cond.jsName}() ? $tNode : $fNode;"
+        statements += s"  const next = ${cond.id}() ? $tNode : $fNode;"
         statements += s"  if (next !== $currentVar) { $wrap.replaceChild(next, $currentVar); $currentVar = next; }"
         statements += s"});"
         wrap
@@ -271,7 +273,7 @@ private[solid] object SolidEmitter:
         // statements form the body of the render-item function.
         registerList(list)
         val wrap     = freshVar()
-        val renderFn = s"__render_item_${list.jsName}"
+        val renderFn = s"__render_item_${list.id}"
         statements += s"const $wrap = document.createElement('span');"
 
         itemTemplate match
@@ -306,7 +308,7 @@ private[solid] object SolidEmitter:
 
         statements += s"createEffect(() => {"
         statements += s"  while ($wrap.firstChild) $wrap.removeChild($wrap.firstChild);"
-        statements += s"  let __idx = 0; for (const __item of ${list.jsName}()) { $wrap.appendChild($renderFn(__item, __idx)); __idx++; }"
+        statements += s"  let __idx = 0; for (const __item of ${list.id}()) { $wrap.appendChild($renderFn(__item, __idx)); __idx++; }"
         statements += s"});"
         wrap
 
@@ -332,14 +334,14 @@ private[solid] object SolidEmitter:
         }
         null
 
-      case View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick) =>
+      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick) =>
         registerSignal(tick)
-        if !signals.contains(tableJsName) then signals.update(tableJsName, "[]")
-        val setRows  = setterName(tableJsName)
-        val setTick  = setterName(tick.jsName)
+        if !signals.contains(tableId) then signals.update(tableId, "[]")
+        val setRows  = setterName(tableId)
+        val setTick  = setterName(tick.id)
         val urlJs    = jsString(fetchUrl)
         val delUrlJs = jsString(deleteUrl)
-        val tickName = tick.jsName
+        val tickName = tick.id
         val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
         val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
         val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit")
@@ -362,7 +364,7 @@ private[solid] object SolidEmitter:
         statements += s"createEffect(() => { const t = $tickName(); if (t > 0) fetch($urlJs).then(r => r.json()).then(data => $setRows(data)); });"
         statements += s"createEffect(() => {"
         statements += s"  while ($tbodyVar.firstChild) $tbodyVar.removeChild($tbodyVar.firstChild);"
-        statements += s"  for (const row of $tableJsName()) {"
+        statements += s"  for (const row of $tableId()) {"
         statements += s"    const tr = document.createElement('tr');"
         statements += s"    const td1 = document.createElement('td'); td1.setAttribute('style', $tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);"
         statements += s"    const td2 = document.createElement('td'); td2.setAttribute('style', $tdStyle);"
@@ -373,6 +375,11 @@ private[solid] object SolidEmitter:
         statements += s"});"
         tableVar
 
+      case v: View[?] =>
+        val commentVar = freshVar()
+        statements += s"const $commentVar = document.createComment('[unsupported on web in P1: ${v.getClass.getSimpleName}]');"
+        commentVar
+
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
         case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
@@ -381,48 +388,48 @@ private[solid] object SolidEmitter:
             " richer IR coming later."
         case EventHandler.InputChange(signal) =>
           registerSignal(signal)
-          val setter = setterName(signal.jsName)
+          val setter = setterName(signal.id)
           statements += s"$targetVar.addEventListener('input', (e) => $setter(e.target.value));"
         case EventHandler.SetSignalLiteral(signal, value) =>
           registerSignal(signal)
-          val setter = setterName(signal.jsName)
+          val setter = setterName(signal.id)
           val v      = jsLiteral(value)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter($v));"
         case EventHandler.IncrementSignal(signal, by) =>
           registerSignal(signal)
-          val setter = setterName(signal.jsName)
+          val setter = setterName(signal.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(c => c + $by));"
         case EventHandler.ToggleSignal(signal) =>
           registerSignal(signal)
-          val setter = setterName(signal.jsName)
+          val setter = setterName(signal.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(c => !c));"
         case EventHandler.PushSignalLiteral(list, value) =>
           registerList(list)
-          val setter = setterName(list.jsName)
+          val setter = setterName(list.id)
           val v      = jsLiteral(value)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(prev => prev.concat([$v])));"
         case EventHandler.ClearSignalList(list) =>
           registerList(list)
-          val setter = setterName(list.jsName)
+          val setter = setterName(list.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
         case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
           registerSignal(body)
           registerSignal(tick)
-          val setTick  = setterName(tick.jsName)
-          val setBody  = setterName(body.jsName)
+          val setTick  = setterName(tick.id)
+          val setBody  = setterName(body.id)
           val urlJs    = jsString(url)
           val methodJs = jsString(method)
           val clearJs  = if clearBody then s" $setBody('');" else ""
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
-            s"fetch($urlJs, {method: $methodJs, body: ${body.jsName}()})" +
+            s"fetch($urlJs, {method: $methodJs, body: ${body.id}()})" +
             s".then(r => r.text()).then(_ => { $setTick(t => t + 1);$clearJs }));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template.  Capture
           // __idx in an IIFE so each emitted listener remembers its
           // own slot for the .filter() call.
-          if inItemTemplate && currentItemList.exists(_.jsName == list.jsName) then
+          if inItemTemplate && currentItemList.exists(_.id == list.id) then
             registerList(list)
-            val setter = setterName(list.jsName)
+            val setter = setterName(list.id)
             statements += s"$targetVar.addEventListener(${jsString(eventName)}, ((__capturedIdx) => () => " +
                           s"$setter(prev => prev.filter((_, i) => i !== __capturedIdx)))(__idx));"
           else

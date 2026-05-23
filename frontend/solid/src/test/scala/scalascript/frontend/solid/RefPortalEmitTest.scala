@@ -12,7 +12,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — module-scope let + assignment after createElement") {
     val backend = new SolidFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input",
       Map("ref" -> AttrValue.RefBinding(inputRef), "type" -> AttrValue.Str("text")),
@@ -36,7 +36,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — invalid jsName rejected") {
     val backend = new SolidFrameworkBackend
-    val bad = new DomRef("bad name")
+    val bad = new WidgetRef("bad name")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input", Map("ref" -> AttrValue.RefBinding(bad)), Map.empty, Seq.empty
     ))
@@ -81,7 +81,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("Refs + Portal compose — ref inside a portal still hoists") {
     val backend = new SolidFrameworkBackend
-    val closeBtn = new DomRef("closeBtn")
+    val closeBtn = new WidgetRef("closeBtn")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(View.Portal("#modal-root", Seq(

@@ -9987,6 +9987,74 @@ routes.
 - [x] `CardDetails`, `ApplePayToken`, `GooglePayToken`, `GooglePayDecryptedCard`
 - [x] `PaymentError` hierarchy
 
+## v1.39 — Native Platform P1: IR Foundation ✓ Complete (2026-05-23)
+
+**Status:** Complete
+**Spec:** [`docs/native-platform.md`](docs/native-platform.md) §P1
+
+Implements the IR Foundation phase of the native platform roadmap.
+Three breaking changes land together per §21 of the spec.
+
+### What landed
+
+**View IR overhaul (`frontend/core`)**
+- `sealed trait View` → `enum View[+A]` — covariant generic enum;
+  all call sites updated to `View[?]`
+- Full semantic case vocabulary: `Column`, `Row`, `Stack`, `ScrollView`,
+  `Spacer`, `Divider`, `Text`, `Image`, `Icon`, `Button`, `TextInput`,
+  `Toggle`, `Slider`, `Picker[T]`, `LazyList[T]`, `LazyGrid[T]`,
+  `TabBar`, `NavigationStack`, `Sheet`, `AlertDialog`, `Form`,
+  `FormField[T]`, `SafeArea`, `KeyboardAvoiding`, `Animated`,
+  `Styled`, `Adaptive`
+- Legacy web cases preserved: `Element`, `Portal`, `TextNode`,
+  `ForSignal`, `For`, `Show`, `ShowSignal`, `Fragment`,
+  `ComponentInstance`, `ItemText`
+- `View.FetchTable` marked `@deprecated("use fetchTable toolkit helper; removed in P2")`
+
+**Signal identity rename**
+- `ReactiveSignal.jsName` → `id` (4 sites; backward-compat: none needed, internal)
+- `ReactiveSignalList.jsName` → `id`
+- `FetchUrlSignal.jsName/tickJsName` → `id/tickId`
+- `DomRef.jsName` → `WidgetRef.id` + `type DomRef = WidgetRef` alias
+
+**Style system**
+- `Style` composed of `LayoutStyle`, `TextStyle`, `DecorationStyle`,
+  `EffectsStyle` sub-records + `transform`, `animation`, `gestures`, `a11y`
+- View modifier DSL: `.padding`, `.margin`, `.frame`, `.background`,
+  `.foreground`, `.fontSize`, `.fontWeight`, `.bold`, `.italic`, `.cornerRadius`,
+  `.shadow`, `.opacity`, `.clip`, `.rotate`, `.scale`, `.translate`,
+  `.animated`, `.transition`, `.onTap`, `.onSwipe`, `.a11y`, etc.
+- Supporting enums: `Align`, `HAlign`, `VAlign`, `Axis`, `ContentFit`,
+  `Edge`, `FontStyle`, `TextAlign`, `TextOverflow`, `Overflow`,
+  `BorderLineStyle`, `TextDecoration`, `FontWeight`, `Cursor`, `Color`,
+  `BorderRadius`, `Shadow`, `Transform`, `Transition`, `Curve`,
+  `SwipeDirection`, `Gesture`, `A11yRole`, `A11yTrait`, `LiveRegion`, `A11y`
+
+**Platform ADT**
+- `Platform` (`Web`, `Desktop(DesktopOs)`, `Mobile(MobileOs)`, `All`)
+- `DesktopOs`, `MobileOs`, `AppFormat`, `CompilationBackend` enums
+
+**FrontendFrameworkSpi extension**
+- `supportedPlatforms: Set[Platform]` (default `Set(Web)`)
+- `emitNative(module, platform): Option[EmittedArtifact.NativeApp]` (default `None`)
+- `emitForPlatform(module, platform): EmittedArtifact` extension method
+- `EmittedArtifact` enum (`Spa`, `NativeApp`)
+- `AppManifest`, `AppFormat` — native bundle metadata
+- `FrontendModule` gains `targetPlatform` and `appManifest` fields
+
+**Web emitters (4 backends)**
+- All 4 emitters updated: `jsName` → `id`, `DomRef` → `WidgetRef`,
+  `View` → `View[?]`, `SignalText(s)` → `SignalText(s, _)`,
+  catch-all arms for new P1 semantic cases (emit comment nodes)
+- `@nowarn("cat=deprecation")` on FetchTable-handling methods/objects
+
+**Toolkit + SSR**
+- `Ssr.write` catch-all for new P1 cases
+- All 9 toolkit Scala files updated to `View[?]`
+- All test files updated
+
+**Tests:** 217 + 5 passing; 0 failures
+
 **build.sbt**
 - [x] `paymentRequest` project (`payments/payment-request/`)
 - [x] `paymentRequestPlugin` project (`runtime/std/payment-request-plugin/`)

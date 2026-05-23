@@ -18,7 +18,7 @@ class RefPortalE2ETest extends AnyFunSuite:
   test("DomRef + Portal — focus via ref + portal lands in modal-root") {
     assume(nodeAvailable, "node not available")
     val backend = new CustomFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     // Toggle whether the modal is visible: clicking shows it.  Use a
     // boolean signal + ShowSignal to gate the portal mount on first
     // render.  (Portal itself is always emitted; signal-gated portal is

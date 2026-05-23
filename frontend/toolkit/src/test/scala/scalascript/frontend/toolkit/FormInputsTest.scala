@@ -300,13 +300,13 @@ class FormInputsTest extends AnyFunSuite with Matchers:
 
   // ─── helpers ──────────────────────────────────────────────────
 
-  private def collectTag(v: View, tag: String): Seq[View.Element] = v match
+  private def collectTag(v: View[?], tag: String): Seq[View.Element] = v match
     case e @ View.Element(t, _, _, kids) =>
       val here = if t == tag then Seq(e) else Seq.empty
       here ++ kids.flatMap(collectTag(_, tag))
     case _ => Seq.empty
 
-  private def extractText(v: View): String = v match
+  private def extractText(v: View[?]): String = v match
     case View.Element(_, _, _, kids) => kids.map(extractText).mkString
     case View.TextNode(thunk)        =>
       try thunk() catch case _: Throwable => ""

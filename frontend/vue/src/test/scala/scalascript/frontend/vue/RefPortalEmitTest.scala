@@ -10,7 +10,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — RefBinding lowers to ref(null) in setup + 'ref' prop") {
     val backend = new VueFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input",
       Map("ref" -> AttrValue.RefBinding(inputRef), "type" -> AttrValue.Str("text")),
@@ -37,7 +37,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — invalid jsName rejected") {
     val backend = new VueFrameworkBackend
-    val bad = new DomRef("with.dots")
+    val bad = new WidgetRef("with.dots")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input", Map("ref" -> AttrValue.RefBinding(bad)), Map.empty, Seq.empty
     ))
@@ -88,7 +88,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("Refs + Portal compose — ref inside Teleport still hoists to setup") {
     val backend = new VueFrameworkBackend
-    val closeBtn = new DomRef("closeBtn")
+    val closeBtn = new WidgetRef("closeBtn")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(View.Portal("#modal-root", Seq(

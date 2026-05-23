@@ -30,7 +30,7 @@ object Ssr:
 
   /** Render a `View` tree to an HTML string.  See [[Ssr]] for
    *  semantics + limitations. */
-  def renderToHtml(view: View): String =
+  def renderToHtml(view: View[?]): String =
     val sb = new StringBuilder
     write(sb, view)
     sb.toString
@@ -75,7 +75,7 @@ object Ssr:
     "link", "meta", "source", "track", "wbr"
   )
 
-  private def write(sb: StringBuilder, v: View): Unit = v match
+  private def write(sb: StringBuilder, v: View[?]): Unit = v match
     case View.Element(tag, attrs, _, children) =>
       sb.append('<').append(tag)
       writeAttrs(sb, attrs)
@@ -89,7 +89,7 @@ object Ssr:
     case View.TextNode(thunk) =>
       sb.append(escapeText(safeRead(thunk, "")))
 
-    case View.SignalText(signal) =>
+    case View.SignalText(signal, _) =>
       sb.append(escapeText(safeRead(() => signal().toString, "")))
 
     case View.Fragment(children) =>
@@ -142,6 +142,8 @@ object Ssr:
       // children inline.  Backends do the relocation at hydrate time.
       children.foreach(write(sb, _))
 
+    case _ => ()  // P1 semantic cases not yet lowered for SSR
+
   private def writeAttrs(sb: StringBuilder, attrs: Map[String, AttrValue]): Unit =
     attrs.foreach { case (key, value) =>
       value match
@@ -171,7 +173,7 @@ object Ssr:
   /** Walk a ForSignal item template, replacing every `View.ItemText`
    *  placeholder with a real text node carrying the current item's
    *  stringified value.  Other tree shapes pass through unchanged. */
-  private def substituteItemText(tmpl: View, itemValue: String): View = tmpl match
+  private def substituteItemText(tmpl: View[?], itemValue: String): View[?] = tmpl match
     case View.ItemText =>
       View.TextNode(() => itemValue)
     case View.Element(tag, attrs, events, kids) =>

@@ -6,7 +6,7 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal}
  *  as an accessible `<table>` with sortable + filterable columns.
  *
  *  Backend-agnostic — same widget tree lowers to React / Vue / Solid /
- *  Custom through the regular View pipeline.  The `rows: Signal[Seq[T]]`
+ *  Custom through the regular View[?] pipeline.  The `rows: Signal[Seq[T]]`
  *  pattern means data changes drive the same fine-grained subscriptions
  *  the SPI uses for `View.For[T]`.
  *
@@ -80,12 +80,12 @@ enum SortDirection:
   case Asc, Desc, Off
 
 object TableNode:
-  def lower[T](n: TableNode[T], theme: Theme): View =
+  def lower[T](n: TableNode[T], theme: Theme): View[?] =
     val tableStyle =
       s"border-collapse: collapse; width: 100%; " +
       s"font-family: ${theme.typography.body.fontFamily}; " +
       s"font-size: ${theme.typography.body.fontSize}px;"
-    val children = scala.collection.mutable.ArrayBuffer.empty[View]
+    val children = scala.collection.mutable.ArrayBuffer.empty[View[?]]
 
     // Optional caption — accessibility benefit; doesn't render
     // visually by default but screen readers announce it.
@@ -163,7 +163,7 @@ object TableNode:
     idx:   Int,
     sort:  Option[Signal[TableSort]],
     theme: Theme
-  ): View =
+  ): View[?] =
     val (ariaSort, indicator, clickHandler) = (sort, col.sortBy) match
       case (Some(sig), Some(_)) =>
         val s = try sig() catch case _: Throwable =>
@@ -199,7 +199,7 @@ object TableNode:
       children = Seq(View.TextNode(() => col.title + indicator))
     )
 
-  private def lowerBodyCell[T](col: Column[T], row: T, theme: Theme): View =
+  private def lowerBodyCell[T](col: Column[T], row: T, theme: Theme): View[?] =
     val alignCss = col.align match
       case ColumnAlign.Left   => "left"
       case ColumnAlign.Center => "center"

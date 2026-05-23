@@ -1,5 +1,6 @@
 package scalascript.frontend.custom
 
+import scala.annotation.nowarn
 import scalascript.frontend.*
 
 /** Walks a `View` tree at emit time and produces JS source that
@@ -26,7 +27,7 @@ import scalascript.frontend.*
  *  is deterministic and diff-friendly. */
 private[custom] object StaticJsEmitter:
 
-  def emit(root: View, allComponents: List[ComponentDef]): String =
+  def emit(root: View[?], allComponents: List[ComponentDef]): String =
     val _ = allComponents  // reserved for the codegen-lowering pass when name-based ComponentInstance refs land
     val ctx = new Ctx
     val rootVar = ctx.compile(root)
@@ -152,16 +153,16 @@ private[custom] object StaticJsEmitter:
      *  initial values throws — that's a user error worth catching
      *  early). */
     private def registerSignal(signal: ReactiveSignal[?]): Unit =
-      val name = signal.jsName
+      val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignal jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignal id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initialJs = jsLiteral(signal())
       reactiveSignals.get(name) match
         case Some(existing) if existing != initialJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignal jsName '$name' registered twice with different " +
+            s"ReactiveSignal id '$name' registered twice with different " +
             s"initial values ($existing vs $initialJs).  Names must be unique."
           )
         case _ => reactiveSignals.update(name, initialJs)
@@ -169,27 +170,27 @@ private[custom] object StaticJsEmitter:
     /** A2e — same uniqueness contract as `registerSignal` but for
      *  list cells: name validation + duplicate-initial check. */
     private def registerList(list: ReactiveSignalList[?]): Unit =
-      val name = list.jsName
+      val name = list.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"ReactiveSignalList jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"ReactiveSignalList id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       val initialJs = jsArrayLiteral(list.initial)
       reactiveLists.get(name) match
         case Some(existing) if existing != initialJs =>
           throw new IllegalArgumentException(
-            s"ReactiveSignalList jsName '$name' registered twice with different " +
+            s"ReactiveSignalList id '$name' registered twice with different " +
             s"initial values ($existing vs $initialJs).  Names must be unique."
           )
         case _ => reactiveLists.update(name, initialJs)
 
     /** A6 — register a DomRef name + validate identifier shape.
      *  Same naming rule as ReactiveSignal: `[A-Za-z_][A-Za-z0-9_]*`. */
-    private def registerRef(ref: DomRef): Unit =
-      val name = ref.jsName
+    private def registerRef(ref: WidgetRef): Unit =
+      val name = ref.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
-          s"DomRef jsName '$name' must match [A-Za-z_][A-Za-z0-9_]*."
+          s"WidgetRef id '$name' must match [A-Za-z_][A-Za-z0-9_]*."
         )
       domRefs += name
 
@@ -197,7 +198,8 @@ private[custom] object StaticJsEmitter:
      *  references the constructed DOM node, or `null` if the View
      *  emits zero nodes (an empty Fragment).  Caller decides whether
      *  to `appendChild` it. */
-    def compile(view: View): String | Null = view match
+    @nowarn("cat=deprecation")
+    def compile(view: View[?]): String | Null = view match
       case View.Element(tag, attrs, events, children) =>
         val v = freshVar()
         statements += s"const $v = document.createElement(${jsString(tag)});"
@@ -209,7 +211,7 @@ private[custom] object StaticJsEmitter:
               // conventionally "ref" but we ignore it: the binding is
               // the RefBinding itself, not the attr name.
               registerRef(ref)
-              statements += s"${ref.jsName} = $v;"
+              statements += s"${ref.id} = $v;"
             case AttrValue.Bool(value) =>
               // Boolean IDL attributes (disabled, checked, required, …) must use
               // property assignment — setAttribute("disabled","false") leaves the
@@ -223,7 +225,7 @@ private[custom] object StaticJsEmitter:
               // Reactive attrs: set initial value as a property + subscribe so
               // future __setSignal calls keep the DOM property in sync.
               registerSignal(signal)
-              val sigJs = jsString(signal.jsName)
+              val sigJs = jsString(signal.id)
               if k.contains('-') then
                 statements += s"$v.setAttribute(${jsString(k)}, String(__ssc_signals[$sigJs].value));"
                 statements += s"__ssc_signals[$sigJs].subs.add((nv) => { $v.setAttribute(${jsString(k)}, String(nv)); });"
@@ -252,13 +254,13 @@ private[custom] object StaticJsEmitter:
         statements += s"const $v = document.createTextNode(${jsString(text)});"
         v
 
-      case View.SignalText(signal) =>
+      case View.SignalText(signal, _) =>
         // Reactive — register the cell, create a text node bound
         // to its initial value, subscribe so future __setSignal
         // calls update the DOM.
         registerSignal(signal)
         val v = freshVar()
-        val sigJs = jsString(signal.jsName)
+        val sigJs = jsString(signal.id)
         statements += s"const $v = document.createTextNode(__ssc_signals[$sigJs].value);"
         statements += s"__ssc_signals[$sigJs].subs.add((v) => { $v.textContent = v; });"
         v
@@ -309,7 +311,7 @@ private[custom] object StaticJsEmitter:
         val tNode = if tVar != null then tVar else placeholderNode()
         val fNode = if fVar != null then fVar else placeholderNode()
         val currentVar = s"__show_${wrap}_current"
-        val condJs = jsString(cond.jsName)
+        val condJs = jsString(cond.id)
         statements += s"let $currentVar = __ssc_signals[$condJs].value ? $tNode : $fNode;"
         statements += s"$wrap.appendChild($currentVar);"
         statements += s"__ssc_signals[$condJs].subs.add((v) => {"
@@ -346,8 +348,8 @@ private[custom] object StaticJsEmitter:
         //    and emit code that reads the iteration variable + index.
         registerList(list)
         val wrap     = freshVar()
-        val nameJs   = jsString(list.jsName)
-        val renderFn = s"__render_item_${list.jsName}"
+        val nameJs   = jsString(list.id)
+        val renderFn = s"__render_item_${list.id}"
         statements += s"const $wrap = document.createElement('span');"
 
         itemTemplate match
@@ -420,11 +422,11 @@ private[custom] object StaticJsEmitter:
         }
         null
 
-      case View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick) =>
+      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick) =>
         registerSignal(tick)
-        if !reactiveSignals.contains(tableJsName) then reactiveSignals.update(tableJsName, "[]")
-        val tickJs     = jsString(tick.jsName)
-        val rowsJs     = jsString(tableJsName)
+        if !reactiveSignals.contains(tableId) then reactiveSignals.update(tableId, "[]")
+        val tickJs     = jsString(tick.id)
+        val rowsJs     = jsString(tableId)
         val urlJs      = jsString(fetchUrl)
         val delUrlJs   = jsString(deleteUrl)
         val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
@@ -434,7 +436,7 @@ private[custom] object StaticJsEmitter:
         val theadStyle = jsString("background:#f9fafb")
         val tableVar = freshVar(); val theadVar = freshVar(); val trHVar = freshVar()
         val th1Var   = freshVar(); val th2Var   = freshVar(); val tbodyVar = freshVar()
-        val rebuildFn = s"__rebuild_$tableJsName"
+        val rebuildFn = s"__rebuild_$tableId"
         statements += s"const $tableVar = document.createElement('table'); $tableVar.setAttribute('style', $tableStyle);"
         statements += s"const $theadVar = document.createElement('thead'); $theadVar.setAttribute('style', $theadStyle);"
         statements += s"const $trHVar = document.createElement('tr');"
@@ -457,6 +459,11 @@ private[custom] object StaticJsEmitter:
         statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs).then(r => r.json()).then(data => __setSignal($rowsJs, data)); });"
         statements += s"fetch($urlJs).then(r => r.json()).then(data => __setSignal($rowsJs, data));"
         tableVar
+
+      case v: View[?] =>
+        val commentVar = freshVar()
+        statements += s"const $commentVar = document.createComment('[unsupported on web in P1: ${v.getClass.getSimpleName}]');"
+        commentVar
 
     /** Empty-branch placeholder for ShowSignal — an empty text
      *  node so `replaceChild` always has a real Node to swap.
@@ -491,40 +498,40 @@ private[custom] object StaticJsEmitter:
             " richer IR coming later."
         case EventHandler.InputChange(signal) =>
           registerSignal(signal)
-          val nameJs = jsString(signal.jsName)
+          val nameJs = jsString(signal.id)
           statements += s"$targetVar.addEventListener('input', (e) => __setSignal($nameJs, e.target.value));"
         case EventHandler.SetSignalLiteral(signal, value) =>
           registerSignal(signal)
-          val nameJs  = jsString(signal.jsName)
+          val nameJs  = jsString(signal.id)
           val valueJs = jsLiteral(value)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignal($nameJs, $valueJs));"
         case EventHandler.IncrementSignal(signal, by) =>
           registerSignal(signal)
-          val nameJs = jsString(signal.jsName)
+          val nameJs = jsString(signal.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignal($nameJs, __ssc_signals[$nameJs].value + $by));"
         case EventHandler.ToggleSignal(signal) =>
           registerSignal(signal)
-          val nameJs = jsString(signal.jsName)
+          val nameJs = jsString(signal.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignal($nameJs, !__ssc_signals[$nameJs].value));"
         case EventHandler.PushSignalLiteral(list, value) =>
           registerList(list)
-          val nameJs  = jsString(list.jsName)
+          val nameJs  = jsString(list.id)
           val valueJs = jsLiteral(value)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, __ssc_lists[$nameJs].value.concat([$valueJs])));"
         case EventHandler.ClearSignalList(list) =>
           registerList(list)
-          val nameJs = jsString(list.jsName)
+          val nameJs = jsString(list.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, []));"
         case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
           registerSignal(body)
           registerSignal(tick)
-          val bodyJs   = jsString(body.jsName)
-          val tickJs   = jsString(tick.jsName)
+          val bodyJs   = jsString(body.id)
+          val tickJs   = jsString(tick.id)
           val urlJs    = jsString(url)
           val methodJs = jsString(method)
           val clearJs  = if clearBody then s" __setSignal($bodyJs, '');" else ""
@@ -534,9 +541,9 @@ private[custom] object StaticJsEmitter:
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template; outside,
           // emit an inert listener (graceful no-op).
-          if inItemTemplate && currentItemList.exists(_.jsName == list.jsName) then
+          if inItemTemplate && currentItemList.exists(_.id == list.id) then
             registerList(list)
-            val nameJs = jsString(list.jsName)
+            val nameJs = jsString(list.id)
             // Capture __idx in the per-item closure so each instance
             // knows its own position; on click we filter that index out.
             statements += s"$targetVar.addEventListener(${jsString(eventName)}, ((__capturedIdx) => () => " +

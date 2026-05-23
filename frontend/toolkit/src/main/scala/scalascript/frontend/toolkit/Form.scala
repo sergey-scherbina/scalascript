@@ -141,7 +141,7 @@ final case class FormNode(
 ) extends ToolkitNode
 
 object FormNode:
-  def lower(n: FormNode, theme: Theme): View =
+  def lower(n: FormNode, theme: Theme): View[?] =
     val ctx  = n.ctx.getOrElse(new FormContext)
     val body = Toolkit.lower(n.build(ctx), theme)
 

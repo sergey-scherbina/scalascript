@@ -215,7 +215,7 @@ class CustomFrameworkBackendTest extends AnyFunSuite:
   test("emit — ComponentInstance inlines the child component's body") {
     val backend = new CustomFrameworkBackend
     val greeting: Component[String] = new Component[String]:
-      def render(name: String): View =
+      def render(name: String): View[?] =
         View.Element("span", Map.empty, Map.empty, Seq(View.TextNode(() => s"Hi $name")))
     val root = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,

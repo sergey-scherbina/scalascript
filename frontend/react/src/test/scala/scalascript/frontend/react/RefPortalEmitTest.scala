@@ -10,7 +10,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — RefBinding lowers to useRef + ref prop") {
     val backend = new ReactFrameworkBackend
-    val inputRef = new DomRef("nameInput")
+    val inputRef = new WidgetRef("nameInput")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input",
       Map("ref" -> AttrValue.RefBinding(inputRef), "type" -> AttrValue.Str("text")),
@@ -35,7 +35,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("DomRef — bad jsName rejected") {
     val backend = new ReactFrameworkBackend
-    val bad = new DomRef("nope-dashes")
+    val bad = new WidgetRef("nope-dashes")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "input", Map("ref" -> AttrValue.RefBinding(bad)), Map.empty, Seq.empty
     ))
@@ -85,7 +85,7 @@ class RefPortalEmitTest extends AnyFunSuite:
 
   test("Refs + Portal compose — useRef for an element inside a portal") {
     val backend = new ReactFrameworkBackend
-    val closeBtn = new DomRef("closeBtn")
+    val closeBtn = new WidgetRef("closeBtn")
     val app = ComponentDef("App", Nil, _ => View.Element(
       "div", Map.empty, Map.empty,
       Seq(View.Portal("#modal-root", Seq(

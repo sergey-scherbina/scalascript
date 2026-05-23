@@ -14,14 +14,14 @@ class Widgets2Test extends AnyFunSuite with Matchers:
 
   // ─── helpers ──────────────────────────────────────────────────
 
-  private def styleOf(v: View): String = v match
+  private def styleOf(v: View[?]): String = v match
     case View.Element(_, attrs, _, _) =>
       attrs.get("style") match
         case Some(AttrValue.Str(s)) => s
         case _                       => ""
     case _ => ""
 
-  private def renderStructure(v: View): String = v match
+  private def renderStructure(v: View[?]): String = v match
     case View.Element(tag, attrs, _, kids) =>
       val attrStr = attrs.values.collect { case AttrValue.Str(s) => s }.mkString(" ")
       val kidStr  = kids.map(renderStructure).mkString(" ")

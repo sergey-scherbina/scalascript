@@ -606,7 +606,7 @@ class ShowcaseTest extends AnyFunSuite with Matchers:
 
   /** Collect every `View.Element` with the given tag, depth-first.
    *  Same pattern as the helpers in `FormInputsTest` / `TableTest`. */
-  private def collectTag(v: View, tag: String): Seq[View.Element] = v match
+  private def collectTag(v: View[?], tag: String): Seq[View.Element] = v match
     case e @ View.Element(t, _, _, kids) =>
       val here = if t == tag then Seq(e) else Seq.empty
       here ++ kids.flatMap(collectTag(_, tag))
@@ -615,7 +615,7 @@ class ShowcaseTest extends AnyFunSuite with Matchers:
 
   /** Collect every `View.Element` in the tree, depth-first.  Useful
    *  for searching by attribute rather than by tag. */
-  private def collectAllElements(v: View): Seq[View.Element] = v match
+  private def collectAllElements(v: View[?]): Seq[View.Element] = v match
     case e @ View.Element(_, _, _, kids) =>
       e +: kids.flatMap(collectAllElements)
     case View.Fragment(kids) => kids.flatMap(collectAllElements)
@@ -624,7 +624,7 @@ class ShowcaseTest extends AnyFunSuite with Matchers:
   /** Recursively concat every attribute string + child text — for
    *  "does this rendering contain ___" smoke checks.  Matches the
    *  helper in `ToolkitTest`. */
-  private def renderStructure(v: View): String = v match
+  private def renderStructure(v: View[?]): String = v match
     case View.Element(tag, attrs, _, kids) =>
       val attrStr = attrs.values.collect { case AttrValue.Str(s) => s }.mkString(" ")
       val kidStr  = kids.map(renderStructure).mkString(" ")

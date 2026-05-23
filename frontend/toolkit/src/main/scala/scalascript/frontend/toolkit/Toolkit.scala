@@ -6,7 +6,7 @@ import scalascript.frontend.{View, AttrValue, EventHandler, Signal, ReactiveSign
  *  top of `scalascript.frontend.View` (the low-level SPI primitives)
  *  and presents a semantic widget vocabulary (`Stack`, `Text`,
  *  `Button`, `TextField`, …) instead of raw HTML elements.  All
- *  widgets lower to View through `Toolkit.lower(node, theme)`.
+ *  widgets lower to View[?] through `Toolkit.lower(node, theme)`.
  *
  *  Not `sealed` — the toolkit's vocabulary is open-ended.  Widget
  *  packs (Form, Router, Widgets2, …) live in their own files and
@@ -16,9 +16,9 @@ trait ToolkitNode
 
 /** Lowering — toolkit → View.  Pure function: same toolkit tree +
  *  same theme = same View.  No DOM access; backends consume the
- *  resulting View through the regular SPI path. */
+ *  resulting View[?] through the regular SPI path. */
 object Toolkit:
-  def lower(node: ToolkitNode, theme: Theme): View = node match
+  def lower(node: ToolkitNode, theme: Theme): View[?] = node match
     case n: StackNode      => StackNode.lower(n, theme)
     case n: BoxNode        => BoxNode.lower(n, theme)
     case n: SpacerNode     => SpacerNode.lower(n, theme)
@@ -59,7 +59,7 @@ object Toolkit:
 /** Escape hatch — wrap a low-level `View` so it composes alongside
  *  toolkit widgets when an exotic need arises (custom SVG, third-
  *  party component, etc.). */
-final case class RawViewNode(view: View) extends ToolkitNode
+final case class RawViewNode(view: View[?]) extends ToolkitNode
 
 // ─── Layout ─────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ final case class StackNode(
 ) extends ToolkitNode
 
 object StackNode:
-  def lower(n: StackNode, theme: Theme): View =
+  def lower(n: StackNode, theme: Theme): View[?] =
     val flexDir = n.direction match
       case StackDirection.Vertical   => "column"
       case StackDirection.Horizontal => "row"
@@ -115,7 +115,7 @@ final case class BoxNode(
 ) extends ToolkitNode
 
 object BoxNode:
-  def lower(n: BoxNode, theme: Theme): View =
+  def lower(n: BoxNode, theme: Theme): View[?] =
     val sb = new StringBuilder
     if n.padding > 0 then sb.append(s"padding: ${n.padding}px;")
     n.bg.foreach    (c => sb.append(s"background: ${themeColor(theme, c)};"))
@@ -151,7 +151,7 @@ object BoxNode:
 final case class SpacerNode(grow: Boolean = false, size: Int = 0) extends ToolkitNode
 
 object SpacerNode:
-  def lower(n: SpacerNode, @annotation.unused theme: Theme): View =
+  def lower(n: SpacerNode, @annotation.unused theme: Theme): View[?] =
     val style =
       if n.grow then "flex: 1 0 auto;"
       else s"width: ${n.size}px; height: ${n.size}px;"
@@ -165,7 +165,7 @@ final case class DividerNode(
 ) extends ToolkitNode
 
 object DividerNode:
-  def lower(n: DividerNode, theme: Theme): View =
+  def lower(n: DividerNode, theme: Theme): View[?] =
     val style = n.orientation match
       case StackDirection.Horizontal =>
         s"border: 0; border-top: 1px solid ${theme.colors.border}; margin: 0;"
@@ -189,7 +189,7 @@ final case class TextNode(
 ) extends ToolkitNode
 
 object TextNode:
-  def lower(n: TextNode, theme: Theme): View =
+  def lower(n: TextNode, theme: Theme): View[?] =
     val ts = n.variant match
       case TextVariant.Body      => theme.typography.body
       case TextVariant.BodySmall => theme.typography.bodySmall
@@ -217,7 +217,7 @@ final case class HeadingNode(
 ) extends ToolkitNode
 
 object HeadingNode:
-  def lower(n: HeadingNode, theme: Theme): View =
+  def lower(n: HeadingNode, theme: Theme): View[?] =
     val ts  = theme.typography.heading(n.level)
     val tag = s"h${n.level.max(1).min(6)}"
     val style =
@@ -252,7 +252,7 @@ final case class ButtonNode(
 ) extends ToolkitNode
 
 object ButtonNode:
-  def lower(n: ButtonNode, theme: Theme): View =
+  def lower(n: ButtonNode, theme: Theme): View[?] =
     val (bg, fg, border) = n.kind match
       case ButtonKind.Primary   => (theme.colors.primary, theme.colors.onPrimary, "none")
       case ButtonKind.Secondary => (theme.colors.secondary, theme.colors.onPrimary, "none")
@@ -301,7 +301,7 @@ final case class TextFieldNode(
 ) extends ToolkitNode
 
 object TextFieldNode:
-  def lower(n: TextFieldNode, theme: Theme): View =
+  def lower(n: TextFieldNode, theme: Theme): View[?] =
     // Stable id so the <label for=...> binding works for screen readers
     val id = s"tf-${System.identityHashCode(n.value).toHexString}"
     val errMsg: Option[String] =
@@ -351,7 +351,7 @@ object TextFieldNode:
       s"display: block; margin-bottom: ${theme.spacing.xs}px; font-weight: 500;"
     val errorStyle = s"color: ${theme.colors.danger}; font-size: ${theme.typography.caption.fontSize}px; " +
       s"margin-top: ${theme.spacing.xs}px;"
-    val parts = scala.collection.mutable.ArrayBuffer.empty[View]
+    val parts = scala.collection.mutable.ArrayBuffer.empty[View[?]]
     n.label.foreach { l =>
       parts += View.Element("label",
         attrs    = Map("for" -> AttrValue.Str(id), "style" -> AttrValue.Str(labelStyle)),
@@ -380,7 +380,7 @@ final case class CheckboxNode(
 ) extends ToolkitNode
 
 object CheckboxNode:
-  def lower(n: CheckboxNode, theme: Theme): View =
+  def lower(n: CheckboxNode, theme: Theme): View[?] =
     val id = s"cb-${System.identityHashCode(n.checked).toHexString}"
     val checkedAttr = n.checked match
       case rs: ReactiveSignal[?] => AttrValue.Reactive(rs)
@@ -419,7 +419,7 @@ final case class AlertNode(
 ) extends ToolkitNode
 
 object AlertNode:
-  def lower(n: AlertNode, theme: Theme): View =
+  def lower(n: AlertNode, theme: Theme): View[?] =
     val (bg, fg) = n.severity match
       case AlertSeverity.Info    => ("#dbeafe", theme.colors.text)  // blue-100
       case AlertSeverity.Success => ("#dcfce7", theme.colors.text)  // green-100
@@ -433,7 +433,7 @@ object AlertNode:
     val style =
       s"background: $bg; color: $fg; padding: ${theme.spacing.md}px; " +
       s"border: 1px solid $borderColor; border-radius: ${theme.radii.md}px;"
-    val children = scala.collection.mutable.ArrayBuffer.empty[View]
+    val children = scala.collection.mutable.ArrayBuffer.empty[View[?]]
     n.title.foreach { t =>
       children += Toolkit.lower(HeadingNode(4, t), theme)
     }
@@ -462,7 +462,7 @@ final case class CardNode(
 ) extends ToolkitNode
 
 object CardNode:
-  def lower(n: CardNode, theme: Theme): View =
+  def lower(n: CardNode, theme: Theme): View[?] =
     val cardStyle =
       s"background: ${theme.colors.surface}; border: 1px solid ${theme.colors.border}; " +
       s"border-radius: ${theme.radii.md}px; box-shadow: ${theme.shadows.sm}; overflow: hidden;"
@@ -473,7 +473,7 @@ object CardNode:
         attrs = Map("style" -> AttrValue.Str(
           s"border: 0; border-top: 1px solid ${theme.colors.border}; margin: 0;")),
         events = Map.empty, children = Nil)
-    val parts = scala.collection.mutable.ArrayBuffer.empty[View]
+    val parts = scala.collection.mutable.ArrayBuffer.empty[View[?]]
     n.header.foreach { h =>
       parts += View.Element("div",
         attrs = Map("style" -> AttrValue.Str(sectionStyle)),

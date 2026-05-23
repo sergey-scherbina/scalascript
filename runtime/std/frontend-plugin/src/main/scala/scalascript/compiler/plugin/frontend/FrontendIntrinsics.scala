@@ -82,8 +82,8 @@ object FrontendIntrinsics:
     QualifiedName("showSignal") -> NativeImpl((_, args) =>
       args match
         case List(Value.Foreign("ReactiveSignal", cond: ReactiveSignal[?]),
-                  Value.Foreign("View", tv: View),
-                  Value.Foreign("View", fv: View)) =>
+                  Value.Foreign("View", tv: View[?]),
+                  Value.Foreign("View", fv: View[?])) =>
           Value.Foreign("View",
             View.ShowSignal(cond.asInstanceOf[ReactiveSignal[Boolean]], tv, fv))
         case _ => throw InterpretError("showSignal(cond, whenTrue, whenFalse)")
@@ -117,7 +117,7 @@ object FrontendIntrinsics:
           val initial = rs.apply().asInstanceOf[Any] == raw
           val safeSuffix = raw.toString.replaceAll("[^A-Za-z0-9]", "_")
           Value.Foreign("ReactiveSignal",
-            new ReactiveSignal[Boolean](s"${rs.jsName}__eq__${safeSuffix}", initial))
+            new ReactiveSignal[Boolean](s"${rs.id}__eq__${safeSuffix}", initial))
         case _ => throw InterpretError("eqSignal(signal, value)")
     ),
 
@@ -137,11 +137,11 @@ object FrontendIntrinsics:
     // serve(port, tls(cert, key))    — serve cwd with TLS
     QualifiedName("serve") -> NativeImpl((ctx, args) =>
       args match
-        case List(Value.Foreign("View", view: View), port) =>
+        case List(Value.Foreign("View", view: View[?]), port) =>
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
           val outDir = uiEmitToTempDir(view, "")
           if !ctx.headless then ctx.startServer(p, outDir)
-        case List(Value.Foreign("View", view: View), port, extraCss: String) =>
+        case List(Value.Foreign("View", view: View[?]), port, extraCss: String) =>
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
           val outDir = uiEmitToTempDir(view, extraCss)
           if !ctx.headless then ctx.startServer(p, outDir)
@@ -162,7 +162,7 @@ object FrontendIntrinsics:
     // ── emit(tree: View, outDir: String): Unit ───────────────────────────────
     QualifiedName("emit") -> NativeImpl((ctx, args) =>
       args match
-        case List(Value.Foreign("View", view: View), dir: String) =>
+        case List(Value.Foreign("View", view: View[?]), dir: String) =>
           uiEmitToDir(view, dir, ctx.out)
         case _ => throw InterpretError("emit(tree, outDir)")
     ),
@@ -193,19 +193,19 @@ object FrontendIntrinsics:
     }.toMap
     case _ => Map.empty
 
-  private def uiDecodeViewList(v: Value): Seq[View] = v match
-    case Value.ListV(items) => items.collect { case Value.Foreign("View", view: View) => view }
-    case Value.Foreign("View", view: View) => Seq(view)
+  private def uiDecodeViewList(v: Value): Seq[View[?]] = v match
+    case Value.ListV(items) => items.collect { case Value.Foreign("View", view: View[?]) => view }
+    case Value.Foreign("View", view: View[?]) => Seq(view)
     case _ => Seq.empty
 
   // ── Emit helpers ──────────────────────────────────────────────────────────
 
-  private def uiBuildModule(view: View, extraCss: String = ""): FrontendModule =
+  private def uiBuildModule(view: View[?], extraCss: String = ""): FrontendModule =
     val app = ComponentDef("App", Nil, _ =>
       View.Element("div", Map("id" -> AttrValue.Str("ui-app")), Map.empty, Seq(view)))
     FrontendModule(List(app), "App", "/", extraCss)
 
-  private def uiEmitToTempDir(view: View, extraCss: String): String =
+  private def uiEmitToTempDir(view: View[?], extraCss: String): String =
     val module  = uiBuildModule(view, extraCss)
     val emitted = FrontendFrameworks.current().emit(module)
     val tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
@@ -215,7 +215,7 @@ object FrontendIntrinsics:
       java.nio.file.Files.writeString(tmpDir.resolve("app.css"), emitted.css)
     tmpDir.toString
 
-  private def uiEmitToDir(view: View, dir: String, out: java.io.PrintStream): Unit =
+  private def uiEmitToDir(view: View[?], dir: String, out: java.io.PrintStream): Unit =
     val module  = uiBuildModule(view)
     val emitted = FrontendFrameworks.current().emit(module)
     val p = java.nio.file.Paths.get(dir)
