@@ -237,7 +237,7 @@ private[solid] object SolidEmitter:
         // signal subscribers wire correctly.
         registerSignal(cond)
         val wrap = freshVar()
-        statements += s"const $wrap = document.createElement('span');"
+        statements += s"const $wrap = document.createElement('span'); $wrap.style.display = 'contents';"
         val tVar = compile(whenTrue)
         val fVar = compile(whenFalse)
         val tNode = if tVar != null then tVar else placeholderNode()
