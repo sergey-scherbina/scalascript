@@ -70,6 +70,13 @@ final class SolidFrameworkBackend extends FrontendFrameworkSpi:
        |  <meta charset="UTF-8">
        |  <title>ScalaScript SPA (Solid)</title>
        |  <style>
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%;font-size:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+    #app{max-width:700px;margin:0 auto;padding:24px 20px}
+    button{touch-action:manipulation;cursor:pointer}
+    button:disabled{opacity:.5;cursor:default}
+    input[type=checkbox]{width:22px;height:22px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}
+    hr{border:none;border-top:1px solid #e5e7eb;margin:0}
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     .ssc-spin { animation: spin 0.8s linear infinite; }
   </style>

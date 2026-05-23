@@ -342,8 +342,8 @@ private[solid] object SolidEmitter:
         val tickName = tick.jsName
         val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
         val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
-        val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:13px")
-        val tableStyle = jsString("border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px")
+        val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit")
+        val tableStyle = jsString("border-collapse:collapse;width:100%;font-family:inherit;font-size:inherit")
         val theadStyle = jsString("background:#f9fafb")
         val tableVar = freshVar()
         val tbodyVar = freshVar()

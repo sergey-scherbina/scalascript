@@ -328,8 +328,8 @@ private[vue] object VueEmitter:
       val delUrlJs   = jsString(deleteUrl)
       val thStyle    = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827' }"
       val tdStyle    = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle' }"
-      val btnStyle   = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }"
-      val tableStyle = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'sans-serif', fontSize: '14px' }"
+      val btnStyle   = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }"
+      val tableStyle = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'inherit', fontSize: 'inherit' }"
       val theadStyle = "{ background: '#f9fafb' }"
       val rowFn =
         s"this.$tableJsName.map((row, _i) => " +
