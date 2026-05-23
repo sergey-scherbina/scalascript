@@ -6607,10 +6607,14 @@ function runAuthWith(user) {
  *  The Node-only helpers (`_serveStatic`, `_contentTypeFor`, `require('http')`)
  *  are never invoked, so they sit as dead code without crashing the page. */
 val JsRuntimeBrowserPatch: String = """
-// ── Browser SPA overlay ──────────────────────────────────────────────────
-// Replaces serve(port) with a popstate/link-click dispatcher.  Same
-// route(method, path)(handler) surface as the Node target; same Response
-// shape; same _routes / _matchPath / _mkRequest reused unchanged.
+// ── Browser / Electron SPA overlay ───────────────────────────────────────
+// Replaces serve(view, port) with a route-register + popstate dispatcher.
+// _ssc_http_serve is stubbed so _ssc_ui_serve can register routes without
+// trying to require('http') in the renderer process.
+// Same route(method, path)(handler) surface as the Node target; same
+// Response shape; same _routes / _matchPath / _mkRequest reused unchanged.
+
+function _ssc_http_serve() {}   // no-op: no TCP server in the browser/Electron renderer
 
 function _spaFlush() {
   if (_output.length) {
@@ -6675,9 +6679,15 @@ function _spaNavigate(pathname, replace) {
   _spaDispatch('GET', pathname);
 }
 
-// In browser there's no port to bind.  `serve(...)` hooks link clicks +
-// popstate and dispatches the initial location so the page renders.
-function serve(/* ignored */) {
+// In browser/Electron there's no port to bind.
+// If called as serve(view, port[, css]), register routes via _ssc_ui_serve
+// first (_ssc_http_serve is stubbed above), then dispatch the initial render.
+// Always dispatches to '/' — in file:// mode (Electron) location.pathname is
+// a filesystem path, not a route path.
+function serve(treeOrPort, portOrUndef, extraCssOrUndef) {
+  if (typeof treeOrPort !== 'number') {
+    _ssc_ui_serve(treeOrPort, 0, extraCssOrUndef || '');
+  }
   document.addEventListener('click', e => {
     const a = e.target && e.target.closest && e.target.closest('a');
     if (!a) return;
@@ -6691,7 +6701,7 @@ function serve(/* ignored */) {
   window.addEventListener('popstate', () => {
     _spaDispatch('GET', location.pathname || '/');
   });
-  _spaDispatch('GET', location.pathname || '/');
+  _spaDispatch('GET', '/');
 }
 """
 
