@@ -457,6 +457,7 @@ def printUsage(): Unit =
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  watch                  Run .ssc and re-run on every file change
+    |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
     |                         Flags: --server-backend <jdk|jetty|netty>
@@ -3174,10 +3175,30 @@ def watchCommand(args: List[String]): Unit =
   import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
   import scala.jdk.CollectionConverters.*
   if args.isEmpty then { println("Error: No file specified"); System.exit(1) }
-  val file    = args.head
+  // Parse --frontend flag (same as runCommand; flag overrides frontmatter)
+  val it = args.iterator
+  var fileArg:     Option[String] = None
+  var frontendArg: Option[String] = None
+  while it.hasNext do
+    val a = it.next()
+    if a == "--frontend" && it.hasNext then
+      val name = it.next()
+      if validFrontendNames(name) then frontendArg = Some(name)
+      else { System.err.println(s"watch: unknown --frontend '$name'"); System.exit(1) }
+    else if !a.startsWith("-") && fileArg.isEmpty then fileArg = Some(a)
+  val file    = fileArg.getOrElse { println("Error: No file specified"); System.exit(1); "" }
   val absPath = Paths.get(file).toAbsolutePath.normalize
   val dir     = absPath.getParent
   val osPath  = os.Path(absPath)
+  // Apply frontend: CLI flag wins; fall back to frontmatter `frontend:` key.
+  frontendArg match
+    case Some(name) => applyFrontendBackend(name)
+    case None =>
+      ParseCache.getOrParse(osPath).manifest
+        .flatMap(_.raw.get("frontend"))
+        .collect { case s: String => s }
+        .filter(validFrontendNames)
+        .foreach(applyFrontendBackend)
 
   // ── Hot-reload state ─────────────────────────────────────────────────
   // `isServerFile` is set to true on first run if the source contains a
