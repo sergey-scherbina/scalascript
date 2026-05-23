@@ -10098,3 +10098,30 @@ web emitters (React, Vue, Solid, Custom/StaticJs).
   View reimplementation deferred to P3 when the IR case is removed
 
 **Tests:** 217 passing; 0 failures
+
+## v1.41 — Native Platform P2: Toolchain UX ✓ Complete (2026-05-23)
+
+**Status:** Complete
+**Spec:** [`docs/native-platform.md`](docs/native-platform.md) §12
+
+`ssc toolchain` — detect and auto-install tools required for each build target.
+
+### What landed
+
+**`ToolchainCommand.scala` (new, `tools/cli/`)**
+- `ssc toolchain check [--target <t>]` — probes required tools, prints a status
+  table with ✓/✗, lists missing tools with install hint
+- `ssc toolchain install [--target <t>]` — auto-installs missing tools via
+  Coursier (Kotlin, GraalVM, JDK), mise (Node.js), Homebrew/apt (GTK, LLVM),
+  npm (Electron); shows manual instructions for tools that can't be automated
+  (Xcode → App Store, Android SDK → cmdline-tools)
+- `ssc toolchain list [--target <t>]` — prints installed tool name + version + status
+- Targets: `web`, `desktop`, `mobile-android`, `mobile-ios`, `desktop-macos`,
+  `desktop-linux`, `desktop-windows`, `all`
+- Reads `--target` from `ActiveFlags` (set by `GlobalFlags.parse`) — same
+  pattern as all other CLI commands
+
+**`Main.scala`** — `case "toolchain" => ToolchainCommand.run(args.tail)` + help text
+
+**Tested manually:** `check --target web`, `check --target mobile-ios`,
+`list --target desktop`, `help`

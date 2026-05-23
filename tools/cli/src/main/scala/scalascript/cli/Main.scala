@@ -128,6 +128,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "debug"               => DebugCommand.run(args.tail)
     case "cluster"             => clusterCommand(args.tail)
     case "oauth"               => OAuthCli.run(args.tail)
+    case "toolchain"           => ToolchainCommand.run(args.tail)
     case "help" | "--help" | "-h" => printUsage()
     case "--list-backends"     => println(BackendRegistry.describe)
     case cmd                   => scriptCommand(cmd, args.tail)
@@ -511,6 +512,12 @@ def printUsage(): Unit =
     |                         Run with lightweight call-level profiling; print top-N
     |                         hotspots by wall time.  --top defaults to 20.
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
+    |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
+    |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
+    |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
+    |    list   [--target <t>]  Print installed tools and their versions
+    |    Targets: web, desktop, mobile-android, mobile-ios, desktop-macos,
+    |             desktop-linux, desktop-windows, all
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
