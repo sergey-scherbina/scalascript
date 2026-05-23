@@ -1,5 +1,6 @@
 package scalascript.compiler.plugin.fetch
 
+import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
@@ -7,6 +8,7 @@ import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler, View}
 
 object FetchIntrinsics:
 
+  @nowarn("cat=deprecation")
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     // fetchUrlSignal(name, url, refreshTick): Signal[String]
@@ -17,7 +19,7 @@ object FetchIntrinsics:
         case List(name: String, url: String,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           Value.Foreign("ReactiveSignal",
-            new FetchUrlSignal(name, url, tick.jsName))
+            new FetchUrlSignal(name, url, tick.id))
         case _ => throw InterpretError("fetchUrlSignal(name, url, refreshTick)")
     ),
 
