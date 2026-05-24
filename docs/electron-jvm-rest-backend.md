@@ -44,6 +44,10 @@ and communicate through the same REST surface.
   - `Request` / `Response`;
   - `Db.query` / `Db.execute`;
   - frontend toolkit helpers such as `fetchAction` and `fetchTable`.
+- Support hybrid data apps with both server databases and client-local
+  databases declared in the same `.ssc` source. Example: authoritative data on
+  the JVM server, plus a local frontend SQLite/OPFS/Electron store for cache,
+  offline state, drafts, or UI preferences.
 - Let backend routes use the JVM runtime, including JDBC-backed databases and
   JVM-only libraries.
 - Start both processes from one command in local dev mode.
@@ -66,6 +70,9 @@ and communicate through the same REST surface.
 - Do not support multiple backend processes in one app in the first phase.
 - Do not require Electron for the distributed client/server model; Electron is
   only one frontend target.
+- Do not automatically synchronize client-local databases with server
+  databases in the first implementation. Sync/merge policy is application code
+  or a later library.
 
 ## Relationship To Existing Modes
 
@@ -237,6 +244,66 @@ but distributed server/client should move toward explicit ownership markers:
 or an equivalent front-matter/module-level convention. The design should avoid
 making users split one small app into multiple files just to run it in
 client/server mode.
+
+### Hybrid Server And Client Databases
+
+Full-stack apps often need two distinct data stores:
+
+- **server database**: authoritative state owned by the JVM backend, accessed by
+  route handlers through JDBC or server-supported database drivers;
+- **client-local database**: frontend-owned cache/offline store, accessed from
+  React/Vue/Solid/custom browser code or Electron renderer/main bridge.
+
+Both should be declared in the same `.ssc` module and selected by name:
+
+```yaml
+---
+databases:
+  server:
+    side: server
+    url: jdbc:postgresql://db.internal/app
+    user: ${env:DB_USER}
+    password: ${env:DB_PASSWORD}
+  localCache:
+    side: client
+    url: sqlite:./cache.db
+---
+```
+
+```scalascript
+// Server route handler: authoritative data.
+route("GET", "/api/todos") { _ =>
+  val rows = Db.query("server", "SELECT id, text FROM todos ORDER BY id", [])
+  Response.json(rows)
+}
+
+// Client code / client SQL block: local cache.
+Db.execute("localCache", "INSERT INTO cached_todos(id, text) VALUES (?, ?)", [id, text])
+```
+
+Rules:
+
+- `side: server` databases are available only in the JVM backend process.
+- `side: client` databases are available only in frontend/client bundles.
+- If `side` is omitted, existing behavior remains: SQL defaults to server side
+  in full-stack mode and to the current target in single-target mode.
+- A client bundle may contain multiple client-local databases.
+- A server process may contain multiple server databases.
+- A client-side reference to a server-only database is a build-time diagnostic.
+- A server-side reference to a client-only database is a build-time diagnostic.
+
+Client-local storage by frontend target:
+
+| Frontend target | Client-local SQL backend |
+| --- | --- |
+| Electron | Electron persistence bridge (`sqlite:` under app data) |
+| React/Vue/Solid/custom browser | JS SQL runtime: OPFS/sql.js/localStorage fallback depending on URL scheme and browser capabilities |
+| Future native clients | Target-specific client-local provider |
+
+This gives applications a clear shape: use REST to synchronize with the server,
+and use client-local SQL for cache/offline state where needed. ScalaScript
+should not hide the difference between authoritative server writes and local
+cache writes.
 
 ### Backend Base URL Injection
 
@@ -439,6 +506,19 @@ launches each side separately from the same source.
 - Avoid duplicate side effects from top-level code.
 - Keep shared pure definitions available to both sides.
 
+### Phase 7 - Hybrid Client-Local SQL
+
+- Extend `databases:` schema with a side/placement marker for server vs client
+  databases.
+- Validate that server code cannot use client-only databases and client code
+  cannot use server-only databases.
+- Ensure Electron client-local SQL continues to use the Electron persistence
+  bridge.
+- Ensure browser clients can use JS-supported local SQL providers for cache and
+  offline state.
+- Add an example with server `server` DB and client `localCache` DB from one
+  `.ssc` source.
+
 ## Testing Strategy
 
 - Unit:
@@ -454,6 +534,8 @@ launches each side separately from the same source.
   - UI refresh fetches rows from JVM backend.
   - backend-only JVM server and frontend-only React client run as separate
     processes and communicate through `--server-url`.
+  - hybrid data app writes authoritative data on the JVM backend and caches a
+    copy in a client-local database.
 - Regression:
   - plain `ssc run` starts supervised local full-stack mode for mixed
     frontend+route apps;
@@ -478,3 +560,8 @@ launches each side separately from the same source.
   backend artifact later?
 - For browser clients on another machine, should ScalaScript generate a default
   CORS policy from front-matter?
+- Should the `databases:` placement key be named `side`, `scope`, `placement`,
+  or should placement be expressed through URL schemes such as
+  `client-sqlite:`?
+- What minimum sync helper should the standard library provide, if any, for
+  client-local cache invalidation and server reconciliation?

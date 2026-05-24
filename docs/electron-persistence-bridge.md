@@ -25,6 +25,9 @@ the renderer sandboxed (`nodeIntegration: false`, `contextIsolation: true`).
 - Restrict the bridge to databases declared in the bundle manifest. Renderer
   code must not be able to open arbitrary filesystem paths.
 - Add restart-level smoke coverage for persistence, not only in-memory behavior.
+- Support client-local databases in split frontend/JVM-backend apps. In that
+  mode the Electron bridge owns only databases declared for the client side,
+  while server-side databases stay in the JVM backend process.
 
 ## Non-Goals
 
@@ -82,7 +85,28 @@ The generated Electron bundle gains an active preload bridge:
 | `package.json` | Includes the chosen SQLite dependency once implementation selects it. |
 
 The bridge should be generated only when the parsed module declares at least one
-database URL that needs Electron persistence. Pure UI apps keep the inert preload.
+client-side database URL that needs Electron persistence. Pure UI apps keep the
+inert preload. Server-only databases in split JVM REST mode do not activate the
+Electron persistence bridge.
+
+### Client-Local Role In Split Apps
+
+When an app uses the split JVM REST backend mode, Electron may still need local
+SQL for cache/offline state. The intended model is two named databases:
+
+```yaml
+databases:
+  server:
+    side: server
+    url: jdbc:postgresql://db.internal/app
+  localCache:
+    side: client
+    url: sqlite:./cache.db
+```
+
+The bridge exposes only `localCache` to the Electron client. `server` remains
+available only to the JVM backend. Application code synchronizes between the two
+through REST routes; the bridge does not replicate or merge data automatically.
 
 ### Database Path Resolution
 

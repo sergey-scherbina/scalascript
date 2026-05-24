@@ -10247,3 +10247,8 @@ modes opt out of that default.
   the JVM backend artifact with Electron, and document platform requirements.
 - **Phase 6 — Source partitioning.** Add explicit client/server partitioning
   only if duplicated top-level side effects become a blocker.
+- **Phase 7 — Hybrid client-local SQL.** Support separate server and client
+  `databases:` entries from one `.ssc`: JVM backend owns authoritative server
+  data, while React/Electron/etc. clients can keep local SQL for cache, offline
+  state, drafts, and preferences. Validate side mismatches and add a worked
+  example with `server` + `localCache` databases.

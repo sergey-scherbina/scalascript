@@ -957,6 +957,12 @@ For apps that should run backend routes on the JVM and use Electron only as the
 desktop client, see the planned
 [`electron-jvm-rest-backend.md`](electron-jvm-rest-backend.md) mode.
 
+Full-stack clients may also keep their own local SQL database for cache,
+offline state, drafts, or preferences while the JVM backend owns the
+authoritative server database. The planned split-mode contract names these as
+separate `databases:` entries, for example `server` (`side: server`) and
+`localCache` (`side: client`).
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements
