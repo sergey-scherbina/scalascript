@@ -273,6 +273,22 @@ Landed in May 2026:
 - Verify packaged macOS/Linux/Windows artifacts can open the database.
 - Document any platform-specific build prerequisites.
 
+Landed in May 2026:
+
+- Generated `package.json` adds `asarUnpack` for
+  `node_modules/sql.js/dist/*.wasm` when the bundle declares databases.
+- The generated main process resolves `sql.js` wasm from `app.asar.unpacked`
+  when packaged, while keeping the plain `node_modules` path for dev bundles.
+- `ssc run --frontend electron` installs runtime dependencies with
+  `npm install --omit=dev` for database-backed bundles before launching
+  Electron.
+
+Still to verify manually per platform:
+
+- macOS DMG can open and persist the database.
+- Linux AppImage can open and persist the database.
+- Windows NSIS package can open and persist the database.
+
 ## Testing Strategy
 
 - Unit tests:

@@ -10193,3 +10193,10 @@ now runs the generated toolkit bundle twice against the same temporary
 Electron `userData` directory. The first run adds a todo through `/api/todos`;
 the second run fetches `/api/todos` and verifies the row survived process
 restart.
+
+**Persistence packaging hardening ✓ Landed (2026-05-24):** Database-backed
+Electron bundles now add `asarUnpack` for `node_modules/sql.js/dist/*.wasm`.
+The generated main process resolves sql.js wasm from `app.asar.unpacked` when
+packaged and from regular `node_modules` in dev bundles. `ssc run --frontend
+electron` installs runtime dependencies with `npm install --omit=dev` before
+launching database-backed Electron apps.

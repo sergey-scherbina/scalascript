@@ -87,6 +87,11 @@ object ElectronEmitter:
            |  },
            |""".stripMargin
       else ""
+    val asarUnpack =
+      if ElectronPersistenceBridge.enabled(databases) then
+        """    "asarUnpack": ["node_modules/sql.js/dist/*.wasm"],
+          |""".stripMargin
+      else ""
     s"""{
        |  "name": "${sanitizePkgName(name)}",
        |  "version": "$version",
@@ -105,6 +110,7 @@ object ElectronEmitter:
        |    "appId": "com.scalascript.${sanitizePkgName(name)}",
        |    "productName": ${jsString(name)},
        |    "directories": { "output": "dist" },
+       |$asarUnpack
        |    "mac":     { "target": "dmg" },
        |    "win":     { "target": "nsis" },
        |    "linux":   { "target": "AppImage" }

@@ -48,8 +48,14 @@ object ElectronPersistenceBridge:
          |  if (__sscSqlJs) return __sscSqlJs
          |  const initSqlJs = require('sql.js')
          |  const distDir = path.dirname(require.resolve('sql.js'))
-         |  __sscSqlJs = await initSqlJs({ locateFile: file => path.join(distDir, file) })
+         |  __sscSqlJs = await initSqlJs({ locateFile: __sscSqlJsLocateFile })
          |  return __sscSqlJs
+         |}
+         |
+         |function __sscSqlJsLocateFile(file) {
+         |  const candidate = path.join(path.dirname(require.resolve('sql.js')), file)
+         |  const unpacked = candidate.replace(path.sep + 'app.asar' + path.sep, path.sep + 'app.asar.unpacked' + path.sep)
+         |  return fs.existsSync(unpacked) ? unpacked : candidate
          |}
          |
          |async function __sscOpenDb(name) {

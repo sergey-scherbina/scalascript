@@ -66,11 +66,17 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     active should include ("ipcMain.on('ssc:db:list'")
     active should include ("ipcMain.on('ssc:db:query'")
     active should include ("require('sql.js')")
+    active should include ("app.asar.unpacked")
   }
 
   test("packageJson includes sql.js only for database-backed bundles") {
-    ElectronEmitter.packageJson("app") should not include ("\"sql.js\"")
-    ElectronEmitter.packageJson("app", databases = List(DatabaseDecl("default", "sqlite:./todos.db"))) should include ("\"sql.js\"")
+    val inert = ElectronEmitter.packageJson("app")
+    inert should not include ("\"sql.js\"")
+    inert should not include ("asarUnpack")
+
+    val active = ElectronEmitter.packageJson("app", databases = List(DatabaseDecl("default", "sqlite:./todos.db")))
+    active should include ("\"sql.js\"")
+    active should include ("\"asarUnpack\": [\"node_modules/sql.js/dist/*.wasm\"]")
   }
 
   test("packageJson has required npm fields") {

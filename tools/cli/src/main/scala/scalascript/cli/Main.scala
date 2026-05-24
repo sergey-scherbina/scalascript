@@ -2431,8 +2431,9 @@ private def runElectronDev(sscFile: os.Path): Unit =
   if !os.exists(sscFile) then
     System.err.println(s"run: file not found: $sscFile"); System.exit(1)
   val tmpDir = os.temp.dir(prefix = "ssc-electron-", deleteOnExit = true)
+  val module = scalascript.parser.Parser.parse(os.read(sscFile))
   buildElectronBundle(sscFile, tmpDir)
-  val title = scalascript.parser.Parser.parse(os.read(sscFile)).manifest
+  val title = module.manifest
     .flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
   println(s"ssc: launching Electron — $title")
   println(s"     bundle: $tmpDir")
@@ -2445,6 +2446,19 @@ private def runElectronDev(sscFile: os.Path): Unit =
     System.err.println("  npm install -g electron")
     System.err.println("  ssc toolchain install --target desktop")
     System.exit(1)
+  if module.manifest.exists(_.databases.nonEmpty) then
+    val npmOk =
+      scala.util.Try(os.proc("npm", "--version").call(check = false).exitCode == 0)
+        .getOrElse(false)
+    if !npmOk then
+      System.err.println("ssc: 'npm' not found on PATH.  Database-backed Electron bundles need npm to install runtime dependencies.")
+      System.exit(1)
+    println("ssc: installing Electron runtime dependencies")
+    val install = os.proc("npm", "install", "--silent", "--omit=dev")
+      .call(cwd = tmpDir, check = false)
+    if install.exitCode != 0 then
+      System.err.println(s"ssc: npm install failed:\n${install.out.text()}${install.err.text()}")
+      System.exit(install.exitCode)
   val result = os.proc("electron", tmpDir.toString)
     .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
   if result.exitCode != 0 then System.exit(result.exitCode)
