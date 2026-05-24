@@ -1,6 +1,6 @@
 # Electron Persistence Bridge
 
-> Status: Phase 2 SQLite query/execute landed - May 2026.
+> Status: Phase 3 restart persistence smoke landed - May 2026.
 
 This spec describes the planned replacement for the current
 localStorage-backed Electron SQL fallback documented in
@@ -257,6 +257,14 @@ Landed in May 2026:
   5. verifies the row is still present.
 - Use a temporary app-data root for tests so the developer profile is not
   polluted.
+
+Landed in May 2026:
+
+- `ToolkitElectronSmokeTest` now runs the generated bundle twice against the
+  same temporary Electron `userData` directory.
+- First run adds `Electron smoke todo` through `/api/todos` and exits.
+- Second run fetches `/api/todos` and verifies the inserted row survived the
+  process restart.
 
 ### Phase 4 - Packaging Hardening
 

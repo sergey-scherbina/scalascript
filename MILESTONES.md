@@ -10187,3 +10187,9 @@ persists after execute/close. `backend-sql-runtime-js` selects
 `ElectronBridgeProvider` when `window.__sscElectron.db` exists, while browser
 builds keep the localStorage fallback. The toolkit Electron smoke installs
 runtime deps and verifies the Add flow through the bridge.
+
+**Persistence restart smoke ✓ Landed (2026-05-24):** `ToolkitElectronSmokeTest`
+now runs the generated toolkit bundle twice against the same temporary
+Electron `userData` directory. The first run adds a todo through `/api/todos`;
+the second run fetches `/api/todos` and verifies the row survived process
+restart.
