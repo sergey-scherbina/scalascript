@@ -10259,3 +10259,11 @@ modes opt out of that default.
   files and browser-local SQLite/Wasm backing stores in OPFS. Add diagnostics
   for server-side references and examples for settings, drafts, offline queues,
   and cached API responses.
+- **Phase 9 — Client/server object store + sync.** Add an IndexedDB-like
+  server-side object-store model for full-stack apps: client stores objects in
+  IndexedDB, JVM server stores authoritative JSON objects in a portable
+  JDBC-backed `ObjectStore`, and generated REST sync endpoints support pull,
+  push, cursors, tombstones, optimistic versions, and explicit conflict results.
+  Keep CouchDB/PouchDB-compatible replication as a later optional backend, not
+  the required bootstrap path. Add an offline todo example with two clients
+  syncing through one JVM server.

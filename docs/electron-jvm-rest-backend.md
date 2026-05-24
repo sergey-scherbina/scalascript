@@ -343,6 +343,47 @@ Rules:
   preferences, Cache API for response caching, and OPFS for files/Wasm-backed
   persistence.
 
+### Server Object Store And Sync
+
+For apps that need an IndexedDB-like model on both sides, ScalaScript should
+provide a paired client/server object-store contract rather than pretending that
+the server literally runs IndexedDB.
+
+- Client side: browser/Electron clients store objects in IndexedDB.
+- Server side: the JVM backend stores JSON objects in an `ObjectStore` backed
+  first by a portable JDBC table, with PostgreSQL JSONB or CouchDB-compatible
+  storage as later backend options.
+- Sync: generated REST endpoints expose pull/push operations with cursors,
+  optimistic versions, tombstones, and explicit conflict handling.
+
+Example front matter:
+
+```yaml
+---
+objectStores:
+  todos:
+    sync: client-server
+    key: id
+    server:
+      backend: jdbc-json
+      database: server
+      table: ssc_object_store
+    client:
+      backend: indexeddb
+      database: app
+      store: todos
+---
+```
+
+This is the recommended low-effort/high-value path: use IndexedDB where the
+browser already provides it, use a simple JDBC JSON object table on the JVM
+server, and add a narrow REST sync protocol between them. Full replication
+systems such as CouchDB/PouchDB are established solutions and should remain an
+optional future backend, but they are too heavy as the required bootstrap path.
+
+See [`client-server-object-store.md`](client-server-object-store.md) for the
+full draft contract.
+
 ### Backend Base URL Injection
 
 The frontend bundle needs a runtime constant:
