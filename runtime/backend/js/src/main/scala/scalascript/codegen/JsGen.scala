@@ -2214,7 +2214,7 @@ function maxBodySize(n) { _maxBodySizeBytes = n; }
 
 // ── Upload spool-to-disk ──────────────────────────────────────────────────────
 let _spoolThreshold = 1024 * 1024; // 1 MB
-let _uploadDir = require('os').tmpdir();
+let _uploadDir = (typeof require === 'function') ? require('os').tmpdir() : '/tmp';
 function uploadSpoolThreshold(n) { _spoolThreshold = n; }
 function uploadDir(path) { _uploadDir = path; }
 
@@ -6618,7 +6618,7 @@ val JsRuntimeBrowserPatch: String = """
 // Same route(method, path)(handler) surface as the Node target; same
 // Response shape; same _routes / _matchPath / _mkRequest reused unchanged.
 
-function _ssc_http_serve() {}   // no-op: no TCP server in the browser/Electron renderer
+_ssc_http_serve = function() {}   // no-op: no TCP server in the browser/Electron renderer
 
 function _spaFlush() {
   if (_output.length) {
@@ -6687,7 +6687,7 @@ function _spaNavigate(pathname, replace) {
 // Overrides _ssc_ui_serve so that std.ui.primitives.serve = _ssc_ui_serve
 // dispatches here.  No eval(), no DOM <script> injection — both blocked by
 // script-src 'self' CSP (Electron default).
-function _ssc_ui_serve(treeOrPort, portOrUndef, extraCssOrUndef) {
+_ssc_ui_serve = function(treeOrPort, portOrUndef, extraCssOrUndef) {
   if (typeof treeOrPort !== 'number') {
     const extraCss = extraCssOrUndef || '';
     const { body, sigs } = _ssc_ui_renderBody(treeOrPort);

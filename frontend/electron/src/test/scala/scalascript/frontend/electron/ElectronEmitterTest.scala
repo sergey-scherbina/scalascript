@@ -67,6 +67,7 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     html should include ("src=\"./app.js\"")
     html should include ("type=\"module\"")
     html should include ("Content-Security-Policy")
+    html should include ("style-src 'self' 'unsafe-inline'")
     html should include ("<div id=\"app\">")
   }
 

@@ -90,7 +90,7 @@ object ElectronEmitter:
        |<head>
        |  <meta charset="UTF-8">
        |  <meta http-equiv="Content-Security-Policy"
-       |        content="default-src 'self'; script-src 'self'">
+       |        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
        |  <title>${escapeHtml(title)}</title>$styleBlock
        |</head>
        |<body>

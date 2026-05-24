@@ -10164,3 +10164,9 @@ web emitters (React, Vue, Solid, Custom/StaticJs).
 Markdown-imported `std/ui/*.ssc` modules in segmented output, resolve bare
 `std/...` imports from the project `runtime/std/` tree in dev worktrees, and
 inject `_ssc_frontend_name = "electron"` for `ssc run --frontend electron`.
+
+**Renderer blank-window fix ✓ Landed (2026-05-24):** Electron renderer bundles
+now parse and execute as ES modules: browser overlays override Node helpers by
+assignment instead of duplicate function declarations, the upload temp-dir
+default no longer calls `require('os')` when `nodeIntegration` is disabled, and
+the Electron CSP allows runtime-generated inline styles.
