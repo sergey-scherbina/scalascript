@@ -38,6 +38,10 @@ the renderer sandboxed (`nodeIntegration: false`, `contextIsolation: true`).
 - Do not replace the browser SQL runtime for non-Electron web builds.
 - Do not make the localStorage fallback disappear immediately; it remains the
   web/browser fallback and a transition path.
+- Do not wrap all browser storage APIs in this bridge. `localStorage`,
+  `sessionStorage`, IndexedDB, Cache API, and OPFS are frontend runtime features;
+  this bridge is only the privileged SQL/file-backed persistence path Electron
+  needs.
 
 ## Current State
 
@@ -186,6 +190,14 @@ No raw `ipcRenderer` object is exposed.
 The bridge provider should implement the same `Connection` contract used by
 `ConnectionRegistry`, so `sql` blocks and `Db.query`/`Db.execute` do not need
 source-level changes.
+
+General browser storage remains outside this SQL bridge:
+
+- `localStorage` and `sessionStorage` use the renderer's normal Web Storage
+  implementation.
+- IndexedDB and Cache API use Chromium/browser-native APIs from client code.
+- OPFS may be used by browser SQL/file providers, but it is still a frontend
+  capability rather than a main-process IPC database API.
 
 ### SQLite Engine Choice
 

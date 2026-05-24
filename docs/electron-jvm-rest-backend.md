@@ -305,6 +305,44 @@ and use client-local SQL for cache/offline state where needed. ScalaScript
 should not hide the difference between authoritative server writes and local
 cache writes.
 
+### Browser Client Storage APIs
+
+Client-local SQL is not the only useful client-side storage. Browser-based
+frontends, including Electron renderers and React/Vue/Solid/custom web bundles,
+should also be able to use the standard browser storage APIs directly when their
+data shape fits better than a relational database.
+
+Planned storage surface:
+
+| API | Best fit | Notes |
+| --- | --- | --- |
+| `localStorage` | Small string key/value settings, flags, last-used values | Synchronous, origin-scoped, small quota; not for large datasets or secrets |
+| `sessionStorage` | Per-tab temporary string key/value state | Cleared when the tab/window session ends |
+| `IndexedDB` | Structured local app data, offline queues, drafts, blobs, indexes | Asynchronous, transactional object stores; primary browser-native persistent store |
+| Cache API | HTTP response/app-shell caching | Best paired with Service Workers/PWA mode; not a general object database |
+| OPFS | Origin-private files, SQLite/Wasm backing files, large local artifacts | Capability-dependent; useful for durable browser-local SQL/file storage |
+
+ScalaScript should expose these as client-only standard-library APIs rather than
+forcing every frontend feature through SQL:
+
+```scalascript
+LocalStorage.set("theme", "dark")
+val draft = IndexedDb.get("drafts", draftId)
+```
+
+Rules:
+
+- These APIs are frontend/client side only. Server-side references are build-time
+  diagnostics.
+- Electron renderers use Chromium's browser storage for these APIs; the Electron
+  SQLite persistence bridge remains specific to SQL/file-backed databases.
+- Browser SQL providers may use OPFS when available, sql.js memory/storage
+  providers where appropriate, and localStorage only as a constrained fallback.
+- Applications choose storage by data shape: SQL for relational/queryable local
+  data, IndexedDB for structured offline state and queues, localStorage for tiny
+  preferences, Cache API for response caching, and OPFS for files/Wasm-backed
+  persistence.
+
 ### Backend Base URL Injection
 
 The frontend bundle needs a runtime constant:

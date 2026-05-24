@@ -10252,3 +10252,10 @@ modes opt out of that default.
   data, while React/Electron/etc. clients can keep local SQL for cache, offline
   state, drafts, and preferences. Validate side mismatches and add a worked
   example with `server` + `localCache` databases.
+- **Phase 8 — Browser client storage APIs.** Add client-only standard-library
+  APIs for `localStorage`, `sessionStorage`, IndexedDB, Cache API, and OPFS.
+  Document storage selection rules: tiny preferences in Web Storage, structured
+  offline state/drafts/queues in IndexedDB, HTTP/app-shell caching in Cache API,
+  files and browser-local SQLite/Wasm backing stores in OPFS. Add diagnostics
+  for server-side references and examples for settings, drafts, offline queues,
+  and cached API responses.

@@ -963,6 +963,14 @@ authoritative server database. The planned split-mode contract names these as
 separate `databases:` entries, for example `server` (`side: server`) and
 `localCache` (`side: client`).
 
+Client frontends may also use standard browser storage when SQL is the wrong
+shape for the data. Planned client-only APIs cover `localStorage` for tiny
+string settings, `sessionStorage` for per-window temporary state, `IndexedDB`
+for structured offline state/drafts/queues, the Cache API for HTTP response
+caching, and OPFS for origin-private files or browser-local SQLite/Wasm storage.
+These APIs belong to the frontend side of split apps; server-side references
+should fail at build time.
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements
