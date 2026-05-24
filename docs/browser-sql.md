@@ -138,7 +138,7 @@ Resolved at runtime by `Providers.fromUrl(url)` in
 | URL prefix             | Provider        | Target support     | Notes                                                              |
 | ---------------------- | --------------- | ------------------ | ------------------------------------------------------------------ |
 | `sqlite::memory:`      | `sql.js`        | JS · Node · Wasm   | In-memory; new instance per `connect`.                             |
-| `sqlite:<path>`        | `sql.js`        | Node only          | Reads/writes file via `fs/promises`.  Browser raises `MissingFs`.  |
+| `sqlite:<path>`        | `sql.js`        | Node · Electron fallback | Node reads/writes file via `fs/promises`; Electron renderer uses the documented localStorage fallback. Browser without the fallback raises `MissingFs`. |
 | `duckdb:`              | `duckdb-wasm`   | JS · Node · Wasm   | In-memory; bundled DuckDB worker.                                  |
 | `duckdb:<path>`        | `duckdb-wasm`   | Node only          | File-backed; browser raises `MissingFs`.                           |
 | `jdbc:…`               | (JVM only)      | —                  | JS / Node / Wasm: `UnsupportedJdbcUrl` diagnostic at validate-time.|
@@ -146,6 +146,8 @@ Resolved at runtime by `Providers.fromUrl(url)` in
 The validate-time diagnostic is the only build-time enforcement; runtime
 `MissingFs` covers the browser-vs-Node split because the parser cannot
 tell the two apart from front-matter alone (same backend id for both).
+Electron renderer behavior is a special browser-like packaging case; see
+[`electron-sql.md`](electron-sql.md).
 
 ### Runtime contract — `backend-sql-runtime-js`
 

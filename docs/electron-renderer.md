@@ -37,6 +37,7 @@ frontend/electron/
   src/main/scala/scalascript/frontend/electron/
     ElectronFrameworkBackend.scala   ← FrontendFrameworkSpi impl
     ElectronEmitter.scala            ← main.js / package.json / preload.js generators
+    ElectronBundleBuilder.scala      ← CLI/test bundle builder for .ssc project files
   src/test/scala/scalascript/frontend/electron/
     ElectronEmitterTest.scala
   src/main/resources/META-INF/services/
@@ -136,7 +137,7 @@ Build flow (`ssc build --target desktop`):
 ```scala
 lazy val frontendElectron = project
   .in(file("frontend/electron"))
-  .dependsOn(frontendCore, frontendCustom)
+  .dependsOn(frontendCore, frontendCustom, backendJs)
   .settings(
     name := "scalascript-frontend-electron",
     libraryDependencies ++= Seq(scalatestTest),
@@ -147,6 +148,18 @@ lazy val frontendElectron = project
 
 `cli` project gains `frontendElectron` as a dependency.
 `stage` task copies `frontendElectron` JAR to `bin/lib/jars/`.
+
+### 3.7 SQL in Electron
+
+Electron renderer bundles are browser-like: generated windows load `index.html`
+from `file://`, keep `nodeIntegration = false`, and cannot use Node `fs` from
+renderer code. SQL support therefore follows the browser/Electron runtime path,
+not the JVM or Node file-backed path.
+
+Current `sqlite:` behavior is documented in
+[`electron-sql.md`](electron-sql.md). In short, `sqlite:<path>` in the
+renderer is localStorage-backed demo persistence, not a real file at `<path>`.
+The `toolkit-demo` Add flow is covered by `ToolkitElectronSmokeTest`.
 
 ## 4. Migration
 
@@ -166,6 +179,9 @@ Existing `.ssc` files that don't specify `frontend: electron` are unaffected.
 
 - Unit: `ElectronEmitterTest` — assert `main.js` shape (BrowserWindow, loadFile, quit logic),
   `package.json` fields (name, main, deps), `preload.js` is non-empty valid JS.
+- Smoke: `ToolkitElectronSmokeTest` — builds `examples/frontend/toolkit-demo`
+  through `ElectronBundleBuilder`, launches real Electron when available, clicks
+  Add, and verifies the row through both DOM text and `fetch("/api/todos")`.
 - Integration (manual): `ssc run --frontend electron examples/desktop-demo/desktop-demo.ssc`
   opens a window showing the demo UI.
 

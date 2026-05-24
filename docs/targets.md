@@ -306,12 +306,15 @@ Full spec: [`docs/browser-sql.md`](browser-sql.md).
 | URL prefix             | Provider        | Notes                                                                  |
 | ---------------------- | --------------- | ---------------------------------------------------------------------- |
 | `sqlite::memory:`      | sql.js          | Fresh in-memory SQLite per `connect`.                                  |
-| `sqlite:<path>`        | sql.js          | File-backed (Node only — browser raises `MissingFs`).                  |
+| `sqlite:<path>`        | sql.js          | File-backed on Node; Electron renderer uses localStorage fallback.      |
 | `duckdb:`              | DuckDB-Wasm     | In-memory; worker-based.                                               |
 | `duckdb:<path>`        | DuckDB-Wasm     | File-backed (Node only).                                               |
 | `jdbc:…`               | (JVM only)      | Build-time `Diagnostic.UnsupportedJdbcUrl` on JS-family targets.       |
 
 Differences from the JVM/Interpreter path:
+
+  - **Electron renderer caveat.**  `sqlite:<path>` in Electron does not write a
+    real file from renderer code; see [`electron-sql.md`](electron-sql.md).
 
   - **Async-by-construction.**  Browser SQL engines load asynchronously
     (WASM init + worker spin-up).  Every `sql` block compiles to

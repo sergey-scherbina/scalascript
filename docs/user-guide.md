@@ -937,6 +937,19 @@ Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
+### Electron desktop SQL
+
+Electron desktop bundles run the app inside a Chromium renderer loaded from
+`file://`. That renderer cannot use Node `fs`, so `sqlite:<path>` does not mean
+a real file database there. Current behavior:
+
+- `sqlite::memory:` and `sqlite:` are renderer-session local.
+- `sqlite:<path>` uses a small localStorage-backed fallback keyed by the URL.
+- The fallback is intentionally narrow: it supports the DDL/DML/query shapes
+  used by `examples/frontend/toolkit-demo/toolkit-demo.ssc`, not full SQLite.
+
+For details and future options, see [`electron-sql.md`](electron-sql.md).
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements

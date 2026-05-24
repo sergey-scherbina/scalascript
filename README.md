@@ -123,6 +123,7 @@ bin/http.ssc
 | [x402 micropayments](docs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
 | [Blockchain SPI](docs/blockchain-spi.md) | Pluggable backends — EVM, Bitcoin, Solana, Cardano |
 | [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
+| [Electron SQL](docs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
@@ -357,7 +358,7 @@ compiles them via Scala.js.
 | [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
 | [wasm-fibonacci.ssc](examples/wasm-fibonacci.ssc) | `scalascript` → WebAssembly module via `ssc emit-wasm` |
 | [wasm-sorting.ssc](examples/wasm-sorting.ssc) · [wasm-matrix.ssc](examples/wasm-matrix.ssc) · [wasm-primes.ssc](examples/wasm-primes.ssc) · [wasm-collections.ssc](examples/wasm-collections.ssc) | Wasm benchmark suite |
-| [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) |
+| [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) and covered by an Electron Add-flow smoke test |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
 | [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |
