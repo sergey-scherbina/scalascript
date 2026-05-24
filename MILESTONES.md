@@ -10170,3 +10170,12 @@ now parse and execute as ES modules: browser overlays override Node helpers by
 assignment instead of duplicate function declarations, the upload temp-dir
 default no longer calls `require('os')` when `nodeIntegration` is disabled, and
 the Electron CSP allows runtime-generated inline styles.
+
+**Persistence bridge skeleton ✓ Landed (2026-05-24):** Electron bundles with
+`databases:` now generate an active main/preload IPC bridge. `preload.js`
+exposes only `window.__sscElectron.db`, `main.js` registers declared-database
+handlers, and `ssc:db:list` returns manifest database names. Query/execute are
+registered but intentionally return "not implemented" until the Phase 2
+`better-sqlite3` engine lands. `ToolkitElectronSmokeTest` now verifies
+`window.__sscElectron.db.list()` exposes `default` before exercising the
+existing Add flow.

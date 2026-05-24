@@ -15,8 +15,9 @@ object ElectronBundleBuilder:
     write(module, title, baseDir, outDir)
 
   def write(module: Module, title: String, baseDir: Option[os.Path], outDir: os.Path): Unit =
-    val rawJs    = rawJavaScriptBlocks(module)
-    val moduleJs = JsGen.generate(module, baseDir)
+    val rawJs     = rawJavaScriptBlocks(module)
+    val moduleJs  = JsGen.generate(module, baseDir)
+    val databases = module.manifest.toList.flatMap(_.databases)
     val caps =
       JsGen.detectCapabilities(module, baseDir) -
         JsGen.Capability.Mcp -
@@ -27,8 +28,8 @@ object ElectronBundleBuilder:
     os.makeDir.all(outDir)
     os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))
     os.write.over(outDir / "app.js", appJs)
-    os.write.over(outDir / "main.js", ElectronEmitter.mainJs(title))
-    os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs)
+    os.write.over(outDir / "main.js", ElectronEmitter.mainJs(title, databases = databases))
+    os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs(databases))
     os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title))
 
   private def rawJavaScriptBlocks(module: Module): String =

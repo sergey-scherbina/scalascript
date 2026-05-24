@@ -76,10 +76,11 @@ This fallback is not:
 - shared with the JVM interpreter's `jdbc:sqlite:` database;
 - shared with Node's file-backed `sqlite:<path>` behavior.
 
-If an app needs real desktop persistence, use a future Electron main/preload
-bridge or a bundled sql.js/wasm asset path. The bridge plan is specified in
-[`electron-persistence-bridge.md`](electron-persistence-bridge.md). The fallback
-only exists to keep browser-like renderer demos functional and honest.
+If an app needs real desktop persistence, use the Electron main/preload bridge
+path tracked in [`electron-persistence-bridge.md`](electron-persistence-bridge.md).
+Phase 1 exposes declared database names to the renderer; SQL execution still
+uses the fallback until the Phase 2 SQLite engine lands. The fallback only
+exists to keep browser-like renderer demos functional and honest.
 
 ## Tested Path
 

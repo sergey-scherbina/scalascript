@@ -2,7 +2,9 @@ package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
+import scalascript.ast.DatabaseDecl
 import scalascript.frontend.electron.ElectronBundleBuilder
+import scalascript.frontend.electron.ElectronPersistenceBridge
 
 class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
 
@@ -17,7 +19,8 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
     val src  = root / "examples" / "frontend" / "toolkit-demo" / "toolkit-demo.ssc"
 
     ElectronBundleBuilder.build(src, out)
-    os.write.over(out / "main.js", smokeMainJs)
+    val bridgeJs = ElectronPersistenceBridge.mainProcessJs(List(DatabaseDecl("default", "sqlite:./todos.db")))
+    os.write.over(out / "main.js", smokeMainJs(bridgeJs))
 
     val result = os.proc("electron", out.toString)
       .call(cwd = out, check = false, timeout = 15000)
@@ -28,10 +31,11 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
     }
     output should include ("SMOKE_OK")
 
-  private def smokeMainJs: String =
-    """'use strict'
-      |const { app, BrowserWindow } = require('electron')
+  private def smokeMainJs(bridgeJs: String): String =
+    s"""'use strict'
+      |const { app, BrowserWindow, ipcMain } = require('electron')
       |const path = require('path')
+      |$bridgeJs
       |
       |function sleep(ms) {
       |  return new Promise(resolve => setTimeout(resolve, ms))
@@ -74,6 +78,14 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
       |
       |      const result = await win.webContents.executeJavaScript(`
       |        (async () => {
+      |          if (!window.__sscElectron || !window.__sscElectron.db) {
+      |            throw new Error('missing Electron database bridge');
+      |          }
+      |          const dbs = await window.__sscElectron.db.list();
+      |          if (!dbs.ok || !dbs.names.includes('default')) {
+      |            throw new Error('database bridge did not list default: ' + JSON.stringify(dbs));
+      |          }
+      |
       |          localStorage.clear();
       |          const accept = document.querySelector('input[type=checkbox]');
       |          if (!accept) throw new Error('missing accept checkbox');

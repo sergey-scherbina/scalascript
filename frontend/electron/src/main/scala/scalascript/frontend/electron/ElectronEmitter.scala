@@ -1,5 +1,7 @@
 package scalascript.frontend.electron
 
+import scalascript.ast.DatabaseDecl
+
 /** Generates the Electron main-process files for a desktop app bundle.
  *
  *  The renderer-process content (HTML + JS) comes from the existing
@@ -12,10 +14,22 @@ object ElectronEmitter:
    *
    *  Creates a BrowserWindow (1200×800), loads `index.html`, and
    *  handles macOS activate / window-all-closed lifecycle. */
-  def mainJs(displayName: String, width: Int = 1200, height: Int = 800): String =
+  def mainJs(
+    displayName: String,
+    width:       Int                = 1200,
+    height:      Int                = 800,
+    databases:   List[DatabaseDecl] = Nil
+  ): String =
+    val electronImport =
+      if ElectronPersistenceBridge.enabled(databases) then
+        "const { app, BrowserWindow, ipcMain } = require('electron')"
+      else
+        "const { app, BrowserWindow } = require('electron')"
+    val persistenceBridge = ElectronPersistenceBridge.mainProcessJs(databases)
     s"""'use strict'
-       |const { app, BrowserWindow } = require('electron')
+       |$electronImport
        |const path = require('path')
+       |$persistenceBridge
        |
        |function createWindow() {
        |  const win = new BrowserWindow({
@@ -45,10 +59,10 @@ object ElectronEmitter:
 
   /** Preload script — runs in a sandboxed context bridging main ↔ renderer.
    *  Extend with `contextBridge.exposeInMainWorld(...)` as needed (P3b+). */
-  val preloadJs: String =
-    s"""'use strict'
-       |// Preload script — extend with contextBridge.exposeInMainWorld(...) as needed.
-       |""".stripMargin
+  val preloadJs: String = ElectronPersistenceBridge.preloadJs(Nil)
+
+  def preloadJs(databases: List[DatabaseDecl]): String =
+    ElectronPersistenceBridge.preloadJs(databases)
 
   /** npm package manifest for the generated Electron project. */
   def packageJson(
