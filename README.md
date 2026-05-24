@@ -221,7 +221,7 @@ compiles them via Scala.js.
 | Typed handlers | `CaseClass => CaseClass` auto-deser (path/query/body) + auto-ser (JSON 200); `Either[Request, Input]` for explicit error handling |
 | SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; ` ```transaction ``` ` fenced blocks run multiple `;`-separated statements atomically (JDBC transaction, commit/rollback); `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
 | Graph storage (planned) | `graphs:` front-matter will declare property-graph and RDF graph stores; embedded JVM backends first (TinkerGraph/TinkerPop, RDF4J), then server adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible repositories |
-| Typed data mapping (planned) | Shared `derives`-based codecs map case classes/ADTs to SQL rows, JSON/IndexedDB/ObjectStore documents, property graph vertices/edges, and RDF triples without forcing one universal ORM |
+| Typed data mapping (planned) | Shared `derives`-based codecs map case classes/ADTs to SQL rows, JSON/IndexedDB/ObjectStore documents, property graph vertices/edges, RDF triples, `Dataset[T]` elements, and Spark schemas/encoders without forcing one universal ORM |
 | Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
 | Progressive Web App | `pwa(name, themeColor, icons, precache)` — registers `GET /manifest.json` + `GET /sw.js`; cache-first precaching service worker; works in `ssc run` and `ssc run-jvm` |
 

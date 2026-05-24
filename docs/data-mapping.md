@@ -2,14 +2,16 @@
 
 Status: **draft / planning**. This document specifies a common data-mapping
 layer for SQL databases, browser storage, client/server object stores, property
-graphs, RDF graphs, and future persistence backends.
+graphs, RDF graphs, `Dataset[T]`/MapReduce, Apache Spark, and future persistence
+or data-processing backends.
 
 ## Goals
 
 - Make ordinary ScalaScript case classes and ADTs easy to persist and load from
   every supported storage family.
 - Share one derivation foundation across SQL rows, JSON documents, IndexedDB
-  objects, server `ObjectStore` values, graph vertices/edges, and RDF triples.
+  objects, server `ObjectStore` values, graph vertices/edges, RDF triples,
+  local/distributed `Dataset[T]` elements, and Spark rows/encoders.
 - Avoid a lowest-common-denominator ORM that hides the important differences
   between relational, document, graph, and semantic stores.
 - Provide stable identity/version metadata for sync-oriented stores.
@@ -46,6 +48,8 @@ Each storage backend chooses its representation:
 | Property graph vertex | `VertexCodec[A]` | labels + properties |
 | Property graph edge | `EdgeCodec[A]` | from/to + label + properties |
 | RDF | `RdfCodec[A]` | triples/quads |
+| Dataset / MapReduce | `DatasetCodec[A]` | local/distributed element serialization |
+| Apache Spark | `SparkCodec[A]` / `SparkEncoder[A]` | Spark `Encoder[A]` and `StructType` schema |
 
 User code should stay direct:
 
@@ -171,6 +175,58 @@ Rules:
   result shape is complete.
 - Complex semantic queries remain SPARQL.
 
+## Dataset, MapReduce, And Spark Mapping
+
+ScalaScript already has `Dataset[T]` for local/parallel/distributed MapReduce
+and an Apache Spark backend with Scala 3 native encoder derivation. The planned
+mapping layer should make those existing data-processing surfaces participate in
+the same typed mapping story as databases.
+
+```scalascript
+case class Event(userId: String, kind: String, amount: Double)
+  derives JsonCodec, RowCodec, DatasetCodec, SparkCodec
+
+val events: Dataset[Event] =
+  Dataset.fromJsonAs[Event]("/data/events/*.json")
+
+val totals =
+  events
+    .filter(_.kind == "purchase")
+    .reduceByKey(_.userId)((a, b) => a.copy(amount = a.amount + b.amount))
+```
+
+Roles:
+
+- `DatasetCodec[A]` is the portable element codec for local, parallel, and
+  distributed MapReduce. It covers worker-message serialization, file-backed
+  reads/writes where applicable, and conformance fixtures.
+- `SparkCodec[A]` or `SparkEncoder[A]` is the Spark-specific mapping to
+  `Encoder[A]` and `StructType`. It should reuse the same field-name,
+  nullability, default, and rename conventions as `RowCodec[A]`.
+- `RowCodec[A]` and Spark schema derivation should converge where possible:
+  both describe tabular data, but Spark also needs distributed execution and
+  Catalyst-compatible schemas.
+
+Data-flow examples the mapping layer should make direct:
+
+```scalascript
+val users: Dataset[User] = Db.dataset[User]("server", "SELECT * FROM users")
+users.toTable("analytics_users")
+
+val cached: Dataset[Todo] = ObjectStore.collection[Todo]("todos").toDataset()
+val graphVertices: Dataset[Module] = Graph.vertices[Module]("deps").toDataset()
+```
+
+Rules:
+
+- Dataset/Spark mapping is about typed data movement and schema derivation, not
+  a new query language.
+- Local/distributed MapReduce keeps its existing `Dataset[T]` API.
+- Spark keeps its existing Spark SQL/DataFrame/MLlib surfaces.
+- The common mapping layer supplies codecs, schemas, decode errors, and naming
+  conventions so data can move between storage and processing surfaces without
+  hand-written adapters for every case class.
+
 ## Validation And Errors
 
 Decoding errors should be structured and path-aware:
@@ -219,6 +275,8 @@ IndexedDb.store[Draft]("drafts").get(id)
 ObjectStore.collection[Todo]("todos").put(todo)
 Graph.vertices[Module]("deps").get(id)
 Sparql.query[Person]("kg", "SELECT ...")
+Dataset.fromJsonAs[Event]("/data/events/*.json")
+Spark.table[User]("users")
 ```
 
 All of these rely on derived or explicit codecs, but they do not pretend to have
@@ -237,8 +295,13 @@ the same query model.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property
    graph vertices/edges.
 6. **RDF mapping** — add `RdfCodec[A]` with predicate/class/id annotations.
-7. **Examples + conformance** — add one domain type persisted through SQL,
+7. **Dataset/Spark mapping integration** — align existing `Dataset[T]`,
+   distributed MapReduce serialization, Spark encoder/schema derivation, and
+   typed table/file readers with the shared codec conventions.
+8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
+   Include a data-processing example that reads typed data from SQL/ObjectStore
+   into `Dataset[T]` and runs locally, distributed, and on Spark where supported.
 
 ## Testing Strategy
 
@@ -246,7 +309,8 @@ the same query model.
   case classes, defaults, renamed fields, and unknown fields.
 - Round-trip tests per codec family.
 - Backend integration tests for `Db.query[A]`, `IndexedDb.store[A]`,
-  `ObjectStore.collection[A]`, `Graph.vertices[A]`, and `Sparql.query[A]`.
+  `ObjectStore.collection[A]`, `Graph.vertices[A]`, `Sparql.query[A]`,
+  `Dataset[A]`, and Spark typed readers/encoders.
 - Negative tests for missing required fields, wrong types, unsupported backend
   capabilities, and version conflicts.
 

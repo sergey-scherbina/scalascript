@@ -10278,7 +10278,12 @@ modes opt out of that default.
 - **Phase 11 — Typed data mapping across stores.** Add a `derives`-based codec
   foundation for mapping case classes/ADTs to SQL rows, JSON/REST payloads,
   IndexedDB values, server ObjectStore documents, property graph vertices/edges,
-  and RDF triples. Keep query APIs backend-specific while sharing identity,
-  version, decode-error, validation, and migration conventions. Add examples
-  showing one domain model persisted through SQL, client/server ObjectStore
-  sync, graph vertices/edges, and RDF where applicable.
+  RDF triples, local/distributed `Dataset[T]` elements, and Spark
+  schemas/encoders. Keep query APIs backend-specific while sharing identity,
+  version, decode-error, validation, schema, and migration conventions. Integrate
+  the existing MapReduce and Spark surfaces into this mapping layer so typed
+  data can move between SQL/ObjectStore/Graph/RDF and `Dataset[T]`/Spark without
+  hand-written adapters per case class. Add examples showing one domain model
+  persisted through SQL, client/server ObjectStore sync, graph vertices/edges,
+  RDF where applicable, and processed through local/distributed Dataset plus
+  Spark where supported.

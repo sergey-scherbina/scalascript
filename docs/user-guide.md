@@ -999,10 +999,13 @@ JanusGraph/TinkerPop providers, and RDF4J-compatible servers. See
 **Planned, not implemented yet: typed mapping across stores.** Typed mapping
 across stores is planned as a shared codec layer rather than one universal ORM.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
-`ObjectCodec`, `VertexCodec`, `EdgeCodec`, and `RdfCodec`, then use
-backend-specific APIs at the query boundary. This keeps SQL, IndexedDB,
-ObjectStore sync, property graphs, and RDF convenient without hiding their
-different query models. See [`data-mapping.md`](data-mapping.md).
+`ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
+`SparkCodec`, then use backend-specific APIs at the query boundary. This keeps
+SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce, and Spark
+convenient without hiding their different query models. Existing `Dataset[T]`
+and Spark support remain available today; this planned work unifies their
+mapping/schema conventions with the storage APIs. See
+[`data-mapping.md`](data-mapping.md).
 
 ### `transaction` fenced blocks
 
