@@ -2,7 +2,7 @@ package scalascript.frontend.electron
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.ast.DatabaseDecl
+import scalascript.ast.{DatabaseDecl, Manifest, Module}
 
 class ElectronEmitterTest extends AnyFunSuite with Matchers:
 
@@ -76,7 +76,33 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
 
     val active = ElectronEmitter.packageJson("app", databases = List(DatabaseDecl("default", "sqlite:./todos.db")))
     active should include ("\"sql.js\"")
-    active should include ("\"asarUnpack\": [\"node_modules/sql.js/dist/*.wasm\"]")
+    active should include ("\"asarUnpack\": [")
+    active should include ("\"node_modules/sql.js/dist/*.wasm\"")
+    active should include ("\"vendor/sqljs/*.wasm\"")
+  }
+
+  test("bundle builder copies vendored sql.js assets for database-backed bundles") {
+    val module = Module(
+      manifest = Some(Manifest(
+        name = Some("app"),
+        version = None,
+        description = None,
+        dependencies = Map.empty,
+        exports = Nil,
+        targets = Nil,
+        routes = Nil,
+        pkg = None,
+        translations = Map.empty,
+        databases = List(DatabaseDecl("default", "sqlite:./todos.db")),
+        raw = Map.empty
+      )),
+      sections = Nil
+    )
+    val out = os.temp.dir(prefix = "ssc-electron-vendor-", deleteOnExit = true)
+    ElectronBundleBuilder.write(module, "app", baseDir = None, out)
+    os.exists(out / "vendor" / "sqljs" / "sql-wasm.js") shouldBe true
+    os.exists(out / "vendor" / "sqljs" / "sql-wasm.wasm") shouldBe true
+    os.size(out / "vendor" / "sqljs" / "sql-wasm.wasm") should be > 0L
   }
 
   test("packageJson has required npm fields") {

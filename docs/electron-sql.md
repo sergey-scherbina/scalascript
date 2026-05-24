@@ -83,6 +83,10 @@ file-backed databases under `app.getPath("userData")`. The fallback only exists
 when the Electron bridge is absent, keeping browser-like renderer demos
 functional and honest.
 
+Generated Electron bundles keep npm support when it is available, but they also
+include vendored `sql.js` JS/Wasm assets. This keeps `ssc run --frontend
+electron` usable on machines that have Electron but no npm.
+
 ## Tested Path
 
 `ToolkitElectronSmokeTest` covers the current production path:

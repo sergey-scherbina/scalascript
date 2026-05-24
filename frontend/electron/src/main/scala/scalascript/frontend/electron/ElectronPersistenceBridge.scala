@@ -14,6 +14,7 @@ object ElectronPersistenceBridge:
          |const __sscDbRegistry = Object.freeze(${registryJson(databases)})
          |const __sscDbConnections = new Map()
          |let __sscSqlJs = null
+         |let __sscSqlJsDistDir = null
          |
          |function __sscDbNames() {
          |  return Object.keys(__sscDbRegistry)
@@ -46,16 +47,34 @@ object ElectronPersistenceBridge:
          |
          |async function __sscInitSqlJs() {
          |  if (__sscSqlJs) return __sscSqlJs
-         |  const initSqlJs = require('sql.js')
-         |  const distDir = path.dirname(require.resolve('sql.js'))
+         |  const initSqlJs = __sscLoadSqlJsFactory()
          |  __sscSqlJs = await initSqlJs({ locateFile: __sscSqlJsLocateFile })
          |  return __sscSqlJs
          |}
          |
+         |function __sscLoadSqlJsFactory() {
+         |  try {
+         |    const resolved = require.resolve('sql.js')
+         |    __sscSqlJsDistDir = path.dirname(resolved)
+         |    return require('sql.js')
+         |  } catch (_) {
+         |    __sscSqlJsDistDir = path.join(__dirname, 'vendor', 'sqljs')
+         |    return require(path.join(__sscSqlJsDistDir, 'sql-wasm.js'))
+         |  }
+         |}
+         |
          |function __sscSqlJsLocateFile(file) {
-         |  const candidate = path.join(path.dirname(require.resolve('sql.js')), file)
-         |  const unpacked = candidate.replace(path.sep + 'app.asar' + path.sep, path.sep + 'app.asar.unpacked' + path.sep)
-         |  return fs.existsSync(unpacked) ? unpacked : candidate
+         |  const dirs = [
+         |    __sscSqlJsDistDir,
+         |    path.join(__dirname, 'vendor', 'sqljs')
+         |  ].filter(Boolean)
+         |  for (const dir of dirs) {
+         |    const candidate = path.join(dir, file)
+         |    const unpacked = candidate.replace(path.sep + 'app.asar' + path.sep, path.sep + 'app.asar.unpacked' + path.sep)
+         |    if (fs.existsSync(unpacked)) return unpacked
+         |    if (fs.existsSync(candidate)) return candidate
+         |  }
+         |  return path.join(__sscSqlJsDistDir || path.join(__dirname, 'vendor', 'sqljs'), file)
          |}
          |
          |async function __sscOpenDb(name) {

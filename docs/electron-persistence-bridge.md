@@ -279,9 +279,13 @@ Landed in May 2026:
   `node_modules/sql.js/dist/*.wasm` when the bundle declares databases.
 - The generated main process resolves `sql.js` wasm from `app.asar.unpacked`
   when packaged, while keeping the plain `node_modules` path for dev bundles.
+- Database-backed bundles also include vendored `sql.js` assets under
+  `vendor/sqljs/`, copied from ScalaScript resources.
+- The generated main process tries npm-installed `sql.js` first, then falls
+  back to `vendor/sqljs/sql-wasm.js` and `vendor/sqljs/sql-wasm.wasm`.
 - `ssc run --frontend electron` installs runtime dependencies with
-  `npm install --omit=dev` for database-backed bundles before launching
-  Electron.
+  `npm install --omit=dev` when npm exists. If npm is unavailable, or install
+  fails, it continues with the vendored assets.
 
 Still to verify manually per platform:
 

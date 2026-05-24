@@ -13,10 +13,6 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
       scala.util.Try(os.proc("electron", "--version").call(check = false).exitCode == 0)
         .getOrElse(false)
     if !electronAvailable then cancel("electron is not available on PATH")
-    val npmAvailable =
-      scala.util.Try(os.proc("npm", "--version").call(check = false).exitCode == 0)
-        .getOrElse(false)
-    if !npmAvailable then cancel("npm is not available on PATH")
 
     val root = repoRoot()
     val out  = os.temp.dir(prefix = "ssc-electron-smoke-", deleteOnExit = true)
@@ -25,7 +21,6 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
     ElectronBundleBuilder.build(src, out)
     val bridgeJs = ElectronPersistenceBridge.mainProcessJs(List(DatabaseDecl("default", "sqlite:./todos.db")))
     os.write.over(out / "main.js", smokeMainJs(bridgeJs))
-    os.proc("npm", "install", "--silent", "--omit=dev").call(cwd = out, timeout = 60000)
 
     val result = os.proc("electron", out.toString)
       .call(cwd = out, check = false, timeout = 15000)

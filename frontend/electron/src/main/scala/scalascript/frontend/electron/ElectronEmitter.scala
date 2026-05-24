@@ -89,7 +89,10 @@ object ElectronEmitter:
       else ""
     val asarUnpack =
       if ElectronPersistenceBridge.enabled(databases) then
-        """    "asarUnpack": ["node_modules/sql.js/dist/*.wasm"],
+        """    "asarUnpack": [
+          |      "node_modules/sql.js/dist/*.wasm",
+          |      "vendor/sqljs/*.wasm"
+          |    ],
           |""".stripMargin
       else ""
     s"""{

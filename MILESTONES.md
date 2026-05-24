@@ -10200,3 +10200,11 @@ The generated main process resolves sql.js wasm from `app.asar.unpacked` when
 packaged and from regular `node_modules` in dev bundles. `ssc run --frontend
 electron` installs runtime dependencies with `npm install --omit=dev` before
 launching database-backed Electron apps.
+
+**Self-contained sql.js fallback ✓ Landed (2026-05-24):** Database-backed
+Electron bundles now copy vendored `sql.js` runtime assets into
+`vendor/sqljs/`. The generated main process still prefers npm-installed
+`sql.js`, but falls back to the vendored JS/Wasm files when npm dependencies are
+absent. `ssc run --frontend electron` now treats npm as optional for
+database-backed bundles: if npm is missing or install fails, it launches with
+the vendored assets.

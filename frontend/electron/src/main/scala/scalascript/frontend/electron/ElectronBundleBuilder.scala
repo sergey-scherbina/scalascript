@@ -31,6 +31,7 @@ object ElectronBundleBuilder:
     os.write.over(outDir / "main.js", ElectronEmitter.mainJs(title, databases = databases))
     os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs(databases))
     os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title, databases = databases))
+    if databases.nonEmpty then copySqlJsVendor(outDir)
 
   private def rawJavaScriptBlocks(module: Module): String =
     def collect(section: Section): List[String] =
@@ -39,3 +40,20 @@ object ElectronBundleBuilder:
       } ++ section.subsections.flatMap(collect)
 
     module.sections.flatMap(collect).filter(_.nonEmpty).mkString("\n")
+
+  private def copySqlJsVendor(outDir: os.Path): Unit =
+    val vendorDir = outDir / "vendor" / "sqljs"
+    os.makeDir.all(vendorDir)
+    copyResource("scalascript/electron/vendor/sqljs/sql-wasm.js", vendorDir / "sql-wasm.js")
+    copyResource("scalascript/electron/vendor/sqljs/sql-wasm.wasm", vendorDir / "sql-wasm.wasm")
+    copyResource("scalascript/electron/vendor/sqljs/LICENSE.sql.js", vendorDir / "LICENSE.sql.js")
+
+  private def copyResource(resource: String, dest: os.Path): Unit =
+    val cl = Thread.currentThread().getContextClassLoader
+    val in = Option(cl.getResourceAsStream(resource))
+      .orElse(Option(getClass.getResourceAsStream("/" + resource)))
+      .getOrElse(throw IllegalStateException(s"Electron vendor resource missing: $resource"))
+    try
+      val bytes = in.readAllBytes()
+      os.write.over(dest, bytes, createFolders = true)
+    finally in.close()
