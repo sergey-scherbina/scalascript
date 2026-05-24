@@ -384,6 +384,27 @@ optional future backend, but they are too heavy as the required bootstrap path.
 See [`client-server-object-store.md`](client-server-object-store.md) for the
 full draft contract.
 
+### Graph Storage
+
+Some full-stack apps need graph-shaped persistence rather than relational tables
+or document/object stores. The planned graph layer is server-first:
+
+- property graphs for vertices/edges/properties and traversal-heavy domains;
+- RDF graphs for triples/quads, ontologies, linked data, and SPARQL;
+- embedded JVM graph backends for local/dev/test apps;
+- server/remote graph databases for production.
+
+The first practical path is to add embedded JVM graph support without requiring
+an external graph server: TinkerGraph/TinkerPop for property graphs and RDF4J
+for RDF/SPARQL. Production adapters can follow for Neo4j/Cypher, JanusGraph or
+other TinkerPop providers, and RDF4J-compatible servers.
+
+Frontend clients should normally access graphs through JVM REST routes and cache
+selected results locally in IndexedDB, client-local SQL, or the object-store sync
+layer. Browser-local graph engines are a separate future capability.
+
+See [`graph-storage.md`](graph-storage.md) for the full draft contract.
+
 ### Backend Base URL Injection
 
 The frontend bundle needs a runtime constant:

@@ -979,6 +979,14 @@ client pull server changes, queue offline edits locally, and push mutations back
 with explicit conflict handling. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
+Graph-shaped data is planned as a separate persistence family. Property graphs
+cover vertices, edges, labels, properties, and traversal-heavy domains; RDF
+graphs cover triples/quads, linked data, ontologies, and SPARQL. The intended
+bootstrap path is embedded JVM support first: TinkerGraph/TinkerPop for small
+property graphs and RDF4J for RDF/SPARQL, followed later by production adapters
+such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and RDF4J-compatible
+servers. See [`graph-storage.md`](graph-storage.md).
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements

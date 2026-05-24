@@ -10267,3 +10267,11 @@ modes opt out of that default.
   Keep CouchDB/PouchDB-compatible replication as a later optional backend, not
   the required bootstrap path. Add an offline todo example with two clients
   syncing through one JVM server.
+- **Phase 10 — Graph storage.** Add `graphs:` front matter and a graph backend
+  SPI for property graphs and RDF graphs. Bootstrap with embedded JVM backends:
+  TinkerGraph/TinkerPop for small property graphs and RDF4J for RDF/SPARQL.
+  Follow with production/server adapters such as Neo4j/Cypher,
+  JanusGraph/TinkerPop providers, and RDF4J-compatible repositories. Add
+  diagnostics for unsupported query/backend combinations and a full-stack
+  example where a React/Electron client queries graph routes on the JVM server
+  and caches selected results locally.
