@@ -10174,8 +10174,16 @@ the Electron CSP allows runtime-generated inline styles.
 **Persistence bridge skeleton ✓ Landed (2026-05-24):** Electron bundles with
 `databases:` now generate an active main/preload IPC bridge. `preload.js`
 exposes only `window.__sscElectron.db`, `main.js` registers declared-database
-handlers, and `ssc:db:list` returns manifest database names. Query/execute are
-registered but intentionally return "not implemented" until the Phase 2
-`better-sqlite3` engine lands. `ToolkitElectronSmokeTest` now verifies
-`window.__sscElectron.db.list()` exposes `default` before exercising the
-existing Add flow.
+handlers, and `ssc:db:list` returns manifest database names.
+`ToolkitElectronSmokeTest` verifies `window.__sscElectron.db.list()` exposes
+`default` before exercising the existing Add flow.
+
+**Persistence bridge query/execute ✓ Landed (2026-05-24):** The Electron bridge
+now uses `sql.js` in the main process for `sqlite:` databases. Generated
+`package.json` includes `sql.js` only for database-backed bundles; `main.js`
+initializes databases before opening the BrowserWindow, resolves file-backed
+paths under `app.getPath("userData")`, rejects absolute/escaping paths, and
+persists after execute/close. `backend-sql-runtime-js` selects
+`ElectronBridgeProvider` when `window.__sscElectron.db` exists, while browser
+builds keep the localStorage fallback. The toolkit Electron smoke installs
+runtime deps and verifies the Add flow through the bridge.

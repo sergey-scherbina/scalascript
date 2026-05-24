@@ -167,7 +167,7 @@ export class ConnectionRegistry {
     const password = spec.password != null ? resolveEnvRefs(spec.password, this._env, name, 'password') : undefined
     if (url.startsWith('jdbc:')) throw new UnsupportedJdbcUrl(url)
     const provider = Providers.fromUrl(url)
-    return provider.open({ url, user, password })
+    return provider.open({ name, url, user, password })
   }
 }
 
@@ -203,6 +203,7 @@ function defaultEnvLookup(name) {
 export const Providers = Object.freeze({
   fromUrl(url) {
     if (typeof url !== 'string') throw new SqlRuntimeError(`URL must be a string, got ${typeof url}`)
+    if (url.startsWith('sqlite:') && electronDbBridge()) return ElectronBridgeProvider
     if (url.startsWith('sqlite-opfs:')) return SqliteWasmProvider
     if (url.startsWith('sqlite:'))      return SqlJsProvider
     if (url.startsWith('duckdb:'))      return DuckDbWasmProvider
@@ -217,6 +218,69 @@ export const Providers = Object.freeze({
 let _sqlJsModule    = null
 let _duckDbBundle   = null
 let _sqliteWasMod   = null
+
+function electronDbBridge() {
+  const g = globalThis
+  return g && g.__sscElectron && g.__sscElectron.db ? g.__sscElectron.db : null
+}
+
+export const ElectronBridgeProvider = Object.freeze({
+  id: 'electron-bridge',
+
+  async open({ name, url }) {
+    const bridge = electronDbBridge()
+    if (!bridge) throw new SqlRuntimeError('Electron database bridge is not available')
+    return new ElectronBridgeConnection(bridge, name || 'default', url)
+  },
+})
+
+class ElectronBridgeConnection {
+  constructor(bridge, name, url) {
+    this._sscElectronBridge = true
+    this._bridge = bridge
+    this._name = name
+    this._url = url
+  }
+
+  async execute(sql, binds) {
+    if (isResultSetProducer(sql)) {
+      const result = this._query(sql, binds)
+      return { kind: 'rows', rows: result.rows }
+    }
+    const result = this._execute(sql, binds)
+    return { kind: 'update', count: result.count ?? 0 }
+  }
+
+  querySync(sql, binds) {
+    return this._query(sql, binds).rows
+  }
+
+  executeSync(sql, binds) {
+    return this._execute(sql, binds).count ?? 0
+  }
+
+  async close() {
+    const result = this._bridge.close(this._name)
+    if (!result || result.ok !== true) throw new SqlRuntimeError(result && result.error ? result.error : 'Electron bridge close failed')
+  }
+
+  _query(sql, binds) {
+    const result = this._bridge.query(this._name, sql, binds ?? [])
+    if (!result || result.ok !== true) throw new SqlRuntimeError(result && result.error ? result.error : 'Electron bridge query failed')
+    return { rows: (result.rows || []).map(objectRowToCallable) }
+  }
+
+  _execute(sql, binds) {
+    const result = this._bridge.execute(this._name, sql, binds ?? [])
+    if (!result || result.ok !== true) throw new SqlRuntimeError(result && result.error ? result.error : 'Electron bridge execute failed')
+    return result
+  }
+}
+
+function objectRowToCallable(row) {
+  const columns = Object.keys(row || {})
+  return makeRow(columns, columns.map(k => row[k]))
+}
 
 async function loadSqlJs() {
   if (_sqlJsModule) return _sqlJsModule

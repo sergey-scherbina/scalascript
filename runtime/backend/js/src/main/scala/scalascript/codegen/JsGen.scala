@@ -7110,8 +7110,9 @@ class JsGen(
   _conns: {},
   query(dbName, sql, params) {
     const conn = Db._conns[dbName || 'default'];
-    if (!conn || !conn._db) throw new Error('Db: no connection for "' + (dbName || 'default') + '"');
     const p = Array.isArray(params) ? params : (params ? [...params] : []);
+    if (conn && conn._sscElectronBridge) return conn.querySync(sql, p);
+    if (!conn || !conn._db) throw new Error('Db: no connection for "' + (dbName || 'default') + '"');
     const stmt = conn._db.prepare(sql);
     try {
       stmt.bind(p.map(toSqlJsBind));
@@ -7130,7 +7131,12 @@ class JsGen(
       stmt.free();
     }
   },
-  execute(dbName, sql, params) { return Db.query(dbName, sql, params); }
+  execute(dbName, sql, params) {
+    const conn = Db._conns[dbName || 'default'];
+    const p = Array.isArray(params) ? params : (params ? [...params] : []);
+    if (conn && conn._sscElectronBridge) return conn.executeSync(sql, p);
+    return Db.query(dbName, sql, p);
+  }
 };
 """)
     sb.append("\n")

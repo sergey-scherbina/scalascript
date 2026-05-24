@@ -940,13 +940,15 @@ The first argument is the connection name from `databases:`.  Bind parameters ar
 ### Electron desktop SQL
 
 Electron desktop bundles run the app inside a Chromium renderer loaded from
-`file://`. That renderer cannot use Node `fs`, so `sqlite:<path>` does not mean
-a real file database there. Current behavior:
+`file://`. The renderer cannot use Node `fs`, so database file access is routed
+through the Electron main/preload bridge. Current behavior:
 
-- `sqlite::memory:` and `sqlite:` are renderer-session local.
-- `sqlite:<path>` uses a small localStorage-backed fallback keyed by the URL.
-- The fallback is intentionally narrow: it supports the DDL/DML/query shapes
-  used by `examples/frontend/toolkit-demo/toolkit-demo.ssc`, not full SQLite.
+- Electron bundles with `databases:` expose `window.__sscElectron.db` through
+  preload and execute SQLite in the main process.
+- `sqlite::memory:` and `sqlite:` are in-memory main-process databases.
+- `sqlite:<path>` persists under `app.getPath("userData")`.
+- Browser/web builds still use the localStorage-backed fallback when no
+  Electron bridge exists.
 
 For details and the active bridge rollout, see [`electron-sql.md`](electron-sql.md)
 and [`electron-persistence-bridge.md`](electron-persistence-bridge.md).

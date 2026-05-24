@@ -124,7 +124,7 @@ bin/http.ssc
 | [Blockchain SPI](docs/blockchain-spi.md) | Pluggable backends — EVM, Bitcoin, Solana, Cardano |
 | [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [Electron SQL](docs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
-| [Electron Persistence Bridge](docs/electron-persistence-bridge.md) | Main/preload bridge plan and Phase 1 IPC skeleton for durable Electron SQLite under `app.getPath("userData")` |
+| [Electron Persistence Bridge](docs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |

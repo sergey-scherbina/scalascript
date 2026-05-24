@@ -1,6 +1,6 @@
 # Electron Persistence Bridge
 
-> Status: Phase 1 skeleton landed - May 2026.
+> Status: Phase 2 SQLite query/execute landed - May 2026.
 
 This spec describes the planned replacement for the current
 localStorage-backed Electron SQL fallback documented in
@@ -127,7 +127,12 @@ IPC channels:
 
 `rows` is an array of plain objects keyed by result column names. `params` is a
 JSON-compatible array. Binary values, dates, and bigint need a later encoding
-policy; Phase 1 can reject them with a clear error.
+policy.
+
+The implementation currently uses synchronous IPC for this narrow DB surface
+because generated `.ssc` route handlers call `Db.query` / `Db.execute`
+synchronously. A future async route-handler model could move this back to
+`ipcRenderer.invoke`.
 
 ### Preload Contract
 
@@ -136,10 +141,10 @@ policy; Phase 1 can reject them with a clear error.
 ```javascript
 contextBridge.exposeInMainWorld('__sscElectron', {
   db: {
-    query(dbName, sql, params)   { return ipcRenderer.invoke('ssc:db:query', { dbName, sql, params }) },
-    execute(dbName, sql, params) { return ipcRenderer.invoke('ssc:db:execute', { dbName, sql, params }) },
-    close(dbName)                { return ipcRenderer.invoke('ssc:db:close', { dbName }) },
-    list()                       { return ipcRenderer.invoke('ssc:db:list', {}) }
+    query(dbName, sql, params)   { return ipcRenderer.sendSync('ssc:db:query', { dbName, sql, params }) },
+    execute(dbName, sql, params) { return ipcRenderer.sendSync('ssc:db:execute', { dbName, sql, params }) },
+    close(dbName)                { return ipcRenderer.sendSync('ssc:db:close', { dbName }) },
+    list()                       { return ipcRenderer.sendSync('ssc:db:list', {}) }
   }
 })
 ```
@@ -171,11 +176,13 @@ Two implementation options are acceptable:
    - Cons: explicit export/writeback lifecycle; persistence is easier to get
      wrong.
 
-Decision for Phase 2: use **`better-sqlite3`** in the main process. The
-synchronous API keeps IPC handlers simple and maps directly to prepared
-statement query/execute semantics. The native dependency and packaging rebuild
-path are accepted risks for Phase 2/4 because this bridge targets desktop
-Electron bundles, not zero-install browser output.
+Decision for Phase 2: use **`sql.js`** in the main process. `better-sqlite3`
+has a simpler synchronous API, but it also requires native rebuild handling for
+Electron's Node ABI. `sql.js` is pure JS/Wasm, matches the existing JS-family SQL
+runtime, and lets generated dev bundles pass `npm install --omit=dev` without an
+Electron native-module rebuild. The trade-off is explicit export/writeback after
+mutating statements; the bridge persists file-backed databases after each
+execute and on close.
 
 ## Migration
 
@@ -196,7 +203,7 @@ Existing `.ssc` source files do not change.
 
 - Land this design document.
 - Keep current runtime behavior unchanged.
-- Decide `better-sqlite3` vs `sql.js` before Phase 1 implementation.
+- Decide `better-sqlite3` vs `sql.js` before Phase 2 implementation.
 
 ### Phase 1 - Bridge Skeleton
 
@@ -214,8 +221,8 @@ Landed in May 2026:
   emitter, so `ssc run --frontend electron` and desktop bundle generation get
   the bridge for `.ssc` files that declare databases.
 - `ssc:db:list`, `ssc:db:query`, `ssc:db:execute`, and `ssc:db:close` handlers
-  are registered; query/execute deliberately return a clear "not implemented"
-  result until Phase 2 wires `better-sqlite3`.
+  are registered; query/execute deliberately returned a clear "not implemented"
+  result until Phase 2.
 - `ToolkitElectronSmokeTest` verifies `window.__sscElectron.db.list()` exposes
   the `default` database before exercising the existing Add flow.
 
@@ -225,6 +232,20 @@ Landed in May 2026:
 - Add renderer provider selection in `backend-sql-runtime-js`.
 - Preserve current localStorage fallback when bridge is absent.
 - Extend `ToolkitElectronSmokeTest` to assert Add still works through the bridge.
+
+Landed in May 2026:
+
+- Electron `package.json` includes `sql.js` when the bundle declares databases.
+- `main.js` initializes `sql.js` before opening the BrowserWindow, resolves
+  `sqlite:<path>` under `app.getPath("userData")`, rejects absolute and
+  parent-relative paths, and persists file-backed databases after execute/close.
+- `backend-sql-runtime-js` selects `ElectronBridgeProvider` for `sqlite:` URLs
+  when `window.__sscElectron.db` is present; browser/web builds keep the
+  existing sql.js/localStorage fallback.
+- The generated `Db.query` / `Db.execute` facade detects bridge connections so
+  existing synchronous route handlers continue to work unchanged.
+- `ToolkitElectronSmokeTest` installs only runtime dependencies, launches
+  Electron, and verifies the toolkit Add flow through the bridge.
 
 ### Phase 3 - Restart Persistence
 
@@ -275,7 +296,6 @@ Electron-dependent tests should continue to cancel when `electron` is not on
 
 ## Open Questions
 
-- Should the first implementation use `better-sqlite3` or `sql.js` in main?
 - Should Electron app-data path be overrideable for tests through environment
   variable, CLI flag, or generated `package.json` script?
 - Do we need transaction support in Phase 2, or can it wait until Phase 3/4?

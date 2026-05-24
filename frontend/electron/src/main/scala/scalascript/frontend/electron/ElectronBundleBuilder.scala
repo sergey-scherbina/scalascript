@@ -30,7 +30,7 @@ object ElectronBundleBuilder:
     os.write.over(outDir / "app.js", appJs)
     os.write.over(outDir / "main.js", ElectronEmitter.mainJs(title, databases = databases))
     os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs(databases))
-    os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title))
+    os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title, databases = databases))
 
   private def rawJavaScriptBlocks(module: Module): String =
     def collect(section: Section): List[String] =

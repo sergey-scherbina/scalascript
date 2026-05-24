@@ -45,24 +45,32 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     val js = ElectronEmitter.preloadJs(List(DatabaseDecl("default", "sqlite:./todos.db")))
     js should include ("contextBridge.exposeInMainWorld('__sscElectron'")
     js should include ("list()")
-    js should include ("ipcRenderer.invoke('ssc:db:list', {})")
+    js should include ("ipcRenderer.sendSync('ssc:db:list', {})")
     js should include ("query(dbName, sql, params)")
     js should not include ("ipcRenderer:")
   }
 
   test("mainJs registers database IPC handlers only when databases are declared") {
     val inert = ElectronEmitter.mainJs("App")
-    inert should not include ("ipcMain.handle('ssc:db:list'")
+    inert should not include ("ipcMain.on('ssc:db:list'")
     inert should not include ("__sscDbRegistry")
+    inert should not include ("require('fs')")
 
     val active = ElectronEmitter.mainJs("App", databases = List(DatabaseDecl("default", "sqlite:./todos.db")))
     active should include ("const { app, BrowserWindow, ipcMain } = require('electron')")
+    active should include ("const fs = require('fs')")
+    active should include ("await __sscInitDatabases()")
     active should include ("__sscDbRegistry")
     active should include ("default")
     active should include ("sqlite:./todos.db")
-    active should include ("ipcMain.handle('ssc:db:list'")
-    active should include ("ipcMain.handle('ssc:db:query'")
-    active should include ("Electron SQL bridge query is not implemented yet")
+    active should include ("ipcMain.on('ssc:db:list'")
+    active should include ("ipcMain.on('ssc:db:query'")
+    active should include ("require('sql.js')")
+  }
+
+  test("packageJson includes sql.js only for database-backed bundles") {
+    ElectronEmitter.packageJson("app") should not include ("\"sql.js\"")
+    ElectronEmitter.packageJson("app", databases = List(DatabaseDecl("default", "sqlite:./todos.db"))) should include ("\"sql.js\"")
   }
 
   test("packageJson has required npm fields") {
