@@ -33,6 +33,11 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(JsRuntimeBrowserPatch.contains("_ssc_http_serve = function()"))
     assert(JsRuntimeBrowserPatch.contains("_ssc_ui_serve = function("))
 
+  test("browser patch routes same-app fetch calls through registered routes"):
+    assert(JsRuntimeBrowserPatch.contains("globalThis.fetch = function(input, init)"))
+    assert(JsRuntimeBrowserPatch.contains("_spaRouteResponse(method, pathOnly"))
+    assert(JsRuntimeBrowserPatch.contains("Response.notFound('Not Found: ' + pathOnly)"))
+
   test("JS runtime upload directory default is guarded for browser renderers"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Core))
     assert(runtime.contains("typeof require === 'function'"))

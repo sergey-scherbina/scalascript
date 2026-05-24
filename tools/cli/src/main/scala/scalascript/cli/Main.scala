@@ -1422,20 +1422,25 @@ private def buildElectronBundle(sscFile: os.Path, outDir: os.Path): Unit =
   val module   = scalascript.parser.Parser.parse(os.read(sscFile))
   val title    = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
   val baseDir  = Some(sscFile / os.up)
-  val segments = compileJsSegments(sscFile)
-  val userJs  = segments.collect {
-    case Segment.Code("javascript", code) => code
-    case Segment.Source("scala", src)     => ScalaJsBackend.compileSourceToJs(src, baseDir)
-  }.filter(_.nonEmpty).mkString("\n")
+  val rawJs = rawJavaScriptBlocks(module)
+  val moduleJs = JsGen.generate(module, baseDir)
   val caps    = JsGen.detectCapabilities(module, baseDir) - JsGen.Capability.Mcp - JsGen.Capability.Dataset
   val frontendInit = "_ssc_frontend_name = 'electron'; // injected by ssc\n"
-  val appJs   = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$frontendInit$userJs"
+  val appJs   = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$frontendInit$rawJs\n$moduleJs"
   os.makeDir.all(outDir)
   os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))
   os.write.over(outDir / "app.js",     appJs)
   os.write.over(outDir / "main.js",    ElectronEmitter.mainJs(title))
   os.write.over(outDir / "preload.js", ElectronEmitter.preloadJs)
   os.write.over(outDir / "package.json", ElectronEmitter.packageJson(title))
+
+private def rawJavaScriptBlocks(module: Module): String =
+  def collect(section: Section): List[String] =
+    section.content.collect {
+      case cb: Content.CodeBlock if Lang.isJavaScript(cb.lang) => cb.source
+    } ++ section.subsections.flatMap(collect)
+
+  module.sections.flatMap(collect).filter(_.nonEmpty).mkString("\n")
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter

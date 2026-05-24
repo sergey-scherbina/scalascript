@@ -6650,6 +6650,17 @@ function _spaRender(response) {
 }
 
 function _spaDispatch(method, pathname, body) {
+  const response = _spaRouteResponse(method, pathname, body);
+  if (!response) {
+    document.body.textContent = 'Not Found: ' + pathname;
+    _spaFlush();
+    return false;
+  }
+  _spaRender(response);
+  return true;
+}
+
+function _spaRouteResponse(method, pathname, body) {
   const segs = pathname.split('/').filter(s => s.length > 0);
   for (const r of _routes) {
     if (r.method !== method) continue;
@@ -6665,16 +6676,12 @@ function _spaDispatch(method, pathname, body) {
       body:    body || '',
       form:    new Map(),
     };
-    try { _spaRender(r.handler(request)); }
+    try { return r.handler(request); }
     catch (e) {
-      document.body.textContent = 'SPA route error: ' + (e && e.message ? e.message : e);
-      _spaFlush();
+      return Response.status(500, 'SPA route error: ' + (e && e.message ? e.message : e));
     }
-    return true;
   }
-  document.body.textContent = 'Not Found: ' + pathname;
-  _spaFlush();
-  return false;
+  return null;
 }
 
 function _spaNavigate(pathname, replace) {
@@ -6682,6 +6689,57 @@ function _spaNavigate(pathname, replace) {
   else         history.pushState({}, '', pathname);
   _spaDispatch('GET', pathname);
 }
+
+function _spaFetchResponse(resp) {
+  const status = resp && resp.status ? resp.status : 200;
+  const headers = resp && resp.headers instanceof Map ? resp.headers : new Map();
+  const body = resp && resp.body != null ? String(resp.body) : '';
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get(name) {
+        const wanted = String(name).toLowerCase();
+        for (const [k, v] of headers) if (String(k).toLowerCase() === wanted) return String(v);
+        return null;
+      }
+    },
+    text() { return Promise.resolve(body); },
+    json() { return Promise.resolve(JSON.parse(body)); }
+  };
+}
+
+function _spaFetchPath(input) {
+  if (typeof input === 'string') {
+    if (input.startsWith('/') && !input.startsWith('//')) return input;
+    try {
+      const u = new URL(input, location.href);
+      if (u.origin === location.origin && u.pathname) return u.pathname + u.search;
+    } catch (_) {}
+  } else if (input && typeof input.url === 'string') {
+    return _spaFetchPath(input.url);
+  }
+  return null;
+}
+
+const _ssc_native_fetch = globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
+globalThis.fetch = function(input, init) {
+  const rawPath = _spaFetchPath(input);
+  if (!rawPath) {
+    if (_ssc_native_fetch) return _ssc_native_fetch(input, init);
+    return Promise.reject(new Error('fetch is not available'));
+  }
+  const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+  const pathOnly = rawPath.split('?')[0] || '/';
+  const rawBody = init && init.body != null ? init.body : '';
+  return Promise.resolve(rawBody)
+    .then(body => {
+      const response = _spaRouteResponse(method, pathOnly, body == null ? '' : String(body));
+      if (response) return _spaFetchResponse(response);
+      if (_ssc_native_fetch) return _ssc_native_fetch(input, init);
+      return _spaFetchResponse(Response.notFound('Not Found: ' + pathOnly));
+    });
+};
 
 // In browser/Electron there's no port to bind.
 // Overrides _ssc_ui_serve so that std.ui.primitives.serve = _ssc_ui_serve
