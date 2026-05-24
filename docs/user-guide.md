@@ -957,39 +957,49 @@ For apps that should run backend routes on the JVM and use Electron only as the
 desktop client, see the planned
 [`electron-jvm-rest-backend.md`](electron-jvm-rest-backend.md) mode.
 
-Full-stack clients may also keep their own local SQL database for cache,
-offline state, drafts, or preferences while the JVM backend owns the
-authoritative server database. The planned split-mode contract names these as
-separate `databases:` entries, for example `server` (`side: server`) and
-`localCache` (`side: client`).
+### Planned full-stack and client storage features
 
-Client frontends may also use standard browser storage when SQL is the wrong
-shape for the data. Planned client-only APIs cover `localStorage` for tiny
-string settings, `sessionStorage` for per-window temporary state, `IndexedDB`
-for structured offline state/drafts/queues, the Cache API for HTTP response
-caching, and OPFS for origin-private files or browser-local SQLite/Wasm storage.
-These APIs belong to the frontend side of split apps; server-side references
-should fail at build time.
+The features in this subsection are **planned and not implemented yet**. Their
+specs are included here so the intended direction is visible, but current
+releases should not be expected to expose these APIs or front-matter keys.
 
-For IndexedDB-shaped data that must also live on the server, the planned model
-is a paired client/server object store. The client keeps objects in IndexedDB;
-the JVM backend keeps the authoritative copy in an `ObjectStore`, initially
-backed by a simple JDBC JSON table. Generated REST sync endpoints then let the
-client pull server changes, queue offline edits locally, and push mutations back
-with explicit conflict handling. See
+**Planned, not implemented yet: split client/server databases.** Full-stack
+clients may keep their own local SQL database for cache, offline state, drafts,
+or preferences while the JVM backend owns the authoritative server database. The
+planned split-mode contract names these as separate `databases:` entries, for
+example `server` (`side: server`) and `localCache` (`side: client`).
+
+**Planned, not implemented yet: browser client storage APIs.** Client frontends
+may use standard browser storage when SQL is the wrong shape for the data.
+Planned client-only APIs cover `localStorage` for tiny string settings,
+`sessionStorage` for per-window temporary state, `IndexedDB` for structured
+offline state/drafts/queues, the Cache API for HTTP response caching, and OPFS
+for origin-private files or browser-local SQLite/Wasm storage. These APIs belong
+to the frontend side of split apps; server-side references should fail at build
+time.
+
+**Planned, not implemented yet: client/server object store sync.** For
+IndexedDB-shaped data that must also live on the server, the planned model is a
+paired client/server object store. The client keeps objects in IndexedDB; the
+JVM backend keeps the authoritative copy in an `ObjectStore`, initially backed
+by a simple JDBC JSON table. Generated REST sync endpoints then let the client
+pull server changes, queue offline edits locally, and push mutations back with
+explicit conflict handling. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
-Graph-shaped data is planned as a separate persistence family. Property graphs
-cover vertices, edges, labels, properties, and traversal-heavy domains; RDF
-graphs cover triples/quads, linked data, ontologies, and SPARQL. The intended
-bootstrap path is embedded JVM support first: TinkerGraph/TinkerPop for small
-property graphs and RDF4J for RDF/SPARQL, followed later by production adapters
-such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and RDF4J-compatible
-servers. See [`graph-storage.md`](graph-storage.md).
+**Planned, not implemented yet: graph storage.** Graph-shaped data is planned as
+a separate persistence family. Property graphs cover vertices, edges, labels,
+properties, and traversal-heavy domains; RDF graphs cover triples/quads, linked
+data, ontologies, and SPARQL. The intended bootstrap path is embedded JVM
+support first: TinkerGraph/TinkerPop for small property graphs and RDF4J for
+RDF/SPARQL, followed later by production adapters such as Neo4j/Cypher,
+JanusGraph/TinkerPop providers, and RDF4J-compatible servers. See
+[`graph-storage.md`](graph-storage.md).
 
-Typed mapping across stores is planned as a shared codec layer rather than one
-universal ORM. Case classes and ADTs should derive codecs such as `JsonCodec`,
-`RowCodec`, `ObjectCodec`, `VertexCodec`, `EdgeCodec`, and `RdfCodec`, then use
+**Planned, not implemented yet: typed mapping across stores.** Typed mapping
+across stores is planned as a shared codec layer rather than one universal ORM.
+Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
+`ObjectCodec`, `VertexCodec`, `EdgeCodec`, and `RdfCodec`, then use
 backend-specific APIs at the query boundary. This keeps SQL, IndexedDB,
 ObjectStore sync, property graphs, and RDF convenient without hiding their
 different query models. See [`data-mapping.md`](data-mapping.md).
