@@ -10275,3 +10275,10 @@ modes opt out of that default.
   diagnostics for unsupported query/backend combinations and a full-stack
   example where a React/Electron client queries graph routes on the JVM server
   and caches selected results locally.
+- **Phase 11 — Typed data mapping across stores.** Add a `derives`-based codec
+  foundation for mapping case classes/ADTs to SQL rows, JSON/REST payloads,
+  IndexedDB values, server ObjectStore documents, property graph vertices/edges,
+  and RDF triples. Keep query APIs backend-specific while sharing identity,
+  version, decode-error, validation, and migration conventions. Add examples
+  showing one domain model persisted through SQL, client/server ObjectStore
+  sync, graph vertices/edges, and RDF where applicable.

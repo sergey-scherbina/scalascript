@@ -987,6 +987,13 @@ property graphs and RDF4J for RDF/SPARQL, followed later by production adapters
 such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and RDF4J-compatible
 servers. See [`graph-storage.md`](graph-storage.md).
 
+Typed mapping across stores is planned as a shared codec layer rather than one
+universal ORM. Case classes and ADTs should derive codecs such as `JsonCodec`,
+`RowCodec`, `ObjectCodec`, `VertexCodec`, `EdgeCodec`, and `RdfCodec`, then use
+backend-specific APIs at the query boundary. This keeps SQL, IndexedDB,
+ObjectStore sync, property graphs, and RDF convenient without hiding their
+different query models. See [`data-mapping.md`](data-mapping.md).
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements
