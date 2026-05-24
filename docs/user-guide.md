@@ -953,6 +953,10 @@ through the Electron main/preload bridge. Current behavior:
 For details and the active bridge rollout, see [`electron-sql.md`](electron-sql.md)
 and [`electron-persistence-bridge.md`](electron-persistence-bridge.md).
 
+For apps that should run backend routes on the JVM and use Electron only as the
+desktop client, see the planned
+[`electron-jvm-rest-backend.md`](electron-jvm-rest-backend.md) mode.
+
 ### `transaction` fenced blocks
 
 A ` ```transaction ``` ` fenced block runs multiple `;`-separated SQL statements

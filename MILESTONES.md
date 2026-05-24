@@ -10208,3 +10208,30 @@ Electron bundles now copy vendored `sql.js` runtime assets into
 absent. `ssc run --frontend electron` now treats npm as optional for
 database-backed bundles: if npm is missing or install fails, it launches with
 the vendored assets.
+
+## v1.43 — Electron JVM REST Backend
+
+**Status:** planned
+**Spec:** [`docs/electron-jvm-rest-backend.md`](docs/electron-jvm-rest-backend.md)
+
+Split-process desktop mode: Electron is the frontend client; JVM ScalaScript is
+the REST/backend server. `ssc run` supervises both processes, injects the JVM
+server base URL into the Electron renderer, forwards `fetch("/api/...")` calls
+over loopback HTTP, and shuts the backend down when Electron exits.
+
+### Planned phases
+
+- **Phase 0 — Spec and CLI contract.** Land the design document and command
+  surface.
+- **Phase 1 — Dev-run supervisor.** Support
+  `ssc run --frontend electron --backend jvm-rest app.ssc`: start JVM backend,
+  wait for readiness, launch Electron, clean up both processes.
+- **Phase 2 — Fetch routing and mixed content.** Route API fetches to the JVM
+  base URL while preserving local frontend navigation. Cover text/json/status
+  responses instead of forcing every exchange through raw JSON.
+- **Phase 3 — Security token.** Generate a per-run token, inject it into the
+  Electron renderer, and require it on backend loopback requests.
+- **Phase 4 — Desktop packaging.** Add `ssc build --target desktop-jvm`, bundle
+  the JVM backend artifact with Electron, and document platform requirements.
+- **Phase 5 — Source partitioning.** Add explicit client/server partitioning
+  only if duplicated top-level side effects become a blocker.

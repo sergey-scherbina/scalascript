@@ -163,6 +163,11 @@ The persistence bridge plan is specified in
 [`electron-persistence-bridge.md`](electron-persistence-bridge.md). The
 `toolkit-demo` Add flow is covered by `ToolkitElectronSmokeTest`.
 
+Apps that should keep REST routes, JDBC, and other backend work on the JVM
+instead of inside the Electron renderer/main-process bundle should use the
+planned split-process mode described in
+[`electron-jvm-rest-backend.md`](electron-jvm-rest-backend.md).
+
 ## 4. Migration
 
 No breaking changes. The four existing web renderers are unchanged.
