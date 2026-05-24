@@ -38,6 +38,18 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(JsRuntimeBrowserPatch.contains("_spaRouteResponse(method, pathOnly"))
     assert(JsRuntimeBrowserPatch.contains("Response.notFound('Not Found: ' + pathOnly)"))
 
+  test("async browser module failures render a visible error"):
+    val source =
+      """# App
+        |
+        |```sql
+        |SELECT 1
+        |```
+        |""".stripMargin
+
+    val js = JsGen.generate(Parser.parse(source))
+    assert(js.contains("document.body.textContent = msg"))
+
   test("JS runtime upload directory default is guarded for browser renderers"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Core))
     assert(runtime.contains("typeof require === 'function'"))

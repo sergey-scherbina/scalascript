@@ -220,10 +220,112 @@ let _sqliteWasMod   = null
 
 async function loadSqlJs() {
   if (_sqlJsModule) return _sqlJsModule
-  const mod = await import('sql.js')
-  const initSqlJs = mod.default ?? mod
-  _sqlJsModule = await initSqlJs({})
+  try {
+    const mod = await import('sql.js')
+    const initSqlJs = mod.default ?? mod
+    _sqlJsModule = await initSqlJs({})
+  } catch (e) {
+    const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
+    if (!isBrowser) throw e
+    _sqlJsModule = createBrowserSqlFallback()
+  }
   return _sqlJsModule
+}
+
+function createBrowserSqlFallback() {
+  class BrowserSqlDatabase {
+    constructor(_bytes, url) {
+      this._url = url || 'sqlite::memory:'
+      this._tables = {}
+      this._lastModified = 0
+      this._load()
+    }
+    _storageKey() { return 'scalascript:sqlite:' + this._url }
+    _persistent() { return this._url !== 'sqlite::memory:' && this._url !== 'sqlite:' && typeof localStorage !== 'undefined' }
+    _load() {
+      if (!this._persistent()) return
+      const raw = localStorage.getItem(this._storageKey())
+      if (!raw) return
+      try { this._tables = JSON.parse(raw) || {} } catch (_) { this._tables = {} }
+    }
+    _save() {
+      if (this._persistent()) localStorage.setItem(this._storageKey(), JSON.stringify(this._tables))
+    }
+    prepare(sql) { return new BrowserSqlStatement(this, sql) }
+    getRowsModified() { return this._lastModified || 0 }
+    export() { return new Uint8Array() }
+    close() { this._save() }
+  }
+
+  class BrowserSqlStatement {
+    constructor(db, sql) {
+      this.db = db
+      this.sql = String(sql || '').trim()
+      this.params = []
+      this.rows = null
+      this.columns = []
+      this.index = -1
+      this.done = false
+    }
+    bind(params) { this.params = Array.isArray(params) ? params : [] }
+    step() {
+      if (this.rows === null && isResultSetProducer(this.sql)) this._select()
+      if (this.rows !== null) {
+        this.index += 1
+        return this.index < this.rows.length
+      }
+      if (this.done) return false
+      this.done = true
+      this._executeUpdate()
+      return false
+    }
+    getColumnNames() { return this.columns.slice() }
+    get() { return this.rows && this.index >= 0 ? this.rows[this.index] : [] }
+    free() {}
+    _table(name) {
+      if (!this.db._tables[name]) this.db._tables[name] = { nextId: 1, rows: [] }
+      return this.db._tables[name]
+    }
+    _executeUpdate() {
+      this.db._lastModified = 0
+      let m = this.sql.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/i)
+      if (m) { this._table(m[1]); this.db._save(); return }
+      m = this.sql.match(/^INSERT\s+INTO\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i)
+      if (m) {
+        const t = this._table(m[1])
+        const cols = m[2].split(',').map(s => s.trim())
+        const row = {}
+        cols.forEach((c, i) => row[c] = this.params[i])
+        if (row.id === undefined && (m[1] === 'todos' || t.rows.some(r => r.id !== undefined))) row.id = t.nextId++
+        t.rows.push(row)
+        this.db._lastModified = 1
+        this.db._save()
+        return
+      }
+      m = this.sql.match(/^DELETE\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)\s+WHERE\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\?/i)
+      if (m) {
+        const t = this._table(m[1])
+        const before = t.rows.length
+        t.rows = t.rows.filter(r => String(r[m[2]]) !== String(this.params[0]))
+        this.db._lastModified = before - t.rows.length
+        this.db._save()
+        return
+      }
+      throw new SqlRuntimeError('Browser SQL fallback does not support: ' + this.sql)
+    }
+    _select() {
+      const m = this.sql.match(/^SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*))?/i)
+      if (!m) throw new SqlRuntimeError('Browser SQL fallback does not support: ' + this.sql)
+      const cols = m[1].split(',').map(s => s.trim())
+      const t = this._table(m[2])
+      const rows = t.rows.slice()
+      if (m[3]) rows.sort((a, b) => (a[m[3]] ?? 0) > (b[m[3]] ?? 0) ? 1 : -1)
+      this.columns = cols
+      this.rows = rows.map(r => cols.map(c => r[c]))
+    }
+  }
+
+  return { __sscBrowserFallback: true, Database: BrowserSqlDatabase }
 }
 
 async function loadDuckDb() {
@@ -294,17 +396,19 @@ export const SqlJsProvider = Object.freeze({
     if (!isMemory) {
       const path = url.slice('sqlite:'.length)
       const isNode = !!(globalThis.process && globalThis.process.versions && globalThis.process.versions.node)
-      if (!isNode) throw new MissingFs(url)
-      const fs = await import('node:fs/promises')
-      try {
-        dbBytes = await fs.readFile(path)
-      } catch (e) {
-        if (e.code === 'ENOENT') dbBytes = undefined          // create new file on first close
-        else throw new SqlRuntimeError(`sqlite open failed for "${path}": ${e.message}`, e)
+      if (!isNode && !SQL.__sscBrowserFallback) throw new MissingFs(url)
+      if (isNode) {
+        const fs = await import('node:fs/promises')
+        try {
+          dbBytes = await fs.readFile(path)
+        } catch (e) {
+          if (e.code === 'ENOENT') dbBytes = undefined          // create new file on first close
+          else throw new SqlRuntimeError(`sqlite open failed for "${path}": ${e.message}`, e)
+        }
       }
       // Persist on close.
     }
-    const db = new SQL.Database(dbBytes)
+    const db = new SQL.Database(dbBytes, url)
     return new SqlJsConnection(db, url)
   },
 })
@@ -333,6 +437,7 @@ class SqlJsConnection {
       // DML / DDL — step returns false (no rows), then getRowsModified gives count.
       while (stmt.step()) { /* drain unexpected rows */ }
       const count = this._db.getRowsModified()
+      if (typeof this._db._save === 'function') this._db._save()
       return { kind: 'update', count }
     } finally {
       stmt.free()

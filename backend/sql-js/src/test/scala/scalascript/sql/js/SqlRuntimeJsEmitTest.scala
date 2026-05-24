@@ -17,6 +17,8 @@ class SqlRuntimeJsEmitTest extends AnyFunSuite:
     assert(src.contains("export const Providers"))
     assert(src.contains("export const SqlJsProvider"))
     assert(src.contains("export const DuckDbWasmProvider"))
+    assert(src.contains("createBrowserSqlFallback"))
+    assert(src.contains("__sscBrowserFallback"))
 
   test("runtimeSource: idempotent across calls (lazy val)"):
     assert(SqlRuntimeJsEmit.runtimeSource eq SqlRuntimeJsEmit.runtimeSource)

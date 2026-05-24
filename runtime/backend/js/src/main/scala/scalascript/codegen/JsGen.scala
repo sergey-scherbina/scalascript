@@ -7060,7 +7060,12 @@ class JsGen(
     if hasMain && !mainCalled then
       line("if (typeof main === 'function') { main(); }")
     if needsAsync then
-      line("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });")
+      line("})().catch(e => {")
+      line("  const msg = String(e && e.stack ? e.stack : e);")
+      line("  if (typeof process !== 'undefined' && process.stderr) { process.stderr.write(msg + '\\n'); process.exit(1); }")
+      line("  else if (typeof document !== 'undefined') { document.body.textContent = msg; }")
+      line("  else { console.error(msg); }")
+      line("});")
     sb.toString
 
   /** Emit the v1.27 sql-block preamble: hand-written `sql-runtime.mjs`
