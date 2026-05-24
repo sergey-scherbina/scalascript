@@ -2,17 +2,36 @@
 
 > Status: design spec - May 2026.
 
-This spec defines a split-process desktop mode: Electron renders the frontend
-client, while the backend runs as a JVM ScalaScript server and is reached over
-loopback HTTP.
+This spec defines a split-process client/server mode. The first local-dev shape
+is Electron rendering the frontend client while a JVM ScalaScript backend server
+runs beside it over loopback HTTP. The same contract also supports distributed
+deployment: the backend-only JVM server can run on one machine, and a
+frontend-only client generated from the same `.ssc` file can run on another
+machine with any supported frontend target.
 
 The target outcome: `ssc run --frontend electron --backend jvm-rest app.ssc`
 starts both processes, opens a desktop window, routes UI `fetch(...)` calls to
 the JVM REST server, and shuts the JVM server down when Electron exits.
 
+A second target outcome:
+
+```bash
+ssc run --mode server --backend jvm app.ssc
+ssc run --mode client --frontend react --server-url http://server:8080 app.ssc
+ssc run --mode client --frontend electron --server-url http://server:8080 app.ssc
+```
+
+The first command starts only the backend server. The second and third commands
+generate/start only frontend clients. All are derived from the same source file
+and communicate through the same REST surface.
+
 ## Goals
 
 - Support Electron as a frontend client for a JVM backend server.
+- Support backend-only and frontend-only launches from the same `.ssc` source.
+- Allow the backend server and frontend client to run on different machines.
+- Keep the frontend target generic: React, Vue, Solid, custom web, Electron, and
+  future native clients should share the same server URL contract.
 - Preserve existing `.ssc` user-facing APIs:
   - `route(method, path) { ... }`;
   - `Request` / `Response`;
@@ -20,7 +39,9 @@ the JVM REST server, and shuts the JVM server down when Electron exits.
   - frontend toolkit helpers such as `fetchAction` and `fetchTable`.
 - Let backend routes use the JVM runtime, including JDBC-backed databases and
   JVM-only libraries.
-- Start both processes from one command in dev mode.
+- Start both processes from one command in local dev mode.
+- Also support separately-started server/client processes for distributed dev
+  and deployment.
 - Keep Electron renderer sandboxing: `nodeIntegration = false`,
   `contextIsolation = true`.
 - Avoid forcing every backend exchange into raw JSON. REST responses keep their
@@ -36,8 +57,10 @@ the JVM REST server, and shuts the JVM server down when Electron exits.
 - Do not solve production authentication, code signing, or TLS for loopback in
   the initial phase.
 - Do not support multiple backend processes in one app in the first phase.
+- Do not require Electron for the distributed client/server model; Electron is
+  only one frontend target.
 
-## Relationship To Existing Electron Modes
+## Relationship To Existing Modes
 
 Today there are two Electron paths:
 
@@ -49,6 +72,13 @@ Today there are two Electron paths:
    `http://127.0.0.1:<port>/...`.
 
 The split mode should be opt-in. Existing commands keep their behavior.
+
+The generalized client/server mode adds a third shape that is not
+Electron-specific:
+
+3. **Distributed frontend client + JVM REST server.** The JVM server can run as
+   a backend-only process on one machine. Any generated frontend client can run
+   elsewhere and use `--server-url` / generated config to call the backend.
 
 ## User-Facing Commands
 
@@ -68,6 +98,24 @@ ssc build --target desktop-jvm app.ssc
 
 The first implementation should focus on `ssc run`; packaging can follow once
 the process contract is stable.
+
+Distributed command surface:
+
+```bash
+# Machine A
+ssc run --mode server --backend jvm --host 0.0.0.0 --port 8080 app.ssc
+
+# Machine B
+ssc run --mode client --frontend react --server-url http://machine-a:8080 app.ssc
+ssc run --mode client --frontend electron --server-url http://machine-a:8080 app.ssc
+
+# Static/package outputs
+ssc build --mode client --frontend react --server-url https://api.example.com app.ssc
+ssc build --mode client --target desktop --server-url https://api.example.com app.ssc
+```
+
+Open naming question: `--mode server/client` is explicit, but `ssc serve` and
+`ssc emit-spa --server-url ...` may fit existing CLI habits better.
 
 ## Architecture
 
@@ -94,6 +142,33 @@ The CLI is the supervisor in dev mode:
 5. Forward logs from both processes with clear prefixes.
 6. Terminate the JVM backend when Electron exits.
 
+### Distributed Process Model
+
+```text
+Machine A
+  JVM backend server
+    ├─ binds configured host/port
+    ├─ registers route(...) handlers
+    ├─ owns Db/JDBC/runtime state
+    └─ exposes HTTP REST API
+
+Machine B / C / ...
+  generated frontend client
+    ├─ React/Vue/Solid/custom web OR Electron
+    ├─ has __sscBackendBaseUrl = "https://api.example.com"
+    └─ fetches backend REST routes
+```
+
+In this mode the CLI is not necessarily the supervisor for both sides. It can:
+
+- start only the server;
+- start only a client against an existing server URL;
+- build static frontend assets with a baked-in server URL;
+- build an Electron client with a baked-in or runtime-configurable server URL.
+
+The server must be able to run without emitting or launching any frontend.
+The client must be able to run without evaluating server-owned side effects.
+
 ### Source Partitioning
 
 Phase 1 should support the existing single-file app shape:
@@ -114,9 +189,31 @@ The first implementation can be conservative:
 Later phases can introduce explicit `@side=client` / `@side=server` partitioning
 if duplicate top-level evaluation becomes a real issue.
 
+Distributed mode makes source partitioning more important:
+
+- **Server-only run** should evaluate backend declarations, routes, database
+  setup, migrations, and server startup.
+- **Client-only run/build** should evaluate frontend declarations and shared pure
+  definitions, but must not execute backend startup or database mutations.
+- Shared model types, encoders, validation helpers, and URL constants can be
+  emitted to both sides.
+
+Phase 1 can still use conservative heuristics for the local Electron+JVM case,
+but distributed server/client should move toward explicit ownership markers:
+
+```text
+@side=server
+@side=client
+@side=shared
+```
+
+or an equivalent front-matter/module-level convention. The design should avoid
+making users split one small app into multiple files just to run it in
+client/server mode.
+
 ### Backend Base URL Injection
 
-The Electron bundle needs a runtime constant:
+The frontend bundle needs a runtime constant:
 
 ```javascript
 globalThis.__sscBackendBaseUrl = 'http://127.0.0.1:49152'
@@ -129,6 +226,11 @@ The browser/Electron SPA fetch patch should use it:
 - route navigation for frontend pages remains local.
 
 This keeps toolkit helpers unchanged because they already call `fetch(url, ...)`.
+
+For distributed clients, `__sscBackendBaseUrl` comes from `--server-url`, an
+environment variable, generated config, or a small runtime config file. Static
+web builds may bake it into `app.js`; Electron builds can read it from a
+generated JSON file next to `main.js` if runtime reconfiguration is needed.
 
 ### HTTP Semantics
 
@@ -145,6 +247,9 @@ Supported response forms should mirror the existing JVM server:
 JSON remains the natural format for data APIs like `/api/todos`, but HTML,
 plain text, status-only responses, and future streaming endpoints are not
 excluded by the architecture.
+
+The same semantics apply whether the client is local Electron, remote React, or
+another frontend. The contract is HTTP, not a Scala object bridge.
 
 ### Lifecycle And Readiness
 
@@ -163,6 +268,14 @@ Shutdown:
 - if JVM exits first, CLI closes Electron or surfaces a clear error;
 - Ctrl-C terminates both children.
 
+In distributed mode:
+
+- server-only process owns its lifecycle and does not exit when a client exits;
+- client-only process treats backend unavailability as a connection error and
+  should show/report it clearly;
+- readiness can be checked by clients through `/__ssc/health` before first API
+  use, but clients must not require process supervision.
+
 ### Port Selection
 
 The CLI should bind a free loopback port, then pass it to the JVM server.
@@ -171,6 +284,11 @@ Open question for implementation: whether the JVM server accepts `serve(0)` and
 reports the actual port, or whether the CLI reserves a port before launch. The
 preferred path is `serve(0)` plus readiness reporting because pre-reserving a
 port can race.
+
+For server-only distributed mode, explicit `--host` and `--port` flags are
+required unless the `.ssc` source already calls `serve(port)`. Binding
+`0.0.0.0` should require an explicit flag or command-line value; loopback stays
+the default.
 
 ### Development Packaging
 
@@ -184,7 +302,8 @@ also declares client-side databases.
 
 ## Security
 
-- Bind only to `127.0.0.1`, never `0.0.0.0`, by default.
+- Bind only to `127.0.0.1`, never `0.0.0.0`, by default for local supervised
+  mode.
 - Generate an unguessable per-run token and require it on backend requests from
   Electron, for example `X-ScalaScript-Desktop-Token`.
 - Inject the token into the Electron renderer through generated config, not
@@ -195,6 +314,15 @@ also declares client-side databases.
 Phase 1 may start without the token only if the server binds to loopback and the
 test/demo scope is explicit, but the token should be part of the production
 contract before packaging support lands.
+
+Distributed mode has a stricter baseline:
+
+- binding to non-loopback requires an explicit `--host` or config setting;
+- CORS must be configurable and default-deny for browser clients from other
+  origins;
+- authentication/authorization is app-level, but ScalaScript should provide a
+  clear hook for bearer tokens or session cookies;
+- generated clients should not embed long-lived production secrets.
 
 ## Migration
 
@@ -216,6 +344,15 @@ ssc run --frontend electron --backend jvm-rest app.ssc
 
 launches the split Electron + JVM server app.
 
+Distributed behavior:
+
+```bash
+ssc run --mode server --backend jvm app.ssc
+ssc run --mode client --frontend react --server-url http://127.0.0.1:8080 app.ssc
+```
+
+launches each side separately from the same source.
+
 ## Phases
 
 ### Phase 0 - Spec And CLI Contract
@@ -233,28 +370,36 @@ launches the split Electron + JVM server app.
 - Launch Electron and terminate the JVM backend on exit.
 - Add a smoke test using `examples/frontend/toolkit-demo/toolkit-demo.ssc`.
 
-### Phase 2 - Fetch Routing And Mixed Content
+### Phase 2 - Client/Server Split Commands
+
+- Add backend-only server launch from the same `.ssc` source.
+- Add frontend-only client launch/build from the same `.ssc` source.
+- Support `--server-url` injection for React/custom web and Electron clients.
+- Add a smoke where server and client are started by separate CLI invocations.
+
+### Phase 3 - Fetch Routing And Mixed Content
 
 - Route same-origin API fetches to the backend base URL.
 - Preserve local frontend navigation.
 - Cover `Response.text`, `Response.json`, `Response.status`, and non-2xx
   responses in tests.
 
-### Phase 3 - Security Token
+### Phase 4 - Security Token And CORS
 
 - Generate a per-run desktop token.
 - Inject it into Electron config.
 - Require it on backend requests.
 - Add negative tests for missing/incorrect token.
+- Add CORS configuration for distributed browser clients.
 
-### Phase 4 - Desktop Build Packaging
+### Phase 5 - Desktop Build Packaging
 
 - Add `ssc build --target desktop-jvm`.
 - Package the JVM backend artifact with the Electron app.
 - Ensure packaged app starts/stops the backend process.
 - Document platform-specific signing/notarization implications.
 
-### Phase 5 - Source Partitioning
+### Phase 6 - Source Partitioning
 
 - Add explicit client/server partitioning only if needed.
 - Avoid duplicate side effects from top-level code.
@@ -264,6 +409,7 @@ launches the split Electron + JVM server app.
 
 - Unit:
   - CLI mode parsing for `--frontend electron --backend jvm-rest`;
+  - CLI mode parsing for server-only and client-only commands;
   - backend URL injection;
   - fetch URL rewriting;
   - child-process lifecycle helpers.
@@ -271,6 +417,8 @@ launches the split Electron + JVM server app.
   - toolkit demo starts JVM server + Electron;
   - Add flow posts to JVM `/api/todos`;
   - UI refresh fetches rows from JVM backend.
+  - backend-only JVM server and frontend-only React client run as separate
+    processes and communicate through `--server-url`.
 - Regression:
   - plain `ssc run --frontend electron` still uses self-contained mode;
   - Electron persistence bridge still works for local-first apps;
@@ -280,9 +428,13 @@ launches the split Electron + JVM server app.
 
 - Should the canonical spelling be `--backend jvm-rest`, `--server jvm`, or
   `--target desktop-jvm`?
+- Should distributed launch use `--mode server/client`, new subcommands, or
+  existing `serve` / `emit-spa` commands?
 - Should `serve(0)` report its bound port through a generated health endpoint or
   a structured stdout readiness line?
 - Should security token enforcement land in Phase 1 or Phase 3?
 - How much source partitioning is required before packaging support?
 - Should packaged apps embed a JRE, require system Java, or use a GraalVM native
   backend artifact later?
+- For browser clients on another machine, should ScalaScript generate a default
+  CORS policy from front-matter?

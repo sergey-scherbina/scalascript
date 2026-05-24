@@ -10214,10 +10214,12 @@ the vendored assets.
 **Status:** planned
 **Spec:** [`docs/electron-jvm-rest-backend.md`](docs/electron-jvm-rest-backend.md)
 
-Split-process desktop mode: Electron is the frontend client; JVM ScalaScript is
-the REST/backend server. `ssc run` supervises both processes, injects the JVM
-server base URL into the Electron renderer, forwards `fetch("/api/...")` calls
-over loopback HTTP, and shuts the backend down when Electron exits.
+Split-process client/server mode: JVM ScalaScript is the REST/backend server;
+Electron, React, Vue, Solid, custom web, or future clients can be generated from
+the same `.ssc` source and pointed at that server. Local dev can supervise both
+Electron and JVM processes from one `ssc run`; distributed mode can run a
+backend-only server on one machine and frontend-only clients on other machines
+using `--server-url`.
 
 ### Planned phases
 
@@ -10226,12 +10228,15 @@ over loopback HTTP, and shuts the backend down when Electron exits.
 - **Phase 1 — Dev-run supervisor.** Support
   `ssc run --frontend electron --backend jvm-rest app.ssc`: start JVM backend,
   wait for readiness, launch Electron, clean up both processes.
-- **Phase 2 — Fetch routing and mixed content.** Route API fetches to the JVM
+- **Phase 2 — Client/server split commands.** Support backend-only server launch
+  and frontend-only client launch/build from one `.ssc`, including
+  `--server-url` for React/custom web and Electron clients.
+- **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM
   base URL while preserving local frontend navigation. Cover text/json/status
   responses instead of forcing every exchange through raw JSON.
-- **Phase 3 — Security token.** Generate a per-run token, inject it into the
-  Electron renderer, and require it on backend loopback requests.
-- **Phase 4 — Desktop packaging.** Add `ssc build --target desktop-jvm`, bundle
+- **Phase 4 — Security token and CORS.** Generate a per-run token for local
+  supervised mode; add CORS configuration for distributed browser clients.
+- **Phase 5 — Desktop packaging.** Add `ssc build --target desktop-jvm`, bundle
   the JVM backend artifact with Electron, and document platform requirements.
-- **Phase 5 — Source partitioning.** Add explicit client/server partitioning
+- **Phase 6 — Source partitioning.** Add explicit client/server partitioning
   only if duplicated top-level side effects become a blocker.
