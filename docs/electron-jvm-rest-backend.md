@@ -13,6 +13,13 @@ The target outcome: `ssc run --frontend electron --backend jvm-rest app.ssc`
 starts both processes, opens a desktop window, routes UI `fetch(...)` calls to
 the JVM REST server, and shuts the JVM server down when Electron exits.
 
+A default-run target outcome: when a single `.ssc` file contains both frontend
+UI and backend routes, plain `ssc run app.ssc` should start the local full-stack
+app on one machine. It launches the backend server and the selected/default
+frontend client together, supervises both, and wires the frontend to the local
+server automatically. Users opt out with explicit server-only, client-only, or
+self-contained Electron modes.
+
 A second target outcome:
 
 ```bash
@@ -85,6 +92,7 @@ Electron-specific:
 Initial command surface:
 
 ```bash
+ssc run app.ssc
 ssc run --frontend electron --backend jvm-rest app.ssc
 ssc run --target desktop-jvm app.ssc
 ```
@@ -98,6 +106,20 @@ ssc build --target desktop-jvm app.ssc
 
 The first implementation should focus on `ssc run`; packaging can follow once
 the process contract is stable.
+
+Default behavior for `ssc run app.ssc`:
+
+| Source shape | Default run behavior |
+| --- | --- |
+| backend routes only | run backend server/interpreter as today |
+| frontend UI only | run frontend preview/client as today |
+| frontend UI + backend routes | run supervised local full-stack mode |
+| `frontend: electron` + backend routes | run Electron client + local JVM REST backend |
+| explicit `--self-contained` / local-first flag | run current self-contained Electron/browser mode |
+
+The exact source-shape detection can be conservative at first: a module that
+contains `route(...)` or `routes:` and also calls frontend `serve(view, ...)` is
+full-stack.
 
 Distributed command surface:
 
@@ -141,6 +163,11 @@ The CLI is the supervisor in dev mode:
 4. Launch Electron.
 5. Forward logs from both processes with clear prefixes.
 6. Terminate the JVM backend when Electron exits.
+
+Plain `ssc run app.ssc` uses this same supervisor when the source is detected as
+full-stack. The selected frontend comes from front-matter (`frontend:`), CLI
+flags, or the existing default frontend policy. Electron is one possible client;
+React/custom web preview should use the same backend base URL injection.
 
 ### Distributed Process Model
 
@@ -334,15 +361,19 @@ Existing behavior:
 ssc run --frontend electron app.ssc
 ```
 
-continues to launch the self-contained Electron app.
+continues to launch the self-contained Electron app only when the app is
+frontend-only or an explicit self-contained/local-first mode is requested. For
+full-stack apps, plain `ssc run app.ssc` and `ssc run --frontend electron
+app.ssc` should prefer supervised local full-stack mode.
 
 New behavior:
 
 ```bash
+ssc run app.ssc
 ssc run --frontend electron --backend jvm-rest app.ssc
 ```
 
-launches the split Electron + JVM server app.
+launches the split frontend + JVM server app when the source is full-stack.
 
 Distributed behavior:
 
@@ -363,12 +394,15 @@ launches each side separately from the same source.
 
 ### Phase 1 - Dev Run Supervisor
 
+- Detect full-stack source shape for default `ssc run app.ssc`.
 - Add CLI support for `--backend jvm-rest` with `--frontend electron`.
 - Start the JVM backend server on loopback.
 - Wait for readiness.
 - Generate Electron renderer bundle with `__sscBackendBaseUrl`.
 - Launch Electron and terminate the JVM backend on exit.
 - Add a smoke test using `examples/frontend/toolkit-demo/toolkit-demo.ssc`.
+- Add a smoke that uses plain `ssc run` semantics, not only explicit
+  `--backend jvm-rest`.
 
 ### Phase 2 - Client/Server Split Commands
 
@@ -408,6 +442,7 @@ launches each side separately from the same source.
 ## Testing Strategy
 
 - Unit:
+  - full-stack source-shape detection for default `ssc run`;
   - CLI mode parsing for `--frontend electron --backend jvm-rest`;
   - CLI mode parsing for server-only and client-only commands;
   - backend URL injection;
@@ -420,7 +455,9 @@ launches each side separately from the same source.
   - backend-only JVM server and frontend-only React client run as separate
     processes and communicate through `--server-url`.
 - Regression:
-  - plain `ssc run --frontend electron` still uses self-contained mode;
+  - plain `ssc run` starts supervised local full-stack mode for mixed
+    frontend+route apps;
+  - explicit self-contained Electron mode still works for local-first apps;
   - Electron persistence bridge still works for local-first apps;
   - JVM backend exits when Electron exits.
 
@@ -428,6 +465,9 @@ launches each side separately from the same source.
 
 - Should the canonical spelling be `--backend jvm-rest`, `--server jvm`, or
   `--target desktop-jvm`?
+- What is the explicit opt-out spelling for self-contained Electron when a file
+  contains both frontend and routes: `--self-contained`, `--local-first`, or a
+  front-matter key?
 - Should distributed launch use `--mode server/client`, new subcommands, or
   existing `serve` / `emit-spa` commands?
 - Should `serve(0)` report its bound port through a generated health endpoint or

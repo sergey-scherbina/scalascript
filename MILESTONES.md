@@ -10221,13 +10221,20 @@ Electron and JVM processes from one `ssc run`; distributed mode can run a
 backend-only server on one machine and frontend-only clients on other machines
 using `--server-url`.
 
+Default policy: when a single `.ssc` contains both frontend UI and backend
+routes, plain `ssc run app.ssc` should run the supervised local full-stack mode
+on one machine. Explicit server-only, client-only, or self-contained/local-first
+modes opt out of that default.
+
 ### Planned phases
 
 - **Phase 0 — Spec and CLI contract.** Land the design document and command
   surface.
 - **Phase 1 — Dev-run supervisor.** Support
+  plain `ssc run app.ssc` for full-stack modules and explicit
   `ssc run --frontend electron --backend jvm-rest app.ssc`: start JVM backend,
-  wait for readiness, launch Electron, clean up both processes.
+  wait for readiness, launch the selected frontend client, clean up both
+  processes.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch
   and frontend-only client launch/build from one `.ssc`, including
   `--server-url` for React/custom web and Electron clients.
