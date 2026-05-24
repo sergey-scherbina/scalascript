@@ -2,9 +2,7 @@ package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.codegen.{JsGen, JsRuntimeBrowserPatch}
-import scalascript.frontend.electron.ElectronEmitter
-import scalascript.parser.Parser
+import scalascript.frontend.electron.ElectronBundleBuilder
 
 class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
 
@@ -15,23 +13,10 @@ class ToolkitElectronSmokeTest extends AnyFunSuite with Matchers:
     if !electronAvailable then cancel("electron is not available on PATH")
 
     val root = repoRoot()
-    val src  = os.read(root / "examples" / "frontend" / "toolkit-demo" / "toolkit-demo.ssc")
-    val mod  = Parser.parse(src)
     val out  = os.temp.dir(prefix = "ssc-electron-smoke-", deleteOnExit = true)
+    val src  = root / "examples" / "frontend" / "toolkit-demo" / "toolkit-demo.ssc"
 
-    val caps = JsGen.detectCapabilities(mod, baseDir = Some(root)) -
-      JsGen.Capability.Mcp -
-      JsGen.Capability.Dataset
-    val appJs =
-      s"${JsGen.generateRuntime(caps)}\n" +
-      s"$JsRuntimeBrowserPatch\n" +
-      "_ssc_frontend_name = 'electron'; // injected by test\n" +
-      JsGen.generate(mod, baseDir = Some(root))
-
-    os.write.over(out / "index.html", ElectronEmitter.indexHtml("toolkit-demo"))
-    os.write.over(out / "app.js", appJs)
-    os.write.over(out / "preload.js", ElectronEmitter.preloadJs)
-    os.write.over(out / "package.json", ElectronEmitter.packageJson("toolkit-demo"))
+    ElectronBundleBuilder.build(src, out)
     os.write.over(out / "main.js", smokeMainJs)
 
     val result = os.proc("electron", out.toString)

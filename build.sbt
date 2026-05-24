@@ -381,7 +381,7 @@ lazy val frontendVue = project
 // index.html + app.js.  CLI: ssc run --frontend electron  /  ssc build --target desktop.
 lazy val frontendElectron = project
   .in(file("frontend/electron"))
-  .dependsOn(frontendCore, frontendCustom)
+  .dependsOn(frontendCore, frontendCustom, backendJs)
   .settings(
     name := "scalascript-frontend-electron",
     libraryDependencies ++= Seq(scalatestTest),
