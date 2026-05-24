@@ -948,7 +948,8 @@ a real file database there. Current behavior:
 - The fallback is intentionally narrow: it supports the DDL/DML/query shapes
   used by `examples/frontend/toolkit-demo/toolkit-demo.ssc`, not full SQLite.
 
-For details and future options, see [`electron-sql.md`](electron-sql.md).
+For details and future options, see [`electron-sql.md`](electron-sql.md) and
+the planned [`electron-persistence-bridge.md`](electron-persistence-bridge.md).
 
 ### `transaction` fenced blocks
 

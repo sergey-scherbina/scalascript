@@ -77,8 +77,9 @@ This fallback is not:
 - shared with Node's file-backed `sqlite:<path>` behavior.
 
 If an app needs real desktop persistence, use a future Electron main/preload
-bridge or a bundled sql.js/wasm asset path. The fallback only exists to keep
-browser-like renderer demos functional and honest.
+bridge or a bundled sql.js/wasm asset path. The bridge plan is specified in
+[`electron-persistence-bridge.md`](electron-persistence-bridge.md). The fallback
+only exists to keep browser-like renderer demos functional and honest.
 
 ## Tested Path
 
@@ -100,7 +101,8 @@ There are three plausible ways to make Electron SQL more complete:
    resolution and wasm loading explicit in the generated bundle.
 2. **Use an Electron main/preload bridge.** Keep filesystem access in the main
    process, expose a narrow `Db.query` / `Db.execute` IPC surface to the
-   renderer, and persist under `app.getPath("userData")`.
+   renderer, and persist under `app.getPath("userData")`. This is the preferred
+   path; see [`electron-persistence-bridge.md`](electron-persistence-bridge.md).
 3. **Promote the fallback.** Keep localStorage-backed SQL as an explicit,
    documented "demo/local browser store" with a broader but still bounded SQL
    subset.

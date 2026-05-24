@@ -159,7 +159,9 @@ not the JVM or Node file-backed path.
 Current `sqlite:` behavior is documented in
 [`electron-sql.md`](electron-sql.md). In short, `sqlite:<path>` in the
 renderer is localStorage-backed demo persistence, not a real file at `<path>`.
-The `toolkit-demo` Add flow is covered by `ToolkitElectronSmokeTest`.
+The persistence bridge plan is specified in
+[`electron-persistence-bridge.md`](electron-persistence-bridge.md). The
+`toolkit-demo` Add flow is covered by `ToolkitElectronSmokeTest`.
 
 ## 4. Migration
 
