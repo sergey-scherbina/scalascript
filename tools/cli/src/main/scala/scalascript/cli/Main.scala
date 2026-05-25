@@ -4052,13 +4052,15 @@ private[cli] def renderSpaHtml(sscFile: os.Path, backendBaseUrl: Option[String])
     case Segment.Source("scala", src)     =>
       ScalaJsBackend.compileSourceToJs(src, baseDir)
   }.filter(_.nonEmpty).mkString("\n")
+  val rawJs = rawJavaScriptBlocks(module)
   // v1.17 Phase 3 — when the user's JS references `mcpConnect`,
   // splice in the browser-compatible MCP client preamble.  The
   // Node-side `JsRuntimeMcp` would import worker_threads etc.,
   // which crashes in a browser; the browser variant uses sync XHR
   // with zero deps.
+  val browserJs = userJs + "\n" + rawJs
   val mcpPreamble =
-    if userJs.contains("mcpConnect") || userJs.contains("mcpServer") then
+    if browserJs.contains("mcpConnect") || browserJs.contains("mcpServer") then
       "\n" + JsRuntimeMcpBrowser
     else ""
   // Tree-shake: detect which runtime blocks are actually needed,
@@ -4081,10 +4083,19 @@ private[cli] def renderSpaHtml(sscFile: os.Path, backendBaseUrl: Option[String])
      |<script>
      |$backendInit$spaRuntime
      |$JsRuntimeBrowserPatch$mcpPreamble
+     |$rawJs
      |$userJs
      |</script>
      |</body>
      |</html>""".stripMargin
+
+private[cli] def rawJavaScriptBlocks(module: Module): String =
+  def collect(section: Section): List[String] =
+    section.content.collect {
+      case cb: Content.CodeBlock if Lang.isJavaScript(cb.lang) => cb.source
+    } ++ section.subsections.flatMap(collect)
+
+  module.sections.flatMap(collect).filter(_.nonEmpty).mkString("\n")
 
 /** v0.8 — emit a JS bundle that registers each component object in the
  *  file as a W3C Custom Element.  Detection rule: a top-level

@@ -1062,8 +1062,10 @@ client objects over `fetch`; when a bundle is produced with `emit-spa
 --server-url` or client mode, relative client calls use the injected
 `globalThis.__sscBackendBaseUrl` to reach the JVM backend. Electron JVM REST
 dev mode uses the same generated HTTP clients in its renderer bundle.
-Distributed split-process examples and final async ergonomics are still
-planned. See
+[`examples/frontend/typed-client-distributed/`](../examples/frontend/typed-client-distributed/)
+shows the same `.ssc` source running as a JVM backend on one machine and as a
+React/Electron client on another via `--server-url`. Final async ergonomics are
+still planned. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

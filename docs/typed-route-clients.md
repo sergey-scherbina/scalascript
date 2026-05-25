@@ -269,8 +269,15 @@ test that starts a fake JVM backend process, builds the Electron bundle with
 the injected backend URL, launches fake Electron, and verifies that the renderer
 bundle contains the generated typed HTTP client runtime and `Messages` methods.
 
-Still planned for Phase 3: distributed client/server examples and final async
-ergonomics for using Promise-returning clients from `.ssc` frontend code.
+Landed 2026-05-25 follow-up:
+[`examples/frontend/typed-client-distributed/`](../examples/frontend/typed-client-distributed/)
+uses one `.ssc` file for both `ssc run --mode server --backend jvm` and
+`ssc run --mode client --frontend react|electron --server-url ...`. The example
+also exercises raw JavaScript blocks in SPA/client output so browser UI glue
+can call the generated Promise-returning `Messages` client.
+
+Still planned for Phase 3: final async ergonomics for using Promise-returning
+clients from `.ssc` frontend code.
 
 ### Phase 4 — Shared Codecs
 
@@ -299,8 +306,8 @@ stable across JVM and JS.
   errors, and decode errors.
 - Swing no-socket example test that verifies the generated code contains typed
   client dispatch and no nested `scala-cli`.
-- HTTP client emission tests for browser mode and Electron JVM REST bundle
-  smoke tests.
+- HTTP client emission tests for browser mode, Electron JVM REST bundle smoke
+  tests, and distributed same-source server/client example tests.
 - Compatibility tests proving raw `fetchAction`/`fetchTable` examples still
   work while typed clients are present.
 

@@ -1,0 +1,122 @@
+#!/usr/bin/env ssc
+---
+name: typed-client-distributed
+version: 0.1.0
+description: Same source running as JVM backend on one machine and browser/Electron client on another.
+frontend: react
+host: 0.0.0.0
+port: 49155
+apiClients:
+  Messages:
+    endpoints:
+      - name: create
+        method: POST
+        path: /api/messages
+        request: CreateMessage
+        response: Message
+      - name: list
+        method: GET
+        path: /api/messages
+        request: Unit
+        response: List[Message]
+      - name: get
+        method: GET
+        path: /api/messages/:id
+        request: Int
+        response: Message
+---
+
+# Distributed Typed Client
+
+Run the same file as a JVM server on one machine and as a browser or Electron
+client on another:
+
+```bash
+ssc run --mode server --backend jvm --host 0.0.0.0 --port 49155 examples/frontend/typed-client-distributed/typed-client-distributed.ssc
+ssc run --mode client --frontend react --server-url http://BACKEND_HOST:49155 examples/frontend/typed-client-distributed/typed-client-distributed.ssc
+```
+
+The client UI below is a small raw JavaScript block because JS HTTP typed
+clients currently return Promises. The typed client object itself is generated
+from `apiClients:` metadata.
+
+## Browser Client
+
+```javascript
+function sscTypedClientDistributedApp() {
+  const root = document.getElementById("app") || document.body;
+  root.innerHTML = `
+    <main style="font:14px system-ui;max-width:680px;margin:32px auto;padding:0 16px">
+      <h1>Distributed typed route client</h1>
+      <p>Generated client object: <code>Messages</code></p>
+      <form id="message-form" style="display:flex;gap:8px;margin:16px 0">
+        <input id="message-text" value="hello from remote client" style="flex:1;padding:8px">
+        <button type="submit">Add</button>
+      </form>
+      <button id="reload">Reload</button>
+      <pre id="messages" style="background:#f6f8fa;padding:12px;white-space:pre-wrap"></pre>
+    </main>`;
+
+  const input = document.getElementById("message-text");
+  const output = document.getElementById("messages");
+
+  async function refresh() {
+    const rows = await Messages.list();
+    output.textContent = rows.map(row => `${row.id}: ${row.text}`).join("\n") || "(empty)";
+  }
+
+  document.getElementById("message-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    const created = await Messages.create(CreateMessage(text));
+    input.value = "";
+    const fetched = await Messages.get(created.id);
+    output.textContent = `created ${fetched.id}: ${fetched.text}`;
+    await refresh();
+  });
+
+  document.getElementById("reload").addEventListener("click", refresh);
+  refresh().catch(error => { output.textContent = String(error && error.stack ? error.stack : error); });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", sscTypedClientDistributedApp);
+} else {
+  sscTypedClientDistributedApp();
+}
+```
+
+## Shared Types And JVM Backend
+
+```scalascript
+case class CreateMessage(text: String)
+case class Message(id: Int, text: String)
+
+var nextId: Int = 2
+var messages: List[Message] = List(Message(1, "seed from JVM backend"))
+
+route("GET", "/api/messages") { req =>
+  Response.json(messages)
+}
+
+route("GET", "/api/messages/:id") { req =>
+  val id = req.params("id").toInt
+  messages.find(_.id == id) match
+    case Some(message) => Response.json(message)
+    case None => Response.status(404, "message not found")
+}
+
+route("POST", "/api/messages") { req =>
+  val input = jsonRead(req.body)
+  val text = input("text").asString.trim
+  if text.isEmpty then Response.status(400, "empty message")
+  else
+    val created = Message(nextId, text)
+    nextId = nextId + 1
+    messages = messages :+ created
+    Response.json(created)
+}
+
+serve(49155)
+```
