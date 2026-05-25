@@ -481,6 +481,7 @@ def printUsage(): Unit =
     |                                --mode server starts only the JVM backend/server
     |                                --mode client --frontend electron --server-url <url> starts only the Electron client
     |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
+    |                                --host <addr> / --port <n> controls web preview bind address/port; server mode uses --port for simple serve(port)
     |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
@@ -2290,6 +2291,8 @@ def runCommand(args: List[String]): Unit =
   var targetFlag:        Option[String] = None
   var modeFlag:          Option[String] = None
   var serverUrlFlag:     Option[String] = None
+  var hostFlag:          Option[String] = None
+  var portFlag:          Option[Int] = None
   var openBrowserFlag:   Option[Boolean] = None
   var serverBackendFlag: String         = "jdk"
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
@@ -2302,6 +2305,8 @@ def runCommand(args: List[String]): Unit =
       case "--target"           if it.hasNext => targetFlag        = Some(it.next())
       case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
       case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
+      case "--host"             if it.hasNext => hostFlag          = Some(it.next())
+      case "--port"             if it.hasNext => portFlag          = Some(parsePortFlag("run --port", it.next()))
       case "--open-browser"                  => openBrowserFlag    = Some(true)
       case "--no-open-browser"               => openBrowserFlag    = Some(false)
       case flag if flag.startsWith("--open-browser=") =>
@@ -2324,7 +2329,9 @@ def runCommand(args: List[String]): Unit =
           System.exit(1)
         case _ =>
           for file <- fileArgs.toList do
-            runJvmServerHook(os.Path(file, os.pwd), serverBackendFlag)
+            val path = os.Path(file, os.pwd)
+            val bind = bindOptions(path, hostFlag, portFlag, None)
+            runJvmServerHook(path, serverBackendFlag, bind)
           return
     case Some("client") =>
       val serverUrl = serverUrlFlag.getOrElse {
@@ -2337,11 +2344,11 @@ def runCommand(args: List[String]): Unit =
         val manifestFrontend =
           scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework)).getOrElse(None)
         val selectedFrontend = frontendFlag.orElse(manifestFrontend)
-        val openBrowser = openBrowserFlag.orElse(frontMatterBoolean(path, "open-browser", "openBrowser")).getOrElse(false)
+        val bind = bindOptions(path, hostFlag, portFlag, openBrowserFlag)
         if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
           runElectronClientDevHook(path, serverUrl)
         else if selectedFrontend.exists(n => n == "react" || n == "solid" || n == "vue" || n == "custom") then
-          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, openBrowser)
+          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, bind)
         else
           System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
           System.exit(1)
@@ -2505,13 +2512,22 @@ private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purp
   catch case e: Exception =>
     System.err.println(s"run: ${e.getMessage}"); System.exit(1)
 
-private[cli] def runJvmServerDev(sscFile: os.Path, serverBackend: String): Unit =
-  detectServePort(os.read(sscFile)).foreach { port =>
-    printComponentUrls("backend server", port, backendUrl = None)
+private[cli] def runJvmServerDev(sscFile: os.Path, serverBackend: String, bind: RunBindOptions): Unit =
+  val source = os.read(sscFile)
+  val effectivePort = bind.port.orElse(detectServePort(source))
+  effectivePort.foreach { port =>
+    printComponentUrls("backend server", bind.host, port, backendUrl = None)
   }
-  runJvmViaScalaCli(sscFile, serverBackend, "run --mode server")
+  val runFile =
+    bind.port match
+      case Some(port) =>
+        val rewritten = rewritePlainServePort(source, port)
+        if rewritten == source then sscFile
+        else os.temp(rewritten, suffix = ".ssc", deleteOnExit = true)
+      case None => sscFile
+  runJvmViaScalaCli(runFile, serverBackend, "run --mode server")
 
-private[cli] var runJvmServerHook: (os.Path, String) => Unit =
+private[cli] var runJvmServerHook: (os.Path, String, RunBindOptions) => Unit =
   runJvmServerDev
 
 /** Compile `sscFile` to an Electron bundle in a temp dir and launch
@@ -2555,14 +2571,14 @@ private[cli] def runElectronClientDev(sscFile: os.Path, backendBaseUrl: String):
 private[cli] var runElectronClientDevHook: (os.Path, String) => Unit =
   runElectronClientDev
 
-private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backendBaseUrl: String, openBrowser: Boolean): Unit =
+private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backendBaseUrl: String, bind: RunBindOptions): Unit =
   if !os.exists(sscFile) then
     System.err.println(s"run: file not found: $sscFile"); System.exit(1)
   applyFrontendBackend(frontend)
   val tmpDir = os.temp.dir(prefix = "ssc-web-client-", deleteOnExit = true)
   os.write(tmpDir / "index.html", renderSpaHtml(sscFile, Some(backendBaseUrl)))
   val server = com.sun.net.httpserver.HttpServer.create(
-    new java.net.InetSocketAddress("0.0.0.0", 0),
+    new java.net.InetSocketAddress(bind.host, bind.port.getOrElse(0)),
     0
   )
   server.createContext("/", exchange =>
@@ -2587,14 +2603,14 @@ private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backend
   )
   server.start()
   val port = server.getAddress.getPort
-  val localUrl = printComponentUrls(s"frontend client ($frontend)", port, Some(backendBaseUrl))
-  println(s"  open browser: $openBrowser")
+  val localUrl = printComponentUrls(s"frontend client ($frontend)", bind.host, port, Some(backendBaseUrl))
+  println(s"  open browser: ${bind.openBrowser}")
   println("  press Ctrl+C to stop")
-  if openBrowser then openBrowserHook(localUrl)
+  if bind.openBrowser then openBrowserHook(localUrl)
   sys.addShutdownHook(server.stop(0))
   Thread.currentThread().join()
 
-private[cli] var runWebClientPreviewHook: (os.Path, String, String, Boolean) => Unit =
+private[cli] var runWebClientPreviewHook: (os.Path, String, String, RunBindOptions) => Unit =
   runWebClientPreview
 
 /** Dev-run split-process Electron mode.
@@ -2647,9 +2663,21 @@ private[cli] var electronCommand: String = "electron"
 private[cli] var npmCommand:      String = "npm"
 private[cli] var openBrowserHook: String => Unit = openSystemBrowser
 
-private[cli] def printComponentUrls(component: String, port: Int, backendUrl: Option[String]): String =
-  val localUrl = s"http://127.0.0.1:$port/"
-  val externalUrls = localNetworkAddresses().map(ip => s"http://$ip:$port/")
+private[cli] case class RunBindOptions(
+    host:        String = "0.0.0.0",
+    port:        Option[Int] = None,
+    openBrowser: Boolean = false
+)
+
+private[cli] def printComponentUrls(component: String, bindHost: String, port: Int, backendUrl: Option[String]): String =
+  val localHost =
+    if bindHost == "0.0.0.0" || bindHost == "::" then "127.0.0.1"
+    else bindHost
+  val localUrl = s"http://$localHost:$port/"
+  val externalUrls =
+    if bindHost == "0.0.0.0" || bindHost == "::" then localNetworkAddresses().map(ip => s"http://$ip:$port/")
+    else if bindHost == "127.0.0.1" || bindHost == "localhost" then Nil
+    else List(s"http://$bindHost:$port/")
   println(s"ssc $component")
   println(s"  local URL:   $localUrl")
   if externalUrls.nonEmpty then
@@ -2658,6 +2686,22 @@ private[cli] def printComponentUrls(component: String, port: Int, backendUrl: Op
   else println("  external URLs: none detected")
   backendUrl.foreach(url => println(s"  backend URL: $url"))
   localUrl
+
+private[cli] def bindOptions(
+    path:            os.Path,
+    hostOverride:    Option[String],
+    portOverride:    Option[Int],
+    browserOverride: Option[Boolean]
+): RunBindOptions =
+  RunBindOptions(
+    host = hostOverride
+      .orElse(frontMatterString(path, "host", "bind-host", "bindHost"))
+      .getOrElse("0.0.0.0"),
+    port = portOverride.orElse(frontMatterInt(path, "port")),
+    openBrowser = browserOverride
+      .orElse(frontMatterBoolean(path, "open-browser", "openBrowser"))
+      .getOrElse(false)
+  )
 
 private[cli] def jsStringLiteral(s: String): String =
   "\"" + s.flatMap {
@@ -2728,6 +2772,32 @@ private[cli] def parseBooleanFlag(name: String, value: String): Option[Boolean] 
       System.exit(1)
       None
 
+private[cli] def parsePortFlag(name: String, value: String): Int =
+  value.trim.toIntOption.filter(p => p >= 0 && p <= 65535).getOrElse {
+    System.err.println(s"$name must be an integer port in 0..65535; got '$value'")
+    System.exit(1)
+    0
+  }
+
+private[cli] def frontMatterString(path: os.Path, keys: String*): Option[String] =
+  scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
+    keys.iterator
+      .flatMap(key => manifest.raw.get(key))
+      .collectFirst { case s: String if s.trim.nonEmpty => s.trim }
+  }).getOrElse(None)
+
+private[cli] def frontMatterInt(path: os.Path, keys: String*): Option[Int] =
+  scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
+    keys.iterator
+      .flatMap(key => manifest.raw.get(key))
+      .flatMap {
+        case n: java.lang.Number => Some(n.intValue())
+        case s: String           => s.trim.toIntOption
+        case _                   => None
+      }
+      .find(p => p >= 0 && p <= 65535)
+  }).getOrElse(None)
+
 private[cli] def frontMatterBoolean(path: os.Path, keys: String*): Option[Boolean] =
   scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
     keys.iterator
@@ -2742,6 +2812,10 @@ private[cli] def frontMatterBoolean(path: os.Path, keys: String*): Option[Boolea
       .toSeq
       .headOption
   }).getOrElse(None)
+
+private[cli] def rewritePlainServePort(source: String, port: Int): String =
+  """\bserve\s*\(\s*[0-9]{1,5}\s*\)""".r
+    .replaceFirstIn(source, s"serve($port)")
 
 private[cli] def shouldDefaultToElectronJvmRest(module: Module, source: String): Boolean =
   val frontendIsElectron =

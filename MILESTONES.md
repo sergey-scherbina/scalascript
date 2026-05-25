@@ -10287,8 +10287,16 @@ modes opt out of that default.
     web client preview defaults to not opening the system browser. Users opt in
     via `--open-browser`, `--open-browser=true`, or front matter
     `open-browser: true`; `--no-open-browser` forces it off.
-  - **Still open:** host/port override plumbing and packaged/static
-    client-only builds.
+  - **Phase 2e ✓ Landed (2026-05-25)** — host/port override plumbing:
+    `ssc run --mode client --frontend react|solid|vue|custom --host <addr>
+    --port <n> --server-url <url> app.ssc` binds the web preview server to the
+    requested address and port. Front matter `host:` / `bind-host:` /
+    `bindHost:` and `port:` provide the same defaults. Server-only JVM mode
+    accepts the same options; `--port` rewrites simple `serve(port)` literals,
+    and `--host` is currently used for URL logging until the JVM HTTP SPI grows
+    real bind-host support.
+  - **Still open:** packaged/static client-only builds and runtime-level JVM
+    bind-host support.
 - **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM
   base URL while preserving local frontend navigation. Cover text/json/status
   responses instead of forcing every exchange through raw JSON.

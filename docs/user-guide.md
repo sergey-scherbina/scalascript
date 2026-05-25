@@ -985,6 +985,14 @@ URL in the system browser only when `--open-browser` is set. The default is
 http://server:8080 app.ssc` prints the same backend URL injection in standalone
 HTML form.
 
+Web client preview accepts `--host <addr>` and `--port <n>` to choose the bind
+address and port printed in those URLs. The same defaults can live in front
+matter as `host:` / `bind-host:` / `bindHost:` and `port:`, with command-line
+flags taking precedence. Server-only JVM mode accepts the same options:
+`--port` overrides a simple literal `serve(port)` before launch, while `--host`
+currently affects URL logging only until the JVM HTTP server SPI supports an
+explicit bind host.
+
 ### Planned full-stack and client storage features
 
 The features in this subsection are **planned and not implemented yet**. Their

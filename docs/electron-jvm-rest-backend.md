@@ -17,6 +17,10 @@
 > preview server, prints local and LAN frontend URLs plus the backend URL, and
 > opens the local URL in the system browser only when `--open-browser` or
 > front matter `open-browser: true` is set. The default is not to open a browser.
+> Phase 2e landed: web client preview accepts `--host` / `--port` or matching
+> front matter keys to choose the bind address and port; server-only JVM mode can
+> override simple `serve(port)` literals with `--port` while full JVM bind-host
+> support remains a planned HTTP SPI/runtime change.
 
 URL logging policy: CLI-owned frontend/backend components print their local URL
 and detected LAN URL candidates to stdout. Client components also print the
@@ -27,6 +31,12 @@ commands.
 Browser auto-open policy: web preview does not open the system browser by
 default. Users opt in with `--open-browser`, `--open-browser=true`, or front
 matter `open-browser: true`; they can force it off with `--no-open-browser`.
+
+Frontend bind policy: web preview binds `0.0.0.0` and an ephemeral port by
+default, then prints both the local URL and detected LAN URL candidates. Users
+can choose a specific bind address and port with `--host <addr>` and
+`--port <n>`, or with front matter `host:` / `bind-host:` / `bindHost:` and
+`port:`. Command-line values win over front matter.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -173,7 +183,7 @@ Distributed command surface:
 ssc run --mode server --backend jvm --host 0.0.0.0 --port 8080 app.ssc
 
 # Machine B
-ssc run --mode client --frontend react --server-url http://machine-a:8080 app.ssc
+ssc run --mode client --frontend react --host 0.0.0.0 --port 3000 --server-url http://machine-a:8080 app.ssc
 ssc run --mode client --frontend electron --server-url http://machine-a:8080 app.ssc
 
 # Static/package outputs
@@ -517,10 +527,15 @@ reports the actual port, or whether the CLI reserves a port before launch. The
 preferred path is `serve(0)` plus readiness reporting because pre-reserving a
 port can race.
 
-For server-only distributed mode, explicit `--host` and `--port` flags are
-required unless the `.ssc` source already calls `serve(port)`. Binding
-`0.0.0.0` should require an explicit flag or command-line value; loopback stays
-the default.
+For server-only distributed mode, explicit `--host` and `--port` flags are the
+intended command surface unless the `.ssc` source already calls `serve(port)`.
+The current implementation is partial: `--port` rewrites a simple literal
+`serve(port)` before launching the JVM backend, while `--host` affects the URL
+candidates printed by the CLI. Actual JVM HTTP bind-host control requires a
+follow-up SPI/runtime change because the current server SPI accepts only a port.
+Binding `0.0.0.0` should require an explicit flag or command-line value when
+that runtime-level support lands; loopback stays the secure default for local
+supervised desktop runs.
 
 ### Development Packaging
 

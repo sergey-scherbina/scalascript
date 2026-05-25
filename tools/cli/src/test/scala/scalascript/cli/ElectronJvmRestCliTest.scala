@@ -150,12 +150,57 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     val app = dir / "app.ssc"
     os.write(app, fullStackServerSource(49152))
     val oldHook = runJvmServerHook
-    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String)]
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, RunBindOptions)]
     try
       ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
-      runJvmServerHook = (path, backend) => calls += ((path, backend))
+      runJvmServerHook = (path, backend, bind) => calls += ((path, backend, bind))
       runCommand(List("--mode", "server", app.toString))
-      assert(calls.toList == List((app, "jdk")))
+      assert(calls.toList == List((app, "jdk", RunBindOptions())))
+    finally
+      runJvmServerHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runCommand passes host and port overrides to server mode"):
+    val dir = os.temp.dir(prefix = "ssc-mode-server-host-port-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runJvmServerHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[RunBindOptions]
+    try
+      ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
+      runJvmServerHook = (_, _, bind) => calls += bind
+      runCommand(List(
+        "--mode", "server",
+        "--host", "127.0.0.1",
+        "--port", "49997",
+        app.toString
+      ))
+      assert(calls.toList == List(RunBindOptions(host = "127.0.0.1", port = Some(49997))))
+    finally
+      runJvmServerHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runCommand reads host and port from frontmatter for server mode"):
+    val dir = os.temp.dir(prefix = "ssc-mode-server-host-port-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |host: 127.0.0.1
+        |port: 49996
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    val oldHook = runJvmServerHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[RunBindOptions]
+    try
+      ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
+      runJvmServerHook = (_, _, bind) => calls += bind
+      runCommand(List("--mode", "server", app.toString))
+      assert(calls.toList == List(RunBindOptions(host = "127.0.0.1", port = Some(49996))))
     finally
       runJvmServerHook = oldHook
       ActiveFlags.set(GlobalFlags())
@@ -185,17 +230,39 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     val app = dir / "app.ssc"
     os.write(app, fullStackServerSource(49152))
     val oldHook = runWebClientPreviewHook
-    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, String, Boolean)]
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, String, RunBindOptions)]
     try
       ActiveFlags.set(GlobalFlags())
-      runWebClientPreviewHook = (path, frontend, serverUrl, openBrowser) => calls += ((path, frontend, serverUrl, openBrowser))
+      runWebClientPreviewHook = (path, frontend, serverUrl, bind) => calls += ((path, frontend, serverUrl, bind))
       runCommand(List(
         "--mode", "client",
         "--frontend", "react",
         "--server-url", "http://server.example:8080",
         app.toString
       ))
-      assert(calls.toList == List((app, "react", "http://server.example:8080", false)))
+      assert(calls.toList == List((app, "react", "http://server.example:8080", RunBindOptions())))
+    finally
+      runWebClientPreviewHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runCommand passes host and port overrides to web preview"):
+    val dir = os.temp.dir(prefix = "ssc-web-client-host-port-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runWebClientPreviewHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[RunBindOptions]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runWebClientPreviewHook = (_, _, _, bind) => calls += bind
+      runCommand(List(
+        "--mode", "client",
+        "--frontend", "react",
+        "--server-url", "http://server.example:8080",
+        "--host", "127.0.0.1",
+        "--port", "49999",
+        app.toString
+      ))
+      assert(calls.toList == List(RunBindOptions(host = "127.0.0.1", port = Some(49999))))
     finally
       runWebClientPreviewHook = oldHook
       ActiveFlags.set(GlobalFlags())
@@ -208,7 +275,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     val calls = scala.collection.mutable.ArrayBuffer.empty[Boolean]
     try
       ActiveFlags.set(GlobalFlags())
-      runWebClientPreviewHook = (_, _, _, openBrowser) => calls += openBrowser
+      runWebClientPreviewHook = (_, _, _, bind) => calls += bind.openBrowser
       runCommand(List(
         "--mode", "client",
         "--frontend", "react",
@@ -239,7 +306,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     val calls = scala.collection.mutable.ArrayBuffer.empty[(String, Boolean)]
     try
       ActiveFlags.set(GlobalFlags())
-      runWebClientPreviewHook = (_, frontend, _, openBrowser) => calls += ((frontend, openBrowser))
+      runWebClientPreviewHook = (_, frontend, _, bind) => calls += ((frontend, bind.openBrowser))
       runCommand(List(
         "--mode", "client",
         "--server-url", "http://server.example:8080",
@@ -249,6 +316,40 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     finally
       runWebClientPreviewHook = oldHook
       ActiveFlags.set(GlobalFlags())
+
+  test("runCommand reads host and port from frontmatter for web preview"):
+    val dir = os.temp.dir(prefix = "ssc-web-client-host-port-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |frontend: react
+        |host: 127.0.0.1
+        |port: 49998
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    val oldHook = runWebClientPreviewHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[RunBindOptions]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runWebClientPreviewHook = (_, _, _, bind) => calls += bind
+      runCommand(List(
+        "--mode", "client",
+        "--server-url", "http://server.example:8080",
+        app.toString
+      ))
+      assert(calls.toList == List(RunBindOptions(host = "127.0.0.1", port = Some(49998))))
+    finally
+      runWebClientPreviewHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("rewritePlainServePort overrides simple server serve literal"):
+    assert(rewritePlainServePort("serve(8080)", 9090) == "serve(9090)")
+    assert(rewritePlainServePort("serve(lower(tree), 8080)", 9090) == "serve(lower(tree), 8080)")
 
   test("emit-spa server-url injects backend base URL"):
     val dir = os.temp.dir(prefix = "ssc-emit-spa-server-url-test-", deleteOnExit = true)
