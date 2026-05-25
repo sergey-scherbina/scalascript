@@ -529,16 +529,19 @@ lazy val backendInterpreter = project
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
-    // v1.26 — JvmGen scala-cli runtime smoke test reads this resource
-    // to find the locally-built backend-sql-runtime JAR.  Generating
-    // the resource depends on `backendSqlRuntime/Compile/packageBin`
-    // so the jar is always fresh when the test reads its path.
+    // JvmGen scala-cli runtime smoke tests read these resources to find
+    // locally-built internal runtime JARs and avoid resolving unpublished
+    // io.scalascript artifacts from Maven Central.
     Test / resourceGenerators += Def.task {
-      val jar  = (backendSqlRuntime / Compile / packageBin).value
-      val out  = (Test / resourceManaged).value / "scalascript" / "sql-runtime-jar.path"
-      IO.createDirectory(out.getParentFile)
-      IO.write(out, jar.getAbsolutePath)
-      Seq(out)
+      val sqlJar       = (backendSqlRuntime / Compile / packageBin).value
+      val typedDataJar = (backendTypedDataRuntime / Compile / packageBin).value
+      val outDir       = (Test / resourceManaged).value / "scalascript"
+      val sqlOut       = outDir / "sql-runtime-jar.path"
+      val typedOut     = outDir / "typed-data-runtime-jar.path"
+      IO.createDirectory(outDir)
+      IO.write(sqlOut, sqlJar.getAbsolutePath)
+      IO.write(typedOut, typedDataJar.getAbsolutePath)
+      Seq(sqlOut, typedOut)
     }.taskValue
   )
 

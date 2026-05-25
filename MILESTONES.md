@@ -10363,7 +10363,10 @@ modes opt out of that default.
   `RowValueCodec[A]`, and `RowCodec[A]` with primitive/nullable column codecs
   and `derives RowCodec` for simple case classes. Follow-up landed 2026-05-25:
   `SqlRuntime.query[A]` now decodes JDBC result rows through `RowCodec[A]`.
-  Public `Db.query[A]` and write-helper integration remain planned.
+  Follow-up landed 2026-05-25: JVM codegen now exposes typed `Db.query[A]`
+  over that read path and smoke-tests it through `scala-cli`. Write-helper
+  integration, interpreter parity where needed, and richer schema metadata
+  remain planned.
 
 ## v1.44 — Full-Stack In-Process Transport
 

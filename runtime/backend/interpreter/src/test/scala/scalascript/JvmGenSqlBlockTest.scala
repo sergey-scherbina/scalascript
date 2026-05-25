@@ -47,7 +47,7 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
     assert(code.contains("""//> using dep "org.xerial:sqlite-jdbc:"""))
   }
 
-  test("sql block emits `//> using lib` for backend-sql-runtime artifact") {
+  test("sql block emits backend-sql-runtime artifact directive") {
     val code = emit(
       """|# Q
          |
@@ -57,6 +57,20 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
          |""".stripMargin
     )
     assert(code.contains("scalascript-backend-sql-runtime"))
+  }
+
+  test("sql block emits typed-data runtime and typed Db.query overload") {
+    val code = emit(
+      """|# Q
+         |
+         |```sql
+         |SELECT 1
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("scalascript-backend-typed-data-runtime"))
+    assert(code.contains("def query[A](dbName: String, sql: String, params: List[Any])(using scalascript.typeddata.RowCodec[A]): List[A]"))
+    assert(code.contains("scalascript.sql.SqlRuntime.query[A](conn, sql, params).toList"))
   }
 
   // ── Registry + resolver helper ──────────────────────────────────────

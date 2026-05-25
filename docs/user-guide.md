@@ -939,6 +939,18 @@ Db.execute("default", "INSERT INTO todos(text) VALUES (?)", ["Buy milk"])
 Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 ```
 
+On the JVM codegen path, `Db.query[A]` can decode rows through a derived
+`RowCodec[A]`:
+
+```scalascript
+import scalascript.typeddata.RowCodec
+
+case class Todo(id: Long, text: String, done: Boolean) derives RowCodec
+
+val todos: List[Todo] =
+  Db.query[Todo]("default", "SELECT id AS id, text AS text, done AS done FROM todos", [])
+```
+
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
 ### Electron desktop SQL
@@ -1119,8 +1131,9 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `SparkCodec`, then use backend-specific APIs at the query boundary. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. `SqlRuntime.query[A]`
-can decode JDBC rows through `RowCodec[A]`; public `Db.query[A]` integration
-remains planned. This keeps
+can decode JDBC rows through `RowCodec[A]`, and the JVM codegen path exposes
+typed `Db.query[A]` for programmatic SQL reads. Write-helper integration remains
+planned. This keeps
 SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce, and Spark
 convenient without hiding their different query models. Existing `Dataset[T]`
 and Spark support remain available today; this planned work unifies their

@@ -296,6 +296,7 @@ class JvmGen(
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
       sb.append(sscJarDirective("scalascript-db-url"))
+      sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       sb.append(sscJarDirective("scalascript-backend-sql-runtime"))
 
     sb.append(preamble)
@@ -1388,6 +1389,9 @@ class JvmGen(
                  |    scalascript.sql.SqlRuntime.execute(conn, sql, params) match
                  |      case scalascript.sql.SqlResult.Rows(rows) => rows.map(_.toMap).toList
                  |      case scalascript.sql.SqlResult.UpdateCount(_) => Nil
+                 |  def query[A](dbName: String, sql: String, params: List[Any])(using scalascript.typeddata.RowCodec[A]): List[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.SqlRuntime.query[A](conn, sql, params).toList
                  |  def execute(dbName: String, sql: String, params: List[Any]): Int =
                  |    val conn = _ssc_sql_registry.connect(dbName)
                  |    scalascript.sql.SqlRuntime.execute(conn, sql, params) match
