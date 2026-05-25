@@ -969,11 +969,18 @@ supervision are still planned.
 
 The first server-only split command is also available:
 `ssc run --mode server --backend jvm app.ssc` starts only the JVM backend/server
-side from the same source file. Client-only `--mode client --server-url ...`
+side from the same source file. When the source contains `serve(port)`, the CLI
+prints the local backend URL and detected LAN backend URL candidates before
+starting the JVM process. Client-only `--mode client --server-url ...`
 support has started with Electron:
 `ssc run --mode client --frontend electron --server-url http://server:8080 app.ssc`
 starts only the Electron client and wires renderer `fetch("/...")` calls to the
-configured backend URL. Non-Electron client-only commands are still planned.
+configured backend URL. Browser frontends are also supported:
+`ssc run --mode client --frontend react --server-url http://server:8080 app.ssc`
+generates a SPA, serves it from a local preview server, prints the local
+frontend URL, detected LAN frontend URLs, and backend URL, then opens the local
+URL in the system browser. `emit-spa --server-url http://server:8080 app.ssc`
+prints the same backend URL injection in standalone HTML form.
 
 ### Planned full-stack and client storage features
 

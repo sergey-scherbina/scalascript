@@ -133,7 +133,7 @@ bin/http.ssc
 | | |
 |---|---|
 | [Blockchain SPI](docs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
-| [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, and Electron client-only `ssc run --mode client --frontend electron --server-url ...`; non-Electron distributed clients remain planned |
+| [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, Electron client-only, and web client preview via `ssc run --mode client --frontend react --server-url ...`; packaging remains planned |
 | [Client/server object store](docs/client-server-object-store.md) | Planned, not implemented yet: IndexedDB client store + JVM `ObjectStore` + generated REST sync |
 | [Graph storage](docs/graph-storage.md) | Planned, not implemented yet: `graphs:` front matter for property graph and RDF stores |
 | [Typed data mapping](docs/data-mapping.md) | Planned, not implemented yet: shared `derives`-based codecs across SQL, JSON/ObjectStore, graphs, RDF, `Dataset[T]`, and Spark |

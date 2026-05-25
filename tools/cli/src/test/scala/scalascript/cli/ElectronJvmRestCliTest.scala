@@ -180,6 +180,48 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       runElectronClientDevHook = oldHook
       ActiveFlags.set(GlobalFlags())
 
+  test("runCommand dispatches web mode client to preview hook"):
+    val dir = os.temp.dir(prefix = "ssc-web-client-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runWebClientPreviewHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, String)]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runWebClientPreviewHook = (path, frontend, serverUrl) => calls += ((path, frontend, serverUrl))
+      runCommand(List(
+        "--mode", "client",
+        "--frontend", "react",
+        "--server-url", "http://server.example:8080",
+        app.toString
+      ))
+      assert(calls.toList == List((app, "react", "http://server.example:8080")))
+    finally
+      runWebClientPreviewHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("emit-spa server-url injects backend base URL"):
+    val dir = os.temp.dir(prefix = "ssc-emit-spa-server-url-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |name: spa-server-url-test
+        |---
+        |
+        |```javascript
+        |fetch("/api/items")
+        |```
+        |""".stripMargin.trim)
+    val out = java.io.ByteArrayOutputStream()
+    Console.withOut(out) {
+      emitSpaCommand(List("--server-url", "http://server.example:8080", app.toString))
+    }
+    val html = out.toString("UTF-8")
+    assert(html.contains("globalThis.__sscBackendBaseUrl = \"http://server.example:8080\""))
+    assert(html.contains("globalThis.__sscBackendBaseUrl"))
+    assert(html.contains("new URL(rawPath, String(globalThis.__sscBackendBaseUrl)).toString()"))
+
   test("runElectronClientDev launches generated Electron bundle with server URL"):
     val dir = os.temp.dir(prefix = "ssc-electron-client-smoke-", deleteOnExit = true)
     val app = dir / "app.ssc"

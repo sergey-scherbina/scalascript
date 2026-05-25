@@ -10274,8 +10274,17 @@ modes opt out of that default.
     `ssc run --mode client --frontend electron --server-url <url> app.ssc`
     builds and launches only the Electron client, injecting the configured
     backend base URL into the renderer bundle.
-  - **Still open:** host/port override plumbing and non-Electron frontend
-    client-only launch/build.
+  - **Phase 2c ✓ Landed (2026-05-25)** — web client-only preview:
+    `emit-spa --server-url <url>` injects the backend base URL into standalone
+    browser HTML. `ssc run --mode client --frontend react|solid|vue|custom
+    --server-url <url> app.ssc` generates that SPA, serves it from a local
+    preview server bound on all interfaces, prints the local frontend URL,
+    detected LAN frontend URLs, and backend URL, then opens the local frontend
+    URL in the system browser. Server-only mode also prints local and detected
+    LAN backend URL candidates before starting the JVM process when it can read
+    a `serve(port)` call.
+  - **Still open:** host/port override plumbing and packaged/static
+    client-only builds.
 - **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM
   base URL while preserving local frontend navigation. Cover text/json/status
   responses instead of forcing every exchange through raw JSON.

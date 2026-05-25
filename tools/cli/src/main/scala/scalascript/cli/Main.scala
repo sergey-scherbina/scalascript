@@ -480,6 +480,7 @@ def printUsage(): Unit =
     |                                --target desktop-jvm starts split JVM REST + Electron mode
     |                                --mode server starts only the JVM backend/server
     |                                --mode client --frontend electron --server-url <url> starts only the Electron client
+    |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -2327,13 +2328,15 @@ def runCommand(args: List[String]): Unit =
       }
       for file <- fileArgs.toList do
         val path = os.Path(file, os.pwd)
-        val isElectronClient =
-          frontendFlag.contains("electron") ||
-            targetRequestsElectron(targetSelection) ||
-            scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework).contains("electron")).getOrElse(false)
-        if isElectronClient then runElectronClientDevHook(path, serverUrl)
+        val manifestFrontend =
+          scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework)).getOrElse(None)
+        val selectedFrontend = frontendFlag.orElse(manifestFrontend)
+        if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
+          runElectronClientDevHook(path, serverUrl)
+        else if selectedFrontend.exists(n => n == "react" || n == "solid" || n == "vue" || n == "custom") then
+          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl)
         else
-          System.err.println("run --mode client currently supports only --frontend electron or frontend: electron")
+          System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
           System.exit(1)
       return
     case Some(other) =>
@@ -2495,8 +2498,14 @@ private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purp
   catch case e: Exception =>
     System.err.println(s"run: ${e.getMessage}"); System.exit(1)
 
+private[cli] def runJvmServerDev(sscFile: os.Path, serverBackend: String): Unit =
+  detectServePort(os.read(sscFile)).foreach { port =>
+    printComponentUrls("backend server", port, backendUrl = None)
+  }
+  runJvmViaScalaCli(sscFile, serverBackend, "run --mode server")
+
 private[cli] var runJvmServerHook: (os.Path, String) => Unit =
-  (path, backend) => runJvmViaScalaCli(path, backend, "run --mode server")
+  runJvmServerDev
 
 /** Compile `sscFile` to an Electron bundle in a temp dir and launch
  *  `electron <tmpDir>`.  Blocks until the Electron window is closed. */
@@ -2538,6 +2547,47 @@ private[cli] def runElectronClientDev(sscFile: os.Path, backendBaseUrl: String):
 
 private[cli] var runElectronClientDevHook: (os.Path, String) => Unit =
   runElectronClientDev
+
+private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backendBaseUrl: String): Unit =
+  if !os.exists(sscFile) then
+    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
+  applyFrontendBackend(frontend)
+  val tmpDir = os.temp.dir(prefix = "ssc-web-client-", deleteOnExit = true)
+  os.write(tmpDir / "index.html", renderSpaHtml(sscFile, Some(backendBaseUrl)))
+  val server = com.sun.net.httpserver.HttpServer.create(
+    new java.net.InetSocketAddress("0.0.0.0", 0),
+    0
+  )
+  server.createContext("/", exchange =>
+    val path = exchange.getRequestURI.getPath
+    val file = if path == "/" || path.isEmpty then tmpDir / "index.html" else tmpDir / path.stripPrefix("/")
+    if os.exists(file) && os.isFile(file) then
+      val bytes = os.read.bytes(file)
+      val contentType =
+        if file.last.endsWith(".html") then "text/html; charset=utf-8"
+        else if file.last.endsWith(".js") then "application/javascript; charset=utf-8"
+        else if file.last.endsWith(".css") then "text/css; charset=utf-8"
+        else "application/octet-stream"
+      exchange.getResponseHeaders.set("Content-Type", contentType)
+      exchange.sendResponseHeaders(200, bytes.length)
+      val out = exchange.getResponseBody
+      try out.write(bytes) finally out.close()
+    else
+      val bytes = "Not found".getBytes("UTF-8")
+      exchange.sendResponseHeaders(404, bytes.length)
+      val out = exchange.getResponseBody
+      try out.write(bytes) finally out.close()
+  )
+  server.start()
+  val port = server.getAddress.getPort
+  val localUrl = printComponentUrls(s"frontend client ($frontend)", port, Some(backendBaseUrl))
+  println("  press Ctrl+C to stop")
+  openBrowserHook(localUrl)
+  sys.addShutdownHook(server.stop(0))
+  Thread.currentThread().join()
+
+private[cli] var runWebClientPreviewHook: (os.Path, String, String) => Unit =
+  runWebClientPreview
 
 /** Dev-run split-process Electron mode.
  *
@@ -2587,6 +2637,46 @@ private[cli] var runElectronJvmRestDevHook: (os.Path, String) => Unit =
 private[cli] var scalaCliCommand: String = "scala-cli"
 private[cli] var electronCommand: String = "electron"
 private[cli] var npmCommand:      String = "npm"
+private[cli] var openBrowserHook: String => Unit = openSystemBrowser
+
+private[cli] def printComponentUrls(component: String, port: Int, backendUrl: Option[String]): String =
+  val localUrl = s"http://127.0.0.1:$port/"
+  val externalUrls = localNetworkAddresses().map(ip => s"http://$ip:$port/")
+  println(s"ssc $component")
+  println(s"  local URL:   $localUrl")
+  if externalUrls.nonEmpty then
+    println("  external URLs:")
+    externalUrls.foreach(url => println(s"    $url"))
+  else println("  external URLs: none detected")
+  backendUrl.foreach(url => println(s"  backend URL: $url"))
+  localUrl
+
+private[cli] def jsStringLiteral(s: String): String =
+  "\"" + s.flatMap {
+    case '\\' => "\\\\"
+    case '"'  => "\\\""
+    case '\n' => "\\n"
+    case '\r' => "\\r"
+    case '\t' => "\\t"
+    case c    => c.toString
+  } + "\""
+
+private[cli] def localNetworkAddresses(): List[String] =
+  import scala.jdk.CollectionConverters.*
+  java.net.NetworkInterface.getNetworkInterfaces.asScala.toList
+    .filter(ni => !ni.isLoopback && ni.isUp)
+    .flatMap(_.getInetAddresses.asScala.toList)
+    .collect { case a: java.net.Inet4Address if !a.isLoopbackAddress => a.getHostAddress }
+    .distinct
+    .sorted
+
+private def openSystemBrowser(url: String): Unit =
+  val osName = sys.props.getOrElse("os.name", "").toLowerCase
+  val cmd =
+    if osName.contains("mac") then Seq("open", url)
+    else if osName.contains("linux") then Seq("xdg-open", url)
+    else Seq("cmd", "/c", "start", url)
+  scala.util.Try(new java.lang.ProcessBuilder(cmd*).start())
 
 private def runElectronProject(tmpDir: os.Path, module: Module): Int =
   val electronOk =
@@ -3686,6 +3776,7 @@ def emitSpaCommand(args: List[String]): Unit =
   // through.  Today the SPA path doesn't yet consume the registry (that
   // lands in A8), but validating + selecting here keeps the flag stable.
   var frontendBackend: Option[String] = None
+  var serverUrl:       Option[String] = None
   val files = scala.collection.mutable.ArrayBuffer.empty[String]
   val it    = args.iterator
   while it.hasNext do
@@ -3698,58 +3789,66 @@ def emitSpaCommand(args: List[String]): Unit =
             s"(valid: ${validFrontendNames.toList.sorted.mkString(" / ")})")
           System.exit(1)
         frontendBackend = Some(name)
+      case "--server-url" if it.hasNext =>
+        serverUrl = Some(it.next())
       case f => files += f
   if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
   frontendBackend.foreach(applyFrontendBackend)
   for file <- files.toList do
     val path    = os.Path(file, os.pwd)
-    val baseDir = Some(path / os.up)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
-        val module = Parser.parse(os.read(path))
-        val segments = compileJsSegments(path)
-        val title    = module.manifest.flatMap(_.name).getOrElse(path.last.stripSuffix(".ssc"))
-        // Concatenate user JS — same segment loop as emit-js but no
-        // process.stdout flushes (browser-only output goes to console).
-        val userJs = segments.collect {
-          case Segment.Code("javascript", code) => code
-          case Segment.Source("scala", src)     =>
-            ScalaJsBackend.compileSourceToJs(src, baseDir)
-        }.filter(_.nonEmpty).mkString("\n")
-        // v1.17 Phase 3 — when the user's JS references `mcpConnect`,
-        // splice in the browser-compatible MCP client preamble.  The
-        // Node-side `JsRuntimeMcp` would import worker_threads etc.,
-        // which crashes in a browser; the browser variant uses sync XHR
-        // with zero deps.
-        val mcpPreamble =
-          if userJs.contains("mcpConnect") || userJs.contains("mcpServer") then
-            "\n" + JsRuntimeMcpBrowser
-          else ""
-        // Tree-shake: detect which runtime blocks are actually needed,
-        // then exclude Node-only capabilities (Mcp, Dataset) that would
-        // crash in a browser environment.
-        val allCaps    = JsGen.detectCapabilities(module, baseDir)
-        val spaCaps    = allCaps - JsGen.Capability.Mcp - JsGen.Capability.Dataset
-        val spaRuntime = JsGen.generateRuntime(spaCaps)
-        println(s"""<!doctype html>
-                   |<html lang="en">
-                   |<head>
-                   |  <meta charset="utf-8">
-                   |  <meta name="viewport" content="width=device-width, initial-scale=1">
-                   |  <title>$title</title>
-                   |</head>
-                   |<body>
-                   |<script>
-                   |$spaRuntime
-                   |$JsRuntimeBrowserPatch$mcpPreamble
-                   |$userJs
-                   |</script>
-                   |</body>
-                   |</html>""".stripMargin)
+        println(renderSpaHtml(path, serverUrl))
       catch case e: Exception =>
         System.err.println(s"SPA generation error: ${e.getMessage}")
         System.exit(1)
+
+private[cli] def renderSpaHtml(sscFile: os.Path, backendBaseUrl: Option[String]): String =
+  val baseDir = Some(sscFile / os.up)
+  val module = Parser.parse(os.read(sscFile))
+  val segments = compileJsSegments(sscFile)
+  val title    = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  // Concatenate user JS — same segment loop as emit-js but no
+  // process.stdout flushes (browser-only output goes to console).
+  val userJs = segments.collect {
+    case Segment.Code("javascript", code) => code
+    case Segment.Source("scala", src)     =>
+      ScalaJsBackend.compileSourceToJs(src, baseDir)
+  }.filter(_.nonEmpty).mkString("\n")
+  // v1.17 Phase 3 — when the user's JS references `mcpConnect`,
+  // splice in the browser-compatible MCP client preamble.  The
+  // Node-side `JsRuntimeMcp` would import worker_threads etc.,
+  // which crashes in a browser; the browser variant uses sync XHR
+  // with zero deps.
+  val mcpPreamble =
+    if userJs.contains("mcpConnect") || userJs.contains("mcpServer") then
+      "\n" + JsRuntimeMcpBrowser
+    else ""
+  // Tree-shake: detect which runtime blocks are actually needed,
+  // then exclude Node-only capabilities (Mcp, Dataset) that would
+  // crash in a browser environment.
+  val allCaps    = JsGen.detectCapabilities(module, baseDir)
+  val spaCaps    = allCaps - JsGen.Capability.Mcp - JsGen.Capability.Dataset
+  val spaRuntime = JsGen.generateRuntime(spaCaps)
+  val backendInit = backendBaseUrl.fold("") { url =>
+    s"globalThis.__sscBackendBaseUrl = ${jsStringLiteral(url)}; // injected by ssc --server-url\n"
+  }
+  s"""<!doctype html>
+     |<html lang="en">
+     |<head>
+     |  <meta charset="utf-8">
+     |  <meta name="viewport" content="width=device-width, initial-scale=1">
+     |  <title>$title</title>
+     |</head>
+     |<body>
+     |<script>
+     |$backendInit$spaRuntime
+     |$JsRuntimeBrowserPatch$mcpPreamble
+     |$userJs
+     |</script>
+     |</body>
+     |</html>""".stripMargin
 
 /** v0.8 — emit a JS bundle that registers each component object in the
  *  file as a W3C Custom Element.  Detection rule: a top-level

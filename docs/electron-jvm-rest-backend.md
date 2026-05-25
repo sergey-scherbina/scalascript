@@ -11,7 +11,17 @@
 > `ssc run --mode server --backend jvm app.ssc` starts only the JVM
 > backend/server side. Phase 2b landed: `ssc run --mode client --frontend
 > electron --server-url <url> app.ssc` starts only the Electron client pointed
-> at an existing backend server.
+> at an existing backend server. Phase 2c landed: web frontends can use
+> `emit-spa --server-url <url>` or `ssc run --mode client --frontend
+> react|solid|vue|custom --server-url <url> app.ssc`, which starts a local
+> preview server, prints local and LAN frontend URLs plus the backend URL, and
+> opens the local URL in the system browser.
+
+URL logging policy: CLI-owned frontend/backend components print their local URL
+and detected LAN URL candidates to stdout. Client components also print the
+backend URL they are configured to call. This keeps the common "run on one
+machine, open from another machine or phone" workflow visible without extra
+commands.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -123,6 +133,8 @@ ssc run --frontend electron --backend jvm-rest app.ssc
 ssc run --target desktop-jvm app.ssc
 ssc run --mode server --backend jvm app.ssc
 ssc run --mode client --frontend electron --server-url http://server:8080 app.ssc
+ssc run --mode client --frontend react --server-url http://server:8080 app.ssc
+ssc emit-spa --frontend react --server-url http://server:8080 app.ssc
 ```
 
 Potential aliases:
