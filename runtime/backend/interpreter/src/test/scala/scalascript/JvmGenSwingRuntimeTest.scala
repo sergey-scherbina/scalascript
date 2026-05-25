@@ -25,6 +25,9 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
 
     assert(code.contains("scalascript.frontend.swing.SwingRuntime.run("))
     assert(code.contains("mode:   same-process JVM"))
+    assert(code.contains("scalascript-backend-spi"))
+    assert(code.contains("private val _ssc_ui_backend_transport: scalascript.backend.spi.BackendTransport"))
+    assert(code.contains("scalascript.backend.spi.BackendRequest("))
     assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))
     assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
     assert(!code.contains("ProcessBuilder(_scalaCli"))
@@ -41,8 +44,11 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("""route("POST", "/api/messages")"""))
     assert(code.contains("""route("GET", "/api/messages")"""))
     assert(code.contains("""route("POST", "/api/messages/delete")"""))
+    assert(code.contains("scalascript-backend-spi"))
     assert(code.contains("fetchActionClear(\"POST\", \"/api/messages\""))
     assert(code.contains("fetchTable(\"/api/messages\", \"/api/messages/delete\""))
+    assert(code.contains("private val _ssc_ui_backend_transport: scalascript.backend.spi.BackendTransport"))
+    assert(code.contains("_ssc_ui_backend_request(methodRaw, url, body)"))
     assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))
     assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
 
@@ -59,7 +65,7 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
     assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))
     assert(code.contains("""def delete(input: Int): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input)"""))
-    assert(code.contains("_ssc_ui_inprocess_fetch(method, url, _ssc_api_body(method, input))"))
+    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body(method, input))"))
     assert(code.contains("val created = Messages.create(CreateMessage("))
 
   private def repoRoot: Path =

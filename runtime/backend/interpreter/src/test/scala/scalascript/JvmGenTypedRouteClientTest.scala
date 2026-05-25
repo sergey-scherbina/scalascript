@@ -75,7 +75,7 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
 
     assert(code.contains("inline def _ssc_api_request[Req, Resp]"))
-    assert(code.contains("_ssc_ui_inprocess_fetch(method, url, _ssc_api_body(method, input))"))
+    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body(method, input))"))
     assert(code.contains("object Messages:"))
     assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
     assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))

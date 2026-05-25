@@ -7,10 +7,11 @@ parses/validates `--transport http|in-process` plus front matter
 dispatched through `InProcessBackendTransport` without opening a socket. CLI
 full-stack `--transport in-process` execution is not implemented yet for the
 general interpreter/browser path. The generated JVM/Swing path can already run
-the UI in the backend JVM and dispatch Swing `fetchAction` handlers to the
-generated route registry without opening an HTTP socket. Swing `fetchTable`
-uses the same path for GET rows and POST deletes; see
-`examples/frontend/swing-fullstack/`.
+the UI in the backend JVM and dispatch Swing `fetchAction` handlers through a
+generated JVM `BackendTransport` without opening an HTTP socket. Swing
+`fetchTable` and generated typed route clients use the same path; see
+`examples/frontend/swing-fullstack/` and
+`examples/frontend/swing-typed-client/`.
 
 This document defines the planned monolithic full-stack mode: frontend and
 backend logic can run in one process where the selected targets make that
@@ -137,7 +138,7 @@ Initial compatibility matrix:
 | Frontend target | Backend target | In-process viability | Notes |
 |---|---|---|---|
 | interpreter/test harness | interpreter | yes | Best Phase 1 target. No sockets; direct route registry dispatch. |
-| Swing JVM desktop | JVM | yes, partially implemented | Same-process `SwingRuntime` exists; `fetchAction`, `fetchTable`, and generated typed route clients dispatch through the generated JVM route registry; `examples/frontend/swing-fullstack/` and `examples/frontend/swing-typed-client/` demonstrate the no-socket paths. |
+| Swing JVM desktop | JVM | yes, partially implemented | Same-process `SwingRuntime` exists; `fetchAction`, `fetchTable`, and generated typed route clients dispatch through generated JVM `BackendTransport`; `examples/frontend/swing-fullstack/` and `examples/frontend/swing-typed-client/` demonstrate the no-socket paths. |
 | JavaFX/Compose JVM desktop | JVM | possible later | Better modern UI options, but require extra dependencies and packaging work. |
 | Electron renderer | JVM | no, not directly | Different processes/runtimes. Use HTTP sidecar or a future bridge through Electron main. |
 | Electron main/local-first | JS/Node | possible later | Could use an Electron bridge transport, not JVM in-process. |
@@ -221,12 +222,13 @@ transport abstraction where supported. Preserve HTTP behavior for browser/JVM
 and distributed modes.
 
 Partial 2026-05-25: generated JVM/Swing `FetchAction` dispatch is implemented
-for the same-process runtime path. `SwingRuntime` accepts a `FetchDispatcher`,
-and `JvmGen` wires it to the generated JVM route registry so button-driven
-`fetchAction` / `fetchActionClear` calls can reuse route matching, middleware,
-request body passing, and response status handling without a socket. Swing
-`fetchTable` uses the same dispatcher for GET rows and POST deletes. Generated
-JVM/Swing typed route clients now also dispatch through this path; see
+for the same-process runtime path. `JvmGen` builds a generated `BackendTransport`
+over the generated JVM route registry, and `SwingRuntime` receives a thin
+`FetchDispatcher` adapter over that transport. Button-driven `fetchAction` /
+`fetchActionClear` calls can reuse route matching, middleware, request body
+passing, and response status handling without a socket. Swing `fetchTable` uses
+the same transport for GET rows and POST deletes. Generated JVM/Swing typed
+route clients also dispatch through this transport; see
 [`typed-route-clients.md`](typed-route-clients.md).
 
 ### Phase 4 — JVM Monolithic Frontend Target
@@ -240,11 +242,10 @@ parser as `ssc run`. `http` keeps existing behavior. Swing no longer launches
 generated desktop sources through a nested `scala-cli` process:
 `ssc run-jvm --frontend swing` now calls `SwingRuntime.run(module)` inside the
 current JVM, and `--frontend swing --transport in-process` is accepted as the
-monolithic runtime foundation. Swing `fetchAction` dispatch now uses the
-generated JVM route registry in the same process. `examples/frontend/swing-fullstack/`
-demonstrates that path, including `fetchTable` read/delete refresh. Remaining
-route-client work is typed clients and deciding whether generated JVM dispatch
-should reuse the interpreter `InProcessBackendTransport` class directly.
+monolithic runtime foundation. Swing `fetchAction` dispatch now uses generated
+JVM `BackendTransport` in the same process. `examples/frontend/swing-fullstack/`
+demonstrates that path, including `fetchTable` read/delete refresh; generated
+typed route clients use the same transport.
 
 ### Phase 5 — Optional Desktop Bridge Transport
 

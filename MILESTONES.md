@@ -10384,11 +10384,12 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   interpreter/test harness path; CLI full-stack runtime selection still remains
   diagnostic-only until generated client adapters land.
 - **Phase 3 — Generated client adapter.** Partially landed (2026-05-25):
-  generated JVM/Swing `fetchAction` / `fetchActionClear` calls now dispatch to
-  the generated JVM route registry in the same process. Swing `fetchTable` now
-  uses the same dispatcher for GET rows and POST deletes. Remaining work:
-  future typed API clients and broader frontend transport selection while
-  preserving HTTP for browser/JVM split and distributed modes.
+  generated JVM/Swing dispatch now builds a `BackendTransport` over the
+  generated JVM route registry. Swing `fetchAction` / `fetchActionClear` and
+  `fetchTable` use a thin Swing `FetchDispatcher` adapter over that transport;
+  generated JVM/Swing typed route clients call the same transport directly.
+  Remaining work: broader frontend transport selection while preserving HTTP
+  for browser/JVM split and distributed modes.
 - **Phase 4 — JVM monolithic frontend target.** If a JVM-hosted UI target is
   available, support frontend + backend in one JVM process with
   `InProcessBackendTransport` and add a runnable example. Partially landed
@@ -10456,9 +10457,10 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   `fetchActionClear` posts to a JVM backend route and updates local Swing UI
   state on success. Phase 4e connected Swing `fetchTable` to the same
   dispatcher for GET rows and POST deletes, and updated the example to show
-  read/write/delete. Remaining work: connect typed clients, and decide whether
-  generated JVM dispatch should reuse the interpreter `InProcessBackendTransport`
-  class directly.
+  read/write/delete. Phase 4f routes generated JVM/Swing dispatch through
+  generated `BackendTransport`; typed route clients use that same transport.
+  Remaining work: decide whether generated JVM dispatch should share a concrete
+  implementation with interpreter `InProcessBackendTransport`.
 - **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
   window metadata, graceful shutdown, and optional `jpackage` packaging.
 - **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose
@@ -10491,7 +10493,7 @@ clients for Electron/browser split modes follow.
 - **Phase 2 ✓ Landed (2026-05-25)** — JVM/Swing in-process client:
   effective `frontend: swing` JVM codegen now emits callable client objects
   from `apiClients:` metadata. Generated methods encode request values,
-  dispatch through the same-process Swing route registry used by `fetchAction`
+  dispatch through the same generated `BackendTransport` used by `fetchAction`
   and `fetchTable`, reject non-2xx responses, and decode JSON responses into
   primitives, options, lists, and case-class products. Added
   `examples/frontend/swing-typed-client/` to create, list, delete, and recreate

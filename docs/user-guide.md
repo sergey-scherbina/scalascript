@@ -1017,10 +1017,10 @@ dispatch through `InProcessBackendTransport` without opening a socket, and
 `ssc run-jvm --frontend swing` now runs the Swing UI in the same JVM process
 instead of launching nested `scala-cli`. In generated JVM/Swing apps,
 `fetchAction` / `fetchActionClear` button handlers can dispatch to backend
-routes through the same generated JVM route registry without opening an HTTP
+routes through a generated JVM `BackendTransport` without opening an HTTP
 socket. Swing `fetchTable` can also load rows and delete them through the same
-dispatcher. Generated typed clients and broader frontend client selection are
-still planned. Distributed clients, browser-to-JVM apps, and
+transport adapter. Generated JVM/Swing typed clients use that transport too.
+Broader frontend client selection is still planned. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
@@ -1056,7 +1056,7 @@ declare typed client endpoint metadata with `apiClients:` / `api-clients:`; the
 parser stores method/path/request/response type names in the AST, and JVM
 codegen preserves them as metadata. In JVM/Swing mode, codegen now emits
 callable client methods that encode request values, dispatch through the
-same-process Swing route registry, and decode typed JSON responses. HTTP
+same generated `BackendTransport` used by Swing fetch helpers, and decode typed JSON responses. HTTP
 clients for Electron, browser, split-process, and distributed modes are still
 planned. See
 [`typed-route-clients.md`](typed-route-clients.md).

@@ -8,8 +8,9 @@ artifact for a static toolkit subset with local signal actions. `ssc run-jvm
 --frontend swing` launches that JVM desktop path in the current JVM process via
 `SwingRuntime.run(module)`. Plain `ssc run --frontend swing` remains the
 interpreter path and reports that Swing interpreter intrinsics are planned.
-Swing `FetchAction` handlers can dispatch to generated JVM backend routes in
-the same process. `examples/frontend/swing-fullstack/` demonstrates the
+Swing `FetchAction` handlers can dispatch to generated JVM backend routes
+through generated `BackendTransport` in the same process.
+`examples/frontend/swing-fullstack/` demonstrates the
 no-socket path, including `fetchTable` GET/delete refresh.
 `examples/frontend/swing-typed-client/` demonstrates generated typed route
 clients over the same in-process dispatcher. HTTP typed clients for
@@ -162,10 +163,10 @@ dispatch remain future work for static Swing source emission. The same-process
 
 For monolithic apps the Swing frontend should call backend routes through an
 in-process route dispatcher. The interpreter/test harness path uses
-`InProcessBackendTransport`; the generated JVM/Swing path currently injects a
-`SwingRuntime.FetchDispatcher` backed by the generated JVM route registry. Both
-preserve REST-shaped request/response semantics while avoiding TCP sockets and
-HTTP wire parsing.
+`InProcessBackendTransport`; the generated JVM/Swing path builds a generated
+`BackendTransport` over the generated JVM route registry and adapts it to
+`SwingRuntime.FetchDispatcher`. Both preserve REST-shaped request/response
+semantics while avoiding TCP sockets and HTTP wire parsing.
 
 The generated Swing frontend should not call server-only databases directly.
 It should use route/API boundaries, just as browser clients do. That preserves
@@ -273,10 +274,10 @@ routes through an injected same-process dispatcher. Phase 4d added
 `fetchActionClear` posts to a JVM backend route and updates local UI state on
 success. Phase 4e connected Swing `fetchTable` to the same dispatcher for GET
 rows and POST deletes, and updated the example to show read/write/delete.
-Remaining work: connect typed client calls, and decide whether the generated
-JVM path should share the interpreter `InProcessBackendTransport` class
-directly. Typed client planning is tracked in
-[`typed-route-clients.md`](typed-route-clients.md).
+Phase 4f routes generated JVM/Swing dispatch through generated
+`BackendTransport`; typed route clients use that same transport. Remaining
+work: decide whether the generated JVM path should share a concrete
+implementation with interpreter `InProcessBackendTransport`.
 
 ### Phase 5 — Packaging And Runtime Polish
 

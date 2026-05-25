@@ -240,10 +240,10 @@ that creates, reads, and deletes typed `Message` values without manual JSON.
 Landed 2026-05-25: when the effective frontend is `swing`, JVM codegen now
 emits callable client objects from `apiClients:` metadata. Generated methods
 encode request values, substitute primitive path parameters, send the request
-through `_ssc_ui_inprocess_fetch`, reject non-2xx responses with a runtime
-error, and decode JSON responses into primitive, `List[T]`, `Option[T]`, and
-case-class product shapes using Scala 3 mirrors. Non-Swing JVM codegen still
-emits metadata only until Phase 3 HTTP transport lands.
+through the generated JVM `BackendTransport`, reject non-2xx responses with a
+runtime error, and decode JSON responses into primitive, `List[T]`, `Option[T]`,
+and case-class product shapes using Scala 3 mirrors. Non-Swing JVM codegen
+still emits metadata only until Phase 3 HTTP transport lands.
 
 Example: [`examples/frontend/swing-typed-client/`](../examples/frontend/swing-typed-client/)
 creates, lists, deletes, and recreates `Message` values through a generated
@@ -293,10 +293,10 @@ stable across JVM and JS.
 - What result type should clients return before the standard library has a
   single canonical `Result`? Phase 2 uses direct return values with runtime
   exceptions on non-2xx/decode failures as a temporary JVM/Swing shortcut.
-- Should the JVM/Swing path keep calling the generated JVM route registry
-  directly, or later unify with the interpreter `InProcessBackendTransport`
-  class? Phase 2 reused `_ssc_ui_inprocess_fetch` to match `fetchAction` and
-  `fetchTable`; SPI unification remains a follow-up.
+- Should the JVM/Swing generated `BackendTransport` later share a concrete
+  implementation with the interpreter `InProcessBackendTransport` class? The
+  generated path now uses the same SPI request/response contract, but still has
+  a codegen-local adapter over the generated JVM route registry.
 - How much of typed handler deserialization can be reused immediately for
   request encoding/response decoding?
 - Should auth headers be part of Phase 1 metadata or deferred until there is a
