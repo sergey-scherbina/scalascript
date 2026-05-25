@@ -195,6 +195,7 @@ object Parser:
           }.toMap
       }.getOrElse(Map.empty),
       databases = parseDatabases(raw),
+      schemas = parseSchemas(raw),
       frontendFramework = raw.get("frontend").orElse(raw.get("frontend-framework")).collect { case s: String => s },
       scripts = raw.get("scripts").collect {
         case m: java.util.Map[?, ?] =>
@@ -321,6 +322,58 @@ object Parser:
             }
         }.flatten.toList
     }.getOrElse(Nil)
+
+  private def parseSchemas(raw: Map[String, Any]): List[TypeSchemaDecl] =
+    raw.get("schemas").collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect {
+          case (typeName: String, v: java.util.Map[?, ?]) =>
+            val mm = stringMap(v)
+            val fields = mm.get("fields").collect {
+              case fm: java.util.Map[?, ?] =>
+                fm.asScala.iterator.collect {
+                  case (fieldName: String, fieldValue: java.util.Map[?, ?]) =>
+                    val ff = stringMap(fieldValue)
+                    FieldSchemaDecl(
+                      fieldName   = fieldName,
+                      storageName = ff.get("name").orElse(ff.get("column")).orElse(ff.get("field")).collect { case s: String => s },
+                      aliases     = parseStringList(ff.get("aliases")),
+                      default     = ff.get("default").map(parseSchemaDefault),
+                      key         = ff.get("key").contains(java.lang.Boolean.TRUE)
+                    )
+                  case (fieldName: String, storageName: String) =>
+                    FieldSchemaDecl(fieldName, storageName = Some(storageName))
+                }.toList
+            }.getOrElse(Nil)
+            TypeSchemaDecl(
+              typeName      = typeName,
+              fields        = fields,
+              rejectUnknown = mm.get("rejectUnknown").orElse(mm.get("reject-unknown")).contains(java.lang.Boolean.TRUE)
+            )
+        }.toList
+    }.getOrElse(Nil)
+
+  private def stringMap(m: java.util.Map[?, ?]): Map[String, Any] =
+    m.asScala.iterator.collect { case (k: String, v) => k -> (v: Any) }.toMap
+
+  private def parseStringList(value: Option[Any]): List[String] =
+    value.collect {
+      case xs: java.util.List[?] => xs.asScala.toList.map(_.toString)
+      case s: String => List(s)
+    }.getOrElse(Nil)
+
+  private def parseSchemaDefault(value: Any): SchemaDefault = value match
+    case null => SchemaDefault.NullValue
+    case b: java.lang.Boolean => SchemaDefault.Bool(b.booleanValue)
+    case n: java.lang.Integer => SchemaDefault.IntValue(n.longValue)
+    case n: java.lang.Long => SchemaDefault.IntValue(n.longValue)
+    case n: java.lang.Short => SchemaDefault.IntValue(n.longValue)
+    case n: java.lang.Byte => SchemaDefault.IntValue(n.longValue)
+    case n: java.math.BigInteger => SchemaDefault.IntValue(n.longValue)
+    case n: java.lang.Float => SchemaDefault.DoubleValue(n.doubleValue)
+    case n: java.lang.Double => SchemaDefault.DoubleValue(n.doubleValue)
+    case n: java.math.BigDecimal => SchemaDefault.DoubleValue(n.doubleValue)
+    case other => SchemaDefault.StringValue(other.toString)
 
   // ─── Section extraction from the flat CommonMark tree ────────────
   //

@@ -89,6 +89,30 @@ object SsccFormat:
     span:     Option[Span]        = None
   )
 
+  private case class SchemaDefaultPickle(
+    kind:   String,
+    string: Option[Array[Byte]] = None,
+    bool:   Option[Boolean]     = None,
+    int:    Option[Long]        = None,
+    double: Option[Double]      = None
+  )
+
+  private case class FieldSchemaDeclPickle(
+    fieldName:   String,
+    storageName: Option[String]              = None,
+    aliases:     List[String]                = Nil,
+    default:     Option[SchemaDefaultPickle] = None,
+    key:         Boolean                     = false,
+    span:        Option[Span]                = None
+  )
+
+  private case class TypeSchemaDeclPickle(
+    typeName:      String,
+    fields:        List[FieldSchemaDeclPickle],
+    rejectUnknown: Boolean      = false,
+    span:          Option[Span] = None
+  )
+
   private case class ManifestPickle(
     name:              Option[String]                   = None,
     version:           Option[String]                   = None,
@@ -100,6 +124,7 @@ object SsccFormat:
     pkg:               Option[List[String]]             = None,
     translations:      Map[String, Map[String, String]] = Map.empty,
     databases:         List[DatabaseDeclPickle]         = Nil,
+    schemas:           List[TypeSchemaDeclPickle]       = Nil,
     frontendFramework: Option[String]                   = None,
     scripts:           Map[String, String]              = Map.empty,
     raw:               Map[String, Array[Byte]]         = Map.empty,
@@ -163,10 +188,12 @@ object SsccFormat:
   private given Codec[RouteDecl]            = deriveCodec[RouteDecl]
   private given Codec[ApiEndpointDecl]      = deriveCodec[ApiEndpointDecl]
   private given Codec[ApiClientDecl]        = deriveCodec[ApiClientDecl]
-
   private lazy given Codec[ListItemPickle] = deriveCodec[ListItemPickle]
 
   private given Codec[DatabaseDeclPickle]  = deriveCodec[DatabaseDeclPickle]
+  private given Codec[SchemaDefaultPickle] = deriveCodec[SchemaDefaultPickle]
+  private given Codec[FieldSchemaDeclPickle] = deriveCodec[FieldSchemaDeclPickle]
+  private given Codec[TypeSchemaDeclPickle] = deriveCodec[TypeSchemaDeclPickle]
   private given Codec[ManifestPickle]      = deriveCodec[ManifestPickle]
 
   private given Codec[ContentPickle.Prose]     = deriveCodec[ContentPickle.Prose]
@@ -196,6 +223,7 @@ object SsccFormat:
       pkg               = m.pkg,
       translations      = m.translations,
       databases         = m.databases.map(toPickle),
+      schemas           = m.schemas.map(toPickle),
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
       raw               = m.raw.collect { case (k, v: String) => k -> compress(v) },
@@ -212,6 +240,36 @@ object SsccFormat:
       driver   = db.driver,
       span     = db.span
     )
+
+  private def toPickle(schema: TypeSchemaDecl): TypeSchemaDeclPickle =
+    TypeSchemaDeclPickle(
+      typeName      = schema.typeName,
+      fields        = schema.fields.map(toPickle),
+      rejectUnknown = schema.rejectUnknown,
+      span          = schema.span
+    )
+
+  private def toPickle(field: FieldSchemaDecl): FieldSchemaDeclPickle =
+    FieldSchemaDeclPickle(
+      fieldName   = field.fieldName,
+      storageName = field.storageName,
+      aliases     = field.aliases,
+      default     = field.default.map(toPickle),
+      key         = field.key,
+      span        = field.span
+    )
+
+  private def toPickle(default: SchemaDefault): SchemaDefaultPickle = default match
+    case SchemaDefault.NullValue =>
+      SchemaDefaultPickle(kind = "null")
+    case SchemaDefault.Bool(value) =>
+      SchemaDefaultPickle(kind = "bool", bool = Some(value))
+    case SchemaDefault.IntValue(value) =>
+      SchemaDefaultPickle(kind = "int", int = Some(value))
+    case SchemaDefault.DoubleValue(value) =>
+      SchemaDefaultPickle(kind = "double", double = Some(value))
+    case SchemaDefault.StringValue(value) =>
+      SchemaDefaultPickle(kind = "string", string = Some(compress(value)))
 
   private def toPickle(s: Section): SectionPickle =
     SectionPickle(
@@ -254,6 +312,7 @@ object SsccFormat:
       pkg               = pk.pkg,
       translations      = pk.translations,
       databases         = pk.databases.map(fromPickle),
+      schemas           = pk.schemas.map(fromPickle),
       frontendFramework = pk.frontendFramework,
       scripts           = pk.scripts,
       raw               = pk.raw.map { case (k, v) => k -> decompress(v) },
@@ -263,6 +322,32 @@ object SsccFormat:
 
   private def fromPickle(pk: DatabaseDeclPickle): DatabaseDecl =
     DatabaseDecl(pk.name, decompress(pk.url), pk.user.map(decompress), pk.password.map(decompress), pk.driver, pk.span)
+
+  private def fromPickle(pk: TypeSchemaDeclPickle): TypeSchemaDecl =
+    TypeSchemaDecl(
+      typeName      = pk.typeName,
+      fields        = pk.fields.map(fromPickle),
+      rejectUnknown = pk.rejectUnknown,
+      span          = pk.span
+    )
+
+  private def fromPickle(pk: FieldSchemaDeclPickle): FieldSchemaDecl =
+    FieldSchemaDecl(
+      fieldName   = pk.fieldName,
+      storageName = pk.storageName,
+      aliases     = pk.aliases,
+      default     = pk.default.map(fromPickle),
+      key         = pk.key,
+      span        = pk.span
+    )
+
+  private def fromPickle(pk: SchemaDefaultPickle): SchemaDefault = pk.kind match
+    case "null"   => SchemaDefault.NullValue
+    case "bool"   => SchemaDefault.Bool(pk.bool.getOrElse(false))
+    case "int"    => SchemaDefault.IntValue(pk.int.getOrElse(0L))
+    case "double" => SchemaDefault.DoubleValue(pk.double.getOrElse(0.0))
+    case "string" => SchemaDefault.StringValue(pk.string.map(decompress).getOrElse(""))
+    case other    => SchemaDefault.StringValue(other)
 
   private def fromPickle(pk: SectionPickle): Section =
     Section(

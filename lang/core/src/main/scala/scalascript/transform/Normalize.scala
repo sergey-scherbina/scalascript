@@ -51,6 +51,7 @@ object Normalize:
       pkg          = m.pkg,
       apiClients        = m.apiClients.map(apiClientDecl),
       databases         = m.databases.map(databaseDecl),
+      schemas           = m.schemas.map(typeSchemaDecl),
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
       span              = m.span.map(span)
@@ -67,6 +68,19 @@ object Normalize:
 
   private def databaseDecl(d: ast.DatabaseDecl): ir.DatabaseDecl =
     ir.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
+
+  private def typeSchemaDecl(s: ast.TypeSchemaDecl): ir.TypeSchemaDecl =
+    ir.TypeSchemaDecl(s.typeName, s.fields.map(fieldSchemaDecl), s.rejectUnknown, s.span.map(span))
+
+  private def fieldSchemaDecl(f: ast.FieldSchemaDecl): ir.FieldSchemaDecl =
+    ir.FieldSchemaDecl(f.fieldName, f.storageName, f.aliases, f.default.map(schemaDefault), f.key, f.span.map(span))
+
+  private def schemaDefault(d: ast.SchemaDefault): ir.SchemaDefault = d match
+    case ast.SchemaDefault.NullValue => ir.SchemaDefault.NullValue
+    case ast.SchemaDefault.Bool(value) => ir.SchemaDefault.Bool(value)
+    case ast.SchemaDefault.IntValue(value) => ir.SchemaDefault.IntValue(value)
+    case ast.SchemaDefault.DoubleValue(value) => ir.SchemaDefault.DoubleValue(value)
+    case ast.SchemaDefault.StringValue(value) => ir.SchemaDefault.StringValue(value)
 
   private def section(s: ast.Section): ir.Section =
     ir.Section(

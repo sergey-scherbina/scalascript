@@ -60,6 +60,29 @@ case class DatabaseDecl(
   span:     Option[Span]    = None
 ) derives ReadWriter
 
+enum SchemaDefault derives ReadWriter:
+  case NullValue
+  case Bool(value: Boolean)
+  case IntValue(value: Long)
+  case DoubleValue(value: Double)
+  case StringValue(value: String)
+
+case class FieldSchemaDecl(
+  fieldName:   String,
+  storageName: Option[String] = None,
+  aliases:     List[String] = Nil,
+  default:     Option[SchemaDefault] = None,
+  key:         Boolean = false,
+  span:        Option[Span] = None
+) derives ReadWriter
+
+case class TypeSchemaDecl(
+  typeName:      String,
+  fields:        List[FieldSchemaDecl],
+  rejectUnknown: Boolean = false,
+  span:          Option[Span] = None
+) derives ReadWriter
+
 case class Manifest(
   name:         Option[String],
   version:      Option[String],
@@ -71,6 +94,7 @@ case class Manifest(
   pkg:          Option[List[String]],
   apiClients:        List[ApiClientDecl] = Nil,
   databases:         List[DatabaseDecl] = Nil,
+  schemas:           List[TypeSchemaDecl] = Nil,
   frontendFramework: Option[String] = None,
   scripts:           Map[String, String] = Map.empty,
   span:              Option[Span] = None

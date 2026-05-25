@@ -40,6 +40,10 @@ case class Manifest(
    *  Default `Nil` so existing `Manifest` construction sites in tests
    *  / older artifacts continue to compile without an explicit value. */
   databases: List[DatabaseDecl] = Nil,
+  /** Optional per-type storage schema metadata declared in front-matter
+   *  `schemas:`.  Interpreter typed SQL consumes this as an alternative
+   *  to inline annotations; JVM/codegen integration is planned separately. */
+  schemas: List[TypeSchemaDecl] = Nil,
   /** Frontend framework selected via `frontend:` front-matter key.
    *  The interpreter calls `FrontendFrameworks.setBackend(name)` before
    *  running the module, equivalent to an inline `setFrontendFramework(name)`. */
@@ -90,6 +94,29 @@ case class DatabaseDecl(
   password: Option[String]  = None,
   driver:   Option[String]  = None,
   span:     Option[Span]    = None
+)
+
+enum SchemaDefault:
+  case NullValue
+  case Bool(value: Boolean)
+  case IntValue(value: Long)
+  case DoubleValue(value: Double)
+  case StringValue(value: String)
+
+case class FieldSchemaDecl(
+  fieldName:   String,
+  storageName: Option[String] = None,
+  aliases:     List[String] = Nil,
+  default:     Option[SchemaDefault] = None,
+  key:         Boolean = false,
+  span:        Option[Span] = None
+)
+
+case class TypeSchemaDecl(
+  typeName:      String,
+  fields:        List[FieldSchemaDecl],
+  rejectUnknown: Boolean = false,
+  span:          Option[Span] = None
 )
 
 case class Section(

@@ -50,6 +50,7 @@ object Denormalize:
       translations      = Map.empty,
       apiClients        = m.apiClients.map(apiClientDecl),
       databases         = m.databases.map(databaseDecl),
+      schemas           = m.schemas.map(typeSchemaDecl),
       raw               = Map.empty,
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
@@ -67,6 +68,19 @@ object Denormalize:
 
   private def databaseDecl(d: ir.DatabaseDecl): ast.DatabaseDecl =
     ast.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
+
+  private def typeSchemaDecl(s: ir.TypeSchemaDecl): ast.TypeSchemaDecl =
+    ast.TypeSchemaDecl(s.typeName, s.fields.map(fieldSchemaDecl), s.rejectUnknown, s.span.map(span))
+
+  private def fieldSchemaDecl(f: ir.FieldSchemaDecl): ast.FieldSchemaDecl =
+    ast.FieldSchemaDecl(f.fieldName, f.storageName, f.aliases, f.default.map(schemaDefault), f.key, f.span.map(span))
+
+  private def schemaDefault(d: ir.SchemaDefault): ast.SchemaDefault = d match
+    case ir.SchemaDefault.NullValue => ast.SchemaDefault.NullValue
+    case ir.SchemaDefault.Bool(value) => ast.SchemaDefault.Bool(value)
+    case ir.SchemaDefault.IntValue(value) => ast.SchemaDefault.IntValue(value)
+    case ir.SchemaDefault.DoubleValue(value) => ast.SchemaDefault.DoubleValue(value)
+    case ir.SchemaDefault.StringValue(value) => ast.SchemaDefault.StringValue(value)
 
   private def section(s: ir.Section): ast.Section =
     ast.Section(

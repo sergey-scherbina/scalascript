@@ -464,6 +464,7 @@ class Interpreter(
   private[interpreter] var modulePkg: List[String] = Nil
   private[interpreter] var i18nTranslations: Map[String, Map[String, String]] = Map.empty
   private[interpreter] var i18nLocale: String = "en"
+  private[interpreter] var frontmatterSchemas: Map[String, scalascript.ast.TypeSchemaDecl] = Map.empty
 
   /** v1.26 — JDBC connections declared in front-matter `databases:`,
    *  materialised lazily and cached.  `sql` fenced blocks resolve their
@@ -487,6 +488,7 @@ class Interpreter(
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
     module.manifest.foreach(m => i18nTranslations = m.translations)
+    frontmatterSchemas = module.manifest.map(_.schemas.map(s => s.typeName -> s).toMap).getOrElse(Map.empty)
     module.manifest.foreach { m =>
       if m.databases.nonEmpty then
         sqlRegistry = scalascript.sql.ConnectionRegistry(

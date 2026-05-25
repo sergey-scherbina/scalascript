@@ -119,3 +119,79 @@ class DatabasesFrontmatterTest extends AnyFunSuite:
     assert(byName("with_secrets").user     == Some("${env:U}"))
     assert(byName("with_secrets").password == Some("${env:P}"))
   }
+
+  test("schemas: parses typed storage metadata") {
+    val mod = withFrontmatter(
+      """schemas:
+        |  Person:
+        |    rejectUnknown: true
+        |    fields:
+        |      id:
+        |        key: true
+        |      displayName:
+        |        name: display_name
+        |        aliases: [name]
+        |      active:
+        |        default: true
+        |      legacyName: legacy_name""".stripMargin)
+
+    val schema = mod.manifest.get.schemas.head
+    assert(schema.typeName == "Person")
+    assert(schema.rejectUnknown)
+
+    val fields = schema.fields.map(f => f.fieldName -> f).toMap
+    assert(fields("id").key)
+    assert(fields("displayName").storageName == Some("display_name"))
+    assert(fields("displayName").aliases == List("name"))
+    assert(fields("active").default == Some(ast.SchemaDefault.Bool(true)))
+    assert(fields("legacyName").storageName == Some("legacy_name"))
+  }
+
+  test("schemas: survives Normalize → Denormalize unchanged") {
+    val mod = withFrontmatter(
+      """schemas:
+        |  Person:
+        |    reject-unknown: true
+        |    fields:
+        |      id:
+        |        key: true
+        |      displayName:
+        |        column: display_name
+        |        aliases:
+        |          - name
+        |      active:
+        |        default: false""".stripMargin)
+
+    val ir1 = Normalize(mod)
+    val schema = ir1.manifest.get.schemas.head
+    assert(schema == ir.TypeSchemaDecl(
+      typeName = "Person",
+      fields = List(
+        ir.FieldSchemaDecl("id", key = true),
+        ir.FieldSchemaDecl("displayName", storageName = Some("display_name"), aliases = List("name")),
+        ir.FieldSchemaDecl("active", default = Some(ir.SchemaDefault.Bool(false)))
+      ),
+      rejectUnknown = true
+    ))
+
+    val round = Denormalize(ir1)
+    assert(round.manifest.get.schemas == mod.manifest.get.schemas)
+  }
+
+  test("schemas: survives .sscc serialization") {
+    val mod = withFrontmatter(
+      """schemas:
+        |  Person:
+        |    rejectUnknown: true
+        |    fields:
+        |      id:
+        |        key: true
+        |      displayName:
+        |        name: display_name
+        |        aliases: [name]
+        |      active:
+        |        default: true""".stripMargin)
+
+    val round = ast.SsccFormat.read(ast.SsccFormat.write(mod)).toOption.get
+    assert(round.manifest.get.schemas == mod.manifest.get.schemas)
+  }

@@ -112,8 +112,8 @@ private[interpreter] object StatRuntime:
       interp.typeFieldTypes(typeName) = params.map(p =>
         p.decltpe.fold("String")(interp.typeToString)
       )
-      interp.typeFieldSchemas(typeName) = params.map(p => fieldSchema(p, ctorEnv, interp))
-      if hasAnnot(d.mods, "rejectUnknown") then interp.rejectUnknownTypes += typeName
+      interp.typeFieldSchemas(typeName) = params.map(p => fieldSchema(typeName, p, ctorEnv, interp))
+      if hasAnnot(d.mods, "rejectUnknown") || interp.frontmatterSchemas.get(typeName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += typeName
       if d.mods.exists {
         case Mod.Annot(Init.After_4_6_0(Type.Name("noTrace"), _, _)) => true
         case _ => false
@@ -165,8 +165,8 @@ private[interpreter] object StatRuntime:
           val paramDefaults = ecParams.map(_.default)
           if paramNames.nonEmpty then interp.typeFieldOrder(caseName) = paramNames
           if paramNames.nonEmpty then
-            interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(p, ctorEnv, interp))
-          if hasAnnot(ec.mods, "rejectUnknown") then interp.rejectUnknownTypes += caseName
+            interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
+          if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
           interp.parentTypes(caseName) = enumName
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
@@ -307,15 +307,23 @@ private[interpreter] object StatRuntime:
 
     case _ => () // type aliases, imports, exports, etc.
 
-  private def fieldSchema(param: Term.Param, env: Map[String, Value], interp: Interpreter): TypeFieldSchema =
+  private def fieldSchema(typeName: String, param: Term.Param, env: Map[String, Value], interp: Interpreter): TypeFieldSchema =
     val fieldName = param.name.value
+    val fmField = interp.frontmatterSchemas.get(typeName).flatMap(_.fields.find(_.fieldName == fieldName))
     TypeFieldSchema(
       fieldName   = fieldName,
-      storageName = stringAnnot(param.mods, "fieldName").getOrElse(fieldName),
-      aliases     = stringSeqAnnot(param.mods, "aliases"),
-      default     = param.default.map(t => Computation.run(interp.eval(t, env))),
-      key         = hasAnnot(param.mods, "key")
+      storageName = fmField.flatMap(_.storageName).orElse(stringAnnot(param.mods, "fieldName")).getOrElse(fieldName),
+      aliases     = fmField.map(_.aliases).getOrElse(stringSeqAnnot(param.mods, "aliases")),
+      default     = fmField.flatMap(_.default.map(schemaDefaultValue)).orElse(param.default.map(t => Computation.run(interp.eval(t, env)))),
+      key         = fmField.exists(_.key) || hasAnnot(param.mods, "key")
     )
+
+  private def schemaDefaultValue(default: scalascript.ast.SchemaDefault): Value = default match
+    case scalascript.ast.SchemaDefault.NullValue => Value.NullV
+    case scalascript.ast.SchemaDefault.Bool(value) => Value.BoolV(value)
+    case scalascript.ast.SchemaDefault.IntValue(value) => Value.IntV(value)
+    case scalascript.ast.SchemaDefault.DoubleValue(value) => Value.DoubleV(value)
+    case scalascript.ast.SchemaDefault.StringValue(value) => Value.StringV(value)
 
   private def hasAnnot(mods: List[Mod], name: String): Boolean =
     mods.exists {

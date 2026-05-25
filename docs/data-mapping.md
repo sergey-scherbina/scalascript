@@ -131,6 +131,27 @@ The JVM `RowCodec` derivation consumes the same `@fieldName`, `@aliases`,
 case-class defaults, `@key`, and `@rejectUnknown` annotations as `JsonCodec`.
 Interpreter typed SQL helpers consume the same annotations for
 `Db.query/insert/update[A]` by storing runtime case-class schema metadata.
+They also consume module front-matter `schemas:` metadata, so interpreter-only
+or mixed documents can keep storage mapping next to `databases:`:
+
+```yaml
+schemas:
+  Person:
+    rejectUnknown: true
+    fields:
+      id:
+        key: true
+      displayName:
+        name: display_name
+        aliases: [name]
+      active:
+        default: true
+```
+
+For interpreter typed SQL, a front-matter field entry overrides the matching
+case-class annotation/default metadata. JVM `RowCodec` derivation still uses
+annotations or explicit `RowFieldSpec[A]`; consuming front-matter there would
+require a separate codegen bridge rather than plain Scala typeclass derivation.
 See [`examples/typed-sql-crud.ssc`](../examples/typed-sql-crud.ssc) for a
 minimal CRUD example.
 
@@ -390,9 +411,11 @@ the same query model.
    `RowCodec`/`SqlRuntime` path. Follow-up landed: derived JVM `RowCodec`
    consumes `@fieldName`, `@aliases`, case-class defaults, `@key`, and
    `@rejectUnknown`. Follow-up landed: interpreter typed SQL stores the same
-   schema metadata and uses it for `Db.query/insert/update[A]`. Remaining:
-   front-matter schema metadata, non-JVM generated-client codec integration, and
-   cross-store codecs.
+   schema metadata and uses it for `Db.query/insert/update[A]`. Follow-up
+   landed: `schemas:` front-matter parses into AST/IR and interpreter typed SQL
+   consumes it for aliases, defaults, key metadata, canonical storage names, and
+   unknown-column rejection. Remaining: non-JVM generated-client codec
+   integration and cross-store codecs.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

@@ -261,6 +261,73 @@ properties:
           user: ${env:RPT_USER}
           password: ${env:RPT_PASSWORD}
 
+  schemas:
+    type: object
+    description: |
+      Optional type-to-storage metadata consumed by typed data mapping. Keys are
+      ScalaScript type names; fields declare canonical storage names, read
+      aliases, missing-field defaults, key markers, and strict unknown-field
+      rejection. The interpreter typed SQL path consumes this metadata for
+      `Db.query/insert/update[A]`; JVM typeclass code can express the same
+      metadata with annotations or explicit field specs.
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      properties:
+        rejectUnknown:
+          type: boolean
+          description: Reject decoded columns/fields not declared by the target type.
+        reject-unknown:
+          type: boolean
+          description: Kebab-case alias for `rejectUnknown`.
+        fields:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+                description: Shorthand canonical storage name for the field.
+              - type: object
+                additionalProperties: false
+                properties:
+                  name:
+                    type: string
+                    description: Canonical storage name written by encoders.
+                  column:
+                    type: string
+                    description: SQL-oriented alias for `name`.
+                  field:
+                    type: string
+                    description: Generic storage-field alias for `name`.
+                  aliases:
+                    oneOf:
+                      - type: string
+                      - type: array
+                        items:
+                          type: string
+                    description: Alternative input names accepted while decoding.
+                  default:
+                    description: Default scalar value used when the field is missing.
+                    type:
+                      - "null"
+                      - boolean
+                      - integer
+                      - number
+                      - string
+                  key:
+                    type: boolean
+                    description: Marks the identity/key field for write helpers and sync stores.
+    examples:
+      - Person:
+          rejectUnknown: true
+          fields:
+            id:
+              key: true
+            displayName:
+              name: display_name
+              aliases: [name]
+            active:
+              default: true
+
   keywords:
     type: array
     items:

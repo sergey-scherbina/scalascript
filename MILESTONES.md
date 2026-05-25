@@ -10380,9 +10380,12 @@ modes opt out of that default.
   interpreter typed SQL now stores runtime schema metadata from `@fieldName`,
   `@aliases`, case-class defaults, `@key`, and `@rejectUnknown`; `Db.query[A]`
   applies aliases/defaults/unknown-column rejection, and `Db.insert/update[A]`
-  write canonical column names via `NativeContext.storageFieldName`. Remaining:
-  front-matter schema metadata, non-JVM generated-client codec integration, and
-  cross-store codecs.
+  write canonical column names via `NativeContext.storageFieldName`.
+  Follow-up landed 2026-05-26: `schemas:` front-matter now
+  parses into AST/IR, is covered by the manifest JSON schema, and interpreter
+  typed SQL consumes it for canonical storage names, aliases, defaults, key
+  metadata, and unknown-column rejection. Remaining: non-JVM generated-client
+  codec integration and cross-store codecs.
 
 ## v1.44 — Full-Stack In-Process Transport
 

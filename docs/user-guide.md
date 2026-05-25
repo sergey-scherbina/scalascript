@@ -987,6 +987,29 @@ lookup is case-insensitive. The same annotations are honored on the interpreter
 typed SQL path for `Db.query/insert/update[A]`; explicit `RowFieldSpec[A]`
 values remain a JVM typeclass API.
 
+The interpreter typed SQL path can also read the same mapping metadata from
+front-matter `schemas:`. This is useful when the `.ssc` module should describe
+external storage names without decorating the case class:
+
+```yaml
+schemas:
+  Todo:
+    rejectUnknown: true
+    fields:
+      id:
+        key: true
+      label:
+        name: text
+        aliases: [title]
+      done:
+        default: false
+```
+
+On the interpreter path, front-matter field entries override annotation/default
+metadata for the same type and field. JVM `RowCodec` derivation still uses
+annotations or explicit `RowFieldSpec[A]` values, because plain Scala typeclass
+derivation does not read module front-matter.
+
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
 ### Electron desktop SQL
