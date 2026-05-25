@@ -10353,8 +10353,10 @@ modes opt out of that default.
   now has the first explicit `JsonValue`, `DecodeError`, `Codec[A, Repr]`, and
   `JsonCodec[A]` API with primitive/list/option instances and manual
   object-codec helpers. Follow-up landed 2026-05-25: `derives JsonCodec` now
-  works for case classes through Scala 3 `Mirror`; ADT/sum derivation remains
-  planned.
+  works for case classes through Scala 3 `Mirror`. Follow-up landed
+  2026-05-25: sealed ADT/sum `derives JsonCodec` now uses an explicit
+  `"$type"` discriminator plus `"value"` payload envelope, including
+  case-object variants.
 
 ## v1.44 — Full-Stack In-Process Transport
 
@@ -10538,8 +10540,7 @@ distributed same-source server/client example are partially landed.
   case classes. Follow-up landed 2026-05-25: JVM/Swing generated typed clients
   now route request encoding and response decoding through `JsonCodec[T]` and
   add the typed-data runtime jar when Swing API clients are present. Remaining
-  Phase 4 work: JS typed-client codec integration where feasible and ADT/sum
-  derivation.
+  Phase 4 work: JS typed-client codec integration where feasible.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

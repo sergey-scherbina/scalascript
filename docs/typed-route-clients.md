@@ -309,8 +309,10 @@ body without changing generated client method shape.
 
 Partially landed follow-up 2026-05-25: JVM/Swing generated clients now route
 typed request encoding and typed response decoding through
-`scalascript.typeddata.JsonCodec[T]`. Case-class request/response values use the
-current `derives JsonCodec` support automatically through Scala 3 `Mirror`.
+`scalascript.typeddata.JsonCodec[T]`. Case-class and sealed-ADT
+request/response values use the current `derives JsonCodec` support
+automatically through Scala 3 `Mirror`; ADTs use the `"$type"` / `"value"`
+envelope from `data-mapping.md`.
 The JS/browser/Electron HTTP client remains on the emitted JSON facade because
 that target does not have Scala typeclass lookup at runtime.
 

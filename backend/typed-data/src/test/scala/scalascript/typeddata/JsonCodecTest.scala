@@ -81,3 +81,47 @@ class JsonCodecTest extends AnyFunSuite:
 
     val error = JsonCodec[DerivedBoard].decode(bad).left.toOption.get
     assert(error.render == "$.todos.0.done: expected boolean, got string")
+
+  sealed trait Event derives JsonCodec
+  final case class UserJoined(id: String, name: String) extends Event derives JsonCodec
+  final case class Purchase(userId: String, amount: Double) extends Event derives JsonCodec
+  case object Heartbeat extends Event derives JsonCodec
+
+  test("derives JsonCodec maps ADTs with explicit discriminator and value payload"):
+    val event: Event = Purchase("u1", 12.5)
+    val encoded = JsonCodec[Event].encode(event)
+
+    assert(encoded == JsonValue.obj(
+      "$type" -> JsonValue.Str("Purchase"),
+      "value" -> JsonValue.obj(
+        "userId" -> JsonValue.Str("u1"),
+        "amount" -> JsonValue.Num(BigDecimal(12.5))
+      )
+    ))
+    assert(JsonCodec[Event].decode(encoded) == Right(event))
+
+  test("derives JsonCodec handles case-object ADT variants"):
+    val event: Event = Heartbeat
+    val encoded = JsonCodec[Event].encode(event)
+
+    assert(encoded == JsonValue.obj(
+      "$type" -> JsonValue.Str("Heartbeat"),
+      "value" -> JsonValue.obj()
+    ))
+    assert(JsonCodec[Event].decode(encoded) == Right(Heartbeat))
+
+  test("derived ADT JsonCodec reports discriminator and payload errors"):
+    val unknown = JsonValue.obj(
+      "$type" -> JsonValue.Str("Missing"),
+      "value" -> JsonValue.obj()
+    )
+    assert(JsonCodec[Event].decode(unknown).left.toOption.exists(_.render == "$.$type: unknown type 'Missing'"))
+
+    val badPayload = JsonValue.obj(
+      "$type" -> JsonValue.Str("UserJoined"),
+      "value" -> JsonValue.obj(
+        "id" -> JsonValue.Str("u1"),
+        "name" -> JsonValue.Num(1)
+      )
+    )
+    assert(JsonCodec[Event].decode(badPayload).left.toOption.exists(_.render == "$.value.name: expected string, got number"))

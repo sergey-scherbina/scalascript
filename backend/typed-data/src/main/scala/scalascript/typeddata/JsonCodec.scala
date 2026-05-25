@@ -1,6 +1,6 @@
 package scalascript.typeddata
 
-import scala.compiletime.{constValue, erasedValue, error, summonInline}
+import scala.compiletime.{constValue, erasedValue, summonInline}
 import scala.deriving.Mirror
 
 trait JsonCodec[A] extends Codec[A, JsonValue]
@@ -11,7 +11,7 @@ object JsonCodec:
   inline given derived[A](using mirror: Mirror.Of[A]): JsonCodec[A] =
     inline mirror match
       case product: Mirror.ProductOf[A] => derivedProduct[A](using product)
-      case _: Mirror.SumOf[A] => error("JsonCodec derivation currently supports case classes only")
+      case sum: Mirror.SumOf[A] => derivedSum[A](using sum)
 
   def instance[A](
       encodeValue: A => JsonValue,
@@ -148,3 +148,43 @@ object JsonCodec:
             }
           case None =>
             Left(DecodeError(s"missing field '$name'").at(name))
+
+  private inline def derivedSum[A](using mirror: Mirror.SumOf[A]): JsonCodec[A] =
+    instance[A](
+      value =>
+        val labels = elementLabels[mirror.MirroredElemLabels]
+        val ordinal = mirror.ordinal(value)
+        JsonValue.Obj(Map(
+          "$type" -> JsonValue.Str(labels(ordinal)),
+          "value" -> encodeSumValue[mirror.MirroredElemTypes](ordinal, value, 0)
+        ))
+      ,
+      {
+        case JsonValue.Obj(fields) =>
+          fields.get("$type") match
+            case Some(JsonValue.Str(typeName)) =>
+              fields.get("value") match
+                case Some(value) => decodeSumValue[A, mirror.MirroredElemTypes, mirror.MirroredElemLabels](typeName, value)
+                case None => Left(DecodeError("missing field 'value'").at("value"))
+            case Some(other) => Left(DecodeError(s"expected string, got ${JsonValue.kind(other)}").at("$type"))
+            case None => Left(DecodeError("missing field '$type'").at("$type"))
+        case other => Left(DecodeError(s"expected object, got ${JsonValue.kind(other)}"))
+      }
+    )
+
+  private inline def encodeSumValue[Types <: Tuple](ordinal: Int, value: Any, index: Int): JsonValue =
+    inline erasedValue[Types] match
+      case _: EmptyTuple =>
+        throw IllegalArgumentException(s"sum ordinal $ordinal is out of range")
+      case _: (t *: ts) =>
+        if ordinal == index then summonInline[JsonCodec[t]].encode(value.asInstanceOf[t])
+        else encodeSumValue[ts](ordinal, value, index + 1)
+
+  private inline def decodeSumValue[A, Types <: Tuple, Labels <: Tuple](typeName: String, value: JsonValue): Either[DecodeError, A] =
+    inline erasedValue[(Types, Labels)] match
+      case _: (EmptyTuple, EmptyTuple) =>
+        Left(DecodeError(s"unknown type '$typeName'").at("$type"))
+      case _: ((t *: ts), (label *: labels)) =>
+        val name = constValue[label].asInstanceOf[String]
+        if typeName == name then summonInline[JsonCodec[t]].decode(value).left.map(_.at("value")).map(_.asInstanceOf[A])
+        else decodeSumValue[A, ts, labels](typeName, value)

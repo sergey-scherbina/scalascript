@@ -74,9 +74,15 @@ trait JsonCodec[A] extends Codec[A, JsonValue]
 
 It includes primitive, `List[A]`, and `Option[A]` JSON codecs,
 `JsonCodec.objectCodec(...)` / `JsonCodec.field(...)` helpers for manually
-writing product codecs, and initial `derives JsonCodec` support for case
-classes. ADT/sum derivation remains planned because it needs explicit tagging
-and compatibility rules.
+writing product codecs, `derives JsonCodec` support for case classes, and
+sealed ADT/sum derivation. ADTs use an explicit discriminator envelope:
+
+```json
+{"$type":"VariantName","value":{}}
+```
+
+The `value` field contains the selected variant payload encoded by that
+variant's own `JsonCodec`. Case objects encode as an empty object payload.
 
 JVM/Swing generated typed route clients now use this `JsonCodec[T]` layer for
 typed request encoding and typed response decoding. JS/browser/Electron clients
@@ -320,8 +326,9 @@ the same query model.
    identity/version envelope, and per-store examples.
 2. **Core codec foundation** — partially landed: `JsonValue`, `DecodeError`,
    `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances,
-   explicit object-codec helpers, and `derives JsonCodec` for case classes.
-   Remaining: ADT/sum derivation and schema annotations.
+   explicit object-codec helpers, `derives JsonCodec` for case classes, and
+   discriminator-based sealed ADT derivation. Remaining: schema annotations,
+   defaults, renames, and unknown-field policy.
 3. **SQL row mapping** — add `derives RowCodec`, `Db.query[A]`, and
    insert/update helpers for simple case classes.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
