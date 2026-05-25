@@ -11,7 +11,7 @@ interpreter path and reports that Swing interpreter intrinsics are planned.
 Swing `FetchAction` handlers can dispatch to generated JVM backend routes in
 the same process. `examples/frontend/swing-fullstack/` demonstrates the
 no-socket path, including `fetchTable` GET/delete refresh. Typed clients remain
-planned.
+planned in [`typed-route-clients.md`](typed-route-clients.md).
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -272,7 +272,8 @@ success. Phase 4e connected Swing `fetchTable` to the same dispatcher for GET
 rows and POST deletes, and updated the example to show read/write/delete.
 Remaining work: connect typed client calls, and decide whether the generated
 JVM path should share the interpreter `InProcessBackendTransport` class
-directly.
+directly. Typed client planning is tracked in
+[`typed-route-clients.md`](typed-route-clients.md).
 
 ### Phase 5 — Packaging And Runtime Polish
 

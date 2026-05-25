@@ -160,8 +160,9 @@ spec complements that work:
   network sockets.
 
 The shared contract should live below generated UI helpers such as `fetchTable`,
-`fetchAction`, and future typed API clients. User code should select a transport
-through configuration, not by rewriting every call site.
+`fetchAction`, and future typed API clients. Typed client planning is tracked in
+[`typed-route-clients.md`](typed-route-clients.md). User code should select a
+transport through configuration, not by rewriting every call site.
 
 ## Migration
 
@@ -225,7 +226,8 @@ and `JvmGen` wires it to the generated JVM route registry so button-driven
 `fetchAction` / `fetchActionClear` calls can reuse route matching, middleware,
 request body passing, and response status handling without a socket. Swing
 `fetchTable` now uses the same dispatcher for GET rows and POST deletes.
-Generated typed clients remain planned.
+Generated typed clients remain planned; see
+[`typed-route-clients.md`](typed-route-clients.md).
 
 ### Phase 4 — JVM Monolithic Frontend Target
 
