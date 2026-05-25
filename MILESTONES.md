@@ -10361,8 +10361,9 @@ modes opt out of that default.
   opt-in unknown-field rejection.
   Follow-up landed 2026-05-25: `backend/typed-data` now includes `RowValue`,
   `RowValueCodec[A]`, and `RowCodec[A]` with primitive/nullable column codecs
-  and `derives RowCodec` for simple case classes. `Db.query[A]` and write-helper
-  integration remain planned.
+  and `derives RowCodec` for simple case classes. Follow-up landed 2026-05-25:
+  `SqlRuntime.query[A]` now decodes JDBC result rows through `RowCodec[A]`.
+  Public `Db.query[A]` and write-helper integration remain planned.
 
 ## v1.44 — Full-Stack In-Process Transport
 

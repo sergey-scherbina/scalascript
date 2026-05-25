@@ -1,6 +1,7 @@
 package scalascript.sql
 
 import java.sql.{Connection, ResultSet}
+import scalascript.typeddata.{RowCodec, RowValue}
 
 /** v1.26 — JDBC executor for `sql` fenced code blocks.
  *
@@ -38,6 +39,23 @@ object SqlRuntime:
         SqlResult.UpdateCount(ps.executeUpdate())
     finally
       ps.close()
+
+  /** Execute a result-set-producing SQL statement and decode every row through
+   *  the shared typed-data `RowCodec[A]` layer.
+   *
+   *  This is the first typed read path for the SQL runtime. It intentionally
+   *  keeps statement execution, bind handling, and result-set materialisation
+   *  identical to `execute`; only the final row projection changes. */
+  def query[A](conn: Connection, sql: String, binds: List[Any])(using codec: RowCodec[A]): Vector[A] =
+    execute(conn, sql, binds) match
+      case SqlResult.Rows(rows) =>
+        rows.iterator.map(row =>
+          codec.decode(row.toRowValueMap) match
+            case Right(value) => value
+            case Left(error) => throw RowProjectionError(error.render)
+        ).toVector
+      case SqlResult.UpdateCount(count) =>
+        throw RowProjectionError(s"typed query expected rows, got update count $count")
 
   /** True when `sql`'s leading non-whitespace keyword indicates a
    *  result-set-producing statement.  Per SPEC.md § 3.3.1: SELECT,
@@ -82,3 +100,22 @@ object SqlRuntime:
     case t: java.sql.Time      => t.toLocalTime
     case ts: java.sql.Timestamp => ts.toLocalDateTime
     case other                 => other
+
+  private[sql] def toRowValue(v: Any): RowValue = v match
+    case null => RowValue.Null
+    case None => RowValue.Null
+    case Some(value) => toRowValue(value)
+    case value: java.lang.Boolean => RowValue.Bool(value.booleanValue)
+    case value: java.lang.Byte => RowValue.Num(BigDecimal(value.toLong))
+    case value: java.lang.Short => RowValue.Num(BigDecimal(value.toLong))
+    case value: java.lang.Integer => RowValue.Num(BigDecimal(value.toLong))
+    case value: java.lang.Long => RowValue.Num(BigDecimal(value.longValue))
+    case value: java.lang.Float => RowValue.Num(BigDecimal(value.toDouble))
+    case value: java.lang.Double => RowValue.Num(BigDecimal(value.doubleValue))
+    case value: java.math.BigInteger => RowValue.Num(BigDecimal(value))
+    case value: java.math.BigDecimal => RowValue.Num(BigDecimal(value))
+    case value: BigInt => RowValue.Num(BigDecimal(value))
+    case value: BigDecimal => RowValue.Num(value)
+    case value: String => RowValue.Str(value)
+    case value: Char => RowValue.Str(value.toString)
+    case other => RowValue.Str(other.toString)

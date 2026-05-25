@@ -870,7 +870,7 @@ lazy val backendConfigRuntime = project
 // DbUrl (canonical DB URL scheme mapping) lives here.
 lazy val backendSqlRuntime = project
   .in(file("backend/sql"))
-  .dependsOn(backendConfigRuntime)
+  .dependsOn(backendConfigRuntime, backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(

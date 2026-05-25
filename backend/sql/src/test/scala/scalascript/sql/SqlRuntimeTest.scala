@@ -6,6 +6,7 @@ import java.util.UUID
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.BeforeAndAfterAll
+import scalascript.typeddata.RowCodec
 
 /** v1.26 Phase 4 — end-to-end JDBC executor coverage.
  *
@@ -142,6 +143,31 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
         UserSummary(1L, "Alice", Some("alice@example.com")),
         UserSummary(2L, "Bob",   None)
       ))
+    }
+  }
+
+  case class TypedUserSummary(id: Long, name: String, email: Option[String], active: Boolean) derives RowCodec
+
+  test("SqlRuntime.query[A] decodes rows through RowCodec") {
+    withConn { c =>
+      val users = SqlRuntime.query[TypedUserSummary](c,
+        "SELECT id AS id, name AS name, email AS email, active AS active FROM users ORDER BY id",
+        Nil)
+      assert(users == Vector(
+        TypedUserSummary(1L, "Alice", Some("alice@example.com"), active = true),
+        TypedUserSummary(2L, "Bob", None, active = false)
+      ))
+    }
+  }
+
+  test("SqlRuntime.query[A] reports RowCodec decode errors") {
+    withConn { c =>
+      val ex = intercept[RowProjectionError] {
+        SqlRuntime.query[TypedUserSummary](c,
+          "SELECT id AS id, name AS name, email AS email FROM users WHERE id = ?",
+          List(1L))
+      }
+      assert(ex.getMessage == "$.active: missing column 'active'")
     }
   }
 

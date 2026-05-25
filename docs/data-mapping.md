@@ -102,7 +102,9 @@ trait RowCodec[A] extends Codec[A, Map[String, RowValue]]
 
 It currently supports primitive column values, nullable `Option[A]` columns, and
 `derives RowCodec` for simple case classes. It is the codec foundation for SQL
-rows and Spark-like tabular schemas; `Db.query[A]` integration remains planned.
+rows and Spark-like tabular schemas. `SqlRuntime.query[A](conn, sql, binds)` now
+executes JDBC reads and decodes result rows through `RowCodec[A]`; public
+`Db.query[A]` and write helpers remain planned.
 
 User code should stay direct:
 
@@ -347,8 +349,9 @@ the same query model.
    derived-codec integration for those schema options.
 3. **SQL row mapping** — partially landed: `RowValue`, `RowValueCodec[A]`,
    primitive/nullable column codecs, and `derives RowCodec` for simple case
-   classes. Remaining: `Db.query[A]`, insert/update helpers, schema metadata,
-   and SQL runtime integration.
+   classes. Follow-up landed: `SqlRuntime.query[A]` decodes JDBC result rows
+   through `RowCodec[A]`. Remaining: public `Db.query[A]`, insert/update
+   helpers, and richer schema metadata.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

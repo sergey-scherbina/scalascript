@@ -2,6 +2,7 @@ package scalascript.sql
 
 import scala.deriving.Mirror
 import scala.compiletime.{constValueTuple, erasedValue}
+import scalascript.typeddata.RowValue
 
 /** A single SQL result row produced by `SqlRuntime.execute`.
  *
@@ -45,6 +46,16 @@ final class Row(
    *  the last-write-wins.  Use positional access if duplicates matter. */
   def toMap: Map[String, Any] =
     columns.zip(values).toMap
+
+  /** Typed-data row representation used by `RowCodec[A]`.
+   *  Preserves driver-provided column labels and also adds lower-case aliases
+   *  for case-insensitive field-name matching across drivers such as H2 that
+   *  uppercase unquoted labels. */
+  def toRowValueMap: Map[String, RowValue] =
+    columns.zip(values.map(SqlRuntime.toRowValue)).foldLeft(Map.empty[String, RowValue]) {
+      case (acc, (column, value)) =>
+        acc + (column -> value) + (column.toLowerCase -> value)
+    }
 
   /** Project this row into a case class by field name.  Field-to-column
    *  matching is case-insensitive.  Missing fields or type mismatches
