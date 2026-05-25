@@ -397,8 +397,10 @@ the same query model.
    discriminator-based sealed ADT derivation, explicit `JsonFieldSpec`
    rename/default/key/unknown-field helpers, and derived product-codec support
    for `@fieldName`, `@aliases`, case-class defaults, `@key`, and
-   `@rejectUnknown`. Remaining: front-matter schema metadata and broader
-   non-JVM generated-client integration.
+   `@rejectUnknown`. Follow-up landed: JS/browser/Electron generated typed
+   clients pass request/response type names through the shared facade and use a
+   generated runtime codec registry for known case-class/enum shapes. Remaining:
+   broader cross-store codec coverage.
 3. **SQL row mapping** — partially landed: `RowValue`, `RowValueCodec[A]`,
    primitive/nullable column codecs, and `derives RowCodec` for simple case
    classes. Follow-up landed: `SqlRuntime.query[A]` decodes JDBC result rows
@@ -415,8 +417,7 @@ the same query model.
    schema metadata and uses it for `Db.query/insert/update[A]`. Follow-up
    landed: `schemas:` front-matter parses into AST/IR and interpreter typed SQL
    consumes it for aliases, defaults, key metadata, canonical storage names, and
-   unknown-column rejection. Remaining: non-JVM generated-client codec
-   integration and cross-store codecs.
+   unknown-column rejection. Remaining: cross-store codecs.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

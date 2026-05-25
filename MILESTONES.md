@@ -10384,8 +10384,10 @@ modes opt out of that default.
   Follow-up landed 2026-05-26: `schemas:` front-matter now
   parses into AST/IR, is covered by the manifest JSON schema, and interpreter
   typed SQL consumes it for canonical storage names, aliases, defaults, key
-  metadata, and unknown-column rejection. Remaining: non-JVM generated-client
-  codec integration and cross-store codecs.
+  metadata, and unknown-column rejection. Follow-up landed 2026-05-26:
+  JS/browser/Electron generated typed clients pass request/response type names
+  through the shared facade and use generated runtime codec metadata for known
+  case-class/enum response shapes. Remaining: cross-store codecs.
 
 ## v1.44 — Full-Stack In-Process Transport
 
