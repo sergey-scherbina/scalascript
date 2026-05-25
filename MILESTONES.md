@@ -10349,7 +10349,10 @@ modes opt out of that default.
   hand-written adapters per case class. Add examples showing one domain model
   persisted through SQL, client/server ObjectStore sync, graph vertices/edges,
   RDF where applicable, and processed through local/distributed Dataset plus
-  Spark where supported.
+  Spark where supported. Partially landed 2026-05-25: `backend/typed-data`
+  now has the first explicit `JsonValue`, `DecodeError`, `Codec[A, Repr]`, and
+  `JsonCodec[A]` API with primitive/list/option instances and manual
+  object-codec helpers; automatic `derives` remains planned.
 
 ## v1.44 — Full-Stack In-Process Transport
 
@@ -10528,8 +10531,9 @@ distributed same-source server/client example are partially landed.
   the boundary where the future derives-based typed mapping layer can plug in.
   Follow-up landed 2026-05-25: `backend/typed-data` now owns the shared emitted
   typed JSON facade snippets, and JVM/JS codegen import the same runtime
-  contract. Remaining Phase 4 work: add explicit/derived user codecs and route
-  the facade bodies through them.
+  contract. Follow-up landed 2026-05-25: `backend/typed-data` now has explicit
+  `JsonCodec[A]`/`DecodeError`/`JsonValue` APIs. Remaining Phase 4 work: add
+  derives-based user codecs and route the facade bodies through them.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

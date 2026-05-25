@@ -1106,7 +1106,9 @@ across stores is planned as a shared codec layer rather than one universal ORM.
 The first runtime foundation now lives in `backend/typed-data`: generated
 JVM/Swing and JS typed route clients share the same typed JSON facade names for
 request encoding and response decoding, while full user-defined/derived codecs
-remain planned.
+remain planned. The same module now also exposes the first explicit Scala API:
+`JsonValue`, `DecodeError`, `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/
+option instances, and object-codec helpers for manually mapping case classes.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. This keeps

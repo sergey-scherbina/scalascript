@@ -63,6 +63,19 @@ The important contract is that JVM/Swing and JS/browser/Electron clients call
 the same named boundary, so future `JsonCodec[A]` derivation can replace the
 facade implementation without reshaping generated client methods.
 
+The first explicit codec API also lives in `backend/typed-data`:
+
+```scala
+enum JsonValue
+final case class DecodeError(path: List[String], message: String)
+trait Codec[A, Repr]
+trait JsonCodec[A] extends Codec[A, JsonValue]
+```
+
+It includes primitive, `List[A]`, and `Option[A]` JSON codecs plus
+`JsonCodec.objectCodec(...)` / `JsonCodec.field(...)` helpers for manually
+writing product codecs. Automatic `derives JsonCodec` remains planned.
+
 User code should stay direct:
 
 ```scalascript
@@ -298,8 +311,9 @@ the same query model.
 
 1. **Spec + examples** — document the codec hierarchy, default derivation rules,
    identity/version envelope, and per-store examples.
-2. **Core codec derivation** — add `derives JsonCodec` and shared
-   `DecodeError`/path infrastructure.
+2. **Core codec foundation** — partially landed: `JsonValue`, `DecodeError`,
+   `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances, and
+   explicit object-codec helpers. Remaining: add `derives JsonCodec`.
 3. **SQL row mapping** — add `derives RowCodec`, `Db.query[A]`, and
    insert/update helpers for simple case classes.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
