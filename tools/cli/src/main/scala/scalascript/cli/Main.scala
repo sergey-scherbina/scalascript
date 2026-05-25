@@ -2469,7 +2469,7 @@ private def runElectronDev(sscFile: os.Path): Unit =
   println(s"     bundle: $tmpDir")
   // Verify electron is on PATH before attempting launch.
   val electronOk =
-    scala.util.Try(os.proc("electron", "--version").call(check = false).exitCode == 0)
+    scala.util.Try(os.proc(electronCommand, "--version").call(check = false).exitCode == 0)
       .getOrElse(false)
   if !electronOk then
     System.err.println("ssc: 'electron' not found on PATH.  Install it:")
@@ -2487,7 +2487,7 @@ private def runElectronDev(sscFile: os.Path): Unit =
  *  `fetch("/api/...")` calls go to the JVM server instead of the renderer's
  *  self-contained route table.
  */
-private def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit =
+private[cli] def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit =
   if !os.exists(sscFile) then
     System.err.println(s"run: file not found: $sscFile"); System.exit(1)
 
@@ -2500,7 +2500,7 @@ private def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit
   val script    = injectServerBackend(rawScript, serverBackend)
   val backendScript = os.temp(script, suffix = ".sc", deleteOnExit = true)
   val backendProcess =
-    new java.lang.ProcessBuilder("scala-cli", "run", backendScript.toString, "--server=false")
+    new java.lang.ProcessBuilder(scalaCliCommand, "run", backendScript.toString, "--server=false")
       .inheritIO()
       .start()
 
@@ -2524,9 +2524,13 @@ private def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit
 private[cli] var runElectronJvmRestDevHook: (os.Path, String) => Unit =
   runElectronJvmRestDev
 
+private[cli] var scalaCliCommand: String = "scala-cli"
+private[cli] var electronCommand: String = "electron"
+private[cli] var npmCommand:      String = "npm"
+
 private def runElectronProject(tmpDir: os.Path, module: Module): Int =
   val electronOk =
-    scala.util.Try(os.proc("electron", "--version").call(check = false).exitCode == 0)
+    scala.util.Try(os.proc(electronCommand, "--version").call(check = false).exitCode == 0)
       .getOrElse(false)
   if !electronOk then
     System.err.println("ssc: 'electron' not found on PATH.  Install it:")
@@ -2535,17 +2539,17 @@ private def runElectronProject(tmpDir: os.Path, module: Module): Int =
     return 1
   if module.manifest.exists(_.databases.nonEmpty) then
     val npmOk =
-      scala.util.Try(os.proc("npm", "--version").call(check = false).exitCode == 0)
+      scala.util.Try(os.proc(npmCommand, "--version").call(check = false).exitCode == 0)
         .getOrElse(false)
     if npmOk then
       println("ssc: installing Electron runtime dependencies")
-      val install = os.proc("npm", "install", "--silent", "--omit=dev")
+      val install = os.proc(npmCommand, "install", "--silent", "--omit=dev")
         .call(cwd = tmpDir, check = false)
       if install.exitCode != 0 then
         System.err.println(s"ssc: npm install failed, falling back to vendored sql.js assets:\n${install.out.text()}${install.err.text()}")
     else
       println("ssc: npm not found; using vendored sql.js assets")
-  os.proc("electron", tmpDir.toString)
+  os.proc(electronCommand, tmpDir.toString)
     .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
     .exitCode
 
