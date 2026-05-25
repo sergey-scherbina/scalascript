@@ -1039,11 +1039,12 @@ local signal actions for buttons, text inputs, checkboxes, and signal-backed
 labels. It is demonstrated by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
 The `runtime/std/swing-plugin` module is present as the future home for
-interpreter-side Swing intrinsics. `fetchTable`, typed clients, and a full
-no-socket example are still planned. The first Swing target should keep
-frontend actions and JVM backend routes inside one process without Electron,
-npm, browser hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapters
-candidates. See
+interpreter-side Swing intrinsics. `fetchTable` and typed clients are still
+planned. The first no-socket example is
+[`examples/frontend/swing-fullstack/`](../examples/frontend/swing-fullstack/):
+`fetchActionClear` posts to a JVM backend route, clears the input, and updates
+the Swing UI success counter without Electron, npm, browser hosting, or HTTP
+sockets. JavaFX and Compose Desktop are future adapter candidates. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

@@ -10390,7 +10390,9 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   selection while preserving HTTP for browser/JVM split and distributed modes.
 - **Phase 4 — JVM monolithic frontend target.** If a JVM-hosted UI target is
   available, support frontend + backend in one JVM process with
-  `InProcessBackendTransport` and add a runnable example.
+  `InProcessBackendTransport` and add a runnable example. Partially landed
+  (2026-05-25): `examples/frontend/swing-fullstack/` demonstrates the generated
+  JVM/Swing no-socket path with `fetchActionClear`.
 - **Phase 5 — Optional desktop bridge transport.** Evaluate Electron-main or
   other desktop shell bridge transports. This is local IPC/host bridging, not
   JVM in-process, and should remain explicit.
@@ -10448,10 +10450,12 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   process as generated backend code and `--frontend swing --transport
   in-process` is accepted. Phase 4c connected Swing `fetchAction` /
   `fetchActionClear` handlers to generated JVM backend routes through an
-  injected same-process dispatcher. Remaining work: connect `fetchTable` and
-  typed clients, decide whether generated JVM dispatch should reuse the
-  interpreter `InProcessBackendTransport` class directly, and add a no-socket
-  full-stack example.
+  injected same-process dispatcher. Phase 4d added
+  `examples/frontend/swing-fullstack/`, a no-socket example where
+  `fetchActionClear` posts to a JVM backend route and updates local Swing UI
+  state on success. Remaining work: connect `fetchTable` and typed clients,
+  and decide whether generated JVM dispatch should reuse the interpreter
+  `InProcessBackendTransport` class directly.
 - **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
   window metadata, graceful shutdown, and optional `jpackage` packaging.
 - **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose

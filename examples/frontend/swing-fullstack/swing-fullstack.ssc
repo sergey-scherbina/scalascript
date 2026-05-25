@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: swing-fullstack
+version: 0.1.0
+description: JVM Swing frontend and JVM backend routes in one process, without HTTP sockets.
+frontend: swing
+transport: in-process
+---
+
+# Swing Full-Stack
+
+A no-socket JVM desktop example: the Swing frontend and backend route registry
+run in one JVM process. The button posts to `/api/messages` through the
+generated in-process dispatcher, clears the text field on success, and bumps a
+local UI counter.
+
+## Backend
+
+```scalascript
+var messages: List[String] = List.empty[String]
+
+route("POST", "/api/messages") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    messages = messages :+ text
+    println("saved message #" + messages.length + ": " + text)
+    Response.status(201, "saved")
+}
+```
+
+## UI Imports
+
+[signal, serve, fetchActionClear](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack, divider](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[textField, actionButton](std/ui/input.ssc)
+
+[signalText_, rawText](std/ui/reactive.ssc)
+
+## UI
+
+```scalascript
+val message = signal[String]("message", "")
+val saved   = signal[Int]("saved", 0)
+
+val tree = vstack(gap = 12)(
+  heading(1, "Swing full-stack"),
+  text("JVM backend routes are called directly from the Swing frontend."),
+  divider(),
+  textField(value = message, label = "Message"),
+  actionButton(fetchActionClear("POST", "/api/messages", message, saved), "Save"),
+  hstack(gap = 4)(
+    rawText("Successful saves: "),
+    signalText_(saved)
+  )
+)
+
+serve(lower(tree, defaultTheme), 0)
+```
