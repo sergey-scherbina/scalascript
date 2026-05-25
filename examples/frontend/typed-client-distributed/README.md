@@ -24,3 +24,12 @@ source:
 ```bash
 ssc run --mode client --frontend electron --server-url http://BACKEND_HOST:49155 examples/frontend/typed-client-distributed/typed-client-distributed.ssc
 ```
+
+The client-side ScalaScript warmup block uses:
+
+```scalascript
+val startupMessages = awaitClient(Messages.list())
+```
+
+`awaitClient(...)` lowers to JavaScript `await` in JS/browser/Electron bundles.
+The block is marked `@side=client`, so the JVM server build ignores it.

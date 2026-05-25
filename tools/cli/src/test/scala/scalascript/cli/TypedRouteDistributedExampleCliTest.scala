@@ -24,6 +24,7 @@ class TypedRouteDistributedExampleCliTest extends AnyFunSuite:
     assert(html.contains("""create(input) { return _ssc_api_request("POST", "/api/messages", input); }"""))
     assert(html.contains("""list() { return _ssc_api_request("GET", "/api/messages", undefined); }"""))
     assert(html.contains("""get(input) { return _ssc_api_request("GET", "/api/messages/:id", input); }"""))
+    assert(html.contains("const startupMessages = await _dispatch(Messages, 'list', []);"))
     assert(html.contains("Messages.create(CreateMessage(text))"))
 
   test("same distributed typed client source dispatches server and web client modes"):

@@ -1064,8 +1064,11 @@ client objects over `fetch`; when a bundle is produced with `emit-spa
 dev mode uses the same generated HTTP clients in its renderer bundle.
 [`examples/frontend/typed-client-distributed/`](../examples/frontend/typed-client-distributed/)
 shows the same `.ssc` source running as a JVM backend on one machine and as a
-React/Electron client on another via `--server-url`. Final async ergonomics are
-still planned. See
+React/Electron client on another via `--server-url`. Client-side ScalaScript
+can use `awaitClient(Messages.list())`; JS codegen lowers it to `await
+Messages.list()` and wraps the client bundle in an async top-level function.
+Mark client-only ScalaScript blocks with `@side=client` when the same source is
+also compiled as a JVM server. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

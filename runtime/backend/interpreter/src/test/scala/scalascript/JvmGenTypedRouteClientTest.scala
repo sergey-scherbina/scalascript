@@ -104,3 +104,23 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(!code.contains("object Messages:"))
     assert(!code.contains("inline def _ssc_api_request[Req, Resp]"))
   }
+
+  test("JVM codegen skips client-only ScalaScript blocks") {
+    val src =
+      """# Test
+        |
+        |```scalascript @side=client
+        |val rows = awaitClient(Messages.list())
+        |```
+        |
+        |```scalascript
+        |val serverValue = 1
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src))
+
+    assert(!code.contains("awaitClient"))
+    assert(!code.contains("Messages.list"))
+    assert(code.contains("val serverValue = 1"))
+  }

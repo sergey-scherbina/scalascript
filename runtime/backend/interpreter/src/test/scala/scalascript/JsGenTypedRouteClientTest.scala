@@ -64,3 +64,41 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(js.contains("const _ssc_typedRouteClients = ["))
     assert(js.contains("const Messages = {"))
     assert(js.indexOf("const Messages = {") < js.indexOf("function CreateMessage("))
+
+  test("awaitClient lowers typed client Promises through an async wrapper"):
+    val src =
+      source +
+        """
+          |
+          |```scalascript
+          |val rows = awaitClient(Messages.list())
+          |println("rows=" + rows.size.toString)
+          |```
+          |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("(async () => {"))
+    assert(code.contains("""const rows = await _dispatch(Messages, 'list', []);"""))
+    assert(code.contains("document.body.textContent = msg"))
+
+  test("segmented output wraps awaitClient and skips server-only ScalaScript blocks"):
+    val src =
+      source +
+        """
+          |
+          |```scalascript @side=server
+          |val serverOnly = awaitClient(Messages.list())
+          |```
+          |
+          |```scalascript @side=client
+          |val clientRows = awaitClient(Messages.list())
+          |```
+          |""".stripMargin
+
+    val segments = JsGen.generateSegmented(Parser.parse(src))
+    val js = segments.collect { case JsGen.Segment.ScalaScriptJs(code) => code }.mkString("\n")
+
+    assert(js.contains("(async () => {"))
+    assert(js.contains("""const clientRows = await _dispatch(Messages, 'list', []);"""))
+    assert(!js.contains("serverOnly"))

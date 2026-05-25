@@ -1263,6 +1263,8 @@ class JvmGen(
     sections.flatMap { s =>
       val sectionId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.attrs.get("side").contains("client") =>
+          Nil
         case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           // `Content.CodeBlock.lineOffset` is populated by `Parser` from
           // CommonMark `BLOCKS` source-spans and points to the FIRST CODE

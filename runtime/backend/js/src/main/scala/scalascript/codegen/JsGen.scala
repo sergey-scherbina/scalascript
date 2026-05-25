@@ -6831,6 +6831,9 @@ class JsGen(
   // `scanForRunActors` and combined into the `needsAsync` decision
   // alongside `usesRunAsyncParallel` and `needSqlPreamble`.
   private var usesRunActors: Boolean = false
+  // Set when client/browser code uses `awaitClient(promise)`.  This helper
+  // lowers directly to JS `await` and therefore needs the top-level async IIFE.
+  private var usesAwaitClient: Boolean = false
   // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
   private var phCounters: List[Int] = Nil
   // Names of variables known to hold integer values (for integer division detection)
@@ -6997,6 +7000,7 @@ class JsGen(
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
     scanForRunActors(module)
+    scanForAwaitClient(module)
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
     // present (URL-prefix providers + ConnectionRegistry init + resolver).
@@ -7023,7 +7027,7 @@ class JsGen(
     // any actor is blocked on a long-armed `receive` (otherwise an
     // HTTP server bound via `serveAsync(...)` from inside the same
     // `runActors { ... }` body would be unreachable).
-    val needsAsync = usesRunAsyncParallel || usesRunActors || needSqlPreamble
+    val needsAsync = usesRunAsyncParallel || usesRunActors || usesAwaitClient || needSqlPreamble
     if needsAsync then
       line("(async () => {")
       // Write-through `_println` for code that runs *inside* the
@@ -7467,6 +7471,22 @@ class JsGen(
       }.nonEmpty
     }
 
+  /** Walk client-side ScalaScript blocks and detect `awaitClient(promise)`.
+   *  Server-only blocks are skipped because JS targets do not emit them.
+   */
+  private def scanForAwaitClient(module: Module): Unit =
+    def collectTrees(s: Section): List[scala.meta.Tree] =
+      s.content.collect {
+        case cb: Content.CodeBlock
+            if Lang.isScalaScript(cb.lang) && !cb.attrs.get("side").contains("server") =>
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten ++ s.subsections.flatMap(collectTrees)
+    usesAwaitClient = module.sections.flatMap(collectTrees).exists { tree =>
+      tree.collect {
+        case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Name("awaitClient"), _) => ()
+      }.nonEmpty
+    }
+
   /** True if `Eff.op` is a declared effect operation. */
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")
@@ -7487,6 +7507,7 @@ class JsGen(
     analyzeEffects(module)
     scanForRunAsyncParallel(module)
     scanForRunActors(module)
+    scanForAwaitClient(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)
     // sees them already registered.  JS function declarations are hoisted,
@@ -7510,6 +7531,8 @@ class JsGen(
 
     def walkSection(s: Section): Unit =
       s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
+          ()
         case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
           flushScala()
           cb.tree.foreach(genScalaNode)
@@ -7526,7 +7549,7 @@ class JsGen(
       }
       s.subsections.foreach(walkSection)
 
-    val needsAsyncSeg = usesRunAsyncParallel || usesRunActors
+    val needsAsyncSeg = usesRunAsyncParallel || usesRunActors || usesAwaitClient
     if needsAsyncSeg then
       sb.append("(async () => {\n")
       // See `genModule` for the rationale — install a write-through
@@ -7548,13 +7571,20 @@ class JsGen(
     if hasMain && !mainCalled then
       sb.append("if (typeof main === 'function') { main(); }\n")
     if needsAsyncSeg then
-      sb.append("})().catch(e => { if (typeof process !== 'undefined') { process.stderr.write(String(e) + '\\n'); process.exit(1); } });\n")
+      sb.append("})().catch(e => {\n")
+      sb.append("  const msg = String(e && e.stack ? e.stack : e);\n")
+      sb.append("  if (typeof process !== 'undefined' && process.stderr) { process.stderr.write(msg + '\\n'); process.exit(1); }\n")
+      sb.append("  else if (typeof document !== 'undefined') { document.body.textContent = msg; }\n")
+      sb.append("  else { console.error(msg); }\n")
+      sb.append("});\n")
     val finalCode = sb.substring(ssStart)
     if finalCode.trim.nonEmpty then result += JsGen.Segment.ScalaScriptJs(finalCode)
     result.toList
 
   private[codegen] def genSection(section: Section): Unit =
     section.content.foreach {
+      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
+        ()
       case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
         cb.tree.foreach(genScalaNode)
       case cb: Content.CodeBlock if Lang.isStandardScala(cb.lang) =>
@@ -8781,6 +8811,12 @@ class JsGen(
         if bodyArgClause.values.size == 1 =>
       val awaitPrefix = if usesRunAsyncParallel then "await " else ""
       s"${awaitPrefix}_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+
+    // Browser/client helper for Promise-returning typed HTTP clients.
+    // Source form: `awaitClient(Messages.list())` → JS: `await Messages.list()`.
+    case Term.Apply.After_4_6_0(Term.Name("awaitClient"), argClause)
+        if argClause.values.size == 1 =>
+      s"await ${genExpr(argClause.values.head.asInstanceOf[Term])}"
 
     // Storage handlers — file-backed (with optional path arg) and ephemeral
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)

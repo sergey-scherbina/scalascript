@@ -37,8 +37,16 @@ ssc run --mode client --frontend react --server-url http://BACKEND_HOST:49155 ex
 ```
 
 The client UI below is a small raw JavaScript block because JS HTTP typed
-clients currently return Promises. The typed client object itself is generated
-from `apiClients:` metadata.
+clients return Promises. For ScalaScript client code, `awaitClient(...)` lowers
+to JavaScript `await` in browser/Electron bundles. The typed client object
+itself is generated from `apiClients:` metadata.
+
+## Client Warmup
+
+```scalascript @side=client
+val startupMessages = awaitClient(Messages.list())
+println("typed client connected; rows=" + startupMessages.size.toString)
+```
 
 ## Browser Client
 

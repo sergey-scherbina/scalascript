@@ -10514,8 +10514,12 @@ distributed same-source server/client example are partially landed.
   source running as `ssc run --mode server --backend jvm` on one machine and
   `ssc run --mode client --frontend react|electron --server-url ...` on
   another. SPA/client output now includes raw `javascript` blocks so browser UI
-  glue can call the generated Promise-returning clients. Remaining Phase 3
-  work: final async ergonomics for `.ssc` frontend calls.
+  glue can call the generated Promise-returning clients. JS codegen now also
+  recognizes `awaitClient(promise)` in client-side ScalaScript, lowers it to
+  JavaScript `await promise`, and enables the async top-level wrapper; JVM
+  codegen skips `@side=client` ScalaScript blocks, while JS codegen skips
+  `@side=server` blocks. Remaining Phase 3 work: broader async syntax/type
+  integration beyond the explicit `awaitClient(...)` bridge.
 - **Phase 4 — Shared codecs.** Replace temporary generated JSON code with the
   shared typed mapping codec layer once that layer exists.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from

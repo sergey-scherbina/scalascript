@@ -276,8 +276,17 @@ uses one `.ssc` file for both `ssc run --mode server --backend jvm` and
 also exercises raw JavaScript blocks in SPA/client output so browser UI glue
 can call the generated Promise-returning `Messages` client.
 
-Still planned for Phase 3: final async ergonomics for using Promise-returning
-clients from `.ssc` frontend code.
+Landed 2026-05-25 follow-up: JS codegen recognizes
+`awaitClient(promise)` in client-side ScalaScript and lowers it to JavaScript
+`await promise`, automatically enabling the async top-level wrapper. This lets
+client code write `val rows = awaitClient(Messages.list())` instead of dropping
+to `.then(...)` for simple typed route calls. Blocks marked
+`@side=client` are skipped by JVM codegen, and blocks marked `@side=server`
+are skipped by JS codegen, so the same `.ssc` source can contain client-only
+awaits and server-only backend code.
+
+Still planned for Phase 3: broader async syntax/type-system integration beyond
+this explicit `awaitClient(...)` bridge.
 
 ### Phase 4 — Shared Codecs
 
