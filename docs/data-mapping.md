@@ -129,8 +129,8 @@ sql, binds)`. `SqlRuntime.insert/update[A]` and interpreter/JVM
 `Db.insert/update[A]` encode typed values for explicit table/key based writes.
 The JVM `RowCodec` derivation consumes the same `@fieldName`, `@aliases`,
 case-class defaults, `@key`, and `@rejectUnknown` annotations as `JsonCodec`.
-Interpreter typed helpers use runtime case-class field metadata and do not yet
-consume aliases/defaults from Scala typeclass instances.
+Interpreter typed SQL helpers consume the same annotations for
+`Db.query/insert/update[A]` by storing runtime case-class schema metadata.
 See [`examples/typed-sql-crud.ssc`](../examples/typed-sql-crud.ssc) for a
 minimal CRUD example.
 
@@ -389,8 +389,10 @@ the same query model.
    metadata, case-insensitive lookup, and unknown-column rejection to the JVM
    `RowCodec`/`SqlRuntime` path. Follow-up landed: derived JVM `RowCodec`
    consumes `@fieldName`, `@aliases`, case-class defaults, `@key`, and
-   `@rejectUnknown`. Remaining: front-matter schema metadata and interpreter
-   consumption of explicit field metadata.
+   `@rejectUnknown`. Follow-up landed: interpreter typed SQL stores the same
+   schema metadata and uses it for `Db.query/insert/update[A]`. Remaining:
+   front-matter schema metadata, non-JVM generated-client codec integration, and
+   cross-store codecs.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

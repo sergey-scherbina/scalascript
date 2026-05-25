@@ -98,6 +98,10 @@ trait NativeContext:
     throw new UnsupportedOperationException(
       s"No database registry for '$dbName' — add a databases: section to front-matter"
     )
+  // Storage-schema metadata for interpreter case-class instances. Native
+  // storage intrinsics can ask for the canonical persisted name of a runtime
+  // field without depending on interpreter internals.
+  def storageFieldName(@annotation.unused typeName: String, fieldName: String): String = fieldName
   // mount() intrinsic — file evaluation hooks.
   // `baseDirPath` is the interpreter's current base directory (absolute string).
   // Returns None when the interpreter has no base dir (e.g. pure REPL snippets).

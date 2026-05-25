@@ -242,6 +242,8 @@ private[interpreter] object SectionRuntime:
     interp.extensions     ++= child.exportedExtensions
     interp.parentTypes    ++= child.exportedParentTypes
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
+    interp.typeFieldSchemas ++= child.exportedTypeFieldSchemas
+    interp.rejectUnknownTypes ++= child.exportedRejectUnknownTypes
 
   /** Enrich `FunV` closures with `ctx` so that exported functions can reference
    *  sibling-module bindings (case-class constructors, helpers) when called

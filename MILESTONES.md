@@ -10376,9 +10376,13 @@ modes opt out of that default.
   Follow-up landed 2026-05-26: JVM derived product codecs for `JsonCodec` and
   `RowCodec` now consume `@fieldName`, `@aliases`, case-class default
   parameters, `@key`, and `@rejectUnknown`; `SqlRuntime` coverage verifies the
-  annotated derived `RowCodec` path. Remaining: front-matter schema metadata,
-  interpreter consumption of explicit field metadata, non-JVM generated-client
-  codec integration, and cross-store codecs.
+  annotated derived `RowCodec` path. Follow-up landed 2026-05-26:
+  interpreter typed SQL now stores runtime schema metadata from `@fieldName`,
+  `@aliases`, case-class defaults, `@key`, and `@rejectUnknown`; `Db.query[A]`
+  applies aliases/defaults/unknown-column rejection, and `Db.insert/update[A]`
+  write canonical column names via `NativeContext.storageFieldName`. Remaining:
+  front-matter schema metadata, non-JVM generated-client codec integration, and
+  cross-store codecs.
 
 ## v1.44 — Full-Stack In-Process Transport
 

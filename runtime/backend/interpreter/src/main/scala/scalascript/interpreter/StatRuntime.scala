@@ -112,6 +112,8 @@ private[interpreter] object StatRuntime:
       interp.typeFieldTypes(typeName) = params.map(p =>
         p.decltpe.fold("String")(interp.typeToString)
       )
+      interp.typeFieldSchemas(typeName) = params.map(p => fieldSchema(p, ctorEnv, interp))
+      if hasAnnot(d.mods, "rejectUnknown") then interp.rejectUnknownTypes += typeName
       if d.mods.exists {
         case Mod.Annot(Init.After_4_6_0(Type.Name("noTrace"), _, _)) => true
         case _ => false
@@ -162,6 +164,9 @@ private[interpreter] object StatRuntime:
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
           if paramNames.nonEmpty then interp.typeFieldOrder(caseName) = paramNames
+          if paramNames.nonEmpty then
+            interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(p, ctorEnv, interp))
+          if hasAnnot(ec.mods, "rejectUnknown") then interp.rejectUnknownTypes += caseName
           interp.parentTypes(caseName) = enumName
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
@@ -302,4 +307,37 @@ private[interpreter] object StatRuntime:
 
     case _ => () // type aliases, imports, exports, etc.
 
+  private def fieldSchema(param: Term.Param, env: Map[String, Value], interp: Interpreter): TypeFieldSchema =
+    val fieldName = param.name.value
+    TypeFieldSchema(
+      fieldName   = fieldName,
+      storageName = stringAnnot(param.mods, "fieldName").getOrElse(fieldName),
+      aliases     = stringSeqAnnot(param.mods, "aliases"),
+      default     = param.default.map(t => Computation.run(interp.eval(t, env))),
+      key         = hasAnnot(param.mods, "key")
+    )
 
+  private def hasAnnot(mods: List[Mod], name: String): Boolean =
+    mods.exists {
+      case Mod.Annot(init) => annotName(init).contains(name)
+      case _ => false
+    }
+
+  private def stringAnnot(mods: List[Mod], name: String): Option[String] =
+    mods.collectFirst {
+      case Mod.Annot(init) if annotName(init).contains(name) =>
+        init.argClauses.flatMap(_.values).collectFirst {
+          case Lit.String(value) => value
+        }
+    }.flatten
+
+  private def stringSeqAnnot(mods: List[Mod], name: String): List[String] =
+    mods.collectFirst {
+      case Mod.Annot(init) if annotName(init).contains(name) =>
+        init.argClauses.flatMap(_.values).collect { case Lit.String(value) => value }.toList
+    }.getOrElse(Nil)
+
+  private def annotName(init: Init): Option[String] = init.tpe match
+    case Type.Name(value) => Some(value)
+    case Type.Select(_, Type.Name(value)) => Some(value)
+    case _ => Some(init.tpe.syntax.split('.').last)

@@ -48,6 +48,15 @@ private case class ParametricGiven(
   capturedEnv:        Map[String, Value]
 )
 
+private[interpreter] case class TypeFieldSchema(
+    fieldName:   String,
+    storageName: String,
+    aliases:     List[String],
+    default:     Option[Value],
+    key:         Boolean
+):
+  def storageNames: List[String] = storageName :: aliases
+
 /** Shallow snapshot of all section-populated mutable state in [[Interpreter]].
  *  Used by `ssc watch` to restore the interpreter to its state just before a
  *  changed section, enabling incremental re-eval of only the changed suffix.
@@ -63,6 +72,8 @@ private[scalascript] case class InterpCheckpoint(
   typeMethods:         Map[String, Map[String, Value.FunV]],
   typeFieldOrder:      Map[String, List[String]],
   typeFieldTypes:      Map[String, List[String]],
+  typeFieldSchemas:    Map[String, List[TypeFieldSchema]],
+  rejectUnknownTypes:  Set[String],
   givenFactories:      IndexedSeq[ParametricGiven],
   givenCandidateCount: Map[String, Int],
   mainCalled:          Boolean,
@@ -113,6 +124,8 @@ class Interpreter(
   // Populated in StatRuntime when a Defn.Class is processed; used by
   // TypedHandlerWrapper.deserializeCaseClass to coerce path/query/body values.
   private[interpreter] val typeFieldTypes = mutable.Map.empty[String, List[String]]
+  private[interpreter] val typeFieldSchemas = mutable.Map.empty[String, List[TypeFieldSchema]]
+  private[interpreter] val rejectUnknownTypes = mutable.Set.empty[String]
   // Parametric given factories — givens with type parameters and/or using clauses.
   // Stored separately because they can't be stored as plain Values until their type
   // variables are resolved at the call site.
@@ -583,6 +596,8 @@ class Interpreter(
       typeMethods         = typeMethods.toMap,
       typeFieldOrder      = typeFieldOrder.toMap,
       typeFieldTypes      = typeFieldTypes.toMap,
+      typeFieldSchemas    = typeFieldSchemas.toMap,
+      rejectUnknownTypes  = rejectUnknownTypes.toSet,
       givenFactories      = givenFactories.toIndexedSeq,
       givenCandidateCount = givenCandidateCount.toMap,
       mainCalled          = mainCalled,
@@ -598,6 +613,8 @@ class Interpreter(
     typeMethods.clear();         typeMethods         ++= cp.typeMethods
     typeFieldOrder.clear();      typeFieldOrder      ++= cp.typeFieldOrder
     typeFieldTypes.clear();      typeFieldTypes      ++= cp.typeFieldTypes
+    typeFieldSchemas.clear();    typeFieldSchemas    ++= cp.typeFieldSchemas
+    rejectUnknownTypes.clear();  rejectUnknownTypes  ++= cp.rejectUnknownTypes
     givenFactories.clear();      givenFactories      ++= cp.givenFactories
     givenCandidateCount.clear(); givenCandidateCount ++= cp.givenCandidateCount
     mainCalled      = cp.mainCalled
@@ -802,6 +819,12 @@ class Interpreter(
           case None      => throw new scalascript.server.RestValidationError(msg)
       override def dbConnect(dbName: String): java.sql.Connection =
         Interpreter.this.sqlRegistry.connect(dbName)
+      override def storageFieldName(typeName: String, fieldName: String): String =
+        Interpreter.this.typeFieldSchemas
+          .get(typeName)
+          .flatMap(_.find(_.fieldName == fieldName))
+          .map(_.storageName)
+          .getOrElse(fieldName)
       override def baseDirPath: Option[String] =
         Interpreter.this.baseDir.map(_.toString)
       override def evalFileGetResult(absPath: String): Any =
@@ -908,6 +931,8 @@ class Interpreter(
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
   def exportedTypeFieldTypes: Map[String, List[String]]        = typeFieldTypes.toMap
+  def exportedTypeFieldSchemas: Map[String, List[TypeFieldSchema]] = typeFieldSchemas.toMap
+  def exportedRejectUnknownTypes: Set[String]                  = rejectUnknownTypes.toSet
 
   // Deep-merge overlay into base so multiple code blocks sharing the same
   // package prefix (e.g. `object std { object lib { ... } }` appearing in

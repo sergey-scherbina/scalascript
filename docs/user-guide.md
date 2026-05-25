@@ -983,9 +983,9 @@ case class Todo(
 `@fieldName` is the canonical column written by `Db.insert/update`, `@aliases`
 are accepted while decoding older column names, default parameters become
 missing-column defaults, and `@rejectUnknown` rejects extra columns. JDBC column
-lookup is case-insensitive. Interpreter typed SQL helpers currently use runtime
-case-class field metadata only; explicit `RowFieldSpec` aliases/defaults are
-planned for that path.
+lookup is case-insensitive. The same annotations are honored on the interpreter
+typed SQL path for `Db.query/insert/update[A]`; explicit `RowFieldSpec[A]`
+values remain a JVM typeclass API.
 
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 

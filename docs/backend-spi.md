@@ -488,7 +488,10 @@ The SPI introduces a uniform mechanism: **platform intrinsics**.
      calls directly with already-evaluated arguments.  Pairs with a
      `NativeContext` parameter carrying the runtime hooks an I/O
      intrinsic needs (e.g. `println` reads `ctx.out` so the
-     interpreter's per-session `PrintStream` is honoured).
+     interpreter's per-session `PrintStream` is honoured). Storage
+     plugins may call `ctx.storageFieldName(typeName, fieldName)` to map
+     interpreter case-class field names to canonical persisted names without
+     depending on interpreter internals.
 
 3. **Validation.** Missing intrinsics are caught by the same
    `CapabilityCheck` as missing language features: using

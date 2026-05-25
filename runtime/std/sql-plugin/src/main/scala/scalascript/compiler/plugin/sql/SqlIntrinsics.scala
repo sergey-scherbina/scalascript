@@ -67,7 +67,7 @@ object SqlIntrinsics:
       args match
         case List(dbName: String, table: String, value: Value) =>
           val conn = ctx.dbConnect(dbName)
-          scalascript.sql.SqlRuntime.insertRow(conn, table, rowFields(value)).toLong
+          scalascript.sql.SqlRuntime.insertRow(conn, table, rowFields(ctx, value)).toLong
         case _ => throw new RuntimeException("Db.insert(dbName: String, table: String, value: A)")
     ),
 
@@ -78,7 +78,7 @@ object SqlIntrinsics:
         case List(dbName: String, table: String, keyColumn: String, keyValue, value: Value) =>
           val conn = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime
-            .updateRow(conn, table, keyColumn, keyValue, rowFields(value))
+            .updateRow(conn, table, keyColumn, keyValue, rowFields(ctx, value))
             .toLong
         case _ => throw new RuntimeException("Db.update(dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)")
     ),
@@ -100,9 +100,9 @@ object SqlIntrinsics:
     case Value.OptionV(Some(inner)) => unwrapValue(inner)
     case _                => v.toString
 
-  private def rowFields(value: Value): Vector[(String, Any)] = value match
-    case Value.InstanceV(_, fields) =>
-      fields.iterator.toVector.map((name, fieldValue) => name -> unwrapValue(fieldValue))
+  private def rowFields(ctx: NativeContext, value: Value): Vector[(String, Any)] = value match
+    case Value.InstanceV(typeName, fields) =>
+      fields.iterator.toVector.map((name, fieldValue) => ctx.storageFieldName(typeName, name) -> unwrapValue(fieldValue))
     case Value.MapV(entries) =>
       entries.iterator.toVector.map {
         case (Value.StringV(name), fieldValue) => name -> unwrapValue(fieldValue)

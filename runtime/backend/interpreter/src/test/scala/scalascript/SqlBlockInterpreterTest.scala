@@ -5,7 +5,7 @@ import java.util.UUID
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 
-import scalascript.interpreter.Interpreter
+import scalascript.interpreter.{InterpretError, Interpreter}
 import scalascript.parser.Parser
 
 /** v1.26 Phase 6.B — end-to-end interpreter execution of `sql` fenced
@@ -278,4 +278,76 @@ class SqlBlockInterpreterTest extends AnyFunSuite with Matchers:
           |```
           |""".stripMargin
     runProgram(ssc).toString.trim shouldBe "1/1:Alicia:false"
+  }
+
+  test("interpreter typed SQL honors schema annotations and defaults") {
+    val url = uniqueDb()
+    val ssc =
+      s"""|---
+          |databases:
+          |  default:
+          |    url: $url
+          |---
+          |
+          |# Model
+          |
+          |```scala
+          |@rejectUnknown
+          |case class Person(
+          |  @key id: Int,
+          |  @fieldName("display_name") @aliases("name") displayName: String,
+          |  active: Boolean = true
+          |)
+          |```
+          |
+          |# Schema
+          |
+          |```sql
+          |CREATE TABLE people (id INT PRIMARY KEY, display_name VARCHAR(64), active BOOLEAN)
+          |```
+          |
+          |```sql
+          |INSERT INTO people (id, display_name, active) VALUES (1, 'Ada', false)
+          |```
+          |
+          |# Read + Write
+          |
+          |```scala
+          |val fromCanonical = Db.query[Person]("default", "SELECT id AS id, display_name AS display_name FROM people WHERE id = 1", [])
+          |val inserted = Db.insert("default", "people", Person(2, "Grace", true))
+          |val fromAlias = Db.query[Person]("default", "SELECT id AS id, display_name AS name FROM people WHERE id = 2", [])
+          |println(s"$${fromCanonical.head.displayName}:$${fromCanonical.head.active}:$${inserted}:$${fromAlias.head.displayName}:$${fromAlias.head.active}")
+          |```
+          |""".stripMargin
+    runProgram(ssc).toString.trim shouldBe "Ada:true:1:Grace:true"
+  }
+
+  test("interpreter typed SQL rejects unknown columns when annotated") {
+    val url = uniqueDb()
+    val ssc =
+      s"""|---
+          |databases:
+          |  default:
+          |    url: $url
+          |---
+          |
+          |```scala
+          |@rejectUnknown
+          |case class Person(id: Int, name: String)
+          |```
+          |
+          |```sql
+          |CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(64), extra VARCHAR(64))
+          |```
+          |
+          |```sql
+          |INSERT INTO people VALUES (1, 'Ada', 'nope')
+          |```
+          |
+          |```scala
+          |Db.query[Person]("default", "SELECT id AS id, name AS name, extra AS extra FROM people", [])
+          |```
+          |""".stripMargin
+    val ex = intercept[InterpretError](runProgram(ssc))
+    ex.getMessage.toLowerCase.should(include("$.extra: unknown column 'extra'"))
   }

@@ -846,15 +846,30 @@ private[interpreter] object EvalRuntime:
     case Value.MapV(entries) =>
       val fields = interp.typeFieldOrder.get(typeName) match
         case Some(order) =>
-          order.map { fieldName => fieldName -> lookupRowField(entries, fieldName) }.toMap
+          val schemas = interp.typeFieldSchemas.getOrElse(typeName,
+            order.map(name => TypeFieldSchema(name, name, Nil, None, key = false)))
+          if interp.rejectUnknownTypes.contains(typeName) then
+            val known = schemas.iterator.flatMap(_.storageNames).map(_.toLowerCase(java.util.Locale.ROOT)).toSet
+            entries.keys.collectFirst {
+              case Value.StringV(k) if !known.contains(k.toLowerCase(java.util.Locale.ROOT)) => k
+            }.foreach(name => throw InterpretError(s"$$.$name: unknown column '$name'"))
+          schemas.map { schema =>
+            schema.fieldName -> lookupRowField(entries, schema)
+          }.toMap
         case None =>
           entries.collect { case (Value.StringV(k), v) => k -> v }
       Value.InstanceV(typeName, fields)
     case other => other
 
-  private def lookupRowField(entries: Map[Value, Value], fieldName: String): Value =
-    entries.get(Value.StringV(fieldName))
-      .orElse(entries.collectFirst { case (Value.StringV(k), v) if k.equalsIgnoreCase(fieldName) => v })
+  private def lookupRowField(entries: Map[Value, Value], schema: TypeFieldSchema): Value =
+    schema.storageNames.iterator
+      .flatMap(name =>
+        entries.get(Value.StringV(name))
+          .orElse(entries.collectFirst { case (Value.StringV(k), v) if k.equalsIgnoreCase(name) => v })
+      )
+      .toSeq
+      .headOption
+      .orElse(schema.default)
       .getOrElse(Value.NullV)
 
   /** Peel nested `Apply` nodes to collect all argument lists for a curried call.
