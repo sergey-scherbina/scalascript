@@ -128,12 +128,12 @@ bin/http.ssc
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
 
-**Planned / not implemented yet**
+**Planned / partial**
 
 | | |
 |---|---|
 | [Blockchain SPI](docs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
-| [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Planned, not implemented yet: split-process mode with JVM REST backend + Electron/React/etc. frontend clients from one `.ssc` |
+| [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`; default full-stack detection and distributed client/server modes remain planned |
 | [Client/server object store](docs/client-server-object-store.md) | Planned, not implemented yet: IndexedDB client store + JVM `ObjectStore` + generated REST sync |
 | [Graph storage](docs/graph-storage.md) | Planned, not implemented yet: `graphs:` front matter for property graph and RDF stores |
 | [Typed data mapping](docs/data-mapping.md) | Planned, not implemented yet: shared `derives`-based codecs across SQL, JSON/ObjectStore, graphs, RDF, `Dataset[T]`, and Spark |

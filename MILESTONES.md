@@ -10235,6 +10235,14 @@ modes opt out of that default.
   `ssc run --frontend electron --backend jvm-rest app.ssc`: start JVM backend,
   wait for readiness, launch the selected frontend client, clean up both
   processes.
+  - **Phase 1a ✓ Landed (2026-05-25)** — explicit Electron JVM REST dev mode:
+    `ssc run --frontend electron --backend jvm-rest app.ssc` starts the JVM
+    backend via scala-cli, waits for the source `serve(...)` port, injects
+    `__sscBackendBaseUrl` into the Electron renderer bundle, forwards relative
+    fetch calls to the JVM backend, and terminates the backend when Electron
+    exits.
+  - **Still open:** plain `ssc run app.ssc` full-stack autodetection,
+    non-Electron frontend supervision, and default-run smoke coverage.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch
   and frontend-only client launch/build from one `.ssc`, including
   `--server-url` for React/custom web and Electron clients.

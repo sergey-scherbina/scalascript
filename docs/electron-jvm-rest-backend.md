@@ -1,6 +1,10 @@
 # Electron JVM REST Backend
 
-> Status: design spec - May 2026.
+> Status: design spec - May 2026. Phase 1a landed: explicit local dev mode
+> `ssc run --frontend electron --backend jvm-rest app.ssc` starts a JVM backend
+> and an Electron client wired through `__sscBackendBaseUrl`. Plain default
+> full-stack detection, server-only/client-only modes, distributed launch, and
+> packaging remain planned.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -560,6 +564,15 @@ launches each side separately from the same source.
 - Add the milestone plan.
 
 ### Phase 1 - Dev Run Supervisor
+
+- **Phase 1a landed (2026-05-25):** explicit Electron mode only. The CLI starts
+  the JVM backend via scala-cli, waits for the source's `serve(...)` port, writes
+  an Electron bundle with `__sscBackendBaseUrl`, forwards relative renderer
+  `fetch("/...")` calls to the JVM backend, and tears down the backend when
+  Electron exits.
+- **Still planned:** plain `ssc run app.ssc` full-stack autodetection,
+  non-Electron frontend supervision, and end-to-end smoke coverage for default
+  run semantics.
 
 - Detect full-stack source shape for default `ssc run app.ssc`.
 - Add CLI support for `--backend jvm-rest` with `--frontend electron`.

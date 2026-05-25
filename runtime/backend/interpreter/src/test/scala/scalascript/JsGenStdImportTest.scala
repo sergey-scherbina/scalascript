@@ -38,6 +38,11 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(JsRuntimeBrowserPatch.contains("_spaRouteResponse(method, pathOnly"))
     assert(JsRuntimeBrowserPatch.contains("Response.notFound('Not Found: ' + pathOnly)"))
 
+  test("browser patch can forward relative fetch calls to injected JVM backend"):
+    assert(JsRuntimeBrowserPatch.contains("globalThis.__sscBackendBaseUrl"))
+    assert(JsRuntimeBrowserPatch.contains("new URL(rawPath, String(globalThis.__sscBackendBaseUrl)).toString()"))
+    assert(JsRuntimeBrowserPatch.contains("return _ssc_native_fetch(target, init)"))
+
   test("async browser module failures render a visible error"):
     val source =
       """# App

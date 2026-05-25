@@ -105,6 +105,21 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     os.size(out / "vendor" / "sqljs" / "sql-wasm.wasm") should be > 0L
   }
 
+  test("bundle builder injects JVM REST backend base URL when provided") {
+    val module = Module(manifest = None, sections = Nil)
+    val out = os.temp.dir(prefix = "ssc-electron-jvm-rest-", deleteOnExit = true)
+    ElectronBundleBuilder.write(
+      module,
+      "app",
+      baseDir = None,
+      out,
+      backendBaseUrl = Some("http://127.0.0.1:49152")
+    )
+    val appJs = os.read(out / "app.js")
+    appJs should include ("globalThis.__sscBackendBaseUrl = \"http://127.0.0.1:49152\"")
+    appJs should include ("_ssc_frontend_name = 'electron'")
+  }
+
   test("packageJson has required npm fields") {
     val json = ElectronEmitter.packageJson("my-app")
     json should include ("\"main\": \"main.js\"")

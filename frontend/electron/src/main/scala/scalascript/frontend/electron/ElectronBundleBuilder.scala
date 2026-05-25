@@ -8,13 +8,19 @@ import scalascript.parser.Parser
  *  and regression tests. */
 object ElectronBundleBuilder:
 
-  def build(sscFile: os.Path, outDir: os.Path): Unit =
+  def build(sscFile: os.Path, outDir: os.Path, backendBaseUrl: Option[String] = None): Unit =
     val module  = Parser.parse(os.read(sscFile))
     val title   = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
     val baseDir = Some(sscFile / os.up)
-    write(module, title, baseDir, outDir)
+    write(module, title, baseDir, outDir, backendBaseUrl = backendBaseUrl)
 
-  def write(module: Module, title: String, baseDir: Option[os.Path], outDir: os.Path): Unit =
+  def write(
+      module:         Module,
+      title:          String,
+      baseDir:        Option[os.Path],
+      outDir:         os.Path,
+      backendBaseUrl: Option[String] = None
+  ): Unit =
     val rawJs     = rawJavaScriptBlocks(module)
     val moduleJs  = JsGen.generate(module, baseDir)
     val databases = module.manifest.toList.flatMap(_.databases)
@@ -23,7 +29,10 @@ object ElectronBundleBuilder:
         JsGen.Capability.Mcp -
         JsGen.Capability.Dataset
     val frontendInit = "_ssc_frontend_name = 'electron'; // injected by ssc\n"
-    val appJs = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$frontendInit$rawJs\n$moduleJs"
+    val backendInit = backendBaseUrl.fold("") { url =>
+      s"globalThis.__sscBackendBaseUrl = ${jsString(url)}; // injected by ssc jvm-rest\n"
+    }
+    val appJs = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$backendInit$frontendInit$rawJs\n$moduleJs"
 
     os.makeDir.all(outDir)
     os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))
@@ -57,3 +66,10 @@ object ElectronBundleBuilder:
       val bytes = in.readAllBytes()
       os.write.over(dest, bytes, createFolders = true)
     finally in.close()
+
+  private def jsString(s: String): String =
+    "\"" + s
+      .replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+      .replace("\n", "\\n")
+      .replace("\r", "\\r") + "\""

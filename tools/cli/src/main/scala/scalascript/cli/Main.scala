@@ -475,7 +475,8 @@ def printUsage(): Unit =
     |    registry remove <id>   Remove a registry entry
     |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
-    |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
+    |                         Flags: --frontend <custom|react|solid|vue|electron>  (overrides frontmatter frontend:)
+    |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -1417,8 +1418,12 @@ private def buildProjectFileCommand(
 
 /** Write an Electron app bundle (index.html, app.js, main.js, preload.js,
  *  package.json) to `outDir`, compiled from the given `.ssc` file. */
-private def buildElectronBundle(sscFile: os.Path, outDir: os.Path): Unit =
-  scalascript.frontend.electron.ElectronBundleBuilder.build(sscFile, outDir)
+private def buildElectronBundle(
+    sscFile:        os.Path,
+    outDir:         os.Path,
+    backendBaseUrl: Option[String] = None
+): Unit =
+  scalascript.frontend.electron.ElectronBundleBuilder.build(sscFile, outDir, backendBaseUrl = backendBaseUrl)
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -2318,6 +2323,14 @@ def runCommand(args: List[String]): Unit =
   val isElectronRun =
     targetFlag.exists(t => t == "desktop" || t == "desktop-electron") ||
     frontendFlag.contains("electron")
+  val isJvmRestRun = ActiveFlags.current.backend.contains("jvm-rest")
+  if isJvmRestRun && !isElectronRun then
+    System.err.println("run --backend jvm-rest currently requires --frontend electron or --target desktop")
+    System.exit(1)
+  if isElectronRun && isJvmRestRun then
+    for file <- fileArgs.toList do
+      runElectronJvmRestDev(os.Path(file, os.pwd), serverBackendFlag)
+    return
   if isElectronRun then
     for file <- fileArgs.toList do
       runElectronDev(os.Path(file, os.pwd))
@@ -2446,6 +2459,60 @@ private def runElectronDev(sscFile: os.Path): Unit =
     System.err.println("  npm install -g electron")
     System.err.println("  ssc toolchain install --target desktop")
     System.exit(1)
+  val exit = runElectronProject(tmpDir, module)
+  if exit != 0 then System.exit(exit)
+
+/** Dev-run split-process Electron mode.
+ *
+ *  The JVM backend is generated with the existing JVM backend and started via
+ *  scala-cli.  The Electron renderer is generated from the same source, but its
+ *  browser fetch overlay receives `__sscBackendBaseUrl`, so relative
+ *  `fetch("/api/...")` calls go to the JVM server instead of the renderer's
+ *  self-contained route table.
+ */
+private def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit =
+  if !os.exists(sscFile) then
+    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
+
+  val module = loadModule(sscFile)
+  val title  = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  val port   = detectServePort(os.read(sscFile)).getOrElse(8080)
+  val backendBaseUrl = s"http://127.0.0.1:$port"
+
+  val rawScript = expectText(compileViaBackend("jvm", sscFile), "run --backend jvm-rest")
+  val script    = injectServerBackend(rawScript, serverBackend)
+  val backendScript = os.temp(script, suffix = ".sc", deleteOnExit = true)
+  val backendProcess =
+    new java.lang.ProcessBuilder("scala-cli", "run", backendScript.toString, "--server=false")
+      .inheritIO()
+      .start()
+
+  var electronExit = 0
+  try
+    waitForTcpReady("127.0.0.1", port, backendProcess, timeoutMs = 30000)
+    val tmpDir = os.temp.dir(prefix = "ssc-electron-jvm-rest-", deleteOnExit = true)
+    buildElectronBundle(sscFile, tmpDir, backendBaseUrl = Some(backendBaseUrl))
+    println(s"ssc: launching Electron JVM REST app — $title")
+    println(s"     backend: $backendBaseUrl")
+    println(s"     bundle:  $tmpDir")
+    electronExit = runElectronProject(tmpDir, module)
+  finally
+    if backendProcess.isAlive then
+      backendProcess.destroy()
+      if !backendProcess.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) then
+        backendProcess.destroyForcibly()
+    scala.util.Try(os.remove(backendScript))
+  if electronExit != 0 then System.exit(electronExit)
+
+private def runElectronProject(tmpDir: os.Path, module: Module): Int =
+  val electronOk =
+    scala.util.Try(os.proc("electron", "--version").call(check = false).exitCode == 0)
+      .getOrElse(false)
+  if !electronOk then
+    System.err.println("ssc: 'electron' not found on PATH.  Install it:")
+    System.err.println("  npm install -g electron")
+    System.err.println("  ssc toolchain install --target desktop")
+    return 1
   if module.manifest.exists(_.databases.nonEmpty) then
     val npmOk =
       scala.util.Try(os.proc("npm", "--version").call(check = false).exitCode == 0)
@@ -2458,9 +2525,39 @@ private def runElectronDev(sscFile: os.Path): Unit =
         System.err.println(s"ssc: npm install failed, falling back to vendored sql.js assets:\n${install.out.text()}${install.err.text()}")
     else
       println("ssc: npm not found; using vendored sql.js assets")
-  val result = os.proc("electron", tmpDir.toString)
+  os.proc("electron", tmpDir.toString)
     .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-  if result.exitCode != 0 then System.exit(result.exitCode)
+    .exitCode
+
+private[cli] def detectServePort(source: String): Option[Int] =
+  val uiServe = """(?s)\bserve\s*\(.*?,\s*([0-9]{1,5})""".r
+  val plainServe = """\bserve\s*\(\s*([0-9]{1,5})""".r
+  uiServe.findFirstMatchIn(source)
+    .orElse(plainServe.findFirstMatchIn(source))
+    .flatMap(m => m.group(1).toIntOption)
+    .filter(p => p > 0 && p <= 65535)
+
+private def waitForTcpReady(
+    host:       String,
+    port:       Int,
+    process:    java.lang.Process,
+    timeoutMs:  Long
+): Unit =
+  val deadline = System.nanoTime() + timeoutMs * 1000000L
+  var ready = false
+  while !ready && System.nanoTime() < deadline do
+    if !process.isAlive then
+      throw new RuntimeException(s"JVM backend exited before listening on $host:$port")
+    try
+      val socket = new java.net.Socket()
+      try
+        socket.connect(new java.net.InetSocketAddress(host, port), 250)
+        ready = true
+      finally socket.close()
+    catch case _: java.io.IOException =>
+      Thread.sleep(100)
+  if !ready then
+    throw new RuntimeException(s"JVM backend did not become ready on $host:$port within ${timeoutMs}ms")
 
 def replCommand(@annotation.unused args: List[String]): Unit =
   import scala.io.StdIn

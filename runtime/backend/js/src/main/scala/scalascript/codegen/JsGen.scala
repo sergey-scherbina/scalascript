@@ -6729,6 +6729,10 @@ globalThis.fetch = function(input, init) {
     if (_ssc_native_fetch) return _ssc_native_fetch(input, init);
     return Promise.reject(new Error('fetch is not available'));
   }
+  if (globalThis.__sscBackendBaseUrl && _ssc_native_fetch) {
+    const target = new URL(rawPath, String(globalThis.__sscBackendBaseUrl)).toString();
+    return _ssc_native_fetch(target, init);
+  }
   const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
   const pathOnly = rawPath.split('?')[0] || '/';
   const rawBody = init && init.body != null ? init.body : '';
