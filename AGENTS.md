@@ -528,7 +528,9 @@ while true:
     8. Rebase on origin/main if it moved; push to origin/main
     9. ExitWorktree(remove); delete remote branch
    10. Report ONE line of progress to the user: "✓ <what landed>"
-   10. Go to step 1
+   11. Immediately list the next planned tasks/features from `MILESTONES.md`
+       and say which one you recommend doing next.
+   12. Go to step 1
 ```
 
 Stop only when:
@@ -540,7 +542,19 @@ Stop only when:
 summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
 enough. Detailed context goes in the commit message and MILESTONES.md.
 
-### 7. After a complete task — suggest `/compact` to the user
+### 7. After a complete task — name the next work
+
+Once a task or feature is committed, pushed to `origin/main`, local `main`
+is synced, `MILESTONES.md` is updated, and the worktree is deleted, the
+status message to the user must also include:
+
+- the next planned tasks/features visible in `MILESTONES.md`
+- the one task/feature you recommend doing next, with a short reason
+
+Do this immediately after reporting what landed.  The user should not have
+to ask "what next?" after every completed slice.
+
+### 8. After a complete task — suggest `/compact` to the user
 
 Once **all** of the following are true:
 - Code committed and pushed to `origin/main`
