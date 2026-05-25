@@ -2,9 +2,11 @@
 
 > Status: design spec - May 2026. Phase 1a landed: explicit local dev mode
 > `ssc run --frontend electron --backend jvm-rest app.ssc` starts a JVM backend
-> and an Electron client wired through `__sscBackendBaseUrl`. Plain default
-> full-stack detection, server-only/client-only modes, distributed launch, and
-> packaging remain planned.
+> and an Electron client wired through `__sscBackendBaseUrl`. Phase 1b landed:
+> plain `ssc run app.ssc` uses the same split mode when the source declares
+> `frontend: electron`, backend routes, and `serve(...)`. Server-only/client-only
+> modes, distributed launch, non-Electron frontend supervision, and packaging
+> remain planned.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -125,7 +127,7 @@ Default behavior for `ssc run app.ssc`:
 | backend routes only | run backend server/interpreter as today |
 | frontend UI only | run frontend preview/client as today |
 | frontend UI + backend routes | run supervised local full-stack mode |
-| `frontend: electron` + backend routes | run Electron client + local JVM REST backend |
+| `frontend: electron` + backend routes + `serve(...)` | implemented: run Electron client + local JVM REST backend |
 | explicit `--self-contained` / local-first flag | run current self-contained Electron/browser mode |
 
 The exact source-shape detection can be conservative at first: a module that

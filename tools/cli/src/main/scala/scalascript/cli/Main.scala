@@ -2300,8 +2300,10 @@ def runCommand(args: List[String]): Unit =
         frontendFlag = Some(name)
       case f => fileArgs += f
 
+  val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
+
   // --target jvm: compile via JvmGen → scala-cli → execute
-  if targetFlag.contains("jvm") then
+  if targetSelection.contains("jvm") then
     for file <- fileArgs.toList do
       val path = os.Path(file, os.pwd)
       if !os.exists(path) then { System.err.println(s"run: file not found: $file"); System.exit(1) }
@@ -2319,9 +2321,23 @@ def runCommand(args: List[String]): Unit =
           System.err.println(s"run: ${e.getMessage}"); System.exit(1)
     return
 
+  val noExplicitRunMode =
+    targetSelection.isEmpty && frontendFlag.isEmpty && ActiveFlags.current.backend.isEmpty
+  if noExplicitRunMode && fileArgs.nonEmpty then
+    val files = fileArgs.toList
+    val shouldRunDefault = files.forall { file =>
+      val path = os.Path(file, os.pwd)
+      os.exists(path) &&
+        scala.util.Try(shouldDefaultToElectronJvmRest(loadModule(path), os.read(path))).getOrElse(false)
+    }
+    if shouldRunDefault then
+      for file <- files do
+        runElectronJvmRestDev(os.Path(file, os.pwd), serverBackendFlag)
+      return
+
   // --target desktop / desktop-electron, or --frontend electron → Electron dev-run
   val isElectronRun =
-    targetFlag.exists(t => t == "desktop" || t == "desktop-electron") ||
+    targetSelection.exists(t => t == "desktop" || t == "desktop-electron") ||
     frontendFlag.contains("electron")
   val isJvmRestRun = ActiveFlags.current.backend.contains("jvm-rest")
   if isJvmRestRun && !isElectronRun then
@@ -2536,6 +2552,14 @@ private[cli] def detectServePort(source: String): Option[Int] =
     .orElse(plainServe.findFirstMatchIn(source))
     .flatMap(m => m.group(1).toIntOption)
     .filter(p => p > 0 && p <= 65535)
+
+private[cli] def shouldDefaultToElectronJvmRest(module: Module, source: String): Boolean =
+  val frontendIsElectron =
+    module.manifest.flatMap(_.frontendFramework).exists(_.trim.equalsIgnoreCase("electron"))
+  val hasBackendRoute =
+    module.manifest.exists(_.routes.nonEmpty) ||
+      """(?m)\broute\s*\(""".r.findFirstIn(source).isDefined
+  frontendIsElectron && hasBackendRoute && detectServePort(source).isDefined
 
 private def waitForTcpReady(
     host:       String,

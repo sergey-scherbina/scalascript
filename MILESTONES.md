@@ -10241,8 +10241,14 @@ modes opt out of that default.
     `__sscBackendBaseUrl` into the Electron renderer bundle, forwards relative
     fetch calls to the JVM backend, and terminates the backend when Electron
     exits.
-  - **Still open:** plain `ssc run app.ssc` full-stack autodetection,
-    non-Electron frontend supervision, and default-run smoke coverage.
+  - **Phase 1b ✓ Landed (2026-05-25)** — conservative default-run detection:
+    plain `ssc run app.ssc` starts the same Electron JVM REST supervisor when
+    the module declares `frontend: electron`, has backend routes (`route(...)`
+    or `routes:` front matter), and calls `serve(...)`. Explicit CLI
+    `--target`, `--frontend`, or `--backend` choices still override the
+    default.
+  - **Still open:** non-Electron frontend supervision and end-to-end
+    default-run smoke coverage with a real Electron/scala-cli process.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch
   and frontend-only client launch/build from one `.ssc`, including
   `--server-url` for React/custom web and Electron clients.
