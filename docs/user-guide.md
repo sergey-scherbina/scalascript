@@ -1116,7 +1116,10 @@ object codecs can use `JsonFieldSpec[A]` for renamed fields, aliases, default
 values, and unknown-field rejection.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
-`SparkCodec`, then use backend-specific APIs at the query boundary. This keeps
+`SparkCodec`, then use backend-specific APIs at the query boundary. The first
+`RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
+case-class row maps with primitive and nullable columns; `Db.query[A]`
+integration remains planned. This keeps
 SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce, and Spark
 convenient without hiding their different query models. Existing `Dataset[T]`
 and Spark support remain available today; this planned work unifies their

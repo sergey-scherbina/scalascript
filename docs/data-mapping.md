@@ -92,6 +92,18 @@ typed request encoding and typed response decoding. JS/browser/Electron clients
 still call the emitted JSON facade directly because there is no Scala typeclass
 lookup in the generated JavaScript runtime.
 
+The first row-mapping API also lives in `backend/typed-data`:
+
+```scala
+enum RowValue
+trait RowValueCodec[A]
+trait RowCodec[A] extends Codec[A, Map[String, RowValue]]
+```
+
+It currently supports primitive column values, nullable `Option[A]` columns, and
+`derives RowCodec` for simple case classes. It is the codec foundation for SQL
+rows and Spark-like tabular schemas; `Db.query[A]` integration remains planned.
+
 User code should stay direct:
 
 ```scalascript
@@ -333,8 +345,10 @@ the same query model.
    discriminator-based sealed ADT derivation, and explicit `JsonFieldSpec`
    rename/default/unknown-field helpers. Remaining: annotation syntax and
    derived-codec integration for those schema options.
-3. **SQL row mapping** — add `derives RowCodec`, `Db.query[A]`, and
-   insert/update helpers for simple case classes.
+3. **SQL row mapping** — partially landed: `RowValue`, `RowValueCodec[A]`,
+   primitive/nullable column codecs, and `derives RowCodec` for simple case
+   classes. Remaining: `Db.query[A]`, insert/update helpers, schema metadata,
+   and SQL runtime integration.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property
