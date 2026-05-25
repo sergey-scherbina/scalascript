@@ -10474,8 +10474,9 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
 Generated typed frontend clients over backend routes. This is the typed
 counterpart to `fetchAction` and `fetchTable`: frontend code calls generated
 methods with case class inputs/outputs, while the runtime dispatches through
-`BackendTransport`. JVM/Swing in-process is the first planned target; HTTP
-clients for Electron/browser split modes follow.
+`BackendTransport`. JVM/Swing in-process is the first landed target; JS/browser
+HTTP client generation is partially landed, with Electron/distributed e2e
+still planned.
 
 ### Planned phases
 
@@ -10499,8 +10500,15 @@ clients for Electron/browser split modes follow.
   `examples/frontend/swing-typed-client/` to create, list, delete, and recreate
   typed `Message` values without frontend JSON glue. Non-Swing JVM codegen
   remains metadata-only until Phase 3 HTTP transport lands.
-- **Phase 3 — HTTP client transport.** Generate equivalent HTTP clients for
-  browser, Electron, split-process, and distributed modes.
+- **Phase 3 ◐ Partially landed (2026-05-25)** — HTTP client transport:
+  JS codegen now emits Promise-returning HTTP client objects from
+  `apiClients:` metadata, including `_ssc_typedRouteClients` metadata, path
+  parameter substitution, GET query strings, JSON request bodies, non-2xx
+  rejection, and JSON response parsing. Browser SPA/client-mode output can use
+  the existing `globalThis.__sscBackendBaseUrl` / fetch patch injected by
+  `emit-spa --server-url` to reach a JVM backend. Remaining Phase 3 work:
+  Electron JVM REST e2e, distributed client/server examples, and final async
+  ergonomics for `.ssc` frontend calls.
 - **Phase 4 — Shared codecs.** Replace temporary generated JSON code with the
   shared typed mapping codec layer once that layer exists.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from

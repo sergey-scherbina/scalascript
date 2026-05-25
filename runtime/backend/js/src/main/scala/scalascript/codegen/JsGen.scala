@@ -7010,6 +7010,7 @@ class JsGen(
     // forward references to the handler defs resolve at call time.
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
+    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients))
     // Async wrap rationale (v1.27): sql blocks compile to `await
     // SqlRuntimeJs.execute(...)`, which is only legal at top level in
     // ESM with top-level-await support.  An async IIFE is the
@@ -7247,6 +7248,124 @@ class JsGen(
         line(s"_i18nTable = {$entries};")
     }
 
+  /** Emit browser/Electron HTTP clients declared by front-matter
+   *  `apiClients:`. The generated methods intentionally return Promises:
+   *  browser `fetch` is asynchronous, and SPA/Electron client-only bundles
+   *  can route relative URLs to a JVM backend through
+   *  `globalThis.__sscBackendBaseUrl`.
+   */
+  private def emitHttpTypedRouteClients(clients: List[ApiClientDecl]): Unit =
+    val endpoints = clients.flatMap(client => client.endpoints.map(endpoint => client.name -> endpoint))
+    if endpoints.nonEmpty then
+      line("const _ssc_typedRouteClients = [")
+      indent += 1
+      endpoints.zipWithIndex.foreach { case ((client, endpoint), idx) =>
+        val comma = if idx == endpoints.size - 1 then "" else ","
+        line(
+          "{client: " + jsQuote(client) +
+            ", name: " + jsQuote(endpoint.name) +
+            ", method: " + jsQuote(endpoint.method) +
+            ", path: " + jsQuote(endpoint.path) +
+            ", requestType: " + jsQuote(endpoint.requestType) +
+            ", responseType: " + jsQuote(endpoint.responseType) +
+            "}" + comma
+        )
+      }
+      indent -= 1
+      line("];")
+      sb.append(httpTypedRouteClientRuntime)
+      clients.foreach { client =>
+        if client.endpoints.nonEmpty then
+          line(s"const ${client.name} = {")
+          indent += 1
+          client.endpoints.zipWithIndex.foreach { case (endpoint, idx) =>
+            val comma = if idx == client.endpoints.size - 1 then "" else ","
+            val method = jsQuote(endpoint.method)
+            val path = jsQuote(endpoint.path)
+            if endpoint.requestType == "Unit" then
+              line(s"${endpoint.name}() { return _ssc_api_request($method, $path, undefined); }$comma")
+            else
+              line(s"${endpoint.name}(input) { return _ssc_api_request($method, $path, input); }$comma")
+          }
+          indent -= 1
+          line("};")
+      }
+
+  private val httpTypedRouteClientRuntime: String =
+    """|// ── Typed route clients: HTTP transport ───────────────────────────
+       |function _ssc_api_url_encode(value) {
+       |  return encodeURIComponent(String(value));
+       |}
+       |
+       |function _ssc_api_product_fields(value) {
+       |  if (value == null) return {};
+       |  if (typeof value !== 'object') return {};
+       |  const out = {};
+       |  for (const key of Object.keys(value)) {
+       |    if (key !== '_type' && typeof value[key] !== 'function') out[key] = value[key];
+       |  }
+       |  return out;
+       |}
+       |
+       |function _ssc_api_path_param_names(pathTemplate) {
+       |  return String(pathTemplate).split('/').filter(s => s.startsWith(':')).map(s => s.slice(1));
+       |}
+       |
+       |function _ssc_api_path(pathTemplate, input) {
+       |  const names = _ssc_api_path_param_names(pathTemplate);
+       |  const fields = _ssc_api_product_fields(input);
+       |  const primitiveForSingleParam =
+       |    names.length === 1 && Object.keys(fields).length === 0 && input !== undefined && input !== null;
+       |  return String(pathTemplate).split('/').map(segment => {
+       |    if (!segment.startsWith(':')) return segment;
+       |    const name = segment.slice(1);
+       |    const value = primitiveForSingleParam ? input : fields[name];
+       |    if (value === undefined || value === null) {
+       |      throw new Error("typed route client: missing path field '" + name + "'");
+       |    }
+       |    return _ssc_api_url_encode(value);
+       |  }).join('/');
+       |}
+       |
+       |function _ssc_api_query(pathTemplate, input) {
+       |  const used = new Set(_ssc_api_path_param_names(pathTemplate));
+       |  const fields = _ssc_api_product_fields(input);
+       |  const pairs = [];
+       |  for (const key of Object.keys(fields)) {
+       |    if (!used.has(key) && fields[key] !== undefined && fields[key] !== null) {
+       |      pairs.push(_ssc_api_url_encode(key) + "=" + _ssc_api_url_encode(fields[key]));
+       |    }
+       |  }
+       |  return pairs.length === 0 ? "" : "?" + pairs.join("&");
+       |}
+       |
+       |function _ssc_api_body(method, input) {
+       |  if (method === "GET" || input === undefined || input === null) return undefined;
+       |  return JSON.stringify(input);
+       |}
+       |
+       |async function _ssc_api_request(methodRaw, pathTemplate, input) {
+       |  const method = String(methodRaw).toUpperCase();
+       |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
+       |  const init = { method: method, headers: {} };
+       |  const body = _ssc_api_body(method, input);
+       |  if (body !== undefined) {
+       |    init.body = body;
+       |    init.headers["Content-Type"] = "application/json";
+       |  }
+       |  const response = await fetch(url, init);
+       |  const text = await response.text();
+       |  if (!response.ok) {
+       |    throw new Error("typed route client: " + method + " " + url + " returned " + response.status + ": " + text);
+       |  }
+       |  if (text === "") return undefined;
+       |  const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
+       |  if (contentType.includes("application/json")) return JSON.parse(text);
+       |  try { return JSON.parse(text); } catch (_) { return text; }
+       |}
+       |
+       |""".stripMargin
+
   private def jsQuote(s: String): String =
     val sb = StringBuilder().append('"')
     s.foreach {
@@ -7374,6 +7493,7 @@ class JsGen(
     // so forward references to handler defs resolve at call time.
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
+    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients))
     val result    = mutable.ListBuffer[JsGen.Segment]()
     val scalaBuf  = mutable.ListBuffer[String]()
     var ssStart   = 0

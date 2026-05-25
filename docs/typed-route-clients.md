@@ -190,8 +190,8 @@ runtime for the configured backend transport:
 |---|---|
 | JVM/Swing monolithic | Generated JVM route-registry dispatcher, later unified with `InProcessBackendTransport` |
 | Electron + JVM REST | HTTP to the local JVM backend URL |
-| Browser React/Vue/Solid + JVM | HTTP using configured `server-url` / runtime base URL |
-| Server/client split | HTTP |
+| Browser React/Vue/Solid + JVM | Implemented for JS codegen: Promise-returning HTTP clients over `fetch`, using configured `server-url` / runtime base URL when present |
+| Server/client split | HTTP, partly implemented through the JS/browser client generation path |
 | Interpreter tests | `InProcessBackendTransport` where supported |
 
 Unsupported target pairs must fail with diagnostics that explain which
@@ -254,6 +254,19 @@ creates, lists, deletes, and recreates `Message` values through a generated
 Generate equivalent HTTP clients for browser/Electron/split modes. The same
 typed client source should select HTTP when `--server-url`, Electron JVM REST,
 or browser frontend mode is active.
+
+Partially landed 2026-05-25: JS codegen now emits front-matter
+`apiClients:` as callable HTTP client objects plus `_ssc_typedRouteClients`
+metadata. Generated methods return Promises, build path parameters and GET
+query strings from primitive values or case-class/plain-object fields, send
+JSON request bodies with `fetch`, reject non-2xx responses, and parse JSON
+responses. In browser SPA output, `emit-spa --server-url` / client mode can
+inject `globalThis.__sscBackendBaseUrl`, and the existing browser fetch patch
+forwards relative calls to that JVM backend URL.
+
+Still planned for Phase 3: Electron JVM REST e2e coverage, distributed
+client/server examples, and final async ergonomics for using Promise-returning
+clients from `.ssc` frontend code.
 
 ### Phase 4 — Shared Codecs
 
