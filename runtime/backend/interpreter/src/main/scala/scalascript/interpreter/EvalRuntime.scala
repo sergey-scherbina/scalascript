@@ -389,6 +389,29 @@ private[interpreter] object EvalRuntime:
             case List(block: Term.Block) => BlockRuntime.evalDirectBlock(block.stats, env, tag, interp)
             case List(single: Term)      => eval(single, env, interp)
             case _                       => interp.located("direct[M] expects a single block argument")
+        // Db.query[T](...) — the interpreter intrinsic returns row maps;
+        // preserve the erased type argument here and project each row map into
+        // the registered case-class runtime shape so `ssc run` mirrors JvmGen.
+        case Term.ApplyType.After_4_6_0(
+              Term.Select(Term.Name("Db"), Term.Name("query")),
+              typeArgClause
+            ) if typeArgClause.values.nonEmpty =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val qualC = eval(Term.Name("Db"), env, interp)
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env, interp)
+            case other               => eval(other, env, interp)
+          }
+          qualC match
+            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
+              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+              DispatchRuntime.dispatch(qualV, "query", argVs, env, interp).map(projectTypedRows(typeName, _, interp))
+            case _ =>
+              FlatMap(qualC, qualV =>
+                interp.threadValues(argComps)(argVals =>
+                  DispatchRuntime.dispatch(qualV, "query", argVals, env, interp).map(projectTypedRows(typeName, _, interp))
+                )
+              )
         case Term.Select(qual, Term.Name(method)) =>
           val qualC    = eval(qual, env, interp)
           // Named args (Term.Assign) must evaluate only the RHS; the full
@@ -814,6 +837,26 @@ private[interpreter] object EvalRuntime:
     val argComps = args.map(eval(_, env, interp))
     interp.threadValues(argComps)(k)
 
+  private def projectTypedRows(typeName: String, value: Value, interp: Interpreter): Value = value match
+    case Value.ListV(rows) =>
+      Value.ListV(rows.map(projectTypedRow(typeName, _, interp)))
+    case other => other
+
+  private def projectTypedRow(typeName: String, row: Value, interp: Interpreter): Value = row match
+    case Value.MapV(entries) =>
+      val fields = interp.typeFieldOrder.get(typeName) match
+        case Some(order) =>
+          order.map { fieldName => fieldName -> lookupRowField(entries, fieldName) }.toMap
+        case None =>
+          entries.collect { case (Value.StringV(k), v) => k -> v }
+      Value.InstanceV(typeName, fields)
+    case other => other
+
+  private def lookupRowField(entries: Map[Value, Value], fieldName: String): Value =
+    entries.get(Value.StringV(fieldName))
+      .orElse(entries.collectFirst { case (Value.StringV(k), v) if k.equalsIgnoreCase(fieldName) => v })
+      .getOrElse(Value.NullV)
+
   /** Peel nested `Apply` nodes to collect all argument lists for a curried call.
    *  Only activates when the **outermost** `Apply` has a `using` argument clause
    *  (i.e. `mod = Some(Mod.Using())`).  In that case we collect all arg lists
@@ -847,4 +890,3 @@ private[interpreter] object EvalRuntime:
   // ─── Block eval + direct[M] — see BlockRuntime.scala ─────────────────
 
   // ─── Call helpers ─────────────────────────────────────────────────
-

@@ -103,4 +103,10 @@ class SqlExamplesTest extends AnyFunSuite {
     assert(out.contains("world"),
       s"expected 'world' in output, got:\n$out")
   }
+
+  test("typed-sql-crud example runs through interpreter") {
+    val out = runProgram(os.read(TestPaths.repoRoot / "examples" / "typed-sql-crud.ssc"))
+    assert(out.contains("1/1:Buy oat milk:true"),
+      s"expected typed SQL CRUD output, got:\n$out")
+  }
 }

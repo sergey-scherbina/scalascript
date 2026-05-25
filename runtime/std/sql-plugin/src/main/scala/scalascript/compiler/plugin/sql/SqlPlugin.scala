@@ -5,7 +5,7 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
 
 class SqlPlugin extends Backend:
   def id:          String = "scalascript-sql"
-  def displayName: String = "SQL Db intrinsics (Db.query, Db.execute)"
+  def displayName: String = "SQL Db intrinsics (Db.query, Db.execute, Db.insert, Db.update)"
   def spiVersion:  String = SpiVersion.Current
 
   def capabilities: Capabilities = Capabilities(

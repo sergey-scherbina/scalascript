@@ -10367,8 +10367,9 @@ modes opt out of that default.
   over that read path and smoke-tests it through `scala-cli`. Follow-up landed
   2026-05-25: `SqlRuntime.insert/update[A]` and JVM `Db.insert/update[A]`
   encode typed values through `RowCodec[A]` for explicit table/key based SQL
-  writes, with scala-cli smoke coverage. Interpreter parity where needed and
-  richer schema metadata remain planned.
+  writes, with scala-cli smoke coverage. Follow-up landed 2026-05-26:
+  interpreter `Db.query/insert/update[A]` now mirrors the typed SQL API using
+  runtime case-class field metadata. Richer schema metadata remains planned.
 
 ## v1.44 — Full-Stack In-Process Transport
 

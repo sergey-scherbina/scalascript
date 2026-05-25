@@ -605,9 +605,9 @@ private[interpreter] object BuiltinsRuntime:
         interp.globals("Db") = Value.InstanceV("Db", Map(
           "query"   -> queryFn,
           "execute" -> executeFn,
-        ))
+        ) ++ interp.globals.get("Db.insert").map("insert" -> _) ++
+          interp.globals.get("Db.update").map("update" -> _))
       case _ => ()
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
-

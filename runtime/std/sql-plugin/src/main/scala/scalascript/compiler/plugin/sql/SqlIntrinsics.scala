@@ -60,6 +60,28 @@ object SqlIntrinsics:
             case _                                        => 0L
         case _ => throw new RuntimeException("Db.execute(dbName: String, sql: String, params: List[Any])")
     ),
+
+    // Db.insert("default", "table", value): Int
+    // Encodes interpreter case-class instances / maps as SQL columns.
+    QualifiedName("Db.insert") -> NativeImpl((ctx, args) =>
+      args match
+        case List(dbName: String, table: String, value: Value) =>
+          val conn = ctx.dbConnect(dbName)
+          scalascript.sql.SqlRuntime.insertRow(conn, table, rowFields(value)).toLong
+        case _ => throw new RuntimeException("Db.insert(dbName: String, table: String, value: A)")
+    ),
+
+    // Db.update("default", "table", "id", keyValue, value): Int
+    // The key column is excluded from SET by SqlRuntime.updateRow.
+    QualifiedName("Db.update") -> NativeImpl((ctx, args) =>
+      args match
+        case List(dbName: String, table: String, keyColumn: String, keyValue, value: Value) =>
+          val conn = ctx.dbConnect(dbName)
+          scalascript.sql.SqlRuntime
+            .updateRow(conn, table, keyColumn, keyValue, rowFields(value))
+            .toLong
+        case _ => throw new RuntimeException("Db.update(dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)")
+    ),
   )
 
   private def extractBinds(params: Value): List[Any] = params match
@@ -71,9 +93,23 @@ object SqlIntrinsics:
     case Value.DoubleV(d) => d
     case Value.StringV(s) => s
     case Value.BoolV(b)   => b
+    case Value.CharV(c)   => c.toString
     case Value.UnitV      => null
     case Value.NullV      => null
+    case Value.OptionV(None) => null
+    case Value.OptionV(Some(inner)) => unwrapValue(inner)
     case _                => v.toString
+
+  private def rowFields(value: Value): Vector[(String, Any)] = value match
+    case Value.InstanceV(_, fields) =>
+      fields.iterator.toVector.map((name, fieldValue) => name -> unwrapValue(fieldValue))
+    case Value.MapV(entries) =>
+      entries.iterator.toVector.map {
+        case (Value.StringV(name), fieldValue) => name -> unwrapValue(fieldValue)
+        case (key, _) => throw new RuntimeException(s"Db typed write expected string column names, got ${Value.show(key)}")
+      }
+    case other =>
+      throw new RuntimeException(s"Db typed write expected case-class instance or Map, got ${Value.show(other)}")
 
   private def wrapJdbc(v: Any): Value = v match
     case null        => Value.NullV

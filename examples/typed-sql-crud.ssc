@@ -6,7 +6,7 @@ databases:
 
 # Model
 
-```scala
+```scalascript
 import scalascript.typeddata.RowCodec
 
 case class Todo(id: Int, text: String, done: Boolean) derives RowCodec
@@ -20,14 +20,14 @@ CREATE TABLE todos (id INT PRIMARY KEY, text VARCHAR(120) NOT NULL, done BOOLEAN
 
 # Typed Writes
 
-```scala
+```scalascript
 val inserted = Db.insert("default", "todos", Todo(1, "Buy milk", false))
 val updated = Db.update("default", "todos", "id", 1, Todo(1, "Buy oat milk", true))
 ```
 
 # Typed Read
 
-```scala
+```scalascript
 val todos = Db.query[Todo]("default", "SELECT id AS id, text AS text, done AS done FROM todos ORDER BY id", [])
-println(inserted + "/" + updated + ":" + todos.map(t => t.text + ":" + t.done).mkString(","))
+println(s"${inserted}/${updated}:" + todos.map(t => s"${t.text}:${t.done}").mkString(","))
 ```

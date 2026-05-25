@@ -63,15 +63,8 @@ object SqlRuntime:
    *  identifiers, values are still JDBC bind parameters, and no key/schema
    *  discovery is attempted. */
   def insert[A](conn: Connection, table: String, value: A)(using codec: RowCodec[A]): Int =
-    val tableSql = validateIdentifierPath(table, "table")
     val row = codec.encode(value).toVector
-    if row.isEmpty then throw IllegalArgumentException("typed insert requires at least one column")
-    val columns = row.map((name, _) => validateIdentifier(name, "column"))
-    val placeholders = List.fill(row.size)("?").mkString(", ")
-    val sql = s"INSERT INTO $tableSql (${columns.mkString(", ")}) VALUES ($placeholders)"
-    execute(conn, sql, row.map((_, v) => rowValueToBind(v)).toList) match
-      case SqlResult.UpdateCount(count) => count
-      case SqlResult.Rows(_) => throw RowProjectionError("typed insert expected update count, got rows")
+    insertRow(conn, table, row.map((name, value) => name -> rowValueToBind(value)))
 
   /** Update one typed value by encoding it through `RowCodec[A]`.
    *
@@ -79,13 +72,32 @@ object SqlRuntime:
    *  the WHERE value is supplied separately so callers can update a modified
    *  copy without losing the original key. */
   def update[A](conn: Connection, table: String, keyColumn: String, keyValue: Any, value: A)(using codec: RowCodec[A]): Int =
+    val row = codec.encode(value).toVector.map((name, value) => name -> rowValueToBind(value))
+    updateRow(conn, table, keyColumn, keyValue, row)
+
+  /** Row-shaped insert helper shared by the JVM `RowCodec` path and the
+   *  interpreter plugin, whose runtime case-class values are interpreter
+   *  `InstanceV`s rather than JVM case-class instances. */
+  def insertRow(conn: Connection, table: String, row: Iterable[(String, Any)]): Int =
+    val tableSql = validateIdentifierPath(table, "table")
+    val entries = row.toVector
+    if entries.isEmpty then throw IllegalArgumentException("typed insert requires at least one column")
+    val columns = entries.map((name, _) => validateIdentifier(name, "column"))
+    val placeholders = List.fill(entries.size)("?").mkString(", ")
+    val sql = s"INSERT INTO $tableSql (${columns.mkString(", ")}) VALUES ($placeholders)"
+    execute(conn, sql, entries.map(_._2).toList) match
+      case SqlResult.UpdateCount(count) => count
+      case SqlResult.Rows(_) => throw RowProjectionError("typed insert expected update count, got rows")
+
+  /** Row-shaped update helper shared by generated JVM and interpreter paths. */
+  def updateRow(conn: Connection, table: String, keyColumn: String, keyValue: Any, row: Iterable[(String, Any)]): Int =
     val tableSql = validateIdentifierPath(table, "table")
     val keySql = validateIdentifier(keyColumn, "key column")
-    val row = codec.encode(value).toVector.filterNot((name, _) => name.equalsIgnoreCase(keyColumn))
-    if row.isEmpty then throw IllegalArgumentException("typed update requires at least one non-key column")
-    val assignments = row.map((name, _) => s"${validateIdentifier(name, "column")} = ?")
+    val entries = row.toVector.filterNot((name, _) => name.equalsIgnoreCase(keyColumn))
+    if entries.isEmpty then throw IllegalArgumentException("typed update requires at least one non-key column")
+    val assignments = entries.map((name, _) => s"${validateIdentifier(name, "column")} = ?")
     val sql = s"UPDATE $tableSql SET ${assignments.mkString(", ")} WHERE $keySql = ?"
-    val binds = row.map((_, v) => rowValueToBind(v)).toList :+ keyValue
+    val binds = entries.map(_._2).toList :+ keyValue
     execute(conn, sql, binds) match
       case SqlResult.UpdateCount(count) => count
       case SqlResult.Rows(_) => throw RowProjectionError("typed update expected update count, got rows")

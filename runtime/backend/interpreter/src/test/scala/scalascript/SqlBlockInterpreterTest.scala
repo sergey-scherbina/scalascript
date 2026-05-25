@@ -210,3 +210,72 @@ class SqlBlockInterpreterTest extends AnyFunSuite with Matchers:
           |""".stripMargin
     runProgram(ssc).toString.trim shouldBe "2"
   }
+
+  test("interpreter Db.query[A] projects row maps into case-class instances") {
+    val url = uniqueDb()
+    val ssc =
+      s"""|---
+          |databases:
+          |  default:
+          |    url: $url
+          |---
+          |
+          |# Model
+          |
+          |```scala
+          |case class Person(id: Int, name: String, active: Boolean)
+          |```
+          |
+          |# Schema
+          |
+          |```sql
+          |CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(64), active BOOLEAN)
+          |```
+          |
+          |```sql
+          |INSERT INTO people VALUES (1, 'Alice', true)
+          |```
+          |
+          |# Read
+          |
+          |```scala
+          |val people = Db.query[Person]("default", "SELECT id AS id, name AS name, active AS active FROM people", [])
+          |val p = people.head
+          |println(p.name + ":" + p.active + ":" + p)
+          |```
+          |""".stripMargin
+    runProgram(ssc).toString.trim shouldBe "Alice:true:Person(1, Alice, true)"
+  }
+
+  test("interpreter Db.insert and Db.update encode case-class instances") {
+    val url = uniqueDb()
+    val ssc =
+      s"""|---
+          |databases:
+          |  default:
+          |    url: $url
+          |---
+          |
+          |# Model
+          |
+          |```scala
+          |case class Person(id: Int, name: String, active: Boolean)
+          |```
+          |
+          |# Schema
+          |
+          |```sql
+          |CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(64), active BOOLEAN)
+          |```
+          |
+          |# Write
+          |
+          |```scala
+          |val inserted = Db.insert("default", "people", Person(1, "Alice", true))
+          |val updated = Db.update("default", "people", "id", 1, Person(1, "Alicia", false))
+          |val people = Db.query[Person]("default", "SELECT id AS id, name AS name, active AS active FROM people", [])
+          |println(s"$${inserted}/$${updated}:$${people.head.name}:$${people.head.active}")
+          |```
+          |""".stripMargin
+    runProgram(ssc).toString.trim shouldBe "1/1:Alicia:false"
+  }

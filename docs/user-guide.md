@@ -939,8 +939,11 @@ Db.execute("default", "INSERT INTO todos(text) VALUES (?)", ["Buy milk"])
 Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 ```
 
-On the JVM codegen path, typed SQL helpers can decode and encode rows through a
-derived `RowCodec[A]`:
+On the interpreter and JVM codegen paths, typed SQL helpers can decode and
+encode rows through case-class field mappings. On JVM codegen the mapping is
+provided by derived `RowCodec[A]`; on the interpreter path the same public
+`Db.query/insert/update[A]` API uses the interpreter's registered case-class
+field metadata.
 
 ```scalascript
 import scalascript.typeddata.RowCodec
@@ -1140,8 +1143,8 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. `SqlRuntime.query[A]`
 can decode JDBC rows through `RowCodec[A]`; `SqlRuntime.insert/update[A]` encode
-typed values through the same codec. The JVM codegen path exposes typed
-`Db.query/insert/update[A]` for programmatic SQL reads and writes. This keeps
+typed values through the same codec. The interpreter and JVM codegen paths expose
+typed `Db.query/insert/update[A]` for programmatic SQL reads and writes. This keeps
 SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce, and Spark
 convenient without hiding their different query models. Existing `Dataset[T]`
 and Spark support remain available today; this planned work unifies their
@@ -2904,7 +2907,7 @@ All standard capabilities beyond the core language are shipped as
 |--------|----------------------|
 | `std/json-plugin` | `jsonStringify`, `jsonParse`, `jsonRead`, `lookup`, `lookupOpt` |
 | `std/http-plugin` | `serve`, `route`, `httpGet`, `httpPost`, `Response.*` |
-| `std/sql-plugin` | `Db.query`, `Db.execute`, `Db.transaction` |
+| `std/sql-plugin` | `Db.query`, `Db.execute`, `Db.insert`, `Db.update`, `Db.transaction` |
 | `std/ws-plugin` | `wsRoute`, `wsBroadcast`, `WsSession.*` |
 | `std/frontend-plugin` | `lower`, `serve` (UI), `emit` |
 | `std/fetch-plugin` | `fetchAction`, `fetchUrlSignal`, `incSignal` |
