@@ -10265,6 +10265,13 @@ modes opt out of that default.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch
   and frontend-only client launch/build from one `.ssc`, including
   `--server-url` for React/custom web and Electron clients.
+  - **Phase 2a ✓ Landed (2026-05-25)** — server-only run command:
+    `ssc run --mode server --backend jvm app.ssc` now compiles the source with
+    the JVM backend and runs it via scala-cli without launching any frontend.
+    The command reuses `--server-backend <jdk|jetty|netty>` for the underlying
+    HTTP server implementation.
+  - **Still open:** client-only `--mode client --server-url ...` commands,
+    host/port override plumbing, and non-Electron frontend client launch/build.
 - **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM
   base URL while preserving local frontend navigation. Cover text/json/status
   responses instead of forcing every exchange through raw JSON.

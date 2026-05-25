@@ -967,6 +967,11 @@ is available as the explicit shorthand for the same Electron + JVM REST dev
 supervisor. Distributed server/client commands and non-Electron full-stack
 supervision are still planned.
 
+The first server-only split command is also available:
+`ssc run --mode server --backend jvm app.ssc` starts only the JVM backend/server
+side from the same source file. Client-only `--mode client --server-url ...`
+commands are still planned.
+
 ### Planned full-stack and client storage features
 
 The features in this subsection are **planned and not implemented yet**. Their

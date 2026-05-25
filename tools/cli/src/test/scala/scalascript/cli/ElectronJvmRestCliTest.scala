@@ -145,6 +145,21 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       runElectronJvmRestDevHook = oldHook
       ActiveFlags.set(GlobalFlags())
 
+  test("runCommand dispatches mode server to JVM server hook"):
+    val dir = os.temp.dir(prefix = "ssc-mode-server-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runJvmServerHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String)]
+    try
+      ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
+      runJvmServerHook = (path, backend) => calls += ((path, backend))
+      runCommand(List("--mode", "server", app.toString))
+      assert(calls.toList == List((app, "jdk")))
+    finally
+      runJvmServerHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
   test("runElectronJvmRestDev starts fake backend and launches generated Electron bundle"):
     val pythonOk =
       scala.util.Try(os.proc("python3", "--version").call(check = false).exitCode == 0)

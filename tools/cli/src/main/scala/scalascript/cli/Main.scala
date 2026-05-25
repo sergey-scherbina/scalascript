@@ -478,6 +478,7 @@ def printUsage(): Unit =
     |                         Flags: --frontend <custom|react|solid|vue|electron>  (overrides frontmatter frontend:)
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |                                --target desktop-jvm starts split JVM REST + Electron mode
+    |                                --mode server starts only the JVM backend/server
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -2284,6 +2285,7 @@ def runCommand(args: List[String]): Unit =
   var sparkMasterFlag:   Option[String] = None
   var frontendFlag:      Option[String] = None
   var targetFlag:        Option[String] = None
+  var modeFlag:          Option[String] = None
   var serverBackendFlag: String         = "jdk"
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
@@ -2293,6 +2295,7 @@ def runCommand(args: List[String]): Unit =
       case "--spark-master"     if it.hasNext => sparkMasterFlag   = Some(it.next())
       case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
       case "--target"           if it.hasNext => targetFlag        = Some(it.next())
+      case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
       case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
@@ -2302,24 +2305,29 @@ def runCommand(args: List[String]): Unit =
       case f => fileArgs += f
 
   val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
+  val runMode = modeFlag.map(_.trim.toLowerCase)
+  runMode match
+    case Some("server") =>
+      ActiveFlags.current.backend match
+        case Some(backend) if backend != "jvm" && backend != "jvm-rest" =>
+          System.err.println(s"run --mode server requires --backend jvm or --backend jvm-rest, got '$backend'")
+          System.exit(1)
+        case _ =>
+          for file <- fileArgs.toList do
+            runJvmServerHook(os.Path(file, os.pwd), serverBackendFlag)
+          return
+    case Some("client") =>
+      System.err.println("run --mode client is planned but not implemented yet")
+      System.exit(1)
+    case Some(other) =>
+      System.err.println(s"run: unknown --mode '$other', valid: server, client")
+      System.exit(1)
+    case None => ()
 
   // --target jvm: compile via JvmGen → scala-cli → execute
   if targetSelection.contains("jvm") then
     for file <- fileArgs.toList do
-      val path = os.Path(file, os.pwd)
-      if !os.exists(path) then { System.err.println(s"run: file not found: $file"); System.exit(1) }
-      else
-        try
-          val rawScript = expectText(compileViaBackend("jvm", path), "run --target jvm")
-          val script    = injectServerBackend(rawScript, serverBackendFlag)
-          val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
-          try
-            val result = os.proc("scala-cli", "run", tmp, "--server=false")
-              .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-            if result.exitCode != 0 then System.exit(result.exitCode)
-          finally os.remove(tmp)
-        catch case e: Exception =>
-          System.err.println(s"run: ${e.getMessage}"); System.exit(1)
+      runJvmViaScalaCli(os.Path(file, os.pwd), serverBackendFlag, "run --target jvm")
     return
 
   val noExplicitRunMode =
@@ -2454,6 +2462,24 @@ def runCommand(args: List[String]): Unit =
         System.err.println(s"Runtime error: ${e.getMessage}")
         System.exit(1)
       finally scalascript.config.ConfigRegistry.clearSidecar()
+
+private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purpose: String): Unit =
+  if !os.exists(sscFile) then
+    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
+  try
+    val rawScript = expectText(compileViaBackend("jvm", sscFile), purpose)
+    val script    = injectServerBackend(rawScript, serverBackend)
+    val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
+    try
+      val result = os.proc(scalaCliCommand, "run", tmp, "--server=false")
+        .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+      if result.exitCode != 0 then System.exit(result.exitCode)
+    finally os.remove(tmp)
+  catch case e: Exception =>
+    System.err.println(s"run: ${e.getMessage}"); System.exit(1)
+
+private[cli] var runJvmServerHook: (os.Path, String) => Unit =
+  (path, backend) => runJvmViaScalaCli(path, backend, "run --mode server")
 
 /** Compile `sscFile` to an Electron bundle in a temp dir and launch
  *  `electron <tmpDir>`.  Blocks until the Electron window is closed. */
