@@ -39,7 +39,10 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     )
 
     assert(code.contains("""route("POST", "/api/messages")"""))
+    assert(code.contains("""route("GET", "/api/messages")"""))
+    assert(code.contains("""route("POST", "/api/messages/delete")"""))
     assert(code.contains("fetchActionClear(\"POST\", \"/api/messages\""))
+    assert(code.contains("fetchTable(\"/api/messages\", \"/api/messages/delete\""))
     assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))
     assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
 

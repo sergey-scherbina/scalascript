@@ -4,6 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.frontend.*
 
 import javax.swing.{JButton, JLabel}
+import scala.annotation.nowarn
 
 class SwingFrameworkBackendTest extends AnyFunSuite:
 
@@ -187,6 +188,54 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(calls.toList == List(("POST", "/api/items?q=1", "payload")))
     assert(labels.map(_.getText) == List("1", ""))
   }
+
+  test("SwingRuntime renders FetchTable and deletes rows through dispatcher") {
+    val tick = ReactiveSignal[Int]("tick", 0)
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(String, String, String)]
+    var rows = List("1" -> "first", "2" -> "second")
+    val dispatcher = new SwingRuntime.FetchDispatcher:
+      def request(method: String, url: String, requestBody: String): SwingRuntime.FetchResponse =
+        calls += ((method, url, requestBody))
+        method match
+          case "GET" =>
+            val body = rows.map((id, text) => s"""{"id":$id,"text":"$text"}""").mkString("[", ",", "]")
+            SwingRuntime.FetchResponse(200, body)
+          case "POST" =>
+            rows = rows.filterNot(_._1 == requestBody)
+            SwingRuntime.FetchResponse(204)
+          case _ =>
+            SwingRuntime.FetchResponse(405)
+    val root = View.Element("div", Map.empty, Map.empty, Seq(
+      fetchTable("rows", "/api/items", "/api/items/delete", tick)
+    ))
+    val state = SwingRuntime.RuntimeState.from(root, Some(dispatcher))
+    val panel = SwingRuntime.buildRoot(root, state)
+
+    assert(calls.toList == List(("GET", "/api/items", "")))
+    assert(findAll[JLabel](panel).map(_.getText).contains("first"))
+    assert(findAll[JLabel](panel).map(_.getText).contains("second"))
+
+    val deleteButtons = findAll[JButton](panel).filter(_.getText == "Delete")
+    deleteButtons.head.doClick()
+
+    assert(calls.toList == List(
+      ("GET", "/api/items", ""),
+      ("POST", "/api/items/delete", "1"),
+      ("GET", "/api/items", "")
+    ))
+    val labels = findAll[JLabel](panel).map(_.getText)
+    assert(!labels.contains("first"))
+    assert(labels.contains("second"))
+  }
+
+  @nowarn("cat=deprecation")
+  private def fetchTable(
+      tableId:   String,
+      fetchUrl:  String,
+      deleteUrl: String,
+      tick:      ReactiveSignal[Int]
+  ): View[Nothing] =
+    View.FetchTable(tableId, fetchUrl, deleteUrl, tick)
 
   private def findFirst[A](root: java.awt.Container)(using ct: reflect.ClassTag[A]): Option[A] =
     root.getComponents.iterator.foldLeft(Option.empty[A]) {

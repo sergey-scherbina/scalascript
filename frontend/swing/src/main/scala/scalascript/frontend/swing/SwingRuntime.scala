@@ -6,7 +6,9 @@ import java.awt.{BorderLayout, Color as AwtColor, Dimension as AwtDimension, Fon
 import javax.swing.*
 import javax.swing.event.{DocumentEvent, DocumentListener}
 import javax.swing.text.JTextComponent
+import scala.annotation.nowarn
 import scala.collection.mutable
+import scala.util.matching.Regex
 
 /** Same-process Swing runner for JVM-hosted frontend modules.
  *
@@ -114,6 +116,7 @@ object SwingRuntime:
         fetchDispatcher
       )
 
+  @nowarn("cat=deprecation")
   private def addTo(parent: JPanel, view: View[?], state: RuntimeState): Unit =
     view match
       case View.Text(content, style) =>
@@ -162,6 +165,8 @@ object SwingRuntime:
         children.foreach(addTo(parent, _, state))
       case View.Element(_, _, _, children) =>
         children.foreach(addTo(parent, _, state))
+      case View.FetchTable(_, fetchUrl, deleteUrl, tick) =>
+        parent.add(fetchTable(fetchUrl, deleteUrl, tick, state))
       case View.Show(cond, whenTrue, whenFalse) =>
         addTo(parent, if cond() then whenTrue() else whenFalse(), state)
       case View.ShowSignal(cond, whenTrue, whenFalse) =>
@@ -251,6 +256,55 @@ object SwingRuntime:
         }
       case _ => ()
 
+  private def fetchTable(fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int], state: RuntimeState): JPanel =
+    val panel = JPanel()
+    panel.setLayout(BoxLayout(panel, BoxLayout.Y_AXIS))
+
+    def renderStatus(message: String): Unit =
+      panel.removeAll()
+      panel.add(JLabel(message))
+      panel.revalidate()
+      panel.repaint()
+
+    def renderRows(rows: List[TableRow]): Unit =
+      panel.removeAll()
+      val header = JPanel()
+      header.setLayout(BoxLayout(header, BoxLayout.X_AXIS))
+      header.add(JLabel("Task"))
+      header.add(Box.createHorizontalGlue())
+      panel.add(header)
+      rows.foreach { row =>
+        val line = JPanel()
+        line.setLayout(BoxLayout(line, BoxLayout.X_AXIS))
+        line.add(JLabel(row.text))
+        line.add(Box.createHorizontalGlue())
+        val delete = JButton("Delete")
+        delete.addActionListener { _ =>
+          state.fetchDispatcher.foreach { dispatcher =>
+            val response = dispatcher.request("POST", deleteUrl, row.id)
+            if response.status >= 200 && response.status < 300 then
+              state.incrementSignal(tick.id, 1)
+          }
+        }
+        line.add(delete)
+        panel.add(line)
+      }
+      if rows.isEmpty then panel.add(JLabel("No rows"))
+      panel.revalidate()
+      panel.repaint()
+
+    def refresh(): Unit =
+      state.fetchDispatcher match
+        case Some(dispatcher) =>
+          val response = dispatcher.request("GET", fetchUrl, "")
+          if response.status >= 200 && response.status < 300 then renderRows(parseTableRows(response.body))
+          else renderStatus(s"Fetch failed: ${response.status}")
+        case None =>
+          renderStatus("Fetch dispatcher is not configured")
+
+    state.bindSignal(tick.id)(refresh())
+    panel
+
   private def styled[A <: JComponent](component: A, style: Style): A =
     style.text.foreground.flatMap(toAwtColor).foreach(component.setForeground)
     style.decoration.background.flatMap(toAwtColor).foreach { color =>
@@ -314,8 +368,48 @@ object SwingRuntime:
       case scalascript.frontend.Color.Named("white") => Some(AwtColor.WHITE)
       case _ => None
 
+  private final case class TableRow(id: String, text: String)
+
+  private val JsonObjectPattern: Regex = """\{([^}]*)\}""".r
+  private val JsonFieldPattern:  Regex = """"([^"]+)"\s*:\s*("(?:\\.|[^"])*"|[^,}]+)""".r
+
+  private def parseTableRows(body: String): List[TableRow] =
+    JsonObjectPattern.findAllMatchIn(body).toList.flatMap { obj =>
+      val fields = JsonFieldPattern.findAllMatchIn(obj.group(1)).map { field =>
+        field.group(1) -> jsonValue(field.group(2).trim)
+      }.toMap
+      fields.get("id").map(id => TableRow(id, fields.getOrElse("text", "")))
+    }
+
+  private def jsonValue(raw: String): String =
+    if raw.startsWith("\"") && raw.endsWith("\"") && raw.length >= 2 then
+      unescapeJson(raw.substring(1, raw.length - 1))
+    else raw
+
+  private def unescapeJson(value: String): String =
+    val out = StringBuilder()
+    var i = 0
+    while i < value.length do
+      if value.charAt(i) == '\\' && i + 1 < value.length then
+        value.charAt(i + 1) match
+          case '"'  => out += '"'
+          case '\\' => out += '\\'
+          case '/'  => out += '/'
+          case 'b'  => out += '\b'
+          case 'f'  => out += '\f'
+          case 'n'  => out += '\n'
+          case 'r'  => out += '\r'
+          case 't'  => out += '\t'
+          case other => out += other
+        i += 2
+      else
+        out += value.charAt(i)
+        i += 1
+    out.toString
+
   private final case class SignalInitial(id: String, value: Any)
 
+  @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
       acc.updatedWith(signal.id) {
@@ -336,6 +430,7 @@ object SwingRuntime:
         case View.Button(_, handler, _, _) => action(acc, handler)
         case View.TextInput(value, _, _, _, _) => add(acc, value)
         case View.Toggle(checked, _, _) => add(acc, checked)
+        case View.FetchTable(_, _, _, tick) => add(acc, tick)
         case View.Column(children, _, _, _) => children.foldLeft(acc)(loop)
         case View.Row(children, _, _, _) => children.foldLeft(acc)(loop)
         case View.Stack(children, _) => children.foldLeft(acc)(loop)
