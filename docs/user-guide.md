@@ -1021,10 +1021,11 @@ server-only/client-only split commands remain HTTP/REST. See
 CLI accepts `--frontend swing`. The backend can emit a JDK-only `JFrame` source
 artifact for a static toolkit subset: text, buttons, text fields, checkboxes,
 vertical/horizontal stacks, spacers, dividers, scroll views, and basic style
-hints. It is demonstrated by
+hints. It also supports local signal actions for buttons, text inputs,
+checkboxes, and signal-backed labels. It is demonstrated by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
-Full `ssc run --frontend swing app.ssc` desktop launch, action dispatch, and
-in-process backend route dispatch are still planned. The first Swing target
+Full `ssc run --frontend swing app.ssc` desktop launch and in-process backend
+route dispatch are still planned. The first Swing target
 should compose with `InProcessBackendTransport` so frontend actions and JVM
 backend routes can run inside one process without Electron, npm, browser
 hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapter

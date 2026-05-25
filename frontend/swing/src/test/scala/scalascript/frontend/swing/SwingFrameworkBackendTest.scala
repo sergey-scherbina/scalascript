@@ -86,14 +86,45 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains("""JLabel("Name")"""))
     assert(source.contains("label.setForeground(Color.RED)"))
     assert(source.contains("label.setFont(label.getFont.deriveFont(Font.BOLD, 18.0f))"))
-    assert(source.contains("""JTextField("Alice", 32)"""))
+    assert(source.contains("""mutable.Map[String, Any]("accept" -> true, "name" -> "Alice")"""))
+    assert(source.contains("""JTextField(signalString(signals, "name"), 32)"""))
     assert(source.contains("""field.putClientProperty("JTextField.placeholderText", "Your name")"""))
-    assert(source.contains("""JCheckBox("Accept terms", true)"""))
+    assert(source.contains("""JCheckBox("Accept terms", signalBoolean(signals, "accept"))"""))
+    assert(source.contains("""checkbox.addActionListener(_ => setSignal(signals, bindings, "accept", checkbox.isSelected))"""))
     assert(source.contains("JSeparator(SwingConstants.HORIZONTAL)"))
     assert(source.contains("JScrollPane(scrollPanel)"))
     assert(source.contains("panel.setOpaque(true)"))
     assert(source.contains("""panel.setBackground(Color.decode("#f8f8f8"))"""))
     assert(source.contains("panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10))"))
+  }
+
+  test("emitNative wires simple signal actions and refresh bindings") {
+    val backend = SwingFrameworkBackend()
+    val count = ReactiveSignal[Int]("count", 0)
+    val enabled = ReactiveSignal[Boolean]("enabled", false)
+    val app = ComponentDef(
+      name  = "App",
+      props = Nil,
+      body  = _ => View.Column(Seq(
+        View.SignalText(count),
+        View.Button(View.Text(() => "Increment"), EventHandler.IncrementSignal(count, by = 2)),
+        View.Button(View.Text(() => "Reset"), EventHandler.SetSignalLiteral(count, 0)),
+        View.Button(View.Text(() => "Toggle"), EventHandler.ToggleSignal(enabled)),
+        View.Toggle(enabled, "Enabled")
+      ))
+    )
+    val source = backend.emitNative(
+      FrontendModule(List(app), "App", "/"),
+      Platform.Desktop()
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains("""mutable.Map[String, Any]("count" -> 0, "enabled" -> false)"""))
+    assert(source.contains("""bindSignal(bindings, "count")"""))
+    assert(source.contains("""label.setText(signalString(signals, "count"))"""))
+    assert(source.contains("""button.addActionListener(_ => incrementSignal(signals, bindings, "count", 2))"""))
+    assert(source.contains("""button.addActionListener(_ => setSignal(signals, bindings, "count", 0))"""))
+    assert(source.contains("""button.addActionListener(_ => toggleSignal(signals, bindings, "enabled"))"""))
+    assert(source.contains("""bindSignal(bindings, "enabled")"""))
   }
 
   test("emitNative rejects non-desktop platforms") {

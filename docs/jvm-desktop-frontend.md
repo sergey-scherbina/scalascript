@@ -2,10 +2,10 @@
 
 Status: **partially implemented** — May 2026.
 
-Phases 1-2 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
+Phases 1-3 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
 accepts `--frontend swing`, and the backend can emit a native `JFrame` source
-artifact for a static toolkit subset. Action dispatch, full `ssc run` desktop
-launch, and in-process backend calls remain planned.
+artifact for a static toolkit subset with local signal actions. Full `ssc run`
+desktop launch and in-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -130,6 +130,20 @@ The first static subset supports:
 Table/list/modal/router equivalents remain future work after the first action
 bridge works.
 
+### Local Action Bridge
+
+The first action bridge is local to generated Swing source. It emits a mutable
+signal table plus per-signal refresh callbacks and supports:
+
+- `SignalText` labels refreshing when a signal changes.
+- `Button` actions for `SetSignalLiteral`, `IncrementSignal`, and
+  `ToggleSignal`.
+- `TextInput` two-way updates for `ReactiveSignal[String]`.
+- `Toggle` two-way updates for `ReactiveSignal[Boolean]`.
+
+JVM closure handlers, fetch actions, list mutation actions, and backend route
+dispatch remain future work.
+
 ### Transport Integration
 
 For monolithic apps the Swing frontend should call backend routes through
@@ -188,12 +202,17 @@ Status: **landed**. The emitted Swing source now handles `Text`, `TextNode`,
 `Spacer`, `Divider`, `ScrollView`, `Fragment`, `Show`, `For`, `Styled`, and
 desktop `Adaptive` branches. Basic style lowering covers padding, background,
 foreground, font size/weight, fixed size hints, borders, and accessibility
-labels. Events are still static/no-op until Phase 3.
+labels.
 
 ### Phase 3 — Action Bridge
 
 Wire Swing events to generated ScalaScript actions and update UI state on the
 EDT. Add counter/todo-style examples.
+
+Status: **landed** for local signal actions. Generated Swing source now emits
+`setSignal`, `incrementSignal`, `toggleSignal`, `bindSignal`, and signal value
+helpers; `SignalText`, `TextInput`, and `Toggle` refresh from the signal table.
+Backend-route actions and transport dispatch remain Phase 4 work.
 
 ### Phase 4 — In-Process Full-Stack Mode
 

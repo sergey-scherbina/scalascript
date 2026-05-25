@@ -10419,9 +10419,13 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   wrappers, and desktop adaptive branches to Swing source. Basic layout/style
   lowering now covers axis-correct spacing, padding, background/foreground,
   font size/weight, fixed size hints, borders, and accessibility labels.
-  Event/action dispatch remains Phase 3.
-- **Phase 3 — Action bridge.** Wire Swing events to generated ScalaScript
-  actions and update UI state on the EDT.
+- **Phase 3 ✓ Landed (2026-05-25)** — local action bridge:
+  generated Swing source now emits a mutable signal table, signal refresh
+  bindings, and helpers for `setSignal`, `incrementSignal`, and
+  `toggleSignal`. `SignalText`, `TextInput`, and `Toggle` refresh from the
+  local signal table, while buttons support `SetSignalLiteral`,
+  `IncrementSignal`, and `ToggleSignal`. Backend route/fetch dispatch remains
+  Phase 4.
 - **Phase 4 — In-process full-stack mode.** Connect Swing frontend actions to
   backend routes through `InProcessBackendTransport` and add a no-socket
   full-stack example.
