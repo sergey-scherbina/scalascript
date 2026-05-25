@@ -45,6 +45,13 @@ deployment: the backend-only JVM server can run on one machine, and a
 frontend-only client generated from the same `.ssc` file can run on another
 machine with any supported frontend target.
 
+For compatible same-process runtimes, the separate planned
+[`fullstack-in-process-transport.md`](fullstack-in-process-transport.md) mode
+will avoid sockets and HTTP while preserving the same logical request/response
+boundary. Electron renderer + JVM backend is still a split-runtime case, so it
+continues to use this REST/supervisor design unless a future desktop bridge
+transport is explicitly selected.
+
 The target outcome: `ssc run --frontend electron --backend jvm-rest app.ssc`
 starts both processes, opens a desktop window, routes UI `fetch(...)` calls to
 the JVM REST server, and shuts the JVM server down when Electron exits.

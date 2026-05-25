@@ -10221,6 +10221,10 @@ Electron and JVM processes from one `ssc run`; distributed mode can run a
 backend-only server on one machine and frontend-only clients on other machines
 using `--server-url`.
 
+For compatible same-process runtimes, the separate v1.44 transport plan covers
+monolithic full-stack execution without sockets or HTTP. Electron renderer + JVM
+backend remains a split-runtime case under this v1.43 REST/supervisor design.
+
 Default policy: when a single `.ssc` contains both frontend UI and backend
 routes, plain `ssc run app.ssc` should run the supervised local full-stack mode
 on one machine. Explicit server-only, client-only, or self-contained/local-first
@@ -10346,3 +10350,38 @@ modes opt out of that default.
   persisted through SQL, client/server ObjectStore sync, graph vertices/edges,
   RDF where applicable, and processed through local/distributed Dataset plus
   Spark where supported.
+
+## v1.44 — Full-Stack In-Process Transport
+
+**Status:** planned
+**Spec:** [`docs/fullstack-in-process-transport.md`](docs/fullstack-in-process-transport.md)
+
+Monolithic full-stack mode for compatible target pairs. When frontend and
+backend logic can live in the same runtime process, ScalaScript should be able
+to dispatch backend route/API calls through an internal async request/response
+transport instead of opening TCP sockets and speaking HTTP. This complements,
+not replaces, v1.43 REST mode: distributed clients, browser-to-JVM apps,
+server-only/client-only split commands, and external integrations stay on HTTP.
+
+### Planned phases
+
+- **Phase 0 ✓ Landed (2026-05-25)** — spec and backlog:
+  documented the transport contract, target compatibility matrix, CLI/front
+  matter proposal, testing strategy, and user-guide/README planned-feature
+  status. No runtime behavior changes.
+- **Phase 1 — Transport contract skeleton.** Add internal
+  `BackendTransport` request/response types, route-dispatch adapter shape, and
+  CLI/front-matter parsing/diagnostics behind explicit `--transport` selection.
+  Runtime defaults stay unchanged.
+- **Phase 2 — Interpreter in-process dispatch.** Add a test/dev path that
+  dispatches route calls through the interpreter route registry without binding
+  a TCP port.
+- **Phase 3 — Generated client adapter.** Route `fetchAction`, `fetchTable`,
+  and future typed API clients through the transport abstraction where
+  supported, preserving HTTP for browser/JVM and distributed modes.
+- **Phase 4 — JVM monolithic frontend target.** If a JVM-hosted UI target is
+  available, support frontend + backend in one JVM process with
+  `InProcessBackendTransport` and add a runnable example.
+- **Phase 5 — Optional desktop bridge transport.** Evaluate Electron-main or
+  other desktop shell bridge transports. This is local IPC/host bridging, not
+  JVM in-process, and should remain explicit.
