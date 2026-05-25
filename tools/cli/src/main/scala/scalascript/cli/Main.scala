@@ -2333,7 +2333,7 @@ def runCommand(args: List[String]): Unit =
     }
     if shouldRunDefault then
       for file <- files do
-        runElectronJvmRestDev(os.Path(file, os.pwd), serverBackendFlag)
+        runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
       return
 
   // --target desktop / desktop-electron / desktop-jvm, or --frontend electron → Electron dev-run
@@ -2346,7 +2346,7 @@ def runCommand(args: List[String]): Unit =
     System.exit(1)
   if isElectronRun && isJvmRestRun then
     for file <- fileArgs.toList do
-      runElectronJvmRestDev(os.Path(file, os.pwd), serverBackendFlag)
+      runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
     return
   if isElectronRun then
     for file <- fileArgs.toList do
@@ -2520,6 +2520,9 @@ private def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String): Unit
         backendProcess.destroyForcibly()
     scala.util.Try(os.remove(backendScript))
   if electronExit != 0 then System.exit(electronExit)
+
+private[cli] var runElectronJvmRestDevHook: (os.Path, String) => Unit =
+  runElectronJvmRestDev
 
 private def runElectronProject(tmpDir: os.Path, module: Module): Int =
   val electronOk =

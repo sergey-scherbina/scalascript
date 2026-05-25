@@ -10251,8 +10251,12 @@ modes opt out of that default.
     `ssc run --target desktop-jvm app.ssc` now selects the Electron JVM REST
     supervisor directly, matching the command surface in the spec without
     requiring a separate `--backend jvm-rest` flag.
-  - **Still open:** non-Electron frontend supervision and end-to-end
-    default-run smoke coverage with a real Electron/scala-cli process.
+  - **Phase 1d ✓ Landed (2026-05-25)** — dispatch smoke coverage:
+    `runCommand` tests now verify that plain full-stack `frontend: electron`
+    apps and explicit `--target desktop-jvm` dispatch to the Electron JVM REST
+    supervisor hook without requiring Electron or scala-cli on PATH.
+  - **Still open:** non-Electron frontend supervision and end-to-end smoke
+    coverage with a real Electron/scala-cli process.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch
   and frontend-only client launch/build from one `.ssc`, including
   `--server-url` for React/custom web and Electron clients.
