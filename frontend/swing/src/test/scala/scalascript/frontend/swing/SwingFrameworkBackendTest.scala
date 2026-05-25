@@ -161,10 +161,44 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(label.getText == "1")
   }
 
+  test("SwingRuntime dispatches FetchAction through configured in-process dispatcher") {
+    val body = ReactiveSignal[String]("body", "payload")
+    val tick = ReactiveSignal[Int]("tick", 0)
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(String, String, String)]
+    val dispatcher = new SwingRuntime.FetchDispatcher:
+      def request(method: String, url: String, requestBody: String): SwingRuntime.FetchResponse =
+        calls += ((method, url, requestBody))
+        SwingRuntime.FetchResponse(204)
+    val root = View.Element("div", Map.empty, Map.empty, Seq(
+      View.SignalText(tick),
+      View.SignalText(body),
+      View.Button(
+        View.Text(() => "Save"),
+        EventHandler.FetchAction("POST", "/api/items?q=1", body, tick, clearBody = true)
+      )
+    ))
+    val state = SwingRuntime.RuntimeState.from(root, Some(dispatcher))
+    val panel = SwingRuntime.buildRoot(root, state)
+    val labels = findAll[JLabel](panel)
+    val button = findFirst[JButton](panel).getOrElse(fail("missing button"))
+
+    assert(labels.map(_.getText) == List("0", "payload"))
+    button.doClick()
+    assert(calls.toList == List(("POST", "/api/items?q=1", "payload")))
+    assert(labels.map(_.getText) == List("1", ""))
+  }
+
   private def findFirst[A](root: java.awt.Container)(using ct: reflect.ClassTag[A]): Option[A] =
     root.getComponents.iterator.foldLeft(Option.empty[A]) {
       case (found @ Some(_), _) => found
       case (None, a: A) => Some(a)
       case (None, c: java.awt.Container) => findFirst[A](c)
       case (None, _) => None
+    }
+
+  private def findAll[A](root: java.awt.Container)(using ct: reflect.ClassTag[A]): List[A] =
+    root.getComponents.iterator.toList.flatMap {
+      case a: A => List(a)
+      case c: java.awt.Container => findAll[A](c)
+      case _ => Nil
     }

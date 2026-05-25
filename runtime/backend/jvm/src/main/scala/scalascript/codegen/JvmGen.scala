@@ -8684,11 +8684,56 @@ class JvmGen(
        |    if _parent != null then java.nio.file.Files.createDirectories(_parent)
        |    java.nio.file.Files.write(_target, _bytes)
        |
+       |def _ssc_ui_fetch_response(value: Any): scalascript.frontend.swing.SwingRuntime.FetchResponse =
+       |  value match
+       |    case r: Response =>
+       |      scalascript.frontend.swing.SwingRuntime.FetchResponse(r.status, r.body, r.headers)
+       |    case sr: _StreamResponse =>
+       |      val sb = StringBuilder()
+       |      sr.writer(chunk => sb.append(chunk))
+       |      scalascript.frontend.swing.SwingRuntime.FetchResponse(sr.status, sb.toString, sr.headers)
+       |    case other =>
+       |      scalascript.frontend.swing.SwingRuntime.FetchResponse(200, _show(other), Map("Content-Type" -> "text/plain; charset=utf-8"))
+       |
+       |def _ssc_ui_inprocess_fetch(methodRaw: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
+       |  val method = methodRaw.toUpperCase
+       |  val queryIdx = url.indexOf('?')
+       |  val path = if queryIdx >= 0 then url.take(queryIdx) else url
+       |  val query = if queryIdx >= 0 then _parseQuery(url.drop(queryIdx + 1)) else Map.empty[String, String]
+       |  val segs = path.split('/').toList.filter(_.nonEmpty)
+       |  _routes.iterator
+       |    .filter(_.method == method)
+       |    .flatMap(r => _matchPath(r.pattern, segs).map(params => (r, params)))
+       |    .nextOption() match
+       |      case Some((r, params)) =>
+       |        val req = Request(method, path, params, query, Map.empty, body)
+       |        try
+       |          def runHandler(): Any = r.handler(req)
+       |          val chain = _middlewares.reverseIterator.foldLeft(() => runHandler()) { (next, mw) =>
+       |            () => mw(req, next)
+       |          }
+       |          _ssc_ui_fetch_response(chain())
+       |        catch
+       |          case e: RestValidationError =>
+       |            scalascript.frontend.swing.SwingRuntime.FetchResponse(400, e.getMessage, Map("Content-Type" -> "text/plain; charset=utf-8"))
+       |          case e: Throwable =>
+       |            scalascript.frontend.swing.SwingRuntime.FetchResponse(500, e.getMessage, Map("Content-Type" -> "text/plain; charset=utf-8"))
+       |      case None =>
+       |        scalascript.frontend.swing.SwingRuntime.FetchResponse(404, "Not Found: " + path, Map("Content-Type" -> "text/plain; charset=utf-8"))
+       |
        |def _ssc_ui_run_native(view: scalascript.frontend.View, extraCss: String = ""): Unit =
        |  val _mod = _ssc_ui_buildModule(view, extraCss)
        |  println("ssc: launching Swing")
        |  println("     mode:   same-process JVM")
-       |  scalascript.frontend.swing.SwingRuntime.run(_mod)
+       |  scalascript.frontend.swing.SwingRuntime.run(
+       |    _mod,
+       |    scalascript.frontend.swing.SwingRuntime.Options(
+       |      fetchDispatcher = Some(new scalascript.frontend.swing.SwingRuntime.FetchDispatcher:
+       |        def request(method: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
+       |          _ssc_ui_inprocess_fetch(method, url, body)
+       |      )
+       |    )
+       |  )
        |
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
        |  if _ssc_frontend_name == "swing" then

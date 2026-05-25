@@ -1015,10 +1015,12 @@ runtime process. The CLI now recognizes `--transport http|in-process` and front
 matter `fullstack.transport` / `transport`. Interpreter route tests can already
 dispatch through `InProcessBackendTransport` without opening a socket, and
 `ssc run-jvm --frontend swing` now runs the Swing UI in the same JVM process
-instead of launching nested `scala-cli`. Generated frontend client selection
-for backend route calls is **not implemented yet**. Distributed clients,
-browser-to-JVM apps, and server-only/client-only split commands remain
-HTTP/REST. See
+instead of launching nested `scala-cli`. In generated JVM/Swing apps,
+`fetchAction` / `fetchActionClear` button handlers can dispatch to backend
+routes through the same generated JVM route registry without opening an HTTP
+socket. `fetchTable`, generated typed clients, and broader frontend client
+selection are still planned. Distributed clients, browser-to-JVM apps, and
+server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
 **Partially implemented: JVM desktop frontend.** ScalaScript now has a
@@ -1028,18 +1030,19 @@ through the JVM backend and launches the JDK-only Swing runtime in the current
 JVM process; plain `ssc run --frontend swing` stays on the interpreter path and
 currently reports that Swing interpreter intrinsics are planned. `ssc run-jvm
 --frontend swing --transport in-process` is accepted as the monolithic JVM mode
-foundation, but generated backend route dispatch from Swing actions is still
-planned. The backend can emit a `JFrame` source artifact for a static
+foundation. Swing `fetchAction` / `fetchActionClear` handlers can call
+generated JVM backend routes in the same process. The backend can emit a
+`JFrame` source artifact for a static
 toolkit subset: text, buttons, text fields, checkboxes, vertical/horizontal
 stacks, spacers, dividers, scroll views, and basic style hints. It also supports
 local signal actions for buttons, text inputs, checkboxes, and signal-backed
 labels. It is demonstrated by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
 The `runtime/std/swing-plugin` module is present as the future home for
-interpreter-side Swing intrinsics. In-process backend route dispatch is still planned. The first Swing target
-should compose with `InProcessBackendTransport` so frontend actions and JVM
-backend routes can run inside one process without Electron, npm, browser
-hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapter
+interpreter-side Swing intrinsics. `fetchTable`, typed clients, and a full
+no-socket example are still planned. The first Swing target should keep
+frontend actions and JVM backend routes inside one process without Electron,
+npm, browser hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapters
 candidates. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 

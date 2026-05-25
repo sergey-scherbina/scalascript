@@ -10383,9 +10383,11 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   and `Response` unwrapping without binding a TCP port. Scope is currently the
   interpreter/test harness path; CLI full-stack runtime selection still remains
   diagnostic-only until generated client adapters land.
-- **Phase 3 — Generated client adapter.** Route `fetchAction`, `fetchTable`,
-  and future typed API clients through the transport abstraction where
-  supported, preserving HTTP for browser/JVM and distributed modes.
+- **Phase 3 — Generated client adapter.** Partially landed (2026-05-25):
+  generated JVM/Swing `fetchAction` / `fetchActionClear` calls now dispatch to
+  the generated JVM route registry in the same process. Remaining work:
+  `fetchTable`, future typed API clients, and broader frontend transport
+  selection while preserving HTTP for browser/JVM split and distributed modes.
 - **Phase 4 — JVM monolithic frontend target.** If a JVM-hosted UI target is
   available, support frontend + backend in one JVM process with
   `InProcessBackendTransport` and add a runnable example.
@@ -10444,8 +10446,11 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   `SwingRuntime.run(module)` and switched `ssc run-jvm --frontend swing` away
   from the nested `scala-cli` launcher, so Swing now runs in the same JVM
   process as generated backend code and `--frontend swing --transport
-  in-process` is accepted. Remaining work: connect Swing frontend actions to
-  backend routes through `InProcessBackendTransport` and add a no-socket
+  in-process` is accepted. Phase 4c connected Swing `fetchAction` /
+  `fetchActionClear` handlers to generated JVM backend routes through an
+  injected same-process dispatcher. Remaining work: connect `fetchTable` and
+  typed clients, decide whether generated JVM dispatch should reuse the
+  interpreter `InProcessBackendTransport` class directly, and add a no-socket
   full-stack example.
 - **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
   window metadata, graceful shutdown, and optional `jpackage` packaging.

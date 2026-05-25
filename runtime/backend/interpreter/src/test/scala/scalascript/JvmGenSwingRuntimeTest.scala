@@ -20,6 +20,8 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
         |""".stripMargin
     val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
 
-    assert(code.contains("scalascript.frontend.swing.SwingRuntime.run(_mod)"))
+    assert(code.contains("scalascript.frontend.swing.SwingRuntime.run("))
     assert(code.contains("mode:   same-process JVM"))
+    assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))
+    assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
     assert(!code.contains("ProcessBuilder(_scalaCli"))

@@ -20,7 +20,17 @@ object SwingRuntime:
   final case class Options(
       closeOperation: Int = WindowConstants.EXIT_ON_CLOSE,
       size:           AwtDimension = AwtDimension(640, 420),
-      centerOnScreen: Boolean = true
+      centerOnScreen: Boolean = true,
+      fetchDispatcher: Option[FetchDispatcher] = None
+  )
+
+  trait FetchDispatcher:
+    def request(method: String, url: String, body: String): FetchResponse
+
+  final case class FetchResponse(
+      status:  Int,
+      body:    String = "",
+      headers: Map[String, String] = Map.empty
   )
 
   def run(module: FrontendModule, options: Options = Options()): JFrame =
@@ -48,7 +58,7 @@ object SwingRuntime:
       )
     )
     val rootView = entry.body(())
-    val state = RuntimeState.from(rootView)
+    val state = RuntimeState.from(rootView, options.fetchDispatcher)
     val frame = JFrame(manifest.displayName)
     frame.setDefaultCloseOperation(options.closeOperation)
     frame.getContentPane.add(buildRoot(rootView, state), BorderLayout.CENTER)
@@ -68,7 +78,8 @@ object SwingRuntime:
 
   final class RuntimeState private[swing] (
       val signals:  mutable.Map[String, Any],
-      val bindings: mutable.Map[String, mutable.Buffer[() => Unit]]
+      val bindings: mutable.Map[String, mutable.Buffer[() => Unit]],
+      val fetchDispatcher: Option[FetchDispatcher]
   ):
     def bindSignal(id: String)(refresh: => Unit): Unit =
       bindings.getOrElseUpdate(id, mutable.Buffer.empty) += (() => refresh)
@@ -96,10 +107,11 @@ object SwingRuntime:
       signals.get(id).collect { case b: Boolean => b }.getOrElse(false)
 
   object RuntimeState:
-    def from(view: View[?]): RuntimeState =
+    def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
       RuntimeState(
         mutable.Map.from(collectSignals(view).map(s => s.id -> s.value)),
-        mutable.Map.empty
+        mutable.Map.empty,
+        fetchDispatcher
       )
 
   private def addTo(parent: JPanel, view: View[?], state: RuntimeState): Unit =
@@ -228,6 +240,15 @@ object SwingRuntime:
         component.addActionListener(_ => action())
       case EventHandler.WithEvent(action) =>
         component.addActionListener(event => action(event))
+      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody) =>
+        component.addActionListener { _ =>
+          state.fetchDispatcher.foreach { dispatcher =>
+            val response = dispatcher.request(method, url, state.signalString(body.id))
+            if response.status >= 200 && response.status < 300 then
+              state.incrementSignal(onSuccessTick.id, 1)
+              if clearBody then state.setSignal(body.id, "")
+          }
+        }
       case _ => ()
 
   private def styled[A <: JComponent](component: A, style: Style): A =

@@ -8,7 +8,9 @@ artifact for a static toolkit subset with local signal actions. `ssc run-jvm
 --frontend swing` launches that JVM desktop path in the current JVM process via
 `SwingRuntime.run(module)`. Plain `ssc run --frontend swing` remains the
 interpreter path and reports that Swing interpreter intrinsics are planned.
-Generated in-process backend calls remain planned.
+Swing `FetchAction` handlers can dispatch to generated JVM backend routes in
+the same process. `fetchTable`, typed clients, and a full no-socket example
+remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -148,13 +150,18 @@ signal table plus per-signal refresh callbacks and supports:
 - `Toggle` two-way updates for `ReactiveSignal[Boolean]`.
 
 JVM closure handlers, fetch actions, list mutation actions, and backend route
-dispatch remain future work.
+dispatch remain future work for static Swing source emission. The same-process
+`SwingRuntime` path used by `ssc run-jvm --frontend swing` supports
+`FetchAction` through an injected dispatcher.
 
 ### Transport Integration
 
-For monolithic apps the Swing frontend should call backend routes through
-`InProcessBackendTransport`. This keeps the same request/response semantics as
-REST while avoiding TCP sockets and HTTP wire parsing.
+For monolithic apps the Swing frontend should call backend routes through an
+in-process route dispatcher. The interpreter/test harness path uses
+`InProcessBackendTransport`; the generated JVM/Swing path currently injects a
+`SwingRuntime.FetchDispatcher` backed by the generated JVM route registry. Both
+preserve REST-shaped request/response semantics while avoiding TCP sockets and
+HTTP wire parsing.
 
 The generated Swing frontend should not call server-only databases directly.
 It should use route/API boundaries, just as browser clients do. That preserves
@@ -255,9 +262,12 @@ Status: **in progress**. Phase 4a landed transport-option recognition for
 `ssc run-jvm`. Phase 4b replaced the nested `scala-cli` Swing launcher with
 `SwingRuntime.run(module)`, so `ssc run-jvm --frontend swing` builds and shows
 the desktop UI in the same JVM process as the generated backend code.
-`--frontend swing --transport in-process` is now accepted. Remaining work:
-connect `FetchAction`/typed client calls to `InProcessBackendTransport` and add
-a no-socket full-stack example.
+`--frontend swing --transport in-process` is now accepted. Phase 4c connected
+Swing `FetchAction` / `fetchActionClear` handlers to generated JVM backend
+routes through an injected same-process dispatcher. Remaining work: connect
+`fetchTable` and typed client calls, decide whether the generated JVM path
+should share the interpreter `InProcessBackendTransport` class directly, and
+add a no-socket full-stack example.
 
 ### Phase 5 — Packaging And Runtime Polish
 
