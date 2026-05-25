@@ -10392,3 +10392,34 @@ server-only/client-only split commands, and external integrations stay on HTTP.
 - **Phase 5 — Optional desktop bridge transport.** Evaluate Electron-main or
   other desktop shell bridge transports. This is local IPC/host bridging, not
   JVM in-process, and should remain explicit.
+
+## v1.45 — JVM Desktop Frontend
+
+**Status:** planned
+**Spec:** [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md)
+
+JVM-hosted desktop frontend target for self-contained local apps. The first
+adapter should be Swing because it is included in the JDK and avoids Electron,
+npm, Node.js, browser hosting, and HTTP sockets for monolithic JVM apps. JavaFX
+and Compose Desktop remain future adapters after the Swing proof of concept.
+
+### Planned phases
+
+- **Phase 0 ✓ Landed (2026-05-25)** — spec and backlog:
+  documented the Swing-first JVM desktop target, command surface, toolkit
+  subset, transport integration, JavaFX/Compose follow-ups, and test strategy.
+  No runtime behavior changes.
+- **Phase 1 — Swing backend skeleton.** Add `frontend-swing` module, backend
+  registration, CLI/frontend-name plumbing, and a minimal `JFrame` runtime.
+  Ship one runnable static example.
+- **Phase 2 — Toolkit subset.** Lower label/text, button, text field,
+  checkbox, vstack/hstack, and basic layout/styling defaults to Swing.
+- **Phase 3 — Action bridge.** Wire Swing events to generated ScalaScript
+  actions and update UI state on the EDT.
+- **Phase 4 — In-process full-stack mode.** Connect Swing frontend actions to
+  backend routes through `InProcessBackendTransport` and add a no-socket
+  full-stack example.
+- **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
+  window metadata, graceful shutdown, and optional `jpackage` packaging.
+- **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose
+  Desktop should become additional adapters.

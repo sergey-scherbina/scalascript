@@ -132,7 +132,8 @@ Initial compatibility matrix:
 | Frontend target | Backend target | In-process viability | Notes |
 |---|---|---|---|
 | interpreter/test harness | interpreter | yes | Best Phase 1 target. No sockets; direct route registry dispatch. |
-| JVM UI target | JVM | yes, planned | Requires a JVM-hosted frontend target such as JavaFX/Compose/Swing or a future desktop frontend. |
+| Swing JVM desktop | JVM | yes, planned | First planned JVM-hosted frontend target; see [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md). |
+| JavaFX/Compose JVM desktop | JVM | possible later | Better modern UI options, but require extra dependencies and packaging work. |
 | Electron renderer | JVM | no, not directly | Different processes/runtimes. Use HTTP sidecar or a future bridge through Electron main. |
 | Electron main/local-first | JS/Node | possible later | Could use an Electron bridge transport, not JVM in-process. |
 | Browser React/Vue/Solid | JVM | no | Browser and JVM are separate runtimes; HTTP remains required. |

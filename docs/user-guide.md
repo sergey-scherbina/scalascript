@@ -1016,6 +1016,14 @@ falling back to HTTP. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
+**Planned, not implemented yet: JVM desktop frontend.** ScalaScript plans a
+JDK-only Swing frontend target for self-contained local desktop apps:
+`ssc run --frontend swing app.ssc`. The first Swing target should compose with
+`InProcessBackendTransport` so frontend actions and JVM backend routes can run
+inside one process without Electron, npm, browser hosting, or HTTP sockets.
+JavaFX and Compose Desktop are future adapter candidates. See
+[`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
+
 **Planned, not implemented yet: browser client storage APIs.** Client frontends
 may use standard browser storage when SQL is the wrong shape for the data.
 Planned client-only APIs cover `localStorage` for tiny string settings,

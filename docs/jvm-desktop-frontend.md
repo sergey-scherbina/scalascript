@@ -1,0 +1,215 @@
+# JVM Desktop Frontend
+
+Status: **planned / not implemented** — May 2026.
+
+This document defines a JVM-hosted desktop frontend target for ScalaScript. The
+first implementation target is Swing because it ships with the JDK and keeps the
+bootstrap self-contained. JavaFX and Compose Desktop remain future adapters.
+
+## Goals
+
+- Add a desktop frontend that runs in the JVM process, without Electron, npm,
+  Node.js, browser hosting, or HTTP sockets for local monolithic apps.
+- Use Swing as the first adapter because it is available in the standard JDK.
+- Reuse the existing frontend toolkit model where possible instead of creating
+  a separate UI DSL.
+- Compose with `InProcessBackendTransport` so a single JVM process can host UI
+  state, frontend actions, backend routes, and server-side databases.
+- Keep split/distributed REST modes available for browser, Electron, and remote
+  clients.
+- Provide a small runnable example before claiming the target is supported.
+
+## Non-Goals
+
+- Do not replace Electron. Electron remains the browser-compatible desktop
+  shell for web UI and Chromium-specific behavior.
+- Do not start with JavaFX or Compose Desktop. They can be better modern UI
+  choices, but both add dependencies and packaging requirements that should not
+  block the JDK-only proof of concept.
+- Do not promise pixel-perfect parity with React/Vue/Solid. The first Swing
+  target should cover a practical subset of the toolkit.
+- Do not route Swing actions through HTTP for monolithic mode.
+- Do not implement native installers, signing, or platform menu integration in
+  the first phases.
+
+## Architecture
+
+The JVM desktop frontend is a frontend backend beside the existing web-oriented
+frontend backends:
+
+```text
+.ssc UI source
+  -> frontend toolkit / abstract model
+      -> frontend-react / frontend-vue / frontend-solid / frontend-custom
+      -> frontend-electron
+      -> frontend-swing       # planned first JVM desktop adapter
+      -> frontend-javafx       # future
+      -> frontend-compose      # future
+```
+
+The planned Swing runtime should run on the JVM Event Dispatch Thread (EDT).
+Backend work must not block the EDT; long-running route calls should use the
+same async transport boundary that HTTP clients use.
+
+```text
+Swing event handler
+  -> generated action bridge
+  -> BackendTransport
+      -> InProcessBackendTransport  # monolithic local mode
+      -> HttpBackendTransport       # optional split/distributed mode later
+  -> update Swing model/components on EDT
+```
+
+### Module Layout
+
+Planned initial module:
+
+```text
+frontend/swing/
+  src/main/scala/scalascript/frontend/swing/
+    SwingFrontendBackend.scala
+    SwingRuntime.scala
+    SwingLowering.scala
+```
+
+Potential backend id and aliases:
+
+- backend id: `frontend-swing`
+- CLI frontend name: `swing`
+- target alias: `desktop-jvm-swing` only if a distinct target is useful later
+
+The module should depend on `frontendCore` and JVM runtime pieces only. It
+should not depend on Electron, JS backends, npm, or browser tooling.
+
+### CLI And Front Matter
+
+Planned command surface:
+
+```bash
+ssc run --frontend swing app.ssc
+ssc run --frontend swing --transport in-process app.ssc
+ssc run --target desktop-jvm --frontend swing app.ssc
+```
+
+Planned front matter:
+
+```yaml
+frontend: swing
+fullstack:
+  transport: in-process
+```
+
+Default policy:
+
+- `frontend: swing` selects the Swing frontend when the target/runtime supports
+  JVM desktop execution.
+- `--transport in-process` should be the natural local full-stack mode for
+  Swing + JVM backend.
+- `--transport http` should remain possible later for connecting Swing to a
+  separately launched backend, but it is not the first implementation target.
+
+### Toolkit Subset
+
+Phase 1 should support only a small, shippable subset:
+
+| Toolkit concept | Swing mapping |
+|---|---|
+| text/label | `JLabel` |
+| button/actionButton | `JButton` |
+| textField | `JTextField` |
+| checkbox | `JCheckBox` |
+| vstack/hstack | `JPanel` with vertical/horizontal layout |
+| spacer | rigid area / empty border |
+
+Phase 2 can add table/list/modal/router equivalents once the first action
+bridge works.
+
+### Transport Integration
+
+For monolithic apps the Swing frontend should call backend routes through
+`InProcessBackendTransport`. This keeps the same request/response semantics as
+REST while avoiding TCP sockets and HTTP wire parsing.
+
+The generated Swing frontend should not call server-only databases directly.
+It should use route/API boundaries, just as browser clients do. That preserves
+side diagnostics and keeps a future split-mode migration possible.
+
+### JavaFX And Compose Desktop
+
+Future adapters:
+
+- JavaFX: better widgets and styling than Swing, but extra dependencies are
+  required on modern JDKs.
+- Compose Desktop: modern declarative UI, but brings Compose/Skiko packaging and
+  build-tool complexity.
+
+Both should consume the same abstract model and transport contract after the
+Swing proof of concept lands.
+
+## Migration
+
+No existing behavior changes in Phase 0. `frontend: electron`, React/Vue/Solid,
+custom web, and split JVM REST modes keep their current behavior.
+
+`desktop-jvm` currently means Electron + JVM REST in the implemented CLI path.
+Swing must therefore be selected explicitly at first with `--frontend swing` or
+`frontend: swing`; changing any default desktop target requires a later
+compatibility decision.
+
+## Phases
+
+### Phase 0 — Spec And Milestone
+
+Land this design, mark the feature as planned, and add the backlog.
+
+### Phase 1 — Swing Backend Skeleton
+
+Add `frontend-swing` module, backend registration, CLI/frontend-name plumbing,
+and a minimal `JFrame` runtime. The first runnable example can show static text
+or a button without backend calls.
+
+### Phase 2 — Toolkit Subset
+
+Lower a small toolkit subset to Swing: label/text, button, text field,
+checkbox, vstack/hstack, and simple styling/layout defaults.
+
+### Phase 3 — Action Bridge
+
+Wire Swing events to generated ScalaScript actions and update UI state on the
+EDT. Add counter/todo-style examples.
+
+### Phase 4 — In-Process Full-Stack Mode
+
+Connect Swing frontend actions to backend routes through
+`InProcessBackendTransport`. Add a full-stack example that writes on the JVM
+backend and updates the desktop UI without opening an HTTP socket.
+
+### Phase 5 — Packaging And Runtime Polish
+
+Document JDK requirements, icon/window metadata, graceful shutdown, and optional
+packaging with `jpackage`.
+
+### Phase 6 — JavaFX / Compose Evaluation
+
+Evaluate whether JavaFX or Compose Desktop should be implemented as additional
+adapters after Swing proves the contract.
+
+## Testing Strategy
+
+- Unit tests for frontend selection and backend id registration.
+- Golden-code tests for Swing lowering where feasible.
+- Headless-safe tests for model/action generation.
+- Optional GUI smoke tests guarded by headless-environment checks.
+- In-process transport integration test once Phase 4 lands.
+
+## Open Questions
+
+- Should the backend id be `frontend-swing` or `swing`?
+- Should `desktop-jvm` eventually default to Swing, or remain Electron + JVM
+  REST unless `--frontend swing` is explicit?
+- Which frontend toolkit abstraction should be the canonical source for Swing:
+  current `runtime/std/ui` toolkit, lower-level frontend abstract model, or a
+  new shared JVM-friendly subset?
+- How much styling should the first Swing target expose before JavaFX/Compose?
+- Should JavaFX support land before packaging work, or after Swing reaches
+  full-stack parity for small apps?
