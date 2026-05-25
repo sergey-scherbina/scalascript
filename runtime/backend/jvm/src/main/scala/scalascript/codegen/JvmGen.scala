@@ -320,6 +320,8 @@ class JvmGen(
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
     emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
+    if effectiveFrontend.contains("swing") then
+      emitSwingTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), sb)
 
     // i18n table injection — emitted once before user blocks so t(key) resolves correctly.
     module.manifest.foreach { m =>
@@ -1094,6 +1096,9 @@ class JvmGen(
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
     emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
+    val effectiveFrontend = frontendOverride.orElse(module.manifest.flatMap(_.frontendFramework))
+    if effectiveFrontend.contains("swing") then
+      emitSwingTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), sb)
 
     // i18n table injection — same as `genModule`.
     module.manifest.foreach { m =>
@@ -1407,6 +1412,141 @@ class JvmGen(
       }.mkString(",\n")
       sb.append("val _ssc_typedRouteClients: List[_TypedRouteClientEndpoint] = List(\n")
       sb.append(rows).append("\n)\n\n")
+
+  private def emitSwingTypedRouteClients(clients: List[ApiClientDecl], sb: StringBuilder): Unit =
+    if clients.exists(_.endpoints.nonEmpty) then
+      sb.append(swingTypedRouteClientRuntime)
+      clients.foreach { client =>
+        if client.endpoints.nonEmpty then
+          sb.append("object ").append(client.name).append(":\n")
+          client.endpoints.foreach { endpoint =>
+            val method = scalaStringLiteral(endpoint.method)
+            val path = scalaStringLiteral(endpoint.path)
+            if endpoint.requestType == "Unit" then
+              sb.append("  def ").append(endpoint.name).append("(): ").append(endpoint.responseType)
+                .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
+                .append(method).append(", ").append(path).append(", ())\n")
+            else
+              sb.append("  def ").append(endpoint.name).append("(input: ").append(endpoint.requestType).append("): ")
+                .append(endpoint.responseType).append(" = _ssc_api_request[")
+                .append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
+                .append(method).append(", ").append(path).append(", input)\n")
+          }
+          sb.append("\n")
+      }
+
+  private val swingTypedRouteClientRuntime: String =
+    """|// ── Typed route clients: Swing in-process transport ────────────────
+       |import scala.compiletime.{constValue, erasedValue, summonInline}
+       |import scala.deriving.Mirror
+       |
+       |private def _ssc_api_url_encode(value: Any): String =
+       |  java.net.URLEncoder.encode(_show(value), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+       |
+       |private def _ssc_api_product_fields(value: Any): Map[String, Any] =
+       |  value match
+       |    case p: Product =>
+       |      p.productElementNames.zip(p.productIterator).toMap
+       |    case _ => Map.empty
+       |
+       |private def _ssc_api_path_param_names(pathTemplate: String): List[String] =
+       |  pathTemplate.split('/').toList.filter(_.startsWith(":")).map(_.drop(1))
+       |
+       |private def _ssc_api_path(pathTemplate: String, input: Any): String =
+       |  val names = _ssc_api_path_param_names(pathTemplate)
+       |  val fields = _ssc_api_product_fields(input)
+       |  val primitiveForSingleParam =
+       |    names.size == 1 && fields.isEmpty && input != null && input != ()
+       |  pathTemplate.split('/').toList.map { segment =>
+       |    if segment.startsWith(":") then
+       |      val name = segment.drop(1)
+       |      val value =
+       |        if primitiveForSingleParam then input
+       |        else fields.getOrElse(name, throw RuntimeException("typed route client: missing path field '" + name + "'"))
+       |      _ssc_api_url_encode(value)
+       |    else segment
+       |  }.mkString("/")
+       |
+       |private def _ssc_api_query(pathTemplate: String, input: Any): String =
+       |  val used = _ssc_api_path_param_names(pathTemplate).toSet
+       |  val fields = _ssc_api_product_fields(input).filterNot((k, _) => used.contains(k))
+       |  if fields.isEmpty then ""
+       |  else fields.iterator.map((k, v) => _ssc_api_url_encode(k) + "=" + _ssc_api_url_encode(v)).mkString("?", "&", "")
+       |
+       |private def _ssc_api_body(method: String, input: Any): String =
+       |  if method == "GET" || input == () then ""
+       |  else _toJsonValue(input)
+       |
+       |private inline def _ssc_api_decode_value[T](value: Any): T =
+       |  inline erasedValue[T] match
+       |    case _: Unit => ().asInstanceOf[T]
+       |    case _: String => value.asInstanceOf[String].asInstanceOf[T]
+       |    case _: Int => (value match
+       |      case n: Int => n
+       |      case n: Long => n.toInt
+       |      case n: Double => n.toInt
+       |      case s: String => s.toInt
+       |      case other => throw RuntimeException("typed route client: expected Int, got " + _show(other))
+       |    ).asInstanceOf[T]
+       |    case _: Long => (value match
+       |      case n: Long => n
+       |      case n: Int => n.toLong
+       |      case n: Double => n.toLong
+       |      case s: String => s.toLong
+       |      case other => throw RuntimeException("typed route client: expected Long, got " + _show(other))
+       |    ).asInstanceOf[T]
+       |    case _: Double => (value match
+       |      case n: Double => n
+       |      case n: Long => n.toDouble
+       |      case n: Int => n.toDouble
+       |      case s: String => s.toDouble
+       |      case other => throw RuntimeException("typed route client: expected Double, got " + _show(other))
+       |    ).asInstanceOf[T]
+       |    case _: Boolean => value.asInstanceOf[Boolean].asInstanceOf[T]
+       |    case _: Option[t] =>
+       |      (value match
+       |        case null | None => None
+       |        case other => Some(_ssc_api_decode_value[t](other))
+       |      ).asInstanceOf[T]
+       |    case _: List[t] =>
+       |      value.asInstanceOf[List[Any]].map(v => _ssc_api_decode_value[t](v)).asInstanceOf[T]
+       |    case _: Response =>
+       |      value.asInstanceOf[Response].asInstanceOf[T]
+       |    case _ =>
+       |      inline summonInline[Mirror.Of[T]] match
+       |        case p: Mirror.ProductOf[T] =>
+       |          _ssc_api_decode_product[T](value)(using p)
+       |
+       |private inline def _ssc_api_decode_product[T](value: Any)(using m: Mirror.ProductOf[T]): T =
+       |  val fields = value.asInstanceOf[Map[String, Any]]
+       |  val values = _ssc_api_decode_fields[m.MirroredElemTypes, m.MirroredElemLabels](fields)
+       |  m.fromProduct(Tuple.fromArray(values.toArray))
+       |
+       |private inline def _ssc_api_decode_fields[Types <: Tuple, Labels <: Tuple](fields: Map[String, Any]): List[Any] =
+       |  inline erasedValue[(Types, Labels)] match
+       |    case _: (EmptyTuple, EmptyTuple) => Nil
+       |    case _: ((t *: ts), (label *: labels)) =>
+       |      val name = constValue[label].asInstanceOf[String]
+       |      val raw = fields.getOrElse(name, throw RuntimeException("typed route client: missing response field '" + name + "'"))
+       |      _ssc_api_decode_value[t](raw) :: _ssc_api_decode_fields[ts, labels](fields)
+       |
+       |private inline def _ssc_api_decode_response[T](response: scalascript.frontend.swing.SwingRuntime.FetchResponse): T =
+       |  inline erasedValue[T] match
+       |    case _: Unit => ().asInstanceOf[T]
+       |    case _: Response =>
+       |      Response(response.status, response.headers, response.body).asInstanceOf[T]
+       |    case _ =>
+       |      _ssc_api_decode_value[T](_fromJson(response.body))
+       |
+       |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req): Resp =
+       |  val method = methodRaw.toUpperCase
+       |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
+       |  val response = _ssc_ui_inprocess_fetch(method, url, _ssc_api_body(method, input))
+       |  if response.status < 200 || response.status >= 300 then
+       |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + response.body)
+       |  _ssc_api_decode_response[Resp](response)
+       |
+       |""".stripMargin
 
   /** Wrap `s` as a properly-escaped Scala double-quoted string literal,
    *  safe for embedding in emitted `.sc` source. */
@@ -8657,7 +8797,7 @@ class JvmGen(
        |def _ssc_ui_decodeEvents(m: Map[String, Any]): Map[String, scalascript.frontend.EventHandler] =
        |  m.collect { case (k, v: scalascript.frontend.EventHandler) => k -> v }
        |
-       |def _ssc_ui_buildModule(view: scalascript.frontend.View, extraCss: String = ""): scalascript.frontend.FrontendModule =
+       |def _ssc_ui_buildModule(view: scalascript.frontend.View[?], extraCss: String = ""): scalascript.frontend.FrontendModule =
        |  scalascript.frontend.FrontendModule(
        |    List(scalascript.frontend.ComponentDef("App", Nil, _ =>
        |      scalascript.frontend.View.Element("div",
@@ -8665,7 +8805,7 @@ class JvmGen(
        |        Map.empty, Seq(view)))),
        |    "App", "/", extraCss)
        |
-       |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View, dir: String, extraCss: String = ""): Unit =
+       |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View[?], dir: String, extraCss: String = ""): Unit =
        |  val _mod     = _ssc_ui_buildModule(view, extraCss)
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _p = java.nio.file.Paths.get(dir)
@@ -8677,7 +8817,7 @@ class JvmGen(
        |  if _emitted.css.nonEmpty then
        |    java.nio.file.Files.writeString(_p.resolve("app.css"), _emitted.css)
        |
-       |def _ssc_ui_emit_to_tempdir(view: scalascript.frontend.View, extraCss: String = ""): String =
+       |def _ssc_ui_emit_to_tempdir(view: scalascript.frontend.View[?], extraCss: String = ""): String =
        |  val _mod     = _ssc_ui_buildModule(view, extraCss)
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
        |  val _tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
@@ -8689,7 +8829,7 @@ class JvmGen(
        |    java.nio.file.Files.writeString(_tmpDir.resolve("app.css"), _emitted.css)
        |  _tmpDir.toString
        |
-       |def _ssc_ui_emit_native_to_dir(view: scalascript.frontend.View, dir: String, extraCss: String = ""): Unit =
+       |def _ssc_ui_emit_native_to_dir(view: scalascript.frontend.View[?], dir: String, extraCss: String = ""): Unit =
        |  val _mod = _ssc_ui_buildModule(view, extraCss)
        |  val _artifact = scalascript.frontend.FrontendFrameworks.current()
        |    .emitNative(_mod, scalascript.frontend.Platform.Desktop())
@@ -8744,7 +8884,7 @@ class JvmGen(
        |      case None =>
        |        scalascript.frontend.swing.SwingRuntime.FetchResponse(404, "Not Found: " + path, Map("Content-Type" -> "text/plain; charset=utf-8"))
        |
-       |def _ssc_ui_run_native(view: scalascript.frontend.View, extraCss: String = ""): Unit =
+       |def _ssc_ui_run_native(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
        |  val _mod = _ssc_ui_buildModule(view, extraCss)
        |  println("ssc: launching Swing")
        |  println("     mode:   same-process JVM")
@@ -8760,9 +8900,9 @@ class JvmGen(
        |
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
        |  if _ssc_frontend_name == "swing" then
-       |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View], extraCss)
+       |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
        |  else
-       |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View], extraCss)
+       |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
        |    _ssc_static_root = _outDir
        |    serve(port)
        |
@@ -8791,7 +8931,7 @@ class JvmGen(
        |      def element(tag: String, attrs: Map[String, Any], events: Map[String, Any], children: List[View]): View =
        |        scalascript.frontend.View.Element(tag,
        |          _ssc_ui_decodeAttrs(attrs), _ssc_ui_decodeEvents(events),
-       |          children.asInstanceOf[Seq[scalascript.frontend.View]])
+       |          children.asInstanceOf[Seq[scalascript.frontend.View[?]]])
        |
        |      def textNode(s: String): View =
        |        scalascript.frontend.View.TextNode(() => s)
@@ -8803,12 +8943,12 @@ class JvmGen(
        |      def showSignal(cond: Any, whenTrue: View, whenFalse: View): View =
        |        scalascript.frontend.View.ShowSignal(
        |          cond.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]],
-       |          whenTrue.asInstanceOf[scalascript.frontend.View],
-       |          whenFalse.asInstanceOf[scalascript.frontend.View])
+       |          whenTrue.asInstanceOf[scalascript.frontend.View[?]],
+       |          whenFalse.asInstanceOf[scalascript.frontend.View[?]])
        |
        |      def fragment(children: List[View]): View =
        |        scalascript.frontend.View.Fragment(
-       |          children.asInstanceOf[Seq[scalascript.frontend.View]])
+       |          children.asInstanceOf[Seq[scalascript.frontend.View[?]]])
        |
        |      def setSignal(s: Any, v: Any): EventHandler =
        |        scalascript.frontend.EventHandler.SetSignalLiteral(
@@ -8823,7 +8963,7 @@ class JvmGen(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]])
        |
        |      def eqSignal(s: Any, value: Any): Any =
-       |        val _jsName     = s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].jsName
+       |        val _jsName     = s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].id
        |        val _initial    = s.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].apply().asInstanceOf[Any] == value
        |        val _safeSuffix = value.toString.replaceAll("[^A-Za-z0-9]", "_")
        |        new scalascript.frontend.ReactiveSignal[Boolean](_jsName + "__eq__" + _safeSuffix, _initial)
@@ -8833,7 +8973,7 @@ class JvmGen(
        |
        |      def fetchUrlSignal(name: String, url: String, refreshTick: Any): Any =
        |        new scalascript.frontend.FetchUrlSignal(name, url,
-       |          refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].jsName)
+       |          refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].id)
        |
        |      def fetchAction(method: String, url: String, body: Any, onSuccessTick: Any): EventHandler =
        |        scalascript.frontend.EventHandler.FetchAction(method, url,
@@ -8856,7 +8996,7 @@ class JvmGen(
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]])
        |
        |      def emit(tree: View, outDir: String): Unit =
-       |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View], outDir)
+       |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], outDir)
        |
        |      def serve(tree: View, port: Int): Unit =
        |        _ssc_ui_serve(tree, port)

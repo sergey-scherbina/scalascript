@@ -137,7 +137,7 @@ Initial compatibility matrix:
 | Frontend target | Backend target | In-process viability | Notes |
 |---|---|---|---|
 | interpreter/test harness | interpreter | yes | Best Phase 1 target. No sockets; direct route registry dispatch. |
-| Swing JVM desktop | JVM | yes, partially implemented | Same-process `SwingRuntime` exists; `fetchAction` and `fetchTable` dispatch through the generated JVM route registry; `examples/frontend/swing-fullstack/` demonstrates the no-socket path. Typed clients remain planned. |
+| Swing JVM desktop | JVM | yes, partially implemented | Same-process `SwingRuntime` exists; `fetchAction`, `fetchTable`, and generated typed route clients dispatch through the generated JVM route registry; `examples/frontend/swing-fullstack/` and `examples/frontend/swing-typed-client/` demonstrate the no-socket paths. |
 | JavaFX/Compose JVM desktop | JVM | possible later | Better modern UI options, but require extra dependencies and packaging work. |
 | Electron renderer | JVM | no, not directly | Different processes/runtimes. Use HTTP sidecar or a future bridge through Electron main. |
 | Electron main/local-first | JS/Node | possible later | Could use an Electron bridge transport, not JVM in-process. |
@@ -225,8 +225,8 @@ for the same-process runtime path. `SwingRuntime` accepts a `FetchDispatcher`,
 and `JvmGen` wires it to the generated JVM route registry so button-driven
 `fetchAction` / `fetchActionClear` calls can reuse route matching, middleware,
 request body passing, and response status handling without a socket. Swing
-`fetchTable` now uses the same dispatcher for GET rows and POST deletes.
-Generated typed clients remain planned; see
+`fetchTable` uses the same dispatcher for GET rows and POST deletes. Generated
+JVM/Swing typed route clients now also dispatch through this path; see
 [`typed-route-clients.md`](typed-route-clients.md).
 
 ### Phase 4 — JVM Monolithic Frontend Target

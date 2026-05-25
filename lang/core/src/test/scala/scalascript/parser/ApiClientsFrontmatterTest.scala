@@ -1,6 +1,7 @@
 package scalascript.parser
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.transform.{Denormalize, Normalize}
 
 class ApiClientsFrontmatterTest extends AnyFunSuite:
 
@@ -55,4 +56,25 @@ class ApiClientsFrontmatterTest extends AnyFunSuite:
     assert(endpoint.name == "delete")
     assert(endpoint.requestType == "DeleteMessage")
     assert(endpoint.responseType == "Unit")
+  }
+
+  test("apiClients survive Normalize and Denormalize") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Messages:
+        |    endpoints:
+        |      - name: create
+        |        method: POST
+        |        path: /api/messages
+        |        request: CreateMessage
+        |        response: Message""".stripMargin
+    )
+
+    val roundTripped = Denormalize(Normalize(mod))
+    val endpoint = roundTripped.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.name == "create")
+    assert(endpoint.method == "POST")
+    assert(endpoint.path == "/api/messages")
+    assert(endpoint.requestType == "CreateMessage")
+    assert(endpoint.responseType == "Message")
   }

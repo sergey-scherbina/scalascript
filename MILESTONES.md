@@ -10488,10 +10488,15 @@ clients for Electron/browser split modes follow.
   `_TypedRouteClientEndpoint` metadata preserving client name, endpoint name,
   method, path, request type, and response type. Runtime callable clients remain
   Phase 2 work.
-- **Phase 2 — JVM/Swing in-process client.** Generate JVM client methods that
-  call the same-process route dispatcher used by Swing `fetchAction` and
-  `fetchTable`. Add a Swing example that creates, reads, and deletes typed
-  `Message` values without manual JSON.
+- **Phase 2 ✓ Landed (2026-05-25)** — JVM/Swing in-process client:
+  effective `frontend: swing` JVM codegen now emits callable client objects
+  from `apiClients:` metadata. Generated methods encode request values,
+  dispatch through the same-process Swing route registry used by `fetchAction`
+  and `fetchTable`, reject non-2xx responses, and decode JSON responses into
+  primitives, options, lists, and case-class products. Added
+  `examples/frontend/swing-typed-client/` to create, list, delete, and recreate
+  typed `Message` values without frontend JSON glue. Non-Swing JVM codegen
+  remains metadata-only until Phase 3 HTTP transport lands.
 - **Phase 3 — HTTP client transport.** Generate equivalent HTTP clients for
   browser, Electron, split-process, and distributed modes.
 - **Phase 4 — Shared codecs.** Replace temporary generated JSON code with the

@@ -46,6 +46,22 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))
     assert(code.contains("new scalascript.frontend.swing.SwingRuntime.FetchDispatcher"))
 
+  test("Swing typed-client example generates callable client over same-process dispatcher"):
+    val root = repoRoot
+    val src = Files.readString(root.resolve("examples/frontend/swing-typed-client/swing-typed-client.ssc"))
+    val code = JvmGen.generate(
+      Parser.parse(src),
+      baseDir = Some(os.Path(root.resolve("runtime").toFile)),
+      frontendOverride = Some("swing")
+    )
+
+    assert(code.contains("object Messages:"))
+    assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
+    assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))
+    assert(code.contains("""def delete(input: Int): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input)"""))
+    assert(code.contains("_ssc_ui_inprocess_fetch(method, url, _ssc_api_body(method, input))"))
+    assert(code.contains("val created = Messages.create(CreateMessage("))
+
   private def repoRoot: Path =
     Iterator.iterate(Path.of(System.getProperty("user.dir")).toAbsolutePath)(_.getParent)
       .takeWhile(_ != null)

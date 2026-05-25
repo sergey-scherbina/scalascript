@@ -1040,21 +1040,25 @@ local signal actions for buttons, text inputs, checkboxes, and signal-backed
 labels. It is demonstrated by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
 The `runtime/std/swing-plugin` module is present as the future home for
-interpreter-side Swing intrinsics. Typed clients are still planned. The first
-no-socket example is
+interpreter-side Swing intrinsics. The first no-socket example is
 [`examples/frontend/swing-fullstack/`](../examples/frontend/swing-fullstack/):
 `fetchActionClear` posts to a JVM backend route, clears the input, and
 `fetchTable` reloads/deletes rows without Electron, npm, browser hosting, or
-HTTP sockets. JavaFX and Compose Desktop are future adapter candidates. See
+HTTP sockets. A typed-client variant is
+[`examples/frontend/swing-typed-client/`](../examples/frontend/swing-typed-client/):
+front matter declares `apiClients:`, JVM codegen generates a `Messages` client
+object, and calls dispatch to backend routes in-process. JavaFX and Compose
+Desktop are future adapter candidates. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 
-**Planned, partially implemented: typed route clients.** Front matter can now
+**Planned, partially implemented: typed route clients.** Front matter can
 declare typed client endpoint metadata with `apiClients:` / `api-clients:`; the
 parser stores method/path/request/response type names in the AST, and JVM
-codegen preserves them as metadata. Generated callable client methods are not
-implemented yet. The planned client runtime will use `BackendTransport`:
-JVM/Swing in-process first, then HTTP for Electron, browser, split-process, and
-distributed modes. See
+codegen preserves them as metadata. In JVM/Swing mode, codegen now emits
+callable client methods that encode request values, dispatch through the
+same-process Swing route registry, and decode typed JSON responses. HTTP
+clients for Electron, browser, split-process, and distributed modes are still
+planned. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

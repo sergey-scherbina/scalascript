@@ -3,7 +3,8 @@
 Status: **planned / partially implemented** — May 2026. Phase 1 landed the
 front-matter metadata MVP: `apiClients:` / `api-clients:` declarations parse
 into AST metadata and JVM codegen preserves endpoint method/path/type metadata.
-Generated callable clients are not implemented yet.
+Phase 2 landed callable JVM/Swing in-process clients. HTTP clients for
+Electron, browser, split-process, and distributed modes remain planned.
 
 This document defines generated typed clients for ScalaScript backend routes.
 The first target is JVM/Swing in-process full-stack mode: frontend code should
@@ -236,6 +237,18 @@ Generate JVM client methods that call the existing same-process route registry
 dispatcher used by Swing `fetchAction` and `fetchTable`. Add a Swing example
 that creates, reads, and deletes typed `Message` values without manual JSON.
 
+Landed 2026-05-25: when the effective frontend is `swing`, JVM codegen now
+emits callable client objects from `apiClients:` metadata. Generated methods
+encode request values, substitute primitive path parameters, send the request
+through `_ssc_ui_inprocess_fetch`, reject non-2xx responses with a runtime
+error, and decode JSON responses into primitive, `List[T]`, `Option[T]`, and
+case-class product shapes using Scala 3 mirrors. Non-Swing JVM codegen still
+emits metadata only until Phase 3 HTTP transport lands.
+
+Example: [`examples/frontend/swing-typed-client/`](../examples/frontend/swing-typed-client/)
+creates, lists, deletes, and recreates `Message` values through a generated
+`Messages` client object without hand-written frontend JSON or URL dispatch.
+
 ### Phase 3 — HTTP Client Transport
 
 Generate equivalent HTTP clients for browser/Electron/split modes. The same
@@ -263,7 +276,8 @@ stable across JVM and JS.
 ## Testing Strategy
 
 - Parser/AST or lowering tests for endpoint declarations.
-- JVM codegen tests that assert method/path/type metadata is emitted.
+- JVM codegen tests that assert method/path/type metadata is emitted and that
+  Swing mode emits callable client methods.
 - In-process dispatch tests for path params, query fields, JSON body, status
   errors, and decode errors.
 - Swing no-socket example test that verifies the generated code contains typed
@@ -277,10 +291,12 @@ stable across JVM and JS.
 - Should the public spelling be `apiClient object`, `client object`,
   `endpoint[...]`, or generated from existing typed routes?
 - What result type should clients return before the standard library has a
-  single canonical `Result`?
-- Should Phase 2 call the generated JVM route registry directly, or first
-  unify JVM codegen dispatch with the interpreter `InProcessBackendTransport`
-  class?
+  single canonical `Result`? Phase 2 uses direct return values with runtime
+  exceptions on non-2xx/decode failures as a temporary JVM/Swing shortcut.
+- Should the JVM/Swing path keep calling the generated JVM route registry
+  directly, or later unify with the interpreter `InProcessBackendTransport`
+  class? Phase 2 reused `_ssc_ui_inprocess_fetch` to match `fetchAction` and
+  `fetchTable`; SPI unification remains a follow-up.
 - How much of typed handler deserialization can be reused immediately for
   request encoding/response decoding?
 - Should auth headers be part of Phase 1 metadata or deferred until there is a

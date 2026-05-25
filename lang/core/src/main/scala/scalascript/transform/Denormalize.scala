@@ -48,6 +48,7 @@ object Denormalize:
       routes       = m.routes.map(routeDecl),
       pkg          = m.pkg,
       translations      = Map.empty,
+      apiClients        = m.apiClients.map(apiClientDecl),
       databases         = m.databases.map(databaseDecl),
       raw               = Map.empty,
       frontendFramework = m.frontendFramework,
@@ -57,6 +58,12 @@ object Denormalize:
 
   private def routeDecl(r: ir.RouteDecl): ast.RouteDecl =
     ast.RouteDecl(r.method, r.path, r.handler, r.span.map(span))
+
+  private def apiClientDecl(c: ir.ApiClientDecl): ast.ApiClientDecl =
+    ast.ApiClientDecl(c.name, c.endpoints.map(apiEndpointDecl), c.span.map(span))
+
+  private def apiEndpointDecl(e: ir.ApiEndpointDecl): ast.ApiEndpointDecl =
+    ast.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.span.map(span))
 
   private def databaseDecl(d: ir.DatabaseDecl): ast.DatabaseDecl =
     ast.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))

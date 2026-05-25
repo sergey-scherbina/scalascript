@@ -1,0 +1,106 @@
+#!/usr/bin/env ssc
+---
+name: swing-typed-client
+version: 0.1.0
+description: JVM Swing frontend calling JVM backend routes through generated typed clients.
+frontend: swing
+transport: in-process
+apiClients:
+  Messages:
+    endpoints:
+      - name: create
+        method: POST
+        path: /api/messages
+        request: CreateMessage
+        response: Message
+      - name: list
+        method: GET
+        path: /api/messages
+        request: Unit
+        response: List[Message]
+      - name: delete
+        method: POST
+        path: /api/messages/delete
+        request: Int
+        response: Unit
+---
+
+# Swing Typed Client
+
+JVM Swing frontend and JVM backend routes run in one process. The `Messages`
+client object is generated from front-matter and calls the backend route
+registry through the same Swing in-process dispatcher as `fetchAction` and
+`fetchTable`.
+
+## Shared Types
+
+```scalascript
+case class CreateMessage(text: String)
+case class Message(id: Int, text: String)
+```
+
+## Backend
+
+```scalascript
+var nextId: Int = 1
+var messages: List[Message] = List.empty[Message]
+
+route("GET", "/api/messages") { req =>
+  Response.json(messages)
+}
+
+route("POST", "/api/messages") { req =>
+  val input = jsonRead(req.body)
+  val text = input("text").asString.trim
+  if text.isEmpty then Response.status(400, "empty message")
+  else
+    val created = Message(nextId, text)
+    nextId = nextId + 1
+    messages = messages :+ created
+    Response.json(created)
+}
+
+route("POST", "/api/messages/delete") { req =>
+  val id = jsonRead(req.body).asInt.toInt
+  messages = messages.filter(_.id != id)
+  Response.status(204)
+}
+```
+
+## UI Imports
+
+[signal, serve](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, divider](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+## UI
+
+```scalascript
+val created = Messages.create(CreateMessage("hello from typed client"))
+val beforeDelete = Messages.list()
+Messages.delete(created.id)
+val afterDelete = Messages.list()
+val second = Messages.create(CreateMessage("still typed"))
+val finalRows = Messages.list()
+
+val summary =
+  "created=" + created.text +
+  ", beforeDelete=" + beforeDelete.size +
+  ", afterDelete=" + afterDelete.size +
+  ", final=" + finalRows.map(_.text).mkString(",")
+
+val tree = vstack(gap = 12)(
+  heading(1, "Swing typed route client"),
+  text("Generated client object: Messages"),
+  divider(),
+  text(summary)
+)
+
+serve(lower(tree, defaultTheme), 0)
+```

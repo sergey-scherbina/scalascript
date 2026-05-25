@@ -10,8 +10,11 @@ artifact for a static toolkit subset with local signal actions. `ssc run-jvm
 interpreter path and reports that Swing interpreter intrinsics are planned.
 Swing `FetchAction` handlers can dispatch to generated JVM backend routes in
 the same process. `examples/frontend/swing-fullstack/` demonstrates the
-no-socket path, including `fetchTable` GET/delete refresh. Typed clients remain
-planned in [`typed-route-clients.md`](typed-route-clients.md).
+no-socket path, including `fetchTable` GET/delete refresh.
+`examples/frontend/swing-typed-client/` demonstrates generated typed route
+clients over the same in-process dispatcher. HTTP typed clients for
+Electron/browser split modes remain planned in
+[`typed-route-clients.md`](typed-route-clients.md).
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the

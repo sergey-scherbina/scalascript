@@ -34,6 +34,17 @@ case class SymbolRef(qualifiedName: QualifiedName, span: Option[Span] = None) de
 
 case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None) derives ReadWriter
 
+case class ApiClientDecl(name: String, endpoints: List[ApiEndpointDecl], span: Option[Span] = None) derives ReadWriter
+
+case class ApiEndpointDecl(
+  name:         String,
+  method:       String,
+  path:         String,
+  requestType:  String,
+  responseType: String,
+  span:         Option[Span] = None
+) derives ReadWriter
+
 /** Named JDBC connection declaration carried over from the front-matter
  *  `databases:` map (SPEC § 3.3.1, v1.26).  Consumed by the JVM target's
  *  `ConnectionRegistry` to materialise a real `java.sql.Connection` on
@@ -58,6 +69,7 @@ case class Manifest(
   targets:      List[String],
   routes:       List[RouteDecl],
   pkg:          Option[List[String]],
+  apiClients:        List[ApiClientDecl] = Nil,
   databases:         List[DatabaseDecl] = Nil,
   frontendFramework: Option[String] = None,
   scripts:           Map[String, String] = Map.empty,
