@@ -979,8 +979,11 @@ configured backend URL. Browser frontends are also supported:
 `ssc run --mode client --frontend react --server-url http://server:8080 app.ssc`
 generates a SPA, serves it from a local preview server, prints the local
 frontend URL, detected LAN frontend URLs, and backend URL, then opens the local
-URL in the system browser. `emit-spa --server-url http://server:8080 app.ssc`
-prints the same backend URL injection in standalone HTML form.
+URL in the system browser only when `--open-browser` is set. The default is
+`--no-open-browser`; the same behavior can be configured in front matter with
+`open-browser: true` or `open-browser: false`. `emit-spa --server-url
+http://server:8080 app.ssc` prints the same backend URL injection in standalone
+HTML form.
 
 ### Planned full-stack and client storage features
 

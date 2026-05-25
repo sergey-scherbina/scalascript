@@ -481,6 +481,7 @@ def printUsage(): Unit =
     |                                --mode server starts only the JVM backend/server
     |                                --mode client --frontend electron --server-url <url> starts only the Electron client
     |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
+    |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -2289,6 +2290,7 @@ def runCommand(args: List[String]): Unit =
   var targetFlag:        Option[String] = None
   var modeFlag:          Option[String] = None
   var serverUrlFlag:     Option[String] = None
+  var openBrowserFlag:   Option[Boolean] = None
   var serverBackendFlag: String         = "jdk"
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
@@ -2300,6 +2302,10 @@ def runCommand(args: List[String]): Unit =
       case "--target"           if it.hasNext => targetFlag        = Some(it.next())
       case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
       case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
+      case "--open-browser"                  => openBrowserFlag    = Some(true)
+      case "--no-open-browser"               => openBrowserFlag    = Some(false)
+      case flag if flag.startsWith("--open-browser=") =>
+        openBrowserFlag = parseBooleanFlag("run --open-browser", flag.drop("--open-browser=".length))
       case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
@@ -2331,10 +2337,11 @@ def runCommand(args: List[String]): Unit =
         val manifestFrontend =
           scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework)).getOrElse(None)
         val selectedFrontend = frontendFlag.orElse(manifestFrontend)
+        val openBrowser = openBrowserFlag.orElse(frontMatterBoolean(path, "open-browser", "openBrowser")).getOrElse(false)
         if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
           runElectronClientDevHook(path, serverUrl)
         else if selectedFrontend.exists(n => n == "react" || n == "solid" || n == "vue" || n == "custom") then
-          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl)
+          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, openBrowser)
         else
           System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
           System.exit(1)
@@ -2548,7 +2555,7 @@ private[cli] def runElectronClientDev(sscFile: os.Path, backendBaseUrl: String):
 private[cli] var runElectronClientDevHook: (os.Path, String) => Unit =
   runElectronClientDev
 
-private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backendBaseUrl: String): Unit =
+private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backendBaseUrl: String, openBrowser: Boolean): Unit =
   if !os.exists(sscFile) then
     System.err.println(s"run: file not found: $sscFile"); System.exit(1)
   applyFrontendBackend(frontend)
@@ -2581,12 +2588,13 @@ private[cli] def runWebClientPreview(sscFile: os.Path, frontend: String, backend
   server.start()
   val port = server.getAddress.getPort
   val localUrl = printComponentUrls(s"frontend client ($frontend)", port, Some(backendBaseUrl))
+  println(s"  open browser: $openBrowser")
   println("  press Ctrl+C to stop")
-  openBrowserHook(localUrl)
+  if openBrowser then openBrowserHook(localUrl)
   sys.addShutdownHook(server.stop(0))
   Thread.currentThread().join()
 
-private[cli] var runWebClientPreviewHook: (os.Path, String, String) => Unit =
+private[cli] var runWebClientPreviewHook: (os.Path, String, String, Boolean) => Unit =
   runWebClientPreview
 
 /** Dev-run split-process Electron mode.
@@ -2710,6 +2718,30 @@ private[cli] def detectServePort(source: String): Option[Int] =
     .orElse(plainServe.findFirstMatchIn(source))
     .flatMap(m => m.group(1).toIntOption)
     .filter(p => p > 0 && p <= 65535)
+
+private[cli] def parseBooleanFlag(name: String, value: String): Option[Boolean] =
+  value.trim.toLowerCase match
+    case "true" | "yes" | "on" | "1"  => Some(true)
+    case "false" | "no" | "off" | "0" => Some(false)
+    case other =>
+      System.err.println(s"$name must be true/false, yes/no, on/off, or 1/0; got '$other'")
+      System.exit(1)
+      None
+
+private[cli] def frontMatterBoolean(path: os.Path, keys: String*): Option[Boolean] =
+  scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
+    keys.iterator
+      .flatMap(key => manifest.raw.get(key))
+      .flatMap {
+        case b: java.lang.Boolean => Some(b.booleanValue())
+        case b: Boolean           => Some(b)
+        case s: String            => parseBooleanFlag(s"front matter ${keys.mkString("/")}", s)
+        case n: java.lang.Number  => Some(n.intValue() != 0)
+        case _                    => None
+      }
+      .toSeq
+      .headOption
+  }).getOrElse(None)
 
 private[cli] def shouldDefaultToElectronJvmRest(module: Module, source: String): Boolean =
   val frontendIsElectron =

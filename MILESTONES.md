@@ -10280,9 +10280,13 @@ modes opt out of that default.
     --server-url <url> app.ssc` generates that SPA, serves it from a local
     preview server bound on all interfaces, prints the local frontend URL,
     detected LAN frontend URLs, and backend URL, then opens the local frontend
-    URL in the system browser. Server-only mode also prints local and detected
-    LAN backend URL candidates before starting the JVM process when it can read
-    a `serve(port)` call.
+    URL in the system browser only when browser auto-open is enabled. Server-only
+    mode also prints local and detected LAN backend URL candidates before
+    starting the JVM process when it can read a `serve(port)` call.
+  - **Phase 2d ✓ Landed (2026-05-25)** — browser auto-open configuration:
+    web client preview defaults to not opening the system browser. Users opt in
+    via `--open-browser`, `--open-browser=true`, or front matter
+    `open-browser: true`; `--no-open-browser` forces it off.
   - **Still open:** host/port override plumbing and packaged/static
     client-only builds.
 - **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM

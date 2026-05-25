@@ -15,13 +15,18 @@
 > `emit-spa --server-url <url>` or `ssc run --mode client --frontend
 > react|solid|vue|custom --server-url <url> app.ssc`, which starts a local
 > preview server, prints local and LAN frontend URLs plus the backend URL, and
-> opens the local URL in the system browser.
+> opens the local URL in the system browser only when `--open-browser` or
+> front matter `open-browser: true` is set. The default is not to open a browser.
 
 URL logging policy: CLI-owned frontend/backend components print their local URL
 and detected LAN URL candidates to stdout. Client components also print the
 backend URL they are configured to call. This keeps the common "run on one
 machine, open from another machine or phone" workflow visible without extra
 commands.
+
+Browser auto-open policy: web preview does not open the system browser by
+default. Users opt in with `--open-browser`, `--open-browser=true`, or front
+matter `open-browser: true`; they can force it off with `--no-open-browser`.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server

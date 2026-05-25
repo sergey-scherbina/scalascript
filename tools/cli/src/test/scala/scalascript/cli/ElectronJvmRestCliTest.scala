@@ -185,17 +185,67 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     val app = dir / "app.ssc"
     os.write(app, fullStackServerSource(49152))
     val oldHook = runWebClientPreviewHook
-    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, String)]
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String, String, Boolean)]
     try
       ActiveFlags.set(GlobalFlags())
-      runWebClientPreviewHook = (path, frontend, serverUrl) => calls += ((path, frontend, serverUrl))
+      runWebClientPreviewHook = (path, frontend, serverUrl, openBrowser) => calls += ((path, frontend, serverUrl, openBrowser))
       runCommand(List(
         "--mode", "client",
         "--frontend", "react",
         "--server-url", "http://server.example:8080",
         app.toString
       ))
-      assert(calls.toList == List((app, "react", "http://server.example:8080")))
+      assert(calls.toList == List((app, "react", "http://server.example:8080", false)))
+    finally
+      runWebClientPreviewHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runCommand open-browser flag overrides web preview default"):
+    val dir = os.temp.dir(prefix = "ssc-web-client-open-browser-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runWebClientPreviewHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[Boolean]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runWebClientPreviewHook = (_, _, _, openBrowser) => calls += openBrowser
+      runCommand(List(
+        "--mode", "client",
+        "--frontend", "react",
+        "--server-url", "http://server.example:8080",
+        "--open-browser",
+        app.toString
+      ))
+      assert(calls.toList == List(true))
+    finally
+      runWebClientPreviewHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runCommand reads open-browser from frontmatter for web preview"):
+    val dir = os.temp.dir(prefix = "ssc-web-client-open-browser-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |frontend: react
+        |open-browser: true
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    val oldHook = runWebClientPreviewHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(String, Boolean)]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runWebClientPreviewHook = (_, frontend, _, openBrowser) => calls += ((frontend, openBrowser))
+      runCommand(List(
+        "--mode", "client",
+        "--server-url", "http://server.example:8080",
+        app.toString
+      ))
+      assert(calls.toList == List(("react", true)))
     finally
       runWebClientPreviewHook = oldHook
       ActiveFlags.set(GlobalFlags())
