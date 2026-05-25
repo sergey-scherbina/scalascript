@@ -135,7 +135,7 @@ bin/http.ssc
 | [Blockchain SPI](docs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
 | [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, Electron client-only, and web client preview via `ssc run --mode client --frontend react --server-url ...` with opt-in `--open-browser` plus `--host`/`--port` preview binding; packaging and runtime-level JVM bind-host support remain planned |
 | [Full-stack in-process transport](docs/fullstack-in-process-transport.md) | Planned, partially implemented: `BackendTransport` types, `ssc run --transport http|in-process` parsing/diagnostics, and interpreter/test-harness `InProcessBackendTransport` exist; generated frontend client selection is not implemented yet |
-| [JVM Desktop Frontend](docs/jvm-desktop-frontend.md) | Partially implemented: `frontend-swing` backend skeleton, ServiceLoader registration, CLI `--frontend swing` selection, and minimal `JFrame` source emission; full toolkit lowering/run mode remains planned |
+| [JVM Desktop Frontend](docs/jvm-desktop-frontend.md) | Partially implemented: `frontend-swing` backend, ServiceLoader registration, CLI `--frontend swing` selection, and static Swing toolkit subset emission; action bridge/run mode remains planned |
 | [Client/server object store](docs/client-server-object-store.md) | Planned, not implemented yet: IndexedDB client store + JVM `ObjectStore` + generated REST sync |
 | [Graph storage](docs/graph-storage.md) | Planned, not implemented yet: `graphs:` front matter for property graph and RDF stores |
 | [Typed data mapping](docs/data-mapping.md) | Planned, not implemented yet: shared `derives`-based codecs across SQL, JSON/ObjectStore, graphs, RDF, `Dataset[T]`, and Spark |
@@ -238,7 +238,7 @@ Planned, not implemented yet:
 | Feature | Planned shape |
 |---------|---------------|
 | Full-stack in-process transport | `ssc run --transport http|in-process app.ssc` is recognized; interpreter route tests can use `InProcessBackendTransport`, while CLI full-stack `in-process` execution still reports that generated client dispatch is not implemented yet |
-| JVM desktop frontend | `--frontend swing` is recognized and the `frontend-swing` SPI can emit a minimal JDK-only `JFrame` source artifact; full `ssc run --frontend swing app.ssc` desktop launch, toolkit lowering, and JavaFX/Compose adapters remain planned |
+| JVM desktop frontend | `--frontend swing` is recognized and the `frontend-swing` SPI can emit a JDK-only `JFrame` source artifact for a static toolkit subset; full `ssc run --frontend swing app.ssc` desktop launch, action bridge, and JavaFX/Compose adapters remain planned |
 | Graph storage | `graphs:` front-matter will declare property-graph and RDF graph stores; embedded JVM backends first (TinkerGraph/TinkerPop, RDF4J), then server adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible repositories |
 | Typed data mapping | Shared `derives`-based codecs will map case classes/ADTs to SQL rows, JSON/IndexedDB/ObjectStore documents, property graph vertices/edges, RDF triples, `Dataset[T]` elements, and Spark schemas/encoders without forcing one universal ORM |
 
@@ -525,7 +525,7 @@ ScalaScript supports the following bundled backends, all loaded through the
 | `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
 | (sub-backend) | `node`        | Node.js runtime variant of `js` — emits server-side JS with `fs`/`path` shims and a cross-backend SQL runtime (v1.27 Phase 4). |
 | (sub-backends) | `frontend-{react,vue,solid,custom}` | Frontend Framework SPI (v1.18 Phase A): same `.ssc` UI source compiled to React (`useState`/`useEffect`), Vue 3 (`ref`/render), Solid (`createSignal`/`createEffect`), or a minimal custom runtime — `ShowSignal`/`ToggleSignal`/`ForSignal` reactive primitives shared across all four. See [`docs/frontend-framework-spi-plan.md`](docs/frontend-framework-spi-plan.md). |
-| JVM desktop sub-backend | `frontend-swing` | Partially implemented JDK-only JVM desktop frontend. Phase 1 provides SPI discovery and minimal Swing source emission; toolkit lowering and `ssc run` desktop launch are planned. See [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md). |
+| JVM desktop sub-backend | `frontend-swing` | Partially implemented JDK-only JVM desktop frontend. It provides SPI discovery and static Swing source emission for text/buttons/fields/toggles/stacks/spacers/dividers/scroll views plus basic style hints; action bridge and `ssc run` desktop launch are planned. See [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md). |
 
 The `Backend` trait + `ServiceLoader` discovery let third parties
 add their own backend without touching `core` — drop a JAR and

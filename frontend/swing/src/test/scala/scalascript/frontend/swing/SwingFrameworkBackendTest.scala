@@ -57,6 +57,45 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(source.contains("""JButton("Add")"""))
   }
 
+  test("emitNative lowers toolkit subset controls and layout") {
+    val backend = SwingFrameworkBackend()
+    val name = ReactiveSignal[String]("name", "Alice")
+    val accept = ReactiveSignal[Boolean]("accept", true)
+    val app = ComponentDef(
+      name  = "App",
+      props = Nil,
+      body  = _ => View.Column(Seq(
+        View.Row(Seq(
+          View.Text(() => "Name").fontSize(18).bold.foreground(Color.Named("red")),
+          View.TextInput(name, placeholder = "Your name")
+        ), spacing = 12),
+        View.Toggle(accept, "Accept terms"),
+        View.Divider(),
+        View.ScrollView(View.Text(() => "Scrollable body"))
+      ), spacing = 8).padding(10).background(Color.Hex("#f8f8f8"))
+    )
+    val source = backend.emitNative(
+      FrontendModule(List(app), "App", "/"),
+      Platform.Desktop()
+    ).get.sources("src/main/scala/Main.scala")
+
+    assert(source.contains("panel.setLayout(BoxLayout(panel, BoxLayout.Y_AXIS))"))
+    assert(source.contains("panel.setLayout(BoxLayout(panel, BoxLayout.X_AXIS))"))
+    assert(source.contains("Box.createRigidArea(Dimension(12, 0))"))
+    assert(source.contains("Box.createRigidArea(Dimension(0, 8))"))
+    assert(source.contains("""JLabel("Name")"""))
+    assert(source.contains("label.setForeground(Color.RED)"))
+    assert(source.contains("label.setFont(label.getFont.deriveFont(Font.BOLD, 18.0f))"))
+    assert(source.contains("""JTextField("Alice", 32)"""))
+    assert(source.contains("""field.putClientProperty("JTextField.placeholderText", "Your name")"""))
+    assert(source.contains("""JCheckBox("Accept terms", true)"""))
+    assert(source.contains("JSeparator(SwingConstants.HORIZONTAL)"))
+    assert(source.contains("JScrollPane(scrollPanel)"))
+    assert(source.contains("panel.setOpaque(true)"))
+    assert(source.contains("""panel.setBackground(Color.decode("#f8f8f8"))"""))
+    assert(source.contains("panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10))"))
+  }
+
   test("emitNative rejects non-desktop platforms") {
     val backend = SwingFrameworkBackend()
     val app = ComponentDef("App", Nil, _ => View.Text(() => "x"))

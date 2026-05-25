@@ -2,10 +2,10 @@
 
 Status: **partially implemented** — May 2026.
 
-Phase 1 has landed: `frontend-swing` is an SPI-discovered backend, the CLI
-accepts `--frontend swing`, and the backend can emit a minimal native
-`JFrame` source artifact. Toolkit lowering, action dispatch, full `ssc run`
-desktop launch, and in-process backend calls remain planned.
+Phases 1-2 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
+accepts `--frontend swing`, and the backend can emit a native `JFrame` source
+artifact for a static toolkit subset. Action dispatch, full `ssc run` desktop
+launch, and in-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -113,7 +113,7 @@ Default policy:
 
 ### Toolkit Subset
 
-Phase 1 should support only a small, shippable subset:
+The first static subset supports:
 
 | Toolkit concept | Swing mapping |
 |---|---|
@@ -121,10 +121,13 @@ Phase 1 should support only a small, shippable subset:
 | button/actionButton | `JButton` |
 | textField | `JTextField` |
 | checkbox | `JCheckBox` |
-| vstack/hstack | `JPanel` with vertical/horizontal layout |
-| spacer | rigid area / empty border |
+| vstack/hstack | `JPanel` with vertical/horizontal `BoxLayout` |
+| spacer | rigid area |
+| divider | `JSeparator` |
+| scrollView | `JScrollPane` |
+| basic style | padding, background, foreground, font size/weight, fixed size hints |
 
-Phase 2 can add table/list/modal/router equivalents once the first action
+Table/list/modal/router equivalents remain future work after the first action
 bridge works.
 
 ### Transport Integration
@@ -179,6 +182,13 @@ The example is [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/fro
 
 Lower a small toolkit subset to Swing: label/text, button, text field,
 checkbox, vstack/hstack, and simple styling/layout defaults.
+
+Status: **landed**. The emitted Swing source now handles `Text`, `TextNode`,
+`SignalText` snapshots, `Button`, `TextInput`, `Toggle`, `Column`, `Row`,
+`Spacer`, `Divider`, `ScrollView`, `Fragment`, `Show`, `For`, `Styled`, and
+desktop `Adaptive` branches. Basic style lowering covers padding, background,
+foreground, font size/weight, fixed size hints, borders, and accessibility
+labels. Events are still static/no-op until Phase 3.
 
 ### Phase 3 — Action Bridge
 
