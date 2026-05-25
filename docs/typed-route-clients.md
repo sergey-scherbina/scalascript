@@ -297,8 +297,8 @@ continue to run.
 Partially landed 2026-05-25: generated JVM/Swing and JS HTTP clients now call a
 stable typed JSON codec facade:
 
-- `_ssc_typed_json_encode(value)`
-- `_ssc_typed_json_decode_response(...)`
+- `_ssc_typed_json_encode(value, typeName)`
+- `_ssc_typed_json_decode_response(text, contentType, typeName)`
 
 Partially landed follow-up 2026-05-25: the facade source moved into the shared
 `backend/typed-data` runtime module and JVM/JS codegen now imports the same
@@ -313,8 +313,11 @@ typed request encoding and typed response decoding through
 request/response values use the current `derives JsonCodec` support
 automatically through Scala 3 `Mirror`; ADTs use the `"$type"` / `"value"`
 envelope from `data-mapping.md`.
-The JS/browser/Electron HTTP client remains on the emitted JSON facade because
-that target does not have Scala typeclass lookup at runtime.
+Follow-up landed 2026-05-26: JS/browser/Electron generated clients now pass
+request/response type names into the same facade. JS codegen registers
+case-class and enum-case constructor metadata in a lightweight runtime codec
+registry, so HTTP responses decode back into generated JS case-class values
+instead of plain objects where the shape is known.
 
 ### Phase 5 — Route Derivation And Validation
 

@@ -1142,8 +1142,9 @@ Mark client-only ScalaScript blocks with `@side=client` when the same source is
 also compiled as a JVM server. Generated clients now route request encoding and
 response decoding through a typed JSON codec facade. In JVM/Swing mode, that
 facade now uses `scalascript.typeddata.JsonCodec[T]`, including derived
-case-class codecs; JS/browser/Electron clients still use the emitted JSON
-facade because that target has no Scala typeclass lookup at runtime. See
+case-class codecs; JS/browser/Electron clients pass request/response type names
+through the same facade and use generated runtime codec metadata to rebuild
+known case-class/enum response shapes. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

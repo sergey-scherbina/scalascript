@@ -16,14 +16,95 @@ object TypedJsonCodecRuntime:
     s"""|// Shared typed JSON codec facade. Phase 4 keeps the implementation in
         |// emitted runtime code, but typed route clients call this stable codec
         |// boundary instead of embedding transport-specific JSON operations.
-        |function $encodeFunctionName(value) {
-        |  return JSON.stringify(value);
+        |const _ssc_typed_json_codecs = globalThis.__sscTypedJsonCodecs || (globalThis.__sscTypedJsonCodecs = new Map());
+        |
+        |function _ssc_typed_json_register_product(typeName, fields, ctor) {
+        |  _ssc_typed_json_codecs.set(String(typeName), {
+        |    kind: "product",
+        |    fields: Array.from(fields || []),
+        |    ctor: typeof ctor === "function" ? ctor : undefined
+        |  });
         |}
         |
-        |function $decodeResponseFunctionName(text, contentType) {
-        |  if (text === "") return undefined;
-        |  if (String(contentType || "").includes("application/json")) return JSON.parse(text);
-        |  try { return JSON.parse(text); } catch (_) { return text; }
+        |function _ssc_typed_json_inner(typeName) {
+        |  const s = String(typeName || "");
+        |  if (s.startsWith("List[") && s.endsWith("]")) return s.slice(5, -1);
+        |  if (s.startsWith("Option[") && s.endsWith("]")) return s.slice(7, -1);
+        |  return "";
+        |}
+        |
+        |function _ssc_typed_json_plain(value, typeName) {
+        |  if (value === undefined) return undefined;
+        |  if (value === null) return null;
+        |  const tpe = String(typeName || "");
+        |  if (tpe === "Unit") return undefined;
+        |  if (tpe.startsWith("List[") && Array.isArray(value)) {
+        |    const inner = _ssc_typed_json_inner(tpe);
+        |    return value.map(v => _ssc_typed_json_plain(v, inner));
+        |  }
+        |  if (tpe.startsWith("Option[")) {
+        |    if (value && value._type === "_None") return null;
+        |    const inner = _ssc_typed_json_inner(tpe);
+        |    return value && value._type === "_Some" ? _ssc_typed_json_plain(value.value, inner) : _ssc_typed_json_plain(value, inner);
+        |  }
+        |  if (value && value._type === "_None") return null;
+        |  if (value && value._type === "_Some") return _ssc_typed_json_plain(value.value, _ssc_typed_json_inner(tpe));
+        |  const codec = _ssc_typed_json_codecs.get(tpe);
+        |  if (codec && codec.kind === "product") {
+        |    const out = {};
+        |    for (const field of codec.fields) out[field] = _ssc_typed_json_plain(value[field], "");
+        |    return out;
+        |  }
+        |  if (value && typeof value === "object" && value._type && _ssc_typed_json_codecs.has(value._type)) {
+        |    const variant = _ssc_typed_json_codecs.get(value._type);
+        |    const payload = {};
+        |    for (const field of variant.fields) payload[field] = _ssc_typed_json_plain(value[field], "");
+        |    return tpe && tpe !== value._type ? {"$$type": value._type, value: payload} : payload;
+        |  }
+        |  return value;
+        |}
+        |
+        |function $encodeFunctionName(value, typeName) {
+        |  return JSON.stringify(_ssc_typed_json_plain(value, typeName));
+        |}
+        |
+        |function _ssc_typed_json_decode_value(value, typeName) {
+        |  const tpe = String(typeName || "");
+        |  if (tpe === "" || tpe === "Any") return value;
+        |  if (tpe === "Unit") return undefined;
+        |  if (tpe === "String") return value == null ? "" : String(value);
+        |  if (tpe === "Int" || tpe === "Long" || tpe === "Double" || tpe === "Float") return Number(value);
+        |  if (tpe === "Boolean") return Boolean(value);
+        |  if (tpe.startsWith("List[")) {
+        |    const inner = _ssc_typed_json_inner(tpe);
+        |    return Array.isArray(value) ? value.map(v => _ssc_typed_json_decode_value(v, inner)) : [];
+        |  }
+        |  if (tpe.startsWith("Option[")) {
+        |    if (value === null || value === undefined) return {_type: "_None"};
+        |    return {_type: "_Some", value: _ssc_typed_json_decode_value(value, _ssc_typed_json_inner(tpe))};
+        |  }
+        |  if (value && typeof value === "object" && value["$$type"]) {
+        |    return _ssc_typed_json_decode_value(value.value || {}, String(value["$$type"]));
+        |  }
+        |  const codec = _ssc_typed_json_codecs.get(tpe);
+        |  if (codec && codec.kind === "product") {
+        |    const args = codec.fields.map(field => _ssc_typed_json_decode_value(value == null ? undefined : value[field], ""));
+        |    if (codec.ctor) return codec.ctor(...args);
+        |    const out = {_type: tpe};
+        |    codec.fields.forEach((field, idx) => { out[field] = args[idx]; });
+        |    return out;
+        |  }
+        |  return value;
+        |}
+        |
+        |function $decodeResponseFunctionName(text, contentType, typeName) {
+        |  if (text === "") return _ssc_typed_json_decode_value(undefined, typeName);
+        |  let parsed;
+        |  if (String(contentType || "").includes("application/json")) parsed = JSON.parse(text);
+        |  else {
+        |    try { parsed = JSON.parse(text); } catch (_) { parsed = text; }
+        |  }
+        |  return _ssc_typed_json_decode_value(parsed, typeName);
         |}
         |
         |""".stripMargin

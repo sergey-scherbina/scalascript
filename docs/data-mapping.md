@@ -55,8 +55,8 @@ Initial runtime foundation landed in `backend/typed-data` as a small shared
 codegen/runtime module. Today it owns the emitted typed JSON facade used by
 generated typed route clients:
 
-- `_ssc_typed_json_encode(value)`
-- `_ssc_typed_json_decode_response(...)`
+- `_ssc_typed_json_encode(value, typeName)`
+- `_ssc_typed_json_decode_response(text, contentType, typeName)`
 
 The current bodies intentionally preserve the existing minimal JSON behavior.
 The important contract is that JVM/Swing and JS/browser/Electron clients call
@@ -104,9 +104,10 @@ marks identity fields for downstream stores, and `@rejectUnknown` enables
 strict decoding for extra fields.
 
 JVM/Swing generated typed route clients now use this `JsonCodec[T]` layer for
-typed request encoding and typed response decoding. JS/browser/Electron clients
-still call the emitted JSON facade directly because there is no Scala typeclass
-lookup in the generated JavaScript runtime.
+typed request encoding and typed response decoding. JS/browser/Electron typed
+route clients use the same facade boundary with a generated JavaScript codec
+registry for case-class and enum-case shapes; request/response type names from
+`apiClients:` select the codec at runtime.
 
 The first row-mapping API also lives in `backend/typed-data`:
 

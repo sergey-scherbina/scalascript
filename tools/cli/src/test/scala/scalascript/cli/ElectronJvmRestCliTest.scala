@@ -657,8 +657,8 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
          |grep -q "async function _ssc_api_request" "$$bundle/app.js"
          |grep -q "const response = await fetch(url, init)" "$$bundle/app.js"
          |grep -q "const Messages = {" "$$bundle/app.js"
-         |grep -q 'list() { return _ssc_api_request("GET", "/api/messages", undefined); }' "$$bundle/app.js"
-         |grep -q 'get(input) { return _ssc_api_request("GET", "/api/messages/:id", input); }' "$$bundle/app.js"
+         |grep -F -q 'list() { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]"); }' "$$bundle/app.js"
+         |grep -F -q 'get(input) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message"); }' "$$bundle/app.js"
          |grep -q "__sscTypedClientSmoke" "$$bundle/app.js"
          |""".stripMargin
     )

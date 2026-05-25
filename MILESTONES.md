@@ -10568,8 +10568,11 @@ distributed same-source server/client example are partially landed.
   `JsonCodec[A]`/`DecodeError`/`JsonValue` APIs and `derives JsonCodec` for
   case classes. Follow-up landed 2026-05-25: JVM/Swing generated typed clients
   now route request encoding and response decoding through `JsonCodec[T]` and
-  add the typed-data runtime jar when Swing API clients are present. Remaining
-  Phase 4 work: JS typed-client codec integration where feasible.
+  add the typed-data runtime jar when Swing API clients are present.
+  Follow-up landed 2026-05-26: JS/browser/Electron typed clients now pass
+  request/response type names through the shared facade, and JS codegen
+  registers generated case-class/enum-case metadata so known response shapes
+  decode back into generated JS values instead of plain objects.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

@@ -7287,10 +7287,12 @@ class JsGen(
             val comma = if idx == client.endpoints.size - 1 then "" else ","
             val method = jsQuote(endpoint.method)
             val path = jsQuote(endpoint.path)
+            val requestType = jsQuote(endpoint.requestType)
+            val responseType = jsQuote(endpoint.responseType)
             if endpoint.requestType == "Unit" then
-              line(s"${endpoint.name}() { return _ssc_api_request($method, $path, undefined); }$comma")
+              line(s"${endpoint.name}() { return _ssc_api_request($method, $path, undefined, $requestType, $responseType); }$comma")
             else
-              line(s"${endpoint.name}(input) { return _ssc_api_request($method, $path, input); }$comma")
+              line(s"${endpoint.name}(input) { return _ssc_api_request($method, $path, input, $requestType, $responseType); }$comma")
           }
           indent -= 1
           line("};")
@@ -7344,16 +7346,16 @@ class JsGen(
        |  return pairs.length === 0 ? "" : "?" + pairs.join("&");
        |}
        |
-       |function _ssc_api_body(method, input) {
+       |function _ssc_api_body(method, input, requestType) {
        |  if (method === "GET" || input === undefined || input === null) return undefined;
-       |  return _ssc_typed_json_encode(input);
+       |  return _ssc_typed_json_encode(input, requestType);
        |}
        |
-       |""".stripMargin + TypedJsonCodecRuntime.jsFacade + """|async function _ssc_api_request(methodRaw, pathTemplate, input) {
+       |""".stripMargin + TypedJsonCodecRuntime.jsFacade + """|async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType) {
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
        |  const init = { method: method, headers: {} };
-       |  const body = _ssc_api_body(method, input);
+       |  const body = _ssc_api_body(method, input, requestType);
        |  if (body !== undefined) {
        |    init.body = body;
        |    init.headers["Content-Type"] = "application/json";
@@ -7364,10 +7366,18 @@ class JsGen(
        |    throw new Error("typed route client: " + method + " " + url + " returned " + response.status + ": " + text);
        |  }
        |  const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
-       |  return _ssc_typed_json_decode_response(text, contentType);
+       |  return _ssc_typed_json_decode_response(text, contentType, responseType);
        |}
        |
        |""".stripMargin
+
+  private def jsTypedJsonRegisterProduct(typeName: String, fields: Seq[String], ctorName: String): String =
+    jsTypedJsonRegisterProduct(typeName, fields, Some(ctorName))
+
+  private def jsTypedJsonRegisterProduct(typeName: String, fields: Seq[String], ctorName: Option[String]): String =
+    val fieldArray = fields.map(jsQuote).mkString("[", ", ", "]")
+    val ctor = ctorName.getOrElse("undefined")
+    s"""if (typeof _ssc_typed_json_register_product === "function") _ssc_typed_json_register_product(${jsQuote(typeName)}, $fieldArray, $ctor);"""
 
   private def jsQuote(s: String): String =
     val sb = StringBuilder().append('"')
@@ -7987,6 +7997,7 @@ class JsGen(
       val paramsStr = paramListWithDefaults(paramVals)
       val fields = params.map(p => s"$p: $p").mkString(", ")
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
+      line(jsTypedJsonRegisterProduct(typeName, params, typeName))
 
     case d: Defn.Object =>
       line(s"const ${d.name.value} = ${genObjectAsExpr(d)};")
@@ -7999,10 +8010,12 @@ class JsGen(
           val params = paramVals.map(_.name.value)
           if params.isEmpty then
             line(s"const $caseName = {_type: '$caseName'};")
+            line(jsTypedJsonRegisterProduct(caseName, Nil, None))
           else
             val paramsStr = paramListWithDefaults(paramVals)
             val fields = params.map(p => s"$p: $p").mkString(", ")
             line(s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }")
+            line(jsTypedJsonRegisterProduct(caseName, params, caseName))
         case _ => ()
       }
 
@@ -8164,6 +8177,7 @@ class JsGen(
         val paramsStr = paramListWithDefaults(paramVals)
         val fields    = params.map(p => s"$p: $p").mkString(", ")
         decls += s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }"
+        decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
         names += typeName
       case d: Defn.Enum =>
         d.templ.body.stats.foreach {
@@ -8173,11 +8187,13 @@ class JsGen(
             val params    = paramVals.map(_.name.value)
             if params.isEmpty then
               decls += s"const $caseName = {_type: '$caseName'};"
+              decls += jsTypedJsonRegisterProduct(caseName, Nil, None)
               names += caseName
             else
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
               decls += s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }"
+              decls += jsTypedJsonRegisterProduct(caseName, params, caseName)
               names += caseName
           case _ => ()
         }

@@ -4,6 +4,9 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.codegen.JsGen
 import scalascript.parser.Parser
 
+import java.nio.charset.StandardCharsets
+import scala.io.Source
+
 class JsGenTypedRouteClientTest extends AnyFunSuite:
 
   private val source =
@@ -41,16 +44,18 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
 
     assert(code.contains("const _ssc_typedRouteClients = ["))
     assert(code.contains("""{client: "Messages", name: "create", method: "POST", path: "/api/messages", requestType: "CreateMessage", responseType: "Message"}"""))
-    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input)"))
-    assert(code.contains("function _ssc_typed_json_encode(value)"))
-    assert(code.contains("function _ssc_typed_json_decode_response(text, contentType)"))
-    assert(code.contains("return _ssc_typed_json_encode(input);"))
+    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType)"))
+    assert(code.contains("function _ssc_typed_json_encode(value, typeName)"))
+    assert(code.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
+    assert(code.contains("return _ssc_typed_json_encode(input, requestType);"))
     assert(code.contains("const response = await fetch(url, init);"))
-    assert(code.contains("return _ssc_typed_json_decode_response(text, contentType);"))
+    assert(code.contains("return _ssc_typed_json_decode_response(text, contentType, responseType);"))
     assert(code.contains("const Messages = {"))
-    assert(code.contains("""create(input) { return _ssc_api_request("POST", "/api/messages", input); }"""))
-    assert(code.contains("""list() { return _ssc_api_request("GET", "/api/messages", undefined); }"""))
-    assert(code.contains("""get(input) { return _ssc_api_request("GET", "/api/messages/:id", input); }"""))
+    assert(code.contains("""create(input) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message"); }"""))
+    assert(code.contains("""list() { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]"); }"""))
+    assert(code.contains("""get(input) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message"); }"""))
+    assert(code.contains("""_ssc_typed_json_register_product("CreateMessage", ["text"], CreateMessage)"""))
+    assert(code.contains("""_ssc_typed_json_register_product("Message", ["id", "text"], Message)"""))
 
   test("JS typed route runtime builds path params and GET query strings"):
     val code = JsGen.generate(Parser.parse(source))
@@ -106,3 +111,48 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(js.contains("(async () => {"))
     assert(js.contains("""const clientRows = await _dispatch(Messages, 'list', []);"""))
     assert(!js.contains("serverOnly"))
+
+  private def hasNode: Boolean =
+    try ProcessBuilder("node", "--version").start().waitFor() == 0
+    catch case _: Throwable => false
+
+  private def runJs(js: String): String =
+    val tmp = java.io.File.createTempFile("ssc-js-typed-client-", ".cjs")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("node", tmp.getAbsolutePath)
+      .redirectErrorStream(true)
+      .start()
+    val out = Source.fromInputStream(proc.getInputStream).mkString
+    proc.waitFor()
+    out.trim
+
+  test("JS typed route clients encode and decode through generated codecs"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |globalThis.fetch = async function(url, init) {
+        |  const responseBody =
+        |    url === "/api/messages"
+        |      ? (init.method === "GET" ? [{id: 1, text: "Ada"}] : {id: 2, text: JSON.parse(init.body).text})
+        |      : {id: 3, text: "Grace"};
+        |  return {
+        |    ok: true,
+        |    status: 200,
+        |    headers: { get: function() { return "application/json"; } },
+        |    text: async function() { return JSON.stringify(responseBody); }
+        |  };
+        |};
+        |
+        |(async function() {
+        |  const created = await Messages.create(CreateMessage("hello"));
+        |  const listed = await Messages.list();
+        |  const one = await Messages.get(3);
+        |  process.stdout.write(created._type + ":" + created.text + ":" + listed[0]._type + ":" + listed[0].text + ":" + one.id);
+        |})().catch(function(e) {
+        |  process.stdout.write("ERR:" + (e && e.stack ? e.stack : e));
+        |  process.exitCode = 1;
+        |});
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "Message:hello:Message:Ada:3")
