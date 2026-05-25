@@ -1101,8 +1101,12 @@ RDF/SPARQL, followed later by production adapters such as Neo4j/Cypher,
 JanusGraph/TinkerPop providers, and RDF4J-compatible servers. See
 [`graph-storage.md`](graph-storage.md).
 
-**Planned, not implemented yet: typed mapping across stores.** Typed mapping
+**Planned, partially implemented: typed mapping across stores.** Typed mapping
 across stores is planned as a shared codec layer rather than one universal ORM.
+The first runtime foundation now lives in `backend/typed-data`: generated
+JVM/Swing and JS typed route clients share the same typed JSON facade names for
+request encoding and response decoding, while full user-defined/derived codecs
+remain planned.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. This keeps

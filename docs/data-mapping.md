@@ -51,6 +51,18 @@ Each storage backend chooses its representation:
 | Dataset / MapReduce | `DatasetCodec[A]` | local/distributed element serialization |
 | Apache Spark | `SparkCodec[A]` / `SparkEncoder[A]` | Spark `Encoder[A]` and `StructType` schema |
 
+Initial runtime foundation landed in `backend/typed-data` as a small shared
+codegen/runtime module. Today it owns the emitted typed JSON facade used by
+generated typed route clients:
+
+- `_ssc_typed_json_encode(value)`
+- `_ssc_typed_json_decode_response(...)`
+
+The current bodies intentionally preserve the existing minimal JSON behavior.
+The important contract is that JVM/Swing and JS/browser/Electron clients call
+the same named boundary, so future `JsonCodec[A]` derivation can replace the
+facade implementation without reshaping generated client methods.
+
 User code should stay direct:
 
 ```scalascript

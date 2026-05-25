@@ -10526,8 +10526,10 @@ distributed same-source server/client example are partially landed.
   of embedding transport-specific JSON encode/decode operations directly at
   request call sites. This keeps Phase 2/3 behavior compatible while creating
   the boundary where the future derives-based typed mapping layer can plug in.
-  Remaining Phase 4 work: move the facade implementation to the shared
-  typed-data mapping runtime and add explicit/derived user codecs.
+  Follow-up landed 2026-05-25: `backend/typed-data` now owns the shared emitted
+  typed JSON facade snippets, and JVM/JS codegen import the same runtime
+  contract. Remaining Phase 4 work: add explicit/derived user codecs and route
+  the facade bodies through them.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

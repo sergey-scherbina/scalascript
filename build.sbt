@@ -422,7 +422,7 @@ lazy val frontendExamples = project
 
 lazy val backendJvm = project
   .in(file("runtime/backend/jvm"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime, backendSqlRuntimeJs)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerSpi, runtimeServerJvm, backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-jvm",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -431,7 +431,7 @@ lazy val backendJvm = project
 
 lazy val backendJs = project
   .in(file("runtime/backend/js"))
-  .dependsOn(backendSpi, core, backendSqlRuntimeJs)
+  .dependsOn(backendSpi, core, backendSqlRuntimeJs, backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-js",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -899,6 +899,18 @@ lazy val backendSqlRuntimeJs = project
     libraryDependencies ++= Seq(
       scalatestTest,
     ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// Shared typed-data mapping runtime foundation.
+// Phase 4 starts with emitted JSON codec facade snippets used by typed
+// route clients; later phases grow explicit/derived user codecs here.
+lazy val backendTypedDataRuntime = project
+  .in(file("backend/typed-data"))
+  .settings(
+    name := "scalascript-backend-typed-data-runtime",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
@@ -1977,7 +1989,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

@@ -2,6 +2,7 @@ package scalascript.codegen
 
 import scalascript.ast.*
 import scalascript.transform.{DirectAnorm, DirectTypeUtils, EffectAnalysis}
+import scalascript.typeddata.TypedJsonCodecRuntime
 import scala.collection.mutable
 
 /** JavaScript code generator for ScalaScript modules.
@@ -7348,20 +7349,7 @@ class JsGen(
        |  return _ssc_typed_json_encode(input);
        |}
        |
-       |// Shared typed JSON codec facade. Phase 4 keeps the implementation local
-       |// to emitted code, but typed route clients now call a stable codec boundary
-       |// instead of embedding transport-specific JSON operations at call sites.
-       |function _ssc_typed_json_encode(value) {
-       |  return JSON.stringify(value);
-       |}
-       |
-       |function _ssc_typed_json_decode_response(text, contentType) {
-       |  if (text === "") return undefined;
-       |  if (String(contentType || "").includes("application/json")) return JSON.parse(text);
-       |  try { return JSON.parse(text); } catch (_) { return text; }
-       |}
-       |
-       |async function _ssc_api_request(methodRaw, pathTemplate, input) {
+       |""".stripMargin + TypedJsonCodecRuntime.jsFacade + """|async function _ssc_api_request(methodRaw, pathTemplate, input) {
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
        |  const init = { method: method, headers: {} };

@@ -300,11 +300,12 @@ stable typed JSON codec facade:
 - `_ssc_typed_json_encode(value)`
 - `_ssc_typed_json_decode_response(...)`
 
-The implementation still lives in emitted backend-specific runtime code, so this
-is not the final derives-based mapping layer. The important change is the
-boundary: request call sites no longer embed `_toJsonValue`, `_fromJson`, or
-`JSON.stringify` directly. Later data-mapping work can replace the facade body
-without changing generated client method shape.
+Partially landed follow-up 2026-05-25: the facade source moved into the shared
+`backend/typed-data` runtime module and JVM/JS codegen now imports the same
+contract snippets. This is still not the final derives-based mapping layer, but
+request call sites no longer embed `_toJsonValue`, `_fromJson`, or
+`JSON.stringify` directly, and future data-mapping work can replace the facade
+body without changing generated client method shape.
 
 ### Phase 5 — Route Derivation And Validation
 
