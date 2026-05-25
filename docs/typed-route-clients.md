@@ -1,6 +1,9 @@
 # Typed Route Clients
 
-Status: **planned, not implemented yet** — May 2026.
+Status: **planned / partially implemented** — May 2026. Phase 1 landed the
+front-matter metadata MVP: `apiClients:` / `api-clients:` declarations parse
+into AST metadata and JVM codegen preserves endpoint method/path/type metadata.
+Generated callable clients are not implemented yet.
 
 This document defines generated typed clients for ScalaScript backend routes.
 The first target is JVM/Swing in-process full-stack mode: frontend code should
@@ -68,7 +71,7 @@ status, headers, and response body.
 
 ### User Model
 
-The initial user-facing declaration should be explicit and metadata-driven:
+The target user-facing declaration should be explicit and metadata-driven:
 
 ```scalascript
 case class CreateMessage(text: String)
@@ -79,8 +82,38 @@ apiClient object Messages:
   get  "/api/messages/:id" def get(id: Int): Message
 ```
 
-The exact syntax is still open. Phase 1 may use an ordinary library-style
-declaration if it fits the current parser better:
+Phase 1 uses front-matter metadata as the implementation MVP:
+
+```yaml
+apiClients:
+  Messages:
+    endpoints:
+      - name: create
+        method: POST
+        path: /api/messages
+        request: CreateMessage
+        response: Message
+      - name: get
+        method: GET
+        path: /api/messages/:id
+        request: Int
+        response: Message
+```
+
+The parser also accepts the list-shaped spelling:
+
+```yaml
+api-clients:
+  - name: Messages
+    endpoints:
+      - name: delete
+        method: POST
+        path: /api/messages/delete
+        request-type: DeleteMessage
+        response-type: Unit
+```
+
+A later phase may use an ordinary library-style declaration if it fits better:
 
 ```scalascript
 val Messages = apiClient("Messages")(
@@ -172,10 +205,10 @@ Existing code keeps working:
 - `fetchAction` and `fetchTable` remain supported for simple UI workflows;
 - `examples/frontend/swing-fullstack/` remains the string/JSON baseline.
 
-Typed clients add an opt-in route declaration layer. A later migration may
-derive typed clients automatically from typed route declarations, but the MVP
-should keep explicit client declarations so implementation can ship without a
-global route analyzer.
+Typed clients add an opt-in route declaration layer. Phase 1 stores explicit
+front-matter declarations as metadata only. A later migration may derive typed
+clients automatically from typed route declarations, but the MVP keeps explicit
+client declarations so implementation can ship without a global route analyzer.
 
 ## Phases
 
@@ -190,6 +223,12 @@ Add a parser/AST/codegen representation for typed endpoint declarations. The
 MVP may lower to generated helper functions rather than a permanent public AST
 node if that is cheaper, but tests must prove the declared method/path/types
 survive lowering.
+
+Landed 2026-05-25: front-matter `apiClients:` / `api-clients:` parse into
+`ApiClientDecl` / `ApiEndpointDecl` AST metadata. JVM codegen emits
+`_TypedRouteClientEndpoint` metadata in generated Scala so Phase 2 can add
+callable clients without re-parsing YAML. Runtime client calls are still
+planned.
 
 ### Phase 2 — JVM/Swing In-Process Client
 

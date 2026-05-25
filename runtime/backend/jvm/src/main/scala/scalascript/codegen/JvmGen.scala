@@ -319,6 +319,7 @@ class JvmGen(
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
+    emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
 
     // i18n table injection — emitted once before user blocks so t(key) resolves correctly.
     module.manifest.foreach { m =>
@@ -1092,6 +1093,7 @@ class JvmGen(
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
+    emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
 
     // i18n table injection — same as `genModule`.
     module.manifest.foreach { m =>
@@ -1384,6 +1386,27 @@ class JvmGen(
   /** Minimal escape for emitted Scala string literals. */
   private def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+  private def emitTypedRouteClientMetadata(clients: List[ApiClientDecl], sb: StringBuilder): Unit =
+    val endpoints = clients.flatMap(client => client.endpoints.map(endpoint => client.name -> endpoint))
+    if endpoints.nonEmpty then
+      sb.append(
+        "final case class _TypedRouteClientEndpoint(client: String, name: String, method: String, path: String, requestType: String, responseType: String)\n"
+      )
+      val rows = endpoints.map { (client, endpoint) =>
+        "  _TypedRouteClientEndpoint(" +
+          List(
+            client,
+            endpoint.name,
+            endpoint.method,
+            endpoint.path,
+            endpoint.requestType,
+            endpoint.responseType
+          ).map(scalaStringLiteral).mkString(", ") +
+          ")"
+      }.mkString(",\n")
+      sb.append("val _ssc_typedRouteClients: List[_TypedRouteClientEndpoint] = List(\n")
+      sb.append(rows).append("\n)\n\n")
 
   /** Wrap `s` as a properly-escaped Scala double-quoted string literal,
    *  safe for embedding in emitted `.sc` source. */

@@ -1,0 +1,58 @@
+package scalascript.parser
+
+import org.scalatest.funsuite.AnyFunSuite
+
+class ApiClientsFrontmatterTest extends AnyFunSuite:
+
+  private def withFrontmatter(yaml: String) =
+    Parser.parse(
+      s"""|---
+          |$yaml
+          |---
+          |
+          |# Test
+          |""".stripMargin
+    )
+
+  test("apiClients parses map-shaped typed endpoint metadata") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Messages:
+        |    endpoints:
+        |      - name: create
+        |        method: post
+        |        path: /api/messages
+        |        request: CreateMessage
+        |        response: Message
+        |      - name: get
+        |        method: GET
+        |        path: /api/messages/:id
+        |        request: Int
+        |        response: Message""".stripMargin
+    )
+
+    val clients = mod.manifest.get.apiClients
+    assert(clients.map(_.name) == List("Messages"))
+    assert(clients.head.endpoints.map(e => (e.name, e.method, e.path, e.requestType, e.responseType)) == List(
+      ("create", "POST", "/api/messages", "CreateMessage", "Message"),
+      ("get", "GET", "/api/messages/:id", "Int", "Message")
+    ))
+  }
+
+  test("api-clients parses list-shaped typed endpoint metadata") {
+    val mod = withFrontmatter(
+      """api-clients:
+        |  - name: Messages
+        |    endpoints:
+        |      - name: delete
+        |        method: POST
+        |        path: /api/messages/delete
+        |        request-type: DeleteMessage
+        |        response-type: Unit""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.name == "delete")
+    assert(endpoint.requestType == "DeleteMessage")
+    assert(endpoint.responseType == "Unit")
+  }

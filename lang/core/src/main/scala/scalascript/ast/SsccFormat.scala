@@ -103,6 +103,7 @@ object SsccFormat:
     frontendFramework: Option[String]                   = None,
     scripts:           Map[String, String]              = Map.empty,
     raw:               Map[String, Array[Byte]]         = Map.empty,
+    apiClients:        List[ApiClientDecl]              = Nil,
     span:              Option[Span]                     = None
   )
 
@@ -160,6 +161,8 @@ object SsccFormat:
   private given Codec[CodeBlockParseError]  = deriveCodec[CodeBlockParseError]
   private given Codec[ImportBinding]        = deriveCodec[ImportBinding]
   private given Codec[RouteDecl]            = deriveCodec[RouteDecl]
+  private given Codec[ApiEndpointDecl]      = deriveCodec[ApiEndpointDecl]
+  private given Codec[ApiClientDecl]        = deriveCodec[ApiClientDecl]
 
   private lazy given Codec[ListItemPickle] = deriveCodec[ListItemPickle]
 
@@ -196,6 +199,7 @@ object SsccFormat:
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
       raw               = m.raw.collect { case (k, v: String) => k -> compress(v) },
+      apiClients        = m.apiClients,
       span              = m.span
     )
 
@@ -253,6 +257,7 @@ object SsccFormat:
       frontendFramework = pk.frontendFramework,
       scripts           = pk.scripts,
       raw               = pk.raw.map { case (k, v) => k -> decompress(v) },
+      apiClients        = pk.apiClients,
       span              = pk.span
     )
 

@@ -1048,12 +1048,13 @@ no-socket example is
 HTTP sockets. JavaFX and Compose Desktop are future adapter candidates. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 
-**Planned, not implemented yet: typed route clients.** Typed route clients will
-let frontend code call backend routes through generated methods instead of
-hand-writing URL strings, request JSON, and response parsing. The planned MVP
-uses explicit endpoint metadata, case class inputs/outputs, and
-`BackendTransport`: JVM/Swing in-process first, then HTTP for Electron,
-browser, split-process, and distributed modes. See
+**Planned, partially implemented: typed route clients.** Front matter can now
+declare typed client endpoint metadata with `apiClients:` / `api-clients:`; the
+parser stores method/path/request/response type names in the AST, and JVM
+codegen preserves them as metadata. Generated callable client methods are not
+implemented yet. The planned client runtime will use `BackendTransport`:
+JVM/Swing in-process first, then HTTP for Electron, browser, split-process, and
+distributed modes. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

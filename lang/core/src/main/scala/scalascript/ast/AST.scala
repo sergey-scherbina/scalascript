@@ -50,6 +50,10 @@ case class Manifest(
    *  The source .ssc file is appended automatically when the script is run. */
   scripts: Map[String, String] = Map.empty,
   raw: Map[String, Any],
+  /** Planned typed route clients declared in front matter.  Phase 1 keeps
+   *  these as metadata so code generators can preserve endpoint method/path
+   *  and request/response type names before runtime clients are implemented. */
+  apiClients: List[ApiClientDecl] = Nil,
   span: Option[Span] = None
 )
 
@@ -58,6 +62,19 @@ case class Manifest(
  *  level function defined elsewhere in the module that takes a `Request`
  *  and returns a `Response`. */
 case class RouteDecl(method: String, path: String, handler: String, span: Option[Span] = None)
+
+/** A typed frontend client over backend routes.  Declared in front matter as
+ *  `apiClients:` / `api-clients:` during the Phase 1 metadata MVP. */
+case class ApiClientDecl(name: String, endpoints: List[ApiEndpointDecl], span: Option[Span] = None)
+
+case class ApiEndpointDecl(
+  name: String,
+  method: String,
+  path: String,
+  requestType: String,
+  responseType: String,
+  span: Option[Span] = None
+)
 
 /** A `databases:` entry in front-matter declares a named JDBC
  *  connection consumed by `sql` blocks.  `url` is mandatory;

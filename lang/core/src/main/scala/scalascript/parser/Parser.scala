@@ -200,6 +200,7 @@ object Parser:
         case m: java.util.Map[?, ?] =>
           m.asScala.collect { case (k, v) => k.toString -> v.toString }.toMap
       }.getOrElse(Map.empty),
+      apiClients = parseApiClients(raw),
       raw = raw
     )
 
@@ -222,6 +223,53 @@ object Parser:
             (method, path, handler) match
               case (Some(m), Some(p), Some(h)) => Some(RouteDecl(m, p, h))
               case _                            => None
+          case _ => None
+        }
+    }.getOrElse(Nil)
+
+  private def parseApiClients(raw: Map[String, Any]): List[ApiClientDecl] =
+    val source = raw.get("apiClients").orElse(raw.get("api-clients"))
+    source.collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.toList.flatMap {
+          case (clientName, clientMap: java.util.Map[?, ?]) =>
+            val mm: Map[String, Any] = clientMap.asScala.iterator.collect {
+              case (k: String, v) => k -> (v: Any)
+            }.toMap
+            val endpoints = parseApiEndpoints(mm.get("endpoints"))
+            if endpoints.nonEmpty then Some(ApiClientDecl(clientName.toString, endpoints)) else None
+          case _ => None
+        }
+      case xs: java.util.List[?] =>
+        xs.asScala.toList.flatMap {
+          case clientMap: java.util.Map[?, ?] =>
+            val mm: Map[String, Any] = clientMap.asScala.iterator.collect {
+              case (k: String, v) => k -> (v: Any)
+            }.toMap
+            val name = mm.get("name").collect { case s: String => s }
+            val endpoints = parseApiEndpoints(mm.get("endpoints"))
+            name.filter(_ => endpoints.nonEmpty).map(ApiClientDecl(_, endpoints))
+          case _ => None
+        }
+    }.getOrElse(Nil)
+
+  private def parseApiEndpoints(value: Option[Any]): List[ApiEndpointDecl] =
+    value.collect {
+      case xs: java.util.List[?] =>
+        xs.asScala.toList.flatMap {
+          case m: java.util.Map[?, ?] =>
+            val mm: Map[String, Any] = m.asScala.iterator.collect {
+              case (k: String, v) => k -> (v: Any)
+            }.toMap
+            val name     = mm.get("name").collect { case s: String => s }
+            val method   = mm.get("method").collect { case s: String => s.toUpperCase }
+            val path     = mm.get("path").collect { case s: String => s }
+            val request  = mm.get("request").orElse(mm.get("requestType")).orElse(mm.get("request-type")).collect { case s: String => s }
+            val response = mm.get("response").orElse(mm.get("responseType")).orElse(mm.get("response-type")).collect { case s: String => s }
+            (name, method, path, request, response) match
+              case (Some(n), Some(m), Some(p), Some(req), Some(resp)) =>
+                Some(ApiEndpointDecl(n, m, p, req, resp))
+              case _ => None
           case _ => None
         }
     }.getOrElse(Nil)

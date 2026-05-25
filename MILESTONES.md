@@ -10482,10 +10482,12 @@ clients for Electron/browser split modes follow.
   declaration model, request/response encoding, error model, transport
   selection, migration story, phases, tests, and open questions. No runtime
   behavior changes.
-- **Phase 1 — Minimal API client IR.** Add parser/AST/codegen representation
-  for typed endpoint declarations. The MVP may lower to generated helper
-  functions if that is cheaper than a permanent AST node, but tests must prove
-  method/path/type metadata survives lowering.
+- **Phase 1 ✓ Landed (2026-05-25)** — minimal API client metadata:
+  `apiClients:` / `api-clients:` front-matter declarations now parse into
+  `ApiClientDecl` / `ApiEndpointDecl` AST metadata and JVM codegen emits
+  `_TypedRouteClientEndpoint` metadata preserving client name, endpoint name,
+  method, path, request type, and response type. Runtime callable clients remain
+  Phase 2 work.
 - **Phase 2 — JVM/Swing in-process client.** Generate JVM client methods that
   call the same-process route dispatcher used by Swing `fetchAction` and
   `fetchTable`. Add a Swing example that creates, reads, and deletes typed
