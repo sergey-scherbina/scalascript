@@ -10376,9 +10376,13 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   flat `transport`, keeps HTTP/default behavior unchanged, and rejects explicit
   `in-process` for server/client split modes or general runtime execution until
   a real dispatcher lands.
-- **Phase 2 — Interpreter in-process dispatch.** Add a test/dev path that
-  dispatches route calls through the interpreter route registry without binding
-  a TCP port.
+- **Phase 2 ✓ Landed (2026-05-25)** — interpreter in-process dispatch:
+  `scalascript.server.InProcessBackendTransport` now adapts SPI-level
+  `BackendRequest` values to the existing `InterpreterHttpHandler`, reusing
+  `Routes.matchRequest`, path params, query/header/body lifting, middleware,
+  and `Response` unwrapping without binding a TCP port. Scope is currently the
+  interpreter/test harness path; CLI full-stack runtime selection still remains
+  diagnostic-only until generated client adapters land.
 - **Phase 3 — Generated client adapter.** Route `fetchAction`, `fetchTable`,
   and future typed API clients through the transport abstraction where
   supported, preserving HTTP for browser/JVM and distributed modes.

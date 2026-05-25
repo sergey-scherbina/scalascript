@@ -1,10 +1,11 @@
 # Full-Stack In-Process Transport
 
-Status: **planned / partially scaffolded** — May 2026. Phase 1 landed:
+Status: **planned / partially implemented** — May 2026. Phase 1 landed:
 internal `BackendTransport` request/response types exist, and `ssc run`
 parses/validates `--transport http|in-process` plus front matter
-`fullstack.transport` / `transport`. In-process runtime dispatch is not
-implemented yet.
+`fullstack.transport` / `transport`. Phase 2 landed: interpreter routes can be
+dispatched through `InProcessBackendTransport` without opening a socket. CLI
+full-stack `--transport in-process` execution is not implemented yet.
 
 This document defines the planned monolithic full-stack mode: frontend and
 backend logic can run in one process where the selected targets make that
@@ -198,6 +199,13 @@ adds a real dispatcher.
 Add a test/dev path that runs frontend-triggered route calls through the
 interpreter route registry without binding a socket. This closes the fast
 full-stack test use case first.
+
+Landed 2026-05-25: `scalascript.server.InProcessBackendTransport` adapts
+`BackendRequest` to the existing `InterpreterHttpHandler`, so it reuses
+`Routes.matchRequest`, path capture, query/header/body lifting, middleware, and
+`Response` unwrapping without TCP or HTTP wire parsing. Current scope is the
+interpreter/test harness path; CLI full-stack execution remains diagnostic-only
+until a frontend client adapter selects this transport.
 
 ### Phase 3 — Generated Client Adapter
 

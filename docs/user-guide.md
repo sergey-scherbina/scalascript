@@ -1005,12 +1005,14 @@ or preferences while the JVM backend owns the authoritative server database. The
 planned split-mode contract names these as separate `databases:` entries, for
 example `server` (`side: server`) and `localCache` (`side: client`).
 
-**Planned, partially scaffolded: monolithic in-process full-stack transport.**
+**Planned, partially implemented: monolithic in-process full-stack transport.**
 Some target pairs can eventually run frontend and backend logic inside one
 runtime process. The CLI now recognizes `--transport http|in-process` and front
-matter `fullstack.transport` / `transport`, but `in-process` runtime dispatch
-is **not implemented yet** and currently produces a clear diagnostic instead of
-silently falling back to HTTP. Distributed clients, browser-to-JVM apps, and
+matter `fullstack.transport` / `transport`. Interpreter route tests can already
+dispatch through `InProcessBackendTransport` without opening a socket, but
+generated frontend client selection for `--transport in-process` is **not
+implemented yet** and currently produces a clear diagnostic instead of silently
+falling back to HTTP. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
