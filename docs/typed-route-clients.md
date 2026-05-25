@@ -294,6 +294,18 @@ Replace ad hoc generated JSON encoding/decoding with the shared typed mapping
 codec layer once it exists. Keep compatibility wrappers so Phase 2/3 examples
 continue to run.
 
+Partially landed 2026-05-25: generated JVM/Swing and JS HTTP clients now call a
+stable typed JSON codec facade:
+
+- `_ssc_typed_json_encode(value)`
+- `_ssc_typed_json_decode_response(...)`
+
+The implementation still lives in emitted backend-specific runtime code, so this
+is not the final derives-based mapping layer. The important change is the
+boundary: request call sites no longer embed `_toJsonValue`, `_fromJson`, or
+`JSON.stringify` directly. Later data-mapping work can replace the facade body
+without changing generated client method shape.
+
 ### Phase 5 — Route Derivation And Validation
 
 Optionally derive client declarations from typed route declarations or typed

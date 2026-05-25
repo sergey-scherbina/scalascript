@@ -1477,11 +1477,13 @@ class JvmGen(
        |  if fields.isEmpty then ""
        |  else fields.iterator.map((k, v) => _ssc_api_url_encode(k) + "=" + _ssc_api_url_encode(v)).mkString("?", "&", "")
        |
-       |private def _ssc_api_body(method: String, input: Any): String =
-       |  if method == "GET" || input == () then ""
-       |  else _toJsonValue(input)
+       |// Shared typed JSON codec facade. Phase 4 keeps the implementation local
+       |// to emitted code, but typed route clients now call a stable codec boundary
+       |// instead of embedding transport-specific JSON operations at call sites.
+       |private def _ssc_typed_json_encode(value: Any): String =
+       |  _toJsonValue(value)
        |
-       |private inline def _ssc_api_decode_value[T](value: Any): T =
+       |private inline def _ssc_typed_json_decode_value[T](value: Any): T =
        |  inline erasedValue[T] match
        |    case _: Unit => ().asInstanceOf[T]
        |    case _: String => value.asInstanceOf[String].asInstanceOf[T]
@@ -1510,38 +1512,42 @@ class JvmGen(
        |    case _: Option[t] =>
        |      (value match
        |        case null | None => None
-       |        case other => Some(_ssc_api_decode_value[t](other))
+       |        case other => Some(_ssc_typed_json_decode_value[t](other))
        |      ).asInstanceOf[T]
        |    case _: List[t] =>
-       |      value.asInstanceOf[List[Any]].map(v => _ssc_api_decode_value[t](v)).asInstanceOf[T]
+       |      value.asInstanceOf[List[Any]].map(v => _ssc_typed_json_decode_value[t](v)).asInstanceOf[T]
        |    case _: Response =>
        |      value.asInstanceOf[Response].asInstanceOf[T]
        |    case _ =>
        |      inline summonInline[Mirror.Of[T]] match
        |        case p: Mirror.ProductOf[T] =>
-       |          _ssc_api_decode_product[T](value)(using p)
+       |          _ssc_typed_json_decode_product[T](value)(using p)
        |
-       |private inline def _ssc_api_decode_product[T](value: Any)(using m: Mirror.ProductOf[T]): T =
+       |private inline def _ssc_typed_json_decode_product[T](value: Any)(using m: Mirror.ProductOf[T]): T =
        |  val fields = value.asInstanceOf[Map[String, Any]]
-       |  val values = _ssc_api_decode_fields[m.MirroredElemTypes, m.MirroredElemLabels](fields)
+       |  val values = _ssc_typed_json_decode_fields[m.MirroredElemTypes, m.MirroredElemLabels](fields)
        |  m.fromProduct(Tuple.fromArray(values.toArray))
        |
-       |private inline def _ssc_api_decode_fields[Types <: Tuple, Labels <: Tuple](fields: Map[String, Any]): List[Any] =
+       |private inline def _ssc_typed_json_decode_fields[Types <: Tuple, Labels <: Tuple](fields: Map[String, Any]): List[Any] =
        |  inline erasedValue[(Types, Labels)] match
        |    case _: (EmptyTuple, EmptyTuple) => Nil
        |    case _: ((t *: ts), (label *: labels)) =>
        |      val name = constValue[label].asInstanceOf[String]
        |      val raw = fields.getOrElse(name, throw RuntimeException("typed route client: missing response field '" + name + "'"))
-       |      _ssc_api_decode_value[t](raw) :: _ssc_api_decode_fields[ts, labels](fields)
+       |      _ssc_typed_json_decode_value[t](raw) :: _ssc_typed_json_decode_fields[ts, labels](fields)
        |
-       |private inline def _ssc_api_decode_response[T](response: scalascript.backend.spi.BackendResponse): T =
+       |private inline def _ssc_typed_json_decode_response[T](response: scalascript.backend.spi.BackendResponse): T =
        |  val body = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  inline erasedValue[T] match
        |    case _: Unit => ().asInstanceOf[T]
        |    case _: Response =>
        |      Response(response.status, response.headers, body).asInstanceOf[T]
        |    case _ =>
-       |      _ssc_api_decode_value[T](_fromJson(body))
+       |      _ssc_typed_json_decode_value[T](_fromJson(body))
+       |
+       |private def _ssc_api_body(method: String, input: Any): String =
+       |  if method == "GET" || input == () then ""
+       |  else _ssc_typed_json_encode(input)
        |
        |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req): Resp =
        |  val method = methodRaw.toUpperCase
@@ -1550,7 +1556,7 @@ class JvmGen(
        |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)
-       |  _ssc_api_decode_response[Resp](response)
+       |  _ssc_typed_json_decode_response[Resp](response)
        |
        |""".stripMargin
 

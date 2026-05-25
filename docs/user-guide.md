@@ -1068,7 +1068,10 @@ React/Electron client on another via `--server-url`. Client-side ScalaScript
 can use `awaitClient(Messages.list())`; JS codegen lowers it to `await
 Messages.list()` and wraps the client bundle in an async top-level function.
 Mark client-only ScalaScript blocks with `@side=client` when the same source is
-also compiled as a JVM server. See
+also compiled as a JVM server. Generated clients now route request encoding and
+response decoding through a typed JSON codec facade; the facade currently keeps
+existing JSON behavior but is the compatibility boundary for the future shared
+typed mapping layer. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

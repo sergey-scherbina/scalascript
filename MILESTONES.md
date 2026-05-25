@@ -10520,8 +10520,14 @@ distributed same-source server/client example are partially landed.
   codegen skips `@side=client` ScalaScript blocks, while JS codegen skips
   `@side=server` blocks. Remaining Phase 3 work: broader async syntax/type
   integration beyond the explicit `awaitClient(...)` bridge.
-- **Phase 4 — Shared codecs.** Replace temporary generated JSON code with the
-  shared typed mapping codec layer once that layer exists.
+- **Phase 4 ◐ Partially landed (2026-05-25)** — shared codecs:
+  generated JVM/Swing and JS HTTP clients now call a stable typed JSON codec
+  facade (`_ssc_typed_json_encode` / `_ssc_typed_json_decode_response`) instead
+  of embedding transport-specific JSON encode/decode operations directly at
+  request call sites. This keeps Phase 2/3 behavior compatible while creating
+  the boundary where the future derives-based typed mapping layer can plug in.
+  Remaining Phase 4 work: move the facade implementation to the shared
+  typed-data mapping runtime and add explicit/derived user codecs.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

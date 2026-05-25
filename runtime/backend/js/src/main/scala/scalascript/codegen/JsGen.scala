@@ -7345,7 +7345,20 @@ class JsGen(
        |
        |function _ssc_api_body(method, input) {
        |  if (method === "GET" || input === undefined || input === null) return undefined;
-       |  return JSON.stringify(input);
+       |  return _ssc_typed_json_encode(input);
+       |}
+       |
+       |// Shared typed JSON codec facade. Phase 4 keeps the implementation local
+       |// to emitted code, but typed route clients now call a stable codec boundary
+       |// instead of embedding transport-specific JSON operations at call sites.
+       |function _ssc_typed_json_encode(value) {
+       |  return JSON.stringify(value);
+       |}
+       |
+       |function _ssc_typed_json_decode_response(text, contentType) {
+       |  if (text === "") return undefined;
+       |  if (String(contentType || "").includes("application/json")) return JSON.parse(text);
+       |  try { return JSON.parse(text); } catch (_) { return text; }
        |}
        |
        |async function _ssc_api_request(methodRaw, pathTemplate, input) {
@@ -7362,10 +7375,8 @@ class JsGen(
        |  if (!response.ok) {
        |    throw new Error("typed route client: " + method + " " + url + " returned " + response.status + ": " + text);
        |  }
-       |  if (text === "") return undefined;
        |  const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
-       |  if (contentType.includes("application/json")) return JSON.parse(text);
-       |  try { return JSON.parse(text); } catch (_) { return text; }
+       |  return _ssc_typed_json_decode_response(text, contentType);
        |}
        |
        |""".stripMargin
