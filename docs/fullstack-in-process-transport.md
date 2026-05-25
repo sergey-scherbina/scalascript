@@ -1,6 +1,10 @@
 # Full-Stack In-Process Transport
 
-Status: **planned / not implemented** — May 2026.
+Status: **planned / partially scaffolded** — May 2026. Phase 1 landed:
+internal `BackendTransport` request/response types exist, and `ssc run`
+parses/validates `--transport http|in-process` plus front matter
+`fullstack.transport` / `transport`. In-process runtime dispatch is not
+implemented yet.
 
 This document defines the planned monolithic full-stack mode: frontend and
 backend logic can run in one process where the selected targets make that
@@ -178,9 +182,16 @@ backlog phases.
 
 ### Phase 1 — Transport Contract Skeleton
 
-Add internal `BackendTransport` request/response types and route-dispatch
-adapter. Cover selection/diagnostics in CLI tests, but keep runtime defaults
-unchanged.
+Add internal `BackendTransport` request/response types and CLI/front-matter
+selection diagnostics. Keep runtime defaults unchanged; the concrete
+route-dispatch adapter starts in Phase 2 with the interpreter path.
+
+Landed 2026-05-25: `BackendTransport`, `BackendRequest`,
+`BackendResponse`, and `BackendTransportKind` are defined in backend SPI. The
+CLI accepts `--transport http|in-process`, reads `fullstack.transport` and flat
+`transport`, keeps `http` behavior unchanged, and rejects explicit
+`in-process` for server/client split modes or runtime execution until Phase 2
+adds a real dispatcher.
 
 ### Phase 2 — Interpreter In-Process Dispatch
 

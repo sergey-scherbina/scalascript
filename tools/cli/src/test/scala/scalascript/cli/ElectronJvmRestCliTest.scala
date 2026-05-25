@@ -1,6 +1,7 @@
 package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.backend.spi.BackendTransportKind
 import scalascript.parser.Parser
 
 class ElectronJvmRestCliTest extends AnyFunSuite:
@@ -159,6 +160,63 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     finally
       runJvmServerHook = oldHook
       ActiveFlags.set(GlobalFlags())
+
+  test("validateTransportSelection allows http transport"):
+    assert(validateTransportSelection(None, None, Some(BackendTransportKind.Http)).isRight)
+    assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.Http)).isRight)
+
+  test("validateTransportSelection rejects in-process for split and unimplemented run modes"):
+    assert(validateTransportSelection(Some("server"), None, Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("mode server")))
+    assert(validateTransportSelection(Some("client"), Some("http://server.example:8080"), Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("mode client")))
+    assert(validateTransportSelection(None, Some("http://server.example:8080"), Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("server-url")))
+    assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("planned")))
+
+  test("frontMatterTransport reads nested fullstack transport"):
+    val dir = os.temp.dir(prefix = "ssc-transport-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |fullstack:
+        |  transport: in-process
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    assert(frontMatterTransport(app).contains(BackendTransportKind.InProcess))
+
+  test("frontMatterTransport reads flat transport"):
+    val dir = os.temp.dir(prefix = "ssc-flat-transport-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |transport: http
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    assert(frontMatterTransport(app).contains(BackendTransportKind.Http))
+
+  test("resolveRunTransport rejects invalid frontmatter transport"):
+    val dir = os.temp.dir(prefix = "ssc-bad-transport-frontmatter-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app,
+      """
+        |---
+        |fullstack:
+        |  transport: direct
+        |---
+        |
+        |```scalascript
+        |serve(49152)
+        |```
+        |""".stripMargin.trim)
+    assert(resolveRunTransport(app, None).left.toOption.exists(_.contains("direct")))
 
   test("runCommand passes host and port overrides to server mode"):
     val dir = os.temp.dir(prefix = "ssc-mode-server-host-port-test-", deleteOnExit = true)

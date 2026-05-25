@@ -13,7 +13,7 @@ import scalascript.ast.*
 import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
 import scalascript.compiler.plugin.{BackendRegistry, SourceLanguageRegistry}
-import scalascript.backend.spi.{BackendOptions, CompileResult, Segment}
+import scalascript.backend.spi.{BackendOptions, BackendTransportKind, CompileResult, Segment}
 // v2.0 separate-compilation artifact commands
 import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
 import scalascript.codegen.JvmGen
@@ -481,6 +481,7 @@ def printUsage(): Unit =
     |                                --mode server starts only the JVM backend/server
     |                                --mode client --frontend electron --server-url <url> starts only the Electron client
     |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
+    |                                --transport <http|in-process> selects planned full-stack transport (in-process validates only)
     |                                --host <addr> / --port <n> controls web preview bind address/port; server mode uses --port for simple serve(port)
     |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
@@ -2291,6 +2292,7 @@ def runCommand(args: List[String]): Unit =
   var targetFlag:        Option[String] = None
   var modeFlag:          Option[String] = None
   var serverUrlFlag:     Option[String] = None
+  var transportFlag:     Option[BackendTransportKind] = None
   var hostFlag:          Option[String] = None
   var portFlag:          Option[Int] = None
   var openBrowserFlag:   Option[Boolean] = None
@@ -2305,6 +2307,7 @@ def runCommand(args: List[String]): Unit =
       case "--target"           if it.hasNext => targetFlag        = Some(it.next())
       case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
       case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
+      case "--transport"        if it.hasNext => transportFlag     = Some(parseTransportFlag("run --transport", it.next()))
       case "--host"             if it.hasNext => hostFlag          = Some(it.next())
       case "--port"             if it.hasNext => portFlag          = Some(parsePortFlag("run --port", it.next()))
       case "--open-browser"                  => openBrowserFlag    = Some(true)
@@ -2330,10 +2333,14 @@ def runCommand(args: List[String]): Unit =
         case _ =>
           for file <- fileArgs.toList do
             val path = os.Path(file, os.pwd)
+            validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
             val bind = bindOptions(path, hostFlag, portFlag, None)
             runJvmServerHook(path, serverBackendFlag, bind)
           return
     case Some("client") =>
+      for file <- fileArgs.toList do
+        val path = os.Path(file, os.pwd)
+        validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
       val serverUrl = serverUrlFlag.getOrElse {
         System.err.println("run --mode client requires --server-url <url>")
         System.exit(1)
@@ -2353,10 +2360,14 @@ def runCommand(args: List[String]): Unit =
           System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
           System.exit(1)
       return
+    case Some("fullstack") => ()
     case Some(other) =>
-      System.err.println(s"run: unknown --mode '$other', valid: server, client")
+      System.err.println(s"run: unknown --mode '$other', valid: server, client, fullstack")
       System.exit(1)
     case None => ()
+
+  for file <- fileArgs.toList do
+    validateRunTransport(os.Path(file, os.pwd), runMode, serverUrlFlag, transportFlag)
 
   // --target jvm: compile via JvmGen → scala-cli → execute
   if targetSelection.contains("jvm") then
@@ -2779,12 +2790,92 @@ private[cli] def parsePortFlag(name: String, value: String): Int =
     0
   }
 
+private[cli] def parseTransportFlag(name: String, value: String): BackendTransportKind =
+  BackendTransportKind.parse(value).getOrElse {
+    System.err.println(s"$name must be http or in-process; got '$value'")
+    System.exit(1)
+    BackendTransportKind.Http
+  }
+
+private[cli] def validateRunTransport(
+    path:              os.Path,
+    runMode:           Option[String],
+    serverUrlOverride: Option[String],
+    transportOverride: Option[BackendTransportKind]
+): Unit =
+  val transport = resolveRunTransport(path, transportOverride).fold(
+    message =>
+      System.err.println(message)
+      System.exit(1)
+      None,
+    identity
+  )
+  validateTransportSelection(runMode, serverUrlOverride, transport).left.foreach { message =>
+    System.err.println(message)
+    System.exit(1)
+  }
+
+private[cli] def resolveRunTransport(
+    path:              os.Path,
+    transportOverride: Option[BackendTransportKind]
+): Either[String, Option[BackendTransportKind]] =
+  transportOverride match
+    case some @ Some(_) => Right(some)
+    case None =>
+      frontMatterTransportName(path) match
+        case None => Right(None)
+        case Some(raw) =>
+          BackendTransportKind.parse(raw)
+            .map(kind => Right(Some(kind)))
+            .getOrElse(Left(s"front matter transport must be http or in-process; got '$raw'"))
+
+private[cli] def validateTransportSelection(
+    runMode:   Option[String],
+    serverUrl: Option[String],
+    transport: Option[BackendTransportKind]
+): Either[String, Unit] =
+  transport match
+    case None | Some(BackendTransportKind.Http) => Right(())
+    case Some(BackendTransportKind.InProcess) =>
+      runMode match
+        case Some("server") =>
+          Left("run --mode server does not support --transport in-process; server-only mode uses HTTP/server runtime")
+        case Some("client") =>
+          Left("run --mode client does not support --transport in-process; client-only mode requires --server-url over HTTP")
+        case _ if serverUrl.nonEmpty =>
+          Left("run --server-url implies --transport http and cannot be combined with --transport in-process")
+        case _ =>
+          Left("run --transport in-process is planned but not implemented yet for runtime execution")
+
+private[cli] def frontMatterTransport(path: os.Path): Option[BackendTransportKind] =
+  frontMatterTransportName(path).flatMap(BackendTransportKind.parse)
+
+private[cli] def frontMatterTransportName(path: os.Path): Option[String] =
+  val flat = frontMatterString(path, "transport")
+  flat.orElse(frontMatterNestedString(path, "fullstack", "transport"))
+
 private[cli] def frontMatterString(path: os.Path, keys: String*): Option[String] =
   scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
     keys.iterator
       .flatMap(key => manifest.raw.get(key))
       .collectFirst { case s: String if s.trim.nonEmpty => s.trim }
   }).getOrElse(None)
+
+private[cli] def frontMatterNestedString(path: os.Path, parent: String, key: String): Option[String] =
+  scala.util.Try(loadModule(path).manifest.flatMap { manifest =>
+    manifest.raw.get(parent).flatMap(rawMapString(_, key))
+  }).getOrElse(None)
+
+private def rawMapString(raw: Any, key: String): Option[String] =
+  import scala.jdk.CollectionConverters.*
+  raw match
+    case m: java.util.Map[?, ?] =>
+      m.asInstanceOf[java.util.Map[String, Any]].asScala.get(key)
+        .collect { case s: String if s.trim.nonEmpty => s.trim }
+    case m: scala.collection.Map[?, ?] =>
+      m.asInstanceOf[scala.collection.Map[String, Any]].get(key)
+        .collect { case s: String if s.trim.nonEmpty => s.trim }
+    case _ => None
 
 private[cli] def frontMatterInt(path: os.Path, keys: String*): Option[Int] =
   scala.util.Try(loadModule(path).manifest.flatMap { manifest =>

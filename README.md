@@ -134,7 +134,7 @@ bin/http.ssc
 |---|---|
 | [Blockchain SPI](docs/blockchain-spi.md) | Draft / planned, not fully implemented: pluggable chain abstraction below wallet and x402 support |
 | [Electron JVM REST Backend](docs/electron-jvm-rest-backend.md) | Partially implemented: explicit `ssc run --frontend electron --backend jvm-rest`, `ssc run --target desktop-jvm`, plain `ssc run` for `frontend: electron` full-stack sources, server-only `ssc run --mode server --backend jvm`, Electron client-only, and web client preview via `ssc run --mode client --frontend react --server-url ...` with opt-in `--open-browser` plus `--host`/`--port` preview binding; packaging and runtime-level JVM bind-host support remain planned |
-| [Full-stack in-process transport](docs/fullstack-in-process-transport.md) | Planned, not implemented yet: monolithic same-process full-stack transport for compatible targets, avoiding sockets/HTTP while preserving REST-equivalent request/response semantics |
+| [Full-stack in-process transport](docs/fullstack-in-process-transport.md) | Planned, partially scaffolded: `BackendTransport` types plus `ssc run --transport http|in-process` parsing/diagnostics exist; real in-process runtime dispatch is not implemented yet |
 | [Client/server object store](docs/client-server-object-store.md) | Planned, not implemented yet: IndexedDB client store + JVM `ObjectStore` + generated REST sync |
 | [Graph storage](docs/graph-storage.md) | Planned, not implemented yet: `graphs:` front matter for property graph and RDF stores |
 | [Typed data mapping](docs/data-mapping.md) | Planned, not implemented yet: shared `derives`-based codecs across SQL, JSON/ObjectStore, graphs, RDF, `Dataset[T]`, and Spark |
@@ -236,7 +236,7 @@ Planned, not implemented yet:
 
 | Feature | Planned shape |
 |---------|---------------|
-| Full-stack in-process transport | `ssc run --mode fullstack --transport in-process app.ssc` will run compatible frontend/backend target pairs in one process and dispatch backend route calls without sockets/HTTP |
+| Full-stack in-process transport | `ssc run --transport http|in-process app.ssc` is recognized; `in-process` currently validates and reports that runtime dispatch is not implemented yet |
 | Graph storage | `graphs:` front-matter will declare property-graph and RDF graph stores; embedded JVM backends first (TinkerGraph/TinkerPop, RDF4J), then server adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible repositories |
 | Typed data mapping | Shared `derives`-based codecs will map case classes/ADTs to SQL rows, JSON/IndexedDB/ObjectStore documents, property graph vertices/edges, RDF triples, `Dataset[T]` elements, and Spark schemas/encoders without forcing one universal ORM |
 

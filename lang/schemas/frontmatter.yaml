@@ -112,6 +112,27 @@ properties:
     default:
       - ssc
 
+  transport:
+    type: string
+    description: |
+      Full-stack backend transport override. `http` preserves split-process
+      REST behavior; `in-process` is recognized but runtime dispatch is planned
+      and not implemented yet.
+    enum: [http, in-process]
+
+  fullstack:
+    type: object
+    description: Full-stack run configuration.
+    additionalProperties: false
+    properties:
+      transport:
+        type: string
+        description: |
+          Backend transport for full-stack runs. `http` is the currently
+          implemented behavior; `in-process` is planned and currently
+          diagnostic-only.
+        enum: [http, in-process]
+
   scala:
     type: object
     description: Scala/JVM-specific configuration

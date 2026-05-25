@@ -1005,13 +1005,13 @@ or preferences while the JVM backend owns the authoritative server database. The
 planned split-mode contract names these as separate `databases:` entries, for
 example `server` (`side: server`) and `localCache` (`side: client`).
 
-**Planned, not implemented yet: monolithic in-process full-stack transport.**
+**Planned, partially scaffolded: monolithic in-process full-stack transport.**
 Some target pairs can eventually run frontend and backend logic inside one
-runtime process. For those cases ScalaScript plans an explicit
-`--transport in-process` mode that dispatches backend route calls through an
-internal request/response transport instead of opening TCP sockets and speaking
-HTTP. Distributed clients, browser-to-JVM apps, and server-only/client-only
-split commands remain HTTP/REST. See
+runtime process. The CLI now recognizes `--transport http|in-process` and front
+matter `fullstack.transport` / `transport`, but `in-process` runtime dispatch
+is **not implemented yet** and currently produces a clear diagnostic instead of
+silently falling back to HTTP. Distributed clients, browser-to-JVM apps, and
+server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

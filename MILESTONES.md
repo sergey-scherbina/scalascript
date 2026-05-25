@@ -10369,10 +10369,13 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   documented the transport contract, target compatibility matrix, CLI/front
   matter proposal, testing strategy, and user-guide/README planned-feature
   status. No runtime behavior changes.
-- **Phase 1 — Transport contract skeleton.** Add internal
-  `BackendTransport` request/response types, route-dispatch adapter shape, and
-  CLI/front-matter parsing/diagnostics behind explicit `--transport` selection.
-  Runtime defaults stay unchanged.
+- **Phase 1 ✓ Landed (2026-05-25)** — transport contract skeleton:
+  `BackendTransport`, `BackendRequest`, `BackendResponse`, and
+  `BackendTransportKind` now live in backend SPI. `ssc run` accepts
+  `--transport http|in-process`, reads front matter `fullstack.transport` and
+  flat `transport`, keeps HTTP/default behavior unchanged, and rejects explicit
+  `in-process` for server/client split modes or general runtime execution until
+  a real dispatcher lands.
 - **Phase 2 — Interpreter in-process dispatch.** Add a test/dev path that
   dispatches route calls through the interpreter route registry without binding
   a TCP port.
