@@ -6,7 +6,7 @@ import java.util.UUID
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.BeforeAndAfterAll
-import scalascript.typeddata.{RowCodec, RowFieldSpec, RowValue, RowValueCodec}
+import scalascript.typeddata.{RowCodec, RowFieldSpec, RowValue, RowValueCodec, aliases, fieldName, key, rejectUnknown}
 
 /** v1.26 Phase 4 — end-to-end JDBC executor coverage.
  *
@@ -186,6 +186,13 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
       rejectUnknown = true
     )
 
+  @rejectUnknown
+  case class AnnotatedUserSummary(
+      @key id: Long,
+      @fieldName("display_name") @aliases("name") displayName: String,
+      active: Boolean = true
+  ) derives RowCodec
+
   test("SqlRuntime.query[A] decodes rows through RowCodec") {
     withConn { c =>
       val users = SqlRuntime.query[TypedUserSummary](c,
@@ -229,6 +236,24 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
         .asInstanceOf[SqlResult.Rows].rows
       assert(rows.head("DISPLAY_NAME") == "Canonical")
       assert(rows.head.toRowValueMap("display_name") == RowValue.Str("Canonical"))
+    }
+  }
+
+  test("SqlRuntime.query/insert[A] honors derived RowCodec schema annotations") {
+    withConn { c =>
+      val users = SqlRuntime.query[AnnotatedUserSummary](c,
+        "SELECT id AS id, name AS name FROM users WHERE id = ?",
+        List(1L))
+      assert(users == Vector(AnnotatedUserSummary(1L, "Alice", active = true)))
+
+      val count = SqlRuntime.insert(c, "schema_users",
+        AnnotatedUserSummary(32L, "Derived", active = false))
+      assert(count == 1)
+
+      val rows = SqlRuntime
+        .execute(c, "SELECT display_name FROM schema_users WHERE id = ?", List(32L))
+        .asInstanceOf[SqlResult.Rows].rows
+      assert(rows.head("DISPLAY_NAME") == "Derived")
     }
   }
 

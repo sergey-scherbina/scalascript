@@ -81,3 +81,32 @@ class RowCodecTest extends AnyFunSuite:
     )
 
     assert(RowCodec[SchemaUser].decode(row).left.toOption.exists(_.render == "$.extra: unknown column 'extra'"))
+
+  @rejectUnknown
+  final case class AnnotatedUser(
+      @key id: String,
+      @fieldName("display_name") @aliases("name") displayName: String,
+      active: Boolean = true
+  ) derives RowCodec
+
+  test("derived RowCodec uses schema annotations and case-class defaults"):
+    val row = Map(
+      "ID" -> RowValue.Str("u1"),
+      "NAME" -> RowValue.Str("Ada")
+    )
+
+    assert(RowCodec[AnnotatedUser].decode(row) == Right(AnnotatedUser("u1", "Ada")))
+    assert(RowCodec[AnnotatedUser].encode(AnnotatedUser("u1", "Ada", active = false)) == Map(
+      "id" -> RowValue.Str("u1"),
+      "display_name" -> RowValue.Str("Ada"),
+      "active" -> RowValue.Bool(false)
+    ))
+
+  test("derived RowCodec rejects unknown columns when annotated"):
+    val row = Map(
+      "id" -> RowValue.Str("u1"),
+      "display_name" -> RowValue.Str("Ada"),
+      "extra" -> RowValue.Str("nope")
+    )
+
+    assert(RowCodec[AnnotatedUser].decode(row).left.toOption.exists(_.render == "$.extra: unknown column 'extra'"))

@@ -10372,9 +10372,13 @@ modes opt out of that default.
   runtime case-class field metadata. Follow-up landed 2026-05-26:
   `RowFieldSpec[A]` and `JsonFieldSpec[A]` now carry explicit key metadata;
   JVM `RowCodec`/`SqlRuntime` supports canonical column names, aliases, defaults,
-  case-insensitive lookup, and opt-in unknown-column rejection. Remaining:
-  annotation/front-matter syntax, derived-codec integration for schema options,
-  interpreter consumption of explicit field metadata, and cross-store codecs.
+  case-insensitive lookup, and opt-in unknown-column rejection.
+  Follow-up landed 2026-05-26: JVM derived product codecs for `JsonCodec` and
+  `RowCodec` now consume `@fieldName`, `@aliases`, case-class default
+  parameters, `@key`, and `@rejectUnknown`; `SqlRuntime` coverage verifies the
+  annotated derived `RowCodec` path. Remaining: front-matter schema metadata,
+  interpreter consumption of explicit field metadata, non-JVM generated-client
+  codec integration, and cross-store codecs.
 
 ## v1.44 — Full-Stack In-Process Transport
 

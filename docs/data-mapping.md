@@ -86,6 +86,22 @@ variant's own `JsonCodec`. Case objects encode as an empty object payload.
 Explicit product codecs can use `JsonFieldSpec[A]` for schema migration:
 canonical field names, aliases for renamed fields, default values for missing
 fields, and opt-in unknown-field rejection.
+Derived JVM `JsonCodec` product codecs can use the same schema metadata through
+field/class annotations:
+
+```scala
+@rejectUnknown
+case class Todo(
+  @key id: String,
+  @fieldName("text") @aliases("title") label: String,
+  done: Boolean = false
+) derives JsonCodec
+```
+
+`@fieldName` selects the canonical storage name, `@aliases` are accepted on
+decode, case-class default parameters become missing-field defaults, `@key`
+marks identity fields for downstream stores, and `@rejectUnknown` enables
+strict decoding for extra fields.
 
 JVM/Swing generated typed route clients now use this `JsonCodec[T]` layer for
 typed request encoding and typed response decoding. JS/browser/Electron clients
@@ -111,10 +127,10 @@ binds)` now executes JDBC reads and decodes result rows through `RowCodec[A]`;
 interpreter and JVM codegen now expose typed SQL reads as `Db.query[A](dbName,
 sql, binds)`. `SqlRuntime.insert/update[A]` and interpreter/JVM
 `Db.insert/update[A]` encode typed values for explicit table/key based writes.
-The explicit `RowFieldSpec` metadata is currently consumed by the JVM
-`RowCodec`/`SqlRuntime` path; interpreter typed helpers use runtime case-class
-field metadata and do not yet consume aliases/defaults from Scala typeclass
-instances.
+The JVM `RowCodec` derivation consumes the same `@fieldName`, `@aliases`,
+case-class defaults, `@key`, and `@rejectUnknown` annotations as `JsonCodec`.
+Interpreter typed helpers use runtime case-class field metadata and do not yet
+consume aliases/defaults from Scala typeclass instances.
 See [`examples/typed-sql-crud.ssc`](../examples/typed-sql-crud.ssc) for a
 minimal CRUD example.
 
@@ -356,9 +372,11 @@ the same query model.
 2. **Core codec foundation** — partially landed: `JsonValue`, `DecodeError`,
    `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances,
    explicit object-codec helpers, `derives JsonCodec` for case classes,
-   discriminator-based sealed ADT derivation, and explicit `JsonFieldSpec`
-   rename/default/key/unknown-field helpers. Remaining: annotation syntax and
-   derived-codec integration for those schema options.
+   discriminator-based sealed ADT derivation, explicit `JsonFieldSpec`
+   rename/default/key/unknown-field helpers, and derived product-codec support
+   for `@fieldName`, `@aliases`, case-class defaults, `@key`, and
+   `@rejectUnknown`. Remaining: front-matter schema metadata and broader
+   non-JVM generated-client integration.
 3. **SQL row mapping** — partially landed: `RowValue`, `RowValueCodec[A]`,
    primitive/nullable column codecs, and `derives RowCodec` for simple case
    classes. Follow-up landed: `SqlRuntime.query[A]` decodes JDBC result rows
@@ -369,9 +387,10 @@ the same query model.
    typed SQL read/write API using runtime case-class field metadata. Follow-up
    landed: `RowFieldSpec[A]` adds explicit column aliases, defaults, key
    metadata, case-insensitive lookup, and unknown-column rejection to the JVM
-   `RowCodec`/`SqlRuntime` path. Remaining: annotation/front-matter syntax,
-   derived-codec integration for schema options, and interpreter consumption of
-   explicit field metadata.
+   `RowCodec`/`SqlRuntime` path. Follow-up landed: derived JVM `RowCodec`
+   consumes `@fieldName`, `@aliases`, case-class defaults, `@key`, and
+   `@rejectUnknown`. Remaining: front-matter schema metadata and interpreter
+   consumption of explicit field metadata.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

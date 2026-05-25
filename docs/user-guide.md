@@ -966,9 +966,26 @@ For JVM `RowCodec[A]` code, explicit row codecs can use
 `RowFieldSpec[A]` metadata to keep storage schemas stable while Scala field
 names evolve: canonical column names for writes, aliases for reads from older
 columns, defaults for missing columns, key-column markers, and opt-in unknown
-column rejection. JDBC column lookup is case-insensitive. Interpreter typed SQL
-helpers currently use runtime case-class field metadata only; explicit
-`RowFieldSpec` aliases/defaults are planned for that path.
+column rejection. Derived JVM row codecs can express the same schema metadata
+with annotations:
+
+```scalascript
+import scalascript.typeddata.{RowCodec, aliases, fieldName, key, rejectUnknown}
+
+@rejectUnknown
+case class Todo(
+  @key id: Long,
+  @fieldName("text") @aliases("title") label: String,
+  done: Boolean = false
+) derives RowCodec
+```
+
+`@fieldName` is the canonical column written by `Db.insert/update`, `@aliases`
+are accepted while decoding older column names, default parameters become
+missing-column defaults, and `@rejectUnknown` rejects extra columns. JDBC column
+lookup is case-insensitive. Interpreter typed SQL helpers currently use runtime
+case-class field metadata only; explicit `RowFieldSpec` aliases/defaults are
+planned for that path.
 
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
@@ -1144,16 +1161,19 @@ option instances, object-codec helpers for manually mapping case classes, and
 `derives JsonCodec` support for case classes and sealed ADTs. ADTs encode with
 an explicit `"$type"` discriminator and `"value"` payload object. Explicit
 object codecs can use `JsonFieldSpec[A]` for renamed fields, aliases, default
-values, key-field metadata, and unknown-field rejection.
+values, key-field metadata, and unknown-field rejection. Derived JVM
+`JsonCodec` product codecs can use `@fieldName`, `@aliases`, case-class default
+parameters, `@key`, and `@rejectUnknown` for the same schema metadata.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. Explicit JVM row codecs
 can use `RowFieldSpec[A]` for renamed columns, aliases, defaults, key metadata,
-case-insensitive lookup, and unknown-column rejection. `SqlRuntime.query[A]` can
-decode JDBC rows through `RowCodec[A]`; `SqlRuntime.insert/update[A]` encode
-typed values through the same codec. The interpreter and JVM codegen paths
+case-insensitive lookup, and unknown-column rejection; derived JVM row codecs can
+use the same schema annotations as `JsonCodec`. `SqlRuntime.query[A]` can decode
+JDBC rows through `RowCodec[A]`; `SqlRuntime.insert/update[A]` encode typed
+values through the same codec. The interpreter and JVM codegen paths
 expose typed `Db.query/insert/update[A]` for programmatic SQL reads and writes.
 This keeps SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce,
 and Spark convenient without hiding their different query models. Existing

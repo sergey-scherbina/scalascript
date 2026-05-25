@@ -165,3 +165,32 @@ class JsonCodecTest extends AnyFunSuite:
     )
 
     assert(JsonCodec[SchemaTodo].decode(json).left.toOption.exists(_.render == "$.extra: unknown field 'extra'"))
+
+  @rejectUnknown
+  final case class AnnotatedTodo(
+      @key id: String,
+      @fieldName("text") @aliases("title") label: String,
+      done: Boolean = false
+  ) derives JsonCodec
+
+  test("derived JsonCodec uses schema annotations and case-class defaults"):
+    val json = JsonValue.obj(
+      "id" -> JsonValue.Str("1"),
+      "title" -> JsonValue.Str("from old schema")
+    )
+
+    assert(JsonCodec[AnnotatedTodo].decode(json) == Right(AnnotatedTodo("1", "from old schema")))
+    assert(JsonCodec[AnnotatedTodo].encode(AnnotatedTodo("1", "canonical", done = true)) == JsonValue.obj(
+      "id" -> JsonValue.Str("1"),
+      "text" -> JsonValue.Str("canonical"),
+      "done" -> JsonValue.Bool(true)
+    ))
+
+  test("derived JsonCodec rejects unknown fields when annotated"):
+    val json = JsonValue.obj(
+      "id" -> JsonValue.Str("1"),
+      "text" -> JsonValue.Str("ship"),
+      "extra" -> JsonValue.Str("nope")
+    )
+
+    assert(JsonCodec[AnnotatedTodo].decode(json).left.toOption.exists(_.render == "$.extra: unknown field 'extra'"))

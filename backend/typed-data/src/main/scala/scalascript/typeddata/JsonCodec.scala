@@ -2,6 +2,7 @@ package scalascript.typeddata
 
 import scala.compiletime.{constValue, erasedValue, summonInline}
 import scala.deriving.Mirror
+import scala.quoted.*
 
 trait JsonCodec[A] extends Codec[A, JsonValue]
 
@@ -131,41 +132,13 @@ object JsonCodec:
     )
 
   private inline def derivedProduct[A](using mirror: Mirror.ProductOf[A]): JsonCodec[A] =
-    objectCodec[A](
-      value =>
-        val labels = elementLabels[mirror.MirroredElemLabels]
-        val encoded = encodeElements[mirror.MirroredElemTypes](value.asInstanceOf[Product].productIterator)
-        labels.zip(encoded).toMap
-      ,
-      fields =>
-        decodeElements[mirror.MirroredElemTypes, mirror.MirroredElemLabels](fields)
-          .map(values => mirror.fromProduct(Tuple.fromArray(values.toArray)))
-    )
+    ${ DerivedSchemaMacros.jsonProduct[A]('mirror) }
 
   private inline def elementLabels[Labels <: Tuple]: List[String] =
     inline erasedValue[Labels] match
       case _: EmptyTuple => Nil
       case _: (label *: labels) =>
         constValue[label].asInstanceOf[String] :: elementLabels[labels]
-
-  private inline def encodeElements[Types <: Tuple](values: Iterator[Any]): List[JsonValue] =
-    inline erasedValue[Types] match
-      case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
-        summonInline[JsonCodec[t]].encode(values.next().asInstanceOf[t]) :: encodeElements[ts](values)
-
-  private inline def decodeElements[Types <: Tuple, Labels <: Tuple](fields: Map[String, JsonValue]): Either[DecodeError, List[Any]] =
-    inline erasedValue[(Types, Labels)] match
-      case _: (EmptyTuple, EmptyTuple) => Right(Nil)
-      case _: ((t *: ts), (label *: labels)) =>
-        val name = constValue[label].asInstanceOf[String]
-        fields.get(name) match
-          case Some(json) =>
-            summonInline[JsonCodec[t]].decode(json).left.map(_.at(name)).flatMap { value =>
-              decodeElements[ts, labels](fields).map(value :: _)
-            }
-          case None =>
-            Left(DecodeError(s"missing field '$name'").at(name))
 
   private inline def derivedSum[A](using mirror: Mirror.SumOf[A]): JsonCodec[A] =
     instance[A](

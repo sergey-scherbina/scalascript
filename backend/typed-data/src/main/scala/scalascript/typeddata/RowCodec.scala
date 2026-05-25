@@ -1,7 +1,8 @@
 package scalascript.typeddata
 
-import scala.compiletime.{constValue, erasedValue, error, summonInline}
+import scala.compiletime.error
 import scala.deriving.Mirror
+import scala.quoted.*
 
 trait RowValueCodec[A]:
   def encode(value: A): RowValue
@@ -119,16 +120,7 @@ object RowCodec:
     )
 
   private inline def derivedProduct[A](using mirror: Mirror.ProductOf[A]): RowCodec[A] =
-    objectCodec[A](
-      value =>
-        val labels = elementLabels[mirror.MirroredElemLabels]
-        val encoded = encodeElements[mirror.MirroredElemTypes](value.asInstanceOf[Product].productIterator)
-        labels.zip(encoded).toMap
-      ,
-      row =>
-        decodeElements[mirror.MirroredElemTypes, mirror.MirroredElemLabels](row)
-          .map(values => mirror.fromProduct(Tuple.fromArray(values.toArray)))
-    )
+    ${ DerivedSchemaMacros.rowProduct[A]('mirror) }
 
   private def lookup(row: Map[String, RowValue], name: String): Option[RowValue] =
     row.get(name).orElse {
@@ -136,23 +128,3 @@ object RowCodec:
         case (key, value) if key.equalsIgnoreCase(name) => value
       }
     }
-
-  private inline def elementLabels[Labels <: Tuple]: List[String] =
-    inline erasedValue[Labels] match
-      case _: EmptyTuple => Nil
-      case _: (label *: labels) => constValue[label].asInstanceOf[String] :: elementLabels[labels]
-
-  private inline def encodeElements[Types <: Tuple](values: Iterator[Any]): List[RowValue] =
-    inline erasedValue[Types] match
-      case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
-        summonInline[RowValueCodec[t]].encode(values.next().asInstanceOf[t]) :: encodeElements[ts](values)
-
-  private inline def decodeElements[Types <: Tuple, Labels <: Tuple](row: Map[String, RowValue]): Either[DecodeError, List[Any]] =
-    inline erasedValue[(Types, Labels)] match
-      case _: (EmptyTuple, EmptyTuple) => Right(Nil)
-      case _: ((t *: ts), (label *: labels)) =>
-        val name = constValue[label].asInstanceOf[String]
-        field[t](row, name)(using summonInline[RowValueCodec[t]]).flatMap { value =>
-          decodeElements[ts, labels](row).map(value :: _)
-        }
