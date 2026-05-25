@@ -4,8 +4,9 @@ Status: **partially implemented** — May 2026.
 
 Phases 1-3 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
 accepts `--frontend swing`, and the backend can emit a native `JFrame` source
-artifact for a static toolkit subset with local signal actions. Full `ssc run`
-desktop launch and in-process backend calls remain planned.
+artifact for a static toolkit subset with local signal actions. `ssc run
+--frontend swing` launches that JVM desktop path through `scala-cli`.
+In-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -89,7 +90,7 @@ should not depend on Electron, JS backends, npm, or browser tooling.
 Command surface:
 
 ```bash
-ssc run --frontend swing app.ssc        # name is accepted; full desktop launch is planned
+ssc run --frontend swing app.ssc
 ssc run --frontend swing --transport in-process app.ssc
 ssc run --target desktop-jvm --frontend swing app.ssc
 ```
@@ -213,6 +214,18 @@ Status: **landed** for local signal actions. Generated Swing source now emits
 `setSignal`, `incrementSignal`, `toggleSignal`, `bindSignal`, and signal value
 helpers; `SignalText`, `TextInput`, and `Toggle` refresh from the signal table.
 Backend-route actions and transport dispatch remain Phase 4 work.
+
+### Phase 3b — Swing Dev Run
+
+Launch generated Swing desktop sources from `ssc run --frontend swing`.
+
+Status: **landed**. CLI dispatch now recognizes explicit `--frontend swing` and
+front matter `frontend: swing`, compiles through the JVM backend with
+`frontendName=swing`, and runs the generated script through `scala-cli`. When a
+UI app calls `serve(view, port)`, the generated JVM UI helper emits the native
+Swing bundle via `emitNative(..., Platform.Desktop())` and launches that bundle
+through `scala-cli`. This still does not connect backend routes through
+`InProcessBackendTransport`; that remains Phase 4.
 
 ### Phase 4 — In-Process Full-Stack Mode
 

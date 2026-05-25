@@ -8666,10 +8666,41 @@ class JvmGen(
        |    java.nio.file.Files.writeString(_tmpDir.resolve("app.css"), _emitted.css)
        |  _tmpDir.toString
        |
+       |def _ssc_ui_emit_native_to_dir(view: scalascript.frontend.View, dir: String, extraCss: String = ""): Unit =
+       |  val _mod = _ssc_ui_buildModule(view, extraCss)
+       |  val _artifact = scalascript.frontend.FrontendFrameworks.current()
+       |    .emitNative(_mod, scalascript.frontend.Platform.Desktop())
+       |    .getOrElse(throw IllegalStateException("selected frontend does not emit a JVM desktop native app"))
+       |  val _p = java.nio.file.Paths.get(dir)
+       |  java.nio.file.Files.createDirectories(_p)
+       |  for ((_name, _source) <- _artifact.sources) do
+       |    val _target = _p.resolve(_name)
+       |    val _parent = _target.getParent
+       |    if _parent != null then java.nio.file.Files.createDirectories(_parent)
+       |    java.nio.file.Files.writeString(_target, _source)
+       |  for ((_name, _bytes) <- _artifact.resources) do
+       |    val _target = _p.resolve(_name)
+       |    val _parent = _target.getParent
+       |    if _parent != null then java.nio.file.Files.createDirectories(_parent)
+       |    java.nio.file.Files.write(_target, _bytes)
+       |
+       |def _ssc_ui_run_native(view: scalascript.frontend.View, extraCss: String = ""): Unit =
+       |  val _tmpDir = java.nio.file.Files.createTempDirectory("ssc-swing")
+       |  _ssc_ui_emit_native_to_dir(view, _tmpDir.toString, extraCss)
+       |  println("ssc: launching Swing")
+       |  println("     bundle: " + _tmpDir)
+       |  val _scalaCli = Option(System.getProperty("scalascript.scalaCli")).filter(_.nonEmpty).getOrElse("scala-cli")
+       |  val _proc = ProcessBuilder(_scalaCli, "run", _tmpDir.toString, "--server=false").inheritIO().start()
+       |  val _exit = _proc.waitFor()
+       |  if _exit != 0 then sys.exit(_exit)
+       |
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
-       |  val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View], extraCss)
-       |  _ssc_static_root = _outDir
-       |  serve(port)
+       |  if _ssc_frontend_name == "swing" then
+       |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View], extraCss)
+       |  else
+       |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View], extraCss)
+       |    _ssc_static_root = _outDir
+       |    serve(port)
        |
        |// ── Overloads to shadow preamble names that conflict with UI widget imports ──
        |// serve(view, port[, extraCss]): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)

@@ -10426,6 +10426,12 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   local signal table, while buttons support `SetSignalLiteral`,
   `IncrementSignal`, and `ToggleSignal`. Backend route/fetch dispatch remains
   Phase 4.
+- **Phase 3b ✓ Landed (2026-05-25)** — Swing dev-run:
+  `ssc run --frontend swing app.ssc` and front matter `frontend: swing` now
+  dispatch to a JVM/Swing dev-run path. The CLI compiles with
+  `frontendName=swing`, runs the generated JVM script through `scala-cli`, and
+  the JVM UI helper emits/launches the native Swing bundle when `serve(view,
+  port)` is called. Backend route/fetch dispatch remains Phase 4.
 - **Phase 4 — In-process full-stack mode.** Connect Swing frontend actions to
   backend routes through `InProcessBackendTransport` and add a no-socket
   full-stack example.

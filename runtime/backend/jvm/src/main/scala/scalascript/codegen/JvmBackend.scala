@@ -29,6 +29,6 @@ class JvmBackend extends Backend:
     // home for both `RuntimeCall` and `InlineCode` variants.
     // Stage 5+/A.6 (Б-2) — `runtimePreamble` (intrinsic-shipped runtime
     // helpers) is prepended before JvmGen's output if non-empty.
-    val emitted = JvmGen.generate(astModule, baseDir, intrinsics)
+    val emitted = JvmGen.generate(astModule, baseDir, intrinsics, frontendOverride = opts.extra.get("frontendName"))
     val code    = if runtimePreamble.isEmpty then emitted else runtimePreamble + "\n" + emitted
     CompileResult.TextOutput(code = code, language = "scala", sources = Nil)
