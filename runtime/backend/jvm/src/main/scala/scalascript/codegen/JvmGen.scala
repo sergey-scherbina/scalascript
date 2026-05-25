@@ -290,12 +290,9 @@ class JvmGen(
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks; modules without
     // sql don't pull these onto their scala-cli classpath.
-    // db-url is listed explicitly because backendSqlRuntime depends on it
-    // and older locally-published ivy metadata may not include the transitive dep.
     if sqlBlockCounter > 0 then
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
-      sb.append(sscJarDirective("scalascript-db-url"))
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       sb.append(sscJarDirective("scalascript-backend-sql-runtime"))
 
@@ -420,16 +417,38 @@ class JvmGen(
   // scala-cli/Coursier never tries Maven Central for internal packages.
   // Falls back to //> using dep if the jar directory cannot be found.
   private def sscJarDirective(artifactBase: String): String =
-    val libPath = Option(System.getProperty("ssc.lib.path")).getOrElse(".")
-    val jarsDir = java.nio.file.Paths.get(libPath, "bin", "lib", "jars")
-    val found =
-      if java.nio.file.Files.isDirectory(jarsDir) then
-        import scala.jdk.CollectionConverters.*
-        java.nio.file.Files.list(jarsDir).iterator.asScala
-          .find(p => p.getFileName.toString.startsWith(s"${artifactBase}_"))
-          .map(p => s"""//> using jar "${p.toAbsolutePath}"\n""")
+    import scala.jdk.CollectionConverters.*
+    def findIn(dir: java.nio.file.Path): Option[java.nio.file.Path] =
+      if java.nio.file.Files.isDirectory(dir) then
+        val stream = java.nio.file.Files.list(dir)
+        try
+          stream.iterator.asScala
+            .find(p =>
+              val name = p.getFileName.toString
+              name.startsWith(s"${artifactBase}_") && name.endsWith(".jar") && !name.endsWith("-tests.jar")
+            )
+        finally stream.close()
       else None
-    found.getOrElse(s"""//> using dep "io.scalascript::$artifactBase:0.1.0-SNAPSHOT"\n""")
+    def findInDevTree(root: java.nio.file.Path): Option[java.nio.file.Path] =
+      if java.nio.file.Files.isDirectory(root) then
+        val stream = java.nio.file.Files.walk(root, 7)
+        try
+          stream.iterator.asScala
+            .find(p =>
+              val name = p.getFileName.toString
+              name.startsWith(s"${artifactBase}_") && name.endsWith(".jar") && !name.endsWith("-tests.jar")
+            )
+        finally stream.close()
+      else None
+    val libPath = Option(System.getProperty("ssc.lib.path"))
+    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "bin", "lib", "jars")))
+    val cwd = java.nio.file.Paths.get(".").toAbsolutePath.normalize()
+    val staged = findIn(cwd.resolve("bin").resolve("lib").resolve("jars"))
+    val devTarget = findInDevTree(cwd)
+    val found = installed.orElse(staged).orElse(devTarget)
+    found
+      .map(p => s"""//> using jar "${p.toAbsolutePath}"\n""")
+      .getOrElse(s"""//> using dep "io.scalascript::$artifactBase:0.1.0-SNAPSHOT"\n""")
 
   private def colonObjectsToBraces(src: String): String =
     val lines    = src.split('\n')
@@ -1392,6 +1411,12 @@ class JvmGen(
                  |  def query[A](dbName: String, sql: String, params: List[Any])(using scalascript.typeddata.RowCodec[A]): List[A] =
                  |    val conn = _ssc_sql_registry.connect(dbName)
                  |    scalascript.sql.SqlRuntime.query[A](conn, sql, params).toList
+                 |  def insert[A](dbName: String, table: String, value: A)(using scalascript.typeddata.RowCodec[A]): Int =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.SqlRuntime.insert[A](conn, table, value)
+                 |  def update[A](dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)(using scalascript.typeddata.RowCodec[A]): Int =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.SqlRuntime.update[A](conn, table, keyColumn, keyValue, value)
                  |  def execute(dbName: String, sql: String, params: List[Any]): Int =
                  |    val conn = _ssc_sql_registry.connect(dbName)
                  |    scalascript.sql.SqlRuntime.execute(conn, sql, params) match

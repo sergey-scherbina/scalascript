@@ -184,6 +184,45 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
       s"expected `people=Alice,Bob` in stdout, got:\n$stdout\n---stderr---\n$stderr")
   }
 
+  test("scala-cli compiles + runs typed Db.insert and Db.update through RowCodec") {
+    assume(hasScalaCli, "scala-cli not available on PATH")
+    val ssc =
+      """|---
+         |databases:
+         |  default:
+         |    url: "jdbc:h2:mem:jvmgen-typed-write;DB_CLOSE_DELAY=-1"
+         |---
+         |
+         |# Model
+         |
+         |```scala
+         |import scalascript.typeddata.RowCodec
+         |case class Person(id: Int, name: String, active: Boolean) derives RowCodec
+         |```
+         |
+         |# Schema
+         |
+         |```sql
+         |CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(64), active BOOLEAN NOT NULL)
+         |```
+         |
+         |# Write
+         |
+         |```scala
+         |val inserted = Db.insert("default", "people", Person(1, "Alice", true))
+         |val updated = Db.update("default", "people", "id", 1, Person(1, "Alicia", false))
+         |val people = Db.query[Person]("default", "SELECT id AS id, name AS name, active AS active FROM people", [])
+         |println("write=" + inserted + "/" + updated + ":" + people.map(p => p.name + ":" + p.active).mkString(","))
+         |```
+         |""".stripMargin
+
+    val (code, stdout, stderr) = runViaScalaCli(ssc)
+    assert(code == 0,
+      s"scala-cli exit $code\n--- stdout ---\n$stdout\n--- stderr ---\n$stderr")
+    assert(stdout.contains("write=1/1:Alicia:false"),
+      s"expected `write=1/1:Alicia:false` in stdout, got:\n$stdout\n---stderr---\n$stderr")
+  }
+
   test("scala-cli runs DDL + UPDATE returning affected-row count") {
     assume(hasScalaCli, "scala-cli not available on PATH")
     val ssc =

@@ -939,8 +939,8 @@ Db.execute("default", "INSERT INTO todos(text) VALUES (?)", ["Buy milk"])
 Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 ```
 
-On the JVM codegen path, `Db.query[A]` can decode rows through a derived
-`RowCodec[A]`:
+On the JVM codegen path, typed SQL helpers can decode and encode rows through a
+derived `RowCodec[A]`:
 
 ```scalascript
 import scalascript.typeddata.RowCodec
@@ -949,7 +949,15 @@ case class Todo(id: Long, text: String, done: Boolean) derives RowCodec
 
 val todos: List[Todo] =
   Db.query[Todo]("default", "SELECT id AS id, text AS text, done AS done FROM todos", [])
+
+Db.insert("default", "todos", Todo(1, "Buy milk", false))
+Db.update("default", "todos", "id", 1, Todo(1, "Buy oat milk", false))
 ```
+
+`Db.insert` inserts every encoded field as a column. `Db.update` requires an
+explicit key column and key value; the key column is excluded from the `SET`
+list when present in the encoded row. Table and column names are validated as
+plain SQL identifiers; values are still passed as JDBC bind parameters.
 
 The first argument is the connection name from `databases:`.  Bind parameters are passed as a list — use `[]` for no parameters.
 
@@ -1131,9 +1139,9 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `SparkCodec`, then use backend-specific APIs at the query boundary. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. `SqlRuntime.query[A]`
-can decode JDBC rows through `RowCodec[A]`, and the JVM codegen path exposes
-typed `Db.query[A]` for programmatic SQL reads. Write-helper integration remains
-planned. This keeps
+can decode JDBC rows through `RowCodec[A]`; `SqlRuntime.insert/update[A]` encode
+typed values through the same codec. The JVM codegen path exposes typed
+`Db.query/insert/update[A]` for programmatic SQL reads and writes. This keeps
 SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce, and Spark
 convenient without hiding their different query models. Existing `Dataset[T]`
 and Spark support remain available today; this planned work unifies their

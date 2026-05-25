@@ -1,0 +1,33 @@
+---
+databases:
+  default:
+    url: "jdbc:h2:mem:typed-sql-crud;DB_CLOSE_DELAY=-1"
+---
+
+# Model
+
+```scala
+import scalascript.typeddata.RowCodec
+
+case class Todo(id: Int, text: String, done: Boolean) derives RowCodec
+```
+
+# Schema
+
+```sql
+CREATE TABLE todos (id INT PRIMARY KEY, text VARCHAR(120) NOT NULL, done BOOLEAN NOT NULL)
+```
+
+# Typed Writes
+
+```scala
+val inserted = Db.insert("default", "todos", Todo(1, "Buy milk", false))
+val updated = Db.update("default", "todos", "id", 1, Todo(1, "Buy oat milk", true))
+```
+
+# Typed Read
+
+```scala
+val todos = Db.query[Todo]("default", "SELECT id AS id, text AS text, done AS done FROM todos ORDER BY id", [])
+println(inserted + "/" + updated + ":" + todos.map(t => t.text + ":" + t.done).mkString(","))
+```

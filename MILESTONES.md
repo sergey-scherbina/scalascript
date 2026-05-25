@@ -10364,9 +10364,11 @@ modes opt out of that default.
   and `derives RowCodec` for simple case classes. Follow-up landed 2026-05-25:
   `SqlRuntime.query[A]` now decodes JDBC result rows through `RowCodec[A]`.
   Follow-up landed 2026-05-25: JVM codegen now exposes typed `Db.query[A]`
-  over that read path and smoke-tests it through `scala-cli`. Write-helper
-  integration, interpreter parity where needed, and richer schema metadata
-  remain planned.
+  over that read path and smoke-tests it through `scala-cli`. Follow-up landed
+  2026-05-25: `SqlRuntime.insert/update[A]` and JVM `Db.insert/update[A]`
+  encode typed values through `RowCodec[A]` for explicit table/key based SQL
+  writes, with scala-cli smoke coverage. Interpreter parity where needed and
+  richer schema metadata remain planned.
 
 ## v1.44 — Full-Stack In-Process Transport
 

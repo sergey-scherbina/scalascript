@@ -104,8 +104,11 @@ It currently supports primitive column values, nullable `Option[A]` columns, and
 `derives RowCodec` for simple case classes. It is the codec foundation for SQL
 rows and Spark-like tabular schemas. `SqlRuntime.query[A](conn, sql, binds)` now
 executes JDBC reads and decodes result rows through `RowCodec[A]`; JVM codegen
-now exposes the same read path as `Db.query[A](dbName, sql, binds)`. Write
-helpers remain planned.
+now exposes the same read path as `Db.query[A](dbName, sql, binds)`.
+`SqlRuntime.insert/update[A]` and JVM `Db.insert/update[A]` encode typed values
+through the same codec for explicit table/key based writes.
+See [`examples/typed-sql-crud.ssc`](../examples/typed-sql-crud.ssc) for a
+minimal JVM codegen CRUD example.
 
 User code should stay direct:
 
@@ -157,7 +160,7 @@ val rows: List[Todo] =
   Db.query[Todo]("server", "SELECT id, text, done FROM todos ORDER BY id", [])
 
 Db.insert("server", "todos", todo)
-Db.update("server", "todos", key = todo.id, value = todo)
+Db.update("server", "todos", "id", todo.id, todo)
 ```
 
 Defaults:
@@ -352,8 +355,9 @@ the same query model.
    primitive/nullable column codecs, and `derives RowCodec` for simple case
    classes. Follow-up landed: `SqlRuntime.query[A]` decodes JDBC result rows
    through `RowCodec[A]`. Follow-up landed: JVM codegen exposes typed
-   `Db.query[A]` for programmatic SQL reads. Remaining: insert/update helpers,
-   interpreter parity where needed, and richer schema metadata.
+   `Db.query[A]` for programmatic SQL reads. Follow-up landed: `SqlRuntime` and
+   JVM `Db` expose typed `insert/update[A]` helpers over `RowCodec[A]`.
+   Remaining: interpreter parity where needed and richer schema metadata.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

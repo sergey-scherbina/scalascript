@@ -71,6 +71,10 @@ class JvmGenSqlBlockTest extends AnyFunSuite {
     assert(code.contains("scalascript-backend-typed-data-runtime"))
     assert(code.contains("def query[A](dbName: String, sql: String, params: List[Any])(using scalascript.typeddata.RowCodec[A]): List[A]"))
     assert(code.contains("scalascript.sql.SqlRuntime.query[A](conn, sql, params).toList"))
+    assert(code.contains("def insert[A](dbName: String, table: String, value: A)(using scalascript.typeddata.RowCodec[A]): Int"))
+    assert(code.contains("scalascript.sql.SqlRuntime.insert[A](conn, table, value)"))
+    assert(code.contains("def update[A](dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)(using scalascript.typeddata.RowCodec[A]): Int"))
+    assert(code.contains("scalascript.sql.SqlRuntime.update[A](conn, table, keyColumn, keyValue, value)"))
   }
 
   // ── Registry + resolver helper ──────────────────────────────────────

@@ -57,6 +57,39 @@ object SqlRuntime:
       case SqlResult.UpdateCount(count) =>
         throw RowProjectionError(s"typed query expected rows, got update count $count")
 
+  /** Insert one typed value by encoding it through `RowCodec[A]`.
+   *
+   *  This helper deliberately stays small: table/column names are explicit SQL
+   *  identifiers, values are still JDBC bind parameters, and no key/schema
+   *  discovery is attempted. */
+  def insert[A](conn: Connection, table: String, value: A)(using codec: RowCodec[A]): Int =
+    val tableSql = validateIdentifierPath(table, "table")
+    val row = codec.encode(value).toVector
+    if row.isEmpty then throw IllegalArgumentException("typed insert requires at least one column")
+    val columns = row.map((name, _) => validateIdentifier(name, "column"))
+    val placeholders = List.fill(row.size)("?").mkString(", ")
+    val sql = s"INSERT INTO $tableSql (${columns.mkString(", ")}) VALUES ($placeholders)"
+    execute(conn, sql, row.map((_, v) => rowValueToBind(v)).toList) match
+      case SqlResult.UpdateCount(count) => count
+      case SqlResult.Rows(_) => throw RowProjectionError("typed insert expected update count, got rows")
+
+  /** Update one typed value by encoding it through `RowCodec[A]`.
+   *
+   *  `keyColumn` is excluded from the SET list when present in the encoded row;
+   *  the WHERE value is supplied separately so callers can update a modified
+   *  copy without losing the original key. */
+  def update[A](conn: Connection, table: String, keyColumn: String, keyValue: Any, value: A)(using codec: RowCodec[A]): Int =
+    val tableSql = validateIdentifierPath(table, "table")
+    val keySql = validateIdentifier(keyColumn, "key column")
+    val row = codec.encode(value).toVector.filterNot((name, _) => name.equalsIgnoreCase(keyColumn))
+    if row.isEmpty then throw IllegalArgumentException("typed update requires at least one non-key column")
+    val assignments = row.map((name, _) => s"${validateIdentifier(name, "column")} = ?")
+    val sql = s"UPDATE $tableSql SET ${assignments.mkString(", ")} WHERE $keySql = ?"
+    val binds = row.map((_, v) => rowValueToBind(v)).toList :+ keyValue
+    execute(conn, sql, binds) match
+      case SqlResult.UpdateCount(count) => count
+      case SqlResult.Rows(_) => throw RowProjectionError("typed update expected update count, got rows")
+
   /** True when `sql`'s leading non-whitespace keyword indicates a
    *  result-set-producing statement.  Per SPEC.md § 3.3.1: SELECT,
    *  WITH (CTE), VALUES, SHOW, EXPLAIN — case-insensitive.  Comments
@@ -119,3 +152,21 @@ object SqlRuntime:
     case value: String => RowValue.Str(value)
     case value: Char => RowValue.Str(value.toString)
     case other => RowValue.Str(other.toString)
+
+  private[sql] def rowValueToBind(value: RowValue): Any = value match
+    case RowValue.Null => null
+    case RowValue.Bool(v) => v
+    case RowValue.Num(v) => v
+    case RowValue.Str(v) => v
+
+  private val Identifier = "[A-Za-z_][A-Za-z0-9_]*".r
+
+  private[sql] def validateIdentifier(value: String, label: String): String =
+    value match
+      case Identifier() => value
+      case _ => throw IllegalArgumentException(s"invalid SQL $label identifier `$value`")
+
+  private[sql] def validateIdentifierPath(value: String, label: String): String =
+    val parts = value.split("\\.", -1).toList
+    if parts.nonEmpty then parts.map(validateIdentifier(_, label)).mkString(".")
+    else throw IllegalArgumentException(s"invalid SQL $label identifier `$value`")

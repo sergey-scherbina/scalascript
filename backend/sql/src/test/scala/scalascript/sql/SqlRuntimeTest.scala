@@ -42,6 +42,14 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
           |  joined DATE NOT NULL
           |)""".stripMargin,
         Nil)
+      SqlRuntime.execute(c,
+        """CREATE TABLE typed_users (
+          |  id     BIGINT PRIMARY KEY,
+          |  name   VARCHAR(120) NOT NULL,
+          |  email  VARCHAR(255),
+          |  active BOOLEAN NOT NULL
+          |)""".stripMargin,
+        Nil)
       ()
     }
 
@@ -168,6 +176,50 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
           List(1L))
       }
       assert(ex.getMessage == "$.active: missing column 'active'")
+    }
+  }
+
+  test("SqlRuntime.insert[A] inserts encoded RowCodec values") {
+    withConn { c =>
+      val count = SqlRuntime.insert(c, "typed_users",
+        TypedUserSummary(3L, "Carol", Some("carol@example.com"), active = true))
+      assert(count == 1)
+
+      val users = SqlRuntime.query[TypedUserSummary](c,
+        "SELECT id AS id, name AS name, email AS email, active AS active FROM typed_users WHERE id = ?",
+        List(3L))
+      assert(users == Vector(TypedUserSummary(3L, "Carol", Some("carol@example.com"), active = true)))
+    }
+  }
+
+  test("SqlRuntime.update[A] updates encoded RowCodec values and keeps key out of SET") {
+    withConn { c =>
+      SqlRuntime.insert(c, "typed_users",
+        TypedUserSummary(30L, "Before", Some("before@example.com"), active = true))
+
+      val count = SqlRuntime.update(c, "typed_users", "id", 30L,
+        TypedUserSummary(30L, "After", None, active = false))
+      assert(count == 1)
+
+      val users = SqlRuntime.query[TypedUserSummary](c,
+        "SELECT id AS id, name AS name, email AS email, active AS active FROM typed_users WHERE id = ?",
+        List(30L))
+      assert(users == Vector(TypedUserSummary(30L, "After", None, active = false)))
+    }
+  }
+
+  test("typed write helpers reject invalid SQL identifiers") {
+    withConn { c =>
+      val badTable = intercept[IllegalArgumentException] {
+        SqlRuntime.insert(c, "users; DROP TABLE users", TypedUserSummary(4L, "Mallory", None, active = true))
+      }
+      assert(badTable.getMessage.contains("invalid SQL table identifier"))
+
+      val badColumn = intercept[IllegalArgumentException] {
+        SqlRuntime.update(c, "users", "id = id OR 1", 4L,
+          TypedUserSummary(4L, "Mallory", None, active = true))
+      }
+      assert(badColumn.getMessage.contains("invalid SQL key column identifier"))
     }
   }
 
