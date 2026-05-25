@@ -160,6 +160,59 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       runJvmServerHook = oldHook
       ActiveFlags.set(GlobalFlags())
 
+  test("runCommand dispatches electron mode client to Electron client hook"):
+    val dir = os.temp.dir(prefix = "ssc-mode-client-test-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    os.write(app, fullStackServerSource(49152))
+    val oldHook = runElectronClientDevHook
+    val calls = scala.collection.mutable.ArrayBuffer.empty[(os.Path, String)]
+    try
+      ActiveFlags.set(GlobalFlags())
+      runElectronClientDevHook = (path, serverUrl) => calls += ((path, serverUrl))
+      runCommand(List(
+        "--mode", "client",
+        "--frontend", "electron",
+        "--server-url", "http://server.example:8080",
+        app.toString
+      ))
+      assert(calls.toList == List((app, "http://server.example:8080")))
+    finally
+      runElectronClientDevHook = oldHook
+      ActiveFlags.set(GlobalFlags())
+
+  test("runElectronClientDev launches generated Electron bundle with server URL"):
+    val dir = os.temp.dir(prefix = "ssc-electron-client-smoke-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    val log = dir / "events.log"
+    val serverUrl = "http://server.example:8080"
+    os.write(app, fullStackServerSource(49152))
+
+    val fakeElectron = dir / "electron"
+    os.write(
+      fakeElectron,
+      s"""#!/bin/sh
+         |set -eu
+         |if [ "$${1:-}" = "--version" ]; then
+         |  echo "v99.0.0"
+         |  exit 0
+         |fi
+         |bundle="$${1:?bundle dir required}"
+         |echo "electron-client $$bundle" >> "$log"
+         |test -f "$$bundle/app.js"
+         |grep -q "__sscBackendBaseUrl" "$$bundle/app.js"
+         |grep -q "$serverUrl" "$$bundle/app.js"
+         |""".stripMargin
+    )
+    os.perms.set(fakeElectron, "rwxr--r--")
+
+    val oldElectron = electronCommand
+    try
+      electronCommand = fakeElectron.toString
+      runElectronClientDev(app, serverUrl)
+      assert(os.read(log).contains("electron-client "))
+    finally
+      electronCommand = oldElectron
+
   test("runElectronJvmRestDev starts fake backend and launches generated Electron bundle"):
     val pythonOk =
       scala.util.Try(os.proc("python3", "--version").call(check = false).exitCode == 0)

@@ -479,6 +479,7 @@ def printUsage(): Unit =
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |                                --target desktop-jvm starts split JVM REST + Electron mode
     |                                --mode server starts only the JVM backend/server
+    |                                --mode client --frontend electron --server-url <url> starts only the Electron client
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -2286,6 +2287,7 @@ def runCommand(args: List[String]): Unit =
   var frontendFlag:      Option[String] = None
   var targetFlag:        Option[String] = None
   var modeFlag:          Option[String] = None
+  var serverUrlFlag:     Option[String] = None
   var serverBackendFlag: String         = "jdk"
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
@@ -2296,6 +2298,7 @@ def runCommand(args: List[String]): Unit =
       case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
       case "--target"           if it.hasNext => targetFlag        = Some(it.next())
       case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
+      case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
       case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
@@ -2317,8 +2320,22 @@ def runCommand(args: List[String]): Unit =
             runJvmServerHook(os.Path(file, os.pwd), serverBackendFlag)
           return
     case Some("client") =>
-      System.err.println("run --mode client is planned but not implemented yet")
-      System.exit(1)
+      val serverUrl = serverUrlFlag.getOrElse {
+        System.err.println("run --mode client requires --server-url <url>")
+        System.exit(1)
+        throw new AssertionError()
+      }
+      for file <- fileArgs.toList do
+        val path = os.Path(file, os.pwd)
+        val isElectronClient =
+          frontendFlag.contains("electron") ||
+            targetRequestsElectron(targetSelection) ||
+            scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework).contains("electron")).getOrElse(false)
+        if isElectronClient then runElectronClientDevHook(path, serverUrl)
+        else
+          System.err.println("run --mode client currently supports only --frontend electron or frontend: electron")
+          System.exit(1)
+      return
     case Some(other) =>
       System.err.println(s"run: unknown --mode '$other', valid: server, client")
       System.exit(1)
@@ -2504,6 +2521,23 @@ private def runElectronDev(sscFile: os.Path): Unit =
     System.exit(1)
   val exit = runElectronProject(tmpDir, module)
   if exit != 0 then System.exit(exit)
+
+private[cli] def runElectronClientDev(sscFile: os.Path, backendBaseUrl: String): Unit =
+  if !os.exists(sscFile) then
+    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
+  val tmpDir = os.temp.dir(prefix = "ssc-electron-client-", deleteOnExit = true)
+  val module = scalascript.parser.Parser.parse(os.read(sscFile))
+  buildElectronBundle(sscFile, tmpDir, backendBaseUrl = Some(backendBaseUrl))
+  val title = module.manifest
+    .flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
+  println(s"ssc: launching Electron client — $title")
+  println(s"     backend: $backendBaseUrl")
+  println(s"     bundle:  $tmpDir")
+  val exit = runElectronProject(tmpDir, module)
+  if exit != 0 then System.exit(exit)
+
+private[cli] var runElectronClientDevHook: (os.Path, String) => Unit =
+  runElectronClientDev
 
 /** Dev-run split-process Electron mode.
  *

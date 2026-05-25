@@ -10270,8 +10270,12 @@ modes opt out of that default.
     the JVM backend and runs it via scala-cli without launching any frontend.
     The command reuses `--server-backend <jdk|jetty|netty>` for the underlying
     HTTP server implementation.
-  - **Still open:** client-only `--mode client --server-url ...` commands,
-    host/port override plumbing, and non-Electron frontend client launch/build.
+  - **Phase 2b ✓ Landed (2026-05-25)** — Electron client-only run command:
+    `ssc run --mode client --frontend electron --server-url <url> app.ssc`
+    builds and launches only the Electron client, injecting the configured
+    backend base URL into the renderer bundle.
+  - **Still open:** host/port override plumbing and non-Electron frontend
+    client-only launch/build.
 - **Phase 3 — Fetch routing and mixed content.** Route API fetches to the JVM
   base URL while preserving local frontend navigation. Cover text/json/status
   responses instead of forcing every exchange through raw JSON.

@@ -9,7 +9,9 @@
 > remain planned. `ssc run --target desktop-jvm app.ssc` is also supported as a
 > shorthand for the local Electron + JVM REST dev supervisor. Phase 2a landed:
 > `ssc run --mode server --backend jvm app.ssc` starts only the JVM
-> backend/server side.
+> backend/server side. Phase 2b landed: `ssc run --mode client --frontend
+> electron --server-url <url> app.ssc` starts only the Electron client pointed
+> at an existing backend server.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -120,6 +122,7 @@ ssc run app.ssc                         # if frontend: electron + routes + serve
 ssc run --frontend electron --backend jvm-rest app.ssc
 ssc run --target desktop-jvm app.ssc
 ssc run --mode server --backend jvm app.ssc
+ssc run --mode client --frontend electron --server-url http://server:8080 app.ssc
 ```
 
 Potential aliases:
