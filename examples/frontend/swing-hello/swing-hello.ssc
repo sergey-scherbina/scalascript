@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: swing-hello
+version: 0.1.0
+description: Minimal JVM Swing desktop window
+frontend: swing
+---
+
+# Swing Hello
+
+Minimal JDK-only desktop example for the `swing` frontend target.
+
+```scala
+import javax.swing.*
+
+SwingUtilities.invokeLater { () =>
+  val frame = JFrame("ScalaScript Swing")
+  val panel = JPanel()
+  panel.setLayout(BoxLayout(panel, BoxLayout.Y_AXIS))
+  panel.add(JLabel("Hello from ScalaScript Swing"))
+  panel.add(JButton("Add"))
+  frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
+  frame.getContentPane.add(panel)
+  frame.setSize(420, 180)
+  frame.setLocationRelativeTo(null)
+  frame.setVisible(true)
+}
+```

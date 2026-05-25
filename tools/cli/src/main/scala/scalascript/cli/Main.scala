@@ -372,12 +372,14 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
       // Caller already validates; this is defense.
       throw new IllegalArgumentException(s"unknown server backend '$other'")
 
-/** Valid `--frontend` names — fixed list matches the
- *  `frontend-{custom,react,solid,vue}` sbt modules bundled with the CLI.
+/** Valid `--frontend` names — fixed list matches the bundled frontend modules.
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
 private[cli] val validFrontendNames: Set[String] =
-  Set("custom", "react", "solid", "vue", "electron")
+  Set("custom", "react", "solid", "vue", "electron", "swing")
+
+private[cli] val browserFrontendNames: Set[String] =
+  Set("custom", "react", "solid", "vue")
 
 /** v1.18 / Phase A7 — apply the `--frontend <name>` selection on the
  *  JVM side before any frontend codegen runs.  Mirrors
@@ -475,7 +477,7 @@ def printUsage(): Unit =
     |    registry remove <id>   Remove a registry entry
     |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
-    |                         Flags: --frontend <custom|react|solid|vue|electron>  (overrides frontmatter frontend:)
+    |                         Flags: --frontend <custom|react|solid|vue|electron|swing>  (overrides frontmatter frontend:)
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |                                --target desktop-jvm starts split JVM REST + Electron mode
     |                                --mode server starts only the JVM backend/server
@@ -485,7 +487,7 @@ def printUsage(): Unit =
     |                                --host <addr> / --port <n> controls web preview bind address/port; server mode uses --port for simple serve(port)
     |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
-    |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
+    |                         Flags: --frontend <custom|react|solid|vue|swing>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
     |                         Flags: --server-backend <jdk|jetty|netty>
@@ -540,6 +542,7 @@ def printUsage(): Unit =
     |                         hotspots by wall time.  --top defaults to 20.
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
     |  run   --frontend electron <f>   Compile .ssc and open in an Electron desktop window
+    |  run   --frontend swing <f>      Select the JDK-only Swing desktop frontend backend (skeleton)
     |  build --target desktop <f>      Generate Electron bundle; run npm run build to package
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
@@ -2354,7 +2357,7 @@ def runCommand(args: List[String]): Unit =
         val bind = bindOptions(path, hostFlag, portFlag, openBrowserFlag)
         if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
           runElectronClientDevHook(path, serverUrl)
-        else if selectedFrontend.exists(n => n == "react" || n == "solid" || n == "vue" || n == "custom") then
+        else if selectedFrontend.exists(browserFrontendNames) then
           runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, bind)
         else
           System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
@@ -3980,10 +3983,10 @@ def emitSpaCommand(args: List[String]): Unit =
     it.next() match
       case "--frontend" if it.hasNext =>
         val name = it.next()
-        if !validFrontendNames.contains(name) then
+        if !browserFrontendNames.contains(name) then
           System.err.println(
             s"emit-spa: unknown --frontend '$name' " +
-            s"(valid: ${validFrontendNames.toList.sorted.mkString(" / ")})")
+            s"(valid: ${browserFrontendNames.toList.sorted.mkString(" / ")})")
           System.exit(1)
         frontendBackend = Some(name)
       case "--server-url" if it.hasNext =>
@@ -4533,7 +4536,7 @@ private def compileJvmAndCache(
 
 def runJvmCommand(args: List[String]): Unit =
   if args.isEmpty then
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] <file.ssc>")
     System.exit(1)
   var jvmFrontendFlag: Option[String] = None
   var jvmFileArg:      Option[String] = None
@@ -4548,7 +4551,7 @@ def runJvmCommand(args: List[String]): Unit =
         jvmFrontendFlag = Some(name)
       case f => jvmFileArg = Some(f)
   val file = jvmFileArg.getOrElse {
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] <file.ssc>")
     System.exit(1); ""
   }
   val path = os.Path(file, os.pwd)
@@ -4659,8 +4662,8 @@ def runJsCommand(args: List[String]): Unit =
     jsIt.next() match
       case "--frontend" if jsIt.hasNext =>
         val name = jsIt.next()
-        if !validFrontendNames(name) then
-          System.err.println(s"run-js: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+        if !browserFrontendNames(name) then
+          System.err.println(s"run-js: unknown --frontend '$name', valid: ${browserFrontendNames.mkString(", ")}")
           System.exit(1)
         jsFrontendFlag = Some(name)
       case f => jsFileArg = Some(f)

@@ -1,6 +1,11 @@
 # JVM Desktop Frontend
 
-Status: **planned / not implemented** — May 2026.
+Status: **partially implemented** — May 2026.
+
+Phase 1 has landed: `frontend-swing` is an SPI-discovered backend, the CLI
+accepts `--frontend swing`, and the backend can emit a minimal native
+`JFrame` source artifact. Toolkit lowering, action dispatch, full `ssc run`
+desktop launch, and in-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -42,7 +47,7 @@ frontend backends:
   -> frontend toolkit / abstract model
       -> frontend-react / frontend-vue / frontend-solid / frontend-custom
       -> frontend-electron
-      -> frontend-swing       # planned first JVM desktop adapter
+      -> frontend-swing       # initial JVM desktop adapter
       -> frontend-javafx       # future
       -> frontend-compose      # future
 ```
@@ -67,9 +72,7 @@ Planned initial module:
 ```text
 frontend/swing/
   src/main/scala/scalascript/frontend/swing/
-    SwingFrontendBackend.scala
-    SwingRuntime.scala
-    SwingLowering.scala
+    SwingFrameworkBackend.scala
 ```
 
 Potential backend id and aliases:
@@ -83,10 +86,10 @@ should not depend on Electron, JS backends, npm, or browser tooling.
 
 ### CLI And Front Matter
 
-Planned command surface:
+Command surface:
 
 ```bash
-ssc run --frontend swing app.ssc
+ssc run --frontend swing app.ssc        # name is accepted; full desktop launch is planned
 ssc run --frontend swing --transport in-process app.ssc
 ssc run --target desktop-jvm --frontend swing app.ssc
 ```
@@ -168,6 +171,10 @@ Add `frontend-swing` module, backend registration, CLI/frontend-name plumbing,
 and a minimal `JFrame` runtime. The first runnable example can show static text
 or a button without backend calls.
 
+Status: **landed**. The backend emits an `EmittedArtifact.NativeApp` with
+`AppFormat.SwingApp` and a generated `src/main/scala/Main.scala` source file.
+The example is [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
+
 ### Phase 2 — Toolkit Subset
 
 Lower a small toolkit subset to Swing: label/text, button, text field,
@@ -204,7 +211,8 @@ adapters after Swing proves the contract.
 
 ## Open Questions
 
-- Should the backend id be `frontend-swing` or `swing`?
+- Resolved: the backend module is `frontend-swing`; the CLI/frontend SPI name
+  is `swing`.
 - Should `desktop-jvm` eventually default to Swing, or remain Electron + JVM
   REST unless `--frontend swing` is explicit?
 - Which frontend toolkit abstraction should be the canonical source for Swing:

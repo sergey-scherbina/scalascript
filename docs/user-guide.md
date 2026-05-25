@@ -1016,12 +1016,17 @@ falling back to HTTP. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
-**Planned, not implemented yet: JVM desktop frontend.** ScalaScript plans a
-JDK-only Swing frontend target for self-contained local desktop apps:
-`ssc run --frontend swing app.ssc`. The first Swing target should compose with
-`InProcessBackendTransport` so frontend actions and JVM backend routes can run
-inside one process without Electron, npm, browser hosting, or HTTP sockets.
-JavaFX and Compose Desktop are future adapter candidates. See
+**Partially implemented: JVM desktop frontend.** ScalaScript now has a
+`frontend-swing` backend skeleton discovered through the frontend SPI, and the
+CLI accepts `--frontend swing`. The backend can emit a minimal JDK-only
+`JFrame` source artifact, demonstrated by
+[`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
+Full `ssc run --frontend swing app.ssc` desktop launch, toolkit lowering, and
+in-process backend route dispatch are still planned. The first Swing target
+should compose with `InProcessBackendTransport` so frontend actions and JVM
+backend routes can run inside one process without Electron, npm, browser
+hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapter
+candidates. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

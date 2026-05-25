@@ -10395,7 +10395,7 @@ server-only/client-only split commands, and external integrations stay on HTTP.
 
 ## v1.45 — JVM Desktop Frontend
 
-**Status:** planned
+**Status:** in progress
 **Spec:** [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md)
 
 JVM-hosted desktop frontend target for self-contained local apps. The first
@@ -10409,9 +10409,10 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   documented the Swing-first JVM desktop target, command surface, toolkit
   subset, transport integration, JavaFX/Compose follow-ups, and test strategy.
   No runtime behavior changes.
-- **Phase 1 — Swing backend skeleton.** Add `frontend-swing` module, backend
-  registration, CLI/frontend-name plumbing, and a minimal `JFrame` runtime.
-  Ship one runnable static example.
+- **Phase 1 ✓ Landed (2026-05-25)** — Swing backend skeleton:
+  added `frontend-swing`, ServiceLoader registration, CLI `--frontend swing`
+  selection, `AppFormat.SwingApp`, minimal `JFrame` source emission, and
+  `examples/frontend/swing-hello/swing-hello.ssc`.
 - **Phase 2 — Toolkit subset.** Lower label/text, button, text field,
   checkbox, vstack/hstack, and basic layout/styling defaults to Swing.
 - **Phase 3 — Action bridge.** Wire Swing events to generated ScalaScript

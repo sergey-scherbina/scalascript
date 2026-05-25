@@ -20,6 +20,7 @@ exercise the same shapes end-to-end through `jsdom` when available.
 | [`show-hide/`](show-hide/) | `ReactiveSignal[Boolean]`, `ToggleSignal`, `View.ShowSignal`              | [`ShowHideDemo.scala`](../../frontend-examples/src/main/scala/scalascript/frontend/examples/ShowHideDemo.scala) |
 | [`todo/`](todo/)           | `ReactiveSignalList[String]`, `PushSignalLiteral`, `ClearSignalList`, `View.ForSignal` | [`TodoListDemo.scala`](../../frontend-examples/src/main/scala/scalascript/frontend/examples/TodoListDemo.scala) |
 | `toolkit-demo` *(no `.ssc`; built via `Tk` facade)* | Frontend Toolkit — Stack / Heading / Text / Card / TextField / Checkbox / Button / Spinner / Badge / Alert / theme tokens | [`ToolkitDemo.scala`](../../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala) |
+| [`swing-hello/`](swing-hello/) | Minimal JDK-only Swing desktop window; the frontend SPI `swing` backend is currently a skeleton | [`swing-hello.ssc`](swing-hello/swing-hello.ssc) |
 
 ## Compile
 

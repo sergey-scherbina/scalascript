@@ -50,6 +50,7 @@ enum MobileOs:
 enum AppFormat:
   case WebSpa
   case ElectronApp
+  case SwingApp
   case ReactNativeBundle
   case ComposeMultiplatform
   case SwiftUIApp
