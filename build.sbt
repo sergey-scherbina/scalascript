@@ -523,7 +523,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("runtime/backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -784,7 +784,8 @@ lazy val cli = project
                                   "scalascript-request-plugin", "scalascript-auth-plugin",
                                   "scalascript-oauth-plugin", "scalascript-fetch-plugin",
                                   "scalascript-sql-plugin",
-                                  "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin")
+                                  "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin",
+                                  "scalascript-swing-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
@@ -807,6 +808,7 @@ lazy val cli = project
         (httpPlugin     / packagePlugin).value,
         (wsPlugin       / packagePlugin).value,
         (mcpPlugin      / packagePlugin).value,
+        (swingPlugin    / packagePlugin).value,
         (pwaPlugin      / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
@@ -1846,6 +1848,16 @@ lazy val frontendPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.frontend"))
 
+lazy val swingPlugin = project
+  .in(file("runtime/std/swing-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-swing-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.swing"))
+
 lazy val requestPlugin = project
   .in(file("runtime/std/request-plugin"))
   .dependsOn(backendSpi, ir, core)
@@ -1975,7 +1987,7 @@ lazy val root = project
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing,
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
-    jsonPlugin, frontendPlugin, requestPlugin,
+    jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, sqlPlugin,
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin,
     paymentRequestPlugin, paymentRequest,

@@ -4,9 +4,10 @@ Status: **partially implemented** — May 2026.
 
 Phases 1-3 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
 accepts `--frontend swing`, and the backend can emit a native `JFrame` source
-artifact for a static toolkit subset with local signal actions. `ssc run
---frontend swing` launches that JVM desktop path through `scala-cli`.
-In-process backend calls remain planned.
+artifact for a static toolkit subset with local signal actions. `ssc run-jvm
+--frontend swing` launches that JVM desktop path through `scala-cli`. Plain
+`ssc run --frontend swing` remains the interpreter path and reports that Swing
+interpreter intrinsics are planned. In-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -90,9 +91,9 @@ should not depend on Electron, JS backends, npm, or browser tooling.
 Command surface:
 
 ```bash
-ssc run --frontend swing app.ssc
-ssc run --frontend swing --transport in-process app.ssc
-ssc run --target desktop-jvm --frontend swing app.ssc
+ssc run-jvm --frontend swing app.ssc
+ssc run --frontend swing app.ssc                 # planned interpreter path
+ssc run --frontend swing --transport in-process app.ssc  # planned
 ```
 
 Planned front matter:
@@ -172,9 +173,12 @@ Swing proof of concept lands.
 No existing behavior changes in Phase 0. `frontend: electron`, React/Vue/Solid,
 custom web, and split JVM REST modes keep their current behavior.
 
-`desktop-jvm` currently means Electron + JVM REST in the implemented CLI path.
-Swing must therefore be selected explicitly at first with `--frontend swing` or
-`frontend: swing`; changing any default desktop target requires a later
+`desktop-jvm` currently means Electron + JVM REST in the implemented `ssc run`
+path. Swing must therefore be selected explicitly with
+`ssc run-jvm --frontend swing` for the current JVM dev path. Plain
+`ssc run --frontend swing` and `frontend: swing` intentionally stay on the
+interpreter path and fail with a clear diagnostic until `swing-plugin`
+intrinsics land. Changing any default desktop target requires a later
 compatibility decision.
 
 ## Phases
@@ -215,17 +219,28 @@ Status: **landed** for local signal actions. Generated Swing source now emits
 helpers; `SignalText`, `TextInput`, and `Toggle` refresh from the signal table.
 Backend-route actions and transport dispatch remain Phase 4 work.
 
-### Phase 3b — Swing Dev Run
+### Phase 3b — Swing JVM Dev Run
 
-Launch generated Swing desktop sources from `ssc run --frontend swing`.
+Launch generated Swing desktop sources from `ssc run-jvm --frontend swing`.
 
-Status: **landed**. CLI dispatch now recognizes explicit `--frontend swing` and
-front matter `frontend: swing`, compiles through the JVM backend with
-`frontendName=swing`, and runs the generated script through `scala-cli`. When a
-UI app calls `serve(view, port)`, the generated JVM UI helper emits the native
-Swing bundle via `emitNative(..., Platform.Desktop())` and launches that bundle
-through `scala-cli`. This still does not connect backend routes through
-`InProcessBackendTransport`; that remains Phase 4.
+Status: **landed**. `ssc run-jvm --frontend swing` compiles through the JVM
+backend with `frontendName=swing` and runs the generated script through
+`scala-cli`. When a UI app calls `serve(view, port)`, the generated JVM UI
+helper emits the native Swing bundle via `emitNative(..., Platform.Desktop())`
+and launches that bundle through `scala-cli`. Plain `ssc run --frontend swing`
+now preserves interpreter semantics and reports that Swing interpreter
+intrinsics are not implemented yet. This still does not connect backend routes
+through `InProcessBackendTransport`; that remains Phase 4.
+
+### Phase 3c — Swing Interpreter Plugin Skeleton
+
+Create the standard-library plugin module that will own Swing interpreter
+intrinsics.
+
+Status: **landed**. `runtime/std/swing-plugin` registers
+`scalascript.std.swing` as an intrinsic-provider plugin with an intentionally
+empty intrinsic table. Future interpreter work should extend this plugin rather
+than adding Swing intrinsics to core or to the interpreter backend directly.
 
 ### Phase 4 — In-Process Full-Stack Mode
 

@@ -393,6 +393,25 @@ private[cli] val browserFrontendNames: Set[String] =
 private[cli] def applyFrontendBackend(name: String): Unit =
   scalascript.frontend.FrontendFrameworks.setBackend(name)
 
+private[cli] def runRequestsSwingFrontend(frontendFlag: Option[String], fileArgs: List[String]): Boolean =
+  frontendFlag.contains("swing") ||
+    (
+      frontendFlag.isEmpty &&
+        fileArgs.nonEmpty &&
+        fileArgs.forall { file =>
+          val path = os.Path(file, os.pwd)
+          os.exists(path) &&
+            scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework).contains("swing")).getOrElse(false)
+        }
+    )
+
+private[cli] def rejectInterpreterSwingRun(): Unit =
+  System.err.println(
+    "run --frontend swing uses the interpreter path, but Swing interpreter intrinsics are not implemented yet. " +
+      "Use `ssc run-jvm --frontend swing <file.ssc>` for the current Scala-CLI Swing dev path."
+  )
+  System.exit(1)
+
 /** Load sidecar config files alongside `sscPath`.
  *
  *  Loads ALL of `<base>.conf`, `<base>.yaml`, `<base>.json`, and frontmatter
@@ -542,7 +561,7 @@ def printUsage(): Unit =
     |                         hotspots by wall time.  --top defaults to 20.
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
     |  run   --frontend electron <f>   Compile .ssc and open in an Electron desktop window
-    |  run   --frontend swing <f>      Compile and launch the JDK-only Swing desktop frontend
+    |  run-jvm --frontend swing <f>    Compile and launch the JDK-only Swing desktop frontend
     |  build --target desktop <f>      Generate Electron bundle; run npm run build to package
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
@@ -2372,6 +2391,9 @@ def runCommand(args: List[String]): Unit =
   for file <- fileArgs.toList do
     validateRunTransport(os.Path(file, os.pwd), runMode, serverUrlFlag, transportFlag)
 
+  if runRequestsSwingFrontend(frontendFlag, fileArgs.toList) then
+    rejectInterpreterSwingRun()
+
   // --target jvm: compile via JvmGen → scala-cli → execute
   if targetSelection.contains("jvm") then
     for file <- fileArgs.toList do
@@ -2391,27 +2413,6 @@ def runCommand(args: List[String]): Unit =
       for file <- files do
         runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
       return
-
-  val shouldRunSwing =
-    frontendFlag.contains("swing") ||
-      (
-        targetSelection.isEmpty &&
-        frontendFlag.isEmpty &&
-        ActiveFlags.current.backend.isEmpty &&
-        fileArgs.nonEmpty &&
-        fileArgs.toList.forall { file =>
-          val path = os.Path(file, os.pwd)
-          os.exists(path) &&
-            scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework).contains("swing")).getOrElse(false)
-        }
-      )
-  if shouldRunSwing then
-    if ActiveFlags.current.backend.contains("jvm-rest") then
-      System.err.println("run --frontend swing does not support --backend jvm-rest yet; use --transport in-process once Phase 4 lands")
-      System.exit(1)
-    for file <- fileArgs.toList do
-      runSwingDevHook(os.Path(file, os.pwd))
-    return
 
   // --target desktop / desktop-electron / desktop-jvm, or --frontend electron → Electron dev-run
   val isElectronRun =
@@ -2564,33 +2565,6 @@ private[cli] def runJvmServerDev(sscFile: os.Path, serverBackend: String, bind: 
 
 private[cli] var runJvmServerHook: (os.Path, String, RunBindOptions) => Unit =
   runJvmServerDev
-
-/** Compile `sscFile` through the JVM backend with frontend=swing, then run the
- *  generated Scala script.  The generated UI helper emits a Swing native
- *  source bundle and launches it through scala-cli. */
-private[cli] def runSwingDev(sscFile: os.Path): Unit =
-  if !os.exists(sscFile) then
-    System.err.println(s"run: file not found: $sscFile"); System.exit(1)
-  if !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"run --frontend swing: ${JvmBytecode.scalaCliMissingMessage}")
-    System.exit(1)
-  try
-    val script = expectText(
-      compileViaBackend("jvm", sscFile, Map("frontendName" -> "swing")),
-      "run --frontend swing"
-    )
-    val tmp = os.temp(script, suffix = ".sc", deleteOnExit = true)
-    try
-      val result = os.proc(scalaCliCommand, "run", tmp, "--server=false", "--java-opt", s"-Dscalascript.scalaCli=$scalaCliCommand")
-        .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
-      if result.exitCode != 0 then System.exit(result.exitCode)
-    finally os.remove(tmp)
-  catch case e: Exception =>
-    System.err.println(s"run --frontend swing: ${e.getMessage}")
-    System.exit(1)
-
-private[cli] var runSwingDevHook: os.Path => Unit =
-  runSwingDev
 
 /** Compile `sscFile` to an Electron bundle in a temp dir and launch
  *  `electron <tmpDir>`.  Blocks until the Electron window is closed. */

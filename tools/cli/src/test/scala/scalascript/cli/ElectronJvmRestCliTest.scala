@@ -146,22 +146,13 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       runElectronJvmRestDevHook = oldHook
       ActiveFlags.set(GlobalFlags())
 
-  test("runCommand dispatches explicit swing frontend to Swing hook"):
+  test("runCommand treats explicit swing frontend as interpreter-only unsupported path"):
     val dir = os.temp.dir(prefix = "ssc-swing-run-test-", deleteOnExit = true)
     val app = dir / "app.ssc"
     os.write(app, "```scalascript\nprintln(\"hello\")\n```")
-    val oldHook = runSwingDevHook
-    val calls = scala.collection.mutable.ArrayBuffer.empty[os.Path]
-    try
-      ActiveFlags.set(GlobalFlags())
-      runSwingDevHook = path => calls += path
-      runCommand(List("--frontend", "swing", app.toString))
-      assert(calls.toList == List(app))
-    finally
-      runSwingDevHook = oldHook
-      ActiveFlags.set(GlobalFlags())
+    assert(runRequestsSwingFrontend(Some("swing"), List(app.toString)))
 
-  test("runCommand dispatches frontmatter swing frontend to Swing hook"):
+  test("runCommand treats frontmatter swing frontend as interpreter-only unsupported path"):
     val dir = os.temp.dir(prefix = "ssc-swing-frontmatter-run-test-", deleteOnExit = true)
     val app = dir / "app.ssc"
     os.write(app,
@@ -174,36 +165,13 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
         |println("hello")
         |```
         |""".stripMargin.trim)
-    val oldHook = runSwingDevHook
-    val calls = scala.collection.mutable.ArrayBuffer.empty[os.Path]
-    try
-      ActiveFlags.set(GlobalFlags())
-      runSwingDevHook = path => calls += path
-      runCommand(List(app.toString))
-      assert(calls.toList == List(app))
-    finally
-      runSwingDevHook = oldHook
-      ActiveFlags.set(GlobalFlags())
+    assert(runRequestsSwingFrontend(None, List(app.toString)))
 
-  test("runCommand lets explicit swing override desktop-jvm target"):
+  test("runCommand does not treat non-swing frontend as Swing interpreter path"):
     val dir = os.temp.dir(prefix = "ssc-swing-desktop-jvm-run-test-", deleteOnExit = true)
     val app = dir / "app.ssc"
     os.write(app, "```scalascript\nprintln(\"hello\")\n```")
-    val oldSwingHook = runSwingDevHook
-    val oldElectronHook = runElectronJvmRestDevHook
-    val swingCalls = scala.collection.mutable.ArrayBuffer.empty[os.Path]
-    val electronCalls = scala.collection.mutable.ArrayBuffer.empty[os.Path]
-    try
-      ActiveFlags.set(GlobalFlags(target = Some("desktop-jvm")))
-      runSwingDevHook = path => swingCalls += path
-      runElectronJvmRestDevHook = (path, _) => electronCalls += path
-      runCommand(List("--frontend", "swing", app.toString))
-      assert(swingCalls.toList == List(app))
-      assert(electronCalls.isEmpty)
-    finally
-      runSwingDevHook = oldSwingHook
-      runElectronJvmRestDevHook = oldElectronHook
-      ActiveFlags.set(GlobalFlags())
+    assert(!runRequestsSwingFrontend(Some("electron"), List(app.toString)))
 
   test("runCommand dispatches mode server to JVM server hook"):
     val dir = os.temp.dir(prefix = "ssc-mode-server-test-", deleteOnExit = true)

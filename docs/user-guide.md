@@ -1018,15 +1018,17 @@ server-only/client-only split commands remain HTTP/REST. See
 
 **Partially implemented: JVM desktop frontend.** ScalaScript now has a
 `frontend-swing` backend skeleton discovered through the frontend SPI, and the
-CLI accepts `--frontend swing`. `ssc run --frontend swing app.ssc` compiles
+CLI accepts `--frontend swing`. `ssc run-jvm --frontend swing app.ssc` compiles
 through the JVM backend and launches generated JDK-only Swing sources through
-`scala-cli`. The backend can emit a `JFrame` source artifact for a static
+`scala-cli`; plain `ssc run --frontend swing` stays on the interpreter path and
+currently reports that Swing interpreter intrinsics are planned. The backend can emit a `JFrame` source artifact for a static
 toolkit subset: text, buttons, text fields, checkboxes, vertical/horizontal
 stacks, spacers, dividers, scroll views, and basic style hints. It also supports
 local signal actions for buttons, text inputs, checkboxes, and signal-backed
 labels. It is demonstrated by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
-In-process backend route dispatch is still planned. The first Swing target
+The `runtime/std/swing-plugin` module is present as the future home for
+interpreter-side Swing intrinsics. In-process backend route dispatch is still planned. The first Swing target
 should compose with `InProcessBackendTransport` so frontend actions and JVM
 backend routes can run inside one process without Electron, npm, browser
 hosting, or HTTP sockets. JavaFX and Compose Desktop are future adapter
