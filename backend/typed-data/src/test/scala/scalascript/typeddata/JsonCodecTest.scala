@@ -125,3 +125,43 @@ class JsonCodecTest extends AnyFunSuite:
       )
     )
     assert(JsonCodec[Event].decode(badPayload).left.toOption.exists(_.render == "$.value.name: expected string, got number"))
+
+  final case class SchemaTodo(id: String, text: String, done: Boolean)
+
+  object SchemaTodo:
+    private val idField = JsonFieldSpec.required[String]("id")
+    private val textField = JsonFieldSpec.required[String]("text", "title")
+    private val doneField = JsonFieldSpec.withDefault[Boolean]("done", false)
+
+    given JsonCodec[SchemaTodo] = JsonCodec.objectCodec(
+      todo => Map(
+        idField.name -> JsonCodec[String].encode(todo.id),
+        textField.name -> JsonCodec[String].encode(todo.text),
+        doneField.name -> JsonCodec[Boolean].encode(todo.done)
+      ),
+      fields =>
+        for
+          id <- JsonCodec.field(fields, idField)
+          text <- JsonCodec.field(fields, textField)
+          done <- JsonCodec.field(fields, doneField)
+        yield SchemaTodo(id, text, done),
+      fields = List(idField, textField, doneField),
+      rejectUnknown = true
+    )
+
+  test("explicit JsonCodec field specs support aliases and defaults"):
+    val json = JsonValue.obj(
+      "id" -> JsonValue.Str("1"),
+      "title" -> JsonValue.Str("from old schema")
+    )
+
+    assert(JsonCodec[SchemaTodo].decode(json) == Right(SchemaTodo("1", "from old schema", done = false)))
+
+  test("explicit JsonCodec field specs reject unknown fields when requested"):
+    val json = JsonValue.obj(
+      "id" -> JsonValue.Str("1"),
+      "text" -> JsonValue.Str("ship"),
+      "extra" -> JsonValue.Str("nope")
+    )
+
+    assert(JsonCodec[SchemaTodo].decode(json).left.toOption.exists(_.render == "$.extra: unknown field 'extra'"))

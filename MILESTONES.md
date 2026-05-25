@@ -10356,7 +10356,9 @@ modes opt out of that default.
   works for case classes through Scala 3 `Mirror`. Follow-up landed
   2026-05-25: sealed ADT/sum `derives JsonCodec` now uses an explicit
   `"$type"` discriminator plus `"value"` payload envelope, including
-  case-object variants.
+  case-object variants. Follow-up landed 2026-05-25: explicit object codecs
+  now support `JsonFieldSpec[A]` with canonical names, aliases, defaults, and
+  opt-in unknown-field rejection.
 
 ## v1.44 — Full-Stack In-Process Transport
 

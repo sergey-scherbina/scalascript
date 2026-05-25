@@ -100,14 +100,32 @@ object JsonCodec:
       case Some(value) => codec.decode(value).left.map(_.at(name))
       case None => Left(DecodeError(s"missing field '$name'").at(name))
 
+  def field[A](fields: Map[String, JsonValue], spec: JsonFieldSpec[A]): Either[DecodeError, A] =
+    spec.names.collectFirst(Function.unlift(fields.get)) match
+      case Some(value) => spec.codec.decode(value).left.map(_.at(spec.name))
+      case None =>
+        spec.default match
+          case Some(value) => Right(value)
+          case None => Left(DecodeError(s"missing field '${spec.name}'").at(spec.name))
+
+  def rejectUnknownFields(fields: Map[String, JsonValue], specs: Iterable[JsonFieldSpec[?]]): Either[DecodeError, Unit] =
+    val known = specs.iterator.flatMap(_.names).toSet
+    fields.keys.find(!known.contains(_)) match
+      case Some(name) => Left(DecodeError(s"unknown field '$name'").at(name))
+      case None => Right(())
+
   def objectCodec[A](
       encodeFields: A => Map[String, JsonValue],
-      decodeFields: Map[String, JsonValue] => Either[DecodeError, A]
+      decodeFields: Map[String, JsonValue] => Either[DecodeError, A],
+      fields: Iterable[JsonFieldSpec[?]] = Nil,
+      rejectUnknown: Boolean = false
   ): JsonCodec[A] =
     instance(
       value => JsonValue.Obj(encodeFields(value)),
       {
-        case JsonValue.Obj(fields) => decodeFields(fields)
+        case JsonValue.Obj(rawFields) =>
+          if rejectUnknown then rejectUnknownFields(rawFields, fields).flatMap(_ => decodeFields(rawFields))
+          else decodeFields(rawFields)
         case other => Left(DecodeError(s"expected object, got ${JsonValue.kind(other)}"))
       }
     )

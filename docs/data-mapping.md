@@ -83,6 +83,9 @@ sealed ADT/sum derivation. ADTs use an explicit discriminator envelope:
 
 The `value` field contains the selected variant payload encoded by that
 variant's own `JsonCodec`. Case objects encode as an empty object payload.
+Explicit product codecs can use `JsonFieldSpec[A]` for schema migration:
+canonical field names, aliases for renamed fields, default values for missing
+fields, and opt-in unknown-field rejection.
 
 JVM/Swing generated typed route clients now use this `JsonCodec[T]` layer for
 typed request encoding and typed response decoding. JS/browser/Electron clients
@@ -326,9 +329,10 @@ the same query model.
    identity/version envelope, and per-store examples.
 2. **Core codec foundation** — partially landed: `JsonValue`, `DecodeError`,
    `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances,
-   explicit object-codec helpers, `derives JsonCodec` for case classes, and
-   discriminator-based sealed ADT derivation. Remaining: schema annotations,
-   defaults, renames, and unknown-field policy.
+   explicit object-codec helpers, `derives JsonCodec` for case classes,
+   discriminator-based sealed ADT derivation, and explicit `JsonFieldSpec`
+   rename/default/unknown-field helpers. Remaining: annotation syntax and
+   derived-codec integration for those schema options.
 3. **SQL row mapping** — add `derives RowCodec`, `Db.query[A]`, and
    insert/update helpers for simple case classes.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,

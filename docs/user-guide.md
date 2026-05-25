@@ -1111,7 +1111,9 @@ remain planned. The same module now also exposes the first explicit Scala API:
 `JsonValue`, `DecodeError`, `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/
 option instances, object-codec helpers for manually mapping case classes, and
 `derives JsonCodec` support for case classes and sealed ADTs. ADTs encode with
-an explicit `"$type"` discriminator and `"value"` payload object.
+an explicit `"$type"` discriminator and `"value"` payload object. Explicit
+object codecs can use `JsonFieldSpec[A]` for renamed fields, aliases, default
+values, and unknown-field rejection.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. This keeps
