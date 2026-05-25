@@ -237,8 +237,8 @@ Planned, not implemented yet:
 
 | Feature | Planned shape |
 |---------|---------------|
-| Full-stack in-process transport | `ssc run --transport http|in-process app.ssc` is recognized; interpreter route tests can use `InProcessBackendTransport`, while CLI full-stack `in-process` execution still reports that generated client dispatch is not implemented yet |
-| JVM desktop frontend | `ssc run-jvm --frontend swing app.ssc` launches the current JDK-only Swing path through `scala-cli`; `ssc run --frontend swing` remains the interpreter path and reports that Swing intrinsics are planned; backend transport dispatch and JavaFX/Compose adapters remain planned |
+| Full-stack in-process transport | `ssc run` and `ssc run-jvm` recognize `--transport http|in-process`; interpreter route tests can use `InProcessBackendTransport`, while runtime `in-process` execution still reports that generated client dispatch / monolithic Swing runtime is not implemented yet |
+| JVM desktop frontend | `ssc run-jvm --frontend swing app.ssc` launches the current JDK-only Swing path through `scala-cli`; `ssc run-jvm --frontend swing --transport in-process` is parsed but rejected with a monolithic-runtime diagnostic; `ssc run --frontend swing` remains the interpreter path and reports that Swing intrinsics are planned; backend transport dispatch and JavaFX/Compose adapters remain planned |
 | Graph storage | `graphs:` front-matter will declare property-graph and RDF graph stores; embedded JVM backends first (TinkerGraph/TinkerPop, RDF4J), then server adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible repositories |
 | Typed data mapping | Shared `derives`-based codecs will map case classes/ADTs to SQL rows, JSON/IndexedDB/ObjectStore documents, property graph vertices/edges, RDF triples, `Dataset[T]` elements, and Spark schemas/encoders without forcing one universal ORM |
 

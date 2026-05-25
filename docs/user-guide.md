@@ -225,6 +225,10 @@ All three commands:
 
 `ssc run --target jvm` also accepts `--server-backend jdk|jetty|netty` to
 select the HTTP server implementation when the script defines HTTP routes.
+`ssc run-jvm` accepts `--frontend <custom|react|solid|vue|swing>` and
+`--transport http|in-process`; `http` is the current behavior, while
+`in-process` is parsed and rejected with a clear diagnostic until JVM
+monolithic frontend execution lands.
 
 When to use each:
 
@@ -1021,7 +1025,10 @@ server-only/client-only split commands remain HTTP/REST. See
 CLI accepts `--frontend swing`. `ssc run-jvm --frontend swing app.ssc` compiles
 through the JVM backend and launches generated JDK-only Swing sources through
 `scala-cli`; plain `ssc run --frontend swing` stays on the interpreter path and
-currently reports that Swing interpreter intrinsics are planned. The backend can emit a `JFrame` source artifact for a static
+currently reports that Swing interpreter intrinsics are planned. `ssc run-jvm
+--frontend swing --transport in-process` is also recognized but currently
+reports that the present nested `scala-cli` Swing launch is not a same-process
+runtime. The backend can emit a `JFrame` source artifact for a static
 toolkit subset: text, buttons, text fields, checkboxes, vertical/horizontal
 stacks, spacers, dividers, scroll views, and basic style hints. It also supports
 local signal actions for buttons, text inputs, checkboxes, and signal-backed

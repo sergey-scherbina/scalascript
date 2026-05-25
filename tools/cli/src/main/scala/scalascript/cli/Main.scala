@@ -2872,6 +2872,25 @@ private[cli] def validateTransportSelection(
         case _ =>
           Left("run --transport in-process is planned but not implemented yet for runtime execution")
 
+private[cli] def validateRunJvmTransportSelection(
+    frontendName: Option[String],
+    transport:    Option[BackendTransportKind]
+): Either[String, Unit] =
+  transport match
+    case None | Some(BackendTransportKind.Http) => Right(())
+    case Some(BackendTransportKind.InProcess) =>
+      frontendName match
+        case Some("swing") =>
+          Left(
+            "run-jvm --frontend swing --transport in-process is planned but not implemented yet; " +
+              "the current Swing dev path launches the generated desktop app through a nested scala-cli process. " +
+              "Use --transport http or omit --transport until JVM monolithic Swing runtime lands."
+          )
+        case Some(other) =>
+          Left(s"run-jvm --transport in-process requires a JVM-hosted frontend; '$other' is not supported")
+        case None =>
+          Left("run-jvm --transport in-process is planned but not implemented yet for JVM execution")
+
 private[cli] def frontMatterTransport(path: os.Path): Option[BackendTransportKind] =
   frontMatterTransportName(path).flatMap(BackendTransportKind.parse)
 
@@ -4558,9 +4577,10 @@ private def compileJvmAndCache(
 
 def runJvmCommand(args: List[String]): Unit =
   if args.isEmpty then
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] [--transport <http|in-process>] <file.ssc>")
     System.exit(1)
   var jvmFrontendFlag: Option[String] = None
+  var jvmTransportFlag: Option[BackendTransportKind] = None
   var jvmFileArg:      Option[String] = None
   val jvmIt = args.iterator
   while jvmIt.hasNext do
@@ -4571,17 +4591,16 @@ def runJvmCommand(args: List[String]): Unit =
           System.err.println(s"run-jvm: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
           System.exit(1)
         jvmFrontendFlag = Some(name)
+      case "--transport" if jvmIt.hasNext =>
+        jvmTransportFlag = Some(parseTransportFlag("run-jvm --transport", jvmIt.next()))
       case f => jvmFileArg = Some(f)
   val file = jvmFileArg.getOrElse {
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] [--transport <http|in-process>] <file.ssc>")
     System.exit(1); ""
   }
   val path = os.Path(file, os.pwd)
   if !os.exists(path) then
     System.err.println(s"Error: File not found: $file"); System.exit(1)
-  if !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
-    System.exit(1)
 
   // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
   // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
@@ -4598,6 +4617,20 @@ def runJvmCommand(args: List[String]): Unit =
     .flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames)
   // CLI flag beats all; system props beat sidecar files; both beat frontmatter.
   val frontendOverride = jvmFrontendFlag.orElse(sidecarFrontend)
+  val transport = resolveRunTransport(path, jvmTransportFlag).fold(
+    message =>
+      System.err.println(s"run-jvm: $message")
+      System.exit(1)
+      None,
+    identity
+  )
+  validateRunJvmTransportSelection(frontendOverride, transport).left.foreach { message =>
+    System.err.println(message)
+    System.exit(1)
+  }
+  if !JvmBytecode.scalaCliAvailable then
+    System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
+    System.exit(1)
   val raw =
     if frontendOverride.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
       JvmArtifactIO.readJvmFile(scjvmPath) match

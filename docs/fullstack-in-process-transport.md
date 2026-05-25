@@ -219,6 +219,13 @@ and distributed modes.
 If a JVM-hosted UI target exists, run frontend and backend in the same JVM
 process with `InProcessBackendTransport`. Add a runnable example.
 
+In progress 2026-05-25: `ssc run-jvm` now accepts `--transport http|in-process`
+and reads `transport:` / `fullstack.transport` front matter through the same
+parser as `ssc run`. `http` keeps existing behavior. `in-process` currently
+fails with a Swing-specific diagnostic for `--frontend swing`, because the
+implemented Swing dev path launches generated desktop sources through a nested
+`scala-cli` process rather than one shared JVM process.
+
 ### Phase 5 — Optional Desktop Bridge Transport
 
 Evaluate Electron-main or other desktop shell bridge transports. This is not

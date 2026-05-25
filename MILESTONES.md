@@ -10438,9 +10438,13 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   added `runtime/std/swing-plugin` as the standard-library home for future
   Swing interpreter intrinsics. The current table is intentionally empty; real
   `serve(view, port)` / action bridge interpreter intrinsics remain Phase 4+.
-- **Phase 4 — In-process full-stack mode.** Connect Swing frontend actions to
-  backend routes through `InProcessBackendTransport` and add a no-socket
-  full-stack example.
+- **Phase 4 — In-process full-stack mode.** In progress: `ssc run-jvm` now
+  accepts `--transport http|in-process` and reads `transport:` /
+  `fullstack.transport`; `http` keeps existing behavior, while
+  `--frontend swing --transport in-process` reports that the current nested
+  `scala-cli` Swing launcher is not monolithic. Remaining work: connect Swing
+  frontend actions to backend routes through `InProcessBackendTransport` and
+  add a no-socket full-stack example.
 - **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
   window metadata, graceful shutdown, and optional `jpackage` packaging.
 - **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose
