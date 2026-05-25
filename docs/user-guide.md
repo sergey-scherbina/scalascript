@@ -1060,8 +1060,10 @@ same generated `BackendTransport` used by Swing fetch helpers, and decode
 typed JSON responses. JS/browser codegen now emits Promise-returning HTTP
 client objects over `fetch`; when a bundle is produced with `emit-spa
 --server-url` or client mode, relative client calls use the injected
-`globalThis.__sscBackendBaseUrl` to reach the JVM backend. Electron,
-split-process, and distributed e2e coverage are still planned. See
+`globalThis.__sscBackendBaseUrl` to reach the JVM backend. Electron JVM REST
+dev mode uses the same generated HTTP clients in its renderer bundle.
+Distributed split-process examples and final async ergonomics are still
+planned. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

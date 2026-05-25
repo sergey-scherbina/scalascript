@@ -10475,8 +10475,8 @@ Generated typed frontend clients over backend routes. This is the typed
 counterpart to `fetchAction` and `fetchTable`: frontend code calls generated
 methods with case class inputs/outputs, while the runtime dispatches through
 `BackendTransport`. JVM/Swing in-process is the first landed target; JS/browser
-HTTP client generation is partially landed, with Electron/distributed e2e
-still planned.
+HTTP client generation and Electron JVM REST bundle smoke coverage are
+partially landed, with distributed examples still planned.
 
 ### Planned phases
 
@@ -10506,9 +10506,12 @@ still planned.
   parameter substitution, GET query strings, JSON request bodies, non-2xx
   rejection, and JSON response parsing. Browser SPA/client-mode output can use
   the existing `globalThis.__sscBackendBaseUrl` / fetch patch injected by
-  `emit-spa --server-url` to reach a JVM backend. Remaining Phase 3 work:
-  Electron JVM REST e2e, distributed client/server examples, and final async
-  ergonomics for `.ssc` frontend calls.
+  `emit-spa --server-url` to reach a JVM backend. Electron JVM REST dev mode
+  now has smoke coverage that starts a fake JVM backend process, builds the
+  Electron renderer bundle with the injected backend URL, and verifies the
+  generated typed HTTP client runtime/methods are present. Remaining Phase 3
+  work: distributed client/server examples and final async ergonomics for
+  `.ssc` frontend calls.
 - **Phase 4 — Shared codecs.** Replace temporary generated JSON code with the
   shared typed mapping codec layer once that layer exists.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from

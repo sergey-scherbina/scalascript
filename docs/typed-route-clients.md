@@ -189,7 +189,7 @@ runtime for the configured backend transport:
 | Mode | Transport |
 |---|---|
 | JVM/Swing monolithic | Generated JVM route-registry dispatcher, later unified with `InProcessBackendTransport` |
-| Electron + JVM REST | HTTP to the local JVM backend URL |
+| Electron + JVM REST | Implemented in bundle/dev-run smoke tests: Promise-returning HTTP clients over `fetch` to the injected local JVM backend URL |
 | Browser React/Vue/Solid + JVM | Implemented for JS codegen: Promise-returning HTTP clients over `fetch`, using configured `server-url` / runtime base URL when present |
 | Server/client split | HTTP, partly implemented through the JS/browser client generation path |
 | Interpreter tests | `InProcessBackendTransport` where supported |
@@ -264,9 +264,13 @@ responses. In browser SPA output, `emit-spa --server-url` / client mode can
 inject `globalThis.__sscBackendBaseUrl`, and the existing browser fetch patch
 forwards relative calls to that JVM backend URL.
 
-Still planned for Phase 3: Electron JVM REST e2e coverage, distributed
-client/server examples, and final async ergonomics for using Promise-returning
-clients from `.ssc` frontend code.
+Landed 2026-05-25 follow-up: the Electron JVM REST dev path now has a smoke
+test that starts a fake JVM backend process, builds the Electron bundle with
+the injected backend URL, launches fake Electron, and verifies that the renderer
+bundle contains the generated typed HTTP client runtime and `Messages` methods.
+
+Still planned for Phase 3: distributed client/server examples and final async
+ergonomics for using Promise-returning clients from `.ssc` frontend code.
 
 ### Phase 4 — Shared Codecs
 
@@ -295,7 +299,8 @@ stable across JVM and JS.
   errors, and decode errors.
 - Swing no-socket example test that verifies the generated code contains typed
   client dispatch and no nested `scala-cli`.
-- HTTP client emission tests for browser/Electron modes once Phase 3 lands.
+- HTTP client emission tests for browser mode and Electron JVM REST bundle
+  smoke tests.
 - Compatibility tests proving raw `fetchAction`/`fetchTable` examples still
   work while typed clients are present.
 

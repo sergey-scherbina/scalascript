@@ -30,6 +30,38 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
        |```
        |""".stripMargin.trim
 
+  private def fullStackTypedClientSource(port: Int): String =
+    s"""
+       |---
+       |frontend: electron
+       |apiClients:
+       |  Messages:
+       |    endpoints:
+       |      - name: list
+       |        method: GET
+       |        path: /api/messages
+       |        request: Unit
+       |        response: List[Message]
+       |      - name: get
+       |        method: GET
+       |        path: /api/messages/:id
+       |        request: Int
+       |        response: Message
+       |---
+       |
+       |```javascript
+       |globalThis.__sscTypedClientSmoke = function() {
+       |  return Messages.list().then(function(rows) { return rows.length; });
+       |};
+       |```
+       |
+       |```scalascript
+       |case class Message(id: Int, text: String)
+       |route("GET", "/api/messages") { req => Response.json("[]") }
+       |serve($port)
+       |```
+       |""".stripMargin.trim
+
   test("detectServePort reads toolkit serve(view, port) shape"):
     val src =
       """
@@ -565,6 +597,82 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       val events = os.read(log)
       assert(events.contains("scala-cli run "))
       assert(events.contains("electron "))
+    finally
+      scalaCliCommand = oldScalaCli
+      electronCommand = oldElectron
+
+  test("runElectronJvmRestDev bundles typed route HTTP clients for Electron"):
+    val pythonOk =
+      scala.util.Try(os.proc("python3", "--version").call(check = false).exitCode == 0)
+        .getOrElse(false)
+    if !pythonOk then cancel("python3 not on PATH; needed for fake TCP backend")
+
+    val port = 49154
+    val dir = os.temp.dir(prefix = "ssc-electron-typed-client-smoke-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    val log = dir / "events.log"
+    os.write(app, fullStackTypedClientSource(port))
+
+    val fakeScalaCli = dir / "scala-cli"
+    os.write(
+      fakeScalaCli,
+      s"""#!/bin/sh
+         |set -eu
+         |echo "scala-cli $$@" >> "$log"
+         |python3 - <<'PY' &
+         |import socket
+         |s = socket.socket()
+         |s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+         |s.bind(("127.0.0.1", $port))
+         |s.listen(16)
+         |try:
+         |    while True:
+         |        conn, addr = s.accept()
+         |        conn.close()
+         |finally:
+         |    s.close()
+         |PY
+         |pid=$$!
+         |trap 'kill "$$pid" 2>/dev/null || true' TERM INT EXIT
+         |wait "$$pid"
+         |""".stripMargin
+    )
+    os.perms.set(fakeScalaCli, "rwxr--r--")
+
+    val fakeElectron = dir / "electron"
+    os.write(
+      fakeElectron,
+      s"""#!/bin/sh
+         |set -eu
+         |if [ "$${1:-}" = "--version" ]; then
+         |  echo "v99.0.0"
+         |  exit 0
+         |fi
+         |bundle="$${1:?bundle dir required}"
+         |echo "electron-typed-client $$bundle" >> "$log"
+         |test -f "$$bundle/app.js"
+         |grep -q "__sscBackendBaseUrl" "$$bundle/app.js"
+         |grep -q "http://127.0.0.1:$port" "$$bundle/app.js"
+         |grep -q "const _ssc_typedRouteClients" "$$bundle/app.js"
+         |grep -q "async function _ssc_api_request" "$$bundle/app.js"
+         |grep -q "const response = await fetch(url, init)" "$$bundle/app.js"
+         |grep -q "const Messages = {" "$$bundle/app.js"
+         |grep -q 'list() { return _ssc_api_request("GET", "/api/messages", undefined); }' "$$bundle/app.js"
+         |grep -q 'get(input) { return _ssc_api_request("GET", "/api/messages/:id", input); }' "$$bundle/app.js"
+         |grep -q "__sscTypedClientSmoke" "$$bundle/app.js"
+         |""".stripMargin
+    )
+    os.perms.set(fakeElectron, "rwxr--r--")
+
+    val oldScalaCli = scalaCliCommand
+    val oldElectron = electronCommand
+    try
+      scalaCliCommand = fakeScalaCli.toString
+      electronCommand = fakeElectron.toString
+      runElectronJvmRestDev(app, "jdk")
+      val events = os.read(log)
+      assert(events.contains("scala-cli run "))
+      assert(events.contains("electron-typed-client "))
     finally
       scalaCliCommand = oldScalaCli
       electronCommand = oldElectron
