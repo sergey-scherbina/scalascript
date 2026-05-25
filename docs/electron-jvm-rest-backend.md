@@ -6,7 +6,8 @@
 > plain `ssc run app.ssc` uses the same split mode when the source declares
 > `frontend: electron`, backend routes, and `serve(...)`. Server-only/client-only
 > modes, distributed launch, non-Electron frontend supervision, and packaging
-> remain planned.
+> remain planned. `ssc run --target desktop-jvm app.ssc` is also supported as a
+> shorthand for the local Electron + JVM REST dev supervisor.
 
 This spec defines a split-process client/server mode. The first local-dev shape
 is Electron rendering the frontend client while a JVM ScalaScript backend server
@@ -106,6 +107,14 @@ Initial command surface:
 
 ```bash
 ssc run app.ssc
+ssc run --frontend electron --backend jvm-rest app.ssc
+ssc run --target desktop-jvm app.ssc
+```
+
+Implemented local dev commands:
+
+```bash
+ssc run app.ssc                         # if frontend: electron + routes + serve(...)
 ssc run --frontend electron --backend jvm-rest app.ssc
 ssc run --target desktop-jvm app.ssc
 ```

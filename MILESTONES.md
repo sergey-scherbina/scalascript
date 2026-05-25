@@ -10247,6 +10247,10 @@ modes opt out of that default.
     or `routes:` front matter), and calls `serve(...)`. Explicit CLI
     `--target`, `--frontend`, or `--backend` choices still override the
     default.
+  - **Phase 1c ✓ Landed (2026-05-25)** — target shorthand:
+    `ssc run --target desktop-jvm app.ssc` now selects the Electron JVM REST
+    supervisor directly, matching the command surface in the spec without
+    requiring a separate `--backend jvm-rest` flag.
   - **Still open:** non-Electron frontend supervision and end-to-end
     default-run smoke coverage with a real Electron/scala-cli process.
 - **Phase 2 — Client/server split commands.** Support backend-only server launch

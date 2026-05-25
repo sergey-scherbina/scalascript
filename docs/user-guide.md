@@ -962,8 +962,10 @@ The first explicit Electron/JVM REST dev mode is available as
 backend, waits for the source `serve(...)` port, launches Electron, and forwards
 relative renderer `fetch("/...")` calls to the JVM backend. Plain `ssc run app.ssc`
 now chooses the same split mode when the source declares `frontend: electron`,
-has backend routes, and calls `serve(...)`. Distributed server/client commands
-and non-Electron full-stack supervision are still planned.
+has backend routes, and calls `serve(...)`. `ssc run --target desktop-jvm app.ssc`
+is available as the explicit shorthand for the same Electron + JVM REST dev
+supervisor. Distributed server/client commands and non-Electron full-stack
+supervision are still planned.
 
 ### Planned full-stack and client storage features
 

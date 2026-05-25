@@ -83,3 +83,10 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
         |```
         |""".stripMargin.trim
     assert(!shouldDefaultToElectronJvmRest(Parser.parse(src), src))
+
+  test("target helpers classify desktop-jvm as Electron JVM REST"):
+    assert(targetRequestsElectron(Some("desktop-jvm")))
+    assert(targetRequestsElectronJvmRest(Some("desktop-jvm"), None))
+    assert(targetRequestsElectron(Some("desktop")))
+    assert(targetRequestsElectronJvmRest(Some("desktop"), Some("jvm-rest")))
+    assert(!targetRequestsElectronJvmRest(Some("desktop"), None))

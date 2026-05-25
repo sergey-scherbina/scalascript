@@ -477,6 +477,7 @@ def printUsage(): Unit =
     |  run                    Execute .ssc via tree-walking interpreter (default)
     |                         Flags: --frontend <custom|react|solid|vue|electron>  (overrides frontmatter frontend:)
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
+    |                                --target desktop-jvm starts split JVM REST + Electron mode
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue>  (overrides frontmatter frontend:)
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
@@ -2335,13 +2336,13 @@ def runCommand(args: List[String]): Unit =
         runElectronJvmRestDev(os.Path(file, os.pwd), serverBackendFlag)
       return
 
-  // --target desktop / desktop-electron, or --frontend electron → Electron dev-run
+  // --target desktop / desktop-electron / desktop-jvm, or --frontend electron → Electron dev-run
   val isElectronRun =
-    targetSelection.exists(t => t == "desktop" || t == "desktop-electron") ||
+    targetRequestsElectron(targetSelection) ||
     frontendFlag.contains("electron")
-  val isJvmRestRun = ActiveFlags.current.backend.contains("jvm-rest")
+  val isJvmRestRun = targetRequestsElectronJvmRest(targetSelection, ActiveFlags.current.backend)
   if isJvmRestRun && !isElectronRun then
-    System.err.println("run --backend jvm-rest currently requires --frontend electron or --target desktop")
+    System.err.println("run --backend jvm-rest currently requires --frontend electron, --target desktop, or --target desktop-jvm")
     System.exit(1)
   if isElectronRun && isJvmRestRun then
     for file <- fileArgs.toList do
@@ -2560,6 +2561,12 @@ private[cli] def shouldDefaultToElectronJvmRest(module: Module, source: String):
     module.manifest.exists(_.routes.nonEmpty) ||
       """(?m)\broute\s*\(""".r.findFirstIn(source).isDefined
   frontendIsElectron && hasBackendRoute && detectServePort(source).isDefined
+
+private[cli] def targetRequestsElectron(target: Option[String]): Boolean =
+  target.exists(t => t == "desktop" || t == "desktop-electron" || t == "desktop-jvm")
+
+private[cli] def targetRequestsElectronJvmRest(target: Option[String], backend: Option[String]): Boolean =
+  backend.contains("jvm-rest") || target.contains("desktop-jvm")
 
 private def waitForTcpReady(
     host:       String,
