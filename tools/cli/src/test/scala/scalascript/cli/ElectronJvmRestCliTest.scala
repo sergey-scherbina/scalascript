@@ -198,11 +198,10 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     assert(validateTransportSelection(None, Some("http://server.example:8080"), Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("server-url")))
     assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("planned")))
 
-  test("validateRunJvmTransportSelection accepts http and diagnoses in-process"):
+  test("validateRunJvmTransportSelection accepts Swing in-process and rejects non-JVM frontends"):
     assert(validateRunJvmTransportSelection(Some("swing"), None).isRight)
     assert(validateRunJvmTransportSelection(Some("swing"), Some(BackendTransportKind.Http)).isRight)
-    assert(validateRunJvmTransportSelection(Some("swing"), Some(BackendTransportKind.InProcess))
-      .left.toOption.exists(msg => msg.contains("nested scala-cli") && msg.contains("monolithic Swing runtime")))
+    assert(validateRunJvmTransportSelection(Some("swing"), Some(BackendTransportKind.InProcess)).isRight)
     assert(validateRunJvmTransportSelection(Some("react"), Some(BackendTransportKind.InProcess))
       .left.toOption.exists(_.contains("requires a JVM-hosted frontend")))
     assert(validateRunJvmTransportSelection(None, Some(BackendTransportKind.InProcess))

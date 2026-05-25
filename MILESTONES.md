@@ -10428,10 +10428,10 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   Phase 4.
 - **Phase 3b ✓ Landed (2026-05-25)** — Swing JVM dev-run:
   `ssc run-jvm --frontend swing app.ssc` dispatches to the JVM/Swing dev-run
-  path. The JVM backend compiles with `frontendName=swing`, runs the generated
-  JVM script through `scala-cli`, and the JVM UI helper emits/launches the
-  native Swing bundle when `serve(view, port)` is called. Plain
-  `ssc run --frontend swing` and front matter `frontend: swing` preserve
+  path. The JVM backend compiles with `frontendName=swing`. This phase
+  originally emitted/launched a native Swing bundle through nested `scala-cli`;
+  Phase 4b superseded that launcher with same-process `SwingRuntime.run`.
+  Plain `ssc run --frontend swing` and front matter `frontend: swing` preserve
   interpreter semantics and now fail with a clear diagnostic until interpreter
   Swing intrinsics land.
 - **Phase 3c ✓ Landed (2026-05-25)** — Swing interpreter plugin skeleton:
@@ -10440,11 +10440,13 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   `serve(view, port)` / action bridge interpreter intrinsics remain Phase 4+.
 - **Phase 4 — In-process full-stack mode.** In progress: `ssc run-jvm` now
   accepts `--transport http|in-process` and reads `transport:` /
-  `fullstack.transport`; `http` keeps existing behavior, while
-  `--frontend swing --transport in-process` reports that the current nested
-  `scala-cli` Swing launcher is not monolithic. Remaining work: connect Swing
-  frontend actions to backend routes through `InProcessBackendTransport` and
-  add a no-socket full-stack example.
+  `fullstack.transport`; `http` keeps existing behavior. Phase 4b added
+  `SwingRuntime.run(module)` and switched `ssc run-jvm --frontend swing` away
+  from the nested `scala-cli` launcher, so Swing now runs in the same JVM
+  process as generated backend code and `--frontend swing --transport
+  in-process` is accepted. Remaining work: connect Swing frontend actions to
+  backend routes through `InProcessBackendTransport` and add a no-socket
+  full-stack example.
 - **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
   window metadata, graceful shutdown, and optional `jpackage` packaging.
 - **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose

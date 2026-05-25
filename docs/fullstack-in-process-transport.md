@@ -221,10 +221,12 @@ process with `InProcessBackendTransport`. Add a runnable example.
 
 In progress 2026-05-25: `ssc run-jvm` now accepts `--transport http|in-process`
 and reads `transport:` / `fullstack.transport` front matter through the same
-parser as `ssc run`. `http` keeps existing behavior. `in-process` currently
-fails with a Swing-specific diagnostic for `--frontend swing`, because the
-implemented Swing dev path launches generated desktop sources through a nested
-`scala-cli` process rather than one shared JVM process.
+parser as `ssc run`. `http` keeps existing behavior. Swing no longer launches
+generated desktop sources through a nested `scala-cli` process:
+`ssc run-jvm --frontend swing` now calls `SwingRuntime.run(module)` inside the
+current JVM, and `--frontend swing --transport in-process` is accepted as the
+monolithic runtime foundation. Generated route-client dispatch through
+`InProcessBackendTransport` remains the next phase.
 
 ### Phase 5 — Optional Desktop Bridge Transport
 

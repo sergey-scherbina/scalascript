@@ -227,8 +227,8 @@ All three commands:
 select the HTTP server implementation when the script defines HTTP routes.
 `ssc run-jvm` accepts `--frontend <custom|react|solid|vue|swing>` and
 `--transport http|in-process`; `http` is the current behavior, while
-`in-process` is parsed and rejected with a clear diagnostic until JVM
-monolithic frontend execution lands.
+`in-process` is accepted for the JVM-hosted Swing frontend and rejected with a
+clear diagnostic for frontend/backend pairs that cannot share one JVM process.
 
 When to use each:
 
@@ -1013,22 +1013,23 @@ example `server` (`side: server`) and `localCache` (`side: client`).
 Some target pairs can eventually run frontend and backend logic inside one
 runtime process. The CLI now recognizes `--transport http|in-process` and front
 matter `fullstack.transport` / `transport`. Interpreter route tests can already
-dispatch through `InProcessBackendTransport` without opening a socket, but
-generated frontend client selection for `--transport in-process` is **not
-implemented yet** and currently produces a clear diagnostic instead of silently
-falling back to HTTP. Distributed clients, browser-to-JVM apps, and
-server-only/client-only split commands remain HTTP/REST. See
+dispatch through `InProcessBackendTransport` without opening a socket, and
+`ssc run-jvm --frontend swing` now runs the Swing UI in the same JVM process
+instead of launching nested `scala-cli`. Generated frontend client selection
+for backend route calls is **not implemented yet**. Distributed clients,
+browser-to-JVM apps, and server-only/client-only split commands remain
+HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
 **Partially implemented: JVM desktop frontend.** ScalaScript now has a
 `frontend-swing` backend skeleton discovered through the frontend SPI, and the
 CLI accepts `--frontend swing`. `ssc run-jvm --frontend swing app.ssc` compiles
-through the JVM backend and launches generated JDK-only Swing sources through
-`scala-cli`; plain `ssc run --frontend swing` stays on the interpreter path and
+through the JVM backend and launches the JDK-only Swing runtime in the current
+JVM process; plain `ssc run --frontend swing` stays on the interpreter path and
 currently reports that Swing interpreter intrinsics are planned. `ssc run-jvm
---frontend swing --transport in-process` is also recognized but currently
-reports that the present nested `scala-cli` Swing launch is not a same-process
-runtime. The backend can emit a `JFrame` source artifact for a static
+--frontend swing --transport in-process` is accepted as the monolithic JVM mode
+foundation, but generated backend route dispatch from Swing actions is still
+planned. The backend can emit a `JFrame` source artifact for a static
 toolkit subset: text, buttons, text fields, checkboxes, vertical/horizontal
 stacks, spacers, dividers, scroll views, and basic style hints. It also supports
 local signal actions for buttons, text inputs, checkboxes, and signal-backed

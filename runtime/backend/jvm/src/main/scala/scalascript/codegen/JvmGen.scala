@@ -8685,14 +8685,10 @@ class JvmGen(
        |    java.nio.file.Files.write(_target, _bytes)
        |
        |def _ssc_ui_run_native(view: scalascript.frontend.View, extraCss: String = ""): Unit =
-       |  val _tmpDir = java.nio.file.Files.createTempDirectory("ssc-swing")
-       |  _ssc_ui_emit_native_to_dir(view, _tmpDir.toString, extraCss)
+       |  val _mod = _ssc_ui_buildModule(view, extraCss)
        |  println("ssc: launching Swing")
-       |  println("     bundle: " + _tmpDir)
-       |  val _scalaCli = Option(System.getProperty("scalascript.scalaCli")).filter(_.nonEmpty).getOrElse("scala-cli")
-       |  val _proc = ProcessBuilder(_scalaCli, "run", _tmpDir.toString, "--server=false").inheritIO().start()
-       |  val _exit = _proc.waitFor()
-       |  if _exit != 0 then sys.exit(_exit)
+       |  println("     mode:   same-process JVM")
+       |  scalascript.frontend.swing.SwingRuntime.run(_mod)
        |
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
        |  if _ssc_frontend_name == "swing" then

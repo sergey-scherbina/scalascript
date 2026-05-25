@@ -5,9 +5,10 @@ Status: **partially implemented** — May 2026.
 Phases 1-3 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
 accepts `--frontend swing`, and the backend can emit a native `JFrame` source
 artifact for a static toolkit subset with local signal actions. `ssc run-jvm
---frontend swing` launches that JVM desktop path through `scala-cli`. Plain
-`ssc run --frontend swing` remains the interpreter path and reports that Swing
-interpreter intrinsics are planned. In-process backend calls remain planned.
+--frontend swing` launches that JVM desktop path in the current JVM process via
+`SwingRuntime.run(module)`. Plain `ssc run --frontend swing` remains the
+interpreter path and reports that Swing interpreter intrinsics are planned.
+Generated in-process backend calls remain planned.
 
 This document defines a JVM-hosted desktop frontend target for ScalaScript. The
 first implementation target is Swing because it ships with the JDK and keeps the
@@ -93,7 +94,7 @@ Command surface:
 ```bash
 ssc run-jvm --frontend swing app.ssc
 ssc run-jvm --frontend swing --transport http app.ssc
-ssc run-jvm --frontend swing --transport in-process app.ssc  # parsed; diagnostic until Phase 4b
+ssc run-jvm --frontend swing --transport in-process app.ssc
 ssc run --frontend swing app.ssc                 # planned interpreter path
 ssc run --frontend swing --transport in-process app.ssc  # planned
 ```
@@ -110,13 +111,9 @@ Default policy:
 
 - `frontend: swing` selects the Swing frontend when the target/runtime supports
   JVM desktop execution.
-- `ssc run-jvm --frontend swing --transport in-process` is recognized and
-  currently rejected with a Swing-specific diagnostic because the implemented
-  dev path launches generated desktop sources through a nested `scala-cli`
-  process, not one shared JVM process.
-- `--transport in-process` should become the natural local full-stack mode for
-  Swing + JVM backend once Phase 4b replaces the nested launch with a
-  monolithic JVM runtime.
+- `ssc run-jvm --frontend swing --transport in-process` is accepted as the
+  monolithic JVM mode foundation. The Swing UI now runs in the current JVM
+  process; generated backend route dispatch from Swing actions remains planned.
 - `--transport http` should remain possible later for connecting Swing to a
   separately launched backend, but it is not the first implementation target.
 
@@ -230,14 +227,13 @@ Backend-route actions and transport dispatch remain Phase 4 work.
 
 Launch generated Swing desktop sources from `ssc run-jvm --frontend swing`.
 
-Status: **landed**. `ssc run-jvm --frontend swing` compiles through the JVM
-backend with `frontendName=swing` and runs the generated script through
-`scala-cli`. When a UI app calls `serve(view, port)`, the generated JVM UI
-helper emits the native Swing bundle via `emitNative(..., Platform.Desktop())`
-and launches that bundle through `scala-cli`. Plain `ssc run --frontend swing`
-now preserves interpreter semantics and reports that Swing interpreter
-intrinsics are not implemented yet. This still does not connect backend routes
-through `InProcessBackendTransport`; that remains Phase 4.
+Status: **landed, superseded by Phase 4b**. `ssc run-jvm --frontend swing`
+compiles through the JVM backend with `frontendName=swing`. Phase 3b originally
+emitted a native Swing bundle via `emitNative(..., Platform.Desktop())` and
+launched it through nested `scala-cli`; Phase 4b replaced that launcher with
+same-process `SwingRuntime.run(module)`. Plain `ssc run --frontend swing` still
+preserves interpreter semantics and reports that Swing interpreter intrinsics
+are not implemented yet. Backend route dispatch remains Phase 4 work.
 
 ### Phase 3c — Swing Interpreter Plugin Skeleton
 
@@ -256,11 +252,12 @@ Connect Swing frontend actions to backend routes through
 backend and updates the desktop UI without opening an HTTP socket.
 
 Status: **in progress**. Phase 4a landed transport-option recognition for
-`ssc run-jvm`: `--transport http` keeps existing behavior, and
-`--transport in-process` now fails with a precise diagnostic explaining that the
-current nested `scala-cli` Swing launcher is not monolithic. Phase 4b should
-replace that launch model or add an equivalent same-process Swing runner before
-connecting `FetchAction`/typed client calls to `InProcessBackendTransport`.
+`ssc run-jvm`. Phase 4b replaced the nested `scala-cli` Swing launcher with
+`SwingRuntime.run(module)`, so `ssc run-jvm --frontend swing` builds and shows
+the desktop UI in the same JVM process as the generated backend code.
+`--frontend swing --transport in-process` is now accepted. Remaining work:
+connect `FetchAction`/typed client calls to `InProcessBackendTransport` and add
+a no-socket full-stack example.
 
 ### Phase 5 — Packaging And Runtime Polish
 

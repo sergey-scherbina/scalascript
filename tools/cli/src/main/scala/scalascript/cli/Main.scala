@@ -2880,12 +2880,7 @@ private[cli] def validateRunJvmTransportSelection(
     case None | Some(BackendTransportKind.Http) => Right(())
     case Some(BackendTransportKind.InProcess) =>
       frontendName match
-        case Some("swing") =>
-          Left(
-            "run-jvm --frontend swing --transport in-process is planned but not implemented yet; " +
-              "the current Swing dev path launches the generated desktop app through a nested scala-cli process. " +
-              "Use --transport http or omit --transport until JVM monolithic Swing runtime lands."
-          )
+        case Some("swing") => Right(())
         case Some(other) =>
           Left(s"run-jvm --transport in-process requires a JVM-hosted frontend; '$other' is not supported")
         case None =>

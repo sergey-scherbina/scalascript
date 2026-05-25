@@ -3,6 +3,8 @@ package scalascript.frontend.swing
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.frontend.*
 
+import javax.swing.{JButton, JLabel}
+
 class SwingFrameworkBackendTest extends AnyFunSuite:
 
   test("ServiceLoader discovers SwingFrameworkBackend") {
@@ -143,3 +145,26 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(ex.getMessage.contains("Missing"))
     assert(ex.getMessage.contains("entryPoint"))
   }
+
+  test("SwingRuntime builds component tree and handles local signal actions in-process") {
+    val count = ReactiveSignal[Int]("count", 0)
+    val root = View.Element("div", Map.empty, Map.empty, Seq(
+      View.SignalText(count),
+      View.Button(View.Text(() => "Increment"), EventHandler.IncrementSignal(count))
+    ))
+    val panel = SwingRuntime.buildRoot(root)
+    val label = findFirst[JLabel](panel).getOrElse(fail("missing label"))
+    val button = findFirst[JButton](panel).getOrElse(fail("missing button"))
+
+    assert(label.getText == "0")
+    button.doClick()
+    assert(label.getText == "1")
+  }
+
+  private def findFirst[A](root: java.awt.Container)(using ct: reflect.ClassTag[A]): Option[A] =
+    root.getComponents.iterator.foldLeft(Option.empty[A]) {
+      case (found @ Some(_), _) => found
+      case (None, a: A) => Some(a)
+      case (None, c: java.awt.Container) => findFirst[A](c)
+      case (None, _) => None
+    }
