@@ -1069,9 +1069,10 @@ can use `awaitClient(Messages.list())`; JS codegen lowers it to `await
 Messages.list()` and wraps the client bundle in an async top-level function.
 Mark client-only ScalaScript blocks with `@side=client` when the same source is
 also compiled as a JVM server. Generated clients now route request encoding and
-response decoding through a typed JSON codec facade; the facade currently keeps
-existing JSON behavior but is the compatibility boundary for the future shared
-typed mapping layer. See
+response decoding through a typed JSON codec facade. In JVM/Swing mode, that
+facade now uses `scalascript.typeddata.JsonCodec[T]`, including derived
+case-class codecs; JS/browser/Electron clients still use the emitted JSON
+facade because that target has no Scala typeclass lookup at runtime. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
 **Planned, not implemented yet: browser client storage APIs.** Client frontends

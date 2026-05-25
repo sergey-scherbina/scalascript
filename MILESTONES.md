@@ -10535,8 +10535,11 @@ distributed same-source server/client example are partially landed.
   typed JSON facade snippets, and JVM/JS codegen import the same runtime
   contract. Follow-up landed 2026-05-25: `backend/typed-data` now has explicit
   `JsonCodec[A]`/`DecodeError`/`JsonValue` APIs and `derives JsonCodec` for
-  case classes. Remaining Phase 4 work: route the facade bodies through user
-  codecs and add ADT/sum derivation.
+  case classes. Follow-up landed 2026-05-25: JVM/Swing generated typed clients
+  now route request encoding and response decoding through `JsonCodec[T]` and
+  add the typed-data runtime jar when Swing API clients are present. Remaining
+  Phase 4 work: JS typed-client codec integration where feasible and ADT/sum
+  derivation.
 - **Phase 5 — Route derivation and validation.** Optionally derive clients from
   typed route declarations or typed `mount()` handlers and add static
   diagnostics for path/field/codec mismatches.

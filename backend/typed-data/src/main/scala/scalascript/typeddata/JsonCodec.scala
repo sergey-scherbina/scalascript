@@ -21,6 +21,14 @@ object JsonCodec:
       def encode(value: A): JsonValue = encodeValue(value)
       def decode(repr: JsonValue): Either[DecodeError, A] = decodeValue(repr)
 
+  given JsonCodec[Unit] = instance(
+    _ => JsonValue.Null,
+    {
+      case JsonValue.Null => Right(())
+      case other => Left(DecodeError(s"expected null, got ${JsonValue.kind(other)}"))
+    }
+  )
+
   given JsonCodec[String] = instance(
     JsonValue.Str.apply,
     {

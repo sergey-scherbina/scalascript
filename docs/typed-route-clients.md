@@ -307,6 +307,13 @@ request call sites no longer embed `_toJsonValue`, `_fromJson`, or
 `JSON.stringify` directly, and future data-mapping work can replace the facade
 body without changing generated client method shape.
 
+Partially landed follow-up 2026-05-25: JVM/Swing generated clients now route
+typed request encoding and typed response decoding through
+`scalascript.typeddata.JsonCodec[T]`. Case-class request/response values use the
+current `derives JsonCodec` support automatically through Scala 3 `Mirror`.
+The JS/browser/Electron HTTP client remains on the emitted JSON facade because
+that target does not have Scala typeclass lookup at runtime.
+
 ### Phase 5 — Route Derivation And Validation
 
 Optionally derive client declarations from typed route declarations or typed

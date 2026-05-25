@@ -270,6 +270,7 @@ class JvmGen(
     }
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    val apiClients = module.manifest.toList.flatMap(_.apiClients)
     val frontendFramework = module.manifest.flatMap(_.frontendFramework)
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     if blocksUseMcp(blocks) then
@@ -281,6 +282,8 @@ class JvmGen(
       sb.append(sscJarDirective("scalascript-frontend-core"))
       if effectiveFrontend.contains("swing") then
         sb.append(sscJarDirective("scalascript-backend-spi"))
+        if apiClients.nonEmpty then
+          sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       val fwLib = effectiveFrontend.getOrElse("react")
       sb.append(sscJarDirective(s"scalascript-frontend-$fwLib"))
 
@@ -322,9 +325,9 @@ class JvmGen(
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
-    emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
+    emitTypedRouteClientMetadata(apiClients, sb)
     if effectiveFrontend.contains("swing") then
-      emitSwingTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), sb)
+      emitSwingTypedRouteClients(apiClients, sb)
 
     // i18n table injection — emitted once before user blocks so t(key) resolves correctly.
     module.manifest.foreach { m =>
@@ -1093,15 +1096,16 @@ class JvmGen(
     sb.append("import _ssc_runtime.{given, *}\n\n")
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
+    val apiClients = module.manifest.toList.flatMap(_.apiClients)
     frontmatterRoutes.foreach { r =>
       val esc = r.path.replace("\\", "\\\\").replace("\"", "\\\"")
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
-    emitTypedRouteClientMetadata(module.manifest.toList.flatMap(_.apiClients), sb)
+    emitTypedRouteClientMetadata(apiClients, sb)
     val effectiveFrontend = frontendOverride.orElse(module.manifest.flatMap(_.frontendFramework))
     if effectiveFrontend.contains("swing") then
-      emitSwingTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), sb)
+      emitSwingTypedRouteClients(apiClients, sb)
 
     // i18n table injection — same as `genModule`.
     module.manifest.foreach { m =>
@@ -1442,8 +1446,7 @@ class JvmGen(
 
   private val swingTypedRouteClientRuntime: String =
     """|// ── Typed route clients: Swing in-process transport ────────────────
-       |import scala.compiletime.{constValue, erasedValue, summonInline}
-       |import scala.deriving.Mirror
+       |import scala.compiletime.{erasedValue, summonInline}
        |
        |private def _ssc_api_url_encode(value: Any): String =
        |  java.net.URLEncoder.encode(_show(value), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
@@ -1478,14 +1481,14 @@ class JvmGen(
        |  if fields.isEmpty then ""
        |  else fields.iterator.map((k, v) => _ssc_api_url_encode(k) + "=" + _ssc_api_url_encode(v)).mkString("?", "&", "")
        |
-       |""".stripMargin + TypedJsonCodecRuntime.jvmFacade + """|private def _ssc_api_body(method: String, input: Any): String =
+       |""".stripMargin + TypedJsonCodecRuntime.jvmFacade + """|private inline def _ssc_api_body[Req](method: String, input: Req): String =
        |  if method == "GET" || input == () then ""
-       |  else _ssc_typed_json_encode(input)
+       |  else _ssc_typed_json_encode[Req](input)
        |
        |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req): Resp =
        |  val method = methodRaw.toUpperCase
        |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
-       |  val response = _ssc_ui_backend_request(method, url, _ssc_api_body(method, input))
+       |  val response = _ssc_ui_backend_request(method, url, _ssc_api_body[Req](method, input))
        |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)

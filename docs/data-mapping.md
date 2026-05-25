@@ -78,6 +78,11 @@ writing product codecs, and initial `derives JsonCodec` support for case
 classes. ADT/sum derivation remains planned because it needs explicit tagging
 and compatibility rules.
 
+JVM/Swing generated typed route clients now use this `JsonCodec[T]` layer for
+typed request encoding and typed response decoding. JS/browser/Electron clients
+still call the emitted JSON facade directly because there is no Scala typeclass
+lookup in the generated JavaScript runtime.
+
 User code should stay direct:
 
 ```scalascript
