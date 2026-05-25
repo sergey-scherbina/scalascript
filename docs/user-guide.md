@@ -1108,7 +1108,9 @@ JVM/Swing and JS typed route clients share the same typed JSON facade names for
 request encoding and response decoding, while full user-defined/derived codecs
 remain planned. The same module now also exposes the first explicit Scala API:
 `JsonValue`, `DecodeError`, `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/
-option instances, and object-codec helpers for manually mapping case classes.
+option instances, object-codec helpers for manually mapping case classes, and
+initial `derives JsonCodec` support for case classes. ADT derivation remains
+planned.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. This keeps

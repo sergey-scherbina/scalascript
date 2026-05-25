@@ -72,9 +72,11 @@ trait Codec[A, Repr]
 trait JsonCodec[A] extends Codec[A, JsonValue]
 ```
 
-It includes primitive, `List[A]`, and `Option[A]` JSON codecs plus
+It includes primitive, `List[A]`, and `Option[A]` JSON codecs,
 `JsonCodec.objectCodec(...)` / `JsonCodec.field(...)` helpers for manually
-writing product codecs. Automatic `derives JsonCodec` remains planned.
+writing product codecs, and initial `derives JsonCodec` support for case
+classes. ADT/sum derivation remains planned because it needs explicit tagging
+and compatibility rules.
 
 User code should stay direct:
 
@@ -312,8 +314,9 @@ the same query model.
 1. **Spec + examples** — document the codec hierarchy, default derivation rules,
    identity/version envelope, and per-store examples.
 2. **Core codec foundation** — partially landed: `JsonValue`, `DecodeError`,
-   `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances, and
-   explicit object-codec helpers. Remaining: add `derives JsonCodec`.
+   `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances,
+   explicit object-codec helpers, and `derives JsonCodec` for case classes.
+   Remaining: ADT/sum derivation and schema annotations.
 3. **SQL row mapping** — add `derives RowCodec`, `Db.query[A]`, and
    insert/update helpers for simple case classes.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,

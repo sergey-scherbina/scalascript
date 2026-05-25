@@ -51,3 +51,33 @@ class JsonCodecTest extends AnyFunSuite:
 
   test("primitive JsonCodec rejects lossy integer decoding"):
     assert(JsonCodec[Int].decode(JsonValue.Num(BigDecimal("1.5"))).left.toOption.exists(_.render == "$: expected int, got 1.5"))
+
+  final case class DerivedTodo(id: String, done: Boolean, priority: Option[Int]) derives JsonCodec
+  final case class DerivedBoard(name: String, todos: List[DerivedTodo]) derives JsonCodec
+
+  test("derives JsonCodec maps case classes by field name"):
+    val board = DerivedBoard("main", List(DerivedTodo("1", done = true, priority = Some(3))))
+    val encoded = JsonCodec[DerivedBoard].encode(board)
+
+    assert(encoded == JsonValue.obj(
+      "name" -> JsonValue.Str("main"),
+      "todos" -> JsonValue.arr(JsonValue.obj(
+        "id" -> JsonValue.Str("1"),
+        "done" -> JsonValue.Bool(true),
+        "priority" -> JsonValue.Num(3)
+      ))
+    ))
+    assert(JsonCodec[DerivedBoard].decode(encoded) == Right(board))
+
+  test("derived JsonCodec reports nested field paths"):
+    val bad = JsonValue.obj(
+      "name" -> JsonValue.Str("main"),
+      "todos" -> JsonValue.arr(JsonValue.obj(
+        "id" -> JsonValue.Str("1"),
+        "done" -> JsonValue.Str("yes"),
+        "priority" -> JsonValue.Null
+      ))
+    )
+
+    val error = JsonCodec[DerivedBoard].decode(bad).left.toOption.get
+    assert(error.render == "$.todos.0.done: expected boolean, got string")
