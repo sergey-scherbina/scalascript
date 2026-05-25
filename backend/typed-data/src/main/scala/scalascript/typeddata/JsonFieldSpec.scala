@@ -3,7 +3,8 @@ package scalascript.typeddata
 final case class JsonFieldSpec[A](
     name:    String,
     aliases: List[String] = Nil,
-    default: Option[A] = None
+    default: Option[A] = None,
+    key:     Boolean = false
 )(using val codec: JsonCodec[A]):
   def names: List[String] = name :: aliases
 
@@ -13,3 +14,6 @@ object JsonFieldSpec:
 
   def withDefault[A: JsonCodec](name: String, default: A, aliases: String*): JsonFieldSpec[A] =
     JsonFieldSpec[A](name, aliases.toList, Some(default))
+
+  def key[A: JsonCodec](name: String, aliases: String*): JsonFieldSpec[A] =
+    JsonFieldSpec[A](name, aliases.toList, None, key = true)

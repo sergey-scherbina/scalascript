@@ -97,16 +97,24 @@ The first row-mapping API also lives in `backend/typed-data`:
 ```scala
 enum RowValue
 trait RowValueCodec[A]
+final case class RowFieldSpec[A](name, aliases, default, key)
 trait RowCodec[A] extends Codec[A, Map[String, RowValue]]
 ```
 
 It currently supports primitive column values, nullable `Option[A]` columns, and
-`derives RowCodec` for simple case classes. It is the codec foundation for SQL
-rows and Spark-like tabular schemas. `SqlRuntime.query[A](conn, sql, binds)` now
-executes JDBC reads and decodes result rows through `RowCodec[A]`; interpreter
-and JVM codegen now expose typed SQL reads as `Db.query[A](dbName, sql, binds)`.
-`SqlRuntime.insert/update[A]` and interpreter/JVM `Db.insert/update[A]` encode
-typed values for explicit table/key based writes.
+`derives RowCodec` for simple case classes. Explicit row codecs can use
+`RowFieldSpec[A]` for canonical column names, aliases for renamed columns,
+default values for missing columns, key-column metadata, case-insensitive JDBC
+column lookup, and opt-in unknown-column rejection. It is the codec foundation
+for SQL rows and Spark-like tabular schemas. `SqlRuntime.query[A](conn, sql,
+binds)` now executes JDBC reads and decodes result rows through `RowCodec[A]`;
+interpreter and JVM codegen now expose typed SQL reads as `Db.query[A](dbName,
+sql, binds)`. `SqlRuntime.insert/update[A]` and interpreter/JVM
+`Db.insert/update[A]` encode typed values for explicit table/key based writes.
+The explicit `RowFieldSpec` metadata is currently consumed by the JVM
+`RowCodec`/`SqlRuntime` path; interpreter typed helpers use runtime case-class
+field metadata and do not yet consume aliases/defaults from Scala typeclass
+instances.
 See [`examples/typed-sql-crud.ssc`](../examples/typed-sql-crud.ssc) for a
 minimal CRUD example.
 
@@ -349,7 +357,7 @@ the same query model.
    `Codec[A, Repr]`, `JsonCodec[A]`, primitive/list/option instances,
    explicit object-codec helpers, `derives JsonCodec` for case classes,
    discriminator-based sealed ADT derivation, and explicit `JsonFieldSpec`
-   rename/default/unknown-field helpers. Remaining: annotation syntax and
+   rename/default/key/unknown-field helpers. Remaining: annotation syntax and
    derived-codec integration for those schema options.
 3. **SQL row mapping** — partially landed: `RowValue`, `RowValueCodec[A]`,
    primitive/nullable column codecs, and `derives RowCodec` for simple case
@@ -358,8 +366,12 @@ the same query model.
    `Db.query[A]` for programmatic SQL reads. Follow-up landed: `SqlRuntime` and
    JVM `Db` expose typed `insert/update[A]` helpers over `RowCodec[A]`.
    Follow-up landed: interpreter `Db.query/insert/update[A]` now mirrors the
-   typed SQL read/write API using runtime case-class field metadata. Remaining:
-   richer schema metadata.
+   typed SQL read/write API using runtime case-class field metadata. Follow-up
+   landed: `RowFieldSpec[A]` adds explicit column aliases, defaults, key
+   metadata, case-insensitive lookup, and unknown-column rejection to the JVM
+   `RowCodec`/`SqlRuntime` path. Remaining: annotation/front-matter syntax,
+   derived-codec integration for schema options, and interpreter consumption of
+   explicit field metadata.
 4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
    and server ObjectStore collections.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property

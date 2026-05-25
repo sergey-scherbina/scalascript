@@ -10369,7 +10369,12 @@ modes opt out of that default.
   encode typed values through `RowCodec[A]` for explicit table/key based SQL
   writes, with scala-cli smoke coverage. Follow-up landed 2026-05-26:
   interpreter `Db.query/insert/update[A]` now mirrors the typed SQL API using
-  runtime case-class field metadata. Richer schema metadata remains planned.
+  runtime case-class field metadata. Follow-up landed 2026-05-26:
+  `RowFieldSpec[A]` and `JsonFieldSpec[A]` now carry explicit key metadata;
+  JVM `RowCodec`/`SqlRuntime` supports canonical column names, aliases, defaults,
+  case-insensitive lookup, and opt-in unknown-column rejection. Remaining:
+  annotation/front-matter syntax, derived-codec integration for schema options,
+  interpreter consumption of explicit field metadata, and cross-store codecs.
 
 ## v1.44 — Full-Stack In-Process Transport
 

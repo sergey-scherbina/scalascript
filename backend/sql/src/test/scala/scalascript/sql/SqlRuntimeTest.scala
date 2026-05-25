@@ -6,7 +6,7 @@ import java.util.UUID
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.BeforeAndAfterAll
-import scalascript.typeddata.RowCodec
+import scalascript.typeddata.{RowCodec, RowFieldSpec, RowValue, RowValueCodec}
 
 /** v1.26 Phase 4 — end-to-end JDBC executor coverage.
  *
@@ -48,6 +48,13 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
           |  name   VARCHAR(120) NOT NULL,
           |  email  VARCHAR(255),
           |  active BOOLEAN NOT NULL
+          |)""".stripMargin,
+        Nil)
+      SqlRuntime.execute(c,
+        """CREATE TABLE schema_users (
+          |  id           BIGINT PRIMARY KEY,
+          |  display_name VARCHAR(120) NOT NULL,
+          |  active       BOOLEAN NOT NULL
           |)""".stripMargin,
         Nil)
       ()
@@ -156,6 +163,29 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
 
   case class TypedUserSummary(id: Long, name: String, email: Option[String], active: Boolean) derives RowCodec
 
+  case class SchemaUserSummary(id: Long, displayName: String, active: Boolean)
+
+  object SchemaUserSummary:
+    private val idColumn = RowFieldSpec.key[Long]("id")
+    private val displayNameColumn = RowFieldSpec.required[String]("display_name", "name")
+    private val activeColumn = RowFieldSpec.withDefault[Boolean]("active", true)
+
+    given RowCodec[SchemaUserSummary] = RowCodec.objectCodec(
+      user => Map(
+        idColumn.name -> RowValueCodec[Long].encode(user.id),
+        displayNameColumn.name -> RowValueCodec[String].encode(user.displayName),
+        activeColumn.name -> RowValueCodec[Boolean].encode(user.active)
+      ),
+      row =>
+        for
+          id <- RowCodec.field(row, idColumn)
+          displayName <- RowCodec.field(row, displayNameColumn)
+          active <- RowCodec.field(row, activeColumn)
+        yield SchemaUserSummary(id, displayName, active),
+      fields = List(idColumn, displayNameColumn, activeColumn),
+      rejectUnknown = true
+    )
+
   test("SqlRuntime.query[A] decodes rows through RowCodec") {
     withConn { c =>
       val users = SqlRuntime.query[TypedUserSummary](c,
@@ -176,6 +206,29 @@ class SqlRuntimeTest extends AnyFunSuite with BeforeAndAfterAll:
           List(1L))
       }
       assert(ex.getMessage == "$.active: missing column 'active'")
+    }
+  }
+
+  test("SqlRuntime.query[A] honors RowFieldSpec aliases and defaults") {
+    withConn { c =>
+      val users = SqlRuntime.query[SchemaUserSummary](c,
+        "SELECT id AS id, name AS name FROM users WHERE id = ?",
+        List(1L))
+      assert(users == Vector(SchemaUserSummary(1L, "Alice", active = true)))
+    }
+  }
+
+  test("SqlRuntime.insert[A] uses canonical RowFieldSpec column names") {
+    withConn { c =>
+      val count = SqlRuntime.insert(c, "schema_users",
+        SchemaUserSummary(31L, "Canonical", active = false))
+      assert(count == 1)
+
+      val rows = SqlRuntime
+        .execute(c, "SELECT id, display_name, active FROM schema_users WHERE id = ?", List(31L))
+        .asInstanceOf[SqlResult.Rows].rows
+      assert(rows.head("DISPLAY_NAME") == "Canonical")
+      assert(rows.head.toRowValueMap("display_name") == RowValue.Str("Canonical"))
     }
   }
 

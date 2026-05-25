@@ -35,3 +35,49 @@ class RowCodecTest extends AnyFunSuite:
     )).left.toOption.get
 
     assert(error.render == "$.age: expected number column, got string")
+
+  final case class SchemaUser(id: String, displayName: String, active: Boolean)
+
+  object SchemaUser:
+    private val idColumn = RowFieldSpec.key[String]("id")
+    private val displayNameColumn = RowFieldSpec.required[String]("display_name", "name")
+    private val activeColumn = RowFieldSpec.withDefault[Boolean]("active", true)
+
+    given RowCodec[SchemaUser] = RowCodec.objectCodec(
+      user => Map(
+        idColumn.name -> RowValueCodec[String].encode(user.id),
+        displayNameColumn.name -> RowValueCodec[String].encode(user.displayName),
+        activeColumn.name -> RowValueCodec[Boolean].encode(user.active)
+      ),
+      row =>
+        for
+          id <- RowCodec.field(row, idColumn)
+          displayName <- RowCodec.field(row, displayNameColumn)
+          active <- RowCodec.field(row, activeColumn)
+        yield SchemaUser(id, displayName, active),
+      fields = List(idColumn, displayNameColumn, activeColumn),
+      rejectUnknown = true
+    )
+
+  test("explicit RowCodec field specs support aliases, defaults, and key metadata"):
+    val row = Map(
+      "id" -> RowValue.Str("u1"),
+      "name" -> RowValue.Str("Ada")
+    )
+
+    assert(RowCodec[SchemaUser].decode(row) == Right(SchemaUser("u1", "Ada", active = true)))
+    assert(RowCodec[SchemaUser].encode(SchemaUser("u1", "Ada", active = false)) == Map(
+      "id" -> RowValue.Str("u1"),
+      "display_name" -> RowValue.Str("Ada"),
+      "active" -> RowValue.Bool(false)
+    ))
+
+  test("explicit RowCodec field specs reject unknown columns when requested"):
+    val row = Map(
+      "id" -> RowValue.Str("u1"),
+      "display_name" -> RowValue.Str("Ada"),
+      "active" -> RowValue.Bool(true),
+      "extra" -> RowValue.Str("nope")
+    )
+
+    assert(RowCodec[SchemaUser].decode(row).left.toOption.exists(_.render == "$.extra: unknown column 'extra'"))

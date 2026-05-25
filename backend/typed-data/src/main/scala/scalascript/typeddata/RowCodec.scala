@@ -87,12 +87,39 @@ object RowCodec:
       def decode(repr: Map[String, RowValue]): Either[DecodeError, A] = decodeRow(repr)
 
   def field[A](row: Map[String, RowValue], name: String)(using codec: RowValueCodec[A]): Either[DecodeError, A] =
-    row.get(name) match
+    lookup(row, name) match
       case Some(value) => codec.decode(value).left.map(_.at(name))
       case None => Left(DecodeError(s"missing column '$name'").at(name))
 
+  def field[A](row: Map[String, RowValue], spec: RowFieldSpec[A]): Either[DecodeError, A] =
+    spec.names.collectFirst(Function.unlift(name => lookup(row, name))) match
+      case Some(value) => spec.codec.decode(value).left.map(_.at(spec.name))
+      case None =>
+        spec.default match
+          case Some(value) => Right(value)
+          case None => Left(DecodeError(s"missing column '${spec.name}'").at(spec.name))
+
+  def rejectUnknownColumns(row: Map[String, RowValue], specs: Iterable[RowFieldSpec[?]]): Either[DecodeError, Unit] =
+    val known = specs.iterator.flatMap(_.names).map(_.toLowerCase(java.util.Locale.ROOT)).toSet
+    row.keys.find(name => !known.contains(name.toLowerCase(java.util.Locale.ROOT))) match
+      case Some(name) => Left(DecodeError(s"unknown column '$name'").at(name))
+      case None => Right(())
+
+  def objectCodec[A](
+      encodeRow: A => Map[String, RowValue],
+      decodeRow: Map[String, RowValue] => Either[DecodeError, A],
+      fields: Iterable[RowFieldSpec[?]] = Nil,
+      rejectUnknown: Boolean = false
+  ): RowCodec[A] =
+    instance(
+      encodeRow,
+      row =>
+        if rejectUnknown then rejectUnknownColumns(row, fields).flatMap(_ => decodeRow(row))
+        else decodeRow(row)
+    )
+
   private inline def derivedProduct[A](using mirror: Mirror.ProductOf[A]): RowCodec[A] =
-    instance[A](
+    objectCodec[A](
       value =>
         val labels = elementLabels[mirror.MirroredElemLabels]
         val encoded = encodeElements[mirror.MirroredElemTypes](value.asInstanceOf[Product].productIterator)
@@ -102,6 +129,13 @@ object RowCodec:
         decodeElements[mirror.MirroredElemTypes, mirror.MirroredElemLabels](row)
           .map(values => mirror.fromProduct(Tuple.fromArray(values.toArray)))
     )
+
+  private def lookup(row: Map[String, RowValue], name: String): Option[RowValue] =
+    row.get(name).orElse {
+      row.collectFirst {
+        case (key, value) if key.equalsIgnoreCase(name) => value
+      }
+    }
 
   private inline def elementLabels[Labels <: Tuple]: List[String] =
     inline erasedValue[Labels] match
