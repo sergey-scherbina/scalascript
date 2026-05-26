@@ -1,0 +1,21 @@
+---
+graphs:
+  deps:
+    model: property
+    side: server
+    backend: in-memory
+---
+
+# Graph Storage Interpreter
+
+```scalascript
+case class Module(id: String, path: String)
+case class Imports(from: String, to: String, reason: String)
+
+Graph.putVertex("deps", Module("A", "a.ssc"))
+Graph.putVertex("deps", Module("B", "b.ssc"))
+Graph.putEdge("deps", Imports("A", "B", "direct"))
+
+val imported = Graph.neighbors("deps", "A", Some("imports")).map(_.path).mkString(",")
+println(s"imports:$imported")
+```

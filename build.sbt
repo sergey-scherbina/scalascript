@@ -523,7 +523,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("runtime/backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, graphPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -618,7 +618,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, graphPlugin, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -789,7 +789,7 @@ lazy val cli = project
       val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
                                   "scalascript-request-plugin", "scalascript-auth-plugin",
                                   "scalascript-oauth-plugin", "scalascript-fetch-plugin",
-                                  "scalascript-sql-plugin",
+                                  "scalascript-graph-plugin", "scalascript-sql-plugin",
                                   "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin",
                                   "scalascript-swing-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
@@ -810,6 +810,7 @@ lazy val cli = project
         (authPlugin     / packagePlugin).value,
         (oauthPlugin    / packagePlugin).value,
         (fetchPlugin    / packagePlugin).value,
+        (graphPlugin    / packagePlugin).value,
         (sqlPlugin      / packagePlugin).value,
         (httpPlugin     / packagePlugin).value,
         (wsPlugin       / packagePlugin).value,
@@ -1929,6 +1930,16 @@ lazy val fetchPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.fetch"))
 
+lazy val graphPlugin = project
+  .in(file("runtime/std/graph-plugin"))
+  .dependsOn(backendSpi, ir, core)
+  .settings(
+    name := "scalascript-graph-plugin",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.graph"))
+
 lazy val sqlPlugin = project
   .in(file("runtime/std/sql-plugin"))
   .dependsOn(backendSpi, ir, core, backendSqlRuntime)
@@ -2019,7 +2030,7 @@ lazy val root = project
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
     jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
-    authPlugin, oauthPlugin, fetchPlugin, sqlPlugin,
+    authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin,
     paymentRequestPlugin, paymentRequest,
   )

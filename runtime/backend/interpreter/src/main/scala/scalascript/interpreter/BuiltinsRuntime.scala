@@ -47,7 +47,7 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("println") = interp.globals("Console.println")
     interp.globals("print")   = interp.globals("Console.print")
 
-    // Plugin-provided companion objects (Db, DriverManager) are set up in
+    // Plugin-provided companion objects (Db, DriverManager, Graph) are set up in
     // setupPluginCompanions, called from ensurePluginsLoaded after the plugin
     // intrinsics have been registered.
 
@@ -590,7 +590,7 @@ private[interpreter] object BuiltinsRuntime:
       case _ => throw InterpretError("exists(path: String): Boolean")
     })
 
-  /** Install plugin-provided companion objects (Db, DriverManager) after their
+  /** Install plugin-provided companion objects (Db, DriverManager, Graph) after their
    *  NativeImpl intrinsics have been registered via `ensurePluginsLoaded`.
    *  Must be called after `installNativeIntrinsics(pluginImpls)` so the
    *  underlying globals are present. */
@@ -608,6 +608,20 @@ private[interpreter] object BuiltinsRuntime:
         ) ++ interp.globals.get("Db.insert").map("insert" -> _) ++
           interp.globals.get("Db.update").map("update" -> _))
       case _ => ()
+    interp.globals.get("Graph.putVertex").foreach { putVertexFn =>
+      interp.globals("Graph") = Value.InstanceV("Graph", Map(
+        "putVertex"      -> putVertexFn,
+        "getVertex"      -> interp.globals("Graph.getVertex"),
+        "vertices"       -> interp.globals("Graph.vertices"),
+        "putEdge"        -> interp.globals("Graph.putEdge"),
+        "edges"          -> interp.globals("Graph.edges"),
+        "neighborValues" -> interp.globals("Graph.neighborValues"),
+        "neighbors"      -> interp.globals("Graph.neighbors"),
+        "putRdf"         -> interp.globals("Graph.putRdf"),
+        "getRdf"         -> interp.globals("Graph.getRdf"),
+        "triples"        -> interp.globals("Graph.triples")
+      ))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

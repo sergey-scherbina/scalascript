@@ -289,6 +289,8 @@ Defaults:
 - JVM codegen now parses `graphs:` front matter and exposes `Graph.putVertex`,
   `Graph.getVertex`, `Graph.vertices`, `Graph.putEdge`, `Graph.edges`, and
   `Graph.neighbors` over declared in-memory stores;
+- `runtime/std/graph-plugin` exposes the same portable `Graph.*` surface on the
+  interpreter path, storing runtime case-class values directly;
 - complex traversal remains backend-specific through `Gremlin.query`,
   `Cypher.query`, or portable `Graph.*` helpers.
 
@@ -469,9 +471,10 @@ the same query model.
    2026-05-26: `backend/graph` adds the portable `PropertyGraphBackend` /
    `RdfGraphBackend` contracts plus an in-memory JVM backend. Follow-up landed
    2026-05-26: `graphs:` metadata survives AST/IR/.sscc and JvmGen emits a
-   `Graph.*` facade for declared in-memory graph stores. Remaining:
-   interpreter intrinsics, TinkerGraph/RDF4J adapters, and production graph
-   providers.
+   `Graph.*` facade for declared in-memory graph stores. Follow-up landed
+   2026-05-26: `runtime/std/graph-plugin` mirrors the portable `Graph.*`
+   facade for the interpreter path. Remaining: TinkerGraph/RDF4J adapters and
+   production graph providers.
 6. **RDF mapping** — landed 2026-05-26: `RdfCodec[A]` derives simple RDF
    triple mappings with predicate/class/id annotations.
 7. **Dataset/Spark mapping integration** — align existing `Dataset[T]`,
