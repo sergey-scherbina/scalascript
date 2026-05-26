@@ -1192,14 +1192,15 @@ policies. See
 **Planned, partially implemented: graph storage.** Graph-shaped data is planned
 as a separate persistence family. Property graphs cover vertices, edges, labels,
 properties, and traversal-heavy domains; RDF graphs cover triples/quads, linked
-data, ontologies, and SPARQL. The first JVM runtime slice is available in
-`backend/graph`: `GraphRuntime.inMemory()` stores typed vertices, edges, RDF
-subjects, and triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec`
-mapping layer. JVM codegen now parses `graphs:` front matter and emits a
-typed `.ssc` `Graph.*` facade for declared in-memory stores; the interpreter
-loads `runtime/std/graph-plugin` and provides the same portable facade over
-runtime case-class values. TinkerGraph/TinkerPop, RDF4J, and production
-adapters such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and
+data, ontologies, and SPARQL. The first JVM runtime slices are available in
+`backend/graph`: `GraphRuntime.inMemory()`, `GraphRuntime.tinkerGraph()`, and
+`GraphRuntime.rdf4jMemory()` store typed vertices, edges, RDF subjects, and
+triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec` mapping layer.
+JVM codegen now parses `graphs:` front matter and emits a typed `.ssc`
+`Graph.*` facade for declared in-memory, `embedded-tinkergraph`, and
+`rdf4j-memory` stores; the interpreter loads `runtime/std/graph-plugin` and
+provides the same portable in-memory facade over runtime case-class values.
+Production adapters such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and
 RDF4J-compatible servers remain planned. See
 [`graph-storage.md`](graph-storage.md).
 

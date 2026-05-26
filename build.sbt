@@ -930,7 +930,12 @@ lazy val backendGraphRuntime = project
   .dependsOn(backendTypedDataRuntime)
   .settings(
     name := "scalascript-backend-graph-runtime",
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= Seq(
+      "org.apache.tinkerpop" % "tinkergraph-gremlin" % "3.8.1",
+      "org.eclipse.rdf4j"    % "rdf4j-repository-sail" % "5.3.1",
+      "org.eclipse.rdf4j"    % "rdf4j-sail-memory"    % "5.3.1",
+      scalatestTest,
+    ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

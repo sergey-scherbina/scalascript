@@ -47,3 +47,33 @@ class JvmGenGraphRuntimeTest extends AnyFunSuite:
 
     assert(code.contains("scalascript-backend-graph-runtime"))
     assert(code.contains("\"default\" -> scalascript.graph.GraphRuntime.inMemory()"))
+
+  test("JVM codegen emits embedded graph adapters and external runtime deps"):
+    val source =
+      """---
+        |graphs:
+        |  deps:
+        |    model: property
+        |    side: server
+        |    backend: embedded-tinkergraph
+        |  kg:
+        |    model: rdf
+        |    side: server
+        |    backend: rdf4j-memory
+        |---
+        |
+        |# Test
+        |
+        |```scala
+        |Graph.neighborValues("deps", "A")
+        |Graph.triples("kg")
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(source))
+
+    assert(code.contains("""//> using dep "org.apache.tinkerpop:tinkergraph-gremlin:3.8.1""""))
+    assert(code.contains("""//> using dep "org.eclipse.rdf4j:rdf4j-repository-sail:5.3.1""""))
+    assert(code.contains("""//> using dep "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1""""))
+    assert(code.contains("\"deps\" -> scalascript.graph.GraphRuntime.tinkerGraph()"))
+    assert(code.contains("\"kg\" -> scalascript.graph.GraphRuntime.rdf4jMemory()"))

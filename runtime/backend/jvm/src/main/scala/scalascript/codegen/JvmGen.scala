@@ -284,6 +284,7 @@ class JvmGen(
     if usesGraph then
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
       sb.append(sscJarDirective("scalascript-backend-graph-runtime"))
+      graphRuntimeDeps(graphStores).foreach(dep => sb.append(s"""//> using dep "$dep"\n"""))
 
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
@@ -1488,6 +1489,10 @@ class JvmGen(
           s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: only side=server is supported by the JVM graph facade today\")"
         else if Set("in-memory", "memory", "embedded-memory", "rdf-memory").contains(backend) then
           "scalascript.graph.GraphRuntime.inMemory()"
+        else if Set("embedded-tinkergraph", "tinkergraph", "tinkerpop-tinkergraph").contains(backend) then
+          "scalascript.graph.GraphRuntime.tinkerGraph()"
+        else if Set("rdf4j-memory", "rdf4j", "embedded-rdf4j").contains(backend) then
+          "scalascript.graph.GraphRuntime.rdf4jMemory()"
         else
           s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: backend '$backend' for model '$model' is planned but not implemented yet\")"
       s"  \"$name\" -> $rhs"
@@ -1523,6 +1528,20 @@ class JvmGen(
                  |
                  |""".stripMargin)
     sb.toString
+
+  private def graphRuntimeDeps(graphs: List[scalascript.ast.GraphDecl]): Vector[String] =
+    val deps = Vector.newBuilder[String]
+    graphs.foreach { graph =>
+      graph.backend.toLowerCase match
+        case backend if Set("embedded-tinkergraph", "tinkergraph", "tinkerpop-tinkergraph").contains(backend) =>
+          deps += "org.apache.tinkerpop:tinkergraph-gremlin:3.8.1"
+        case backend if Set("rdf4j-memory", "rdf4j", "embedded-rdf4j").contains(backend) =>
+          deps += "org.eclipse.rdf4j:rdf4j-repository-sail:5.3.1"
+          deps += "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1"
+        case _ =>
+          ()
+    }
+    deps.result().distinct
 
   private def emitObjectStoreSyncRoutes(stores: List[ObjectStoreDecl], sb: StringBuilder): Unit =
     sb.append("// ── ObjectStore generated REST sync routes ─────────────────────\n")

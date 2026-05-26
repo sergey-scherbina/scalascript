@@ -1,0 +1,21 @@
+---
+graphs:
+  kg:
+    model: rdf
+    side: server
+    backend: rdf4j-memory
+---
+
+# RDF4J Graph Storage
+
+```scala
+import scalascript.typeddata.{JsonCodec, RdfCodec, RdfNode, rdf, rdfClass, rdfId}
+
+@rdfClass("urn:schema:Person")
+case class Person(@rdfId id: String, @rdf("urn:schema:name") name: String) derives JsonCodec, RdfCodec
+
+Graph.putRdf("kg", Person("urn:person:1", "Ada"))
+
+val loaded = Graph.getRdf[Person]("kg", RdfNode.Iri("urn:person:1")).get
+println(s"person:${loaded.name}")
+```

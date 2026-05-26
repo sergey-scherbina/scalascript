@@ -44,3 +44,30 @@ class GraphRuntimeTest extends AnyFunSuite:
       RdfTriple(subject, "schema:name", RdfNode.Literal(JsonValue.Str("Ada")))
     ))
     assert(GraphRuntime.getRdf[PersonRdf](graph, subject) == Some(PersonRdf("urn:person:1", "Ada")))
+
+  test("TinkerGraph adapter stores typed vertices, edges, and neighbors"):
+    val graph = GraphRuntime.tinkerGraph()
+    GraphRuntime.putVertex(graph, ModuleVertex("A", "a.ssc"))
+    GraphRuntime.putVertex(graph, ModuleVertex("B", "b.ssc"))
+    val edge = GraphRuntime.putEdge(graph, ImportEdge("A", "B", "direct"))
+
+    assert(edge.id == "A-imports-B")
+    assert(graph.capabilities.supports(GraphModel.Property))
+    assert(graph.capabilities.supports(GraphQueryLanguage.Gremlin))
+    assert(GraphRuntime.getVertex[ModuleVertex](graph, "A") == Some(ModuleVertex("A", "a.ssc")))
+    assert(GraphRuntime.vertices[ModuleVertex](graph).map(_.id) == Vector("A", "B"))
+    assert(GraphRuntime.edges[ImportEdge](graph) == Vector(ImportEdge("A", "B", "direct")))
+    assert(graph.neighbors("A", Some("imports")).map(_.id) == Vector("B"))
+
+  test("RDF4J memory adapter stores typed RDF subjects and triples"):
+    val graph = GraphRuntime.rdf4jMemory()
+    val subject = RdfNode.Iri("urn:person:1")
+    GraphRuntime.putRdf(graph, PersonRdf("urn:person:1", "Ada"))
+
+    assert(graph.capabilities.supports(GraphModel.Rdf))
+    assert(graph.capabilities.supports(GraphQueryLanguage.Sparql))
+    assert(graph.subjects() == Vector(subject))
+    assert(graph.triples(subject = Some(subject), predicate = Some("schema:name")) == Vector(
+      RdfTriple(subject, "schema:name", RdfNode.Literal(JsonValue.Str("Ada")))
+    ))
+    assert(GraphRuntime.getRdf[PersonRdf](graph, subject) == Some(PersonRdf("urn:person:1", "Ada")))

@@ -2,8 +2,9 @@
 
 Status: **planned, partially implemented**. This document specifies graph
 database support for ScalaScript across embedded, server, and remote backends.
-The first implementation slice is a lightweight JVM runtime contract plus an
-in-memory portable backend in `backend/graph`.
+The first implementation slices provide the JVM runtime contract, an in-memory
+portable backend, and embedded TinkerGraph/RDF4J memory adapters in
+`backend/graph`.
 
 ## Goals
 
@@ -176,9 +177,11 @@ Graph.putEdge("deps", Imports("A", "B"))
 val next = Graph.neighbors[Module]("deps", "A", Some("imports"))
 ```
 
-On `run-jvm`, `Graph.neighbors[A]` decodes through typed graph codecs. On the
-interpreter path, `Graph.neighbors` returns the stored runtime case-class
-values directly. Non-JVM frontend/client graph stores remain planned.
+On `run-jvm`, `Graph.neighbors[A]` decodes through typed graph codecs. The JVM
+facade supports `backend: in-memory`, `embedded-tinkergraph`, and
+`rdf4j-memory` today. On the interpreter path, `Graph.neighbors` returns the
+stored runtime case-class values directly through the in-memory plugin.
+Non-JVM frontend/client graph stores remain planned.
 
 Query-language-specific escape hatches:
 
@@ -233,12 +236,18 @@ server-side graph milestone.
 2.2. **Interpreter facade** — landed 2026-05-26: `runtime/std/graph-plugin`
    registers interpreter `Graph.*` intrinsics for in-memory property/RDF graph
    stores. Example: `examples/graph-storage-interpreter.ssc`.
-3. **Embedded property graph** — first slice landed 2026-05-26 with an
-   in-memory portable backend. Next slice: add TinkerGraph/TinkerPop-backed
-   server graph support and a dependency-graph example.
-4. **Embedded RDF graph** — first slice landed 2026-05-26 with in-memory RDF
-   triple storage. Next slice: add RDF4J memory/native repository support and a
-   SPARQL example.
+3. **Embedded property graph** — landed 2026-05-26: `embedded-tinkergraph`,
+   `tinkergraph`, and `tinkerpop-tinkergraph` front-matter backends select
+   `GraphRuntime.tinkerGraph()`, backed by Apache TinkerPop TinkerGraph.
+   Portable vertex/edge/neighbors operations share the same `Graph.*` facade as
+   the in-memory backend. Example: `examples/graph-storage.ssc`.
+4. **Embedded RDF graph** — landed 2026-05-26: `rdf4j-memory`, `rdf4j`, and
+   `embedded-rdf4j` front-matter backends select `GraphRuntime.rdf4jMemory()`,
+   backed by RDF4J `SailRepository` + `MemoryStore`. Portable
+   `putRdf/getRdf/triples/subjects/deleteSubject` operations share the same
+   `Graph.*` facade as the in-memory backend. Example:
+   `examples/graph-rdf4j-storage.ssc`. A direct SPARQL escape hatch is still
+   planned.
 5. **Server adapters** — add Neo4j driver/Cypher support and optional RDF4J HTTP
    repository support.
 6. **Full-stack examples** — Electron/React frontend queries server graph routes
@@ -248,10 +257,10 @@ server-side graph milestone.
 
 - Unit-test graph front-matter parsing and capability diagnostics.
 - Unit-test portable graph operations against `GraphRuntime.inMemory()`.
-- Unit-test portable `Graph.*` operations against embedded TinkerGraph once
-  that adapter lands.
+- Unit-test portable `Graph.*` operations against embedded TinkerGraph.
+- Unit-test portable RDF operations against in-memory and RDF4J memory graphs.
 - Unit-test SPARQL queries against embedded RDF4J memory/native repositories
-  once that adapter lands.
+  once a direct SPARQL escape hatch lands.
 - Smoke-test a JVM REST backend serving graph query results to a frontend.
 - Add conformance tests only for portable `Graph.*`; native Gremlin/Cypher/SPARQL
   behavior belongs to backend-specific suites.

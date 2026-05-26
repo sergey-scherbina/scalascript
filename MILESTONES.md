@@ -10428,8 +10428,12 @@ modes opt out of that default.
   `ssc run-jvm`. Follow-up landed 2026-05-26: `runtime/std/graph-plugin`
   now registers interpreter `Graph.*` intrinsics for in-memory property/RDF
   graph stores, and `examples/graph-storage-interpreter.ssc` runs through
-  `ssc run`. Remaining: richer sync UI helpers, TinkerGraph/RDF4J adapters,
-  and Dataset/Spark convergence.
+  `ssc run`. Follow-up landed 2026-05-26: `backend/graph` now includes
+  embedded TinkerGraph and RDF4J memory adapters, `graphs:` front matter can
+  select `embedded-tinkergraph` / `rdf4j-memory`, and
+  `examples/graph-storage.ssc` plus `examples/graph-rdf4j-storage.ssc` run
+  through `ssc run-jvm`. Remaining: richer sync UI helpers, SPARQL escape hatch
+  / production graph adapters, and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

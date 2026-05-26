@@ -3,7 +3,7 @@ graphs:
   deps:
     model: property
     side: server
-    backend: in-memory
+    backend: embedded-tinkergraph
 ---
 
 # Graph Storage
