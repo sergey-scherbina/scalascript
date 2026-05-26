@@ -733,7 +733,7 @@ legacy plugin-backed interpreter tests.  `backendInterpreter` now stays free of
 std-plugin project references, so individual std plugins may add
 `src/test/` suites via `testUtils % Test` without creating an sbt cycle.
 `graphPlugin`, `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
-`swingPlugin`, and `httpPlugin` are the first migrated plugin suites.
+`swingPlugin`, `httpPlugin`, and `authPlugin` are the first migrated plugin suites.
 
 **Effort remaining**: migrate the remaining plugin families one at a time.
 

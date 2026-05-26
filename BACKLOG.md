@@ -101,8 +101,8 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     interpreter tests moved behind `backendInterpreterPluginTests`, removing
     the `backendInterpreter / Test` → std-plugin project dependency;
     `graphPlugin`, `jsonPlugin`, `requestPlugin`, `fetchPlugin`,
-    `frontendPlugin`, `swingPlugin`, and `httpPlugin` now have isolated
-    `src/test` suites via `testUtils % Test`. Remaining: migrate the other
+    `frontendPlugin`, `swingPlugin`, `httpPlugin`, and `authPlugin` now have
+    isolated `src/test` suites via `testUtils % Test`. Remaining: migrate the other
     plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
@@ -1446,8 +1446,8 @@ worth a separate fix when somebody has cycles.
     fake-plugin self-test. Follow-up: `backendInterpreterPluginTests` now owns
     the legacy plugin-backed interpreter suites, removing the direct
     `backendInterpreter / Test` dependency on std plugins; `graphPlugin`,
-    `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`, and
-    `swingPlugin`, and `httpPlugin` have isolated `src/test` suites via
+    `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
+    `swingPlugin`, `httpPlugin`, and `authPlugin` have isolated `src/test` suites via
     `testUtils % Test`. Remaining: migrate the other plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
