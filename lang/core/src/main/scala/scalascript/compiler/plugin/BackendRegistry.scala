@@ -50,12 +50,67 @@ object BackendRegistry:
    *  Per spec §12.1, the JAR runs in a `URLClassLoader` whose parent is
    *  the SPI loader only so plugins can't see each other's deps.
    *
-   *  If `jar` ends with `.sscpkg`, delegates to `loadSscpkg` instead. */
+   *  If `jar` ends with `.sscpkg`, delegates to `loadSscpkg` instead.
+   *
+   *  In native-image mode (`ssc` native binary), URLClassLoader cannot load
+   *  class files at runtime.  Instead, the plugin is loaded in a JVM
+   *  subprocess via `ssc-plugin-host.jar` (v1.50-native-p3). */
   def addPluginJar(jar: os.Path): Unit =
     if jar.ext == "sscpkg" then loadSscpkg(jar)
+    else if isNativeImage then addPluginJarViaBridge(jar)
     else
       extraJarPaths += jar
       inProcessCache = null      // force re-scan of ServiceLoader
+
+  /** True when running inside a GraalVM native-image binary. */
+  private def isNativeImage: Boolean =
+    System.getProperty("org.graalvm.nativeimage.imagecode") != null
+
+  /** Native-image bridge: spawn ssc-plugin-host as a subprocess and
+   *  register it like any other out-of-process plugin. */
+  private def addPluginJarViaBridge(jar: os.Path): Unit =
+    val hostJar  = findPluginHostJar()
+    val javaExec = findJava()
+    (hostJar, javaExec) match
+      case (None, _) =>
+        log.warn(
+          s"[ssc] --plugin ${jar.last} skipped: ssc-plugin-host.jar not found next to" +
+          s" the ssc binary or in $$SSC_HOME/lib/. Re-install ssc to fix.")
+      case (_, None) =>
+        log.warn(
+          s"[ssc] --plugin ${jar.last} skipped: 'java' not found on PATH." +
+          s" Install a JRE and make sure 'java' is reachable.")
+      case (Some(host), Some(javaExe)) =>
+        val sep = java.io.File.pathSeparator
+        val cp  = s"${jar.toIO.getAbsolutePath}$sep${host.toIO.getAbsolutePath}"
+        SubprocessBackend.spawn(
+          executable = javaExe,
+          args       = List("-cp", cp, "scalascript.plugin.SubprocessHost", jar.toIO.getAbsolutePath)
+        ) match
+          case scala.util.Success(b) =>
+            pluginCache.put(b.id, b)
+            log.info(s"[ssc] loaded plugin ${b.id} via subprocess bridge")
+          case scala.util.Failure(t) =>
+            log.warn(s"[ssc] --plugin ${jar.last}: bridge spawn failed — ${t.getMessage}")
+
+  /** Look for ssc-plugin-host.jar next to the running binary or in $SSC_HOME/lib/. */
+  private def findPluginHostJar(): Option[os.Path] =
+    val fromEnv = Option(System.getenv("SSC_HOME"))
+      .map(h => os.Path(java.nio.file.Paths.get(h).toAbsolutePath) / "lib" / "ssc-plugin-host.jar")
+    val fromBin = scala.util.Try {
+      val cmd = ProcessHandle.current().info().command()
+      if cmd.isPresent then
+        Some(os.Path(java.nio.file.Paths.get(cmd.get).toAbsolutePath) / os.up / "ssc-plugin-host.jar")
+      else None
+    }.toOption.flatten
+    (fromEnv.toList ++ fromBin.toList).find(os.exists(_))
+
+  /** Return "java" if it is on PATH, or the JAVA_HOME bin path if set. */
+  private def findJava(): Option[String] =
+    Option(System.getProperty("java.home"))
+      .map(h => java.nio.file.Paths.get(h, "bin", "java").toAbsolutePath.toString)
+      .filter(p => new java.io.File(p).isFile)
+      .orElse(Some("java"))
 
   /** Supported SPI version for compatibility checks. */
   val SpiVersion = "0.1.0"

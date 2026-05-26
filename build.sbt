@@ -930,6 +930,33 @@ lazy val cli = project
     )
   )
 
+// v1.50-native-p3 — minimal JVM-only subprocess host for native `ssc`.
+//
+// Ships alongside the native `ssc` binary as `lib/ssc-plugin-host.jar`.
+// When native `ssc` receives `--plugin foo.jar`, it spawns:
+//   java -cp foo.jar:lib/ssc-plugin-host.jar scalascript.plugin.SubprocessHost foo.jar
+// The host loads the plugin JAR via URLClassLoader (works fine in JVM),
+// discovers Backend via ServiceLoader, and enters the stdio-json wire
+// protocol loop.  Plugin authors change nothing.
+//
+// Build: sbt pluginHost/assembly
+// Output: tools/plugin-host/target/scala-3.8.3/ssc-plugin-host.jar
+lazy val pluginHost = project
+  .in(file("tools/plugin-host"))
+  .dependsOn(core)
+  .settings(
+    name                           := "ssc-plugin-host",
+    assembly / mainClass           := Some("scalascript.plugin.SubprocessHost"),
+    assembly / assemblyJarName     := "ssc-plugin-host.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _ @ _*)         => MergeStrategy.discard
+      case _                                    => MergeStrategy.first
+    },
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // NOTE: `bench/` exists today as a scala-cli script directory (fib/sum/
 // list-ops workload comparisons across backends) — not an sbt project.
 // `WsStress` lives under backend-interpreter/.../bench/ since it
@@ -2158,7 +2185,7 @@ lazy val paymentRequest = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, logger, yaml, core, interop, testUtils,
+    backendSpi, ir, logger, yaml, core, interop, testUtils, pluginHost,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
