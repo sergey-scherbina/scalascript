@@ -1947,9 +1947,10 @@ lazy val swingPlugin = project
 
 lazy val requestPlugin = project
   .in(file("runtime/std/request-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-request-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
