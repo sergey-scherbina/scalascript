@@ -1,0 +1,64 @@
+#!/usr/bin/env ssc
+---
+name: wasm-scalascript
+description: ScalaScript blocks compiled to WebAssembly — demonstrates Phase 1 scalascript-to-WASM pipeline.
+---
+
+# WebAssembly — ScalaScript Blocks
+
+Demonstrates that `scalascript` fenced blocks are compiled to `.wasm`
+alongside `scala` blocks.  The WASM backend treats `scalascript` blocks
+as Scala 3 source; ScalaScript extensions (algebraic effects, handlers)
+are not yet transpiled — pure-computation code compiles as-is.
+
+```
+ssc-wasm examples/wasm-scalascript.ssc
+```
+
+## Data model
+
+```scalascript
+case class Point(x: Double, y: Double):
+  def distanceTo(other: Point): Double =
+    val dx = x - other.x
+    val dy = y - other.y
+    math.sqrt(dx * dx + dy * dy)
+
+  override def toString: String = s"($x, $y)"
+```
+
+## Algorithms
+
+```scalascript
+def closestPair(points: List[Point]): (Point, Point) =
+  val pairs = for
+    i <- points.indices
+    j <- (i + 1) until points.length
+  yield (points(i), points(j))
+  pairs.minBy { case (a, b) => a.distanceTo(b) }
+
+def centroid(points: List[Point]): Point =
+  val n = points.length.toDouble
+  Point(points.map(_.x).sum / n, points.map(_.y).sum / n)
+```
+
+## Entry point
+
+```scalascript
+@main def run(): Unit =
+  val points = List(
+    Point(0, 0), Point(1, 0), Point(0.5, 0.1),
+    Point(3, 4), Point(3.1, 4.2), Point(6, 8),
+  )
+
+  val (a, b) = closestPair(points)
+  println(s"Closest pair: $a — $b  (dist = ${"%.4f".format(a.distanceTo(b))})")
+
+  val c = centroid(points)
+  println(s"Centroid: $c")
+
+  println("\nAll pairwise distances:")
+  for i <- points.indices; j <- (i + 1) until points.length do
+    val d = points(i).distanceTo(points(j))
+    println(s"  ${points(i)} ↔ ${points(j)}: ${"%.4f".format(d)}")
+```

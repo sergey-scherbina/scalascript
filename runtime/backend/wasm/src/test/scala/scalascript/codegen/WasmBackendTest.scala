@@ -95,8 +95,8 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       !result.err.text().contains("Unrecognized argument")
     catch case _: Throwable => false
 
-  private def runWasm(code: String): Array[Byte] =
-    val ir = Normalize(Parser.parse(s"# Test\n\n```scala\n$code\n```\n"))
+  private def runWasmFromSrc(sscSrc: String): Array[Byte] =
+    val ir = Normalize(Parser.parse(sscSrc))
     backend.compile(ir, BackendOptions()) match
       case CompileResult.Segmented(segs) =>
         segs.collectFirst { case Segment.Asset(_, bytes, "application/wasm") => bytes }
@@ -106,6 +106,12 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
       case other =>
         fail(s"unexpected result: ${other.getClass.getSimpleName}")
 
+  private def runWasm(code: String): Array[Byte] =
+    runWasmFromSrc(s"# Test\n\n```scala\n$code\n```\n")
+
+  private def runWasmSsc(code: String): Array[Byte] =
+    runWasmFromSrc(s"# Test\n\n```scalascript\n$code\n```\n")
+
   test("compile simple scala block produces non-empty WASM binary"):
     assume(hasWasmSupport, "scala-cli --js-wasm not available")
     val bytes = runWasm("@main def run() = println(\"hello wasm\")")
@@ -113,9 +119,56 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     // WASM magic number: \0asm
     bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
 
+  test("compile simple scalascript block produces non-empty WASM binary"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val bytes = runWasmSsc("@main def run(): Unit = println(\"hello from scalascript\")")
+    bytes should not be empty
+    bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
+
+  test("compile scalascript block with collections compiles to WASM"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val code =
+      """|case class Item(name: String, value: Int)
+         |
+         |@main def run(): Unit =
+         |  val items = List(Item("a", 1), Item("b", 2), Item("c", 3))
+         |  val total = items.map(_.value).sum
+         |  println(s"total = $total")
+         |""".stripMargin
+    val bytes = runWasmSsc(code)
+    bytes should not be empty
+    bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
+
+  test("compile mixed scala and scalascript blocks to single WASM binary"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val src =
+      """|# Test
+         |
+         |```scala
+         |def greet(name: String): String = s"Hello, $name!"
+         |```
+         |
+         |```scalascript
+         |@main def run(): Unit =
+         |  println(greet("WASM"))
+         |```
+         |""".stripMargin
+    val bytes = runWasmFromSrc(src)
+    bytes should not be empty
+    bytes.take(4) shouldBe Array(0x00, 0x61, 0x73, 0x6d).map(_.toByte)
+
   test("compile produces JS glue alongside WASM binary"):
     assume(hasWasmSupport, "scala-cli --js-wasm not available")
     val ir = Normalize(Parser.parse("# T\n\n```scala\n@main def run() = println(1)\n```\n"))
+    backend.compile(ir, BackendOptions()) match
+      case CompileResult.Segmented(segs) =>
+        segs.exists { case Segment.Code("javascript", _) => true; case _ => false } shouldBe true
+      case other =>
+        fail(s"unexpected: $other")
+
+  test("compile scalascript block: JS glue ships alongside WASM binary"):
+    assume(hasWasmSupport, "scala-cli --js-wasm not available")
+    val ir = Normalize(Parser.parse("# T\n\n```scalascript\n@main def run() = println(42)\n```\n"))
     backend.compile(ir, BackendOptions()) match
       case CompileResult.Segmented(segs) =>
         segs.exists { case Segment.Code("javascript", _) => true; case _ => false } shouldBe true
