@@ -273,6 +273,17 @@ server-side graph milestone.
    registers `Gremlin.query` with a clear "not available in interpreter" error;
    `gremlin-driver:3.8.1` added to `graphRuntimeDeps` for scala-cli scripts.
    Example: `examples/graph-janusgraph-gremlin.ssc`.
+   Follow-up landed 2026-05-26: `Rdf4jHttpGraphBackend` connects to any
+   RDF4J HTTP-compatible SPARQL endpoint (RDF4J Server, GraphDB, Apache Jena
+   Fuseki, Stardog); `graphs:` front matter `backend: rdf4j-http` / `graphdb` /
+   `fuseki` / `stardog` / `rdf4j-server` selects it; `RdfGraphBackend` adds a
+   default `sparqlUpdate` method for SPARQL Update support; JvmGen emits
+   `object Sparql { def update(graphName, query) }` alongside the existing
+   `Sparql.select`; `${env:NAME}` references in `uri`/`user`/`password` are
+   resolved at startup; `rdf4j-repository-http:5.3.1` added to
+   `graphRuntimeDeps`; interpreter graph-plugin registers `Sparql.update` with
+   a clear "not available in interpreter" error.
+   Example: `examples/graph-rdf4j-http-storage.ssc`.
 6. **Full-stack examples** — Electron/React frontend queries server graph routes
    and caches selected results locally.
 

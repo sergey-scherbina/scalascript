@@ -10509,6 +10509,16 @@ modes opt out of that default.
   parameterization; `PropertyGraphBackend` adds default `gremlinQuery`; graph-
   plugin registers `Gremlin.query` with not-in-interpreter error.
   Example: `examples/graph-janusgraph-gremlin.ssc`. Follow-up landed
+  2026-05-26: `Rdf4jHttpGraphBackend` connects to any RDF4J HTTP-compatible
+  SPARQL endpoint (RDF4J Server, GraphDB, Apache Jena Fuseki, Stardog) via
+  `rdf4j-repository-http:5.3.1`; `backend: rdf4j-http` / `graphdb` / `fuseki`
+  / `stardog` / `rdf4j-server` selects it; `${env:NAME}` references resolved at
+  startup; `RdfGraphBackend.sparqlUpdate` default added; JvmGen emits
+  `Sparql.update(graphName, query)` alongside existing `Sparql.select`; the
+  embedded `Rdf4jMemoryGraphBackend` was refactored into a shared abstract
+  `Rdf4jBackend(repository)` base (eliminates duplication); graph-plugin
+  registers `Sparql.update` with not-in-interpreter error.
+  Example: `examples/graph-rdf4j-http-storage.ssc`. Follow-up landed
   2026-05-26: richer sync UI helpers — `Sync.sync[A]` (push+pull in one call),
   `Sync.status(store, db?)` returning `{ pending, conflicts, lastPulled,
   lastPushed, isSyncing }`, `Sync.isOnline` (network availability), and

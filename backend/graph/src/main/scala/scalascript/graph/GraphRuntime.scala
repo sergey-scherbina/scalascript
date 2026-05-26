@@ -7,7 +7,9 @@ import org.apache.tinkerpop.gremlin.structure.{Direction, Edge, T, Vertex}
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph
 import org.eclipse.rdf4j.model.{BNode, IRI, Literal, Resource, Value}
 import org.eclipse.rdf4j.query.QueryLanguage as Rdf4jQueryLanguage
+import org.eclipse.rdf4j.repository.{Repository, RepositoryConnection}
 import org.eclipse.rdf4j.repository.sail.SailRepository
+import org.eclipse.rdf4j.repository.http.HTTPRepository
 import org.eclipse.rdf4j.sail.memory.MemoryStore
 import org.neo4j.driver.{AuthTokens, GraphDatabase as Neo4jDatabase}
 import org.neo4j.driver.types.{Node as Neo4jNode, Relationship as Neo4jRelationship}
@@ -56,6 +58,8 @@ trait RdfGraphBackend:
   def subjects(predicate: Option[String] = None): Vector[RdfNode]
   def deleteSubject(subject: RdfNode): Boolean
   def sparqlSelect(query: String): Vector[Map[String, RdfNode]]
+  def sparqlUpdate(query: String): Unit =
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support SPARQL Update")
 
 trait GraphBackend extends PropertyGraphBackend with RdfGraphBackend
 
@@ -105,9 +109,20 @@ object GraphRuntime:
       remote = false
     )
 
+  val Rdf4jHttpCapabilities: GraphCapabilities =
+    GraphCapabilities(
+      models = Set(GraphModel.Rdf),
+      queryLanguages = Set(GraphQueryLanguage.Portable, GraphQueryLanguage.Sparql),
+      embedded = false,
+      persistent = true,
+      remote = true
+    )
+
   def inMemory(): GraphBackend = new InMemoryGraphBackend
   def tinkerGraph(): GraphBackend = new TinkerGraphBackend
   def rdf4jMemory(): GraphBackend = new Rdf4jMemoryGraphBackend
+  def rdf4jHttp(uri: String, user: Option[String] = None, password: Option[String] = None): Rdf4jHttpGraphBackend =
+    new Rdf4jHttpGraphBackend(uri, user, password)
   def neo4j(uri: String, user: String, password: String): Neo4jGraphBackend =
     new Neo4jGraphBackend(uri, user, password)
   def gremlinRemote(uri: String, user: Option[String] = None, password: Option[String] = None): GremlinRemoteBackend =
@@ -141,6 +156,9 @@ object GraphRuntime:
 
   def sparqlSelect(backend: RdfGraphBackend, query: String): Vector[Map[String, RdfNode]] =
     backend.sparqlSelect(query)
+
+  def sparqlUpdate(backend: GraphBackend, query: String): Unit =
+    backend.sparqlUpdate(query)
 
   private def decodeVertex[A](id: String, value: VertexValue)(using codec: VertexCodec[A]): A =
     codec.decode(value) match
@@ -386,126 +404,136 @@ final class TinkerGraphBackend private (graph: TinkerGraph) extends GraphBackend
       candidate = s"$base-$index"
     candidate
 
-final class Rdf4jMemoryGraphBackend private (repository: SailRepository) extends GraphBackend:
-  def this() =
-    this(SailRepository(MemoryStore()))
-
-  repository.init()
-
-  def capabilities: GraphCapabilities = GraphRuntime.Rdf4jMemoryCapabilities
+private abstract class Rdf4jBackend(protected val repository: Repository) extends GraphBackend:
 
   def put(value: RdfValue): RdfValue =
-    val conn = repository.getConnection
-    try
+    withConn { conn =>
       value.triples.foreach { triple =>
         conn.add(asResource(triple.subject), iri(triple.predicate), asRdf4jValue(triple.obj))
       }
-      value
-    finally conn.close()
+    }
+    value
 
   def triples(subject: Option[RdfNode], predicate: Option[String]): Vector[RdfTriple] =
-    val conn = repository.getConnection
-    try
+    withConn { conn =>
       val statements = conn.getStatements(subject.map(asResource).orNull, predicate.map(iri).orNull, null)
-      try
-        statements.iterator().asScala.map(statement =>
-          RdfTriple(fromRdf4jResource(statement.getSubject), statement.getPredicate.stringValue(), fromRdf4jValue(statement.getObject))
-        ).toVector
+      try statements.iterator().asScala.map(s =>
+        RdfTriple(fromRdf4jResource(s.getSubject), s.getPredicate.stringValue(), fromRdf4jValue(s.getObject))
+      ).toVector
       finally statements.close()
-    finally conn.close()
+    }
 
   def subjects(predicate: Option[String]): Vector[RdfNode] =
     triples(subject = None, predicate = predicate).map(_.subject).distinct
 
   def deleteSubject(subject: RdfNode): Boolean =
-    val conn = repository.getConnection
-    try
+    withConn { conn =>
       val before = triples(Some(subject), None).nonEmpty
       conn.remove(asResource(subject), null, null)
       before
-    finally conn.close()
+    }
 
   def sparqlSelect(query: String): Vector[Map[String, RdfNode]] =
-    val conn = repository.getConnection
-    try
+    withConn { conn =>
       val result = conn.prepareTupleQuery(Rdf4jQueryLanguage.SPARQL, query).evaluate()
-      try
-        result.iterator().asScala.map { bindingSet =>
-          bindingSet.getBindingNames.asScala.iterator
-            .flatMap { name =>
-              Option(bindingSet.getValue(name)).map(value => name -> fromRdf4jValue(value))
-            }
-            .toMap
-        }.toVector
+      try result.iterator().asScala.map { bs =>
+        bs.getBindingNames.asScala.iterator
+          .flatMap(name => Option(bs.getValue(name)).map(v => name -> fromRdf4jValue(v)))
+          .toMap
+      }.toVector
       finally result.close()
-    finally conn.close()
+    }
+
+  override def sparqlUpdate(query: String): Unit =
+    withConn(_.prepareUpdate(Rdf4jQueryLanguage.SPARQL, query).execute())
 
   def putVertex(value: VertexValue): VertexValue =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def getVertex(id: String): Option[VertexValue] =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def vertices(label: Option[String]): Vector[VertexValue] =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def deleteVertex(id: String): Boolean =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def putEdge(value: EdgeValue): StoredEdge =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def getEdge(id: String): Option[StoredEdge] =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def edges(label: Option[String], from: Option[String], to: Option[String]): Vector[StoredEdge] =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def deleteEdge(id: String): Boolean =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
-
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
   def neighbors(from: String, edgeLabel: Option[String]): Vector[VertexValue] =
-    throw GraphRuntimeError("RDF4J memory backend does not support property-graph operations")
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support property-graph operations")
 
-  private def iri(value: String): IRI =
+  private def withConn[A](f: RepositoryConnection => A): A =
+    val conn = repository.getConnection
+    try f(conn)
+    finally conn.close()
+
+  protected def iri(value: String): IRI =
     repository.getValueFactory.createIRI(value)
 
-  private def asResource(node: RdfNode): Resource =
-    node match
-      case RdfNode.Iri(value) => iri(value)
-      case RdfNode.Blank(id) => repository.getValueFactory.createBNode(id)
-      case RdfNode.Literal(_) => throw GraphRuntimeError("RDF literal cannot be used as a subject")
+  protected def asResource(node: RdfNode): Resource = node match
+    case RdfNode.Iri(value) => iri(value)
+    case RdfNode.Blank(id)  => repository.getValueFactory.createBNode(id)
+    case RdfNode.Literal(_) => throw GraphRuntimeError("RDF literal cannot be used as a subject")
 
-  private def asRdf4jValue(node: RdfNode): Value =
-    node match
-      case RdfNode.Iri(value) => iri(value)
-      case RdfNode.Blank(id) => repository.getValueFactory.createBNode(id)
-      case RdfNode.Literal(JsonValue.Str(value)) => repository.getValueFactory.createLiteral(value)
-      case RdfNode.Literal(JsonValue.Bool(value)) => repository.getValueFactory.createLiteral(value)
-      case RdfNode.Literal(JsonValue.Num(value)) => repository.getValueFactory.createLiteral(value.bigDecimal)
-      case RdfNode.Literal(other) => repository.getValueFactory.createLiteral(JsonValue.kind(other), iri(XsdString))
+  protected def asRdf4jValue(node: RdfNode): Value = node match
+    case RdfNode.Iri(value)                    => iri(value)
+    case RdfNode.Blank(id)                     => repository.getValueFactory.createBNode(id)
+    case RdfNode.Literal(JsonValue.Str(value)) => repository.getValueFactory.createLiteral(value)
+    case RdfNode.Literal(JsonValue.Bool(value))=> repository.getValueFactory.createLiteral(value)
+    case RdfNode.Literal(JsonValue.Num(value)) => repository.getValueFactory.createLiteral(value.bigDecimal)
+    case RdfNode.Literal(other)                => repository.getValueFactory.createLiteral(JsonValue.kind(other), iri(XsdString))
 
-  private def fromRdf4jResource(value: Resource): RdfNode =
-    value match
-      case iri: IRI => RdfNode.Iri(iri.stringValue())
-      case blank: BNode => RdfNode.Blank(blank.getID)
-      case other => RdfNode.Iri(other.stringValue())
+  protected def fromRdf4jResource(value: Resource): RdfNode = value match
+    case i: IRI   => RdfNode.Iri(i.stringValue())
+    case b: BNode => RdfNode.Blank(b.getID)
+    case other    => RdfNode.Iri(other.stringValue())
 
-  private def fromRdf4jValue(value: Value): RdfNode =
-    value match
-      case iri: IRI => RdfNode.Iri(iri.stringValue())
-      case blank: BNode => RdfNode.Blank(blank.getID)
-      case literal: Literal if literal.getDatatype.stringValue() == XsdBoolean =>
-        RdfNode.Literal(JsonValue.Bool(literal.booleanValue()))
-      case literal: Literal if literal.getDatatype.stringValue() == XsdDecimal || literal.getDatatype.stringValue() == XsdInteger =>
-        RdfNode.Literal(JsonValue.Num(BigDecimal(literal.getLabel)))
-      case literal: Literal => RdfNode.Literal(JsonValue.Str(literal.getLabel))
-      case other => RdfNode.Iri(other.stringValue())
+  protected def fromRdf4jValue(value: Value): RdfNode = value match
+    case i: IRI   => RdfNode.Iri(i.stringValue())
+    case b: BNode => RdfNode.Blank(b.getID)
+    case lit: Literal if lit.getDatatype.stringValue() == XsdBoolean =>
+      RdfNode.Literal(JsonValue.Bool(lit.booleanValue()))
+    case lit: Literal if lit.getDatatype.stringValue() == XsdDecimal ||
+                         lit.getDatatype.stringValue() == XsdInteger =>
+      RdfNode.Literal(JsonValue.Num(BigDecimal(lit.getLabel)))
+    case lit: Literal => RdfNode.Literal(JsonValue.Str(lit.getLabel))
+    case other        => RdfNode.Iri(other.stringValue())
 
-  private val XsdString = "http://www.w3.org/2001/XMLSchema#string"
+  private val XsdString  = "http://www.w3.org/2001/XMLSchema#string"
   private val XsdBoolean = "http://www.w3.org/2001/XMLSchema#boolean"
   private val XsdDecimal = "http://www.w3.org/2001/XMLSchema#decimal"
   private val XsdInteger = "http://www.w3.org/2001/XMLSchema#integer"
+
+final class Rdf4jMemoryGraphBackend private (repo: SailRepository) extends Rdf4jBackend(repo):
+  def this() = this(SailRepository(MemoryStore()))
+  repository.init()
+  def capabilities: GraphCapabilities = GraphRuntime.Rdf4jMemoryCapabilities
+
+final class Rdf4jHttpGraphBackend(
+  rawUri:  String,
+  rawUser: Option[String] = None,
+  rawPass: Option[String] = None
+) extends Rdf4jBackend(Rdf4jHttpGraphBackend.makeRepo(rawUri, rawUser, rawPass)):
+  def capabilities: GraphCapabilities = GraphRuntime.Rdf4jHttpCapabilities
+  def close(): Unit = repository.shutDown()
+
+object Rdf4jHttpGraphBackend:
+  private val EnvRef = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
+  private def resolve(s: String): String =
+    EnvRef.replaceAllIn(s, m => sys.env.getOrElse(m.group(1),
+      throw GraphRuntimeError(s"RDF4J HTTP: environment variable '${m.group(1)}' is not set")))
+
+  private[graph] def makeRepo(rawUri: String, rawUser: Option[String], rawPass: Option[String]): HTTPRepository =
+    val repo = new HTTPRepository(resolve(rawUri))
+    (rawUser.map(resolve), rawPass.map(resolve)) match
+      case (Some(u), Some(p)) => repo.setUsernameAndPassword(u, p)
+      case _ => ()
+    repo.init()
+    repo
 
 final class Neo4jGraphBackend(uri: String, user: String, password: String) extends PropertyGraphBackend:
   private val EnvRef = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r

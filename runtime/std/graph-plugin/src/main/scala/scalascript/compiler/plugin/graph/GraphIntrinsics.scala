@@ -104,6 +104,9 @@ object GraphIntrinsics:
     QualifiedName("Sparql.select") -> NativeImpl((_, _) =>
       throw RuntimeException("Sparql.select is not available in interpreter mode; use ssc run-jvm with backend: rdf4j-memory")
     ),
+    QualifiedName("Sparql.update") -> NativeImpl((_, _) =>
+      throw RuntimeException("Sparql.update is not available in interpreter mode; use ssc run-jvm with backend: rdf4j-memory or rdf4j-http")
+    ),
     QualifiedName("Cypher.query") -> NativeImpl((_, _) =>
       throw RuntimeException("Cypher.query is not available in interpreter mode; use ssc run-jvm with backend: neo4j")
     ),

@@ -1,0 +1,64 @@
+---
+graphs:
+  - name: kg
+    model: rdf
+    side: server
+    backend: rdf4j-http
+    uri: "${env:RDF4J_URL}"         # e.g. http://localhost:7200/repositories/myrepo
+    user: "${env:RDF4J_USER}"
+    password: "${env:RDF4J_PASS}"
+---
+
+// Demonstrate RDF4J HTTP remote repository (GraphDB / Fuseki / RDF4J Server / Stardog).
+// Run with: RDF4J_URL=... RDF4J_USER=admin RDF4J_PASS=secret ssc run-jvm graph-rdf4j-http-storage.ssc
+
+case class Book(id: String, title: String, author: String, year: Int)
+
+given scalascript.typeddata.RdfCodec[Book] = scalascript.typeddata.RdfCodec.derived
+
+// ── Write via portable API ────────────────────────────────────────────────────
+
+val b1 = Book("book:moby-dick", "Moby Dick", "Herman Melville", 1851)
+val b2 = Book("book:crime", "Crime and Punishment", "Fyodor Dostoevsky", 1866)
+
+Graph.putRdf("kg", b1)
+Graph.putRdf("kg", b2)
+
+println("Stored two books.")
+
+// ── SPARQL SELECT via escape hatch ────────────────────────────────────────────
+
+val rows = Sparql.select("kg", """
+  PREFIX ssc: <https://scalascript.dev/schema/>
+  SELECT ?id ?title ?author WHERE {
+    ?id ssc:title  ?title  ;
+        ssc:author ?author .
+  }
+  ORDER BY ?title
+""")
+
+println(s"Found ${rows.size} books:")
+rows.foreach { row =>
+  val title  = row.get("title").map(_.toString).getOrElse("?")
+  val author = row.get("author").map(_.toString).getOrElse("?")
+  println(s"  $title — $author")
+}
+
+// ── SPARQL UPDATE via escape hatch ────────────────────────────────────────────
+
+Sparql.update("kg", """
+  PREFIX ssc: <https://scalascript.dev/schema/>
+  INSERT DATA {
+    <book:frankenstein> ssc:title  "Frankenstein" ;
+                        ssc:author "Mary Shelley"  ;
+                        ssc:year   "1818"^^<http://www.w3.org/2001/XMLSchema#integer> .
+  }
+""")
+
+println("Inserted Frankenstein via SPARQL Update.")
+
+val after = Sparql.select("kg", """
+  PREFIX ssc: <https://scalascript.dev/schema/>
+  SELECT (COUNT(*) AS ?n) WHERE { ?s ssc:title ?t . }
+""")
+println(s"Total triples with ssc:title: ${after.head.get("n").map(_.toString).getOrElse("?")}")

@@ -1520,6 +1520,11 @@ class JvmGen(
           val maybeUser = g.user.map(u => s"""Some("${escapeStringLit(u)}")""").getOrElse("None")
           val maybePass = g.password.map(p => s"""Some("${escapeStringLit(p)}")""").getOrElse("None")
           s"""scalascript.graph.GraphRuntime.gremlinRemote("$wsUri", $maybeUser, $maybePass)"""
+        else if Set("rdf4j-http", "rdf4j-server", "graphdb", "fuseki", "stardog").contains(backend) then
+          val httpUri  = escapeStringLit(g.uri.getOrElse("http://localhost:7200/repositories/default"))
+          val maybeUser = g.user.map(u => s"""Some("${escapeStringLit(u)}")""").getOrElse("None")
+          val maybePass = g.password.map(p => s"""Some("${escapeStringLit(p)}")""").getOrElse("None")
+          s"""scalascript.graph.GraphRuntime.rdf4jHttp("$httpUri", $maybeUser, $maybePass)"""
         else
           s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: backend '$backend' for model '$model' is planned but not implemented yet\")"
       s"  \"$name\" -> $rhs"
@@ -1558,6 +1563,8 @@ class JvmGen(
                  |    _ssc_graph_registry.getOrElse(name, throw scalascript.graph.GraphRuntimeError(s"unknown graph store '$name'. Declared stores: ${_ssc_graph_registry.keys.toList.sorted.mkString(", ")}"))
                  |  def select(graphName: String, query: String): List[Map[String, scalascript.typeddata.RdfNode]] =
                  |    scalascript.graph.GraphRuntime.sparqlSelect(backend(graphName), query).toList
+                 |  def update(graphName: String, query: String): Unit =
+                 |    scalascript.graph.GraphRuntime.sparqlUpdate(backend(graphName), query)
                  |
                  |object Cypher:
                  |  private def backend(name: String): scalascript.graph.PropertyGraphBackend =
@@ -1587,6 +1594,8 @@ class JvmGen(
         case backend if Set("rdf4j-memory", "rdf4j", "embedded-rdf4j").contains(backend) =>
           deps += "org.eclipse.rdf4j:rdf4j-repository-sail:5.3.1"
           deps += "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1"
+        case backend if Set("rdf4j-http", "rdf4j-server", "graphdb", "fuseki", "stardog").contains(backend) =>
+          deps += "org.eclipse.rdf4j:rdf4j-repository-http:5.3.1"
         case "neo4j" =>
           deps += "org.neo4j.driver:neo4j-java-driver:5.28.5"
         case backend if Set("gremlin-server", "janusgraph", "tinkerpop-remote", "gremlin").contains(backend) =>
