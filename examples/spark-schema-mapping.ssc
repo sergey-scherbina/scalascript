@@ -1,0 +1,25 @@
+---
+name: spark-schema-mapping
+backend: jvm
+description: Shared Spark-like schema metadata from typed-data annotations
+---
+
+# Spark Schema Mapping
+
+```scala
+import scalascript.typeddata.{SparkSchemaCodec, SparkSchemaType, fieldName, key}
+
+case class UserMetric(
+  @key id: Long,
+  @fieldName("display_name") name: String,
+  score: Option[Double]
+) derives SparkSchemaCodec
+
+val schema = SparkSchemaCodec[UserMetric].schema
+val summary = schema.fields.map { field =>
+  val nullable = if field.nullable then "?" else "!"
+  s"${field.name}:${field.dataType}$nullable"
+}.mkString(",")
+
+println(summary)
+```

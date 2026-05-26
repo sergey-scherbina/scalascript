@@ -352,9 +352,15 @@ Roles:
   `JsonValue` representation for Dataset element movement. `DatasetCodec`
   also provides `encodeAll` / `decodeAll` batch helpers with indexed decode
   error paths.
-- `SparkCodec[A]` or `SparkEncoder[A]` is the Spark-specific mapping to
-  `Encoder[A]` and `StructType`. It should reuse the same field-name,
-  nullability, default, and rename conventions as `RowCodec[A]`.
+- `SparkSchemaCodec[A]` is now available for Spark-like schema metadata in the
+  shared typed-data layer. It derives case-class field names from the same
+  `@fieldName` annotation used by `JsonCodec` / `RowCodec`, preserves `@key`
+  metadata, maps primitive/collection shapes to `SparkSchemaType`, and marks
+  `Option[A]` fields nullable.
+- SparkGen still owns the real Spark `Encoder[A]` / `StructType` generation
+  used by `Dataset.fromJsonAs`, `fromCsvAs`, `fromParquetAs`, and
+  `fromTable`. Wiring the shared `SparkSchemaCodec` metadata directly into
+  those readers remains a follow-up.
 - `RowCodec[A]` and Spark schema derivation should converge where possible:
   both describe tabular data, but Spark also needs distributed execution and
   Catalyst-compatible schemas.
@@ -485,9 +491,12 @@ the same query model.
    `DatasetCodec[A]` now lives in `backend/typed-data`, derives from
    `JsonCodec[A]`, provides batch encode/decode helpers, and is demonstrated by
    `examples/dataset-typed-mapping.ssc` through the JVM Dataset runtime.
-   Remaining: align distributed MapReduce worker serialization, Spark
-   encoder/schema derivation, and typed table/file readers with the same schema
-   metadata conventions.
+   Follow-up landed 2026-05-26: `SparkSchemaCodec[A]` now lives in
+   `backend/typed-data`, derives Spark-like schema metadata from case classes
+   using shared `@fieldName`, `@key`, and `Option` nullability conventions, and
+   is demonstrated by `examples/spark-schema-mapping.ssc`. Remaining: align
+   distributed MapReduce worker serialization and wire SparkGen's real
+   `Encoder`/reader schema path to the shared schema metadata where practical.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

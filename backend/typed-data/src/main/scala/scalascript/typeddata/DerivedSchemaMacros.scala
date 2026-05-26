@@ -81,6 +81,23 @@ private[typeddata] object DerivedSchemaMacros:
       )
     }
 
+  def sparkSchemaProduct[A: Type](using Quotes): Expr[SparkSchemaCodec[A]] =
+    val fields = productFields[A].map((symbols, _, name, tpe) =>
+      val meta = metadata(symbols, name)
+      val (dataType, nullable) = sparkSchemaType(tpe)
+      '{
+        SparkSchemaField(
+          ${Expr(meta.name)},
+          $dataType,
+          ${Expr(nullable)},
+          ${Expr(meta.key)}
+        )
+      }
+    )
+    '{
+      SparkSchemaCodec.instance[A](SparkSchema(Vector(${Varargs(fields)}*)))
+    }
+
   private def productFields[A: Type](using q: Quotes): List[(List[q.reflect.Symbol], Int, String, q.reflect.TypeRepr)] =
     import quotes.reflect.*
     val tpe = TypeRepr.of[A]
@@ -236,3 +253,40 @@ private[typeddata] object DerivedSchemaMacros:
       case Literal(StringConstant(value)) => Some(value)
       case Inlined(_, _, inner) => stringLiteral(inner)
       case _ => None
+
+  private def sparkSchemaType(using q: Quotes)(tpe: q.reflect.TypeRepr): (Expr[SparkSchemaType], Boolean) =
+    import quotes.reflect.*
+    val widened = tpe.dealias.simplified
+    def isType[T: Type]: Boolean = widened =:= TypeRepr.of[T]
+    if isType[String] then ('{ SparkSchemaType.StringType }, false)
+    else if isType[Boolean] then ('{ SparkSchemaType.BooleanType }, false)
+    else if isType[Byte] then ('{ SparkSchemaType.ByteType }, false)
+    else if isType[Short] then ('{ SparkSchemaType.ShortType }, false)
+    else if isType[Int] then ('{ SparkSchemaType.IntegerType }, false)
+    else if isType[Long] then ('{ SparkSchemaType.LongType }, false)
+    else if isType[Float] then ('{ SparkSchemaType.FloatType }, false)
+    else if isType[Double] then ('{ SparkSchemaType.DoubleType }, false)
+    else if isType[BigDecimal] then ('{ SparkSchemaType.DecimalType }, false)
+    else widened.asType match
+      case '[Option[t]] =>
+        val (inner, _) = sparkSchemaType(TypeRepr.of[t])
+        (inner, true)
+      case '[List[t]] =>
+        val (inner, containsNull) = sparkSchemaType(TypeRepr.of[t])
+        ('{ SparkSchemaType.ArrayType($inner, ${Expr(containsNull)}) }, false)
+      case '[Vector[t]] =>
+        val (inner, containsNull) = sparkSchemaType(TypeRepr.of[t])
+        ('{ SparkSchemaType.ArrayType($inner, ${Expr(containsNull)}) }, false)
+      case '[Seq[t]] =>
+        val (inner, containsNull) = sparkSchemaType(TypeRepr.of[t])
+        ('{ SparkSchemaType.ArrayType($inner, ${Expr(containsNull)}) }, false)
+      case '[Map[k, v]] =>
+        val (keyType, _) = sparkSchemaType(TypeRepr.of[k])
+        val (valueType, valueContainsNull) = sparkSchemaType(TypeRepr.of[v])
+        ('{ SparkSchemaType.MapType($keyType, $valueType, ${Expr(valueContainsNull)}) }, false)
+      case _ =>
+        val symbol = widened.typeSymbol
+        val name =
+          if symbol.exists then symbol.name
+          else widened.show
+        ('{ SparkSchemaType.StructType(${Expr(name)}) }, false)

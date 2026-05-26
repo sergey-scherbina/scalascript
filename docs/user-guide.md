@@ -1233,6 +1233,11 @@ serialization. It derives from `JsonCodec[A]` by default and exposes
 `encodeAll` / `decodeAll` helpers, so a JVM Dataset pipeline can map typed
 values to stable `JsonValue` elements and decode them later without hand-written
 adapters.
+`SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
+derives field names from `@fieldName`, preserves `@key`, maps primitive and
+collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.
+The Spark backend still owns real Spark `Encoder[A]` generation for execution;
+directly wiring `SparkSchemaCodec` into SparkGen typed readers is still planned.
 `VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` are now available for the
 typed mapping layer: property graph values encode to `VertexValue` /
 `EdgeValue`, and RDF values encode to `RdfValue` triples. `backend/graph` now
