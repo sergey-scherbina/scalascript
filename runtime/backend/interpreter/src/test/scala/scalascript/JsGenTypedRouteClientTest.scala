@@ -46,6 +46,9 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("function _ssc_api_set_headers(headers)"))
     assert(code.contains("function _ssc_set_auth_token(token)"))
     assert(code.contains("headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {})"))
+    assert(code.contains("let _ssc_api_retry_policy = {maxRetries: 0, delayMs: 0};"))
+    assert(code.contains("function _ssc_api_set_retry(maxRetries, delayMs)"))
+    assert(code.contains("attempt < maxRetries"))
 
   test("JS typed route client request merges extra headers from _ssc_api_extra_headers"):
     assume(hasNode, "node not available")
@@ -109,6 +112,71 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |""".stripMargin
     assert(runJs(code + "\n" + harness) == "Bearer global-tok:Bearer per-call:yes:Bearer global-tok")
 
+  test("JS typed route client retries on 5xx and succeeds on eventual 2xx"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |let callCount = 0;
+        |globalThis.fetch = async function(url, init) {
+        |  callCount++;
+        |  if (callCount <= 2) {
+        |    return { ok: false, status: 503, headers: { get: () => "" }, text: async () => "unavailable" };
+        |  }
+        |  return {
+        |    ok: true, status: 200,
+        |    headers: { get: () => "application/json" },
+        |    text: async () => "[]"
+        |  };
+        |};
+        |(async function() {
+        |  _ssc_api_set_retry(3, 0);
+        |  await Messages.list();
+        |  process.stdout.write("calls=" + callCount);
+        |})().catch(e => { process.stdout.write("ERR:" + e); process.exitCode = 1; });
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "calls=3")
+
+  test("JS typed route client retries on network error"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |let callCount = 0;
+        |globalThis.fetch = async function() {
+        |  callCount++;
+        |  if (callCount <= 1) throw new Error("network failure");
+        |  return {
+        |    ok: true, status: 200,
+        |    headers: { get: () => "application/json" },
+        |    text: async () => "[]"
+        |  };
+        |};
+        |(async function() {
+        |  _ssc_api_set_retry(2, 0);
+        |  await Messages.list();
+        |  process.stdout.write("calls=" + callCount);
+        |})().catch(e => { process.stdout.write("ERR:" + e); process.exitCode = 1; });
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "calls=2")
+
+  test("JS typed route client does not retry 4xx errors"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |let callCount = 0;
+        |globalThis.fetch = async function() {
+        |  callCount++;
+        |  return { ok: false, status: 404, headers: { get: () => "" }, text: async () => "not found" };
+        |};
+        |(async function() {
+        |  _ssc_api_set_retry(3, 0);
+        |  try { await Messages.list(); } catch (e) { process.stdout.write("err:calls=" + callCount); }
+        |})();
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "err:calls=1")
+
   test("JS codegen emits HTTP typed route client metadata and Promise methods"):
     val code = JsGen.generate(Parser.parse(source))
 
@@ -118,7 +186,7 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("function _ssc_typed_json_encode(value, typeName)"))
     assert(code.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
     assert(code.contains("return _ssc_typed_json_encode(input, requestType);"))
-    assert(code.contains("const response = await fetch(url, init);"))
+    assert(code.contains("response = await fetch(url, init);"))
     assert(code.contains("return _ssc_typed_json_decode_response(text, contentType, responseType);"))
     assert(code.contains("const Messages = {"))
     assert(code.contains("""create(input, headers) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message", headers); }"""))

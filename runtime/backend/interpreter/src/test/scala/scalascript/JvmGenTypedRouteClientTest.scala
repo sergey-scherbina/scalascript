@@ -133,6 +133,10 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("def _ssc_api_set_headers(headers: Map[String, String]): Unit"))
     assert(code.contains("def _ssc_set_auth_token(token: String): Unit"))
     assert(code.contains("baseHeaders ++ _ssc_api_extra_headers ++ callHeaders"))
+    assert(code.contains("private var _ssc_api_retry_policy: (Int, Long) = (0, 0L)"))
+    assert(code.contains("def _ssc_api_set_retry(maxRetries: Int, delayMs: Long): Unit"))
+    assert(code.contains("private def _ssc_api_send("))
+    assert(code.contains("_ssc_ui_backend_transport.request(req)"))
   }
 
   test("JVM codegen path param validation: Unit request type emits warning comment") {

@@ -390,8 +390,17 @@ supply per-request tokens, correlation IDs, or other headers without disturbing
 the global state. The merge order is: Content-Type (base) → global extra headers
 → per-call headers, so per-call headers win over both.
 
+Landed 2026-05-26 follow-up: retry policy. Both runtimes now expose
+`_ssc_api_set_retry(maxRetries, delayMs)` that sets a module-global retry
+policy. `_ssc_api_request` retries transparently on transport (network) errors
+and `5xx` server errors, up to `maxRetries` times with `delayMs` milliseconds
+between attempts. Client errors (`4xx`) are never retried. In JVM/Swing a
+private recursive `_ssc_api_send` helper carries the attempt counter so
+`_ssc_api_request` stays a simple inline call; in JS a `for` loop with `try/catch`
+around `fetch` provides the same semantics without a separate function.
+
 Still planned for Phase 6: streaming responses, SSE/WebSocket subscriptions,
-pagination helpers, retries, and cancellation.
+pagination helpers, and cancellation.
 
 ## Testing Strategy
 

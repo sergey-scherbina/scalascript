@@ -10695,5 +10695,8 @@ distributed same-source server/client example are partially landed.
   generated client methods now accept an optional trailing `headers` parameter
   (JS: plain object; JVM: `Map[String, String] = Map.empty`) merged over global
   extra headers for that single call only (merge order: Content-Type → global →
-  per-call, so per-call wins). Remaining: streaming, SSE/WebSocket, pagination,
-  retries, cancellation.
+  per-call, so per-call wins). Retry policy landed 2026-05-26:
+  `_ssc_api_set_retry(maxRetries, delayMs)` sets a module-global policy; both
+  runtimes retry transparently on transport errors and 5xx, with delay, up to
+  `maxRetries` times. 4xx errors are never retried. Remaining: streaming,
+  SSE/WebSocket, pagination, cancellation.

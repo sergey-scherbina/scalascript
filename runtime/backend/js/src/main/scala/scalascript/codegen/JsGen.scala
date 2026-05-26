@@ -7910,22 +7910,34 @@ class JsGen(
        |    _ssc_api_extra_headers = Object.assign({}, _ssc_api_extra_headers, {'Authorization': 'Bearer ' + token});
        |  }
        |}
+       |let _ssc_api_retry_policy = {maxRetries: 0, delayMs: 0};
+       |function _ssc_api_set_retry(maxRetries, delayMs) {
+       |  _ssc_api_retry_policy = {maxRetries: maxRetries | 0, delayMs: delayMs | 0};
+       |}
        |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders) {
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
-       |  const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {}) };
        |  const body = _ssc_api_body(method, input, requestType);
-       |  if (body !== undefined) {
-       |    init.body = body;
-       |    init.headers["Content-Type"] = "application/json";
+       |  const maxRetries = _ssc_api_retry_policy.maxRetries;
+       |  const delayMs = _ssc_api_retry_policy.delayMs;
+       |  for (let attempt = 0; ; attempt++) {
+       |    const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {}) };
+       |    if (body !== undefined) { init.body = body; init.headers["Content-Type"] = "application/json"; }
+       |    let response, text;
+       |    try {
+       |      response = await fetch(url, init);
+       |      text = await response.text();
+       |    } catch (e) {
+       |      if (attempt < maxRetries) { if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs)); continue; }
+       |      throw e;
+       |    }
+       |    if (!response.ok) {
+       |      if (response.status >= 500 && attempt < maxRetries) { if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs)); continue; }
+       |      throw new Error("typed route client: " + method + " " + url + " returned " + response.status + ": " + text);
+       |    }
+       |    const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
+       |    return _ssc_typed_json_decode_response(text, contentType, responseType);
        |  }
-       |  const response = await fetch(url, init);
-       |  const text = await response.text();
-       |  if (!response.ok) {
-       |    throw new Error("typed route client: " + method + " " + url + " returned " + response.status + ": " + text);
-       |  }
-       |  const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
-       |  return _ssc_typed_json_decode_response(text, contentType, responseType);
        |}
        |
        |""".stripMargin

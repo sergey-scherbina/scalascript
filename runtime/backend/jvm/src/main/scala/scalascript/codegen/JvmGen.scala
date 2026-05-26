@@ -1844,18 +1844,35 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  else
        |    _ssc_api_extra_headers = _ssc_api_extra_headers + ("Authorization" -> ("Bearer " + token))
        |
+       |private var _ssc_api_retry_policy: (Int, Long) = (0, 0L)
+       |def _ssc_api_set_retry(maxRetries: Int, delayMs: Long): Unit =
+       |  _ssc_api_retry_policy = (maxRetries, delayMs)
+       |
+       |private def _ssc_api_send(
+       |  req: scalascript.backend.spi.BackendRequest,
+       |  maxRetries: Int, delayMs: Long, attempt: Int
+       |): scalascript.backend.spi.BackendResponse =
+       |  try
+       |    val resp = scala.concurrent.Await.result(
+       |      _ssc_ui_backend_transport.request(req), scala.concurrent.duration.Duration.Inf)
+       |    if resp.status >= 500 && attempt < maxRetries then
+       |      if delayMs > 0 then Thread.sleep(delayMs)
+       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1)
+       |    else resp
+       |  catch
+       |    case _: Exception if attempt < maxRetries =>
+       |      if delayMs > 0 then Thread.sleep(delayMs)
+       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1)
+       |
        |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req, callHeaders: Map[String, String] = Map.empty): Resp =
        |  val method = methodRaw.toUpperCase
        |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
        |  val body = _ssc_api_body[Req](method, input)
        |  val baseHeaders: Map[String, String] =
        |    if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty
-       |  val response = scala.concurrent.Await.result(
-       |    _ssc_ui_backend_transport.request(
-       |      scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers ++ callHeaders, _ssc_ui_utf8(body))
-       |    ),
-       |    scala.concurrent.duration.Duration.Inf
-       |  )
+       |  val req = scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers ++ callHeaders, _ssc_ui_utf8(body))
+       |  val (maxRetries, delayMs) = _ssc_api_retry_policy
+       |  val response = _ssc_api_send(req, maxRetries, delayMs, 0)
        |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)
