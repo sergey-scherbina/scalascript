@@ -22,8 +22,20 @@ _(all done — see Done section below)_
 
 ## Native Platform
 
-- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target ios` via xcodebuild + xcrun simctl
-  _Full cycle: xcodebuild → boot latest iPhone sim → open Simulator.app → install → launch. `--console` flag (default on) streams logs and blocks; `--no-console` returns immediately. Incremental mtime check. Spec: `BACKLOG.md # Native Platform §v1.48.2`._
+- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target ios` (iOS Simulator)
+  _xcodebuild → boot latest iPhone sim → open Simulator.app → install → launch. `--console`/`--no-console`, `--rebuild`/`--no-rebuild`. Spec: `BACKLOG.md §v1.48.2`._
+
+- [ ] **v1.48.3-swiftui-device-run** — `ssc run --target ios --device` (real device via ios-deploy)
+  _xcodebuild arm64 + ios-deploy deploy + launch. `--device-id`, `--console`, `--rebuild`. Spec: `BACKLOG.md §v1.48.3`._
+
+- [ ] **v1.48.4-ios-package** — `ssc package --target ios` → signed .ipa
+  _xcodebuild archive + exportArchive, ExportOptions.plist from frontmatter, `SSC_TEAM_ID` env. Spec: `BACKLOG.md §v1.48.4`._
+
+- [ ] **v1.48.5-ios-publish** — `ssc publish --target ios` (TestFlight + App Store via fastlane)
+  _Generates Fastfile by default; `--fastlane` uses existing. `--testflight` / `--appstore`, API key auth. Spec: `BACKLOG.md §v1.48.5`._
+
+- [ ] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store)
+  _codesign + notarytool + DMG + fastlane Mac lanes. `ssc toolchain setup-signing`. Spec: `BACKLOG.md §v1.49`._
 
 ## Language & Compiler
 

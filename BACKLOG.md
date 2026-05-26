@@ -4711,3 +4711,246 @@ Run: ssc toolchain check --target ios
 - iPad or tvOS simulator
 
 Effort: ~1 day.
+
+---
+
+## v1.48.3 — `ssc run --target ios --device` (real device via ios-deploy)
+
+**Status:** planned
+**Depends on:** v1.48.2 ✓ (same Swift Package generation, same xcodebuild build step)
+
+### Goals
+
+`ssc run --target ios --device [--device-id <udid>] MyApp.ssc`
+
+1. Build Swift Package + `xcodebuild` for device (arm64, not simulator SDK), with automatic signing:
+   `xcodebuild build -scheme <AppName> -destination "generic/platform=iOS" -allowProvisioningUpdates`
+2. If multiple devices connected and no `--device-id` → pick the first, print its name
+3. Deploy + launch via **ios-deploy**:
+   ```
+   ios-deploy --bundle <path-to.app> [--justlaunch | --debug]
+   ```
+4. `--console` (default): `ios-deploy --debug` — streams logs via LLDB  
+   `--no-console`: `ios-deploy --justlaunch` — returns immediately
+
+### Flags summary
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--device` | — | target real device instead of simulator |
+| `--device-id <udid>` | first connected | specific device UDID |
+| `--console` / `--no-console` | `--console` | stream logs / return immediately |
+| `--rebuild` / `--no-rebuild` | `--no-rebuild` | force full rebuild / incremental |
+
+### Requirements
+
+- Apple Developer account (free is sufficient for dev, 7-day cert expiry)
+- Device registered in Apple Developer Portal (or Xcode auto-registration with `-allowProvisioningUpdates`)
+- `ios-deploy` on PATH: `brew install ios-deploy`
+- Device trusted on this Mac
+
+### Pre-flight check
+
+```
+Error: ios-deploy is required for --target ios --device.
+Run: ssc toolchain install --target ios
+```
+
+### Non-goals
+
+- IPA export for distribution (→ v1.48.4)
+- watchOS / tvOS companion app on device
+
+Effort: ~1 day.
+
+---
+
+## v1.48.4 — `ssc package --target ios` → distributable .ipa
+
+**Status:** planned
+**Depends on:** v1.48.1 ✓
+
+### Goals
+
+`ssc package --target ios [--out <dir>] MyApp.ssc`
+
+Produces a signed `.ipa` ready for TestFlight or ad-hoc distribution:
+
+1. Generate Swift Package
+2. `xcodebuild archive -scheme <AppName> -archivePath target/package/ios/<AppName>.xcarchive`
+3. `xcodebuild -exportArchive -archivePath ... -exportPath target/package/ios/ -exportOptionsPlist <generated-ExportOptions.plist>`
+4. Output: `target/package/ios/<AppName>.ipa`
+
+### ExportOptions.plist
+
+Generated from frontmatter:
+
+```yaml
+bundle-id: com.example.myapp       # required
+team-id: XXXXXXXXXX                # required; from keychain or env SSC_TEAM_ID
+export-method: app-store           # app-store | ad-hoc | development | enterprise
+```
+
+If `team-id` not in frontmatter → look in env `SSC_TEAM_ID` → look in Xcode default team → error with instructions.
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--export-method` | `app-store` | Override export method |
+| `--out <dir>` | `target/package/ios/` | Output directory |
+
+### Requirements
+
+- Distribution certificate in Keychain (or use `ssc toolchain setup-signing`)
+- App ID registered in Apple Developer Portal
+
+Effort: ~1 day.
+
+---
+
+## v1.48.5 — `ssc publish --target ios` (TestFlight + App Store via fastlane)
+
+**Status:** planned
+**Depends on:** v1.48.4 ✓
+
+### Goals
+
+```bash
+ssc publish --target ios --testflight MyApp.ssc   # upload to TestFlight
+ssc publish --target ios --appstore MyApp.ssc      # submit to App Store
+```
+
+Full pipeline: build archive → export .ipa → upload → (optionally) submit for review.
+
+### Fastfile integration
+
+**Default behaviour** — generate `Fastfile` in project directory and run fastlane:
+
+```ruby
+# Generated: Fastfile
+lane :testflight do
+  gym(scheme: "<AppName>", export_method: "app-store")
+  pilot(skip_waiting_for_build_processing: true)
+end
+
+lane :appstore do
+  gym(scheme: "<AppName>", export_method: "app-store")
+  deliver(submit_for_review: true, automatic_release: false)
+end
+```
+
+**`--fastlane` flag** — skip generation, use the existing `Fastfile` in the project directory:
+
+```bash
+ssc publish --target ios --testflight --fastlane MyApp.ssc
+# equivalent to: cd <project-dir> && fastlane testflight
+```
+
+Useful when the team has a custom `Fastfile` with additional steps (metadata, screenshots, changelog).
+
+### App Store Connect credentials
+
+Preferred: API key (`--api-key-path <path-to-AuthKey.p8>` or env `APP_STORE_CONNECT_API_KEY_PATH`).  
+Fallback: Apple ID + app-specific password (less secure, not recommended for CI).
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--testflight` | — | Upload to TestFlight |
+| `--appstore` | — | Submit to App Store |
+| `--fastlane` | off | Use existing Fastfile instead of generating |
+| `--api-key-path <p>` | env | App Store Connect API key (.p8) |
+| `--submit-for-review` | false | Auto-submit after upload (App Store only) |
+| `--release-notes <text>` | — | What's new text for TestFlight |
+
+### Requirements
+
+- `fastlane` on PATH: `brew install fastlane`
+- App Store Connect API key (recommended) or Apple ID
+- Distribution certificate + provisioning profile (or `ssc toolchain setup-signing`)
+- App record created in App Store Connect
+
+Effort: ~2 days (fastlane integration + credential handling + Fastfile generation).
+
+---
+
+## v1.49 — macOS distribution: notarize + DMG + Mac App Store
+
+**Status:** planned
+**Depends on:** v1.48.1 ✓
+
+### Goals
+
+Three subcommands:
+
+#### `ssc package --target macos --distribution`
+
+Produces a distributable signed + notarized `.app` and `.dmg`:
+
+1. `xcodebuild archive -scheme <AppName>` → `.xcarchive`
+2. `xcodebuild -exportArchive` with macOS export options → signed `.app`
+3. `codesign --deep --sign "Developer ID Application: ..."` (if not already done by xcodebuild)
+4. `xcrun notarytool submit` → wait for notarization (async, ~1-5 min)
+5. `xcrun stapler staple <AppName>.app`
+6. Create DMG: `hdiutil create -volname <AppName> -srcfolder <AppName>.app -ov -format UDZO <AppName>.dmg`
+7. Output: `target/package/macos/<AppName>.dmg`
+
+#### `ssc publish --target macos --appstore`
+
+1. `xcodebuild archive` with Mac App Store export options
+2. `xcrun altool --upload-app` or `fastlane deliver` → upload to App Store Connect
+3. Submit for review (optional `--submit-for-review`)
+
+#### Fastfile integration (same pattern as iOS)
+
+Default: generate `Fastfile` with `lane :mac_appstore` and `lane :notarize`.  
+`--fastlane` flag: use existing `Fastfile`.
+
+### Frontmatter keys
+
+```yaml
+bundle-id: com.example.myapp
+team-id: XXXXXXXXXX
+mac-category: public.app-category.productivity  # for App Store
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--distribution` | off | Build for distribution (notarize + DMG) vs dev |
+| `--appstore` | off | Mac App Store export instead of Developer ID |
+| `--fastlane` | off | Use existing Fastfile |
+| `--dmg` / `--no-dmg` | `--dmg` | Create DMG wrapper |
+| `--notarize` / `--no-notarize` | `--notarize` | Run notarytool (required for Gatekeeper) |
+| `--submit-for-review` | false | Auto-submit after upload |
+| `--api-key-path <p>` | env | App Store Connect API key |
+
+### Requirements
+
+- Developer ID Application certificate (for DMG/notarize) or Mac App Store certificate
+- `fastlane` on PATH for publish lane
+- App Store Connect API key for upload
+- `xcrun notarytool` — included with Xcode 13+
+
+### `ssc toolchain setup-signing`
+
+New subcommand — initialises `fastlane match`:
+
+```bash
+ssc toolchain setup-signing --target ios    # fastlane match init + fetch/create certs
+ssc toolchain setup-signing --target macos  # Developer ID + Mac App Store certs
+```
+
+Stores certificates in git repo (or S3 — configurable). Team members run once to pull certs.
+
+### `ssc toolchain install` additions
+
+```bash
+ssc toolchain install --target ios    # brew install ios-deploy fastlane
+ssc toolchain install --target macos  # brew install fastlane
+```
+
+Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-signing).
