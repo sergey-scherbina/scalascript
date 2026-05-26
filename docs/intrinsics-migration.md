@@ -489,9 +489,9 @@ interpreter's internal global map rather than through any SPI.
    (`val Connection = DriverManager.getConnection(...)`) is resolved by the
    plugin through `SqlBlockContext.global`.
 
-This refactor removes the plain `sql` fenced-block blocker. Transaction
-blocks remain interpreter-owned for now, but the core JDBC execution path is
-now plugin-owned.
+This refactor removes the plain `sql` fenced-block blocker. The follow-up
+transaction-block runner moved `transaction` fenced blocks behind the same
+plugin SPI.
 
 ---
 
@@ -754,11 +754,10 @@ distribution hygiene (minimal-interpreter deployments), ~20–30 affected
 ### 11.3 Jdbc `runSqlBlock` refactor (§4.11)
 
 `sql { }` block execution now routes through `Backend.sqlBlockRunner`.
-The interpreter still owns `transaction` fenced-block execution; that is a
-separate follow-up if transaction blocks should also move behind plugin SPI.
+`transaction` fenced-block execution also routes through the same runner via
+`SqlBlockRunner.runTransaction`.
 
-**Status**: landed for plain `sql` fenced blocks. Transaction fenced blocks
-remain interpreter-owned.
+**Status**: landed for plain `sql` and `transaction` fenced blocks.
 
 ### 11.4 `NativeContext` state-bag
 

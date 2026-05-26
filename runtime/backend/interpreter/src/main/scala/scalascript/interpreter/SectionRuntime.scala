@@ -48,6 +48,8 @@ private[interpreter] object SectionRuntime:
         interp.globals.get(name)
       def dbConnect(dbName: String): java.sql.Connection =
         interp.sqlRegistry.connect(dbName)
+      def withTransaction[A](dbName: String)(run: java.sql.Connection => A): A =
+        interp.sqlRegistry.withTransaction(dbName)(run)
     val resultValue = runner.run(cb.source, cb.attrs, ctx) match
       case v: Value => v
       case other    => Value.StringV(String.valueOf(other))
@@ -62,25 +64,25 @@ private[interpreter] object SectionRuntime:
     }
 
   def runTransactionBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
-    val stmts  = scalascript.transform.SqlBindRewriter.splitStatements(cb.source)
-    val dbName = cb.attrs.getOrElse("db", "default")
-    val results = interp.sqlRegistry.withTransaction(dbName) { conn =>
-      stmts.map { stmtSrc =>
-        val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(stmtSrc)
-        val binds: List[Any] = rewritten.binds.map { exprSrc =>
-          val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
-            "<tx-bind>", exprSrc
-          )).parse[scala.meta.Term].get
-          val v = Computation.run(interp.eval(expr, interp.globals.toMap))
-          unwrapForJdbc(v)
-        }
-        scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
-      }
-    }
-    val resultValue: Value = results.lastOption match
-      case Some(scalascript.sql.SqlResult.Rows(rows))      => Value.ListV(rows.map(rowToValue).toList)
-      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.IntV(n.toLong)
-      case None                                            => Value.UnitV
+    interp.ensurePluginsLoaded()
+    val runner = interp.sqlBlockRunner.getOrElse(
+      throw InterpretError("No SQL block runner installed — add the SQL plugin to the interpreter classpath")
+    )
+    val ctx = new scalascript.backend.spi.SqlBlockContext:
+      def evalExpression(source: String): Any =
+        val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
+          "<tx-bind>", source
+        )).parse[scala.meta.Term].get
+        Computation.run(interp.eval(expr, interp.globals.toMap))
+      def global(name: String): Option[Any] =
+        interp.globals.get(name)
+      def dbConnect(dbName: String): java.sql.Connection =
+        interp.sqlRegistry.connect(dbName)
+      def withTransaction[A](dbName: String)(run: java.sql.Connection => A): A =
+        interp.sqlRegistry.withTransaction(dbName)(run)
+    val resultValue = runner.runTransaction(cb.source, cb.attrs, ctx) match
+      case v: Value => v
+      case other    => Value.StringV(String.valueOf(other))
     val ordinal = interp.sqlBlockCounter
     interp.sqlBlockCounter += 1
     interp.globals(s"_sqlBlock_$ordinal") = resultValue
@@ -90,40 +92,6 @@ private[interpreter] object SectionRuntime:
         case _                                => Map.empty[String, Value]
       interp.globals(id) = Value.InstanceV(id, existing + ("sql" -> resultValue))
     }
-
-  def rowToValue(row: scalascript.sql.Row): Value =
-    val pairs = row.columns.zip(row.values).map { case (col, v) =>
-      Value.StringV(col) -> wrapJdbcValue(v)
-    }
-    Value.MapV(pairs.toMap)
-
-  def wrapJdbcValue(v: Any): Value = v match
-    case null            => Value.NullV
-    case s: String       => Value.StringV(s)
-    case b: Boolean      => Value.BoolV(b)
-    case n: Int          => Value.IntV(n.toLong)
-    case n: Long         => Value.IntV(n)
-    case n: Short        => Value.IntV(n.toLong)
-    case n: Byte         => Value.IntV(n.toLong)
-    case d: Double       => Value.DoubleV(d)
-    case f: Float        => Value.DoubleV(f.toDouble)
-    case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)
-    case bd: java.math.BigDecimal => Value.DoubleV(bd.doubleValue)
-    case other           =>
-      Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)
-
-  def unwrapForJdbc(v: Value): Any = v match
-    case Value.IntV(n)              => n
-    case Value.DoubleV(d)           => d
-    case Value.StringV(s)           => s
-    case Value.BoolV(b)             => b
-    case Value.CharV(c)             => c
-    case Value.UnitV                => null
-    case Value.NullV                => null
-    case Value.OptionV(None)        => null
-    case Value.OptionV(Some(inner)) => unwrapForJdbc(inner)
-    case Value.Foreign(_, h)        => h
-    case other                      => Value.show(other)
 
   def runStringBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
     val rendered = renderStringBlock(cb.source, cb.lang == Lang.Html, interp)

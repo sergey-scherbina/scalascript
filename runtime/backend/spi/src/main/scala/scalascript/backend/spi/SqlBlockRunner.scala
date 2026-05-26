@@ -9,8 +9,11 @@ package scalascript.backend.spi
  */
 trait SqlBlockRunner:
   def run(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any
+  def runTransaction(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any =
+    throw new UnsupportedOperationException("transaction fenced blocks are not supported by this SQL block runner")
 
 trait SqlBlockContext:
   def evalExpression(source: String): Any
   def global(name: String): Option[Any]
   def dbConnect(dbName: String): java.sql.Connection
+  def withTransaction[A](dbName: String)(run: java.sql.Connection => A): A

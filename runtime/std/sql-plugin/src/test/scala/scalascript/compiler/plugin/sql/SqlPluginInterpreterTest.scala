@@ -96,6 +96,43 @@ class SqlPluginInterpreterTest extends AnyFunSuite:
 
     assert(result == List("Ada", 1L, true))
 
+  test("SQL plugin owns interpreter transaction fenced-block execution"):
+    val result = evalWithSqlPlugin(
+      s"""|---
+      |databases:
+      |  default:
+      |    url: "${uniqueDb()}"
+      |---
+      |
+      |# Schema
+      |
+      |```sql
+      |CREATE TABLE people (id BIGINT PRIMARY KEY, name VARCHAR(64))
+      |```
+      |
+      |# Seed
+      |
+      |```scala
+      |val personId = 1L
+      |val personName = "Ada"
+      |```
+      |
+      |# Tx
+      |
+      |```transaction
+      |INSERT INTO people (id, name) VALUES ($${personId}, $${personName});
+      |SELECT name FROM people WHERE id = $${personId}
+      |```
+      |
+      |```scala
+      |val row = Tx.sql.head
+      |List(row("NAME"), _sqlBlock_1 == Tx.sql)
+      |```
+      |""".stripMargin
+    )
+
+    assert(result == List("Ada", true))
+
   private def uniqueDb(): String =
     s"jdbc:h2:mem:sql-plugin-${UUID.randomUUID().toString.take(8)};DB_CLOSE_DELAY=-1"
 

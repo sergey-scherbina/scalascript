@@ -135,6 +135,20 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
       case scalascript.sql.SqlResult.UpdateCount(n) =>
         Value.IntV(n.toLong)
 
+  override def runTransaction(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any =
+    val dbName = attrs.getOrElse("db", "default")
+    val results = ctx.withTransaction(dbName) { conn =>
+      scalascript.transform.SqlBindRewriter.splitStatements(source).map { stmtSrc =>
+        val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(stmtSrc)
+        val binds = rewritten.binds.map(expr => unwrapForJdbc(ctx.evalExpression(expr)))
+        scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
+      }
+    }
+    results.lastOption match
+      case Some(scalascript.sql.SqlResult.Rows(rows))      => Value.ListV(rows.map(rowToValue).toList)
+      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.IntV(n.toLong)
+      case None                                            => Value.UnitV
+
   private def resolveSqlConnection(attrs: Map[String, String], ctx: SqlBlockContext): java.sql.Connection =
     ctx.global("Connection") match
       case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c

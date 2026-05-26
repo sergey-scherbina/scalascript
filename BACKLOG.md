@@ -108,6 +108,8 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
   - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
     `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
+    Follow-up landed: `transaction` fenced blocks now route through the same
+    plugin runner via `SqlBlockRunner.runTransaction`.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
   - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
 
@@ -1457,8 +1459,8 @@ worth a separate fix when somebody has cycles.
   - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
     `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
-    Follow-up: `transaction` fenced blocks still execute directly in the
-    interpreter and can move behind plugin SPI separately.
+    Follow-up landed: `transaction` fenced blocks now route through the same
+    plugin runner via `SqlBlockRunner.runTransaction`.
   - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
     migrated using all 21 existing named methods; bag deferred.  Needed when
     the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
