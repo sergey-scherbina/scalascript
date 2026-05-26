@@ -114,7 +114,7 @@ What counts as non-trivial (spec required):
 - A new module / package in `build.sbt`
 - A new SPI trait or contract other code will depend on
 - A cross-cutting refactor that touches more than one backend
-- Any new top-level milestone in `MILESTONES.md`
+- Any new top-level milestone added to `BACKLOG.md`
 
 A spec covers, at minimum:
 
@@ -145,7 +145,7 @@ actually built is worse than no spec: it misleads future agents.
 What "spec drift" looks like and what to do:
 
 - API signature changed → update `docs/<feature>.md` architecture section
-- Phase split into two → update phases list + MILESTONES.md phases
+- Phase split into two → update phases list + `BACKLOG.md` / `ACTIVE.md` phases
 - A non-goal turned out to be necessary → move it to Goals, note why
 - An approach was abandoned → add a "Design notes" section explaining
   what was tried and why it was replaced
@@ -186,7 +186,7 @@ directly on `main`** — in this repo other agents are essentially
 always running in parallel, and they will switch the shared checkout's
 HEAD, stash your uncommitted state, and `git clean` your untracked
 files (it has happened repeatedly).  Even "small" changes to `AGENTS.md`
-/ `MILESTONES.md` / a one-line bug fix go through a worktree on a
+/ `BACKLOG.md` / a one-line bug fix go through a worktree on a
 feature branch.
 
 The shared `main` checkout is only ever for two things:
@@ -328,7 +328,7 @@ before deciding what's free. Don't coordinate through chat; the git state
 is the contract.
 
 If your item already landed on `origin/main` (search recent commits),
-mark it done in `MILESTONES.md` and move on.
+mark it done in `BACKLOG.md`/`ACTIVE.md` + add a line to `CHANGELOG.md`, then move on.
 
 **Returning to an existing branch / worktree between iterations.**  If
 you're continuing work in a `feature/<name>` worktree you opened in a
@@ -353,21 +353,19 @@ one or more commits that were already pushed.  `git log` shows the
 landed on the remote.  Always use the latter to decide whether a task
 is already done before starting it.
 
-**Re-read `AGENTS.md` and `MILESTONES.md` after every rebase.**  Both
-files are living documents — workflow rules and the backlog change
-between sessions.  After `git rebase origin/main`, check whether
-either file was updated:
+**Re-read `AGENTS.md` and the milestone files after every rebase.**  Both
+are living documents — workflow rules and the backlog change between sessions.
+After `git rebase origin/main`, check whether any key file was updated:
 
 ```bash
-git diff HEAD~1..HEAD -- AGENTS.md MILESTONES.md
+git diff HEAD~1..HEAD -- AGENTS.md MILESTONES.md BACKLOG.md ACTIVE.md CHANGELOG.md
 ```
 
 If `AGENTS.md` changed: re-read it fully before proceeding — new rules
-may affect how you should do the current task.  If `MILESTONES.md`
-changed: re-read the relevant milestone sections to pick up scope
-changes, completed phases from other agents, or new follow-ups that
-were appended.  Never assume your in-memory picture of the backlog or
-the rules is still current after a rebase.
+may affect how you should do the current task.  If any milestone file
+changed: re-read the relevant sections to pick up scope changes, completed
+phases from other agents, or new follow-ups that were appended.  Never assume
+your in-memory picture of the backlog or the rules is still current after a rebase.
 
 If your worktree was switched to `main` between turns (this happens —
 other agents do `git checkout main` in the shared repo), **don't start
@@ -400,9 +398,11 @@ A feature with no doc update is **incomplete** — treat it the same as a
 failing test.  The doc commit may land on the same branch as the code,
 pushed together or as a follow-up commit in the same push.
 
-#### 3b. Update `MILESTONES.md`
+#### 3b. Update milestone files
 
-Mark the phase or item landed in the same push.
+Mark the phase or item landed in the same push:
+- Open item in `BACKLOG.md` or `ACTIVE.md` → update with `✓ Landed (YYYY-MM-DD)` and summary.
+- Milestone fully complete → remove from `BACKLOG.md`/`ACTIVE.md`, add one-liner to `CHANGELOG.md`.
 
 #### 3c. Merge and push
 
@@ -485,24 +485,29 @@ Don't pause between slices to summarise or ask permission. The user
 sees progress through commits and pushes; ask only when you need a
 decision they have to make.
 
-### MILESTONES.md is the durable plan
+### Milestone files are the durable plan
 
-`MILESTONES.md` is the persistent backlog. Chat history doesn't survive
-context rotations — `MILESTONES.md` does. Use it to:
+The milestone files survive context rotations — chat history doesn't.
 
-- **Pick** the next item (consult § "Parallel-safe work plan" for tracks
-  that don't conflict).
+| File | Purpose |
+|------|---------|
+| `MILESTONES.md` | Navigation index — quick status, links to the three files below |
+| `BACKLOG.md` | Open and planned milestones with full detail — what still needs doing |
+| `ACTIVE.md` | Milestones currently in progress (synced with `WORK_QUEUE.md`) |
+| `CHANGELOG.md` | Completed milestones, compact, newest first |
+
+Use them to:
+
+- **Pick** the next item: read `BACKLOG.md` top-to-bottom; check `WORK_QUEUE.md` for claimed slugs.
 - **Mark items landed** in the same commit that closes them — never push
   a finished feature whose milestone entry is still open.
-- **Mark phases complete** after each iteration: as soon as a phase or
-  sub-milestone is done, update its heading with `✓ Landed (YYYY-MM-DD)`
-  and replace the bullet points with a short summary of what was actually
-  built.  Do this in the same push as the implementation — not later.
-- **Mark the top-level milestone complete** once all phases are done:
-  change `**Status:** open` → `**Status:** complete` and append
-  `✓ Complete (YYYY-MM-DD)` to the heading.
-- **Capture follow-ups** discovered while working: append to the right
-  sprint or to "Known issues / latent flakes" before moving on.
+- **Mark phases complete** after each iteration: update the entry in `BACKLOG.md`
+  (or `ACTIVE.md`) with `✓ Landed (YYYY-MM-DD)` and a short summary of what was built.
+  Do this in the same push as the implementation — not later.
+- **Mark a milestone complete**: remove its entry from `BACKLOG.md`/`ACTIVE.md`
+  and add a one-line summary entry (newest-first) in `CHANGELOG.md`.
+- **Capture follow-ups** discovered while working: append to the relevant section
+  in `BACKLOG.md` or to the "Known issues / latent flakes" section before moving on.
 
 ### In one sentence
 
@@ -543,7 +548,7 @@ ls .work/active/                      # what's already claimed
 cat .work/active/*.claim 2>/dev/null  # which worktrees own which tasks
 
 # 3. Pick the highest-priority Pending task whose slug has no .claim file
-#    (if every Pending task is claimed, wait or read MILESTONES.md for unlisted work)
+#    (if every Pending task is claimed, wait or read BACKLOG.md for unlisted work)
 TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
 
@@ -705,7 +710,7 @@ LOOP:
     8.  In the final commit:
           git rm .work/active/<slug>.claim
           mark task [x] in WORK_QUEUE.md
-          update MILESTONES.md
+          update BACKLOG.md / ACTIVE.md / CHANGELOG.md as appropriate
 
     9.  Rebase on origin/main if it moved; push to origin/main
    10.  ExitWorktree(remove)
@@ -715,15 +720,15 @@ LOOP:
 
 **Progress cadence**: one short message per shipped item, no wall-of-text
 summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
-enough. Detailed context goes in the commit message and MILESTONES.md.
+enough. Detailed context goes in the commit message and BACKLOG.md.
 
 ### 7. After a complete task — name the next work
 
 Once a task or feature is committed, pushed to `origin/main`, local `main`
-is synced, `MILESTONES.md` is updated, and the worktree is deleted, the
+is synced, milestone files are updated, and the worktree is deleted, the
 status message to the user must also include:
 
-- the next planned tasks/features visible in `MILESTONES.md`
+- the next planned tasks/features visible in `BACKLOG.md` and `WORK_QUEUE.md`
 - the one task/feature you recommend doing next, with a short reason
 
 Do this immediately after reporting what landed.  The user should not have
@@ -734,7 +739,7 @@ to ask "what next?" after every completed slice.
 Once **all** of the following are true:
 - Code committed and pushed to `origin/main`
 - Local `main` synced (`git branch -f main origin/main`)
-- `MILESTONES.md` updated
+- Milestone files updated (`BACKLOG.md`/`ACTIVE.md`/`CHANGELOG.md` as appropriate)
 - Worktree deleted (Rule 4)
 
 …and you are reporting "done" to the user — add this one line at the end

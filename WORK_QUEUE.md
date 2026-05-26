@@ -13,12 +13,12 @@ To start: tell the agent "работай" / "go" / "start".
 ## Pending
 
 - [ ] **v1.46-phase5-derivation** — v1.46 Phase 5: route derivation from `route()`/`mount()` handlers  
-  _Spec: `docs/typed-route-clients.md` §Phase 5. Auto-generate `apiClients:` metadata from existing typed route declarations so users don't need to write front-matter manually._
+  _Spec: `docs/typed-route-clients.md` §Phase 5. Auto-generate `apiClients:` metadata from existing typed route declarations so users don't need to write front-matter manually. Cross-file type analysis required._
 
-- [ ] **v1.46-phase6-streaming** — v1.46 Phase 6: streaming / SSE response support  
-  _Spec: `docs/typed-route-clients.md` §Phase 6. Server-Sent Events and chunked streaming response types in typed route clients._
+- [ ] **v1.46-ws-subscriptions** — v1.46: WebSocket subscription support in typed route clients  
+  _Spec: `docs/typed-route-clients.md`. Bidirectional WS channel methods generated alongside SSE streaming methods. JS: native WebSocket; JVM: daemon thread with AutoCloseable._
 
-- [ ] **v1.46-phase6-pagination** — v1.46 Phase 6: pagination helpers  
+- [ ] **v1.46-phase6-pagination** — v1.46: pagination helpers  
   _Spec: `docs/typed-route-clients.md` §Phase 6. Generated `listPaged(page, size)` helpers for endpoints that follow a page/limit pattern._
 
 ---
@@ -34,6 +34,7 @@ To start: tell the agent "работай" / "go" / "start".
 - [x] **v1.46-phase6-per-call-headers** — Phase 6: per-call header overrides (optional `headers` param on every method)
 - [x] **v1.46-phase6-retry** — Phase 6: retry policy (`_ssc_api_set_retry(maxRetries, delayMs)`)
 - [x] **v1.46-phase6-cancel** — Phase 6: cancellation tokens (`_ssc_api_cancel_token()`, `token.cancel()`)
+- [x] **v1.46-phase7-sse** — Phase 7: SSE streaming (`stream: sse` endpoint declaration; EventSource/fetch+ReadableStream JS; HttpURLConnection daemon-thread JVM)
 
 ---
 
