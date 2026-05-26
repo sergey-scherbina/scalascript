@@ -7,6 +7,7 @@ exports:
   - DistributedError
   - DistributedResult
   - runDistributed
+  - runDistributedWire
   - WorkerProtocol
   - StageOp
   - MapOp
@@ -15,6 +16,8 @@ exports:
   - Stage
   - ProcessPartition
   - PartitionResult
+  - WireProcessPartition
+  - WirePartitionResult
   - PartitionFailed
   - HealthCheckRequest
   - HealthCheckOk
@@ -58,6 +61,8 @@ The coordinator:
 ## Protocol messages
 
 ```scalascript
+import scalascript.typeddata.DatasetWirePartition
+
 // ── Stage description (what each worker must do) ──────────────────────
 // A Stage is a list of named operations to apply in sequence.
 // All names are resolved via HandlerRegistry on the worker.
@@ -83,6 +88,22 @@ case class PartitionResult(
   jobId:       String,
   partitionId: Int,
   result:      List[Any]
+)
+
+// Sent by coordinator → worker on the typed wire path.
+// The payload contains stable JsonValue-encoded Dataset elements; handlers
+// on this path consume and produce JsonValue values.
+case class WireProcessPartition(
+  jobId:     String,
+  partition: DatasetWirePartition,
+  stage:     Stage,
+  replyTo:   Any            // coordinator Pid
+)
+
+// Sent by worker → coordinator (typed wire success)
+case class WirePartitionResult(
+  jobId:     String,
+  partition: DatasetWirePartition
 )
 
 // Sent by worker → coordinator (failure)
@@ -123,6 +144,17 @@ object WorkerProtocol:
       case ProcessPartition(jobId, partId, data, stage, replyTo) =>
         val result = applyStage(stage, data)
         replyTo ! PartitionResult(jobId, partId, result)
+        handleMessages()
+      case WireProcessPartition(jobId, partition, stage, replyTo) =>
+        val result = applyStage(stage, partition.values.toList)
+          .asInstanceOf[List[scalascript.typeddata.JsonValue]]
+          .toVector
+        val partId: Int = partition.partitionId
+        val values: Vector[scalascript.typeddata.JsonValue] = result
+        replyTo ! WirePartitionResult(
+          jobId,
+          DatasetWirePartition(partId, values)
+        )
         handleMessages()
     }
 
@@ -197,6 +229,54 @@ def partitionData(data: List[Any], n: Int): List[List[Any]] =
     val size = (data.length + n - 1) / n   // ceiling division
     data.grouped(size).toList
 
+// Entry point for typed Dataset wire payloads.
+//
+// The caller keeps domain typing at the boundary:
+//   DatasetCodec.encodePartitions[A](...) -> runDistributedWire(...) ->
+//   DatasetCodec.decodePartitions[B](...)
+// Stage handlers on this wire path intentionally operate on JsonValue rather
+// than domain objects so actor messages use one stable representation.
+def runDistributedWire(
+  partitions:   List[DatasetWirePartition],
+  stage:        Stage,
+  cluster:      Cluster,
+  retries:      Int,
+  allowPartial: Boolean
+): DistributedResult[scalascript.typeddata.DatasetWirePartition] =
+  val jobId: String = Random.uuid().asInstanceOf[String]
+
+  val me = self()
+  trapExit(true)
+
+  // Link to each worker for failure detection.
+  val workers = cluster.pids.zip(cluster.nodes).map { case (wPid, node) =>
+    link(wPid)
+    (wPid, node)
+  }
+
+  // Build a map from partitionId → encoded partition for retry use.
+  val partitionMap = partitions.map(partition => (partition.partitionId, partition)).toMap
+
+  // Dispatch one encoded partition per worker while preserving partitionId.
+  val assignments = workers.zip(partitions).map { case ((wPid, node), partition) =>
+    wPid ! WireProcessPartition(jobId, partition, stage, me)
+    (partition.partitionId, wPid, node)
+  }
+
+  collectWireResults(
+    jobId        = jobId,
+    assignments  = assignments,
+    partitionMap = partitionMap,
+    stage        = stage,
+    pending      = assignments.map(_._1).toSet,
+    results      = Map(),
+    failures     = Nil,
+    retries      = retries,
+    allowPartial = allowPartial,
+    cluster      = cluster,
+    retried      = Set()
+  )
+
 // Recursive result collector.
 //
 // `retried`: set of partIds for which a retry has been dispatched
@@ -262,6 +342,64 @@ def collectResults(
             )
     }).asInstanceOf[DistributedResult[Any]]
 
+// Recursive result collector for DatasetWirePartition payloads.
+def collectWireResults(
+  jobId:        String,
+  assignments:  List[(Int, Any, Node)],
+  partitionMap: Map[Int, DatasetWirePartition],
+  stage:        Stage,
+  pending:      Set[Int],
+  results:      Map[Int, DatasetWirePartition],
+  failures:     List[DistributedError],
+  retries:      Int,
+  allowPartial: Boolean,
+  cluster:      Cluster,
+  retried:      Set[Int]
+): DistributedResult[DatasetWirePartition] =
+  if pending.isEmpty then
+    val ordered = assignments.map(_._1).flatMap(i => results.get(i))
+    DistributedResult(ordered, failures)
+  else
+    (receive {
+      case WirePartitionResult(jid, partition) if jid == jobId =>
+        collectWireResults(
+          jobId, assignments, partitionMap, stage,
+          pending - partition.partitionId,
+          results + (partition.partitionId -> partition),
+          failures, retries, allowPartial, cluster,
+          retried - partition.partitionId
+        )
+
+      case PartitionFailed(jid, partId, reason) if jid == jobId =>
+        handleWireFailure(
+          jobId, assignments, partitionMap, stage,
+          pending, results, failures,
+          partId, reason,
+          retries, allowPartial, cluster,
+          retried
+        )
+
+      // Link failure — worker actor died
+      case Exit(deadPid, reason) =>
+        val maybeAssignment = assignments.find(_._2 == deadPid)
+        maybeAssignment match
+          case None =>
+            collectWireResults(
+              jobId, assignments, partitionMap, stage,
+              pending, results, failures,
+              retries, allowPartial, cluster,
+              retried
+            )
+          case Some((partId, _, node)) =>
+            handleWireFailure(
+              jobId, assignments, partitionMap, stage,
+              pending, results, failures,
+              partId, reason.toString,
+              retries, allowPartial, cluster,
+              retried
+            )
+    }).asInstanceOf[DistributedResult[DatasetWirePartition]]
+
 // Handle a single partition failure: retry or propagate.
 def handleFailure(
   jobId:        String,
@@ -315,6 +453,64 @@ def handleFailure(
       .getOrElse(Node("unknown@unknown:0"))
     val err = DistributedError(failedNode, reason)
     collectResults(
+      jobId, assignments, partitionMap, stage,
+      pending - partId, results,
+      err :: failures,
+      0, allowPartial, cluster, retried
+    )
+  else
+    val failedNode = assignments.find(_._1 == partId).map(_._3)
+      .getOrElse(Node("unknown@unknown:0"))
+    throw DistributedError(failedNode, reason)
+
+// Handle a single DatasetWirePartition failure: retry or propagate.
+def handleWireFailure(
+  jobId:        String,
+  assignments:  List[(Int, Any, Node)],
+  partitionMap: Map[Int, DatasetWirePartition],
+  stage:        Stage,
+  pending:      Set[Int],
+  results:      Map[Int, DatasetWirePartition],
+  failures:     List[DistributedError],
+  partId:       Int,
+  reason:       String,
+  retries:      Int,
+  allowPartial: Boolean,
+  cluster:      Cluster,
+  retried:      Set[Int]
+): DistributedResult[DatasetWirePartition] =
+  if retried.contains(partId) then
+    collectWireResults(
+      jobId, assignments, partitionMap, stage,
+      pending, results, failures,
+      retries, allowPartial, cluster, retried
+    )
+  else if !pending.contains(partId) then
+    collectWireResults(
+      jobId, assignments, partitionMap, stage,
+      pending, results, failures,
+      retries, allowPartial, cluster, retried
+    )
+  else if retries > 0 then
+    val me        = self()
+    val emptyValues: Vector[scalascript.typeddata.JsonValue] =
+      Vector.empty[scalascript.typeddata.JsonValue]
+    val emptyPartition: DatasetWirePartition =
+      DatasetWirePartition(partId, emptyValues)
+    val partition = partitionMap.getOrElse(partId, emptyPartition)
+    val altPid    = cluster.pids.headOption.getOrElse(cluster.pids.head)
+    altPid ! WireProcessPartition(jobId, partition, stage, me)
+    collectWireResults(
+      jobId, assignments, partitionMap, stage,
+      pending, results, failures,
+      retries - 1, allowPartial, cluster,
+      retried + partId
+    )
+  else if allowPartial then
+    val failedNode = assignments.find(_._1 == partId).map(_._3)
+      .getOrElse(Node("unknown@unknown:0"))
+    val err = DistributedError(failedNode, reason)
+    collectWireResults(
       jobId, assignments, partitionMap, stage,
       pending - partId, results,
       err :: failures,

@@ -1235,7 +1235,11 @@ values to stable `JsonValue` elements and decode them later without hand-written
 adapters. It also exposes `encodePartition`, `decodePartition`,
 `encodePartitions`, and `decodePartitions` helpers so distributed MapReduce
 workers can move typed partition payloads through the same codec layer instead
-of inventing a separate worker-only representation.
+of inventing a separate worker-only representation. `std/mapreduce` now also
+exposes `runDistributedWire`, `WireProcessPartition`, and `WirePartitionResult`
+for actor workers that exchange `DatasetWirePartition` payloads directly; named
+handlers on that path operate on `JsonValue`, and callers decode back to domain
+values with `DatasetCodec.decodePartitions[A]`.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.

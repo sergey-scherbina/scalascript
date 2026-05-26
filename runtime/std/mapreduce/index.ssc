@@ -11,6 +11,23 @@ exports:
   - HandlerRegistry
   - NamedHandler
   - DistributedError
+  - DistributedResult
+  - runDistributed
+  - runDistributedWire
+  - WorkerProtocol
+  - StageOp
+  - MapOp
+  - FilterOp
+  - FlatMapOp
+  - Stage
+  - ProcessPartition
+  - PartitionResult
+  - WireProcessPartition
+  - WirePartitionResult
+  - PartitionFailed
+  - HealthCheckRequest
+  - HealthCheckOk
+  - ShutdownWorker
 ---
 
 # `std.mapreduce` — map-reduce for ScalaScript
@@ -18,9 +35,12 @@ exports:
 Re-exports everything from the sub-modules so callers can write
 `import std/mapreduce` and get the complete surface.
 
-```scalascript
-import std/mapreduce/dataset.{Dataset}
-import std/mapreduce/cluster.{Node, Cluster, ClusterError}
-import std/mapreduce/handlers.{HandlerRegistry, NamedHandler, named}
-import std/mapreduce/distributed.{DistributedError, runDistributed}
-```
+## Imports
+
+[Dataset](dataset.ssc)
+
+[Node, Cluster, ClusterError](cluster.ssc)
+
+[HandlerRegistry, NamedHandler, named](handlers.ssc)
+
+[DistributedError, DistributedResult, runDistributed, runDistributedWire, WorkerProtocol, StageOp, MapOp, FilterOp, FlatMapOp, Stage, ProcessPartition, PartitionResult, WireProcessPartition, WirePartitionResult, PartitionFailed, HealthCheckRequest, HealthCheckOk, ShutdownWorker](distributed.ssc)

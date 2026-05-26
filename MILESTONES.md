@@ -10451,8 +10451,13 @@ modes opt out of that default.
   `DatasetWirePartition`, `DatasetPartition[A]`, and partition-level
   encode/decode helpers so distributed MapReduce worker payloads share the
   typed-data codec layer; `examples/distributed-dataset-codec.ssc` documents
-  the path. Remaining: richer sync UI helpers, production graph adapters, and
-  wiring these partition payloads into the std/mapreduce actor protocol.
+  the path. Follow-up landed 2026-05-26: `std/mapreduce` now includes
+  `WireProcessPartition`, `WirePartitionResult`, and `runDistributedWire`
+  for moving `DatasetWirePartition` payloads through actor workers; the JVM
+  example `examples/distributed-dataset-wire-protocol.ssc` runs through
+  `ssc run-jvm`. Remaining: richer sync UI helpers, production graph
+  adapters, typed shuffle payloads, and higher-level typed distributed
+  Dataset helpers.
 
 ## v1.44 — Full-Stack In-Process Transport
 

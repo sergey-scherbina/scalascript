@@ -2344,7 +2344,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       "ObjectCodec", "ObjectValue", "ObjectFieldSpec",
       "VertexCodec", "VertexValue", "EdgeCodec", "EdgeValue",
       "RdfCodec", "RdfValue", "RdfTriple", "RdfNode",
-      "DatasetCodec",
+      "DatasetCodec", "DatasetPartition", "DatasetWirePartition",
       "SparkSchemaCodec", "SparkSchema", "SparkSchemaField", "SparkSchemaType"
     )
     blocks.exists { b =>
@@ -5596,9 +5596,20 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     val header =
       "\n// ── scalascript-logger (inlined from classpath resources) ─────────────\n" +
       "// Source of truth: logger/src/main/scala/scalascript/logging/Logger.scala\n"
-    header + raw.linesIterator
+    val body = raw.linesIterator
       .dropWhile(l => l.trim.startsWith("package ") || l.trim.isEmpty)
       .mkString("\n", "\n", "\n")
+    val withEffectMethods = body.replace(
+      "object Logger:\n  def apply(name: String): Logger  = new Logger(name)",
+      """object Logger:
+  def info (msg: Any): Any  = _perform("Logger", "info",  msg)
+  def warn (msg: Any): Any  = _perform("Logger", "warn",  msg)
+  def error(msg: Any): Any  = _perform("Logger", "error", msg)
+  def debug(msg: Any): Any  = _perform("Logger", "debug", msg)
+
+  def apply(name: String): Logger  = new Logger(name)"""
+    )
+    header + withEffectMethods
 
   /** Concatenate the pure-primitive sources from runtime-server-common in
    *  a deterministic order.  Emitted as a `commonRuntime` block at the
@@ -8552,12 +8563,6 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |// runLogger { body }              — "[LEVEL] msg" to stdout
        |// runLoggerJson { body }          — {"level":"…","msg":"…"} newline-JSON
        |// runLoggerToList { body }        — (result, List[(level, msg)])
-       |
-       |object Logger:
-       |  def info (msg: Any): Any  = _perform("Logger", "info",  msg)
-       |  def warn (msg: Any): Any  = _perform("Logger", "warn",  msg)
-       |  def error(msg: Any): Any  = _perform("Logger", "error", msg)
-       |  def debug(msg: Any): Any  = _perform("Logger", "debug", msg)
        |
        |private def _loggerJsonStr(s: String): String =
        |  val sb = new StringBuilder("\"")

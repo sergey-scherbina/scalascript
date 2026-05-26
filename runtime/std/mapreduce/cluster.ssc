@@ -75,5 +75,8 @@ object Cluster:
 
   // Convenience overload for a pre-built list.
   def connectList(ns: List[Node]): Cluster =
-    connect(ns: _*)
+    val pids = ns.map { node =>
+      connectNode(node.address)
+    }
+    Cluster(ns, pids)
 ```

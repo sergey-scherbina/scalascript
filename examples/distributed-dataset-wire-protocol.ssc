@@ -1,0 +1,68 @@
+---
+title: Distributed Dataset wire protocol
+description: DatasetWirePartition payloads through std/mapreduce actor workers
+backend: jvm
+---
+
+# Distributed Dataset Wire Protocol
+
+## Imports
+
+[Cluster, Node](../runtime/std/mapreduce/cluster.ssc)
+
+[HandlerRegistry, NamedHandler](../runtime/std/mapreduce/handlers.ssc)
+
+[DistributedResult, MapOp, Stage, WorkerProtocol, runDistributedWire](../runtime/std/mapreduce/distributed.ssc)
+
+```scalascript
+import scalascript.typeddata.{DatasetCodec, DatasetWirePartition, JsonCodec, JsonValue as TJsonValue}
+import std.mapreduce.{Cluster, DistributedResult, HandlerRegistry, MapOp, NamedHandler, Node, Stage, WorkerProtocol, runDistributedWire}
+
+case class Metric(id: String, amount: Int, tags: List[String]) derives JsonCodec
+
+def bumpAmountJson(json: TJsonValue): TJsonValue =
+  json match
+    case TJsonValue.Obj(fields) =>
+      val nextAmount = fields.get("amount") match
+        case Some(TJsonValue.Num(value)) => value.toInt + 1
+        case _ => 1
+      TJsonValue.Obj(fields + ("amount" -> TJsonValue.Num(BigDecimal(nextAmount))))
+    case other => other
+
+val partitions = DatasetCodec.encodePartitions(Vector(
+  Vector(Metric("e1", 10, List("worker-1"))),
+  Vector(Metric("e2", 25, List("worker-2")), Metric("e3", 5, Nil))
+)).toList
+
+var wirePartitions: List[DatasetWirePartition] = Nil
+
+runActors {
+  HandlerRegistry.clear()
+  HandlerRegistry.register(NamedHandler("bumpAmountJson", bumpAmountJson))
+
+  val worker1 = spawn { () => WorkerProtocol.handleMessages() }
+  val worker2 = spawn { () => WorkerProtocol.handleMessages() }
+  val cluster = Cluster(
+    List(Node("worker-1@local"), Node("worker-2@local")),
+    List(worker1, worker2)
+  )
+
+  val wireResult = runDistributedWire(
+    partitions,
+    Stage(List(MapOp("bumpAmountJson"))),
+    cluster,
+    retries = 0,
+    allowPartial = false
+  )
+
+  wirePartitions = wireResult.asInstanceOf[DistributedResult[DatasetWirePartition]].results
+}
+
+val decoded = DatasetCodec.decodePartitions[Metric](wirePartitions).toOption.get
+
+val summary = decoded
+  .flatMap(partition => partition.values.map(metric => s"${partition.partitionId}:${metric.id}:${metric.amount}"))
+  .mkString(",")
+
+println(summary)
+```
