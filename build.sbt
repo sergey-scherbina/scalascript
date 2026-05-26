@@ -919,6 +919,18 @@ lazy val backendTypedDataRuntime = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Shared graph runtime bootstrap: portable SPI + in-memory JVM backend.
+// TinkerGraph/RDF4J adapters layer on top of this contract in later slices.
+lazy val backendGraphRuntime = project
+  .in(file("backend/graph"))
+  .dependsOn(backendTypedDataRuntime)
+  .settings(
+    name := "scalascript-backend-graph-runtime",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val clientRedis = project
   .in(file("backend/redis"))
   .settings(
@@ -1993,7 +2005,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,

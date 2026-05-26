@@ -1189,13 +1189,15 @@ also supports automatic `manual`, `server-wins`, and `client-wins` push
 policies. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
-**Planned, not implemented yet: graph storage.** Graph-shaped data is planned as
-a separate persistence family. Property graphs cover vertices, edges, labels,
+**Planned, partially implemented: graph storage.** Graph-shaped data is planned
+as a separate persistence family. Property graphs cover vertices, edges, labels,
 properties, and traversal-heavy domains; RDF graphs cover triples/quads, linked
-data, ontologies, and SPARQL. The intended bootstrap path is embedded JVM
-support first: TinkerGraph/TinkerPop for small property graphs and RDF4J for
-RDF/SPARQL, followed later by production adapters such as Neo4j/Cypher,
-JanusGraph/TinkerPop providers, and RDF4J-compatible servers. See
+data, ontologies, and SPARQL. The first JVM runtime slice is available in
+`backend/graph`: `GraphRuntime.inMemory()` stores typed vertices, edges, RDF
+subjects, and triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec`
+mapping layer. The `.ssc` `Graph.*` facade, `graphs:` front matter,
+TinkerGraph/TinkerPop, RDF4J, and production adapters such as Neo4j/Cypher,
+JanusGraph/TinkerPop providers, and RDF4J-compatible servers remain planned. See
 [`graph-storage.md`](graph-storage.md).
 
 **Planned, partially implemented: typed mapping across stores.** Typed mapping
@@ -1221,8 +1223,10 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `SparkCodec`, then use backend-specific APIs at the query boundary.
 `VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` are now available for the
 typed mapping layer: property graph values encode to `VertexValue` /
-`EdgeValue`, and RDF values encode to `RdfValue` triples. Graph database
-backends are still planned. The first
+`EdgeValue`, and RDF values encode to `RdfValue` triples. `backend/graph` now
+adds a portable graph runtime SPI and in-memory JVM backend for those encoded
+values; configured `.ssc` graph stores and full database adapters are still
+planned. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. Explicit JVM row codecs
 can use `RowFieldSpec[A]` for renamed columns, aliases, defaults, key metadata,

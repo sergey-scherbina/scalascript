@@ -1,7 +1,9 @@
 # Graph Storage
 
-Status: **draft / planning**. This document specifies planned graph database
-support for ScalaScript across embedded, server, and remote backends.
+Status: **planned, partially implemented**. This document specifies graph
+database support for ScalaScript across embedded, server, and remote backends.
+The first implementation slice is a lightweight JVM runtime contract plus an
+in-memory portable backend in `backend/graph`.
 
 ## Goals
 
@@ -137,8 +139,11 @@ route to production graph databases.
 
 ## Standard Library Shape
 
-The first implemented layer is the typed mapping foundation in
-`backend/typed-data`, not a graph database runtime:
+The first implemented layers are:
+
+- typed mapping in `backend/typed-data`;
+- a lightweight graph runtime SPI plus an in-memory JVM backend in
+  `backend/graph`.
 
 ```scalascript
 @graphLabel("Module")
@@ -154,16 +159,24 @@ case class Person(@rdfId id: String, @rdf("schema:name") name: String)
 ```
 
 `VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` produce portable
-`VertexValue`, `EdgeValue`, and `RdfValue`/`RdfTriple` values. Graph backends
-will consume these values in later phases.
+`VertexValue`, `EdgeValue`, and `RdfValue`/`RdfTriple` values.
+`GraphRuntime.inMemory()` consumes those values today through
+`PropertyGraphBackend` and `RdfGraphBackend`. The backend is embedded,
+non-persistent, non-remote, and supports the portable API only.
 
 Small typed API for portable graph operations:
 
 ```scalascript
-Graph.addVertex("deps", id = "A", labels = ["Module"], props = Map("path" -> "a.ssc"))
-Graph.addEdge("deps", from = "A", to = "B", label = "imports", props = Map())
-val next = Graph.neighbors("deps", "A", edge = "imports")
+val graph = GraphRuntime.inMemory()
+GraphRuntime.putVertex(graph, Module("A", "a.ssc"))
+GraphRuntime.putVertex(graph, Module("B", "b.ssc"))
+GraphRuntime.putEdge(graph, Imports("A", "B"))
+val next = graph.neighbors("A", Some("imports"))
 ```
+
+The public `.ssc` `Graph.*` standard-library facade and `graphs:` front-matter
+opening are still planned. For now this is a JVM/Scala runtime API used by
+generated code and tests.
 
 Query-language-specific escape hatches:
 
@@ -207,11 +220,16 @@ server-side graph milestone.
    matrix, and standard-library API. Follow-up landed 2026-05-26:
    `backend/typed-data` now includes the typed graph/RDF codec foundation
    (`VertexCodec`, `EdgeCodec`, `RdfCodec`) plus a runnable codec example.
-2. **Graph SPI** — define a small graph backend contract with capability flags:
-   property graph, RDF, Gremlin, Cypher, SPARQL, embedded, remote.
-3. **Embedded property graph** — add TinkerGraph/TinkerPop-backed server graph
-   support and a dependency-graph example.
-4. **Embedded RDF graph** — add RDF4J memory/native repository support and a
+2. **Graph SPI** — landed 2026-05-26: `backend/graph` defines
+   `GraphCapabilities`, `PropertyGraphBackend`, `RdfGraphBackend`,
+   `GraphBackend`, and `GraphRuntime.inMemory()`. Capability flags distinguish
+   property graph, RDF, portable/Gremlin/Cypher/SPARQL query support,
+   embedded/persistent/remote behavior.
+3. **Embedded property graph** — first slice landed 2026-05-26 with an
+   in-memory portable backend. Next slice: add TinkerGraph/TinkerPop-backed
+   server graph support and a dependency-graph example.
+4. **Embedded RDF graph** — first slice landed 2026-05-26 with in-memory RDF
+   triple storage. Next slice: add RDF4J memory/native repository support and a
    SPARQL example.
 5. **Server adapters** — add Neo4j driver/Cypher support and optional RDF4J HTTP
    repository support.
@@ -221,8 +239,11 @@ server-side graph milestone.
 ## Testing Strategy
 
 - Unit-test graph front-matter parsing and capability diagnostics.
-- Unit-test portable `Graph.*` operations against embedded TinkerGraph.
-- Unit-test SPARQL queries against embedded RDF4J memory/native repositories.
+- Unit-test portable graph operations against `GraphRuntime.inMemory()`.
+- Unit-test portable `Graph.*` operations against embedded TinkerGraph once
+  that adapter lands.
+- Unit-test SPARQL queries against embedded RDF4J memory/native repositories
+  once that adapter lands.
 - Smoke-test a JVM REST backend serving graph query results to a frontend.
 - Add conformance tests only for portable `Graph.*`; native Gremlin/Cypher/SPARQL
   behavior belongs to backend-specific suites.

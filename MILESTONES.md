@@ -10418,8 +10418,13 @@ modes opt out of that default.
   `client-wins`. Follow-up landed 2026-05-26: `backend/typed-data` now
   includes `VertexValue`, `EdgeValue`, `RdfValue`, `VertexCodec[A]`,
   `EdgeCodec[A]`, and `RdfCodec[A]` with derived case-class mappings for
-  property graph vertices/edges and RDF triples. Remaining: richer sync UI
-  helpers, graph runtime SPI/backends, and Dataset/Spark convergence.
+  property graph vertices/edges and RDF triples. Follow-up landed 2026-05-26:
+  `backend/graph` now defines the portable graph runtime SPI
+  (`GraphCapabilities`, `PropertyGraphBackend`, `RdfGraphBackend`,
+  `GraphBackend`) plus `GraphRuntime.inMemory()` for typed in-memory
+  property/RDF storage. Remaining: richer sync UI helpers, TinkerGraph/RDF4J
+  adapters plus `graphs:` front matter / `.ssc` facade, and Dataset/Spark
+  convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

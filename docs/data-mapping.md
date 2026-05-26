@@ -284,6 +284,8 @@ Defaults:
 - `derives EdgeCodec` maps `@graphFrom` / `@graphTo` (or fields named `from` /
   `to`) to endpoints and maps the remaining fields to properties;
 - graph ids are explicit;
+- `backend/graph` now provides a JVM `GraphRuntime.inMemory()` backend that can
+  store typed vertices and edges through `VertexCodec[A]` / `EdgeCodec[A]`;
 - complex traversal remains backend-specific through `Gremlin.query`,
   `Cypher.query`, or portable `Graph.*` helpers.
 
@@ -310,6 +312,8 @@ Rules:
 - Field annotations map fields to predicates.
 - `RdfCodec[A]` emits triples/quads and can decode query bindings when the
   result shape is complete.
+- `backend/graph` now provides a JVM `GraphRuntime.inMemory()` backend that can
+  store typed RDF subjects and triples through `RdfCodec[A]`;
 - Complex semantic queries remain SPARQL.
 
 ## Dataset, MapReduce, And Spark Mapping
@@ -456,7 +460,11 @@ the same query model.
    schema annotations, defaults, key extraction, and unknown-field rejection.
    Remaining: typed IndexedDB stores, server ObjectStore collections, and sync.
 5. **Graph mapping** — landed 2026-05-26: `VertexCodec[A]` and `EdgeCodec[A]`
-   derive simple property-graph vertex/edge mappings.
+   derive simple property-graph vertex/edge mappings. Follow-up landed
+   2026-05-26: `backend/graph` adds the portable `PropertyGraphBackend` /
+   `RdfGraphBackend` contracts plus an in-memory JVM backend. Remaining:
+   `graphs:` front matter, `.ssc` standard-library facade, TinkerGraph/RDF4J
+   adapters, and production graph providers.
 6. **RDF mapping** — landed 2026-05-26: `RdfCodec[A]` derives simple RDF
    triple mappings with predicate/class/id annotations.
 7. **Dataset/Spark mapping integration** — align existing `Dataset[T]`,
