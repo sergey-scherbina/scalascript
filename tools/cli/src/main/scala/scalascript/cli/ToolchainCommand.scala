@@ -17,12 +17,13 @@ object ToolchainCommand:
 
   def run(args: List[String]): Unit =
     args match
-      case "check"   :: rest => checkCommand(rest)
-      case "install" :: rest => installCommand(rest)
-      case "list"    :: rest => listCommand(rest)
+      case "check"         :: rest => checkCommand(rest)
+      case "install"       :: rest => installCommand(rest)
+      case "list"          :: rest => listCommand(rest)
+      case "setup-signing" :: rest => setupSigningCommand(rest)
       case ("help" | "--help" | "-h") :: _ => printHelp()
       case _ =>
-        System.err.println("Usage: ssc toolchain {check|install|list} [--target <target>]")
+        System.err.println("Usage: ssc toolchain {check|install|list|setup-signing} [--target <target>]")
         System.exit(2)
 
   // ── data model ────────────────────────────────────────────────────────────
@@ -56,14 +57,15 @@ object ToolchainCommand:
     "web"            -> List("node", "jdk"),
     "desktop"        -> List("node", "jdk", "electron"),
     "mobile-android" -> List("jdk", "kotlin", "kotlin-native", "android-sdk"),
-    "ios"            -> List("swift", "xcode"),
-    "mobile-ios"     -> List("swift", "xcode"),
-    "macos"          -> List("jdk", "swift"),
-    "desktop-macos"  -> List("jdk", "swift"),
+    "ios"            -> List("swift", "xcode", "ios-deploy", "fastlane"),
+    "mobile-ios"     -> List("swift", "xcode", "ios-deploy", "fastlane"),
+    "macos"          -> List("jdk", "swift", "fastlane"),
+    "desktop-macos"  -> List("jdk", "swift", "fastlane"),
     "desktop-linux"  -> List("jdk", "scala-native", "gtk"),
     "desktop-windows"-> List("jdk", "graalvm"),
     "all"            -> List("jdk", "node", "kotlin", "kotlin-native", "swift",
-                             "scala-native", "graalvm", "gtk", "android-sdk")
+                             "scala-native", "graalvm", "gtk", "android-sdk",
+                             "ios-deploy", "fastlane")
   )
 
   /** All known tools with detection + install recipes. */
@@ -136,6 +138,20 @@ object ToolchainCommand:
         checkCmd   = "electron --version",
         versionCmd = "electron --version",
         installer  = Some(Installer("npm", "npm install -g electron", "~90 MB"))
+      ),
+      "ios-deploy" -> Tool("ios-deploy", "ios-deploy",
+        checkCmd   = "ios-deploy --version",
+        versionCmd = "ios-deploy --version",
+        installer  = currentOs match
+          case Os.Mac => Some(homebrewInstaller("ios-deploy", "~5 MB"))
+          case _      => None
+      ),
+      "fastlane" -> Tool("fastlane", "fastlane",
+        checkCmd   = "fastlane --version",
+        versionCmd = "fastlane --version 2>&1 | head -1",
+        installer  = currentOs match
+          case Os.Mac => Some(homebrewInstaller("fastlane", "~50 MB"))
+          case _      => None
       ),
       "gtk" -> Tool("gtk", "GTK 4",
         checkCmd   = "pkg-config --modversion gtk4",
@@ -283,19 +299,55 @@ object ToolchainCommand:
         val tool = allTools(id)
         println(s"  │  → Install ${tool.displayName} and ensure it is on PATH")
 
+  private def setupSigningCommand(args: List[String]): Unit =
+    val target = activeTarget(args)
+    if os.proc("fastlane", "--version")
+        .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+      System.err.println("Error: fastlane is required for setup-signing.\nInstall: brew install fastlane")
+      System.exit(1)
+    target match
+      case Some("ios") | Some("mobile-ios") =>
+        println("Setting up fastlane match for iOS...")
+        println("  Running: fastlane match init")
+        os.proc("fastlane", "match", "init")
+          .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+        println()
+        println("  To fetch/create distribution certificates, run:")
+        println("    fastlane match appstore")
+        println("    fastlane match development")
+      case Some("macos") | Some("desktop-macos") =>
+        println("Setting up fastlane match for macOS...")
+        println("  Running: fastlane match init")
+        os.proc("fastlane", "match", "init")
+          .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+        println()
+        println("  To fetch/create Developer ID and Mac App Store certificates, run:")
+        println("    fastlane match developer_id_application")
+        println("    fastlane match appstore  (Mac App Store)")
+      case Some(t) =>
+        System.err.println(s"setup-signing: unsupported target '$t'  (valid: ios, macos)")
+        System.exit(1)
+      case None =>
+        System.err.println("setup-signing: --target is required  (valid: ios, macos)")
+        System.exit(1)
+
   private def printHelp(): Unit =
     println("Usage: ssc toolchain <subcommand> [options]")
     println()
     println("Subcommands:")
-    println("  check   [--target <t>]   Detect installed tools (all or target-specific)")
-    println("  install [--target <t>]   Auto-install missing tools where possible")
-    println("  list    [--target <t>]   Print installed tools and versions")
+    println("  check         [--target <t>]   Detect installed tools (all or target-specific)")
+    println("  install       [--target <t>]   Auto-install missing tools where possible")
+    println("  list          [--target <t>]   Print installed tools and versions")
+    println("  setup-signing --target <t>     Initialize fastlane match for code signing (ios|macos)")
     println()
     println("Targets:")
     targetTools.keys.toList.sorted.foreach(t => println(s"  $t"))
     println()
     println("Examples:")
     println("  ssc toolchain check")
-    println("  ssc toolchain check --target mobile-ios")
+    println("  ssc toolchain check --target ios")
+    println("  ssc toolchain install --target ios")
     println("  ssc toolchain install --target mobile-android")
     println("  ssc toolchain list")
+    println("  ssc toolchain setup-signing --target ios")
+    println("  ssc toolchain setup-signing --target macos")

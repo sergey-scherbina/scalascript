@@ -30,8 +30,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.48.5-ios-publish** — `ssc publish --target ios` (TestFlight + App Store via fastlane) (2026-05-26)
 
-- [ ] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store)
-  _codesign + notarytool + DMG + fastlane Mac lanes. `ssc toolchain setup-signing`. Spec: `BACKLOG.md §v1.49`._
+- [x] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store) (2026-05-26)
 
 ## Language & Compiler
 

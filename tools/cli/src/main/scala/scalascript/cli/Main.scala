@@ -596,6 +596,9 @@ def printUsage(): Unit =
     |  package --target ios <f>          Archive + export signed .ipa (requires Xcode + Apple Developer)
     |    --export-method <m>            distribution method: development|ad-hoc|enterprise|app-store (default: development)
     |    --team-id <id>                 Apple Developer Team ID (or set SSC_TEAM_ID env var)
+    |  package --target macos --distribution <f>  Codesign + notarize + DMG (requires Developer ID cert)
+    |    --no-dmg                       Skip DMG creation (produce signed .app only)
+    |    --no-notarize                  Skip notarization (useful for internal distribution)
     |  publish --target ios <f>         Upload to TestFlight or App Store via fastlane
     |    --testflight                   Upload to TestFlight
     |    --appstore                     Submit to App Store
@@ -603,6 +606,10 @@ def printUsage(): Unit =
     |    --api-key-path <p>            App Store Connect API key path (.p8) or APP_STORE_CONNECT_API_KEY_PATH env
     |    --submit-for-review            Auto-submit for review after upload (App Store only)
     |    --release-notes <text>        What's new text for TestFlight
+    |  publish --target macos <f>      Upload to Mac App Store via fastlane
+    |    --appstore                     Submit to Mac App Store
+    |    --fastlane                     Use existing Fastfile
+    |    --submit-for-review            Auto-submit for review
     |  run   --target macos <f>          Build SwiftUI macOS app and launch it
     |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
     |  run   --target ios --device <f>  Build + deploy to USB device via ios-deploy
@@ -7142,11 +7149,14 @@ def packageCommand(args: List[String]): Unit =
   val compiled = args.contains("--compiled")
   val rest     = args.filterNot(_ == "--compiled")
 
-  // Parse --target, --out, --export-method, --team-id, positionals
+  // Parse --target, --out, --export-method, --team-id, --distribution, --dmg/--no-dmg, --notarize/--no-notarize, positionals
   var targetFlag:       Option[String] = None
   var outFlag:          Option[String] = None
   var exportMethodFlag: String         = "development"
   var teamIdFlag:       Option[String] = None
+  var distributionFlag: Boolean        = false
+  var dmgFlag:          Boolean        = true
+  var notarizeFlag:     Boolean        = true
   val positional = scala.collection.mutable.ListBuffer.empty[String]
   val it = rest.iterator
   while it.hasNext do
@@ -7155,7 +7165,12 @@ def packageCommand(args: List[String]): Unit =
       case "--out"           if it.hasNext => outFlag          = Some(it.next())
       case "--export-method" if it.hasNext => exportMethodFlag = it.next()
       case "--team-id"       if it.hasNext => teamIdFlag       = Some(it.next())
-      case other                           => positional += other
+      case "--distribution"               => distributionFlag  = true
+      case "--no-dmg"                     => dmgFlag           = false
+      case "--dmg"                        => dmgFlag           = true
+      case "--no-notarize"                => notarizeFlag      = false
+      case "--notarize"                   => notarizeFlag      = true
+      case other                          => positional += other
 
   val projectFile: Option[os.Path] = positional.headOption match
     case Some(arg) =>
@@ -7217,6 +7232,8 @@ def packageCommand(args: List[String]): Unit =
       for t <- targets do
         if t == "ios" || t == "mobile-ios" then
           packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
+        else if (t == "macos" || t == "desktop-macos") && distributionFlag then
+          packageMacosDistribution(pf, outDir / t, teamIdFlag, dmg = dmgFlag, notarize = notarizeFlag)
         else
           buildProjectFileCommand(pf, Some(t), outDir, fat = true)
 
@@ -7247,6 +7264,15 @@ def publishCommand(args: List[String]): Unit =
       case "--submit-for-review"              => submitForReviewFlag = true
       case other                              => positional += other
 
+  val projectFile = positional.headOption match
+    case Some(arg) =>
+      val p = os.Path(arg, os.pwd)
+      if os.exists(p) && p.ext == "ssc" then p
+      else { System.err.println(s"ssc publish: file not found: $arg"); System.exit(1); ??? }
+    case None => findProjectSsc().getOrElse {
+      System.err.println("ssc publish: no project file found"); System.exit(1); ???
+    }
+
   val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
 
   effectiveTarget match
@@ -7255,25 +7281,20 @@ def publishCommand(args: List[String]): Unit =
         System.err.println("ssc publish --target ios: specify --testflight or --appstore")
         System.exit(1)
       val lane = if appstoreFlag then "appstore" else "testflight"
-
-      val projectFile = positional.headOption match
-        case Some(arg) =>
-          val p = os.Path(arg, os.pwd)
-          if os.exists(p) && p.ext == "ssc" then p
-          else { System.err.println(s"ssc publish: file not found: $arg"); System.exit(1); ??? }
-        case None => findProjectSsc().getOrElse {
-          System.err.println("ssc publish: no project file found"); System.exit(1); ???
-        }
-
       publishIosFastlane(
         projectFile, lane, fastlaneFlag, apiKeyPathFlag,
         submitForReviewFlag, releaseNotesFlag
       )
+    case Some("macos") | Some("desktop-macos") =>
+      if !appstoreFlag then
+        System.err.println("ssc publish --target macos: specify --appstore")
+        System.exit(1)
+      publishMacosFastlane(projectFile, fastlaneFlag, apiKeyPathFlag, submitForReviewFlag)
     case Some(t) =>
-      System.err.println(s"ssc publish: unsupported target '$t'  (valid: ios)")
+      System.err.println(s"ssc publish: unsupported target '$t'  (valid: ios, macos)")
       System.exit(1)
     case None =>
-      System.err.println("ssc publish: --target is required  (valid: ios)")
+      System.err.println("ssc publish: --target is required  (valid: ios, macos)")
       System.exit(1)
 
 /** `ssc publish --target ios` implementation via fastlane.
@@ -7353,6 +7374,173 @@ private def generateFastfile(
       |
       |  lane :appstore do
       |    gym(scheme: "$appName", export_method: "app-store")
+      |$submitLine
+      |  end
+      |
+      |end
+      |""".stripMargin
+
+/** `ssc package --target macos --distribution` — codesign + notarize + DMG.
+ *
+ *  Produces a distributable, Gatekeeper-approved `.dmg` from the Swift Package.
+ *  Requires: Developer ID Application certificate, Xcode 13+ (notarytool),
+ *  App Store Connect API key or Apple ID for notarytool auth. */
+private def packageMacosDistribution(
+    sscFile:   os.Path,
+    outDir:    os.Path,
+    teamId:    Option[String],
+    dmg:       Boolean,
+    notarize:  Boolean
+): Unit =
+  if os.proc("xcodebuild", "-version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println("Error: Xcode is required for ssc package --target macos --distribution.")
+    System.exit(1)
+
+  val module   = Parser.parse(os.read(sscFile))
+  val manifest = module.manifest
+  val appName  = swiftAppName(manifest.flatMap(_.name))
+  val resolvedTeamId = teamId
+    .orElse(manifest.flatMap(_.raw.get("team-id").collect { case s: String => s }))
+    .orElse(sys.env.get("SSC_TEAM_ID"))
+
+  println(s"  Generating Swift package for macOS...")
+  buildSwiftUIPackage(sscFile, outDir, "macos")
+
+  val archivePath = outDir / s"$appName.xcarchive"
+  val exportDir   = outDir / "export"
+  val exportPlist = outDir / "ExportOptions-macos.plist"
+
+  os.write.over(exportPlist, generateMacosExportOptionsPlist(resolvedTeamId))
+  println(s"  ExportOptions-macos.plist → ${displayPath(exportPlist)}")
+
+  println(s"  Archiving $appName for macOS...")
+  val archArgs = List(
+    "xcodebuild", "archive",
+    "-scheme", appName,
+    "-destination", "generic/platform=macOS",
+    "-allowProvisioningUpdates",
+    "-archivePath", archivePath.toString
+  ) ++ resolvedTeamId.toList.map(id => s"DEVELOPMENT_TEAM=$id")
+  val archResult = os.proc(archArgs)
+    .call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+  if archResult.exitCode != 0 then System.exit(archResult.exitCode)
+
+  os.makeDir.all(exportDir)
+  println(s"  Exporting signed .app...")
+  val exportResult = os.proc(
+    "xcodebuild", "-exportArchive",
+    "-archivePath",        archivePath.toString,
+    "-exportPath",         exportDir.toString,
+    "-exportOptionsPlist", exportPlist.toString,
+    "-allowProvisioningUpdates"
+  ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+  if exportResult.exitCode != 0 then System.exit(exportResult.exitCode)
+
+  val appBundle = exportDir / s"$appName.app"
+
+  if notarize then
+    println(s"  Notarizing $appName (this may take 1-5 minutes)...")
+    val apiKeyPath = sys.env.get("APP_STORE_CONNECT_API_KEY_PATH")
+    val notaryArgs = List(
+      "xcrun", "notarytool", "submit", appBundle.toString,
+      "--wait"
+    ) ++ apiKeyPath.toList.flatMap(p => List("--key", p))
+    val notaryResult = os.proc(notaryArgs)
+      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+    if notaryResult.exitCode != 0 then System.exit(notaryResult.exitCode)
+
+    println(s"  Stapling notarization ticket...")
+    val stapleResult = os.proc("xcrun", "stapler", "staple", appBundle.toString)
+      .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+    if stapleResult.exitCode != 0 then System.exit(stapleResult.exitCode)
+
+  if dmg then
+    val dmgPath = outDir / s"$appName.dmg"
+    println(s"  Creating DMG → ${displayPath(dmgPath)}...")
+    val dmgResult = os.proc(
+      "hdiutil", "create",
+      "-volname",   appName,
+      "-srcfolder", appBundle.toString,
+      "-ov",
+      "-format",    "UDZO",
+      dmgPath.toString
+    ).call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+    if dmgResult.exitCode != 0 then System.exit(dmgResult.exitCode)
+    println(s"  .dmg → ${displayPath(dmgPath)}")
+  else
+    println(s"  .app → ${displayPath(appBundle)}")
+
+/** Generate ExportOptions.plist for macOS Developer ID distribution. */
+private def generateMacosExportOptionsPlist(teamId: Option[String]): String =
+  val teamLine = teamId.map(id =>
+    s"  <key>teamID</key>\n  <string>$id</string>\n"
+  ).getOrElse("")
+  s"""|<?xml version="1.0" encoding="UTF-8"?>
+      |<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      |<plist version="1.0">
+      |<dict>
+      |  <key>method</key>
+      |  <string>developer-id</string>
+      |$teamLine  <key>uploadSymbols</key>
+      |  <true/>
+      |</dict>
+      |</plist>
+      |""".stripMargin
+
+/** `ssc publish --target macos --appstore` via fastlane. */
+private def publishMacosFastlane(
+    sscFile:         os.Path,
+    useExisting:     Boolean,
+    apiKeyPath:      Option[String],
+    submitForReview: Boolean
+): Unit =
+  if os.proc("fastlane", "--version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println(
+      "Error: fastlane is required for ssc publish --target macos.\n" +
+      "Install: brew install fastlane"
+    )
+    System.exit(1)
+
+  val module     = Parser.parse(os.read(sscFile))
+  val appName    = swiftAppName(module.manifest.flatMap(_.name))
+  val projectDir = sscFile / os.up
+  val fastfile   = projectDir / "Fastfile"
+
+  if !useExisting then
+    val content = generateMacosFastfile(appName, submitForReview)
+    os.write.over(fastfile, content)
+    println(s"  Generated ${displayPath(fastfile)}")
+  else
+    if !os.exists(fastfile) then
+      System.err.println(s"ssc publish --fastlane: no Fastfile found at ${displayPath(fastfile)}")
+      System.exit(1)
+    println(s"  Using existing ${displayPath(fastfile)}")
+
+  val resolvedKeyPath = apiKeyPath.orElse(sys.env.get("APP_STORE_CONNECT_API_KEY_PATH"))
+  val extraEnv = resolvedKeyPath.map(p => Map("APP_STORE_CONNECT_API_KEY_PATH" -> p)).getOrElse(Map.empty)
+
+  println(s"  Running: fastlane mac_appstore")
+  val result = os.proc("fastlane", "mac_appstore")
+    .call(stdout = os.Inherit, stderr = os.Inherit, cwd = projectDir, env = extraEnv, check = false)
+  if result.exitCode != 0 then System.exit(result.exitCode)
+  println(s"  fastlane mac_appstore completed successfully.")
+
+/** Generate a Fastfile for Mac App Store lane. */
+private def generateMacosFastfile(appName: String, submitForReview: Boolean): String =
+  val submitLine = if submitForReview then
+    "    deliver(submit_for_review: true, automatic_release: false, platform: :mac)"
+  else ""
+  s"""|# Generated by ssc publish --target macos --appstore
+      |# See https://docs.fastlane.tools for available actions.
+      |
+      |default_platform(:mac)
+      |
+      |platform :mac do
+      |
+      |  lane :mac_appstore do
+      |    gym(scheme: "$appName", export_method: "app-store", destination: "generic/platform=macOS")
       |$submitLine
       |  end
       |

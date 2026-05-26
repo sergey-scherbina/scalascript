@@ -138,3 +138,54 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
     assert(args.contains("--fastlane"))
     assert(args.contains("--api-key-path"))
   }
+
+  // v1.49 — macOS distribution
+
+  test("generateMacosExportOptionsPlist includes developer-id method") {
+    val xml = generateMacosExportOptionsPlist(Some("TEAMXYZ"))
+    assert(xml.contains("<string>developer-id</string>"), "method must be developer-id")
+    assert(xml.contains("<string>TEAMXYZ</string>"),      "teamID must appear when provided")
+    assert(xml.contains("<key>uploadSymbols</key>"),      "uploadSymbols must be present")
+  }
+
+  test("generateMacosExportOptionsPlist omits teamID when None") {
+    val xml = generateMacosExportOptionsPlist(None)
+    assert(!xml.contains("<key>teamID</key>"),            "teamID must be absent when not provided")
+    assert(xml.contains("<string>developer-id</string>"), "method must still be developer-id")
+  }
+
+  test("generateMacosFastfile includes mac_appstore lane with gym") {
+    val ff = generateMacosFastfile("MyMacApp", submitForReview = false)
+    assert(ff.contains("lane :mac_appstore"),              "mac_appstore lane must be present")
+    assert(ff.contains("gym(scheme: \"MyMacApp\""),        "gym with correct scheme must be present")
+    assert(ff.contains("generic/platform=macOS"),          "macOS destination must be in gym call")
+  }
+
+  test("generateMacosFastfile includes deliver when submitForReview=true") {
+    val ff = generateMacosFastfile("MyMacApp", submitForReview = true)
+    assert(ff.contains("deliver(submit_for_review: true"), "deliver action must be present")
+    assert(ff.contains("platform: :mac"),                  "platform :mac must be specified")
+  }
+
+  test("ToolchainCommand ios includes ios-deploy and fastlane") {
+    val tools = ToolchainCommand.targetTools("ios")
+    assert(tools.contains("ios-deploy"), "ios must require ios-deploy")
+    assert(tools.contains("fastlane"),   "ios must require fastlane")
+  }
+
+  test("ToolchainCommand macos includes fastlane") {
+    val tools = ToolchainCommand.targetTools("macos")
+    assert(tools.contains("fastlane"),   "macos must require fastlane")
+  }
+
+  test("package --target macos --distribution flags recognised") {
+    val args = List("--target", "macos", "--distribution", "--no-dmg", "MyApp.ssc")
+    assert(args.contains("--distribution"))
+    assert(args.contains("--no-dmg"))
+  }
+
+  test("publish --target macos --appstore flags recognised") {
+    val args = List("--target", "macos", "--appstore", "--submit-for-review", "MyApp.ssc")
+    assert(args.contains("--appstore"))
+    assert(args.contains("--submit-for-review"))
+  }
