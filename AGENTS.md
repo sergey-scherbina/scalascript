@@ -623,39 +623,95 @@ running (check `git worktree list` and the timestamp inside the file).
 
 ## Autonomous continuous-delivery flow
 
-When the user says "work through tasks in order", use this loop without
-asking for permission between items:
+### Starting the loop
+
+The user starts the loop by saying any of:
+
+| Phrase | Meaning |
+|--------|---------|
+| "работай" / "go" / "start" | Start from the top of WORK_QUEUE.md |
+| "продолжай" / "continue" | Resume — skip already-done tasks, pick next pending |
+| "работай над X" / "do X" | Start with a specific task, then continue the queue |
+
+When the loop starts, announce which task you are claiming first, then work
+silently until each task lands. One progress line per shipped task is enough.
+
+### Stopping the loop
+
+**To stop after the current task finishes (graceful):**
+Send any message containing "стоп", "stop", "pause", "хватит", "достаточно".
+The agent finishes the task it is currently working on (commit + push), then
+stops and waits.
+
+**To stop immediately (abort):**
+Send "стоп сейчас" / "stop now" / "abort". The agent stops at the next safe
+checkpoint (after the current compile/test run). If the work-in-progress is
+green, it is committed and pushed before stopping. If red, the worktree is
+left open with uncommitted changes reported to the user.
+
+**File-based pause (for unattended sessions):**
+Create the file `.work/paused` in the repo and push it to `origin/main`:
+
+```bash
+# To pause:
+touch .work/paused
+git add .work/paused && git commit -m "pause: autonomous queue"
+git push origin main
+
+# To resume:
+git rm .work/paused && git commit -m "resume: autonomous queue"
+git push origin main
+```
+
+The agent checks `.work/paused` at the **start of each iteration** (step 1
+below). If the file is present on `origin/main`, the agent stops the loop,
+reports the last completed task, and waits for the user to resume. This is
+the preferred mechanism when you want the loop to finish the current task
+then pause — it survives context rotations and works across sessions.
+
+**Why file-based pause is reliable:**
+- Sending a chat message only stops the current session's agent
+- `.work/paused` on `origin/main` is visible to every agent reading the repo,
+  including agents in parallel sessions or after context compaction
+
+### The loop
 
 ```
-while true:
+LOOP:
     1.  git fetch origin && git reset --hard origin/main
+        if .work/paused exists on origin/main → STOP (announce, await user)
+        if user sent a stop signal in the last message → STOP
+
     2.  Read WORK_QUEUE.md Pending list; check .work/active/ for claimed tasks
-    3.  Pick the highest-priority Pending task with no .claim file
-        (fall back to MILESTONES.md if WORK_QUEUE.md has no unclaimed items)
-    4.  If the task is genuinely ambiguous → ask the user ONE clear question,
-        wait for answer, then proceed
-    5.  Claim the task (see §"Task claiming protocol"):
+        if no unclaimed Pending tasks → STOP ("queue empty, add tasks or redirect me")
+
+    3.  Pick the highest-priority unclaimed Pending task
+        if task is genuinely ambiguous (design decision, unclear scope) →
+            ask the user ONE clear question, wait, then proceed
+
+    4.  Claim the task (see §"Task claiming protocol"):
           echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
           git add .work/active/<slug>.claim && git commit -m "claim: <slug>"
           git push origin main
-        If push rejected → go to step 1 (another agent won the race)
-    6.  EnterWorktree("<worktree-name>") off the now-updated origin/main
-    7.  Implement, run tests, fix until green
-    8.  Update docs: README.md + docs/user-guide.md + docs/<feature>.md (Rule 3a)
-    9.  In the same final commit:
+        if push rejected → go to step 1 (lost the race to another agent)
+
+    5.  EnterWorktree("<worktree-name>") off the now-updated origin/main
+
+    6.  Implement, run tests, fix until green
+        (if tests are red and unfixable → leave worktree open, report, STOP)
+
+    7.  Update docs: README.md + docs/user-guide.md + docs/<feature>.md (Rule 3a)
+
+    8.  In the final commit:
           git rm .work/active/<slug>.claim
           mark task [x] in WORK_QUEUE.md
           update MILESTONES.md
-    10. Rebase on origin/main if it moved; push to origin/main
-    11. ExitWorktree(remove); delete remote branch
-    12. Report ONE line of progress to the user: "✓ <what landed>"
-    13. Go to step 1
-```
 
-Stop only when:
-- No open items remain that are safe to pick (everything is blocked or
-  needs a design decision).
-- The user interrupts or redirects.
+    9.  Rebase on origin/main if it moved; push to origin/main
+   10.  ExitWorktree(remove)
+   11.  Report: "✓ <task-slug>: <one-line summary>"
+   12.  Go to LOOP
+```
 
 **Progress cadence**: one short message per shipped item, no wall-of-text
 summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is

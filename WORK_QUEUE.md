@@ -4,6 +4,10 @@ Agents: claim the top available task using the protocol in `AGENTS.md §"Task cl
 Do tasks top-to-bottom within each section. A task is "available" if its slug has no
 corresponding file in `.work/active/`.
 
+**Loop control** — to pause the autonomous loop between tasks, push `.work/paused` to
+`origin/main` (see `AGENTS.md §"Stopping the loop"`). To resume, remove it and push.
+To start: tell the agent "работай" / "go" / "start".
+
 ---
 
 ## Pending
