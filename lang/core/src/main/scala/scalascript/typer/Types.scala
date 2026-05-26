@@ -19,7 +19,7 @@ case class MatchCase(pattern: SType, rhs: SType)
 enum SType:
   case Named(name: String, args: List[SType])
   case Var(id: Int)
-  case Function(params: List[SType], result: SType)
+  case Function(params: List[SType], result: SType, effects: EffectRow = EffectRow(None, Set.empty))
   case Tuple(elems: List[SType])
   case Union(types: List[SType])
   case Intersection(types: List[SType])
@@ -38,6 +38,10 @@ enum SType:
    *  `show` / `parseSType` so interface artifacts retain the declared
    *  shape verbatim. */
   case Match(scrutinee: SType, cases: List[MatchCase])
+  /** An effect row `{ Eff1, Eff2, … }` with an optional open tail variable.
+   *  Only appears as the `effects` field of `SType.Function`; never stands
+   *  alone as a value type. */
+  case EffectRow(tail: Option[Int], ops: Set[String])
   case Error(msg: String)
 
   def show: String = this match
@@ -47,8 +51,12 @@ enum SType:
     // Function-type parameters and tuples must be parenthesised on the
     // left of `=>` so the printed form round-trips: `Int => String => Boolean`
     // is right-associative, so a function-as-param needs explicit parens.
-    case Function(List(p), r) => s"${showFnParam(p)} => ${r.show}"
-    case Function(params, r)  => s"(${params.map(_.show).mkString(", ")}) => ${r.show}"
+    case Function(List(p), r, effs) =>
+      val effStr = showEffects(effs)
+      s"${showFnParam(p)} => ${r.show}$effStr"
+    case Function(params, r, effs) =>
+      val effStr = showEffects(effs)
+      s"(${params.map(_.show).mkString(", ")}) => ${r.show}$effStr"
     case Tuple(elems)         => s"(${elems.map(_.show).mkString(", ")})"
     // `&` binds tighter than `|`, so nested `Intersection` inside `Union`
     // prints without parens; the reverse needs them so the precedence
@@ -63,6 +71,7 @@ enum SType:
     case Match(scrutinee, cases) =>
       val body = cases.map(c => s"case ${c.pattern.show} => ${c.rhs.show}").mkString("; ")
       s"${showMatchScrutinee(scrutinee)} match { $body }"
+    case EffectRow(_, ops)    => s"{ ${ops.mkString(", ")} }"
     case Error(msg)           => s"<error: $msg>"
 
   /** Render a type that appears as the *parameter* of a unary function
@@ -106,6 +115,11 @@ enum SType:
       s"(${t.show})"
     case _ => t.show
 
+  private def showEffects(row: EffectRow): String =
+    if row.ops.isEmpty then ""
+    else if row.ops.size == 1 then s" ! ${row.ops.head}"
+    else s" ! (${row.ops.mkString(", ")})"
+
   def isError: Boolean = this match
     case Error(_) => true
     case _        => false
@@ -113,7 +127,10 @@ enum SType:
   def subst(m: Map[Int, SType]): SType = this match
     case Var(id)                  => m.getOrElse(id, this)
     case Named(n, args)           => Named(n, args.map(_.subst(m)))
-    case Function(params, result) => Function(params.map(_.subst(m)), result.subst(m))
+    case Function(params, result, effs) =>
+      val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
+                              .orElse(effs.tail.filterNot(id => m.contains(id)))
+      Function(params.map(_.subst(m)), result.subst(m), effs.copy(tail = newTail))
     case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
     case Union(types)             => Union(types.map(_.subst(m)))
     case Intersection(types)      => Intersection(types.map(_.subst(m)))
@@ -126,7 +143,8 @@ enum SType:
   def freeVars: Set[Int] = this match
     case Var(id)                  => Set(id)
     case Named(_, args)           => args.flatMap(_.freeVars).toSet
-    case Function(params, result) => params.flatMap(_.freeVars).toSet ++ result.freeVars
+    case Function(params, result, effs) =>
+      params.flatMap(_.freeVars).toSet ++ result.freeVars ++ effs.tail.toSet
     case Tuple(elems)             => elems.flatMap(_.freeVars).toSet
     case Union(types)             => types.flatMap(_.freeVars).toSet
     case Intersection(types)      => types.flatMap(_.freeVars).toSet
@@ -195,12 +213,30 @@ object Unifier:
         case (SType.Var(id), _) => error = Some(s"Occurs check failed: ${s1.show}")
         case (SType.Named(n1, a1), SType.Named(n2, a2)) if n1 == n2 && a1.length == a2.length =>
           a1.zip(a2).foreach { case (x, y) => solve(x, y) }
-        case (SType.Function(p1, r1), SType.Function(p2, r2)) if p1.length == p2.length =>
-          p1.zip(p2).foreach { case (x, y) => solve(x, y) }; solve(r1, r2)
+        case (SType.Function(p1, r1, e1), SType.Function(p2, r2, e2))
+            if p1.length == p2.length =>
+          p1.zip(p2).foreach { case (x, y) => solve(x, y) }
+          solve(r1, r2)
+          solveEffectRow(e1, e2)
         case (SType.Tuple(e1), SType.Tuple(e2)) if e1.length == e2.length =>
           e1.zip(e2).foreach { case (x, y) => solve(x, y) }
         case (SType.Nothing, _) | (_, SType.Any) => ()
         case _ => error = Some(s"Cannot unify ${s1.show} with ${s2.show}")
+
+    def solveEffectRow(e1: SType.EffectRow, e2: SType.EffectRow): Unit =
+      if error.isDefined then return
+      (e1.tail, e2.tail) match
+        case (None, None) =>
+          if e1.ops != e2.ops then
+            error = Some(s"Effect row mismatch: {${e1.ops.mkString(", ")}} ≠ {${e2.ops.mkString(", ")}}")
+        case (Some(_), None) =>
+          if !(e2.ops subsetOf e1.ops) then
+            error = Some(s"Effect row mismatch: open {${e1.ops.mkString(", ")}} vs closed {${e2.ops.mkString(", ")}}")
+        case (None, Some(_)) =>
+          if !(e1.ops subsetOf e2.ops) then
+            error = Some(s"Effect row mismatch: closed {${e1.ops.mkString(", ")}} vs open {${e2.ops.mkString(", ")}}")
+        case (Some(_), Some(_)) =>
+          ()
 
     constraints.foreach {
       case Constraint.Equal(t1, t2)   => solve(t1, t2)

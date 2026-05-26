@@ -928,7 +928,7 @@ object Parser:
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
   private def preprocessEffects(code: String): String =
-    val effectLine = """^(\s*)effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
+    val effectLine = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
     val lines = code.linesIterator.toArray
     if !lines.exists(l => effectLine.findFirstIn(l).isDefined) then return code
     val result = new StringBuilder()
@@ -938,8 +938,11 @@ object Parser:
       effectLine.findFirstMatchIn(line) match
         case Some(m) =>
           val baseIndent = m.group(1).length
-          val effectName = m.group(2)
+          val effectName = m.group(3)
+          val isMulti    = m.group(2) != null
           result.append(m.group(1)).append("object ").append(effectName).append(" {\n")
+          if isMulti then
+            result.append(m.group(1)).append("  val __multiShot__ = true\n")
           i += 1
           while i < lines.length && {
             val l = lines(i)

@@ -573,7 +573,7 @@ class Typer(
 
     case Term.Apply.After_4_6_0(fun, argClause) =>
       inferType(fun, scope) match
-        case SType.Function(paramTypes, retType) =>
+        case SType.Function(paramTypes, retType, _) =>
           val args = argClause.values
           // Only check arity for non-variadic functions.
           // Variadic: represented as single SType.Any param in our prelude.
@@ -842,7 +842,7 @@ class Typer(
   private def isDirectlyRecursive(name: String, t: SType): Boolean = t match
     case SType.Named(`name`, _) => true
     case SType.Named(_, args)   => args.exists(isDirectlyRecursive(name, _))
-    case SType.Function(ps, r)  => ps.exists(isDirectlyRecursive(name, _)) || isDirectlyRecursive(name, r)
+    case SType.Function(ps, r, _)  => ps.exists(isDirectlyRecursive(name, _)) || isDirectlyRecursive(name, r)
     case SType.Tuple(elems)     => elems.exists(isDirectlyRecursive(name, _))
     case SType.Union(ts)        => ts.exists(isDirectlyRecursive(name, _))
     case SType.Intersection(ts) => ts.exists(isDirectlyRecursive(name, _))
@@ -874,7 +874,7 @@ class Typer(
         def applySubst(t: SType): SType = t match
           case SType.Named(n, Nil) if subst.contains(n) => subst(n)
           case SType.Named(n, as)  => SType.Named(n, as.map(applySubst))
-          case SType.Function(ps, r) => SType.Function(ps.map(applySubst), applySubst(r))
+          case SType.Function(ps, r, effs) => SType.Function(ps.map(applySubst), applySubst(r), effs)
           case SType.Tuple(elems)  => SType.Tuple(elems.map(applySubst))
           case SType.Union(ts)     => SType.Union(ts.map(applySubst))
           case SType.Intersection(ts) => SType.Intersection(ts.map(applySubst))

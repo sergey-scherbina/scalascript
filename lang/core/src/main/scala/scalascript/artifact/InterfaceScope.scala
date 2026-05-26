@@ -195,11 +195,11 @@ object InterfaceScope:
       parseUnion().flatMap { lhs =>
         skipWs()
         if consumeArrow() then
-          parseType().map { rhs =>
+          parseEffectfulResult().map { (rhs, effs) =>
             lhs match
-              case Primary.Group(elems)  => SType.Function(elems, rhs)
-              case Primary.Empty         => SType.Function(Nil, rhs)
-              case Primary.Single(inner) => SType.Function(List(inner), rhs)
+              case Primary.Group(elems)  => SType.Function(elems, rhs, effs)
+              case Primary.Empty         => SType.Function(Nil, rhs, effs)
+              case Primary.Single(inner) => SType.Function(List(inner), rhs, effs)
           }
         else
           lhs match
@@ -425,6 +425,45 @@ object InterfaceScope:
         if !consumeArrow() then None
         else parseType().map(rhs => MatchCase(pat, rhs))
       }
+
+    /** Parse the RHS of a `=>` — a type optionally followed by `! EffSet`. */
+    private def parseEffectfulResult(): Option[(SType, SType.EffectRow)] =
+      parseType().map { resultType =>
+        skipWs()
+        if consumeBang() then
+          parseEffectSet() match
+            case Some(effs) => (resultType, effs)
+            case None       => (resultType, SType.EffectRow(None, Set.empty))
+        else
+          (resultType, SType.EffectRow(None, Set.empty))
+      }
+
+    /** Consume a single `!` (but not `!=`) preceded by optional ws. */
+    private def consumeBang(): Boolean =
+      skipWs()
+      if pos < len && s.charAt(pos) == '!' &&
+         (pos + 1 >= len || s.charAt(pos + 1) != '=')
+      then { pos += 1; true }
+      else false
+
+    /** Parse an effect set after `!`: either a single name or `(Name1, Name2, ...)`. */
+    private def parseEffectSet(): Option[SType.EffectRow] =
+      skipWs()
+      if peek == '(' then
+        pos += 1  // consume '('
+        val names = scala.collection.mutable.ListBuffer.empty[String]
+        var ok    = true
+        var first = true
+        while ok && (first || consume(',')) do
+          first = false
+          skipWs()
+          parsePath() match
+            case Some(n) => names += n
+            case None    => ok = false
+        if !ok || !consume(')') then None
+        else Some(SType.EffectRow(None, names.toSet))
+      else
+        parsePath().map(n => SType.EffectRow(None, Set(n)))
 
     private def parseParen(): Option[Primary] =
       // Caller has verified that we sit on '('.

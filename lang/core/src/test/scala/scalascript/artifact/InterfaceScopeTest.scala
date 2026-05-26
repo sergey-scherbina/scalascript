@@ -42,7 +42,7 @@ class InterfaceScopeTest extends AnyFunSuite:
     val scope = InterfaceScope.fromInterface(iface)
     val sym   = scope.lookup("Foo").get
     sym.tpe match
-      case SType.Function(List(SType.Named("Int", Nil)), SType.Named("String", Nil)) =>
+      case SType.Function(List(SType.Named("Int", Nil)), SType.Named("String", Nil), _) =>
         ()   // ok
       case other =>
         fail(s"expected SType.Function(Int => String), got: ${other.show}")

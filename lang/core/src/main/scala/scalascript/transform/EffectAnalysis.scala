@@ -108,3 +108,29 @@ object EffectAnalysis:
       }
 
     Result(effectOps.toSet, effectfulFuns.toSet)
+
+  /** Verifier mode: compare the type-system's declared effect set against the
+   *  name-reachability analysis.  Returns warning messages for divergences.
+   *  Called after v1.12.1 type-checking to cross-check the two analyses. */
+  def verify(
+    typedEffects:   Map[String, Set[String]],
+    analysisResult: Result
+  ): List[String] =
+    val warnings = scala.collection.mutable.ListBuffer.empty[String]
+    // Build a set of effect object names reachable from analysisResult.effectOps
+    // e.g. "Logger.log" → "Logger"
+    val reachableEffectNames: Set[String] =
+      analysisResult.effectOps.map(op => op.takeWhile(_ != '.'))
+    typedEffects.foreach { (funName, declared) =>
+      val funIsEffectful = analysisResult.effectfulFuns.contains(funName)
+      val unaccountedDeclared = declared.filterNot { effName =>
+        // A declared effect is "accounted for" if the analysis found it reachable
+        // AND the function is marked effectful
+        funIsEffectful && reachableEffectNames.contains(effName)
+      }
+      if unaccountedDeclared.nonEmpty then
+        warnings += s"[effect-verifier] '$funName' declares effect(s) ${unaccountedDeclared.mkString(", ")} but the effect reachability analysis found none"
+      if funIsEffectful && declared.isEmpty then
+        warnings += s"[effect-verifier] '$funName' appears effectful (reaches ${reachableEffectNames.mkString(", ")}) but declares no effect row (!)"
+    }
+    warnings.toList

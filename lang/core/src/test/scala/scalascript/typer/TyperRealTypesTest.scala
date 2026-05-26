@@ -247,7 +247,7 @@ class TyperRealTypesTest extends AnyFunSuite:
         |def boxed(n: Int) = new Box(n)""".stripMargin, "boxed")
     // The function type's return must now be Named("Box"), not Any.
     d.tpe match
-      case SType.Function(params, ret) =>
+      case SType.Function(params, ret, _) =>
         assert(params == List(SType.Int),
           s"expected params [Int]; got $params")
         assert(ret == SType.Named("Box", Nil),
@@ -297,7 +297,7 @@ class TyperRealTypesTest extends AnyFunSuite:
     // shouldn't make it worse than that, and shouldn't promote to a
     // mismatched type.
     d.tpe match
-      case SType.Function(List(SType.Int), _) => ()  // any return is OK
+      case SType.Function(List(SType.Int), _, _) => ()  // any return is OK
       case other => fail(s"expected (Int) => _, got ${other.show}")
 
   // ── Tier-5 .scim granularity — Term.Select on case-class field ─────────
@@ -352,5 +352,5 @@ class TyperRealTypesTest extends AnyFunSuite:
     // We don't yet infer `List[Int]` for the container, but the function
     // signature must still be `(List[Int]) => _`.  Accept any return.
     d.tpe match
-      case SType.Function(List(SType.Named("List", List(SType.Int))), _) => ()
+      case SType.Function(List(SType.Named("List", List(SType.Int))), _, _) => ()
       case other => fail(s"expected (List[Int]) => _, got ${other.show}")
