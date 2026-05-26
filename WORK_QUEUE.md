@@ -22,8 +22,8 @@ _(all done — see Done section below)_
 
 ## Native Platform
 
-- [ ] **v1.48.1-swiftui-run** — `ssc run` one-command wrapper for SwiftUI targets
-  _ssc build → swift build → open .app (macOS) / xcrun simctl (iOS). Pre-flight toolchain check. Spec: `BACKLOG.md # Native Platform §v1.48.1`._
+- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target mobile-ios` via xcrun simctl + incremental swift build
+  _Simulator launch, pre-flight toolchain check, skip swift build when .ssc unchanged. Spec: `BACKLOG.md # Native Platform §v1.48.1`._
 
 ## Language & Compiler
 
@@ -57,6 +57,7 @@ _(all done — see Done section below)_
 - [x] **v1.30-side-sql** — `@side=client|server` for SQL blocks — v1.30 complete (2026-05-21)
 - [x] **v1.31-transaction** — `transaction` fenced block — v1.31 landed (2026-05-21)
 - [x] **v1.48-swiftui** — SwiftUI Native Frontend (iOS + macOS) — Phases 1–3 all landed (2026-05-26)
+- [x] **v1.48.1-swiftui-run** — `ssc run --target macos` + swift build in package; target renamed desktop-macos → macos (2026-05-26)
 - [x] **v2.0-sep-compile** — Separate compilation — ALL-DELIVERABLES-LANDED (2026-05-20)
 - [x] **interpreter-ergonomics** — Interpreter ergonomics — All 3 items landed (v1.13 + 2026-05-19)
 
