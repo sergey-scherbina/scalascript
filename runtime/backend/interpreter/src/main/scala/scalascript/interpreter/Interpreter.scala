@@ -107,6 +107,7 @@ class Interpreter(
    *  `Interpreter` instance has an isolated WS route set — no global lock
    *  or `WsTestLock` synchronization required in tests. */
   val wsRoutes: scalascript.server.WsRoutes = new scalascript.server.WsRoutes()
+  val routeRegistry: scalascript.server.RouteRegistry = scalascript.server.Routes
   private[interpreter] val globals      = mutable.Map.empty[String, Value]
   private[interpreter] val extensions   = mutable.Map.empty[(String, String), Value.FunV]
   // Concrete type → declared parent type (from `extends` clause).  Used by
@@ -297,7 +298,7 @@ class Interpreter(
       globalsView = child.globalsView,
       mountedPath = path,
     )
-    scalascript.server.Routes.register(
+    routeRegistry.register(
       method.toUpperCase, path, handler, this,
       source   = Some(actualFile),
       mountCtx = ctx,
@@ -757,7 +758,7 @@ class Interpreter(
                 )
           }
         )
-        scalascript.server.Routes.register(r.method, r.path, lazyHandler, this)
+        routeRegistry.register(r.method, r.path, lazyHandler, this)
       }
     }
 
@@ -838,7 +839,7 @@ class Interpreter(
       override def featureLocalRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalRemove(key)
       override def headless = Interpreter.this.headless
       override def registerRoute(method: String, path: String, handler: Any): Unit =
-        scalascript.server.Routes.register(
+        Interpreter.this.routeRegistry.register(
           method, path, handler.asInstanceOf[Value], Interpreter.this,
           source   = Interpreter.this.currentLoadingFile,
           style    = if Interpreter.this.currentLoadingFile.isDefined then "load" else "route"
@@ -883,7 +884,7 @@ class Interpreter(
         InterpreterServerSupport.current.wsConnectSync(
           Interpreter.this, url, headers, protocols, handler.asInstanceOf[Value], Interpreter.this.out)
       override def registerMiddleware(fn: Any): Unit =
-        scalascript.server.Routes.addMiddleware(fn.asInstanceOf[Value], Interpreter.this)
+        Interpreter.this.routeRegistry.addMiddleware(fn.asInstanceOf[Value], Interpreter.this)
       override def configureCors(origins: List[String], methods: List[String],
                                   allowedHeaders: List[String]): Unit =
         InterpreterServerSupport.current.configureCors(origins, methods, allowedHeaders)
@@ -935,7 +936,7 @@ class Interpreter(
           case (k, b: Boolean) => k -> Value.BoolV(b)
           case (k, _)          => k -> Value.UnitV
         }
-        scalascript.server.Routes.register(
+        Interpreter.this.routeRegistry.register(
           method, path, handler.asInstanceOf[Value], Interpreter.this,
           source = source, mountCtx = ctx)
     intrinsics.foreach {

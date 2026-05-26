@@ -57,7 +57,8 @@ object WebServer:
 
   def start(port: Int, root: String, log: java.io.PrintStream,
             certPath: String = "", keyPath: String = "",
-            wsRoutes: WsRoutes = new WsRoutes()): Unit =
+            wsRoutes: WsRoutes = new WsRoutes(),
+            routeRegistry: RouteRegistry = Routes): Unit =
     val useTls = certPath.nonEmpty && keyPath.nonEmpty
 
     val latch    = java.util.concurrent.CountDownLatch(1)
@@ -91,6 +92,7 @@ object WebServer:
     val handler = new InterpreterHttpHandler(
       log               = log,
       wsExecutor        = executor,
+      routeRegistry     = routeRegistry,
       wsRoutes          = wsRoutes,
       fallbackRenderer  = req => renderFallback(root, req),
       maxBodySizeBytes  = () => _maxBodySizeBytes,

@@ -28,6 +28,11 @@ final class InterpreterHttpHandler(
     /** Reused for HTTP handler bodies AND WS user callbacks so global
      *  state mutations stay serial across both protocols. */
     wsExecutor:         java.util.concurrent.Executor,
+    /** HTTP route registry — carries the registered route table and
+     *  middleware chain.  Injected so tests and alternative runtimes
+     *  can supply a custom implementation without touching the global
+     *  [[Routes]] singleton. */
+    routeRegistry:      RouteRegistry,
     /** Per-interpreter WS route table.  Passed in from the owning
      *  `Interpreter` so concurrent interpreters in the same JVM each
      *  consult their own isolated route set. */
@@ -48,7 +53,7 @@ final class InterpreterHttpHandler(
   // shaped as POJO → POJO so the SPI impl writes the wire bytes. ──────
 
   override def onHttpRequest(req: Request): HttpResult =
-    Routes.matchRequest(req.method, req.path) match
+    routeRegistry.matchRequest(req.method, req.path) match
       case None =>
         fallbackRenderer(req) match
           case Some(resp) => HttpResult.PlainResp(resp)
@@ -74,7 +79,7 @@ final class InterpreterHttpHandler(
                 Map("Content-Type" -> "text/plain; charset=utf-8"),
                 ve.getMessage)
         var chain: () => Any = baseHandler
-        Routes.middlewares.reverseIterator.foreach { case (fn, mwInterp) =>
+        routeRegistry.middlewares.reverseIterator.foreach { case (fn, mwInterp) =>
           val inner = chain
           val nextFn = Value.NativeFnV("next",
             Computation.pureFn(_ => reliftAnyToValue(inner())))
@@ -263,12 +268,12 @@ final class InterpreterHttpHandler(
   /** When the user's handler returns a `StreamResponse`, the writer
    *  callback needs an interpreter to invoke through.  In the
    *  pre-SPI loop we captured `entry.interpreter` at the call site;
-   *  here we don't (Routes.matchRequest is what we use, but by the
+   *  here we don't (routeRegistry.matchRequest is what we use, but by the
    *  time the StreamResponse unwrap happens we've lost the entry).
    *  Pick any registered interpreter — they all share global state
    *  in the test rig, and production use registers exactly one. */
   private def inferStreamInterpreter(): Interpreter =
-    Routes.all.headOption.map(_.interpreter).getOrElse(
+    routeRegistry.all.headOption.map(_.interpreter).getOrElse(
       throw new RuntimeException("No registered route — cannot dispatch StreamResponse"))
 
 /** Per-connection listener — bridges the SPI's frame-callback shape

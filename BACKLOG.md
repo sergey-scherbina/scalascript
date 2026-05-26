@@ -118,6 +118,11 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     socket/server runtime moved to `runtime/backend/interpreter-server` as
     `backendInterpreterServer` behind `InterpreterServerSupport`. `Routes` /
     `WsRoutes` remain in interpreter core pending a smaller route-registry SPI.
+  - **Route-registry SPI** — ✅ **LANDED (2026-05-26)**:
+    `RouteRegistry` trait added to `interpreter` core; `Routes` extends it;
+    `Interpreter.routeRegistry` field injected into `InterpreterHttpHandler`,
+    `WebServer.start`, and `InterpreterServerSupportImpl` — decouples HTTP
+    route dispatch from the global `Routes` singleton.
 
 ### Effort to "extensibility done"
 
@@ -1461,7 +1466,12 @@ worth a separate fix when somebody has cycles.
     in-process backend transport, and their server-specific tests now live in
     `runtime/backend/interpreter-server` (`backendInterpreterServer`) behind
     `InterpreterServerSupport`. `Routes` / `WsRoutes` remain in interpreter
-    core until a route-registry SPI lands.  Follow-up effort: S + M.
+    core; route-registry SPI now landed (see below).
+  - **Route-registry SPI** — ✅ **LANDED (2026-05-26)**:
+    `RouteRegistry` trait added to `interpreter` core; `Routes extends RouteRegistry`;
+    `Interpreter.routeRegistry` field injected into `InterpreterHttpHandler`,
+    `WebServer.start`, and `InterpreterServerSupportImpl` — decouples HTTP route
+    dispatch from the global `Routes` singleton.
 
 - ~~**WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**~~  ✓ **Landed (2026-05-21)** —

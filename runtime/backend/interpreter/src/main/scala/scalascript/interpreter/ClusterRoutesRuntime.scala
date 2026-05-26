@@ -7,7 +7,7 @@ private[interpreter] object ClusterRoutesRuntime:
 
   def registerHealthDefaults(interp: Interpreter): Unit =
     def isRegistered(path: String): Boolean =
-      scalascript.server.Routes.all.exists(e => e.method == "GET" && e.path == path)
+      interp.routeRegistry.all.exists(e => e.method == "GET" && e.path == path)
     val okResponse = Value.InstanceV("Response", Map(
       "status"  -> Value.IntV(200),
       "headers" -> Value.MapV(Map(
@@ -17,9 +17,9 @@ private[interpreter] object ClusterRoutesRuntime:
     ))
     val handler = Value.NativeFnV("_healthOk", Computation.pureFn(_ => okResponse))
     if !isRegistered("/_health") then
-      scalascript.server.Routes.register("GET", "/_health", handler, interp)
+      interp.routeRegistry.register("GET", "/_health", handler, interp)
     if !isRegistered("/_ready") then
-      scalascript.server.Routes.register("GET", "/_ready", handler, interp)
+      interp.routeRegistry.register("GET", "/_ready", handler, interp)
 
   private def clusterAuthReject(args: List[Value], interp: Interpreter): Option[Value] =
     val token = interp.clusterAuthToken
@@ -50,7 +50,7 @@ private[interpreter] object ClusterRoutesRuntime:
 
   def registerClusterDrainRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/drain"
-    val already = scalascript.server.Routes.all.exists(e =>
+    val already = interp.routeRegistry.all.exists(e =>
       e.method == "POST" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterDrain", Computation.pureFn { args =>
@@ -87,11 +87,11 @@ private[interpreter] object ClusterRoutesRuntime:
         ))
       }
     })
-    scalascript.server.Routes.register("POST", path, handler, interp)
+    interp.routeRegistry.register("POST", path, handler, interp)
 
   def registerClusterStepDownRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/step-down"
-    val already = scalascript.server.Routes.all.exists(e =>
+    val already = interp.routeRegistry.all.exists(e =>
       e.method == "POST" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterStepDown", Computation.pureFn { args =>
@@ -122,11 +122,11 @@ private[interpreter] object ClusterRoutesRuntime:
           ))
       }
     })
-    scalascript.server.Routes.register("POST", path, handler, interp)
+    interp.routeRegistry.register("POST", path, handler, interp)
 
   def registerClusterMetricsPromRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/metrics-prom"
-    val already = scalascript.server.Routes.all.exists(e =>
+    val already = interp.routeRegistry.all.exists(e =>
       e.method == "GET" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterMetricsProm", Computation.pureFn { args =>
@@ -167,11 +167,11 @@ private[interpreter] object ClusterRoutesRuntime:
         ))
       }
     })
-    scalascript.server.Routes.register("GET", path, handler, interp)
+    interp.routeRegistry.register("GET", path, handler, interp)
 
   def registerClusterEventsRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/events"
-    val already = scalascript.server.Routes.all.exists(e =>
+    val already = interp.routeRegistry.all.exists(e =>
       e.method == "GET" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterEvents", Computation.pureFn { args =>
@@ -216,11 +216,11 @@ private[interpreter] object ClusterRoutesRuntime:
         ))
       }
     })
-    scalascript.server.Routes.register("GET", path, handler, interp)
+    interp.routeRegistry.register("GET", path, handler, interp)
 
   def registerClusterStatusRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/status"
-    val already = scalascript.server.Routes.all.exists(e =>
+    val already = interp.routeRegistry.all.exists(e =>
       e.method == "GET" && e.path == path)
     if already then return
     val handler = Value.NativeFnV("_clusterStatus", Computation.pureFn { args =>
@@ -261,4 +261,4 @@ private[interpreter] object ClusterRoutesRuntime:
         ))
       }
     })
-    scalascript.server.Routes.register("GET", path, handler, interp)
+    interp.routeRegistry.register("GET", path, handler, interp)

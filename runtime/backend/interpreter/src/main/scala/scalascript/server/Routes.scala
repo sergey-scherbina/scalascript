@@ -17,7 +17,7 @@ import scalascript.interpreter.{Interpreter, Value}
  *  - Iteration order is stable (insertion order), matching the behaviour
  *    callers had with the old `ArrayBuffer`.
  */
-object Routes:
+object Routes extends RouteRegistry:
 
   /** A single registered route plus the interpreter session that owns it.
    *  We need the interpreter to invoke the handler closure with the right

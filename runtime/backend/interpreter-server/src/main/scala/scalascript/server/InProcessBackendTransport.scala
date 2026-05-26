@@ -20,6 +20,7 @@ final class InProcessBackendTransport(
   private val handler = InterpreterHttpHandler(
     log              = log,
     wsExecutor       = directExecutor,
+    routeRegistry    = Routes,
     wsRoutes         = WsRoutes(),
     fallbackRenderer = _ => None,
     maxBodySizeBytes = () => Long.MaxValue,

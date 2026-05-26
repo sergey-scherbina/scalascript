@@ -14,7 +14,7 @@ final class InterpreterServerSupportImpl extends InterpreterServerSupport:
       keyPath: String,
       async: Boolean
   ): Unit =
-    def run(): Unit = WebServer.start(port, dir, log, certPath, keyPath, wsRoutes = interp.wsRoutes)
+    def run(): Unit = WebServer.start(port, dir, log, certPath, keyPath, wsRoutes = interp.wsRoutes, routeRegistry = interp.routeRegistry)
     if async then
       Thread.ofVirtual().start { () =>
         try run()
