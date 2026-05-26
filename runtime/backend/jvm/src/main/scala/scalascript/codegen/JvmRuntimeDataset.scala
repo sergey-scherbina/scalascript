@@ -137,8 +137,8 @@ val JvmRuntimeDataset: String =
      |  // top(n) — n largest by natural Ordering, descending.
      |  // takeOrdered(n) — n smallest by natural Ordering, ascending.
      |  // countByValue — Map[T, Long] of element frequencies.
-     |  def top(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted(ord.reverse).take(n)
-     |  def takeOrdered(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted.take(n)
+     |  def top(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted(using ord.reverse).take(n)
+     |  def takeOrdered(n: Int)(using ord: Ordering[T]): List[T] = collect().sorted(using ord).take(n)
      |  def countByValue(): Map[T, Long] =
      |    collect().groupBy(identity).map { case (k, vs) => (k, vs.length.toLong) }
      |

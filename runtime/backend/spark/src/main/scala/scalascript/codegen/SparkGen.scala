@@ -1458,11 +1458,11 @@ private class SparkGen(
        |     *  For simple element types (Int, Long, Double, String) this
        |     *  compiles; complex types need an explicit Ordering. */
        |    def top(n: Int)(using ord: Ordering[T]): List[T] =
-       |      ds.collect().toList.sorted(ord.reverse).take(n)
+       |      ds.collect().toList.sorted(using ord.reverse).take(n)
        |
        |    /** `.takeOrdered(n)` — n smallest by natural ordering, ascending. */
        |    def takeOrdered(n: Int)(using ord: Ordering[T]): List[T] =
-       |      ds.collect().toList.sorted.take(n)
+       |      ds.collect().toList.sorted(using ord).take(n)
        |
        |    /** `.toScalaList` alias for when `.toList` conflicts. */
        |    def toScalaList: List[T] = ds.collect().toList
