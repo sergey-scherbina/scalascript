@@ -1302,6 +1302,17 @@ awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "app"))
 Use `"server"` to accept the server value, `"client"` to retry the local
 mutation, and `"drop"` to discard the local mutation.
 
+For generated JVM sync routes, the front-matter `conflict:` key can automate
+that server-side push decision:
+
+```yaml
+objectStores:
+  drafts:
+    type: Draft
+    sync: client-server
+    conflict: server-wins # manual | server-wins | client-wins
+```
+
 ---
 
 ## Step 3: REST API

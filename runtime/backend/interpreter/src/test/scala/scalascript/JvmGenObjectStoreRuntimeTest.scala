@@ -59,3 +59,30 @@ class JvmGenObjectStoreRuntimeTest extends AnyFunSuite:
     assert(code.contains("scalascript.sql.ObjectStoreRuntime.changes[Draft]"))
     assert(code.contains("scalascript.sql.ObjectStoreRuntime.decodeAny[Draft]"))
     assert(code.contains("scalascript-backend-sql-runtime"))
+
+  test("JVM codegen carries objectStores conflict policy into sync push route"):
+    val source =
+      """---
+        |databases:
+        |  default:
+        |    url: "jdbc:h2:mem:object-store-sync-policy-codegen"
+        |objectStores:
+        |  drafts:
+        |    type: Draft
+        |    sync: client-server
+        |    conflict: client-wins
+        |---
+        |
+        |# Test
+        |
+        |```scala
+        |import scalascript.typeddata.{ObjectCodec, key}
+        |case class Draft(@key id: String, title: String) derives ObjectCodec
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(source))
+
+    assert(code.contains("val policy = \"client-wins\""))
+    assert(code.contains("""if policy == "client-wins" then"""))
+    assert(code.contains("""if policy == "server-wins" then"""))

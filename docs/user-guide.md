@@ -1184,7 +1184,9 @@ clients can use `awaitClient(Sync.pull[Draft]("drafts", "app"))` and
 `Sync.remove[A]` when local edits should be queued durably before the next
 push. `Sync.conflicts("drafts", "app")` lists persisted conflicts, and
 `Sync.resolve[A]("drafts", key, "server" | "client" | "drop", "app")` resolves
-one conflict explicitly. Automatic conflict policies are still planned. See
+one conflict explicitly. On the JVM backend, `objectStores.<name>.conflict`
+also supports automatic `manual`, `server-wins`, and `client-wins` push
+policies. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
 **Planned, not implemented yet: graph storage.** Graph-shaped data is planned as

@@ -1504,6 +1504,7 @@ class JvmGen(
       val storage = scalaStringLiteral(storageStore)
       val table = store.table.map(scalaStringLiteral).getOrElse("scalascript.sql.ObjectStoreRuntime.DefaultTable")
       val tpe = store.valueType
+      val conflictPolicy = scalaStringLiteral(store.conflict)
       sb.append(s"""route("GET", ${scalaStringLiteral(path + "changes")}) { req =>
   val since = _ssc_sync_long(req.query.get("since"), 0L)
   val limit = _ssc_sync_int(req.query.get("limit"), 100)
@@ -1543,14 +1544,31 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       results += Map("key" -> stored.key, "version" -> stored.version, "deleted" -> stored.deleted)
     catch
       case conflict: scalascript.sql.ObjectStoreConflict =>
-        val current = scalascript.sql.ObjectStoreRuntime.getStored[$tpe](conn, $storage, key, $table)
-        conflicts += Map(
-          "key" -> key,
-          "expectedVersion" -> expected,
-          "actualVersion" -> current.map(_.version),
-          "deleted" -> current.exists(_.deleted),
-          "value" -> current.flatMap(_.value)
-        )
+        val policy = $conflictPolicy
+        if policy == "client-wins" then
+          val stored =
+            if deleted then
+              scalascript.sql.ObjectStoreRuntime.delete(conn, $storage, key, None, $table)
+            else
+              val decoded = scalascript.sql.ObjectStoreRuntime.decodeAny[$tpe](mutation.getOrElse("value", Map.empty[String, Any]))
+              scalascript.sql.ObjectStoreRuntime.put[$tpe](conn, $storage, decoded, Some(key).filter(_.nonEmpty), None, $table)
+          results += Map("key" -> stored.key, "version" -> stored.version, "deleted" -> stored.deleted)
+        else
+          val current = scalascript.sql.ObjectStoreRuntime.getStored[$tpe](conn, $storage, key, $table)
+          if policy == "server-wins" then
+            results += Map(
+              "key" -> key,
+              "version" -> current.map(_.version).getOrElse(0L),
+              "deleted" -> current.forall(_.deleted)
+            )
+          else
+            conflicts += Map(
+              "key" -> key,
+              "expectedVersion" -> expected,
+              "actualVersion" -> current.map(_.version),
+              "deleted" -> current.exists(_.deleted),
+              "value" -> current.flatMap(_.value)
+            )
   }
   Response.json(Map("results" -> results.toList, "conflicts" -> conflicts.toList))
 }

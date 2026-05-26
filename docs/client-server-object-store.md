@@ -166,9 +166,9 @@ POST /__ssc/sync/drafts/push
 }
 ```
 
-and returns applied `results` plus explicit `conflicts`.
-The first generated route implementation reports conflicts explicitly; automatic
-`server-wins` / `client-wins` policies remain planned.
+and returns applied `results` plus explicit `conflicts` for manual stores.
+Generated JVM routes can also apply automatic `server-wins` / `client-wins`
+policies declared in front matter.
 
 Browser/Electron clients can use the first `Sync` helper layer:
 
@@ -193,7 +193,7 @@ awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "app"))
 `server` applies the server value/tombstone and drops the local mutation,
 `client` clears the conflict but keeps the local mutation queued for retry, and
 `drop` discards the queued local mutation without applying a server value.
-Automatic per-store conflict policies remain planned.
+Automatic per-store conflict policies are handled on the generated JVM route.
 
 Conflict policy should be explicit per store:
 
@@ -206,6 +206,10 @@ objectStores:
 
 The default should be `manual` once user-facing APIs exist, because silent
 overwrites are dangerous. Demos may opt into `server-wins` or `client-wins`.
+The generated JVM sync route now applies these policies on `push` conflicts:
+`manual` returns conflict rows, `server-wins` acknowledges the current server
+state and drops the client mutation, and `client-wins` retries the mutation
+without the stale expected version.
 
 ## Standard Solutions And Rationale
 
@@ -257,10 +261,10 @@ keeping as an optional backend for apps that want battle-tested replication.
    `Sync.remove[A]` persist a durable local mutation/deletion queue and
    `Sync.push[A]` drains acknowledged queue entries. Follow-up landed
    2026-05-26: conflicts are persisted locally and exposed through
-   `Sync.conflicts` / `Sync.resolve[A]`. Remaining: automatic per-store
-   conflict policies and richer UI helpers.
-5. **Conflict handling** — expose conflict results and implement configured
-   `server-wins`, `client-wins`, and `manual` policies.
+   `Sync.conflicts` / `Sync.resolve[A]`.
+5. **Automatic conflict policies** — landed 2026-05-26: generated JVM sync
+   `push` routes apply `objectStores.<name>.conflict` for `manual`,
+   `server-wins`, and `client-wins`.
 6. **Examples + conformance** — add an offline todo example that edits locally,
    syncs to the JVM server, restarts, and pulls changes into another client.
 
