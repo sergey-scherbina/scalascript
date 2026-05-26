@@ -2021,9 +2021,10 @@ lazy val graphPlugin = project
 
 lazy val sqlPlugin = project
   .in(file("runtime/std/sql-plugin"))
-  .dependsOn(backendSpi, ir, core, backendSqlRuntime)
+  .dependsOn(backendSpi, ir, core, backendSqlRuntime, testUtils % Test)
   .settings(
     name := "scalascript-sql-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

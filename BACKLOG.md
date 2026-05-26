@@ -101,9 +101,9 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     interpreter tests moved behind `backendInterpreterPluginTests`, removing
     the `backendInterpreter / Test` → std-plugin project dependency;
     `graphPlugin`, `jsonPlugin`, `requestPlugin`, `fetchPlugin`,
-    `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, and `mcpPlugin` now have
-    isolated `src/test` suites via `testUtils % Test`. Remaining: migrate the other
-    plugin families one at a time.
+    `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`, and `sqlPlugin` now have
+    isolated `src/test` suites via `testUtils % Test`. Remaining plugin-family
+    suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
@@ -1447,8 +1447,8 @@ worth a separate fix when somebody has cycles.
     the legacy plugin-backed interpreter suites, removing the direct
     `backendInterpreter / Test` dependency on std plugins; `graphPlugin`,
     `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
-    `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, and `mcpPlugin` have isolated `src/test` suites via
-    `testUtils % Test`. Remaining: migrate the other plugin families one at a time.
+    `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`, and `sqlPlugin` have isolated `src/test` suites via
+    `testUtils % Test`. Remaining plugin-family suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
     import lines, relying on ServiceLoader classpath discovery.  Effort: S.

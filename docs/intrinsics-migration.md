@@ -733,10 +733,12 @@ legacy plugin-backed interpreter tests.  `backendInterpreter` now stays free of
 std-plugin project references, so individual std plugins may add
 `src/test/` suites via `testUtils % Test` without creating an sbt cycle.
 `graphPlugin`, `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
-`swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, and
-`mcpPlugin` are the first migrated plugin suites.
+`swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`,
+and `sqlPlugin` have migrated plugin-local suites.
 
-**Effort remaining**: migrate the remaining plugin families one at a time.
+**Effort remaining**: plugin-local suites are migrated. The separate
+`sql {}` fenced-block dispatch refactor remains open because that path still
+lives in `Interpreter.runSqlBlock` rather than in the SQL plugin.
 
 ### 11.2 Examples `pkg:` import sweep
 
