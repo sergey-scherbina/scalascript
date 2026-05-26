@@ -10705,3 +10705,27 @@ distributed same-source server/client example are partially landed.
   runtimes retry transparently on transport errors and 5xx, with delay, up to
   `maxRetries` times. 4xx errors are never retried. Remaining: streaming,
   SSE/WebSocket, pagination, cancellation.
+
+## v1.47 — JavaFX Desktop Frontend ✓ Complete (2026-05-26)
+
+**Status:** complete
+**Spec:** [`docs/javafx-desktop-frontend.md`](docs/javafx-desktop-frontend.md)
+
+OpenJFX desktop frontend adapter for ScalaScript. Emits standalone
+`scala-cli`-runnable Scala 3 source with `//> using dep` directives for
+the correct platform-specific OpenJFX classifier. Covers the same toolkit
+subset as Swing but generates JavaFX source: `Label`, `Button`, `TextField`,
+`PasswordField`, `TextArea`, `CheckBox`, `VBox`, `HBox`, `ScrollPane`,
+`Separator`, `Region`. CSS-based styling via `node.setStyle(...)` using
+`-fx-*` properties replaces Swing's `setFont`/`setForeground` calls. Signal
+table and binding refresh use `textProperty().addListener` /
+`selectedProperty().addListener` and a `bindSignal`/`refreshSignal` helper
+pair — same reactive model as Swing.
+
+### Phases
+
+- **Phase 1 ✓ Landed (2026-05-26)** — `frontendJavaFx` module, ServiceLoader
+  registration, `AppFormat.JavaFxApp`, full `JavaFxFrameworkBackend` /
+  `JavaFxEmitter` implementation (OS detection, widget lowering, CSS styling,
+  signal table, binding refresh), CLI `--frontend javafx` flag, 8-test suite,
+  and `examples/frontend/javafx-hello/javafx-hello.ssc`.

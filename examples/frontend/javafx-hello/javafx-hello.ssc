@@ -1,0 +1,33 @@
+#!/usr/bin/env ssc
+---
+name: javafx-hello
+version: 0.1.0
+description: Minimal OpenJFX desktop window with counter and text input
+frontend: javafx
+---
+
+# JavaFX Hello
+
+Minimal OpenJFX desktop example using the `javafx` frontend target.
+Run with `ssc run-jvm --frontend javafx javafx-hello.ssc` to emit a
+`scala-cli`-runnable project and open it.
+
+```scala
+import scalascript.ui.*
+
+val count   = signal(0)
+val message = signal("Hello!")
+
+app(
+  column(
+    text("JavaFX Counter Demo").fontSize(20).bold,
+    row(
+      button("−", onClick = decrement(count)),
+      signalText(count).fontSize(18),
+      button("+", onClick = increment(count))
+    ),
+    textInput(message, placeholder = "Type a message"),
+    signalText(message)
+  )
+)
+```

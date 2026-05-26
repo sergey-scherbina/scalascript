@@ -51,6 +51,7 @@ enum AppFormat:
   case WebSpa
   case ElectronApp
   case SwingApp
+  case JavaFxApp
   case ReactNativeBundle
   case ComposeMultiplatform
   case SwiftUIApp

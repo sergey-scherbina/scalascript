@@ -401,7 +401,7 @@ private[cli] def injectDesktopTokenMiddleware(script: String): String =
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
 private[cli] val validFrontendNames: Set[String] =
-  Set("custom", "react", "solid", "vue", "electron", "swing")
+  Set("custom", "react", "solid", "vue", "electron", "swing", "javafx")
 
 private[cli] val browserFrontendNames: Set[String] =
   Set("custom", "react", "solid", "vue")
@@ -521,7 +521,7 @@ def printUsage(): Unit =
     |    registry remove <id>   Remove a registry entry
     |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
-    |                         Flags: --frontend <custom|react|solid|vue|electron|swing>  (overrides frontmatter frontend:)
+    |                         Flags: --frontend <custom|react|solid|vue|electron|swing|javafx>  (overrides frontmatter frontend:)
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |                                --target desktop-jvm starts split JVM REST + Electron mode
     |                                --mode server starts only the JVM backend/server
@@ -587,6 +587,7 @@ def printUsage(): Unit =
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
     |  run   --frontend electron <f>   Compile .ssc and open in an Electron desktop window
     |  run-jvm --frontend swing <f>    Compile and launch the JDK-only Swing desktop frontend
+    |  run-jvm --frontend javafx <f>   Compile and launch the OpenJFX desktop frontend
     |  build --target desktop <f>      Generate Electron bundle; run npm run build to package
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
@@ -2907,7 +2908,7 @@ private[cli] def validateRunJvmTransportSelection(
     case None | Some(BackendTransportKind.Http) => Right(())
     case Some(BackendTransportKind.InProcess) =>
       frontendName match
-        case Some("swing") => Right(())
+        case Some("swing") | Some("javafx") => Right(())
         case Some(other) =>
           Left(s"run-jvm --transport in-process requires a JVM-hosted frontend; '$other' is not supported")
         case None =>
@@ -4610,7 +4611,7 @@ private def compileJvmAndCache(
 
 def runJvmCommand(args: List[String]): Unit =
   if args.isEmpty then
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] [--transport <http|in-process>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
     System.exit(1)
   var jvmFrontendFlag: Option[String] = None
   var jvmTransportFlag: Option[BackendTransportKind] = None
@@ -4628,7 +4629,7 @@ def runJvmCommand(args: List[String]): Unit =
         jvmTransportFlag = Some(parseTransportFlag("run-jvm --transport", jvmIt.next()))
       case f => jvmFileArg = Some(f)
   val file = jvmFileArg.getOrElse {
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing>] [--transport <http|in-process>] <file.ssc>")
+    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
     System.exit(1); ""
   }
   val path = os.Path(file, os.pwd)
