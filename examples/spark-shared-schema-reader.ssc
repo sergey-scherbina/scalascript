@@ -1,0 +1,32 @@
+---
+title: Spark shared schema reader
+description: Spark typed readers using SparkSchemaCodec field metadata
+backend: spark
+---
+
+# Spark Shared Schema Reader
+
+```scalascript
+import scalascript.typeddata.{SparkSchemaCodec, fieldName, key}
+
+case class UserMetric(
+  @key id: Long,
+  @fieldName("display_name") name: String,
+  score: Option[Double]
+) derives SparkSchemaCodec
+
+val dir = java.nio.file.Files.createTempDirectory("ssc-spark-schema-reader")
+val csv = dir.resolve("part.csv")
+java.nio.file.Files.writeString(
+  csv,
+  "id,display_name,score\n1,Ada,9.5\n2,Grace,\n"
+)
+
+val users = Dataset.fromCsvAs[UserMetric](
+  dir.toString,
+  "header" -> "true",
+  "mode" -> "FAILFAST"
+)
+
+println(users.collect().toList.map(u => s"${u.id}:${u.name}:${u.score.getOrElse(0.0)}").mkString(","))
+```

@@ -85,12 +85,14 @@ private[typeddata] object DerivedSchemaMacros:
     val fields = productFields[A].map((symbols, _, name, tpe) =>
       val meta = metadata(symbols, name)
       val (dataType, nullable) = sparkSchemaType(tpe)
+      val scalaName = if meta.name == name then "" else name
       '{
         SparkSchemaField(
           ${Expr(meta.name)},
           $dataType,
           ${Expr(nullable)},
-          ${Expr(meta.key)}
+          ${Expr(meta.key)},
+          ${Expr(scalaName)}
         )
       }
     )

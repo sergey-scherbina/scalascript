@@ -10443,9 +10443,12 @@ modes opt out of that default.
   landed 2026-05-26: `backend/typed-data` now includes `SparkSchemaCodec[A]`
   for Spark-like schema metadata derived from shared field annotations and
   nullability conventions, and `examples/spark-schema-mapping.ssc` runs through
-  `ssc run-jvm`. Remaining: richer sync UI helpers, production graph adapters,
-  distributed MapReduce worker serialization convergence, and direct SparkGen
-  reader/encoder wiring to shared schema metadata.
+  `ssc run-jvm`. Follow-up landed 2026-05-26: SparkGen typed readers now use
+  `SparkSchemaCodec[A]` metadata when it is in scope, read external storage
+  column names, and alias them back to Scala case-class field names before
+  Spark `.as[A]`; `examples/spark-shared-schema-reader.ssc` documents the
+  path. Remaining: richer sync UI helpers, production graph adapters, and
+  distributed MapReduce worker serialization convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

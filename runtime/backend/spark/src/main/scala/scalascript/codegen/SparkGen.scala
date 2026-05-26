@@ -579,6 +579,70 @@ private class SparkGen(
     }
     sb.toString
 
+  // Resolve an internal ScalaScript artifact to an absolute scala-cli
+  // `//> using jar` directive when running from a staged or dev checkout.
+  // Falls back to the snapshot coordinate for installed builds that publish
+  // internal runtime jars instead of keeping them under target/.
+  private def sscJarDirective(artifactBase: String): String =
+    import scala.jdk.CollectionConverters.*
+    def findIn(dir: java.nio.file.Path): Option[java.nio.file.Path] =
+      if java.nio.file.Files.isDirectory(dir) then
+        val stream = java.nio.file.Files.list(dir)
+        try
+          stream.iterator.asScala.find { p =>
+            val name = p.getFileName.toString
+            name.startsWith(s"${artifactBase}_") && name.endsWith(".jar") && !name.endsWith("-tests.jar")
+          }
+        finally stream.close()
+      else None
+    def findInDevTree(root: java.nio.file.Path): Option[java.nio.file.Path] =
+      if java.nio.file.Files.isDirectory(root) then
+        val stream = java.nio.file.Files.walk(root, 7)
+        try
+          stream.iterator.asScala
+            .filterNot(p => p.toString.contains(s"${java.io.File.separator}target${java.io.File.separator}bg-jobs${java.io.File.separator}"))
+            .filter { p =>
+              val name = p.getFileName.toString
+              name.startsWith(s"${artifactBase}_") && name.endsWith(".jar") && !name.endsWith("-tests.jar")
+            }
+            .toVector
+            .sortBy(_.toString)
+            .headOption
+        finally stream.close()
+      else None
+    val libPath = Option(System.getProperty("ssc.lib.path"))
+    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "bin", "lib", "jars")))
+    val cwd = java.nio.file.Paths.get(".").toAbsolutePath.normalize()
+    val staged = findIn(cwd.resolve("bin").resolve("lib").resolve("jars"))
+    val devTarget = findInDevTree(cwd)
+    installed.orElse(staged).orElse(devTarget)
+      .map(p => s"""//> using jar "${p.toAbsolutePath}"\n""")
+      .getOrElse(s"""//> using dep "io.scalascript::$artifactBase:0.1.0-SNAPSHOT"\n""")
+
+  private def sscTypedDataRuntimeDirective(): String =
+    import scala.jdk.CollectionConverters.*
+    val cwd = java.nio.file.Paths.get(".").toAbsolutePath.normalize()
+    val sourceRoot =
+      cwd.resolve("backend").resolve("typed-data").resolve("src").resolve("main").resolve("scala")
+    if java.nio.file.Files.isDirectory(sourceRoot) then
+      val stream = java.nio.file.Files.walk(sourceRoot)
+      try
+        stream.iterator.asScala
+          .filter(p => java.nio.file.Files.isRegularFile(p) && p.getFileName.toString.endsWith(".scala"))
+          .toVector
+          .sortBy(_.toString)
+          .map(p => s"""//> using file "${p.toAbsolutePath}"\n""")
+          .mkString
+      finally stream.close()
+    else
+      sscJarDirective("scalascript-backend-typed-data-runtime")
+
+  private def blocksUseSharedSparkSchema(blocks: List[SparkGen.Block]): Boolean =
+    val names = Set("SparkSchemaCodec", "SparkSchema", "SparkSchemaField", "SparkSchemaType")
+    blocks.exists { b =>
+      b.src.contains("scalascript.typeddata") || names.exists(name => b.src.contains(name))
+    }
+
   // ── Module entry ──────────────────────────────────────────────────────────
 
   def genModule(module: Module): String =
@@ -631,6 +695,8 @@ private class SparkGen(
     // follow-ons.
     val needsMllibDep: Boolean =
       SparkGen.containsMllib(joinedUserSrc)
+    val needsSharedSparkSchema: Boolean =
+      blocksUseSharedSparkSchema(blocks)
     // Phase F.3 — file source/sink checkpoint guidance.  Streaming
     // queries that write to a file sink (parquet/csv/json/orc/text)
     // refuse to start without `option("checkpointLocation", …)`; emit
@@ -695,6 +761,8 @@ private class SparkGen(
     // core → sql → kafka (if streaming Kafka) → mllib (if ML).
     if needsMllibDep then
       sb.append(s"""//> using dep "org.apache.spark:spark-mllib_2.13:$sparkVersion"\n""")
+    if needsSharedSparkSchema then
+      sb.append(sscTypedDataRuntimeDirective())
     SparkGen.DefaultJavaOpts.foreach { opt =>
       sb.append(s"""//> using javaOpt $opt\n""")
     }
@@ -848,7 +916,7 @@ private class SparkGen(
 
     // Emit the Dataset companion shim so user code `Dataset.of(...)` /
     // `Dataset.fromList(...)` resolves without any user-visible changes.
-    sb.append(datasetShim)
+    sb.append(datasetShim(needsSharedSparkSchema))
 
     // User blocks — indented two spaces to sit inside `@main def`.
     //
@@ -1368,8 +1436,99 @@ private class SparkGen(
    *  - `.top(n)` is emitted as a helper function `_topDataset`.
    *  - `.count` is already a Spark Dataset method, returns `Long`.
    */
-  private def datasetShim: String =
-    """|  // ── Dataset shim — bridges ScalaScript Dataset API to Spark ──────────
+  private def datasetShim(useSharedSparkSchema: Boolean): String =
+    val schemaBridge =
+      if useSharedSparkSchema then
+        """|    trait SscSparkSchemaProvider[T]:
+           |      def schema: StructType
+           |      def project(df: DataFrame): DataFrame = df
+           |
+           |    trait LowPrioritySscSparkSchemaProvider:
+           |      given fromEncoder[T](using encoder: Encoder[T]): SscSparkSchemaProvider[T] with
+           |        def schema: StructType = encoder.schema
+           |
+           |    object SscSparkSchemaProvider extends LowPrioritySscSparkSchemaProvider:
+           |      given fromSparkSchemaCodec[T](using codec: scalascript.typeddata.SparkSchemaCodec[T]): SscSparkSchemaProvider[T] with
+           |        def schema: StructType = _sscSparkStructType(codec.schema)
+           |        override def project(df: DataFrame): DataFrame =
+           |          val fields = codec.schema.fields
+           |          if fields.exists(f => f.name != f.scalaFieldName) then
+           |            df.select(fields.map(f => df.col(f.name).as(f.scalaFieldName))*)
+           |          else df
+           |
+           |    private def _sscSparkStructType(schema: scalascript.typeddata.SparkSchema): StructType =
+           |      StructType(schema.fields.map { f =>
+           |        StructField(f.name, _sscSparkDataType(f.dataType), f.nullable)
+           |      }.toArray)
+           |
+           |    private def _sscSparkDataType(t: scalascript.typeddata.SparkSchemaType): DataType =
+           |      t match
+           |        case scalascript.typeddata.SparkSchemaType.StringType  => StringType
+           |        case scalascript.typeddata.SparkSchemaType.BooleanType => BooleanType
+           |        case scalascript.typeddata.SparkSchemaType.ByteType    => ByteType
+           |        case scalascript.typeddata.SparkSchemaType.ShortType   => ShortType
+           |        case scalascript.typeddata.SparkSchemaType.IntegerType => IntegerType
+           |        case scalascript.typeddata.SparkSchemaType.LongType    => LongType
+           |        case scalascript.typeddata.SparkSchemaType.FloatType   => FloatType
+           |        case scalascript.typeddata.SparkSchemaType.DoubleType  => DoubleType
+           |        case scalascript.typeddata.SparkSchemaType.DecimalType => DecimalType.SYSTEM_DEFAULT
+           |        case scalascript.typeddata.SparkSchemaType.ArrayType(element, containsNull) =>
+           |          org.apache.spark.sql.types.ArrayType(_sscSparkDataType(element), containsNull)
+           |        case scalascript.typeddata.SparkSchemaType.MapType(key, value, valueContainsNull) =>
+           |          org.apache.spark.sql.types.MapType(_sscSparkDataType(key), _sscSparkDataType(value), valueContainsNull)
+           |        case scalascript.typeddata.SparkSchemaType.StructType(_) =>
+           |          StructType(Nil)
+           |
+           |    def schemaOf[T](using provider: SscSparkSchemaProvider[T]): StructType =
+           |      provider.schema
+           |
+           |    def fromParquetAs[T](path: String, options: (String, String)*)(using Encoder[T], SscSparkSchemaProvider[T]): Dataset[T] =
+           |      summon[SscSparkSchemaProvider[T]].project(spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path)).as[T]
+           |
+           |    // Catalog read (v1.25 § 9.5 Phase G.4).  Resolves through
+           |    // the Spark session catalog: temp views (registered via
+           |    // `@TempView` or explicit `.createOrReplaceTempView`),
+           |    // global temp views, and managed Hive tables (when the
+           |    // `spark-hive-metastore:` or `spark-warehouse:` front-matter
+           |    // is set — Phase G.2).  `.as[T]` uses the Phase E encoder
+           |    // derivation that's already in scope, so primitives + case
+           |    // classes + Option + nested + collections all work without
+           |    // further plumbing.
+           |    def fromTable[T](name: String)(using Encoder[T], SscSparkSchemaProvider[T]): Dataset[T] =
+           |      summon[SscSparkSchemaProvider[T]].project(spark.table(name)).as[T]
+           |
+           |    def fromJsonAs[T](path: String, options: (String, String)*)(using Encoder[T], SscSparkSchemaProvider[T]): Dataset[T] =
+           |      summon[SscSparkSchemaProvider[T]].project(spark.read.schema(schemaOf[T]).options(options.toMap).json(path)).as[T]
+           |
+           |    def fromCsvAs[T](path: String, options: (String, String)*)(using Encoder[T], SscSparkSchemaProvider[T]): Dataset[T] =
+           |      summon[SscSparkSchemaProvider[T]].project(spark.read.schema(schemaOf[T]).options(options.toMap).csv(path)).as[T]
+           |""".stripMargin
+      else
+        """|    def schemaOf[T : Encoder]: StructType =
+           |      summon[Encoder[T]].schema
+           |
+           |    def fromParquetAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+           |      spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path).as[T]
+           |
+           |    // Catalog read (v1.25 § 9.5 Phase G.4).  Resolves through
+           |    // the Spark session catalog: temp views (registered via
+           |    // `@TempView` or explicit `.createOrReplaceTempView`),
+           |    // global temp views, and managed Hive tables (when the
+           |    // `spark-hive-metastore:` or `spark-warehouse:` front-matter
+           |    // is set — Phase G.2).  `.as[T]` uses the Phase E encoder
+           |    // derivation that's already in scope, so primitives + case
+           |    // classes + Option + nested + collections all work without
+           |    // further plumbing.
+           |    def fromTable[T : Encoder](name: String): Dataset[T] =
+           |      spark.table(name).as[T]
+           |
+           |    def fromJsonAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+           |      spark.read.schema(schemaOf[T]).options(options.toMap).json(path).as[T]
+           |
+           |    def fromCsvAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
+           |      spark.read.schema(schemaOf[T]).options(options.toMap).csv(path).as[T]
+           |""".stripMargin
+    s"""|  // ── Dataset shim — bridges ScalaScript Dataset API to Spark ──────────
        |  object Dataset:
        |    def of[T : Encoder](items: T*): Dataset[T] =
        |      spark.createDataset(items.toList)
@@ -1423,29 +1582,7 @@ private class SparkGen(
        |    // column as `String`); for JSON it bypasses Spark's two-pass
        |    // schema-inference scan; for Parquet it acts as a column
        |    // projection (only the case-class fields are read off disk).
-       |    def schemaOf[T : Encoder]: StructType =
-       |      summon[Encoder[T]].schema
-       |
-       |    def fromParquetAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
-       |      spark.read.schema(schemaOf[T]).options(options.toMap).parquet(path).as[T]
-       |
-       |    // Catalog read (v1.25 § 9.5 Phase G.4).  Resolves through
-       |    // the Spark session catalog: temp views (registered via
-       |    // `@TempView` or explicit `.createOrReplaceTempView`),
-       |    // global temp views, and managed Hive tables (when the
-       |    // `spark-hive-metastore:` or `spark-warehouse:` front-matter
-       |    // is set — Phase G.2).  `.as[T]` uses the Phase E encoder
-       |    // derivation that's already in scope, so primitives + case
-       |    // classes + Option + nested + collections all work without
-       |    // further plumbing.
-       |    def fromTable[T : Encoder](name: String): Dataset[T] =
-       |      spark.table(name).as[T]
-       |
-       |    def fromJsonAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
-       |      spark.read.schema(schemaOf[T]).options(options.toMap).json(path).as[T]
-       |
-       |    def fromCsvAs[T : Encoder](path: String, options: (String, String)*): Dataset[T] =
-       |      spark.read.schema(schemaOf[T]).options(options.toMap).csv(path).as[T]
+       |$schemaBridge
        |
        |  // Extension methods that bridge ScalaScript Dataset idioms to Spark
        |  // Dataset ops.  Defined here so they're in scope throughout the @main

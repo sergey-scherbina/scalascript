@@ -356,11 +356,16 @@ Roles:
   shared typed-data layer. It derives case-class field names from the same
   `@fieldName` annotation used by `JsonCodec` / `RowCodec`, preserves `@key`
   metadata, maps primitive/collection shapes to `SparkSchemaType`, and marks
-  `Option[A]` fields nullable.
-- SparkGen still owns the real Spark `Encoder[A]` / `StructType` generation
-  used by `Dataset.fromJsonAs`, `fromCsvAs`, `fromParquetAs`, and
-  `fromTable`. Wiring the shared `SparkSchemaCodec` metadata directly into
-  those readers remains a follow-up.
+  `Option[A]` fields nullable. Each `SparkSchemaField` also keeps the original
+  Scala field name so SparkGen can read external column names and then alias
+  them back before applying Spark's `Encoder[A]`.
+- SparkGen owns the real Spark `Encoder[A]` / `StructType` path used by
+  `Dataset.fromJsonAs`, `fromCsvAs`, `fromParquetAs`, and `fromTable`. When a
+  `SparkSchemaCodec[A]` is in scope, those readers now build the read schema
+  from the shared typed-data metadata and project storage names such as
+  `display_name` back to Scala field names such as `name` before `.as[A]`.
+  Without `SparkSchemaCodec[A]`, the readers keep the existing Encoder-derived
+  schema behavior.
 - `RowCodec[A]` and Spark schema derivation should converge where possible:
   both describe tabular data, but Spark also needs distributed execution and
   Catalyst-compatible schemas.
@@ -494,9 +499,12 @@ the same query model.
    Follow-up landed 2026-05-26: `SparkSchemaCodec[A]` now lives in
    `backend/typed-data`, derives Spark-like schema metadata from case classes
    using shared `@fieldName`, `@key`, and `Option` nullability conventions, and
-   is demonstrated by `examples/spark-schema-mapping.ssc`. Remaining: align
-   distributed MapReduce worker serialization and wire SparkGen's real
-   `Encoder`/reader schema path to the shared schema metadata where practical.
+   is demonstrated by `examples/spark-schema-mapping.ssc`. Follow-up landed
+   2026-05-26: SparkGen typed readers consume `SparkSchemaCodec[A]` when it is
+   in scope, build the Spark read schema from shared metadata, and alias storage
+   column names back to Scala case-class fields before `.as[A]`; see
+   `examples/spark-shared-schema-reader.ssc`. Remaining: align distributed
+   MapReduce worker serialization.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

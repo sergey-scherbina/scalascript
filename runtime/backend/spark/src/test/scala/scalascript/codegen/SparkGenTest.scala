@@ -892,6 +892,36 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("def schemaOf["))
   }
 
+  test("shared SparkSchemaCodec wiring is emitted only when typed-data schema metadata is used") {
+    val plain = gen("# Test\n```scalascript\nval df = Dataset.fromCsvAs[Int](\"/data\")\n```\n")
+    assert(!plain.contains("SscSparkSchemaProvider"),
+      s"plain Spark readers should keep the small Encoder-only shim, got:\n$plain")
+
+    val code = gen(
+      """|# Shared schema reader
+         |```scalascript
+         |import scalascript.typeddata.{SparkSchemaCodec, fieldName}
+         |
+         |case class UserMetric(id: Long, @fieldName("display_name") name: String)
+         |  derives SparkSchemaCodec
+         |
+         |val users = Dataset.fromCsvAs[UserMetric]("/data/users.csv", "header" -> "true")
+         |```
+         |""".stripMargin
+    )
+
+    assert(code.contains("backend/typed-data") || code.contains("scalascript-backend-typed-data-runtime"),
+      s"typed-data runtime source/jar/dependency must be emitted, got:\n$code")
+    assert(code.contains("trait SscSparkSchemaProvider[T]"),
+      s"schema provider bridge missing, got:\n$code")
+    assert(code.contains("given fromSparkSchemaCodec[T](using codec: scalascript.typeddata.SparkSchemaCodec[T])"),
+      s"SparkSchemaCodec provider must have higher priority than Encoder fallback, got:\n$code")
+    assert(code.contains("df.select(fields.map(f => df.col(f.name).as(f.scalaFieldName))*)"),
+      s"reader projection must alias storage names back to Scala field names, got:\n$code")
+    assert(code.contains("summon[SscSparkSchemaProvider[T]].project(spark.read.schema(schemaOf[T]).options(options.toMap).csv(path)).as[T]"),
+      s"fromCsvAs must project shared-schema columns before as[T], got:\n$code")
+  }
+
   // ── Phase D/E: UDF bridge — @SqlFn → spark.udf.register via Java UDFN ───
 
   test("extractSqlFns helper: no @SqlFn → no sigs, source unchanged") {

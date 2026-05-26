@@ -21,8 +21,11 @@ final case class SparkSchemaField(
     name:     String,
     dataType: SparkSchemaType,
     nullable: Boolean,
-    key:      Boolean = false
-)
+    key:      Boolean = false,
+    scalaName: String = ""
+):
+  def scalaFieldName: String =
+    if scalaName.isEmpty then name else scalaName
 
 final case class SparkSchema(fields: Vector[SparkSchemaField])
 

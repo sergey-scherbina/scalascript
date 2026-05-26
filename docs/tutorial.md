@@ -875,8 +875,10 @@ The first launch downloads Spark 4. Look for the heading line, the
 
 ## Step 2: Typed input — `Dataset[RawEvent]`
 
-Replace the body with a small inline dataset (in production this would
-come from `Dataset.fromJsonAs[RawEvent](...)` or `fromParquetAs`).
+Replace the body with a small inline dataset. In production this would come
+from `Dataset.fromJsonAs[RawEvent](...)` or `fromParquetAs`; if `RawEvent`
+derives `SparkSchemaCodec`, those readers use shared `@fieldName` metadata for
+external column names before materializing `Dataset[RawEvent]`.
 
 ````ssc
 # Input
@@ -999,7 +1001,7 @@ Delta-persisted — all from a single `.ssc` file.
 
 ## What's Next
 
-- Replace `Dataset.fromList` with `Dataset.fromJsonAs[RawEvent]("s3://...")` for real input.
+- Replace `Dataset.fromList` with `Dataset.fromJsonAs[RawEvent]("s3://...")` for real input; derive `SparkSchemaCodec` when storage column names differ from Scala field names.
 - Switch from `mode("overwrite")` to `mode("append")` + a Delta `MERGE INTO` for incremental loads.
 - Set `spark-hive-metastore:` in front-matter to register the output as a managed table — see User Guide §13.8.
 - Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`docs/spark-streaming.md`](spark-streaming.md).

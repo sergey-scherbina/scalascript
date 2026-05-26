@@ -1236,8 +1236,10 @@ adapters.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.
-The Spark backend still owns real Spark `Encoder[A]` generation for execution;
-directly wiring `SparkSchemaCodec` into SparkGen typed readers is still planned.
+When a `SparkSchemaCodec[A]` is in scope, SparkGen typed readers use that
+shared schema for `Dataset.fromJsonAs`, `fromCsvAs`, `fromParquetAs`, and
+`fromTable`, then alias external column names back to the Scala case-class
+field names before `.as[A]`.
 `VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` are now available for the
 typed mapping layer: property graph values encode to `VertexValue` /
 `EdgeValue`, and RDF values encode to `RdfValue` triples. `backend/graph` now
@@ -2107,6 +2109,26 @@ val users = Dataset.fromParquetAs[User]("/data/users.parquet")
 
 `Dataset.fromTable[T]("name")` is a typed reader over `spark.table(name).as[T]`
 that composes with both temp views and Hive tables.
+
+Typed Spark readers can also consume shared typed-data schema metadata:
+
+```scalascript
+import scalascript.typeddata.{SparkSchemaCodec, fieldName, key}
+
+case class UserMetric(
+  @key id: Long,
+  @fieldName("display_name") name: String,
+  score: Option[Double]
+) derives SparkSchemaCodec
+
+val metrics = Dataset.fromCsvAs[UserMetric](
+  "/data/metrics.csv",
+  "header" -> "true"
+)
+```
+
+The reader schema uses the external `display_name` column, then projects it
+back to `name` before Spark's `Encoder[UserMetric]` materializes the dataset.
 
 Full spec: [`docs/spark-catalog.md`](spark-catalog.md).
 

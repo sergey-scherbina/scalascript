@@ -15,7 +15,7 @@ class SparkSchemaCodecTest extends AnyFunSuite:
   test("derived SparkSchemaCodec uses shared field annotations and nullability"):
     assert(SparkSchemaCodec[SparkUser].schema == SparkSchema(Vector(
       SparkSchemaField("id", SparkSchemaType.LongType, nullable = false, key = true),
-      SparkSchemaField("display_name", SparkSchemaType.StringType, nullable = false),
+      SparkSchemaField("display_name", SparkSchemaType.StringType, nullable = false, scalaName = "name"),
       SparkSchemaField("active", SparkSchemaType.BooleanType, nullable = false),
       SparkSchemaField("score", SparkSchemaType.DoubleType, nullable = true),
       SparkSchemaField(
