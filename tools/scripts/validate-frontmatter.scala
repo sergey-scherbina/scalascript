@@ -2,9 +2,9 @@
 
 //> using scala 3.3
 //> using toolkit 0.9.2
-//> using dep org.yaml:snakeyaml:2.2
+//> using file ../../lang/yaml/src/main/scala/scalascript/parser/SimpleYaml.scala
 
-import org.yaml.snakeyaml.Yaml
+import scalascript.parser.SimpleYaml
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
 
@@ -51,8 +51,7 @@ def extractFrontmatter(file: os.Path): Option[Either[String, Map[String, Any]]] 
   val yamlContent = lines.slice(1, endIndex + 1).mkString("\n")
 
   Try {
-    val yaml = Yaml()
-    val data = yaml.load[java.util.Map[String, Any]](yamlContent)
+    val data = SimpleYaml.load[java.util.Map[String, Any]](yamlContent)
     if data == null then Map.empty[String, Any]
     else data.asScala.toMap
   } match

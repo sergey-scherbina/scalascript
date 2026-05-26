@@ -559,7 +559,7 @@ class Interpreter(
     }
     // Populate the global config registry from front-matter raw map and any
     // fenced config blocks (```yaml/json/hocon config ["name"] ... ```) in the source.
-    // m.raw contains the full snakeyaml-parsed front-matter; we lift it into a
+    // m.raw contains the full SimpleYaml-parsed front-matter; we lift it into a
     // ConfigValue tree so ${config:path} cross-refs work in databases: secrets,
     // and the `config` intrinsic is available in code.
     // Fenced blocks are extracted from the raw source text (Phase 4) and merged

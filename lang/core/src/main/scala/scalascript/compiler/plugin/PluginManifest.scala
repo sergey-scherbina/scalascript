@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin
 
 import scalascript.logging.Logger
-import org.yaml.snakeyaml.Yaml
+import scalascript.parser.SimpleYaml
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
 
@@ -52,7 +52,7 @@ object PluginManifest:
     Try(parseString(os.read(path)).get).map(_.copy(manifestPath = Some(path)))
 
   def parseString(yaml: String): Try[PluginManifest] = Try {
-    val raw = new Yaml().load[java.util.Map[String, Any]](yaml)
+    val raw = SimpleYaml.load[java.util.Map[String, Any]](yaml)
     val asScala = Option(raw)
       .map(_.asScala.toMap)
       .getOrElse(throw RuntimeException("empty plugin.yaml"))

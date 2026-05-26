@@ -34,8 +34,7 @@ _(all done — see Done section below)_
 
 ## Distribution & Tooling
 
-- [ ] **v1.50-native-p1-snakeyaml** — Replace snakeyaml with pure-Scala frontmatter parser
-  _`FrontmatterParser` recursive descent ~200 LOC; zero reflection; all frontmatter tests green. Spec: `BACKLOG.md §Phase 1`._
+- [x] **v1.50-native-p1-snakeyaml** — Replace snakeyaml with pure-Scala frontmatter parser (2026-05-27)
 
 - [ ] **v1.50-native-p2-graalvm** — GraalVM native-image build for `ssc`
   _`sbt-native-image`, reflection config via agent, ServiceLoader resource config, CI release matrix (macOS ARM64/x86 + Linux x86). Spec: `BACKLOG.md §Phase 2`._

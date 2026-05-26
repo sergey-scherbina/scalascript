@@ -100,13 +100,21 @@ lazy val logger = project
     }.taskValue
   )
 
+lazy val yaml = project
+  .in(file("lang/yaml"))
+  .settings(
+    name := "scalascript-yaml",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val core = project
   .in(file("lang/core"))
-  .dependsOn(backendSpi, backendSqlRuntime, logger)
+  .dependsOn(backendSpi, backendSqlRuntime, logger, yaml)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
-      "org.yaml"       %  "snakeyaml"        % "2.6",
       "com.lihaoyi"    %% "os-lib"           % "0.11.4",
       "com.lihaoyi"    %% "upickle"          % "4.4.2",
       "org.scalameta"  %% "scalameta"        % "4.17.0",
@@ -931,16 +939,16 @@ lazy val clientPostgres = project
 //
 // Responsibilities:
 //   ConfigValue   — unified value ADT (Str/Num/Bool/Null/Lst/Map)
-//   ConfigParser  — YAML + JSON → ConfigValue (snakeyaml)
+//   ConfigParser  — YAML + JSON → ConfigValue (SimpleYaml)
 //   SubstitutionEngine — ${scheme:ref}, ${env:VAR | default}, ${?VAR}
 //   MergeEngine   — priority-based multi-source merge
 //   ConfigLoader  — ties all of the above together
 lazy val backendConfigRuntime = project
   .in(file("backend/config"))
+  .dependsOn(yaml)
   .settings(
     name := "scalascript-backend-config-runtime",
     libraryDependencies ++= Seq(
-      "org.yaml" % "snakeyaml" % "2.6",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -2131,7 +2139,7 @@ lazy val paymentRequest = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, logger, core, interop, testUtils,
+    backendSpi, ir, logger, yaml, core, interop, testUtils,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,

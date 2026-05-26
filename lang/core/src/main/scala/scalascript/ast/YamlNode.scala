@@ -2,8 +2,8 @@ package scalascript.ast
 
 import scala.jdk.CollectionConverters.*
 
-/** Opaque wrapper for snakeyaml's runtime objects (Map, List, or scalar AnyRef).
- *  snakeyaml has no common Node supertype in its "native" load API, hence AnyRef.
+/** Opaque wrapper for a parsed YAML value (Map, List, or scalar AnyRef).
+ *  SimpleYaml returns Java collection types with no common supertype, hence AnyRef.
  */
 opaque type YamlNode = AnyRef
 

@@ -1,7 +1,6 @@
 package scalascript.config
 
-import org.yaml.snakeyaml.{Yaml, LoaderOptions}
-import org.yaml.snakeyaml.constructor.SafeConstructor
+import scalascript.parser.SimpleYaml
 
 /** Parses YAML, JSON (JSON is valid YAML 1.2), and basic HOCON
  *  into the unified [[ConfigValue]] tree.
@@ -81,10 +80,7 @@ object ConfigParser:
 
   private def parseYaml(content: String): Either[ConfigError, ConfigValue] =
     try
-      val opts = new LoaderOptions()
-      opts.setAllowDuplicateKeys(false)
-      val yaml = new Yaml(new SafeConstructor(opts))
-      val raw  = yaml.load[Any](content)
+      val raw = SimpleYaml.load[Any](content)
       Right(ConfigValue.from(raw))
     catch case e: Exception =>
       Left(ConfigError.ParseError(e.getMessage))

@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin
 
-import org.yaml.snakeyaml.Yaml
+import scalascript.parser.SimpleYaml
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -52,7 +52,7 @@ object LocalRegistry:
 
   /** Parse one registry YAML file. */
   def parseFile(path: os.Path): Try[List[Entry]] = Try {
-    val raw = new Yaml().load[java.util.Map[String, Any]](os.read(path))
+    val raw = SimpleYaml.load[java.util.Map[String, Any]](os.read(path))
     if raw == null then Nil
     else {
       val m = raw.asScala.toMap

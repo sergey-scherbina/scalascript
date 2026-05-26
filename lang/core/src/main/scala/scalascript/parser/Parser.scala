@@ -16,20 +16,13 @@ import org.commonmark.node.{
   Code            as CmCode,
 }
 import org.commonmark.parser.{Parser as CmParser, IncludeSourceSpans}
-import org.yaml.snakeyaml.Yaml
 import scala.collection.mutable.{ListBuffer, Stack}
 import scala.jdk.CollectionConverters.*
 
 object Parser:
-  // `includeSourceSpans(BLOCKS)` makes CommonMark populate `Node.getSourceSpans()`
-  // with the input-file (0-indexed) line ranges of every block node, including
-  // fenced code blocks.  We use this in `extractSections` to compute the
-  // file-level line offset of each `Content.CodeBlock` so the LSP server can
-  // translate block-local scalameta positions back to file-level coordinates.
-  private val mdParser  = CmParser.builder()
+  private val mdParser = CmParser.builder()
     .includeSourceSpans(IncludeSourceSpans.BLOCKS)
     .build()
-  private val snakeYaml = Yaml()
 
   def parse(source: String): Module =
     // Strip shebang line so files can be self-executing: #!/usr/bin/env ssc
@@ -156,24 +149,15 @@ object Parser:
    *  like `description: foo: bar`). */
   private def parseManifest(yaml: String): Manifest =
     val raw =
-      try Option(snakeYaml.load[java.util.Map[String, Any]](yaml))
+      try Option(SimpleYaml.load[java.util.Map[String, Any]](yaml))
             .map(_.asScala.toMap).getOrElse(Map.empty)
-      catch case e: org.yaml.snakeyaml.scanner.ScannerException =>
+      catch case e: SimpleYaml.ParseError =>
         val lines = yaml.linesIterator.toIndexedSeq
-        val mark  = Option(e.getProblemMark)
-        val hint  = mark.map { m =>
-          val lineNo = m.getLine + 1
-          val col    = m.getColumn + 1
-          val ctx    = lines.lift(m.getLine).getOrElse("")
-          val pointer = " " * (col - 1) + "^"
-          val likely =
-            if ctx.contains(": ") && !ctx.trim.startsWith("#") then
-              "  hint: this looks like an unquoted colon inside a string value;\n" +
-              "        quote the value, e.g.  description: \"foo: bar\""
-            else ""
-          s"\n  at line $lineNo, column $col:\n    $ctx\n    $pointer\n$likely"
-        }.getOrElse("")
-        throw new RuntimeException(s"YAML front-matter: ${e.getProblem}$hint")
+        val likely = lines.find(l => l.contains(": ") && !l.trim.startsWith("#"))
+          .map(_ => "\n  hint: this looks like an unquoted colon inside a string value;\n" +
+                    "        quote the value, e.g.  description: \"foo: bar\"")
+          .getOrElse("")
+        throw new RuntimeException(s"YAML front-matter: ${e.getMessage}$likely")
     Manifest(
       name         = raw.get("name").collect { case s: String => s },
       version      = raw.get("version").collect { case s: String => s },

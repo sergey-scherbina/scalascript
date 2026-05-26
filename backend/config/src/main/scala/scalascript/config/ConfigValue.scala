@@ -35,7 +35,7 @@ object ConfigValue:
         .foldLeft(acc) { case (a, (key, value)) => a.set(key, Str(value)) }
     }
 
-  /** Lift a snakeyaml-parsed raw value into ConfigValue. */
+  /** Lift a SimpleYaml-parsed raw value into ConfigValue. */
   def from(raw: Any): ConfigValue =
     import scala.jdk.CollectionConverters.*
     raw match
