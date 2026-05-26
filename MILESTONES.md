@@ -10391,7 +10391,10 @@ modes opt out of that default.
   `backend/typed-data` now includes `ObjectValue`, `ObjectFieldSpec[A]`, and
   `ObjectCodec[A]` for portable IndexedDB/ObjectStore document shapes, with
   explicit/derived case-class mapping, schema annotations, defaults, key
-  extraction, and unknown-field rejection. Remaining: typed IndexedDB/server
+  extraction, and unknown-field rejection. Follow-up landed 2026-05-26:
+  JS/browser/Electron now has `IndexedDb.store[A](store, dbName?, keyField?)`
+  for Promise-based typed local object storage, using native IndexedDB when
+  available and a lightweight fallback for Node/tests. Remaining: server
   ObjectStore APIs, sync, graph/RDF codecs, and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport

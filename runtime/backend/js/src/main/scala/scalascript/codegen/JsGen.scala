@@ -3814,8 +3814,215 @@ function _ssc_ui_fetchActionClear(method, url, body, tick) { return { _type: '_F
 function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick) { return { _type: '_FetchTableView', fetchUrl, deleteUrl, tick }; }
 """
 
+private val JsRuntimeIndexedDb: String = """
+// ── Client IndexedDB object store facade ───────────────────────────────
+//
+// `IndexedDb.store[Todo]("todos")` returns a Promise-based local object
+// store. Browser/Electron clients use native IndexedDB. Node/tests fall back
+// to an in-memory Map, persisted through localStorage when available.
+const _ssc_indexeddb_memory = globalThis.__sscIndexedDbMemory || (globalThis.__sscIndexedDbMemory = new Map());
+
+function _ssc_indexeddb_store_key(dbName, storeName) {
+  return String(dbName || "ssc") + "::" + String(storeName || "default");
+}
+
+function _ssc_indexeddb_local_storage() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+  } catch (_) {}
+  return null;
+}
+
+function _ssc_indexeddb_memory_store(dbName, storeName) {
+  const key = _ssc_indexeddb_store_key(dbName, storeName);
+  if (!_ssc_indexeddb_memory.has(key)) {
+    const map = new Map();
+    const storage = _ssc_indexeddb_local_storage();
+    if (storage) {
+      try {
+        const raw = storage.getItem("__ssc_indexeddb:" + key);
+        if (raw) {
+          const obj = JSON.parse(raw);
+          for (const k of Object.keys(obj)) map.set(k, obj[k]);
+        }
+      } catch (_) {}
+    }
+    _ssc_indexeddb_memory.set(key, map);
+  }
+  return _ssc_indexeddb_memory.get(key);
+}
+
+function _ssc_indexeddb_memory_flush(dbName, storeName, map) {
+  const storage = _ssc_indexeddb_local_storage();
+  if (!storage) return;
+  try {
+    const obj = {};
+    for (const [k, v] of map.entries()) obj[k] = v;
+    storage.setItem("__ssc_indexeddb:" + _ssc_indexeddb_store_key(dbName, storeName), JSON.stringify(obj));
+  } catch (_) {}
+}
+
+function _ssc_indexeddb_decode(value, typeName) {
+  return _ssc_typed_json_decode_value(value, typeName || "");
+}
+
+function _ssc_indexeddb_encode(value, typeName) {
+  return _ssc_typed_json_plain(value, typeName || "");
+}
+
+function _ssc_indexeddb_key(value, plain, keyField) {
+  if (value != null && typeof value === "object" && value[keyField] !== undefined && value[keyField] !== null) {
+    return String(value[keyField]);
+  }
+  if (plain != null && typeof plain === "object" && plain[keyField] !== undefined && plain[keyField] !== null) {
+    return String(plain[keyField]);
+  }
+  throw new Error("IndexedDb.put: missing key field '" + keyField + "'; pass an explicit key or choose another key field");
+}
+
+function _ssc_indexeddb_native_available() {
+  return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
+}
+
+function _ssc_indexeddb_open_native(dbName, storeName) {
+  return new Promise((resolve, reject) => {
+    const first = indexedDB.open(dbName);
+    first.onerror = () => reject(first.error || new Error("IndexedDB open failed"));
+    first.onupgradeneeded = () => {
+      const db = first.result;
+      if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName);
+    };
+    first.onsuccess = () => {
+      const db = first.result;
+      if (db.objectStoreNames.contains(storeName)) {
+        resolve(db);
+        return;
+      }
+      const nextVersion = db.version + 1;
+      db.close();
+      const upgrade = indexedDB.open(dbName, nextVersion);
+      upgrade.onerror = () => reject(upgrade.error || new Error("IndexedDB upgrade failed"));
+      upgrade.onupgradeneeded = () => {
+        const upgraded = upgrade.result;
+        if (!upgraded.objectStoreNames.contains(storeName)) upgraded.createObjectStore(storeName);
+      };
+      upgrade.onsuccess = () => resolve(upgrade.result);
+    };
+  });
+}
+
+function _ssc_indexeddb_request(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IndexedDB request failed"));
+  });
+}
+
+function _ssc_indexeddb_tx_done(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
+function _ssc_indexeddb_make_store(storeName, typeName, dbName, keyField) {
+  const store = String(storeName || "default");
+  const tpe = String(typeName || "");
+  const db = String(dbName || "ssc");
+  const key = String(keyField || "id");
+
+  async function withNative(mode, f) {
+    const handle = await _ssc_indexeddb_open_native(db, store);
+    try {
+      const tx = handle.transaction(store, mode);
+      const objectStore = tx.objectStore(store);
+      const result = await f(objectStore);
+      if (mode !== "readonly") await _ssc_indexeddb_tx_done(tx);
+      return result;
+    } finally {
+      handle.close();
+    }
+  }
+
+  function withMemory(f) {
+    const map = _ssc_indexeddb_memory_store(db, store);
+    const result = f(map);
+    _ssc_indexeddb_memory_flush(db, store, map);
+    return Promise.resolve(result);
+  }
+
+  return {
+    put(value, explicitKey) {
+      const plain = _ssc_indexeddb_encode(value, tpe);
+      const objectKey = explicitKey === undefined || explicitKey === null ? _ssc_indexeddb_key(value, plain, key) : String(explicitKey);
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readwrite", os => _ssc_indexeddb_request(os.put(plain, objectKey))).then(() => value);
+      }
+      return withMemory(map => { map.set(objectKey, plain); return value; });
+    },
+    get(objectKey) {
+      const k = String(objectKey);
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readonly", os => _ssc_indexeddb_request(os.get(k)))
+          .then(value => value === undefined ? _None : _Some(_ssc_indexeddb_decode(value, tpe)));
+      }
+      return withMemory(map => map.has(k) ? _Some(_ssc_indexeddb_decode(map.get(k), tpe)) : _None);
+    },
+    remove(objectKey) {
+      const k = String(objectKey);
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readwrite", os => _ssc_indexeddb_request(os.delete(k))).then(() => undefined);
+      }
+      return withMemory(map => { map.delete(k); return undefined; });
+    },
+    delete(objectKey) {
+      return this.remove(objectKey);
+    },
+    keys() {
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readonly", os => {
+          if (typeof os.getAllKeys === "function") return _ssc_indexeddb_request(os.getAllKeys()).then(keys => keys.map(String));
+          return new Promise((resolve, reject) => {
+            const keys = [];
+            const req = os.openCursor();
+            req.onerror = () => reject(req.error || new Error("IndexedDB cursor failed"));
+            req.onsuccess = () => {
+              const cursor = req.result;
+              if (!cursor) resolve(keys);
+              else { keys.push(String(cursor.key)); cursor.continue(); }
+            };
+          });
+        });
+      }
+      return withMemory(map => Array.from(map.keys()));
+    },
+    all() {
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readonly", os => _ssc_indexeddb_request(os.getAll()))
+          .then(values => values.map(value => _ssc_indexeddb_decode(value, tpe)));
+      }
+      return withMemory(map => Array.from(map.values()).map(value => _ssc_indexeddb_decode(value, tpe)));
+    },
+    clear() {
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readwrite", os => _ssc_indexeddb_request(os.clear())).then(() => undefined);
+      }
+      return withMemory(map => { map.clear(); return undefined; });
+    }
+  };
+}
+
+const IndexedDb = {
+  store(storeName, typeName = "", dbName = "ssc", keyField = "id") {
+    return _ssc_indexeddb_make_store(storeName, typeName, dbName, keyField);
+  }
+};
+"""
+
 val JsRuntime: String =
-  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d + JsRuntimePart2
+  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d + JsRuntimePart2 +
+    TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
 
 /** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
  *  Lives in its own val because together with the rest of the runtime
@@ -8832,6 +9039,21 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("awaitClient"), argClause)
         if argClause.values.size == 1 =>
       s"await ${genExpr(argClause.values.head.asInstanceOf[Term])}"
+
+    // Client IndexedDB typed helper.
+    // Source: `IndexedDb.store[Draft]("drafts")`
+    // JS:     `IndexedDb.store("drafts", "Draft")`
+    case Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Select(Term.Name("IndexedDb"), Term.Name("store")), typeArgs),
+          argClause
+        ) =>
+      val typeName = typeArgs.values.headOption match
+        case Some(Type.Name(name)) => name
+        case Some(other) => other.syntax
+        case None => ""
+      val args = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).toList
+      val jsArgs = args.headOption.toList ++ List(jsQuote(typeName)) ++ args.drop(1)
+      s"IndexedDb.store(${jsArgs.mkString(", ")})"
 
     // Storage handlers — file-backed (with optional path arg) and ephemeral
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)

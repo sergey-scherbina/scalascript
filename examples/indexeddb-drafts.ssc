@@ -1,0 +1,20 @@
+---
+backend: js
+---
+
+# IndexedDB Drafts
+
+```scalascript
+case class Draft(id: String, title: String, done: Boolean)
+
+val drafts = IndexedDb.store[Draft]("drafts", "ssc-demo")
+awaitClient(drafts.clear())
+awaitClient(drafts.put(Draft("d1", "Plan", false)))
+awaitClient(drafts.put(Draft("d2", "Ship", true)))
+
+val first = awaitClient(drafts.get("d1")).get
+val all = awaitClient(drafts.all())
+val keys = awaitClient(drafts.keys())
+
+println(first.title + ":" + all.size + ":" + keys.head)
+```

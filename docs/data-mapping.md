@@ -225,7 +225,7 @@ JSON-like stores share the same structural mapping:
 case class Draft(id: String, title: String, body: String)
   derives JsonCodec, ObjectCodec
 
-IndexedDb.store[Draft]("drafts").put(draft)
+awaitClient(IndexedDb.store[Draft]("drafts").put(draft))
 ObjectStore.collection[Draft]("drafts").put(draft)
 ```
 
@@ -247,9 +247,13 @@ Rules:
   stores.
 - IndexedDB may store structured-clone-compatible values, but the portable
   representation should remain JSON-compatible in v1.
+- JS/browser/Electron client code can use `IndexedDb.store[A](store, dbName?,
+  keyField?)` today. The API returns Promises for `put`, `get`, `remove`,
+  `keys`, `all`, and `clear`; ScalaScript client code awaits them with
+  `awaitClient(...)`. Runtime type names come from the JS typed JSON facade.
 - ObjectStore sync uses `ObjectCodec[A]` plus `Stored[A]` metadata. The current
   `ObjectCodec[A]` layer covers portable object values and key extraction;
-  actual IndexedDB/server `ObjectStore` APIs remain planned.
+  server `ObjectStore` APIs and sync remain planned.
 
 ## Property Graph Mapping
 

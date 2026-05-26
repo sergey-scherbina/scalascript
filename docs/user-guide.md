@@ -1147,14 +1147,16 @@ through the same facade and use generated runtime codec metadata to rebuild
 known case-class/enum response shapes. See
 [`typed-route-clients.md`](typed-route-clients.md).
 
-**Planned, not implemented yet: browser client storage APIs.** Client frontends
-may use standard browser storage when SQL is the wrong shape for the data.
-Planned client-only APIs cover `localStorage` for tiny string settings,
-`sessionStorage` for per-window temporary state, `IndexedDB` for structured
-offline state/drafts/queues, the Cache API for HTTP response caching, and OPFS
-for origin-private files or browser-local SQLite/Wasm storage. These APIs belong
-to the frontend side of split apps; server-side references should fail at build
-time.
+**Partially implemented: browser client storage APIs.** Client frontends may use
+standard browser storage when SQL is the wrong shape for the data. JS/browser
+and Electron client code can use `IndexedDb.store[A]("store")` for Promise-based
+typed local object storage, awaited with `awaitClient(...)`. Browser/Electron
+clients use native IndexedDB; Node/test runs use a lightweight fallback. Planned
+client-only APIs still cover `localStorage` for tiny string settings,
+`sessionStorage` for per-window temporary state, the Cache API for HTTP response
+caching, and OPFS for origin-private files or browser-local SQLite/Wasm storage.
+These APIs belong to the frontend side of split apps; server-side references
+should fail at build time.
 
 **Planned, not implemented yet: client/server object store sync.** For
 IndexedDB-shaped data that must also live on the server, the planned model is a

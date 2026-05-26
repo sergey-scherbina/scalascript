@@ -157,7 +157,11 @@ keeping as an optional backend for apps that want battle-tested replication.
    client API, and sync endpoint shape. Partially landed 2026-05-26:
    `backend/typed-data` provides `ObjectValue`, `ObjectFieldSpec[A]`, and
    `ObjectCodec[A]` for portable JSON-compatible object/document values and
-   key extraction. Store APIs and sync remain planned.
+   key extraction. Follow-up landed 2026-05-26: JS/browser/Electron codegen
+   exposes `IndexedDb.store[A](store, dbName?, keyField?)` as a Promise-based
+   typed local client store, backed by native IndexedDB when available and a
+   lightweight fallback for Node/tests. Server `ObjectStore` APIs and sync
+   remain planned.
 2. **Server object store SPI** — define a small `ObjectStoreBackend` contract
    implemented first by JDBC JSON storage.
 3. **Generated sync routes** — generate `changes` and `push` endpoints for

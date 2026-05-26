@@ -16,7 +16,7 @@ object TypedJsonCodecRuntime:
     s"""|// Shared typed JSON codec facade. Phase 4 keeps the implementation in
         |// emitted runtime code, but typed route clients call this stable codec
         |// boundary instead of embedding transport-specific JSON operations.
-        |const _ssc_typed_json_codecs = globalThis.__sscTypedJsonCodecs || (globalThis.__sscTypedJsonCodecs = new Map());
+        |var _ssc_typed_json_codecs = globalThis.__sscTypedJsonCodecs || (globalThis.__sscTypedJsonCodecs = new Map());
         |
         |function _ssc_typed_json_register_product(typeName, fields, ctor) {
         |  _ssc_typed_json_codecs.set(String(typeName), {
