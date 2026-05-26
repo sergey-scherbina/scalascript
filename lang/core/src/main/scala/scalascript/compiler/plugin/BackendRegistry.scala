@@ -46,16 +46,91 @@ object BackendRegistry:
   private val extraJarPaths      = scala.collection.mutable.ListBuffer.empty[os.Path]
   private val extraPluginDirs    = scala.collection.mutable.ListBuffer.empty[os.Path]
 
-  /** Add an in-process plugin JAR — picked up on next ServiceLoader scan.
-   *  Per spec §12.1, the JAR runs in a `URLClassLoader` whose parent is
-   *  the SPI loader only so plugins can't see each other's deps.
+  /** Add a plugin JAR.  In normal JVM mode: registered for URLClassLoader-based
+   *  ServiceLoader discovery (§12.1).  In GraalVM native-image mode: URLClassLoader
+   *  is unavailable, so the JAR is bridged via a spawned `ssc-plugin-host` JVM
+   *  subprocess speaking the existing stdio wire protocol (§12.2 / Phase 3).
    *
    *  If `jar` ends with `.sscpkg`, delegates to `loadSscpkg` instead. */
   def addPluginJar(jar: os.Path): Unit =
     if jar.ext == "sscpkg" then loadSscpkg(jar)
+    else if isNativeImage then spawnPluginBridge(jar)
     else
       extraJarPaths += jar
       inProcessCache = null      // force re-scan of ServiceLoader
+
+  /** True when running inside a GraalVM native-image executable.
+   *  Uses reflection so the code compiles and runs fine on a regular JVM. */
+  private[plugin] def isNativeImagePublic: Boolean = isNativeImage
+
+  private def isNativeImage: Boolean =
+    try
+      Class.forName("org.graalvm.nativeimage.ImageInfo")
+        .getMethod("inImageRuntimeCode")
+        .invoke(null)
+        .asInstanceOf[Boolean]
+    catch case _: Throwable => false
+
+  /** Spawn `ssc-plugin-host` as a JVM subprocess wrapping the given JAR,
+   *  then register the resulting `SubprocessBackend` in the plugin cache.
+   *  Emits diagnostic warnings if `java` or `ssc-plugin-host.jar` is absent. */
+  private def spawnPluginBridge(jar: os.Path): Unit =
+    val hostJarOpt  = findPluginHostJar()
+    val javaExeOpt  = findJavaExecutable()
+    (hostJarOpt, javaExeOpt) match
+      case (None, _) =>
+        log.warn(
+          s"[ssc] warning: --plugin ${jar.last}: ssc-plugin-host.jar not found; " +
+          "cannot load JAR plugins in native mode. " +
+          "Ensure ssc-plugin-host.jar is in the same directory as the ssc binary " +
+          "or in $$SSC_HOME/lib/.")
+      case (_, None) =>
+        log.warn(
+          s"[ssc] warning: --plugin ${jar.last}: 'java' not found on PATH; " +
+          "cannot load JAR plugins in native mode.")
+      case (Some(hostJar), Some(java)) =>
+        val sep = _root_.java.io.File.pathSeparator
+        val cp = s"${jar}${sep}${hostJar}"
+        SubprocessBackend.spawn(
+          executable = java,
+          args       = List("-cp", cp, "scalascript.plugin.SubprocessHost", jar.toString)
+        ) match
+          case scala.util.Success(b) => pluginCache.put(b.id, b)
+          case scala.util.Failure(t) =>
+            log.warn(s"[ssc] warning: failed to start plugin bridge for ${jar.last}: ${t.getMessage}")
+
+  /** Locate `ssc-plugin-host.jar`.
+   *  Search order: (1) sibling of the running native binary, (2) `$SSC_HOME/lib/`. */
+  private def findPluginHostJar(): Option[String] =
+    val candidates = scala.collection.mutable.ListBuffer.empty[java.io.File]
+    // (1) next to the current executable
+    Option(ProcessHandle.current().info().command().orElse(null)).foreach { exe =>
+      val siblingLib = java.io.File(exe).getParentFile
+      candidates += java.io.File(siblingLib, "ssc-plugin-host.jar")
+      candidates += java.io.File(siblingLib, "lib/ssc-plugin-host.jar")
+    }
+    // (2) $SSC_HOME/lib/
+    Option(System.getenv("SSC_HOME")).foreach { home =>
+      candidates += java.io.File(home, "lib/ssc-plugin-host.jar")
+    }
+    candidates.find(_.isFile).map(_.getAbsolutePath)
+
+  /** Find `java` executable on PATH; returns the first hit or None. */
+  private def findJavaExecutable(): Option[String] =
+    val javaHome = System.getProperty("java.home")
+    val fromHome = if javaHome != null then
+      val f = java.io.File(javaHome, "bin/java")
+      if f.canExecute then Some(f.getAbsolutePath) else None
+    else None
+    fromHome.orElse {
+      val sep = java.io.File.pathSeparator
+      Option(System.getenv("PATH")).flatMap { path =>
+        path.split(sep).view
+          .map(dir => java.io.File(dir, "java"))
+          .find(_.canExecute)
+          .map(_.getAbsolutePath)
+      }
+    }
 
   /** Supported SPI version for compatibility checks. */
   val SpiVersion = "0.1.0"
@@ -176,28 +251,36 @@ object BackendRegistry:
   // ── Public surface ──────────────────────────────────────────────────
 
   /** Every backend visible to the runtime — in-process first, then
-   *  out-of-process descriptors.  Note that calling `.all` *does NOT*
-   *  spawn subprocess plugins; use `lookup` for that. */
-  def all: List[Backend] = inProcess
+   *  bridge-spawned subprocess backends (from `--plugin foo.jar` in native
+   *  mode).  Note that calling `.all` does NOT spawn manifest-based subprocess
+   *  plugins; use `lookup` for that. */
+  def all: List[Backend] =
+    // Bridge-spawned JARs (native mode) land in pluginCache without a manifest.
+    val manifestIds = manifests.map(_.id).toSet
+    inProcess ++ pluginCache.values.filter(b => !manifestIds.contains(b.id)).toList
 
   /** Combined list of in-process backends + out-of-process manifests
    *  (as identifying descriptors).  Useful for `--list-backends` so
    *  the user sees subprocess plugins without us spawning them. */
   case class Visible(id: String, displayName: String, spiVersion: String, kind: String)
   def listVisible: List[Visible] =
+    val manifestIds = manifests.map(_.id).toSet
+    val bridged = pluginCache.values.filter(b => !manifestIds.contains(b.id))
+      .map(b => Visible(b.id, b.displayName, b.spiVersion, "bridge-subprocess")).toList
     inProcess.map(b => Visible(b.id, b.displayName, b.spiVersion, "in-process")) ++
+      bridged ++
       manifests.map(m => Visible(m.id, m.displayName, m.spiVersion, s"subprocess (${m.protocol})"))
 
   /** Look up a backend by its declared id.  For subprocess plugins,
    *  spawns the process on first lookup and caches the handle. */
   def lookup(id: String): Option[Backend] =
-    inProcess.find(_.id == id).orElse {
-      manifests.find(_.id == id).flatMap(subprocessBackendFor)
-    }
+    inProcess.find(_.id == id)
+      .orElse(pluginCache.get(id))   // bridge-spawned JARs (native mode)
+      .orElse(manifests.find(_.id == id).flatMap(subprocessBackendFor))
 
   /** Backends that declare they can embed a given source language. */
   def acceptingSource(language: String): List[Backend] =
-    inProcess.filter(_.acceptedSources.contains(language))
+    all.filter(_.acceptedSources.contains(language))
 
   /** All interactive backends — the subset used by `ssc serve` and
    *  future REPL modes.  Includes subprocess plugins that declare

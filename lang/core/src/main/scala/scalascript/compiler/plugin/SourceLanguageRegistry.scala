@@ -1,6 +1,7 @@
 package scalascript.compiler.plugin
 
 import scalascript.backend.spi.SourceLanguage
+import scalascript.logging.Logger
 import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
@@ -19,6 +20,7 @@ import scala.jdk.CollectionConverters.*
  *  piece. */
 object SourceLanguageRegistry:
 
+  private val log      = Logger(getClass)
   private val extraJars = scala.collection.mutable.ListBuffer.empty[os.Path]
   private var cache: List[SourceLanguage] = null
 
@@ -26,8 +28,13 @@ object SourceLanguageRegistry:
     cache = null
 
   def addPluginJar(jar: os.Path): Unit =
-    extraJars += jar
-    cache = null
+    if BackendRegistry.isNativeImagePublic then
+      log.warn(
+        s"[ssc] warning: --plugin ${jar.last}: SourceLanguage JAR plugins are not " +
+        "supported in native-image mode (URLClassLoader unavailable). Skipped.")
+    else
+      extraJars += jar
+      cache = null
 
   def all: List[SourceLanguage] =
     if cache == null then

@@ -75,6 +75,9 @@ lazy val backendSpi = project
   .dependsOn(ir)
   .settings(
     name := "scalascript-backend-spi",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2"
+    ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )
@@ -928,6 +931,28 @@ lazy val cli = project
       // Increase image heap for Scala + scalameta class loading at build time
       "-J-Xmx8g"
     )
+  )
+
+// ── ssc-plugin-host ─────────────────────────────────────────────────────────
+// Minimal JVM-only bridge artifact shipped alongside the native `ssc` binary.
+// Lets native `ssc` load JAR-based plugins by spawning a JVM subprocess
+// running SubprocessHost, which speaks the existing stdio wire protocol.
+// See BACKLOG.md §Phase 3 and BackendRegistry.addPluginJar.
+lazy val sscPluginHost = project
+  .in(file("tools/ssc-plugin-host"))
+  .dependsOn(backendSpi)
+  .settings(
+    name := "ssc-plugin-host",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    libraryDependencies ++= Seq(scalatestTest),
+    assembly / mainClass       := Some("scalascript.plugin.SubprocessHost"),
+    assembly / assemblyJarName := "ssc-plugin-host.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _ @ _*)         => MergeStrategy.discard
+      case _                                    => MergeStrategy.first
+    }
   )
 
 // NOTE: `bench/` exists today as a scala-cli script directory (fib/sum/

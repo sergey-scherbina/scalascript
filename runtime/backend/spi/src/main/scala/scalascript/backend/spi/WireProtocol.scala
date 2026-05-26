@@ -1,4 +1,4 @@
-package scalascript.compiler.plugin
+package scalascript.backend.spi
 
 import scalascript.ir.{Content, SymbolRef, Value}
 import upickle.default.ReadWriter
@@ -124,7 +124,7 @@ object MessageBodies:
 
   case class DiagnosticWire(kind: String, message: String, feature: String = "", backend: String = "") derives ReadWriter
 
-  // ── Interactive session messages (Stage 6+/B) ─────────────────────────
+  // ── Interactive session messages (Stage 6+/B) ─────────────────────────────
 
   /** openSession(opts) → sessionId */
   case class OpenSessionParams(baseDir: Option[String] = None, extra: Map[String, String] = Map.empty) derives ReadWriter
@@ -140,7 +140,7 @@ object MessageBodies:
   case class InvokeHandlerParams(sessionId: String, handlerRef: SymbolRef, args: List[Value]) derives ReadWriter
   case class InvokeHandlerResult(value: Value) derives ReadWriter
 
-  // ── HostCallback messages (Stage 6+/C) ───────────────────────────────
+  // ── HostCallback messages (Stage 6+/C) ───────────────────────────────────
 
   /** Plugin → core: `host.<name>` callback during compile / feed.
    *  Same shape as a normal `Request` — `params` carries this body. */

@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ir
 import scalascript.ir.Value
 import scalascript.ir.LitValue
-import scalascript.backend.spi.{BackendOptions, CompileResult}
+import scalascript.backend.spi.*
 import upickle.default.*
 
 /** Exercises the subprocess wire protocol against a mock plugin written
