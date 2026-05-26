@@ -37,8 +37,20 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ---
 
+## Parallel directions (all independent)
+
+| Direction | Top task | Spec |
+|-----------|----------|------|
+| **Frontend & Clients** | v1.46-pagination | `docs/typed-route-clients.md` |
+| **Language & Compiler** | v2.0-sep-compile | `BACKLOG.md # Language & Compiler` |
+| **Database** | v1.26-sql-jdbc | `BACKLOG.md # Database` |
+| **Payments & Blockchain** | v1.38-payment-request | `BACKLOG.md # Payments & Blockchain` |
+| **Native Platform** | v1.48-swiftui | `BACKLOG.md # Native Platform` |
+
+Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
+
 ## For agents
 
-- **Pick next task**: read [BACKLOG.md](BACKLOG.md) and [WORK_QUEUE.md](WORK_QUEUE.md); claim via the protocol in `AGENTS.md §"Task claiming protocol"`.
-- **Mark landed**: update the entry in whichever file it lives in (BACKLOG → remove it; CHANGELOG → add it).
-- **Start new milestone**: add it to BACKLOG.md with the spec structure from `AGENTS.md §"Spec-driven development"`.
+- **Pick next task**: read [WORK_QUEUE.md](WORK_QUEUE.md) by direction; claim via `AGENTS.md §"Task claiming protocol"`.
+- **Mark landed**: update `BACKLOG.md` (remove entry from direction section) + add one-liner to `CHANGELOG.md`.
+- **Start new milestone**: add it to the right direction section in `BACKLOG.md`.

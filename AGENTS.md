@@ -638,18 +638,19 @@ When the user says **"статус"** / **"status"** / **"план"** / **"чт�
 3. Print a structured summary (do NOT start working):
 
 ```
-ACTIVE: <slug> [group]          ← if something is claimed, else "nothing active"
+ACTIVE: <slug> [direction]      ← if something is claimed, else "nothing active"
 
-Typed Route Clients   3 pending
-Payments              6 pending
+Frontend & Clients    1 pending
+Language & Compiler   2 pending
 Database              4 pending
+Payments & Blockchain 6 pending
 Native Platform       1 pending
-Compiler & Runtime    2 pending
 
 Next up: <slug> — <one-line description>
 ```
 
-Show counts per group, highlight active claims, name the next task to pick.
+Show counts per direction, highlight active claims, name the next task to pick.
+All directions are independent — multiple agents can work in parallel, one per direction.
 
 ### Starting the loop
 
@@ -659,7 +660,8 @@ The user starts the loop by saying any of:
 |--------|---------|
 | "работай" / "go" / "start" | Start from the top of WORK_QUEUE.md |
 | "продолжай" / "continue" | Resume — skip already-done tasks, pick next pending |
-| "работай над X" / "do X" | Start with a specific task, then continue the queue |
+| "работай над X" / "do X" | Start with a specific task slug, then continue the queue |
+| "работай над Database" / "do Payments" | Work only tasks in that direction, then stop |
 
 When the loop starts, **announce the first claimed task** before doing any work:
 
