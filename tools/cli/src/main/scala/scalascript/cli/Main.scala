@@ -372,6 +372,31 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
       // Caller already validates; this is defense.
       throw new IllegalArgumentException(s"unknown server backend '$other'")
 
+/** Injects a `use(...)` middleware preamble into a generated JVM script that
+ *  reads `SSC_DESKTOP_TOKEN` from the environment and rejects requests that
+ *  do not carry a matching `X-ScalaScript-Desktop-Token` header.  The token
+ *  is set by the CLI before launching the JVM backend process; Electron
+ *  bundles receive the same token via `globalThis.__sscDesktopToken`.
+ *
+ *  The check is skipped when `SSC_DESKTOP_TOKEN` is unset or empty so that
+ *  `ssc run --mode server` (no Electron) and test runs are unaffected. */
+private[cli] def injectDesktopTokenMiddleware(script: String): String =
+  val preamble =
+    """|
+       |// ssc desktop security token — auto-injected by CLI
+       |{
+       |  val _sscDesktopToken = sys.env.getOrElse("SSC_DESKTOP_TOKEN", "")
+       |  if _sscDesktopToken.nonEmpty then
+       |    use { (req, next) =>
+       |      val provided = req.headers.getOrElse("x-scalascript-desktop-token", "")
+       |      if provided == _sscDesktopToken then next()
+       |      else Response(401, Map("Content-Type" -> "text/plain; charset=utf-8"),
+       |                    "Unauthorized: missing or invalid desktop token")
+       |    }
+       |}
+       |""".stripMargin
+  script + preamble
+
 /** Valid `--frontend` names — fixed list matches the bundled frontend modules.
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
@@ -1450,9 +1475,11 @@ private def buildProjectFileCommand(
 private def buildElectronBundle(
     sscFile:        os.Path,
     outDir:         os.Path,
-    backendBaseUrl: Option[String] = None
+    backendBaseUrl: Option[String] = None,
+    desktopToken:   Option[String] = None
 ): Unit =
-  scalascript.frontend.electron.ElectronBundleBuilder.build(sscFile, outDir, backendBaseUrl = backendBaseUrl)
+  scalascript.frontend.electron.ElectronBundleBuilder.build(
+    sscFile, outDir, backendBaseUrl = backendBaseUrl, desktopToken = desktopToken)
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -2665,20 +2692,21 @@ private[cli] def runElectronJvmRestDev(sscFile: os.Path, serverBackend: String):
   val title  = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
   val port   = detectServePort(os.read(sscFile)).getOrElse(8080)
   val backendBaseUrl = s"http://127.0.0.1:$port"
+  val desktopToken = java.util.UUID.randomUUID().toString
 
   val rawScript = expectText(compileViaBackend("jvm", sscFile), "run --backend jvm-rest")
-  val script    = injectServerBackend(rawScript, serverBackend)
+  val script    = injectDesktopTokenMiddleware(injectServerBackend(rawScript, serverBackend))
   val backendScript = os.temp(script, suffix = ".sc", deleteOnExit = true)
-  val backendProcess =
-    new java.lang.ProcessBuilder(scalaCliCommand, "run", backendScript.toString, "--server=false")
-      .inheritIO()
-      .start()
+  val backendPb = new java.lang.ProcessBuilder(scalaCliCommand, "run", backendScript.toString, "--server=false")
+  backendPb.inheritIO()
+  backendPb.environment().put("SSC_DESKTOP_TOKEN", desktopToken)
+  val backendProcess = backendPb.start()
 
   var electronExit = 0
   try
     waitForTcpReady("127.0.0.1", port, backendProcess, timeoutMs = 30000)
     val tmpDir = os.temp.dir(prefix = "ssc-electron-jvm-rest-", deleteOnExit = true)
-    buildElectronBundle(sscFile, tmpDir, backendBaseUrl = Some(backendBaseUrl))
+    buildElectronBundle(sscFile, tmpDir, backendBaseUrl = Some(backendBaseUrl), desktopToken = Some(desktopToken))
     println(s"ssc: launching Electron JVM REST app — $title")
     println(s"     backend: $backendBaseUrl")
     println(s"     bundle:  $tmpDir")

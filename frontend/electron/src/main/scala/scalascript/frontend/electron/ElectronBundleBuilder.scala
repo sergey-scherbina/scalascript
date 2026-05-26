@@ -8,18 +8,24 @@ import scalascript.parser.Parser
  *  and regression tests. */
 object ElectronBundleBuilder:
 
-  def build(sscFile: os.Path, outDir: os.Path, backendBaseUrl: Option[String] = None): Unit =
+  def build(
+      sscFile:        os.Path,
+      outDir:         os.Path,
+      backendBaseUrl: Option[String] = None,
+      desktopToken:   Option[String] = None
+  ): Unit =
     val module  = Parser.parse(os.read(sscFile))
     val title   = module.manifest.flatMap(_.name).getOrElse(sscFile.last.stripSuffix(".ssc"))
     val baseDir = Some(sscFile / os.up)
-    write(module, title, baseDir, outDir, backendBaseUrl = backendBaseUrl)
+    write(module, title, baseDir, outDir, backendBaseUrl = backendBaseUrl, desktopToken = desktopToken)
 
   def write(
       module:         Module,
       title:          String,
       baseDir:        Option[os.Path],
       outDir:         os.Path,
-      backendBaseUrl: Option[String] = None
+      backendBaseUrl: Option[String] = None,
+      desktopToken:   Option[String] = None
   ): Unit =
     val rawJs     = rawJavaScriptBlocks(module)
     val moduleJs  = JsGen.generate(module, baseDir)
@@ -32,7 +38,10 @@ object ElectronBundleBuilder:
     val backendInit = backendBaseUrl.fold("") { url =>
       s"globalThis.__sscBackendBaseUrl = ${jsString(url)}; // injected by ssc jvm-rest\n"
     }
-    val appJs = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$backendInit$frontendInit$rawJs\n$moduleJs"
+    val tokenInit = desktopToken.fold("") { tok =>
+      s"globalThis.__sscDesktopToken = ${jsString(tok)}; // injected by ssc desktop-security\n"
+    }
+    val appJs = s"${JsGen.generateRuntime(caps)}\n$JsRuntimeBrowserPatch\n$backendInit$tokenInit$frontendInit$rawJs\n$moduleJs"
 
     os.makeDir.all(outDir)
     os.write.over(outDir / "index.html", ElectronEmitter.indexHtml(title))

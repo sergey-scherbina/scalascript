@@ -7221,7 +7221,10 @@ globalThis.fetch = function(input, init) {
   }
   if (globalThis.__sscBackendBaseUrl && _ssc_native_fetch) {
     const target = new URL(rawPath, String(globalThis.__sscBackendBaseUrl)).toString();
-    return _ssc_native_fetch(target, init);
+    const mergedInit = globalThis.__sscDesktopToken
+      ? { ...init, headers: { ...(init && init.headers), 'x-scalascript-desktop-token': globalThis.__sscDesktopToken } }
+      : init;
+    return _ssc_native_fetch(target, mergedInit);
   }
   const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
   const pathOnly = rawPath.split('?')[0] || '/';
