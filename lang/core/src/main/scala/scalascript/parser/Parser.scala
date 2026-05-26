@@ -1,6 +1,7 @@
 package scalascript.parser
 
 import scalascript.ast.*
+import scalascript.transform.RouteDeriver
 import org.commonmark.node.{
   Node            as CmNode,
   Document        as CmDocument,
@@ -66,8 +67,10 @@ object Parser:
         (mdLine: Int) => base + mdLine
     val sections = extractSections(doc, mdLineToFileLine)
     val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
-    if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
-    else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
+    val raw      =
+      if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
+      else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
+    RouteDeriver.derive(raw)
 
   /** Wrap every scalascript-block's contents in nested `object`s matching
    *  the front-matter `package:` segments.  `package: org.example.ui`
