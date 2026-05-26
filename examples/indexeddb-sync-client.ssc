@@ -15,6 +15,8 @@ val drafts = IndexedDb.store[Draft]("drafts", "ssc-sync-demo")
 awaitClient(drafts.clear())
 awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Local", false), "ssc-sync-demo"))
 awaitClient(Sync.push[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
+// If push returns conflicts, inspect `Sync.conflicts("drafts", "ssc-sync-demo")`
+// and resolve a chosen key with `Sync.resolve[Draft](..., "server" | "client" | "drop")`.
 awaitClient(Sync.pull[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
 
 val all = awaitClient(drafts.all())

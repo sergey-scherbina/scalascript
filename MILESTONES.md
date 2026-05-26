@@ -10410,8 +10410,11 @@ modes opt out of that default.
   and Dataset/Spark convergence. Follow-up landed 2026-05-26: `Sync.put[A]`
   and `Sync.remove[A]` now persist local mutation/deletion queues, and
   `Sync.push[A]` drains acknowledged queue entries while keeping conflicted
-  entries pending. Remaining: richer conflict handling, graph/RDF codecs, and
-  Dataset/Spark convergence.
+  entries pending. Follow-up landed 2026-05-26: conflicts are persisted
+  locally, inspectable through `Sync.conflicts`, and resolvable through
+  `Sync.resolve[A]` with `server` / `client` / `drop` modes. Remaining:
+  automatic per-store conflict policies, graph/RDF codecs, and Dataset/Spark
+  convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

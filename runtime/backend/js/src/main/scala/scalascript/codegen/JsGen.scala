@@ -4056,6 +4056,10 @@ function _ssc_sync_versions_key(dbName, storeName) {
   return "__ssc_sync_versions:" + _ssc_indexeddb_store_key(dbName, storeName);
 }
 
+function _ssc_sync_conflicts_key(dbName, storeName) {
+  return "__ssc_sync_conflicts:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+
 function _ssc_sync_json_get(key, fallback) {
   const storage = _ssc_indexeddb_local_storage();
   if (!storage) {
@@ -4146,6 +4150,38 @@ function _ssc_sync_ack(dbName, storeName, results, conflicts) {
   const resultKeys = new Set(Array.isArray(results) ? results.map(row => String(row.key)) : []);
   const queue = _ssc_sync_get_queue(dbName, storeName).filter(item => !resultKeys.has(String(item.key)) || conflictKeys.has(String(item.key)));
   _ssc_sync_set_queue(dbName, storeName, queue);
+  const existingConflicts = _ssc_sync_get_conflicts(dbName, storeName).filter(item => !resultKeys.has(String(item.key)));
+  const merged = existingConflicts.filter(item => !conflictKeys.has(String(item.key)));
+  if (Array.isArray(conflicts)) {
+    for (const row of conflicts) {
+      if (row && row.key !== undefined) merged.push(row);
+    }
+  }
+  _ssc_sync_set_conflicts(dbName, storeName, merged);
+}
+
+function _ssc_sync_get_conflicts(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_conflicts_key(dbName, storeName), []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function _ssc_sync_set_conflicts(dbName, storeName, conflicts) {
+  _ssc_sync_json_set(_ssc_sync_conflicts_key(dbName, storeName), Array.isArray(conflicts) ? conflicts : []);
+}
+
+function _ssc_sync_clear_conflict(dbName, storeName, key) {
+  const k = String(key);
+  _ssc_sync_set_conflicts(dbName, storeName, _ssc_sync_get_conflicts(dbName, storeName).filter(item => String(item.key) !== k));
+}
+
+function _ssc_sync_drop_queue_key(dbName, storeName, key) {
+  const k = String(key);
+  _ssc_sync_set_queue(dbName, storeName, _ssc_sync_get_queue(dbName, storeName).filter(item => String(item.key) !== k));
+}
+
+function _ssc_sync_find_conflict(dbName, storeName, key) {
+  const k = String(key);
+  return _ssc_sync_get_conflicts(dbName, storeName).find(item => String(item.key) === k);
 }
 
 async function _ssc_sync_json(method, url, body) {
@@ -4189,6 +4225,34 @@ const Sync = {
   },
   pending(storeName, dbName = "ssc") {
     return _ssc_sync_get_queue(dbName, storeName).slice();
+  },
+  conflicts(storeName, dbName = "ssc") {
+    return _ssc_sync_get_conflicts(dbName, storeName).slice();
+  },
+  async resolve(storeName, typeName = "", objectKey, policy = "server", dbName = "ssc", keyField = "id") {
+    const key = String(objectKey);
+    const mode = String(policy || "server");
+    const conflict = _ssc_sync_find_conflict(dbName, storeName, key);
+    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+    if (mode === "server") {
+      if (conflict && conflict.deleted) {
+        await store.remove(key);
+        _ssc_sync_forget_version(dbName, storeName, key);
+      } else if (conflict && Object.prototype.hasOwnProperty.call(conflict, "value") && conflict.value !== null && conflict.value !== undefined) {
+        await store.put(_ssc_indexeddb_decode(conflict.value, typeName || ""), key);
+        if (conflict.actualVersion !== undefined && conflict.actualVersion !== null) _ssc_sync_set_version(dbName, storeName, key, conflict.actualVersion);
+      }
+      _ssc_sync_drop_queue_key(dbName, storeName, key);
+      _ssc_sync_clear_conflict(dbName, storeName, key);
+    } else if (mode === "client") {
+      _ssc_sync_clear_conflict(dbName, storeName, key);
+    } else if (mode === "drop") {
+      _ssc_sync_drop_queue_key(dbName, storeName, key);
+      _ssc_sync_clear_conflict(dbName, storeName, key);
+    } else {
+      throw new Error("Sync.resolve: expected policy 'server', 'client', or 'drop', got " + mode);
+    }
+    return undefined;
   },
   async pull(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "", limit = 100) {
     const store = IndexedDb.store(storeName, typeName, dbName, keyField);
@@ -9290,7 +9354,7 @@ class JsGen(
     case Term.Apply.After_4_6_0(
           Term.ApplyType.After_4_6_0(Term.Select(Term.Name("Sync"), Term.Name(method)), typeArgs),
           argClause
-        ) if method == "put" || method == "remove" =>
+        ) if method == "put" || method == "remove" || method == "resolve" =>
       val typeName = typeArgs.values.headOption match
         case Some(Type.Name(name)) => name
         case Some(other) => other.syntax

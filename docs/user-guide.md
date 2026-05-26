@@ -1182,7 +1182,9 @@ clients can use `awaitClient(Sync.pull[Draft]("drafts", "app"))` and
 `awaitClient(Sync.push[Draft]("drafts", "app"))` to synchronize the local
 `IndexedDb.store[A]` with those endpoints. Use `Sync.put[A]` and
 `Sync.remove[A]` when local edits should be queued durably before the next
-push. Automatic conflict policies are still planned. See
+push. `Sync.conflicts("drafts", "app")` lists persisted conflicts, and
+`Sync.resolve[A]("drafts", key, "server" | "client" | "drop", "app")` resolves
+one conflict explicitly. Automatic conflict policies are still planned. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
 **Planned, not implemented yet: graph storage.** Graph-shaped data is planned as

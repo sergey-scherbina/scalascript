@@ -145,3 +145,44 @@ class JsGenIndexedDbTest extends AnyFunSuite:
     val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(queueSource))
 
     assert(runJs(js) == "2:0")
+
+  private val conflictSource =
+    """# Sync Conflict
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Client", false), "conflict-db"))
+      |awaitClient(Sync.push[Draft]("drafts", "conflict-db"))
+      |val before = Sync.conflicts("drafts", "conflict-db").size.toString + ":" + Sync.pending("drafts", "conflict-db").size.toString
+      |awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "conflict-db"))
+      |val loaded = awaitClient(IndexedDb.store[Draft]("drafts", "conflict-db").get("d1")).get
+      |val after = Sync.conflicts("drafts", "conflict-db").size.toString + ":" + Sync.pending("drafts", "conflict-db").size.toString
+      |println(before + ":" + loaded.title + ":" + after)
+      |```
+      |""".stripMargin
+
+  test("JS codegen lowers Sync resolve type argument to runtime type name"):
+    val code = JsGen.generate(Parser.parse(conflictSource))
+
+    assert(code.contains("""Sync.resolve("drafts", "Draft", "d1", "server", "conflict-db")"""))
+
+  test("JS runtime stores conflicts and resolves them with server value"):
+    assume(hasNode, "node not available")
+    val fetchStub =
+      """|globalThis.fetch = async function(url, init) {
+         |  return { ok: true, json: async () => ({
+         |    results: [],
+         |    conflicts: [{
+         |      key: "d1",
+         |      expectedVersion: 1,
+         |      actualVersion: 2,
+         |      deleted: false,
+         |      value: { id: "d1", title: "Server", done: true }
+         |    }]
+         |  }) };
+         |};
+         |""".stripMargin
+    val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(conflictSource))
+
+    assert(runJs(js) == "1:1:Server:0:0")

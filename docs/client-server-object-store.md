@@ -182,8 +182,18 @@ awaitClient(Sync.pull[Draft]("drafts", "app"))
 `pull` applies server changes/tombstones to the local `IndexedDb.store[A]` and
 persists a local cursor when `localStorage` is available. `Sync.put[A]` and
 `Sync.remove[A]` update the local store and persist queued mutations locally;
-`push` sends queued mutations first and clears acknowledged entries. Automatic
-conflict policies remain planned.
+`push` sends queued mutations first and clears acknowledged entries. Conflicts
+are persisted locally and can be inspected/resolved:
+
+```scalascript
+val conflicts = Sync.conflicts("drafts", "app")
+awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "app"))
+```
+
+`server` applies the server value/tombstone and drops the local mutation,
+`client` clears the conflict but keeps the local mutation queued for retry, and
+`drop` discards the queued local mutation without applying a server value.
+Automatic per-store conflict policies remain planned.
 
 Conflict policy should be explicit per store:
 
@@ -245,8 +255,10 @@ keeping as an optional backend for apps that want battle-tested replication.
    exposes `Sync.pull[A]` and `Sync.push[A]` over `IndexedDb.store[A]` plus
    generated REST endpoints. Follow-up landed 2026-05-26: `Sync.put[A]` and
    `Sync.remove[A]` persist a durable local mutation/deletion queue and
-   `Sync.push[A]` drains acknowledged queue entries. Remaining: richer
-   conflict UX and automatic conflict policies.
+   `Sync.push[A]` drains acknowledged queue entries. Follow-up landed
+   2026-05-26: conflicts are persisted locally and exposed through
+   `Sync.conflicts` / `Sync.resolve[A]`. Remaining: automatic per-store
+   conflict policies and richer UI helpers.
 5. **Conflict handling** — expose conflict results and implement configured
    `server-wins`, `client-wins`, and `manual` policies.
 6. **Examples + conformance** — add an offline todo example that edits locally,

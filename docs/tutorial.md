@@ -1292,7 +1292,15 @@ awaitClient(Sync.pull[Draft]("drafts", "app"))
 
 `Sync.put` / `Sync.remove` record local edits in a durable queue; `Sync.push`
 sends queued mutations first and clears acknowledged rows; `Sync.pull` applies
-server changes. Richer conflict handling remains planned.
+server changes. Conflicts are explicit:
+
+```scalascript
+val conflicts = Sync.conflicts("drafts", "app")
+awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "app"))
+```
+
+Use `"server"` to accept the server value, `"client"` to retry the local
+mutation, and `"drop"` to discard the local mutation.
 
 ---
 
