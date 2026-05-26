@@ -24,6 +24,7 @@ backends:
 ## State
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 var clients: List[WebSocket] = List()
 
 def broadcast(msg: String): Unit =

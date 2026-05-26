@@ -12,6 +12,7 @@ create, and delete them.  The page at `/` renders an HTML view that talks to
 the JSON endpoints.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 var todos: List[String] = List("Buy milk", "Walk the dog", "Write spec")
 
 // ───────────────────────────────────────────────────────────────

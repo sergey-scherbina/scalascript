@@ -20,6 +20,7 @@ bindings stay pure.
 the same semantics as chained `.flatMap` calls, written as sequential code.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 case class User(name: String, age: Int)
 case class Profile(user: User, bio: String)
 

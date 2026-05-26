@@ -12,6 +12,7 @@ node`) or a browser-rendered single-page app (`ssc emit-spa > spa.html
 && open spa.html`).
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 def layout(title: String, body: String): String =
   html"""<nav>
   <a href="/">Home</a> ·

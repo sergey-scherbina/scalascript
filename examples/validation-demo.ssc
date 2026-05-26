@@ -11,6 +11,7 @@ form fields.  Missing or invalid fields short-circuit with 400 Bad
 Request automatically.  Optional fields fall back to defaults.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 route("POST", "/users") { req =>
   val email = requireString(req, "email")
   val age   = requireInt(req, "age")

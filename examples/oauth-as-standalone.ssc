@@ -30,6 +30,7 @@ curl -X POST http://localhost:8080/token \
 ```
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 val as = oauth.authServer(Map(
   "issuer"        -> "http://localhost:8080",
   "signingSecret" -> "change-me-in-production-please",

@@ -15,6 +15,7 @@ ScalaScript derives `apiClients:` metadata automatically from three sources:
 3. `routes:` entries in the front-matter
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 // --- server side ---
 
 // RouteDeriver sees this call and derives:

@@ -24,6 +24,7 @@ header `kid` claim + the JWKS entry id so clients can pick the right
 key when you rotate.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 val as = oauth.authServer(Map(
   "issuer"        -> "http://localhost:8080",
   "signingSecret" -> "unused-with-rsa-but-still-required-by-config-shape",

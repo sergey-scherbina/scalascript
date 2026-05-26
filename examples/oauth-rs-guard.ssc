@@ -36,6 +36,7 @@ curl -i http://localhost:8080/api/data
 ```
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 // ─── Authorization Server (embedded for demo) ─────────────────────────
 val as = oauth.authServer(Map(
   "issuer"        -> "http://localhost:8080",

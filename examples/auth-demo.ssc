@@ -16,6 +16,9 @@ A minimal site that walks the v0.6 auth surface end-to-end:
 - `POST /logout`  — validates CSRF, clears the cookie, redirects to `/`
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
+[csrfToken, csrfValid](std/auth.ssc)
+
 // Toy user database — replace with a real lookup in production.
 val users: Map[String, String] = Map(
   "alice" -> "wonderland",

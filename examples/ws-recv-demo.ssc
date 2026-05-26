@@ -11,6 +11,7 @@ The default `onWebSocket(path) { ws => … }` API gives you
 callback-style WebSocket handling:
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 onWebSocket("/chat") { ws =>
   ws.onMessage { msg => ws.send("echo: " + msg) }
   ws.onClose { () => println("closed") }

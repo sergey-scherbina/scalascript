@@ -24,6 +24,7 @@ A typical "Sign in with X" client uses these in this order:
      the access_token to fetch them fresh.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 val as = oauth.authServer(Map(
   "issuer"        -> "http://localhost:8080",
   "signingSecret" -> "change-me-in-production-please",

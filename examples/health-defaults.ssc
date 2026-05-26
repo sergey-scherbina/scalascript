@@ -10,6 +10,7 @@ A `serve(port)` call with no user routes should still expose
 `GET /_health` and `GET /_ready` returning `200 {"status":"ok"}`.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 println("Listening on http://localhost:8769/  (built-in /_health and /_ready)")
 serve(8769)
 ```

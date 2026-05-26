@@ -33,6 +33,7 @@ compile).
 ## Code
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 // Pick the HttpServerSpi impl BEFORE any serve(port) call.  The
 // registry caches the selection; the first serve() resolves it.
 // If "jetty" isn't on the classpath (no Jetty module on deps),

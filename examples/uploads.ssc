@@ -16,6 +16,7 @@ Two routes:
 - `GET /` — a tiny HTML form that posts to `/upload`.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 route("POST", "/upload") { req =>
   if req.files.contains("file") then
     val f = req.files("file")

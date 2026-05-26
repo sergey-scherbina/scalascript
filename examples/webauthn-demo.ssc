@@ -35,6 +35,9 @@ bin/ssc examples/webauthn-demo.ssc
 ```
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
+[cookieConfig, webauthnChallenge, webauthnStorePut, webauthnStoreGet, webauthnVerifyRegistration, webauthnVerifyAssertion](std/auth.ssc)
+
 // User identity for this demo — in a real app this comes from your
 // usual login form before passkey enrolment kicks in.  We just key
 // everything on a fixed string so the demo works in one tab.

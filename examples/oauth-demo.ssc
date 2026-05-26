@@ -33,6 +33,9 @@ bin/ssc examples/oauth-demo.ssc
 The callback URL must match the one registered with your OAuth App.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
+[csrfToken, oauthAuthorizeUrl, oauthExchangeCode, oauthUserinfo](std/auth.ssc)
+
 // Env-driven config — keep secrets out of source.  `getenv(key, default)`
 // is a builtin on all three backends; missing/empty falls back to the
 // supplied default.

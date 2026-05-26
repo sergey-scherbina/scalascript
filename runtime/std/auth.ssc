@@ -1,0 +1,97 @@
+---
+name: std-auth
+version: 0.1.0
+description: Auth primitives — extern declarations for csrfToken / cookieConfig / hashPassword / jwtSign / webauthn / totp / rateLimit / oauthAuthorizeUrl / etc.
+package: std.auth
+exports:
+  - csrfToken
+  - csrfValid
+  - cookieConfig
+  - useSessionStore
+  - hashPassword
+  - verifyPassword
+  - jwtSign
+  - jwtVerify
+  - jwtSignRsa
+  - jwtVerifyRsa
+  - base64UrlEncode
+  - base64UrlDecode
+  - rateLimit
+  - rateLimitReset
+  - totpSecret
+  - totpUri
+  - totpCode
+  - totpValid
+  - webauthnChallenge
+  - webauthnConsumeChallenge
+  - webauthnStorePut
+  - webauthnStoreGet
+  - webauthnStoreFind
+  - webauthnUpdateSignCount
+  - webauthnVerifyRegistration
+  - webauthnVerifyAssertion
+  - oauthAuthorizeUrl
+  - oauthExchangeCode
+  - oauthUserinfo
+  - oauthRefreshToken
+  - oauthRegisterProvider
+---
+
+# `std.auth` — Auth primitives
+
+CSRF protection, session config, password hashing, JWT signing/verification,
+TOTP, WebAuthn/passkeys, rate limiting, and simple OAuth 2.0 client helpers.
+Implementations live in each backend's intrinsic table (auth-plugin).
+
+```scalascript
+// CSRF
+extern def csrfToken(): String
+extern def csrfValid(token: String, session: Map[String, String]): Boolean
+
+// Session / cookie config
+extern def cookieConfig(httpOnly: Boolean, sameSite: String): Unit
+extern def useSessionStore(store: Any): Unit
+
+// Password hashing (bcrypt)
+extern def hashPassword(password: String): String
+extern def verifyPassword(password: String, hash: String): Boolean
+
+// JWT — HMAC-SHA-256
+extern def jwtSign(claims: Map[String, Any], secret: String): String
+extern def jwtVerify(token: String, secret: String): Option[Map[String, Any]]
+
+// JWT — RSA / EC (PEM key strings)
+extern def jwtSignRsa(claims: Map[String, Any], privateKeyPem: String): String
+extern def jwtVerifyRsa(token: String, publicKeyPem: String): Option[Map[String, Any]]
+
+// Base64-URL encoding (for WebAuthn / PKCE)
+extern def base64UrlEncode(bytes: String): String
+extern def base64UrlDecode(encoded: String): String
+
+// Rate limiting
+extern def rateLimit(key: String, maxRequests: Int, windowSeconds: Int): Boolean
+extern def rateLimitReset(key: String): Unit
+
+// TOTP (RFC 6238) — compatible with Google Authenticator / Authy
+extern def totpSecret(): String
+extern def totpUri(secret: String, account: String, issuer: String): String
+extern def totpCode(secret: String): String
+extern def totpValid(secret: String, code: String): Boolean
+
+// WebAuthn / passkeys (FIDO2 Level 2)
+extern def webauthnChallenge(userId: String): String
+extern def webauthnConsumeChallenge(userId: String): Option[String]
+extern def webauthnStorePut(userId: String, credentialId: String, publicKey: String, signCount: Int): Unit
+extern def webauthnStoreGet(userId: String): List[Any]
+extern def webauthnStoreFind(credentialId: String): Option[Any]
+extern def webauthnUpdateSignCount(credentialId: String, newCount: Int): Unit
+extern def webauthnVerifyRegistration(userId: String, challenge: String, responseJson: String): Any
+extern def webauthnVerifyAssertion(challenge: String, credentialJson: String, responseJson: String): Boolean
+
+// Simple OAuth 2.0 client helpers (provider-agnostic)
+extern def oauthAuthorizeUrl(provider: String, clientId: String, redirectUri: String, state: String): String
+extern def oauthExchangeCode(provider: String, code: String, clientId: String, clientSecret: String, redirectUri: String): Option[Map[String, String]]
+extern def oauthUserinfo(provider: String, accessToken: String): Option[Map[String, String]]
+extern def oauthRefreshToken(provider: String, refreshToken: String, clientId: String, clientSecret: String): Option[Map[String, String]]
+extern def oauthRegisterProvider(name: String, config: Map[String, String]): Unit
+```

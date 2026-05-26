@@ -30,6 +30,7 @@ The flow being demonstrated:
      fresh, scope-filtered identity claims.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 // ─── 1. Boot the OIDC IdP ─────────────────────────────────────────────
 
 val as = oauth.authServer(Map(

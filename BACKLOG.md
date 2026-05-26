@@ -104,7 +104,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`, and `sqlPlugin` now have
     isolated `src/test` suites via `testUtils % Test`. Remaining plugin-family
     suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
-  - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
+  - **Examples `pkg:` sweep** — ✅ **LANDED (2026-05-26)**: created `runtime/std/auth.ssc` (extern declarations for all auth-plugin intrinsics: CSRF, cookie, bcrypt, JWT, TOTP, WebAuthn, rate-limit, oauth client helpers); added `[route, serve, Response, Request](std/http.ssc)` import lines to 22 HTTP-using examples; added targeted `[csrfToken, …](std/auth.ssc)` imports to 4 auth-using examples (auth-demo, auth-full, oauth-demo, webauthn-demo).
   - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
     `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
@@ -1441,9 +1441,7 @@ worth a separate fix when somebody has cycles.
     `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
     `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`, and `sqlPlugin` have isolated `src/test` suites via
     `testUtils % Test`. Remaining plugin-family suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
-  - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
-    intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
-    import lines, relying on ServiceLoader classpath discovery.  Effort: S.
+  - **Examples `pkg:` sweep** — ✅ **LANDED (2026-05-26)**: see §5.5 note above.
   - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
     `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.

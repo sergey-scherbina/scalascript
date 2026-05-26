@@ -9,6 +9,7 @@ description: Route wrapped with three stock middlewares (request-id, timing, log
 A single `/echo` route wrapped with `withRequestId`, `withTiming`,
 and `withRequestLog` from `std/middleware.ssc`.
 
+[route, serve, Response, Request](std/http.ssc)
 [withRequestId, withTiming, withRequestLog](std/middleware.ssc)
 
 ```scalascript

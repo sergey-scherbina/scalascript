@@ -32,6 +32,9 @@ bin/ssc examples/auth-full.ssc
 ```
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
+[csrfToken, csrfValid, cookieConfig, hashPassword, verifyPassword, jwtSign, rateLimit, rateLimitReset, totpSecret, totpUri, totpValid](std/auth.ssc)
+
 // ── Toy "database" ────────────────────────────────────────────────
 // In a real app these would live in a `Storage`-backed table.
 

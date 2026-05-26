@@ -23,6 +23,7 @@ routes:
 Handlers below are referenced by name from the `routes:` block above.
 
 ```scalascript
+[route, serve, Response, Request](std/http.ssc)
 var todos: List[String] = List("Buy milk", "Walk the dog", "Write spec")
 
 def listTodos(req: Request): Response =

@@ -18,6 +18,8 @@ any logic, and (for Counter) inline JS.  `Page` provides the doctype
 demonstrates the `val js` convention — `collectJs(...)` aggregates
 every component's `js` into a single page-level `<script>`.
 
+[route, serve, Response, Request](std/http.ssc)
+
 [Page](./components/page.ssc)
 
 [Button](./components/button.ssc)
