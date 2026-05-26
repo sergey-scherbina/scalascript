@@ -178,6 +178,35 @@ class DatabasesFrontmatterTest extends AnyFunSuite:
     assert(round.manifest.get.schemas == mod.manifest.get.schemas)
   }
 
+  test("graphs: parses graph store metadata and round-trips through IR") {
+    val mod = withFrontmatter(
+      """graphs:
+        |  deps:
+        |    model: property
+        |    side: server
+        |    backend: in-memory
+        |  kg:
+        |    model: rdf
+        |    backend: rdf-memory
+        |    uri: memory:kg""".stripMargin)
+
+    val graphs = mod.manifest.get.graphs.map(g => g.name -> g).toMap
+    assert(graphs.keySet == Set("deps", "kg"))
+    assert(graphs("deps").model == "property")
+    assert(graphs("deps").side == "server")
+    assert(graphs("deps").backend == "in-memory")
+    assert(graphs("kg").model == "rdf")
+    assert(graphs("kg").uri == Some("memory:kg"))
+
+    val ir1 = Normalize(mod)
+    assert(ir1.manifest.get.graphs.head == ir.GraphDecl("deps", "property", "server", "in-memory"))
+    val round = Denormalize(ir1)
+    assert(round.manifest.get.graphs == mod.manifest.get.graphs)
+
+    val ssccRound = ast.SsccFormat.read(ast.SsccFormat.write(mod)).toOption.get
+    assert(ssccRound.manifest.get.graphs == mod.manifest.get.graphs)
+  }
+
   test("schemas: survives .sscc serialization") {
     val mod = withFrontmatter(
       """schemas:

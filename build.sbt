@@ -523,7 +523,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("runtime/backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
@@ -535,13 +535,16 @@ lazy val backendInterpreter = project
     Test / resourceGenerators += Def.task {
       val sqlJar       = (backendSqlRuntime / Compile / packageBin).value
       val typedDataJar = (backendTypedDataRuntime / Compile / packageBin).value
+      val graphJar     = (backendGraphRuntime / Compile / packageBin).value
       val outDir       = (Test / resourceManaged).value / "scalascript"
       val sqlOut       = outDir / "sql-runtime-jar.path"
       val typedOut     = outDir / "typed-data-runtime-jar.path"
+      val graphOut     = outDir / "graph-runtime-jar.path"
       IO.createDirectory(outDir)
       IO.write(sqlOut, sqlJar.getAbsolutePath)
       IO.write(typedOut, typedDataJar.getAbsolutePath)
-      Seq(sqlOut, typedOut)
+      IO.write(graphOut, graphJar.getAbsolutePath)
+      Seq(sqlOut, typedOut, graphOut)
     }.taskValue
   )
 

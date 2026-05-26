@@ -196,6 +196,7 @@ object Parser:
       }.getOrElse(Map.empty),
       databases = parseDatabases(raw),
       objectStores = parseObjectStores(raw),
+      graphs = parseGraphs(raw),
       schemas = parseSchemas(raw),
       frontendFramework = raw.get("frontend").orElse(raw.get("frontend-framework")).collect { case s: String => s },
       scripts = raw.get("scripts").collect {
@@ -345,6 +346,24 @@ object Parser:
               )
             }
         }.flatten.toList
+    }.getOrElse(Nil)
+
+  private def parseGraphs(raw: Map[String, Any]): List[GraphDecl] =
+    raw.get("graphs").collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect {
+          case (name: String, v: java.util.Map[?, ?]) =>
+            val mm = stringMap(v)
+            GraphDecl(
+              name     = name,
+              model    = mm.get("model").map(_.toString).getOrElse("property"),
+              side     = mm.get("side").map(_.toString).getOrElse("server"),
+              backend  = mm.get("backend").map(_.toString).getOrElse("in-memory"),
+              uri      = mm.get("uri").orElse(mm.get("url")).collect { case s: String => s },
+              user     = mm.get("user").collect { case s: String => s },
+              password = mm.get("password").collect { case s: String => s }
+            )
+        }.toList
     }.getOrElse(Nil)
 
   private def parseSchemas(raw: Map[String, Any]): List[TypeSchemaDecl] =

@@ -101,6 +101,17 @@ object SsccFormat:
     span:      Option[Span]   = None
   )
 
+  private case class GraphDeclPickle(
+    name:     String,
+    model:    String         = "property",
+    side:     String         = "server",
+    backend:  String         = "in-memory",
+    uri:      Option[String] = None,
+    user:     Option[Array[Byte]] = None,
+    password: Option[Array[Byte]] = None,
+    span:     Option[Span]   = None
+  )
+
   private case class SchemaDefaultPickle(
     kind:   String,
     string: Option[Array[Byte]] = None,
@@ -137,6 +148,7 @@ object SsccFormat:
     translations:      Map[String, Map[String, String]] = Map.empty,
     databases:         List[DatabaseDeclPickle]         = Nil,
     objectStores:      List[ObjectStoreDeclPickle]      = Nil,
+    graphs:            List[GraphDeclPickle]            = Nil,
     schemas:           List[TypeSchemaDeclPickle]       = Nil,
     frontendFramework: Option[String]                   = None,
     scripts:           Map[String, String]              = Map.empty,
@@ -205,6 +217,7 @@ object SsccFormat:
 
   private given Codec[DatabaseDeclPickle]  = deriveCodec[DatabaseDeclPickle]
   private given Codec[ObjectStoreDeclPickle] = deriveCodec[ObjectStoreDeclPickle]
+  private given Codec[GraphDeclPickle] = deriveCodec[GraphDeclPickle]
   private given Codec[SchemaDefaultPickle] = deriveCodec[SchemaDefaultPickle]
   private given Codec[FieldSchemaDeclPickle] = deriveCodec[FieldSchemaDeclPickle]
   private given Codec[TypeSchemaDeclPickle] = deriveCodec[TypeSchemaDeclPickle]
@@ -238,6 +251,7 @@ object SsccFormat:
       translations      = m.translations,
       databases         = m.databases.map(toPickle),
       objectStores      = m.objectStores.map(toPickle),
+      graphs            = m.graphs.map(toPickle),
       schemas           = m.schemas.map(toPickle),
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
@@ -267,6 +281,18 @@ object SsccFormat:
       key       = store.key,
       conflict  = store.conflict,
       span      = store.span
+    )
+
+  private def toPickle(graph: GraphDecl): GraphDeclPickle =
+    GraphDeclPickle(
+      name     = graph.name,
+      model    = graph.model,
+      side     = graph.side,
+      backend  = graph.backend,
+      uri      = graph.uri,
+      user     = graph.user.map(compress),
+      password = graph.password.map(compress),
+      span     = graph.span
     )
 
   private def toPickle(schema: TypeSchemaDecl): TypeSchemaDeclPickle =
@@ -341,6 +367,7 @@ object SsccFormat:
       translations      = pk.translations,
       databases         = pk.databases.map(fromPickle),
       objectStores      = pk.objectStores.map(fromPickle),
+      graphs            = pk.graphs.map(fromPickle),
       schemas           = pk.schemas.map(fromPickle),
       frontendFramework = pk.frontendFramework,
       scripts           = pk.scripts,
@@ -354,6 +381,9 @@ object SsccFormat:
 
   private def fromPickle(pk: ObjectStoreDeclPickle): ObjectStoreDecl =
     ObjectStoreDecl(pk.name, pk.valueType, pk.sync, pk.database, pk.store, pk.table, pk.key, pk.conflict, pk.span)
+
+  private def fromPickle(pk: GraphDeclPickle): GraphDecl =
+    GraphDecl(pk.name, pk.model, pk.side, pk.backend, pk.uri, pk.user.map(decompress), pk.password.map(decompress), pk.span)
 
   private def fromPickle(pk: TypeSchemaDeclPickle): TypeSchemaDecl =
     TypeSchemaDecl(

@@ -1195,9 +1195,11 @@ properties, and traversal-heavy domains; RDF graphs cover triples/quads, linked
 data, ontologies, and SPARQL. The first JVM runtime slice is available in
 `backend/graph`: `GraphRuntime.inMemory()` stores typed vertices, edges, RDF
 subjects, and triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec`
-mapping layer. The `.ssc` `Graph.*` facade, `graphs:` front matter,
-TinkerGraph/TinkerPop, RDF4J, and production adapters such as Neo4j/Cypher,
-JanusGraph/TinkerPop providers, and RDF4J-compatible servers remain planned. See
+mapping layer. JVM codegen now parses `graphs:` front matter and emits a
+minimal `.ssc` `Graph.*` facade for declared in-memory stores. TinkerGraph/
+TinkerPop, RDF4J, interpreter intrinsics, and production adapters such as
+Neo4j/Cypher, JanusGraph/TinkerPop providers, and RDF4J-compatible servers
+remain planned. See
 [`graph-storage.md`](graph-storage.md).
 
 **Planned, partially implemented: typed mapping across stores.** Typed mapping
@@ -1225,8 +1227,8 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 typed mapping layer: property graph values encode to `VertexValue` /
 `EdgeValue`, and RDF values encode to `RdfValue` triples. `backend/graph` now
 adds a portable graph runtime SPI and in-memory JVM backend for those encoded
-values; configured `.ssc` graph stores and full database adapters are still
-planned. The first
+values; `graphs:` front matter and the generated JVM `Graph.*` facade can use
+that backend today. Full database adapters are still planned. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. Explicit JVM row codecs
 can use `RowFieldSpec[A]` for renamed columns, aliases, defaults, key metadata,

@@ -272,13 +272,18 @@ class JvmGen(
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
     val objectStores = module.manifest.toList.flatMap(_.objectStores).filter(s => s.sync == "client-server" && s.valueType.nonEmpty)
+    val graphStores = module.manifest.toList.flatMap(_.graphs)
     val frontendFramework = module.manifest.flatMap(_.frontendFramework)
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     val usesObjectStore = blocksUseObjectStore(blocks)
+    val usesGraph = blocksUseGraph(blocks) || graphStores.nonEmpty
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
     if blocksUseTypedData(blocks) then
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
+    if usesGraph then
+      sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
+      sb.append(sscJarDirective("scalascript-backend-graph-runtime"))
 
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
@@ -353,6 +358,8 @@ class JvmGen(
       sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
     if objectStores.nonEmpty then
       emitObjectStoreSyncRoutes(objectStores, sb)
+    if usesGraph then
+      sb.append(emitGraphRegistry(graphStores))
 
     // v1.30 Phase 4 — browser JS for @side=client sql blocks.  Always
     // emitted in frontend modules so uiHelperFunctions can reference
@@ -1466,6 +1473,57 @@ class JvmGen(
                  |""".stripMargin)
     sb.toString
 
+  private def emitGraphRegistry(graphs: List[scalascript.ast.GraphDecl]): String =
+    val declared = if graphs.nonEmpty then graphs else List(scalascript.ast.GraphDecl("default"))
+    val sb = StringBuilder()
+    sb.append("// ── Graph runtime support ───────────────────────────────────────\n")
+    sb.append("val _ssc_graph_registry: Map[String, scalascript.graph.GraphBackend] = Map(\n")
+    val entries = declared.map { g =>
+      val name = escapeStringLit(g.name)
+      val backend = g.backend.toLowerCase
+      val model = g.model.toLowerCase
+      val side = g.side.toLowerCase
+      val rhs =
+        if side != "server" then
+          s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: only side=server is supported by the JVM graph facade today\")"
+        else if Set("in-memory", "memory", "embedded-memory", "rdf-memory").contains(backend) then
+          "scalascript.graph.GraphRuntime.inMemory()"
+        else
+          s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: backend '$backend' for model '$model' is planned but not implemented yet\")"
+      s"  \"$name\" -> $rhs"
+    }.mkString(",\n")
+    sb.append(entries).append("\n)\n\n")
+    sb.append("""|object Graph:
+                 |  private def backend(name: String): scalascript.graph.GraphBackend =
+                 |    _ssc_graph_registry.getOrElse(name, throw scalascript.graph.GraphRuntimeError(s"unknown graph store '$name'. Declared stores: ${_ssc_graph_registry.keys.toList.sorted.mkString(", ")}"))
+                 |  def putVertex[A](graphName: String, value: A)(using scalascript.typeddata.VertexCodec[A]): scalascript.typeddata.VertexValue =
+                 |    scalascript.graph.GraphRuntime.putVertex(backend(graphName), value)
+                 |  def getVertex[A](graphName: String, id: String)(using scalascript.typeddata.VertexCodec[A]): Option[A] =
+                 |    scalascript.graph.GraphRuntime.getVertex[A](backend(graphName), id)
+                 |  def vertices[A](graphName: String)(using scalascript.typeddata.VertexCodec[A]): List[A] =
+                 |    scalascript.graph.GraphRuntime.vertices[A](backend(graphName)).toList
+                 |  def putEdge[A](graphName: String, value: A)(using scalascript.typeddata.EdgeCodec[A]): scalascript.graph.StoredEdge =
+                 |    scalascript.graph.GraphRuntime.putEdge(backend(graphName), value)
+                 |  def edges[A](graphName: String)(using scalascript.typeddata.EdgeCodec[A]): List[A] =
+                 |    scalascript.graph.GraphRuntime.edges[A](backend(graphName)).toList
+                 |  def neighborValues(graphName: String, from: String, edgeLabel: Option[String] = None): List[scalascript.typeddata.VertexValue] =
+                 |    backend(graphName).neighbors(from, edgeLabel).toList
+                 |  def neighbors[A](graphName: String, from: String, edgeLabel: Option[String] = None)(using scalascript.typeddata.VertexCodec[A]): List[A] =
+                 |    backend(graphName).neighbors(from, edgeLabel).toVector.map { vertex =>
+                 |      scalascript.typeddata.VertexCodec[A].decode(vertex) match
+                 |        case Right(value) => value
+                 |        case Left(error) => throw scalascript.graph.GraphRuntimeError(s"vertex decode failed for ${vertex.id}: ${error.render}")
+                 |    }.toList
+                 |  def putRdf[A](graphName: String, value: A)(using scalascript.typeddata.RdfCodec[A]): scalascript.typeddata.RdfValue =
+                 |    scalascript.graph.GraphRuntime.putRdf(backend(graphName), value)
+                 |  def getRdf[A](graphName: String, subject: scalascript.typeddata.RdfNode)(using scalascript.typeddata.RdfCodec[A]): Option[A] =
+                 |    scalascript.graph.GraphRuntime.getRdf[A](backend(graphName), subject)
+                 |  def triples(graphName: String, subject: Option[scalascript.typeddata.RdfNode] = None, predicate: Option[String] = None): List[scalascript.typeddata.RdfTriple] =
+                 |    backend(graphName).triples(subject, predicate).toList
+                 |
+                 |""".stripMargin)
+    sb.toString
+
   private def emitObjectStoreSyncRoutes(stores: List[ObjectStoreDecl], sb: StringBuilder): Unit =
     sb.append("// ── ObjectStore generated REST sync routes ─────────────────────\n")
     sb.append(
@@ -2283,6 +2341,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         if !found then tree.collect {
           case Term.Select(Term.Name("ObjectStore"), _) => found = true
           case Term.Name("ObjectStore") => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseGraph(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = b.src.contains("Graph.") || b.src.contains("GraphRuntime") || b.src.contains("scalascript.graph")
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Import(importers) if importers.exists(_.ref.syntax.startsWith("scalascript.graph")) => found = true
+          case Term.Select(Term.Name("Graph"), _) => found = true
+          case Term.Name("Graph") => found = true
+          case Term.Name("GraphRuntime") => found = true
+          case Type.Name("GraphRuntime") => found = true
         }
       }
       found

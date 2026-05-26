@@ -10422,9 +10422,11 @@ modes opt out of that default.
   `backend/graph` now defines the portable graph runtime SPI
   (`GraphCapabilities`, `PropertyGraphBackend`, `RdfGraphBackend`,
   `GraphBackend`) plus `GraphRuntime.inMemory()` for typed in-memory
-  property/RDF storage. Remaining: richer sync UI helpers, TinkerGraph/RDF4J
-  adapters plus `graphs:` front matter / `.ssc` facade, and Dataset/Spark
-  convergence.
+  property/RDF storage. Follow-up landed 2026-05-26: `graphs:` front matter
+  now survives AST/IR/.sscc, JvmGen emits a `Graph.*` facade over declared
+  in-memory graph stores, and `examples/graph-storage.ssc` runs through
+  `ssc run-jvm`. Remaining: richer sync UI helpers, interpreter graph
+  intrinsics, TinkerGraph/RDF4J adapters, and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

@@ -324,6 +324,47 @@ properties:
           key: id
           conflict: manual
 
+  graphs:
+    type: object
+    description: |
+      Graph stores. The first implemented JVM path supports `backend: in-memory`
+      through the generated `Graph.*` facade. TinkerGraph/RDF4J and remote
+      adapters are planned follow-ups.
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      properties:
+        model:
+          type: string
+          enum: [property, rdf]
+          default: property
+        side:
+          type: string
+          enum: [server, client]
+          default: server
+        backend:
+          type: string
+          description: `in-memory` is implemented; TinkerGraph/RDF4J/remote adapters are planned.
+          default: in-memory
+        uri:
+          type: string
+        url:
+          type: string
+          description: Alias for `uri`.
+        user:
+          type: string
+        password:
+          type: string
+    examples:
+      - deps:
+          model: property
+          side: server
+          backend: in-memory
+        kg:
+          model: rdf
+          side: server
+          backend: in-memory
+
   schemas:
     type: object
     description: |

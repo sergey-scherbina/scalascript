@@ -44,6 +44,10 @@ case class Manifest(
    *  Entries with `sync: client-server` and a concrete `type:` drive
    *  generated JVM REST sync endpoints over the server ObjectStore runtime. */
   objectStores: List[ObjectStoreDecl] = Nil,
+  /** Graph stores declared in front-matter `graphs:`.  The first runtime
+   *  slice supports JVM in-memory stores through JvmGen; TinkerGraph/RDF4J
+   *  adapters and interpreter intrinsics are planned follow-ups. */
+  graphs: List[GraphDecl] = Nil,
   /** Optional per-type storage schema metadata declared in front-matter
    *  `schemas:`.  Interpreter typed SQL consumes this as an alternative
    *  to inline annotations; JVM/codegen integration is planned separately. */
@@ -110,6 +114,17 @@ case class ObjectStoreDecl(
   key:        Option[String] = None,
   conflict:   String = "manual",
   span:       Option[Span] = None
+)
+
+case class GraphDecl(
+  name:     String,
+  model:    String = "property",
+  side:     String = "server",
+  backend:  String = "in-memory",
+  uri:      Option[String] = None,
+  user:     Option[String] = None,
+  password: Option[String] = None,
+  span:     Option[Span] = None
 )
 
 enum SchemaDefault:

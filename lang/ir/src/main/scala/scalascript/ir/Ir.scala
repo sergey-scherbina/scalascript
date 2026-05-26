@@ -72,6 +72,17 @@ case class ObjectStoreDecl(
   span:       Option[Span] = None
 ) derives ReadWriter
 
+case class GraphDecl(
+  name:     String,
+  model:    String = "property",
+  side:     String = "server",
+  backend:  String = "in-memory",
+  uri:      Option[String] = None,
+  user:     Option[String] = None,
+  password: Option[String] = None,
+  span:     Option[Span] = None
+) derives ReadWriter
+
 enum SchemaDefault derives ReadWriter:
   case NullValue
   case Bool(value: Boolean)
@@ -107,6 +118,7 @@ case class Manifest(
   apiClients:        List[ApiClientDecl] = Nil,
   databases:         List[DatabaseDecl] = Nil,
   objectStores:      List[ObjectStoreDecl] = Nil,
+  graphs:            List[GraphDecl] = Nil,
   schemas:           List[TypeSchemaDecl] = Nil,
   frontendFramework: Option[String] = None,
   scripts:           Map[String, String] = Map.empty,
