@@ -502,7 +502,7 @@ def printUsage(): Unit =
     |                                --mode server starts only the JVM backend/server
     |                                --mode client --frontend electron --server-url <url> starts only the Electron client
     |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
-    |                                --transport <http|in-process> selects planned full-stack transport (in-process validates only)
+    |                                --transport <http|in-process> selects full-stack transport; in-process uses interpreter dispatch (no HTTP socket)
     |                                --host <addr> / --port <n> controls web preview bind address/port; server mode uses --port for simple serve(port)
     |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
@@ -2869,8 +2869,7 @@ private[cli] def validateTransportSelection(
           Left("run --mode client does not support --transport in-process; client-only mode requires --server-url over HTTP")
         case _ if serverUrl.nonEmpty =>
           Left("run --server-url implies --transport http and cannot be combined with --transport in-process")
-        case _ =>
-          Left("run --transport in-process is planned but not implemented yet for runtime execution")
+        case _ => Right(())
 
 private[cli] def validateRunJvmTransportSelection(
     frontendName: Option[String],

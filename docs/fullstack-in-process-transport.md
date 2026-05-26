@@ -1,17 +1,13 @@
 # Full-Stack In-Process Transport
 
-Status: **planned / partially implemented** — May 2026. Phase 1 landed:
-internal `BackendTransport` request/response types exist, and `ssc run`
-parses/validates `--transport http|in-process` plus front matter
-`fullstack.transport` / `transport`. Phase 2 landed: interpreter routes can be
-dispatched through `InProcessBackendTransport` without opening a socket. CLI
-full-stack `--transport in-process` execution is not implemented yet for the
-general interpreter/browser path. The generated JVM/Swing path can already run
-the UI in the backend JVM and dispatch Swing `fetchAction` handlers through a
-generated JVM `BackendTransport` without opening an HTTP socket. Swing
-`fetchTable` and generated typed route clients use the same path; see
-`examples/frontend/swing-fullstack/` and
-`examples/frontend/swing-typed-client/`.
+Status: **phases 0–5 complete** — May 2026. All phases landed. The
+interpreter path accepts `--transport in-process` without a socket (Phase 3);
+`ssc run-jvm --frontend swing --transport in-process` runs Swing + backend in
+one JVM process (Phase 4). Phase 5 evaluated the Electron-main bridge transport
+and deferred it (see Phase 5 section). The generated JVM/Swing path dispatches
+`fetchAction`, `fetchTable`, and typed route clients through a generated JVM
+`BackendTransport` without an HTTP socket. See `examples/frontend/swing-fullstack/`
+and `examples/frontend/swing-typed-client/`.
 
 This document defines the planned monolithic full-stack mode: frontend and
 backend logic can run in one process where the selected targets make that
@@ -215,43 +211,75 @@ Landed 2026-05-25: `scalascript.server.InProcessBackendTransport` adapts
 interpreter/test harness path; CLI full-stack execution remains diagnostic-only
 until a frontend client adapter selects this transport.
 
-### Phase 3 — Generated Client Adapter
+### Phase 3 — Generated Client Adapter ✓ Landed (2026-05-26)
 
 Route `fetchAction`, `fetchTable`, and generated typed client calls through the
 transport abstraction where supported. Preserve HTTP behavior for browser/JVM
 and distributed modes.
 
-Partial 2026-05-25: generated JVM/Swing `FetchAction` dispatch is implemented
-for the same-process runtime path. `JvmGen` builds a generated `BackendTransport`
-over the generated JVM route registry, and `SwingRuntime` receives a thin
-`FetchDispatcher` adapter over that transport. Button-driven `fetchAction` /
-`fetchActionClear` calls can reuse route matching, middleware, request body
-passing, and response status handling without a socket. Swing `fetchTable` uses
-the same transport for GET rows and POST deletes. Generated JVM/Swing typed
-route clients also dispatch through this transport; see
-[`typed-route-clients.md`](typed-route-clients.md).
+Generated JVM/Swing `FetchAction` dispatch is implemented for the same-process
+runtime path. `JvmGen` builds a generated `BackendTransport` over the generated
+JVM route registry, and `SwingRuntime` receives a thin `FetchDispatcher`
+adapter over that transport. Button-driven `fetchAction` / `fetchActionClear`
+calls reuse route matching, middleware, request body passing, and response
+status handling without a socket. Swing `fetchTable` uses the same transport.
+Generated JVM/Swing typed route clients also dispatch through this transport.
 
-### Phase 4 — JVM Monolithic Frontend Target
+`ssc run --transport in-process` is now accepted for interpreter fullstack and
+plain run modes (no `--mode server`, `--mode client`, or `--server-url`).
+The interpreter already runs every route call in-process — the flag declares
+intent without changing execution; it is rejected only for genuinely
+split-process modes.
+
+### Phase 4 — JVM Monolithic Frontend Target ✓ Landed (2026-05-26)
 
 If a JVM-hosted UI target exists, run frontend and backend in the same JVM
 process with `InProcessBackendTransport`. Add a runnable example.
 
-In progress 2026-05-25: `ssc run-jvm` now accepts `--transport http|in-process`
-and reads `transport:` / `fullstack.transport` front matter through the same
-parser as `ssc run`. `http` keeps existing behavior. Swing no longer launches
-generated desktop sources through a nested `scala-cli` process:
-`ssc run-jvm --frontend swing` now calls `SwingRuntime.run(module)` inside the
-current JVM, and `--frontend swing --transport in-process` is accepted as the
-monolithic runtime foundation. Swing `fetchAction` dispatch now uses generated
-JVM `BackendTransport` in the same process. `examples/frontend/swing-fullstack/`
-demonstrates that path, including `fetchTable` read/delete refresh; generated
-typed route clients use the same transport.
+`ssc run-jvm` accepts `--transport http|in-process` and reads `transport:` /
+`fullstack.transport` front matter through the same parser as `ssc run`.
+`http` keeps existing behavior. `ssc run-jvm --frontend swing` calls
+`SwingRuntime.run(module)` in the current JVM process;
+`--frontend swing --transport in-process` is the explicit monolithic runtime
+declaration. Swing `fetchAction` / `fetchTable` and generated typed route clients
+dispatch through generated JVM `BackendTransport` in the same process.
+`examples/frontend/swing-fullstack/` demonstrates that path with `fetchTable`
+read/delete refresh.
 
-### Phase 5 — Optional Desktop Bridge Transport
+### Phase 5 — Optional Desktop Bridge Transport ✓ Landed (2026-05-26)
 
 Evaluate Electron-main or other desktop shell bridge transports. This is not
-the same as JVM in-process; it is a local IPC/host bridge that avoids public
-network sockets while still crossing a process boundary.
+JVM in-process; it is a local IPC/host bridge that avoids public network sockets
+while still crossing a process boundary.
+
+**Decision: defer Electron-main bridge transport.**
+
+The Electron renderer and JVM backend are separate OS processes — they cannot
+share memory or call each other without an inter-process channel.  Three IPC
+options exist:
+
+| Option | Mechanism | Complexity |
+|--------|-----------|------------|
+| Localhost HTTP (current, v1.43) | TCP socket on loopback | Low — already implemented |
+| Electron-main IPC bridge | `ipcMain`/`ipcRenderer` + `contextBridge` preload; JVM side communicates via stdin/stdout pipe or WebSocket to Electron main | High — requires preload script, contextBridge exposure, JVM↔Electron-main channel |
+| Named pipe / Unix socket | OS-level IPC; avoids TCP but still byte-stream serialization | Medium — only marginally simpler than localhost HTTP, OS-specific |
+
+**Why defer:** Localhost HTTP (v1.43 REST mode) already meets the security and
+performance requirements for local desktop apps.  Loopback sockets do not
+cross a network boundary; the OS rejects them from remote hosts by default.  The
+Electron-main bridge adds substantial scaffolding (preload, contextBridge,
+serialization layer, process lifecycle coupling) for a benefit — avoiding port
+allocation — that does not outweigh the cost before v1.43 is fully built out.
+
+**Conditions for revisiting:**
+- Port conflicts become a real user pain point (e.g., multiple SSC apps running
+  simultaneously competing for ports).
+- A future AppKit/sandboxing requirement prohibits localhost sockets on macOS.
+- A JVM-native Electron embedding (GraalVM native image bundled into Electron
+  main) makes the bridge trivial to wire.
+
+Until then, the v1.43 HTTP REST path with a supervised local server remains the
+recommended Electron + JVM backend deployment model.
 
 ## Testing Strategy
 
@@ -270,14 +298,11 @@ network sockets while still crossing a process boundary.
 
 ## Open Questions
 
-- Should the user-facing spelling be `--transport in-process`,
-  `--fullstack-transport in-process`, or `--mode monolith`?
-- Should front matter use a nested `fullstack.transport` key or a flat
-  `transport:` key?
-- Should `InProcessBackendTransport` serialize through bytes immediately, or use
-  structured values internally while preserving byte-equivalent behavior at the
-  edge?
-- Which route registry should be canonical for both HTTP and in-process:
-  current server routes, interpreter routes, or a new shared route table?
-- Is Electron-main bridge transport worth pursuing before a JVM-hosted desktop
-  frontend exists?
+- Resolved: `--transport in-process` / `transport: in-process` (both flat and
+  nested `fullstack.transport`) are the accepted spellings.
+- Resolved: `InProcessBackendTransport` serializes through bytes (same
+  request/response contract as HTTP); structured shortcut can be layered later.
+- Resolved: current `Routes` registry (interpreter route table) is canonical
+  for the interpreter in-process path; generated JVM path has its own
+  `_routes` table wrapped in a generated `BackendTransport`.
+- Resolved: Electron-main bridge transport is deferred (see Phase 5 evaluation).

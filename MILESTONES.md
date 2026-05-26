@@ -10462,53 +10462,43 @@ modes opt out of that default.
   Remaining: richer sync UI helpers, production graph adapters, and
   higher-level typed distributed Dataset helpers.
 
-## v1.44 — Full-Stack In-Process Transport
+## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 
-**Status:** planned
+**Status:** complete
 **Spec:** [`docs/fullstack-in-process-transport.md`](docs/fullstack-in-process-transport.md)
 
-Monolithic full-stack mode for compatible target pairs. When frontend and
-backend logic can live in the same runtime process, ScalaScript should be able
-to dispatch backend route/API calls through an internal async request/response
-transport instead of opening TCP sockets and speaking HTTP. This complements,
-not replaces, v1.43 REST mode: distributed clients, browser-to-JVM apps,
-server-only/client-only split commands, and external integrations stay on HTTP.
+Monolithic full-stack mode for compatible target pairs. The interpreter and
+generated JVM/Swing paths dispatch backend route calls through in-process
+transport without TCP sockets. Split-process and distributed HTTP modes are
+unchanged.
 
-### Planned phases
+### Phases
 
-- **Phase 0 ✓ Landed (2026-05-25)** — spec and backlog:
-  documented the transport contract, target compatibility matrix, CLI/front
-  matter proposal, testing strategy, and user-guide/README planned-feature
-  status. No runtime behavior changes.
+- **Phase 0 ✓ Landed (2026-05-25)** — spec and backlog: transport contract,
+  target compatibility matrix, CLI/front matter proposal, testing strategy.
 - **Phase 1 ✓ Landed (2026-05-25)** — transport contract skeleton:
-  `BackendTransport`, `BackendRequest`, `BackendResponse`, and
-  `BackendTransportKind` now live in backend SPI. `ssc run` accepts
-  `--transport http|in-process`, reads front matter `fullstack.transport` and
-  flat `transport`, keeps HTTP/default behavior unchanged, and rejects explicit
-  `in-process` for server/client split modes or general runtime execution until
-  a real dispatcher lands.
+  `BackendTransport`, `BackendRequest`, `BackendResponse`, `BackendTransportKind`
+  in backend SPI. `ssc run` parses `--transport http|in-process` and front matter
+  `fullstack.transport` / `transport`; rejects `in-process` for split modes.
 - **Phase 2 ✓ Landed (2026-05-25)** — interpreter in-process dispatch:
-  `scalascript.server.InProcessBackendTransport` now adapts SPI-level
-  `BackendRequest` values to the existing `InterpreterHttpHandler`, reusing
-  `Routes.matchRequest`, path params, query/header/body lifting, middleware,
-  and `Response` unwrapping without binding a TCP port. Scope is currently the
-  interpreter/test harness path; CLI full-stack runtime selection still remains
-  diagnostic-only until generated client adapters land.
-- **Phase 3 — Generated client adapter.** Partially landed (2026-05-25):
-  generated JVM/Swing dispatch now builds a `BackendTransport` over the
-  generated JVM route registry. Swing `fetchAction` / `fetchActionClear` and
-  `fetchTable` use a thin Swing `FetchDispatcher` adapter over that transport;
-  generated JVM/Swing typed route clients call the same transport directly.
-  Remaining work: broader frontend transport selection while preserving HTTP
-  for browser/JVM split and distributed modes.
-- **Phase 4 — JVM monolithic frontend target.** If a JVM-hosted UI target is
-  available, support frontend + backend in one JVM process with
-  `InProcessBackendTransport` and add a runnable example. Partially landed
-  (2026-05-25): `examples/frontend/swing-fullstack/` demonstrates the generated
-  JVM/Swing no-socket path with `fetchActionClear`.
-- **Phase 5 — Optional desktop bridge transport.** Evaluate Electron-main or
-  other desktop shell bridge transports. This is local IPC/host bridging, not
-  JVM in-process, and should remain explicit.
+  `InProcessBackendTransport` adapts `BackendRequest` to `InterpreterHttpHandler`,
+  reusing route matching, path params, middleware, and `Response` unwrapping
+  without a TCP socket.
+- **Phase 3 ✓ Landed (2026-05-26)** — generated client adapter:
+  generated JVM/Swing dispatch builds `BackendTransport` over the JVM route
+  registry; `fetchAction`, `fetchActionClear`, `fetchTable`, and typed route
+  clients all use that transport. `ssc run --transport in-process` is now
+  accepted for interpreter fullstack and plain run modes (not split/server-url
+  paths); the interpreter always runs in-process, so the flag is a declaration
+  without behavioral change.
+- **Phase 4 ✓ Landed (2026-05-26)** — JVM monolithic frontend target:
+  `ssc run-jvm --frontend swing --transport in-process` runs Swing + backend in
+  one JVM process. `examples/frontend/swing-fullstack/` demonstrates no-socket
+  `fetchTable` read/delete; typed route clients use the same transport.
+- **Phase 5 ✓ Landed (2026-05-26)** — Electron-main bridge evaluation:
+  deferred. Localhost HTTP (v1.43 REST) meets local desktop security/performance
+  requirements; the IPC bridge adds high scaffolding cost for minimal gain before
+  v1.43 is complete. Revisit if port conflicts or OS sandboxing become blockers.
 
 ## v1.45 — JVM Desktop Frontend ✓ Complete (2026-05-26)
 

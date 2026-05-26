@@ -224,11 +224,14 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     assert(validateTransportSelection(None, None, Some(BackendTransportKind.Http)).isRight)
     assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.Http)).isRight)
 
-  test("validateTransportSelection rejects in-process for split and unimplemented run modes"):
+  test("validateTransportSelection rejects in-process for split modes and server-url"):
     assert(validateTransportSelection(Some("server"), None, Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("mode server")))
     assert(validateTransportSelection(Some("client"), Some("http://server.example:8080"), Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("mode client")))
     assert(validateTransportSelection(None, Some("http://server.example:8080"), Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("server-url")))
-    assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.InProcess)).left.toOption.exists(_.contains("planned")))
+
+  test("validateTransportSelection allows in-process for interpreter fullstack and plain run modes"):
+    assert(validateTransportSelection(Some("fullstack"), None, Some(BackendTransportKind.InProcess)).isRight)
+    assert(validateTransportSelection(None, None, Some(BackendTransportKind.InProcess)).isRight)
 
   test("validateRunJvmTransportSelection accepts Swing in-process and rejects non-JVM frontends"):
     assert(validateRunJvmTransportSelection(Some("swing"), None).isRight)
