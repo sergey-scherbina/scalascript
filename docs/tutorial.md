@@ -1250,6 +1250,25 @@ Both inserts run in one JDBC transaction — if the second fails, the first
 is rolled back automatically.  Statements are separated by `;`; `${expr}`
 bind parameters work exactly like in regular `sql` blocks.
 
+**Alternative — document-shaped server data:**
+
+For JSON/document-shaped records where you do not need SQL joins, JVM apps can
+store typed values in the JDBC-backed server object store:
+
+````ssc
+```scala
+import scalascript.typeddata.{ObjectCodec, key}
+
+case class Draft(@key id: String, title: String, done: Boolean = false) derives ObjectCodec
+
+ObjectStore.put("default", "drafts", Draft("d1", "Plan"))
+val draft = ObjectStore.get[Draft]("default", "drafts", "d1")
+```
+````
+
+Use SQL tables for relational queries and constraints; use `ObjectStore` for
+document-style server state that will later sync with client IndexedDB.
+
 ---
 
 ## Step 3: REST API

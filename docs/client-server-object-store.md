@@ -160,10 +160,13 @@ keeping as an optional backend for apps that want battle-tested replication.
    key extraction. Follow-up landed 2026-05-26: JS/browser/Electron codegen
    exposes `IndexedDb.store[A](store, dbName?, keyField?)` as a Promise-based
    typed local client store, backed by native IndexedDB when available and a
-   lightweight fallback for Node/tests. Server `ObjectStore` APIs and sync
-   remain planned.
-2. **Server object store SPI** — define a small `ObjectStoreBackend` contract
-   implemented first by JDBC JSON storage.
+   lightweight fallback for Node/tests. Follow-up landed 2026-05-26:
+   `backend-sql-runtime` includes `ObjectStoreBackend`,
+   `ObjectStoreRuntime`, `Stored[A]`, and a JDBC JSON-table implementation;
+   JVM codegen exposes `ObjectStore.put/get/all/delete/changes[A]` over
+   declared `databases:` connections. Generated REST sync remains planned.
+2. **Server object store SPI** — landed 2026-05-26: small
+   `ObjectStoreBackend` contract implemented first by JDBC JSON storage.
 3. **Generated sync routes** — generate `changes` and `push` endpoints for
    opted-in stores.
 4. **Client sync helper** — implement IndexedDB-backed pull/push helpers for

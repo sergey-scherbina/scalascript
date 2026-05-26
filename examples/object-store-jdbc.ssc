@@ -1,0 +1,23 @@
+---
+backend: jvm
+databases:
+  default:
+    url: "jdbc:h2:mem:ssc-object-store-demo;DB_CLOSE_DELAY=-1"
+---
+
+# JDBC Object Store
+
+```scala
+import scalascript.typeddata.{ObjectCodec, key}
+
+case class Draft(@key id: String, title: String, done: Boolean = false) derives ObjectCodec
+
+val first = ObjectStore.put("default", "drafts", Draft("d1", "Plan"))
+ObjectStore.put("default", "drafts", Draft("d2", "Ship", done = true))
+val loaded = ObjectStore.get[Draft]("default", "drafts", "d1").get
+val rows = ObjectStore.all[Draft]("default", "drafts")
+val removed = ObjectStore.delete("default", "drafts", "d2")
+val changes = ObjectStore.changes[Draft]("default", "drafts", first.version - 1)
+
+println(loaded.title + ":" + rows.size + ":" + removed.deleted + ":" + changes.map(_.key).mkString(","))
+```

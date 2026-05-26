@@ -10394,8 +10394,12 @@ modes opt out of that default.
   extraction, and unknown-field rejection. Follow-up landed 2026-05-26:
   JS/browser/Electron now has `IndexedDb.store[A](store, dbName?, keyField?)`
   for Promise-based typed local object storage, using native IndexedDB when
-  available and a lightweight fallback for Node/tests. Remaining: server
-  ObjectStore APIs, sync, graph/RDF codecs, and Dataset/Spark convergence.
+  available and a lightweight fallback for Node/tests. Follow-up landed
+  2026-05-26: `backend-sql-runtime` now includes `ObjectStoreBackend`,
+  `ObjectStoreRuntime`, and `Stored[A]` for JVM/JDBC JSON-table object storage,
+  and JVM codegen exposes `ObjectStore.put/get/all/delete/changes[A]` over
+  declared `databases:` connections. Remaining: generated REST sync,
+  graph/RDF codecs, and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

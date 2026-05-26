@@ -1158,13 +1158,15 @@ caching, and OPFS for origin-private files or browser-local SQLite/Wasm storage.
 These APIs belong to the frontend side of split apps; server-side references
 should fail at build time.
 
-**Planned, not implemented yet: client/server object store sync.** For
-IndexedDB-shaped data that must also live on the server, the planned model is a
-paired client/server object store. The client keeps objects in IndexedDB; the
-JVM backend keeps the authoritative copy in an `ObjectStore`, initially backed
-by a simple JDBC JSON table. Generated REST sync endpoints then let the client
-pull server changes, queue offline edits locally, and push mutations back with
-explicit conflict handling. See
+**Partially implemented: client/server object store sync.** For IndexedDB-shaped
+data that must also live on the server, the planned model is a paired
+client/server object store. The client keeps objects in IndexedDB; the JVM
+backend can now keep the authoritative copy in an `ObjectStore` backed by a
+simple JDBC JSON table. JVM code can call
+`ObjectStore.put/get/all/delete/changes[A](dbName, store, ...)` using
+`ObjectCodec[A]`. Generated REST sync endpoints remain planned; they will let
+the client pull server changes, queue offline edits locally, and push mutations
+back with explicit conflict handling. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
 **Planned, not implemented yet: graph storage.** Graph-shaped data is planned as

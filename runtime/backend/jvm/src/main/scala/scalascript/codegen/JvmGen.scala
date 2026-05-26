@@ -273,6 +273,7 @@ class JvmGen(
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
     val frontendFramework = module.manifest.flatMap(_.frontendFramework)
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
+    val usesObjectStore = blocksUseObjectStore(blocks)
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
     if blocksUseTypedData(blocks) then
@@ -290,9 +291,10 @@ class JvmGen(
       sb.append(sscJarDirective(s"scalascript-frontend-$fwLib"))
 
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
-    // when the module actually contains sql blocks; modules without
-    // sql don't pull these onto their scala-cli classpath.
-    if sqlBlockCounter > 0 then
+    // when the module actually contains sql blocks or server ObjectStore calls;
+    // modules without JDBC-backed APIs don't pull these onto their scala-cli classpath.
+    if sqlBlockCounter > 0 || usesObjectStore then
+      sb.append("""//> using dep "com.lihaoyi::ujson:4.4.2"""" + "\n")
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
@@ -344,9 +346,9 @@ class JvmGen(
     }
 
     // v1.26 Phase 6.C — JDBC connection registry + resolver helper.
-    // Emitted only when the module actually has sql blocks; modules
-    // that don't use sql pay nothing.
-    if sqlBlockCounter > 0 then
+    // Emitted only when the module actually has sql blocks or server
+    // ObjectStore calls; modules that don't use JDBC-backed APIs pay nothing.
+    if sqlBlockCounter > 0 || usesObjectStore then
       sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
 
     // v1.30 Phase 4 — browser JS for @side=client sql blocks.  Always
@@ -1429,6 +1431,35 @@ class JvmGen(
                  |      case scalascript.sql.SqlResult.UpdateCount(n) => n
                  |      case scalascript.sql.SqlResult.Rows(_) => 0
                  |
+                 |object ObjectStore:
+                 |  def put[A](dbName: String, store: String, value: A)(using scalascript.typeddata.ObjectCodec[A]): scalascript.sql.Stored[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.put[A](conn, store, value)
+                 |  def put[A](dbName: String, store: String, key: String, value: A)(using scalascript.typeddata.ObjectCodec[A]): scalascript.sql.Stored[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.put[A](conn, store, value, Some(key))
+                 |  def putExpected[A](dbName: String, store: String, key: String, expectedVersion: Long, value: A)(using scalascript.typeddata.ObjectCodec[A]): scalascript.sql.Stored[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.put[A](conn, store, value, Some(key), Some(expectedVersion))
+                 |  def get[A](dbName: String, store: String, key: String)(using scalascript.typeddata.ObjectCodec[A]): Option[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.get[A](conn, store, key)
+                 |  def getStored[A](dbName: String, store: String, key: String)(using scalascript.typeddata.ObjectCodec[A]): Option[scalascript.sql.Stored[A]] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.getStored[A](conn, store, key)
+                 |  def all[A](dbName: String, store: String)(using scalascript.typeddata.ObjectCodec[A]): List[A] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.all[A](conn, store).toList
+                 |  def changes[A](dbName: String, store: String, sinceVersion: Long, limit: Int = 100)(using scalascript.typeddata.ObjectCodec[A]): List[scalascript.sql.Stored[A]] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.changes[A](conn, store, sinceVersion, limit).toList
+                 |  def delete(dbName: String, store: String, key: String): scalascript.sql.Stored[Nothing] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.delete(conn, store, key)
+                 |  def deleteExpected(dbName: String, store: String, key: String, expectedVersion: Long): scalascript.sql.Stored[Nothing] =
+                 |    val conn = _ssc_sql_registry.connect(dbName)
+                 |    scalascript.sql.ObjectStoreRuntime.delete(conn, store, key, Some(expectedVersion))
+                 |
                  |""".stripMargin)
     sb.toString
 
@@ -2125,6 +2156,18 @@ class JvmGen(
           case Import(importers) if importers.exists(_.ref.syntax.startsWith("scalascript.typeddata")) => found = true
           case Term.Name(name) if names(name) => found = true
           case Type.Name(name) if names(name) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseObjectStore(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = b.src.contains("ObjectStore.")
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Select(Term.Name("ObjectStore"), _) => found = true
+          case Term.Name("ObjectStore") => found = true
         }
       }
       found

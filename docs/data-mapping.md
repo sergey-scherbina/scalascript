@@ -226,7 +226,7 @@ case class Draft(id: String, title: String, body: String)
   derives JsonCodec, ObjectCodec
 
 awaitClient(IndexedDb.store[Draft]("drafts").put(draft))
-ObjectStore.collection[Draft]("drafts").put(draft)
+ObjectStore.put("server", "drafts", draft)
 ```
 
 The first portable object codec foundation is available in `backend/typed-data`:
@@ -251,9 +251,13 @@ Rules:
   keyField?)` today. The API returns Promises for `put`, `get`, `remove`,
   `keys`, `all`, and `clear`; ScalaScript client code awaits them with
   `awaitClient(...)`. Runtime type names come from the JS typed JSON facade.
+- JVM code can use `ObjectStore.put/get/all/delete/changes[A]` today over a
+  declared JDBC database. Values are encoded through `ObjectCodec[A]` into a
+  JSON table and returned with `Stored[A]` version/tombstone metadata where
+  needed.
 - ObjectStore sync uses `ObjectCodec[A]` plus `Stored[A]` metadata. The current
   `ObjectCodec[A]` layer covers portable object values and key extraction;
-  server `ObjectStore` APIs and sync remain planned.
+  generated REST sync remains planned.
 
 ## Property Graph Mapping
 

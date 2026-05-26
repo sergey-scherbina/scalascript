@@ -877,6 +877,7 @@ lazy val backendSqlRuntime = project
   .settings(
     name := "scalascript-backend-sql-runtime",
     libraryDependencies ++= Seq(
+      "com.lihaoyi"       %% "ujson"          % "4.4.2",
       "com.h2database"     %  "h2"              % "2.2.224",
       "org.xerial"         %  "sqlite-jdbc"     % "3.45.3.0",
       scalatestTest,
