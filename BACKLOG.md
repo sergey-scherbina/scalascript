@@ -4646,43 +4646,60 @@ signal semantics and style modifier lowering.
 
 ---
 
-## v1.48.2 — `ssc run --target mobile-ios` (iOS Simulator)
+## v1.48.2 — `ssc run --target ios` (iOS Simulator)
 
 **Status:** planned
 **Depends on:** v1.48.1 ✓
 
+`--target ios` is the canonical name; `mobile-ios` kept as alias (same rename pattern as `desktop-macos` → `macos`).
+
 ### Goals
 
-`ssc run --target mobile-ios MyApp.ssc` does the full cycle in one command:
+`ssc run --target ios MyApp.ssc` does the full cycle in one command:
 
 1. Generate Swift Package (`buildSwiftUIPackage platform=ios`)
-2. `xcodebuild build -scheme <AppName> -destination "platform=iOS Simulator,id=<uuid>" -derivedDataPath target/build/mobile-ios/derived`
+2. `xcodebuild build -scheme <AppName> -destination "platform=iOS Simulator,id=<uuid>" -derivedDataPath target/build/ios/derived`
 3. Find `.app` at `derived/Build/Products/Debug-iphonesimulator/<AppName>.app`
 4. Select simulator: `xcrun simctl list devices available --json` → latest available iPhone (e.g. iPhone 16 Pro)
 5. Boot: `xcrun simctl boot <uuid>` (ignore "already booted" error)
-6. Open window: `open -a Simulator`
+6. Open Simulator.app: `open -a Simulator`
 7. Install: `xcrun simctl install booted <path-to.app>`
-8. Launch with logs (blocks terminal): `xcrun simctl launch --console booted <bundle-id>`
+8. Launch: `xcrun simctl launch [--console] booted <bundle-id>`
 
 Bundle ID from frontmatter `bundle-id:` (default `com.example.app`).
+
+### Log streaming flag
+
+`--console` / `--no-console` (default: `--console`)
+
+| Flag | Behaviour |
+|------|-----------|
+| `--console` (default) | `xcrun simctl launch --console` — blocks terminal, streams app stdout/stderr |
+| `--no-console` | `xcrun simctl launch` — returns immediately after launch; app logs go to device log only |
+
+Useful combinations:
+- `ssc run --target ios MyApp.ssc` — build + launch, stay and watch logs
+- `ssc run --target ios --no-console MyApp.ssc` — build + launch, return to shell prompt
+
+The flag also applies to `--target macos` (where it controls whether the terminal blocks on the launched binary process).
 
 ### Incremental build
 
 Compare `mtime(MyApp.ssc)` vs `mtime(<AppName>.app/Info.plist)`:
-- If `.ssc` unchanged since last build → skip package generation + xcodebuild, go straight to install + launch
-- If changed → full rebuild
+- Unchanged → skip package generation + xcodebuild; go straight to install + launch
+- Changed → full rebuild
 
 ### Pre-flight check
 
-If `xcodebuild` or `xcrun` missing → print clear error:
+If `xcodebuild` or `xcrun` missing → clear error:
 ```
-Error: Xcode is required for --target mobile-ios.
-Run: ssc toolchain check --target mobile-ios
+Error: Xcode is required for --target ios.
+Run: ssc toolchain check --target ios
 ```
 
 ### Non-goals
 
-- Real device deploy (needs Apple Developer account + signing — separate task)
+- Real device deploy (needs Apple Developer account + signing — separate task v1.48.3)
 - Hot-reload / live preview
 - iPad or tvOS simulator
 
