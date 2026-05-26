@@ -4630,3 +4630,36 @@ signal semantics and style modifier lowering.
 - Kotlin/Compose (P4, separate milestone)
 - GTK / Scala Native (P7)
 - SwiftUI Preview / HMR (post-v1.0, requires Xcode build system)
+
+## v1.48.1 — `ssc run` one-command wrapper for SwiftUI targets
+
+**Status:** planned
+**Depends on:** v1.48 ✓
+
+`ssc build --target desktop-macos` currently generates a Swift Package but requires
+a manual `swift build && open .build/debug/MyApp.app` to run it. This adds a thin
+`ssc run --frontend swiftui` wrapper that does the full cycle in one command.
+
+### Goals
+
+- `ssc run --frontend swiftui MyApp.ssc` — build SwiftUI package, invoke `swift build`,
+  open the resulting `.app` on macOS
+- `ssc run --frontend swiftui --target mobile-ios MyApp.ssc` — build + `xcodebuild` +
+  launch on iOS Simulator
+- Pre-flight `ssc toolchain check` before attempting the build; print a clear error
+  if `swift` or `xcode-select` is missing
+- Incremental: re-run `swift build` only when `.ssc` source changed (compare mtime)
+
+### Non-goals
+
+- Hot-reload / HMR (SwiftUI Preview requires Xcode build system)
+- Signing / provisioning for device deploy (separate task)
+
+### Implementation sketch
+
+In `cli/Main.scala`, add `run` subcommand arms for `swiftui` frontend:
+1. Call existing `_ssc_ui_emit_native_platform_to_dir` to generate the Swift Package
+2. Shell out `swift build` in the generated package dir; stream output
+3. On macOS: `open <product>.app`; on simulator: `xcrun simctl install + launch`
+
+Effort: ~1 day.

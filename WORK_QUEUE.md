@@ -22,7 +22,8 @@ _(all done — see Done section below)_
 
 ## Native Platform
 
-_(all done — see Done section below)_
+- [ ] **v1.48.1-swiftui-run** — `ssc run` one-command wrapper for SwiftUI targets
+  _ssc build → swift build → open .app (macOS) / xcrun simctl (iOS). Pre-flight toolchain check. Spec: `BACKLOG.md # Native Platform §v1.48.1`._
 
 ## Language & Compiler
 
