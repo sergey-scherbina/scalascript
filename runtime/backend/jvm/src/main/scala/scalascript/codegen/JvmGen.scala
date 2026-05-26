@@ -402,9 +402,12 @@ class JvmGen(
     // therefore call the preamble's `serve(port)` without the import shadowing
     // it.  The primitives colon-block is appended so `mergeDuplicatePackageObjects`
     // merges it with the existing (extern-filtered, empty) object from primitives.ssc.
+    val appIcon = module.manifest
+      .flatMap(m => m.raw.get("app-icon").orElse(m.raw.get("appIcon")))
+      .collect { case s: String => s }
     val withUi =
       if effectiveFrontend.isDefined then
-        uiHelperFunctions(effectiveFrontend.getOrElse("react")) + "\n" + userSrc + "\n" + uiPrimitivesBlock
+        uiHelperFunctions(effectiveFrontend.getOrElse("react"), appIcon) + "\n" + userSrc + "\n" + uiPrimitivesBlock
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
@@ -9040,7 +9043,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  section so they're defined BEFORE the `import std.ui.primitives.{serve,...}`
    *  line — this ensures `serve(port)` inside `_ssc_ui_serve` resolves to the
    *  preamble's `serve(port: Int, ...)` rather than the opaque-typed wrapper. */
-  private def uiHelperFunctions(frontendName: String): String =
+  private def uiHelperFunctions(frontendName: String, appIcon: Option[String]): String =
     s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
        |{
@@ -9214,7 +9217,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |      fetchDispatcher = Some(new scalascript.frontend.swing.SwingRuntime.FetchDispatcher:
        |        def request(method: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
        |          _ssc_ui_inprocess_fetch(method, url, body)
-       |      )
+       |      )${appIcon.map(p => s""",\n      iconPath = Some("${escapeStringLit(p)}")""").getOrElse("")}
        |    )
        |  )
        |

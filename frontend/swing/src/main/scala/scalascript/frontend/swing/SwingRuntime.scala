@@ -3,6 +3,7 @@ package scalascript.frontend.swing
 import scalascript.frontend.*
 
 import java.awt.{BorderLayout, Color as AwtColor, Dimension as AwtDimension, Font}
+import java.awt.event.{WindowAdapter, WindowEvent}
 import javax.swing.*
 import javax.swing.event.{DocumentEvent, DocumentListener}
 import javax.swing.text.JTextComponent
@@ -20,10 +21,12 @@ import scala.util.matching.Regex
 object SwingRuntime:
 
   final case class Options(
-      closeOperation: Int = WindowConstants.EXIT_ON_CLOSE,
-      size:           AwtDimension = AwtDimension(640, 420),
-      centerOnScreen: Boolean = true,
-      fetchDispatcher: Option[FetchDispatcher] = None
+      closeOperation:  Int = WindowConstants.EXIT_ON_CLOSE,
+      size:            AwtDimension = AwtDimension(640, 420),
+      centerOnScreen:  Boolean = true,
+      fetchDispatcher: Option[FetchDispatcher] = None,
+      iconPath:        Option[String] = None,
+      onShutdown:      Option[() => Unit] = None
   )
 
   trait FetchDispatcher:
@@ -62,7 +65,20 @@ object SwingRuntime:
     val rootView = entry.body(())
     val state = RuntimeState.from(rootView, options.fetchDispatcher)
     val frame = JFrame(manifest.displayName)
-    frame.setDefaultCloseOperation(options.closeOperation)
+    options.iconPath.foreach { path =>
+      try frame.setIconImage(ImageIcon(path).getImage)
+      catch case _: Exception => ()
+    }
+    options.onShutdown match
+      case Some(hook) =>
+        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE)
+        frame.addWindowListener(new WindowAdapter:
+          override def windowClosing(e: WindowEvent): Unit =
+            hook()
+            frame.dispose()
+        )
+      case None =>
+        frame.setDefaultCloseOperation(options.closeOperation)
     frame.getContentPane.add(buildRoot(rootView, state), BorderLayout.CENTER)
     frame.setSize(options.size)
     if options.centerOnScreen then frame.setLocationRelativeTo(null)

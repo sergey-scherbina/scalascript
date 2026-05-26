@@ -65,8 +65,39 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
     assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))
     assert(code.contains("""def delete(input: Int): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input)"""))
-    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body(method, input))"))
+    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body[Req](method, input))"))
     assert(code.contains("val created = Messages.create(CreateMessage("))
+
+  test("Swing frontend emits iconPath in generated Options when app-icon front matter is set"):
+    val src =
+      """|---
+         |frontend: swing
+         |app-icon: /usr/share/icons/myapp.png
+         |---
+         |
+         |```scalascript
+         |val view = text("Hello")
+         |serve(view, 0)
+         |```
+         |""".stripMargin
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("""iconPath = Some("/usr/share/icons/myapp.png")"""))
+
+  test("Swing frontend does not emit iconPath when app-icon is absent"):
+    val src =
+      """|---
+         |frontend: swing
+         |---
+         |
+         |```scalascript
+         |val view = text("Hello")
+         |serve(view, 0)
+         |```
+         |""".stripMargin
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(!code.contains("iconPath"))
 
   private def repoRoot: Path =
     Iterator.iterate(Path.of(System.getProperty("user.dir")).toAbsolutePath)(_.getParent)

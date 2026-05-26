@@ -263,26 +263,44 @@ Connect Swing frontend actions to backend routes through
 `InProcessBackendTransport`. Add a full-stack example that writes on the JVM
 backend and updates the desktop UI without opening an HTTP socket.
 
-Status: **in progress**. Phase 4a landed transport-option recognition for
-`ssc run-jvm`. Phase 4b replaced the nested `scala-cli` Swing launcher with
-`SwingRuntime.run(module)`, so `ssc run-jvm --frontend swing` builds and shows
-the desktop UI in the same JVM process as the generated backend code.
-`--frontend swing --transport in-process` is now accepted. Phase 4c connected
-Swing `FetchAction` / `fetchActionClear` handlers to generated JVM backend
-routes through an injected same-process dispatcher. Phase 4d added
-`examples/frontend/swing-fullstack/`, a no-socket example where Swing
-`fetchActionClear` posts to a JVM backend route and updates local UI state on
-success. Phase 4e connected Swing `fetchTable` to the same dispatcher for GET
-rows and POST deletes, and updated the example to show read/write/delete.
-Phase 4f routes generated JVM/Swing dispatch through generated
-`BackendTransport`; typed route clients use that same transport. Remaining
-work: decide whether the generated JVM path should share a concrete
-implementation with interpreter `InProcessBackendTransport`.
+Status: **complete (2026-05-26)**. All sub-phases landed. Design decision on
+implementation sharing: the generated JVM path (`_ssc_ui_backend_transport`
+inlined into generated code) and `InProcessBackendTransport` serve the same
+logical role but intentionally do NOT share a concrete implementation.  The
+generated path dispatches directly into the compiled `_routes` table; the
+interpreter path dispatches through `InterpreterHttpHandler` over interpreted
+IR.  Both implement `BackendTransport` — that is the right level of sharing.
+Coupling them at the implementation level would pull the codegen module into
+a dependency on the interpreter, reversing the module dependency direction
+without benefit.
 
-### Phase 5 — Packaging And Runtime Polish
+### Phase 5 — Packaging And Runtime Polish ✓ Landed (2026-05-26)
 
-Document JDK requirements, icon/window metadata, graceful shutdown, and optional
-packaging with `jpackage`.
+JDK requirements, window icon, graceful shutdown, and packaging documentation.
+
+**JDK requirements.** Swing is part of the standard JDK. Any JDK 11+ that
+`scala-cli` resolves is sufficient.  `jpackage` (for platform-native bundles)
+requires JDK 14+; the tool ships with the JDK and does not need a separate
+install.
+
+**Window icon.** Front matter `app-icon: path/to/icon.png` sets the window
+icon.  JvmGen reads the value from `manifest.raw` and emits it as
+`iconPath = Some(...)` in the generated `SwingRuntime.Options`.  At runtime
+`SwingRuntime.frameFor` loads the image via `ImageIcon` and calls
+`frame.setIconImage`.  Icon-load errors are silently ignored so an absent
+file does not crash the app.
+
+**Graceful shutdown.** `SwingRuntime.Options` now accepts
+`onShutdown: Option[() => Unit]`.  When set, `frameFor` replaces
+`EXIT_ON_CLOSE` with a `WindowAdapter` that calls the hook before disposing
+the frame.  This is the correct integration point for stopping background
+work (HTTP servers, actor systems, database pools) on window close.
+
+**jpackage packaging.** After `ssc run-jvm` confirms the app works, use
+`scala-cli package --assembly app.ssc -o app.jar` to produce a fat JAR, then
+`jpackage --input . --main-jar app.jar --name MyApp --type dmg|msi|deb` to
+wrap it in a platform installer.  Automated `ssc build --target desktop-jvm`
+remains future work (Phase 5b).
 
 ### Phase 6 — JavaFX / Compose Evaluation
 

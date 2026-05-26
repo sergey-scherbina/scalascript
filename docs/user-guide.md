@@ -1095,31 +1095,40 @@ Broader frontend client selection is still planned. Distributed clients, browser
 server-only/client-only split commands remain HTTP/REST. See
 [`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
 
-**Partially implemented: JVM desktop frontend.** ScalaScript now has a
-`frontend-swing` backend skeleton discovered through the frontend SPI, and the
-CLI accepts `--frontend swing`. `ssc run-jvm --frontend swing app.ssc` compiles
-through the JVM backend and launches the JDK-only Swing runtime in the current
-JVM process; plain `ssc run --frontend swing` stays on the interpreter path and
-currently reports that Swing interpreter intrinsics are planned. `ssc run-jvm
---frontend swing --transport in-process` is accepted as the monolithic JVM mode
-foundation. Swing `fetchAction` / `fetchActionClear` handlers can call
-generated JVM backend routes in the same process. The backend can emit a
-`JFrame` source artifact for a static
-toolkit subset: text, buttons, text fields, checkboxes, vertical/horizontal
-stacks, spacers, dividers, scroll views, and basic style hints. It also supports
-local signal actions for buttons, text inputs, checkboxes, and signal-backed
-labels. It is demonstrated by
+**JVM desktop frontend (Swing).** `ssc run-jvm --frontend swing app.ssc`
+compiles through the JVM backend and launches the JDK-only Swing runtime in the
+current JVM process (JDK 11+ required).  Plain `ssc run --frontend swing` stays
+on the interpreter path and currently reports that Swing interpreter intrinsics
+are planned.  `ssc run-jvm --frontend swing --transport in-process` is accepted
+as the monolithic JVM mode.  Swing `fetchAction` / `fetchActionClear` handlers
+call generated JVM backend routes in the same process via a generated
+`BackendTransport`; `fetchTable` loads rows and deletes through the same
+dispatcher.  Generated typed route clients also use this transport.
+
+*Window icon.* Set `app-icon: path/to/icon.png` in front matter; JvmGen
+emits it as `iconPath = Some(...)` in the generated `SwingRuntime.Options` and
+loads it via `ImageIcon` at startup.
+
+*Graceful shutdown.* Pass `onShutdown = Some(() => ...)` in
+`SwingRuntime.Options` to register a cleanup hook (stop background servers,
+databases, actor systems) that runs before the window is disposed.  Without it,
+the frame uses `EXIT_ON_CLOSE`.
+
+*Examples.* The static toolkit subset (text, buttons, text fields, checkboxes,
+stacks, spacers, dividers, scroll views, styles, local signals) is demonstrated
+by
 [`examples/frontend/swing-hello/swing-hello.ssc`](../examples/frontend/swing-hello/swing-hello.ssc).
-The `runtime/std/swing-plugin` module is present as the future home for
-interpreter-side Swing intrinsics. The first no-socket example is
-[`examples/frontend/swing-fullstack/`](../examples/frontend/swing-fullstack/):
-`fetchActionClear` posts to a JVM backend route, clears the input, and
-`fetchTable` reloads/deletes rows without Electron, npm, browser hosting, or
-HTTP sockets. A typed-client variant is
-[`examples/frontend/swing-typed-client/`](../examples/frontend/swing-typed-client/):
-front matter declares `apiClients:`, JVM codegen generates a `Messages` client
-object, and calls dispatch to backend routes in-process. JavaFX and Compose
-Desktop are future adapter candidates. See
+The no-socket full-stack example is
+[`examples/frontend/swing-fullstack/`](../examples/frontend/swing-fullstack/).
+A typed-client variant is
+[`examples/frontend/swing-typed-client/`](../examples/frontend/swing-typed-client/).
+
+*Packaging.* After `ssc run-jvm` confirms the app, produce a fat JAR with
+`scala-cli package --assembly app.ssc -o app.jar`, then wrap it with
+`jpackage` (JDK 14+) for a platform installer (`.dmg`, `.msi`, `.deb`).
+Automated `ssc build --target desktop-jvm` is planned but not yet implemented.
+
+JavaFX and Compose Desktop remain future adapters. See
 [`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
 
 **Planned, partially implemented: typed route clients.** Front matter can

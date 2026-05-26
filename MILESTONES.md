@@ -10509,7 +10509,7 @@ server-only/client-only split commands, and external integrations stay on HTTP.
 
 ## v1.45 — JVM Desktop Frontend
 
-**Status:** in progress
+**Status:** phases 0–5 complete; Phase 6 (JavaFX/Compose evaluation) open
 **Spec:** [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md)
 
 JVM-hosted desktop frontend target for self-contained local apps. The first
@@ -10552,25 +10552,20 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   added `runtime/std/swing-plugin` as the standard-library home for future
   Swing interpreter intrinsics. The current table is intentionally empty; real
   `serve(view, port)` / action bridge interpreter intrinsics remain Phase 4+.
-- **Phase 4 — In-process full-stack mode.** In progress: `ssc run-jvm` now
-  accepts `--transport http|in-process` and reads `transport:` /
-  `fullstack.transport`; `http` keeps existing behavior. Phase 4b added
-  `SwingRuntime.run(module)` and switched `ssc run-jvm --frontend swing` away
-  from the nested `scala-cli` launcher, so Swing now runs in the same JVM
-  process as generated backend code and `--frontend swing --transport
-  in-process` is accepted. Phase 4c connected Swing `fetchAction` /
-  `fetchActionClear` handlers to generated JVM backend routes through an
-  injected same-process dispatcher. Phase 4d added
-  `examples/frontend/swing-fullstack/`, a no-socket example where
-  `fetchActionClear` posts to a JVM backend route and updates local Swing UI
-  state on success. Phase 4e connected Swing `fetchTable` to the same
-  dispatcher for GET rows and POST deletes, and updated the example to show
-  read/write/delete. Phase 4f routes generated JVM/Swing dispatch through
-  generated `BackendTransport`; typed route clients use that same transport.
-  Remaining work: decide whether generated JVM dispatch should share a concrete
-  implementation with interpreter `InProcessBackendTransport`.
-- **Phase 5 — Packaging and runtime polish.** Document JDK requirements,
-  window metadata, graceful shutdown, and optional `jpackage` packaging.
+- **Phase 4 ✓ Landed (2026-05-26)** — In-process full-stack mode complete.
+  Design decision: the generated JVM path (`_ssc_ui_backend_transport` inlined
+  in generated code) does NOT share a concrete implementation with interpreter
+  `InProcessBackendTransport` — each dispatches into its own execution engine
+  (compiled routes vs. interpreted IR), and both implement `BackendTransport`
+  at the SPI level, which is the correct sharing boundary. All sub-phases
+  (4a–4f) landed on 2026-05-25.
+- **Phase 5 ✓ Landed (2026-05-26)** — Packaging and runtime polish:
+  `SwingRuntime.Options` now accepts `iconPath: Option[String]` (window icon
+  loaded via `ImageIcon`) and `onShutdown: Option[() => Unit]` (graceful
+  close hook replacing `EXIT_ON_CLOSE`). JvmGen reads `app-icon:` from front
+  matter `raw` and emits `iconPath = Some(...)` in the generated Options.
+  JDK requirements (JDK 11+ for Swing, JDK 14+ for `jpackage`) and manual
+  packaging steps documented in spec and user-guide.
 - **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose
   Desktop should become additional adapters.
 
