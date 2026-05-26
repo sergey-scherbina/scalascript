@@ -2042,9 +2042,10 @@ lazy val httpPlugin = project
 
 lazy val wsPlugin = project
   .in(file("runtime/std/ws-plugin"))
-  .dependsOn(backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi)
+  .dependsOn(backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi, testUtils % Test)
   .settings(
     name := "scalascript-ws-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

@@ -101,7 +101,7 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     interpreter tests moved behind `backendInterpreterPluginTests`, removing
     the `backendInterpreter / Test` → std-plugin project dependency;
     `graphPlugin`, `jsonPlugin`, `requestPlugin`, `fetchPlugin`,
-    `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, and `oauthPlugin` now have
+    `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, and `wsPlugin` now have
     isolated `src/test` suites via `testUtils % Test`. Remaining: migrate the other
     plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
@@ -1447,7 +1447,7 @@ worth a separate fix when somebody has cycles.
     the legacy plugin-backed interpreter suites, removing the direct
     `backendInterpreter / Test` dependency on std plugins; `graphPlugin`,
     `jsonPlugin`, `requestPlugin`, `fetchPlugin`, `frontendPlugin`,
-    `swingPlugin`, `httpPlugin`, `authPlugin`, and `oauthPlugin` have isolated `src/test` suites via
+    `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, and `wsPlugin` have isolated `src/test` suites via
     `testUtils % Test`. Remaining: migrate the other plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
