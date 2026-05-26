@@ -1996,9 +1996,10 @@ lazy val oauthPlugin = project
 
 lazy val fetchPlugin = project
   .in(file("runtime/std/fetch-plugin"))
-  .dependsOn(backendSpi, ir, core, frontendCore)
+  .dependsOn(backendSpi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-fetch-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
