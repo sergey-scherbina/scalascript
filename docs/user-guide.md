@@ -1195,8 +1195,25 @@ push. `Sync.conflicts("drafts", "app")` lists persisted conflicts, and
 `Sync.resolve[A]("drafts", key, "server" | "client" | "drop", "app")` resolves
 one conflict explicitly. On the JVM backend, `objectStores.<name>.conflict`
 also supports automatic `manual`, `server-wins`, and `client-wins` push
-policies. See
-[`client-server-object-store.md`](client-server-object-store.md).
+policies.
+
+**Sync UI helpers.** `Sync.sync[A]("store", "db")` combines push + pull into
+one async call. `Sync.status("store", "db")` returns a synchronous plain object
+with five fields useful for driving sync badges and indicators:
+
+| Field | Type | Description |
+|---|---|---|
+| `pending` | Int | Number of queued mutations not yet pushed |
+| `conflicts` | Int | Number of unresolved conflicts |
+| `lastPulled` | Long\|null | Epoch-ms of last successful `pull` (null if never) |
+| `lastPushed` | Long\|null | Epoch-ms of last successful `push` (null if never) |
+| `isSyncing` | Boolean | `true` while a `push`/`pull`/`sync` is in flight |
+
+`Sync.isOnline` is a boolean property reflecting `navigator.onLine` in browsers
+(`true` in Node/tests where the property is absent). `Sync.isSyncing("store",
+"db")` returns `true` while any async sync operation is running for that store.
+See [`client-server-object-store.md`](client-server-object-store.md) and
+`examples/sync-todo.ssc` for the full API.
 
 **Planned, partially implemented: graph storage.** Graph-shaped data is planned
 as a separate persistence family. Property graphs cover vertices, edges, labels,

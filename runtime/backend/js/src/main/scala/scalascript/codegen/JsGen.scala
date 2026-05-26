@@ -2927,6 +2927,11 @@ function _dispatch(obj, method, args) {
       case 'until': { const r=[]; for(let i=obj;i<args[0];i++) r.push(i); return r; }
     }
   }
+  if (typeof obj === 'boolean') {
+    if (method === 'toString') return String(obj);
+    if (method === 'toInt') return obj ? 1 : 0;
+    if (method === '!') return !obj;
+  }
   if (obj && typeof obj === 'object') {
     if (method === 'toString') return _show(obj);
     if (obj[method] !== undefined) {
@@ -4184,6 +4189,38 @@ function _ssc_sync_find_conflict(dbName, storeName, key) {
   return _ssc_sync_get_conflicts(dbName, storeName).find(item => String(item.key) === k);
 }
 
+function _ssc_sync_last_pulled_key(dbName, storeName) {
+  return "__ssc_sync_last_pulled:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+function _ssc_sync_last_pushed_key(dbName, storeName) {
+  return "__ssc_sync_last_pushed:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+function _ssc_sync_get_last_pulled(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_last_pulled_key(dbName, storeName), null);
+  return typeof raw === "number" ? raw : null;
+}
+function _ssc_sync_set_last_pulled(dbName, storeName) {
+  _ssc_sync_json_set(_ssc_sync_last_pulled_key(dbName, storeName), Date.now());
+}
+function _ssc_sync_get_last_pushed(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_last_pushed_key(dbName, storeName), null);
+  return typeof raw === "number" ? raw : null;
+}
+function _ssc_sync_set_last_pushed(dbName, storeName) {
+  _ssc_sync_json_set(_ssc_sync_last_pushed_key(dbName, storeName), Date.now());
+}
+
+const _ssc_sync_in_progress = new Set();
+function _ssc_sync_begin(dbName, storeName) {
+  _ssc_sync_in_progress.add(_ssc_indexeddb_store_key(dbName, storeName));
+}
+function _ssc_sync_finish(dbName, storeName) {
+  _ssc_sync_in_progress.delete(_ssc_indexeddb_store_key(dbName, storeName));
+}
+function _ssc_sync_is_syncing(dbName, storeName) {
+  return _ssc_sync_in_progress.has(_ssc_indexeddb_store_key(dbName, storeName));
+}
+
 async function _ssc_sync_json(method, url, body) {
   if (typeof fetch !== "function") throw new Error("Sync requires fetch in this JS runtime");
   const init = { method, headers: { "Content-Type": "application/json" } };
@@ -4255,49 +4292,78 @@ const Sync = {
     return undefined;
   },
   async pull(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "", limit = 100) {
-    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
-    const since = _ssc_sync_get_cursor(dbName, storeName);
-    const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) +
-      "/changes?since=" + encodeURIComponent(String(since)) + "&limit=" + encodeURIComponent(String(limit));
-    const payload = await _ssc_sync_json("GET", url);
-    const changes = Array.isArray(payload.changes) ? payload.changes : [];
-    for (const change of changes) {
-      if (!change || change.key === undefined) continue;
-      if (change.deleted) {
-        await store.remove(change.key);
-        _ssc_sync_forget_version(dbName, storeName, change.key);
-      } else if (Object.prototype.hasOwnProperty.call(change, "value")) {
-        await store.put(change.value, change.key);
-        _ssc_sync_set_version(dbName, storeName, change.key, change.version);
+    _ssc_sync_begin(dbName, storeName);
+    try {
+      const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+      const since = _ssc_sync_get_cursor(dbName, storeName);
+      const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) +
+        "/changes?since=" + encodeURIComponent(String(since)) + "&limit=" + encodeURIComponent(String(limit));
+      const payload = await _ssc_sync_json("GET", url);
+      const changes = Array.isArray(payload.changes) ? payload.changes : [];
+      for (const change of changes) {
+        if (!change || change.key === undefined) continue;
+        if (change.deleted) {
+          await store.remove(change.key);
+          _ssc_sync_forget_version(dbName, storeName, change.key);
+        } else if (Object.prototype.hasOwnProperty.call(change, "value")) {
+          await store.put(change.value, change.key);
+          _ssc_sync_set_version(dbName, storeName, change.key, change.version);
+        }
       }
-    }
-    const nextCursor = payload.nextCursor === undefined ? changes.reduce((acc, change) => Math.max(acc, Number(change.version || 0)), since) : Number(payload.nextCursor);
-    if (Number.isFinite(nextCursor)) _ssc_sync_set_cursor(dbName, storeName, nextCursor);
-    return payload;
+      const nextCursor = payload.nextCursor === undefined ? changes.reduce((acc, change) => Math.max(acc, Number(change.version || 0)), since) : Number(payload.nextCursor);
+      if (Number.isFinite(nextCursor)) _ssc_sync_set_cursor(dbName, storeName, nextCursor);
+      _ssc_sync_set_last_pulled(dbName, storeName);
+      return payload;
+    } finally { _ssc_sync_finish(dbName, storeName); }
   },
   async push(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "") {
-    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
-    let mutations = _ssc_sync_get_queue(dbName, storeName);
-    if (mutations.length === 0) {
-      const entries = await store.entries();
-      mutations = entries.map(entry => {
-        const mutation = {
-          key: String(entry.key),
-          deleted: false,
-          value: _ssc_indexeddb_encode(entry.value, typeName || "")
-        };
-        const expected = _ssc_sync_expected_version(dbName, storeName, mutation.key);
-        if (expected !== undefined) mutation.expectedVersion = expected;
-        return mutation;
-      });
-    }
-    const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) + "/push";
-    const payload = await _ssc_sync_json("POST", url, { mutations });
-    const versions = [];
-    if (Array.isArray(payload.results)) for (const row of payload.results) versions.push(Number(row.version || 0));
-    if (versions.length > 0) _ssc_sync_set_cursor(dbName, storeName, Math.max(_ssc_sync_get_cursor(dbName, storeName), ...versions));
-    _ssc_sync_ack(dbName, storeName, payload.results, payload.conflicts);
-    return payload;
+    _ssc_sync_begin(dbName, storeName);
+    try {
+      const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+      let mutations = _ssc_sync_get_queue(dbName, storeName);
+      if (mutations.length === 0) {
+        const entries = await store.entries();
+        mutations = entries.map(entry => {
+          const mutation = {
+            key: String(entry.key),
+            deleted: false,
+            value: _ssc_indexeddb_encode(entry.value, typeName || "")
+          };
+          const expected = _ssc_sync_expected_version(dbName, storeName, mutation.key);
+          if (expected !== undefined) mutation.expectedVersion = expected;
+          return mutation;
+        });
+      }
+      const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) + "/push";
+      const payload = await _ssc_sync_json("POST", url, { mutations });
+      const versions = [];
+      if (Array.isArray(payload.results)) for (const row of payload.results) versions.push(Number(row.version || 0));
+      if (versions.length > 0) _ssc_sync_set_cursor(dbName, storeName, Math.max(_ssc_sync_get_cursor(dbName, storeName), ...versions));
+      _ssc_sync_ack(dbName, storeName, payload.results, payload.conflicts);
+      _ssc_sync_set_last_pushed(dbName, storeName);
+      return payload;
+    } finally { _ssc_sync_finish(dbName, storeName); }
+  },
+  async sync(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "") {
+    const pushResult = await Sync.push(storeName, typeName, dbName, keyField, serverUrl);
+    const pullResult = await Sync.pull(storeName, typeName, dbName, keyField, serverUrl);
+    return { pushed: pushResult, pulled: pullResult };
+  },
+  status(storeName, dbName = "ssc") {
+    return {
+      pending: _ssc_sync_get_queue(dbName, storeName).length,
+      conflicts: _ssc_sync_get_conflicts(dbName, storeName).length,
+      lastPulled: _ssc_sync_get_last_pulled(dbName, storeName),
+      lastPushed: _ssc_sync_get_last_pushed(dbName, storeName),
+      isSyncing: _ssc_sync_is_syncing(dbName, storeName)
+    };
+  },
+  get isOnline() {
+    if (typeof navigator !== "undefined" && typeof navigator.onLine === "boolean") return navigator.onLine;
+    return true;
+  },
+  isSyncing(storeName, dbName = "ssc") {
+    return _ssc_sync_is_syncing(dbName, storeName);
   }
 };
 """
@@ -7568,6 +7634,15 @@ class JsGen(
       line("  else if (typeof document !== 'undefined') { document.body.textContent = msg; }")
       line("  else { console.error(msg); }")
       line("});")
+    else
+      // Flush synchronous _output to stdout (non-async, non-browser path).
+      // Async mode redirects _println to process.stdout.write directly;
+      // browser mode relies on JsRuntimeBrowserPatch. This flush covers
+      // synchronous scripts running in Node (e.g. ssc run without awaitClient).
+      line("if (typeof process !== 'undefined' && process.stdout && typeof _output !== 'undefined' && _output.length > 0) {")
+      line("  for (const _l of _output) process.stdout.write(_l + '\\n');")
+      line("  _output = [];")
+      line("}")
     sb.toString
 
   /** Emit the v1.27 sql-block preamble: hand-written `sql-runtime.mjs`
@@ -9442,7 +9517,7 @@ class JsGen(
     case Term.Apply.After_4_6_0(
           Term.ApplyType.After_4_6_0(Term.Select(Term.Name("Sync"), Term.Name(method)), typeArgs),
           argClause
-        ) if method == "pull" || method == "push" =>
+        ) if method == "pull" || method == "push" || method == "sync" =>
       val typeName = typeArgs.values.headOption match
         case Some(Type.Name(name)) => name
         case Some(other) => other.syntax

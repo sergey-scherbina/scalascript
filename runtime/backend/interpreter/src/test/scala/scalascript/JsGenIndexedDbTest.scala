@@ -186,3 +186,106 @@ class JsGenIndexedDbTest extends AnyFunSuite:
     val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(conflictSource))
 
     assert(runJs(js) == "1:1:Server:0:0")
+
+  // ── Sync.sync (push+pull in one call) ───────────────────────────────────
+
+  private val syncCombinedSource =
+    """# Sync Combined
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |val drafts = IndexedDb.store[Draft]("drafts", "combined-db")
+      |awaitClient(drafts.clear())
+      |awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Local", false), "combined-db"))
+      |awaitClient(Sync.sync[Draft]("drafts", "combined-db"))
+      |val all = awaitClient(drafts.all())
+      |println(all.size)
+      |```
+      |""".stripMargin
+
+  test("JS codegen lowers Sync.sync type argument to runtime type name"):
+    val code = JsGen.generate(Parser.parse(syncCombinedSource))
+
+    assert(code.contains("""Sync.sync("drafts", "Draft", "combined-db")"""))
+
+  test("JS runtime Sync.sync pushes then pulls"):
+    assume(hasNode, "node not available")
+    val fetchStub =
+      """|globalThis.fetch = async function(url, init) {
+         |  if (String(url).includes("/push")) {
+         |    return { ok: true, json: async () => ({ results: [{ key: "d1", version: 1, deleted: false }], conflicts: [] }) };
+         |  }
+         |  if (String(url).includes("/changes")) {
+         |    return { ok: true, json: async () => ({
+         |      changes: [{ key: "d2", version: 2, deleted: false, value: { id: "d2", title: "Remote", done: true } }],
+         |      nextCursor: 2
+         |    }) };
+         |  }
+         |  throw new Error("unexpected url " + url);
+         |};
+         |""".stripMargin
+    val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(syncCombinedSource))
+
+    assert(runJs(js) == "2")
+
+  // ── Sync.status ──────────────────────────────────────────────────────────
+
+  private val statusSource =
+    """# Sync Status
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |awaitClient(Sync.put[Draft]("drafts", Draft("s1", "Pending", false), "status-db"))
+      |val s = Sync.status("drafts", "status-db")
+      |println(s.pending.toString + ":" + s.conflicts.toString + ":" + s.isSyncing.toString)
+      |```
+      |""".stripMargin
+
+  test("JS runtime Sync.status reports pending count and isSyncing false at rest"):
+    assume(hasNode, "node not available")
+    val js = JsRuntime + "\n" + JsGen.generate(Parser.parse(statusSource))
+
+    assert(runJs(js) == "1:0:false")
+
+  // ── Sync.isOnline ────────────────────────────────────────────────────────
+
+  private val isOnlineSource =
+    """# Sync IsOnline
+      |
+      |```scalascript
+      |println(Sync.isOnline.toString)
+      |```
+      |""".stripMargin
+
+  test("JS runtime Sync.isOnline returns true on Node (no navigator)"):
+    assume(hasNode, "node not available")
+    val js = JsRuntime + "\n" + JsGen.generate(Parser.parse(isOnlineSource))
+
+    assert(runJs(js) == "true")
+
+  // ── Sync.isSyncing ───────────────────────────────────────────────────────
+
+  private val isSyncingSource =
+    """# Sync IsSyncing
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |awaitClient(Sync.put[Draft]("drafts", Draft("i1", "Item", false), "issyncing-db"))
+      |awaitClient(Sync.push[Draft]("drafts", "issyncing-db"))
+      |println(Sync.isSyncing("drafts", "issyncing-db").toString)
+      |```
+      |""".stripMargin
+
+  test("JS runtime Sync.isSyncing returns false after push completes"):
+    assume(hasNode, "node not available")
+    val fetchStub =
+      """|globalThis.fetch = async function(url, init) {
+         |  return { ok: true, json: async () => ({ results: [{ key: "i1", version: 1, deleted: false }], conflicts: [] }) };
+         |};
+         |""".stripMargin
+    val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(isSyncingSource))
+
+    assert(runJs(js) == "false")

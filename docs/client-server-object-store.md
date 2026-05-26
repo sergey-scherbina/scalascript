@@ -1,6 +1,6 @@
 # Client/Server Object Store And Sync
 
-Status: **draft / planning**. This document specifies the planned
+Status: **complete** (2026-05-26). This document specifies the
 IndexedDB-like client/server data model for ScalaScript full-stack apps.
 
 ## Goals
@@ -195,6 +195,32 @@ awaitClient(Sync.resolve[Draft]("drafts", "d1", "server", "app"))
 `drop` discards the queued local mutation without applying a server value.
 Automatic per-store conflict policies are handled on the generated JVM route.
 
+### Sync UI helpers
+
+High-level helpers for building sync-aware UIs:
+
+```scalascript
+// Combined push + pull in one call
+awaitClient(Sync.sync[Draft]("drafts", "app"))
+
+// Aggregate status for driving a sync indicator badge
+val s = Sync.status("drafts", "app")
+// s.pending   — number of queued mutations
+// s.conflicts — number of unresolved conflicts
+// s.lastPulled — epoch-ms of last successful pull (null if never)
+// s.lastPushed — epoch-ms of last successful push (null if never)
+// s.isSyncing  — true while a push/pull is in flight
+
+// Network availability (navigator.onLine in browser, true in Node)
+val canSync = Sync.isOnline
+
+// Per-store in-flight flag
+val syncing = Sync.isSyncing("drafts", "app")
+```
+
+`Sync.status` and `Sync.isSyncing` are synchronous; `Sync.sync`, `Sync.push`,
+and `Sync.pull` are async and must be wrapped in `awaitClient`.
+
 Conflict policy should be explicit per store:
 
 ```yaml
@@ -265,8 +291,17 @@ keeping as an optional backend for apps that want battle-tested replication.
 5. **Automatic conflict policies** — landed 2026-05-26: generated JVM sync
    `push` routes apply `objectStores.<name>.conflict` for `manual`,
    `server-wins`, and `client-wins`.
-6. **Examples + conformance** — add an offline todo example that edits locally,
-   syncs to the JVM server, restarts, and pulls changes into another client.
+6. **Richer sync UI helpers** — landed 2026-05-26: `Sync.sync[A]` combines
+   push + pull in one call; `Sync.status(store, db?)` returns a plain object
+   `{ pending, conflicts, lastPulled, lastPushed, isSyncing }` for driving
+   sync-status indicators; `Sync.isOnline` reflects network availability
+   (`navigator.onLine` in browsers, `true` in Node); `Sync.isSyncing(store,
+   db?)` returns `true` while a push/pull/sync is in flight. `push` and `pull`
+   now record `lastPushed`/`lastPulled` timestamps in `localStorage` and clear
+   the `isSyncing` flag in a `finally` block. Boolean `.toString` dispatch
+   added to the JS `_dispatch` runtime. Synchronous (non-async, non-browser)
+   `.ssc` scripts now flush `_output` to `process.stdout` at the end of
+   `genModule`. Example: `examples/sync-todo.ssc`.
 
 ## Testing Strategy
 

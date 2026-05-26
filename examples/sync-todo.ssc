@@ -1,0 +1,39 @@
+---
+backend: js
+---
+
+# Sync Todo
+
+Offline-capable todo list demonstrating the full `Sync.*` UI helper API.
+A companion JVM server (e.g. `examples/object-store-sync-routes.ssc`) exposes
+the `/__ssc/sync/todos/changes` and `/__ssc/sync/todos/push` endpoints.
+
+Running this example exercises local IndexedDB queuing and status inspection.
+The commented-out `Sync.sync` call requires a running JVM backend.
+
+```scalascript
+case class Todo(id: String, title: String, done: Boolean)
+
+// --- local writes go through Sync.put (queued for server sync) ---
+awaitClient(Sync.put[Todo]("todos", Todo("t1", "Write spec", false)))
+awaitClient(Sync.put[Todo]("todos", Todo("t2", "Ship demo", false)))
+awaitClient(Sync.put[Todo]("todos", Todo("t3", "Add tests", true)))
+
+// --- check status before syncing ---
+val before = Sync.status("todos")
+println("pending:" + before.pending.toString + " conflicts:" + before.conflicts.toString + " syncing:" + before.isSyncing.toString)
+
+// --- online check ---
+println("online:" + Sync.isOnline.toString)
+
+// --- inspect pending queue ---
+val q = Sync.pending("todos")
+println("queue:" + q.size.toString)
+
+// --- push + pull in one call (requires a running JVM backend) ---
+// awaitClient(Sync.sync[Todo]("todos", "ssc", "id", "http://127.0.0.1:8080"))
+
+// --- after a hypothetical sync, status would show pending:0 ---
+val after = Sync.status("todos")
+println("pending-after:" + after.pending.toString)
+```

@@ -10508,9 +10508,16 @@ modes opt out of that default.
   `object Gremlin { def query(graphName, query, bindings) }` with binding-based
   parameterization; `PropertyGraphBackend` adds default `gremlinQuery`; graph-
   plugin registers `Gremlin.query` with not-in-interpreter error.
-  Example: `examples/graph-janusgraph-gremlin.ssc`. Remaining: richer sync UI
-  helpers, full-stack graph example (Electron/React → JVM REST → graph), and
-  richer distributed Dataset ergonomics for actor-effect wrappers.
+  Example: `examples/graph-janusgraph-gremlin.ssc`. Follow-up landed
+  2026-05-26: richer sync UI helpers — `Sync.sync[A]` (push+pull in one call),
+  `Sync.status(store, db?)` returning `{ pending, conflicts, lastPulled,
+  lastPushed, isSyncing }`, `Sync.isOnline` (network availability), and
+  `Sync.isSyncing(store, db?)` (per-store in-flight flag); `push`/`pull` record
+  timestamps and clear isSyncing in `finally`; boolean `.toString` dispatch
+  added to `_dispatch`; non-async `genModule` flushes `_output` to stdout;
+  `examples/sync-todo.ssc` documents the full API. Remaining: full-stack graph
+  example (Electron/React → JVM REST → graph) and richer distributed Dataset
+  ergonomics for actor-effect wrappers.
 
 ## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 
