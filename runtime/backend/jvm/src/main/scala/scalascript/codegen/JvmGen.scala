@@ -415,9 +415,15 @@ class JvmGen(
     val appIcon = module.manifest
       .flatMap(m => m.raw.get("app-icon").orElse(m.raw.get("appIcon")))
       .collect { case s: String => s }
+    val nativeBundleId   = module.manifest.flatMap(_.raw.get("bundle-id").collect { case s: String => s })
+    val nativeDisplayName = module.manifest.flatMap(_.name)
+    val nativeVersion    = module.manifest.flatMap(_.version)
     val withUi =
       if effectiveFrontend.isDefined then
-        uiHelperFunctions(effectiveFrontend.getOrElse("react"), appIcon) + "\n" + userSrc + "\n" + uiPrimitivesBlock
+        uiHelperFunctions(
+          effectiveFrontend.getOrElse("react"), appIcon,
+          bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion
+        ) + "\n" + userSrc + "\n" + uiPrimitivesBlock
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
@@ -9293,7 +9299,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  section so they're defined BEFORE the `import std.ui.primitives.{serve,...}`
    *  line — this ensures `serve(port)` inside `_ssc_ui_serve` resolves to the
    *  preamble's `serve(port: Int, ...)` rather than the opaque-typed wrapper. */
-  private def uiHelperFunctions(frontendName: String, appIcon: Option[String]): String =
+  private def uiHelperFunctions(
+    frontendName: String,
+    appIcon:      Option[String],
+    bundleId:     Option[String],
+    displayName:  Option[String],
+    version:      Option[String]
+  ): String =
+    val bundleIdLit    = escapeStringLit(bundleId.getOrElse("com.example.app"))
+    val displayNameLit = escapeStringLit(displayName.getOrElse("ScalaScript App"))
+    val versionLit     = escapeStringLit(version.getOrElse("1.0.0"))
     s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
        |{
@@ -9324,6 +9339,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |        Map.empty, Seq(view)))),
        |    "App", "/", extraCss)
        |
+       |def _ssc_ui_build_native_module(view: scalascript.frontend.View[?], platform: scalascript.frontend.Platform): scalascript.frontend.FrontendModule =
+       |  val _manifest = scalascript.frontend.AppManifest(
+       |    bundleId    = "$bundleIdLit",
+       |    displayName = "$displayNameLit",
+       |    version     = "$versionLit"
+       |  )
+       |  scalascript.frontend.FrontendModule(
+       |    List(scalascript.frontend.ComponentDef("App", Nil, _ => view)),
+       |    "App", "/", "", platform, Some(_manifest))
+       |
        |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View[?], dir: String, extraCss: String = ""): Unit =
        |  val _mod     = _ssc_ui_buildModule(view, extraCss)
        |  val _emitted = scalascript.frontend.FrontendFrameworks.current().emit(_mod)
@@ -9353,6 +9378,24 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  val _artifact = scalascript.frontend.FrontendFrameworks.current()
        |    .emitNative(_mod, scalascript.frontend.Platform.Desktop())
        |    .getOrElse(throw IllegalStateException("selected frontend does not emit a JVM desktop native app"))
+       |  val _p = java.nio.file.Paths.get(dir)
+       |  java.nio.file.Files.createDirectories(_p)
+       |  for ((_name, _source) <- _artifact.sources) do
+       |    val _target = _p.resolve(_name)
+       |    val _parent = _target.getParent
+       |    if _parent != null then java.nio.file.Files.createDirectories(_parent)
+       |    java.nio.file.Files.writeString(_target, _source)
+       |  for ((_name, _bytes) <- _artifact.resources) do
+       |    val _target = _p.resolve(_name)
+       |    val _parent = _target.getParent
+       |    if _parent != null then java.nio.file.Files.createDirectories(_parent)
+       |    java.nio.file.Files.write(_target, _bytes)
+       |
+       |def _ssc_ui_emit_native_platform_to_dir(view: scalascript.frontend.View[?], dir: String, platform: scalascript.frontend.Platform): Unit =
+       |  val _mod = _ssc_ui_build_native_module(view, platform)
+       |  val _artifact = scalascript.frontend.FrontendFrameworks.current()
+       |    .emitNative(_mod, platform)
+       |    .getOrElse(throw IllegalStateException(s"selected frontend does not emit a native app for $$platform"))
        |  val _p = java.nio.file.Paths.get(dir)
        |  java.nio.file.Files.createDirectories(_p)
        |  for ((_name, _source) <- _artifact.sources) do
@@ -9474,6 +9517,14 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
        |  if _ssc_frontend_name == "swing" then
        |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
+       |  else if _ssc_frontend_name == "swiftui" then
+       |    val _outDir = Option(System.getProperty("ssc.build.outdir"))
+       |      .getOrElse { System.err.println("swiftui: ssc.build.outdir system property not set"); System.exit(1); "" }
+       |    val _platformStr = Option(System.getProperty("ssc.build.platform")).getOrElse("ios")
+       |    val _platform: scalascript.frontend.Platform = _platformStr match
+       |      case "macos" => scalascript.frontend.Platform.Desktop(scalascript.frontend.DesktopOs.MacOS)
+       |      case _       => scalascript.frontend.Platform.Mobile(scalascript.frontend.MobileOs.iOS)
+       |    _ssc_ui_emit_native_platform_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], _outDir, _platform)
        |  else
        |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
        |    _ssc_static_root = _outDir

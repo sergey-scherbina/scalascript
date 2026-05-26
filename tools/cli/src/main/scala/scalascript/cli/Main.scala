@@ -401,7 +401,7 @@ private[cli] def injectDesktopTokenMiddleware(script: String): String =
  *  Adding a new frontend backend means adding it here and to the
  *  `dependsOn(...)` chain in `build.sbt`'s `cli` definition. */
 private[cli] val validFrontendNames: Set[String] =
-  Set("custom", "react", "solid", "vue", "electron", "swing", "javafx")
+  Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui")
 
 private[cli] val browserFrontendNames: Set[String] =
   Set("custom", "react", "solid", "vue")
@@ -521,7 +521,7 @@ def printUsage(): Unit =
     |    registry remove <id>   Remove a registry entry
     |    registry search <q>    Search registry by id or description
     |  run                    Execute .ssc via tree-walking interpreter (default)
-    |                         Flags: --frontend <custom|react|solid|vue|electron|swing|javafx>  (overrides frontmatter frontend:)
+    |                         Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>  (overrides frontmatter frontend:)
     |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
     |                                --target desktop-jvm starts split JVM REST + Electron mode
     |                                --mode server starts only the JVM backend/server
@@ -585,10 +585,12 @@ def printUsage(): Unit =
     |                         Run with lightweight call-level profiling; print top-N
     |                         hotspots by wall time.  --top defaults to 20.
     |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
-    |  run   --frontend electron <f>   Compile .ssc and open in an Electron desktop window
-    |  run-jvm --frontend swing <f>    Compile and launch the JDK-only Swing desktop frontend
-    |  run-jvm --frontend javafx <f>   Compile and launch the OpenJFX desktop frontend
-    |  build --target desktop <f>      Generate Electron bundle; run npm run build to package
+    |  run   --frontend electron <f>     Compile .ssc and open in an Electron desktop window
+    |  run-jvm --frontend swing <f>      Compile and launch the JDK-only Swing desktop frontend
+    |  run-jvm --frontend javafx <f>     Compile and launch the OpenJFX desktop frontend
+    |  build --target desktop <f>        Generate Electron bundle; run npm run build to package
+    |  build --target mobile-ios <f>     Generate SwiftUI iOS Swift package; run swift build
+    |  build --target desktop-macos <f>  Generate SwiftUI macOS Swift package; run swift build
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
     |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
@@ -1467,8 +1469,20 @@ private def buildProjectFileCommand(
       println(s"  bundle written.  To package:")
       println(s"    cd ${displayPath(bundleDir)} && npm install && npm run build")
 
+    case "mobile-ios" =>
+      println(s"Building SwiftUI iOS package → ${displayPath(outDir)}")
+      buildSwiftUIPackage(projectFile, outDir, "ios")
+      println(s"  Swift package written.  To build:")
+      println(s"    cd ${displayPath(outDir)} && swift build")
+
+    case "desktop-macos" =>
+      println(s"Building SwiftUI macOS package → ${displayPath(outDir)}")
+      buildSwiftUIPackage(projectFile, outDir, "macos")
+      println(s"  Swift package written.  To build:")
+      println(s"    cd ${displayPath(outDir)} && swift build")
+
     case other =>
-      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop)")
+      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop, mobile-ios, desktop-macos)")
       System.exit(1)
 
 /** Write an Electron app bundle (index.html, app.js, main.js, preload.js,
@@ -1481,6 +1495,32 @@ private def buildElectronBundle(
 ): Unit =
   scalascript.frontend.electron.ElectronBundleBuilder.build(
     sscFile, outDir, backendBaseUrl = backendBaseUrl, desktopToken = desktopToken)
+
+/** Compile `sscFile` via JvmGen (frontend=swiftui) and emit a Swift Package
+ *  to `outDir`.  `platform` is either `"ios"` or `"macos"`.
+ *  Requires `scala-cli` on PATH. */
+private def buildSwiftUIPackage(sscFile: os.Path, outDir: os.Path, platform: String): Unit =
+  if !JvmBytecode.scalaCliAvailable then
+    System.err.println(s"build --target mobile-ios/desktop-macos: ${JvmBytecode.scalaCliMissingMessage}")
+    System.exit(1)
+  val module  = Parser.parse(os.read(sscFile))
+  val baseDir = Some(sscFile / os.up)
+  val raw     = JvmGen.generate(module, baseDir, frontendOverride = Some("swiftui"))
+  val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
+  val source  = jarsDir match
+    case Some(jars) => patchLocalSscDeps(raw, jars)
+    case None       => raw
+  os.makeDir.all(outDir)
+  val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
+  try
+    val result = os.proc(
+      "scala-cli", "run", tmp, "--server=false",
+      s"-J-Dssc.build.outdir=${outDir}",
+      s"-J-Dssc.build.platform=$platform"
+    ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+    if result.exitCode != 0 then System.exit(result.exitCode)
+  finally
+    scala.util.Try(os.remove(tmp))
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter

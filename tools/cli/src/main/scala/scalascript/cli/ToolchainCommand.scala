@@ -52,11 +52,11 @@ object ToolchainCommand:
   )
 
   /** Per-target required tool sets. */
-  private val targetTools: Map[String, List[String]] = Map(
+  private[cli] val targetTools: Map[String, List[String]] = Map(
     "web"            -> List("node", "jdk"),
     "desktop"        -> List("node", "jdk", "electron"),
     "mobile-android" -> List("jdk", "kotlin", "kotlin-native", "android-sdk"),
-    "mobile-ios"     -> List("jdk", "kotlin", "kotlin-native", "xcode"),
+    "mobile-ios"     -> List("swift", "xcode"),
     "desktop-macos"  -> List("jdk", "swift"),
     "desktop-linux"  -> List("jdk", "scala-native", "gtk"),
     "desktop-windows"-> List("jdk", "graalvm"),
