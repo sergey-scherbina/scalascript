@@ -43,6 +43,12 @@ case class HostCallback(name: String) extends IntrinsicImpl
  *  null-stream during `ssc render` static generation) is honoured. */
 case class NativeImpl(eval: (NativeContext, List[Any]) => Any) extends IntrinsicImpl
 
+object NativeContextFeatureKeys:
+  val HttpBaseUrl      = "scalascript.http.baseUrl"
+  val HttpTimeoutMs    = "scalascript.http.timeoutMs"
+  val HttpMaxRetries   = "scalascript.http.maxRetries"
+  val HttpRetryDelayMs = "scalascript.http.retryDelayMs"
+
 /** Runtime hooks an in-process native intrinsic may consult.  The
  *  interpreter constructs one per session and passes it to every
  *  `NativeImpl.eval` call.  Stateless intrinsics (`nowMillis`,
@@ -50,6 +56,23 @@ case class NativeImpl(eval: (NativeContext, List[Any]) => Any) extends Intrinsic
 trait NativeContext:
   def out: java.io.PrintStream
   def err: java.io.PrintStream
+  // Generic plugin state.  Use `feature*` for interpreter-scoped shared
+  // values and `featureLocal*` for execution-scoped values that should be
+  // restored around nested blocks such as httpClient { ... }.
+  def featureGet(key: String): Option[Any] = None
+  def featureSet(key: String, value: Any): Unit = ()
+  def featureRemove(key: String): Option[Any] = None
+  def featureUpdate(key: String)(f: Option[Any] => Any): Any =
+    val next = f(featureGet(key))
+    featureSet(key, next)
+    next
+  def featureLocalGet(key: String): Option[Any] = featureGet(key)
+  def featureLocalSet(key: String, value: Any): Unit = featureSet(key, value)
+  def featureLocalRemove(key: String): Option[Any] = featureRemove(key)
+  def featureLocalUpdate(key: String)(f: Option[Any] => Any): Any =
+    val next = f(featureLocalGet(key))
+    featureLocalSet(key, next)
+    next
   // All methods below default to no-op / identity; the interpreter
   // overrides them in `installNativeIntrinsics` so HTTP intrinsics
   // can live in `InterpreterCapabilities` without a circular dependency.
@@ -59,12 +82,18 @@ trait NativeContext:
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
   def invokeCallback(fn: Any, args: List[Any]): Any = ()
   // Outbound HTTP client state — scoped inside httpClient{} blocks.
-  def httpBaseUrl: String = ""
-  def httpTimeoutMs: Long = 30000L
-  def httpMaxRetries: Int = 0
-  def httpRetryDelayMs: Long = 1000L
-  def setHttpTimeout(ms: Long): Unit = ()
-  def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit = ()
+  def httpBaseUrl: String =
+    featureLocalGet(NativeContextFeatureKeys.HttpBaseUrl).collect { case s: String => s }.getOrElse("")
+  def httpTimeoutMs: Long =
+    featureLocalGet(NativeContextFeatureKeys.HttpTimeoutMs).collect { case n: Long => n }.getOrElse(30000L)
+  def httpMaxRetries: Int =
+    featureLocalGet(NativeContextFeatureKeys.HttpMaxRetries).collect { case n: Int => n }.getOrElse(0)
+  def httpRetryDelayMs: Long =
+    featureLocalGet(NativeContextFeatureKeys.HttpRetryDelayMs).collect { case n: Long => n }.getOrElse(1000L)
+  def setHttpTimeout(ms: Long): Unit = featureLocalSet(NativeContextFeatureKeys.HttpTimeoutMs, ms)
+  def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit =
+    featureLocalSet(NativeContextFeatureKeys.HttpMaxRetries, maxAttempts)
+    featureLocalSet(NativeContextFeatureKeys.HttpRetryDelayMs, delayMs)
   // TLS server startup.
   def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit = ()
   // Plain HTTP server startup (no TLS).

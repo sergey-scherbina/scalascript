@@ -232,7 +232,8 @@ private[interpreter] object EvalRuntime:
 
     // ── v1.5 httpClient(baseUrl) { block } ───────────────────────────────
     // Double-apply special form: evaluate body directly (not as a thunk) so
-    // any statements inside the block run with interp._httpBaseUrl set, then restore.
+    // any statements inside the block run with feature-local HTTP state set,
+    // then restore.
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("httpClient"), baseClause),
         bodyClause)
@@ -240,21 +241,23 @@ private[interpreter] object EvalRuntime:
       val baseComp = eval(baseClause.values.head, env, interp)
       baseComp match
         case Pure(Value.StringV(base)) =>
-          val priorBase = interp._httpBaseUrl.get(); val priorT = interp._httpTimeoutMs.get()
-          val priorR = interp._httpMaxRetries.get(); val priorD = interp._httpRetryDelayMs.get()
-          interp._httpBaseUrl.set(base.stripSuffix("/"))
+          val priorBase = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpBaseUrl)
+          val priorT = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpTimeoutMs)
+          val priorR = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpMaxRetries)
+          val priorD = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpRetryDelayMs)
+          interp.nativeFeatureLocalSet(interp.NativeFeatureKeys.HttpBaseUrl, base.stripSuffix("/"))
           try eval(bodyClause.values.head, env, interp)
-          finally { interp._httpBaseUrl.set(priorBase); interp._httpTimeoutMs.set(priorT)
-                    interp._httpMaxRetries.set(priorR); interp._httpRetryDelayMs.set(priorD) }
+          finally restoreHttpClientState(interp, priorBase, priorT, priorR, priorD)
         case _ =>
           FlatMap(baseComp, {
             case Value.StringV(base) =>
-              val priorBase = interp._httpBaseUrl.get(); val priorT = interp._httpTimeoutMs.get()
-              val priorR = interp._httpMaxRetries.get(); val priorD = interp._httpRetryDelayMs.get()
-              interp._httpBaseUrl.set(base.stripSuffix("/"))
+              val priorBase = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpBaseUrl)
+              val priorT = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpTimeoutMs)
+              val priorR = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpMaxRetries)
+              val priorD = interp.nativeFeatureLocalGet(interp.NativeFeatureKeys.HttpRetryDelayMs)
+              interp.nativeFeatureLocalSet(interp.NativeFeatureKeys.HttpBaseUrl, base.stripSuffix("/"))
               try eval(bodyClause.values.head, env, interp)
-              finally { interp._httpBaseUrl.set(priorBase); interp._httpTimeoutMs.set(priorT)
-                        interp._httpMaxRetries.set(priorR); interp._httpRetryDelayMs.set(priorD) }
+              finally restoreHttpClientState(interp, priorBase, priorT, priorR, priorD)
             case _ => throw InterpretError("httpClient(baseUrl: String) { body }")
           })
 
@@ -871,6 +874,23 @@ private[interpreter] object EvalRuntime:
       .headOption
       .orElse(schema.default)
       .getOrElse(Value.NullV)
+
+  private def restoreHttpClientState(
+      interp: Interpreter,
+      priorBase: Option[Any],
+      priorTimeout: Option[Any],
+      priorRetries: Option[Any],
+      priorRetryDelay: Option[Any]
+  ): Unit =
+    restoreFeatureLocal(interp, interp.NativeFeatureKeys.HttpBaseUrl, priorBase)
+    restoreFeatureLocal(interp, interp.NativeFeatureKeys.HttpTimeoutMs, priorTimeout)
+    restoreFeatureLocal(interp, interp.NativeFeatureKeys.HttpMaxRetries, priorRetries)
+    restoreFeatureLocal(interp, interp.NativeFeatureKeys.HttpRetryDelayMs, priorRetryDelay)
+
+  private def restoreFeatureLocal(interp: Interpreter, key: String, value: Option[Any]): Unit =
+    value match
+      case Some(v) => interp.nativeFeatureLocalSet(key, v)
+      case None    => interp.nativeFeatureLocalRemove(key)
 
   /** Peel nested `Apply` nodes to collect all argument lists for a curried call.
    *  Only activates when the **outermost** `Apply` has a `using` argument clause

@@ -411,11 +411,42 @@ class Interpreter(
   // ── v1.21 Dataset — see DatasetRuntime.scala ──────────────────────────
 
 
-  // Base URL and timeout for httpClient {} scopes — thread-local so nested calls restore correctly.
-  private[interpreter] val _httpBaseUrl      = ThreadLocal.withInitial[String](() => "")
-  private[interpreter] val _httpTimeoutMs    = ThreadLocal.withInitial[Long](() => 30_000L)
-  private[interpreter] val _httpMaxRetries   = ThreadLocal.withInitial[Int](() => 0)
-  private[interpreter] val _httpRetryDelayMs = ThreadLocal.withInitial[Long](() => 1_000L)
+  private[interpreter] object NativeFeatureKeys:
+    val HttpBaseUrl      = scalascript.backend.spi.NativeContextFeatureKeys.HttpBaseUrl
+    val HttpTimeoutMs    = scalascript.backend.spi.NativeContextFeatureKeys.HttpTimeoutMs
+    val HttpMaxRetries   = scalascript.backend.spi.NativeContextFeatureKeys.HttpMaxRetries
+    val HttpRetryDelayMs = scalascript.backend.spi.NativeContextFeatureKeys.HttpRetryDelayMs
+
+  private val nativeFeatureState = new java.util.concurrent.ConcurrentHashMap[String, Any]()
+  private val nativeFeatureLocalState = new java.util.concurrent.ConcurrentHashMap[String, ThreadLocal[Any]]()
+
+  private[interpreter] def nativeFeatureGet(key: String): Option[Any] =
+    Option(nativeFeatureState.get(key))
+  private[interpreter] def nativeFeatureSet(key: String, value: Any): Unit =
+    nativeFeatureState.put(key, value); ()
+  private[interpreter] def nativeFeatureRemove(key: String): Option[Any] =
+    Option(nativeFeatureState.remove(key))
+
+  private def nativeFeatureLocalSlot(key: String): ThreadLocal[Any] =
+    nativeFeatureLocalState.computeIfAbsent(key, _ => new ThreadLocal[Any]())
+  private[interpreter] def nativeFeatureLocalGet(key: String): Option[Any] =
+    Option(nativeFeatureLocalSlot(key).get())
+  private[interpreter] def nativeFeatureLocalSet(key: String, value: Any): Unit =
+    nativeFeatureLocalSlot(key).set(value)
+  private[interpreter] def nativeFeatureLocalRemove(key: String): Option[Any] =
+    val slot = nativeFeatureLocalSlot(key)
+    val old = Option(slot.get())
+    slot.remove()
+    old
+
+  private[interpreter] def httpBaseUrlState: String =
+    nativeFeatureLocalGet(NativeFeatureKeys.HttpBaseUrl).collect { case s: String => s }.getOrElse("")
+  private[interpreter] def httpTimeoutMsState: Long =
+    nativeFeatureLocalGet(NativeFeatureKeys.HttpTimeoutMs).collect { case n: Long => n }.getOrElse(30_000L)
+  private[interpreter] def httpMaxRetriesState: Int =
+    nativeFeatureLocalGet(NativeFeatureKeys.HttpMaxRetries).collect { case n: Int => n }.getOrElse(0)
+  private[interpreter] def httpRetryDelayMsState: Long =
+    nativeFeatureLocalGet(NativeFeatureKeys.HttpRetryDelayMs).collect { case n: Long => n }.getOrElse(1_000L)
 
   // ── v1.4 Cache effect — process-local memoization store + bypass flag ──
   private[interpreter] val _cacheStore  = new java.util.concurrent.ConcurrentHashMap[String, (Long, Value)]()
@@ -729,10 +760,16 @@ class Interpreter(
     new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
-      override def httpBaseUrl: String    = _httpBaseUrl.get()
-      override def httpTimeoutMs: Long    = _httpTimeoutMs.get()
-      override def httpMaxRetries: Int    = _httpMaxRetries.get()
-      override def httpRetryDelayMs: Long = _httpRetryDelayMs.get()
+      override def featureGet(key: String): Option[Any] = Interpreter.this.nativeFeatureGet(key)
+      override def featureSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureSet(key, value)
+      override def featureRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureRemove(key)
+      override def featureLocalGet(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalGet(key)
+      override def featureLocalSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureLocalSet(key, value)
+      override def featureLocalRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalRemove(key)
+      override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
+      override def httpTimeoutMs: Long    = Interpreter.this.httpTimeoutMsState
+      override def httpMaxRetries: Int    = Interpreter.this.httpMaxRetriesState
+      override def httpRetryDelayMs: Long = Interpreter.this.httpRetryDelayMsState
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
 
@@ -783,6 +820,12 @@ class Interpreter(
     val ctx = new scalascript.backend.spi.NativeContext:
       def out = Interpreter.this.out
       def err = System.err
+      override def featureGet(key: String): Option[Any] = Interpreter.this.nativeFeatureGet(key)
+      override def featureSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureSet(key, value)
+      override def featureRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureRemove(key)
+      override def featureLocalGet(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalGet(key)
+      override def featureLocalSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureLocalSet(key, value)
+      override def featureLocalRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalRemove(key)
       override def headless = Interpreter.this.headless
       override def registerRoute(method: String, path: String, handler: Any): Unit =
         scalascript.server.Routes.register(
@@ -793,13 +836,15 @@ class Interpreter(
       override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
-      override def httpBaseUrl: String    = _httpBaseUrl.get()
-      override def httpTimeoutMs: Long    = _httpTimeoutMs.get()
-      override def httpMaxRetries: Int    = _httpMaxRetries.get()
-      override def httpRetryDelayMs: Long = _httpRetryDelayMs.get()
-      override def setHttpTimeout(ms: Long): Unit = _httpTimeoutMs.set(ms)
+      override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
+      override def httpTimeoutMs: Long    = Interpreter.this.httpTimeoutMsState
+      override def httpMaxRetries: Int    = Interpreter.this.httpMaxRetriesState
+      override def httpRetryDelayMs: Long = Interpreter.this.httpRetryDelayMsState
+      override def setHttpTimeout(ms: Long): Unit =
+        featureLocalSet(NativeFeatureKeys.HttpTimeoutMs, ms)
       override def setHttpRetry(maxAttempts: Int, delayMs: Long): Unit =
-        _httpMaxRetries.set(maxAttempts); _httpRetryDelayMs.set(delayMs)
+        featureLocalSet(NativeFeatureKeys.HttpMaxRetries, maxAttempts)
+        featureLocalSet(NativeFeatureKeys.HttpRetryDelayMs, delayMs)
       override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
         if !Interpreter.this.headless then
           InterpreterServerSupport.current.startServer(

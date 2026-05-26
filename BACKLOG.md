@@ -110,7 +110,10 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
     Follow-up landed: `transaction` fenced blocks now route through the same
     plugin runner via `SqlBlockRunner.runTransaction`.
-  - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
+  - **`NativeContext` state-bag** — ✅ **LANDED (2026-05-26)**:
+    `NativeContext` now exposes shared `feature*` and scoped `featureLocal*`
+    state APIs. HTTP client config keys route through feature-local storage;
+    existing named methods remain compatible.
   - **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
     socket/server runtime moved to `runtime/backend/interpreter-server` as
     `backendInterpreterServer` behind `InterpreterServerSupport`. `Routes` /
@@ -1447,9 +1450,12 @@ worth a separate fix when somebody has cycles.
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
     Follow-up landed: `transaction` fenced blocks now route through the same
     plugin runner via `SqlBlockRunner.runTransaction`.
-  - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
-    migrated using all 21 existing named methods; bag deferred.  Needed when
-    the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
+  - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — ✅ **LANDED (2026-05-26)**:
+    SPI now has shared `featureGet` / `featureSet` / `featureRemove` /
+    `featureUpdate` and scoped `featureLocal*` variants. HTTP client config
+    uses `NativeContextFeatureKeys` + feature-local state while preserving the
+    existing named methods.  Follow-up: migrate small plugin knobs
+    opportunistically.  Effort: S.
   - **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
     `WebServer`, `InterpreterHttpHandler`, WS proxy/session/connection code,
     in-process backend transport, and their server-specific tests now live in
