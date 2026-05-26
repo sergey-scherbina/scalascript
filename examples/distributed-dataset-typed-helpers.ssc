@@ -1,0 +1,116 @@
+---
+title: Distributed Dataset typed helpers
+description: Domain-typed Dataset values through distributed MapReduce wire helpers
+backend: jvm
+---
+
+# Distributed Dataset Typed Helpers
+
+## Imports
+
+[Cluster, Node](../runtime/std/mapreduce/cluster.ssc)
+
+[HandlerRegistry, NamedHandler](../runtime/std/mapreduce/handlers.ssc)
+
+[DistributedResult, Stage, MapOp, runDistributedWire](../runtime/std/mapreduce/distributed.ssc)
+
+[ShuffleProtocol, ShuffleStage, runDistributedShuffleWire](../runtime/std/mapreduce/shuffle.ssc)
+
+[DistributedDataset](../runtime/std/mapreduce/typed.ssc)
+
+```scalascript
+import scalascript.typeddata.{DatasetWirePartition, JsonCodec, JsonValue as TJsonValue}
+import std.mapreduce.{Cluster, DistributedDataset, DistributedResult, HandlerRegistry, MapOp, NamedHandler, Node, ShuffleProtocol, ShuffleStage, Stage, runDistributedShuffleWire, runDistributedWire}
+
+case class Sale(user: String, amount: Int) derives JsonCodec
+
+def userKey(json: TJsonValue): TJsonValue =
+  json match
+    case TJsonValue.Obj(fields) => fields.getOrElse("user", TJsonValue.Str("unknown"))
+    case _ => TJsonValue.Str("unknown")
+
+def amountOf(json: TJsonValue): Int =
+  json match
+    case TJsonValue.Obj(fields) =>
+      fields.get("amount") match
+        case Some(TJsonValue.Num(value)) => value.toInt
+        case _ => 0
+    case _ => 0
+
+def addBonus(json: TJsonValue): TJsonValue =
+  json match
+    case TJsonValue.Obj(fields) =>
+      val current = amountOf(json)
+      TJsonValue.Obj(fields.updated("amount", TJsonValue.Num(BigDecimal(current + 1))))
+    case other => other
+
+def sumSaleJson(pair: (TJsonValue, TJsonValue)): TJsonValue =
+  val left = pair._1
+  val right = pair._2
+  val user = userKey(left)
+  val total = amountOf(left) + amountOf(right)
+  TJsonValue.Obj(Map(
+    "user" -> user,
+    "amount" -> TJsonValue.Num(BigDecimal(total))
+  ))
+
+val sales = List(
+  Sale("ada", 10),
+  Sale("grace", 3),
+  Sale("ada", 5),
+  Sale("grace", 7)
+)
+
+var mappedWire: DistributedResult[DatasetWirePartition] =
+  DistributedResult(Nil, Nil)
+var reducedWire: DistributedResult[DatasetWirePartition] =
+  DistributedResult(Nil, Nil)
+
+val inputWire = DistributedDataset.encode[Sale](sales, 2)
+
+runActors {
+  HandlerRegistry.clear()
+  HandlerRegistry.register(NamedHandler("addBonus", addBonus))
+  HandlerRegistry.register(NamedHandler("userKey", userKey))
+  HandlerRegistry.register(NamedHandler("sumSaleJson", sumSaleJson))
+
+  val worker1 = spawn { () => ShuffleProtocol.handleMessages() }
+  val worker2 = spawn { () => ShuffleProtocol.handleMessages() }
+  val cluster = Cluster(
+    List(Node("worker-1@local"), Node("worker-2@local")),
+    List(worker1, worker2)
+  )
+
+  val mappedResult = runDistributedWire(
+    inputWire,
+    Stage(List(MapOp("addBonus"))),
+    cluster.asInstanceOf[Cluster],
+    retries = 0,
+    allowPartial = false
+  )
+  mappedWire = mappedResult.asInstanceOf[DistributedResult[DatasetWirePartition]]
+
+  val reducedResult = runDistributedShuffleWire(
+    mappedWire.results,
+    ShuffleStage(
+      preShuffle = Stage(Nil),
+      keyHandlerName = "userKey",
+      combineHandlerName = "sumSaleJson",
+      isGroupBy = false
+    ),
+    cluster.asInstanceOf[Cluster],
+    retries = 0,
+    allowPartial = false
+  )
+  reducedWire = reducedResult.asInstanceOf[DistributedResult[DatasetWirePartition]]
+}
+
+val reduced = DistributedDataset.decode[Sale](reducedWire).results
+
+val summary = reduced
+  .sortBy(_.user)
+  .map(sale => s"${sale.user}:${sale.amount}")
+  .mkString(",")
+
+println(summary)
+```

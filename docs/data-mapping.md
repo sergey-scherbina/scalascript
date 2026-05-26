@@ -519,8 +519,13 @@ the same query model.
    `runDistributedShuffleWire`, `WireShufflePartial`,
    `WireProcessKeyPartition`, and `WireKeyResult` for typed
    coordinator-mediated shuffle; see
-   `examples/distributed-dataset-wire-shuffle.ssc`. Remaining: higher-level
-   typed distributed Dataset helpers.
+   `examples/distributed-dataset-wire-shuffle.ssc`. Follow-up landed
+   2026-05-26: `std/mapreduce` now exposes `DistributedDataset` typed
+   `partition`, `encode`, and `decode[A]` helpers around the
+   `DatasetWirePartition` boundary, demonstrated by
+   `examples/distributed-dataset-typed-helpers.ssc`. Remaining: richer
+   distributed Dataset ergonomics for actor-effect wrappers once the generated
+   path can reliably compose them.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

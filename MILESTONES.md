@@ -10459,8 +10459,13 @@ modes opt out of that default.
   `WireShufflePartial`, `WireProcessKeyPartition`, `WireKeyResult`, and
   `runDistributedShuffleWire` for coordinator-mediated typed wire shuffle;
   `examples/distributed-dataset-wire-shuffle.ssc` runs through `ssc run-jvm`.
-  Remaining: richer sync UI helpers, production graph adapters, and
-  higher-level typed distributed Dataset helpers.
+  Follow-up landed 2026-05-26: `std/mapreduce` now exposes
+  `DistributedDataset.partition`, `DistributedDataset.encode[A]`, and
+  `DistributedDataset.decode[A]` typed boundary helpers for distributed
+  Dataset wire execution; `examples/distributed-dataset-typed-helpers.ssc`
+  runs through `ssc run-jvm`. Remaining: richer sync UI helpers, production
+  graph adapters, and richer distributed Dataset ergonomics for actor-effect
+  wrappers once generated effect composition supports them reliably.
 
 ## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 

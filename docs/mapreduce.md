@@ -266,7 +266,9 @@ Options:
   coordinator-mediated `groupBy` / `reduceByKey`: Phase A emits
   `WireShufflePartial` buckets keyed by `JsonValue`, Phase B processes
   `WireProcessKeyPartition` messages, and the final output is a
-  `DatasetWirePartition`.
+  `DatasetWirePartition`. `DistributedDataset.encode/decode[A]` wraps the
+  common typed boundary while keeping the actor-effect calls explicit inside
+  `runActors`.
 - **Closure serialisation** — serialise the `T => U`
   closure including its captured environment.  Deferred to
   v1.22.x; requires v1.14 `derives` + bytecode shenanigans;
@@ -276,9 +278,10 @@ For v1.22: **named handlers only for functions**.  Users register `def
 parseRow(line: String): Row = …` on every node (via the
 shared codebase deployment); the API uses the function name
 in messages.  Spark-like inline closures wait for closure
-serialisation. Typed data movement can use `runDistributedWire` and
-`runDistributedShuffleWire` with `DatasetCodec[A]` partition helpers where a
-distributed worker boundary needs a stable representation for domain values.
+serialisation. Typed data movement can use `DistributedDataset.encode[A]`,
+`runDistributedWire` / `runDistributedShuffleWire`, and
+`DistributedDataset.decode[B]` where a distributed worker boundary needs a
+stable representation for domain values.
 
 ### 4.5 Backend support
 

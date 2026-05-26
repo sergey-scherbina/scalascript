@@ -1,0 +1,47 @@
+---
+name: std-mapreduce-typed
+version: 0.1.0
+description: Typed Dataset helpers for distributed MapReduce wire execution. v1.22.
+package: std.mapreduce
+exports:
+  - DistributedDataset
+---
+
+# `std.mapreduce.typed` — typed distributed Dataset helpers
+
+Thin helpers over the `DatasetWirePartition` protocol.  They keep
+domain encode/decode typed through `DatasetCodec[A]`, and keep actor/shuffle
+transport on the stable encoded wire path.
+
+## Imports
+
+[Cluster](cluster.ssc)
+
+[DistributedResult](distributed.ssc)
+
+```scalascript
+import scalascript.typeddata.{DatasetCodec, DatasetWirePartition}
+
+object DistributedDataset:
+  def partition[A](values: List[A], partitionCount: Int): List[List[A]] =
+    if partitionCount <= 0 || values.isEmpty then List(values)
+    else
+      val size = (values.length + partitionCount - 1) / partitionCount
+      values.grouped(size).toList
+
+  def encode[A](
+    values: List[A],
+    partitionCount: Int
+  )(using codec: DatasetCodec[A]): List[DatasetWirePartition] =
+    DatasetCodec.encodePartitions[A](partition(values, partitionCount)).toList
+
+  def decode[A](
+    result: DistributedResult[DatasetWirePartition]
+  )(using codec: DatasetCodec[A]): DistributedResult[A] =
+    val decoded = DatasetCodec.decodePartitions[A](result.results).toOption.get
+    DistributedResult(
+      decoded.flatMap(partition => partition.values.toList).toList,
+      result.failures
+    )
+
+```
