@@ -1988,9 +1988,10 @@ lazy val authPlugin = project
 
 lazy val oauthPlugin = project
   .in(file("runtime/std/oauth-plugin"))
-  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon)
+  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-oauth-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
