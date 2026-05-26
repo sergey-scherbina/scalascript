@@ -4,6 +4,7 @@
 !.github/
 !.gitignore
 !.gitattributes
+!.work/
 
 
 # Build outputs

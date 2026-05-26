@@ -322,8 +322,10 @@ done
 ```
 
 If a sibling's branch name, modified files, or recent commits overlap
-with your candidate item — pick a different item from `MILESTONES.md`.
-Don't coordinate through chat; the worktree state is the contract.
+with your candidate item — pick a different item. Check both
+`git worktree list` (active worktrees) and `.work/active/` (claimed tasks)
+before deciding what's free. Don't coordinate through chat; the git state
+is the contract.
 
 If your item already landed on `origin/main` (search recent commits),
 mark it done in `MILESTONES.md` and move on.
@@ -509,6 +511,116 @@ after yourself.**
 
 ---
 
+## Task claiming protocol (multi-agent coordination)
+
+`WORK_QUEUE.md` lists tasks in priority order. Multiple agents can run
+simultaneously without stepping on each other by using this protocol.
+
+### How it works
+
+The coordination primitive is **`git push origin main`**: only one agent
+can land a fast-forward push at a time. A claim is a tiny push that adds
+one file; the loser's push gets rejected and they retry with a fresh view.
+
+Active claims live in `.work/active/`. Each file is named `<task-slug>.claim`
+and contains the worktree name of the agent working on it. File names are
+unique by task slug, so two agents can never produce a git conflict when
+adding different tasks' claim files. Conflicts arise only if two agents
+claim the *same* task simultaneously — but the rejected push prevents that.
+
+### Claiming a task (step by step)
+
+Run these commands from the **main checkout** (not inside a worktree):
+
+```bash
+# 1. Get a fresh, authoritative view of the world
+git fetch origin
+git reset --hard origin/main
+
+# 2. Read what's available
+cat WORK_QUEUE.md                     # ordered pending list
+ls .work/active/                      # what's already claimed
+cat .work/active/*.claim 2>/dev/null  # which worktrees own which tasks
+
+# 3. Pick the highest-priority Pending task whose slug has no .claim file
+#    (if every Pending task is claimed, wait or read MILESTONES.md for unlisted work)
+TASK_SLUG="v1.46-phase5-derivation"   # example
+WORKTREE_NAME="feature+phase5-derivation"
+
+# 4. Write the claim file
+echo "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" > ".work/active/${TASK_SLUG}.claim"
+git add ".work/active/${TASK_SLUG}.claim"
+git commit -m "claim: ${TASK_SLUG}"
+
+# 5. Atomic push — this is the mutex
+git push origin main
+# SUCCESS → you own the task, proceed to step 6
+# REJECTED (non-fast-forward) → another agent moved main first; go back to step 1
+```
+
+**Why this works:** If agents A and B both try to claim the same task at the same
+instant, both push. Git allows only one to fast-forward; the other is rejected
+with "Updates were rejected because the tip of your current branch is behind".
+The loser refetches, sees the winner's claim file, and picks a different task.
+
+### Starting work after a successful claim
+
+```bash
+# Claim succeeded — now enter a worktree off the fresh origin/main
+# (which already includes your claim commit)
+EnterWorktree("${WORKTREE_NAME}")
+# ... do the work normally per Rules 1–5 ...
+```
+
+### Completing a task
+
+In your worktree, before the final push:
+
+```bash
+# Remove your claim file
+git rm ".work/active/${TASK_SLUG}.claim"
+
+# Mark the task done in WORK_QUEUE.md (change [ ] → [x])
+# ... edit WORK_QUEUE.md ...
+git add WORK_QUEUE.md
+
+# Include these in your final commit (or as a separate follow-up commit)
+git commit -m "done: ${TASK_SLUG} — <one-line summary>"
+git push origin "${WORKTREE_NAME}:main"
+```
+
+Removing the claim and marking done **must be in the same push as the feature
+work** so there is never a window where the task looks incomplete while the
+code is already on main.
+
+### Checking who's doing what
+
+```bash
+git fetch origin
+git ls-tree origin/main .work/active/   # all active claims on remote
+# or:
+for f in .work/active/*.claim; do
+  [ "$f" = ".work/active/.gitkeep" ] && continue
+  printf "%-40s %s\n" "$(basename $f .claim)" "$(cat $f)"
+done
+```
+
+### Stale claims (agent died, timed out, or was interrupted)
+
+A claim file with no corresponding live worktree is stale. To release it:
+
+```bash
+git fetch origin && git reset --hard origin/main
+git rm ".work/active/${TASK_SLUG}.claim"
+git commit -m "release-claim: ${TASK_SLUG} (agent gone)"
+git push origin main
+```
+
+Only do this if you are certain the agent that wrote the claim is no longer
+running (check `git worktree list` and the timestamp inside the file).
+
+---
+
 ## Autonomous continuous-delivery flow
 
 When the user says "work through tasks in order", use this loop without
@@ -516,21 +628,28 @@ asking for permission between items:
 
 ```
 while true:
-    1. git fetch origin; read MILESTONES.md "Known issues" + "Next wave"
-    2. Pick the highest-priority open item (bugs before features)
-    3. If the item is genuinely ambiguous (design choice, unclear scope,
-       risk of breaking something non-obvious) → ask the user ONE clear
-       question, wait for answer, then proceed
-    4. EnterWorktree("feature/<short-name>") off origin/main
-    5. Implement, run tests, fix until green
-    6. Update docs: README.md + docs/user-guide.md + docs/tutorial.md (see Rule 3a)
-    7. Commit + update MILESTONES.md in the same commit
-    8. Rebase on origin/main if it moved; push to origin/main
-    9. ExitWorktree(remove); delete remote branch
-   10. Report ONE line of progress to the user: "✓ <what landed>"
-   11. Immediately list the next planned tasks/features from `MILESTONES.md`
-       and say which one you recommend doing next.
-   12. Go to step 1
+    1.  git fetch origin && git reset --hard origin/main
+    2.  Read WORK_QUEUE.md Pending list; check .work/active/ for claimed tasks
+    3.  Pick the highest-priority Pending task with no .claim file
+        (fall back to MILESTONES.md if WORK_QUEUE.md has no unclaimed items)
+    4.  If the task is genuinely ambiguous → ask the user ONE clear question,
+        wait for answer, then proceed
+    5.  Claim the task (see §"Task claiming protocol"):
+          echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
+          git add .work/active/<slug>.claim && git commit -m "claim: <slug>"
+          git push origin main
+        If push rejected → go to step 1 (another agent won the race)
+    6.  EnterWorktree("<worktree-name>") off the now-updated origin/main
+    7.  Implement, run tests, fix until green
+    8.  Update docs: README.md + docs/user-guide.md + docs/<feature>.md (Rule 3a)
+    9.  In the same final commit:
+          git rm .work/active/<slug>.claim
+          mark task [x] in WORK_QUEUE.md
+          update MILESTONES.md
+    10. Rebase on origin/main if it moved; push to origin/main
+    11. ExitWorktree(remove); delete remote branch
+    12. Report ONE line of progress to the user: "✓ <what landed>"
+    13. Go to step 1
 ```
 
 Stop only when:
