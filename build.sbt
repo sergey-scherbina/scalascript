@@ -548,6 +548,16 @@ lazy val backendInterpreter = project
     }.taskValue
   )
 
+lazy val testUtils = project
+  .in(file("runtime/backend/test-utils"))
+  .dependsOn(backendSpi, backendInterpreter)
+  .settings(
+    name := "scalascript-test-utils",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // DAP debugger backend — Phase 1 TCP skeleton (docs/dap-debugger.md).
 // Provides Content-Length framing, DapServer TCP accept loop, and DapSession
 // lifecycle handler (initialize / launch / configurationDone / disconnect).
@@ -2019,7 +2029,7 @@ lazy val paymentRequest = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, logger, core, interop,
+    backendSpi, ir, logger, core, interop, testUtils,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,

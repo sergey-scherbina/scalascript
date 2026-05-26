@@ -312,7 +312,11 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
 
   Post-migration follow-ons (not blocking; tracked in `docs/intrinsics-migration.md` §11):
 
-  - **Plugin test harness** — `test-utils` submodule + per-plugin `src/test/` not yet built.
+  - **Plugin test harness** — ✅ **PARTIAL LANDED (2026-05-26)**:
+    `runtime/backend/test-utils` now provides `TestInterpreter(plugins =
+    List(...))`, explicit plugin installation on `Interpreter`, and a harness
+    self-test. Remaining: break the legacy `backendInterpreter / Test` →
+    std-plugin classpath coupling, then add per-plugin `src/test/` suites.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
@@ -5677,9 +5681,12 @@ worth a separate fix when somebody has cycles.
 
 - **Post-migration follow-ons** (not blocking; spec §11 of
   `docs/intrinsics-migration.md`):
-  - **Plugin test harness** — `test-utils` sbt submodule + `TestInterpreter(plugins =
-    List(p))` + per-plugin `src/test/` trees.  All 10 plugin families currently
-    tested only via the main conformance suite.  Effort: M.
+  - **Plugin test harness** — ✅ **PARTIAL LANDED (2026-05-26)**:
+    `runtime/backend/test-utils` now exposes `TestInterpreter(plugins =
+    List(p))`, backed by explicit `Interpreter.installPlugins(...)`, plus a
+    fake-plugin self-test. Remaining: break the legacy `backendInterpreter /
+    Test` dependency on std plugins and then migrate per-plugin `src/test/`
+    suites. Effort remaining: M.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
     import lines, relying on ServiceLoader classpath discovery.  Effort: S.

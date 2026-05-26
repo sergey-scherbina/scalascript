@@ -155,6 +155,22 @@ class Interpreter(
     installNativeIntrinsics(pluginImpls)
     BuiltinsRuntime.setupPluginCompanions(this)
 
+  /** Install exactly the supplied in-process interpreter plugins.
+   *
+   *  Test harnesses and embedded hosts use this to exercise one plugin (or a
+   *  small explicit set) without falling back to ServiceLoader discovery of
+   *  every plugin on the classpath. */
+  def installPlugins(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
+    import scalascript.backend.spi.NativeImpl
+    val pluginImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
+      plugins.iterator
+        .flatMap(_.intrinsics)
+        .collect { case entry @ (_, _: NativeImpl) => entry }
+        .toMap
+    installNativeIntrinsics(pluginImpls)
+    BuiltinsRuntime.setupPluginCompanions(this)
+    _pluginsLoaded = true
+
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private[interpreter] val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)
   private inline def placeholderIdx: Int          = _phIdxTL.get()

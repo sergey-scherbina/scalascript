@@ -535,19 +535,22 @@ one family may require cutting a new std meta-package).
 
 ## 6. Test migration strategy
 
-**Status: OPEN** — `std/*-plugin` directories have no `src/test/` trees and
-the `test-utils` sbt submodule does not yet exist.  Plugin correctness is
-currently covered by the main conformance suite (which loads all plugins via
-ServiceLoader).  See §11 for the open-item entry.
+**Status: PARTIAL** — `runtime/backend/test-utils` now provides
+`TestInterpreter(plugins = List(...))`, installs only the explicit
+`Backend` instances supplied by a test, and has a self-test with a fake
+intrinsic plugin. `std/*-plugin` directories still have no `src/test/` trees;
+plugin correctness is still primarily covered by the main conformance suite
+(which loads all plugins via ServiceLoader).  See §11 for the remaining
+per-plugin migration entry.
 
 Each `.sscpkg` is a self-contained sbt subproject with its own test suite.
 
-**Harness pattern** (designed but not yet built):
+**Harness pattern**:
 
 ```scala
 // json-plugin/src/test/scala/JsonPluginSpec.scala
-class JsonPluginSpec extends munit.FunSuite:
-  val plugin = JsonPlugin               // Backend impl from the plugin JAR
+class JsonPluginSpec extends AnyFunSuite:
+  val plugin = JsonInterpreterPlugin()  // Backend impl from the plugin JAR
   val interp  = TestInterpreter(plugins = List(plugin))
 
   test("roundtrip") {
@@ -557,9 +560,10 @@ class JsonPluginSpec extends munit.FunSuite:
 ```
 
 `TestInterpreter` is a thin wrapper around the main interpreter that
-accepts a `plugins` list, merges their intrinsics, and returns result
-values.  It should live in a `test-utils` submodule shared across all
-plugin test suites.
+accepts a `plugins` list, merges their `NativeImpl` intrinsics, disables
+fallback ServiceLoader loading for that interpreter instance, and returns
+result values unwrapped to plain Scala values where practical. It lives in
+the `test-utils` submodule shared by future plugin test suites.
 
 **What happens to in-tree tests**:
 
@@ -714,8 +718,7 @@ in `MILESTONES.md` (post-migration follow-ons block).
 
 ### 11.1 Plugin test harness (`test-utils` + per-plugin `src/test/`)
 
-`std/*-plugin` directories have no `src/test/` tree.  A `test-utils` sbt
-submodule should provide:
+`runtime/backend/test-utils` now provides:
 
 ```scala
 class TestInterpreter(plugins: List[Backend]):
@@ -724,8 +727,13 @@ class TestInterpreter(plugins: List[Backend]):
 
 Each plugin then gets a `src/test/` with a `*PluginSpec` that tests its
 intrinsics in isolation, without depending on the full conformance suite.
+That per-plugin migration is still open because `backendInterpreter / Test`
+currently depends on the std plugin projects to run the legacy conformance
+suite; adding `std-plugin / Test -> testUtils -> backendInterpreter` before
+that old test-classpath dependency is removed creates an sbt project cycle.
 
-**Effort**: S (test-utils harness) + S per plugin × 10 plugins = ~M total.
+**Effort remaining**: break the legacy `backendInterpreter / Test` plugin
+classpath coupling, then migrate plugin suites one family at a time.
 
 ### 11.2 Examples `pkg:` import sweep
 
