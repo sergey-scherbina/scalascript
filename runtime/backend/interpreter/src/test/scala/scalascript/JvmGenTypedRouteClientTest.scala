@@ -84,9 +84,9 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("_ssc_ui_backend_transport.request("))
     assert(code.contains("_ssc_typed_json_decode_response[Resp](response)"))
     assert(code.contains("object Messages:"))
-    assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
-    assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))
-    assert(code.contains("""def delete(input: Int): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input)"""))
+    assert(code.contains("""def create(input: CreateMessage, headers: Map[String, String] = Map.empty): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input, headers)"""))
+    assert(code.contains("""def list(headers: Map[String, String] = Map.empty): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", (), headers)"""))
+    assert(code.contains("""def delete(input: Int, headers: Map[String, String] = Map.empty): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input, headers)"""))
   }
 
   test("non-Swing JVM codegen keeps metadata only until HTTP transport lands") {
@@ -132,7 +132,7 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("private var _ssc_api_extra_headers: Map[String, String] = Map.empty"))
     assert(code.contains("def _ssc_api_set_headers(headers: Map[String, String]): Unit"))
     assert(code.contains("def _ssc_set_auth_token(token: String): Unit"))
-    assert(code.contains("baseHeaders ++ _ssc_api_extra_headers"))
+    assert(code.contains("baseHeaders ++ _ssc_api_extra_headers ++ callHeaders"))
   }
 
   test("JVM codegen path param validation: Unit request type emits warning comment") {
@@ -175,6 +175,34 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
 
     val code = JvmGen.generate(Parser.parse(src))
     assert(!code.contains("// [ssc warning]"))
+  }
+
+  test("JVM codegen emits per-call headers param in client methods and runtime") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: get
+        |        method: GET
+        |        path: /api/items/:id
+        |        request: Int
+        |        response: String
+        |      - name: create
+        |        method: POST
+        |        path: /api/items
+        |        request: String
+        |        response: Int
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("callHeaders: Map[String, String] = Map.empty"))
+    assert(code.contains("baseHeaders ++ _ssc_api_extra_headers ++ callHeaders"))
+    assert(code.contains("""def get(input: Int, headers: Map[String, String] = Map.empty): String"""))
+    assert(code.contains("""def create(input: String, headers: Map[String, String] = Map.empty): Int"""))
   }
 
   test("JVM codegen skips client-only ScalaScript blocks") {

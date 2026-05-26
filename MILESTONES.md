@@ -10684,5 +10684,9 @@ distributed same-source server/client example are partially landed.
   `_ssc_set_auth_token(token)` are generated in both the JS and JVM/Swing typed
   route client runtimes. Extra headers are merged into every subsequent client
   request (JS: `Object.assign` into `fetch` init; JVM: merged into
-  `BackendRequest.headers`). Remaining: streaming, SSE/WebSocket, pagination,
-  per-endpoint header overrides, retries, cancellation.
+  `BackendRequest.headers`). Per-call header overrides landed 2026-05-26: all
+  generated client methods now accept an optional trailing `headers` parameter
+  (JS: plain object; JVM: `Map[String, String] = Map.empty`) merged over global
+  extra headers for that single call only (merge order: Content-Type → global →
+  per-call, so per-call wins). Remaining: streaming, SSE/WebSocket, pagination,
+  retries, cancellation.

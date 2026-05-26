@@ -382,8 +382,16 @@ applied. In JVM/Swing, the headers are merged into `BackendRequest.headers`
 alongside the per-request `Content-Type` before the in-process transport
 dispatch.
 
+Landed 2026-05-26 follow-up: per-call header overrides. All generated client
+methods now accept an optional trailing `headers` parameter (JS: plain object
+defaulting to `undefined`; JVM: `Map[String, String] = Map.empty`) merged over
+the module-global extra headers for that single call only. This lets call sites
+supply per-request tokens, correlation IDs, or other headers without disturbing
+the global state. The merge order is: Content-Type (base) → global extra headers
+→ per-call headers, so per-call headers win over both.
+
 Still planned for Phase 6: streaming responses, SSE/WebSocket subscriptions,
-pagination helpers, per-endpoint header overrides, retries, and cancellation.
+pagination helpers, retries, and cancellation.
 
 ## Testing Strategy
 

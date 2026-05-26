@@ -45,7 +45,7 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("let _ssc_api_extra_headers = {};"))
     assert(code.contains("function _ssc_api_set_headers(headers)"))
     assert(code.contains("function _ssc_set_auth_token(token)"))
-    assert(code.contains("headers: Object.assign({}, _ssc_api_extra_headers)"))
+    assert(code.contains("headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {})"))
 
   test("JS typed route client request merges extra headers from _ssc_api_extra_headers"):
     assume(hasNode, "node not available")
@@ -80,21 +80,50 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |""".stripMargin
     assert(runJs(code + "\n" + harness) == "none:Bearer tok123:Basic abc:none:val")
 
+  test("JS typed route client per-call headers override module headers"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |const capturedHeaders = [];
+        |globalThis.fetch = async function(url, init) {
+        |  capturedHeaders.push(Object.assign({}, init.headers));
+        |  return {
+        |    ok: true, status: 200,
+        |    headers: { get: function() { return "application/json"; } },
+        |    text: async function() { return "[]"; }
+        |  };
+        |};
+        |(async function() {
+        |  _ssc_set_auth_token("global-tok");
+        |  await Messages.list();
+        |  await Messages.list({"Authorization": "Bearer per-call", "X-Req": "yes"});
+        |  await Messages.list();
+        |  process.stdout.write([
+        |    capturedHeaders[0]['Authorization'] || "none",
+        |    capturedHeaders[1]['Authorization'] || "none",
+        |    capturedHeaders[1]['X-Req'] || "none",
+        |    capturedHeaders[2]['Authorization'] || "none",
+        |  ].join(":"));
+        |})().catch(e => { process.stdout.write("ERR:" + e); process.exitCode = 1; });
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "Bearer global-tok:Bearer per-call:yes:Bearer global-tok")
+
   test("JS codegen emits HTTP typed route client metadata and Promise methods"):
     val code = JsGen.generate(Parser.parse(source))
 
     assert(code.contains("const _ssc_typedRouteClients = ["))
     assert(code.contains("""{client: "Messages", name: "create", method: "POST", path: "/api/messages", requestType: "CreateMessage", responseType: "Message"}"""))
-    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType)"))
+    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders)"))
     assert(code.contains("function _ssc_typed_json_encode(value, typeName)"))
     assert(code.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
     assert(code.contains("return _ssc_typed_json_encode(input, requestType);"))
     assert(code.contains("const response = await fetch(url, init);"))
     assert(code.contains("return _ssc_typed_json_decode_response(text, contentType, responseType);"))
     assert(code.contains("const Messages = {"))
-    assert(code.contains("""create(input) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message"); }"""))
-    assert(code.contains("""list() { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]"); }"""))
-    assert(code.contains("""get(input) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message"); }"""))
+    assert(code.contains("""create(input, headers) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message", headers); }"""))
+    assert(code.contains("""list(headers) { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]", headers); }"""))
+    assert(code.contains("""get(input, headers) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message", headers); }"""))
     assert(code.contains("""_ssc_typed_json_register_product("CreateMessage", ["text"], CreateMessage)"""))
     assert(code.contains("""_ssc_typed_json_register_product("Message", ["id", "text"], Message)"""))
 

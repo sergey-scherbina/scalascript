@@ -1765,14 +1765,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
             val method = scalaStringLiteral(endpoint.method)
             val path = scalaStringLiteral(endpoint.path)
             if endpoint.requestType == "Unit" then
-              sb.append("  def ").append(endpoint.name).append("(): ").append(endpoint.responseType)
+              sb.append("  def ").append(endpoint.name)
+                .append("(headers: Map[String, String] = Map.empty): ").append(endpoint.responseType)
                 .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
-                .append(method).append(", ").append(path).append(", ())\n")
+                .append(method).append(", ").append(path).append(", (), headers)\n")
             else
-              sb.append("  def ").append(endpoint.name).append("(input: ").append(endpoint.requestType).append("): ")
+              sb.append("  def ").append(endpoint.name).append("(input: ").append(endpoint.requestType)
+                .append(", headers: Map[String, String] = Map.empty): ")
                 .append(endpoint.responseType).append(" = _ssc_api_request[")
                 .append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
-                .append(method).append(", ").append(path).append(", input)\n")
+                .append(method).append(", ").append(path).append(", input, headers)\n")
           }
           sb.append("\n")
       }
@@ -1827,7 +1829,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  else
        |    _ssc_api_extra_headers = _ssc_api_extra_headers + ("Authorization" -> ("Bearer " + token))
        |
-       |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req): Resp =
+       |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req, callHeaders: Map[String, String] = Map.empty): Resp =
        |  val method = methodRaw.toUpperCase
        |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
        |  val body = _ssc_api_body[Req](method, input)
@@ -1835,7 +1837,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty
        |  val response = scala.concurrent.Await.result(
        |    _ssc_ui_backend_transport.request(
-       |      scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers, _ssc_ui_utf8(body))
+       |      scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers ++ callHeaders, _ssc_ui_utf8(body))
        |    ),
        |    scala.concurrent.duration.Duration.Inf
        |  )

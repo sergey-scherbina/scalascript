@@ -7836,9 +7836,9 @@ class JsGen(
             val requestType = jsQuote(endpoint.requestType)
             val responseType = jsQuote(endpoint.responseType)
             if endpoint.requestType == "Unit" then
-              line(s"${endpoint.name}() { return _ssc_api_request($method, $path, undefined, $requestType, $responseType); }$comma")
+              line(s"${endpoint.name}(headers) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers); }$comma")
             else
-              line(s"${endpoint.name}(input) { return _ssc_api_request($method, $path, input, $requestType, $responseType); }$comma")
+              line(s"${endpoint.name}(input, headers) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers); }$comma")
           }
           indent -= 1
           line("};")
@@ -7910,10 +7910,10 @@ class JsGen(
        |    _ssc_api_extra_headers = Object.assign({}, _ssc_api_extra_headers, {'Authorization': 'Bearer ' + token});
        |  }
        |}
-       |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType) {
+       |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders) {
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
-       |  const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers) };
+       |  const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {}) };
        |  const body = _ssc_api_body(method, input, requestType);
        |  if (body !== undefined) {
        |    init.body = body;
