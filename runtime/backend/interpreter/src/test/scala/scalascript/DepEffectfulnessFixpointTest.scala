@@ -141,6 +141,28 @@ class DepEffectfulnessFixpointTest extends AnyFunSuite with Matchers:
     effectful shouldBe Set("handleMessages")
   }
 
+  test("qualified call to effectful dep method marks wrapper") {
+    val effectful = analyse("""
+      object Wire:
+        def runRaw(): Any = self()
+
+      object Typed:
+        def run(): Any = Wire.runRaw()
+    """)
+    effectful shouldBe Set("runRaw", "run")
+  }
+
+  test("generic qualified call to effectful dep method marks wrapper") {
+    val effectful = analyse("""
+      object Wire:
+        def runRaw[A](): Any = self()
+
+      object Typed:
+        def run[A](): Any = Wire.runRaw[A]()
+    """)
+    effectful shouldBe Set("runRaw", "run")
+  }
+
   test("fixpoint converges in one extra iteration for typical chains") {
     // 5-deep chain: ensure we don't loop forever on healthy inputs.
     val effectful = analyse("""

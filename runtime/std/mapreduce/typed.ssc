@@ -17,7 +17,9 @@ transport on the stable encoded wire path.
 
 [Cluster](cluster.ssc)
 
-[DistributedResult](distributed.ssc)
+[DistributedResult, Stage, runDistributedWire](distributed.ssc)
+
+[ShuffleStage, runDistributedShuffleWire](shuffle.ssc)
 
 ```scalascript
 import scalascript.typeddata.{DatasetCodec, DatasetWirePartition}
@@ -43,5 +45,45 @@ object DistributedDataset:
       decoded.flatMap(partition => partition.values.toList).toList,
       result.failures
     )
+
+  def run[A, B](
+    values: List[Any],
+    stage: Stage,
+    cluster: Cluster,
+    retries: Int,
+    allowPartial: Boolean
+  )(using inCodec: DatasetCodec[A], outCodec: DatasetCodec[B]): DistributedResult[B] =
+    val partitions = encode[A](
+      values.asInstanceOf[List[A]],
+      cluster.nodes.length.asInstanceOf[Int]
+    )
+    val wire = runDistributedWire(
+      partitions,
+      stage,
+      cluster,
+      retries,
+      allowPartial
+    ).asInstanceOf[DistributedResult[DatasetWirePartition]]
+    decode[B](wire.asInstanceOf[DistributedResult[DatasetWirePartition]])
+
+  def runShuffle[A, B](
+    values: List[Any],
+    shuffleStage: ShuffleStage,
+    cluster: Cluster,
+    retries: Int,
+    allowPartial: Boolean
+  )(using inCodec: DatasetCodec[A], outCodec: DatasetCodec[B]): DistributedResult[B] =
+    val partitions = encode[A](
+      values.asInstanceOf[List[A]],
+      cluster.nodes.length.asInstanceOf[Int]
+    )
+    val wire = runDistributedShuffleWire(
+      partitions,
+      shuffleStage,
+      cluster,
+      retries,
+      allowPartial
+    ).asInstanceOf[DistributedResult[DatasetWirePartition]]
+    decode[B](wire.asInstanceOf[DistributedResult[DatasetWirePartition]])
 
 ```

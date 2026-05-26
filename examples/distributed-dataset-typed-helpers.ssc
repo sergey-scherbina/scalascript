@@ -12,15 +12,15 @@ backend: jvm
 
 [HandlerRegistry, NamedHandler](../runtime/std/mapreduce/handlers.ssc)
 
-[DistributedResult, Stage, MapOp, runDistributedWire](../runtime/std/mapreduce/distributed.ssc)
+[DistributedResult, Stage, MapOp](../runtime/std/mapreduce/distributed.ssc)
 
-[ShuffleProtocol, ShuffleStage, runDistributedShuffleWire](../runtime/std/mapreduce/shuffle.ssc)
+[ShuffleProtocol, ShuffleStage](../runtime/std/mapreduce/shuffle.ssc)
 
 [DistributedDataset](../runtime/std/mapreduce/typed.ssc)
 
 ```scalascript
-import scalascript.typeddata.{DatasetWirePartition, JsonCodec, JsonValue as TJsonValue}
-import std.mapreduce.{Cluster, DistributedDataset, DistributedResult, HandlerRegistry, MapOp, NamedHandler, Node, ShuffleProtocol, ShuffleStage, Stage, runDistributedShuffleWire, runDistributedWire}
+import scalascript.typeddata.{JsonCodec, JsonValue as TJsonValue}
+import std.mapreduce.*
 
 case class Sale(user: String, amount: Int) derives JsonCodec
 
@@ -61,12 +61,7 @@ val sales = List(
   Sale("grace", 7)
 )
 
-var mappedWire: DistributedResult[DatasetWirePartition] =
-  DistributedResult(Nil, Nil)
-var reducedWire: DistributedResult[DatasetWirePartition] =
-  DistributedResult(Nil, Nil)
-
-val inputWire = DistributedDataset.encode[Sale](sales, 2)
+var reduced: Any = Nil
 
 runActors {
   HandlerRegistry.clear()
@@ -81,17 +76,16 @@ runActors {
     List(worker1, worker2)
   )
 
-  val mappedResult = runDistributedWire(
-    inputWire,
+  val mapped: List[Sale] = DistributedDataset.run[Sale, Sale](
+    sales,
     Stage(List(MapOp("addBonus"))),
     cluster.asInstanceOf[Cluster],
     retries = 0,
     allowPartial = false
-  )
-  mappedWire = mappedResult.asInstanceOf[DistributedResult[DatasetWirePartition]]
+  ).asInstanceOf[DistributedResult[Sale]].results
 
-  val reducedResult = runDistributedShuffleWire(
-    mappedWire.results,
+  val reducedList: List[Sale] = DistributedDataset.runShuffle[Sale, Sale](
+    mapped,
     ShuffleStage(
       preShuffle = Stage(Nil),
       keyHandlerName = "userKey",
@@ -101,13 +95,12 @@ runActors {
     cluster.asInstanceOf[Cluster],
     retries = 0,
     allowPartial = false
-  )
-  reducedWire = reducedResult.asInstanceOf[DistributedResult[DatasetWirePartition]]
+  ).asInstanceOf[DistributedResult[Sale]].results.asInstanceOf[List[Sale]]
+  reduced = reducedList
 }
 
-val reduced = DistributedDataset.decode[Sale](reducedWire).results
-
 val summary = reduced
+  .asInstanceOf[List[Sale]]
   .sortBy(_.user)
   .map(sale => s"${sale.user}:${sale.amount}")
   .mkString(",")

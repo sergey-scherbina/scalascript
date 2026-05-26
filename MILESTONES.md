@@ -10478,9 +10478,11 @@ modes opt out of that default.
   `DistributedDataset.partition`, `DistributedDataset.encode[A]`, and
   `DistributedDataset.decode[A]` typed boundary helpers for distributed
   Dataset wire execution; `examples/distributed-dataset-typed-helpers.ssc`
-  runs through `ssc run-jvm`. Remaining: richer sync UI helpers, production
-  graph adapters, and richer distributed Dataset ergonomics for actor-effect
-  wrappers once generated effect composition supports them reliably.
+  runs through `ssc run-jvm`. Follow-up landed 2026-05-26:
+  `DistributedDataset.run/runShuffle[A, B]` now wrap the actor-effect map
+  and shuffle calls for generated JVM code, backed by qualified dep-effect
+  detection and generic call-site cast wiring. Remaining: richer sync UI
+  helpers and production graph adapters.
 
 ## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 

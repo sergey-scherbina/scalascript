@@ -1252,8 +1252,9 @@ values with `DatasetCodec.decodePartitions[A]`. `runDistributedShuffleWire`
 adds the same wire representation for coordinator-mediated `groupBy` /
 `reduceByKey`: key and combine handlers operate on `JsonValue`, and reduce
 outputs are returned as `DatasetWirePartition` payloads. `DistributedDataset`
-adds typed `encode/decode[A]` helpers for that boundary while the actor-effect
-calls remain explicit in `runActors`.
+adds typed `encode/decode[A]` helpers for that boundary, plus
+`run/runShuffle[A, B]` wrappers that keep the actor-effect map and shuffle
+calls behind the typed Dataset facade on the JVM generated path.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.

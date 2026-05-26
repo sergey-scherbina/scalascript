@@ -224,6 +224,7 @@ class JvmGen(
   // sealed trait extended by `MapOp` / `FilterOp` — users only import
   // the concrete cases).
   private val depTypeNames = mutable.Map.empty[String, List[String]]
+  private val declaredVarTypes = mutable.Map.empty[String, String]
 
   // Test hooks — Step 2 unit tests populate `depDefs` via
   // `seedDepDefsForTest` (which mirrors what `inlineImport` does
@@ -345,6 +346,7 @@ class JvmGen(
     emitTypedRouteClientMetadata(apiClients, sb)
     if effectiveFrontend.contains("swing") then
       emitSwingTypedRouteClients(apiClients, sb)
+    collectDeclaredVarTypes(blocks)
 
     // i18n table injection — emitted once before user blocks so t(key) resolves correctly.
     module.manifest.foreach { m =>
@@ -635,7 +637,6 @@ class JvmGen(
       if l.startsWith("import std.") && isTypeOnlyImport(l) then
         val relative = "  " + l.replaceFirst("import std\\.", "import ")
         importBuf   += relative
-        removedLines += idx
 
     // Inject std/ui opaque type aliases at the start if std.ui.primitives is present.
     // Replace any partial ui.primitives.{ import (types-only) with the full one.
@@ -2811,6 +2812,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case Term.Apply.After_4_6_0(Term.Name(n), _) if actorBareNames(n) => ()
       // Cross-dep: bare call to a known-effectful dep function.
       case Term.Apply.After_4_6_0(Term.Name(n), _) if crossDepEffectful(n) => ()
+      // Cross-dep: qualified call to a known-effectful dep method.
+      case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if crossDepEffectful(n) => ()
+      case Term.Apply.After_4_6_0(
+            Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name(n)), _),
+            _
+          ) if crossDepEffectful(n) => ()
+      case Term.Apply.After_4_6_0(
+            Term.ApplyType.After_4_6_0(Term.Name(n), _),
+            _
+          ) if crossDepEffectful(n) => ()
       // Actor send sugar: `pid ! msg` (any infix `!`).
       case Term.ApplyInfix.After_4_6_0(_, Term.Name("!"), _, _) => ()
       // Qualified primitive Selects + Apply: `Actor.send(...)`, etc.
@@ -3108,6 +3119,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.Apply.After_4_6_0(Term.Name("runEphemeralStorage"), _)              => true
     case Term.Select(Term.Name(eff), Term.Name(op)) if isEffectOpRef(eff, op)     => true
     case Term.Apply.After_4_6_0(Term.Name(n), _) if isEffectfulFun(n)             => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name(n)), _) if isEffectfulFun(n) => true
+    case Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name(n)), _),
+          _
+        ) if isEffectfulFun(n) => true
+    case Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Name(n), _),
+          _
+        ) if isEffectfulFun(n) => true
     // Bare-name actor intrinsics — `subscribeClusterEvents()`,
     // `clusterMembers()`, `spawn { ... }`, etc.  Without this case the
     // val-rhs path emits the syntax verbatim and the unqualified name
@@ -3198,6 +3218,13 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   private def emitStats(stats: List[Stat], out: StringBuilder, isTopLevel: Boolean): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
+      s match
+        case Defn.Var.After_4_7_2(_, pats, Some(tpe), _) =>
+          pats.foreach {
+            case Pat.Var(n) => declaredVarTypes(n.value) = tpe.syntax
+            case _          => ()
+          }
+        case _ => ()
       val isLast = i == stats.length - 1
       val rendered = emitStat(s)
       val text = s match
@@ -3205,6 +3232,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case _                               => rendered
       out.append(text).append("\n")
     }
+
+  private def emitEffectfulParamGroups(d: Defn.Def): String =
+    if d.paramClauseGroups.isEmpty then "()"
+    else d.paramClauseGroups.map(_.syntax).mkString
 
   private def emitStat(stat: Stat): String = stat match
     // Stage 5+/A.6 (Б-1) — `extern def foo(...): T = __extern__` is a
@@ -3245,13 +3276,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // for reference types — and primitives are boxed through
       // `_perform` chains anyway).  Fallback to Any when `decltpe` is
       // absent, matching the previous behaviour for un-annotated params.
-      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}")
-          .getOrElse(s"${p.name.value}: Any")
-      }.mkString(", ")
+      val params = emitEffectfulParamGroups(d)
       // Return type set to Any (could be a Free value the caller's
       // `_bind` will unwrap).
-      s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
+      s"def ${d.name.value}$params: Any = ${emitCpsExpr(d.body)}"
 
     // val/var with effect-using rhs: transform rhs via emitExpr, which routes
     // `handle(...)` to its CPS rewrite.
@@ -4494,6 +4522,11 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.Tuple(elems) =>
       bindArgsCps(elems) { vs => s"(${vs.mkString(", ")})" }
 
+    case Term.Assign(lhs, rhs) =>
+      val v = freshTmp()
+      val cast = assignmentCast(lhs)
+      s"_bind(${emitCpsExpr(rhs)}, ($v: Any) => { ${lhs.syntax} = $v$cast; () })"
+
     case Term.Function.After_4_6_0(paramClause, body) =>
       val params = paramClause.values.map { p =>
         val tpe = p.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
@@ -4806,34 +4839,39 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       s"_bind(${emitCpsExpr(qual)}, ($v: Any) => $v.asInstanceOf[$tStr])"
 
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
+      if op.value == "=" && argClause.values.size == 1 then
+        val v = freshTmp()
+        val cast = assignmentCast(lhs)
+        s"_bind(${emitCpsExpr(argClause.values.head.asInstanceOf[Term])}, ($v: Any) => { ${lhs.syntax} = $v$cast; () })"
+      else
       // Scala parses `pid ! (a, b)` as `pid.!(a, b)` (2-arg infix) NOT as
       // `pid.!((a, b))` (1-arg tuple).  For `!` (actor send), reconstruct
       // the tuple syntactically when multiple values are present, so the
       // CPS-emitted Actor.send receives exactly one msg argument.
-      val rhs = argClause.values match
-        case List(single) => single
-        case many         =>
-          import scala.meta.{dialects, *}
-          val tupleSrc = many.map(_.syntax).mkString("(", ", ", ")")
-          dialects.Scala3(Input.String(tupleSrc)).parse[Term].get
-      bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
-        op.value match
-          case "==" | "!="    => s"($vl ${op.value} $vr)"
-          case "!"            => s"Actor.send($vl, $vr)"
-          case "&&" | "||"    => s"(${vl}.asInstanceOf[Boolean] ${op.value} ${vr}.asInstanceOf[Boolean])"
-          // Arithmetic / comparison operators: operands are Any in CPS context,
-          // so delegate to a runtime helper that pattern-matches on the actual
-          // numeric / String types.
-          case "+" | "-" | "*" | "/" | "%" |
-               "<" | ">" | "<=" | ">="          => s"""_binOp("${op.value}", $vl, $vr)"""
-          case "::"                              => s"$vl :: $vr.asInstanceOf[List[Any]]"
-          case "++" | ":::"                      => s"$vl.asInstanceOf[List[Any]] ++ $vr.asInstanceOf[List[Any]]"
-          case ":+"                              => s"$vl.asInstanceOf[List[Any]] :+ $vr"
-          case "+:"                              => s"$vl +: $vr.asInstanceOf[List[Any]]"
-          case "->"                              => s"($vl, $vr)"
-          case other                             => s"($vl $other $vr)"
-        case _ => "/* infix arity */"
-      }
+        val rhs = argClause.values match
+          case List(single) => single
+          case many         =>
+            import scala.meta.{dialects, *}
+            val tupleSrc = many.map(_.syntax).mkString("(", ", ", ")")
+            dialects.Scala3(Input.String(tupleSrc)).parse[Term].get
+        bindArgsCps(List(lhs, rhs)) { case List(vl, vr) =>
+          op.value match
+            case "==" | "!="    => s"($vl ${op.value} $vr)"
+            case "!"            => s"Actor.send($vl, $vr)"
+            case "&&" | "||"    => s"(${vl}.asInstanceOf[Boolean] ${op.value} ${vr}.asInstanceOf[Boolean])"
+            // Arithmetic / comparison operators: operands are Any in CPS context,
+            // so delegate to a runtime helper that pattern-matches on the actual
+            // numeric / String types.
+            case "+" | "-" | "*" | "/" | "%" |
+                 "<" | ">" | "<=" | ">="          => s"""_binOp("${op.value}", $vl, $vr)"""
+            case "::"                              => s"$vl :: $vr.asInstanceOf[List[Any]]"
+            case "++" | ":::"                      => s"$vl.asInstanceOf[List[Any]] ++ $vr.asInstanceOf[List[Any]]"
+            case ":+"                              => s"$vl.asInstanceOf[List[Any]] :+ $vr"
+            case "+:"                              => s"$vl +: $vr.asInstanceOf[List[Any]]"
+            case "->"                              => s"($vl, $vr)"
+            case other                             => s"($vl $other $vr)"
+          case _ => "/* infix arity */"
+        }
 
     case Term.Select(qual, name) =>
       // When `qual` is a simple name/literal it stays statically typed
@@ -4893,6 +4931,38 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           s"_seqFoldLeft($q.asInstanceOf[List[Any]], $init, $f.asInstanceOf[(Any, Any) => Any])"
         }
 
+      // Qualified dep-defined effectful method call. Keep the static call
+      // shape (rather than `_dispatch`) so the method may return a Free tree
+      // that the surrounding CPS bind can unwrap.
+      case Term.Select(qual, Term.Name(method)) if isEffectfulFun(method) =>
+        bindArgsCps(qual :: args) { vs =>
+          val q = vs.head
+          val castedArgs = applyCalleeCasts(method, args, vs.tail)
+          s"$q.$method(${castedArgs.mkString(", ")})"
+        }
+
+      // Generic qualified dep-defined effectful method call, e.g.
+      // `DistributedDataset.run[A, B](...)`.
+      case Term.ApplyType.After_4_6_0(Term.Select(qual, Term.Name(method)), typeArgClause)
+          if isEffectfulFun(method) =>
+        bindArgsCps(qual :: args) { vs =>
+          val q = vs.head
+          val targs = typeArgClause.values.map(_.syntax).mkString(", ")
+          val typeArgMap = calleeTypeArgMap(method, typeArgClause.values)
+          val castedArgs = applyCalleeCasts(method, args, vs.tail, typeArgMap)
+          s"$q.$method[$targs](${castedArgs.mkString(", ")})"
+        }
+
+      // Generic bare dep-defined effectful function call.
+      case Term.ApplyType.After_4_6_0(Term.Name(method), typeArgClause)
+          if isEffectfulFun(method) =>
+        bindArgsCps(args) { vs =>
+          val targs = typeArgClause.values.map(_.syntax).mkString(", ")
+          val typeArgMap = calleeTypeArgMap(method, typeArgClause.values)
+          val castedArgs = applyCalleeCasts(method, args, vs, typeArgMap)
+          s"$method[$targs](${castedArgs.mkString(", ")})"
+        }
+
       // Method call: bind qual + args, then runtime-dispatch.  Inside CPS
       // every value is statically typed `Any`, so we can't let the Scala
       // typer resolve methods like `.map` directly — `_dispatch` does it
@@ -4932,20 +5002,26 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         // `collectResults(assignments = assignments, …)` fail because
         // `nodeList` / `assignments` are `Any` in the surrounding
         // continuation but the callee expects concrete types.
-        val funName = fun match
-          case Term.Name(n) => Some(n)
-          case _            => None
+        val funInfo = fun match
+          case Term.Name(n) =>
+            Some((n, Map.empty[String, String]))
+          case Term.ApplyType.After_4_6_0(Term.Name(n), typeArgClause) =>
+            Some((n, calleeTypeArgMap(n, typeArgClause.values)))
+          case Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name(n)), typeArgClause) =>
+            Some((n, calleeTypeArgMap(n, typeArgClause.values)))
+          case _ =>
+            None
         bindArgsCps(args) { vs =>
-          val castedVs = funName match
+          val castedVs = funInfo match
             case None    => vs
-            case Some(n) => applyCalleeCasts(n, args, vs)
+            case Some((n, typeArgMap)) => applyCalleeCasts(n, args, vs, typeArgMap)
           // Chunk 9 — when `fun` is an Any-bound name (e.g.
           // `workers` from a CPS continuation, accessed as
           // `workers(idx)`), Scala won't apply Any as a function.
           // Cast through `List[Any]` so the call typechecks
           // (positional element access on Any-typed collections is
           // the dominant shape; reflection-call would be heavier).
-          funName match
+          funInfo.map(_._1) match
             case Some(n) if anyBoundNames(n) =>
               // Index args also come in Any-typed; List.apply needs Int.
               val intArgs = castedVs.map(v => s"$v.asInstanceOf[Int]")
@@ -4953,6 +5029,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
             case _ =>
               s"${fun.syntax}(${castedVs.mkString(", ")})"
         }
+
+  private def assignmentCast(lhs: Term): String =
+    lhs match
+      case Term.Name(n) =>
+        declaredVarTypes.get(n).map(t => s".asInstanceOf[$t]").getOrElse("")
+      case _ => ""
 
   /** Look up the declared param type for a call to a known dep def
    *  or dep class constructor, by position (`argIdx`) or by name
@@ -4965,19 +5047,23 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private def calleeParamType(
       callee:  String,
       argIdx:  Int,
-      argName: Option[String]
+      argName: Option[String],
+      typeArgMap: Map[String, String]
   ): Option[String] =
     val classDef = depClasses.get(callee)
+    val defDef = depDefs.get(callee)
     val ps: Option[List[scala.meta.Term.Param]] =
       classDef.map(_.ctor.paramClauses.flatMap(_.values).toList)
         .orElse(
-          depDefs.get(callee).map(d =>
+          defDef.map(d =>
             d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
           )
         )
     // Names of any class-level type params we need to exclude from
     // the cast (caller isn't inside the class scope so `T` is unbound).
-    val tparamNames: Set[String] = classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty)
+    val tparamNames: Set[String] =
+      classDef.map(_.tparamClause.values.map(_.name.value).toSet).getOrElse(Set.empty) ++
+        defDef.map(_.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet).getOrElse(Set.empty)
     /** Substitute class-scoped tparam names with `Any` (chunk 5) AND
      *  qualify dep-defined type names with their package path (chunk 8)
      *  so casts emitted at user call sites compile regardless of which
@@ -4991,7 +5077,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         if tparamNames.isEmpty then t.syntax
         else
           tparamNames.foldLeft(t.syntax) { (acc, tp) =>
-            acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", "Any")
+            val replacement = typeArgMap.getOrElse(tp, "Any")
+            acc.replaceAll(s"\\b${java.util.regex.Pattern.quote(tp)}\\b", replacement)
           }
       // Step 2: qualify any dep type name (chunk 8).  Word-boundary
       // anchored; skip names that already appear qualified
@@ -5023,14 +5110,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private def applyCalleeCasts(
       callee: String,
       args:   List[scala.meta.Term],
-      vs:     List[String]
+      vs:     List[String],
+      typeArgMap: Map[String, String] = Map.empty
   ): List[String] =
     if depClasses.get(callee).isEmpty && depDefs.get(callee).isEmpty then vs
     else
       vs.zip(args).zipWithIndex.map { case ((v, arg), i) =>
         arg match
           case scala.meta.Term.Assign(scala.meta.Term.Name(n), _) =>
-            calleeParamType(callee, i, Some(n)) match
+            calleeParamType(callee, i, Some(n), typeArgMap) match
               case None => v
               case Some(t) =>
                 val eqIdx = v.indexOf('=')
@@ -5039,10 +5127,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                   val rhs = v.substring(eqIdx + 1).trim
                   s"$n = $rhs.asInstanceOf[$t]"
           case _ =>
-            calleeParamType(callee, i, None) match
+            calleeParamType(callee, i, None, typeArgMap) match
               case None    => v
               case Some(t) => s"$v.asInstanceOf[$t]"
       }
+
+  private def calleeTypeArgMap(
+      callee: String,
+      typeArgs: Seq[scala.meta.Type]
+  ): Map[String, String] =
+    depDefs.get(callee) match
+      case None => Map.empty
+      case Some(d) =>
+        d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value)
+          .zip(typeArgs.map(_.syntax))
+          .toMap
 
   /** Emit a Scala block in CPS form: thread vals + statements via `_bind`. */
   private def emitCpsBlock(stats: List[Stat]): String =
@@ -5055,11 +5154,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // contains an effect primitive (same predicate dep-mode uses).
       def emitDefMaybeCps(d: Defn.Def): String =
         if containsEffectPrimitive(d.body) then
-          val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-            p.decltpe.map(t => s"${p.name.value}: ${t.syntax}")
-              .getOrElse(s"${p.name.value}: Any")
-          }.mkString(", ")
-          s"def ${d.name.value}($params): Any = ${emitCpsExpr(d.body)}"
+          s"def ${d.name.value}${emitEffectfulParamGroups(d)}: Any = ${emitCpsExpr(d.body)}"
         else d.syntax
       def build(remaining: List[Stat]): String = remaining match
         case Nil => "()"
@@ -5078,6 +5173,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
               emitCpsBindWithType(rhs, n.value, tpe, build(rest))
             case d: Defn.Def =>
               s"{ ${emitDefMaybeCps(d)}; ${build(rest)} }"
+            case a: Term.Assign =>
+              s"{ ${emitCpsExpr(a)}; ${build(rest)} }"
             case t: Term =>
               if isSimpleCps(t) then s"{ ${t.syntax}; ${build(rest)} }"
               else
@@ -5176,6 +5273,19 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case _                 => ()
     }
     names.toSet
+
+  private def collectDeclaredVarTypes(blocks: List[JvmGen.Block]): Unit =
+    blocks.foreach { block =>
+      ScalaNode.fold(block.node) { tree =>
+        tree.collect {
+          case Defn.Var.After_4_7_2(_, pats, Some(tpe), _) =>
+            pats.foreach {
+              case Pat.Var(n) => declaredVarTypes(n.value) = tpe.syntax
+              case _          => ()
+            }
+        }
+      }
+    }
 
   private val preamble: String =
     """|

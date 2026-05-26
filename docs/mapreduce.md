@@ -267,8 +267,8 @@ Options:
   `WireShufflePartial` buckets keyed by `JsonValue`, Phase B processes
   `WireProcessKeyPartition` messages, and the final output is a
   `DatasetWirePartition`. `DistributedDataset.encode/decode[A]` wraps the
-  common typed boundary while keeping the actor-effect calls explicit inside
-  `runActors`.
+  common typed boundary, and `DistributedDataset.run/runShuffle[A, B]` wrap
+  the actor-effect map and shuffle calls for JVM generated code.
 - **Closure serialisation** — serialise the `T => U`
   closure including its captured environment.  Deferred to
   v1.22.x; requires v1.14 `derives` + bytecode shenanigans;
@@ -281,7 +281,9 @@ in messages.  Spark-like inline closures wait for closure
 serialisation. Typed data movement can use `DistributedDataset.encode[A]`,
 `runDistributedWire` / `runDistributedShuffleWire`, and
 `DistributedDataset.decode[B]` where a distributed worker boundary needs a
-stable representation for domain values.
+stable representation for domain values. For the common case,
+`DistributedDataset.run/runShuffle[A, B]` combine the encode/decode boundary
+with the actor-effect call.
 
 ### 4.5 Backend support
 

@@ -154,6 +154,18 @@ class ContainsEffectPrimitiveTest extends AnyFunSuite with Matchers:
     no("myHelper(x, y)")
   }
 
+  test("qualified cross-dep effectful call — effectful when method is marked") {
+    import scala.meta.{dialects, *}
+    val tree = dialects.Scala3(Input.String("DistributedDataset.run(values, stage, cluster, 0, false)")).parse[Stat].get
+    gen.containsEffectPrimitive(tree, Set("run")) shouldBe true
+  }
+
+  test("generic qualified cross-dep effectful call — effectful when method is marked") {
+    import scala.meta.{dialects, *}
+    val tree = dialects.Scala3(Input.String("DistributedDataset.run[Sale, Sale](values, stage, cluster, 0, false)")).parse[Stat].get
+    gen.containsEffectPrimitive(tree, Set("run")) shouldBe true
+  }
+
   test("collection ops — NOT effectful") {
     no("xs.map(_ + 1).filter(_ > 0)")
   }

@@ -50,7 +50,7 @@ val partitions = DatasetCodec.encodePartitions(Vector(
   Vector(Sale("ada", 5), Sale("grace", 7))
 )).toList
 
-var wirePartitions: List[DatasetWirePartition] = Nil
+var wirePartitions: Any = Nil
 
 runActors {
   HandlerRegistry.clear()
@@ -80,7 +80,9 @@ runActors {
   wirePartitions = wireResult.asInstanceOf[DistributedResult[DatasetWirePartition]].results
 }
 
-val decoded = DatasetCodec.decodePartitions[Sale](wirePartitions).toOption.get
+val decoded = DatasetCodec.decodePartitions[Sale](
+  wirePartitions.asInstanceOf[List[DatasetWirePartition]]
+).toOption.get
 
 val summary = decoded
   .flatMap(partition => partition.values)
