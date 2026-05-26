@@ -1269,6 +1269,22 @@ val draft = ObjectStore.get[Draft]("default", "drafts", "d1")
 Use SQL tables for relational queries and constraints; use `ObjectStore` for
 document-style server state that will later sync with client IndexedDB.
 
+If the same app should expose server sync endpoints, declare the store in
+front-matter:
+
+```yaml
+objectStores:
+  drafts:
+    type: Draft
+    sync: client-server
+    database: default
+    key: id
+```
+
+The JVM backend then generates `GET /__ssc/sync/drafts/changes` and
+`POST /__ssc/sync/drafts/push`. The browser/Electron `Sync.pull/push` helper is
+planned; today clients can call those endpoints directly.
+
 ---
 
 ## Step 3: REST API

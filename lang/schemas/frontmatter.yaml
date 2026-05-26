@@ -261,6 +261,69 @@ properties:
           user: ${env:RPT_USER}
           password: ${env:RPT_PASSWORD}
 
+  objectStores:
+    type: object
+    description: |
+      Typed object/document stores. Entries with `sync: client-server`
+      and a concrete `type:` generate JVM REST sync endpoints over the
+      server-side JDBC ObjectStore runtime.
+    additionalProperties:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          description: ScalaScript value type stored in this object store.
+        valueType:
+          type: string
+          description: Camel-case alias for `type`.
+        value-type:
+          type: string
+          description: Kebab-case alias for `type`.
+        sync:
+          type: string
+          enum: [none, client-server]
+          default: none
+        database:
+          type: string
+          default: default
+          description: Server JDBC database name from `databases:`.
+        store:
+          type: string
+          description: Physical server ObjectStore name. Defaults to the map key.
+        table:
+          type: string
+          description: JDBC table used by the server ObjectStore runtime.
+        key:
+          type: string
+          description: Logical key field, mirrored by `@key` / ObjectCodec metadata.
+        conflict:
+          type: string
+          enum: [manual, server-wins, client-wins]
+          default: manual
+          description: |
+            Conflict policy metadata. The current generated JVM sync routes
+            implement manual conflict reporting; automatic server-wins and
+            client-wins resolution are planned follow-ups.
+        server:
+          type: object
+          additionalProperties: false
+          properties:
+            database:
+              type: string
+            store:
+              type: string
+            table:
+              type: string
+    examples:
+      - drafts:
+          type: Draft
+          sync: client-server
+          database: default
+          key: id
+          conflict: manual
+
   schemas:
     type: object
     description: |

@@ -40,6 +40,10 @@ case class Manifest(
    *  Default `Nil` so existing `Manifest` construction sites in tests
    *  / older artifacts continue to compile without an explicit value. */
   databases: List[DatabaseDecl] = Nil,
+  /** Typed object/document stores declared in front-matter `objectStores:`.
+   *  Entries with `sync: client-server` and a concrete `type:` drive
+   *  generated JVM REST sync endpoints over the server ObjectStore runtime. */
+  objectStores: List[ObjectStoreDecl] = Nil,
   /** Optional per-type storage schema metadata declared in front-matter
    *  `schemas:`.  Interpreter typed SQL consumes this as an alternative
    *  to inline annotations; JVM/codegen integration is planned separately. */
@@ -94,6 +98,18 @@ case class DatabaseDecl(
   password: Option[String]  = None,
   driver:   Option[String]  = None,
   span:     Option[Span]    = None
+)
+
+case class ObjectStoreDecl(
+  name:       String,
+  valueType:  String,
+  sync:       String = "none",
+  database:   String = "default",
+  store:      Option[String] = None,
+  table:      Option[String] = None,
+  key:        Option[String] = None,
+  conflict:   String = "manual",
+  span:       Option[Span] = None
 )
 
 enum SchemaDefault:

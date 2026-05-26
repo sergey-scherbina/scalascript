@@ -10398,8 +10398,12 @@ modes opt out of that default.
   2026-05-26: `backend-sql-runtime` now includes `ObjectStoreBackend`,
   `ObjectStoreRuntime`, and `Stored[A]` for JVM/JDBC JSON-table object storage,
   and JVM codegen exposes `ObjectStore.put/get/all/delete/changes[A]` over
-  declared `databases:` connections. Remaining: generated REST sync,
-  graph/RDF codecs, and Dataset/Spark convergence.
+  declared `databases:` connections. Follow-up landed 2026-05-26:
+  `objectStores:` front-matter metadata now survives AST/IR/.sscc, and JVM
+  codegen generates typed REST sync `changes` / `push` endpoints for
+  `sync: client-server` stores over the JDBC ObjectStore runtime. Remaining:
+  browser/Electron `Sync.pull/push` helpers, graph/RDF codecs, and
+  Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

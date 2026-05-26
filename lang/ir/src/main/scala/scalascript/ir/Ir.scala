@@ -60,6 +60,18 @@ case class DatabaseDecl(
   span:     Option[Span]    = None
 ) derives ReadWriter
 
+case class ObjectStoreDecl(
+  name:       String,
+  valueType:  String,
+  sync:       String = "none",
+  database:   String = "default",
+  store:      Option[String] = None,
+  table:      Option[String] = None,
+  key:        Option[String] = None,
+  conflict:   String = "manual",
+  span:       Option[Span] = None
+) derives ReadWriter
+
 enum SchemaDefault derives ReadWriter:
   case NullValue
   case Bool(value: Boolean)
@@ -94,6 +106,7 @@ case class Manifest(
   pkg:          Option[List[String]],
   apiClients:        List[ApiClientDecl] = Nil,
   databases:         List[DatabaseDecl] = Nil,
+  objectStores:      List[ObjectStoreDecl] = Nil,
   schemas:           List[TypeSchemaDecl] = Nil,
   frontendFramework: Option[String] = None,
   scripts:           Map[String, String] = Map.empty,

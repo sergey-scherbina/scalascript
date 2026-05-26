@@ -1164,9 +1164,22 @@ client/server object store. The client keeps objects in IndexedDB; the JVM
 backend can now keep the authoritative copy in an `ObjectStore` backed by a
 simple JDBC JSON table. JVM code can call
 `ObjectStore.put/get/all/delete/changes[A](dbName, store, ...)` using
-`ObjectCodec[A]`. Generated REST sync endpoints remain planned; they will let
-the client pull server changes, queue offline edits locally, and push mutations
-back with explicit conflict handling. See
+`ObjectCodec[A]`. JVM codegen now generates typed REST sync endpoints for
+front-matter entries such as:
+
+```yaml
+objectStores:
+  drafts:
+    type: Draft
+    sync: client-server
+    database: default
+    key: id
+```
+
+This exposes `GET /__ssc/sync/drafts/changes?since=<cursor>&limit=<n>` and
+`POST /__ssc/sync/drafts/push` over the server ObjectStore. Client-side
+`Sync.pull/push` helpers are still planned; browser/Electron clients can call
+these endpoints manually or through generated typed clients for now. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
 **Planned, not implemented yet: graph storage.** Graph-shaped data is planned as

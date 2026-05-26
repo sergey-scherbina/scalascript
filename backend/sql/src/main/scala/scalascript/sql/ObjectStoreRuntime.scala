@@ -81,6 +81,15 @@ object ObjectStoreRuntime:
   )(using ObjectCodec[A]): Vector[Stored[A]] =
     jdbc(conn, table).changes[A](store, sinceVersion, limit)
 
+  def decodeAny[A](value: Any)(using codec: ObjectCodec[A]): A =
+    anyToJson(value) match
+      case JsonValue.Obj(fields) =>
+        codec.decode(ObjectValue(fields)) match
+          case Right(value) => value
+          case Left(error)  => throw RowProjectionError(s"object store decode failed: ${error.render}")
+      case other =>
+        throw RowProjectionError(s"object store decode expected JSON object, got ${JsonValue.kind(other)}")
+
   private final class JdbcObjectStoreBackend(conn: Connection, table: String) extends ObjectStoreBackend:
     private val tableSql = SqlRuntime.validateIdentifierPath(table, "object store table")
 
@@ -225,3 +234,24 @@ object ObjectStoreRuntime:
     case ujson.Str(value) => JsonValue.Str(value)
     case arr: ujson.Arr => JsonValue.Arr(arr.value.map(fromUjson).toVector)
     case obj: ujson.Obj => JsonValue.Obj(obj.value.iterator.map((name, value) => name -> fromUjson(value)).toMap)
+
+  private def anyToJson(value: Any): JsonValue = value match
+    case null => JsonValue.Null
+    case None => JsonValue.Null
+    case Some(value) => anyToJson(value)
+    case value: Boolean => JsonValue.Bool(value)
+    case value: Byte => JsonValue.Num(BigDecimal(value.toLong))
+    case value: Short => JsonValue.Num(BigDecimal(value.toLong))
+    case value: Int => JsonValue.Num(BigDecimal(value))
+    case value: Long => JsonValue.Num(BigDecimal(value))
+    case value: Float => JsonValue.Num(BigDecimal.decimal(value.toDouble))
+    case value: Double => JsonValue.Num(BigDecimal.decimal(value))
+    case value: BigDecimal => JsonValue.Num(value)
+    case value: java.math.BigDecimal => JsonValue.Num(BigDecimal(value))
+    case value: String => JsonValue.Str(value)
+    case fields: Map[?, ?] =>
+      JsonValue.Obj(fields.iterator.map { case (name, value) => name.toString -> anyToJson(value) }.toMap)
+    case values: Iterable[?] => JsonValue.Arr(values.iterator.map(anyToJson).toVector)
+    case values: Array[?] => JsonValue.Arr(values.iterator.map(anyToJson).toVector)
+    case other =>
+      JsonValue.Str(other.toString)

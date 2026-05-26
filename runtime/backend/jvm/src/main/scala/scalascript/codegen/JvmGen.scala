@@ -271,6 +271,7 @@ class JvmGen(
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
+    val objectStores = module.manifest.toList.flatMap(_.objectStores).filter(s => s.sync == "client-server" && s.valueType.nonEmpty)
     val frontendFramework = module.manifest.flatMap(_.frontendFramework)
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     val usesObjectStore = blocksUseObjectStore(blocks)
@@ -293,7 +294,7 @@ class JvmGen(
     // v1.26 — JDBC runtime + bundled H2/SQLite drivers.  Emitted only
     // when the module actually contains sql blocks or server ObjectStore calls;
     // modules without JDBC-backed APIs don't pull these onto their scala-cli classpath.
-    if sqlBlockCounter > 0 || usesObjectStore then
+    if sqlBlockCounter > 0 || usesObjectStore || objectStores.nonEmpty then
       sb.append("""//> using dep "com.lihaoyi::ujson:4.4.2"""" + "\n")
       sb.append("""//> using dep "com.h2database:h2:2.4.240"""" + "\n")
       sb.append("""//> using dep "org.xerial:sqlite-jdbc:3.53.1.0"""" + "\n")
@@ -311,7 +312,7 @@ class JvmGen(
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
-    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) || effectiveFrontend.isDefined then sb.append(serveRuntime)
+    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || objectStores.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) || effectiveFrontend.isDefined then sb.append(serveRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
@@ -348,8 +349,10 @@ class JvmGen(
     // v1.26 Phase 6.C — JDBC connection registry + resolver helper.
     // Emitted only when the module actually has sql blocks or server
     // ObjectStore calls; modules that don't use JDBC-backed APIs pay nothing.
-    if sqlBlockCounter > 0 || usesObjectStore then
+    if sqlBlockCounter > 0 || usesObjectStore || objectStores.nonEmpty then
       sb.append(emitSqlRegistry(module.manifest.toList.flatMap(_.databases)))
+    if objectStores.nonEmpty then
+      emitObjectStoreSyncRoutes(objectStores, sb)
 
     // v1.30 Phase 4 — browser JS for @side=client sql blocks.  Always
     // emitted in frontend modules so uiHelperFunctions can reference
@@ -1462,6 +1465,98 @@ class JvmGen(
                  |
                  |""".stripMargin)
     sb.toString
+
+  private def emitObjectStoreSyncRoutes(stores: List[ObjectStoreDecl], sb: StringBuilder): Unit =
+    sb.append("// ── ObjectStore generated REST sync routes ─────────────────────\n")
+    sb.append(
+      """|private def _ssc_sync_map(value: Any): Map[String, Any] =
+         |  value match
+         |    case m: Map[?, ?] => m.iterator.map { case (k, v) => k.toString -> v }.toMap
+         |    case _ => Map.empty
+         |private def _ssc_sync_list(value: Any): List[Any] =
+         |  value match
+         |    case xs: Iterable[?] => xs.toList
+         |    case xs: Array[?] => xs.toList
+         |    case _ => Nil
+         |private def _ssc_sync_long(value: Option[Any], default: Long): Long =
+         |  value match
+         |    case Some(n: java.lang.Number) => n.longValue
+         |    case Some(s: String) => scala.util.Try(s.toLong).getOrElse(default)
+         |    case _ => default
+         |private def _ssc_sync_int(value: Option[Any], default: Int): Int =
+         |  value match
+         |    case Some(n: java.lang.Number) => n.intValue
+         |    case Some(s: String) => scala.util.Try(s.toInt).getOrElse(default)
+         |    case _ => default
+         |private def _ssc_sync_bool(value: Option[Any], default: Boolean = false): Boolean =
+         |  value match
+         |    case Some(b: Boolean) => b
+         |    case Some(s: String) => s.equalsIgnoreCase("true") || s == "1"
+         |    case _ => default
+         |
+         |""".stripMargin
+    )
+    stores.foreach { store =>
+      val routeStore = store.name
+      val storageStore = store.store.getOrElse(store.name)
+      val path = "/__ssc/sync/" + routeStore + "/"
+      val database = scalaStringLiteral(store.database)
+      val storage = scalaStringLiteral(storageStore)
+      val table = store.table.map(scalaStringLiteral).getOrElse("scalascript.sql.ObjectStoreRuntime.DefaultTable")
+      val tpe = store.valueType
+      sb.append(s"""route("GET", ${scalaStringLiteral(path + "changes")}) { req =>
+  val since = _ssc_sync_long(req.query.get("since"), 0L)
+  val limit = _ssc_sync_int(req.query.get("limit"), 100)
+  val conn = _ssc_sql_registry.connect($database)
+  val changes = scalascript.sql.ObjectStoreRuntime.changes[$tpe](conn, $storage, since, limit, $table).toList
+  val nextCursor = changes.foldLeft(since)((cursor, change) => math.max(cursor, change.version))
+  Response.json(Map(
+    "changes" -> changes.map(change => Map(
+      "key" -> change.key,
+      "version" -> change.version,
+      "updatedAt" -> change.updatedAt.toString,
+      "deleted" -> change.deleted,
+      "value" -> change.value
+    )),
+    "nextCursor" -> nextCursor
+  ))
+}
+
+route("POST", ${scalaStringLiteral(path + "push")}) { req =>
+  val conn = _ssc_sql_registry.connect($database)
+  val payload = _ssc_sync_map(req.json.getOrElse(Map.empty[String, Any]))
+  val mutations = _ssc_sync_list(payload.getOrElse("mutations", Nil))
+  val results = scala.collection.mutable.ListBuffer.empty[Map[String, Any]]
+  val conflicts = scala.collection.mutable.ListBuffer.empty[Map[String, Any]]
+  mutations.foreach { raw =>
+    val mutation = _ssc_sync_map(raw)
+    val key = mutation.get("key").map(_.toString).getOrElse("")
+    val expected = mutation.get("expectedVersion").map(v => _ssc_sync_long(Some(v), 0L))
+    val deleted = _ssc_sync_bool(mutation.get("deleted"))
+    try
+      val stored =
+        if deleted then
+          scalascript.sql.ObjectStoreRuntime.delete(conn, $storage, key, expected, $table)
+        else
+          val decoded = scalascript.sql.ObjectStoreRuntime.decodeAny[$tpe](mutation.getOrElse("value", Map.empty[String, Any]))
+          scalascript.sql.ObjectStoreRuntime.put[$tpe](conn, $storage, decoded, Some(key).filter(_.nonEmpty), expected, $table)
+      results += Map("key" -> stored.key, "version" -> stored.version, "deleted" -> stored.deleted)
+    catch
+      case conflict: scalascript.sql.ObjectStoreConflict =>
+        val current = scalascript.sql.ObjectStoreRuntime.getStored[$tpe](conn, $storage, key, $table)
+        conflicts += Map(
+          "key" -> key,
+          "expectedVersion" -> expected,
+          "actualVersion" -> current.map(_.version),
+          "deleted" -> current.exists(_.deleted),
+          "value" -> current.flatMap(_.value)
+        )
+  }
+  Response.json(Map("results" -> results.toList, "conflicts" -> conflicts.toList))
+}
+
+""")
+    }
 
   /** Minimal escape for emitted Scala string literals. */
   private def escapeStringLit(s: String): String =

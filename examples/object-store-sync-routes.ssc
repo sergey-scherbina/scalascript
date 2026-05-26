@@ -1,0 +1,27 @@
+---
+databases:
+  default:
+    url: "jdbc:h2:mem:object-store-sync-routes;DB_CLOSE_DELAY=-1"
+objectStores:
+  drafts:
+    type: Draft
+    sync: client-server
+    database: default
+    key: id
+---
+
+# Object Store Sync Routes
+
+```scala
+import scalascript.typeddata.{ObjectCodec, key}
+
+case class Draft(@key id: String, title: String, done: Boolean) derives ObjectCodec
+
+ObjectStore.put("default", "drafts", Draft("d1", "Write spec", false))
+val local = ObjectStore.get[Draft]("default", "drafts", "d1").get
+println(local.id + ":" + local.title)
+
+// The `objectStores:` entry above also generates:
+// GET  /__ssc/sync/drafts/changes?since=<cursor>&limit=<n>
+// POST /__ssc/sync/drafts/push
+```

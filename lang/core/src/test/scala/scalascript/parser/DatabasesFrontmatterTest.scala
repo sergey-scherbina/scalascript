@@ -195,3 +195,50 @@ class DatabasesFrontmatterTest extends AnyFunSuite:
     val round = ast.SsccFormat.read(ast.SsccFormat.write(mod)).toOption.get
     assert(round.manifest.get.schemas == mod.manifest.get.schemas)
   }
+
+  test("objectStores: parses generated sync route metadata") {
+    val mod = withFrontmatter(
+      """objectStores:
+        |  drafts:
+        |    type: Draft
+        |    sync: client-server
+        |    database: default
+        |    store: draft_docs
+        |    table: app_object_store
+        |    key: id
+        |    conflict: manual""".stripMargin)
+
+    val store = mod.manifest.get.objectStores.head
+    assert(store.name == "drafts")
+    assert(store.valueType == "Draft")
+    assert(store.sync == "client-server")
+    assert(store.database == "default")
+    assert(store.store == Some("draft_docs"))
+    assert(store.table == Some("app_object_store"))
+    assert(store.key == Some("id"))
+    assert(store.conflict == "manual")
+  }
+
+  test("objectStores: survives Normalize, Denormalize, and .sscc serialization") {
+    val mod = withFrontmatter(
+      """objectStores:
+        |  drafts:
+        |    type: Draft
+        |    sync: client-server
+        |    server:
+        |      database: server
+        |      store: draft_docs""".stripMargin)
+
+    val ir1 = Normalize(mod)
+    assert(ir1.manifest.get.objectStores.head == ir.ObjectStoreDecl(
+      name = "drafts",
+      valueType = "Draft",
+      sync = "client-server",
+      database = "server",
+      store = Some("draft_docs")
+    ))
+
+    assert(Denormalize(ir1).manifest.get.objectStores == mod.manifest.get.objectStores)
+    val round = ast.SsccFormat.read(ast.SsccFormat.write(mod)).toOption.get
+    assert(round.manifest.get.objectStores == mod.manifest.get.objectStores)
+  }

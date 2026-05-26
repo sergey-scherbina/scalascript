@@ -51,6 +51,7 @@ object Normalize:
       pkg          = m.pkg,
       apiClients        = m.apiClients.map(apiClientDecl),
       databases         = m.databases.map(databaseDecl),
+      objectStores      = m.objectStores.map(objectStoreDecl),
       schemas           = m.schemas.map(typeSchemaDecl),
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
@@ -68,6 +69,9 @@ object Normalize:
 
   private def databaseDecl(d: ast.DatabaseDecl): ir.DatabaseDecl =
     ir.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
+
+  private def objectStoreDecl(s: ast.ObjectStoreDecl): ir.ObjectStoreDecl =
+    ir.ObjectStoreDecl(s.name, s.valueType, s.sync, s.database, s.store, s.table, s.key, s.conflict, s.span.map(span))
 
   private def typeSchemaDecl(s: ast.TypeSchemaDecl): ir.TypeSchemaDecl =
     ir.TypeSchemaDecl(s.typeName, s.fields.map(fieldSchemaDecl), s.rejectUnknown, s.span.map(span))

@@ -50,6 +50,7 @@ object Denormalize:
       translations      = Map.empty,
       apiClients        = m.apiClients.map(apiClientDecl),
       databases         = m.databases.map(databaseDecl),
+      objectStores      = m.objectStores.map(objectStoreDecl),
       schemas           = m.schemas.map(typeSchemaDecl),
       raw               = Map.empty,
       frontendFramework = m.frontendFramework,
@@ -68,6 +69,9 @@ object Denormalize:
 
   private def databaseDecl(d: ir.DatabaseDecl): ast.DatabaseDecl =
     ast.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))
+
+  private def objectStoreDecl(s: ir.ObjectStoreDecl): ast.ObjectStoreDecl =
+    ast.ObjectStoreDecl(s.name, s.valueType, s.sync, s.database, s.store, s.table, s.key, s.conflict, s.span.map(span))
 
   private def typeSchemaDecl(s: ir.TypeSchemaDecl): ast.TypeSchemaDecl =
     ast.TypeSchemaDecl(s.typeName, s.fields.map(fieldSchemaDecl), s.rejectUnknown, s.span.map(span))

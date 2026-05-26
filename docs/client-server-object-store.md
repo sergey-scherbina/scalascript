@@ -115,6 +115,63 @@ mutations with the client's last-known server version. The server applies each
 mutation if the expected version still matches; otherwise it returns a conflict
 entry with the current server object.
 
+The first JVM implementation is typed and generated from `objectStores:`.
+Each synced store must provide a concrete ScalaScript value type:
+
+```yaml
+objectStores:
+  drafts:
+    type: Draft
+    sync: client-server
+    database: default
+    key: id
+```
+
+For that declaration, JVM codegen emits:
+
+```text
+GET  /__ssc/sync/drafts/changes
+POST /__ssc/sync/drafts/push
+```
+
+`changes` reads `since` and `limit` query parameters and returns:
+
+```json
+{
+  "changes": [
+    {
+      "key": "d1",
+      "version": 2,
+      "updatedAt": "2026-05-26T12:00:00Z",
+      "deleted": false,
+      "value": { "id": "d1", "title": "Write spec" }
+    }
+  ],
+  "nextCursor": 2
+}
+```
+
+`push` accepts:
+
+```json
+{
+  "mutations": [
+    {
+      "key": "d1",
+      "expectedVersion": 1,
+      "deleted": false,
+      "value": { "id": "d1", "title": "Write spec" }
+    }
+  ]
+}
+```
+
+and returns applied `results` plus explicit `conflicts`. This landed before
+the client-side `Sync.pull/push` helper, so browser/Electron clients still need
+to call the generated endpoints manually or through generated typed clients.
+The first generated route implementation reports conflicts explicitly; automatic
+`server-wins` / `client-wins` policies remain planned.
+
 Conflict policy should be explicit per store:
 
 ```yaml
@@ -167,8 +224,10 @@ keeping as an optional backend for apps that want battle-tested replication.
    declared `databases:` connections. Generated REST sync remains planned.
 2. **Server object store SPI** — landed 2026-05-26: small
    `ObjectStoreBackend` contract implemented first by JDBC JSON storage.
-3. **Generated sync routes** — generate `changes` and `push` endpoints for
-   opted-in stores.
+3. **Generated sync routes** — landed 2026-05-26: JVM codegen parses
+   `objectStores:` front matter and generates typed `changes` / `push` REST
+   endpoints for `sync: client-server` stores over the JDBC ObjectStore
+   runtime.
 4. **Client sync helper** — implement IndexedDB-backed pull/push helpers for
    browser/Electron clients.
 5. **Conflict handling** — expose conflict results and implement configured

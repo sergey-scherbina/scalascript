@@ -195,6 +195,7 @@ object Parser:
           }.toMap
       }.getOrElse(Map.empty),
       databases = parseDatabases(raw),
+      objectStores = parseObjectStores(raw),
       schemas = parseSchemas(raw),
       frontendFramework = raw.get("frontend").orElse(raw.get("frontend-framework")).collect { case s: String => s },
       scripts = raw.get("scripts").collect {
@@ -318,6 +319,29 @@ object Parser:
                 user     = mm.get("user").collect { case s: String => s },
                 password = mm.get("password").collect { case s: String => s },
                 driver   = mm.get("driver").collect { case s: String => s }
+              )
+            }
+        }.flatten.toList
+    }.getOrElse(Nil)
+
+  private def parseObjectStores(raw: Map[String, Any]): List[ObjectStoreDecl] =
+    raw.get("objectStores").orElse(raw.get("object-stores")).collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect {
+          case (name: String, v: java.util.Map[?, ?]) =>
+            val mm = stringMap(v)
+            val server = mm.get("server").collect { case sm: java.util.Map[?, ?] => stringMap(sm) }.getOrElse(Map.empty)
+            val valueType = mm.get("type").orElse(mm.get("valueType")).orElse(mm.get("value-type")).collect { case s: String => s }
+            valueType.map { tpe =>
+              ObjectStoreDecl(
+                name      = name,
+                valueType = tpe,
+                sync      = mm.get("sync").map(_.toString).getOrElse("none"),
+                database  = mm.get("database").orElse(server.get("database")).map(_.toString).getOrElse("default"),
+                store     = mm.get("store").orElse(server.get("store")).collect { case s: String => s },
+                table     = mm.get("table").orElse(server.get("table")).collect { case s: String => s },
+                key       = mm.get("key").collect { case s: String => s },
+                conflict  = mm.get("conflict").map(_.toString).getOrElse("manual")
               )
             }
         }.flatten.toList

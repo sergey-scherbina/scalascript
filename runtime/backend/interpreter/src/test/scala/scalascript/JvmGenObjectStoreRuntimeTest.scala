@@ -29,3 +29,33 @@ class JvmGenObjectStoreRuntimeTest extends AnyFunSuite:
     assert(code.contains("scalascript-backend-sql-runtime"))
     assert(code.contains("object ObjectStore:"))
     assert(code.contains("scalascript.sql.ObjectStoreRuntime.put"))
+
+  test("JVM codegen generates REST sync routes for objectStores front matter"):
+    val source =
+      """---
+        |databases:
+        |  default:
+        |    url: "jdbc:h2:mem:object-store-sync-codegen"
+        |objectStores:
+        |  drafts:
+        |    type: Draft
+        |    sync: client-server
+        |    database: default
+        |    key: id
+        |---
+        |
+        |# Test
+        |
+        |```scala
+        |import scalascript.typeddata.{ObjectCodec, key}
+        |case class Draft(@key id: String, title: String) derives ObjectCodec
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(source))
+
+    assert(code.contains("""route("GET", "/__ssc/sync/drafts/changes")"""))
+    assert(code.contains("""route("POST", "/__ssc/sync/drafts/push")"""))
+    assert(code.contains("scalascript.sql.ObjectStoreRuntime.changes[Draft]"))
+    assert(code.contains("scalascript.sql.ObjectStoreRuntime.decodeAny[Draft]"))
+    assert(code.contains("scalascript-backend-sql-runtime"))
