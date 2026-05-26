@@ -326,28 +326,32 @@ Rules:
 ## Dataset, MapReduce, And Spark Mapping
 
 ScalaScript already has `Dataset[T]` for local/parallel/distributed MapReduce
-and an Apache Spark backend with Scala 3 native encoder derivation. The planned
-mapping layer should make those existing data-processing surfaces participate in
-the same typed mapping story as databases.
+and an Apache Spark backend with Scala 3 native encoder derivation. The mapping
+layer makes those existing data-processing surfaces participate in the same
+typed mapping story as databases.
 
 ```scalascript
 case class Event(userId: String, kind: String, amount: Double)
-  derives JsonCodec, RowCodec, DatasetCodec, SparkCodec
+  derives JsonCodec, RowCodec
 
-val events: Dataset[Event] =
-  Dataset.fromJsonAs[Event]("/data/events/*.json")
+val encoded = Dataset.fromList(events)
+  .map(event => DatasetCodec[Event].encode(event))
 
 val totals =
-  events
+  Dataset.fromList(encoded.collect())
+    .map(json => DatasetCodec[Event].decode(json).toOption.get)
     .filter(_.kind == "purchase")
     .reduceByKey(_.userId)((a, b) => a.copy(amount = a.amount + b.amount))
 ```
 
 Roles:
 
-- `DatasetCodec[A]` is the portable element codec for local, parallel, and
-  distributed MapReduce. It covers worker-message serialization, file-backed
-  reads/writes where applicable, and conformance fixtures.
+- `DatasetCodec[A]` is now available as the portable element codec for local,
+  parallel, and distributed MapReduce. It wraps `JsonCodec[A]` by default, so
+  existing `derives JsonCodec` domain types automatically get a stable
+  `JsonValue` representation for Dataset element movement. `DatasetCodec`
+  also provides `encodeAll` / `decodeAll` batch helpers with indexed decode
+  error paths.
 - `SparkCodec[A]` or `SparkEncoder[A]` is the Spark-specific mapping to
   `Encoder[A]` and `StructType`. It should reuse the same field-name,
   nullability, default, and rename conventions as `RowCodec[A]`.
@@ -477,9 +481,13 @@ the same query model.
    production graph providers.
 6. **RDF mapping** — landed 2026-05-26: `RdfCodec[A]` derives simple RDF
    triple mappings with predicate/class/id annotations.
-7. **Dataset/Spark mapping integration** — align existing `Dataset[T]`,
-   distributed MapReduce serialization, Spark encoder/schema derivation, and
-   typed table/file readers with the shared codec conventions.
+7. **Dataset/Spark mapping integration** — partially landed 2026-05-26:
+   `DatasetCodec[A]` now lives in `backend/typed-data`, derives from
+   `JsonCodec[A]`, provides batch encode/decode helpers, and is demonstrated by
+   `examples/dataset-typed-mapping.ssc` through the JVM Dataset runtime.
+   Remaining: align distributed MapReduce worker serialization, Spark
+   encoder/schema derivation, and typed table/file readers with the same schema
+   metadata conventions.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

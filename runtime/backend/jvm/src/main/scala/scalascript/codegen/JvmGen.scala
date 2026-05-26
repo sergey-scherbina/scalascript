@@ -2343,7 +2343,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       "RowCodec", "RowValue", "RowValueCodec", "RowFieldSpec",
       "ObjectCodec", "ObjectValue", "ObjectFieldSpec",
       "VertexCodec", "VertexValue", "EdgeCodec", "EdgeValue",
-      "RdfCodec", "RdfValue", "RdfTriple", "RdfNode"
+      "RdfCodec", "RdfValue", "RdfTriple", "RdfNode",
+      "DatasetCodec"
     )
     blocks.exists { b =>
       var found = false

@@ -10436,8 +10436,12 @@ modes opt out of that default.
   stores now support the JVM `Sparql.select(graphName, query)` escape hatch for
   SPARQL `SELECT` rows as `Map[String, RdfNode]`, and
   `examples/graph-rdf4j-storage.ssc` exercises it through `ssc run-jvm`.
-  Remaining: richer sync UI helpers, production graph adapters, and
-  Dataset/Spark convergence.
+  Follow-up landed 2026-05-26: `backend/typed-data` now includes
+  `DatasetCodec[A]`, derives it from `JsonCodec[A]`, exposes batch
+  encode/decode helpers for local/MapReduce Dataset element movement, and
+  `examples/dataset-typed-mapping.ssc` runs through `ssc run-jvm`. Remaining:
+  richer sync UI helpers, production graph adapters, distributed MapReduce
+  worker serialization convergence, and Spark encoder/schema convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

@@ -1,0 +1,31 @@
+---
+name: dataset-typed-mapping
+backend: jvm
+description: Dataset element serialization through the shared DatasetCodec layer
+---
+
+# Dataset Typed Mapping
+
+```scalascript
+import scalascript.typeddata.{DatasetCodec, JsonCodec, JsonValue}
+
+case class Metric(id: String, amount: Int) derives JsonCodec
+
+val events = Dataset.fromList(List(
+  Metric("e1", 10),
+  Metric("e2", 25),
+  Metric("e3", 7)
+))
+
+val encoded: List[JsonValue] =
+  events.map(event => DatasetCodec[Metric].encode(event)).collect()
+
+val decoded =
+  Dataset.fromList(encoded)
+    .map(json => DatasetCodec[Metric].decode(json).toOption.get)
+    .filter(_.amount >= 10)
+    .runLocal()
+    .collect()
+
+println(decoded.map(event => s"${event.id}:${event.amount}").mkString(","))
+```

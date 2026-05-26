@@ -1228,6 +1228,11 @@ extracts stable object keys from `@key` fields.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary.
+`DatasetCodec[A]` is now available for local/MapReduce Dataset element
+serialization. It derives from `JsonCodec[A]` by default and exposes
+`encodeAll` / `decodeAll` helpers, so a JVM Dataset pipeline can map typed
+values to stable `JsonValue` elements and decode them later without hand-written
+adapters.
 `VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` are now available for the
 typed mapping layer: property graph values encode to `VertexValue` /
 `EdgeValue`, and RDF values encode to `RdfValue` triples. `backend/graph` now
@@ -1245,8 +1250,8 @@ values through the same codec. The interpreter and JVM codegen paths
 expose typed `Db.query/insert/update[A]` for programmatic SQL reads and writes.
 This keeps SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce,
 and Spark convenient without hiding their different query models. Existing
-`Dataset[T]` and Spark support remain available today; this planned work
-unifies their mapping/schema conventions with the storage APIs. See
+Spark support remains available today; deeper Spark encoder/schema convergence
+with the shared mapping annotations is still planned. See
 [`data-mapping.md`](data-mapping.md).
 
 ### `transaction` fenced blocks
