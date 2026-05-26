@@ -66,7 +66,7 @@ class JvmGenGraphRuntimeTest extends AnyFunSuite:
         |
         |```scala
         |Graph.neighborValues("deps", "A")
-        |Graph.triples("kg")
+        |Sparql.select("kg", "SELECT ?s WHERE { ?s ?p ?o }")
         |```
         |""".stripMargin
 
@@ -77,3 +77,5 @@ class JvmGenGraphRuntimeTest extends AnyFunSuite:
     assert(code.contains("""//> using dep "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1""""))
     assert(code.contains("\"deps\" -> scalascript.graph.GraphRuntime.tinkerGraph()"))
     assert(code.contains("\"kg\" -> scalascript.graph.GraphRuntime.rdf4jMemory()"))
+    assert(code.contains("object Sparql:"))
+    assert(code.contains("def select(graphName: String, query: String): List[Map[String, scalascript.typeddata.RdfNode]]"))

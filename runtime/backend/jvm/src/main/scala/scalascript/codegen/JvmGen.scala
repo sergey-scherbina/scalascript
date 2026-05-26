@@ -1526,6 +1526,12 @@ class JvmGen(
                  |  def triples(graphName: String, subject: Option[scalascript.typeddata.RdfNode] = None, predicate: Option[String] = None): List[scalascript.typeddata.RdfTriple] =
                  |    backend(graphName).triples(subject, predicate).toList
                  |
+                 |object Sparql:
+                 |  private def backend(name: String): scalascript.graph.GraphBackend =
+                 |    _ssc_graph_registry.getOrElse(name, throw scalascript.graph.GraphRuntimeError(s"unknown graph store '$name'. Declared stores: ${_ssc_graph_registry.keys.toList.sorted.mkString(", ")}"))
+                 |  def select(graphName: String, query: String): List[Map[String, scalascript.typeddata.RdfNode]] =
+                 |    scalascript.graph.GraphRuntime.sparqlSelect(backend(graphName), query).toList
+                 |
                  |""".stripMargin)
     sb.toString
 

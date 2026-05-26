@@ -1195,11 +1195,14 @@ properties, and traversal-heavy domains; RDF graphs cover triples/quads, linked
 data, ontologies, and SPARQL. The first JVM runtime slices are available in
 `backend/graph`: `GraphRuntime.inMemory()`, `GraphRuntime.tinkerGraph()`, and
 `GraphRuntime.rdf4jMemory()` store typed vertices, edges, RDF subjects, and
-triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec` mapping layer.
-JVM codegen now parses `graphs:` front matter and emits a typed `.ssc`
-`Graph.*` facade for declared in-memory, `embedded-tinkergraph`, and
-`rdf4j-memory` stores; the interpreter loads `runtime/std/graph-plugin` and
-provides the same portable in-memory facade over runtime case-class values.
+triples through the `VertexCodec`, `EdgeCodec`, and `RdfCodec` mapping layer;
+`GraphRuntime.sparqlSelect()` evaluates RDF4J SPARQL `SELECT` queries and
+returns binding rows as `Map[String, RdfNode]`. JVM codegen now parses
+`graphs:` front matter and emits a typed `.ssc` `Graph.*` facade for declared
+in-memory, `embedded-tinkergraph`, and `rdf4j-memory` stores plus
+`Sparql.select` for RDF4J-backed stores; the interpreter loads
+`runtime/std/graph-plugin` and provides the portable in-memory facade over
+runtime case-class values.
 Production adapters such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and
 RDF4J-compatible servers remain planned. See
 [`graph-storage.md`](graph-storage.md).

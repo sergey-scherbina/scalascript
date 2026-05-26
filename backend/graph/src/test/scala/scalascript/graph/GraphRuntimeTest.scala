@@ -71,3 +71,20 @@ class GraphRuntimeTest extends AnyFunSuite:
       RdfTriple(subject, "schema:name", RdfNode.Literal(JsonValue.Str("Ada")))
     ))
     assert(GraphRuntime.getRdf[PersonRdf](graph, subject) == Some(PersonRdf("urn:person:1", "Ada")))
+
+  test("RDF4J memory adapter evaluates SPARQL SELECT queries"):
+    val graph = GraphRuntime.rdf4jMemory()
+    GraphRuntime.putRdf(graph, PersonRdf("urn:person:1", "Ada"))
+
+    val rows = GraphRuntime.sparqlSelect(
+      graph,
+      """SELECT ?person ?name WHERE {
+        |  ?person <schema:name> ?name .
+        |}
+        |""".stripMargin
+    )
+
+    assert(rows == Vector(Map(
+      "person" -> RdfNode.Iri("urn:person:1"),
+      "name" -> RdfNode.Literal(JsonValue.Str("Ada"))
+    )))

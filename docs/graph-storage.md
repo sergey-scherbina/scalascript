@@ -188,7 +188,7 @@ Query-language-specific escape hatches:
 ```scalascript
 Gremlin.query("deps", "g.V().hasLabel('Module').out('imports').values('path')")
 Cypher.query("prodGraph", "MATCH (a:Module)-[:imports]->(b) RETURN b.path")
-Sparql.query("kg", "SELECT ?s WHERE { ?s ?p ?o } LIMIT 10")
+Sparql.select("kg", "SELECT ?s WHERE { ?s ?p ?o } LIMIT 10")
 ```
 
 The portable `Graph.*` API should be enough for CRUD, neighbors, simple path
@@ -246,8 +246,13 @@ server-side graph milestone.
    backed by RDF4J `SailRepository` + `MemoryStore`. Portable
    `putRdf/getRdf/triples/subjects/deleteSubject` operations share the same
    `Graph.*` facade as the in-memory backend. Example:
-   `examples/graph-rdf4j-storage.ssc`. A direct SPARQL escape hatch is still
-   planned.
+   `examples/graph-rdf4j-storage.ssc`.
+4.1. **SPARQL escape hatch** — landed 2026-05-26: `RdfGraphBackend` exposes
+   `sparqlSelect(query)`, RDF4J memory evaluates SPARQL `SELECT`, and JVM
+   codegen emits `Sparql.select(graphName, query): List[Map[String, RdfNode]]`
+   for declared graph stores. This is intentionally an explicit escape hatch:
+   portable CRUD/triple APIs stay backend-neutral, while native SPARQL query
+   text remains backend-specific.
 5. **Server adapters** — add Neo4j driver/Cypher support and optional RDF4J HTTP
    repository support.
 6. **Full-stack examples** — Electron/React frontend queries server graph routes
@@ -259,8 +264,7 @@ server-side graph milestone.
 - Unit-test portable graph operations against `GraphRuntime.inMemory()`.
 - Unit-test portable `Graph.*` operations against embedded TinkerGraph.
 - Unit-test portable RDF operations against in-memory and RDF4J memory graphs.
-- Unit-test SPARQL queries against embedded RDF4J memory/native repositories
-  once a direct SPARQL escape hatch lands.
+- Unit-test SPARQL `SELECT` queries against embedded RDF4J memory repositories.
 - Smoke-test a JVM REST backend serving graph query results to a frontend.
 - Add conformance tests only for portable `Graph.*`; native Gremlin/Cypher/SPARQL
   behavior belongs to backend-specific suites.

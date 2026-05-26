@@ -10432,8 +10432,12 @@ modes opt out of that default.
   embedded TinkerGraph and RDF4J memory adapters, `graphs:` front matter can
   select `embedded-tinkergraph` / `rdf4j-memory`, and
   `examples/graph-storage.ssc` plus `examples/graph-rdf4j-storage.ssc` run
-  through `ssc run-jvm`. Remaining: richer sync UI helpers, SPARQL escape hatch
-  / production graph adapters, and Dataset/Spark convergence.
+  through `ssc run-jvm`. Follow-up landed 2026-05-26: RDF4J-backed graph
+  stores now support the JVM `Sparql.select(graphName, query)` escape hatch for
+  SPARQL `SELECT` rows as `Map[String, RdfNode]`, and
+  `examples/graph-rdf4j-storage.ssc` exercises it through `ssc run-jvm`.
+  Remaining: richer sync UI helpers, production graph adapters, and
+  Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

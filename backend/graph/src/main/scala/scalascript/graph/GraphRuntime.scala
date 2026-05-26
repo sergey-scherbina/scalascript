@@ -6,6 +6,7 @@ import scalascript.typeddata.*
 import org.apache.tinkerpop.gremlin.structure.{Direction, Edge, T, Vertex}
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph
 import org.eclipse.rdf4j.model.{BNode, IRI, Literal, Resource, Value}
+import org.eclipse.rdf4j.query.QueryLanguage as Rdf4jQueryLanguage
 import org.eclipse.rdf4j.repository.sail.SailRepository
 import org.eclipse.rdf4j.sail.memory.MemoryStore
 
@@ -47,6 +48,7 @@ trait RdfGraphBackend:
   def triples(subject: Option[RdfNode] = None, predicate: Option[String] = None): Vector[RdfTriple]
   def subjects(predicate: Option[String] = None): Vector[RdfNode]
   def deleteSubject(subject: RdfNode): Boolean
+  def sparqlSelect(query: String): Vector[Map[String, RdfNode]]
 
 trait GraphBackend extends PropertyGraphBackend with RdfGraphBackend
 
@@ -107,6 +109,9 @@ object GraphRuntime:
       codec.decode(value) match
         case Right(decoded) => Some(decoded)
         case Left(error) => throw GraphRuntimeError(s"RDF decode failed for ${renderRdfNode(subject)}: ${error.render}")
+
+  def sparqlSelect(backend: RdfGraphBackend, query: String): Vector[Map[String, RdfNode]] =
+    backend.sparqlSelect(query)
 
   private def decodeVertex[A](id: String, value: VertexValue)(using codec: VertexCodec[A]): A =
     codec.decode(value) match
@@ -192,6 +197,9 @@ final class InMemoryGraphBackend extends GraphBackend:
 
   def deleteSubject(subject: RdfNode): Boolean =
     rdfBySubject.remove(subject).isDefined
+
+  def sparqlSelect(query: String): Vector[Map[String, RdfNode]] =
+    throw GraphRuntimeError("in-memory graph backend does not support SPARQL queries")
 
   private def requireVertex(id: String, role: String): Unit =
     if !vertexById.contains(id) then
@@ -281,6 +289,9 @@ final class TinkerGraphBackend private (graph: TinkerGraph) extends GraphBackend
 
   def deleteSubject(subject: RdfNode): Boolean =
     throw GraphRuntimeError("TinkerGraph backend does not support RDF operations")
+
+  def sparqlSelect(query: String): Vector[Map[String, RdfNode]] =
+    throw GraphRuntimeError("TinkerGraph backend does not support SPARQL queries")
 
   private def getVertexHandle(id: String): Option[Vertex] =
     val traversal = graph.traversal().V(id)
@@ -383,6 +394,21 @@ final class Rdf4jMemoryGraphBackend private (repository: SailRepository) extends
       val before = triples(Some(subject), None).nonEmpty
       conn.remove(asResource(subject), null, null)
       before
+    finally conn.close()
+
+  def sparqlSelect(query: String): Vector[Map[String, RdfNode]] =
+    val conn = repository.getConnection
+    try
+      val result = conn.prepareTupleQuery(Rdf4jQueryLanguage.SPARQL, query).evaluate()
+      try
+        result.iterator().asScala.map { bindingSet =>
+          bindingSet.getBindingNames.asScala.iterator
+            .flatMap { name =>
+              Option(bindingSet.getValue(name)).map(value => name -> fromRdf4jValue(value))
+            }
+            .toMap
+        }.toVector
+      finally result.close()
     finally conn.close()
 
   def putVertex(value: VertexValue): VertexValue =

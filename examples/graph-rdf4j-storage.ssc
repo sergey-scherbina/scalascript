@@ -9,7 +9,7 @@ graphs:
 # RDF4J Graph Storage
 
 ```scala
-import scalascript.typeddata.{JsonCodec, RdfCodec, RdfNode, rdf, rdfClass, rdfId}
+import scalascript.typeddata.{JsonCodec, JsonValue, RdfCodec, RdfNode, rdf, rdfClass, rdfId}
 
 @rdfClass("urn:schema:Person")
 case class Person(@rdfId id: String, @rdf("urn:schema:name") name: String) derives JsonCodec, RdfCodec
@@ -17,5 +17,17 @@ case class Person(@rdfId id: String, @rdf("urn:schema:name") name: String) deriv
 Graph.putRdf("kg", Person("urn:person:1", "Ada"))
 
 val loaded = Graph.getRdf[Person]("kg", RdfNode.Iri("urn:person:1")).get
-println(s"person:${loaded.name}")
+val rows = Sparql.select(
+  "kg",
+  """SELECT ?person ?name WHERE {
+    |  ?person <urn:schema:name> ?name .
+    |}
+    |""".stripMargin
+)
+
+val queried = rows.head("name") match
+  case RdfNode.Literal(JsonValue.Str(name)) => name
+  case other => other.toString
+
+println(s"person:${loaded.name}:sparql:$queried")
 ```
