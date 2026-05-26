@@ -7504,7 +7504,7 @@ class JsGen(
     // forward references to the handler defs resolve at call time.
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
-    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients))
+    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), module)
     // Async wrap rationale (v1.27): sql blocks compile to `await
     // SqlRuntimeJs.execute(...)`, which is only legal at top level in
     // ESM with top-level-await support.  An async IIFE is the
@@ -7742,13 +7742,67 @@ class JsGen(
         line(s"_i18nTable = {$entries};")
     }
 
+  private val endpointPrimitives = Set("Int", "Long", "String", "Boolean", "Double", "Float")
+
+  private def pathParamNames(path: String): List[String] =
+    path.split("/").toList.collect { case seg if seg.startsWith(":") => seg.drop(1) }
+
+  private def caseClassFieldsInModule(module: Module): Map[String, List[String]] =
+    val result = scala.collection.mutable.Map.empty[String, List[String]]
+    def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
+      case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
+        result(d.name.value) = d.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+      case _ => ()
+    }
+    def scanSection(s: Section): Unit =
+      s.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node => ScalaNode.fold(node) {
+            case Source(stats)     => scanStats(stats); ()
+            case Term.Block(stats) => scanStats(stats); ()
+            case _                 => ()
+          }}
+        case _ => ()
+      }
+      s.subsections.foreach(scanSection)
+    module.sections.foreach(scanSection)
+    result.toMap
+
+  private def endpointPathWarnings(
+    clientName: String,
+    ep: ApiEndpointDecl,
+    classFields: Map[String, List[String]]
+  ): List[String] =
+    val params = pathParamNames(ep.path)
+    if params.isEmpty then Nil
+    else ep.requestType match
+      case "Unit" =>
+        params.map(p => s"apiClient $clientName.${ep.name}: path param ':$p' cannot be filled — request type is Unit")
+      case prim if endpointPrimitives.contains(prim) =>
+        if params.size > 1 then
+          List(s"apiClient $clientName.${ep.name}: ${params.size} path params but request type '$prim' provides at most one value")
+        else Nil
+      case typeName =>
+        classFields.get(typeName) match
+          case Some(fields) =>
+            params.filterNot(fields.contains).map { p =>
+              s"apiClient $clientName.${ep.name}: path param ':$p' not found in case class '$typeName' (fields: ${fields.mkString(", ")})"
+            }
+          case None => Nil
+
   /** Emit browser/Electron HTTP clients declared by front-matter
    *  `apiClients:`. The generated methods intentionally return Promises:
    *  browser `fetch` is asynchronous, and SPA/Electron client-only bundles
    *  can route relative URLs to a JVM backend through
    *  `globalThis.__sscBackendBaseUrl`.
    */
-  private def emitHttpTypedRouteClients(clients: List[ApiClientDecl]): Unit =
+  private def emitHttpTypedRouteClients(clients: List[ApiClientDecl], module: Module): Unit =
+    val classFields = caseClassFieldsInModule(module)
+    val warnings = clients.flatMap(c => c.endpoints.flatMap(e => endpointPathWarnings(c.name, e, classFields)))
+    warnings.foreach { w =>
+      System.err.println(s"[ssc warning] $w")
+      line(s"// [ssc warning] $w")
+    }
     val endpoints = clients.flatMap(client => client.endpoints.map(endpoint => client.name -> endpoint))
     if endpoints.nonEmpty then
       line("const _ssc_typedRouteClients = [")
@@ -8026,7 +8080,7 @@ class JsGen(
     // so forward references to handler defs resolve at call time.
     emitFrontmatterRoutes(module)
     emitI18nTable(module)
-    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients))
+    emitHttpTypedRouteClients(module.manifest.toList.flatMap(_.apiClients), module)
     val result    = mutable.ListBuffer[JsGen.Segment]()
     val scalaBuf  = mutable.ListBuffer[String]()
     var ssStart   = 0

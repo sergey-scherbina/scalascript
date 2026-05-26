@@ -334,6 +334,14 @@ class JvmGen(
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
+    val jvmClassFields = jvmCaseClassFieldsInBlocks(blocks)
+    val jvmClientWarnings = apiClients.flatMap(c =>
+      c.endpoints.flatMap(e => jvmEndpointPathWarnings(c.name, e, jvmClassFields))
+    )
+    jvmClientWarnings.foreach { w =>
+      System.err.println(s"[ssc warning] $w")
+      sb.append(s"// [ssc warning] $w\n")
+    }
     emitTypedRouteClientMetadata(apiClients, sb)
     if effectiveFrontend.contains("swing") then
       emitSwingTypedRouteClients(apiClients, sb)
@@ -1144,6 +1152,11 @@ class JvmGen(
       sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
+    val jvmClassFields2 = jvmCaseClassFieldsInBlocks(blocks)
+    apiClients.flatMap(c => c.endpoints.flatMap(e => jvmEndpointPathWarnings(c.name, e, jvmClassFields2))).foreach { w =>
+      System.err.println(s"[ssc warning] $w")
+      sb.append(s"// [ssc warning] $w\n")
+    }
     emitTypedRouteClientMetadata(apiClients, sb)
     val effectiveFrontend = frontendOverride.orElse(module.manifest.flatMap(_.frontendFramework))
     if effectiveFrontend.contains("swing") then
@@ -1665,6 +1678,45 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   /** Minimal escape for emitted Scala string literals. */
   private def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+  private val jvmEndpointPrimitives = Set("Int", "Long", "String", "Boolean", "Double", "Float")
+
+  private def jvmPathParamNames(path: String): List[String] =
+    path.split("/").toList.collect { case seg if seg.startsWith(":") => seg.drop(1) }
+
+  private def jvmCaseClassFieldsInBlocks(blocks: List[JvmGen.Block]): Map[String, List[String]] =
+    val result = scala.collection.mutable.Map.empty[String, List[String]]
+    blocks.foreach { b =>
+      ScalaNode.fold(b.node) { tree =>
+        tree.collect {
+          case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
+            result(d.name.value) = d.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
+        }
+      }
+    }
+    result.toMap
+
+  private def jvmEndpointPathWarnings(
+    clientName: String,
+    ep: ApiEndpointDecl,
+    classFields: Map[String, List[String]]
+  ): List[String] =
+    val params = jvmPathParamNames(ep.path)
+    if params.isEmpty then Nil
+    else ep.requestType match
+      case "Unit" =>
+        params.map(p => s"apiClient $clientName.${ep.name}: path param ':$p' cannot be filled — request type is Unit")
+      case prim if jvmEndpointPrimitives.contains(prim) =>
+        if params.size > 1 then
+          List(s"apiClient $clientName.${ep.name}: ${params.size} path params but request type '$prim' provides at most one value")
+        else Nil
+      case typeName =>
+        classFields.get(typeName) match
+          case Some(fields) =>
+            params.filterNot(fields.contains).map { p =>
+              s"apiClient $clientName.${ep.name}: path param ':$p' not found in case class '$typeName' (fields: ${fields.mkString(", ")})"
+            }
+          case None => Nil
 
   private def emitTypedRouteClientMetadata(clients: List[ApiClientDecl], sb: StringBuilder): Unit =
     val endpoints = clients.flatMap(client => client.endpoints.map(endpoint => client.name -> endpoint))

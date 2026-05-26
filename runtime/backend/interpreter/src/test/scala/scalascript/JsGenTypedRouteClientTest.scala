@@ -183,6 +183,103 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("await _dispatch(Messages, 'list',"))
     assert(!code.contains("'forEach'"))
 
+  test("path param validation: Unit request type with path param emits warning comment"):
+    val src =
+      """|---
+         |apiClients:
+         |  Items:
+         |    endpoints:
+         |      - name: get
+         |        method: GET
+         |        path: /api/items/:id
+         |        request: Unit
+         |        response: String
+         |---
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+    assert(code.contains("// [ssc warning] apiClient Items.get: path param ':id' cannot be filled — request type is Unit"))
+
+  test("path param validation: matching case class fields produce no warning"):
+    val src =
+      """|---
+         |apiClients:
+         |  Items:
+         |    endpoints:
+         |      - name: get
+         |        method: GET
+         |        path: /api/items/:id
+         |        request: ItemQuery
+         |        response: String
+         |---
+         |
+         |# Test
+         |
+         |```scalascript
+         |case class ItemQuery(id: Int, category: String)
+         |```
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+    assert(!code.contains("// [ssc warning]"))
+
+  test("path param validation: case class missing path param field emits warning"):
+    val src =
+      """|---
+         |apiClients:
+         |  Items:
+         |    endpoints:
+         |      - name: get
+         |        method: GET
+         |        path: /api/items/:id
+         |        request: ItemQuery
+         |        response: String
+         |---
+         |
+         |# Test
+         |
+         |```scalascript
+         |case class ItemQuery(name: String)
+         |```
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+    assert(code.contains("// [ssc warning] apiClient Items.get: path param ':id' not found in case class 'ItemQuery'"))
+
+  test("path param validation: primitive with single path param produces no warning"):
+    val src =
+      """|---
+         |apiClients:
+         |  Items:
+         |    endpoints:
+         |      - name: get
+         |        method: GET
+         |        path: /api/items/:id
+         |        request: Int
+         |        response: String
+         |---
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+    assert(!code.contains("// [ssc warning]"))
+
+  test("path param validation: primitive with multiple path params emits warning"):
+    val src =
+      """|---
+         |apiClients:
+         |  Items:
+         |    endpoints:
+         |      - name: get
+         |        method: GET
+         |        path: /api/items/:category/:id
+         |        request: Int
+         |        response: String
+         |---
+         |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+    assert(code.contains("// [ssc warning] apiClient Items.get: 2 path params but request type 'Int' provides at most one value"))
+
   test("JS typed route clients encode and decode through generated codecs"):
     assume(hasNode, "node not available")
     val code = JsGen.generate(Parser.parse(source))

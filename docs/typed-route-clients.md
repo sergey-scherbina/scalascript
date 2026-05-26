@@ -300,7 +300,7 @@ inside non-async lambdas. The result of such an expression is a Promise; wrap
 with `awaitClient(for { ... } yield ...)` to obtain the resolved value in an
 async context.
 
-### Phase 4 — Shared Codecs
+### Phase 4 ✓ Landed (2026-05-26) — Shared Codecs
 
 Replace ad hoc generated JSON encoding/decoding with the shared typed mapping
 codec layer once it exists. Keep compatibility wrappers so Phase 2/3 examples
@@ -336,6 +336,27 @@ instead of plain objects where the shape is known.
 Optionally derive client declarations from typed route declarations or typed
 `mount()` handlers. Add static diagnostics for mismatched route paths,
 unfilled path params, unsupported request fields, and response decode gaps.
+
+Partially landed 2026-05-26: JsGen and JvmGen now perform static path-param
+validation during code generation. For each declared `apiClients:` endpoint,
+the generator extracts `:param` names from the path template and checks them
+against the declared request type:
+
+- `Unit` request type with any path params → warning (Unit has no fields).
+- Primitive request type (`Int`, `Long`, `String`, etc.) with more than one
+  path param → warning (a single primitive can fill at most one param).
+- User-defined case class request type: the generator scans case class
+  declarations in the same module; any path param without a matching field
+  name → warning. Types not locally defined are skipped (no cross-file
+  analysis yet).
+
+Warnings are emitted on stderr as `[ssc warning] ...` and also written as
+`// [ssc warning] ...` comments in the generated JS or Scala output so they
+are visible when inspecting the artifact.
+
+Still planned for Phase 5: route derivation from existing `route()` /
+`mount()` handlers, cross-file type analysis, and integration with a
+structured diagnostic API rather than stderr + comments.
 
 ### Phase 6 — Advanced Shapes
 

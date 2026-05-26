@@ -112,6 +112,48 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(!code.contains("inline def _ssc_api_request[Req, Resp]"))
   }
 
+  test("JVM codegen path param validation: Unit request type emits warning comment") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: get
+        |        method: GET
+        |        path: /api/items/:id
+        |        request: Unit
+        |        response: String
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src))
+    assert(code.contains("// [ssc warning] apiClient Items.get: path param ':id' cannot be filled — request type is Unit"))
+  }
+
+  test("JVM codegen path param validation: case class with matching field produces no warning") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: get
+        |        method: GET
+        |        path: /api/items/:id
+        |        request: ItemQuery
+        |        response: String
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |case class ItemQuery(id: Int)
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src))
+    assert(!code.contains("// [ssc warning]"))
+  }
+
   test("JVM codegen skips client-only ScalaScript blocks") {
     val src =
       """# Test

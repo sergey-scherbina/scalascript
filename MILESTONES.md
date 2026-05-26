@@ -10628,26 +10628,24 @@ distributed same-source server/client example are partially landed.
   trampolining); for-comprehensions where all generators use `awaitClient` now
   lower to sequential-await async IIFEs, fixing previously-broken JS that
   placed bare `await` inside non-async flatMap lambdas.
-- **Phase 4 ◐ Partially landed (2026-05-25)** — shared codecs:
+- **Phase 4 ✓ Landed (2026-05-26)** — shared codecs:
   generated JVM/Swing and JS HTTP clients now call a stable typed JSON codec
   facade (`_ssc_typed_json_encode` / `_ssc_typed_json_decode_response`) instead
   of embedding transport-specific JSON encode/decode operations directly at
-  request call sites. This keeps Phase 2/3 behavior compatible while creating
-  the boundary where the future derives-based typed mapping layer can plug in.
-  Follow-up landed 2026-05-25: `backend/typed-data` now owns the shared emitted
-  typed JSON facade snippets, and JVM/JS codegen import the same runtime
-  contract. Follow-up landed 2026-05-25: `backend/typed-data` now has explicit
-  `JsonCodec[A]`/`DecodeError`/`JsonValue` APIs and `derives JsonCodec` for
-  case classes. Follow-up landed 2026-05-25: JVM/Swing generated typed clients
-  now route request encoding and response decoding through `JsonCodec[T]` and
-  add the typed-data runtime jar when Swing API clients are present.
-  Follow-up landed 2026-05-26: JS/browser/Electron typed clients now pass
-  request/response type names through the shared facade, and JS codegen
-  registers generated case-class/enum-case metadata so known response shapes
-  decode back into generated JS values instead of plain objects.
-- **Phase 5 — Route derivation and validation.** Optionally derive clients from
-  typed route declarations or typed `mount()` handlers and add static
-  diagnostics for path/field/codec mismatches.
+  request call sites. `backend/typed-data` owns the shared facade snippets and
+  provides `JsonCodec[A]` / `derives JsonCodec` for case classes and sealed
+  ADTs. JVM/Swing typed clients route through `JsonCodec[T]`; JS clients pass
+  type names through the facade and use a lightweight runtime codec registry for
+  known case-class/enum response shapes. The boundary is set for the
+  future derives-based typed mapping layer to plug in without changing generated
+  client method shape.
+- **Phase 5 ◐ Partially landed (2026-05-26)** — route derivation and validation:
+  JsGen and JvmGen now emit `// [ssc warning]` comments (and print to stderr)
+  for endpoints where path params cannot be filled by the declared request type:
+  `Unit` request with any `:param`, primitive request with multiple path params,
+  or a locally-declared case class missing a field for a path param. Cross-file
+  type analysis and route derivation from `route()` / `mount()` handlers remain
+  planned.
 - **Phase 6 — Advanced shapes.** Add auth/header parameters, streaming,
   subscriptions, retries, and cancellation only after unary JSON clients are
   stable.
