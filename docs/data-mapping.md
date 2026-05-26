@@ -229,13 +229,27 @@ IndexedDb.store[Draft]("drafts").put(draft)
 ObjectStore.collection[Draft]("drafts").put(draft)
 ```
 
+The first portable object codec foundation is available in `backend/typed-data`:
+
+```scalascript
+import scalascript.typeddata.{ObjectCodec, ObjectValue, JsonValue, key}
+
+case class Draft(@key id: String, title: String, body: String)
+  derives ObjectCodec
+
+val stored: ObjectValue = ObjectCodec[Draft].encode(Draft("d1", "Plan", "Text"))
+val id: Option[String] = ObjectCodec[Draft].key(Draft("d1", "Plan", "Text"))
+```
+
 Rules:
 
 - `JsonCodec[A]` is the canonical wire/storage format for REST and object
   stores.
 - IndexedDB may store structured-clone-compatible values, but the portable
   representation should remain JSON-compatible in v1.
-- ObjectStore sync uses `ObjectCodec[A]` plus `Stored[A]` metadata.
+- ObjectStore sync uses `ObjectCodec[A]` plus `Stored[A]` metadata. The current
+  `ObjectCodec[A]` layer covers portable object values and key extraction;
+  actual IndexedDB/server `ObjectStore` APIs remain planned.
 
 ## Property Graph Mapping
 
@@ -418,8 +432,11 @@ the same query model.
    landed: `schemas:` front-matter parses into AST/IR and interpreter typed SQL
    consumes it for aliases, defaults, key metadata, canonical storage names, and
    unknown-column rejection. Remaining: cross-store codecs.
-4. **Object/IndexedDB mapping** — add `ObjectCodec[A]`, typed IndexedDB stores,
-   and server ObjectStore collections.
+4. **Object/IndexedDB mapping** — partially landed: `ObjectValue`,
+   `ObjectFieldSpec[A]`, and `ObjectCodec[A]` provide portable object/document
+   mapping over `JsonCodec`, including explicit and derived case-class codecs,
+   schema annotations, defaults, key extraction, and unknown-field rejection.
+   Remaining: typed IndexedDB stores, server ObjectStore collections, and sync.
 5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property
    graph vertices/edges.
 6. **RDF mapping** — add `RdfCodec[A]` with predicate/class/id annotations.

@@ -275,6 +275,8 @@ class JvmGen(
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
+    if blocksUseTypedData(blocks) then
+      sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
 
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
@@ -434,10 +436,14 @@ class JvmGen(
         val stream = java.nio.file.Files.walk(root, 7)
         try
           stream.iterator.asScala
-            .find(p =>
+            .filterNot(p => p.toString.contains(s"${java.io.File.separator}target${java.io.File.separator}bg-jobs${java.io.File.separator}"))
+            .filter(p =>
               val name = p.getFileName.toString
               name.startsWith(s"${artifactBase}_") && name.endsWith(".jar") && !name.endsWith("-tests.jar")
             )
+            .toVector
+            .sortBy(_.toString)
+            .headOption
         finally stream.close()
       else None
     val libPath = Option(System.getProperty("ssc.lib.path"))
@@ -2099,6 +2105,26 @@ class JvmGen(
           case Term.Apply.After_4_6_0(Term.Name("mcpServer"),  _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("serveMcp"),   _) => found = true
           case Term.Apply.After_4_6_0(Term.Name("mcpConnect"), _) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseTypedData(blocks: List[JvmGen.Block]): Boolean =
+    val names = Set(
+      "JsonCodec", "JsonValue", "JsonFieldSpec",
+      "RowCodec", "RowValue", "RowValueCodec", "RowFieldSpec",
+      "ObjectCodec", "ObjectValue", "ObjectFieldSpec"
+    )
+    blocks.exists { b =>
+      var found = false
+      if b.src.contains("scalascript.typeddata") || names.exists(name => b.src.contains(name)) then
+        found = true
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Import(importers) if importers.exists(_.ref.syntax.startsWith("scalascript.typeddata")) => found = true
+          case Term.Name(name) if names(name) => found = true
+          case Type.Name(name) if names(name) => found = true
         }
       }
       found

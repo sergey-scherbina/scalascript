@@ -1188,6 +1188,10 @@ object codecs can use `JsonFieldSpec[A]` for renamed fields, aliases, default
 values, key-field metadata, and unknown-field rejection. Derived JVM
 `JsonCodec` product codecs can use `@fieldName`, `@aliases`, case-class default
 parameters, `@key`, and `@rejectUnknown` for the same schema metadata.
+The first `ObjectValue` / `ObjectFieldSpec[A]` / `ObjectCodec[A]` layer is also
+available for portable IndexedDB/ObjectStore document shapes. It reuses
+`JsonCodec` field values, supports explicit and derived case-class codecs, and
+extracts stable object keys from `@key` fields.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
 `SparkCodec`, then use backend-specific APIs at the query boundary. The first

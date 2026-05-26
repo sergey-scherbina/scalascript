@@ -1,0 +1,30 @@
+---
+backend: jvm
+---
+
+# Typed Object Codec
+
+```scala
+import scalascript.typeddata.{ObjectCodec, ObjectValue, JsonValue, fieldName, aliases, key, rejectUnknown}
+
+@rejectUnknown
+case class Draft(
+  @key id: String,
+  @fieldName("title") @aliases("name") label: String,
+  body: String = "",
+  dirty: Boolean = false
+) derives ObjectCodec
+
+val draft = Draft("d1", "Plan", "ship typed object codecs", dirty = true)
+val stored = ObjectCodec[Draft].encode(draft)
+val oldStored = ObjectValue.obj(
+  "id" -> JsonValue.Str("d2"),
+  "name" -> JsonValue.Str("Old field name")
+)
+val decoded = ObjectCodec[Draft].decode(oldStored).toOption.get
+val title = stored.fields("title") match
+  case JsonValue.Str(value) => value
+  case other => other.toString
+
+println(ObjectCodec[Draft].key(draft).get + ":" + title + ":" + decoded.label + ":" + decoded.dirty)
+```

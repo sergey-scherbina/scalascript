@@ -29,6 +29,19 @@ private[typeddata] object DerivedSchemaMacros:
       )
     }
 
+  def objectProduct[A: Type](mirror: Expr[scala.deriving.Mirror.ProductOf[A]])(using Quotes): Expr[ObjectCodec[A]] =
+    import quotes.reflect.*
+    val owner = TypeRepr.of[A].typeSymbol
+    val fields = productFields[A].map((symbols, index, name, tpe) => jsonFieldExpr(symbols, index, name, tpe))
+    val reject = hasRejectUnknown(owner)
+    '{
+      DerivedProductCodecs.objectProductCodec[A](
+        $mirror,
+        Vector(${Varargs(fields)}*),
+        ${Expr(reject)}
+      )
+    }
+
   private def productFields[A: Type](using q: Quotes): List[(List[q.reflect.Symbol], Int, String, q.reflect.TypeRepr)] =
     import quotes.reflect.*
     val tpe = TypeRepr.of[A]

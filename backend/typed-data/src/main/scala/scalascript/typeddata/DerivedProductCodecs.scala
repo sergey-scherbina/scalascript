@@ -60,6 +60,25 @@ private[typeddata] object DerivedProductCodecs:
         }
     )
 
+  def objectProductCodec[A](
+      mirror: Mirror.ProductOf[A],
+      fields: Vector[JsonProductField],
+      rejectUnknown: Boolean
+  ): ObjectCodec[A] =
+    ObjectCodec.instance(
+      value =>
+        val values = value.asInstanceOf[Product].productIterator
+        ObjectValue(fields.iterator.zip(values).map { (field, raw) =>
+          field.name -> field.encode(raw)
+        }.toMap)
+      ,
+      objectValue =>
+        rejectUnknownJson(objectValue.fields, fields, rejectUnknown).flatMap { _ =>
+          decodeProduct(objectValue.fields, fields.map(_.decode), mirror)
+        },
+      fields.find(_.key).map(_.name)
+    )
+
   private def decodeProduct[A, Repr](
       repr: Repr,
       decoders: Vector[Repr => Either[DecodeError, Any]],

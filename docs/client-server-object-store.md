@@ -153,8 +153,11 @@ keeping as an optional backend for apps that want battle-tested replication.
 
 ## Phases
 
-1. **Spec + examples** — document object-store front matter, server API,
-   client API, and sync endpoint shape.
+1. **Spec + codec foundation** — document object-store front matter, server API,
+   client API, and sync endpoint shape. Partially landed 2026-05-26:
+   `backend/typed-data` provides `ObjectValue`, `ObjectFieldSpec[A]`, and
+   `ObjectCodec[A]` for portable JSON-compatible object/document values and
+   key extraction. Store APIs and sync remain planned.
 2. **Server object store SPI** — define a small `ObjectStoreBackend` contract
    implemented first by JDBC JSON storage.
 3. **Generated sync routes** — generate `changes` and `push` endpoints for
