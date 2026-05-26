@@ -727,13 +727,14 @@ class TestInterpreter(plugins: List[Backend]):
 
 Each plugin then gets a `src/test/` with a `*PluginSpec` that tests its
 intrinsics in isolation, without depending on the full conformance suite.
-That per-plugin migration is still open because `backendInterpreter / Test`
-currently depends on the std plugin projects to run the legacy conformance
-suite; adding `std-plugin / Test -> testUtils -> backendInterpreter` before
-that old test-classpath dependency is removed creates an sbt project cycle.
+The old `backendInterpreter / Test -> std-plugin` project dependency has been
+split out into `backendInterpreterPluginTests`, a test-only module that owns the
+legacy plugin-backed interpreter tests.  `backendInterpreter` now stays free of
+std-plugin project references, so individual std plugins may add
+`src/test/` suites via `testUtils % Test` without creating an sbt cycle.
+`graphPlugin` is the first migrated plugin suite.
 
-**Effort remaining**: break the legacy `backendInterpreter / Test` plugin
-classpath coupling, then migrate plugin suites one family at a time.
+**Effort remaining**: migrate the remaining plugin families one at a time.
 
 ### 11.2 Examples `pkg:` import sweep
 

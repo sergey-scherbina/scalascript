@@ -312,11 +312,14 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
 
   Post-migration follow-ons (not blocking; tracked in `docs/intrinsics-migration.md` §11):
 
-  - **Plugin test harness** — ✅ **PARTIAL LANDED (2026-05-26)**:
+  - **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
     `runtime/backend/test-utils` now provides `TestInterpreter(plugins =
     List(...))`, explicit plugin installation on `Interpreter`, and a harness
-    self-test. Remaining: break the legacy `backendInterpreter / Test` →
-    std-plugin classpath coupling, then add per-plugin `src/test/` suites.
+    self-test. Follow-up landed 2026-05-26: legacy std-plugin-backed
+    interpreter tests moved behind `backendInterpreterPluginTests`, removing
+    the `backendInterpreter / Test` → std-plugin project dependency; `graphPlugin`
+    now has an isolated `src/test` suite via `testUtils % Test`. Remaining:
+    migrate the other plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
   - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
@@ -5681,12 +5684,14 @@ worth a separate fix when somebody has cycles.
 
 - **Post-migration follow-ons** (not blocking; spec §11 of
   `docs/intrinsics-migration.md`):
-  - **Plugin test harness** — ✅ **PARTIAL LANDED (2026-05-26)**:
+  - **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
     `runtime/backend/test-utils` now exposes `TestInterpreter(plugins =
     List(p))`, backed by explicit `Interpreter.installPlugins(...)`, plus a
-    fake-plugin self-test. Remaining: break the legacy `backendInterpreter /
-    Test` dependency on std plugins and then migrate per-plugin `src/test/`
-    suites. Effort remaining: M.
+    fake-plugin self-test. Follow-up: `backendInterpreterPluginTests` now owns
+    the legacy plugin-backed interpreter suites, removing the direct
+    `backendInterpreter / Test` dependency on std plugins; `graphPlugin` has
+    the first isolated `src/test` suite via `testUtils % Test`. Remaining:
+    migrate the other plugin families one at a time.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
     import lines, relying on ServiceLoader classpath discovery.  Effort: S.

@@ -30,6 +30,19 @@ val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
 val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
+def isStdPluginInterpreterTest(file: File): Boolean = {
+  val name = file.getName
+  name == "GraphInterpreterIntrinsicTest.scala" ||
+  name == "InProcessBackendTransportTest.scala" ||
+  name == "MountHandlerTest.scala" ||
+  name == "PubSubTest.scala" ||
+  name == "SqlBlockInterpreterTest.scala" ||
+  name == "TypedHandlerTest.scala" ||
+  name.startsWith("Mcp") ||
+  name.startsWith("OAuth") ||
+  name.startsWith("Oidc")
+}
+
 // ---------------------------------------------------------------------------
 // Backend SPI v0.1 — module layout (docs/backend-spi.md §4.1)
 //
@@ -523,12 +536,13 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("runtime/backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, jsonPlugin % Test, frontendPlugin % Test, requestPlugin % Test, authPlugin % Test, oauthPlugin % Test, fetchPlugin % Test, graphPlugin % Test, sqlPlugin % Test, httpPlugin % Test, wsPlugin % Test, mcpPlugin % Test, swingPlugin % Test)
+  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
+    Test / unmanagedSources := (Test / unmanagedSources).value.filterNot(isStdPluginInterpreterTest),
     // JvmGen scala-cli runtime smoke tests read these resources to find
     // locally-built internal runtime JARs and avoid resolving unpublished
     // io.scalascript artifacts from Maven Central.
@@ -1949,9 +1963,10 @@ lazy val fetchPlugin = project
 
 lazy val graphPlugin = project
   .in(file("runtime/std/graph-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graph-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
@@ -2007,6 +2022,25 @@ lazy val pwaPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.pwa"))
 
+lazy val backendInterpreterPluginTests = project
+  .in(file("runtime/backend/interpreter-plugin-tests"))
+  .dependsOn(
+    backendInterpreter % "compile->compile;test->test",
+    jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
+    fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin,
+    swingPlugin,
+  )
+  .settings(
+    name := "scalascript-backend-interpreter-plugin-tests",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Test / unmanagedSources := {
+      val legacySources = ((backendInterpreter / baseDirectory).value / "src" / "test" / "scala" ** "*.scala").get
+      legacySources.filter(isStdPluginInterpreterTest)
+    },
+  )
+
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
   .in(file("runtime/std/payment-request-plugin"))
@@ -2034,7 +2068,7 @@ lazy val root = project
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
-    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter,
+    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
