@@ -1909,15 +1909,15 @@ lazy val micropaymentHydra = project
 
 // ── Phase 1 intrinsic plugins (§ intrinsics-migration.md) ────────────────────
 // json, frontend, and request families extracted from the bundled interpreter
-// into ServiceLoader plugins.  Registered as `% Test` on backendInterpreter so
-// the existing end-to-end test suite continues to pass with the families loaded
-// as plugins rather than hardcoded intrinsics.
+// into ServiceLoader plugins.  Legacy plugin-backed interpreter tests live in
+// `backendInterpreterPluginTests`; per-plugin suites use `testUtils % Test`.
 
 lazy val jsonPlugin = project
   .in(file("runtime/std/json-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-json-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )

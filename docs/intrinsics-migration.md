@@ -732,7 +732,7 @@ split out into `backendInterpreterPluginTests`, a test-only module that owns the
 legacy plugin-backed interpreter tests.  `backendInterpreter` now stays free of
 std-plugin project references, so individual std plugins may add
 `src/test/` suites via `testUtils % Test` without creating an sbt cycle.
-`graphPlugin` is the first migrated plugin suite.
+`graphPlugin` and `jsonPlugin` are the first migrated plugin suites.
 
 **Effort remaining**: migrate the remaining plugin families one at a time.
 
