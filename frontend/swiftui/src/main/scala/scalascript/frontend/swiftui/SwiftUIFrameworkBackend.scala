@@ -45,12 +45,15 @@ final class SwiftUIFrameworkBackend extends FrontendFrameworkSpi:
         val minMacos  = manifest.minOs.get(Platform.Desktop(DesktopOs.MacOS)).getOrElse("14")
         val includeIos   = platform != Platform.Desktop(DesktopOs.MacOS)
         val includeMacos = platform != Platform.Mobile(MobileOs.iOS)
+        val modelSrc = SwiftUIEmitter.appModelSwift(appName, module)
+        val baseSources = Map(
+          "Package.swift"                          -> SwiftUIEmitter.packageSwift(appName, minIos, minMacos, includeIos, includeMacos),
+          s"Sources/$appName/${appName}App.swift"  -> SwiftUIEmitter.appSwift(appName),
+          s"Sources/$appName/ContentView.swift"    -> SwiftUIEmitter.contentView(appName, module, manifest)
+        )
+        val allSources = baseSources ++ modelSrc.map(src => s"Sources/$appName/AppModel.swift" -> src)
         Some(EmittedArtifact.NativeApp(
-          sources = Map(
-            "Package.swift"                          -> SwiftUIEmitter.packageSwift(appName, minIos, minMacos, includeIos, includeMacos),
-            s"Sources/$appName/${appName}App.swift"  -> SwiftUIEmitter.appSwift(appName),
-            s"Sources/$appName/ContentView.swift"    -> SwiftUIEmitter.contentView(appName, module, manifest)
-          ),
+          sources = allSources,
           resources   = Map.empty,
           buildScript = s"swift build",
           manifest    = manifest,

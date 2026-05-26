@@ -10,53 +10,23 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Frontend & Clients
 
+_(all done — see Done section below)_
 
 ## Payments & Blockchain
 
-- [ ] **v1.38-payment-request** — Payment Request API (browser + server)  
-  _Browser Payment Request API integration + server-side payment session handling. Spec: `BACKLOG.md # Payments & Blockchain §v1.38`._
-
-- [ ] **x402-http-payment** — x402 HTTP payment protocol  
-  _402-gated routes, x402 payment channel, token verification. Spec: `BACKLOG.md # Payments & Blockchain §x402`._
-
-- [ ] **blockchain-spi** — Blockchain SPI  
-  _Chain abstraction layer for x402 + wallet. Spec: `BACKLOG.md # Payments & Blockchain §Blockchain SPI`._
-
-- [ ] **wallet-key-mgmt** — Wallet key management + dApp connectivity  
-  _Key storage, signing, WalletConnect bridge. Spec: `BACKLOG.md # Payments & Blockchain §Wallet SPI — key management`._
-
-- [ ] **mcp-x402-wallet** — MCP × x402 × Wallet agentic payments  
-  _Agent-initiated micropayments via MCP tool calls. Spec: `BACKLOG.md # Payments & Blockchain §MCP × x402 × Wallet`._
-
-- [ ] **micropayment-platform** — Micropayment platform (channel-based)  
-  _Fee amortisation for microtransactions. Spec: `BACKLOG.md # Payments & Blockchain §Micropayment Platform`._
+_(all done — see Done section below)_
 
 ## Database
 
-- [ ] **v1.26-sql-jdbc** — `sql` fenced code blocks (JDBC)  
-  _`sql { SELECT ... }` blocks compiled to JDBC calls. Full spec: `BACKLOG.md # Database §v1.26`._
-
-- [ ] **v1.27-browser-sql** — Browser-side SQL (sql.js / DuckDB-Wasm)  
-  _Same `sql { }` syntax in JS target via sql.js or DuckDB-Wasm. Spec: `BACKLOG.md # Database §v1.27`._
-
-- [ ] **v1.30-side-sql** — `@side=client|server` for SQL blocks in full-stack modules  
-  _Annotate which SQL blocks run client-side vs server-side. Spec: `BACKLOG.md # Database §v1.30 @side`._
-
-- [ ] **v1.31-transaction** — `transaction` fenced block  
-  _Database transaction scope as a language construct. Spec: `BACKLOG.md # Database §v1.31`._
+_(all done — see Done section below)_
 
 ## Native Platform
 
-- [ ] **v1.48-swiftui** — SwiftUI Native Frontend (iOS + macOS)  
-  _SwiftUI renderer backend; `ssc run --frontend swiftui`. Spec: `BACKLOG.md # Native Platform §v1.48 SwiftUI`._
+_(all done — see Done section below)_
 
 ## Language & Compiler
 
-- [ ] **v2.0-sep-compile** — Separate compilation (full pipeline)  
-  _Per-module IR artifacts, interface files, linker pass. MVP landed; full pipeline remains. Spec: `BACKLOG.md # Language & Compiler §v2.0`._
-
-- [ ] **interpreter-ergonomics** — Interpreter ergonomics (v1.1 carryover)  
-  _Better error messages, REPL completion, source maps. Spec: `BACKLOG.md # Language & Compiler §Interpreter ergonomics`._
+_(all done — see Done section below)_
 
 ---
 
@@ -72,10 +42,22 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **v1.46-phase6-retry** — retry policy (`_ssc_api_set_retry`)
 - [x] **v1.46-phase6-cancel** — cancellation tokens
 - [x] **v1.46-phase7-sse** — SSE streaming (EventSource/fetch JS; HttpURLConnection JVM)
-- [x] **v1.46-ws-subscriptions** — WebSocket subscriptions (native WebSocket JS; java.net.http.HttpClient JVM; `_SscWsHandle`)
-- [x] **v1.46-phase5-derivation** — Route derivation from `route()`/`mount()` handlers (auto-generate `apiClients:` metadata)
-- [x] **v1.46-pagination** — Pagination helpers (`paginated: true` → `<name>Paged(page, size, ...)` appending `?page=N&size=M`)
-- [x] **v1.46-phase5-derivation** — Route derivation from `route()`/`mount()` handlers (auto-generate `apiClients:` metadata)
+- [x] **v1.46-ws-subscriptions** — WebSocket subscriptions (native WebSocket JS; java.net.http.HttpClient JVM; `_SscWsHandle` with `send()`+`close()`)
+- [x] **v1.46-phase5-derivation** — Route derivation: `RouteDeriver` auto-generates `ApiClientDecl` from `route()` calls (2026-05-26)
+- [x] **v1.46-pagination** — Pagination helpers: `paginated: true` → `<name>Paged(page, size, ...)` appending `?page=N&size=M` on JVM + JS (2026-05-26)
+- [x] **v1.38-payment-request** — Payment Request API (browser + server) — Complete (2026-05-26)
+- [x] **x402-http-payment** — x402 HTTP payment protocol — All phases landed (2026-05-19/20)
+- [x] **blockchain-spi** — Blockchain SPI — All phases landed (2026-05-19/20)
+- [x] **wallet-key-mgmt** — Wallet key management + dApp connectivity — Landed (2026-05-20)
+- [x] **mcp-x402-wallet** — MCP × x402 × Wallet agentic payments — All 7 phases landed (2026-05-19)
+- [x] **micropayment-platform** — Micropayment platform — All phases landed (2026-05-19/20)
+- [x] **v1.26-sql-jdbc** — `sql` fenced code blocks (JDBC) — v1.26 + v1.26.1 + v1.26.2 landed (2026-05-21)
+- [x] **v1.27-browser-sql** — Browser-side SQL (sql.js / DuckDB-Wasm) — v1.27 landed (2026-05-21)
+- [x] **v1.30-side-sql** — `@side=client|server` for SQL blocks — v1.30 complete (2026-05-21)
+- [x] **v1.31-transaction** — `transaction` fenced block — v1.31 landed (2026-05-21)
+- [x] **v1.48-swiftui** — SwiftUI Native Frontend (iOS + macOS) — Phases 1–3 all landed (2026-05-26)
+- [x] **v2.0-sep-compile** — Separate compilation — ALL-DELIVERABLES-LANDED (2026-05-20)
+- [x] **interpreter-ergonomics** — Interpreter ergonomics — All 3 items landed (v1.13 + 2026-05-19)
 
 ---
 

@@ -26,7 +26,7 @@ frontend/swiftui/
     SwiftUIFrameworkBackend.scala  — FrontendFrameworkSpi impl
     SwiftUIEmitter.scala           — View IR → Swift source
   src/test/scala/scalascript/frontend/swiftui/
-    SwiftUIEmitterTest.scala       — 30 unit tests
+    SwiftUIEmitterTest.scala       — 41 unit tests
 ```
 
 ### Generated Swift Package layout
@@ -36,6 +36,7 @@ frontend/swiftui/
   Package.swift                          — swift-tools-version:5.9 manifest
   Sources/<AppName>/<AppName>App.swift   — @main App entry + WindowGroup
   Sources/<AppName>/ContentView.swift    — generated UI (signals + body)
+  Sources/<AppName>/AppModel.swift       — @Observable model (only when list signals exist)
 ```
 
 ### SPI contract
@@ -53,7 +54,7 @@ def emit(module): EmittedSpa  // throws — web SPA not supported
 ```
 
 `emitNative` returns an `EmittedArtifact.NativeApp` with:
-- `sources` — three Swift files (Package.swift, App, ContentView)
+- `sources` — three or four Swift files (Package.swift, App, ContentView, and optionally AppModel)
 - `buildScript` — `"swift build"`
 - `format` — `AppFormat.SwiftUIApp`
 
@@ -87,6 +88,7 @@ def emit(module): EmittedSpa  // throws — web SPA not supported
 | `SafeArea` | pass-through (SwiftUI handles automatically) |
 | `KeyboardAvoiding` | pass-through (SwiftUI handles automatically) |
 | `Fragment` | children joined inline |
+| `ForSignal(list, …, tmpl)` | `ForEach(list.indices, …) { idx in tmpl }` / `ForEach(list, …) { item in Text(item) }` |
 | `Show(cond, t, f)` | evaluated at codegen time |
 | `Adaptive` | picks `mobile` branch, then `desktop`, then `fallback` |
 
@@ -112,7 +114,7 @@ Type inference:
 | `ToggleSignal(s)` | `s.id.toggle()` |
 | `PushSignalLiteral(l, v)` | `l.id.append(v)` |
 | `ClearSignalList(l)` | `l.id.removeAll()` |
-| `RemoveSelfFromList(l)` | comment (index not available at codegen) |
+| `RemoveSelfFromList(l)` | `l.id.remove(at: __idx_l.id)` inside `ForSignal`; comment otherwise |
 | `InputChange(s)` | comment (handled by TextField binding) |
 | `FetchAction(m, url, …)` | comment stub (URLSession) |
 | `Simple` / `WithEvent` | comment (closure not serializable) |
@@ -145,27 +147,31 @@ that don't declare `frontend: swiftui` are unaffected.
   `examples/frontend/ios-hello/` demonstrates a counter + name input app.
   `build.sbt` registers `frontendSwiftUI` module.
 
-- **Phase 2 (planned)** — CLI integration:
-  `ssc build --target mobile-ios` / `ssc compile --backend swift`,
-  `Feature.SwiftUI` capability flag, toolchain check for `swiftc` / Xcode.
+- **Phase 2 ✓ Landed (2026-05-26)** — CLI integration:
+  `ssc build --target mobile-ios`, `ssc build --target desktop-macos`,
+  `ssc toolchain check --target mobile-ios` (swift + Xcode detection),
+  JvmGen `_ssc_ui_emit_native_platform_to_dir` + swiftui arm in `_ssc_ui_serve`.
 
-- **Phase 3 (planned)** — Reactive signals at runtime:
-  `Combine`-based `@Published` / `ObservableObject` lowering for list mutations
-  and cross-component state sharing. Requires iOS 17+ `@Observable` macro or
-  iOS 14+ `ObservableObject`.
+- **Phase 3 ✓ Landed (2026-05-26)** — Reactive list lowering + `@Observable` model:
+  - `ForSignal` → `ForEach(list.indices, id: \.self) { idx in ... }` (with template)
+    or `ForEach(list, id: \.self) { item in Text(item) }` (without template).
+  - `RemoveSelfFromList` → `list.remove(at: __idx_list)` when inside a `ForSignal`
+    (index variable threaded through `ForCtx`); comment otherwise.
+  - `PushSignalLiteral` / `ClearSignalList` already correct; now covered by tests.
+  - When list signals exist, emits `Sources/<App>/AppModel.swift` with an
+    `@Observable final class AppModel` (requires iOS 17+ / Observation framework)
+    holding all list vars. Useful for cross-component sharing; ContentView keeps
+    its own `@State` vars for single-view usage.
+  - 11 new unit tests; total test count: 41.
 
 ## 6. Testing strategy
 
-- Unit: `SwiftUIEmitterTest` — 30 tests covering View cases, EventHandlers,
-  style modifiers, Package.swift, App entry, platform selection, escape helpers.
+- Unit: `SwiftUIEmitterTest` — 41 tests covering View cases, EventHandlers,
+  style modifiers, Package.swift, App entry, platform selection, escape helpers,
+  ForSignal → ForEach, RemoveSelfFromList context tracking, AppModel generation.
 - Integration (Phase 2): `ssc build --target mobile-ios` smoke test that
   invokes `swift build` on the generated package (requires Xcode on CI).
 
 ## 7. Open questions
 
-- Should the `Combine` approach (Phase 3) target iOS 17 `@Observable` macro or
-  keep `@State`-only for simplicity? `@State` is simpler and sufficient for
-  self-contained single-view apps; `@Observable` is the modern approach for
-  multi-view apps.
-- `ForSignal` with `itemTemplate` needs a real reactive `List` lowering once
-  Phase 3 lands — the current codegen emits the template once as a placeholder.
+*(All Phase 3 open questions resolved.)*

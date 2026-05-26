@@ -324,3 +324,132 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     assert(SwiftUIEmitter.swiftString("say \"hi\"") == """say \"hi\"""")
     assert(SwiftUIEmitter.swiftString("line\nnewline") == "line\\nnewline")
   }
+
+  // ── Phase 3: ForSignal → ForEach ─────────────────────────────────────────
+
+  test("ForSignal without template emits ForEach Text(item)") {
+    val list = ReactiveSignalList[String]("todos", Seq("a", "b"))
+    val view = View.ForSignal(list, "li", Map.empty, itemTemplate = None)
+    val cv   = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+                      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("ForEach(todos, id: \\.self) { item in"))
+    assert(cv.contains("Text(item)"))
+    assert(cv.contains("@State private var todos: [String] = []"))
+  }
+
+  test("ForSignal with item template emits ForEach with indices") {
+    val list = ReactiveSignalList[String]("items", Seq.empty)
+    val tmpl = View.Text(() => "row", Style())
+    val view = View.ForSignal(list, "li", Map.empty, itemTemplate = Some(tmpl))
+    val cv   = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+                      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("ForEach(items.indices, id: \\.self) { __idx_items in"))
+    assert(cv.contains("""Text("row")"""))
+  }
+
+  test("RemoveSelfFromList inside ForSignal emits list.remove(at:)") {
+    val list   = ReactiveSignalList[String]("items", Seq.empty)
+    val button = View.Button(
+      label   = View.Text(() => "Delete", Style()),
+      action  = EventHandler.RemoveSelfFromList(list),
+      enabled = () => true,
+      style   = Style()
+    )
+    val view = View.ForSignal(list, "li", Map.empty, itemTemplate = Some(button))
+    val cv   = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+                      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("items.remove(at: __idx_items)"))
+  }
+
+  test("RemoveSelfFromList outside ForSignal emits comment") {
+    val list   = ReactiveSignalList[String]("items", Seq.empty)
+    val button = View.Button(
+      label   = View.Text(() => "Delete", Style()),
+      action  = EventHandler.RemoveSelfFromList(list),
+      enabled = () => true,
+      style   = Style()
+    )
+    val cv = backend.emitNative(makeModule(button), Platform.Mobile(MobileOs.iOS)).get
+                    .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("// RemoveSelfFromList: use inside ForSignal"))
+    assert(!cv.contains("remove(at:)"))
+  }
+
+  test("PushSignalLiteral in button emits .append()") {
+    val list   = ReactiveSignalList[String]("todos", Seq.empty)
+    val button = View.Button(
+      label   = View.Text(() => "Add", Style()),
+      action  = EventHandler.PushSignalLiteral(list, "new item"),
+      enabled = () => true,
+      style   = Style()
+    )
+    val cv = backend.emitNative(makeModule(button), Platform.Mobile(MobileOs.iOS)).get
+                    .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("""todos.append("new item")"""))
+  }
+
+  test("ClearSignalList in button emits .removeAll()") {
+    val list   = ReactiveSignalList[String]("items", Seq("a", "b"))
+    val button = View.Button(
+      label   = View.Text(() => "Clear", Style()),
+      action  = EventHandler.ClearSignalList(list),
+      enabled = () => true,
+      style   = Style()
+    )
+    val cv = backend.emitNative(makeModule(button), Platform.Mobile(MobileOs.iOS)).get
+                    .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("items.removeAll()"))
+  }
+
+  // ── Phase 3: @Observable AppModel generation ─────────────────────────────
+
+  test("appModelSwift returns None when module has no list signals") {
+    val view   = View.Text(() => "hello", Style())
+    val module = makeModule(view)
+    assert(SwiftUIEmitter.appModelSwift("App", module).isEmpty)
+  }
+
+  test("appModelSwift returns Some with @Observable class when lists exist") {
+    val list   = ReactiveSignalList[String]("todos", Seq("a"))
+    val view   = View.ForSignal(list, "li", Map.empty, None)
+    val module = makeModule(view)
+    val src    = SwiftUIEmitter.appModelSwift("MyApp", module)
+    assert(src.isDefined)
+    assert(src.get.contains("@Observable final class AppModel"))
+    assert(src.get.contains("var todos: [String] = []"))
+    assert(src.get.contains("import Observation"))
+  }
+
+  test("emitNative includes AppModel.swift when list signals are present") {
+    val list   = ReactiveSignalList[String]("items", Seq.empty)
+    val view   = View.ForSignal(list, "li", Map.empty, None)
+    val art    = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS))
+    assert(art.isDefined)
+    val sourceKeys = art.get.sources.keys.toSet
+    assert(sourceKeys.exists(_.endsWith("AppModel.swift")))
+    val modelSrc = art.get.sources.find(_._1.endsWith("AppModel.swift")).get._2
+    assert(modelSrc.contains("@Observable final class AppModel"))
+    assert(modelSrc.contains("var items: [String] = []"))
+  }
+
+  test("emitNative does NOT include AppModel.swift when no list signals") {
+    val view = View.Text(() => "hello", Style())
+    val art  = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS))
+    assert(art.isDefined)
+    assert(!art.get.sources.keys.exists(_.endsWith("AppModel.swift")))
+  }
+
+  test("ForSignal with remove button inside Row — ForCtx threaded through container") {
+    val list      = ReactiveSignalList[String]("tasks", Seq.empty)
+    val removeBtn = View.Button(
+      label   = View.Text(() => "x", Style()),
+      action  = EventHandler.RemoveSelfFromList(list),
+      enabled = () => true,
+      style   = Style()
+    )
+    val row  = View.Row(children = Seq(View.Text(() => "Task", Style()), removeBtn), spacing = 8, align = VAlign.Center, style = Style())
+    val view = View.ForSignal(list, "li", Map.empty, itemTemplate = Some(row))
+    val cv   = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+                      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("tasks.remove(at: __idx_tasks)"))
+  }

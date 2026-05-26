@@ -4579,7 +4579,7 @@ routes.
 
 ## v1.48 — SwiftUI Native Frontend (iOS + macOS)
 
-**Status:** planned
+**Status:** Complete (all 3 phases landed 2026-05-26)
 **Spec:** [`docs/swiftui.md`](docs/swiftui.md)
 
 Adds the `swiftui` frontend renderer — the first native mobile backend.
@@ -4608,7 +4608,7 @@ signal semantics and style modifier lowering.
 - [x] Separate iOS-only / macOS-only / dual-platform Package.swift variants
 
 **Tests + example**
-- [x] 30 unit tests in `SwiftUIEmitterTest` — all View cases, EventHandlers, style, helpers
+- [x] 41 unit tests in `SwiftUIEmitterTest` — all View cases, EventHandlers, style, helpers, ForSignal→ForEach, RemoveSelfFromList, AppModel
 - [x] `examples/frontend/ios-hello/ios-hello.ssc` — counter + text input + toggle demo
 
 **build.sbt**
@@ -4620,8 +4620,9 @@ signal semantics and style modifier lowering.
 - **Phase 2 ✓ Landed (2026-05-26)** — CLI integration: `ssc build --target mobile-ios`,
   `ssc build --target desktop-macos`, `ssc toolchain check --target mobile-ios` (swift+xcode),
   JvmGen `_ssc_ui_emit_native_platform_to_dir` + swiftui arm in `_ssc_ui_serve`
-- **Phase 3 (planned)** — Reactive runtime: `@Observable` / `ObservableObject`
-  lowering for list mutations and cross-component state
+- **Phase 3 ✓ Landed (2026-05-26)** — Reactive list lowering: `ForSignal` → `ForEach`
+  with index-aware `ForCtx` for `RemoveSelfFromList`; `@Observable AppModel` class
+  generated when list signals exist (Observation framework, iOS 17+); 11 new tests
 
 ### Out of scope
 
