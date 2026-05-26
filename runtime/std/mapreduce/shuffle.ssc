@@ -7,6 +7,10 @@ exports:
   - ShuffleStage
   - ShuffleProtocol
   - runDistributedShuffle
+  - runDistributedShuffleWire
+  - WireShufflePartial
+  - WireProcessKeyPartition
+  - WireKeyResult
 ---
 
 # `std.mapreduce.shuffle` — coordinator-mediated shuffle
@@ -35,6 +39,8 @@ coordinator merges KeyResults → final List[(K, V)]
 ```
 
 ```scalascript
+import scalascript.typeddata.{DatasetWirePartition, JsonValue as TJsonValue}
+
 // ── Shuffle-specific stage ops ─────────────────────────────────────────
 // GroupByOp: extract key, return (key, item) pairs
 case class GroupByOp(keyHandlerName: String)  extends StageOp
@@ -65,6 +71,29 @@ case class KeyResult(
   result: Any         // List[item] for groupBy; single item for reduceByKey
 )
 
+// Worker → coordinator after typed wire map phase.
+case class WireShufflePartial(
+  jobId:   String,
+  partId:  Int,
+  buckets: List[(TJsonValue, List[TJsonValue])]
+)
+
+// Coordinator → worker for typed wire reduce/group phase.
+case class WireProcessKeyPartition(
+  jobId:   String,
+  key:     TJsonValue,
+  items:   List[TJsonValue],
+  combineHandlerName: String,
+  replyTo: Any
+)
+
+// Worker → coordinator: one typed wire key's reduced/grouped result.
+case class WireKeyResult(
+  jobId:  String,
+  key:    TJsonValue,
+  result: TJsonValue
+)
+
 // ── Shuffle protocol (worker side) ────────────────────────────────────
 object ShuffleProtocol:
   // Worker message loop — handles both regular partitions AND key partitions.
@@ -89,9 +118,39 @@ object ShuffleProtocol:
           case Some(ReduceByKeyOp(keyName, _)) =>
             val buckets = buildBuckets(intermediate, keyName)
             replyTo ! ShufflePartial(jobId, partId, buckets)
+          case Some(_) =>
+            replyTo ! PartitionResult(jobId, partId, intermediate)
           case None =>
             // No shuffle op — normal path
             replyTo ! PartitionResult(jobId, partId, intermediate)
+        handleMessages()
+
+      case WireProcessPartition(jobId, partition, stage, replyTo) =>
+        val (priorOps, shuffleOp) = splitAtShuffle(stage.ops)
+        val input = partition.values.toList
+        val intermediate = WorkerProtocol.applyStage(Stage(priorOps), input)
+          .asInstanceOf[List[TJsonValue]]
+        shuffleOp match
+          case Some(GroupByOp(keyName)) =>
+            val buckets = buildWireBuckets(intermediate, keyName)
+            replyTo ! WireShufflePartial(jobId, partition.partitionId, buckets)
+          case Some(ReduceByKeyOp(keyName, _)) =>
+            val buckets = buildWireBuckets(intermediate, keyName)
+            replyTo ! WireShufflePartial(jobId, partition.partitionId, buckets)
+          case Some(_) =>
+            val partId: Int = partition.partitionId
+            val values: Vector[TJsonValue] = intermediate.toVector
+            replyTo ! WirePartitionResult(
+              jobId,
+              DatasetWirePartition(partId, values)
+            )
+          case None =>
+            val partId: Int = partition.partitionId
+            val values: Vector[TJsonValue] = intermediate.toVector
+            replyTo ! WirePartitionResult(
+              jobId,
+              DatasetWirePartition(partId, values)
+            )
         handleMessages()
 
       case ProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
@@ -102,6 +161,21 @@ object ShuffleProtocol:
           else
             items.reduce((a, b) => HandlerRegistry.applyCombine(combineHandlerName, a, b))
         replyTo ! KeyResult(jobId, key, result)
+        handleMessages()
+
+      case WireProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
+        val result: TJsonValue =
+          if combineHandlerName.isEmpty then
+            val valueArray: TJsonValue = TJsonValue.Arr(items.toVector)
+            val fields: Map[String, TJsonValue] =
+              Map.empty[String, TJsonValue]
+                .updated("key", key)
+                .updated("values", valueArray)
+            TJsonValue.Obj(fields)
+          else
+            items.reduce((a, b) =>
+              HandlerRegistry.applyCombine(combineHandlerName, a, b).asInstanceOf[TJsonValue])
+        replyTo ! WireKeyResult(jobId, key, result)
         handleMessages()
     }
 
@@ -119,6 +193,15 @@ object ShuffleProtocol:
   // Build key-bucketed list from intermediate items.
   def buildBuckets(items: List[Any], keyName: String): List[(Any, List[Any])] =
     val keyedItems = items.map(x => (HandlerRegistry.applyKey(keyName, x), x))
+    val keys = keyedItems.map(_._1).distinct
+    keys.map { k =>
+      val group = keyedItems.filter(_._1 == k).map(_._2)
+      (k, group)
+    }
+
+  // Build key-bucketed list from typed wire JsonValue items.
+  def buildWireBuckets(items: List[TJsonValue], keyName: String): List[(TJsonValue, List[TJsonValue])] =
+    val keyedItems = items.map(x => (HandlerRegistry.applyKey(keyName, x).asInstanceOf[TJsonValue], x))
     val keys = keyedItems.map(_._1).distinct
     keys.map { k =>
       val group = keyedItems.filter(_._1 == k).map(_._2)
@@ -206,6 +289,74 @@ def runDistributedShuffle(
   val ordered = keys.flatMap(k => keyResults.find(_._1 == k).map(x => (k, x._2)))
   DistributedResult(ordered.asInstanceOf[List[Any]], Nil)
 
+// Run a typed wire distributed groupBy or reduceByKey with coordinator-mediated shuffle.
+//
+// Input and output use DatasetWirePartition so callers keep domain typing at
+// DatasetCodec.encodePartitions[A] / decodePartitions[B]. Named key and combine
+// handlers operate on JsonValue. For groupBy (`combineHandlerName == ""`) each
+// output item is JsonValue.Obj(Map("key" -> key, "values" -> JsonValue.Arr(...))).
+def runDistributedShuffleWire(
+  partitions:   List[DatasetWirePartition],
+  shuffleStage: ShuffleStage,
+  cluster:      Cluster,
+  retries:      Int,
+  allowPartial: Boolean
+): DistributedResult[DatasetWirePartition] =
+  val jobId = nanoTime().toString
+
+  val me = self()
+  trapExit(true)
+
+  val workers = cluster.pids.zip(cluster.nodes).map { case (nodePid, node) =>
+    link(nodePid)
+    (nodePid, node)
+  }
+
+  val groupByOp =
+    if shuffleStage.isGroupBy then GroupByOp(shuffleStage.keyHandlerName)
+    else ReduceByKeyOp(shuffleStage.keyHandlerName, shuffleStage.combineHandlerName)
+
+  val phaseAStage = Stage(shuffleStage.preShuffle.ops :+ groupByOp)
+  val assignments = workers.zip(partitions).map { case ((wPid, node), partition) =>
+    wPid ! WireProcessPartition(jobId, partition, phaseAStage, me)
+    (partition.partitionId, wPid, node)
+  }
+
+  val allBuckets = collectWireShufflePartials(
+    jobId    = jobId,
+    pending  = assignments.length,
+    buckets  = Nil
+  )
+
+  val mergedByKey = mergeWireBuckets(allBuckets)
+  val keys = mergedByKey.map(_._1)
+
+  // Correctness-first wire path: dispatch key partitions through the first
+  // available shuffle worker. Later phases can add round-robin/direct shuffle.
+  val reducePid = workers.head._1
+  val keyAssignments = keys.map { key =>
+    val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
+    reducePid ! WireProcessKeyPartition(
+      jobId, key, items,
+      shuffleStage.combineHandlerName,
+      me
+    )
+    key
+  }
+
+  val keyResults = collectWireKeyResults(
+    jobId   = jobId,
+    pending = keyAssignments.length,
+    results = Nil
+  )
+
+  val orderedValues = keys.flatMap(k => keyResults.find(_._1 == k).map(_._2))
+  val outputValues: Vector[TJsonValue] = orderedValues.toVector
+  val outputPartition =
+    DatasetWirePartition(0, outputValues)
+  val outputPartitions: List[DatasetWirePartition] = List(outputPartition)
+  DistributedResult(outputPartitions, Nil)
+
 // Collect Phase A ShufflePartial messages.
 def collectShufflePartials(
   jobId:   String,
@@ -227,6 +378,27 @@ def mergeBuckets(buckets: List[(Any, List[Any])]): List[(Any, List[Any])] =
     (k, allItems)
   }
 
+// Collect typed wire Phase A ShufflePartial messages.
+def collectWireShufflePartials(
+  jobId:   String,
+  pending: Int,
+  buckets: List[(TJsonValue, List[TJsonValue])]
+): List[(TJsonValue, List[TJsonValue])] =
+  if pending == 0 then buckets
+  else
+    receive {
+      case WireShufflePartial(jid, _, newBuckets) if jid == jobId =>
+        collectWireShufflePartials(jobId, pending - 1, buckets ++ newBuckets)
+    }
+
+// Merge typed wire key-bucketed lists from multiple workers into one per-key list.
+def mergeWireBuckets(buckets: List[(TJsonValue, List[TJsonValue])]): List[(TJsonValue, List[TJsonValue])] =
+  val keys = buckets.map(_._1).distinct
+  keys.map { k =>
+    val allItems = buckets.filter(_._1 == k).flatMap(_._2)
+    (k, allItems)
+  }
+
 // Collect Phase B KeyResult messages.
 def collectKeyResults(
   jobId:   String,
@@ -238,5 +410,18 @@ def collectKeyResults(
     receive {
       case KeyResult(jid, key, result) if jid == jobId =>
         collectKeyResults(jobId, pending - 1, (key, result) :: results)
+    }
+
+// Collect typed wire Phase B KeyResult messages.
+def collectWireKeyResults(
+  jobId:   String,
+  pending: Int,
+  results: List[(TJsonValue, TJsonValue)]
+): List[(TJsonValue, TJsonValue)] =
+  if pending == 0 then results
+  else
+    receive {
+      case WireKeyResult(jid, key, result) if jid == jobId =>
+        collectWireKeyResults(jobId, pending - 1, (key, result) :: results)
     }
 ```

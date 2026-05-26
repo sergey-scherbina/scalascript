@@ -353,8 +353,8 @@ Roles:
   also provides `encodeAll` / `decodeAll` batch helpers with indexed decode
   error paths, plus `DatasetWirePartition` and partition encode/decode helpers
   for distributed worker payloads. `std/mapreduce` can now move those payloads
-  directly through `runDistributedWire`; worker handlers on that path consume
-  and return `JsonValue`.
+  directly through `runDistributedWire` and `runDistributedShuffleWire`; worker
+  handlers on those paths consume and return `JsonValue`.
 - `SparkSchemaCodec[A]` is now available for Spark-like schema metadata in the
   shared typed-data layer. It derives case-class field names from the same
   `@fieldName` annotation used by `JsonCodec` / `RowCodec`, preserves `@key`
@@ -514,8 +514,13 @@ the same query model.
    `std/mapreduce` now exposes `runDistributedWire`,
    `WireProcessPartition`, and `WirePartitionResult`, with
    `examples/distributed-dataset-wire-protocol.ssc` exercising
-   `DatasetWirePartition` payloads through local actor workers. Remaining:
-   typed shuffle payloads and higher-level typed distributed Dataset helpers.
+   `DatasetWirePartition` payloads through local actor workers. Follow-up
+   landed 2026-05-26: `std/mapreduce` now exposes
+   `runDistributedShuffleWire`, `WireShufflePartial`,
+   `WireProcessKeyPartition`, and `WireKeyResult` for typed
+   coordinator-mediated shuffle; see
+   `examples/distributed-dataset-wire-shuffle.ssc`. Remaining: higher-level
+   typed distributed Dataset helpers.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

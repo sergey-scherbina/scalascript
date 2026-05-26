@@ -10455,9 +10455,12 @@ modes opt out of that default.
   `WireProcessPartition`, `WirePartitionResult`, and `runDistributedWire`
   for moving `DatasetWirePartition` payloads through actor workers; the JVM
   example `examples/distributed-dataset-wire-protocol.ssc` runs through
-  `ssc run-jvm`. Remaining: richer sync UI helpers, production graph
-  adapters, typed shuffle payloads, and higher-level typed distributed
-  Dataset helpers.
+  `ssc run-jvm`. Follow-up landed 2026-05-26: `std/mapreduce` now includes
+  `WireShufflePartial`, `WireProcessKeyPartition`, `WireKeyResult`, and
+  `runDistributedShuffleWire` for coordinator-mediated typed wire shuffle;
+  `examples/distributed-dataset-wire-shuffle.ssc` runs through `ssc run-jvm`.
+  Remaining: richer sync UI helpers, production graph adapters, and
+  higher-level typed distributed Dataset helpers.
 
 ## v1.44 — Full-Stack In-Process Transport
 

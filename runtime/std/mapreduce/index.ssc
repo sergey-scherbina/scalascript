@@ -28,6 +28,13 @@ exports:
   - HealthCheckRequest
   - HealthCheckOk
   - ShutdownWorker
+  - ShuffleStage
+  - ShuffleProtocol
+  - runDistributedShuffle
+  - runDistributedShuffleWire
+  - WireShufflePartial
+  - WireProcessKeyPartition
+  - WireKeyResult
 ---
 
 # `std.mapreduce` — map-reduce for ScalaScript
@@ -44,3 +51,5 @@ Re-exports everything from the sub-modules so callers can write
 [HandlerRegistry, NamedHandler, named](handlers.ssc)
 
 [DistributedError, DistributedResult, runDistributed, runDistributedWire, WorkerProtocol, StageOp, MapOp, FilterOp, FlatMapOp, Stage, ProcessPartition, PartitionResult, WireProcessPartition, WirePartitionResult, PartitionFailed, HealthCheckRequest, HealthCheckOk, ShutdownWorker](distributed.ssc)
+
+[ShuffleStage, ShuffleProtocol, runDistributedShuffle, runDistributedShuffleWire, WireShufflePartial, WireProcessKeyPartition, WireKeyResult](shuffle.ssc)

@@ -66,7 +66,7 @@ import scalascript.typeddata.DatasetWirePartition
 // ── Stage description (what each worker must do) ──────────────────────
 // A Stage is a list of named operations to apply in sequence.
 // All names are resolved via HandlerRegistry on the worker.
-sealed trait StageOp
+trait StageOp
 case class MapOp(handlerName: String)     extends StageOp
 case class FilterOp(handlerName: String)  extends StageOp
 case class FlatMapOp(handlerName: String) extends StageOp
