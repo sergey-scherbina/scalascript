@@ -365,3 +365,85 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("""if _ssc_frontend_name == "javafx" then"""))
     assert(code.contains("_ssc_ui_run_native_javafx("))
   }
+
+  test("JVM Swing codegen emits WS method for Unit-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Chat:
+        |    endpoints:
+        |      - name: connect
+        |        method: GET
+        |        path: /ws/chat
+        |        request: Unit
+        |        response: ChatMsg
+        |        stream: ws
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |case class ChatMsg(user: String, text: String)
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("def connect(onEvent: ChatMsg => Unit, onError: String => Unit = _ => (), onOpen: _SscWsHandle => Unit = _ => ()): _SscWsHandle"))
+    assert(code.contains("""= _ssc_api_ws_request[Unit, ChatMsg]("/ws/chat", (), onEvent, onError, onOpen)"""))
+  }
+
+  test("JVM Swing codegen emits WS method for typed-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Chat:
+        |    endpoints:
+        |      - name: join
+        |        method: GET
+        |        path: /ws/rooms/:room
+        |        request: JoinRequest
+        |        response: ChatMsg
+        |        stream: websocket
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |case class ChatMsg(user: String, text: String)
+        |case class JoinRequest(room: String)
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("def join(input: JoinRequest, onEvent: ChatMsg => Unit, onError: String => Unit = _ => (), onOpen: _SscWsHandle => Unit = _ => ()): _SscWsHandle"))
+    assert(code.contains("""= _ssc_api_ws_request[JoinRequest, ChatMsg]("/ws/rooms/:room", input, onEvent, onError, onOpen)"""))
+  }
+
+  test("JVM Swing codegen emits _ssc_api_ws_request and _SscWsHandle runtime") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Chat:
+        |    endpoints:
+        |      - name: connect
+        |        method: GET
+        |        path: /ws/chat
+        |        request: Unit
+        |        response: ChatMsg
+        |        stream: ws
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("trait _SscWsHandle extends AutoCloseable"))
+    assert(code.contains("def _ssc_api_ws_request[Req, Resp]("))
+    assert(code.contains("java.net.http.HttpClient"))
+    assert(code.contains("java.net.http.WebSocket.Listener"))
+    assert(code.contains("new AutoCloseable"))
+  }

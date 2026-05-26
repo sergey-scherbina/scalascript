@@ -13,10 +13,10 @@
 ## Quick status (2026-05-26)
 
 ### In progress
-- **v1.46** — Typed Route Clients: Phases 0–7 complete. Remaining: Phase 5 cross-file route derivation, WebSocket subscriptions, pagination. See [ACTIVE.md](ACTIVE.md).
+- **v1.46** — Typed Route Clients: Phases 0–8 complete. Remaining: Phase 5 cross-file route derivation, pagination. See [ACTIVE.md](ACTIVE.md).
 
 ### Next up (top of BACKLOG)
-- **v1.46 remaining** — route derivation + WS subscriptions + pagination (see [WORK_QUEUE.md](WORK_QUEUE.md))
+- **v1.46 remaining** — route derivation + pagination (see [WORK_QUEUE.md](WORK_QUEUE.md))
 - **v1.48** — SwiftUI Native Frontend (iOS + macOS)
 - **v1.38** — Payment Request API (browser + server)
 - **v1.26** — `sql` fenced code blocks (JDBC)

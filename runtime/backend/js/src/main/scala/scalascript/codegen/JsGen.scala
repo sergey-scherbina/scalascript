@@ -7910,7 +7910,12 @@ class JsGen(
             val path = jsQuote(endpoint.path)
             val requestType = jsQuote(endpoint.requestType)
             val responseType = jsQuote(endpoint.responseType)
-            if ApiEndpointDecl.isSse(endpoint) then
+            if ApiEndpointDecl.isWs(endpoint) then
+              if endpoint.requestType == "Unit" then
+                line(s"${endpoint.name}(onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, undefined, onEvent, onError, onOpen, $responseType, headers); }$comma")
+              else
+                line(s"${endpoint.name}(input, onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, input, onEvent, onError, onOpen, $responseType, headers); }$comma")
+            else if ApiEndpointDecl.isSse(endpoint) then
               if endpoint.requestType == "Unit" then
                 line(s"${endpoint.name}(onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, undefined, onEvent, onError, $responseType, headers); }$comma")
               else
@@ -8033,6 +8038,42 @@ class JsGen(
        |function _ssc_api_base_url() {
        |  if (typeof globalThis !== 'undefined' && globalThis.__sscBackendBaseUrl) return String(globalThis.__sscBackendBaseUrl).replace(/\/$/, '');
        |  return '';
+       |}
+       |
+       |function _ssc_api_ws_request(pathTemplate, input, onEvent, onError, onOpen, responseType, callHeaders) {
+       |  const base = _ssc_api_base_url();
+       |  const path = _ssc_api_path(pathTemplate, input);
+       |  const query = _ssc_api_query(pathTemplate, input);
+       |  const httpBase = base || (typeof location !== 'undefined' ? location.origin : '');
+       |  const wsBase = httpBase.replace(/^https?:\/\//, function(m) { return m === 'https://' ? 'wss://' : 'ws://'; });
+       |  const url = wsBase + path + query;
+       |  let _wsClosed = false;
+       |  let _ws = null;
+       |  const _pending = [];
+       |  _ws = new WebSocket(url);
+       |  if (input != null && input !== undefined) {
+       |    _ws.addEventListener('open', function() {
+       |      try { _ws.send(JSON.stringify(input)); } catch(e) {}
+       |      if (typeof onOpen === 'function') onOpen({ send: function(msg) { _ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); }, close: function() { _ws.close(); } });
+       |    });
+       |  } else {
+       |    _ws.addEventListener('open', function() {
+       |      if (typeof onOpen === 'function') onOpen({ send: function(msg) { _ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); }, close: function() { _ws.close(); } });
+       |    });
+       |  }
+       |  _ws.addEventListener('message', function(e) {
+       |    try { if (typeof onEvent === 'function') onEvent(_ssc_typed_json_decode_response(e.data, 'application/json', responseType)); }
+       |    catch (err) { if (typeof onError === 'function') onError(String(err)); }
+       |  });
+       |  _ws.addEventListener('error', function(e) { if (!_wsClosed && typeof onError === 'function') onError('WebSocket error'); });
+       |  _ws.addEventListener('close', function(e) {
+       |    _wsClosed = true;
+       |    if (!e.wasClean && typeof onError === 'function') onError('WebSocket closed unexpectedly: ' + e.code);
+       |  });
+       |  return {
+       |    close: function() { _wsClosed = true; if (_ws) _ws.close(); },
+       |    send: function(msg) { if (_ws && _ws.readyState === 1) _ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); }
+       |  };
        |}
        |
        |function _ssc_api_stream_request(method, pathTemplate, input, onEvent, onError, responseType, callHeaders) {
