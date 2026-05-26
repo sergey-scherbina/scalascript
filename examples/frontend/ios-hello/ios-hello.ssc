@@ -1,0 +1,52 @@
+---
+name: ios-hello
+version: 1.0.0
+frontend: swiftui
+bundle-id: com.example.ios-hello
+min-os:
+  ios: "17"
+  macos: "14"
+---
+
+# iOS Hello
+
+A minimal counter app demonstrating the SwiftUI frontend target.
+Compile with: `ssc build --target mobile-ios ios-hello.ssc`
+
+```ssc
+val count  = Signal(0)
+val name   = Signal("")
+val active = Signal(true)
+
+def view() =
+  Column(spacing = 16, align = Start) {
+    Text("Hello from ScalaScript!")
+      .style(fontSize = 28, fontWeight = Bold)
+      .padding(top = 40)
+
+    Row(spacing = 12) {
+      Button("-") { count -= 1 }
+      Text(s"Count: $count")
+        .style(fontSize = 22)
+      Button("+") { count += 1 }
+    }
+
+    TextInput(name, placeholder = "Your name")
+      .style(padding = 8)
+
+    Show(name.nonEmpty) {
+      Text(s"Hello, $name!")
+        .style(foreground = Color.blue)
+    }
+
+    Divider()
+
+    Toggle(active, label = "Active")
+
+    Show(active) {
+      Text("Feature is active")
+        .style(foreground = Color.green)
+    }
+  }
+  .padding(16)
+```

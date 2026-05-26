@@ -10729,3 +10729,55 @@ pair — same reactive model as Swing.
   `JavaFxEmitter` implementation (OS detection, widget lowering, CSS styling,
   signal table, binding refresh), CLI `--frontend javafx` flag, 8-test suite,
   and `examples/frontend/javafx-hello/javafx-hello.ssc`.
+
+## v1.48 — SwiftUI Native Frontend (iOS + macOS)
+
+**Status:** planned
+**Spec:** [`docs/swiftui.md`](docs/swiftui.md)
+
+Adds the `swiftui` frontend renderer — the first native mobile backend.
+A `.ssc` file with `frontend: swiftui` emits a complete Swift Package
+(Package.swift + ContentView.swift + App entry) that compiles with
+`swift build` and targets iOS 17+ and/or macOS 14+.
+
+The same View IR that drives the web (React/Vue/Solid/Custom) and desktop
+(Swing, Electron, JavaFX) backends now also drives SwiftUI, with identical
+signal semantics and style modifier lowering.
+
+### Scope
+
+**SwiftUI emitter**
+- [x] `SwiftUIFrameworkBackend` — `FrontendFrameworkSpi` for `swiftui` target
+- [x] Full View IR → SwiftUI mapping: `VStack/HStack/ZStack`, `Text`, `Button`,
+      `TextField`, `SecureField`, `TextEditor`, `Toggle`, `Slider`, `Picker`,
+      `Image`, `AsyncImage`, `Image(systemName:)`, `List`, `LazyVGrid`,
+      `TabView`, `NavigationStack`, `ScrollView`, `.sheet`, `.alert`, `Form`,
+      `Spacer`, `Divider`, `Fragment`, `Show/ShowSignal`, `Adaptive`, etc.
+- [x] `ReactiveSignal[T]` → `@State private var` with Swift type inference
+- [x] All 10 EventHandler cases lowered to SwiftUI/Swift expressions
+- [x] Style modifiers: padding, frame, background, foreground, font, cornerRadius, opacity, a11y
+- [x] `Package.swift` generation with iOS + macOS platform declarations
+- [x] `@main` App entry + `WindowGroup { ContentView() }`
+- [x] Separate iOS-only / macOS-only / dual-platform Package.swift variants
+
+**Tests + example**
+- [x] 30 unit tests in `SwiftUIEmitterTest` — all View cases, EventHandlers, style, helpers
+- [x] `examples/frontend/ios-hello/ios-hello.ssc` — counter + text input + toggle demo
+
+**build.sbt**
+- [x] `frontendSwiftUI` module (`frontend/swiftui/`)
+
+### Planned phases
+
+- **Phase 1 ✓ Landed (2026-05-26)** — SwiftUI emitter, 30 tests, example, build.sbt
+- **Phase 2 (planned)** — CLI integration: `ssc build --target mobile-ios`,
+  `Feature.SwiftUI` capability flag, `ssc toolchain check --target mobile-ios`
+- **Phase 3 (planned)** — Reactive runtime: `@Observable` / `ObservableObject`
+  lowering for list mutations and cross-component state
+
+### Out of scope
+
+- Server-side Swift (Vapor routes)
+- Kotlin/Compose (P4, separate milestone)
+- GTK / Scala Native (P7)
+- SwiftUI Preview / HMR (post-v1.0, requires Xcode build system)
