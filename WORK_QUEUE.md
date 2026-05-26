@@ -22,8 +22,7 @@ _(all done — see Done section below)_
 
 ## Native Platform
 
-- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target ios` (iOS Simulator)
-  _xcodebuild → boot latest iPhone sim → open Simulator.app → install → launch. `--console`/`--no-console`, `--rebuild`/`--no-rebuild`. Spec: `BACKLOG.md §v1.48.2`._
+- [x] **v1.48.2-swiftui-ios-run** — `ssc run --target ios` (iOS Simulator) (2026-05-26)
 
 - [ ] **v1.48.3-swiftui-device-run** — `ssc run --target ios --device` (real device via ios-deploy)
   _xcodebuild arm64 + ios-deploy deploy + launch. `--device-id`, `--console`, `--rebuild`. Spec: `BACKLOG.md §v1.48.3`._
