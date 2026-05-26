@@ -1955,9 +1955,10 @@ lazy val frontendPlugin = project
 
 lazy val swingPlugin = project
   .in(file("runtime/std/swing-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-swing-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
