@@ -42,6 +42,45 @@ private[typeddata] object DerivedSchemaMacros:
       )
     }
 
+  def vertexProduct[A: Type](mirror: Expr[scala.deriving.Mirror.ProductOf[A]])(using Quotes): Expr[VertexCodec[A]] =
+    import quotes.reflect.*
+    val owner = TypeRepr.of[A].typeSymbol
+    val fields = productFields[A].map((symbols, index, name, tpe) => jsonFieldExpr(symbols, index, name, tpe))
+    val label = stringAnnotation(owner, "scalascript.typeddata.graphLabel").getOrElse(owner.name)
+    '{
+      DerivedProductCodecs.vertexProductCodec[A](
+        $mirror,
+        ${Expr(label)},
+        Vector(${Varargs(fields)}*)
+      )
+    }
+
+  def edgeProduct[A: Type](mirror: Expr[scala.deriving.Mirror.ProductOf[A]])(using Quotes): Expr[EdgeCodec[A]] =
+    import quotes.reflect.*
+    val owner = TypeRepr.of[A].typeSymbol
+    val fields = productFields[A].map((symbols, index, name, tpe) => jsonFieldExpr(symbols, index, name, tpe))
+    val label = stringAnnotation(owner, "scalascript.typeddata.graphEdge").getOrElse(owner.name)
+    '{
+      DerivedProductCodecs.edgeProductCodec[A](
+        $mirror,
+        ${Expr(label)},
+        Vector(${Varargs(fields)}*)
+      )
+    }
+
+  def rdfProduct[A: Type](mirror: Expr[scala.deriving.Mirror.ProductOf[A]])(using Quotes): Expr[RdfCodec[A]] =
+    import quotes.reflect.*
+    val owner = TypeRepr.of[A].typeSymbol
+    val fields = productFields[A].map((symbols, index, name, tpe) => jsonFieldExpr(symbols, index, name, tpe))
+    val classIri = stringAnnotation(owner, "scalascript.typeddata.rdfClass")
+    '{
+      DerivedProductCodecs.rdfProductCodec[A](
+        $mirror,
+        ${Expr(classIri)},
+        Vector(${Varargs(fields)}*)
+      )
+    }
+
   private def productFields[A: Type](using q: Quotes): List[(List[q.reflect.Symbol], Int, String, q.reflect.TypeRepr)] =
     import quotes.reflect.*
     val tpe = TypeRepr.of[A]
@@ -81,7 +120,10 @@ private[typeddata] object DerivedSchemaMacros:
                 $defaultExpr,
                 ${Expr(meta.key)}
               )(using $codec)
-              JsonCodec.field(fields, spec).map(_.asInstanceOf[Any])
+              JsonCodec.field(fields, spec).map(_.asInstanceOf[Any]),
+            ${Expr(meta.graphRole)},
+            ${Expr(meta.rdfId)},
+            ${Expr(meta.rdfPredicate)}
           )
         }
 
@@ -116,13 +158,26 @@ private[typeddata] object DerivedSchemaMacros:
           )
         }
 
-  private final case class Metadata(name: String, aliases: List[String], key: Boolean)
+  private final case class Metadata(
+      name: String,
+      aliases: List[String],
+      key: Boolean,
+      graphRole: String,
+      rdfId: Boolean,
+      rdfPredicate: Option[String]
+  )
 
   private def metadata(using Quotes)(symbols: List[quotes.reflect.Symbol], fallbackName: String): Metadata =
     val name = symbols.iterator.flatMap(stringAnnotation(_, "scalascript.typeddata.fieldName")).toSeq.headOption.getOrElse(fallbackName)
     val aliases = symbols.flatMap(stringSeqAnnotation(_, "scalascript.typeddata.aliases")).distinct
     val isKey = symbols.exists(hasAnnotation(_, "scalascript.typeddata.key"))
-    Metadata(name, aliases, isKey)
+    val graphRole =
+      if symbols.exists(hasAnnotation(_, "scalascript.typeddata.graphFrom")) then "from"
+      else if symbols.exists(hasAnnotation(_, "scalascript.typeddata.graphTo")) then "to"
+      else ""
+    val isRdfId = symbols.exists(hasAnnotation(_, "scalascript.typeddata.rdfId"))
+    val rdfPredicate = symbols.iterator.flatMap(stringAnnotation(_, "scalascript.typeddata.rdf")).toSeq.headOption
+    Metadata(name, aliases, isKey, graphRole, isRdfId, rdfPredicate)
 
   private def defaultValueExpr[A: Type](using Quotes)(
       owner: quotes.reflect.Symbol,

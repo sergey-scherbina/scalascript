@@ -137,6 +137,26 @@ route to production graph databases.
 
 ## Standard Library Shape
 
+The first implemented layer is the typed mapping foundation in
+`backend/typed-data`, not a graph database runtime:
+
+```scalascript
+@graphLabel("Module")
+case class Module(id: String, path: String) derives JsonCodec, VertexCodec
+
+@graphEdge("imports")
+case class Imports(@graphFrom from: String, @graphTo to: String)
+  derives JsonCodec, EdgeCodec
+
+@rdfClass("schema:Person")
+case class Person(@rdfId id: String, @rdf("schema:name") name: String)
+  derives JsonCodec, RdfCodec
+```
+
+`VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` produce portable
+`VertexValue`, `EdgeValue`, and `RdfValue`/`RdfTriple` values. Graph backends
+will consume these values in later phases.
+
 Small typed API for portable graph operations:
 
 ```scalascript
@@ -184,7 +204,9 @@ server-side graph milestone.
 ## Phases
 
 1. **Spec + examples** — document `graphs:` front matter, models, backend
-   matrix, and standard-library API.
+   matrix, and standard-library API. Follow-up landed 2026-05-26:
+   `backend/typed-data` now includes the typed graph/RDF codec foundation
+   (`VertexCodec`, `EdgeCodec`, `RdfCodec`) plus a runnable codec example.
 2. **Graph SPI** — define a small graph backend contract with capability flags:
    property graph, RDF, Gremlin, Cypher, SPARQL, embedded, remote.
 3. **Embedded property graph** — add TinkerGraph/TinkerPop-backed server graph

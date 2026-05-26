@@ -2258,7 +2258,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     val names = Set(
       "JsonCodec", "JsonValue", "JsonFieldSpec",
       "RowCodec", "RowValue", "RowValueCodec", "RowFieldSpec",
-      "ObjectCodec", "ObjectValue", "ObjectFieldSpec"
+      "ObjectCodec", "ObjectValue", "ObjectFieldSpec",
+      "VertexCodec", "VertexValue", "EdgeCodec", "EdgeValue",
+      "RdfCodec", "RdfValue", "RdfTriple", "RdfNode"
     )
     blocks.exists { b =>
       var found = false

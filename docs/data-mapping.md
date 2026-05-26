@@ -257,7 +257,8 @@ Rules:
   needed.
 - ObjectStore sync uses `ObjectCodec[A]` plus `Stored[A]` metadata. The current
   `ObjectCodec[A]` layer covers portable object values and key extraction;
-  generated REST sync remains planned.
+  generated REST sync and browser/Electron sync helpers are available for the
+  first client/server object-store path.
 
 ## Property Graph Mapping
 
@@ -276,8 +277,12 @@ Graph.putEdge("deps", Imports("A", "B"))
 
 Defaults:
 
-- a vertex codec maps the case class to labels + properties;
-- an edge codec maps source id, target id, label, and properties;
+- `VertexValue`, `EdgeValue`, `VertexCodec[A]`, and `EdgeCodec[A]` are now
+  available in `backend/typed-data`;
+- `derives VertexCodec` maps the case class to labels + properties and uses
+  `@key` or an `id` field as the graph id;
+- `derives EdgeCodec` maps `@graphFrom` / `@graphTo` (or fields named `from` /
+  `to`) to endpoints and maps the remaining fields to properties;
 - graph ids are explicit;
 - complex traversal remains backend-specific through `Gremlin.query`,
   `Cypher.query`, or portable `Graph.*` helpers.
@@ -296,6 +301,11 @@ case class Person(
 
 Rules:
 
+- `RdfNode`, `RdfTriple`, `RdfValue`, and `RdfCodec[A]` are now available in
+  `backend/typed-data`;
+- `derives RdfCodec` maps `@rdfClass` to an `rdf:type` triple, `@rdfId` /
+  `@key` / `id` to the subject IRI, and `@rdf(...)` field annotations to
+  predicates;
 - RDF ids are IRIs or blank nodes, not arbitrary database keys.
 - Field annotations map fields to predicates.
 - `RdfCodec[A]` emits triples/quads and can decode query bindings when the
@@ -445,9 +455,10 @@ the same query model.
    mapping over `JsonCodec`, including explicit and derived case-class codecs,
    schema annotations, defaults, key extraction, and unknown-field rejection.
    Remaining: typed IndexedDB stores, server ObjectStore collections, and sync.
-5. **Graph mapping** — add `VertexCodec[A]` and `EdgeCodec[A]` for property
-   graph vertices/edges.
-6. **RDF mapping** — add `RdfCodec[A]` with predicate/class/id annotations.
+5. **Graph mapping** — landed 2026-05-26: `VertexCodec[A]` and `EdgeCodec[A]`
+   derive simple property-graph vertex/edge mappings.
+6. **RDF mapping** — landed 2026-05-26: `RdfCodec[A]` derives simple RDF
+   triple mappings with predicate/class/id annotations.
 7. **Dataset/Spark mapping integration** — align existing `Dataset[T]`,
    distributed MapReduce serialization, Spark encoder/schema derivation, and
    typed table/file readers with the shared codec conventions.

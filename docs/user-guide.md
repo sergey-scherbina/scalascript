@@ -1218,7 +1218,11 @@ available for portable IndexedDB/ObjectStore document shapes. It reuses
 extracts stable object keys from `@key` fields.
 Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 `ObjectCodec`, `VertexCodec`, `EdgeCodec`, `RdfCodec`, `DatasetCodec`, and
-`SparkCodec`, then use backend-specific APIs at the query boundary. The first
+`SparkCodec`, then use backend-specific APIs at the query boundary.
+`VertexCodec[A]`, `EdgeCodec[A]`, and `RdfCodec[A]` are now available for the
+typed mapping layer: property graph values encode to `VertexValue` /
+`EdgeValue`, and RDF values encode to `RdfValue` triples. Graph database
+backends are still planned. The first
 `RowValue` / `RowValueCodec[A]` / `RowCodec[A]` API is now available for simple
 case-class row maps with primitive and nullable columns. Explicit JVM row codecs
 can use `RowFieldSpec[A]` for renamed columns, aliases, defaults, key metadata,

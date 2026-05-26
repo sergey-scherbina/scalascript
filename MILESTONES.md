@@ -10415,8 +10415,11 @@ modes opt out of that default.
   `Sync.resolve[A]` with `server` / `client` / `drop` modes. Follow-up landed
   2026-05-26: generated JVM sync `push` routes apply per-store
   `objectStores.<name>.conflict` policies for `manual`, `server-wins`, and
-  `client-wins`. Remaining: richer sync UI helpers, graph/RDF codecs, and
-  Dataset/Spark convergence.
+  `client-wins`. Follow-up landed 2026-05-26: `backend/typed-data` now
+  includes `VertexValue`, `EdgeValue`, `RdfValue`, `VertexCodec[A]`,
+  `EdgeCodec[A]`, and `RdfCodec[A]` with derived case-class mappings for
+  property graph vertices/edges and RDF triples. Remaining: richer sync UI
+  helpers, graph runtime SPI/backends, and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

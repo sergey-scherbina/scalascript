@@ -1,0 +1,24 @@
+---
+backend: jvm
+---
+
+# Graph Codecs
+
+```scala
+import scalascript.typeddata.*
+
+@graphLabel("Module")
+case class ModuleVertex(@key id: String, path: String) derives JsonCodec, VertexCodec
+
+@graphEdge("imports")
+case class ImportEdge(@graphFrom from: String, @graphTo to: String, reason: String) derives JsonCodec, EdgeCodec
+
+@rdfClass("schema:Person")
+case class PersonRdf(@rdfId id: String, @rdf("schema:name") name: String) derives JsonCodec, RdfCodec
+
+val vertex = VertexCodec[ModuleVertex].encode(ModuleVertex("A", "a.ssc"))
+val edge = EdgeCodec[ImportEdge].encode(ImportEdge("A", "B", "direct"))
+val rdf = RdfCodec[PersonRdf].encode(PersonRdf("urn:person:1", "Ada"))
+
+println(vertex.labels.head + ":" + edge.label + ":" + rdf.triples.size.toString)
+```
