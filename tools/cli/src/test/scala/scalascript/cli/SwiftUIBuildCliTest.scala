@@ -7,9 +7,8 @@ import org.scalatest.funsuite.AnyFunSuite
  *  Verifies:
  *  - `validFrontendNames` includes "swiftui"
  *  - `ToolchainCommand` mobile-ios target maps to swift + xcode (not kotlin)
- *  - Build target "mobile-ios" and "desktop-macos" are handled without
- *    hitting the "unknown target" error branch
- *  - `buildProjectFileCommand` error message lists the new targets
+ *  - Build targets "mobile-ios", "macos", and "desktop-macos" (alias) are known
+ *  - `swiftAppName` derives the correct Swift identifier from .ssc name frontmatter
  */
 class SwiftUIBuildCliTest extends AnyFunSuite:
 
@@ -25,7 +24,22 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
     assert(!tools.contains("kotlin-native"), "mobile-ios must NOT require kotlin-native")
   }
 
-  test("ToolchainCommand desktop-macos unchanged (swift)") {
+  test("ToolchainCommand macos (canonical name) requires swift") {
+    val tools = ToolchainCommand.targetTools("macos")
+    assert(tools.contains("swift"), "macos must require swift")
+    assert(tools.contains("jdk"),   "macos must require jdk")
+  }
+
+  test("ToolchainCommand desktop-macos (alias) still works") {
     val tools = ToolchainCommand.targetTools("desktop-macos")
-    assert(tools.contains("swift"), "desktop-macos must require swift")
+    assert(tools.contains("swift"), "desktop-macos alias must require swift")
+  }
+
+  test("swiftAppName derives correct Swift identifier") {
+    assert(swiftAppName(Some("MyApp"))          == "MyApp")
+    assert(swiftAppName(Some("My App"))         == "MyApp")
+    assert(swiftAppName(Some("my-app"))         == "Myapp")
+    assert(swiftAppName(Some("ScalaScript App"))== "ScalaScriptApp")
+    assert(swiftAppName(None)                   == "ScalaScriptApp")
+    assert(swiftAppName(Some(""))               == "App")
   }

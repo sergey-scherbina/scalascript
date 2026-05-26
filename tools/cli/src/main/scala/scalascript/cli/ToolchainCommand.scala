@@ -57,6 +57,7 @@ object ToolchainCommand:
     "desktop"        -> List("node", "jdk", "electron"),
     "mobile-android" -> List("jdk", "kotlin", "kotlin-native", "android-sdk"),
     "mobile-ios"     -> List("swift", "xcode"),
+    "macos"          -> List("jdk", "swift"),
     "desktop-macos"  -> List("jdk", "swift"),
     "desktop-linux"  -> List("jdk", "scala-native", "gtk"),
     "desktop-windows"-> List("jdk", "graalvm"),

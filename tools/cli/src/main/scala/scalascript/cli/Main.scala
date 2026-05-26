@@ -590,12 +590,14 @@ def printUsage(): Unit =
     |  run-jvm --frontend javafx <f>     Compile and launch the OpenJFX desktop frontend
     |  build --target desktop <f>        Generate Electron bundle; run npm run build to package
     |  build --target mobile-ios <f>     Generate SwiftUI iOS Swift package; run swift build
-    |  build --target desktop-macos <f>  Generate SwiftUI macOS Swift package; run swift build
+    |  build --target macos <f>          Generate SwiftUI macOS Swift package; run swift build
+    |  package --target macos <f>        Generate Swift package + run swift build (ready-to-run binary)
+    |  run   --target macos <f>          Build SwiftUI macOS app and launch it
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
     |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
     |    list   [--target <t>]  Print installed tools and their versions
-    |    Targets: web, desktop, mobile-android, mobile-ios, desktop-macos,
+    |    Targets: web, desktop, mobile-android, mobile-ios, macos,
     |             desktop-linux, desktop-windows, all
     |  help                   Show this help message
     |
@@ -1471,18 +1473,20 @@ private def buildProjectFileCommand(
 
     case "mobile-ios" =>
       println(s"Building SwiftUI iOS package → ${displayPath(outDir)}")
-      buildSwiftUIPackage(projectFile, outDir, "ios")
-      println(s"  Swift package written.  To build:")
-      println(s"    cd ${displayPath(outDir)} && swift build")
+      buildSwiftUIPackage(projectFile, outDir, "ios", runSwiftBuild = fat)
+      if !fat then
+        println(s"  Swift package written.  To build:")
+        println(s"    cd ${displayPath(outDir)} && swift build")
 
-    case "desktop-macos" =>
+    case "macos" | "desktop-macos" =>
       println(s"Building SwiftUI macOS package → ${displayPath(outDir)}")
-      buildSwiftUIPackage(projectFile, outDir, "macos")
-      println(s"  Swift package written.  To build:")
-      println(s"    cd ${displayPath(outDir)} && swift build")
+      buildSwiftUIPackage(projectFile, outDir, "macos", runSwiftBuild = fat)
+      if !fat then
+        println(s"  Swift package written.  To build:")
+        println(s"    cd ${displayPath(outDir)} && swift build")
 
     case other =>
-      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop, mobile-ios, desktop-macos)")
+      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop, mobile-ios, macos)")
       System.exit(1)
 
 /** Write an Electron app bundle (index.html, app.js, main.js, preload.js,
@@ -1498,10 +1502,13 @@ private def buildElectronBundle(
 
 /** Compile `sscFile` via JvmGen (frontend=swiftui) and emit a Swift Package
  *  to `outDir`.  `platform` is either `"ios"` or `"macos"`.
+ *  When `runSwiftBuild` is true, also invoke `swift build` in `outDir`.
  *  Requires `scala-cli` on PATH. */
-private def buildSwiftUIPackage(sscFile: os.Path, outDir: os.Path, platform: String): Unit =
+private def buildSwiftUIPackage(
+    sscFile: os.Path, outDir: os.Path, platform: String, runSwiftBuild: Boolean = false
+): Unit =
   if !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"build --target mobile-ios/desktop-macos: ${JvmBytecode.scalaCliMissingMessage}")
+    System.err.println(s"build --target mobile-ios/macos: ${JvmBytecode.scalaCliMissingMessage}")
     System.exit(1)
   val module  = Parser.parse(os.read(sscFile))
   val baseDir = Some(sscFile / os.up)
@@ -1521,6 +1528,19 @@ private def buildSwiftUIPackage(sscFile: os.Path, outDir: os.Path, platform: Str
     if result.exitCode != 0 then System.exit(result.exitCode)
   finally
     scala.util.Try(os.remove(tmp))
+  if runSwiftBuild then
+    println(s"  Running swift build in ${displayPath(outDir)}...")
+    val swiftResult = os.proc("swift", "build")
+      .call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+    if swiftResult.exitCode != 0 then System.exit(swiftResult.exitCode)
+
+/** Derive the Swift product name from the .ssc `name:` frontmatter, matching
+ *  SwiftUIEmitter.swiftIdent so we know where swift build puts the binary. */
+private def swiftAppName(sscName: Option[String]): String =
+  val raw = sscName.getOrElse("ScalaScript App")
+  raw.filter(c => c.isLetterOrDigit || c == '_').capitalize match
+    case ""  => "App"
+    case str => if str.head.isDigit then s"App$str" else str
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -2466,6 +2486,23 @@ def runCommand(args: List[String]): Unit =
   if targetSelection.contains("jvm") then
     for file <- fileArgs.toList do
       runJvmViaScalaCli(os.Path(file, os.pwd), serverBackendFlag, "run --target jvm")
+    return
+
+  // --target macos / desktop-macos: build Swift package + swift build + launch binary
+  if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
+    val outDir = os.Path("target/build", os.pwd) / "macos"
+    for file <- fileArgs.toList do
+      val sscFile = os.Path(file, os.pwd)
+      buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
+      val appName = swiftAppName(
+        scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
+      )
+      val binary = outDir / ".build" / "debug" / appName
+      if !os.exists(binary) then
+        System.err.println(s"swift build did not produce ${displayPath(binary)}")
+        System.exit(1)
+      println(s"  Launching $appName...")
+      os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
     return
 
   val noExplicitRunMode =
