@@ -1,7 +1,6 @@
 package scalascript.config
 
-import org.yaml.snakeyaml.{Yaml, LoaderOptions}
-import org.yaml.snakeyaml.constructor.SafeConstructor
+import scalascript.yaml.YamlParser
 
 /** Parses YAML, JSON (JSON is valid YAML 1.2), and basic HOCON
  *  into the unified [[ConfigValue]] tree.
@@ -72,7 +71,7 @@ object ConfigParser:
       err.toLeft(sb.toString)
 
     expanded.flatMap { raw =>
-      // Normalise HOCON key = value → key: value for SnakeYAML
+      // Normalise HOCON key = value → key: value for block YAML
       val normalized = raw.linesIterator.map { line =>
         """^(\s*[A-Za-z0-9_.-]+)\s*=\s*(.*)$""".r.replaceFirstIn(line, "$1: $2")
       }.mkString("\n")
@@ -80,11 +79,5 @@ object ConfigParser:
     }
 
   private def parseYaml(content: String): Either[ConfigError, ConfigValue] =
-    try
-      val opts = new LoaderOptions()
-      opts.setAllowDuplicateKeys(false)
-      val yaml = new Yaml(new SafeConstructor(opts))
-      val raw  = yaml.load[Any](content)
-      Right(ConfigValue.from(raw))
-    catch case e: Exception =>
-      Left(ConfigError.ParseError(e.getMessage))
+    try Right(ConfigValue.from(YamlParser.load(content)))
+    catch case e: Exception => Left(ConfigError.ParseError(e.getMessage))

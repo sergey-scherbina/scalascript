@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-27
+
+- **v1.50 Phase 1 — snakeyaml removal**: `scalascript.yaml.YamlParser` (~250 LOC, pure Scala, no external deps) replaces `org.yaml:snakeyaml:2.6` across all call sites — `Parser.parseManifest`, `LockFile.read`, `SscpkgManifest.parseString`, `LocalRegistry.parseFile`, `PluginManifest.parseString`, `ConfigParser.parseYaml`, `Main.loadSopsSecrets`. Supports block mappings/sequences, flow collections (JSON mode), quoted scalars (double/single), inline comments, scalar coercion (int/long/double/bool/null). Removed from `build.sbt` (`core` + `backendConfigRuntime`). 22 new `YamlParserTest` cases; all 616 existing tests green. GraalVM native-image blocker resolved.
+
 ## 2026-05-26
 
 - **v1.12.3** — Effects stdlib: `StdEffectsRuntime` gains `NonDet` (multi-shot, `choose(options)`) and `Reader` (capability, `ask()`) globals; typed discharge signatures registered in `Typer` prelude for `runLogger`/`runLoggerJson`/`runLoggerToList`, `runRandomSeeded`, `runClockAt`, `runEnvWith`, `runState`, `runHttp`/`runHttpStub` (each accepts a body carrying the named effect row); `EffectAnalysis.verify` promoted to error-level with `asErrors: Boolean = true` default; `examples/algebraic-effects.ssc` showcase (Logger + State interleaved, NonDet multi-shot, capability vs handler styles, stdlib runner signatures); 2 new `StdEffectsTest` tests (42 total). v1.12 effects sprint complete.

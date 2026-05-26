@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin
 
-import org.yaml.snakeyaml.Yaml
+import scalascript.yaml.YamlParser
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -52,29 +52,29 @@ object LocalRegistry:
 
   /** Parse one registry YAML file. */
   def parseFile(path: os.Path): Try[List[Entry]] = Try {
-    val raw = new Yaml().load[java.util.Map[String, Any]](os.read(path))
-    if raw == null then Nil
-    else {
-      val m = raw.asScala.toMap
-      m.get("packages") match
-        case Some(pm: java.util.Map[?, ?]) =>
-          pm.asScala.toList.flatMap { case (idKey, value) =>
-            val id = idKey.toString
-            value match
-              case vm: java.util.Map[?, ?] =>
-                val fields = vm.asInstanceOf[java.util.Map[String, Any]].asScala
-                val url    = fields.get("url").map(_.toString).getOrElse("")
-                if url.isEmpty then Nil
-                else List(Entry(
-                  id          = id,
-                  url         = url,
-                  version     = fields.get("version").map(_.toString).getOrElse(""),
-                  description = fields.get("description").map(_.toString).getOrElse(""),
-                ))
-              case _ => Nil
-          }
-        case _ => Nil
-    }
+    YamlParser.load(os.read(path)) match
+      case null => Nil
+      case raw: java.util.Map[?, ?] =>
+        val m = raw.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+        m.get("packages") match
+          case Some(pm: java.util.Map[?, ?]) =>
+            pm.asScala.toList.flatMap { case (idKey, value) =>
+              val id = idKey.toString
+              value match
+                case vm: java.util.Map[?, ?] =>
+                  val fields = vm.asInstanceOf[java.util.Map[String, Any]].asScala
+                  val url    = fields.get("url").map(_.toString).getOrElse("")
+                  if url.isEmpty then Nil
+                  else List(Entry(
+                    id          = id,
+                    url         = url,
+                    version     = fields.get("version").map(_.toString).getOrElse(""),
+                    description = fields.get("description").map(_.toString).getOrElse(""),
+                  ))
+                case _ => Nil
+            }
+          case _ => Nil
+      case _ => Nil
   }
 
   /** Serialise a list of entries to YAML text suitable for writing to

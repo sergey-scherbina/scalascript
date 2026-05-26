@@ -22,7 +22,7 @@ import scalascript.codegen.SparkSubmit
 import scalascript.codegen.SparkBackend
 
 @main def ssc(rawArgs: String*): Unit =
-  // --quiet silences third-party SLF4J library output (commonmark, snakeyaml, …)
+  // --quiet silences third-party SLF4J library output (commonmark, …)
   // by raising the slf4j-simple threshold to error.  Must run before any SLF4J
   // logger is first touched.
   val (quietFlags, args0) = rawArgs.partition(_ == "--quiet")
@@ -154,7 +154,7 @@ private def loadSopsSecrets(): Unit =
   try
     val raw = scala.io.Source.stdin.mkString
     if raw.nonEmpty then
-      val doc = new org.yaml.snakeyaml.Yaml().load[Any](raw)
+      val doc = scalascript.yaml.YamlParser.load(raw)
       val flat = flattenYaml("", doc)
       if flat.nonEmpty then
         scalascript.sql.SopsSecrets.load(flat)

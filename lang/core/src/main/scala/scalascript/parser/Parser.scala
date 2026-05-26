@@ -16,7 +16,7 @@ import org.commonmark.node.{
   Code            as CmCode,
 }
 import org.commonmark.parser.{Parser as CmParser, IncludeSourceSpans}
-import org.yaml.snakeyaml.Yaml
+import scalascript.yaml.YamlParser
 import scala.collection.mutable.{ListBuffer, Stack}
 import scala.jdk.CollectionConverters.*
 
@@ -29,7 +29,6 @@ object Parser:
   private val mdParser  = CmParser.builder()
     .includeSourceSpans(IncludeSourceSpans.BLOCKS)
     .build()
-  private val snakeYaml = Yaml()
 
   def parse(source: String): Module =
     // Strip shebang line so files can be self-executing: #!/usr/bin/env ssc
@@ -149,31 +148,14 @@ object Parser:
     val lines = strippedText.count(_ == '\n')
     (Some(rest.substring(0, end)), body, lines)
 
-  /** SnakeYAML's "mapping values are not allowed here" surfaces with the
-   *  line/column of the offending construct but with no hint about which
-   *  key/value caused it.  Wrap the exception to add a one-line hint
-   *  pointing at the most common cause (unquoted colons in string values
-   *  like `description: foo: bar`). */
   private def parseManifest(yaml: String): Manifest =
     val raw =
-      try Option(snakeYaml.load[java.util.Map[String, Any]](yaml))
-            .map(_.asScala.toMap).getOrElse(Map.empty)
-      catch case e: org.yaml.snakeyaml.scanner.ScannerException =>
-        val lines = yaml.linesIterator.toIndexedSeq
-        val mark  = Option(e.getProblemMark)
-        val hint  = mark.map { m =>
-          val lineNo = m.getLine + 1
-          val col    = m.getColumn + 1
-          val ctx    = lines.lift(m.getLine).getOrElse("")
-          val pointer = " " * (col - 1) + "^"
-          val likely =
-            if ctx.contains(": ") && !ctx.trim.startsWith("#") then
-              "  hint: this looks like an unquoted colon inside a string value;\n" +
-              "        quote the value, e.g.  description: \"foo: bar\""
-            else ""
-          s"\n  at line $lineNo, column $col:\n    $ctx\n    $pointer\n$likely"
-        }.getOrElse("")
-        throw new RuntimeException(s"YAML front-matter: ${e.getProblem}$hint")
+      try Option(YamlParser.load(yaml)).collect {
+            case m: java.util.Map[?, ?] =>
+              m.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+          }.getOrElse(Map.empty)
+      catch case e: Exception =>
+        throw new RuntimeException(s"YAML front-matter: ${e.getMessage}")
     Manifest(
       name         = raw.get("name").collect { case s: String => s },
       version      = raw.get("version").collect { case s: String => s },

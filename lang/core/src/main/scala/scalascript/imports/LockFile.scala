@@ -1,6 +1,7 @@
 package scalascript.imports
 
 import java.security.MessageDigest
+import scalascript.yaml.YamlParser
 import scala.util.Try
 import scala.jdk.CollectionConverters.*
 
@@ -59,13 +60,13 @@ object LockFile:
 
   val empty: LockFile = LockFile(Map.empty)
 
-  private val yaml = org.yaml.snakeyaml.Yaml()
-
   def read(path: os.Path): Try[LockFile] = Try {
     if !os.exists(path) then
       throw new java.io.FileNotFoundException(s"No ssc.lock at $path — run `ssc lock` first.")
-    val raw = Option(yaml.load[java.util.Map[String, Any]](os.read(path)))
-      .map(_.asScala.toMap).getOrElse(Map.empty)
+    val raw = Option(YamlParser.load(os.read(path))).collect {
+      case m: java.util.Map[?, ?] =>
+        m.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+    }.getOrElse(Map.empty)
     val imports: Map[String, Entry] = raw.get("imports") match
       case Some(m: java.util.Map[?, ?]) =>
         m.asScala.collect {

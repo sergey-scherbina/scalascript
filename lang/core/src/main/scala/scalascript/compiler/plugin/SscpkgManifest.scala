@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin
 
-import org.yaml.snakeyaml.Yaml
+import scalascript.yaml.YamlParser
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -28,10 +28,10 @@ case class SscpkgManifest(
 object SscpkgManifest:
 
   def parseString(yaml: String): Try[SscpkgManifest] = Try {
-    val raw = new Yaml().load[java.util.Map[String, Any]](yaml)
-    val m = Option(raw)
-      .map(_.asScala.toMap)
-      .getOrElse(throw RuntimeException("empty manifest.yaml"))
+    val m = Option(YamlParser.load(yaml)).collect {
+      case jm: java.util.Map[?, ?] =>
+        jm.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+    }.getOrElse(throw RuntimeException("empty manifest.yaml"))
 
     def str(key: String, default: String): String =
       m.get(key).map(_.toString).getOrElse(default)

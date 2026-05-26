@@ -106,7 +106,6 @@ lazy val core = project
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
-      "org.yaml"       %  "snakeyaml"        % "2.6",
       "com.lihaoyi"    %% "os-lib"           % "0.11.4",
       "com.lihaoyi"    %% "upickle"          % "4.4.2",
       "org.scalameta"  %% "scalameta"        % "4.17.0",
@@ -940,7 +939,6 @@ lazy val backendConfigRuntime = project
   .settings(
     name := "scalascript-backend-config-runtime",
     libraryDependencies ++= Seq(
-      "org.yaml" % "snakeyaml" % "2.6",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

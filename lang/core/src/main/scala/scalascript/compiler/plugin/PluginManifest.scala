@@ -1,7 +1,7 @@
 package scalascript.compiler.plugin
 
 import scalascript.logging.Logger
-import org.yaml.snakeyaml.Yaml
+import scalascript.yaml.YamlParser
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Success, Failure}
 
@@ -52,10 +52,10 @@ object PluginManifest:
     Try(parseString(os.read(path)).get).map(_.copy(manifestPath = Some(path)))
 
   def parseString(yaml: String): Try[PluginManifest] = Try {
-    val raw = new Yaml().load[java.util.Map[String, Any]](yaml)
-    val asScala = Option(raw)
-      .map(_.asScala.toMap)
-      .getOrElse(throw RuntimeException("empty plugin.yaml"))
+    val asScala = Option(YamlParser.load(yaml)).collect {
+      case m: java.util.Map[?, ?] =>
+        m.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+    }.getOrElse(throw RuntimeException("empty plugin.yaml"))
 
     def require[A](key: String): A =
       asScala.getOrElse(key, throw RuntimeException(s"plugin.yaml: missing required field '$key'"))
