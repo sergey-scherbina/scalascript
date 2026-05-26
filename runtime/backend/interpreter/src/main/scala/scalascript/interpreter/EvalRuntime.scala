@@ -69,7 +69,8 @@ private[interpreter] object EvalRuntime:
     ) if bodyArgClause.values.size == 1 =>
       pfArgClause.values match
         case List(pf: Term.PartialFunction) =>
-          EffectsRuntime.evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env, interp)
+          EffectsRuntime.evalHandle(bodyArgClause.values.head.asInstanceOf[Term], pf.cases, env, interp,
+            interp.multiShotEffects)
         case _ => interp.located("handle expects a partial function { case Eff.op(args, resume) => ... }")
 
     // Special form: runAsync(body) — default Async handler.  The body is

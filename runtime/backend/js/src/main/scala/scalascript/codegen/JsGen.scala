@@ -3449,6 +3449,50 @@ function _handle(bodyFn, handledOps, handlers) {
   return interp(bodyFn());
 }
 
+// One-shot variant of _handle: resume may only be called once per dispatch.
+// Calling resume a second time throws a runtime error.
+function _handleOneShot(bodyFn, handledOps, handlers) {
+  const handled = new Set(handledOps);
+  function interp(initial) {
+    let current = initial;
+    while (true) {
+      if (current instanceof _Perform) {
+        const key = current.eff + '.' + current.op;
+        if (handled.has(key) && handlers[key]) {
+          let _resumed = false;
+          const resume = (v) => {
+            if (_resumed) throw new Error('One-shot violation: ' + current.eff + '.' + current.op + ' resumed more than once');
+            _resumed = true;
+            return v;
+          };
+          current = handlers[key]([...current.args, resume]);
+        } else { return current; }
+      } else if (current instanceof _FlatMap) {
+        const sub = current.sub;
+        if (sub instanceof _FlatMap) {
+          const sub2 = sub.sub; const g = sub.k; const f = current.k;
+          current = new _FlatMap(sub2, (x) => new _FlatMap(g(x), f));
+        } else if (sub instanceof _Perform) {
+          const key = sub.eff + '.' + sub.op;
+          const f = current.k;
+          if (handled.has(key) && handlers[key]) {
+            let _resumed = false;
+            const resume = (v) => {
+              if (_resumed) throw new Error('One-shot violation: ' + sub.eff + '.' + sub.op + ' resumed more than once');
+              _resumed = true;
+              return interp(f(v));
+            };
+            current = handlers[key]([...sub.args, resume]);
+          } else {
+            return new _FlatMap(sub, (v) => interp(f(v)));
+          }
+        } else { current = current.k(sub); }
+      } else { return current; }
+    }
+  }
+  return interp(bodyFn());
+}
+
 // ── std.fs — synchronous file primitives (Node only) ───────────────────
 // Defined under user-facing names so nested calls like
 // `_println(readFile(p))` resolve directly.
@@ -7404,6 +7448,8 @@ class JsGen(
   // Functions that transitively perform effects — emitted in CPS form so callers
   // get a Free value (Pure plain value or Perform node) and can compose them.
   private val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  // Effect object names that carry the `val __multiShot__ = true` marker.
+  private val multiShotEffects: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
   // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
   // of the current Defn.Def being emitted. Cleared before each function.
   private val cbSummonMap = scala.collection.mutable.Map.empty[String, String]
@@ -8224,8 +8270,9 @@ class JsGen(
     val trees = module.sections.flatMap(collectTrees)
     val r     = EffectAnalysis.analyze(trees, builtins)
 
-    effectOps.clear();     effectOps     ++= r.effectOps
-    effectfulFuns.clear(); effectfulFuns ++= r.effectfulFuns
+    effectOps.clear();        effectOps        ++= r.effectOps
+    effectfulFuns.clear();    effectfulFuns    ++= r.effectfulFuns
+    multiShotEffects.clear(); multiShotEffects ++= r.multiShotEffects
 
   /** Walk the module AST and set `usesRunAsyncParallel` if any `runAsyncParallel` call
    *  is present.  Called from `genModule` before emitting user code sections so the
@@ -9368,7 +9415,13 @@ class JsGen(
     // The handle body is always emitted in CPS form so that effect ops build
     // a Free tree which _handle can interpret.
     val bodyThunk = s"() => ${genCpsExpr(body)}"
-    s"_handle($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
+    // Use _handleOneShot when no op belongs to a multi-shot effect.
+    val allOneShot = handledOps.forall { opStr =>
+      val effName = opStr.stripPrefix("'").takeWhile(_ != '.')
+      !multiShotEffects.contains(effName)
+    }
+    val handleFn = if allOneShot then "_handleOneShot" else "_handle"
+    s"$handleFn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
 
   /** Stage 5+/A.5 — per-call-site intrinsic dispatch.  Returns the
    *  JS expression string to splice in, or `None` if no intrinsic

@@ -1,7 +1,7 @@
 package scalascript.transform
 
 import scala.collection.mutable
-import scala.meta.{Defn, Source, Stat, Term, Tree}
+import scala.meta.{Defn, Lit, Pat, Source, Stat, Term, Tree}
 
 /** Shared CPS effect analysis used by every backend that emits a Free-monad
  *  runtime (currently `JvmGen` and `JsGen`).
@@ -33,8 +33,10 @@ object EffectAnalysis:
    *    `MyEff.send`, …
    *  - `effectfulFuns` — every top-level `def` whose body transitively
    *    reaches an `effectOp`.  Both sets are consulted by the codegens
-   *    during CPS rewriting. */
-  case class Result(effectOps: Set[String], effectfulFuns: Set[String])
+   *    during CPS rewriting.
+   *  - `multiShotEffects` — effect object names that carry the
+   *    `val __multiShot__ = true` marker (emitted by `multi effect Foo {}`). */
+  case class Result(effectOps: Set[String], effectfulFuns: Set[String], multiShotEffects: Set[String] = Set.empty)
 
   /** Marker body recognised as an effect-op declaration:
    *  `effect Eff: def op(...) = __effectOp__`. */
@@ -59,17 +61,23 @@ object EffectAnalysis:
    *                  available (e.g. `Async.*`, `Storage.*` for JsGen;
    *                  same set gated by usage for JvmGen). */
   def analyze(trees: List[Tree], builtins: Set[String] = Set.empty): Result =
-    val effectOps     = mutable.Set.from(builtins)
-    val effectfulFuns = mutable.Set.empty[String]
-    val funBodies     = mutable.Map.empty[String, Term]
+    val effectOps      = mutable.Set.from(builtins)
+    val effectfulFuns  = mutable.Set.empty[String]
+    val multiShotEffects = mutable.Set.empty[String]
+    val funBodies      = mutable.Map.empty[String, Term]
 
     def collectFromStats(stats: List[Stat]): Unit = stats.foreach {
       case d: Defn.Object =>
+        var isMultiShot = false
         d.templ.body.stats.foreach {
           case dd: Defn.Def if isEffectOpDef(dd.body) =>
             effectOps += s"${d.name.value}.${dd.name.value}"
+          case Defn.Val(_, List(Pat.Var(n)), _, Lit.Boolean(true))
+              if n.value == "__multiShot__" =>
+            isMultiShot = true
           case _ => ()
         }
+        if isMultiShot then multiShotEffects += d.name.value
       case d: Defn.Def => funBodies(d.name.value) = d.body
       case _           => ()
     }
@@ -107,7 +115,7 @@ object EffectAnalysis:
             changed = true
       }
 
-    Result(effectOps.toSet, effectfulFuns.toSet)
+    Result(effectOps.toSet, effectfulFuns.toSet, multiShotEffects.toSet)
 
   /** Verifier mode: compare the type-system's declared effect set against the
    *  name-reachability analysis.  Returns warning messages for divergences.

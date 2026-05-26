@@ -139,6 +139,8 @@ class Interpreter(
   private[interpreter] var mainCalled   = false
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
+  // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
+  private[interpreter] var multiShotEffects: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
 
   /** Load plugin intrinsics on first use.  Called from EvalRuntime when a
@@ -636,6 +638,14 @@ class Interpreter(
       if scalascript.frontend.FrontendFrameworks.selectedName.isEmpty then
         m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
     }
+    // Populate multiShotEffects for one-shot violation checks in evalHandle.
+    val allTrees: List[scala.meta.Tree] = module.sections.flatMap { s =>
+      s.content.collect {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten
+    }
+    multiShotEffects = scalascript.transform.EffectAnalysis.analyze(allTrees).multiShotEffects
     registerFrontmatterRoutes(module)
 
   private def autoCallMain(): Unit =

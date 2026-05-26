@@ -30,7 +30,8 @@ private[interpreter] object EffectsRuntime:
    *  Multi-shot is calling that closure more than once — each invocation walks
    *  a fresh branch of the tree.
    */
-  def evalHandle(body: Term, cases: List[Case], env: Env, interp: Interpreter): Computation =
+  def evalHandle(body: Term, cases: List[Case], env: Env, interp: Interpreter,
+                 multiShotEffects: Set[String] = Set.empty): Computation =
     val handledOps: Set[(String, String)] = cases.flatMap { c =>
       c.pat match
         case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), Term.Name(op)), _) => Some((eff, op))
@@ -70,7 +71,12 @@ private[interpreter] object EffectsRuntime:
           case Perform(eff, op, args) =>
             if !handledOps.contains((eff, op)) then return current
             else
+              val effIsOneShot = !multiShotEffects.contains(eff)
+              var _resumed = false
               val resume = Value.NativeFnV("resume", rargs => {
+                if effIsOneShot && _resumed then
+                  throw InterpretError(s"One-shot violation: $eff.$op resumed more than once")
+                _resumed = true
                 val v = rargs match
                   case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
                 Pure(v)
@@ -85,7 +91,12 @@ private[interpreter] object EffectsRuntime:
               if !handledOps.contains((eff, op)) then
                 return FlatMap(Perform(eff, op, args), v => handleInterp(f(v)))
               else
+                val effIsOneShot = !multiShotEffects.contains(eff)
+                var _resumed = false
                 val resume = Value.NativeFnV("resume", rargs => {
+                  if effIsOneShot && _resumed then
+                    throw InterpretError(s"One-shot violation: $eff.$op resumed more than once")
+                  _resumed = true
                   val v = rargs match
                     case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
                   handleInterp(f(v))
