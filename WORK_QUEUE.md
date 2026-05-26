@@ -32,6 +32,17 @@ _(all done — see Done section below)_
 
 - [x] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store) (2026-05-26)
 
+## Distribution & Tooling
+
+- [ ] **v1.50-native-p1-snakeyaml** — Replace snakeyaml with pure-Scala frontmatter parser
+  _`FrontmatterParser` recursive descent ~200 LOC; zero reflection; all frontmatter tests green. Spec: `BACKLOG.md §Phase 1`._
+
+- [ ] **v1.50-native-p2-graalvm** — GraalVM native-image build for `ssc`
+  _`sbt-native-image`, reflection config via agent, ServiceLoader resource config, CI release matrix (macOS ARM64/x86 + Linux x86). Spec: `BACKLOG.md §Phase 2`._
+
+- [ ] **v1.50-native-p3-plugin-bridge** — `scalascript-plugin-sdk` + subprocess JAR bridge
+  _`SubprocessPluginHost`, `ScalaScript-Plugin-Main` manifest convention, auto-bridge in native `ssc` (`--plugin foo.jar` → subprocess). Spec: `BACKLOG.md §Phase 3`._
+
 ## Language & Compiler
 
 - [x] **v1.12.1-effects-types** — Add `EffectRow` to `SType`, Rémy-style row unification, `!` operator in `TypeParser`, `multi effect` keyword, handler discharge in typer, `EffectAnalysis` verifier mode, §9 diagnostics. (2026-05-26)
