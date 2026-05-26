@@ -100,3 +100,41 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
     assert(args.contains("--team-id"))
     assert(args.contains("--out"))
   }
+
+  // v1.48.5 — Fastfile generation
+
+  test("generateFastfile testflight lane includes gym + pilot") {
+    val ff = generateFastfile("MyApp", submitForReview = false, releaseNotes = None)
+    assert(ff.contains("lane :testflight"),                   "testflight lane must be present")
+    assert(ff.contains("gym(scheme: \"MyApp\""),              "gym with app scheme must be present")
+    assert(ff.contains("pilot(skip_waiting_for_build_processing: true)"), "pilot action must be present")
+  }
+
+  test("generateFastfile appstore lane includes deliver when submitForReview=true") {
+    val ff = generateFastfile("MyApp", submitForReview = true, releaseNotes = None)
+    assert(ff.contains("lane :appstore"),                                  "appstore lane must be present")
+    assert(ff.contains("deliver(submit_for_review: true"),                 "deliver must be present when submitForReview")
+  }
+
+  test("generateFastfile appstore lane omits deliver when submitForReview=false") {
+    val ff = generateFastfile("MyApp", submitForReview = false, releaseNotes = None)
+    assert(!ff.contains("deliver("),                                       "deliver must be absent when not submitting")
+  }
+
+  test("generateFastfile includes changelog in pilot when releaseNotes provided") {
+    val ff = generateFastfile("MyApp", submitForReview = false, releaseNotes = Some("Bug fixes"))
+    assert(ff.contains("changelog: \"Bug fixes\""),                        "changelog must appear in pilot call")
+  }
+
+  test("generateFastfile uses correct scheme for app name with spaces") {
+    val ff = generateFastfile("ScalaScriptApp", submitForReview = false, releaseNotes = None)
+    assert(ff.contains("gym(scheme: \"ScalaScriptApp\""),                  "scheme must match derived app name")
+  }
+
+  test("publish --target ios flags recognised") {
+    val args = List("--target", "ios", "--testflight", "--fastlane",
+                    "--api-key-path", "/tmp/AuthKey.p8", "MyApp.ssc")
+    assert(args.contains("--testflight"))
+    assert(args.contains("--fastlane"))
+    assert(args.contains("--api-key-path"))
+  }

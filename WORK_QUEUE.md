@@ -28,8 +28,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.48.4-ios-package** — `ssc package --target ios` → signed .ipa (2026-05-26)
 
-- [ ] **v1.48.5-ios-publish** — `ssc publish --target ios` (TestFlight + App Store via fastlane)
-  _Generates Fastfile by default; `--fastlane` uses existing. `--testflight` / `--appstore`, API key auth. Spec: `BACKLOG.md §v1.48.5`._
+- [x] **v1.48.5-ios-publish** — `ssc publish --target ios` (TestFlight + App Store via fastlane) (2026-05-26)
 
 - [ ] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store)
   _codesign + notarytool + DMG + fastlane Mac lanes. `ssc toolchain setup-signing`. Spec: `BACKLOG.md §v1.49`._

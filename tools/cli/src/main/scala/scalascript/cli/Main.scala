@@ -110,6 +110,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "verify"              => verifyCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
     case "package"             => packageCommand(args.tail)
+    case "publish"             => publishCommand(args.tail)
     case "serve"               => serveCommand(args.tail)
     case "render"              => renderCommand(args.tail)
     case "build"               => buildCommand(args.tail)
@@ -595,6 +596,13 @@ def printUsage(): Unit =
     |  package --target ios <f>          Archive + export signed .ipa (requires Xcode + Apple Developer)
     |    --export-method <m>            distribution method: development|ad-hoc|enterprise|app-store (default: development)
     |    --team-id <id>                 Apple Developer Team ID (or set SSC_TEAM_ID env var)
+    |  publish --target ios <f>         Upload to TestFlight or App Store via fastlane
+    |    --testflight                   Upload to TestFlight
+    |    --appstore                     Submit to App Store
+    |    --fastlane                     Use existing Fastfile instead of generating one
+    |    --api-key-path <p>            App Store Connect API key path (.p8) or APP_STORE_CONNECT_API_KEY_PATH env
+    |    --submit-for-review            Auto-submit for review after upload (App Store only)
+    |    --release-notes <text>        What's new text for TestFlight
     |  run   --target macos <f>          Build SwiftUI macOS app and launch it
     |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
     |  run   --target ios --device <f>  Build + deploy to USB device via ios-deploy
@@ -7211,6 +7219,145 @@ def packageCommand(args: List[String]): Unit =
           packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
         else
           buildProjectFileCommand(pf, Some(t), outDir, fat = true)
+
+/** `ssc publish --target ios [--testflight|--appstore] [--fastlane] [--api-key-path <p>]
+ *    [--submit-for-review] [--release-notes <text>] [<project.ssc>]`
+ *
+ *  Uploads an iOS app to TestFlight or App Store via fastlane.
+ *  By default, generates a `Fastfile` in the project directory then invokes fastlane.
+ *  `--fastlane` skips generation and uses the existing `Fastfile`. */
+def publishCommand(args: List[String]): Unit =
+  var targetFlag:          Option[String] = None
+  var testflightFlag:      Boolean        = false
+  var appstoreFlag:        Boolean        = false
+  var fastlaneFlag:        Boolean        = false
+  var apiKeyPathFlag:      Option[String] = None
+  var submitForReviewFlag: Boolean        = false
+  var releaseNotesFlag:    Option[String] = None
+  val positional = scala.collection.mutable.ListBuffer.empty[String]
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--target"           if it.hasNext => targetFlag       = Some(it.next())
+      case "--api-key-path"     if it.hasNext => apiKeyPathFlag   = Some(it.next())
+      case "--release-notes"    if it.hasNext => releaseNotesFlag = Some(it.next())
+      case "--testflight"                     => testflightFlag   = true
+      case "--appstore"                       => appstoreFlag     = true
+      case "--fastlane"                       => fastlaneFlag     = true
+      case "--submit-for-review"              => submitForReviewFlag = true
+      case other                              => positional += other
+
+  val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
+
+  effectiveTarget match
+    case Some("ios") | Some("mobile-ios") =>
+      if !testflightFlag && !appstoreFlag then
+        System.err.println("ssc publish --target ios: specify --testflight or --appstore")
+        System.exit(1)
+      val lane = if appstoreFlag then "appstore" else "testflight"
+
+      val projectFile = positional.headOption match
+        case Some(arg) =>
+          val p = os.Path(arg, os.pwd)
+          if os.exists(p) && p.ext == "ssc" then p
+          else { System.err.println(s"ssc publish: file not found: $arg"); System.exit(1); ??? }
+        case None => findProjectSsc().getOrElse {
+          System.err.println("ssc publish: no project file found"); System.exit(1); ???
+        }
+
+      publishIosFastlane(
+        projectFile, lane, fastlaneFlag, apiKeyPathFlag,
+        submitForReviewFlag, releaseNotesFlag
+      )
+    case Some(t) =>
+      System.err.println(s"ssc publish: unsupported target '$t'  (valid: ios)")
+      System.exit(1)
+    case None =>
+      System.err.println("ssc publish: --target is required  (valid: ios)")
+      System.exit(1)
+
+/** `ssc publish --target ios` implementation via fastlane.
+ *
+ *  Generates a `Fastfile` in the project directory (unless `--fastlane` is set),
+ *  then runs `fastlane <lane>` in that directory.
+ *
+ *  Credentials:
+ *   - API key: `apiKeyPath` → env `APP_STORE_CONNECT_API_KEY_PATH`
+ *   - Without API key, fastlane falls back to Apple ID (interactive prompt). */
+private def publishIosFastlane(
+    sscFile:         os.Path,
+    lane:            String,
+    useExisting:     Boolean,
+    apiKeyPath:      Option[String],
+    submitForReview: Boolean,
+    releaseNotes:    Option[String]
+): Unit =
+  if os.proc("fastlane", "--version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println(
+      "Error: fastlane is required for ssc publish --target ios.\n" +
+      "Install: brew install fastlane"
+    )
+    System.exit(1)
+
+  val module  = Parser.parse(os.read(sscFile))
+  val appName = swiftAppName(module.manifest.flatMap(_.name))
+  val projectDir = sscFile / os.up
+  val fastfile   = projectDir / "Fastfile"
+
+  if !useExisting then
+    val content = generateFastfile(appName, submitForReview, releaseNotes)
+    os.write.over(fastfile, content)
+    println(s"  Generated ${displayPath(fastfile)}")
+  else
+    if !os.exists(fastfile) then
+      System.err.println(s"ssc publish --fastlane: no Fastfile found at ${displayPath(fastfile)}")
+      System.exit(1)
+    println(s"  Using existing ${displayPath(fastfile)}")
+
+  // Set API key env if provided
+  val resolvedKeyPath = apiKeyPath
+    .orElse(sys.env.get("APP_STORE_CONNECT_API_KEY_PATH"))
+  val extraEnv = resolvedKeyPath
+    .map(p => Map("APP_STORE_CONNECT_API_KEY_PATH" -> p))
+    .getOrElse(Map.empty)
+
+  println(s"  Running: fastlane $lane")
+  val result = os.proc("fastlane", lane)
+    .call(
+      stdout = os.Inherit, stderr = os.Inherit, cwd = projectDir,
+      env = extraEnv, check = false
+    )
+  if result.exitCode != 0 then System.exit(result.exitCode)
+  println(s"  fastlane $lane completed successfully.")
+
+/** Generate a Fastfile for iOS TestFlight + App Store lanes. */
+private def generateFastfile(
+    appName: String, submitForReview: Boolean, releaseNotes: Option[String]
+): String =
+  val submitLine = if submitForReview then "    deliver(submit_for_review: true, automatic_release: false)" else ""
+  val notesBlock = releaseNotes.map(n => s"""    pilot(changelog: "$n", skip_waiting_for_build_processing: true)""")
+    .getOrElse("    pilot(skip_waiting_for_build_processing: true)")
+  s"""|# Generated by ssc publish --target ios
+      |# Edit this file to add metadata, screenshots, signing configuration, etc.
+      |# See https://docs.fastlane.tools for available actions.
+      |
+      |default_platform(:ios)
+      |
+      |platform :ios do
+      |
+      |  lane :testflight do
+      |    gym(scheme: "$appName", export_method: "app-store")
+      |$notesBlock
+      |  end
+      |
+      |  lane :appstore do
+      |    gym(scheme: "$appName", export_method: "app-store")
+      |$submitLine
+      |  end
+      |
+      |end
+      |""".stripMargin
 
 def lockCommand(args: List[String]): Unit =
   args match
