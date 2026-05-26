@@ -1,0 +1,49 @@
+#!/usr/bin/env ssc
+---
+name: wasm-http
+description: HTTP Fetch API from WebAssembly via scalajs-dom — compiled with Scala.js.
+---
+
+# WebAssembly — HTTP Fetch API
+
+Demonstrates making HTTP requests from WASM-compiled Scala.js code using
+the browser's Fetch API via `scalajs-dom`.  The `//> using dep` directive
+is hoisted to the top of the compilation unit by the WASM backend so
+scala-cli can resolve the dependency.
+
+**Requirements:** run in a browser or Node.js 18+ environment (Fetch API
+must be available).  The WASM binary produced by `ssc-wasm` is loaded
+via the generated `main.js` ES-module entry point.
+
+```
+ssc-wasm examples/wasm-http.ssc
+# then load main.js in a browser / node --experimental-vm-modules
+```
+
+## Fetch helper
+
+```scalascript
+//> using dep "org.scala-js::scalajs-dom::2.8.0"
+
+import org.scalajs.dom
+import org.scalajs.dom.{fetch, Response}
+import scala.concurrent.Future
+import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
+import scala.scalajs.js.Thenable.Implicits.*
+
+def getJson(url: String): Future[String] =
+  for
+    response <- fetch(url).toFuture
+    text     <- response.text().toFuture
+  yield text
+```
+
+## Entry point
+
+```scalascript
+@main def run(): Unit =
+  val url = "https://jsonplaceholder.typicode.com/todos/1"
+  println(s"Fetching $url …")
+  getJson(url).foreach: body =>
+    println(s"Response:\n$body")
+```

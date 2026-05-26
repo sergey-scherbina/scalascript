@@ -37,20 +37,40 @@ object WasmGen:
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
+  /** Collect all compilable block sources, hoisting `//> using` directives
+   *  to the top of the output so scala-cli sees them before any code.
+   *  This lets users embed `//> using dep "org.scala-js::scalajs-dom::2.8.0"`
+   *  (or similar) inside their `scalascript` / `scala` blocks.
+   */
   def collectSource(module: Module): String =
-    val sb = StringBuilder()
-    module.sections.foreach(collectSection(_, sb))
-    sb.toString
+    val directives = List.newBuilder[String]  // //> using … lines, deduped
+    val body       = StringBuilder()
+    val seen       = scala.collection.mutable.LinkedHashSet.empty[String]
+    module.sections.foreach(collectSection(_, directives, seen, body))
+    val dirs = directives.result()
+    if dirs.isEmpty then body.toString
+    else dirs.mkString("", "\n", "\n\n") + body.toString
 
-  private def collectSection(s: Section, sb: StringBuilder): Unit =
+  private def collectSection(
+    s:          Section,
+    directives: scala.collection.mutable.Builder[String, List[String]],
+    seen:       scala.collection.mutable.Set[String],
+    body:       StringBuilder,
+  ): Unit =
     s.content.foreach {
       case Content.CodeBlock(lang, src, _, _, _, _, _) if isCompilable(lang) =>
-        sb.append(src.stripTrailing()).append("\n\n")
+        val (dirs, rest) = src.linesIterator.partition(_.startsWith("//>"))
+        dirs.foreach { d =>
+          val trimmed = d.trim
+          if seen.add(trimmed) then directives += trimmed
+        }
+        val restStr = rest.mkString("\n").stripTrailing()
+        if restStr.nonEmpty then body.append(restStr).append("\n\n")
       case _ => ()
     }
-    s.subsections.foreach(collectSection(_, sb))
+    s.subsections.foreach(collectSection(_, directives, seen, body))
 
-  /** Compile all `scala` blocks to a WASM bundle.
+  /** Compile all `scala` and `scalascript` blocks to a WASM bundle.
    *  Throws `RuntimeException` on compilation failure.
    */
   def compileToWasm(module: Module, baseDir: Option[os.Path] = None): WasmBundle =

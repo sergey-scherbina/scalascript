@@ -75,6 +75,46 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     src should include("val a = 1")
     src should include("val b = 2")
 
+  // ── Phase 3: //> using directive hoisting ────────────────────────────────
+
+  test("collectSource hoists //> using dep directive to top of output"):
+    val src = WasmGen.collectSource(module(
+      """|//> using dep "org.scala-js::scalajs-dom::2.8.0"
+         |val x = 1
+         |""".stripMargin))
+    val lines = src.linesIterator.toList
+    lines.head shouldBe """//> using dep "org.scala-js::scalajs-dom::2.8.0""""
+    src should include("val x = 1")
+
+  test("collectSource deduplicates //> using dep directives across blocks"):
+    val combined = Parser.parse(
+      """|# Test
+         |
+         |```scala
+         |//> using dep "org.scala-js::scalajs-dom::2.8.0"
+         |val a = 1
+         |```
+         |
+         |```scalascript
+         |//> using dep "org.scala-js::scalajs-dom::2.8.0"
+         |val b = 2
+         |```
+         |""".stripMargin)
+    val src   = WasmGen.collectSource(combined)
+    val count = src.linesIterator.count(_.startsWith("//> using dep"))
+    count shouldBe 1
+
+  test("collectSource preserves multiple distinct //> using dep directives"):
+    val src = WasmGen.collectSource(module(
+      """|//> using dep "org.scala-js::scalajs-dom::2.8.0"
+         |//> using dep "com.lihaoyi::upickle::3.3.1"
+         |val x = 1
+         |""".stripMargin))
+    src should include("""//> using dep "org.scala-js::scalajs-dom::2.8.0"""")
+    src should include("""//> using dep "com.lihaoyi::upickle::3.3.1"""")
+    val lines = src.linesIterator.toList
+    lines.head should startWith("//> using dep")
+
   // ── Backend.compile with no compilable blocks ────────────────────────────
 
   test("compile returns Segmented(Nil) when only html blocks present"):
