@@ -1944,7 +1944,7 @@ lazy val jsonPlugin = project
 
 lazy val frontendPlugin = project
   .in(file("runtime/std/frontend-plugin"))
-  .dependsOn(backendSpi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test)
+  .dependsOn(backendSpi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
   .settings(
     name := "scalascript-frontend-plugin",
     libraryDependencies ++= Seq(scalatestTest),
