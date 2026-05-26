@@ -174,14 +174,16 @@ Browser/Electron clients can use the first `Sync` helper layer:
 
 ```scalascript
 val drafts = IndexedDb.store[Draft]("drafts", "app")
+awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Local", false), "app"))
 awaitClient(Sync.push[Draft]("drafts", "app"))
 awaitClient(Sync.pull[Draft]("drafts", "app"))
 ```
 
 `pull` applies server changes/tombstones to the local `IndexedDb.store[A]` and
-persists a local cursor when `localStorage` is available. `push` sends current
-local entries as mutations. Offline mutation queues, deletion queues, and
-automatic conflict policies remain planned.
+persists a local cursor when `localStorage` is available. `Sync.put[A]` and
+`Sync.remove[A]` update the local store and persist queued mutations locally;
+`push` sends queued mutations first and clears acknowledged entries. Automatic
+conflict policies remain planned.
 
 Conflict policy should be explicit per store:
 
@@ -241,8 +243,10 @@ keeping as an optional backend for apps that want battle-tested replication.
    runtime.
 4. **Client sync helper** — landed 2026-05-26: JS/browser/Electron runtime
    exposes `Sync.pull[A]` and `Sync.push[A]` over `IndexedDb.store[A]` plus
-   generated REST endpoints. Remaining: durable offline mutation/deletion queue
-   and richer conflict UX.
+   generated REST endpoints. Follow-up landed 2026-05-26: `Sync.put[A]` and
+   `Sync.remove[A]` persist a durable local mutation/deletion queue and
+   `Sync.push[A]` drains acknowledged queue entries. Remaining: richer
+   conflict UX and automatic conflict policies.
 5. **Conflict handling** — expose conflict results and implement configured
    `server-wins`, `client-wins`, and `manual` policies.
 6. **Examples + conformance** — add an offline todo example that edits locally,

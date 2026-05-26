@@ -4048,18 +4048,104 @@ function _ssc_sync_cursor_key(dbName, storeName) {
   return "__ssc_sync_cursor:" + _ssc_indexeddb_store_key(dbName, storeName);
 }
 
-function _ssc_sync_get_cursor(dbName, storeName) {
+function _ssc_sync_queue_key(dbName, storeName) {
+  return "__ssc_sync_queue:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+
+function _ssc_sync_versions_key(dbName, storeName) {
+  return "__ssc_sync_versions:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+
+function _ssc_sync_json_get(key, fallback) {
   const storage = _ssc_indexeddb_local_storage();
-  if (!storage) return 0;
-  const raw = storage.getItem(_ssc_sync_cursor_key(dbName, storeName));
+  if (!storage) {
+    const mem = globalThis.__sscSyncMemory || (globalThis.__sscSyncMemory = new Map());
+    return mem.has(key) ? mem.get(key) : fallback;
+  }
+  try {
+    const raw = storage.getItem(key);
+    return raw == null ? fallback : JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function _ssc_sync_json_set(key, value) {
+  const storage = _ssc_indexeddb_local_storage();
+  if (!storage) {
+    const mem = globalThis.__sscSyncMemory || (globalThis.__sscSyncMemory = new Map());
+    mem.set(key, value);
+    return;
+  }
+  storage.setItem(key, JSON.stringify(value));
+}
+
+function _ssc_sync_get_cursor(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_cursor_key(dbName, storeName), 0);
   const parsed = raw == null ? 0 : Number(raw);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function _ssc_sync_set_cursor(dbName, storeName, cursor) {
-  const storage = _ssc_indexeddb_local_storage();
-  if (!storage) return;
-  storage.setItem(_ssc_sync_cursor_key(dbName, storeName), String(cursor || 0));
+  _ssc_sync_json_set(_ssc_sync_cursor_key(dbName, storeName), Number(cursor || 0));
+}
+
+function _ssc_sync_get_queue(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_queue_key(dbName, storeName), []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function _ssc_sync_set_queue(dbName, storeName, queue) {
+  _ssc_sync_json_set(_ssc_sync_queue_key(dbName, storeName), Array.isArray(queue) ? queue : []);
+}
+
+function _ssc_sync_get_versions(dbName, storeName) {
+  const raw = _ssc_sync_json_get(_ssc_sync_versions_key(dbName, storeName), {});
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+function _ssc_sync_set_versions(dbName, storeName, versions) {
+  _ssc_sync_json_set(_ssc_sync_versions_key(dbName, storeName), versions || {});
+}
+
+function _ssc_sync_expected_version(dbName, storeName, key) {
+  const versions = _ssc_sync_get_versions(dbName, storeName);
+  const value = versions[String(key)];
+  return value === undefined || value === null ? undefined : Number(value);
+}
+
+function _ssc_sync_set_version(dbName, storeName, key, version) {
+  const n = Number(version);
+  if (!Number.isFinite(n)) return;
+  const versions = _ssc_sync_get_versions(dbName, storeName);
+  versions[String(key)] = n;
+  _ssc_sync_set_versions(dbName, storeName, versions);
+}
+
+function _ssc_sync_forget_version(dbName, storeName, key) {
+  const versions = _ssc_sync_get_versions(dbName, storeName);
+  delete versions[String(key)];
+  _ssc_sync_set_versions(dbName, storeName, versions);
+}
+
+function _ssc_sync_enqueue(dbName, storeName, mutation) {
+  const key = String(mutation.key);
+  const queue = _ssc_sync_get_queue(dbName, storeName).filter(item => String(item.key) !== key);
+  queue.push({ ...mutation, key, queuedAt: new Date().toISOString() });
+  _ssc_sync_set_queue(dbName, storeName, queue);
+  return mutation;
+}
+
+function _ssc_sync_ack(dbName, storeName, results, conflicts) {
+  if (Array.isArray(results)) {
+    for (const row of results) {
+      if (row && row.key !== undefined && row.version !== undefined) _ssc_sync_set_version(dbName, storeName, row.key, row.version);
+    }
+  }
+  const conflictKeys = new Set(Array.isArray(conflicts) ? conflicts.map(row => String(row.key)) : []);
+  const resultKeys = new Set(Array.isArray(results) ? results.map(row => String(row.key)) : []);
+  const queue = _ssc_sync_get_queue(dbName, storeName).filter(item => !resultKeys.has(String(item.key)) || conflictKeys.has(String(item.key)));
+  _ssc_sync_set_queue(dbName, storeName, queue);
 }
 
 async function _ssc_sync_json(method, url, body) {
@@ -4080,6 +4166,30 @@ async function _ssc_sync_json(method, url, body) {
 }
 
 const Sync = {
+  async put(storeName, typeName = "", value, dbName = "ssc", keyField = "id") {
+    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+    const plain = _ssc_indexeddb_encode(value, typeName || "");
+    const key = _ssc_indexeddb_key(value, plain, keyField || "id");
+    await store.put(value, key);
+    const expected = _ssc_sync_expected_version(dbName, storeName, key);
+    const mutation = { key, deleted: false, value: plain };
+    if (expected !== undefined) mutation.expectedVersion = expected;
+    _ssc_sync_enqueue(dbName, storeName, mutation);
+    return value;
+  },
+  async remove(storeName, typeName = "", objectKey, dbName = "ssc", keyField = "id") {
+    const key = String(objectKey);
+    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+    await store.remove(key);
+    const expected = _ssc_sync_expected_version(dbName, storeName, key);
+    const mutation = { key, deleted: true };
+    if (expected !== undefined) mutation.expectedVersion = expected;
+    _ssc_sync_enqueue(dbName, storeName, mutation);
+    return undefined;
+  },
+  pending(storeName, dbName = "ssc") {
+    return _ssc_sync_get_queue(dbName, storeName).slice();
+  },
   async pull(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "", limit = 100) {
     const store = IndexedDb.store(storeName, typeName, dbName, keyField);
     const since = _ssc_sync_get_cursor(dbName, storeName);
@@ -4088,8 +4198,14 @@ const Sync = {
     const payload = await _ssc_sync_json("GET", url);
     const changes = Array.isArray(payload.changes) ? payload.changes : [];
     for (const change of changes) {
-      if (change && change.deleted) await store.remove(change.key);
-      else if (change && Object.prototype.hasOwnProperty.call(change, "value")) await store.put(change.value, change.key);
+      if (!change || change.key === undefined) continue;
+      if (change.deleted) {
+        await store.remove(change.key);
+        _ssc_sync_forget_version(dbName, storeName, change.key);
+      } else if (Object.prototype.hasOwnProperty.call(change, "value")) {
+        await store.put(change.value, change.key);
+        _ssc_sync_set_version(dbName, storeName, change.key, change.version);
+      }
     }
     const nextCursor = payload.nextCursor === undefined ? changes.reduce((acc, change) => Math.max(acc, Number(change.version || 0)), since) : Number(payload.nextCursor);
     if (Number.isFinite(nextCursor)) _ssc_sync_set_cursor(dbName, storeName, nextCursor);
@@ -4097,17 +4213,26 @@ const Sync = {
   },
   async push(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "") {
     const store = IndexedDb.store(storeName, typeName, dbName, keyField);
-    const entries = await store.entries();
-    const mutations = entries.map(entry => ({
-      key: String(entry.key),
-      deleted: false,
-      value: _ssc_indexeddb_encode(entry.value, typeName || "")
-    }));
+    let mutations = _ssc_sync_get_queue(dbName, storeName);
+    if (mutations.length === 0) {
+      const entries = await store.entries();
+      mutations = entries.map(entry => {
+        const mutation = {
+          key: String(entry.key),
+          deleted: false,
+          value: _ssc_indexeddb_encode(entry.value, typeName || "")
+        };
+        const expected = _ssc_sync_expected_version(dbName, storeName, mutation.key);
+        if (expected !== undefined) mutation.expectedVersion = expected;
+        return mutation;
+      });
+    }
     const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) + "/push";
     const payload = await _ssc_sync_json("POST", url, { mutations });
     const versions = [];
     if (Array.isArray(payload.results)) for (const row of payload.results) versions.push(Number(row.version || 0));
     if (versions.length > 0) _ssc_sync_set_cursor(dbName, storeName, Math.max(_ssc_sync_get_cursor(dbName, storeName), ...versions));
+    _ssc_sync_ack(dbName, storeName, payload.results, payload.conflicts);
     return payload;
   }
 };
@@ -9155,6 +9280,17 @@ class JsGen(
           Term.ApplyType.After_4_6_0(Term.Select(Term.Name("Sync"), Term.Name(method)), typeArgs),
           argClause
         ) if method == "pull" || method == "push" =>
+      val typeName = typeArgs.values.headOption match
+        case Some(Type.Name(name)) => name
+        case Some(other) => other.syntax
+        case None => ""
+      val args = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).toList
+      val jsArgs = args.headOption.toList ++ List(jsQuote(typeName)) ++ args.drop(1)
+      s"Sync.$method(${jsArgs.mkString(", ")})"
+    case Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Select(Term.Name("Sync"), Term.Name(method)), typeArgs),
+          argClause
+        ) if method == "put" || method == "remove" =>
       val typeName = typeArgs.values.headOption match
         case Some(Type.Name(name)) => name
         case Some(other) => other.syntax

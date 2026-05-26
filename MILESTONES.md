@@ -10407,7 +10407,11 @@ modes opt out of that default.
   runtime now exposes first `Sync.pull[A]` / `Sync.push[A]` helpers over
   `IndexedDb.store[A]` and generated REST sync endpoints. Remaining: durable
   offline mutation/deletion queues, richer conflict handling, graph/RDF codecs,
-  and Dataset/Spark convergence.
+  and Dataset/Spark convergence. Follow-up landed 2026-05-26: `Sync.put[A]`
+  and `Sync.remove[A]` now persist local mutation/deletion queues, and
+  `Sync.push[A]` drains acknowledged queue entries while keeping conflicted
+  entries pending. Remaining: richer conflict handling, graph/RDF codecs, and
+  Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

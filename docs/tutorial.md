@@ -1285,12 +1285,14 @@ The JVM backend then generates `GET /__ssc/sync/drafts/changes` and
 `POST /__ssc/sync/drafts/push`. Browser/Electron clients can call:
 
 ```scalascript
+awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Local", false), "app"))
 awaitClient(Sync.push[Draft]("drafts", "app"))
 awaitClient(Sync.pull[Draft]("drafts", "app"))
 ```
 
-The first helper syncs current local entries and applies server changes.
-Durable offline mutation queues and richer conflict handling remain planned.
+`Sync.put` / `Sync.remove` record local edits in a durable queue; `Sync.push`
+sends queued mutations first and clears acknowledged rows; `Sync.pull` applies
+server changes. Richer conflict handling remains planned.
 
 ---
 

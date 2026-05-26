@@ -104,3 +104,44 @@ class JsGenIndexedDbTest extends AnyFunSuite:
     val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(syncSource))
 
     assert(runJs(js) == "2")
+
+  private val queueSource =
+    """# Sync Queue
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |val drafts = IndexedDb.store[Draft]("drafts", "queue-db")
+      |awaitClient(drafts.clear())
+      |awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Queued", false), "queue-db"))
+      |awaitClient(Sync.remove[Draft]("drafts", "d2", "queue-db"))
+      |val before = Sync.pending("drafts", "queue-db").size
+      |awaitClient(Sync.push[Draft]("drafts", "queue-db"))
+      |val after = Sync.pending("drafts", "queue-db").size
+      |println(before.toString + ":" + after.toString)
+      |```
+      |""".stripMargin
+
+  test("JS codegen lowers Sync put/remove type arguments to runtime type names"):
+    val code = JsGen.generate(Parser.parse(queueSource))
+
+    assert(code.contains("""Sync.put("drafts", "Draft", _call(Draft, "d1", "Queued", false), "queue-db")"""))
+    assert(code.contains("""Sync.remove("drafts", "Draft", "d2", "queue-db")"""))
+
+  test("JS runtime keeps durable sync mutations until push acknowledges them"):
+    assume(hasNode, "node not available")
+    val fetchStub =
+      """|globalThis.fetch = async function(url, init) {
+         |  const body = JSON.parse(init.body);
+         |  if (body.mutations.length !== 2) throw new Error("expected queued mutations");
+         |  if (body.mutations[0].key !== "d1" || body.mutations[0].deleted !== false) throw new Error("bad put mutation");
+         |  if (body.mutations[1].key !== "d2" || body.mutations[1].deleted !== true) throw new Error("bad delete mutation");
+         |  return { ok: true, json: async () => ({ results: [
+         |    { key: "d1", version: 1, deleted: false },
+         |    { key: "d2", version: 2, deleted: true }
+         |  ], conflicts: [] }) };
+         |};
+         |""".stripMargin
+    val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(queueSource))
+
+    assert(runJs(js) == "2:0")

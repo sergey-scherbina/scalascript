@@ -1180,8 +1180,9 @@ This exposes `GET /__ssc/sync/drafts/changes?since=<cursor>&limit=<n>` and
 `POST /__ssc/sync/drafts/push` over the server ObjectStore. Browser/Electron
 clients can use `awaitClient(Sync.pull[Draft]("drafts", "app"))` and
 `awaitClient(Sync.push[Draft]("drafts", "app"))` to synchronize the local
-`IndexedDb.store[A]` with those endpoints. Durable offline mutation/deletion
-queues and automatic conflict policies are still planned. See
+`IndexedDb.store[A]` with those endpoints. Use `Sync.put[A]` and
+`Sync.remove[A]` when local edits should be queued durably before the next
+push. Automatic conflict policies are still planned. See
 [`client-server-object-store.md`](client-server-object-store.md).
 
 **Planned, not implemented yet: graph storage.** Graph-shaped data is planned as

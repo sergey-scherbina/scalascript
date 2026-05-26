@@ -13,7 +13,7 @@ case class Draft(id: String, title: String, done: Boolean)
 
 val drafts = IndexedDb.store[Draft]("drafts", "ssc-sync-demo")
 awaitClient(drafts.clear())
-awaitClient(drafts.put(Draft("d1", "Local", false)))
+awaitClient(Sync.put[Draft]("drafts", Draft("d1", "Local", false), "ssc-sync-demo"))
 awaitClient(Sync.push[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
 awaitClient(Sync.pull[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
 
