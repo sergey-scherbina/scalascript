@@ -85,8 +85,12 @@ case class ApiEndpointDecl(
   path: String,
   requestType: String,
   responseType: String,
+  stream: Option[String] = None,
   span: Option[Span] = None
 )
+
+object ApiEndpointDecl:
+  def isSse(e: ApiEndpointDecl): Boolean = e.stream.exists(s => s == "sse" || s == "true")
 
 /** A `databases:` entry in front-matter declares a named JDBC
  *  connection consumed by `sql` blocks.  `url` is mandatory;

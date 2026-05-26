@@ -1,0 +1,72 @@
+---
+name: sse-typed-client
+version: "0.1"
+description: SSE streaming typed route client example (v1.46 Phase 7)
+frontend: swing
+apiClients:
+  Events:
+    endpoints:
+      - name: subscribe
+        method: GET
+        path: /api/events/stream
+        request: Unit
+        response: Event
+        stream: sse
+      - name: watchTopic
+        method: POST
+        path: /api/events/watch
+        request: WatchRequest
+        response: Event
+        stream: sse
+---
+
+# SSE Typed Client Example
+
+Demonstrates server-sent event (SSE) streaming through a typed route client.
+The `stream: sse` declaration generates a streaming method that delivers events
+one at a time via a callback instead of returning a single result.
+
+```scalascript
+case class Event(id: Int, topic: String, msg: String)
+case class WatchRequest(topic: String)
+```
+
+## Subscribe to all events
+
+`Events.subscribe` has no request payload — it opens the SSE stream and
+calls `onEvent` for each `Event` the server pushes.
+
+```scalascript
+// Returns AutoCloseable; call .close() to cancel the stream
+val handle = Events.subscribe(
+  onEvent = { ev => println(ev.id.toString + " [" + ev.topic + "] " + ev.msg) },
+  onError = { err => println("stream error: " + err) }
+)
+
+// Later, when done:
+// handle.close()
+```
+
+## Watch a specific topic
+
+`Events.watchTopic` takes a `WatchRequest` input in addition to the callbacks.
+
+```scalascript
+val topicHandle = Events.watchTopic(
+  input = WatchRequest("announcements"),
+  onEvent = { ev => println("announcement: " + ev.msg) },
+  onError = { err => println("watch error: " + err) }
+)
+```
+
+## Custom headers
+
+Per-call headers (e.g. auth) can be passed as the last argument.
+
+```scalascript
+val authHandle = Events.subscribe(
+  onEvent = { ev => println(ev.msg) },
+  onError = { err => println(err) },
+  headers = Map("Authorization" -> "Bearer my-token")
+)
+```

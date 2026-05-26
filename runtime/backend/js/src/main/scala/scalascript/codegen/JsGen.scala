@@ -7910,7 +7910,12 @@ class JsGen(
             val path = jsQuote(endpoint.path)
             val requestType = jsQuote(endpoint.requestType)
             val responseType = jsQuote(endpoint.responseType)
-            if endpoint.requestType == "Unit" then
+            if ApiEndpointDecl.isSse(endpoint) then
+              if endpoint.requestType == "Unit" then
+                line(s"${endpoint.name}(onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, undefined, onEvent, onError, $responseType, headers); }$comma")
+              else
+                line(s"${endpoint.name}(input, onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, input, onEvent, onError, $responseType, headers); }$comma")
+            else if endpoint.requestType == "Unit" then
               line(s"${endpoint.name}(headers) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers); }$comma")
             else
               line(s"${endpoint.name}(input, headers) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers); }$comma")
@@ -8013,6 +8018,71 @@ class JsGen(
        |    const contentType = response.headers && response.headers.get ? response.headers.get("content-type") || "" : "";
        |    return _ssc_typed_json_decode_response(text, contentType, responseType);
        |  }
+       |}
+       |
+       |function _ssc_api_base_url() {
+       |  if (typeof globalThis !== 'undefined' && globalThis.__sscBackendBaseUrl) return String(globalThis.__sscBackendBaseUrl).replace(/\/$/, '');
+       |  return '';
+       |}
+       |
+       |function _ssc_api_stream_request(method, pathTemplate, input, onEvent, onError, responseType, callHeaders) {
+       |  const base = _ssc_api_base_url();
+       |  const path = _ssc_api_path(pathTemplate, input);
+       |  const query = method === "GET" ? _ssc_api_query(pathTemplate, input) : "";
+       |  const url = base + path + query;
+       |  const allHeaders = Object.assign({}, _ssc_api_extra_headers, callHeaders || {});
+       |  const hasCustomHeaders = Object.keys(allHeaders).length > 0;
+       |  if (!hasCustomHeaders && method === "GET" && typeof EventSource !== 'undefined') {
+       |    const es = new EventSource(url);
+       |    es.onmessage = function(e) {
+       |      try { if (typeof onEvent === 'function') onEvent(_ssc_typed_json_decode_response(e.data, 'application/json', responseType)); }
+       |      catch (err) { if (typeof onError === 'function') onError(String(err)); }
+       |    };
+       |    es.onerror = function() { if (typeof onError === 'function') onError('EventSource error'); };
+       |    return { close: function() { es.close(); } };
+       |  }
+       |  let _streamClosed = false;
+       |  const _abort = typeof AbortController !== 'undefined' ? new AbortController() : null;
+       |  (async function() {
+       |    try {
+       |      const init = { method: method, headers: Object.assign({ 'Accept': 'text/event-stream' }, allHeaders) };
+       |      if (_abort) init.signal = _abort.signal;
+       |      if (method !== "GET" && input != null && input !== undefined) {
+       |        init.body = JSON.stringify(input);
+       |        init.headers['Content-Type'] = 'application/json';
+       |      }
+       |      const res = await fetch(url, init);
+       |      if (!res || !res.ok) {
+       |        if (typeof onError === 'function') onError('stream request failed: ' + (res ? res.status : 'no response'));
+       |        return;
+       |      }
+       |      if (!res.body || typeof res.body.getReader !== 'function') {
+       |        if (typeof onError === 'function') onError('ReadableStream not supported');
+       |        return;
+       |      }
+       |      const reader = res.body.getReader();
+       |      const dec = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+       |      let buf = '';
+       |      while (!_streamClosed) {
+       |        const { done, value } = await reader.read();
+       |        if (done) break;
+       |        const chunk = dec ? dec.decode(value, { stream: true }) : String.fromCharCode(...value);
+       |        buf += chunk;
+       |        const lines = buf.split('\n');
+       |        buf = lines.pop();
+       |        for (const line of lines) {
+       |          if (line.startsWith('data: ')) {
+       |            const data = line.slice(6);
+       |            try { if (typeof onEvent === 'function') onEvent(_ssc_typed_json_decode_response(data, 'application/json', responseType)); }
+       |            catch (err) { if (typeof onError === 'function') onError(String(err)); }
+       |          }
+       |        }
+       |      }
+       |    } catch (e) {
+       |      if (!_streamClosed && typeof onError === 'function') onError(String(e));
+       |    }
+       |  })();
+       |  return { close: function() { _streamClosed = true; if (_abort) _abort.abort(); } };
        |}
        |
        |""".stripMargin

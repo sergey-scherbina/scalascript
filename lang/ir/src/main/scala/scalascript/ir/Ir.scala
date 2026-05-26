@@ -42,6 +42,7 @@ case class ApiEndpointDecl(
   path:         String,
   requestType:  String,
   responseType: String,
+  stream:       Option[String] = None,
   span:         Option[Span] = None
 ) derives ReadWriter
 

@@ -447,3 +447,96 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |});
         |""".stripMargin
     assert(runJs(code + "\n" + harness) == "Message:hello:Message:Ada:3")
+
+  // ── SSE / streaming endpoints ─────────────────────────────────────
+
+  private val sseSource =
+    """---
+      |apiClients:
+      |  Events:
+      |    endpoints:
+      |      - name: subscribe
+      |        method: GET
+      |        path: /api/events/stream
+      |        request: Unit
+      |        response: Event
+      |        stream: sse
+      |      - name: watch
+      |        method: POST
+      |        path: /api/events/watch
+      |        request: WatchRequest
+      |        response: Event
+      |        stream: sse
+      |---
+      |
+      |# Test
+      |
+      |```scalascript
+      |case class Event(id: Int, msg: String)
+      |case class WatchRequest(topic: String)
+      |```
+      |""".stripMargin
+
+  test("JS codegen emits _ssc_api_stream_request runtime function") {
+    val code = JsGen.generate(Parser.parse(sseSource))
+    assert(code.contains("function _ssc_api_stream_request("))
+    assert(code.contains("EventSource"))
+    assert(code.contains("ReadableStream"))
+    assert(code.contains("text/event-stream"))
+  }
+
+  test("JS codegen emits SSE method for Unit-request endpoint without input arg") {
+    val code = JsGen.generate(Parser.parse(sseSource))
+    assert(code.contains("""subscribe(onEvent, onError, headers) { return _ssc_api_stream_request("GET", "/api/events/stream", undefined, onEvent, onError, "Event", headers); }"""))
+  }
+
+  test("JS codegen emits SSE method for non-Unit-request endpoint with input arg") {
+    val code = JsGen.generate(Parser.parse(sseSource))
+    assert(code.contains("""watch(input, onEvent, onError, headers) { return _ssc_api_stream_request("POST", "/api/events/watch", input, onEvent, onError, "Event", headers); }"""))
+  }
+
+  test("JS SSE runtime delivers events and close() stops the stream") {
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(sseSource))
+    val harness =
+      """
+        |const {Readable} = require('stream');
+        |
+        |// Simulate an SSE endpoint: 3 events then close
+        |const sseBody = 'data: {"_type":"Event","id":1,"msg":"hello"}\n\ndata: {"_type":"Event","id":2,"msg":"world"}\n\ndata: {"_type":"Event","id":3,"msg":"done"}\n\n';
+        |
+        |globalThis.fetch = async function(url, init) {
+        |  const readable = Readable.from([Buffer.from(sseBody)]);
+        |  readable.getReader = function() {
+        |    let iter = readable[Symbol.asyncIterator]();
+        |    return {
+        |      read: async function() {
+        |        const r = await iter.next();
+        |        return r.done ? {done: true, value: undefined} : {done: false, value: r.value};
+        |      },
+        |      cancel: function() {}
+        |    };
+        |  };
+        |  return {
+        |    ok: true, status: 200,
+        |    headers: { get: function(h) { return h.toLowerCase() === 'content-type' ? 'text/event-stream' : ''; } },
+        |    body: { getReader: readable.getReader.bind(readable) }
+        |  };
+        |};
+        |
+        |// Force fetch path (no EventSource in Node)
+        |if (typeof EventSource !== 'undefined') delete globalThis.EventSource;
+        |
+        |const received = [];
+        |const handle = Events.subscribe(
+        |  function(ev) { received.push(ev.id + ":" + ev.msg); },
+        |  function(err) { process.stdout.write("ERR:" + err); process.exitCode = 1; }
+        |);
+        |
+        |setTimeout(function() {
+        |  process.stdout.write(received.join(","));
+        |}, 200);
+        |""".stripMargin
+    val out = runJs(code + "\n" + harness)
+    assert(out == "1:hello,2:world,3:done", s"Got: $out")
+  }
