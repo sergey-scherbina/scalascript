@@ -72,3 +72,31 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
     assert(args.contains("--no-console"))
     assert(args.contains("--rebuild"))
   }
+
+  test("generateExportOptionsPlist includes method and teamID when provided") {
+    val xml = generateExportOptionsPlist("app-store", Some("ABC12345XY"))
+    assert(xml.contains("<string>app-store</string>"),  "method must appear in plist")
+    assert(xml.contains("<string>ABC12345XY</string>"), "teamID must appear in plist")
+    assert(xml.contains("<key>uploadSymbols</key>"),    "uploadSymbols key must be present")
+    assert(xml.contains("<key>compileBitcode</key>"),   "compileBitcode key must be present")
+  }
+
+  test("generateExportOptionsPlist omits teamID when None") {
+    val xml = generateExportOptionsPlist("development", None)
+    assert(xml.contains("<string>development</string>"), "method must appear in plist")
+    assert(!xml.contains("<key>teamID</key>"),           "teamID must be absent when not provided")
+  }
+
+  test("generateExportOptionsPlist accepts all valid export methods") {
+    for method <- List("development", "ad-hoc", "enterprise", "app-store") do
+      val xml = generateExportOptionsPlist(method, None)
+      assert(xml.contains(s"<string>$method</string>"), s"method $method must appear in plist")
+  }
+
+  test("package --target ios flags parsed correctly") {
+    val args = List("--target", "ios", "--export-method", "ad-hoc", "--team-id", "TEAM99",
+                    "--out", "dist/ios", "MyApp.ssc")
+    assert(args.contains("--export-method"))
+    assert(args.contains("--team-id"))
+    assert(args.contains("--out"))
+  }

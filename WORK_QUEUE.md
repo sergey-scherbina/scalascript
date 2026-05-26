@@ -26,8 +26,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.48.3-swiftui-device-run** — `ssc run --target ios --device` (real device via ios-deploy) (2026-05-26)
 
-- [ ] **v1.48.4-ios-package** — `ssc package --target ios` → signed .ipa
-  _xcodebuild archive + exportArchive, ExportOptions.plist from frontmatter, `SSC_TEAM_ID` env. Spec: `BACKLOG.md §v1.48.4`._
+- [x] **v1.48.4-ios-package** — `ssc package --target ios` → signed .ipa (2026-05-26)
 
 - [ ] **v1.48.5-ios-publish** — `ssc publish --target ios` (TestFlight + App Store via fastlane)
   _Generates Fastfile by default; `--fastlane` uses existing. `--testflight` / `--appstore`, API key auth. Spec: `BACKLOG.md §v1.48.5`._

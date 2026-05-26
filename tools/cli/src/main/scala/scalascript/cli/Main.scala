@@ -592,6 +592,9 @@ def printUsage(): Unit =
     |  build --target ios <f>             Generate SwiftUI iOS Swift package
     |  build --target macos <f>          Generate SwiftUI macOS Swift package
     |  package --target macos <f>        Generate Swift package + run swift build (ready-to-run binary)
+    |  package --target ios <f>          Archive + export signed .ipa (requires Xcode + Apple Developer)
+    |    --export-method <m>            distribution method: development|ad-hoc|enterprise|app-store (default: development)
+    |    --team-id <id>                 Apple Developer Team ID (or set SSC_TEAM_ID env var)
     |  run   --target macos <f>          Build SwiftUI macOS app and launch it
     |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
     |  run   --target ios --device <f>  Build + deploy to USB device via ios-deploy
@@ -1705,6 +1708,95 @@ private def runSwiftUIIosDevice(
     List("ios-deploy", "--bundle", appPath.toString, "--no-wifi") ++ idArgs ++ modeArgs
   ).call(stdout = os.Inherit, stderr = os.Inherit, check = false)
   if deployResult.exitCode != 0 then System.exit(deployResult.exitCode)
+
+/** `ssc package --target ios` — archive + export a signed `.ipa`.
+ *
+ *  Requires Xcode + an Apple Developer account (automatic signing via
+ *  `-allowProvisioningUpdates`).  `teamId` resolves from:
+ *    1. `--team-id` CLI flag
+ *    2. `team-id:` frontmatter field
+ *    3. `SSC_TEAM_ID` environment variable
+ *
+ *  `exportMethod` is one of `development`, `ad-hoc`, `enterprise`,
+ *  `app-store` (default: `development`). */
+private def packageIosIpa(
+    sscFile:      os.Path,
+    outDir:       os.Path,
+    exportMethod: String,
+    teamId:       Option[String]
+): Unit =
+  if os.proc("xcodebuild", "-version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println("Error: Xcode is required for ssc package --target ios.\nRun: ssc toolchain check --target ios")
+    System.exit(1)
+
+  val module   = Parser.parse(os.read(sscFile))
+  val manifest = module.manifest
+  val appName  = swiftAppName(manifest.flatMap(_.name))
+  val resolvedTeamId = teamId
+    .orElse(manifest.flatMap(_.raw.get("team-id").collect { case s: String => s }))
+    .orElse(sys.env.get("SSC_TEAM_ID"))
+
+  println(s"  Generating Swift package for iOS...")
+  buildSwiftUIPackage(sscFile, outDir, "ios")
+
+  val archivePath = outDir / s"$appName.xcarchive"
+  val ipaDir      = outDir / "ipa"
+  val exportPlist = outDir / "ExportOptions.plist"
+
+  os.write.over(exportPlist, generateExportOptionsPlist(exportMethod, resolvedTeamId))
+  println(s"  ExportOptions.plist → ${displayPath(exportPlist)}")
+
+  println(s"  Archiving $appName (method=$exportMethod)...")
+  val archiveArgs = List(
+    "xcodebuild", "archive",
+    "-scheme", appName,
+    "-destination", "generic/platform=iOS",
+    "-allowProvisioningUpdates",
+    "-archivePath", archivePath.toString
+  ) ++ resolvedTeamId.toList.flatMap(id => List("DEVELOPMENT_TEAM=" + id))
+  val archResult = os.proc(archiveArgs)
+    .call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+  if archResult.exitCode != 0 then System.exit(archResult.exitCode)
+
+  os.makeDir.all(ipaDir)
+  println(s"  Exporting .ipa...")
+  val exportResult = os.proc(
+    "xcodebuild", "-exportArchive",
+    "-archivePath",        archivePath.toString,
+    "-exportPath",         ipaDir.toString,
+    "-exportOptionsPlist", exportPlist.toString,
+    "-allowProvisioningUpdates"
+  ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+  if exportResult.exitCode != 0 then System.exit(exportResult.exitCode)
+
+  val ipa = os.list(ipaDir).find(_.ext == "ipa")
+  ipa match
+    case Some(p) => println(s"  .ipa → ${displayPath(p)}")
+    case None    => System.err.println(s"  Warning: no .ipa found in ${displayPath(ipaDir)}")
+
+/** Generate the XML content of ExportOptions.plist for `xcodebuild -exportArchive`. */
+private def generateExportOptionsPlist(
+    method: String, teamId: Option[String]
+): String =
+  val teamLine = teamId.map(id =>
+    s"  <key>teamID</key>\n  <string>$id</string>\n"
+  ).getOrElse("")
+  s"""|<?xml version="1.0" encoding="UTF-8"?>
+      |<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      |<plist version="1.0">
+      |<dict>
+      |  <key>method</key>
+      |  <string>$method</string>
+      |$teamLine  <key>uploadSymbols</key>
+      |  <true/>
+      |  <key>compileBitcode</key>
+      |  <false/>
+      |  <key>provisioningProfiles</key>
+      |  <dict/>
+      |</dict>
+      |</plist>
+      |""".stripMargin
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -7042,16 +7134,20 @@ def packageCommand(args: List[String]): Unit =
   val compiled = args.contains("--compiled")
   val rest     = args.filterNot(_ == "--compiled")
 
-  // Parse --target, --out, positionals (same as buildCommand)
-  var targetFlag: Option[String] = None
-  var outFlag:    Option[String] = None
+  // Parse --target, --out, --export-method, --team-id, positionals
+  var targetFlag:       Option[String] = None
+  var outFlag:          Option[String] = None
+  var exportMethodFlag: String         = "development"
+  var teamIdFlag:       Option[String] = None
   val positional = scala.collection.mutable.ListBuffer.empty[String]
   val it = rest.iterator
   while it.hasNext do
     it.next() match
-      case "--target" if it.hasNext => targetFlag = Some(it.next())
-      case "--out"    if it.hasNext => outFlag    = Some(it.next())
-      case other                    => positional += other
+      case "--target"        if it.hasNext => targetFlag       = Some(it.next())
+      case "--out"           if it.hasNext => outFlag          = Some(it.next())
+      case "--export-method" if it.hasNext => exportMethodFlag = it.next()
+      case "--team-id"       if it.hasNext => teamIdFlag       = Some(it.next())
+      case other                           => positional += other
 
   val projectFile: Option[os.Path] = positional.headOption match
     case Some(arg) =>
@@ -7111,7 +7207,10 @@ def packageCommand(args: List[String]): Unit =
 
       println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
       for t <- targets do
-        buildProjectFileCommand(pf, Some(t), outDir, fat = true)
+        if t == "ios" || t == "mobile-ios" then
+          packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
+        else
+          buildProjectFileCommand(pf, Some(t), outDir, fat = true)
 
 def lockCommand(args: List[String]): Unit =
   args match
