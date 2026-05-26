@@ -508,6 +508,7 @@ Use them to:
   and add a one-line summary entry (newest-first) in `CHANGELOG.md`.
 - **Capture follow-ups** discovered while working: append to the relevant section
   in `BACKLOG.md` or to the "Known issues / latent flakes" section before moving on.
+  See §"Recording tech debt and improvements" below for the exact protocol.
 
 ### In one sentence
 
@@ -720,7 +721,7 @@ LOOP:
         if user sent a stop signal in the last message → STOP
 
     2.  Read WORK_QUEUE.md Pending list; check .work/active/ for claimed tasks
-        if no unclaimed Pending tasks → STOP ("queue empty, add tasks or redirect me")
+        if no unclaimed Pending tasks → propose from BACKLOG (see §"Empty queue protocol")
 
     3.  Pick the highest-priority unclaimed Pending task
         if task is genuinely ambiguous (design decision, unclear scope) →
@@ -753,6 +754,83 @@ LOOP:
 **Progress cadence**: one short message per shipped item, no wall-of-text
 summaries. "✓ fix(SupervisorTest): OneForOne restart specs now pass" is
 enough. Detailed context goes in the commit message and BACKLOG.md.
+
+### Recording tech debt and improvements
+
+When you notice tech debt, a missed optimisation, or a future improvement
+**while working on any task**, record it immediately — don't rely on memory.
+
+**What to record**: anything non-trivial that is out of scope for the current
+task but worth doing later. Examples:
+- A function that's getting too large and should be split
+- A repeated pattern that deserves an abstraction
+- A performance issue you noticed but aren't fixing right now
+- A missing test family you spotted while adding one test
+- An API that would be cleaner with a different shape
+
+**How to record it**:
+
+1. Add an entry to `BACKLOG.md` in the appropriate section (or create a new
+   `## Known issues / latent flakes` / `## Tech debt` subsection if none fits):
+
+   ```markdown
+   ### [short title]
+
+   Found while working on <slug>. <One paragraph: what the issue is, why it
+   matters, rough effort.> No blocker — record and move on.
+   ```
+
+2. Optionally add a one-liner to `WORK_QUEUE.md` if it's small and actionable:
+
+   ```markdown
+   - [ ] **tech-debt-slug** — Short description
+     _Context: found during <slug>. Spec: BACKLOG.md §[title]._
+   ```
+
+3. Include this in the **same commit** as the work that surfaced it (or as a
+   follow-up commit in the same push). Never leave it in a comment or TODO in code.
+
+**Do NOT**:
+- Stop the current task to fix it
+- Add it to `WORK_QUEUE.md` unless it's small and clearly actionable
+- Ask the user for permission — just record it
+
+The user curates `BACKLOG.md` and decides priority. Your job is to surface the
+finding; their job is to decide when (or whether) it gets done.
+
+### Empty queue protocol
+
+When `WORK_QUEUE.md` has no unclaimed pending tasks, **do not stop silently**.
+Instead:
+
+1. Read `BACKLOG.md` — identify the top 3 most actionable items not yet in the queue.
+2. Present them to the user with a one-line rationale and rough effort for each:
+
+   ```
+   Очередь пуста. Из BACKLOG предлагаю добавить:
+
+     Database:    v1.26-sql-jdbc — JDBC sql blocks (~1 неделя)
+                  Разблокирует v1.27 (browser SQL) и v1.31 (transactions).
+
+     Payments:    v1.38-payment-request — Payment Request API (~3 дня)
+                  Standalone — не зависит от x402 или blockchain SPI.
+
+     Compiler:    interpreter-ergonomics — better errors + REPL (~2 дня)
+                  Маленькая задача, хорошо подходит для параллельного агента.
+
+   Что добавить в очередь?
+   ```
+
+3. Wait for the user's decision. **Do not add anything to `WORK_QUEUE.md`
+   without explicit instruction.** Priorities are the user's call.
+
+4. Once the user says which tasks to add (e.g. "добавь v1.26 и ergonomics"),
+   add them to the correct group in `WORK_QUEUE.md`, commit, push, and continue
+   the loop.
+
+**Why agents don't set priorities unilaterally**: "do payments or SQL first?"
+is a product decision involving roadmap, user demand, and dependency chains the
+agent may not fully know. Surface options; let the user choose.
 
 ### 7. After a complete task — name the next work
 
