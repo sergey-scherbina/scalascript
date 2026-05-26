@@ -830,55 +830,40 @@ component, picked by string prop, documented in the front-matter
 No code change — just discipline.  Promote when a real component
 ends up with three+ variant branches.
 
-## v1.12 / Algebraic effects feasibility study — BLOCKED (no version assigned)
+## v1.12 — Typed Algebraic Effects
 
-**Do not start this until all other milestones through v2.0
-are complete.**  No agent, contributor, or planning round
-should promote or schedule this before that.
+**Spec landed 2026-05-26** — `docs/algebraic-effects.md` complete. Go/no-go: **go**.
 
-**No shipping code** — design doc + working prototype + go/no-go
-decision.  Investigates whether ScalaScript's type system can
-support OCaml-5 / Koka-style algebraic effects with handler
-stacks, built on top of coroutines.
+Design decisions locked:
+- Effect syntax: `A ! Eff` (single), `A ! (E1, E2)` (multi, round parens).
+- Effect rows: open by default with implicit tail variable. Total function = no `!`-clause = closed empty row.
+- One-shot: `effect Foo { … }` — coroutine VT on JVM/interpreter; `function*`/`yield` on JS (closes `docs/coroutines.md:236-256` gap).
+- Multi-shot: `multi effect Foo { … }` — Free-monad `Computation`-tree walk everywhere.
+- Capability passing: `?=>` context functions (Scala 3 native, zero emitter work).
+- Handler discharge: `handle[Foo](body : A ! (Foo, E)) : A ! E` — only named effect removed; tail propagates.
 
-Originally tracked as v1.12; blocked (2026-05-18) — no
-concrete consumer is asking for it, and the existing stack
-(`Async` / `MonadError` / `throws[A, E]` / Free monad in
-v1.11.5) covers real workloads.
+### Implementation milestones (open)
 
-### Why a study, not a milestone
+**v1.12.1 — Type system + parser:**
+- Add `EffectRow(tail, ops)` case to `SType` (`Types.scala:22`)
+- Extend `Unifier` with Rémy-style row unification (`Types.scala:174-209`)
+- Add `!` operator to `InterfaceScope.TypeParser` in effect-set mode (`InterfaceScope.scala:107-209`)
+- Extend `Parser.preprocessEffects` for `multi effect` keyword (`Parser.scala:928-958`)
+- Special-case `handle[Foo]` in typer for discharge (`Typer.scala:195-233`)
+- `EffectAnalysis` → verifier mode (warn); diagnostics from §9 of spec
 
-Effect rows on the type level (`(Async | Random | Logger)[A]`)
-require type-system machinery ScalaScript doesn't have today:
+**v1.12.2 — Runtime fast paths:**
+- JS: emit `function*`/`yield`/`iter.next(v)` for one-shot effect bodies in `JsGen.scala`
+- JVM/Interpreter: wire coroutine VT as one-shot handler runtime
+- Dynamic one-shot-violation check in `resume` closure
+- Cross-backend parity tests
 
-- Union types in effect position (Scala 3 has these — usable)
-- Bounded polymorphism over effect rows (Scala 3 limit)
-- Effect subtraction at handler site (no precedent)
-
-Whether this is feasible *given the existing typer* is genuinely
-unknown.  Spending a week to prototype before committing to a
-multi-month implementation milestone is the right call.
-
-### Deliverables
-
-1. **Prototype** — working coroutine-based handler stack catching
-   tagged yields (informal `Op("name", args)` representation,
-   like `docs/coroutines.md` §4.3).  No type-level effect
-   tracking yet — just runtime semantics.
-2. **Type-system audit** — does the existing typer carry enough
-   information to refuse `pureFunction()` when called inside an
-   `Async` block?  What changes are needed?
-3. **Design doc** — `docs/algebraic-effects.md` with the chosen
-   approach (or "rejected, here's why").
-4. **Go/no-go decision** — commit to a v2.x algebraic-effects
-   milestone, or close this thread.
-
-### Effort
-
-~1 week of focused design + prototyping.  No conformance
-deliverable; the prototype's tests live alongside the prototype
-and don't enter the conformance suite unless a real
-implementation lands later.
+**v1.12.3 — Stdlib + capabilities:**
+- Re-type `runLogger`, `runRandomSeeded`, etc. with discharge signatures
+- Add `Reader[R]` capability exemplar
+- Add `NonDet` multi-shot exemplar
+- `examples/algebraic-effects.ssc` showcase
+- Promote `EffectAnalysis` warnings to errors
 
 ## v2.0 — Separate compilation of modules
 

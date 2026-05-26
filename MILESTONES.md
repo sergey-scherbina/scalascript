@@ -13,12 +13,13 @@
 ## Quick status (2026-05-26)
 
 ### In progress
-- **Queue empty** — all current tasks complete. Add new tasks via `BACKLOG.md` to continue.
+- **v1.12.1** — Typed Algebraic Effects: type system + parser (Language & Compiler queue)
 
 ### Next up (top of BACKLOG)
-- **v1.12** — Algebraic effects feasibility study (BLOCKED on Scala 3.3.7 / Scalus constraint)
+- **v1.12.1** — `EffectRow` in `SType`, row unification, `!` operator, `multi effect`, handler discharge (`BACKLOG.md §v1.12`)
 
 ### Recently completed
+- v1.12 — Typed Algebraic Effects spec (`docs/algebraic-effects.md`) + go decision ✓ (2026-05-26)
 - v1.48 (SwiftUI Phase 3) — Reactive list lowering + `@Observable` AppModel ✓ (2026-05-26)
 - v1.46 — Typed Route Clients (all phases, including pagination) ✓ (2026-05-26)
 - v1.48 — JavaFX Typed Route Clients ✓ (2026-05-26)
@@ -37,7 +38,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v2.0-sep-compile | `BACKLOG.md # Language & Compiler` |
+| **Language & Compiler** | v1.12.1-effects-types | `docs/algebraic-effects.md` |
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | _(queue empty)_ | — |
 | **Native Platform** | _(queue empty)_ | — |

@@ -34,12 +34,20 @@ _(all done — see Done section below)_
 
 ## Language & Compiler
 
-_(all done — see Done section below)_
+- [ ] **v1.12.1-effects-types** — Add `EffectRow` to `SType`, Rémy-style row unification, `!` operator in `TypeParser`, `multi effect` keyword, handler discharge in typer, `EffectAnalysis` verifier mode, §9 diagnostics.
+  _Spec: `docs/algebraic-effects.md` §3, §4, §5.1, §13 v1.12.1._
+
+- [ ] **v1.12.2-effects-runtime** — JS `function*`/`yield` fast path for one-shot effects; coroutine VT wiring on JVM/interpreter; dynamic one-shot-violation check; cross-backend parity tests.
+  _Spec: `docs/algebraic-effects.md` §5.3, §13 v1.12.2._
+
+- [ ] **v1.12.3-effects-stdlib** — Re-type `runLogger`/`runRandomSeeded`/etc. with discharge signatures; add `Reader[R]` capability; add `NonDet` multi-shot exemplar; `examples/algebraic-effects.ssc`; promote `EffectAnalysis` warnings to errors.
+  _Spec: `docs/algebraic-effects.md` §6, §8.2, §13 v1.12.3._
 
 ---
 
 ## Done
 
+- [x] **v1.12-spec** — Typed Algebraic Effects spec (`docs/algebraic-effects.md`) — design doc + go/no-go decision (2026-05-26)
 - [x] **v1.46-phase1-metadata** — `apiClients:` front-matter → `ApiClientDecl` AST
 - [x] **v1.46-phase2-swing-client** — JVM/Swing in-process callable clients
 - [x] **v1.46-phase3-http-client** — JS HTTP client + `awaitClient` async
