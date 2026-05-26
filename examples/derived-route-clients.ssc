@@ -1,0 +1,53 @@
+---
+name: derived-route-clients
+description: |
+  Demonstrates automatic apiClients derivation from route() and mount() calls.
+  No manual apiClients: front-matter needed — RouteDeriver synthesises the
+  ApiClientDecl at parse time so typed clients are available immediately.
+---
+
+# Derived Route Clients
+
+ScalaScript derives `apiClients:` metadata automatically from three sources:
+
+1. Inline `route()` declarations in code blocks
+2. `mount()` calls (with cross-file type analysis when run via `Parser.parseFile`)
+3. `routes:` entries in the front-matter
+
+```scalascript
+// --- server side ---
+
+// RouteDeriver sees this call and derives:
+//   ApiClientDecl("Api", [ApiEndpointDecl("postApiTodos", "POST", "/api/todos", "Any", "Any")])
+route("POST", "/api/todos") { req =>
+  Response.json("""{"id": 1, "title": "hello"}""")
+}
+
+route("GET", "/api/todos/:id") { req =>
+  Response.json("""{"id": 1, "title": "hello"}""")
+}
+
+route("DELETE", "/api/todos/:id") { req =>
+  Response.ok()
+}
+```
+
+```scalascript
+// --- client side (derived client, no manual apiClients: needed) ---
+val client = Api()
+
+// POST /api/todos  → requestType = "Any" (body method)
+// GET  /api/todos/:id → requestType = "Unit" (no body)
+// All endpoints are accessible via the derived typed client
+```
+
+## mount() with cross-file typed handler
+
+When a handler file contains a typed function literal, the parameter type
+is extracted as `requestType`:
+
+```scalascript
+// handler file greet.ssc: (input: GreetInput) => GreetOutput(input.name)
+// RouteDeriver extracts requestType = "GreetInput"
+mount("POST", "/greet", "greet.ssc")
+```

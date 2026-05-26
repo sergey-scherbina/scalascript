@@ -116,7 +116,8 @@ object Parser:
       subsections = section.subsections.map(wrapSectionInPackage(_, pkg))
     )
 
-  def parseFile(path: os.Path): Module = parse(os.read(path))
+  def parseFile(path: os.Path): Module =
+    RouteDeriver.derive(parse(os.read(path)), Some(path / os.up))
 
   // A source is "pure Scala" when it has no Markdown headings (# ...) or fences (```).
   // After shebang stripping, this reliably distinguishes plain scripts from .ssc documents.

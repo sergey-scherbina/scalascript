@@ -353,9 +353,24 @@ Warnings are emitted on stderr as `[ssc warning] ...` and also written as
 `// [ssc warning] ...` comments in the generated JS or Scala output so they
 are visible when inspecting the artifact.
 
-Still planned for Phase 5: route derivation from existing `route()` /
-`mount()` handlers, cross-file type analysis, and integration with a
-structured diagnostic API rather than stderr + comments.
+Also landed 2026-05-26: automatic `apiClients:` derivation via `RouteDeriver`.
+When a module's front-matter does **not** already declare `apiClients:`, the
+parser pass now collects endpoints from three sources:
+
+1. **`routes:` front-matter entries** — `RouteDecl` list in the manifest.
+2. **Inline `route("METHOD", "/path") { ... }` calls** — extracted via
+   scalameta AST traversal of every parseable code block.
+3. **`mount("METHOD", "/path", "file.ssc")` calls** — with optional
+   cross-file typed-handler analysis when a `baseDir` is available (e.g.,
+   when the file is loaded via `Parser.parseFile`).
+
+For `mount()` handlers that are function literals with an explicit uppercase
+parameter type (`(input: GreetInput) => ...`), the parameter type is extracted
+as `requestType` instead of defaulting to `"Any"`.  Source parsed as a `Term`
+(not `Source`) so bare lambdas in `.ssc` handler files work without wrapping.
+
+Still planned for Phase 5: structured diagnostic API instead of stderr +
+comments for path-param validation warnings.
 
 ### Phase 6 — Advanced Shapes
 

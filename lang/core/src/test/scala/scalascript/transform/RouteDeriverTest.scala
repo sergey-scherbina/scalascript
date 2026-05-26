@@ -116,3 +116,105 @@ class RouteDeriverTest extends AnyFunSuite:
     assert(mod.manifest.isEmpty)
     // No apiClients field to worry about
   }
+
+  // ── New: front-matter routes: derivation ───────────────────────────────────
+
+  test("derives from front-matter routes: entries") {
+    val mod = Parser.parse(
+      """|---
+         |name: test
+         |routes:
+         |  - method: GET
+         |    path: /api/todos
+         |    handler: listTodos
+         |  - method: POST
+         |    path: /api/todos
+         |    handler: createTodo
+         |---
+         |
+         |# Section
+         |
+         |```scalascript
+         |val x = 42
+         |```
+         |""".stripMargin
+    )
+    val clients = mod.manifest.get.apiClients
+    assert(clients.size == 1)
+    assert(clients.head.name == "Api")
+    val eps = clients.head.endpoints
+    assert(eps.size == 2)
+    assert(eps.exists(e => e.method == "GET" && e.path == "/api/todos" && e.requestType == "Unit"))
+    assert(eps.exists(e => e.method == "POST" && e.path == "/api/todos" && e.requestType == "Any"))
+  }
+
+  test("front-matter routes: and inline route() deduplicated by method+path") {
+    val mod = Parser.parse(
+      """|---
+         |name: test
+         |routes:
+         |  - method: GET
+         |    path: /api/todos
+         |    handler: listTodos
+         |---
+         |
+         |# Section
+         |
+         |```scalascript
+         |route("GET", "/api/todos") { req => Response.ok() }
+         |route("POST", "/api/todos") { req => Response.ok() }
+         |```
+         |""".stripMargin
+    )
+    val eps = mod.manifest.get.apiClients.head.endpoints
+    // GET /api/todos deduplicated; POST /api/todos from inline
+    assert(eps.size == 2)
+  }
+
+  // ── New: mount() derivation ────────────────────────────────────────────────
+
+  test("derives from mount() GET call with Unit request") {
+    val mod = parse("""mount("GET", "/hello/:name", "handlers/hello.ssc")""")
+    val ep  = mod.manifest.get.apiClients.head.endpoints.head
+    assert(ep.method == "GET")
+    assert(ep.path == "/hello/:name")
+    assert(ep.requestType == "Unit")
+  }
+
+  test("derives from mount() POST call with Any request") {
+    val mod = parse("""mount("POST", "/add", "handlers/add.ssc")""")
+    val ep  = mod.manifest.get.apiClients.head.endpoints.head
+    assert(ep.method == "POST")
+    assert(ep.requestType == "Any")
+  }
+
+  test("cross-file typed mount handler: extracts requestType from handler file") {
+    val tmp     = os.temp.dir()
+    val handler = tmp / "greet.ssc"
+    // Simple typed handler: function literal with explicit case-class param type
+    os.write(handler, "(input: GreetInput) => GreetOutput(input.name)")
+
+    val mod = Parser.parse(
+      """|---
+         |name: test
+         |---
+         |
+         |# Section
+         |
+         |```scalascript
+         |mount("GET", "/greet/:name", "greet.ssc")
+         |```
+         |""".stripMargin
+    )
+    // Without baseDir, mount handler type is "Unit" (GET default, no file I/O)
+    val ep0 = mod.manifest.get.apiClients.head.endpoints.head
+    assert(ep0.requestType == "Unit")
+
+    // With baseDir pointing to tmp, handler file is loaded → typed param extracted
+    val enhanced = RouteDeriver.derive(mod, Some(tmp))
+    val ep = enhanced.manifest.get.apiClients.head.endpoints.head
+    assert(ep.requestType == "GreetInput")
+    assert(ep.responseType == "Any")
+
+    os.remove.all(tmp)
+  }
