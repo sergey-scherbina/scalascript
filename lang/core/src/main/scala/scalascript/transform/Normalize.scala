@@ -66,7 +66,7 @@ object Normalize:
     ir.ApiClientDecl(c.name, c.endpoints.map(apiEndpointDecl), c.span.map(span))
 
   private def apiEndpointDecl(e: ast.ApiEndpointDecl): ir.ApiEndpointDecl =
-    ir.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.stream, e.span.map(span))
+    ir.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.stream, e.paginated, e.span.map(span))
 
   private def databaseDecl(d: ast.DatabaseDecl): ir.DatabaseDecl =
     ir.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))

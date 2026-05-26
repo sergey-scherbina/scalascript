@@ -86,6 +86,7 @@ case class ApiEndpointDecl(
   requestType: String,
   responseType: String,
   stream: Option[String] = None,
+  paginated: Boolean = false,
   span: Option[Span] = None
 )
 

@@ -447,3 +447,69 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("java.net.http.WebSocket.Listener"))
     assert(code.contains("new AutoCloseable"))
   }
+
+  test("JVM Swing codegen emits listPaged method for paginated Unit-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/items
+        |        request: Unit
+        |        response: List[String]
+        |        paginated: true
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("""def list(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[String]"""))
+    assert(code.contains("""def listPaged(page: Int, size: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[String]"""))
+    assert(code.contains("""_ssc_api_request[Unit, List[String]]("GET", "/api/items" + "?page=" + page + "&size=" + size, (), headers, cancelToken)"""))
+  }
+
+  test("JVM Swing codegen emits listPaged method for paginated typed-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: search
+        |        method: GET
+        |        path: /api/items
+        |        request: Int
+        |        response: List[String]
+        |        paginated: true
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("""def search(input: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[String]"""))
+    assert(code.contains("""def searchPaged(input: Int, page: Int, size: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[String]"""))
+    assert(code.contains("""_ssc_api_request[Int, List[String]]("GET", "/api/items" + "?page=" + page + "&size=" + size, input, headers, cancelToken)"""))
+  }
+
+  test("JVM codegen does not emit Paged method for non-paginated endpoints") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/items
+        |        request: Unit
+        |        response: List[String]
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(!code.contains("Paged"))
+  }

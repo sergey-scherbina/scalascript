@@ -1846,12 +1846,25 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                 .append("(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ").append(endpoint.responseType)
                 .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
                 .append(method).append(", ").append(path).append(", (), headers, cancelToken)\n")
+              if endpoint.paginated then
+                val pagedPath = path + " + \"?page=\" + page + \"&size=\" + size"
+                sb.append("  def ").append(endpoint.name).append("Paged")
+                  .append("(page: Int, size: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ").append(endpoint.responseType)
+                  .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
+                  .append(method).append(", ").append(pagedPath).append(", (), headers, cancelToken)\n")
             else
               sb.append("  def ").append(endpoint.name).append("(input: ").append(endpoint.requestType)
                 .append(", headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ")
                 .append(endpoint.responseType).append(" = _ssc_api_request[")
                 .append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
                 .append(method).append(", ").append(path).append(", input, headers, cancelToken)\n")
+              if endpoint.paginated then
+                val pagedPath = path + " + \"?page=\" + page + \"&size=\" + size"
+                sb.append("  def ").append(endpoint.name).append("Paged").append("(input: ").append(endpoint.requestType)
+                  .append(", page: Int, size: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ")
+                  .append(endpoint.responseType).append(" = _ssc_api_request[")
+                  .append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
+                  .append(method).append(", ").append(pagedPath).append(", input, headers, cancelToken)\n")
           }
           sb.append("\n")
       }

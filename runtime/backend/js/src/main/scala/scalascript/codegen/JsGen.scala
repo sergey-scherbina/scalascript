@@ -7904,26 +7904,39 @@ class JsGen(
         if client.endpoints.nonEmpty then
           line(s"const ${client.name} = {")
           indent += 1
-          client.endpoints.zipWithIndex.foreach { case (endpoint, idx) =>
-            val comma = if idx == client.endpoints.size - 1 then "" else ","
+          val allMethodLines = client.endpoints.flatMap { endpoint =>
             val method = jsQuote(endpoint.method)
             val path = jsQuote(endpoint.path)
             val requestType = jsQuote(endpoint.requestType)
             val responseType = jsQuote(endpoint.responseType)
             if ApiEndpointDecl.isWs(endpoint) then
               if endpoint.requestType == "Unit" then
-                line(s"${endpoint.name}(onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, undefined, onEvent, onError, onOpen, $responseType, headers); }$comma")
+                List(s"${endpoint.name}(onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, undefined, onEvent, onError, onOpen, $responseType, headers); }")
               else
-                line(s"${endpoint.name}(input, onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, input, onEvent, onError, onOpen, $responseType, headers); }$comma")
+                List(s"${endpoint.name}(input, onEvent, onError, onOpen, headers) { return _ssc_api_ws_request($path, input, onEvent, onError, onOpen, $responseType, headers); }")
             else if ApiEndpointDecl.isSse(endpoint) then
               if endpoint.requestType == "Unit" then
-                line(s"${endpoint.name}(onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, undefined, onEvent, onError, $responseType, headers); }$comma")
+                List(s"${endpoint.name}(onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, undefined, onEvent, onError, $responseType, headers); }")
               else
-                line(s"${endpoint.name}(input, onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, input, onEvent, onError, $responseType, headers); }$comma")
+                List(s"${endpoint.name}(input, onEvent, onError, headers) { return _ssc_api_stream_request($method, $path, input, onEvent, onError, $responseType, headers); }")
             else if endpoint.requestType == "Unit" then
-              line(s"${endpoint.name}(headers, cancelToken) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers, cancelToken); }$comma")
+              val base = s"${endpoint.name}(headers, cancelToken) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers, cancelToken); }"
+              if endpoint.paginated then
+                val pagedPath = s"""$path + "?page=" + page + "&size=" + size"""
+                val paged = s"${endpoint.name}Paged(page, size, headers, cancelToken) { return _ssc_api_request($method, $pagedPath, undefined, $requestType, $responseType, headers, cancelToken); }"
+                List(base, paged)
+              else List(base)
             else
-              line(s"${endpoint.name}(input, headers, cancelToken) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers, cancelToken); }$comma")
+              val base = s"${endpoint.name}(input, headers, cancelToken) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers, cancelToken); }"
+              if endpoint.paginated then
+                val pagedPath = s"""$path + "?page=" + page + "&size=" + size"""
+                val paged = s"${endpoint.name}Paged(input, page, size, headers, cancelToken) { return _ssc_api_request($method, $pagedPath, input, $requestType, $responseType, headers, cancelToken); }"
+                List(base, paged)
+              else List(base)
+          }
+          allMethodLines.zipWithIndex.foreach { case (mline, idx) =>
+            val comma = if idx == allMethodLines.size - 1 then "" else ","
+            line(s"$mline$comma")
           }
           indent -= 1
           line("};")

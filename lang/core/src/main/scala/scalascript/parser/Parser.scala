@@ -272,10 +272,11 @@ object Parser:
             val path     = mm.get("path").collect { case s: String => s }
             val request  = mm.get("request").orElse(mm.get("requestType")).orElse(mm.get("request-type")).collect { case s: String => s }
             val response = mm.get("response").orElse(mm.get("responseType")).orElse(mm.get("response-type")).collect { case s: String => s }
-            val stream   = mm.get("stream").collect { case s: String => s; case b: java.lang.Boolean => b.toString }
+            val stream     = mm.get("stream").collect { case s: String => s; case b: java.lang.Boolean => b.toString }
+            val paginated  = mm.get("paginated").collect { case b: java.lang.Boolean => b.booleanValue(); case s: String => s.equalsIgnoreCase("true") }.getOrElse(false)
             (name, method, path, request, response) match
               case (Some(n), Some(m), Some(p), Some(req), Some(resp)) =>
-                Some(ApiEndpointDecl(n, m, p, req, resp, stream))
+                Some(ApiEndpointDecl(n, m, p, req, resp, stream, paginated))
               case _ => None
           case _ => None
         }

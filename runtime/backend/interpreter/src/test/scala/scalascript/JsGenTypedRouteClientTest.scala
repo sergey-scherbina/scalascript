@@ -684,3 +684,93 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     val out = runJs(code + "\n" + harness)
     assert(out == "alice:hi,bob:hey", s"Got: $out")
   }
+
+  test("JS codegen emits Paged method for paginated Unit-request endpoint") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/items
+        |        request: Unit
+        |        response: List[String]
+        |        paginated: true
+        |---
+        |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("list(headers, cancelToken)"))
+    assert(code.contains("listPaged(page, size, headers, cancelToken)"))
+    assert(code.contains(""""?page=" + page + "&size=" + size"""))
+  }
+
+  test("JS codegen emits Paged method for paginated typed-request endpoint") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: search
+        |        method: GET
+        |        path: /api/items
+        |        request: String
+        |        response: List[String]
+        |        paginated: true
+        |---
+        |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("search(input, headers, cancelToken)"))
+    assert(code.contains("searchPaged(input, page, size, headers, cancelToken)"))
+    assert(code.contains(""""?page=" + page + "&size=" + size"""))
+  }
+
+  test("JS codegen does not emit Paged method for non-paginated endpoints") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/items
+        |        request: Unit
+        |        response: List[String]
+        |---
+        |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(!code.contains("Paged"))
+  }
+
+  test("JS paginated client with multiple endpoints has correct comma placement") {
+    val src =
+      """---
+        |apiClients:
+        |  Items:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/items
+        |        request: Unit
+        |        response: List[String]
+        |        paginated: true
+        |      - name: get
+        |        method: GET
+        |        path: /api/items/:id
+        |        request: Int
+        |        response: String
+        |---
+        |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("listPaged(page, size, headers, cancelToken)"))
+    assert(code.contains("get(input, headers, cancelToken)"))
+    assert(!code.contains("getPaged"))
+  }
