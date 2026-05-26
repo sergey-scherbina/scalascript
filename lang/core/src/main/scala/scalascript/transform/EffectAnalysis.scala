@@ -118,12 +118,25 @@ object EffectAnalysis:
     Result(effectOps.toSet, effectfulFuns.toSet, multiShotEffects.toSet)
 
   /** Verifier mode: compare the type-system's declared effect set against the
-   *  name-reachability analysis.  Returns warning messages for divergences.
-   *  Called after v1.12.1 type-checking to cross-check the two analyses. */
+   *  name-reachability analysis.  Returns diagnostic messages for divergences.
+   *
+   *  As of v1.12.3 the messages are promoted to errors (not mere warnings).
+   *  The `asErrors` flag controls the prefix in the returned strings; callers
+   *  should treat the returned list as compilation errors when non-empty and
+   *  `asErrors = true` (the default).
+   *
+   *  @param typedEffects   function name → set of declared effect names (from the typer)
+   *  @param analysisResult result of [[EffectAnalysis.analyze]] over the same trees
+   *  @param asErrors       v1.12.3 default `true` — messages carry `[effect-error]` prefix;
+   *                        `false` keeps the historic `[effect-verifier]` prefix for tests
+   *                        that explicitly request warning-level output
+   */
   def verify(
     typedEffects:   Map[String, Set[String]],
-    analysisResult: Result
+    analysisResult: Result,
+    asErrors:       Boolean = true
   ): List[String] =
+    val tag = if asErrors then "[effect-error]" else "[effect-verifier]"
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
     // Build a set of effect object names reachable from analysisResult.effectOps
     // e.g. "Logger.log" → "Logger"
@@ -137,8 +150,8 @@ object EffectAnalysis:
         funIsEffectful && reachableEffectNames.contains(effName)
       }
       if unaccountedDeclared.nonEmpty then
-        warnings += s"[effect-verifier] '$funName' declares effect(s) ${unaccountedDeclared.mkString(", ")} but the effect reachability analysis found none"
+        warnings += s"$tag '$funName' declares effect(s) ${unaccountedDeclared.mkString(", ")} but the effect reachability analysis found none"
       if funIsEffectful && declared.isEmpty then
-        warnings += s"[effect-verifier] '$funName' appears effectful (reaches ${reachableEffectNames.mkString(", ")}) but declares no effect row (!)"
+        warnings += s"$tag '$funName' appears effectful (reaches ${reachableEffectNames.mkString(", ")}) but declares no effect row (!)"
     }
     warnings.toList

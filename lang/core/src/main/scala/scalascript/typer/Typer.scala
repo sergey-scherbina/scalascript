@@ -197,16 +197,44 @@ class Typer(
     // prevents strict-mode false-positives for code that uses real ScalaScript
     // effects without an explicit import.
     val variadic = SType.Function(List(SType.Any), SType.Any)
+    // Typed discharge signatures for standard effect runners (v1.12.3).
+    // Each runner takes a body thunk that carries the named effect in its row,
+    // and returns the body's result with that effect discharged.
+    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(None, Set(eff))))
+    val bodyWithEff: String => SType = eff =>
+      SType.Function(Nil, SType.Any, SType.EffectRow(None, Set(eff)))
+    val runnerType: String => SType = eff =>
+      SType.Function(List(bodyWithEff(eff)), SType.Any)
+    val runnerType2: String => SType = eff =>
+      SType.Function(List(SType.Any, bodyWithEff(eff)), SType.Any)
+    // runLogger / runLoggerJson / runLoggerToList
+    s.define(Symbol("runLogger",       runnerType("Logger"),  SymbolKind.Def))
+    s.define(Symbol("runLoggerJson",   runnerType("Logger"),  SymbolKind.Def))
+    s.define(Symbol("runLoggerToList", runnerType("Logger"),  SymbolKind.Def))
+    // runRandomSeeded(seed) { body } — seed: Long
+    s.define(Symbol("runRandomSeeded", runnerType2("Random"), SymbolKind.Def))
+    // runClockAt(t0) { body } — t0: Long
+    s.define(Symbol("runClockAt",      runnerType2("Clock"),  SymbolKind.Def))
+    // runEnvWith(map) { body } — map: Map[String, String]
+    s.define(Symbol("runEnvWith",      runnerType2("Env"),    SymbolKind.Def))
+    // runState(s0) { body } — s0: S
+    s.define(Symbol("runState",        runnerType2("State"),  SymbolKind.Def))
+    // runHttp { body }
+    s.define(Symbol("runHttp",         runnerType("Http"),    SymbolKind.Def))
+    s.define(Symbol("runHttpStub",     runnerType2("Http"),   SymbolKind.Def))
+    // NonDet and Reader globals
+    s.define(Symbol("NonDet",   SType.Named("NonDet",  Nil), SymbolKind.Object))
+    s.define(Symbol("Reader",   SType.Named("Reader",  Nil), SymbolKind.Object))
+    s.define(Symbol("withReader", variadic, SymbolKind.Def))
     val effectBuiltins = List(
       "handle", "validate", "computed", "effect", "summon", "summonInline",
       "constValue", "direct", "Focus", "Prism",
       "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
       "runCache", "runCacheBypass",
-      "runClock", "runClockAt", "runEnv", "runEnvWith",
-      "runEphemeralStorage", "runHttp", "runHttpStub",
-      "runLogger", "runLoggerJson", "runLoggerToList",
-      "runRandom", "runRandomSeeded", "runRetry", "runRetryNoSleep",
-      "runState", "runStorage", "runTx",
+      "runClock", "runEnv",
+      "runEphemeralStorage",
+      "runRandom", "runRetry", "runRetryNoSleep",
+      "runStorage", "runTx",
       "httpClient", "receive", "timeout",
       // process / actor primitives
       "spawn", "spawnLink", "spawnBounded", "self", "send", "exit",

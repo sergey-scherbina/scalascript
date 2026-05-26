@@ -1,0 +1,117 @@
+---
+name: algebraic-effects
+description: Typed algebraic effects showcase — Logger + State + NonDet, capability vs handler style (v1.12.3)
+---
+
+# Algebraic Effects — v1.12
+
+Demonstrates the typed effect system introduced in v1.12: one-shot effects
+(Logger, State), multi-shot effects (NonDet), and capability-style passing.
+
+## Logger effect (one-shot, handler style)
+
+```scalascript
+effect Logger:
+  def log(msg: String): Unit
+
+def greet(name: String): Unit ! Logger =
+  Logger.log(s"Hello, $name!")
+
+// Discharge Logger — collect messages in a list
+val messages = handle(greet("World")) {
+  case Logger.log(msg, resume) =>
+    val rest = resume(())
+    msg :: rest
+}
+println(messages)  // List(Hello, World!)
+```
+
+## State effect
+
+```scalascript
+effect State[S]:
+  def get(): S
+  def put(s: S): Unit
+
+def counter(): Int ! State[Int] =
+  val n = State.get()
+  State.put(n + 1)
+  n
+
+// runState discharges State — returns (finalState, result)
+val (finalState, value) = runState(0) { counter() }
+println(value)       // 0
+println(finalState)  // 1
+```
+
+## Logger + State interleaved
+
+```scalascript
+def tracedIncrement(): Int ! (Logger, State[Int]) =
+  Logger.log("before increment")
+  val n = State.get()
+  State.put(n + 1)
+  Logger.log("after increment")
+  n
+
+// Discharge both effects: runLogger wraps runState
+val (s, result) = runState(10) {
+  runLogger { tracedIncrement() }
+}
+println(result)  // 10
+println(s)       // 11
+```
+
+## NonDet multi-shot exemplar
+
+```scalascript
+multi effect NonDet:
+  def choose(options: List[Int]): Int
+
+def program(): Int ! NonDet =
+  val x = NonDet.choose(List(1, 2, 3))
+  val y = NonDet.choose(List(10, 20))
+  x + y
+
+// Handler explores all branches by calling resume for each option
+val all = handle(program()) {
+  case NonDet.choose(opts, resume) =>
+    opts.flatMap(opt => resume(opt))
+}
+println(all)  // List(11, 21, 12, 22, 13, 23)
+```
+
+## Capability style (no effect row)
+
+```scalascript
+// withLogger injects a logger sink as a capability — no effect row, no resume.
+// Uses ?=> (context function) rather than the ! row system.
+def withLogger[A](sink: String => Unit)(body: () => A): A =
+  body()
+
+val result2 = withLogger(println) { () =>
+  "done"
+}
+println(result2)  // done
+```
+
+## Stdlib runners (typed discharge signatures)
+
+The stdlib provides pre-built runners for each standard effect.
+These discharge the named effect and return the body's result:
+
+```scalascript
+// runLogger      { body: A ! Logger }                  => A
+// runRandomSeeded(seed: Long) { body: A ! Random }     => A
+// runClockAt(t0: Long) { body: A ! Clock }             => A
+// runEnvWith(m: Map[String,String]) { body: A ! Env }  => A
+// runState(s0: S) { body: A ! State[S] }               => (S, A)
+// runHttp { body: A ! Http }                           => A
+
+val msgs = runLoggerToList {
+  Logger.info("step 1")
+  Logger.info("step 2")
+  42
+}
+println(msgs)
+```

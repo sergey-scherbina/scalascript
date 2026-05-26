@@ -2,6 +2,36 @@ package scalascript.interpreter
 
 import Computation.{Pure, Perform}
 
+/** Standard-library algebraic effects and capabilities installed into the
+ *  interpreter's global scope.
+ *
+ *  == Handler effects (discharge via `run*` runners) ==
+ *
+ *  Each object below emits `Perform(effectName, opName, args)` nodes.
+ *  The matching `run*` builtin in [[EvalRuntime]] intercepts the Perform
+ *  stream and discharges it.  Discharge signatures (v1.12.3):
+ *
+ *    runLogger      { body: A ! Logger }                => A
+ *    runRandomSeeded(seed: Long) { body: A ! Random }   => A
+ *    runClockAt(t0: Long) { body: A ! Clock }           => A
+ *    runEnvWith(m: Map[String,String]) { body: A ! Env } => A
+ *    runState(s0: S) { body: A ! State[S] }             => (S, A)
+ *    runHttp { body: A ! Http }                         => A
+ *
+ *  == Capability (no effect row, resolved via `?=>`) ==
+ *
+ *  `Reader` is a pure capability: `ask` returns the ambient value injected
+ *  by `withReader`.  No effect row (`!`) is involved — the ambient value is
+ *  threaded implicitly via `?=>` (context functions).  The interpreter
+ *  registers a placeholder so user code referencing `Reader.ask` resolves.
+ *
+ *  == Multi-shot effect ==
+ *
+ *  `NonDet.choose(options)` is a multi-shot effect: the handler may call
+ *  `resume` multiple times (once per option), exploring all branches.
+ *  `EffectAnalysis` marks `NonDet` as multi-shot via the `__multiShot__`
+ *  sentinel in the preprocessed `multi effect NonDet` declaration.
+ */
 private[interpreter] object StdEffectsRuntime:
 
   def install(interp: Interpreter): Unit =
@@ -107,4 +137,22 @@ private[interpreter] object StdEffectsRuntime:
           case Some(u) => Pure(u)
           case None    => throw RuntimeException("Auth.require: no authenticated user in context")
       ),
+    ))
+
+    // NonDet: choose(options) — multi-shot effect; handler explores all branches
+    // by calling resume once per option.  Discharge signature (v1.12.3):
+    //   handle(body: A ! NonDet) { case NonDet.choose(opts, resume) =>
+    //     opts.flatMap(opt => resume(opt)) }
+    interp.globals("NonDet") = Value.InstanceV("NonDet", Map(
+      "choose" -> Value.NativeFnV("NonDet.choose",
+        args => Perform("NonDet", "choose", args)),
+    ))
+
+    // Reader: ask() — pure capability exemplar (no effect row).
+    // Resolved via `?=>` (context function) at the ScalaScript language level.
+    // The interpreter registers a no-op so user code referencing Reader.ask
+    // compiles and runs without errors; the real context value is injected by
+    // withReader (user-defined or std library).
+    interp.globals("Reader") = Value.InstanceV("Reader", Map(
+      "ask" -> Value.NativeFnV("Reader.ask", _ => Pure(Value.UnitV)),
     ))

@@ -409,3 +409,24 @@ class StdEffectsTest extends AnyFunSuite with Matchers:
         case Some(v) => println("still: " + v)
         case None    => println("restored")
     """) shouldBe "carol\nrestored"
+
+  // ── NonDet (multi-shot exemplar) ──────────────────────────────────────
+
+  test("NonDet.choose is accessible as a global"):
+    // NonDet must resolve and produce a Perform node; handled by evalHandle
+    captured("""
+      val result = handle(NonDet.choose(List(42, 99))) {
+        case NonDet.choose(opts, resume) =>
+          resume(42)
+      }
+      println(result)
+    """) shouldBe "42"
+
+  // ── Reader (capability exemplar) ─────────────────────────────────────
+
+  test("Reader.ask is accessible as a global"):
+    // Reader.ask returns Unit in the interpreter placeholder
+    captured("""
+      val v = Reader.ask
+      println(v)
+    """) shouldBe "()"
