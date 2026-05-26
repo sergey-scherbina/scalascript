@@ -295,6 +295,14 @@ class JvmGen(
         sb.append(sscJarDirective("scalascript-backend-spi"))
         if apiClients.nonEmpty then
           sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
+      if effectiveFrontend.contains("javafx") then
+        sb.append(sscJarDirective("scalascript-backend-spi"))
+        if apiClients.nonEmpty then
+          sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
+        val jfxOs = javafxOs
+        sb.append(s"""//> using dep "org.openjfx:javafx-controls:$javafxEmitVersion:$jfxOs"\n""")
+        sb.append(s"""//> using dep "org.openjfx:javafx-base:$javafxEmitVersion:$jfxOs"\n""")
+        sb.append(s"""//> using dep "org.openjfx:javafx-graphics:$javafxEmitVersion:$jfxOs"\n""")
       val fwLib = effectiveFrontend.getOrElse("react")
       sb.append(sscJarDirective(s"scalascript-frontend-$fwLib"))
 
@@ -344,7 +352,7 @@ class JvmGen(
       sb.append(s"// [ssc warning] $w\n")
     }
     emitTypedRouteClientMetadata(apiClients, sb)
-    if effectiveFrontend.contains("swing") then
+    if effectiveFrontend.contains("swing") || effectiveFrontend.contains("javafx") then
       emitSwingTypedRouteClients(apiClients, sb)
     collectDeclaredVarTypes(blocks)
 
@@ -1166,7 +1174,7 @@ class JvmGen(
     }
     emitTypedRouteClientMetadata(apiClients, sb)
     val effectiveFrontend = frontendOverride.orElse(module.manifest.flatMap(_.frontendFramework))
-    if effectiveFrontend.contains("swing") then
+    if effectiveFrontend.contains("swing") || effectiveFrontend.contains("javafx") then
       emitSwingTypedRouteClients(apiClients, sb)
 
     // i18n table injection — same as `genModule`.
@@ -1722,6 +1730,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     }
 
   /** Minimal escape for emitted Scala string literals. */
+  private val javafxEmitVersion: String = "21.0.5"
+
+  private def javafxOs: String =
+    val name = sys.props.getOrElse("os.name", "")
+    val arch = sys.props.getOrElse("os.arch", "")
+    if name.startsWith("Mac") then if arch.contains("aarch64") then "mac-aarch64" else "mac"
+    else if name.startsWith("Windows") then "win"
+    else "linux"
+
   private def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
 
@@ -9564,6 +9581,14 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    response.headers
        |  )
        |
+       |def _ssc_ui_inprocess_fetch_javafx(methodRaw: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
+       |  val response = _ssc_ui_backend_request(methodRaw, url, body)
+       |  scalascript.frontend.javafx.JavaFxRuntime.FetchResponse(
+       |    response.status,
+       |    String(response.body, java.nio.charset.StandardCharsets.UTF_8),
+       |    response.headers
+       |  )
+       |
        |def _ssc_ui_run_native(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
        |  val _mod = _ssc_ui_buildModule(view, extraCss)
        |  println("ssc: launching Swing")
@@ -9578,9 +9603,25 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    )
        |  )
        |
+       |def _ssc_ui_run_native_javafx(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
+       |  val _mod = _ssc_ui_buildModule(view, extraCss)
+       |  println("ssc: launching JavaFX")
+       |  println("     mode:   same-process JVM")
+       |  scalascript.frontend.javafx.JavaFxRuntime.run(
+       |    _mod,
+       |    scalascript.frontend.javafx.JavaFxRuntime.Options(
+       |      fetchDispatcher = Some(new scalascript.frontend.javafx.JavaFxRuntime.FetchDispatcher:
+       |        def request(method: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
+       |          _ssc_ui_inprocess_fetch_javafx(method, url, body)
+       |      )
+       |    )
+       |  )
+       |
        |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
        |  if _ssc_frontend_name == "swing" then
        |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
+       |  else if _ssc_frontend_name == "javafx" then
+       |    _ssc_ui_run_native_javafx(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
        |  else if _ssc_frontend_name == "swiftui" then
        |    val _outDir = Option(System.getProperty("ssc.build.outdir"))
        |      .getOrElse { System.err.println("swiftui: ssc.build.outdir system property not set"); System.exit(1); "" }

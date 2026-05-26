@@ -10744,6 +10744,36 @@ distributed same-source server/client example are partially landed.
   Example: [`examples/sse-typed-client.ssc`](examples/sse-typed-client.ssc).
   Remaining: WebSocket subscriptions, pagination, bidirectional channels.
 
+## v1.48 — JavaFX Typed Route Clients ✓ Complete (2026-05-26)
+
+**Status:** complete
+
+Same-process in-process backend transport for JavaFX: `JavaFxRuntime` (full
+View ADT interpreter using JavaFX nodes at runtime), OpenJFX `Provided+Test`
+deps in `frontendJavaFx`, JvmGen javafx branch for typed route client emission,
+`_ssc_ui_run_native_javafx` + `_ssc_ui_serve` javafx arm, and
+`examples/frontend/javafx-fullstack/`.
+
+### Phases
+
+- **Phase 1 ✓ Landed (2026-05-26)** — `JavaFxRuntime` + `JavaFxRuntimeApp`:
+  same-process JavaFX runner (parallel to `SwingRuntime`). `RuntimeState` with
+  signal map and bindings. `addTo(Pane, View, state)` traverses the full View
+  ADT building JavaFX nodes. `wireAction` dispatches `SetSignalLiteral`,
+  `IncrementSignal`, `ToggleSignal`, `FetchAction`, `Simple`, `WithEvent`.
+  `buildCss(Style)` generates `-fx-*` CSS strings. `FetchDispatcher` interface
+  for in-process backend calls. `Application.launch` via `@volatile var` pair
+  in companion object.
+- **Phase 2 ✓ Landed (2026-05-26)** — JvmGen integration: OpenJFX
+  `//> using dep` directives emitted when `effectiveFrontend.contains("javafx")`,
+  `scalascript-backend-spi` JAR, `scalascript-backend-typed-data-runtime` JAR
+  when `apiClients.nonEmpty`, `scalascript-frontend-javafx` JAR. Typed route
+  client objects emitted (`emitSwingTypedRouteClients` extended to javafx).
+  `_ssc_ui_inprocess_fetch_javafx` helper. `_ssc_ui_run_native_javafx` calls
+  `JavaFxRuntime.run`. `_ssc_ui_serve` routes `"javafx"` to
+  `_ssc_ui_run_native_javafx`. 2 new `JvmGenTypedRouteClientTest` cases (10/10).
+  `examples/frontend/javafx-fullstack/javafx-fullstack.ssc`.
+
 ## v1.47 — JavaFX Desktop Frontend ✓ Complete (2026-05-26)
 
 **Status:** complete
