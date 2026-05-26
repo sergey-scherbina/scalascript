@@ -37,12 +37,12 @@ class WasmBackendSqlTest extends AnyFunSuite with Matchers:
     val segs = compile(
       """|# Test
          |
-         |```scalascript
-         |val x = 1
+         |```html
+         |<h1>Hello</h1>
          |```
          |""".stripMargin)
-    // scalascript-only module: no scala blocks for WasmGen, no sql
-    // blocks for the shim — Segmented(Nil) is the expected empty result.
+    // html-only module: no compilable scala/scalascript blocks, no sql blocks
+    // → Segmented(Nil) is the expected empty result.
     segs shouldBe Nil
 
   // ── package.json shape — per-provider gating ─────────────────────────

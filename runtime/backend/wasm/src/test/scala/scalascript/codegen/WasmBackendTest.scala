@@ -24,6 +24,12 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
   test("backend accepts scala source language"):
     backend.acceptedSources should contain("scala")
 
+  test("backend accepts scalascript source language"):
+    backend.acceptedSources should contain("scalascript")
+
+  test("backend accepts ssc source language alias"):
+    backend.acceptedSources should contain("ssc")
+
   // ── Block detection ─────────────────────────────────────────────────────
 
   private def module(code: String) =
@@ -32,24 +38,47 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
   private def moduleScala(code: String) =
     Parser.parse(s"# Test\n\n```scala\n$code\n```\n")
 
-  test("WasmGen.hasBlocks: false for scalascript-only module"):
-    WasmGen.hasBlocks(module("val x = 1")) shouldBe false
+  private def moduleHtml(code: String) =
+    Parser.parse(s"# Test\n\n```html\n$code\n```\n")
+
+  test("WasmGen.hasBlocks: true for scalascript block"):
+    WasmGen.hasBlocks(module("val x = 1")) shouldBe true
 
   test("WasmGen.hasBlocks: true for scala block"):
     WasmGen.hasBlocks(moduleScala("@main def run() = println(42)")) shouldBe true
+
+  test("WasmGen.hasBlocks: false for html-only module"):
+    WasmGen.hasBlocks(moduleHtml("<h1>Hello</h1>")) shouldBe false
 
   test("WasmGen.collectSource: concatenates scala blocks"):
     val src = WasmGen.collectSource(moduleScala("val x = 1\n\nval y = 2"))
     src should include("val x = 1")
     src should include("val y = 2")
 
-  test("WasmGen.collectSource: empty for scalascript-only module"):
-    WasmGen.collectSource(module("val x = 1")).isBlank shouldBe true
+  test("WasmGen.collectSource: includes scalascript blocks"):
+    val src = WasmGen.collectSource(module("val x = 1"))
+    src should include("val x = 1")
 
-  // ── Backend.compile with no scala blocks ────────────────────────────────
+  test("WasmGen.collectSource: combines scala and scalascript blocks"):
+    val combined = Parser.parse(
+      """|# Test
+         |
+         |```scala
+         |val a = 1
+         |```
+         |
+         |```scalascript
+         |val b = 2
+         |```
+         |""".stripMargin)
+    val src = WasmGen.collectSource(combined)
+    src should include("val a = 1")
+    src should include("val b = 2")
 
-  test("compile returns Segmented(Nil) when no scala blocks present"):
-    val ir = Normalize(module("val x = 42\nprintln(x)"))
+  // ── Backend.compile with no compilable blocks ────────────────────────────
+
+  test("compile returns Segmented(Nil) when only html blocks present"):
+    val ir = Normalize(moduleHtml("<h1>Hello</h1>"))
     backend.compile(ir, BackendOptions()) shouldBe CompileResult.Segmented(Nil)
 
   // ── Integration: compile scala blocks to WASM ───────────────────────────

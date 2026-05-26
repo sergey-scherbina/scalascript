@@ -36,17 +36,17 @@ class WasmBackend extends Backend:
   def spiVersion:      String                               = SpiVersion.Current
   def capabilities:    Capabilities                         = WasmCapabilities
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = Map.empty
-  def acceptedSources: Set[String]                          = Set("scala")
+  def acceptedSources: Set[String]                          = Set("scala", "scalascript", "ssc")
 
   def compile(module: ir.NormalizedModule, opts: BackendOptions): CompileResult =
-    val astModule = Denormalize(module)
-    val baseDir   = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
-    val hasScala  = WasmGen.hasBlocks(astModule)
-    val hasSql    = hasSqlBlock(module)
-    if !hasScala && !hasSql then
+    val astModule    = Denormalize(module)
+    val baseDir      = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
+    val hasCompilable = WasmGen.hasBlocks(astModule)
+    val hasSql       = hasSqlBlock(module)
+    if !hasCompilable && !hasSql then
       return CompileResult.Segmented(Nil)
     val segments = List.newBuilder[Segment]
-    if hasScala then
+    if hasCompilable then
       try
         val bundle = WasmGen.compileToWasm(astModule, baseDir)
         if bundle.wasmBytes.nonEmpty then

@@ -2,7 +2,7 @@ package scalascript.codegen
 
 import scalascript.ast.*
 
-/** Compiles `scala` blocks to a Scala.js WASM bundle via
+/** Compiles `scala` and `scalascript` blocks to a Scala.js WASM bundle via
  *  `scala-cli --power package --js --js-module-kind es --js-emit-wasm`.
  *
  *  scala-cli writes a directory with three artefacts:
@@ -11,6 +11,11 @@ import scalascript.ast.*
  *    __loader.js    — WASM loader / runtime glue
  *
  *  All three are returned so the CLI / server can write them together.
+ *
+ *  Phase 1 note: `scalascript` blocks are treated as Scala 3 source and
+ *  compiled as-is.  Blocks must contain valid Scala.js code; ScalaScript
+ *  extensions (algebraic effects, handlers) are not yet transpiled.  An
+ *  `@main def main(): Unit` entry point is required for executable bundles.
  */
 object WasmGen:
 
@@ -20,12 +25,15 @@ object WasmGen:
     loaderJs:   String,
   )
 
+  private def isCompilable(lang: String): Boolean =
+    Lang.isStandardScala(lang) || Lang.isScalaScript(lang)
+
   def hasBlocks(module: Module): Boolean =
     module.sections.exists(sectionHas)
 
   private def sectionHas(s: Section): Boolean =
     s.content.exists {
-      case cb: Content.CodeBlock => Lang.isStandardScala(cb.lang)
+      case cb: Content.CodeBlock => isCompilable(cb.lang)
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
@@ -36,7 +44,7 @@ object WasmGen:
 
   private def collectSection(s: Section, sb: StringBuilder): Unit =
     s.content.foreach {
-      case Content.CodeBlock(lang, src, _, _, _, _, _) if Lang.isStandardScala(lang) =>
+      case Content.CodeBlock(lang, src, _, _, _, _, _) if isCompilable(lang) =>
         sb.append(src.stripTrailing()).append("\n\n")
       case _ => ()
     }
