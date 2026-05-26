@@ -127,6 +127,62 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     proc.waitFor()
     out.trim
 
+  test("def with awaitClient in body emits async function"):
+    val src =
+      source +
+        """
+          |
+          |```scalascript @side=client
+          |def loadAll() = awaitClient(Messages.list())
+          |val rows = awaitClient(loadAll())
+          |```
+          |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("async function loadAll()"))
+    assert(code.contains("const rows = await _call(loadAll,"))
+
+  test("for-yield with multiple awaitClient generators lowers to async IIFE"):
+    val src =
+      source +
+        """
+          |
+          |```scalascript @side=client
+          |val combined = awaitClient(for {
+          |  msgs <- awaitClient(Messages.list())
+          |  drafts <- awaitClient(Messages.list())
+          |} yield msgs ++ drafts)
+          |```
+          |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("(async () => {"))
+    assert(code.contains("await _dispatch(Messages, 'list',"))
+    assert(!code.contains("'flatMap'"))
+
+  test("for-do with multiple awaitClient generators lowers to async IIFE"):
+    val src =
+      source +
+        """
+          |
+          |```scalascript @side=client
+          |for {
+          |  msgs <- awaitClient(Messages.list())
+          |  drafts <- awaitClient(Messages.list())
+          |} {
+          |  println(msgs.size.toString + "+" + drafts.size.toString)
+          |}
+          |```
+          |""".stripMargin
+
+    val code = JsGen.generate(Parser.parse(src))
+
+    assert(code.contains("(async () => {"))
+    assert(code.contains("await _dispatch(Messages, 'list',"))
+    assert(!code.contains("'forEach'"))
+
   test("JS typed route clients encode and decode through generated codecs"):
     assume(hasNode, "node not available")
     val code = JsGen.generate(Parser.parse(source))

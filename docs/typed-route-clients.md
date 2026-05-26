@@ -285,8 +285,20 @@ to `.then(...)` for simple typed route calls. Blocks marked
 are skipped by JS codegen, so the same `.ssc` source can contain client-only
 awaits and server-only backend code.
 
-Still planned for Phase 3: broader async syntax/type-system integration beyond
-this explicit `awaitClient(...)` bridge.
+Landed 2026-05-26 follow-up: broader async syntax/type-system integration.
+JS codegen now auto-detects `def` functions whose bodies contain `awaitClient`
+and emits `async function` for them, so `def loadAll() = awaitClient(Messages.list())`
+generates a valid `async function loadAll()` rather than a `function` with a
+bare `await` inside. `def` functions detected as async are excluded from the
+while-loop TCO and mutual-TCO trampolining paths, which are incompatible with
+`async`. For-comprehensions where all generators use `awaitClient(...)` are
+lowered to sequential-await async IIFEs —
+`for { msgs <- awaitClient(A); drafts <- awaitClient(B) } yield msgs ++ drafts`
+generates `(async () => { const _t1 = await A; ...; return ...; })()` rather
+than the previously-broken nested-`flatMap` form that placed bare `await`
+inside non-async lambdas. The result of such an expression is a Promise; wrap
+with `awaitClient(for { ... } yield ...)` to obtain the resolved value in an
+async context.
 
 ### Phase 4 — Shared Codecs
 

@@ -10600,7 +10600,7 @@ distributed same-source server/client example are partially landed.
   `examples/frontend/swing-typed-client/` to create, list, delete, and recreate
   typed `Message` values without frontend JSON glue. Non-Swing JVM codegen
   remains metadata-only until Phase 3 HTTP transport lands.
-- **Phase 3 ◐ Partially landed (2026-05-25)** — HTTP client transport:
+- **Phase 3 ✓ Landed (2026-05-26)** — HTTP client transport + async integration:
   JS codegen now emits Promise-returning HTTP client objects from
   `apiClients:` metadata, including `_ssc_typedRouteClients` metadata, path
   parameter substitution, GET query strings, JSON request bodies, non-2xx
@@ -10618,8 +10618,11 @@ distributed same-source server/client example are partially landed.
   recognizes `awaitClient(promise)` in client-side ScalaScript, lowers it to
   JavaScript `await promise`, and enables the async top-level wrapper; JVM
   codegen skips `@side=client` ScalaScript blocks, while JS codegen skips
-  `@side=server` blocks. Remaining Phase 3 work: broader async syntax/type
-  integration beyond the explicit `awaitClient(...)` bridge.
+  `@side=server` blocks. Follow-up landed 2026-05-26: `def` functions whose
+  bodies use `awaitClient` now auto-emit `async function` (excluded from TCO
+  trampolining); for-comprehensions where all generators use `awaitClient` now
+  lower to sequential-await async IIFEs, fixing previously-broken JS that
+  placed bare `await` inside non-async flatMap lambdas.
 - **Phase 4 ◐ Partially landed (2026-05-25)** — shared codecs:
   generated JVM/Swing and JS HTTP clients now call a stable typed JSON codec
   facade (`_ssc_typed_json_encode` / `_ssc_typed_json_decode_response`) instead

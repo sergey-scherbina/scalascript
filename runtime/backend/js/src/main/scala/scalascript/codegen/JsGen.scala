@@ -7985,6 +7985,20 @@ class JsGen(
       }.nonEmpty
     }
 
+  private def containsAwaitClient(tree: scala.meta.Tree): Boolean =
+    tree.collect {
+      case Term.Apply.After_4_6_0(Term.Name("awaitClient"), _) => ()
+    }.nonEmpty
+
+  private def isAwaitClientExpr(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Name("awaitClient"), _) => true
+    case _ => false
+
+  // True when 2+ generators all use awaitClient — safe to lower to sequential awaits.
+  private def enumeratorsNeedAsyncFor(enums: List[Enumerator]): Boolean =
+    val generators = enums.collect { case Enumerator.Generator(_, rhs) => rhs }
+    generators.length >= 2 && generators.forall(isAwaitClientExpr)
+
   /** True if `Eff.op` is a declared effect operation. */
   private def isEffectOpRef(eff: String, op: String): Boolean =
     effectOps.contains(s"$eff.$op")
@@ -8445,10 +8459,12 @@ class JsGen(
       // Defaults disable the TCO/mutual-TCO shadowing path since the _p shadow
       // names would shadow the original parameter names referenced in default
       // expressions; defaults are uncommon in tight recursive loops anyway.
-      else if mutualGroups.contains(fname) && params.nonEmpty && !hasDefaults then
+      else if mutualGroups.contains(fname) && params.nonEmpty && !hasDefaults &&
+              !containsAwaitClient(d.body) then
         genMutualTcoFun(d, fname, params)
       // Self-TCO: emit a while-loop trampoline when all self-calls are in tail position
       else if params.nonEmpty && fname.nonEmpty && !hasDefaults &&
+              !containsAwaitClient(d.body) &&
               !hasNonTailSelfCall(d.body, fname, tailPos = true) then
         // Formals are _p shadow-names so we can declare mutable let params inside.
         // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
@@ -8466,15 +8482,16 @@ class JsGen(
         indent -= 1
         line("}")
       else
+        val fnKw = if containsAwaitClient(d.body) then "async function" else "function"
         d.body match
           case Term.Block(bodyStats) =>
-            line(s"function $fname($paramsStr) {")
+            line(s"$fnKw $fname($paramsStr) {")
             indent += 1
             withParamRenames(defRenames)(genFunctionBody(bodyStats))
             indent -= 1
             line("}")
           case expr =>
-            line(s"function $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
+            line(s"$fnKw $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
       cbSummonMap.clear()
       cbSummonMap ++= savedCbMap
 
@@ -10627,7 +10644,8 @@ class JsGen(
       ("true", Nil)
 
   private def genForDo(enums: List[Enumerator], body: Term): String =
-    genForDoHelper(enums, genExpr(body))
+    if enumeratorsNeedAsyncFor(enums) then genAsyncForDo(enums, body)
+    else genForDoHelper(enums, genExpr(body))
 
   private def genForDoHelper(enums: List[Enumerator], bodyJs: String): String = enums match
     case Nil => s"(() => { $bodyJs; })()"
@@ -10650,7 +10668,8 @@ class JsGen(
     case _ :: rest => genForDoHelper(rest, bodyJs)
 
   private def genForYield(enums: List[Enumerator], body: Term): String =
-    genForYieldHelper(enums, genExpr(body))
+    if enumeratorsNeedAsyncFor(enums) then genAsyncForYield(enums, body)
+    else genForYieldHelper(enums, genExpr(body))
 
   private def genForYieldHelper(enums: List[Enumerator], bodyJs: String): String = enums match
     case Nil => bodyJs
@@ -10685,6 +10704,65 @@ class JsGen(
       val inner = genForYieldHelper(rest, bodyJs)
       s"(() => { const $v = $rhsJs; $patJs return $inner; })()"
     case _ :: rest => genForYieldHelper(rest, bodyJs)
+
+  // Async for-yield: all generators use awaitClient → sequential awaits in async IIFE.
+  // Returns a Promise; wrap with awaitClient(...) at the call site to get the value.
+  private def genAsyncForYield(enums: List[Enumerator], body: Term): String =
+    val stmts = scala.collection.mutable.ListBuffer[String]()
+    for e <- enums do e match
+      case Enumerator.Generator(pat, Term.Apply.After_4_6_0(Term.Name("awaitClient"), argClause))
+          if argClause.values.size == 1 =>
+        val promiseJs = genExpr(argClause.values.head.asInstanceOf[Term])
+        val iterVar = freshTmp()
+        val patJs = genForPatBinding(pat, iterVar)
+        stmts += (if patJs.isEmpty then s"const $iterVar = await $promiseJs;"
+                  else s"const $iterVar = await $promiseJs; $patJs")
+      case Enumerator.Generator(pat, rhs) =>
+        val rhsJs = genExpr(rhs)
+        val iterVar = freshTmp()
+        val patJs = genForPatBinding(pat, iterVar)
+        stmts += (if patJs.isEmpty then s"const $iterVar = $rhsJs;"
+                  else s"const $iterVar = $rhsJs; $patJs")
+      case Enumerator.Guard(cond) =>
+        stmts += s"if (!(${genExpr(cond)})) return undefined;"
+      case Enumerator.Val(pat, rhs) =>
+        val rhsJs = genExpr(rhs)
+        val v = freshTmp()
+        val patJs = genForPatBinding(pat, v)
+        stmts += (if patJs.isEmpty then s"const $v = $rhsJs;"
+                  else s"const $v = $rhsJs; $patJs")
+      case _ => ()
+    val bodyJs = genExpr(body)
+    s"(async () => { ${stmts.mkString(" ")} return $bodyJs; })()"
+
+  // Async for-do: all generators use awaitClient → sequential awaits in async IIFE.
+  private def genAsyncForDo(enums: List[Enumerator], body: Term): String =
+    val stmts = scala.collection.mutable.ListBuffer[String]()
+    for e <- enums do e match
+      case Enumerator.Generator(pat, Term.Apply.After_4_6_0(Term.Name("awaitClient"), argClause))
+          if argClause.values.size == 1 =>
+        val promiseJs = genExpr(argClause.values.head.asInstanceOf[Term])
+        val iterVar = freshTmp()
+        val patJs = genForPatBinding(pat, iterVar)
+        stmts += (if patJs.isEmpty then s"const $iterVar = await $promiseJs;"
+                  else s"const $iterVar = await $promiseJs; $patJs")
+      case Enumerator.Generator(pat, rhs) =>
+        val rhsJs = genExpr(rhs)
+        val iterVar = freshTmp()
+        val patJs = genForPatBinding(pat, iterVar)
+        stmts += (if patJs.isEmpty then s"const $iterVar = $rhsJs;"
+                  else s"const $iterVar = $rhsJs; $patJs")
+      case Enumerator.Guard(cond) =>
+        stmts += s"if (!(${genExpr(cond)})) return;"
+      case Enumerator.Val(pat, rhs) =>
+        val rhsJs = genExpr(rhs)
+        val v = freshTmp()
+        val patJs = genForPatBinding(pat, v)
+        stmts += (if patJs.isEmpty then s"const $v = $rhsJs;"
+                  else s"const $v = $rhsJs; $patJs")
+      case _ => ()
+    val bodyJs = genExpr(body)
+    s"(async () => { ${stmts.mkString(" ")} $bodyJs; })()"
 
   // ─── direct[M] { ... } — v1.8 do-notation ────────────────────────
 
