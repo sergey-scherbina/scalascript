@@ -105,7 +105,9 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     isolated `src/test` suites via `testUtils % Test`. Remaining plugin-family
     suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files need explicit `pkg:` import lines.
-  - **Jdbc `runSqlBlock` refactor** — `sql { }` block dispatch still internal; needed before Jdbc can be a true plugin.
+  - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
+    `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
+    blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
   - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
 
@@ -1452,10 +1454,11 @@ worth a separate fix when somebody has cycles.
   - **Examples `pkg:` sweep** — ~20–30 `.ssc` files under `examples/` use
     intrinsics (jsonParse, http.*, auth.*, etc.) without explicit `pkg:`
     import lines, relying on ServiceLoader classpath discovery.  Effort: S.
-  - **Jdbc `runSqlBlock` refactor** — `Interpreter.scala` still wires
-    `sql { }` fenced blocks directly through `ConnectionRegistry`.  A
-    `SqlBlockRunner` SPI hook on `NativeContext` is required before Jdbc can
-    run as a true plugin.  Effort: M.
+  - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
+    `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
+    blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
+    Follow-up: `transaction` fenced blocks still execute directly in the
+    interpreter and can move behind plugin SPI separately.
   - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
     migrated using all 21 existing named methods; bag deferred.  Needed when
     the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.

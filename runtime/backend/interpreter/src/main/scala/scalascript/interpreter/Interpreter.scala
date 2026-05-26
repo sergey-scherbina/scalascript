@@ -139,6 +139,7 @@ class Interpreter(
   private[interpreter] var mainCalled   = false
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
+  private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
 
   /** Load plugin intrinsics on first use.  Called from EvalRuntime when a
    *  Term.Name lookup misses both env and globals — at that point we may have
@@ -147,12 +148,14 @@ class Interpreter(
     if _pluginsLoaded then return
     _pluginsLoaded = true
     import scalascript.backend.spi.NativeImpl
+    val plugins = scalascript.compiler.plugin.BackendRegistry.inProcess.toList
     val pluginImpls: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] =
-      scalascript.compiler.plugin.BackendRegistry.inProcess
-        .iterator.flatMap(_.intrinsics)
+      plugins.iterator
+        .flatMap(_.intrinsics)
         .collect { case entry @ (_, _: NativeImpl) => entry }
         .toMap
     installNativeIntrinsics(pluginImpls)
+    installSqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
 
   /** Install exactly the supplied in-process interpreter plugins.
@@ -168,8 +171,15 @@ class Interpreter(
         .collect { case entry @ (_, _: NativeImpl) => entry }
         .toMap
     installNativeIntrinsics(pluginImpls)
+    installSqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
     _pluginsLoaded = true
+
+  private def installSqlBlockRunners(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
+    plugins.iterator.flatMap(_.sqlBlockRunner).toList match
+      case Nil => ()
+      case runners =>
+        sqlBlockRunner = Some(runners.last)
 
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private[interpreter] val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)

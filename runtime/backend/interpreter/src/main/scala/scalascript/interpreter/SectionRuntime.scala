@@ -34,21 +34,23 @@ private[interpreter] object SectionRuntime:
     section.subsections.foreach(s => runSection(s, interp))
 
   def runSqlBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
-    val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(cb.source)
-    val binds: List[Any] = rewritten.binds.map { exprSrc =>
-      val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
-        "<sql-bind>", exprSrc
-      )).parse[scala.meta.Term].get
-      val v = Computation.run(interp.eval(expr, interp.globals.toMap))
-      unwrapForJdbc(v)
-    }
-    val conn: java.sql.Connection = resolveSqlConnection(cb, interp)
-    val sqlResult = scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds)
-    val resultValue: Value = sqlResult match
-      case scalascript.sql.SqlResult.Rows(rows) =>
-        Value.ListV(rows.map(rowToValue).toList)
-      case scalascript.sql.SqlResult.UpdateCount(n) =>
-        Value.IntV(n.toLong)
+    interp.ensurePluginsLoaded()
+    val runner = interp.sqlBlockRunner.getOrElse(
+      throw InterpretError("No SQL block runner installed — add the SQL plugin to the interpreter classpath")
+    )
+    val ctx = new scalascript.backend.spi.SqlBlockContext:
+      def evalExpression(source: String): Any =
+        val expr = scala.meta.dialects.Scala3(scala.meta.Input.VirtualFile(
+          "<sql-bind>", source
+        )).parse[scala.meta.Term].get
+        Computation.run(interp.eval(expr, interp.globals.toMap))
+      def global(name: String): Option[Any] =
+        interp.globals.get(name)
+      def dbConnect(dbName: String): java.sql.Connection =
+        interp.sqlRegistry.connect(dbName)
+    val resultValue = runner.run(cb.source, cb.attrs, ctx) match
+      case v: Value => v
+      case other    => Value.StringV(String.valueOf(other))
     val ordinal = interp.sqlBlockCounter
     interp.sqlBlockCounter += 1
     interp.globals(s"_sqlBlock_$ordinal") = resultValue
@@ -88,14 +90,6 @@ private[interpreter] object SectionRuntime:
         case _                                => Map.empty[String, Value]
       interp.globals(id) = Value.InstanceV(id, existing + ("sql" -> resultValue))
     }
-
-  def resolveSqlConnection(cb: Content.CodeBlock, interp: Interpreter): java.sql.Connection =
-    interp.globals.get("Connection") match
-      case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c
-      case Some(Value.Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
-      case _ =>
-        val dbName = cb.attrs.getOrElse("db", "default")
-        interp.sqlRegistry.connect(dbName)
 
   def rowToValue(row: scalascript.sql.Row): Value =
     val pairs = row.columns.zip(row.values).map { case (col, v) =>

@@ -469,27 +469,29 @@ Until then it stays in-tree unchanged.
 | JVM deps | `java.sql` (stdlib); JDBC driver JARs are user-supplied |
 | `.ssc` surface today | none |
 | In-tree tests | `JdbcSpec.scala` |
-| **Blocker** | `Interpreter.runSqlBlock` reads `globals.get("Connection")` directly |
+| **Status** | ✅ `sqlBlockRunner` SPI landed; `sqlPlugin` owns `sql` fenced-block execution |
 
-`Jdbc.scala` itself is tiny (48 lines, 1 function).  The blocker is not
-in it — it is in the interpreter's `sql` block handler
-(`Interpreter.runSqlBlock`), which resolves `Connection` from the
-interpreter's internal global map rather than through any SPI.  A
-plugin cannot hook into this path.
+`Jdbc.scala` itself is tiny (48 lines, 1 function).  The original
+blocker was in the interpreter's `sql` block handler
+(`Interpreter.runSqlBlock`), which resolved `Connection` from the
+interpreter's internal global map rather than through any SPI.
 
-**Required refactor before Jdbc migrates**:
+**Landed refactor (2026-05-26)**:
 
-1. Introduce a `SqlBlockRunner` SPI method on `NativeContext` (or
-   use the state-bag to store a `Connection → sql-executor` hook).
-2. Move the `runSqlBlock` logic into the Jdbc plugin so the connection
-   the user bound with `DriverManager.getConnection(…)` is threaded
-   through the plugin's executor, not the interpreter's global map.
-3. The `sql { ... }` fenced-block language feature (`blockLanguages =
-   Set(Lang.Sql)` in `InterpreterCapabilities`) can then become a
-   generic block-dispatch mechanism that routes to the registered
-   Jdbc executor.
+1. `Backend.sqlBlockRunner` + `SqlBlockRunner` / `SqlBlockContext` SPI were
+   added in `runtime/backend/spi`.
+2. `SectionRuntime.runSqlBlock` now delegates SQL rewriting, connection
+   resolution, and execution to the installed runner, keeping only Markdown
+   traversal and result binding (`_sqlBlock_N`, `<Section>.sql`) in the
+   interpreter.
+3. `sqlPlugin` provides the runner and owns `DriverManager.getConnection`,
+   `Db.*`, and interpreter `sql` fenced-block execution. The override path
+   (`val Connection = DriverManager.getConnection(...)`) is resolved by the
+   plugin through `SqlBlockContext.global`.
 
-This is a non-trivial refactor.  Jdbc stays in-tree until it is done.
+This refactor removes the plain `sql` fenced-block blocker. Transaction
+blocks remain interpreter-owned for now, but the core JDBC execution path is
+now plugin-owned.
 
 ---
 
@@ -751,16 +753,12 @@ distribution hygiene (minimal-interpreter deployments), ~20–30 affected
 
 ### 11.3 Jdbc `runSqlBlock` refactor (§4.11)
 
-`Interpreter.scala` still wires `sql { }` blocks directly through
-`ConnectionRegistry` / `sqlRegistry`.  Required before Jdbc can be a true
-plugin:
+`sql { }` block execution now routes through `Backend.sqlBlockRunner`.
+The interpreter still owns `transaction` fenced-block execution; that is a
+separate follow-up if transaction blocks should also move behind plugin SPI.
 
-1. Add `SqlBlockRunner` SPI method to `NativeContext` (or use state-bag).
-2. Move `runSqlBlock` logic into the Jdbc plugin so the plugin owns the
-   connection and the executor.
-3. Make `sql { }` block dispatch generic (routes to registered executor).
-
-**Effort**: M (non-trivial; touches interpreter block-execution path).
+**Status**: landed for plain `sql` fenced blocks. Transaction fenced blocks
+remain interpreter-owned.
 
 ### 11.4 `NativeContext` state-bag
 

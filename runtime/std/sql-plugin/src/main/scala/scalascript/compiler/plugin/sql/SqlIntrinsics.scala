@@ -122,3 +122,56 @@ object SqlIntrinsics:
     case d: Double   => Value.DoubleV(d)
     case f: Float    => Value.DoubleV(f.toDouble)
     case other       => Value.StringV(other.toString)
+
+object SqlBlockRunnerImpl extends SqlBlockRunner:
+
+  def run(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any =
+    val rewritten = scalascript.transform.SqlBindRewriter.rewriteJdbc(source)
+    val binds = rewritten.binds.map(expr => unwrapForJdbc(ctx.evalExpression(expr)))
+    val conn = resolveSqlConnection(attrs, ctx)
+    scalascript.sql.SqlRuntime.execute(conn, rewritten.sql, binds) match
+      case scalascript.sql.SqlResult.Rows(rows) =>
+        Value.ListV(rows.map(rowToValue).toList)
+      case scalascript.sql.SqlResult.UpdateCount(n) =>
+        Value.IntV(n.toLong)
+
+  private def resolveSqlConnection(attrs: Map[String, String], ctx: SqlBlockContext): java.sql.Connection =
+    ctx.global("Connection") match
+      case Some(Value.Foreign("Connection", c: java.sql.Connection)) => c
+      case Some(Value.Foreign("DataSource", ds: javax.sql.DataSource)) => ds.getConnection
+      case _ =>
+        val dbName = attrs.getOrElse("db", "default")
+        ctx.dbConnect(dbName)
+
+  private def rowToValue(row: scalascript.sql.Row): Value =
+    val pairs = row.columns.zip(row.values).map { case (col, v) =>
+      Value.StringV(col) -> wrapJdbcValue(v)
+    }
+    Value.MapV(pairs.toMap)
+
+  private def unwrapForJdbc(v: Any): Any = v match
+    case Value.IntV(n)              => n
+    case Value.DoubleV(d)           => d
+    case Value.StringV(s)           => s
+    case Value.BoolV(b)             => b
+    case Value.CharV(c)             => c
+    case Value.UnitV                => null
+    case Value.NullV                => null
+    case Value.OptionV(None)        => null
+    case Value.OptionV(Some(inner)) => unwrapForJdbc(inner)
+    case Value.Foreign(_, h)        => h
+    case other                      => other
+
+  private def wrapJdbcValue(v: Any): Value = v match
+    case null        => Value.NullV
+    case s: String   => Value.StringV(s)
+    case b: Boolean  => Value.BoolV(b)
+    case n: Int      => Value.IntV(n.toLong)
+    case n: Long     => Value.IntV(n)
+    case n: Short    => Value.IntV(n.toLong)
+    case n: Byte     => Value.IntV(n.toLong)
+    case d: Double   => Value.DoubleV(d)
+    case f: Float    => Value.DoubleV(f.toDouble)
+    case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)
+    case bd: java.math.BigDecimal => Value.DoubleV(bd.doubleValue)
+    case other       => Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)

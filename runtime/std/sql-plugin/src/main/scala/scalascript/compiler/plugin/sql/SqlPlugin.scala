@@ -17,6 +17,7 @@ class SqlPlugin extends Backend:
 
   def intrinsics:      Map[QualifiedName, IntrinsicImpl] = SqlIntrinsics.table
   def acceptedSources: Set[String]                       = Set.empty
+  override def sqlBlockRunner: Option[SqlBlockRunner]    = Some(SqlBlockRunnerImpl)
 
   def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
     CompileResult.Failed(List(Diagnostic.Generic("SqlPlugin does not compile — intrinsic provider only")))
