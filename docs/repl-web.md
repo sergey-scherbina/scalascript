@@ -1,6 +1,6 @@
 # REPL Web-Aware Mode + `mount()` intrinsic
 
-**Status:** spec — not yet implemented  
+**Status:** complete — all 8 phases landed (2026-05-26)  
 **Milestone:** v1.30  
 **Spec:** this document  
 
