@@ -4685,9 +4685,14 @@ The flag also applies to `--target macos` (where it controls whether the termina
 
 ### Incremental build
 
-Compare `mtime(MyApp.ssc)` vs `mtime(<AppName>.app/Info.plist)`:
-- Unchanged → skip package generation + xcodebuild; go straight to install + launch
-- Changed → full rebuild
+`--rebuild` / `--no-rebuild` (default: `--no-rebuild` = incremental)
+
+| Flag | Behaviour |
+|------|-----------|
+| `--no-rebuild` (default) | Compare `mtime(MyApp.ssc)` vs `mtime(<AppName>.app/Info.plist)` — skip package + xcodebuild if unchanged; only install + launch |
+| `--rebuild` | Always regenerate Swift Package and run xcodebuild regardless of mtimes |
+
+Applies to both `--target ios` and `--target macos`.
 
 ### Pre-flight check
 
