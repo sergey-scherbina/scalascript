@@ -578,3 +578,109 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     val out = runJs(code + "\n" + harness)
     assert(out == "1:hello,2:world,3:done", s"Got: $out")
   }
+
+  // ── WebSocket endpoints ───────────────────────────────────────────
+
+  private val wsSource =
+    """---
+      |apiClients:
+      |  Chat:
+      |    endpoints:
+      |      - name: connect
+      |        method: GET
+      |        path: /ws/chat
+      |        request: Unit
+      |        response: ChatMsg
+      |        stream: ws
+      |      - name: join
+      |        method: GET
+      |        path: /ws/rooms/:room
+      |        request: JoinRequest
+      |        response: ChatMsg
+      |        stream: websocket
+      |---
+      |
+      |# Test
+      |
+      |```scalascript
+      |case class ChatMsg(user: String, text: String)
+      |case class JoinRequest(room: String)
+      |```
+      |""".stripMargin
+
+  test("JS codegen emits _ssc_api_ws_request runtime function") {
+    val code = JsGen.generate(Parser.parse(wsSource))
+    assert(code.contains("function _ssc_api_ws_request("))
+    assert(code.contains("new WebSocket("))
+    assert(code.contains("addEventListener('message'"))
+    assert(code.contains("addEventListener('error'"))
+  }
+
+  test("JS codegen emits WS method for Unit-request endpoint without input arg") {
+    val code = JsGen.generate(Parser.parse(wsSource))
+    assert(code.contains("""connect(onEvent, onError, onOpen, headers) { return _ssc_api_ws_request("/ws/chat", undefined, onEvent, onError, onOpen, "ChatMsg", headers); }"""))
+  }
+
+  test("JS codegen emits WS method for typed-request endpoint with input arg") {
+    val code = JsGen.generate(Parser.parse(wsSource))
+    assert(code.contains("""join(input, onEvent, onError, onOpen, headers) { return _ssc_api_ws_request("/ws/rooms/:room", input, onEvent, onError, onOpen, "ChatMsg", headers); }"""))
+  }
+
+  test("JS codegen: stream: websocket is also recognised as WS") {
+    val src =
+      """|---
+         |apiClients:
+         |  Notifications:
+         |    endpoints:
+         |      - name: listen
+         |        method: GET
+         |        path: /ws/notify
+         |        request: Unit
+         |        response: String
+         |        stream: websocket
+         |---
+         |""".stripMargin
+    val code = JsGen.generate(Parser.parse(src))
+    assert(code.contains("_ssc_api_ws_request"))
+    assert(code.contains("""listen(onEvent, onError, onOpen, headers)"""))
+  }
+
+  test("JS WS runtime delivers messages via fake WebSocket") {
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(wsSource))
+    val harness =
+      """
+        |const EventEmitter = require('events');
+        |class FakeWS extends EventEmitter {
+        |  constructor(url) {
+        |    super();
+        |    this.readyState = 1;
+        |    this.url = url;
+        |    process.nextTick(() => {
+        |      this.emit('open');
+        |      ['{"_type":"ChatMsg","user":"alice","text":"hi"}',
+        |       '{"_type":"ChatMsg","user":"bob","text":"hey"}'].forEach(d => {
+        |        this.emit('message', { data: d });
+        |      });
+        |      this.emit('close', { wasClean: true });
+        |    });
+        |  }
+        |  send(msg) {}
+        |  close() { this.readyState = 3; }
+        |  addEventListener(ev, fn) { this.on(ev, fn); }
+        |}
+        |globalThis.WebSocket = FakeWS;
+        |
+        |const received = [];
+        |Chat.connect(
+        |  function(msg) { received.push(msg.user + ":" + msg.text); },
+        |  function(err) { process.stdout.write("ERR:" + err); process.exitCode = 1; }
+        |);
+        |
+        |setTimeout(function() {
+        |  process.stdout.write(received.join(","));
+        |}, 100);
+        |""".stripMargin
+    val out = runJs(code + "\n" + harness)
+    assert(out == "alice:hi,bob:hey", s"Got: $out")
+  }

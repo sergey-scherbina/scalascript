@@ -91,6 +91,7 @@ case class ApiEndpointDecl(
 
 object ApiEndpointDecl:
   def isSse(e: ApiEndpointDecl): Boolean = e.stream.exists(s => s == "sse" || s == "true")
+  def isWs(e: ApiEndpointDecl): Boolean  = e.stream.exists(s => s == "ws" || s == "websocket")
 
 /** A `databases:` entry in front-matter declares a named JDBC
  *  connection consumed by `sql` blocks.  `url` is mandatory;

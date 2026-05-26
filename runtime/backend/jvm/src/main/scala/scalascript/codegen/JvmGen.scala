@@ -1811,7 +1811,23 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           client.endpoints.foreach { endpoint =>
             val method = scalaStringLiteral(endpoint.method)
             val path = scalaStringLiteral(endpoint.path)
-            if ApiEndpointDecl.isSse(endpoint) then
+            if ApiEndpointDecl.isWs(endpoint) then
+              if endpoint.requestType == "Unit" then
+                sb.append("  def ").append(endpoint.name)
+                  .append("(onEvent: ").append(endpoint.responseType).append(" => Unit")
+                  .append(", onError: String => Unit = _ => ()")
+                  .append(", onOpen: _SscWsHandle => Unit = _ => ()): _SscWsHandle")
+                  .append(" = _ssc_api_ws_request[Unit, ").append(endpoint.responseType).append("](")
+                  .append(path).append(", (), onEvent, onError, onOpen)\n")
+              else
+                sb.append("  def ").append(endpoint.name)
+                  .append("(input: ").append(endpoint.requestType)
+                  .append(", onEvent: ").append(endpoint.responseType).append(" => Unit")
+                  .append(", onError: String => Unit = _ => ()")
+                  .append(", onOpen: _SscWsHandle => Unit = _ => ()): _SscWsHandle")
+                  .append(" = _ssc_api_ws_request[").append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
+                  .append(path).append(", input, onEvent, onError, onOpen)\n")
+            else if ApiEndpointDecl.isSse(endpoint) then
               if endpoint.requestType == "Unit" then
                 sb.append("  def ").append(endpoint.name)
                   .append("(onEvent: ").append(endpoint.responseType).append(" => Unit")
@@ -1936,6 +1952,54 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)
        |  _ssc_typed_json_decode_response[Resp](response)
+       |
+       |trait _SscWsHandle extends AutoCloseable:
+       |  def send(msg: String): Unit
+       |  def close(): Unit
+       |
+       |def _ssc_api_ws_request[Req, Resp](
+       |  pathTemplate: String, input: Req,
+       |  onEvent: Resp => Unit, onError: String => Unit,
+       |  onOpen: _SscWsHandle => Unit
+       |)(using io.circe.Decoder[Resp], io.circe.Encoder[Req]): _SscWsHandle =
+       |  val base = _ssc_api_base_url()
+       |  val httpBase = if base.nonEmpty then base else ""
+       |  val wsBase = httpBase.replaceFirst("^https://", "wss://").replaceFirst("^http://", "ws://")
+       |  val path = _ssc_api_path(pathTemplate, input)
+       |  val query = _ssc_api_query(pathTemplate, input)
+       |  val uriStr = (if wsBase.nonEmpty then wsBase else "ws://localhost") + path + query
+       |  val uri = java.net.URI.create(uriStr)
+       |  @volatile var wsRef: java.net.http.WebSocket = null
+       |  @volatile var closed = false
+       |  val handle = new _SscWsHandle:
+       |    def send(msg: String): Unit = if wsRef != null && !closed then wsRef.sendText(msg, true)
+       |    def close(): Unit = { closed = true; if wsRef != null then wsRef.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "") }
+       |  val listener = new java.net.http.WebSocket.Listener:
+       |    private val buf = new StringBuilder
+       |    override def onOpen(ws: java.net.http.WebSocket): Unit =
+       |      wsRef = ws
+       |      if input != (()) then
+       |        try ws.sendText(io.circe.Encoder[Req].apply(input).noSpaces, true) catch case e: Exception => ()
+       |      onOpen(handle)
+       |      ws.request(1)
+       |    override def onText(ws: java.net.http.WebSocket, data: CharSequence, last: Boolean): java.util.concurrent.CompletableFuture[?] =
+       |      buf.append(data)
+       |      if last then
+       |        val text = buf.toString; buf.clear()
+       |        io.circe.parser.decode[Resp](text) match
+       |          case Right(v) => try onEvent(v) catch case e: Exception => onError("WS decode error: " + e.getMessage)
+       |          case Left(e)  => onError("WS decode error: " + e.getMessage)
+       |      ws.request(1)
+       |      null
+       |    override def onError(ws: java.net.http.WebSocket, error: Throwable): Unit =
+       |      if !closed then onError("WS error: " + error.getMessage)
+       |    override def onClose(ws: java.net.http.WebSocket, statusCode: Int, reason: String): java.util.concurrent.CompletableFuture[?] =
+       |      closed = true; null
+       |  java.net.http.HttpClient.newHttpClient()
+       |    .newWebSocketBuilder()
+       |    .buildAsync(uri, listener)
+       |    .exceptionally { e => onError("WS connect error: " + e.getMessage); null }
+       |  handle
        |
        |def _ssc_api_stream_request[Req, Resp](
        |  methodRaw: String, pathTemplate: String, input: Req,

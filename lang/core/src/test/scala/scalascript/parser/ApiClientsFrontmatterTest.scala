@@ -131,3 +131,40 @@ class ApiClientsFrontmatterTest extends AnyFunSuite:
     assert(endpoint.requestType == "CreateMessage")
     assert(endpoint.responseType == "Message")
   }
+
+  test("apiClients parses stream: ws on an endpoint") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Chat:
+        |    endpoints:
+        |      - name: connect
+        |        method: GET
+        |        path: /ws/chat
+        |        request: Unit
+        |        response: ChatMsg
+        |        stream: ws""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.stream == Some("ws"))
+    assert(scalascript.ast.ApiEndpointDecl.isWs(endpoint))
+    assert(!scalascript.ast.ApiEndpointDecl.isSse(endpoint))
+  }
+
+  test("apiClients parses stream: websocket on an endpoint") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Chat:
+        |    endpoints:
+        |      - name: join
+        |        method: GET
+        |        path: /ws/rooms/:room
+        |        request: JoinRequest
+        |        response: ChatMsg
+        |        stream: websocket""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.stream == Some("websocket"))
+    assert(scalascript.ast.ApiEndpointDecl.isWs(endpoint))
+  }

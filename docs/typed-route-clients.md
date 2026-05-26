@@ -485,6 +485,80 @@ thread.
 
 Example: [`examples/sse-typed-client.ssc`](../examples/sse-typed-client.ssc)
 
+### Phase 8 ✓ Landed (2026-05-26) — WebSocket Subscriptions
+
+Add bidirectional WebSocket support to typed route clients. An endpoint declared
+with `stream: ws` (or `stream: websocket`) generates a subscription method that
+returns a handle with `send()` and `close()`.
+
+#### Front-matter declaration
+
+```yaml
+apiClients:
+  Chat:
+    endpoints:
+      - name: connect
+        method: GET
+        path: /ws/chat
+        request: Unit
+        response: ChatMsg
+        stream: ws
+      - name: joinRoom
+        method: GET
+        path: /ws/rooms/:room
+        request: JoinRequest
+        response: ChatMsg
+        stream: ws
+```
+
+#### Generated JS API
+
+For `request: Unit`:
+```js
+Chat.connect(onEvent, onError, onOpen, headers)   // → { close(), send(msg) }
+```
+
+For a typed request:
+```js
+Chat.joinRoom(input, onEvent, onError, onOpen, headers)   // → { close(), send(msg) }
+```
+
+- `onEvent(value)` — called for each decoded WebSocket message.
+- `onError(msg)` — called on connection error or decode failure.
+- `onOpen(handle)` — called when the connection is established; receives the handle.
+- `headers` — optional per-call header overrides (plain object, passed to URL construction).
+- Return value: `{ close(), send(msg) }` — close the socket or send a raw message.
+
+The runtime constructs the WebSocket URL by replacing `http://` → `ws://` and
+`https://` → `wss://` in the base URL. If a typed `input` is provided, it is
+sent as JSON immediately after the connection opens.
+
+#### Generated JVM/Swing API
+
+```scala
+Chat.connect(
+  onEvent: ChatMsg => Unit,
+  onError: String => Unit = _ => (),
+  onOpen:  _SscWsHandle => Unit = _ => ()
+): _SscWsHandle
+
+Chat.joinRoom(
+  input:   JoinRequest,
+  onEvent: ChatMsg => Unit,
+  onError: String => Unit = _ => (),
+  onOpen:  _SscWsHandle => Unit = _ => ()
+): _SscWsHandle
+```
+
+`_SscWsHandle` extends `AutoCloseable` and adds `send(msg: String)`. The JVM
+runtime uses `java.net.http.HttpClient.newWebSocketBuilder()` (Java 11+) to
+open the connection asynchronously. The `Listener.onText` handler buffers
+partial frames, decodes complete messages via circe, and calls `onEvent`. If
+a typed input is provided, it is sent as JSON in the `onOpen` callback before
+the user's `onOpen` fires.
+
+Example: [`examples/ws-typed-client.ssc`](../examples/ws-typed-client.ssc)
+
 ## Testing Strategy
 
 - Parser/AST or lowering tests for endpoint declarations.

@@ -1,0 +1,70 @@
+---
+name: ws-typed-client
+version: "0.1"
+description: WebSocket subscription typed route client example (v1.46)
+frontend: swing
+apiClients:
+  Chat:
+    endpoints:
+      - name: connect
+        method: GET
+        path: /ws/chat
+        request: Unit
+        response: ChatMsg
+        stream: ws
+      - name: joinRoom
+        method: GET
+        path: /ws/rooms/:room
+        request: JoinRequest
+        response: ChatMsg
+        stream: ws
+---
+
+# WebSocket Typed Client Example
+
+Demonstrates bidirectional WebSocket subscriptions through a typed route client.
+The `stream: ws` (or `stream: websocket`) declaration generates a subscription
+method that delivers server messages via a callback and returns a handle with
+`send()` and `close()`.
+
+```scalascript
+case class ChatMsg(user: String, text: String)
+case class JoinRequest(room: String)
+```
+
+## Connect to global chat
+
+`Chat.connect` has no request payload — it opens the WebSocket and calls
+`onEvent` for each `ChatMsg` the server pushes.  The optional `onOpen` callback
+receives the handle immediately when the connection is established.
+
+```scalascript
+val handle = Chat.connect(
+  onEvent = { msg => println(msg.user + ": " + msg.text) },
+  onError = { err => println("WS error: " + err) },
+  onOpen  = { ws =>
+    ws.send("""{"action":"hello"}""")
+    println("connected")
+  }
+)
+
+// Send a message any time after onOpen fires:
+// handle.send("""{"text":"Hi everyone!"}""")
+
+// Disconnect:
+// handle.close()
+```
+
+## Join a specific room
+
+`Chat.joinRoom` takes a `JoinRequest` input: the path param `:room` is filled
+from `JoinRequest.room`, and the input is also sent as the first WebSocket
+message after the handshake.
+
+```scalascript
+val roomHandle = Chat.joinRoom(
+  input   = JoinRequest("scala"),
+  onEvent = { msg => println("[scala] " + msg.user + ": " + msg.text) },
+  onError = { err => println("room error: " + err) }
+)
+```
