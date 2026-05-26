@@ -22,8 +22,8 @@ _(all done — see Done section below)_
 
 ## Native Platform
 
-- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target mobile-ios` via xcrun simctl + incremental swift build
-  _Simulator launch, pre-flight toolchain check, skip swift build when .ssc unchanged. Spec: `BACKLOG.md # Native Platform §v1.48.1`._
+- [ ] **v1.48.2-swiftui-ios-run** — `ssc run --target mobile-ios` via xcodebuild + xcrun simctl
+  _Full cycle: xcodebuild → boot simulator → open Simulator.app → install → launch --console. Incremental (mtime check). Spec: `BACKLOG.md # Native Platform §v1.48.2`._
 
 ## Language & Compiler
 

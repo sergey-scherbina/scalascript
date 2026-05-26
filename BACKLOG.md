@@ -4644,8 +4644,46 @@ signal semantics and style modifier lowering.
 - `ssc run --target macos MyApp.ssc` — generates Swift Package, runs `swift build`, launches the binary
 - `swiftAppName` helper derives Swift product name from `.ssc` name frontmatter
 
-### Remaining (v1.48.2)
+---
 
-- `ssc run --target mobile-ios` → `xcrun simctl` launch on iOS Simulator
-- Pre-flight toolchain check (`ssc toolchain check --target macos/mobile-ios`)
-- Incremental: skip `swift build` when `.ssc` source has not changed
+## v1.48.2 — `ssc run --target mobile-ios` (iOS Simulator)
+
+**Status:** planned
+**Depends on:** v1.48.1 ✓
+
+### Goals
+
+`ssc run --target mobile-ios MyApp.ssc` does the full cycle in one command:
+
+1. Generate Swift Package (`buildSwiftUIPackage platform=ios`)
+2. `xcodebuild build -scheme <AppName> -destination "platform=iOS Simulator,id=<uuid>" -derivedDataPath target/build/mobile-ios/derived`
+3. Find `.app` at `derived/Build/Products/Debug-iphonesimulator/<AppName>.app`
+4. Select simulator: `xcrun simctl list devices available --json` → latest available iPhone (e.g. iPhone 16 Pro)
+5. Boot: `xcrun simctl boot <uuid>` (ignore "already booted" error)
+6. Open window: `open -a Simulator`
+7. Install: `xcrun simctl install booted <path-to.app>`
+8. Launch with logs (blocks terminal): `xcrun simctl launch --console booted <bundle-id>`
+
+Bundle ID from frontmatter `bundle-id:` (default `com.example.app`).
+
+### Incremental build
+
+Compare `mtime(MyApp.ssc)` vs `mtime(<AppName>.app/Info.plist)`:
+- If `.ssc` unchanged since last build → skip package generation + xcodebuild, go straight to install + launch
+- If changed → full rebuild
+
+### Pre-flight check
+
+If `xcodebuild` or `xcrun` missing → print clear error:
+```
+Error: Xcode is required for --target mobile-ios.
+Run: ssc toolchain check --target mobile-ios
+```
+
+### Non-goals
+
+- Real device deploy (needs Apple Developer account + signing — separate task)
+- Hot-reload / live preview
+- iPad or tvOS simulator
+
+Effort: ~1 day.
