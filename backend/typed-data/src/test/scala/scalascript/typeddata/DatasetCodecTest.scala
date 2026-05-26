@@ -29,3 +29,27 @@ class DatasetCodecTest extends AnyFunSuite:
       "tags" -> JsonValue.arr()
     ))
     assert(DatasetCodec.decodeAll[Event](bad).left.toOption.exists(_.render == "$.1.amount: expected number, got string"))
+
+  test("DatasetCodec encodes worker partitions with stable partition ids"):
+    val partitions = DatasetCodec.encodePartitions(Vector(
+      Vector(Event("e1", 1, Nil)),
+      Vector(Event("e2", 2, List("ok")), Event("e3", 3, Nil))
+    ))
+
+    assert(partitions.map(_.partitionId) == Vector(0, 1))
+    assert(DatasetCodec.decodePartitions[Event](partitions) == Right(Vector(
+      DatasetPartition(0, Vector(Event("e1", 1, Nil))),
+      DatasetPartition(1, Vector(Event("e2", 2, List("ok")), Event("e3", 3, Nil)))
+    )))
+
+    val bad = partitions.updated(
+      1,
+      partitions(1).copy(values = partitions(1).values.updated(0, JsonValue.obj(
+        "id" -> JsonValue.Str("e2"),
+        "amount" -> JsonValue.Str("wrong"),
+        "tags" -> JsonValue.arr()
+      )))
+    )
+    assert(DatasetCodec.decodePartitions[Event](bad).left.toOption.exists(
+      _.render == "$.partition[1].0.amount: expected number, got string"
+    ))

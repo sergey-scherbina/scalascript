@@ -1,0 +1,29 @@
+---
+title: Distributed Dataset codec
+description: Typed DatasetCodec partition payloads for distributed MapReduce workers
+backend: jvm
+---
+
+# Distributed Dataset Codec
+
+```scalascript
+import scalascript.typeddata.{DatasetCodec, DatasetPartition, JsonCodec, JsonValue}
+
+case class Metric(id: String, amount: Int, tags: List[String]) derives JsonCodec
+
+val partitions = DatasetCodec.encodePartitions(Vector(
+  Vector(Metric("e1", 10, List("worker-1"))),
+  Vector(Metric("e2", 25, List("worker-2")), Metric("e3", 5, Nil))
+))
+
+val decoded =
+  DatasetCodec.decodePartitions[Metric](partitions) match
+    case Right(value) => value
+    case Left(error)  => throw RuntimeException(error.render)
+
+val summary = decoded
+  .flatMap(partition => partition.values.map(metric => s"${partition.partitionId}:${metric.id}:${metric.amount}"))
+  .mkString(",")
+
+println(summary)
+```

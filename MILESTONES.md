@@ -10447,8 +10447,12 @@ modes opt out of that default.
   `SparkSchemaCodec[A]` metadata when it is in scope, read external storage
   column names, and alias them back to Scala case-class field names before
   Spark `.as[A]`; `examples/spark-shared-schema-reader.ssc` documents the
-  path. Remaining: richer sync UI helpers, production graph adapters, and
-  distributed MapReduce worker serialization convergence.
+  path. Follow-up landed 2026-05-26: `DatasetCodec[A]` now exposes
+  `DatasetWirePartition`, `DatasetPartition[A]`, and partition-level
+  encode/decode helpers so distributed MapReduce worker payloads share the
+  typed-data codec layer; `examples/distributed-dataset-codec.ssc` documents
+  the path. Remaining: richer sync UI helpers, production graph adapters, and
+  wiring these partition payloads into the std/mapreduce actor protocol.
 
 ## v1.44 — Full-Stack In-Process Transport
 

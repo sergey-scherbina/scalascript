@@ -8,6 +8,13 @@ package scalascript.typeddata
  */
 trait DatasetCodec[A] extends Codec[A, JsonValue]
 
+final case class DatasetPartition[A](partitionId: Int, values: Vector[A])
+
+final case class DatasetWirePartition(
+    partitionId: Int,
+    values:      Vector[JsonValue]
+)
+
 object DatasetCodec:
   def apply[A](using codec: DatasetCodec[A]): DatasetCodec[A] = codec
 
@@ -32,5 +39,33 @@ object DatasetCodec:
     values.iterator.zipWithIndex.foldLeft[Either[DecodeError, Vector[A]]](Right(Vector.empty)) {
       case (Right(acc), (value, index)) =>
         codec.decode(value).left.map(_.at(index.toString)).map(acc :+ _)
+      case (left @ Left(_), _) => left
+    }
+
+  def encodePartition[A](
+      partitionId: Int,
+      values:      Iterable[A]
+  )(using codec: DatasetCodec[A]): DatasetWirePartition =
+    DatasetWirePartition(partitionId, encodeAll(values))
+
+  def decodePartition[A](
+      partition: DatasetWirePartition
+  )(using codec: DatasetCodec[A]): Either[DecodeError, DatasetPartition[A]] =
+    decodeAll[A](partition.values).left.map(_.at(s"partition[${partition.partitionId}]"))
+      .map(values => DatasetPartition(partition.partitionId, values))
+
+  def encodePartitions[A](
+      partitions: Iterable[Iterable[A]]
+  )(using codec: DatasetCodec[A]): Vector[DatasetWirePartition] =
+    partitions.iterator.zipWithIndex
+      .map((values, partitionId) => encodePartition(partitionId, values))
+      .toVector
+
+  def decodePartitions[A](
+      partitions: Iterable[DatasetWirePartition]
+  )(using codec: DatasetCodec[A]): Either[DecodeError, Vector[DatasetPartition[A]]] =
+    partitions.iterator.foldLeft[Either[DecodeError, Vector[DatasetPartition[A]]]](Right(Vector.empty)) {
+      case (Right(acc), partition) =>
+        decodePartition[A](partition).map(acc :+ _)
       case (left @ Left(_), _) => left
     }

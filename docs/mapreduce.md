@@ -244,22 +244,34 @@ supervision link.  On worker failure:
 
 ### 4.4 Serialisation
 
-Worker functions need to cross node boundaries.  Options:
+Worker functions and typed partition payloads need to cross node boundaries.
+Options:
 
 - **Named handlers** — register reusable mappers /
   reducers on every node ahead of time; dispatch by name
   (Erlang-style; doesn't serialise the closure).  v1.22
   ships this.
+- **Typed partition payloads** — `DatasetCodec[A]` provides
+  `DatasetWirePartition` plus `encodePartition` /
+  `decodePartition` and batch `encodePartitions` /
+  `decodePartitions` helpers.  They encode each worker
+  partition as `Vector[JsonValue]` with a stable `partitionId`,
+  preserving decode-error paths such as
+  `$.partition[2].5.amount`.  This is the shared typed-data
+  format that `ProcessPartition` / `PartitionResult` can move
+  toward without changing user domain models.
 - **Closure serialisation** — serialise the `T => U`
   closure including its captured environment.  Deferred to
   v1.22.x; requires v1.14 `derives` + bytecode shenanigans;
   brittle in practice.
 
-For v1.22: **named handlers only**.  Users register `def
+For v1.22: **named handlers only for functions**.  Users register `def
 parseRow(line: String): Row = …` on every node (via the
 shared codebase deployment); the API uses the function name
 in messages.  Spark-like inline closures wait for closure
-serialisation.
+serialisation. Typed data movement should use `DatasetCodec[A]`
+partition helpers where a distributed worker boundary needs a
+stable representation for domain values.
 
 ### 4.5 Backend support
 

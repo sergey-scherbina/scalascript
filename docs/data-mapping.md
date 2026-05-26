@@ -351,7 +351,8 @@ Roles:
   existing `derives JsonCodec` domain types automatically get a stable
   `JsonValue` representation for Dataset element movement. `DatasetCodec`
   also provides `encodeAll` / `decodeAll` batch helpers with indexed decode
-  error paths.
+  error paths, plus `DatasetWirePartition` and partition encode/decode helpers
+  for distributed worker payloads.
 - `SparkSchemaCodec[A]` is now available for Spark-like schema metadata in the
   shared typed-data layer. It derives case-class field names from the same
   `@fieldName` annotation used by `JsonCodec` / `RowCodec`, preserves `@key`
@@ -503,8 +504,12 @@ the same query model.
    2026-05-26: SparkGen typed readers consume `SparkSchemaCodec[A]` when it is
    in scope, build the Spark read schema from shared metadata, and alias storage
    column names back to Scala case-class fields before `.as[A]`; see
-   `examples/spark-shared-schema-reader.ssc`. Remaining: align distributed
-   MapReduce worker serialization.
+   `examples/spark-shared-schema-reader.ssc`. Follow-up landed 2026-05-26:
+   `DatasetCodec[A]` now exposes `DatasetWirePartition`,
+   `DatasetPartition[A]`, and partition-level encode/decode helpers for
+   distributed MapReduce worker payloads; see
+   `examples/distributed-dataset-codec.ssc`. Remaining: wire these partition
+   payloads into the std/mapreduce actor protocol.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

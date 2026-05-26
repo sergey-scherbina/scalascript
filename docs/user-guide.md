@@ -1232,7 +1232,10 @@ Case classes and ADTs should derive codecs such as `JsonCodec`, `RowCodec`,
 serialization. It derives from `JsonCodec[A]` by default and exposes
 `encodeAll` / `decodeAll` helpers, so a JVM Dataset pipeline can map typed
 values to stable `JsonValue` elements and decode them later without hand-written
-adapters.
+adapters. It also exposes `encodePartition`, `decodePartition`,
+`encodePartitions`, and `decodePartitions` helpers so distributed MapReduce
+workers can move typed partition payloads through the same codec layer instead
+of inventing a separate worker-only representation.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.
