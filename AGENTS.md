@@ -628,6 +628,28 @@ running (check `git worktree list` and the timestamp inside the file).
 
 ## Autonomous continuous-delivery flow
 
+### Status command
+
+When the user says **"статус"** / **"status"** / **"план"** / **"что делаем"**:
+
+1. `git fetch origin` — get fresh state
+2. Read `WORK_QUEUE.md` groups + `ls .work/active/`
+3. Print a structured summary (do NOT start working):
+
+```
+ACTIVE: <slug> [group]          ← if something is claimed, else "nothing active"
+
+Typed Route Clients   3 pending
+Payments              6 pending
+Database              4 pending
+Native Platform       1 pending
+Compiler & Runtime    2 pending
+
+Next up: <slug> — <one-line description>
+```
+
+Show counts per group, highlight active claims, name the next task to pick.
+
 ### Starting the loop
 
 The user starts the loop by saying any of:
@@ -638,8 +660,18 @@ The user starts the loop by saying any of:
 | "продолжай" / "continue" | Resume — skip already-done tasks, pick next pending |
 | "работай над X" / "do X" | Start with a specific task, then continue the queue |
 
-When the loop starts, announce which task you are claiming first, then work
-silently until each task lands. One progress line per shipped task is enough.
+When the loop starts, **announce the first claimed task** before doing any work:
+
+```
+▶ <slug> [group] — <one-line description>
+```
+
+Then work silently. On each task completion report:
+
+```
+✓ <slug> — <one-line summary>
+▶ <next-slug> [group] — <description>   ← if continuing; omit if stopping
+```
 
 ### Stopping the loop
 

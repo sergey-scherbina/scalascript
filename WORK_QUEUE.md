@@ -1,42 +1,87 @@
 # Work Queue
 
 Agents: claim the top available task using the protocol in `AGENTS.md §"Task claiming protocol"`.
-Do tasks top-to-bottom within each section. A task is "available" if its slug has no
-corresponding file in `.work/active/`.
+Work top-to-bottom within each group. A task is "available" if its slug has no file in `.work/active/`.
 
-**Loop control** — to pause the autonomous loop between tasks, push `.work/paused` to
-`origin/main` (see `AGENTS.md §"Stopping the loop"`). To resume, remove it and push.
-To start: tell the agent "работай" / "go" / "start".
+**Loop control** — pause: push `.work/paused` to `origin/main`. Resume: remove it and push.
+Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` / `"status"`.
 
 ---
 
-## Pending
+## Typed Route Clients (v1.46)
 
-- [ ] **v1.46-phase5-derivation** — v1.46 Phase 5: route derivation from `route()`/`mount()` handlers  
-  _Spec: `docs/typed-route-clients.md` §Phase 5. Auto-generate `apiClients:` metadata from existing typed route declarations so users don't need to write front-matter manually. Cross-file type analysis required._
+- [ ] **v1.46-phase5-derivation** — Route derivation from `route()`/`mount()` handlers  
+  _Auto-generate `apiClients:` metadata from typed route declarations. Cross-file type analysis. Spec: `docs/typed-route-clients.md` §Phase 5._
 
-- [ ] **v1.46-ws-subscriptions** — v1.46: WebSocket subscription support in typed route clients  
-  _Spec: `docs/typed-route-clients.md`. Bidirectional WS channel methods generated alongside SSE streaming methods. JS: native WebSocket; JVM: daemon thread with AutoCloseable._
+- [ ] **v1.46-ws-subscriptions** — WebSocket subscriptions in typed route clients  
+  _Bidirectional WS channel methods. JS: native WebSocket; JVM: daemon thread + AutoCloseable. Spec: `docs/typed-route-clients.md`._
 
-- [ ] **v1.46-phase6-pagination** — v1.46: pagination helpers  
-  _Spec: `docs/typed-route-clients.md` §Phase 6. Generated `listPaged(page, size)` helpers for endpoints that follow a page/limit pattern._
+- [ ] **v1.46-pagination** — Pagination helpers  
+  _Generated `listPaged(page, size)` for page/limit endpoints. Spec: `docs/typed-route-clients.md` §Phase 6._
+
+## Payments & Blockchain
+
+- [ ] **v1.38-payment-request** — Payment Request API (browser + server)  
+  _Browser Payment Request API integration + server-side payment session handling. Spec: `BACKLOG.md §v1.38`._
+
+- [ ] **x402-http-payment** — x402 HTTP payment protocol  
+  _402-gated routes, x402 payment channel, token verification. Spec: `BACKLOG.md §x402`._
+
+- [ ] **blockchain-spi** — Blockchain SPI  
+  _Chain abstraction layer for x402 + wallet. Spec: `BACKLOG.md §Blockchain SPI`._
+
+- [ ] **wallet-key-mgmt** — Wallet key management + dApp connectivity  
+  _Key storage, signing, WalletConnect bridge. Spec: `BACKLOG.md §Wallet SPI — key management`._
+
+- [ ] **mcp-x402-wallet** — MCP × x402 × Wallet agentic payments  
+  _Agent-initiated micropayments via MCP tool calls. Spec: `BACKLOG.md §MCP × x402 × Wallet`._
+
+- [ ] **micropayment-platform** — Micropayment platform (channel-based)  
+  _Fee amortisation for microtransactions. Spec: `BACKLOG.md §Micropayment Platform`._
+
+## Database
+
+- [ ] **v1.26-sql-jdbc** — `sql` fenced code blocks (JDBC)  
+  _`sql { SELECT ... }` blocks compiled to JDBC calls. Full spec: `BACKLOG.md §v1.26`._
+
+- [ ] **v1.27-browser-sql** — Browser-side SQL (sql.js / DuckDB-Wasm)  
+  _Same `sql { }` syntax in JS target via sql.js or DuckDB-Wasm. Spec: `BACKLOG.md §v1.27`._
+
+- [ ] **v1.30-side-sql** — `@side=client|server` for SQL blocks in full-stack modules  
+  _Annotate which SQL blocks run client-side vs server-side. Spec: `BACKLOG.md §v1.30 @side`._
+
+- [ ] **v1.31-transaction** — `transaction` fenced block  
+  _Database transaction scope as a language construct. Spec: `BACKLOG.md §v1.31`._
+
+## Native Platform
+
+- [ ] **v1.48-swiftui** — SwiftUI Native Frontend (iOS + macOS)  
+  _SwiftUI renderer backend; `ssc run --frontend swiftui`. Spec: `BACKLOG.md §v1.48 SwiftUI`._
+
+## Compiler & Runtime
+
+- [ ] **v2.0-sep-compile** — Separate compilation (full pipeline)  
+  _Per-module IR artifacts, interface files, linker pass. MVP landed; full pipeline remains. Spec: `BACKLOG.md §v2.0`._
+
+- [ ] **interpreter-ergonomics** — Interpreter ergonomics (v1.1 carryover)  
+  _Better error messages, REPL completion, source maps. Spec: `BACKLOG.md §Interpreter ergonomics`._
 
 ---
 
-## Done (this sprint)
+## Done
 
-- [x] **v1.46-phase1-metadata** — Phase 1: `apiClients:` front-matter parse → `ApiClientDecl` AST metadata
-- [x] **v1.46-phase2-swing-client** — Phase 2: JVM/Swing in-process callable client objects
-- [x] **v1.46-phase3-http-client** — Phase 3: JS HTTP client + async `awaitClient` integration
-- [x] **v1.46-phase4-shared-codecs** — Phase 4: shared `_ssc_typed_json_encode/decode` codec facade
-- [x] **v1.46-phase5-validation** — Phase 5 partial: static path-param validation warnings
-- [x] **v1.46-phase6-auth** — Phase 6: auth/custom header injection (`_ssc_api_set_headers`, `_ssc_set_auth_token`)
-- [x] **v1.46-phase6-per-call-headers** — Phase 6: per-call header overrides (optional `headers` param on every method)
-- [x] **v1.46-phase6-retry** — Phase 6: retry policy (`_ssc_api_set_retry(maxRetries, delayMs)`)
-- [x] **v1.46-phase6-cancel** — Phase 6: cancellation tokens (`_ssc_api_cancel_token()`, `token.cancel()`)
-- [x] **v1.46-phase7-sse** — Phase 7: SSE streaming (`stream: sse` endpoint declaration; EventSource/fetch+ReadableStream JS; HttpURLConnection daemon-thread JVM)
+- [x] **v1.46-phase1-metadata** — `apiClients:` front-matter → `ApiClientDecl` AST
+- [x] **v1.46-phase2-swing-client** — JVM/Swing in-process callable clients
+- [x] **v1.46-phase3-http-client** — JS HTTP client + `awaitClient` async
+- [x] **v1.46-phase4-shared-codecs** — shared `_ssc_typed_json_encode/decode` facade
+- [x] **v1.46-phase5-validation** — static path-param validation warnings
+- [x] **v1.46-phase6-auth** — auth/custom header injection
+- [x] **v1.46-phase6-per-call-headers** — per-call header overrides
+- [x] **v1.46-phase6-retry** — retry policy (`_ssc_api_set_retry`)
+- [x] **v1.46-phase6-cancel** — cancellation tokens
+- [x] **v1.46-phase7-sse** — SSE streaming (EventSource/fetch JS; HttpURLConnection JVM)
 
 ---
 
-> When you finish a task: remove `.work/active/<slug>.claim`, mark the task `[x]` here,
-> both in the same final push. See `AGENTS.md §"Task claiming protocol"`.
+> Finish a task: remove `.work/active/<slug>.claim`, mark `[x]` here — same push.
+> See `AGENTS.md §"Task claiming protocol"`.
