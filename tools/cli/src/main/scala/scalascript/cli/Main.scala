@@ -545,7 +545,7 @@ def printUsage(): Unit =
     |                         Flags: --spark-master <url>, --spark-version <v>, --dry-run
     |                         Pass extra spark-submit args after `--` (e.g. --executor-memory 4g)
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
-    |  emit-wasm              Compile .ssc scala blocks to WebAssembly via Scala.js (writes .wasm + .js)
+    |  emit-wasm              Compile .ssc scala/scalascript blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
     |                         Flags: --frontend <custom|react|solid|vue>
     |                                (picks the FrontendFrameworkSpi impl — defaults to first-found;
@@ -4390,7 +4390,7 @@ def emitWasmCommand(args: List[String]): Unit =
         compileViaBackend("wasm", path) match
           case CompileResult.Segmented(segs) =>
             if segs.isEmpty then
-              System.err.println("emit-wasm: no scala blocks found in source")
+              System.err.println("emit-wasm: no compilable scala/scalascript blocks found in source")
               System.exit(1)
             for seg <- segs do seg match
               case Segment.Asset(name, bytes, _) =>
