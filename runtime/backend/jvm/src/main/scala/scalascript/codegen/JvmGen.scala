@@ -1794,7 +1794,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           client.endpoints.foreach { endpoint =>
             val method = scalaStringLiteral(endpoint.method)
             val path = scalaStringLiteral(endpoint.path)
-            if endpoint.requestType == "Unit" then
+            if ApiEndpointDecl.isSse(endpoint) then
+              if endpoint.requestType == "Unit" then
+                sb.append("  def ").append(endpoint.name)
+                  .append("(onEvent: ").append(endpoint.responseType).append(" => Unit")
+                  .append(", onError: String => Unit = _ => (), headers: Map[String, String] = Map.empty): AutoCloseable")
+                  .append(" = _ssc_api_stream_request[Unit, ").append(endpoint.responseType).append("](")
+                  .append(method).append(", ").append(path).append(", (), onEvent, onError, headers)\n")
+              else
+                sb.append("  def ").append(endpoint.name)
+                  .append("(input: ").append(endpoint.requestType)
+                  .append(", onEvent: ").append(endpoint.responseType).append(" => Unit")
+                  .append(", onError: String => Unit = _ => (), headers: Map[String, String] = Map.empty): AutoCloseable")
+                  .append(" = _ssc_api_stream_request[").append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
+                  .append(method).append(", ").append(path).append(", input, onEvent, onError, headers)\n")
+            else if endpoint.requestType == "Unit" then
               sb.append("  def ").append(endpoint.name)
                 .append("(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ").append(endpoint.responseType)
                 .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
@@ -1905,6 +1919,56 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)
        |  _ssc_typed_json_decode_response[Resp](response)
+       |
+       |def _ssc_api_stream_request[Req, Resp](
+       |  methodRaw: String, pathTemplate: String, input: Req,
+       |  onEvent: Resp => Unit, onError: String => Unit,
+       |  callHeaders: Map[String, String] = Map.empty
+       |)(using io.circe.Decoder[Resp], io.circe.Encoder[Req]): AutoCloseable =
+       |  val method = methodRaw.toUpperCase
+       |  val url = _ssc_api_base_url() + _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
+       |  val body = _ssc_api_body[Req](method, input)
+       |  val baseHeaders: Map[String, String] = Map("Accept" -> "text/event-stream") ++
+       |    (if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty)
+       |  val allHeaders = baseHeaders ++ _ssc_api_extra_headers ++ callHeaders
+       |  @volatile var closed = false
+       |  val thread = new Thread(() => {
+       |    try
+       |      val jurl = new java.net.URL(url)
+       |      val conn = jurl.openConnection().asInstanceOf[java.net.HttpURLConnection]
+       |      conn.setRequestMethod(method)
+       |      allHeaders.foreach { case (k, v) => conn.setRequestProperty(k, v) }
+       |      if body.nonEmpty then
+       |        conn.setDoOutput(true)
+       |        val os = conn.getOutputStream
+       |        os.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+       |        os.flush()
+       |      val status = conn.getResponseCode
+       |      if status < 200 || status >= 300 then
+       |        onError("typed route client SSE: " + method + " " + url + " returned " + status)
+       |      else
+       |        val reader = new java.io.BufferedReader(
+       |          new java.io.InputStreamReader(conn.getInputStream, java.nio.charset.StandardCharsets.UTF_8))
+       |        try
+       |          var line: String = null
+       |          while !closed && { line = reader.readLine(); line != null } do
+       |            if line.startsWith("data:") then
+       |              val data = line.stripPrefix("data:").trim
+       |              if data.nonEmpty then
+       |                io.circe.parser.decode[Resp](data) match
+       |                  case Right(v) => onEvent(v)
+       |                  case Left(e)  => onError("SSE decode error: " + e.getMessage)
+       |        finally reader.close()
+       |    catch
+       |      case _: InterruptedException => ()
+       |      case e: Exception => if !closed then onError("SSE error: " + e.getMessage)
+       |  }, "_ssc_sse")
+       |  thread.setDaemon(true)
+       |  thread.start()
+       |  new AutoCloseable:
+       |    def close(): Unit =
+       |      closed = true
+       |      thread.interrupt()
        |
        |""".stripMargin
 

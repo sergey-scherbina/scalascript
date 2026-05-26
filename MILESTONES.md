@@ -10636,7 +10636,7 @@ pipeline support.
 
 ## v1.46 — Typed Route Clients
 
-**Status:** planned
+**Status:** complete (Phases 0–7; WebSocket subscriptions remain planned)
 **Spec:** [`docs/typed-route-clients.md`](docs/typed-route-clients.md)
 
 Generated typed frontend clients over backend routes. This is the typed
@@ -10709,7 +10709,7 @@ distributed same-source server/client example are partially landed.
   or a locally-declared case class missing a field for a path param. Cross-file
   type analysis and route derivation from `route()` / `mount()` handlers remain
   planned.
-- **Phase 6 ◐ Partially landed (2026-05-26)** — advanced shapes:
+- **Phase 6 ✓ Landed (2026-05-26)** — advanced shapes:
   auth and custom header injection landed: `_ssc_api_set_headers(headers)` and
   `_ssc_set_auth_token(token)` are generated in both the JS and JVM/Swing typed
   route client runtimes. Extra headers are merged into every subsequent client
@@ -10726,7 +10726,23 @@ distributed same-source server/client example are partially landed.
   the cancelled flag; all generated client methods accept `cancelToken` (JS: last
   positional arg; JVM: `_SscCancelToken = null`) checked before and between
   retries; JS also passes `AbortController.signal` to `fetch` when available.
-  Remaining: streaming, SSE/WebSocket, pagination helpers.
+- **Phase 7 ✓ Landed (2026-05-26)** — SSE streaming:
+  `stream: sse` (or `stream: "true"`) in an `apiClients:` endpoint declaration
+  generates a streaming method instead of a unary request/response method. The
+  AST (`ApiEndpointDecl.stream`) and IR carry the field through Normalize/
+  Denormalize. JS codegen emits a `_ssc_api_stream_request` runtime helper that
+  uses the browser native `EventSource` API when available (GET + no custom
+  headers), falling back to `fetch` + `ReadableStream` line-by-line SSE parsing
+  for POST or custom-header cases; each decoded `data:` line calls the `onEvent`
+  callback with the typed value. JVM/Swing codegen emits `_ssc_api_stream_request`
+  that opens an `HttpURLConnection` with `Accept: text/event-stream`, reads lines
+  in a daemon thread, decodes `data: <json>` into the response type via circe,
+  calls `onEvent`, and returns an `AutoCloseable` that interrupts the thread.
+  Generated streaming methods take `(onEvent, onError, headers)` for Unit-request
+  endpoints or `(input, onEvent, onError, headers)` for typed-request ones;
+  return value is `{ close() }` (JS) or `AutoCloseable` (JVM).
+  Example: [`examples/sse-typed-client.ssc`](examples/sse-typed-client.ssc).
+  Remaining: WebSocket subscriptions, pagination, bidirectional channels.
 
 ## v1.47 — JavaFX Desktop Frontend ✓ Complete (2026-05-26)
 

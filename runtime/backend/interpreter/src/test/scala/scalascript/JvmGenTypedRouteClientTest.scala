@@ -213,6 +213,89 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("""def create(input: String, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Int"""))
   }
 
+  test("JVM Swing codegen emits SSE method for Unit-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Events:
+        |    endpoints:
+        |      - name: subscribe
+        |        method: GET
+        |        path: /api/events/stream
+        |        request: Unit
+        |        response: Event
+        |        stream: sse
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |case class Event(id: Int, msg: String)
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("def subscribe(onEvent: Event => Unit, onError: String => Unit = _ => (), headers: Map[String, String] = Map.empty): AutoCloseable"))
+    assert(code.contains("""= _ssc_api_stream_request[Unit, Event]("GET", "/api/events/stream", (), onEvent, onError, headers)"""))
+  }
+
+  test("JVM Swing codegen emits SSE method for non-Unit-request endpoint") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Events:
+        |    endpoints:
+        |      - name: watch
+        |        method: POST
+        |        path: /api/events/watch
+        |        request: WatchRequest
+        |        response: Event
+        |        stream: sse
+        |---
+        |
+        |# Test
+        |
+        |```scalascript
+        |case class Event(id: Int, msg: String)
+        |case class WatchRequest(topic: String)
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("def watch(input: WatchRequest, onEvent: Event => Unit, onError: String => Unit = _ => (), headers: Map[String, String] = Map.empty): AutoCloseable"))
+    assert(code.contains("""= _ssc_api_stream_request[WatchRequest, Event]("POST", "/api/events/watch", input, onEvent, onError, headers)"""))
+  }
+
+  test("JVM Swing codegen emits _ssc_api_stream_request runtime implementation") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Events:
+        |    endpoints:
+        |      - name: subscribe
+        |        method: GET
+        |        path: /api/events/stream
+        |        request: Unit
+        |        response: Event
+        |        stream: sse
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("def _ssc_api_stream_request[Req, Resp]("))
+    assert(code.contains("java.net.HttpURLConnection"))
+    assert(code.contains("Accept"))
+    assert(code.contains("text/event-stream"))
+    assert(code.contains("new AutoCloseable"))
+    assert(code.contains("thread.setDaemon(true)"))
+  }
+
   test("JVM codegen skips client-only ScalaScript blocks") {
     val src =
       """# Test

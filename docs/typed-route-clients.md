@@ -1,10 +1,9 @@
 # Typed Route Clients
 
-Status: **planned / partially implemented** — May 2026. Phase 1 landed the
-front-matter metadata MVP: `apiClients:` / `api-clients:` declarations parse
-into AST metadata and JVM codegen preserves endpoint method/path/type metadata.
-Phase 2 landed callable JVM/Swing in-process clients. HTTP clients for
-Electron, browser, split-process, and distributed modes remain planned.
+Status: **partially implemented** — May 2026. Phases 1–7 landed: front-matter
+metadata, JVM/Swing in-process clients, JS HTTP clients (browser + Electron),
+shared codecs, path-param validation, auth/header injection + retry, and SSE
+streaming. WebSocket subscriptions and pagination remain planned.
 
 This document defines generated typed clients for ScalaScript backend routes.
 The first target is JVM/Swing in-process full-stack mode: frontend code should
@@ -410,8 +409,81 @@ pre-flight and between-retry checks fire before `_ssc_api_send` dispatches.
 In-process JVM requests complete synchronously so thread interruption is not
 needed for the Swing target.
 
-Still planned for Phase 6: streaming responses, SSE/WebSocket subscriptions,
-pagination helpers.
+Still planned for Phase 6: WebSocket subscriptions, pagination helpers, and
+bidirectional channels.
+
+### Phase 7 ✓ Landed (2026-05-26) — SSE Streaming
+
+Add server-sent event (SSE) streaming support to typed route clients. An
+endpoint declared with `stream: sse` (or `stream: "true"`) generates a
+streaming method instead of a unary request/response method.
+
+#### Front-matter declaration
+
+```yaml
+apiClients:
+  Events:
+    endpoints:
+      - name: subscribe
+        method: GET
+        path: /api/events/stream
+        request: Unit
+        response: Event
+        stream: sse
+      - name: watchTopic
+        method: POST
+        path: /api/events/watch
+        request: WatchRequest
+        response: Event
+        stream: sse
+```
+
+#### Generated JS API
+
+For `request: Unit` (no input payload):
+```js
+Events.subscribe(onEvent, onError, headers)   // → { close() }
+```
+
+For a typed request:
+```js
+Events.watchTopic(input, onEvent, onError, headers)   // → { close() }
+```
+
+- `onEvent(value)` — called for each decoded SSE `data:` line.
+- `onError(msg)` — called on connection error or decode failure.
+- `headers` — optional per-call header overrides (plain object).
+- Return value: `{ close() }` — call to cancel the stream.
+
+The runtime tries `EventSource` when the method is `GET` and no custom headers
+are set (browser native SSE). Otherwise it falls back to `fetch` +
+`ReadableStream` with line-by-line SSE parsing. Both paths call `onEvent` with
+decoded typed values.
+
+#### Generated JVM/Swing API
+
+```scala
+Events.subscribe(
+  onEvent: Event => Unit,
+  onError: String => Unit = _ => (),
+  headers: Map[String, String] = Map.empty
+): AutoCloseable
+
+Events.watchTopic(
+  input: WatchRequest,
+  onEvent: Event => Unit,
+  onError: String => Unit = _ => (),
+  headers: Map[String, String] = Map.empty
+): AutoCloseable
+```
+
+The JVM runtime opens an `HttpURLConnection` with `Accept: text/event-stream`,
+reads response lines in a daemon thread, parses `data: <json>` lines, decodes
+each into the response type via circe, and calls `onEvent`. Returns an
+`AutoCloseable`; calling `close()` sets a volatile flag and interrupts the
+thread.
+
+Example: [`examples/sse-typed-client.ssc`](../examples/sse-typed-client.ssc)
 
 ## Testing Strategy
 

@@ -58,6 +58,59 @@ class ApiClientsFrontmatterTest extends AnyFunSuite:
     assert(endpoint.responseType == "Unit")
   }
 
+  test("apiClients parses stream: sse on an endpoint") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Events:
+        |    endpoints:
+        |      - name: subscribe
+        |        method: GET
+        |        path: /api/events/stream
+        |        request: Unit
+        |        response: Event
+        |        stream: sse""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.name == "subscribe")
+    assert(endpoint.stream == Some("sse"))
+    assert(scalascript.ast.ApiEndpointDecl.isSse(endpoint))
+  }
+
+  test("apiClients parses stream: true as SSE") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Events:
+        |    endpoints:
+        |      - name: live
+        |        method: GET
+        |        path: /api/live
+        |        request: Unit
+        |        response: Update
+        |        stream: "true"""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(scalascript.ast.ApiEndpointDecl.isSse(endpoint))
+  }
+
+  test("apiClients without stream field has stream = None") {
+    val mod = withFrontmatter(
+      """apiClients:
+        |  Messages:
+        |    endpoints:
+        |      - name: create
+        |        method: POST
+        |        path: /api/messages
+        |        request: CreateMessage
+        |        response: Message""".stripMargin
+    )
+
+    val endpoint = mod.manifest.get.apiClients.head.endpoints.head
+    assert(endpoint.stream == None)
+    assert(!scalascript.ast.ApiEndpointDecl.isSse(endpoint))
+  }
+
   test("apiClients survive Normalize and Denormalize") {
     val mod = withFrontmatter(
       """apiClients:
