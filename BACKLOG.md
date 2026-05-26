@@ -111,7 +111,10 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     Follow-up landed: `transaction` fenced blocks now route through the same
     plugin runner via `SqlBlockRunner.runTransaction`.
   - **`NativeContext` state-bag** — `featureGet`/`featureSet` deferred; Http migrated via named methods.
-  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/scalascript/server/` not yet a separate subproject.
+  - **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
+    socket/server runtime moved to `runtime/backend/interpreter-server` as
+    `backendInterpreterServer` behind `InterpreterServerSupport`. `Routes` /
+    `WsRoutes` remain in interpreter core pending a smaller route-registry SPI.
 
 ### Effort to "extensibility done"
 
@@ -1464,11 +1467,12 @@ worth a separate fix when somebody has cycles.
   - **`NativeContext` state-bag** (`featureGet`/`featureSet`) — Http
     migrated using all 21 existing named methods; bag deferred.  Needed when
     the next large plugin would otherwise require SPI-trait amendments.  Effort: S + M.
-  - **`interpreter-server` extraction** — `runtime/backend/interpreter/src/main/scala/
-    scalascript/server/` (WebServer, WsRoutes, WsConnection, TlsProxy, etc.)
-    still lives in the interpreter module; Ws and Http plugins depend on it
-    via classpath.  Clean move to `runtime-server-interpreter` subproject
-    deferred.  Effort: M.
+  - **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
+    `WebServer`, `InterpreterHttpHandler`, WS proxy/session/connection code,
+    in-process backend transport, and their server-specific tests now live in
+    `runtime/backend/interpreter-server` (`backendInterpreterServer`) behind
+    `InterpreterServerSupport`. `Routes` / `WsRoutes` remain in interpreter
+    core until a route-registry SPI lands.  Follow-up effort: S + M.
 
 - ~~**WS test cross-suite isolation goes through a process-global
   `WsRoutes` table + `WsTestLock` monitor.**~~  ✓ **Landed (2026-05-21)** —

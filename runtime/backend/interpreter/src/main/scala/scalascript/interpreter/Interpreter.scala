@@ -802,23 +802,20 @@ class Interpreter(
         _httpMaxRetries.set(maxAttempts); _httpRetryDelayMs.set(delayMs)
       override def startTlsServer(port: Int, dir: String, cert: String, key: String): Unit =
         if !Interpreter.this.headless then
-          scalascript.server.WebServer.start(port, dir, Interpreter.this.out, cert, key,
-            wsRoutes = Interpreter.this.wsRoutes)
+          InterpreterServerSupport.current.startServer(
+            Interpreter.this, port, dir, Interpreter.this.out, cert, key, async = false)
       override def startServer(port: Int, dir: String): Unit =
         if !Interpreter.this.headless then
-          scalascript.server.WebServer.start(port, dir, Interpreter.this.out,
-            wsRoutes = Interpreter.this.wsRoutes)
+          InterpreterServerSupport.current.startServer(
+            Interpreter.this, port, dir, Interpreter.this.out, "", "", async = false)
       override def startServerAsync(port: Int, dir: String): Unit =
         if !Interpreter.this.headless then
-          Thread.ofVirtual().start { () =>
-            try scalascript.server.WebServer.start(port, dir, Interpreter.this.out,
-              wsRoutes = Interpreter.this.wsRoutes)
-            catch case _: Throwable => ()
-          }
+          InterpreterServerSupport.current.startServer(
+            Interpreter.this, port, dir, Interpreter.this.out, "", "", async = true)
       override def stopServer(): Unit =
-        if !Interpreter.this.headless then scalascript.server.WebServer.stop()
+        if !Interpreter.this.headless then InterpreterServerSupport.current.stopServer()
       override def setMaxWsConnections(n: Int): Unit =
-        _root_.scalascript.server.jvm._wsMaxActive.set(n)
+        InterpreterServerSupport.current.setMaxWsConnections(n)
       override def registerWsRoute(path: String, origins: List[String], protocols: List[String],
                                     maxConn: Int, maxRate: Int, handler: Any): Unit =
         Interpreter.this.wsRoutes.register(
@@ -828,19 +825,17 @@ class Interpreter(
           path, handler.asInstanceOf[Value], Interpreter.this, auth = Some(authFn.asInstanceOf[Value]))
       override def wsConnectSync(url: String, headers: Map[String, String],
                                   protocols: List[String], handler: Any): Unit =
-        val sess = scalascript.server.WsClientSession(url, headers, protocols, Interpreter.this, Interpreter.this.out)
-        sess.connect()
-        Interpreter.this.invoke(handler.asInstanceOf[Value], List(sess.wsObj))
-        sess.awaitClose()
+        InterpreterServerSupport.current.wsConnectSync(
+          Interpreter.this, url, headers, protocols, handler.asInstanceOf[Value], Interpreter.this.out)
       override def registerMiddleware(fn: Any): Unit =
         scalascript.server.Routes.addMiddleware(fn.asInstanceOf[Value], Interpreter.this)
       override def configureCors(origins: List[String], methods: List[String],
                                   allowedHeaders: List[String]): Unit =
-        scalascript.server.WebServer.configureCors(origins, methods, allowedHeaders)
-      override def enableGzip(): Unit = scalascript.server.WebServer.enableGzip()
-      override def setMaxBodySize(bytes: Long): Unit = scalascript.server.WebServer.setMaxBodySize(bytes)
-      override def setSpoolThreshold(bytes: Long): Unit = scalascript.server.WebServer.setSpoolThreshold(bytes)
-      override def setUploadDir(path: String): Unit = scalascript.server.WebServer.setUploadDir(path)
+        InterpreterServerSupport.current.configureCors(origins, methods, allowedHeaders)
+      override def enableGzip(): Unit = InterpreterServerSupport.current.enableGzip()
+      override def setMaxBodySize(bytes: Long): Unit = InterpreterServerSupport.current.setMaxBodySize(bytes)
+      override def setSpoolThreshold(bytes: Long): Unit = InterpreterServerSupport.current.setSpoolThreshold(bytes)
+      override def setUploadDir(path: String): Unit = InterpreterServerSupport.current.setUploadDir(path)
       override def validationRecord(name: String, msg: String, default: Any): Any =
         validationStack.headOption match
           case Some(buf) => buf.put(name, msg); default

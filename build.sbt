@@ -147,7 +147,7 @@ lazy val interop = project
 // ── Publish shortcuts ─────────────────────────────────────────────────────────
 // Publish shortcuts — replaces the old bundle aggregate projects
 addCommandAlias("publishCore",        ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal")
-addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal;backendInterpreter/publishLocal")
+addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal;backendInterpreter/publishLocal;backendInterpreterServer/publishLocal")
 
 // Phase 1a of the runtime-consolidation refactor (see
 // PLAN-runtime-consolidation.md): pure protocol primitives extracted out
@@ -603,6 +603,21 @@ lazy val backendInterpreter = project
     }.taskValue
   )
 
+// Interpreter-owned HTTP/WS server runtime.  The route registries
+// (`Routes` / `WsRoutes`) remain in backend-interpreter for now because
+// plugins and cluster helpers still register handlers directly, but socket
+// startup, fallback page rendering, WS sessions, and in-process transport now
+// compile as a separate module behind InterpreterServerSupport.
+lazy val backendInterpreterServer = project
+  .in(file("runtime/backend/interpreter-server"))
+  .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test)
+  .settings(
+    name := "scalascript-backend-interpreter-server",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val testUtils = project
   .in(file("runtime/backend/test-utils"))
   .dependsOn(backendSpi, backendInterpreter)
@@ -683,7 +698,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -2077,6 +2092,7 @@ lazy val backendInterpreterPluginTests = project
   .in(file("runtime/backend/interpreter-plugin-tests"))
   .dependsOn(
     backendInterpreter % "compile->compile;test->test",
+    backendInterpreterServer,
     jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
     fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin,
     swingPlugin,
@@ -2119,7 +2135,7 @@ lazy val root = project
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
-    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterPluginTests,
+    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,

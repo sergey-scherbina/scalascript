@@ -724,7 +724,8 @@ private[interpreter] trait ActorInterp:
     Thread.ofVirtual().start { () =>
       try
         if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) starting")
-        val sess = scalascript.server.WsClientSession(url, hdrs, List("ssc-actors-v1"), this, out)
+        val sess = InterpreterServerSupport.current.openWsClient(
+          this, url, hdrs, List("ssc-actors-v1"), out)
         sess.connect()
         if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) connected")
         // Send our handshake frame first
@@ -2245,4 +2246,3 @@ private[interpreter] trait ActorInterp:
             rt.ready.enqueue(id)
           case None => ()
       case None => ()
-
