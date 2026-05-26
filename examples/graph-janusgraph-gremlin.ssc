@@ -1,0 +1,73 @@
+---
+name: graph-janusgraph-gremlin
+version: 0.1.0
+graphs:
+  social:
+    model: property
+    side: server
+    backend: janusgraph
+    uri: ws://localhost:8182/gremlin
+    user: ${env:GREMLIN_USER}
+    password: ${env:GREMLIN_PASSWORD}
+---
+
+# Graph Storage — JanusGraph / Gremlin Server Backend
+
+Demonstrates a production property-graph store backed by a running JanusGraph
+(or any TinkerPop-compatible Gremlin Server).  Set `GREMLIN_USER` and
+`GREMLIN_PASSWORD` before running, or omit `user`/`password` for unauthenticated
+servers.
+
+The same front matter works with Amazon Neptune, Azure Cosmos DB (Gremlin API),
+or any server that speaks the TinkerPop Gremlin WebSocket protocol.  Change
+`uri:` to point at the target endpoint.
+
+## Domain model
+
+```scala
+import scalascript.typeddata.*
+
+@graphLabel("Person")
+case class Person(id: String, name: String, age: Int) derives VertexCodec
+
+@graphEdge("knows")
+case class Knows(@graphFrom from: String, @graphTo to: String, since: Int) derives EdgeCodec
+```
+
+## Populate the graph
+
+```scala
+Graph.putVertex("social", Person("alice", "Alice", 30))
+Graph.putVertex("social", Person("bob",   "Bob",   25))
+Graph.putVertex("social", Person("carol", "Carol", 28))
+
+Graph.putEdge("social", Knows("alice", "bob",   2020))
+Graph.putEdge("social", Knows("alice", "carol", 2019))
+```
+
+## Query with portable API
+
+```scala
+val people = Graph.vertices[Person]("social")
+println(s"People: ${people.map(_.name).mkString(", ")}")
+
+val aliceFriends = Graph.neighbors[Person]("social", "alice", Some("knows"))
+println(s"Alice's friends: ${aliceFriends.map(_.name).mkString(", ")}")
+```
+
+## Query with Gremlin escape hatch
+
+```scala
+val names = Gremlin.query("social",
+  "g.V().hasLabel('Person').out('knows').values('name').toList()")
+names.foreach(n => println(s"  $n"))
+```
+
+## Bindings for safe parameterization
+
+```scala
+val rows = Gremlin.query("social",
+  "g.V().has('_ssc_id', sscId).out('knows').elementMap().toList()",
+  Map("sscId" -> "alice"))
+rows.foreach(r => println(r))
+```

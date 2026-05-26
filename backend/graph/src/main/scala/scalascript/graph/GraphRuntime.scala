@@ -11,6 +11,7 @@ import org.eclipse.rdf4j.repository.sail.SailRepository
 import org.eclipse.rdf4j.sail.memory.MemoryStore
 import org.neo4j.driver.{AuthTokens, GraphDatabase as Neo4jDatabase}
 import org.neo4j.driver.types.{Node as Neo4jNode, Relationship as Neo4jRelationship}
+import org.apache.tinkerpop.gremlin.driver.Cluster
 
 enum GraphModel:
   case Property, Rdf
@@ -45,6 +46,8 @@ trait PropertyGraphBackend:
   def neighbors(from: String, edgeLabel: Option[String] = None): Vector[VertexValue]
   def cypherQuery(query: String, params: Map[String, Any] = Map.empty): Vector[Map[String, JsonValue]] =
     throw GraphRuntimeError(s"${getClass.getSimpleName} does not support Cypher queries")
+  def gremlinQuery(query: String, bindings: Map[String, Any] = Map.empty): Vector[JsonValue] =
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support raw Gremlin queries")
 
 trait RdfGraphBackend:
   def capabilities: GraphCapabilities
@@ -75,6 +78,15 @@ object GraphRuntime:
       remote = true
     )
 
+  val GremlinRemoteCapabilities: GraphCapabilities =
+    GraphCapabilities(
+      models = Set(GraphModel.Property),
+      queryLanguages = Set(GraphQueryLanguage.Portable, GraphQueryLanguage.Gremlin),
+      embedded = false,
+      persistent = true,
+      remote = true
+    )
+
   val TinkerGraphCapabilities: GraphCapabilities =
     GraphCapabilities(
       models = Set(GraphModel.Property),
@@ -98,6 +110,8 @@ object GraphRuntime:
   def rdf4jMemory(): GraphBackend = new Rdf4jMemoryGraphBackend
   def neo4j(uri: String, user: String, password: String): Neo4jGraphBackend =
     new Neo4jGraphBackend(uri, user, password)
+  def gremlinRemote(uri: String, user: Option[String] = None, password: Option[String] = None): GremlinRemoteBackend =
+    new GremlinRemoteBackend(uri, user, password)
 
   def putVertex[A](backend: PropertyGraphBackend, value: A)(using codec: VertexCodec[A]): VertexValue =
     backend.putVertex(codec.encode(value))
@@ -701,3 +715,195 @@ object Neo4jGraphBackend:
   def validateIdentifier(name: String): Unit =
     if !ValidIdentifier.matches(name) then
       throw GraphRuntimeError(s"'$name' is not a valid Neo4j identifier; use only letters, digits, and underscores")
+
+final class GremlinRemoteBackend(
+  uri:      String,
+  user:     Option[String] = None,
+  password: Option[String] = None
+) extends PropertyGraphBackend:
+
+  private val EnvRef = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
+  private def resolveRef(s: String): String =
+    EnvRef.replaceAllIn(s, m => sys.env.getOrElse(m.group(1),
+      throw GraphRuntimeError(s"Gremlin: environment variable '${m.group(1)}' is not set")))
+
+  private val resolvedUri  = resolveRef(uri)
+  private val parsedUri    = java.net.URI.create(resolvedUri)
+  private val host         = Option(parsedUri.getHost).getOrElse("localhost")
+  private val port         = if parsedUri.getPort > 0 then parsedUri.getPort else 8182
+
+  private val cluster: Cluster =
+    val b0 = Cluster.build().addContactPoint(host).port(port)
+    val b1 = (user.map(resolveRef), password.map(resolveRef)) match
+      case (Some(u), Some(p)) => b0.credentials(u, p)
+      case _                  => b0
+    b1.create()
+
+  private val client: org.apache.tinkerpop.gremlin.driver.Client = cluster.connect()
+
+  def close(): Unit = { client.close(); cluster.close() }
+
+  def capabilities: GraphCapabilities = GraphRuntime.GremlinRemoteCapabilities
+
+  private val SscId     = "_ssc_id"
+  private val SscLabels = "_ssc_labels"
+
+  def putVertex(value: VertexValue): VertexValue =
+    val label    = value.labels.toVector.sorted.headOption.getOrElse("Vertex")
+    GremlinRemoteBackend.validateIdentifier(label)
+    val allLabels = value.labels.toVector.sorted.mkString(",")
+    val props = Map(SscId -> value.id.asInstanceOf[AnyRef], SscLabels -> allLabels.asInstanceOf[AnyRef]) ++
+                value.properties.view.mapValues(v => jsonToGremlin(v).asInstanceOf[AnyRef]).toMap
+    val (setClause, bindings) = buildPropSetClause(props, "p")
+    submit(
+      s"g.V().has('$SscId', sscId).fold().coalesce(unfold(), addV('$label'))$setClause",
+      Map("sscId" -> value.id.asInstanceOf[AnyRef]) ++ bindings
+    )
+    value
+
+  def getVertex(id: String): Option[VertexValue] =
+    submitList(s"g.V().has('$SscId', sscId).elementMap()", Map("sscId" -> id.asInstanceOf[AnyRef]))
+      .headOption.flatMap(resultToVertexValue)
+
+  def vertices(label: Option[String]): Vector[VertexValue] =
+    label.foreach(GremlinRemoteBackend.validateIdentifier)
+    val q = label.map(l => s"g.V().hasLabel('$l').has('$SscId').elementMap()")
+                 .getOrElse(s"g.V().has('$SscId').elementMap()")
+    submitList(q, Map.empty).flatMap(resultToVertexValue)
+
+  def deleteVertex(id: String): Boolean =
+    val before = getVertex(id).isDefined
+    if before then submit(s"g.V().has('$SscId', sscId).drop()", Map("sscId" -> id.asInstanceOf[AnyRef]))
+    before
+
+  def putEdge(value: EdgeValue): StoredEdge =
+    GremlinRemoteBackend.validateIdentifier(value.label)
+    val eid = value.id.getOrElse(s"${value.from}-${value.label}-${value.to}")
+    val props = Map(SscId -> eid.asInstanceOf[AnyRef]) ++
+                value.properties.view.mapValues(v => jsonToGremlin(v).asInstanceOf[AnyRef]).toMap
+    val (setClause, bindings) = buildPropSetClause(props, "p")
+    submit(
+      s"g.V().has('$SscId', fromId).as('a').V().has('$SscId', toId)" +
+      s".coalesce(__.inE('${value.label}').has('$SscId', eid).outV().where(eq('a')), __.addE('${value.label}').from('a'))$setClause",
+      Map("fromId" -> value.from.asInstanceOf[AnyRef], "toId" -> value.to.asInstanceOf[AnyRef],
+          "eid" -> eid.asInstanceOf[AnyRef]) ++ bindings
+    )
+    StoredEdge(eid, value.copy(id = Some(eid)))
+
+  def getEdge(id: String): Option[StoredEdge] =
+    submitList(s"g.E().has('$SscId', eid).elementMap()", Map("eid" -> id.asInstanceOf[AnyRef]))
+      .headOption.flatMap(resultToStoredEdge)
+
+  def edges(label: Option[String], from: Option[String], to: Option[String]): Vector[StoredEdge] =
+    label.foreach(GremlinRemoteBackend.validateIdentifier)
+    val base = label.map(l => s"g.E().hasLabel('$l').has('$SscId')").getOrElse(s"g.E().has('$SscId')")
+    val bindings = scala.collection.mutable.Map.empty[String, AnyRef]
+    val fromFilter = from.map { v => bindings("fromId") = v; s".filter(__.outV().has('$SscId', fromId))" }.getOrElse("")
+    val toFilter   = to.map   { v => bindings("toId")   = v; s".filter(__.inV().has('$SscId', toId))"   }.getOrElse("")
+    submitList(s"$base$fromFilter$toFilter.elementMap()", bindings.toMap).flatMap(resultToStoredEdge)
+
+  def deleteEdge(id: String): Boolean =
+    val before = getEdge(id).isDefined
+    if before then submit(s"g.E().has('$SscId', eid).drop()", Map("eid" -> id.asInstanceOf[AnyRef]))
+    before
+
+  def neighbors(from: String, edgeLabel: Option[String]): Vector[VertexValue] =
+    edgeLabel.foreach(GremlinRemoteBackend.validateIdentifier)
+    val edgeFilter = edgeLabel.map(l => s"out('$l')").getOrElse("out()")
+    submitList(
+      s"g.V().has('$SscId', fromId).$edgeFilter.has('$SscId').elementMap()",
+      Map("fromId" -> from.asInstanceOf[AnyRef])
+    ).flatMap(resultToVertexValue)
+
+  override def gremlinQuery(query: String, bindings: Map[String, Any] = Map.empty): Vector[JsonValue] =
+    val javaBindings = bindings.view.mapValues(gremlinAnyToJava).toMap.asJava
+    client.submit(query, javaBindings).all().get().asScala
+      .map(result => anyToJson(result.getObject)).toVector
+
+  private def submit(query: String, bindings: Map[String, AnyRef]): Unit =
+    try client.submit(query, bindings.asJava).all().get()
+    catch case e: Exception => throw GraphRuntimeError(s"Gremlin error: ${e.getMessage}")
+
+  private def submitList(query: String, bindings: Map[String, AnyRef]): Vector[Any] =
+    try client.submit(query, bindings.asJava).all().get().asScala.map(_.getObject).toVector
+    catch case e: Exception => throw GraphRuntimeError(s"Gremlin error: ${e.getMessage}")
+
+  private def buildPropSetClause(props: Map[String, AnyRef], prefix: String): (String, Map[String, AnyRef]) =
+    val bindings = props.zipWithIndex.map { case ((_, v), i) => s"$prefix$i" -> v }.toMap
+    val nameToBinding = props.keys.zipWithIndex.map { case (k, i) => k -> s"$prefix$i" }.toMap
+    val clause = nameToBinding.map { case (k, binding) =>
+      s".property(Cardinality.single, '$k', $binding)"
+    }.mkString
+    (clause, bindings)
+
+  private def resultToVertexValue(obj: Any): Option[VertexValue] = obj match
+    case m: java.util.Map[?, ?] =>
+      val raw = m.asInstanceOf[java.util.Map[Any, Any]].asScala
+      raw.collectFirst { case (k, v) if k.toString == SscId => v.toString }.map { sscId =>
+        val labels = raw.collectFirst { case (k, v) if k.toString == SscLabels =>
+          v.toString.split(",").toSet.filter(_.nonEmpty)
+        }.getOrElse(Set("Vertex"))
+        val props = raw.iterator.collect {
+          case (k, v) if k.isInstanceOf[String] && k.toString != SscId && k.toString != SscLabels =>
+            k.toString -> anyToJson(v)
+        }.toMap
+        VertexValue(id = sscId, labels = labels, properties = props)
+      }
+    case _ => None
+
+  private def resultToStoredEdge(obj: Any): Option[StoredEdge] = obj match
+    case m: java.util.Map[?, ?] =>
+      val raw = m.asInstanceOf[java.util.Map[Any, Any]].asScala
+      def strFor(k: Any): Option[String] = raw.collectFirst { case (key, v) if key.toString == k.toString => v.toString }
+      for
+        eid   <- strFor(SscId)
+        label <- raw.collectFirst { case (k, v) if k == T.label => v.toString }
+        from  <- strFor("outV").orElse(raw.collectFirst { case (k: org.apache.tinkerpop.gremlin.structure.Direction, v)
+                   if k == org.apache.tinkerpop.gremlin.structure.Direction.OUT => v.toString })
+        to    <- strFor("inV").orElse(raw.collectFirst  { case (k: org.apache.tinkerpop.gremlin.structure.Direction, v)
+                   if k == org.apache.tinkerpop.gremlin.structure.Direction.IN  => v.toString })
+      yield
+        val props = raw.iterator.collect {
+          case (k, v) if k.isInstanceOf[String] && k.toString != SscId => k.toString -> anyToJson(v)
+        }.toMap
+        StoredEdge(eid, EdgeValue(id = Some(eid), from = from, to = to, label = label, properties = props))
+    case _ => None
+
+  private def jsonToGremlin(json: JsonValue): Any = json match
+    case JsonValue.Str(v)   => v
+    case JsonValue.Bool(v)  => java.lang.Boolean.valueOf(v)
+    case JsonValue.Num(v)   =>
+      if v.isValidLong then java.lang.Long.valueOf(v.toLongExact)
+      else java.lang.Double.valueOf(v.toDouble)
+    case JsonValue.Null     => null
+    case JsonValue.Arr(xs)  => xs.map(jsonToGremlin).asJava
+    case JsonValue.Obj(kvs) => kvs.view.mapValues(jsonToGremlin).toMap.asJava
+
+  private def gremlinAnyToJava(v: Any): AnyRef = v match
+    case s: String    => s
+    case b: Boolean   => java.lang.Boolean.valueOf(b)
+    case i: Int       => java.lang.Long.valueOf(i.toLong)
+    case l: Long      => java.lang.Long.valueOf(l)
+    case d: Double    => java.lang.Double.valueOf(d)
+    case f: Float     => java.lang.Double.valueOf(f.toDouble)
+    case bd: BigDecimal =>
+      if bd.isValidLong then java.lang.Long.valueOf(bd.toLongExact)
+      else java.lang.Double.valueOf(bd.toDouble)
+    case null => null
+    case other => other.toString
+
+  private def anyToJson(v: Any): JsonValue = v match
+    case null                    => JsonValue.Null
+    case s: String               => JsonValue.Str(s)
+    case b: java.lang.Boolean    => JsonValue.Bool(b.booleanValue())
+    case n: java.lang.Number     => JsonValue.Num(BigDecimal(n.toString))
+    case m: java.util.Map[?, ?]  =>
+      JsonValue.Obj(m.asScala.iterator.map { case (k, vv) => k.toString -> anyToJson(vv) }.toMap)
+    case xs: java.util.List[?]   => JsonValue.Arr(xs.asScala.map(anyToJson).toVector)
+    case other                   => JsonValue.Str(other.toString)
+
+object GremlinRemoteBackend:
+  private val ValidIdentifier = """[A-Za-z_][A-Za-z0-9_]*""".r
+  def validateIdentifier(name: String): Unit =
+    if !ValidIdentifier.matches(name) then
+      throw GraphRuntimeError(s"'$name' is not a valid Gremlin identifier; use only letters, digits, and underscores")

@@ -10496,9 +10496,16 @@ modes opt out of that default.
   `PropertyGraphBackend` adds a default `cypherQuery` method; interpreter
   graph-plugin registers `Cypher.query` / `Sparql.select` with clear
   not-in-interpreter errors; `examples/graph-neo4j-storage.ssc` documents the
-  path. Remaining: richer sync UI helpers, full-stack graph example
-  (Electron/React → JVM REST → Neo4j), and richer distributed Dataset
-  ergonomics for actor-effect wrappers.
+  path. Follow-up landed 2026-05-26: `GremlinRemoteBackend` connects to any
+  TinkerPop-compatible Gremlin Server (JanusGraph, Amazon Neptune, Azure Cosmos
+  DB Gremlin API, etc.) via WebSocket (gremlin-driver 3.8.1); `backend:
+  janusgraph` / `gremlin-server` / `tinkerpop-remote` selects it; JvmGen emits
+  `object Gremlin { def query(graphName, query, bindings) }` with binding-based
+  parameterization; `PropertyGraphBackend` adds default `gremlinQuery`; graph-
+  plugin registers `Gremlin.query` with not-in-interpreter error.
+  Example: `examples/graph-janusgraph-gremlin.ssc`. Remaining: richer sync UI
+  helpers, full-stack graph example (Electron/React → JVM REST → graph), and
+  richer distributed Dataset ergonomics for actor-effect wrappers.
 
 ## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 

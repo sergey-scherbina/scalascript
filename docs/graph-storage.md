@@ -263,6 +263,16 @@ server-side graph milestone.
    throws on non-Cypher backends. The interpreter graph-plugin registers
    `Cypher.query` and `Sparql.select` with clear "not available in interpreter"
    errors. Example: `examples/graph-neo4j-storage.ssc`.
+   Follow-up landed 2026-05-26: `GremlinRemoteBackend` connects to any
+   TinkerPop-compatible Gremlin Server (JanusGraph, Amazon Neptune, Azure
+   Cosmos DB Gremlin API, etc.) via WebSocket; `graphs:` front matter
+   `backend: janusgraph` / `gremlin-server` / `tinkerpop-remote` selects it;
+   `PropertyGraphBackend` adds a default `gremlinQuery` method; JvmGen emits
+   `object Gremlin { def query(graphName, query, bindings) }` for raw Gremlin
+   escape hatches with binding-based parameterization; interpreter graph-plugin
+   registers `Gremlin.query` with a clear "not available in interpreter" error;
+   `gremlin-driver:3.8.1` added to `graphRuntimeDeps` for scala-cli scripts.
+   Example: `examples/graph-janusgraph-gremlin.ssc`.
 6. **Full-stack examples** — Electron/React frontend queries server graph routes
    and caches selected results locally.
 

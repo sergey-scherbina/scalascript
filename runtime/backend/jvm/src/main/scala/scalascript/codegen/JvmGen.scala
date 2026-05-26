@@ -1515,6 +1515,11 @@ class JvmGen(
           val boltUser = escapeStringLit(g.user.getOrElse("neo4j"))
           val boltPass = escapeStringLit(g.password.getOrElse("neo4j"))
           s"""scalascript.graph.GraphRuntime.neo4j("$boltUri", "$boltUser", "$boltPass")"""
+        else if Set("gremlin-server", "janusgraph", "tinkerpop-remote", "gremlin").contains(backend) then
+          val wsUri  = escapeStringLit(g.uri.getOrElse("ws://localhost:8182/gremlin"))
+          val maybeUser = g.user.map(u => s"""Some("${escapeStringLit(u)}")""").getOrElse("None")
+          val maybePass = g.password.map(p => s"""Some("${escapeStringLit(p)}")""").getOrElse("None")
+          s"""scalascript.graph.GraphRuntime.gremlinRemote("$wsUri", $maybeUser, $maybePass)"""
         else
           s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: backend '$backend' for model '$model' is planned but not implemented yet\")"
       s"  \"$name\" -> $rhs"
@@ -1562,6 +1567,14 @@ class JvmGen(
                  |  def query(graphName: String, query: String, params: Map[String, Any] = Map.empty): List[Map[String, scalascript.typeddata.JsonValue]] =
                  |    backend(graphName).cypherQuery(query, params).toList
                  |
+                 |object Gremlin:
+                 |  private def backend(name: String): scalascript.graph.PropertyGraphBackend =
+                 |    _ssc_graph_registry.getOrElse(name, throw scalascript.graph.GraphRuntimeError(s"unknown graph store '$name'. Declared stores: ${_ssc_graph_registry.keys.toList.sorted.mkString(", ")}")) match
+                 |      case pg: scalascript.graph.PropertyGraphBackend => pg
+                 |      case _ => throw scalascript.graph.GraphRuntimeError(s"graph store '$name' does not support Gremlin queries")
+                 |  def query(graphName: String, query: String, bindings: Map[String, Any] = Map.empty): List[scalascript.typeddata.JsonValue] =
+                 |    backend(graphName).gremlinQuery(query, bindings).toList
+                 |
                  |""".stripMargin)
     sb.toString
 
@@ -1576,6 +1589,8 @@ class JvmGen(
           deps += "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1"
         case "neo4j" =>
           deps += "org.neo4j.driver:neo4j-java-driver:5.28.5"
+        case backend if Set("gremlin-server", "janusgraph", "tinkerpop-remote", "gremlin").contains(backend) =>
+          deps += "org.apache.tinkerpop:gremlin-driver:3.8.1"
         case _ =>
           ()
     }

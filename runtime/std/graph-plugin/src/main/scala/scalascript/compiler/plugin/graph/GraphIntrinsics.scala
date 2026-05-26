@@ -107,6 +107,9 @@ object GraphIntrinsics:
     QualifiedName("Cypher.query") -> NativeImpl((_, _) =>
       throw RuntimeException("Cypher.query is not available in interpreter mode; use ssc run-jvm with backend: neo4j")
     ),
+    QualifiedName("Gremlin.query") -> NativeImpl((_, _) =>
+      throw RuntimeException("Gremlin.query is not available in interpreter mode; use ssc run-jvm with backend: gremlin-server or janusgraph")
+    ),
   )
 
   private def store(name: String): Store = stores.getOrElseUpdate(name, Store())
