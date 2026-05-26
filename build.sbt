@@ -2053,9 +2053,10 @@ lazy val wsPlugin = project
 
 lazy val mcpPlugin = project
   .in(file("runtime/std/mcp-plugin"))
-  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon)
+  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-mcp-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
