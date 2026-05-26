@@ -10770,8 +10770,9 @@ signal semantics and style modifier lowering.
 ### Planned phases
 
 - **Phase 1 ✓ Landed (2026-05-26)** — SwiftUI emitter, 30 tests, example, build.sbt
-- **Phase 2 (planned)** — CLI integration: `ssc build --target mobile-ios`,
-  `Feature.SwiftUI` capability flag, `ssc toolchain check --target mobile-ios`
+- **Phase 2 ✓ Landed (2026-05-26)** — CLI integration: `ssc build --target mobile-ios`,
+  `ssc build --target desktop-macos`, `ssc toolchain check --target mobile-ios` (swift+xcode),
+  JvmGen `_ssc_ui_emit_native_platform_to_dir` + swiftui arm in `_ssc_ui_serve`
 - **Phase 3 (planned)** — Reactive runtime: `@Observable` / `ObservableObject`
   lowering for list mutations and cross-component state
 

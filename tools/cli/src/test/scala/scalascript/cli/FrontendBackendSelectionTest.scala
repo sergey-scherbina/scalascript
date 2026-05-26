@@ -17,7 +17,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class FrontendBackendSelectionTest extends AnyFunSuite:
 
   test("validFrontendNames lists exactly the four bundled backends") {
-    assert(validFrontendNames == Set("custom", "react", "solid", "vue"))
+    assert(validFrontendNames == Set("custom", "react", "solid", "vue", "electron", "swing", "javafx", "swiftui"))
   }
 
   test("applyFrontendBackend('react') selects react") {
