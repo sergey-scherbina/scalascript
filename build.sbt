@@ -687,7 +687,7 @@ lazy val compilerDriver = project
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
 val shrinkJar     = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
-val stage         = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
+val installBin    = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
 val packagePlugin = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
 
 def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
@@ -705,7 +705,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 
 lazy val cli = project
   .in(file("tools/cli"))
-  .enablePlugins(SbtProguard)
+  .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
   .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
@@ -840,7 +840,7 @@ lazy val cli = project
     //   $ROOT/lib/compiler/plugins/    ← .sscpkg files (auto-loaded at startup)
     // Launcher: java -cp "$ROOT/lib/jars/*:$ROOT/lib/ssc.jar" scalascript.cli.ssc
     // (lib/compiler/jars/ is NOT on startup CP — loaded lazily by CompilerLoader)
-    stage := {
+    installBin := {
       val log          = streams.value.log
       val root         = (ThisBuild / baseDirectory).value
       val libDir       = root / "bin" / "lib"
@@ -908,7 +908,26 @@ lazy val cli = project
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
-    }
+    },
+    // ── GraalVM native-image (v1.50-native-p2) ───────────────────────────
+    // Build: sbt cli/graalvm-native-image:packageBin
+    // Requires GraalVM 21+ on PATH.  See native-image-configs/ for reflection
+    // and resource configuration.  Regenerate with:
+    //   java -agentlib:native-image-agent=config-output-dir=native-image-configs \
+    //     -jar ssc.jar run examples/hello.ssc [other CLI paths …]
+    GraalVMNativeImage / mainClass  := Some("scalascript.cli.ssc"),
+    graalVMNativeImageOptions ++= Seq(
+      "--no-fallback",
+      "--initialize-at-build-time=scala",
+      "--initialize-at-build-time=scalascript",
+      "-H:ReflectionConfigurationFiles=" + (baseDirectory.value / ".." / ".." / "native-image-configs" / "reflect-config.json").getAbsolutePath,
+      "-H:ResourceConfigurationFiles="   + (baseDirectory.value / ".." / ".." / "native-image-configs" / "resource-config.json").getAbsolutePath,
+      // Enable service loader support — reads META-INF/services/* at build time
+      "--features=org.graalvm.home.HomeFinder",
+      "-H:+ReportExceptionStackTraces",
+      // Increase image heap for Scala + scalameta class loading at build time
+      "-J-Xmx8g"
+    )
   )
 
 // NOTE: `bench/` exists today as a scala-cli script directory (fib/sum/

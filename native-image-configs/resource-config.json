@@ -1,0 +1,31 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "comment": "ServiceLoader discovery files for all backend/frontend/server SPI implementations",
+        "pattern": "META-INF/services/.*"
+      },
+      {
+        "comment": "Logger source — JvmGen inlines Logger.scala into generated scripts",
+        "pattern": "logger-sources/.*"
+      },
+      {
+        "comment": "JAR manifest",
+        "pattern": "META-INF/MANIFEST.MF"
+      },
+      {
+        "comment": "GraalVM native-image marker (avoids reflection fallback warnings)",
+        "pattern": "META-INF/native-image/.*"
+      },
+      {
+        "comment": "upickle schema resources if any",
+        "pattern": "upickle/.*"
+      },
+      {
+        "comment": "commonmark extension resources",
+        "pattern": "META-INF/commonmark/.*"
+      }
+    ]
+  },
+  "bundles": []
+}

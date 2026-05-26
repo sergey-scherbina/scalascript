@@ -1,0 +1,323 @@
+[
+  {
+    "comment": "SLF4J simple binding — slf4j-simple discovers its StaticLoggerBinder at runtime via Class.forName",
+    "name": "org.slf4j.impl.SimpleLogger",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "org.slf4j.impl.StaticLoggerBinder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "org.slf4j.impl.StaticMDCBinder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.slf4j.impl.StaticMarkerBinder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "Scala runtime — initialize-at-build-time covers most, but these are accessed reflectively by upickle read/write",
+    "name": "scala.runtime.BoxedUnit",
+    "allDeclaredConstructors": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "scala.None$",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "scala.Some",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scala.Tuple2",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scala.collection.immutable.Nil$",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "scala.collection.immutable.$colon$colon",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "upickle — uses Class.forName for Scala enum detection in 4.x",
+    "name": "upickle.default.ReadWriter",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "upickle.core.Types$Writer",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "upickle.core.Types$Reader",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "ujson internal — used for JSON AST construction at runtime",
+    "name": "ujson.Obj",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ujson.Arr",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ujson.Str",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ujson.Num",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ujson.Bool",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ujson.Null$",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "comment": "scala-meta — used internally for source position and dialect selection",
+    "name": "scala.meta.dialects.package$",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "scala.meta.internal.trees.Origin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "commonmark — uses ServiceLoader for extension discovery",
+    "name": "org.commonmark.parser.Parser",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "borer-core — codec machinery uses some runtime reflection for sealed trait dispatch",
+    "name": "io.bullet.borer.Encoder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.bullet.borer.Decoder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "os-lib — wraps java.nio; Path operations use File reflection",
+    "name": "os.Path",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "Java driver and JDBC — needed if any JDBC backend is loaded",
+    "name": "java.sql.DriverManager",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "ScalaScript backend implementations — discovered via ServiceLoader but must also be reflectively instantiable",
+    "name": "scalascript.interpreter.InterpreterBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.JvmBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.JsBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.NodeBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.ScalaJsPluginBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.WasmBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.codegen.SparkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.source.CssSourceLanguage",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.source.HtmlSourceLanguage",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.source.ScalaSourceLanguage",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.server.jvm.JdkServerBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.server.jvm.jetty.JettyServerBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.server.jvm.netty.NettyServerBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.server.InterpreterServerSupportImpl",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.react.ReactFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.solid.SolidFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.vue.VueFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.swing.SwingFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.electron.ElectronFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.custom.CustomFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.frontend.javafx.JavaFxFrameworkBackend",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.http.HttpInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.request.RequestInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.swing.SwingInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.json.JsonInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.auth.AuthInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.sql.SqlPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.graph.GraphPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.payment.PaymentRequestPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.ws.WsInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.pwa.PwaInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.oauth.OAuthInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.mcp.McpInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.fetch.FetchPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "scalascript.compiler.plugin.frontend.FrontendInterpreterPlugin",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  }
+]

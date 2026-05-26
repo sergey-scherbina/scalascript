@@ -1,0 +1,72 @@
+name: Native Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # triggers on version tags, e.g. v1.50.0
+
+jobs:
+  native-image:
+    name: Build native ssc (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: ssc-linux-x86_64
+            graalvm-arch: linux-amd64
+          - os: macos-latest
+            artifact: ssc-macos-arm64
+            graalvm-arch: macos-aarch64
+          - os: macos-13
+            artifact: ssc-macos-x86_64
+            graalvm-arch: macos-amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup GraalVM 21
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build native ssc binary
+        run: sbt cli/graalvm-native-image:packageBin
+
+      - name: Rename artifact
+        run: |
+          mkdir -p dist
+          cp tools/cli/target/graalvm-native-image/ssc dist/${{ matrix.artifact }}
+          chmod +x dist/${{ matrix.artifact }}
+
+      - name: Create release archive
+        run: |
+          mkdir -p dist/archive
+          cp dist/${{ matrix.artifact }} dist/archive/ssc
+          cp native-image-configs/README.md dist/archive/ 2>/dev/null || true
+          tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist/archive ssc
+
+      - name: Upload native binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.tar.gz
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/${{ matrix.artifact }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.50-native-p2** — GraalVM native-image build infrastructure: `sbt-native-packager` plugin added; `cli` project gains `GraalVMNativeImagePlugin` with `--no-fallback`, `--initialize-at-build-time=scala,scalascript`, reflection + resource config file pointers; `native-image-configs/reflect-config.json` (SLF4J binding, Scala runtime, upickle, scala-meta, borer, all ServiceLoader-discovered backend/frontend/server/plugin implementation classes); `native-image-configs/resource-config.json` (`META-INF/services/**`, logger-sources); `.github/workflows/native-release.yml` CI matrix (ubuntu x86_64, macos arm64, macos x86_64) triggered by version tags, uploads `.tar.gz` to GitHub Release; `stage` task renamed to `installBin` to avoid conflict with sbt-native-packager. Build: `sbt cli/graalvm-native-image:packageBin`. Regeneration guide in `native-image-configs/README.md`.
+
 - **v1.50-native-p1** — Replace snakeyaml with pure-Scala `SimpleYaml` parser: new `lang/yaml` sbt module containing `SimpleYaml` (block/flow maps+sequences, scalars, comments, literal block scalars, inline map entries from sequence items); wired into `core` and `backendConfigRuntime` (previously standalone, no deps); all 7 call sites migrated (`Parser.scala`, `LockFile.scala`, `LocalRegistry.scala`, `SscpkgManifest.scala`, `PluginManifest.scala`, `ConfigParser.scala`, `Main.scala loadSopsSecrets`); snakeyaml removed from `build.sbt`; 21 new `SimpleYamlTest` tests.
 
 ## 2026-05-26
