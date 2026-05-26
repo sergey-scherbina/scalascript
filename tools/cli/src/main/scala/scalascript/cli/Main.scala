@@ -594,8 +594,10 @@ def printUsage(): Unit =
     |  package --target macos <f>        Generate Swift package + run swift build (ready-to-run binary)
     |  run   --target macos <f>          Build SwiftUI macOS app and launch it
     |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
-    |    --console / --no-console        Stream app logs and block (default: --console)
-    |    --rebuild / --no-rebuild        Force full rebuild vs incremental (default: --no-rebuild)
+    |  run   --target ios --device <f>  Build + deploy to USB device via ios-deploy
+    |    --device-id <udid>             Target specific device (default: first connected)
+    |    --console / --no-console       Stream app logs and block (default: --console)
+    |    --rebuild / --no-rebuild       Force full rebuild vs incremental (default: --no-rebuild)
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
     |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
@@ -1651,6 +1653,59 @@ private def runSwiftUIIosSimulator(
     .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
   if launchResult.exitCode != 0 then System.exit(launchResult.exitCode)
 
+/** `ssc run --target ios --device` — build for arm64 device via xcodebuild with
+ *  automatic signing, then deploy + launch via ios-deploy.
+ *
+ *  Requires: Apple ID signed into Xcode (for -allowProvisioningUpdates),
+ *  ios-deploy on PATH (`brew install ios-deploy`), USB-connected iPhone. */
+private def runSwiftUIIosDevice(
+    sscFile: os.Path, outDir: os.Path,
+    console: Boolean, forceRebuild: Boolean, deviceId: Option[String]
+): Unit =
+  // Pre-flight: ios-deploy must be present
+  if os.proc("ios-deploy", "--version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println(
+      "Error: ios-deploy is required for --target ios --device.\n" +
+      "Run: brew install ios-deploy"
+    )
+    System.exit(1)
+
+  val module  = Parser.parse(os.read(sscFile))
+  val appName = swiftAppName(module.manifest.flatMap(_.name))
+
+  val derivedDataPath = outDir / "derived"
+  val appPath = derivedDataPath / "Build" / "Products" / "Debug-iphoneos" / s"$appName.app"
+
+  val needsBuild = forceRebuild || !os.exists(appPath / "Info.plist") ||
+    os.mtime(sscFile) > os.mtime(appPath / "Info.plist")
+
+  if needsBuild then
+    buildSwiftUIPackage(sscFile, outDir, "ios")
+    println(s"  Building for iOS device (arm64)...")
+    val r = os.proc(
+      "xcodebuild", "build",
+      "-scheme", appName,
+      "-destination", "generic/platform=iOS",
+      "-allowProvisioningUpdates",
+      "-derivedDataPath", derivedDataPath.toString
+    ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+    if r.exitCode != 0 then System.exit(r.exitCode)
+    if !os.exists(appPath) then
+      System.err.println(s"xcodebuild did not produce ${displayPath(appPath)}")
+      System.exit(1)
+  else
+    println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
+
+  // ios-deploy: --debug streams LLDB output (blocks); --justlaunch returns immediately
+  println(s"  Deploying $appName to device${deviceId.map(id => s" ($id)").getOrElse("")}...")
+  val idArgs     = deviceId.toList.flatMap(id => List("--id", id))
+  val modeArgs   = if console then List("--debug") else List("--justlaunch")
+  val deployResult = os.proc(
+    List("ios-deploy", "--bundle", appPath.toString, "--no-wifi") ++ idArgs ++ modeArgs
+  ).call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+  if deployResult.exitCode != 0 then System.exit(deployResult.exitCode)
+
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
   import scalascript.server.Routes
@@ -2518,6 +2573,8 @@ def runCommand(args: List[String]): Unit =
   var serverBackendFlag: String         = "jdk"
   var consoleFlag:       Boolean        = true   // --console / --no-console
   var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
+  var deviceFlag:        Boolean        = false  // --device
+  var deviceIdFlag:      Option[String] = None   // --device-id <udid>
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -2535,10 +2592,12 @@ def runCommand(args: List[String]): Unit =
       case "--no-open-browser"               => openBrowserFlag    = Some(false)
       case flag if flag.startsWith("--open-browser=") =>
         openBrowserFlag = parseBooleanFlag("run --open-browser", flag.drop("--open-browser=".length))
-      case "--console"    => consoleFlag  = true
-      case "--no-console" => consoleFlag  = false
-      case "--rebuild"    => rebuildFlag  = true
-      case "--no-rebuild" => rebuildFlag  = false
+      case "--console"                   => consoleFlag  = true
+      case "--no-console"                => consoleFlag  = false
+      case "--rebuild"                   => rebuildFlag  = true
+      case "--no-rebuild"                => rebuildFlag  = false
+      case "--device"                    => deviceFlag   = true
+      case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
       case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
@@ -2628,11 +2687,16 @@ def runCommand(args: List[String]): Unit =
         os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
     return
 
-  // --target ios / mobile-ios: build Swift package + xcodebuild + iOS Simulator
+  // --target ios / mobile-ios: Simulator (default) or real device (--device)
   if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
-    val outDir = os.Path("target/build", os.pwd) / "ios"
-    for file <- fileArgs.toList do
-      runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
+    if deviceFlag then
+      val outDir = os.Path("target/build", os.pwd) / "ios-device"
+      for file <- fileArgs.toList do
+        runSwiftUIIosDevice(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag, deviceIdFlag)
+    else
+      val outDir = os.Path("target/build", os.pwd) / "ios"
+      for file <- fileArgs.toList do
+        runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
     return
 
   val noExplicitRunMode =
