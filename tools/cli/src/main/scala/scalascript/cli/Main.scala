@@ -589,15 +589,18 @@ def printUsage(): Unit =
     |  run-jvm --frontend swing <f>      Compile and launch the JDK-only Swing desktop frontend
     |  run-jvm --frontend javafx <f>     Compile and launch the OpenJFX desktop frontend
     |  build --target desktop <f>        Generate Electron bundle; run npm run build to package
-    |  build --target mobile-ios <f>     Generate SwiftUI iOS Swift package; run swift build
-    |  build --target macos <f>          Generate SwiftUI macOS Swift package; run swift build
+    |  build --target ios <f>             Generate SwiftUI iOS Swift package
+    |  build --target macos <f>          Generate SwiftUI macOS Swift package
     |  package --target macos <f>        Generate Swift package + run swift build (ready-to-run binary)
     |  run   --target macos <f>          Build SwiftUI macOS app and launch it
+    |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
+    |    --console / --no-console        Stream app logs and block (default: --console)
+    |    --rebuild / --no-rebuild        Force full rebuild vs incremental (default: --no-rebuild)
     |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
     |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
     |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
     |    list   [--target <t>]  Print installed tools and their versions
-    |    Targets: web, desktop, mobile-android, mobile-ios, macos,
+    |    Targets: web, desktop, mobile-android, ios, macos,
     |             desktop-linux, desktop-windows, all
     |  help                   Show this help message
     |
@@ -1471,7 +1474,7 @@ private def buildProjectFileCommand(
       println(s"  bundle written.  To package:")
       println(s"    cd ${displayPath(bundleDir)} && npm install && npm run build")
 
-    case "mobile-ios" =>
+    case "ios" | "mobile-ios" =>
       println(s"Building SwiftUI iOS package → ${displayPath(outDir)}")
       buildSwiftUIPackage(projectFile, outDir, "ios", runSwiftBuild = fat)
       if !fat then
@@ -1486,7 +1489,7 @@ private def buildProjectFileCommand(
         println(s"    cd ${displayPath(outDir)} && swift build")
 
     case other =>
-      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop, mobile-ios, macos)")
+      System.err.println(s"ssc build: unknown target '$other'  (valid: ssc, jvm, js, web, desktop, ios, macos)")
       System.exit(1)
 
 /** Write an Electron app bundle (index.html, app.js, main.js, preload.js,
@@ -1535,12 +1538,118 @@ private def buildSwiftUIPackage(
     if swiftResult.exitCode != 0 then System.exit(swiftResult.exitCode)
 
 /** Derive the Swift product name from the .ssc `name:` frontmatter, matching
- *  SwiftUIEmitter.swiftIdent so we know where swift build puts the binary. */
+ *  SwiftUIEmitter.swiftIdent so we know where swift build / xcodebuild puts the binary. */
 private def swiftAppName(sscName: Option[String]): String =
   val raw = sscName.getOrElse("ScalaScript App")
   raw.filter(c => c.isLetterOrDigit || c == '_').capitalize match
     case ""  => "App"
     case str => if str.head.isDigit then s"App$str" else str
+
+/** Return (udid, name) of the latest available iPhone simulator, or None. */
+private def pickIosSimulator(): Option[(String, String)] =
+  val result = os.proc("xcrun", "simctl", "list", "devices", "available", "--json")
+    .call(check = false, stderr = os.Pipe)
+  if result.exitCode != 0 then None
+  else
+    scala.util.Try {
+      val json   = ujson.read(result.out.text())
+      val devMap = json.obj.get("devices").map(_.obj).getOrElse(
+        ujson.Obj().obj
+      )
+      // Sort iOS runtime keys descending so we try the latest SDK first
+      val iosKeys = devMap.keys
+        .filter(k => k.contains("iOS") && !k.contains("watchOS") && !k.contains("tvOS"))
+        .toList.sorted.reverse
+      iosKeys.iterator.flatMap { key =>
+        val devs = devMap.get(key).map(_.arr).getOrElse(scala.collection.mutable.ArrayBuffer.empty)
+        devs.toList
+          .filter { d =>
+            d.obj.get("isAvailable").exists(_.bool) &&
+            d.obj.get("name").map(_.str).exists(_.startsWith("iPhone"))
+          }
+          .sortBy(_.obj("name").str)
+          .reverse
+          .headOption
+          .map(d => (d.obj("udid").str, d.obj("name").str))
+      }.nextOption()
+    }.toOption.flatten
+
+/** Full `ssc run --target ios` flow: generate Swift Package → xcodebuild →
+ *  boot simulator → install → launch (optionally streaming logs). */
+private def runSwiftUIIosSimulator(
+    sscFile: os.Path, outDir: os.Path, console: Boolean, forceRebuild: Boolean
+): Unit =
+  // Pre-flight: xcodebuild must be present
+  if os.proc("xcodebuild", "-version")
+      .call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode != 0 then
+    System.err.println(
+      "Error: Xcode is required for --target ios.\n" +
+      "Run: ssc toolchain check --target ios"
+    )
+    System.exit(1)
+
+  val module  = Parser.parse(os.read(sscFile))
+  val appName = swiftAppName(module.manifest.flatMap(_.name))
+  val bundleId = module.manifest
+    .flatMap(_.raw.get("bundle-id").collect { case s: String => s })
+    .getOrElse("com.example.app")
+
+  val derivedDataPath = outDir / "derived"
+  val appPath = derivedDataPath / "Build" / "Products" / "Debug-iphonesimulator" / s"$appName.app"
+
+  // Pick simulator before building (needed for -destination)
+  val (simUdid, simName) = pickIosSimulator().getOrElse {
+    System.err.println(
+      "Error: No available iOS Simulator found.\n" +
+      "Install a simulator runtime via Xcode → Settings → Platforms."
+    )
+    System.exit(1)
+    throw new AssertionError()
+  }
+
+  val needsBuild = forceRebuild || !os.exists(appPath / "Info.plist") ||
+    os.mtime(sscFile) > os.mtime(appPath / "Info.plist")
+
+  if needsBuild then
+    buildSwiftUIPackage(sscFile, outDir, "ios")
+    println(s"  Building for iOS Simulator ($simName)...")
+    val r = os.proc(
+      "xcodebuild", "build",
+      "-scheme", appName,
+      "-destination", s"platform=iOS Simulator,id=$simUdid",
+      "-derivedDataPath", derivedDataPath.toString,
+      "CODE_SIGN_IDENTITY=", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGNING_ALLOWED=NO"
+    ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+    if r.exitCode != 0 then System.exit(r.exitCode)
+    if !os.exists(appPath) then
+      System.err.println(s"xcodebuild did not produce ${displayPath(appPath)}")
+      System.exit(1)
+  else
+    println(s"  Skipping build (no .ssc changes since last build). Use --rebuild to force.")
+
+  // Boot simulator (ignore "already booted" error)
+  println(s"  Booting $simName...")
+  os.proc("xcrun", "simctl", "boot", simUdid)
+    .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+
+  // Open Simulator.app so the user sees it
+  os.proc("open", "-a", "Simulator")
+    .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+
+  // Install
+  println(s"  Installing $appName...")
+  val installResult = os.proc("xcrun", "simctl", "install", "booted", appPath.toString)
+    .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+  if installResult.exitCode != 0 then System.exit(installResult.exitCode)
+
+  // Launch — with or without log streaming
+  println(s"  Launching $appName ($bundleId)...")
+  val launchArgs =
+    if console then List("xcrun", "simctl", "launch", "--console", "booted", bundleId)
+    else             List("xcrun", "simctl", "launch",              "booted", bundleId)
+  val launchResult = os.proc(launchArgs)
+    .call(stdout = os.Inherit, stderr = os.Inherit, check = false)
+  if launchResult.exitCode != 0 then System.exit(launchResult.exitCode)
 
 private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
   import scalascript.interpreter.Interpreter
@@ -2407,6 +2516,8 @@ def runCommand(args: List[String]): Unit =
   var portFlag:          Option[Int] = None
   var openBrowserFlag:   Option[Boolean] = None
   var serverBackendFlag: String         = "jdk"
+  var consoleFlag:       Boolean        = true   // --console / --no-console
+  var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
   val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
@@ -2424,6 +2535,10 @@ def runCommand(args: List[String]): Unit =
       case "--no-open-browser"               => openBrowserFlag    = Some(false)
       case flag if flag.startsWith("--open-browser=") =>
         openBrowserFlag = parseBooleanFlag("run --open-browser", flag.drop("--open-browser=".length))
+      case "--console"    => consoleFlag  = true
+      case "--no-console" => consoleFlag  = false
+      case "--rebuild"    => rebuildFlag  = true
+      case "--no-rebuild" => rebuildFlag  = false
       case "--frontend"         if it.hasNext =>
         val name = it.next()
         if !validFrontendNames(name) then
@@ -2493,16 +2608,31 @@ def runCommand(args: List[String]): Unit =
     val outDir = os.Path("target/build", os.pwd) / "macos"
     for file <- fileArgs.toList do
       val sscFile = os.Path(file, os.pwd)
-      buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
       val appName = swiftAppName(
         scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
       )
       val binary = outDir / ".build" / "debug" / appName
+      val needsBuild = rebuildFlag || !os.exists(binary) ||
+        os.mtime(sscFile) > os.mtime(binary)
+      if needsBuild then
+        buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
+      else
+        println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
       if !os.exists(binary) then
         System.err.println(s"swift build did not produce ${displayPath(binary)}")
         System.exit(1)
       println(s"  Launching $appName...")
-      os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+      if consoleFlag then
+        os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+      else
+        os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
+    return
+
+  // --target ios / mobile-ios: build Swift package + xcodebuild + iOS Simulator
+  if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
+    val outDir = os.Path("target/build", os.pwd) / "ios"
+    for file <- fileArgs.toList do
+      runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
     return
 
   val noExplicitRunMode =

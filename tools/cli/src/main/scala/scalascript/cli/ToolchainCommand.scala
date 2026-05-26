@@ -56,6 +56,7 @@ object ToolchainCommand:
     "web"            -> List("node", "jdk"),
     "desktop"        -> List("node", "jdk", "electron"),
     "mobile-android" -> List("jdk", "kotlin", "kotlin-native", "android-sdk"),
+    "ios"            -> List("swift", "xcode"),
     "mobile-ios"     -> List("swift", "xcode"),
     "macos"          -> List("jdk", "swift"),
     "desktop-macos"  -> List("jdk", "swift"),

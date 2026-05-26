@@ -2,13 +2,13 @@ package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
 
-/** Unit tests for the v1.48 Phase 2 SwiftUI CLI integration.
+/** Unit tests for the v1.48 / v1.48.1 / v1.48.2 SwiftUI CLI integration.
  *
  *  Verifies:
  *  - `validFrontendNames` includes "swiftui"
- *  - `ToolchainCommand` mobile-ios target maps to swift + xcode (not kotlin)
- *  - Build targets "mobile-ios", "macos", and "desktop-macos" (alias) are known
+ *  - ToolchainCommand: canonical names (ios, macos) and aliases (mobile-ios, desktop-macos) are known
  *  - `swiftAppName` derives the correct Swift identifier from .ssc name frontmatter
+ *  - `pickIosSimulator` returns a valid (udid, name) pair when a simulator is available
  */
 class SwiftUIBuildCliTest extends AnyFunSuite:
 
@@ -16,15 +16,21 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
     assert(validFrontendNames.contains("swiftui"))
   }
 
-  test("ToolchainCommand mobile-ios uses swift + xcode (not kotlin)") {
-    val tools = ToolchainCommand.targetTools("mobile-ios")
-    assert(tools.contains("swift"),          "mobile-ios must require swift")
-    assert(tools.contains("xcode"),          "mobile-ios must require xcode")
-    assert(!tools.contains("kotlin"),        "mobile-ios must NOT require kotlin (SwiftUI, not KMM)")
-    assert(!tools.contains("kotlin-native"), "mobile-ios must NOT require kotlin-native")
+  test("ToolchainCommand ios (canonical) uses swift + xcode, not kotlin") {
+    val tools = ToolchainCommand.targetTools("ios")
+    assert(tools.contains("swift"),          "ios must require swift")
+    assert(tools.contains("xcode"),          "ios must require xcode")
+    assert(!tools.contains("kotlin"),        "ios must NOT require kotlin")
+    assert(!tools.contains("kotlin-native"), "ios must NOT require kotlin-native")
   }
 
-  test("ToolchainCommand macos (canonical name) requires swift") {
+  test("ToolchainCommand mobile-ios (alias) still works") {
+    val tools = ToolchainCommand.targetTools("mobile-ios")
+    assert(tools.contains("swift"), "mobile-ios alias must require swift")
+    assert(tools.contains("xcode"), "mobile-ios alias must require xcode")
+  }
+
+  test("ToolchainCommand macos (canonical) requires swift + jdk") {
     val tools = ToolchainCommand.targetTools("macos")
     assert(tools.contains("swift"), "macos must require swift")
     assert(tools.contains("jdk"),   "macos must require jdk")
@@ -36,10 +42,21 @@ class SwiftUIBuildCliTest extends AnyFunSuite:
   }
 
   test("swiftAppName derives correct Swift identifier") {
-    assert(swiftAppName(Some("MyApp"))          == "MyApp")
-    assert(swiftAppName(Some("My App"))         == "MyApp")
-    assert(swiftAppName(Some("my-app"))         == "Myapp")
-    assert(swiftAppName(Some("ScalaScript App"))== "ScalaScriptApp")
-    assert(swiftAppName(None)                   == "ScalaScriptApp")
-    assert(swiftAppName(Some(""))               == "App")
+    assert(swiftAppName(Some("MyApp"))           == "MyApp")
+    assert(swiftAppName(Some("My App"))          == "MyApp")
+    assert(swiftAppName(Some("my-app"))          == "Myapp")
+    assert(swiftAppName(Some("ScalaScript App")) == "ScalaScriptApp")
+    assert(swiftAppName(None)                    == "ScalaScriptApp")
+    assert(swiftAppName(Some(""))                == "App")
+  }
+
+  test("pickIosSimulator returns Some when simulators are available, None otherwise") {
+    val result = pickIosSimulator()
+    result match
+      case Some((udid, name)) =>
+        assert(udid.nonEmpty,         "udid must be non-empty")
+        assert(name.startsWith("iPhone"), s"expected iPhone device, got: $name")
+      case None =>
+        // No simulator runtime installed — acceptable in CI without Xcode
+        info("No iOS simulator available — pickIosSimulator returned None (OK in headless CI)")
   }
