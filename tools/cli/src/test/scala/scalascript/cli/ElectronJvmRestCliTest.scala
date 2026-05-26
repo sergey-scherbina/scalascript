@@ -476,6 +476,15 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       runWebClientPreviewHook = oldHook
       ActiveFlags.set(GlobalFlags())
 
+  test("injectDesktopTokenMiddleware appends SSC_DESKTOP_TOKEN middleware to script"):
+    val script = "route(\"GET\", \"/api\") { _ => \"ok\" }"
+    val patched = injectDesktopTokenMiddleware(script)
+    assert(patched.contains(script))
+    assert(patched.contains("SSC_DESKTOP_TOKEN"))
+    assert(patched.contains("use { (req, next) =>"))
+    assert(patched.contains("x-scalascript-desktop-token"))
+    assert(patched.contains("Response(401"))
+
   test("rewritePlainServePort overrides simple server serve literal"):
     assert(rewritePlainServePort("serve(8080)", 9090) == "serve(9090)")
     assert(rewritePlainServePort("serve(lower(tree), 8080)", 9090) == "serve(lower(tree), 8080)")
@@ -600,6 +609,73 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
       val events = os.read(log)
       assert(events.contains("scala-cli run "))
       assert(events.contains("electron "))
+    finally
+      scalaCliCommand = oldScalaCli
+      electronCommand = oldElectron
+
+  test("runElectronJvmRestDev injects desktop security token into Electron bundle"):
+    val pythonOk =
+      scala.util.Try(os.proc("python3", "--version").call(check = false).exitCode == 0)
+        .getOrElse(false)
+    if !pythonOk then cancel("python3 not on PATH; needed for fake TCP backend")
+
+    val port = 49155
+    val dir = os.temp.dir(prefix = "ssc-electron-token-smoke-", deleteOnExit = true)
+    val app = dir / "app.ssc"
+    val log = dir / "events.log"
+    os.write(app, fullStackServerSource(port))
+
+    val fakeScalaCli = dir / "scala-cli"
+    os.write(
+      fakeScalaCli,
+      s"""#!/bin/sh
+         |set -eu
+         |echo "scala-cli $$@" >> "$log"
+         |python3 - <<'PY' &
+         |import socket
+         |s = socket.socket()
+         |s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+         |s.bind(("127.0.0.1", $port))
+         |s.listen(16)
+         |try:
+         |    while True:
+         |        conn, addr = s.accept()
+         |        conn.close()
+         |finally:
+         |    s.close()
+         |PY
+         |pid=$$!
+         |trap 'kill "$$pid" 2>/dev/null || true' TERM INT EXIT
+         |wait "$$pid"
+         |""".stripMargin
+    )
+    os.perms.set(fakeScalaCli, "rwxr--r--")
+
+    val fakeElectron = dir / "electron"
+    os.write(
+      fakeElectron,
+      s"""#!/bin/sh
+         |set -eu
+         |if [ "$${1:-}" = "--version" ]; then
+         |  echo "v99.0.0"
+         |  exit 0
+         |fi
+         |bundle="$${1:?bundle dir required}"
+         |echo "electron-token $$bundle" >> "$log"
+         |grep -q "__sscDesktopToken" "$$bundle/app.js"
+         |grep -q "x-scalascript-desktop-token" "$$bundle/app.js"
+         |""".stripMargin
+    )
+    os.perms.set(fakeElectron, "rwxr--r--")
+
+    val oldScalaCli = scalaCliCommand
+    val oldElectron = electronCommand
+    try
+      scalaCliCommand = fakeScalaCli.toString
+      electronCommand = fakeElectron.toString
+      runElectronJvmRestDev(app, "jdk")
+      val events = os.read(log)
+      assert(events.contains("electron-token "))
     finally
       scalaCliCommand = oldScalaCli
       electronCommand = oldElectron

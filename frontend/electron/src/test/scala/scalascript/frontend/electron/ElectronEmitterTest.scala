@@ -120,6 +120,47 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     appJs should include ("_ssc_frontend_name = 'electron'")
   }
 
+  test("bundle builder includes fetch overlay routing relative fetches to backend URL") {
+    val module = Module(manifest = None, sections = Nil)
+    val out = os.temp.dir(prefix = "ssc-electron-fetch-overlay-", deleteOnExit = true)
+    ElectronBundleBuilder.write(module, "app", baseDir = None, out,
+      backendBaseUrl = Some("http://127.0.0.1:49152"))
+    val appJs = os.read(out / "app.js")
+    appJs should include ("__sscBackendBaseUrl")
+    appJs should include ("_spaFetchPath")
+    appJs should include ("_ssc_native_fetch")
+    appJs should include ("globalThis.fetch = function")
+  }
+
+  test("bundle builder without backend URL omits __sscBackendBaseUrl injection") {
+    val module = Module(manifest = None, sections = Nil)
+    val out = os.temp.dir(prefix = "ssc-electron-no-backend-", deleteOnExit = true)
+    ElectronBundleBuilder.write(module, "app", baseDir = None, out, backendBaseUrl = None)
+    val appJs = os.read(out / "app.js")
+    appJs should not include ("__sscBackendBaseUrl = ")
+    appJs should include ("_spaFetchPath")
+  }
+
+  test("bundle builder injects desktop security token when provided") {
+    val module = Module(manifest = None, sections = Nil)
+    val out = os.temp.dir(prefix = "ssc-electron-token-", deleteOnExit = true)
+    ElectronBundleBuilder.write(module, "app", baseDir = None, out,
+      backendBaseUrl = Some("http://127.0.0.1:49152"),
+      desktopToken   = Some("test-uuid-1234"))
+    val appJs = os.read(out / "app.js")
+    appJs should include ("globalThis.__sscDesktopToken = \"test-uuid-1234\"")
+    appJs should include ("x-scalascript-desktop-token")
+  }
+
+  test("bundle builder omits desktop token injection when not provided") {
+    val module = Module(manifest = None, sections = Nil)
+    val out = os.temp.dir(prefix = "ssc-electron-no-token-", deleteOnExit = true)
+    ElectronBundleBuilder.write(module, "app", baseDir = None, out,
+      backendBaseUrl = Some("http://127.0.0.1:49152"))
+    val appJs = os.read(out / "app.js")
+    appJs should not include ("__sscDesktopToken = ")
+  }
+
   test("packageJson has required npm fields") {
     val json = ElectronEmitter.packageJson("my-app")
     json should include ("\"main\": \"main.js\"")

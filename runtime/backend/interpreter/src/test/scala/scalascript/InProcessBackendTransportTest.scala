@@ -71,3 +71,44 @@ class InProcessBackendTransportTest extends AnyFunSuite with Matchers with Befor
 
     resp.status shouldBe 404
     body(resp) should include ("/missing")
+
+  test("Response.text sets text/plain content-type and body"):
+    runRoutes("""route("GET", "/txt") { _ => Response.text("hello") }""")
+
+    val resp = request(BackendRequest("GET", "/txt"))
+
+    resp.status shouldBe 200
+    resp.headers.getOrElse("Content-Type", "").should(include("text/plain"))
+    body(resp) shouldBe "hello"
+
+  test("Response.json sets application/json content-type and body"):
+    runRoutes("""route("GET", "/data") { _ => Response.json("[1,2,3]") }""")
+
+    val resp = request(BackendRequest("GET", "/data"))
+
+    resp.status shouldBe 200
+    resp.headers.getOrElse("Content-Type", "").should(include("application/json"))
+    body(resp) shouldBe "[1,2,3]"
+
+  test("Response with explicit status 204 returns empty body and correct status"):
+    runRoutes("""route("DELETE", "/item") { _ => Response(204, Map(), "") }""")
+
+    val resp = request(BackendRequest("DELETE", "/item"))
+
+    resp.status shouldBe 204
+    body(resp) shouldBe ""
+
+  test("non-2xx status code passes through without modification"):
+    runRoutes("""route("GET", "/err") { _ => Response(400, Map(), "bad request") }""")
+
+    val resp = request(BackendRequest("GET", "/err"))
+
+    resp.status shouldBe 400
+    body(resp) shouldBe "bad request"
+
+  test("500 from handler exception returns 500 response"):
+    runRoutes("""route("GET", "/boom") { _ => throw new RuntimeException("kaboom") }""")
+
+    val resp = request(BackendRequest("GET", "/boom"))
+
+    resp.status shouldBe 500
