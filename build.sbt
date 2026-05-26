@@ -2029,9 +2029,10 @@ lazy val sqlPlugin = project
 
 lazy val httpPlugin = project
   .in(file("runtime/std/http-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-http-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
