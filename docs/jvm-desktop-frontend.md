@@ -1,6 +1,6 @@
 # JVM Desktop Frontend
 
-Status: **partially implemented** — May 2026.
+Status: **phases 0–6 complete** — May 2026.
 
 Phases 1-3 have landed: `frontend-swing` is an SPI-discovered backend, the CLI
 accepts `--frontend swing`, and the backend can emit a native `JFrame` source
@@ -302,10 +302,127 @@ work (HTTP servers, actor systems, database pools) on window close.
 wrap it in a platform installer.  Automated `ssc build --target desktop-jvm`
 remains future work (Phase 5b).
 
-### Phase 6 — JavaFX / Compose Evaluation
+### Phase 6 — JavaFX / Compose Evaluation ✓ Landed (2026-05-26)
 
 Evaluate whether JavaFX or Compose Desktop should be implemented as additional
-adapters after Swing proves the contract.
+adapters after Swing proves the contract.  Now that Phases 1–5 have landed, the
+contract is concrete:
+
+- **SPI entry point** — extend `FrontendFrameworkSpi`, override `emitNative`.
+- **Code generation shape** — produce Scala source compiled by `scala-cli run .`.
+- **State model** — mutable signal table (`Map[String, Any]`) + bindings map.
+- **Transport boundary** — implement `BackendTransport`; in-process path wires
+  into generated route registry without HTTP.
+- **Packaging** — fat JAR via `scala-cli package --assembly`, then `jpackage`.
+
+#### JavaFX
+
+**Feasibility: viable — recommended as the next adapter.**
+
+JavaFX has been distributed separately from the JDK since Java 11.  The OpenJFX
+artifacts (`org.openjfx:javafx-controls`, `javafx-fxml`, etc.) are published on
+Maven Central with platform classifiers (`mac`, `linux`, `win`).  `scala-cli`
+resolves them normally via `//> using dep org.openjfx:javafx-controls:21.0.5`.
+
+The emitter shape mirrors Swing:
+
+| Swing widget        | JavaFX equivalent            |
+|---------------------|------------------------------|
+| `JLabel`            | `Label`                      |
+| `JButton`           | `Button`                     |
+| `JTextField`        | `TextField`                  |
+| `JPasswordField`    | `PasswordField`              |
+| `JTextArea`         | `TextArea`                   |
+| `JCheckBox`         | `CheckBox`                   |
+| `JPanel` / BoxLayout Y | `VBox`                   |
+| `JPanel` / BoxLayout X | `HBox`                   |
+| `JScrollPane`       | `ScrollPane`                 |
+| `JSeparator`        | `Separator`                  |
+| `Box.createRigidArea` | `Region` with `setPrefSize` |
+
+Threading is analogous: `Platform.runLater { ... }` replaces
+`SwingUtilities.invokeLater { ... }`.
+
+**Advantages over Swing:**
+- Native CSS styling: `node.setStyle("-fx-font-size: 14px; -fx-background-color: #fff;")`.
+  All `Style` fields map cleanly without bespoke `emitForeground`/`emitBorder`
+  helpers — a single `setStyle(cssString)` call covers everything.
+- Better default look on all platforms (HiDPI-aware, anti-aliased).
+- `WebView` node is available for hybrid HTML/native content without Electron.
+- Property-binding system (`StringProperty`, `BooleanProperty`) allows cleaner
+  signal wiring than the manual refresh callbacks in the current Swing emitter.
+
+**Drawbacks:**
+- Extra JARs (~25 MB per platform).  Users must have OpenJFX on the classpath or
+  rely on `scala-cli`'s dependency resolution; the generated source must carry
+  the `//> using dep` directives.
+- `Application.launch()` requires a public no-arg constructor and takes over
+  `main`.  The generated entry point must subclass `javafx.application.Application`
+  and override `start(Stage primaryStage)`.  This is more boilerplate than Swing
+  but is entirely emitter-side; the `.ssc` author sees nothing of it.
+- `jpackage` on macOS requires `--mac-package-name` and the JavaFX `--module-path`
+  flag, adding packaging complexity.
+
+**Implementation path (draft phases for a future v1.46+ milestone):**
+
+1. Add `frontend/javafx` module; `JavaFxFrameworkBackend extends FrontendFrameworkSpi`.
+2. `JavaFxEmitter` generates a `//> using dep org.openjfx:...` source with an
+   `App extends Application` class.  Signal table becomes JavaFX `SimpleStringProperty` /
+   `SimpleBooleanProperty` + listeners — no manual binding map needed.
+3. Add `AppFormat.JavaFxApp`; plumb `--frontend javafx` through CLI and JvmGen.
+4. Example: `examples/frontend/javafx-hello/`.
+5. CSS style emitter: one `emitStyle(node, style): String` method renders the full
+   `Style` case class to a single inline `-fx-*` stylesheet string.
+6. Conformance: adapt the existing Swing golden-code tests to JavaFX.
+
+**Decision: implement JavaFX after Swing styling parity is reached.**  The
+dependency story is manageable, the widget mapping is nearly 1:1, and CSS styling
+is a significant UX improvement.  Track under a future `v1.47 — JavaFX Desktop
+Frontend` milestone.
+
+#### Compose Desktop
+
+**Feasibility: blocked — defer until toolchain support lands.**
+
+Compose Desktop (JetBrains Compose Multiplatform) requires:
+
+1. **Kotlin** — Compose is a Kotlin library.  The `@Composable` annotation is
+   processed by a Kotlin compiler plugin (`org.jetbrains.compose`).  There is no
+   Java/Scala equivalent.
+2. **Gradle** — the Compose Multiplatform Gradle plugin manages Skiko (a
+   Skia-based native rendering library, ~50 MB per platform) and the Kotlin
+   compiler plugin.  `scala-cli` cannot drive this pipeline today.
+
+The fundamental blocker is that ScalaScript currently generates Scala source
+compiled by `scala-cli`.  Compose Desktop requires generating Kotlin source and
+driving a Gradle build.  That is a new code-generation pipeline — not an
+incremental emitter addition.
+
+**Advantages (for the record):**
+- Truly declarative, composable UI that maps cleanly to `View[?]` ADT.
+- `mutableStateOf(...)` / `remember { ... }` maps 1:1 to ReactiveSignal semantics.
+- iOS and Android reuse the same composable components (Compose Multiplatform).
+- HiDPI, animation, and modern theming built-in.
+
+**Conditions for revisiting:**
+- `scala-cli` gains support for mixed Scala/Kotlin projects with compiler plugins
+  (tracked upstream), **or**
+- ScalaScript adds a Kotlin/Gradle code generation path as a first-class output
+  mode (large separate effort), **or**
+- JetBrains ships a Java/Scala-accessible Compose runtime that doesn't require
+  the Kotlin compiler plugin (unlikely near-term).
+
+**Decision: defer Compose Desktop.**  Add a `DEFERRED` note in the Compose
+sub-section of the open questions and revisit when the toolchain situation
+changes.  No implementation work until a `scala-cli`-compatible path exists.
+
+#### Summary
+
+| Adapter          | Status      | Blocker                             | Recommended next? |
+|------------------|-------------|-------------------------------------|-------------------|
+| Swing            | ✓ Landed    | —                                   | —                 |
+| JavaFX           | Planned     | None (managed by `scala-cli` deps)  | Yes               |
+| Compose Desktop  | Deferred    | Requires Kotlin + Gradle pipeline   | No                |
 
 ## Testing Strategy
 
@@ -319,11 +436,13 @@ adapters after Swing proves the contract.
 
 - Resolved: the backend module is `frontend-swing`; the CLI/frontend SPI name
   is `swing`.
+- Resolved: JavaFX is the recommended next adapter (see Phase 6 evaluation).
+  Track under a future `v1.47 — JavaFX Desktop Frontend` milestone.
+- Resolved: Compose Desktop is deferred until `scala-cli` supports
+  Kotlin + Compose compiler plugins, or ScalaScript adds a Kotlin/Gradle
+  code-generation pipeline.
 - Should `desktop-jvm` eventually default to Swing, or remain Electron + JVM
   REST unless `--frontend swing` is explicit?
 - Which frontend toolkit abstraction should be the canonical source for Swing:
   current `runtime/std/ui` toolkit, lower-level frontend abstract model, or a
   new shared JVM-friendly subset?
-- How much styling should the first Swing target expose before JavaFX/Compose?
-- Should JavaFX support land before packaging work, or after Swing reaches
-  full-stack parity for small apps?

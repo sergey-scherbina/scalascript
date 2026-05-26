@@ -10507,15 +10507,16 @@ server-only/client-only split commands, and external integrations stay on HTTP.
   other desktop shell bridge transports. This is local IPC/host bridging, not
   JVM in-process, and should remain explicit.
 
-## v1.45 — JVM Desktop Frontend
+## v1.45 — JVM Desktop Frontend ✓ Complete (2026-05-26)
 
-**Status:** phases 0–5 complete; Phase 6 (JavaFX/Compose evaluation) open
+**Status:** complete
 **Spec:** [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md)
 
 JVM-hosted desktop frontend target for self-contained local apps. The first
-adapter should be Swing because it is included in the JDK and avoids Electron,
-npm, Node.js, browser hosting, and HTTP sockets for monolithic JVM apps. JavaFX
-and Compose Desktop remain future adapters after the Swing proof of concept.
+adapter is Swing (included in the JDK). Phase 6 evaluated JavaFX and Compose
+Desktop: JavaFX is recommended as the next adapter (tracked under a future
+v1.47 milestone); Compose Desktop is deferred pending `scala-cli` Kotlin/Gradle
+pipeline support.
 
 ### Planned phases
 
@@ -10566,8 +10567,11 @@ and Compose Desktop remain future adapters after the Swing proof of concept.
   matter `raw` and emits `iconPath = Some(...)` in the generated Options.
   JDK requirements (JDK 11+ for Swing, JDK 14+ for `jpackage`) and manual
   packaging steps documented in spec and user-guide.
-- **Phase 6 — JavaFX / Compose evaluation.** Decide whether JavaFX or Compose
-  Desktop should become additional adapters.
+- **Phase 6 ✓ Landed (2026-05-26)** — JavaFX / Compose evaluation:
+  JavaFX is viable (1:1 widget mapping, CSS styling, `scala-cli`-managed deps)
+  and recommended as the next JVM desktop adapter. Compose Desktop is deferred:
+  it requires Kotlin + the Compose compiler plugin, which `scala-cli` cannot
+  drive today. Decision and full analysis documented in spec Phase 6 section.
 
 ## v1.46 — Typed Route Clients
 
