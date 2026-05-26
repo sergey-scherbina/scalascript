@@ -10710,8 +10710,12 @@ distributed same-source server/client example are partially landed.
   per-call, so per-call wins). Retry policy landed 2026-05-26:
   `_ssc_api_set_retry(maxRetries, delayMs)` sets a module-global policy; both
   runtimes retry transparently on transport errors and 5xx, with delay, up to
-  `maxRetries` times. 4xx errors are never retried. Remaining: streaming,
-  SSE/WebSocket, pagination, cancellation.
+  `maxRetries` times. 4xx errors are never retried. Cancellation tokens landed
+  2026-05-26: `_ssc_api_cancel_token()` produces a token; `token.cancel()` sets
+  the cancelled flag; all generated client methods accept `cancelToken` (JS: last
+  positional arg; JVM: `_SscCancelToken = null`) checked before and between
+  retries; JS also passes `AbortController.signal` to `fetch` when available.
+  Remaining: streaming, SSE/WebSocket, pagination helpers.
 
 ## v1.47 — JavaFX Desktop Frontend ✓ Complete (2026-05-26)
 

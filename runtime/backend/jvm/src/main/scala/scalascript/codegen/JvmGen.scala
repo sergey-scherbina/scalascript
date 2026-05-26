@@ -1781,15 +1781,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
             val path = scalaStringLiteral(endpoint.path)
             if endpoint.requestType == "Unit" then
               sb.append("  def ").append(endpoint.name)
-                .append("(headers: Map[String, String] = Map.empty): ").append(endpoint.responseType)
+                .append("(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ").append(endpoint.responseType)
                 .append(" = _ssc_api_request[Unit, ").append(endpoint.responseType).append("](")
-                .append(method).append(", ").append(path).append(", (), headers)\n")
+                .append(method).append(", ").append(path).append(", (), headers, cancelToken)\n")
             else
               sb.append("  def ").append(endpoint.name).append("(input: ").append(endpoint.requestType)
-                .append(", headers: Map[String, String] = Map.empty): ")
+                .append(", headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): ")
                 .append(endpoint.responseType).append(" = _ssc_api_request[")
                 .append(endpoint.requestType).append(", ").append(endpoint.responseType).append("](")
-                .append(method).append(", ").append(path).append(", input, headers)\n")
+                .append(method).append(", ").append(path).append(", input, headers, cancelToken)\n")
           }
           sb.append("\n")
       }
@@ -1848,23 +1848,36 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |def _ssc_api_set_retry(maxRetries: Int, delayMs: Long): Unit =
        |  _ssc_api_retry_policy = (maxRetries, delayMs)
        |
+       |class _SscCancelToken:
+       |  private val _cancelled = new java.util.concurrent.atomic.AtomicBoolean(false)
+       |  def cancel(): Unit = _cancelled.set(true)
+       |  def isCancelled: Boolean = _cancelled.get()
+       |def _ssc_api_cancel_token(): _SscCancelToken = new _SscCancelToken()
+       |
        |private def _ssc_api_send(
        |  req: scalascript.backend.spi.BackendRequest,
-       |  maxRetries: Int, delayMs: Long, attempt: Int
+       |  maxRetries: Int, delayMs: Long, attempt: Int,
+       |  cancelToken: _SscCancelToken
        |): scalascript.backend.spi.BackendResponse =
+       |  if cancelToken != null && cancelToken.isCancelled then
+       |    throw RuntimeException("typed route client: request cancelled")
        |  try
        |    val resp = scala.concurrent.Await.result(
        |      _ssc_ui_backend_transport.request(req), scala.concurrent.duration.Duration.Inf)
        |    if resp.status >= 500 && attempt < maxRetries then
        |      if delayMs > 0 then Thread.sleep(delayMs)
-       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1)
+       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1, cancelToken)
        |    else resp
        |  catch
        |    case _: Exception if attempt < maxRetries =>
+       |      if cancelToken != null && cancelToken.isCancelled then
+       |        throw RuntimeException("typed route client: request cancelled")
        |      if delayMs > 0 then Thread.sleep(delayMs)
-       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1)
+       |      _ssc_api_send(req, maxRetries, delayMs, attempt + 1, cancelToken)
        |
-       |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req, callHeaders: Map[String, String] = Map.empty): Resp =
+       |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req, callHeaders: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Resp =
+       |  if cancelToken != null && cancelToken.isCancelled then
+       |    throw RuntimeException("typed route client: request cancelled")
        |  val method = methodRaw.toUpperCase
        |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
        |  val body = _ssc_api_body[Req](method, input)
@@ -1872,7 +1885,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty
        |  val req = scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers ++ callHeaders, _ssc_ui_utf8(body))
        |  val (maxRetries, delayMs) = _ssc_api_retry_policy
-       |  val response = _ssc_api_send(req, maxRetries, delayMs, 0)
+       |  val response = _ssc_api_send(req, maxRetries, delayMs, 0, cancelToken)
        |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)

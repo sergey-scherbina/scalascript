@@ -49,6 +49,9 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("let _ssc_api_retry_policy = {maxRetries: 0, delayMs: 0};"))
     assert(code.contains("function _ssc_api_set_retry(maxRetries, delayMs)"))
     assert(code.contains("attempt < maxRetries"))
+    assert(code.contains("function _ssc_api_cancel_token()"))
+    assert(code.contains("cancelToken.cancelled"))
+    assert(code.contains("typed route client: request cancelled"))
 
   test("JS typed route client request merges extra headers from _ssc_api_extra_headers"):
     assume(hasNode, "node not available")
@@ -177,21 +180,56 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |""".stripMargin
     assert(runJs(code + "\n" + harness) == "err:calls=1")
 
+  test("JS typed route client pre-cancelled token throws before calling fetch"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |let fetchCalled = false;
+        |globalThis.fetch = async function() { fetchCalled = true; return {ok:true,status:200,headers:{get:()=>"application/json"},text:async()=>"[]"}; };
+        |(async function() {
+        |  const token = _ssc_api_cancel_token();
+        |  token.cancel();
+        |  try {
+        |    await Messages.list(undefined, token);
+        |    process.stdout.write("no-error");
+        |  } catch(e) {
+        |    process.stdout.write(e.message.includes("request cancelled") ? "cancelled:fetch=" + fetchCalled : "wrong-error:" + e.message);
+        |  }
+        |})();
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "cancelled:fetch=false")
+
+  test("JS typed route client active token does not block uncancelled calls"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |globalThis.fetch = async function() { return {ok:true,status:200,headers:{get:()=>"application/json"},text:async()=>"[]"}; };
+        |(async function() {
+        |  const token = _ssc_api_cancel_token();
+        |  await Messages.list(undefined, token);
+        |  process.stdout.write("ok");
+        |})().catch(e => { process.stdout.write("ERR:" + e); process.exitCode = 1; });
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "ok")
+
   test("JS codegen emits HTTP typed route client metadata and Promise methods"):
     val code = JsGen.generate(Parser.parse(source))
 
     assert(code.contains("const _ssc_typedRouteClients = ["))
     assert(code.contains("""{client: "Messages", name: "create", method: "POST", path: "/api/messages", requestType: "CreateMessage", responseType: "Message"}"""))
-    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders)"))
+    assert(code.contains("async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders, cancelToken)"))
+    assert(code.contains("function _ssc_api_cancel_token()"))
     assert(code.contains("function _ssc_typed_json_encode(value, typeName)"))
     assert(code.contains("function _ssc_typed_json_decode_response(text, contentType, typeName)"))
     assert(code.contains("return _ssc_typed_json_encode(input, requestType);"))
     assert(code.contains("response = await fetch(url, init);"))
     assert(code.contains("return _ssc_typed_json_decode_response(text, contentType, responseType);"))
     assert(code.contains("const Messages = {"))
-    assert(code.contains("""create(input, headers) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message", headers); }"""))
-    assert(code.contains("""list(headers) { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]", headers); }"""))
-    assert(code.contains("""get(input, headers) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message", headers); }"""))
+    assert(code.contains("""create(input, headers, cancelToken) { return _ssc_api_request("POST", "/api/messages", input, "CreateMessage", "Message", headers, cancelToken); }"""))
+    assert(code.contains("""list(headers, cancelToken) { return _ssc_api_request("GET", "/api/messages", undefined, "Unit", "List[Message]", headers, cancelToken); }"""))
+    assert(code.contains("""get(input, headers, cancelToken) { return _ssc_api_request("GET", "/api/messages/:id", input, "Int", "Message", headers, cancelToken); }"""))
     assert(code.contains("""_ssc_typed_json_register_product("CreateMessage", ["text"], CreateMessage)"""))
     assert(code.contains("""_ssc_typed_json_register_product("Message", ["id", "text"], Message)"""))
 

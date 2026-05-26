@@ -7911,9 +7911,9 @@ class JsGen(
             val requestType = jsQuote(endpoint.requestType)
             val responseType = jsQuote(endpoint.responseType)
             if endpoint.requestType == "Unit" then
-              line(s"${endpoint.name}(headers) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers); }$comma")
+              line(s"${endpoint.name}(headers, cancelToken) { return _ssc_api_request($method, $path, undefined, $requestType, $responseType, headers, cancelToken); }$comma")
             else
-              line(s"${endpoint.name}(input, headers) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers); }$comma")
+              line(s"${endpoint.name}(input, headers, cancelToken) { return _ssc_api_request($method, $path, input, $requestType, $responseType, headers, cancelToken); }$comma")
           }
           indent -= 1
           line("};")
@@ -7989,20 +7989,30 @@ class JsGen(
        |function _ssc_api_set_retry(maxRetries, delayMs) {
        |  _ssc_api_retry_policy = {maxRetries: maxRetries | 0, delayMs: delayMs | 0};
        |}
-       |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders) {
+       |function _ssc_api_cancel_token() {
+       |  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+       |  const token = { signal: ctrl ? ctrl.signal : null, cancelled: false,
+       |    cancel: function() { token.cancelled = true; if (ctrl) ctrl.abort(); } };
+       |  return token;
+       |}
+       |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType, callHeaders, cancelToken) {
+       |  if (cancelToken && cancelToken.cancelled) throw new Error("typed route client: request cancelled");
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
        |  const body = _ssc_api_body(method, input, requestType);
        |  const maxRetries = _ssc_api_retry_policy.maxRetries;
        |  const delayMs = _ssc_api_retry_policy.delayMs;
        |  for (let attempt = 0; ; attempt++) {
+       |    if (cancelToken && cancelToken.cancelled) throw new Error("typed route client: request cancelled");
        |    const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers, callHeaders || {}) };
        |    if (body !== undefined) { init.body = body; init.headers["Content-Type"] = "application/json"; }
+       |    if (cancelToken && cancelToken.signal) init.signal = cancelToken.signal;
        |    let response, text;
        |    try {
        |      response = await fetch(url, init);
        |      text = await response.text();
        |    } catch (e) {
+       |      if (cancelToken && cancelToken.cancelled) throw new Error("typed route client: request cancelled");
        |      if (attempt < maxRetries) { if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs)); continue; }
        |      throw e;
        |    }

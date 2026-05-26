@@ -84,9 +84,9 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("_ssc_ui_backend_transport.request("))
     assert(code.contains("_ssc_typed_json_decode_response[Resp](response)"))
     assert(code.contains("object Messages:"))
-    assert(code.contains("""def create(input: CreateMessage, headers: Map[String, String] = Map.empty): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input, headers)"""))
-    assert(code.contains("""def list(headers: Map[String, String] = Map.empty): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", (), headers)"""))
-    assert(code.contains("""def delete(input: Int, headers: Map[String, String] = Map.empty): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input, headers)"""))
+    assert(code.contains("""def create(input: CreateMessage, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input, headers, cancelToken)"""))
+    assert(code.contains("""def list(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", (), headers, cancelToken)"""))
+    assert(code.contains("""def delete(input: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input, headers, cancelToken)"""))
   }
 
   test("non-Swing JVM codegen keeps metadata only until HTTP transport lands") {
@@ -137,6 +137,10 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("def _ssc_api_set_retry(maxRetries: Int, delayMs: Long): Unit"))
     assert(code.contains("private def _ssc_api_send("))
     assert(code.contains("_ssc_ui_backend_transport.request(req)"))
+    assert(code.contains("class _SscCancelToken"))
+    assert(code.contains("def _ssc_api_cancel_token(): _SscCancelToken"))
+    assert(code.contains("cancelToken: _SscCancelToken = null"))
+    assert(code.contains("typed route client: request cancelled"))
   }
 
   test("JVM codegen path param validation: Unit request type emits warning comment") {
@@ -205,8 +209,8 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
 
     assert(code.contains("callHeaders: Map[String, String] = Map.empty"))
     assert(code.contains("baseHeaders ++ _ssc_api_extra_headers ++ callHeaders"))
-    assert(code.contains("""def get(input: Int, headers: Map[String, String] = Map.empty): String"""))
-    assert(code.contains("""def create(input: String, headers: Map[String, String] = Map.empty): Int"""))
+    assert(code.contains("""def get(input: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): String"""))
+    assert(code.contains("""def create(input: String, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Int"""))
   }
 
   test("JVM codegen skips client-only ScalaScript blocks") {

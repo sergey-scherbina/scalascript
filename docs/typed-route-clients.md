@@ -399,8 +399,19 @@ private recursive `_ssc_api_send` helper carries the attempt counter so
 `_ssc_api_request` stays a simple inline call; in JS a `for` loop with `try/catch`
 around `fetch` provides the same semantics without a separate function.
 
+Landed 2026-05-26 follow-up: cancellation tokens. All generated client
+methods now accept an optional `cancelToken` parameter after `headers`
+(JS: last positional arg; JVM: `cancelToken: _SscCancelToken = null`). Create
+a token with `_ssc_api_cancel_token()` and call `token.cancel()` to cancel.
+In JS, cancellation checks `token.cancelled` before and between retries and
+also passes `AbortController.signal` (when available) to `fetch` for
+in-flight abort. In JVM/Swing the token is an `AtomicBoolean` wrapper; the
+pre-flight and between-retry checks fire before `_ssc_api_send` dispatches.
+In-process JVM requests complete synchronously so thread interruption is not
+needed for the Swing target.
+
 Still planned for Phase 6: streaming responses, SSE/WebSocket subscriptions,
-pagination helpers, and cancellation.
+pagination helpers.
 
 ## Testing Strategy
 
