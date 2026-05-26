@@ -9,6 +9,8 @@ import org.eclipse.rdf4j.model.{BNode, IRI, Literal, Resource, Value}
 import org.eclipse.rdf4j.query.QueryLanguage as Rdf4jQueryLanguage
 import org.eclipse.rdf4j.repository.sail.SailRepository
 import org.eclipse.rdf4j.sail.memory.MemoryStore
+import org.neo4j.driver.{AuthTokens, GraphDatabase as Neo4jDatabase}
+import org.neo4j.driver.types.{Node as Neo4jNode, Relationship as Neo4jRelationship}
 
 enum GraphModel:
   case Property, Rdf
@@ -41,6 +43,8 @@ trait PropertyGraphBackend:
   def edges(label: Option[String] = None, from: Option[String] = None, to: Option[String] = None): Vector[StoredEdge]
   def deleteEdge(id: String): Boolean
   def neighbors(from: String, edgeLabel: Option[String] = None): Vector[VertexValue]
+  def cypherQuery(query: String, params: Map[String, Any] = Map.empty): Vector[Map[String, JsonValue]] =
+    throw GraphRuntimeError(s"${getClass.getSimpleName} does not support Cypher queries")
 
 trait RdfGraphBackend:
   def capabilities: GraphCapabilities
@@ -60,6 +64,15 @@ object GraphRuntime:
       embedded = true,
       persistent = false,
       remote = false
+    )
+
+  val Neo4jCapabilities: GraphCapabilities =
+    GraphCapabilities(
+      models = Set(GraphModel.Property),
+      queryLanguages = Set(GraphQueryLanguage.Portable, GraphQueryLanguage.Cypher),
+      embedded = false,
+      persistent = true,
+      remote = true
     )
 
   val TinkerGraphCapabilities: GraphCapabilities =
@@ -83,6 +96,8 @@ object GraphRuntime:
   def inMemory(): GraphBackend = new InMemoryGraphBackend
   def tinkerGraph(): GraphBackend = new TinkerGraphBackend
   def rdf4jMemory(): GraphBackend = new Rdf4jMemoryGraphBackend
+  def neo4j(uri: String, user: String, password: String): Neo4jGraphBackend =
+    new Neo4jGraphBackend(uri, user, password)
 
   def putVertex[A](backend: PropertyGraphBackend, value: A)(using codec: VertexCodec[A]): VertexValue =
     backend.putVertex(codec.encode(value))
@@ -477,3 +492,212 @@ final class Rdf4jMemoryGraphBackend private (repository: SailRepository) extends
   private val XsdBoolean = "http://www.w3.org/2001/XMLSchema#boolean"
   private val XsdDecimal = "http://www.w3.org/2001/XMLSchema#decimal"
   private val XsdInteger = "http://www.w3.org/2001/XMLSchema#integer"
+
+final class Neo4jGraphBackend(uri: String, user: String, password: String) extends PropertyGraphBackend:
+  private val EnvRef = """\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}""".r
+  private def resolveRef(s: String): String =
+    EnvRef.replaceAllIn(s, m => sys.env.getOrElse(m.group(1),
+      throw GraphRuntimeError(s"Neo4j: environment variable '${m.group(1)}' is not set")))
+  private val driver = Neo4jDatabase.driver(resolveRef(uri), AuthTokens.basic(resolveRef(user), resolveRef(password)))
+
+  def close(): Unit = driver.close()
+
+  def capabilities: GraphCapabilities = GraphRuntime.Neo4jCapabilities
+
+  def putVertex(value: VertexValue): VertexValue =
+    val primaryLabel = value.labels.toVector.sorted.headOption.getOrElse("Vertex")
+    Neo4jGraphBackend.validateIdentifier(primaryLabel)
+    val allLabels = value.labels.toVector.sorted.mkString(",")
+    val props = (value.properties.view.mapValues(jsonToNeo4j).toMap ++
+      Map("_ssc_id" -> value.id, "_ssc_labels" -> allLabels)).asJava
+    val query = s"MERGE (n:$primaryLabel {_ssc_id: $$id}) SET n = $$props RETURN n"
+    withSession { session =>
+      session.executeWrite { tx =>
+        tx.run(query, java.util.Map.of("id", value.id, "props", props)).consume()
+      }
+    }
+    value
+
+  def getVertex(id: String): Option[VertexValue] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val result = tx.run("MATCH (n {_ssc_id: $id}) RETURN n LIMIT 1",
+          java.util.Map.of("id", id))
+        if result.hasNext then Some(neo4jNodeToVertex(result.next().get("n").asNode()))
+        else None
+      }
+    }
+
+  def vertices(label: Option[String]): Vector[VertexValue] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val query = label match
+          case Some(l) =>
+            Neo4jGraphBackend.validateIdentifier(l)
+            s"MATCH (n:$l) RETURN n"
+          case None => "MATCH (n) WHERE n._ssc_id IS NOT NULL RETURN n"
+        tx.run(query).list().asScala.map(r => neo4jNodeToVertex(r.get("n").asNode())).toVector
+      }
+    }
+
+  def deleteVertex(id: String): Boolean =
+    withSession { session =>
+      session.executeWrite { tx =>
+        val result = tx.run("MATCH (n {_ssc_id: $id}) DETACH DELETE n RETURN count(n) AS cnt",
+          java.util.Map.of("id", id))
+        result.single().get("cnt").asLong() > 0
+      }
+    }
+
+  def putEdge(value: EdgeValue): StoredEdge =
+    Neo4jGraphBackend.validateIdentifier(value.label)
+    val eid = value.id.getOrElse(s"${value.from}-${value.label}-${value.to}")
+    val props = (value.properties.view.mapValues(jsonToNeo4j).toMap ++
+      Map("_ssc_id" -> eid, "_ssc_from" -> value.from, "_ssc_to" -> value.to)).asJava
+    val query =
+      s"""MATCH (a {{_ssc_id: $$from}}), (b {{_ssc_id: $$to}})
+         |MERGE (a)-[r:${value.label} {{_ssc_id: $$eid}}]->(b)
+         |SET r = $$props
+         |RETURN r""".stripMargin
+    withSession { session =>
+      session.executeWrite { tx =>
+        tx.run(query, java.util.Map.of("from", value.from, "to", value.to, "eid", eid, "props", props)).consume()
+      }
+    }
+    StoredEdge(eid, value.copy(id = Some(eid)))
+
+  def getEdge(id: String): Option[StoredEdge] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val result = tx.run(
+          "MATCH (a)-[r {_ssc_id: $id}]->(b) RETURN r, a._ssc_id AS from, b._ssc_id AS to LIMIT 1",
+          java.util.Map.of("id", id))
+        if result.hasNext then
+          val row = result.next()
+          Some(neo4jRelToEdge(row.get("r").asRelationship(), row.get("from").asString(), row.get("to").asString()))
+        else None
+      }
+    }
+
+  def edges(label: Option[String], from: Option[String], to: Option[String]): Vector[StoredEdge] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val labelClause = label.map { l => Neo4jGraphBackend.validateIdentifier(l); s":$l" }.getOrElse("")
+        val fromClause = from.map(_ => " WHERE a._ssc_id = $from").getOrElse("")
+        val toClause = to.map(_ => if fromClause.isEmpty then " WHERE b._ssc_id = $to" else " AND b._ssc_id = $to").getOrElse("")
+        val query = s"MATCH (a)-[r$labelClause]->(b) WHERE r._ssc_id IS NOT NULL$fromClause$toClause RETURN r, a._ssc_id AS from, b._ssc_id AS to"
+        val params = java.util.HashMap[String, AnyRef]()
+        from.foreach(v => params.put("from", v))
+        to.foreach(v => params.put("to", v))
+        tx.run(query, params).list().asScala.map { row =>
+          neo4jRelToEdge(row.get("r").asRelationship(), row.get("from").asString(), row.get("to").asString())
+        }.toVector
+      }
+    }
+
+  def deleteEdge(id: String): Boolean =
+    withSession { session =>
+      session.executeWrite { tx =>
+        val result = tx.run("MATCH ()-[r {_ssc_id: $id}]->() DELETE r RETURN count(r) AS cnt",
+          java.util.Map.of("id", id))
+        result.single().get("cnt").asLong() > 0
+      }
+    }
+
+  def neighbors(from: String, edgeLabel: Option[String]): Vector[VertexValue] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val labelClause = edgeLabel.map { l => Neo4jGraphBackend.validateIdentifier(l); s":$l" }.getOrElse("")
+        val query = s"MATCH (a {_ssc_id: $$from})-[$labelClause]->(b) WHERE b._ssc_id IS NOT NULL RETURN b"
+        tx.run(query, java.util.Map.of("from", from)).list().asScala
+          .map(r => neo4jNodeToVertex(r.get("b").asNode())).toVector
+      }
+    }
+
+  override def cypherQuery(query: String, params: Map[String, Any] = Map.empty): Vector[Map[String, JsonValue]] =
+    withSession { session =>
+      session.executeRead { tx =>
+        val javaParams = params.view.mapValues(anyToNeo4j).toMap.asJava
+        tx.run(query, javaParams).list().asScala.map { record =>
+          record.keys().asScala.iterator.flatMap { key =>
+            val v = record.get(key)
+            if v.isNull then None
+            else Some(key -> neo4jValueToJson(v))
+          }.toMap
+        }.toVector
+      }
+    }
+
+  private def withSession[A](f: org.neo4j.driver.Session => A): A =
+    val session = driver.session()
+    try f(session)
+    finally session.close()
+
+  private def neo4jNodeToVertex(node: Neo4jNode): VertexValue =
+    val props = node.asMap().asScala.view
+      .filterKeys(k => k != "_ssc_id" && k != "_ssc_labels")
+      .mapValues(anyToJson)
+      .toMap
+    val labels = Option(node.get("_ssc_labels"))
+      .filter(!_.isNull)
+      .map(_.asString().split(",").iterator.filter(_.nonEmpty).toSet)
+      .getOrElse(node.labels().asScala.toSet)
+    VertexValue(id = node.get("_ssc_id").asString(node.elementId()), labels = labels, properties = props)
+
+  private def neo4jRelToEdge(rel: Neo4jRelationship, from: String, to: String): StoredEdge =
+    val props = rel.asMap().asScala.view
+      .filterKeys(k => k != "_ssc_id" && k != "_ssc_from" && k != "_ssc_to")
+      .mapValues(anyToJson)
+      .toMap
+    val eid = rel.get("_ssc_id").asString(rel.elementId())
+    StoredEdge(eid, EdgeValue(id = Some(eid), from = from, to = to, label = rel.`type`(), properties = props))
+
+  private def anyToJson(value: Any): JsonValue = value match
+    case null => JsonValue.Null
+    case v: String => JsonValue.Str(v)
+    case v: java.lang.Boolean => JsonValue.Bool(v.booleanValue())
+    case v: java.lang.Number => JsonValue.Num(BigDecimal(v.toString))
+    case v: java.util.List[?] => JsonValue.Arr(v.asScala.map(anyToJson).toVector)
+    case v: java.util.Map[?, ?] =>
+      JsonValue.Obj(v.asScala.iterator.map { case (k, vv) => k.toString -> anyToJson(vv) }.toMap)
+    case other => JsonValue.Str(other.toString)
+
+  private def neo4jValueToJson(v: org.neo4j.driver.Value): JsonValue =
+    if v.isNull then JsonValue.Null
+    else v.`type`().name() match
+      case "BOOLEAN" => JsonValue.Bool(v.asBoolean())
+      case "INTEGER" | "FLOAT" => JsonValue.Num(BigDecimal(v.asNumber().toString))
+      case "STRING" => JsonValue.Str(v.asString())
+      case "LIST" => JsonValue.Arr(v.asList().asScala.map(anyToJson).toVector)
+      case "MAP" => JsonValue.Obj(v.asMap().asScala.map { case (k, vv) => k -> anyToJson(vv) }.toMap)
+      case "NULL" => JsonValue.Null
+      case _ => JsonValue.Str(v.asString())
+
+  private def jsonToNeo4j(json: JsonValue): AnyRef = json match
+    case JsonValue.Str(v) => v
+    case JsonValue.Bool(v) => java.lang.Boolean.valueOf(v)
+    case JsonValue.Num(v) =>
+      if v.isValidLong then java.lang.Long.valueOf(v.toLongExact)
+      else java.lang.Double.valueOf(v.toDouble)
+    case JsonValue.Null => null
+    case JsonValue.Arr(items) => items.map(jsonToNeo4j).asJava
+    case JsonValue.Obj(fields) => fields.view.mapValues(jsonToNeo4j).toMap.asJava
+
+  private def anyToNeo4j(value: Any): AnyRef = value match
+    case v: String => v
+    case v: Boolean => java.lang.Boolean.valueOf(v)
+    case v: Int => java.lang.Long.valueOf(v.toLong)
+    case v: Long => java.lang.Long.valueOf(v)
+    case v: Double => java.lang.Double.valueOf(v)
+    case v: Float => java.lang.Double.valueOf(v.toDouble)
+    case v: BigDecimal =>
+      if v.isValidLong then java.lang.Long.valueOf(v.toLongExact)
+      else java.lang.Double.valueOf(v.toDouble)
+    case null => null
+    case other => other.toString
+
+object Neo4jGraphBackend:
+  private val ValidIdentifier = """[A-Za-z_][A-Za-z0-9_]*""".r
+  def validateIdentifier(name: String): Unit =
+    if !ValidIdentifier.matches(name) then
+      throw GraphRuntimeError(s"'$name' is not a valid Neo4j identifier; use only letters, digits, and underscores")

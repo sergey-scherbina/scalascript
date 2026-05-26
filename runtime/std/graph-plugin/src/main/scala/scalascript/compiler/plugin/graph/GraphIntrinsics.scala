@@ -100,7 +100,13 @@ object GraphIntrinsics:
           .flatMap(record => rdfTriples(record.value, pred))
           .toList)
       case _ => throw RuntimeException("Graph.triples(graphName: String, subject?: Option[String], predicate?: Option[String])")
-    )
+    ),
+    QualifiedName("Sparql.select") -> NativeImpl((_, _) =>
+      throw RuntimeException("Sparql.select is not available in interpreter mode; use ssc run-jvm with backend: rdf4j-memory")
+    ),
+    QualifiedName("Cypher.query") -> NativeImpl((_, _) =>
+      throw RuntimeException("Cypher.query is not available in interpreter mode; use ssc run-jvm with backend: neo4j")
+    ),
   )
 
   private def store(name: String): Store = stores.getOrElseUpdate(name, Store())

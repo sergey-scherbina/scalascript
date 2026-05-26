@@ -1510,6 +1510,11 @@ class JvmGen(
           "scalascript.graph.GraphRuntime.tinkerGraph()"
         else if Set("rdf4j-memory", "rdf4j", "embedded-rdf4j").contains(backend) then
           "scalascript.graph.GraphRuntime.rdf4jMemory()"
+        else if backend == "neo4j" then
+          val boltUri = escapeStringLit(g.uri.getOrElse("bolt://localhost:7687"))
+          val boltUser = escapeStringLit(g.user.getOrElse("neo4j"))
+          val boltPass = escapeStringLit(g.password.getOrElse("neo4j"))
+          s"""scalascript.graph.GraphRuntime.neo4j("$boltUri", "$boltUser", "$boltPass")"""
         else
           s"throw scalascript.graph.GraphRuntimeError(\"graphs.$name: backend '$backend' for model '$model' is planned but not implemented yet\")"
       s"  \"$name\" -> $rhs"
@@ -1549,6 +1554,14 @@ class JvmGen(
                  |  def select(graphName: String, query: String): List[Map[String, scalascript.typeddata.RdfNode]] =
                  |    scalascript.graph.GraphRuntime.sparqlSelect(backend(graphName), query).toList
                  |
+                 |object Cypher:
+                 |  private def backend(name: String): scalascript.graph.PropertyGraphBackend =
+                 |    _ssc_graph_registry.getOrElse(name, throw scalascript.graph.GraphRuntimeError(s"unknown graph store '$name'. Declared stores: ${_ssc_graph_registry.keys.toList.sorted.mkString(", ")}")) match
+                 |      case pg: scalascript.graph.PropertyGraphBackend => pg
+                 |      case _ => throw scalascript.graph.GraphRuntimeError(s"graph store '$name' does not support Cypher queries")
+                 |  def query(graphName: String, query: String, params: Map[String, Any] = Map.empty): List[Map[String, scalascript.typeddata.JsonValue]] =
+                 |    backend(graphName).cypherQuery(query, params).toList
+                 |
                  |""".stripMargin)
     sb.toString
 
@@ -1561,6 +1574,8 @@ class JvmGen(
         case backend if Set("rdf4j-memory", "rdf4j", "embedded-rdf4j").contains(backend) =>
           deps += "org.eclipse.rdf4j:rdf4j-repository-sail:5.3.1"
           deps += "org.eclipse.rdf4j:rdf4j-sail-memory:5.3.1"
+        case "neo4j" =>
+          deps += "org.neo4j.driver:neo4j-java-driver:5.28.5"
         case _ =>
           ()
     }

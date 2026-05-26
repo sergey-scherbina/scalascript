@@ -931,9 +931,10 @@ lazy val backendGraphRuntime = project
   .settings(
     name := "scalascript-backend-graph-runtime",
     libraryDependencies ++= Seq(
-      "org.apache.tinkerpop" % "tinkergraph-gremlin" % "3.8.1",
-      "org.eclipse.rdf4j"    % "rdf4j-repository-sail" % "5.3.1",
-      "org.eclipse.rdf4j"    % "rdf4j-sail-memory"    % "5.3.1",
+      "org.apache.tinkerpop" % "tinkergraph-gremlin"    % "3.8.1",
+      "org.eclipse.rdf4j"    % "rdf4j-repository-sail"  % "5.3.1",
+      "org.eclipse.rdf4j"    % "rdf4j-sail-memory"      % "5.3.1",
+      "org.neo4j.driver"     % "neo4j-java-driver"      % "5.28.5",
       scalatestTest,
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

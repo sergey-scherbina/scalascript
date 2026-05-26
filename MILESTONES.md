@@ -10481,8 +10481,17 @@ modes opt out of that default.
   runs through `ssc run-jvm`. Follow-up landed 2026-05-26:
   `DistributedDataset.run/runShuffle[A, B]` now wrap the actor-effect map
   and shuffle calls for generated JVM code, backed by qualified dep-effect
-  detection and generic call-site cast wiring. Remaining: richer sync UI
-  helpers and production graph adapters.
+  detection and generic call-site cast wiring. Follow-up landed 2026-05-26:
+  `Neo4jGraphBackend` connects to a running Neo4j server via Bolt
+  (neo4j-java-driver 5.28.5); `graphs:` front matter `backend: neo4j` wires it
+  with `uri`/`user`/`password` (including `${env:NAME}` resolution); JvmGen
+  emits `object Cypher { def query(...) }` for Cypher escape hatches;
+  `PropertyGraphBackend` adds a default `cypherQuery` method; interpreter
+  graph-plugin registers `Cypher.query` / `Sparql.select` with clear
+  not-in-interpreter errors; `examples/graph-neo4j-storage.ssc` documents the
+  path. Remaining: richer sync UI helpers, full-stack graph example
+  (Electron/React → JVM REST → Neo4j), and richer distributed Dataset
+  ergonomics for actor-effect wrappers.
 
 ## v1.44 — Full-Stack In-Process Transport ✓ Complete (2026-05-26)
 

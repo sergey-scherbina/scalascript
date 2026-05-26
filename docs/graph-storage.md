@@ -253,8 +253,16 @@ server-side graph milestone.
    for declared graph stores. This is intentionally an explicit escape hatch:
    portable CRUD/triple APIs stay backend-neutral, while native SPARQL query
    text remains backend-specific.
-5. **Server adapters** — add Neo4j driver/Cypher support and optional RDF4J HTTP
-   repository support.
+5. **Server adapters** — landed 2026-05-26: `Neo4jGraphBackend` connects to a
+   running Neo4j server via the Bolt protocol (neo4j-java-driver 5.28.5).
+   `graphs:` front matter `backend: neo4j` wires the backend with `uri`,
+   `user`, and `password` fields; `${env:NAME}` references in those fields are
+   resolved at startup. JvmGen emits `object Cypher { def query(...) }` for
+   raw Cypher escape hatches over declared `neo4j` stores.
+   `PropertyGraphBackend` now includes a default `cypherQuery` method that
+   throws on non-Cypher backends. The interpreter graph-plugin registers
+   `Cypher.query` and `Sparql.select` with clear "not available in interpreter"
+   errors. Example: `examples/graph-neo4j-storage.ssc`.
 6. **Full-stack examples** — Electron/React frontend queries server graph routes
    and caches selected results locally.
 

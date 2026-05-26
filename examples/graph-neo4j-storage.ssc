@@ -1,0 +1,60 @@
+---
+name: graph-neo4j-storage
+version: 0.1.0
+graphs:
+  social:
+    model: property
+    side: server
+    backend: neo4j
+    uri: bolt://localhost:7687
+    user: ${env:NEO4J_USER}
+    password: ${env:NEO4J_PASSWORD}
+---
+
+# Graph Storage — Neo4j Backend
+
+Demonstrates a production property-graph store backed by a running Neo4j
+server.  Set `NEO4J_USER` and `NEO4J_PASSWORD` before running.
+
+## Domain model
+
+```scala
+import scalascript.typeddata.*
+
+@graphLabel("Person")
+case class Person(id: String, name: String, age: Int) derives VertexCodec
+
+@graphEdge("knows")
+case class Knows(@graphFrom from: String, @graphTo to: String, since: Int) derives EdgeCodec
+```
+
+## Populate the graph
+
+```scala
+Graph.putVertex("social", Person("alice", "Alice", 30))
+Graph.putVertex("social", Person("bob",   "Bob",   25))
+Graph.putVertex("social", Person("carol", "Carol", 28))
+
+Graph.putEdge("social", Knows("alice", "bob",   2020))
+Graph.putEdge("social", Knows("alice", "carol", 2019))
+Graph.putEdge("social", Knows("bob",   "carol", 2021))
+```
+
+## Query with portable API
+
+```scala
+val people = Graph.vertices[Person]("social")
+println(s"People: ${people.map(_.name).mkString(", ")}")
+
+val aliceFriends = Graph.neighbors[Person]("social", "alice", Some("knows"))
+println(s"Alice's friends: ${aliceFriends.map(_.name).mkString(", ")}")
+```
+
+## Query with Cypher escape hatch
+
+```scala
+val rows = Cypher.query("social",
+  "MATCH (a:Person {_ssc_id: $id})-[:knows]->(b:Person) RETURN b.name AS name, b.age AS age ORDER BY b.age",
+  Map("id" -> "alice"))
+rows.foreach(row => println(s"  ${row("name")} (age ${row("age")})"))
+```
