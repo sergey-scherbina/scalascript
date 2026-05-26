@@ -364,6 +364,27 @@ Add auth/header parameters, streaming responses, SSE/WebSocket subscriptions,
 pagination helpers, retries, and cancellation only after unary JSON clients are
 stable across JVM and JS.
 
+Partially landed 2026-05-26: auth and custom header injection. Both the JS
+and JVM/Swing typed route client runtimes now include a module-global extra
+headers map and two public helpers:
+
+- `_ssc_api_set_headers(headers)` — replaces the full extra-headers map with
+  the given key-value pairs (JS: plain object; JVM: `Map[String, String]`).
+  Call with an empty map to clear all extra headers.
+- `_ssc_set_auth_token(token)` — convenience wrapper: sets (or clears, if the
+  token is null/empty) the `Authorization: Bearer <token>` header in the
+  extra-headers map, leaving all other custom headers unchanged.
+
+Every subsequent call to a generated typed route client method merges these
+extra headers into the outgoing request. In JS, `Object.assign({}, _ssc_api_extra_headers)`
+is copied into `fetch` `init.headers` before the per-request `Content-Type` is
+applied. In JVM/Swing, the headers are merged into `BackendRequest.headers`
+alongside the per-request `Content-Type` before the in-process transport
+dispatch.
+
+Still planned for Phase 6: streaming responses, SSE/WebSocket subscriptions,
+pagination helpers, per-endpoint header overrides, retries, and cancellation.
+
 ## Testing Strategy
 
 - Parser/AST or lowering tests for endpoint declarations.

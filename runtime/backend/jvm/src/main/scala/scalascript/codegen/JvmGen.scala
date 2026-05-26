@@ -1803,10 +1803,27 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  if method == "GET" || input == () then ""
        |  else _ssc_typed_json_encode[Req](input)
        |
+       |private var _ssc_api_extra_headers: Map[String, String] = Map.empty
+       |def _ssc_api_set_headers(headers: Map[String, String]): Unit =
+       |  _ssc_api_extra_headers = headers
+       |def _ssc_set_auth_token(token: String): Unit =
+       |  if token == null || token.isEmpty then
+       |    _ssc_api_extra_headers = _ssc_api_extra_headers - "Authorization"
+       |  else
+       |    _ssc_api_extra_headers = _ssc_api_extra_headers + ("Authorization" -> ("Bearer " + token))
+       |
        |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req): Resp =
        |  val method = methodRaw.toUpperCase
        |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
-       |  val response = _ssc_ui_backend_request(method, url, _ssc_api_body[Req](method, input))
+       |  val body = _ssc_api_body[Req](method, input)
+       |  val baseHeaders: Map[String, String] =
+       |    if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty
+       |  val response = scala.concurrent.Await.result(
+       |    _ssc_ui_backend_transport.request(
+       |      scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers, _ssc_ui_utf8(body))
+       |    ),
+       |    scala.concurrent.duration.Duration.Inf
+       |  )
        |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
        |  if response.status < 200 || response.status >= 300 then
        |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)

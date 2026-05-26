@@ -10663,6 +10663,10 @@ distributed same-source server/client example are partially landed.
   or a locally-declared case class missing a field for a path param. Cross-file
   type analysis and route derivation from `route()` / `mount()` handlers remain
   planned.
-- **Phase 6 — Advanced shapes.** Add auth/header parameters, streaming,
-  subscriptions, retries, and cancellation only after unary JSON clients are
-  stable.
+- **Phase 6 ◐ Partially landed (2026-05-26)** — advanced shapes:
+  auth and custom header injection landed: `_ssc_api_set_headers(headers)` and
+  `_ssc_set_auth_token(token)` are generated in both the JS and JVM/Swing typed
+  route client runtimes. Extra headers are merged into every subsequent client
+  request (JS: `Object.assign` into `fetch` init; JVM: merged into
+  `BackendRequest.headers`). Remaining: streaming, SSE/WebSocket, pagination,
+  per-endpoint header overrides, retries, cancellation.

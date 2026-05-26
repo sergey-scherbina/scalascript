@@ -39,6 +39,47 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
       |```
       |""".stripMargin
 
+  test("JS codegen emits auth header helpers alongside typed route clients"):
+    val code = JsGen.generate(Parser.parse(source))
+
+    assert(code.contains("let _ssc_api_extra_headers = {};"))
+    assert(code.contains("function _ssc_api_set_headers(headers)"))
+    assert(code.contains("function _ssc_set_auth_token(token)"))
+    assert(code.contains("headers: Object.assign({}, _ssc_api_extra_headers)"))
+
+  test("JS typed route client request merges extra headers from _ssc_api_extra_headers"):
+    assume(hasNode, "node not available")
+    val code = JsGen.generate(Parser.parse(source))
+    val harness =
+      """
+        |const capturedHeaders = [];
+        |globalThis.fetch = async function(url, init) {
+        |  capturedHeaders.push(Object.assign({}, init.headers));
+        |  return {
+        |    ok: true, status: 200,
+        |    headers: { get: function() { return "application/json"; } },
+        |    text: async function() { return "[]"; }
+        |  };
+        |};
+        |(async function() {
+        |  await Messages.list();
+        |  _ssc_set_auth_token("tok123");
+        |  await Messages.list();
+        |  _ssc_api_set_headers({"X-Custom": "val", "Authorization": "Basic abc"});
+        |  await Messages.list();
+        |  _ssc_set_auth_token(null);
+        |  await Messages.list();
+        |  process.stdout.write([
+        |    capturedHeaders[0]['Authorization'] || "none",
+        |    capturedHeaders[1]['Authorization'] || "none",
+        |    capturedHeaders[2]['Authorization'] || "none",
+        |    capturedHeaders[3]['Authorization'] || "none",
+        |    capturedHeaders[2]['X-Custom'] || "none",
+        |  ].join(":"));
+        |})().catch(e => { process.stdout.write("ERR:" + e); process.exitCode = 1; });
+        |""".stripMargin
+    assert(runJs(code + "\n" + harness) == "none:Bearer tok123:Basic abc:none:val")
+
   test("JS codegen emits HTTP typed route client metadata and Promise methods"):
     val code = JsGen.generate(Parser.parse(source))
 

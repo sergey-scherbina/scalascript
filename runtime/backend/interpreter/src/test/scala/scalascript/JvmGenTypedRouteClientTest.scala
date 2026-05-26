@@ -81,7 +81,7 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("summonInline[scalascript.typeddata.JsonCodec[T]].decode"))
     assert(code.contains("private inline def _ssc_typed_json_decode_response[T](response: scalascript.backend.spi.BackendResponse): T"))
     assert(code.contains("else _ssc_typed_json_encode[Req](input)"))
-    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body[Req](method, input))"))
+    assert(code.contains("_ssc_ui_backend_transport.request("))
     assert(code.contains("_ssc_typed_json_decode_response[Resp](response)"))
     assert(code.contains("object Messages:"))
     assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
@@ -110,6 +110,29 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(code.contains("val _ssc_typedRouteClients: List[_TypedRouteClientEndpoint]"))
     assert(!code.contains("object Messages:"))
     assert(!code.contains("inline def _ssc_api_request[Req, Resp]"))
+  }
+
+  test("JVM codegen emits auth header helpers in Swing typed client runtime") {
+    val src =
+      """---
+        |frontend: swing
+        |apiClients:
+        |  Messages:
+        |    endpoints:
+        |      - name: list
+        |        method: GET
+        |        path: /api/messages
+        |        request: Unit
+        |        response: String
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("swing"))
+
+    assert(code.contains("private var _ssc_api_extra_headers: Map[String, String] = Map.empty"))
+    assert(code.contains("def _ssc_api_set_headers(headers: Map[String, String]): Unit"))
+    assert(code.contains("def _ssc_set_auth_token(token: String): Unit"))
+    assert(code.contains("baseHeaders ++ _ssc_api_extra_headers"))
   }
 
   test("JVM codegen path param validation: Unit request type emits warning comment") {

@@ -7897,10 +7897,23 @@ class JsGen(
        |  return _ssc_typed_json_encode(input, requestType);
        |}
        |
-       |""".stripMargin + TypedJsonCodecRuntime.jsFacade + """|async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType) {
+       |""".stripMargin + TypedJsonCodecRuntime.jsFacade + """|let _ssc_api_extra_headers = {};
+       |function _ssc_api_set_headers(headers) {
+       |  _ssc_api_extra_headers = Object.assign({}, headers || {});
+       |}
+       |function _ssc_set_auth_token(token) {
+       |  if (!token) {
+       |    const h = Object.assign({}, _ssc_api_extra_headers);
+       |    delete h['Authorization'];
+       |    _ssc_api_extra_headers = h;
+       |  } else {
+       |    _ssc_api_extra_headers = Object.assign({}, _ssc_api_extra_headers, {'Authorization': 'Bearer ' + token});
+       |  }
+       |}
+       |async function _ssc_api_request(methodRaw, pathTemplate, input, requestType, responseType) {
        |  const method = String(methodRaw).toUpperCase();
        |  const url = _ssc_api_path(pathTemplate, input) + (method === "GET" ? _ssc_api_query(pathTemplate, input) : "");
-       |  const init = { method: method, headers: {} };
+       |  const init = { method: method, headers: Object.assign({}, _ssc_api_extra_headers) };
        |  const body = _ssc_api_body(method, input, requestType);
        |  if (body !== undefined) {
        |    init.body = body;
