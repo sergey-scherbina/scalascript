@@ -13,8 +13,6 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [ ] **v1.46-phase5-derivation** — Route derivation from `route()`/`mount()` handlers  
   _Auto-generate `apiClients:` metadata from typed route declarations. Cross-file type analysis. Spec: `docs/typed-route-clients.md` §Phase 5._
 
-- [ ] **v1.46-pagination** — Pagination helpers  
-  _Generated `listPaged(page, size)` for page/limit endpoints. Spec: `docs/typed-route-clients.md` §Phase 6._
 
 ## Payments & Blockchain
 
@@ -78,6 +76,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **v1.46-phase6-cancel** — cancellation tokens
 - [x] **v1.46-phase7-sse** — SSE streaming (EventSource/fetch JS; HttpURLConnection JVM)
 - [x] **v1.46-ws-subscriptions** — WebSocket subscriptions (native WebSocket JS; java.net.http.HttpClient JVM; `_SscWsHandle` with `send()`+`close()`)
+- [x] **v1.46-pagination** — Pagination helpers (`paginated: true` → `<name>Paged(page, size, ...)` for JVM/Swing and JS; appends `?page=N&size=M` to URL)
 
 ---
 

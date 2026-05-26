@@ -409,8 +409,54 @@ pre-flight and between-retry checks fire before `_ssc_api_send` dispatches.
 In-process JVM requests complete synchronously so thread interruption is not
 needed for the Swing target.
 
-Still planned for Phase 6: WebSocket subscriptions, pagination helpers, and
-bidirectional channels.
+Landed 2026-05-26: pagination helpers. Declaring `paginated: true` on an
+endpoint generates an additional `<name>Paged(page, size, ...)` method
+alongside the regular one. The paged method appends `?page=<page>&size=<size>`
+as query parameters to the URL, letting backends implement standard
+page-number + page-size pagination without changes to the route itself.
+
+- For `request: Unit` endpoints: `listPaged(page: Int, size: Int, headers: ..., cancelToken: ...)`.
+- For typed-request endpoints: `<name>Paged(input: T, page: Int, size: Int, headers: ..., cancelToken: ...)`.
+- Existing path-param resolution still applies: the page/size params are
+  appended after path segments are substituted, so `/api/users/:id/items`
+  with `paginated: true` works correctly.
+- SSE and WS endpoints ignore `paginated: true` — streaming endpoints are
+  inherently unbounded and incompatible with page/size pagination.
+
+Front-matter declaration:
+
+```yaml
+apiClients:
+  Items:
+    endpoints:
+      - name: list
+        method: GET
+        path: /api/items
+        request: Unit
+        response: List[Item]
+        paginated: true
+```
+
+Generated JVM/Swing API (both methods are emitted):
+
+```scala
+object Items:
+  def list(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[Item] = ...
+  def listPaged(page: Int, size: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[Item] = ...
+```
+
+Generated JS API:
+
+```js
+const Items = {
+  list(headers, cancelToken) { ... },
+  listPaged(page, size, headers, cancelToken) { ... }
+};
+```
+
+Example: [`examples/paginated-typed-client.ssc`](../examples/paginated-typed-client.ssc)
+
+Still planned for Phase 6: bidirectional channels beyond WebSocket subscriptions.
 
 ### Phase 7 ✓ Landed (2026-05-26) — SSE Streaming
 

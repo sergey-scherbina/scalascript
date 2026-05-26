@@ -5,15 +5,6 @@ Pending tasks to pick up are in `WORK_QUEUE.md`.
 
 ---
 
-## v1.46 — Typed Route Clients (sprint in progress)
+## v1.46 — Typed Route Clients ✓ Landed (2026-05-26)
 
-**Status:** Phases 0–7 + Phase 5 complete. One task remains open in `WORK_QUEUE.md`:
-
-| Task slug | Description |
-|-----------|-------------|
-| `v1.46-phase6-pagination` | `listPaged(page, size)` helpers for page/limit endpoints |
-
-Spec: [`docs/typed-route-clients.md`](docs/typed-route-clients.md)
-
-**To claim a task**, follow the protocol in `AGENTS.md §"Task claiming protocol"` and pick from `WORK_QUEUE.md`.
-Check `.work/active/` for already-claimed slugs before starting.
+All phases complete. See `CHANGELOG.md` for the full summary.

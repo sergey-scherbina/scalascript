@@ -1,0 +1,74 @@
+---
+name: paginated-typed-client
+version: "0.1"
+description: Pagination helpers for typed route clients (v1.46 — listPaged)
+frontend: swing
+apiClients:
+  Items:
+    endpoints:
+      - name: list
+        method: GET
+        path: /api/items
+        request: Unit
+        response: List[Item]
+        paginated: true
+      - name: search
+        method: GET
+        path: /api/items
+        request: String
+        response: List[Item]
+        paginated: true
+      - name: get
+        method: GET
+        path: /api/items/:id
+        request: Int
+        response: Item
+---
+
+# Paginated Typed Client Example
+
+Demonstrates the `paginated: true` front-matter flag which generates an
+additional `<name>Paged(page, size, ...)` method alongside the regular one.
+The paged variant appends `?page=N&size=M` query parameters to the path,
+letting backend endpoints return one page of results at a time.
+
+```scalascript
+case class Item(id: Int, name: String)
+```
+
+## List all items (no pagination)
+
+The regular `list` method returns all items without pagination:
+
+```scalascript
+val all: List[Item] = Items.list()
+```
+
+## List with pagination
+
+`listPaged(page, size)` adds `?page=N&size=M` to the path and returns one
+page of results. Page numbers start at 0 by convention:
+
+```scalascript
+val page0: List[Item] = Items.listPaged(page = 0, size = 10)
+val page1: List[Item] = Items.listPaged(page = 1, size = 10)
+```
+
+## Search with pagination
+
+The `search` endpoint takes a typed `String` request. `searchPaged` passes
+the query as the body and appends pagination to the URL:
+
+```scalascript
+val results: List[Item] = Items.search("laptop")
+val pagedResults: List[Item] = Items.searchPaged("laptop", page = 0, size = 5)
+```
+
+## Non-paginated endpoint is unaffected
+
+The `get` endpoint has no `paginated: true` flag — it generates only the
+single unary method, without a `Paged` variant:
+
+```scalascript
+val item: Item = Items.get(42)
+```
