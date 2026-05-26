@@ -10403,7 +10403,11 @@ modes opt out of that default.
   codegen generates typed REST sync `changes` / `push` endpoints for
   `sync: client-server` stores over the JDBC ObjectStore runtime. Remaining:
   browser/Electron `Sync.pull/push` helpers, graph/RDF codecs, and
-  Dataset/Spark convergence.
+  Dataset/Spark convergence. Follow-up landed 2026-05-26: JS/browser/Electron
+  runtime now exposes first `Sync.pull[A]` / `Sync.push[A]` helpers over
+  `IndexedDb.store[A]` and generated REST sync endpoints. Remaining: durable
+  offline mutation/deletion queues, richer conflict handling, graph/RDF codecs,
+  and Dataset/Spark convergence.
 
 ## v1.44 — Full-Stack In-Process Transport
 

@@ -58,3 +58,49 @@ class JsGenIndexedDbTest extends AnyFunSuite:
     val js = JsRuntime + "\n" + JsGen.generate(Parser.parse(source))
 
     assert(runJs(js) == "Plan:2:d1:true")
+
+  private val syncSource =
+    """# Sync
+      |
+      |```scalascript
+      |case class Draft(id: String, title: String, done: Boolean)
+      |
+      |val drafts = IndexedDb.store[Draft]("drafts", "sync-db")
+      |awaitClient(drafts.clear())
+      |awaitClient(drafts.put(Draft("d1", "Local", false)))
+      |awaitClient(Sync.push[Draft]("drafts", "sync-db"))
+      |awaitClient(Sync.pull[Draft]("drafts", "sync-db"))
+      |val rows = awaitClient(drafts.all())
+      |println(rows.size)
+      |```
+      |""".stripMargin
+
+  test("JS codegen lowers Sync pull/push type arguments to runtime type names"):
+    val code = JsGen.generate(Parser.parse(syncSource))
+
+    assert(code.contains("""Sync.push("drafts", "Draft", "sync-db")"""))
+    assert(code.contains("""Sync.pull("drafts", "Draft", "sync-db")"""))
+
+  test("JS runtime sync helpers push local entries and pull remote changes"):
+    assume(hasNode, "node not available")
+    val fetchStub =
+      """|globalThis.__sscSyncPosts = [];
+         |globalThis.fetch = async function(url, init) {
+         |  if (String(url).includes("/push")) {
+         |    const body = JSON.parse(init.body);
+         |    globalThis.__sscSyncPosts.push(body);
+         |    if (body.mutations.length !== 1 || body.mutations[0].value.title !== "Local") throw new Error("bad push payload");
+         |    return { ok: true, json: async () => ({ results: [{ key: "d1", version: 1, deleted: false }], conflicts: [] }) };
+         |  }
+         |  if (String(url).includes("/changes")) {
+         |    return { ok: true, json: async () => ({
+         |      changes: [{ key: "d2", version: 2, updatedAt: "2026-05-26T00:00:00Z", deleted: false, value: { id: "d2", title: "Remote", done: true } }],
+         |      nextCursor: 2
+         |    }) };
+         |  }
+         |  throw new Error("unexpected url " + url);
+         |};
+         |""".stripMargin
+    val js = JsRuntime + "\n" + fetchStub + "\n" + JsGen.generate(Parser.parse(syncSource))
+
+    assert(runJs(js) == "2")

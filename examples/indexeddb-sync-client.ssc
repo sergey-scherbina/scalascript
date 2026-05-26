@@ -1,0 +1,22 @@
+---
+backend: js
+---
+
+# IndexedDB Sync Client
+
+This client expects a JVM backend that exposes
+`/__ssc/sync/drafts/changes` and `/__ssc/sync/drafts/push`, for example from
+`examples/object-store-sync-routes.ssc`.
+
+```scalascript
+case class Draft(id: String, title: String, done: Boolean)
+
+val drafts = IndexedDb.store[Draft]("drafts", "ssc-sync-demo")
+awaitClient(drafts.clear())
+awaitClient(drafts.put(Draft("d1", "Local", false)))
+awaitClient(Sync.push[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
+awaitClient(Sync.pull[Draft]("drafts", "ssc-sync-demo", "id", "http://127.0.0.1:8080"))
+
+val all = awaitClient(drafts.all())
+println(all.size)
+```

@@ -4004,6 +4004,26 @@ function _ssc_indexeddb_make_store(storeName, typeName, dbName, keyField) {
       }
       return withMemory(map => Array.from(map.values()).map(value => _ssc_indexeddb_decode(value, tpe)));
     },
+    entries() {
+      if (_ssc_indexeddb_native_available()) {
+        return withNative("readonly", os => {
+          return new Promise((resolve, reject) => {
+            const rows = [];
+            const req = os.openCursor();
+            req.onerror = () => reject(req.error || new Error("IndexedDB cursor failed"));
+            req.onsuccess = () => {
+              const cursor = req.result;
+              if (!cursor) resolve(rows);
+              else {
+                rows.push({ key: String(cursor.key), value: _ssc_indexeddb_decode(cursor.value, tpe) });
+                cursor.continue();
+              }
+            };
+          });
+        });
+      }
+      return withMemory(map => Array.from(map.entries()).map(([k, v]) => ({ key: String(k), value: _ssc_indexeddb_decode(v, tpe) })));
+    },
     clear() {
       if (_ssc_indexeddb_native_available()) {
         return withNative("readwrite", os => _ssc_indexeddb_request(os.clear())).then(() => undefined);
@@ -4016,6 +4036,79 @@ function _ssc_indexeddb_make_store(storeName, typeName, dbName, keyField) {
 const IndexedDb = {
   store(storeName, typeName = "", dbName = "ssc", keyField = "id") {
     return _ssc_indexeddb_make_store(storeName, typeName, dbName, keyField);
+  }
+};
+
+function _ssc_sync_base_url(serverUrl) {
+  const raw = serverUrl === undefined || serverUrl === null ? "" : String(serverUrl);
+  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+}
+
+function _ssc_sync_cursor_key(dbName, storeName) {
+  return "__ssc_sync_cursor:" + _ssc_indexeddb_store_key(dbName, storeName);
+}
+
+function _ssc_sync_get_cursor(dbName, storeName) {
+  const storage = _ssc_indexeddb_local_storage();
+  if (!storage) return 0;
+  const raw = storage.getItem(_ssc_sync_cursor_key(dbName, storeName));
+  const parsed = raw == null ? 0 : Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function _ssc_sync_set_cursor(dbName, storeName, cursor) {
+  const storage = _ssc_indexeddb_local_storage();
+  if (!storage) return;
+  storage.setItem(_ssc_sync_cursor_key(dbName, storeName), String(cursor || 0));
+}
+
+async function _ssc_sync_json(method, url, body) {
+  if (typeof fetch !== "function") throw new Error("Sync requires fetch in this JS runtime");
+  const init = { method, headers: { "Content-Type": "application/json" } };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url, init);
+  if (!res || res.ok === false) {
+    const status = res && res.status !== undefined ? res.status : "unknown";
+    throw new Error("Sync request failed: " + status + " " + url);
+  }
+  if (typeof res.json === "function") return await res.json();
+  if (typeof res.text === "function") {
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+  }
+  return {};
+}
+
+const Sync = {
+  async pull(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "", limit = 100) {
+    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+    const since = _ssc_sync_get_cursor(dbName, storeName);
+    const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) +
+      "/changes?since=" + encodeURIComponent(String(since)) + "&limit=" + encodeURIComponent(String(limit));
+    const payload = await _ssc_sync_json("GET", url);
+    const changes = Array.isArray(payload.changes) ? payload.changes : [];
+    for (const change of changes) {
+      if (change && change.deleted) await store.remove(change.key);
+      else if (change && Object.prototype.hasOwnProperty.call(change, "value")) await store.put(change.value, change.key);
+    }
+    const nextCursor = payload.nextCursor === undefined ? changes.reduce((acc, change) => Math.max(acc, Number(change.version || 0)), since) : Number(payload.nextCursor);
+    if (Number.isFinite(nextCursor)) _ssc_sync_set_cursor(dbName, storeName, nextCursor);
+    return payload;
+  },
+  async push(storeName, typeName = "", dbName = "ssc", keyField = "id", serverUrl = "") {
+    const store = IndexedDb.store(storeName, typeName, dbName, keyField);
+    const entries = await store.entries();
+    const mutations = entries.map(entry => ({
+      key: String(entry.key),
+      deleted: false,
+      value: _ssc_indexeddb_encode(entry.value, typeName || "")
+    }));
+    const url = _ssc_sync_base_url(serverUrl) + "/__ssc/sync/" + encodeURIComponent(String(storeName)) + "/push";
+    const payload = await _ssc_sync_json("POST", url, { mutations });
+    const versions = [];
+    if (Array.isArray(payload.results)) for (const row of payload.results) versions.push(Number(row.version || 0));
+    if (versions.length > 0) _ssc_sync_set_cursor(dbName, storeName, Math.max(_ssc_sync_get_cursor(dbName, storeName), ...versions));
+    return payload;
   }
 };
 """
@@ -9054,6 +9147,21 @@ class JsGen(
       val args = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).toList
       val jsArgs = args.headOption.toList ++ List(jsQuote(typeName)) ++ args.drop(1)
       s"IndexedDb.store(${jsArgs.mkString(", ")})"
+
+    // Client ObjectStore sync helpers.
+    // Source: `Sync.pull[Draft]("drafts")`
+    // JS:     `Sync.pull("drafts", "Draft")`
+    case Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Select(Term.Name("Sync"), Term.Name(method)), typeArgs),
+          argClause
+        ) if method == "pull" || method == "push" =>
+      val typeName = typeArgs.values.headOption match
+        case Some(Type.Name(name)) => name
+        case Some(other) => other.syntax
+        case None => ""
+      val args = argClause.values.map(v => genExpr(v.asInstanceOf[Term])).toList
+      val jsArgs = args.headOption.toList ++ List(jsQuote(typeName)) ++ args.drop(1)
+      s"Sync.$method(${jsArgs.mkString(", ")})"
 
     // Storage handlers — file-backed (with optional path arg) and ephemeral
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)

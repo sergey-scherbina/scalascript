@@ -1282,8 +1282,15 @@ objectStores:
 ```
 
 The JVM backend then generates `GET /__ssc/sync/drafts/changes` and
-`POST /__ssc/sync/drafts/push`. The browser/Electron `Sync.pull/push` helper is
-planned; today clients can call those endpoints directly.
+`POST /__ssc/sync/drafts/push`. Browser/Electron clients can call:
+
+```scalascript
+awaitClient(Sync.push[Draft]("drafts", "app"))
+awaitClient(Sync.pull[Draft]("drafts", "app"))
+```
+
+The first helper syncs current local entries and applies server changes.
+Durable offline mutation queues and richer conflict handling remain planned.
 
 ---
 
