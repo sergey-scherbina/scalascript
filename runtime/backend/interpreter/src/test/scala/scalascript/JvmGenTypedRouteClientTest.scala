@@ -232,3 +232,53 @@ class JvmGenTypedRouteClientTest extends AnyFunSuite:
     assert(!code.contains("Messages.list"))
     assert(code.contains("val serverValue = 1"))
   }
+
+  test("JavaFX JVM codegen emits typed route client objects with same runtime as Swing") {
+    val src =
+      """---
+        |frontend: javafx
+        |apiClients:
+        |  Messages:
+        |    endpoints:
+        |      - name: create
+        |        method: POST
+        |        path: /api/messages
+        |        request: String
+        |        response: String
+        |      - name: list
+        |        method: GET
+        |        path: /api/messages
+        |        request: Unit
+        |        response: List[String]
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("javafx"))
+
+    assert(code.contains("inline def _ssc_api_request[Req, Resp]"))
+    assert(code.contains("scalascript-backend-typed-data-runtime"))
+    assert(code.contains("_ssc_ui_backend_transport.request("))
+    assert(code.contains("object Messages:"))
+    assert(code.contains("""def create(input: String, headers: Map[String, String] = Map.empty): String = _ssc_api_request[String, String]("POST", "/api/messages", input, headers)"""))
+    assert(code.contains("""def list(headers: Map[String, String] = Map.empty): List[String] = _ssc_api_request[Unit, List[String]]("GET", "/api/messages", (), headers)"""))
+    assert(code.contains("org.openjfx:javafx-controls"))
+    assert(code.contains("scalascript-frontend-javafx"))
+    assert(code.contains("scalascript-backend-spi"))
+    assert(code.contains("_ssc_ui_run_native_javafx"))
+    assert(code.contains("JavaFxRuntime.run("))
+  }
+
+  test("JavaFX JVM codegen emits in-process fetch helpers and javafx serve branch") {
+    val src =
+      """---
+        |frontend: javafx
+        |---
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(src), frontendOverride = Some("javafx"))
+
+    assert(code.contains("_ssc_ui_inprocess_fetch_javafx"))
+    assert(code.contains("JavaFxRuntime.FetchResponse("))
+    assert(code.contains("""if _ssc_frontend_name == "javafx" then"""))
+    assert(code.contains("_ssc_ui_run_native_javafx("))
+  }

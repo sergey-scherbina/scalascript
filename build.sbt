@@ -30,6 +30,16 @@ val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
 val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
+val javafxVersion: String = "21.0.5"
+val javafxClassifier: String = {
+  val os   = Option(System.getProperty("os.name")).getOrElse("").toLowerCase
+  val arch = Option(System.getProperty("os.arch")).getOrElse("")
+  if (os.startsWith("mac") && arch == "aarch64") "mac-aarch64"
+  else if (os.startsWith("mac"))                  "mac"
+  else if (os.startsWith("win"))                  "win"
+  else                                            "linux"
+}
+
 def isStdPluginInterpreterTest(file: File): Boolean = {
   val name = file.getName
   name == "GraphInterpreterIntrinsicTest.scala" ||
@@ -420,7 +430,15 @@ lazy val frontendJavaFx = project
   .dependsOn(frontendCore)
   .settings(
     name := "scalascript-frontend-javafx",
-    libraryDependencies ++= Seq(scalatestTest),
+    libraryDependencies ++= {
+      val fxArts = Seq("javafx-controls", "javafx-base", "javafx-graphics")
+      fxArts.flatMap { art =>
+        Seq(
+          "org.openjfx" % art % javafxVersion % Provided classifier javafxClassifier,
+          "org.openjfx" % art % javafxVersion % Test     classifier javafxClassifier
+        )
+      } ++ Seq(scalatestTest)
+    },
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )

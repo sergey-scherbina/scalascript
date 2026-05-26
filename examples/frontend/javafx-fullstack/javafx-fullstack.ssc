@@ -1,0 +1,89 @@
+#!/usr/bin/env ssc
+---
+name: javafx-fullstack
+version: 0.1.0
+description: JavaFX frontend and JVM backend routes in one process, without HTTP sockets.
+frontend: javafx
+transport: in-process
+---
+
+# JavaFX Full-Stack
+
+A no-socket JVM desktop example: the JavaFX frontend and backend route registry
+run in one JVM process. The button posts to `/api/messages` through the
+generated in-process dispatcher, clears the text field on success, and refreshes
+a list loaded from the backend route registry.
+
+## Backend
+
+```scalascript
+var nextId: Int = 1
+var messages: List[(Int, String)] = List.empty[(Int, String)]
+
+def jsonEscape(value: String): String =
+  value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+route("GET", "/api/messages") { req =>
+  val body = "[" + messages.map((id, text) =>
+    s"""{"id":${id},"text":"${jsonEscape(text)}"}"""
+  ).mkString(",") + "]"
+  Response.text(body)
+}
+
+route("POST", "/api/messages") { req =>
+  val text = req.body.trim
+  if text.isEmpty then Response.status(400, "empty body")
+  else
+    val id = nextId
+    nextId = nextId + 1
+    messages = messages :+ (id, text)
+    println("saved message #" + id + ": " + text)
+    Response.status(201, "saved")
+}
+
+route("POST", "/api/messages/delete") { req =>
+  val id = req.body.trim.toInt
+  messages = messages.filter((rowId, _) => rowId != id)
+  Response.status(204)
+}
+```
+
+## UI Imports
+
+[signal, serve, fetchActionClear](std/ui/primitives.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack, divider](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+[textField, actionButton](std/ui/input.ssc)
+
+[signalText_, rawText](std/ui/reactive.ssc)
+
+[fetchTable](std/ui/display.ssc)
+
+## UI
+
+```scalascript
+val message = signal[String]("message", "")
+val refresh = signal[Int]("refresh", 0)
+
+val tree = vstack(gap = 12)(
+  heading(1, "JavaFX full-stack"),
+  text("JVM backend routes are called directly from the JavaFX frontend."),
+  divider(),
+  textField(value = message, label = "Message"),
+  actionButton(fetchActionClear("POST", "/api/messages", message, refresh), "Save"),
+  fetchTable("/api/messages", "/api/messages/delete", refresh),
+  hstack(gap = 4)(
+    rawText("Refresh tick: "),
+    signalText_(refresh)
+  )
+)
+
+serve(lower(tree, defaultTheme), 0)
+```
