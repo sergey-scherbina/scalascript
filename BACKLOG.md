@@ -1545,60 +1545,59 @@ frontmatter tests must pass.
    `ssc.jar` remains the default (`java -jar ssc.jar`); native binary is a
    convenience for users who want instant startup without a JVM.
 
-### Phase 3 — SubprocessPluginHost + JAR bridge (~3 days)
+### Phase 3 — `ssc-plugin-host` + automatic bridge (~3 days)
+
+**Goal: existing plugins work without any changes from plugin authors.**
 
 `URLClassLoader` cannot load class files at runtime in native-image — so
-`--plugin foo.jar` (in-process) is broken.  The fix is an automatic bridge:
-in native mode, `--plugin foo.jar` transparently spawns the JAR as a
-subprocess using the existing wire protocol instead of crashing.
+`--plugin foo.jar` (in-process) is broken.  The fix is a small companion
+artifact **`ssc-plugin-host.jar`** (~1-2 MB) shipped alongside the native
+`ssc` binary.  Plugin authors change nothing.
 
-#### `scalascript-plugin-sdk` module (new)
+#### `ssc-plugin-host` sbt subproject (new)
 
-A small artifact (`scalascript-plugin-sdk.jar`) that any plugin author
-depends on.  Provides:
+A minimal JVM-only artifact with no parser, no compiler, no backends — only:
 
-- **`SubprocessPluginHost`** — reads stdin wire frames, dispatches to
-  `Backend`, writes responses to stdout.  Same protocol as the existing
-  subprocess plugin path in `BackendRegistry`.
-- **Manifest convention** — plugin JARs include
-  `META-INF/MANIFEST.MF: ScalaScript-Plugin-Main: <MainClass>` where
-  `<MainClass>` extends `SubprocessPluginHost`.
+- **`SubprocessHost`** main class — accepts a plugin JAR path as argument,
+  loads it via `URLClassLoader` (works fine in a JVM process), discovers
+  `Backend` implementations via `ServiceLoader`, then enters the existing
+  stdin/stdout wire protocol loop.
+- Wire protocol shared with `BackendRegistry`'s existing subprocess path.
+
+Build output: `ssc-plugin-host.jar` (~1-2 MB).  Shipped alongside the
+native `ssc` binary in every release archive (`ssc-<version>-<platform>.tar.gz`
+contains both `ssc` and `lib/ssc-plugin-host.jar`).
 
 #### Automatic bridge in native `ssc`
 
 When native `ssc` sees `--plugin foo.jar`:
 
-1. Checks if `java` is on PATH (reasonable assumption for plugin authors).
-2. Reads `ScalaScript-Plugin-Main` from the JAR manifest.
-3. Spawns `java -cp foo.jar <MainClass>` as a subprocess.
+1. Locates `ssc-plugin-host.jar` next to the `ssc` binary
+   (same directory, or `$SSC_HOME/lib/`).
+2. Checks that `java` is on PATH.
+3. Spawns: `java -cp foo.jar:<path>/ssc-plugin-host.jar scalascript.plugin.SubprocessHost foo.jar`
 4. Connects via the existing subprocess wire protocol in `BackendRegistry`.
 
-No user-visible change — `--plugin foo.jar` works in both JVM and native mode.
-If `java` is not on PATH, prints a clear error explaining the situation.
+From the user's perspective `--plugin foo.jar` works identically in JVM
+and native modes.  The only external requirement is `java` on PATH — a safe
+assumption for anyone using JAR plugins.
 
-### Phase 4 — native plugin binaries (future / plugin-author opt-in)
+If `ssc-plugin-host.jar` is missing or `java` is not on PATH, `ssc` prints
+a clear diagnostic pointing to remediation steps.
 
-The long-term ideal: plugins ship as standalone native binaries that speak
-the wire protocol.  No JVM dependency at all.
+### Phase 4 — native plugin binaries (opt-in guide, no core changes)
+
+Once Phase 3 ships, plugin authors can optionally compile their plugin to a
+native binary for fully JVM-free deployment:
 
 ```
 ssc (native)  →  subprocess wire protocol  →  kafka-plugin (native)
-ssc (native)  →  subprocess wire protocol  →  postgres-plugin (native)
 ```
 
-Plugin authors use the same `SubprocessPluginHost` code and compile with
-`sbt myPlugin/graalvm-native-image:packageBin`.  The reflection config for
-a plugin is much simpler than for `ssc` (no snakeyaml, no scala-meta, no CLI
-flag parsing).
-
-Distribution: platform-specific binaries via GitHub Releases matrix (same
-pattern as `ssc` itself).  Both formats supported simultaneously:
-- `foo.jar` — works with JVM `ssc`, bridged to subprocess in native `ssc`
-- `foo-native` — works with native `ssc` directly, no JVM needed
-
-This phase requires no core changes once Phase 3 is done — it is purely a
-plugin-author workflow improvement and can be documented as a guide rather
-than shipped as a feature.
+The plugin compiles the same `SubprocessHost` entry point with
+`sbt myPlugin/graalvm-native-image:packageBin`.  Reflection config for a
+plugin is much simpler than for `ssc` (no snakeyaml, no scala-meta).
+No core changes needed — this is documented as a plugin-author guide.
 
 ### Known tradeoffs
 

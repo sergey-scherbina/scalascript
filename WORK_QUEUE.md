@@ -40,8 +40,8 @@ _(all done — see Done section below)_
 - [ ] **v1.50-native-p2-graalvm** — GraalVM native-image build for `ssc`
   _`sbt-native-image`, reflection config via agent, ServiceLoader resource config, CI release matrix (macOS ARM64/x86 + Linux x86). Spec: `BACKLOG.md §Phase 2`._
 
-- [ ] **v1.50-native-p3-plugin-bridge** — `scalascript-plugin-sdk` + subprocess JAR bridge
-  _`SubprocessPluginHost`, `ScalaScript-Plugin-Main` manifest convention, auto-bridge in native `ssc` (`--plugin foo.jar` → subprocess). Spec: `BACKLOG.md §Phase 3`._
+- [ ] **v1.50-native-p3-plugin-bridge** — `ssc-plugin-host.jar` + automatic bridge (existing plugins unchanged)
+  _New `ssc-plugin-host` sbt subproject: `SubprocessHost` main loads any existing plugin JAR via URLClassLoader + ServiceLoader + wire protocol. Native `ssc` auto-spawns it when `--plugin foo.jar` given. Plugin authors change nothing. Spec: `BACKLOG.md §Phase 3`._
 
 ## Language & Compiler
 
