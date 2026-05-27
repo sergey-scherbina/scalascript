@@ -327,8 +327,15 @@ validator to UPLC:
 
 ### Phase 3 — escrow address + reference script deployment helpers
 
-- `EscrowScript.address(network)` — derives the script address from
-  the compiled validator + network header.
+- `EscrowScript.address(network)` — derives the CIP-19 enterprise
+  script address from the compiled validator + network header.
+  **Landed (2026-05-27)** in the main 3.8.3 module by hashing the
+  committed double-CBOR validator bytes with Blake2b-224 and encoding
+  the script credential as `addr` / `addr_test` bech32. Golden values:
+  `addr1wxj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qm75nhg`
+  (mainnet) and
+  `addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd`
+  (preprod / preview).
 - Operator helper to deploy a reference script (one-time, manual).
 - Tests assert script-address stability against committed golden
   bech32 strings.

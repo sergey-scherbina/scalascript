@@ -3611,9 +3611,16 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 
 #### Phase 3 — Escrow address + reference script
 
-- [ ] `EscrowScript.address(network)` — compiled-validator address
+- [x] `EscrowScript.address(network)` — compiled-validator address
+      ✓ Landed (2026-05-27): hashes the committed Plutus validator
+      bytes with Blake2b-224 and emits CIP-19 enterprise script
+      addresses for Cardano mainnet/preprod/preview.
 - [ ] Reference-script deploy helper (one-time op)
-- [ ] Golden-bech32 test for stable script address per network
+- [x] Golden-bech32 test for stable script address per network
+      ✓ Landed (2026-05-27): pinned
+      `addr1wxj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qm75nhg`
+      and
+      `addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd`.
 
 #### Phase 4 — Off-chain claim Tx via bloxbean
 

@@ -1271,7 +1271,7 @@ lazy val x402FacilitatorCardano = project
 // Tx building) dependencies. See docs/x402-cardano-scalus.md.
 lazy val x402FacilitatorCardanoScalus = project
   .in(file("payments/x402/facilitator-cardano-scalus"))
-  .dependsOn(x402Core, x402FacilitatorCardano)
+  .dependsOn(x402Core, x402FacilitatorCardano, blockchainCardano)
   .settings(
     name := "scalascript-x402-facilitator-cardano-scalus",
     libraryDependencies ++= Seq(

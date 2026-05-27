@@ -2963,6 +2963,11 @@ Specs:
 Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-cardano.ssc` (end-to-end
 Cardano flow with CIP-8 wallet + Scalus escrow validator).
 
+Cardano Scalus escrow support is still incomplete: the compiled Plutus validator
+is committed and `EscrowScript.address(network)` can derive stable mainnet and
+testnet script addresses, but reference-script deployment and real claim
+transaction building remain planned.
+
 ---
 
 ## 21. Compiler Plugins with Intrinsics
