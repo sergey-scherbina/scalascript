@@ -2561,6 +2561,17 @@ lazy val paymentsPix = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — SWIFT MT103 + ISO 20022 pacs.008 CBPR+ adapter ──────────
+lazy val paymentsSwift = project
+  .in(file("runtime/std/payments-swift"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-swift",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Bank Rails — UK Faster Payments Service adapter ───────────────────────
 lazy val paymentsUkFps = project
   .in(file("runtime/std/payments-uk-fps"))
@@ -2597,7 +2608,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsUkFps,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps,
     markupCore,
   )
   .settings(

@@ -1,33 +1,67 @@
 # International Bank Rails — Example
 
-> Placeholder. Full example with SWIFT + SCT Inst + UPI wire-transfer flows
-> will be added in v1.55.1 when `payments-swift/` ships.
+> Demonstrates SWIFT cross-border wire transfers using the `payments-swift/` adapter
+> introduced in v1.55.1. Covers SWIFT MT103 (legacy) and ISO 20022 pacs.008 (CBPR+) rails,
+> UETR generation, GPI trail inspection, and charge bearer selection.
 
 ```scalascript
-// Example: send a SWIFT cross-border wire (v1.55.1+)
-//
-// import std.payments.swift.*
-//
-// val transfer = swiftProvider.initiateTransfer(InitiateTransferRequest(
-//   rail      = RailKind.SWIFT_PACS008,
-//   amount    = Money(100_00L, "USD"),
-//   sender    = BankAccount(
-//     bic         = Some("CHASUS33"),
-//     accountNumber = Some("000123456789"),
-//     holderName  = "Acme Corp",
-//     countryCode = "US"
-//   ),
-//   recipient = BankAccount(
-//     bic         = Some("DEUTDEDB"),
-//     iban        = Some("DE89370400440532013000"),
-//     holderName  = "Supplier GmbH",
-//     countryCode = "DE"
-//   ),
-//   reference      = "INV-2026-001",
-//   idempotencyKey = "swift-acme-001",
-//   chargeBearer   = ChargeBearer.SHA
-// ))
-// println(s"Transfer ${transfer.id.value}: ${transfer.status}")
+import std.payments.swift.*
 
-println("international-bank-rails: placeholder — see docs/international-bank-rails.md §15")
+// ── SWIFT pacs.008 (ISO 20022 CBPR+ — preferred for new integrations) ─────────
+
+val swiftProvider = SwiftProvider(SwiftConfig(
+  aggregatorUrl  = env("SWIFT_AGGREGATOR_URL"),
+  apiKey         = env("SWIFT_API_KEY"),
+  defaultCharge  = ChargeBearer.SHA
+))
+
+val sender = BankAccount(
+  bic           = Some("CHASUS33"),
+  accountNumber = Some("000123456789"),
+  holderName    = "Acme Corp",
+  countryCode   = "US"
+)
+
+val recipient = BankAccount(
+  bic         = Some("DEUTDEDB"),
+  iban        = Some("DE89370400440532013000"),
+  holderName  = "Supplier GmbH",
+  countryCode = "DE"
+)
+
+// pacs.008 transfer (ISO 20022 CBPR+ — SWIFT deprecated MT standard Nov 2025)
+val pacs008Transfer = swiftProvider.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.SWIFT_PACS008,
+  amount         = Money(100_00L, Currency("USD")),  // $100.00
+  sender         = sender,
+  recipient      = recipient,
+  reference      = "INV-2026-001",
+  idempotencyKey = "swift-acme-pacs008-001",
+  chargeBearer   = ChargeBearer.SHA                 // sender pays own bank, receiver pays rest
+))
+
+println(s"pacs.008 Transfer ID: ${pacs008Transfer.id.value}")
+println(s"UETR: ${pacs008Transfer.uetr.map(_.value).getOrElse("N/A")}")
+println(s"Status: ${pacs008Transfer.status}")
+
+// ── Legacy MT103 (kept for aggregator compat — prefer pacs.008 for new code) ───
+
+val mt103Transfer = swiftProvider.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.SWIFT_MT103,
+  amount         = Money(500_00L, Currency("GBP")),  // £500.00
+  sender         = sender,
+  recipient      = recipient,
+  reference      = "Legacy payment ref",
+  idempotencyKey = "swift-acme-mt103-001",
+  chargeBearer   = ChargeBearer.OUR               // sender bears all charges
+))
+
+println(s"MT103 Transfer UETR: ${mt103Transfer.uetr.map(_.value).getOrElse("N/A")}")
+
+// ── GPI trail inspection ────────────────────────────────────────────────────────
+
+val settled = swiftProvider.getTransfer(pacs008Transfer.id)
+settled.gpiTrail.foreach { hop =>
+  println(s"GPI hop: ${hop.agentBic} — ${hop.status} at ${hop.updatedAt}")
+}
 ```

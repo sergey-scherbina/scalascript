@@ -31,6 +31,16 @@ case class NachaCutoffMissed(scheduledDate: java.time.LocalDate)
 
 // ── v1.55 error additions ─────────────────────────────────────────────────────
 
+// ── SWIFT (v1.55.1) ──────────────────────────────────────────────────────────
+
+case class SwiftSanctionsHit(uetr: String, sanctionsRef: String)
+    extends BankRailsError(s"SWIFT payment $uetr hit sanctions screening: $sanctionsRef")
+
+case class SwiftUetrInvalid(uetr: String)
+    extends BankRailsError(s"UETR is not a valid UUID v4: $uetr")
+
+// ── SEPA Instant / SCT Inst (v1.55.2) ────────────────────────────────────────
+
 /** SCT Inst 10-second transmission window exceeded (HTTP 408-style).
  *  EBA sanctions screening must complete within the 10s window; if the aggregator
  *  cannot confirm settlement in time it returns a timeout error.
@@ -38,6 +48,8 @@ case class NachaCutoffMissed(scheduledDate: java.time.LocalDate)
  *  @param elapsedMs  milliseconds elapsed before the timeout was declared */
 case class SctInstTimeout(endToEndId: String, elapsedMs: Long)
     extends BankRailsError(s"SCT Inst 10-second window exceeded for $endToEndId (${elapsedMs}ms elapsed)")
+
+// ── UK FPS (v1.55.3) ─────────────────────────────────────────────────────────
 
 /** UK FPS Confirmation of Payee name-check failed (result was NoMatch).
  *  `suggested` is the bank-registered name if CoP returned a CloseMatch. */

@@ -9,8 +9,8 @@ object TransferId:
   extension (id: TransferId) def value: String = id
 
 /** Bank account details. Fields used depend on the rail (IBAN for SEPA,
- *  routingNumber+accountNumber for ACH, pixKey for Pix, sortCode+accountNumber for UK FPS/BACS).
- *  All v1.55 fields default to None — existing call sites compile unchanged. */
+ *  routingNumber+accountNumber for ACH, pixKey for Pix, sortCode+accountNumber for UK FPS/BACS,
+ *  bic for SWIFT). All v1.55 fields default to None — existing call sites compile unchanged. */
 case class BankAccount(
   iban:             Option[String] = None,    // SEPA / SWIFT
   accountNumber:    Option[String] = None,    // ACH / Pix / FedNow / UK FPS / UK BACS
@@ -39,6 +39,9 @@ case class InitiateTransferRequest(
   sameDay:        Boolean = false,       // ACH same-day flag; ignored for non-ACH rails
   scheduledDate:  Option[java.time.LocalDate] = None,  // None = earliest possible
   metadata:       Map[String, String] = Map.empty,
+  // v1.55 SWIFT additions
+  chargeBearer:   ChargeBearer = ChargeBearer.SHA,   // SWIFT only; ignored for other rails
+  uetr:           Option[Uetr] = None,               // None = adapter generates a new UUID v4
 )
 
 /** Result of a bank transfer, carrying its lifecycle status. */
@@ -54,6 +57,10 @@ case class BankTransfer(
   settledAt:   Option[java.time.Instant] = None,
   returnedAt:  Option[java.time.Instant] = None,
   metadata:    Map[String, String] = Map.empty,
+  // v1.55 SWIFT additions
+  uetr:         Option[Uetr] = None,             // SWIFT UETR (UUID v4); None for non-SWIFT rails
+  gpiTrail:     List[GpiHop] = Nil,             // GPI hop chain; populated by SwiftProvider
+  chargeBearer: Option[ChargeBearer] = None,    // SWIFT charge bearer; None for non-SWIFT rails
 )
 
 /** Lifecycle status of a bank transfer. */

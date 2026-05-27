@@ -26,6 +26,12 @@ enum BankRailsEvent:
   case FedNowCreditReceived(transfer: BankTransfer)
   case FedNowRejected(transfer: BankTransfer, code: RejectCode)
 
+  // ── SWIFT GPI (v1.55.1) ──────────────────────────────────────────────────
+  case SwiftMt103Booked(uetr: String, amount: String, currency: String)
+  case SwiftPacs008Settled(uetr: String, amount: String, currency: String)
+  case SwiftGpiAdvanced(uetr: String, hop: GpiHop)     // intermediate hop update
+  case SwiftRejected(uetr: String, statusCode: String, reason: String)
+
   // ── SEPA Instant (SCT Inst) — v1.55.2 ───────────────────────────────────
   // pacs.002 ACCC from TIPS/RT1 acknowledgment via aggregator
   case SctInstSettled(endToEndId: String, amount: String, currency: String)
