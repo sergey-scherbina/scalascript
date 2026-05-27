@@ -31,3 +31,8 @@ object ChainId:
   // Cardano (CAIP-2 namespace "cardano")
   val CardanoMainnet: ChainId = ChainId("cardano:mainnet")
   val CardanoPreprod: ChainId = ChainId("cardano:preprod")
+
+  // Cosmos SDK chains (CAIP-2 namespace "cosmos")
+  val CosmosHub: ChainId = ChainId("cosmos:cosmoshub-4")
+  val Osmosis:   ChainId = ChainId("cosmos:osmosis-1")
+  val Juno:      ChainId = ChainId("cosmos:juno-1")

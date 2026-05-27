@@ -4155,11 +4155,12 @@ regression test green.
 - [ ] `x402-facilitator-cardano` thin-glue refactor (deferred — existing impl works)
 - [ ] `examples/x402-cardano.ssc` (deferred)
 
-### Phase 7 — blockchain-cosmos
+### Phase 7 — blockchain-cosmos ✓ Landed (2026-05-27)
 
-- [ ] `blockchain-cosmos` — secp256k1 / ed25519, sign_doc, bech32
-      prefixes, configurable per family (Osmosis / Juno /
-      cosmoshub-4 / …)
+- [x] `blockchain-cosmos` — secp256k1 / ed25519, StdSignDoc Amino JSON, bech32 with
+      configurable HRP (cosmos/osmo/juno); `CosmosChainAdapter` implementing `ChainAdapter` SPI;
+      `ChainId.CosmosHub` / `ChainId.Osmosis` / `ChainId.Juno`; `BlockchainProvider` SPI +
+      `CosmosBackend` ServiceLoader registration; 41 tests
 
 ---
 
