@@ -48,7 +48,6 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
   name == "PubSubTest.scala" ||
   name == "SqlBlockInterpreterTest.scala" ||
   name == "TypedHandlerTest.scala" ||
-  name == "SectionXmlBlockTest.scala" ||   // v1.55.2 — requires Value.MarkupV (markup-lang-xml task)
   name.startsWith("Mcp") ||
   name.startsWith("OAuth") ||
   name.startsWith("Oidc")
