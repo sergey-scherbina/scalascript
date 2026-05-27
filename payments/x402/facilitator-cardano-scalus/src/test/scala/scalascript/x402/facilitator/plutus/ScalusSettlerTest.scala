@@ -143,6 +143,7 @@ class ScalusSettlerTest extends AnyFunSuite:
     assert(plan.coseSign1Hex == "c0ffee")
     assert(plan.coseKeyHex == "cafe")
     assert(plan.relayerKeyHex == "11" * 32)
+    assert(plan.claimRedeemer == EscrowRedeemerCodec.claim(CardanoPaymentProof("", "c0ffee", "cafe")))
   }
 
   test("ScalusSettler.mainnet/preprod: reject mismatched configs") {

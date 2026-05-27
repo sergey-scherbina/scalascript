@@ -3687,6 +3687,11 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       Plutus witness construction lands.
 - [ ] Tx building: input = escrow UTxO ref, output = receiver +
       amount, redeemer = CIP-8 proof bytes, witness = relayer key
+      - [x] Redeemer construction ✓ Landed (2026-05-27):
+            `EscrowRedeemerCodec` builds bloxbean `PlutusData`
+            `Claim(coseSign1Bytes, coseKeyBytes)` and exposes it on
+            `ClaimTxPlan.claimRedeemer`.
+      - [ ] Transaction body + script witness + relayer witness
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted
       through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.

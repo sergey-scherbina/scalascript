@@ -20,7 +20,9 @@ case class ClaimTxPlan(
   coseSign1Hex:    String,
   coseKeyHex:      String,
   relayerKeyHex:   String,
-)
+):
+  lazy val claimRedeemer: com.bloxbean.cardano.client.plutus.spec.PlutusData =
+    EscrowRedeemerCodec.claim(CardanoPaymentProof("", coseSign1Hex, coseKeyHex))
 
 trait ClaimTxBuilder:
   def build(plan: ClaimTxPlan): Future[Array[Byte]]

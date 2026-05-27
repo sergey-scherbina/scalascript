@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-claim-tx-builder** — Added bloxbean Plutus redeemer construction for Scalus escrow claims: `EscrowRedeemerCodec.claim` encodes `Claim(coseSign1Bytes, coseKeyBytes)` as constructor 0, and `ClaimTxPlan.claimRedeemer` exposes it to the future transaction builder. Full transaction body / script witness / relayer witness remain open.
+
 - **x402-cardano-scalus-settler-bloxbean** — Phase 4 wiring for Cardano/Scalus settlement: added `cardano-client-lib` dependency, `ScalusSettlerConfig`, typed `ClaimTxPlan`, injectable `ClaimTxBuilder`, `ScalusSettler.preprod/mainnet`, and Blockfrost submit pipeline tests. The default builder still fails explicitly until real Plutus witness/redeemer construction is implemented.
 
 - **x402-cardano-scalus-escrow-ref** — Added typed `ScalusEscrowRef` parsing/validation for canonical `<64-hex-txhash>#<output-index>` refs and wired `CardanoProvider.Scalus` verification to reject malformed nonce-slot escrow refs before settlement.

@@ -352,6 +352,10 @@ validator to UPLC:
   that passes builder-produced CBOR to `BlockfrostClient.submitTx`.
 - Tx building: input = escrow_ref, output = receiver + amount,
   collateral from relayer wallet, redeemer = CIP-8 proof bytes.
+- **Landed (2026-05-27):** `EscrowRedeemerCodec` builds the bloxbean
+  `PlutusData` for `Claim(coseSign1Bytes, coseKeyBytes)` as
+  constructor alternative 0, and `ClaimTxPlan.claimRedeemer` exposes it
+  to the transaction builder.
 - **Still open:** the default `BloxbeanClaimTxBuilder` fails
   explicitly until Plutus witness / redeemer construction is
   implemented on top of `cardano-client-lib`.
