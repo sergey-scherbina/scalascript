@@ -7,6 +7,9 @@
 !.work/
 
 .ssc-artifacts/
+# Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data)
+!tools/sbt-plugin/src/sbt-test/**/.ssc-artifacts/
+!tools/sbt-plugin/src/sbt-test/**/.ssc-artifacts/**
 
 # Build outputs
 target/
