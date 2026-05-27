@@ -76,7 +76,7 @@ _(all done — see Done section below)_
 
 ## Database
 
-_(all done — see Done section below)_
+- [x] **secret-resolvers-jdk** — In-tree secret resolver plugins for `backend/sql`: `VaultSecretResolver` (HashiCorp Vault KV v1/v2 via `java.net.http.HttpClient` + `VAULT_ADDR`/`VAULT_TOKEN`/`VAULT_NAMESPACE`), `DopplerSecretResolver` (Doppler REST API via JDK HttpClient + `DOPPLER_TOKEN`), `OpSecretResolver` (1Password CLI subprocess `op read`), `PassSecretResolver` (Unix password-store CLI subprocess `pass show`); all implement `scalascript.sql.SecretResolver` SPI; ServiceLoader registration; 26 tests (mock HTTP server for vault/doppler, subprocess hooks for op/pass, scheme dispatch, missing env errors). Spec: `docs/secret-resolvers.md §vault §doppler §op §pass`. (2026-05-27)
 
 ## Native Platform
 
