@@ -16,9 +16,10 @@
 _(none)_
 
 ### Next up (top of BACKLOG)
-- v1.52.6-deploy-faas (FaaS/serverless — Lambda, Cloudflare Workers)
+- v1.52.7-deploy-state-backends (remote state backends — S3, Consul, Etcd)
 
 ### Recently completed
+- v1.52.6-deploy-faas — `FaasTarget` (Lambda/Cloudflare Workers/Cloud Run/Vercel Functions), 91 tests total ✓ (2026-05-27)
 - v1.52.5-deploy-static — `StaticTarget` (Vercel/Netlify/Cloudflare Pages/GitHub Pages), 80 tests total ✓ (2026-05-27)
 - v1.52.4-deploy-traditional — `SystemdUnitGenerator` + `SshSystemdTarget` + `RsyncTarget` + `SftpTarget`, 71 tests total ✓ (2026-05-27)
 - v1.52.3-deploy-k8s — `K8sManifestGenerator` + `K8sTarget` (all 7 SPI verbs + switch/promote blue-green), `TargetFactory` k8s case, 53 tests total ✓ (2026-05-27)

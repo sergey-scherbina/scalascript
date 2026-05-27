@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.52.6-deploy-faas** — `FaasTarget` (`kind: faas`): AWS Lambda (LambdaZip via `buildLambdaZip`+`ZipOutputStream`; `aws lambda create-function/update-function-code/publish-version/update-alias "live"`; `aws logs tail`), Cloudflare Workers (`wrangler deploy` with `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`), GCP Cloud Run (`gcloud run deploy --platform managed --allow-unauthenticated`), Vercel Functions (`vercel --prod`). All dry-run capable; `rollback` via Lambda alias version pointer. `TargetFactory` extended with `"faas"/"lambda"/"serverless"`. 11 new tests; 91 total.
+
 - **v1.52.5-deploy-static** — `StaticTarget` (`kind: static`): Vercel (CLI or Deployments API v13), Netlify (CLI or API), Cloudflare Pages (wrangler or API; account_id via `team:`), GitHub Pages (git push orphan branch to gh-pages). HTTP GET status. TargetFactory `"static"`. 9 new tests; 80 total.
 
 - **v1.52.4-deploy-traditional** — `SystemdUnitGenerator` (FatJar/NativeBinary/NodeBundle unit templates, env vars, pre/post hooks). `SshSystemdTarget` (SSH+SCP artifact + systemd unit; `systemctl restart/is-active`; `journalctl -u` logs; pre/post_deploy). `RsyncTarget` (rsync with configurable SSH rsh; post-deploy hook). `SftpTarget` (SFTP batch upload; post-upload unpack_cmd). TargetFactory extended with transport sub-dispatch for traditional kind + rsync/sftp top-level kinds. 18 new tests; 71 total.

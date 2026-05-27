@@ -25,5 +25,7 @@ object TargetFactory:
           case _                    =>
             val port = config.get("port").collect { case n: Int => n }.getOrElse(8080)
             new LocalSubprocessTarget(port)
+      case "faas" | "lambda" | "serverless" =>
+        new FaasTarget()
       case other =>
-        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, k8s, static, traditional, rsync, sftp")
+        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, faas, k8s, static, traditional, rsync, sftp")

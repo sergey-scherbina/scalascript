@@ -976,10 +976,8 @@ Design decisions locked:
 **✓ Landed (2026-05-27) — v1.52.5 — Static hosting (generic):**
 - `StaticTarget` (`kind: static`): four provider shapes — Vercel (vercel CLI or Deployments API v13), Netlify (netlify CLI or API), Cloudflare Pages (wrangler CLI or API; account_id via `team:`), GitHub Pages (git push to `gh-pages` branch via orphan branch). All dry-run capable. `status` via HTTP GET healthcheck. `outputs` passes URL through. `TargetFactory` extended with `"static"`. 9 new tests; 80 total.
 
-**v1.52.6 — FaaS / serverless (generic):**
-- Lambda zip adapter (AWS-shaped): zip + handler wrapper + alias management
-- Cloudflare Workers: `NodeBundle` + Wasm bundle; `wrangler deploy` subprocess
-- `rollback` via alias version pointer; `logs` via provider log stream → `Stream[LogLine]`
+**✓ Landed (2026-05-27) — v1.52.6 — FaaS / serverless (generic):**
+- `FaasTarget` (`kind: faas`): four provider shapes — AWS Lambda (LambdaZip via `buildLambdaZip` + `aws lambda create-function/update-function-code/publish-version/update-alias`), Cloudflare Workers (`wrangler deploy` with `CLOUDFLARE_API_TOKEN`), GCP Cloud Run (`gcloud run deploy`), Vercel Functions (`vercel --prod`). All dry-run capable. `rollback` via Lambda alias version. `logs` via `aws logs tail`. `TargetFactory` extended with `"faas"/"lambda"/"serverless"`. 11 new tests; 91 total.
 
 **v1.52.7 — Remote state backends:**
 - `LocalFileStateBackend`, `S3StateBackend`, `ConsulStateBackend`, `EtcdStateBackend`

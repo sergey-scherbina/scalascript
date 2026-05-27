@@ -742,3 +742,148 @@ class DeployPluginTest extends AnyFunSuite:
     val t = TargetFactory.make("static", Map.empty)
     assert(t.kind == "static")
     assert(t.isInstanceOf[StaticTarget])
+
+  // ── FaasTarget ─────────────────────────────────────────────────────────────
+
+  test("FaasTarget: kind and artifactKind"):
+    val t = new FaasTarget()
+    assert(t.kind == "faas")
+    assert(t.artifactKind == ArtifactKind.LambdaZip)
+
+  test("FaasTarget: Lambda dry-run build returns zip path"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-fn",
+      config     = Map("provider" -> "lambda"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.build(ctx)
+    assert(result.artifactPath.endsWith("lambda.zip"))
+    assert(result.artifactKind == ArtifactKind.LambdaZip)
+
+  test("FaasTarget: Lambda dry-run push returns function name"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-fn",
+      config     = Map("provider" -> "lambda"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/lambda.zip", ArtifactKind.LambdaZip)
+    val result = target.push(ctx, art)
+    assert(result.ref == "my-fn")
+    assert(result.metadata.contains("functionArn"))
+
+  test("FaasTarget: Lambda dry-run deploy returns alias version"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-fn",
+      config     = Map("provider" -> "lambda"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val ref    = PushResult("my-fn", metadata = Map("functionArn" -> "my-fn"))
+    val result = target.deploy(ctx, ref)
+    assert(result.revision == "my-fn")
+    assert(result.metadata.get("aliasVersion") == Some("dry-run"))
+
+  test("FaasTarget: Lambda dry-run rollback returns revision id"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-fn",
+      config     = Map("provider" -> "lambda"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.rollback(ctx, RevisionRef("42"))
+    assert(result.revision == "42")
+
+  test("FaasTarget: Lambda outputs includes functionArn and invokeUrl"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-fn",
+      config     = Map("provider" -> "lambda"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val outs = target.outputs(ctx)
+    assert(outs.contains("functionArn"))
+    assert(outs.contains("invokeUrl"))
+    assert(outs("aliasVersion") == "live")
+
+  test("FaasTarget: Cloudflare Workers dry-run push"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-worker",
+      config     = Map("provider" -> "cloudflare-workers", "team" -> "myaccount", "token" -> "tok"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/worker.js", ArtifactKind.NodeBundle)
+    val result = target.push(ctx, art)
+    assert(result.ref == "my-worker")
+    assert(result.metadata.get("url").exists(_.contains("workers.dev")))
+
+  test("FaasTarget: Cloud Run dry-run deploy returns url"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "my-service",
+      config     = Map("provider" -> "cloud-run", "region" -> "us-central1"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val ref    = PushResult("gcr.io/proj/my-service:latest")
+    val result = target.deploy(ctx, ref)
+    assert(result.url.exists(u => u.contains("run.app") || u.contains("my-service")))
+
+  test("FaasTarget: unknown provider throws DeployError"):
+    val target = new FaasTarget()
+    val ctx = DeployContext(
+      targetName = "fn",
+      config     = Map("provider" -> "unknown-cloud"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    assertThrows[DeployError](target.build(ctx))
+
+  test("TargetFactory: faas kind → FaasTarget"):
+    val t = TargetFactory.make("faas", Map.empty)
+    assert(t.kind == "faas")
+    assert(t.isInstanceOf[FaasTarget])
+
+  test("TargetFactory: lambda kind → FaasTarget"):
+    val t = TargetFactory.make("lambda", Map.empty)
+    assert(t.isInstanceOf[FaasTarget])
