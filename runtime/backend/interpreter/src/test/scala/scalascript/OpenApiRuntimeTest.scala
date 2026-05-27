@@ -37,7 +37,7 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
   test("empty registry produces valid OpenAPI 3.1 document with no paths"):
     val json = parseJson(OpenApiRuntime.generateOpenApiJson(reg))
     json("openapi").str shouldBe "3.1.0"
-    json("paths").obj should be(empty)
+    assert(json("paths").obj.isEmpty)
 
   test("single GET route appears under its path"):
     reg.register("GET", "/hello", noop, interp)
@@ -126,11 +126,11 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
 
   test("registerOpenApiDefaults registers GET /_openapi.json"):
     OpenApiRuntime.registerOpenApiDefaults(interp)
-    Routes.matchRequest("GET", "/_openapi.json") should not be None
+    assert(Routes.matchRequest("GET", "/_openapi.json").isDefined)
 
   test("registerOpenApiDefaults registers GET /_swagger"):
     OpenApiRuntime.registerOpenApiDefaults(interp)
-    Routes.matchRequest("GET", "/_swagger") should not be None
+    assert(Routes.matchRequest("GET", "/_swagger").isDefined)
 
   test("registerOpenApiDefaults is idempotent — calling twice does not duplicate routes"):
     OpenApiRuntime.registerOpenApiDefaults(interp)
@@ -164,10 +164,10 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
         val ct = headers.collectFirst {
           case (Value.StringV("Content-Type"), Value.StringV(v)) => v
         }
-        ct.getOrElse("") should startWith("text/html")
-        val body = fields("body").asInstanceOf[Value.StringV].s
-        body should include("swagger-ui")
-        body should include("/_openapi.json")
+        ct.getOrElse("").should(startWith("text/html"))
+        val body = fields("body").asInstanceOf[Value.StringV].v
+        body.should(include("swagger-ui"))
+        body.should(include("/_openapi.json"))
       case other => fail(s"Expected Response InstanceV, got $other")
 
   test("/_openapi.json body is valid JSON containing registered user routes"):
@@ -176,7 +176,7 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
     OpenApiRuntime.registerOpenApiDefaults(interp)
     val Some((entry, _)) = Routes.matchRequest("GET", "/_openapi.json"): @unchecked
     val result = interp.invoke(entry.handler, List(Value.UnitV))
-    val body   = result.asInstanceOf[Value.InstanceV].fields("body").asInstanceOf[Value.StringV].s
+    val body   = result.asInstanceOf[Value.InstanceV].fields("body").asInstanceOf[Value.StringV].v
     val json   = parseJson(body)
-    json("paths").obj.keys should contain("/api/users")
-    json("paths")("/api/users").obj.keys.toSet shouldBe Set("get", "post")
+    json("paths").obj.keys.should(contain("/api/users"))
+    json("paths")("/api/users").obj.keys.toSet.shouldBe(Set("get", "post"))

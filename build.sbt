@@ -2784,6 +2784,61 @@ lazy val fxOer = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — Australia NPP (New Payments Platform) / PayID adapter ───
+lazy val paymentsAuNpp = project
+  .in(file("runtime/std/payments-au-npp"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-au-npp",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Tax provider — SPI module ─────────────────────────────────────────────
+lazy val paymentsTax = project
+  .in(file("payments/tax"))
+  .dependsOn(paymentsMoney, testUtils % Test)
+  .settings(
+    name := "payments-tax",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Tax provider — Stripe Tax Calculations API v1 adapter ────────────────
+lazy val paymentsTaxStripe = project
+  .in(file("payments/tax-stripe"))
+  .dependsOn(paymentsTax, testUtils % Test)
+  .settings(
+    name := "payments-tax-stripe",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Tax provider — Avalara AvaTax REST v2 adapter ─────────────────────────
+lazy val paymentsTaxAvalara = project
+  .in(file("payments/tax-avalara"))
+  .dependsOn(paymentsTax, testUtils % Test)
+  .settings(
+    name := "payments-tax-avalara",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Tax provider — TaxJar SmartCalcs v2 adapter ───────────────────────────
+lazy val paymentsTaxJar = project
+  .in(file("payments/tax-taxjar"))
+  .dependsOn(paymentsTax, testUtils % Test)
+  .settings(
+    name := "payments-tax-taxjar",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2811,6 +2866,7 @@ lazy val root = project
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsAuNpp, paymentsMxSpei, paymentsCaEft,
     fxSpi, fxEcb, fxOer,
+    paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
     markupCore, markupCoreJs, markupJs, markupNode,
   )
   .settings(

@@ -69,7 +69,7 @@ private[interpreter] object OpenApiRuntime:
     sb.append("  \"paths\": {")
 
     if byPath.isEmpty then
-      sb.append("}\n")
+      sb.append("}\n}\n")
     else
       sb.append("\n")
       var firstPath = true
