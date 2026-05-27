@@ -2359,6 +2359,19 @@ lazy val paymentsSquare = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val paymentsMock = project
+  .in(file("runtime/std/payments-mock"))
+  .dependsOn(paymentsPlugin, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-mock",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson"   % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2383,7 +2396,7 @@ lazy val root = project
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
-    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare,
+    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
   )
   .settings(
     publish / skip := true

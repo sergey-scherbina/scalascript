@@ -301,6 +301,34 @@ case class PermanentProviderError(code: String, body: String)
 case class DuplicateRequest(originalId: String)
     extends PaymentError("duplicate idempotency key with different body")
 
+// ── PaymentEffect (effect-row decomposition) ──────────────────────────────────
+
+/** Sub-effect labels for finer-grained handler decomposition.
+ *  Charging covers createIntent/confirmIntent/captureIntent/voidIntent.
+ *  Refunding covers refund.
+ *  Disputing covers submitDisputeEvidence.
+ *  Subscribing covers createPlan/subscribe/changeSubscription/cancelSubscription.
+ *  Vaulting covers createCustomer/attachMethod/detachMethod/listMethods/createMandate/getMandate.
+ *  Webhooking covers webhookReceiver access. */
+enum PaymentEffect:
+  case Charging
+  case Refunding
+  case Disputing
+  case Subscribing
+  case Vaulting
+  case Webhooking
+
+object PaymentEffect:
+  def of(op: String): PaymentEffect = op match
+    case "createIntent" | "confirmIntent" | "captureIntent" | "voidIntent" => Charging
+    case "refund"                                                           => Refunding
+    case "submitDisputeEvidence"                                            => Disputing
+    case "createPlan" | "subscribe" | "changeSubscription" | "cancelSubscription" => Subscribing
+    case "createCustomer" | "attachMethod" | "detachMethod" | "listMethods" |
+         "createMandate"  | "getMandate"                                    => Vaulting
+    case "webhookReceiver"                                                  => Webhooking
+    case _                                                                  => Charging
+
 // ── PaymentEvent (webhook event union) ────────────────────────────────────────
 
 enum PaymentEvent:
