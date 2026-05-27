@@ -2583,6 +2583,17 @@ lazy val paymentsUkFps = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — UK BACS Direct Debit adapter ────────────────────────────
+lazy val paymentsUkBacs = project
+  .in(file("runtime/std/payments-uk-bacs"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-uk-bacs",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Bank Rails — UK CHAPS adapter ────────────────────────────────────────
 lazy val paymentsUkChaps = project
   .in(file("runtime/std/payments-uk-chaps"))
@@ -2630,7 +2641,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkChaps, paymentsIndiaUpi,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi,
     markupCore,
   )
   .settings(

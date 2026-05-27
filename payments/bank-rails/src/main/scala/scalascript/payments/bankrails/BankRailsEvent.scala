@@ -44,9 +44,13 @@ enum BankRailsEvent:
   case UkFpsReturned(txId: String, code: String, description: String)
 
   // ── UK BACS Direct Debit (v1.55.4) ───────────────────────────────────────
+  // Aggregator confirms file accepted into BACS 3-day cycle
   case BacsDdSubmitted(ref: String, settlementDate: String)
+  // Day 3 settlement confirmation — payment collected
   case BacsDdPaid(ref: String, amount: String)
+  // New mandate accepted by payer's bank via AUDDIS
   case BacsAuddisAccepted(mandateRef: String)
+  // Unpaid direct debit returned (ARUDD) — code is ARUDD/ADDACS return code
   case BacsAruddReturned(ref: String, code: String, description: String)
 
   // ── UK CHAPS (v1.55.5) ───────────────────────────────────────────────────
