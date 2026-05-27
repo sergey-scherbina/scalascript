@@ -58,6 +58,27 @@ object CardanoAssets:
   val DJED = CardanoAsset("8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd61", "446a6564", "DJED")
   val USDA = CardanoAsset("f66d78b4a3cb3d37afa0ec36461e51ecbbd428f681267fc5ded45adc", "55534441", "USDA")
 
+// ── Cardano Scalus claim-message codec ───────────────────────────────────────
+
+object ScalusClaimMessageCodec:
+  val domain: String = "x402-scalus/v1"
+
+  def encode(receiverBytes: Array[Byte], lovelace: BigInt, validBefore: BigInt): Array[Byte] =
+    domain.getBytes("UTF-8") ++ receiverBytes ++ uint64(lovelace, "lovelace") ++
+      uint64(validBefore, "validBefore")
+
+  def uint64(value: BigInt, field: String): Array[Byte] =
+    require(value >= 0, s"$field must be non-negative, got $value")
+    require(value < (BigInt(1) << 64), s"$field is too large for uint64-compatible encoding: $value")
+    val out = new Array[Byte](8)
+    var v   = value
+    var i   = 7
+    while i >= 0 do
+      out(i) = (v & 0xff).toByte
+      v = v >> 8
+      i -= 1
+    out
+
 // ── Payment schemes ───────────────────────────────────────────────────────────
 
 enum PaymentScheme:

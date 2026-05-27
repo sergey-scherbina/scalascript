@@ -56,20 +56,7 @@ object ScalusClaimMessage:
   val domain: String = "x402-scalus/v1"
 
   def encode(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
-    val receiverBytes = CardanoAddress.toBytes(receiver)
-    domain.getBytes("UTF-8") ++ receiverBytes ++ uint64(lovelace, "lovelace") ++ uint64(validBefore, "validBefore")
-
-  private def uint64(value: BigInt, field: String): Array[Byte] =
-    require(value >= 0, s"$field must be non-negative, got $value")
-    require(value < (BigInt(1) << 64), s"$field is too large for uint64-compatible encoding: $value")
-    val out = new Array[Byte](8)
-    var v   = value
-    var i   = 7
-    while i >= 0 do
-      out(i) = (v & 0xff).toByte
-      v = v >> 8
-      i -= 1
-    out
+    ScalusClaimMessageCodec.encode(CardanoAddress.toBytes(receiver), lovelace, validBefore)
 
 // ── Private-key wallet (JVM / Node.js automation) ─────────────────────────────
 //

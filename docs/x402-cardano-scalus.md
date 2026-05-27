@@ -369,7 +369,9 @@ validator to UPLC:
   before settlement. **Landed (2026-05-27)**: the Scalus provider
   requires `authorization.nonce` to carry the escrowRef, verifies CIP-8
   against `x402-scalus/v1 || receiver_bytes || amount || validBefore`,
-  and leaves UTxO/datum validation to the Phase 4 settler.
+  and leaves UTxO/datum validation to the Phase 4 settler. The binary
+  encoder is centralized in `x402-core` as `ScalusClaimMessageCodec`
+  so client and facilitator cannot drift.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

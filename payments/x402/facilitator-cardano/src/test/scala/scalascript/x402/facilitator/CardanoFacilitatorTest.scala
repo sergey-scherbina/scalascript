@@ -79,17 +79,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
 
   private def scalusClaimMessage(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
     import scalascript.blockchain.cardano.CardanoAddress
-    def uint64(value: BigInt): Array[Byte] =
-      val out = new Array[Byte](8)
-      var v   = value
-      var i   = 7
-      while i >= 0 do
-        out(i) = (v & 0xff).toByte
-        v = v >> 8
-        i -= 1
-      out
-    "x402-scalus/v1".getBytes("UTF-8") ++ CardanoAddress.toBytes(receiver) ++
-      uint64(lovelace) ++ uint64(validBefore)
+    ScalusClaimMessageCodec.encode(CardanoAddress.toBytes(receiver), lovelace, validBefore)
 
   private val testReq = PaymentRequirements(
     scheme      = PaymentScheme.CardanoExact(BigInt(2_000_000), None),

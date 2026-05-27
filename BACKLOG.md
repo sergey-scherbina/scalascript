@@ -3649,6 +3649,10 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       requires escrowRef in `authorization.nonce`, verifies CIP-8
       against the structured claim message, and skips the legacy
       payer-balance check.
+- [x] Shared Scalus claim-message codec ✓ Landed (2026-05-27):
+      `ScalusClaimMessageCodec` in `x402-core` owns the
+      `x402-scalus/v1 || receiver_bytes || amount || validBefore`
+      encoding used by both client and facilitator.
 - [ ] Round-trip test covering client → validator → claim Tx
 
 #### Phase 6 — Deposit ergonomics + example
