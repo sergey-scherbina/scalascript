@@ -180,6 +180,10 @@ description. Out of scope for Phase 1.
 - Existing `CardanoProvider.Scalus` enum case: **shape preserved**;
   its `signingKey`, `nodeSocket`, `ogmiosUrl`, `kupoUrl` fields are
   the inputs the Phase 4 `bloxbean` settler will consume.
+- `CardanoProvider.Scalus` verification now expects the structured
+  claim message and `authorization.nonce` escrowRef; this is additive
+  to the existing optimistic Blockfrost verification path, which still
+  signs `req.description`.
 - `CardanoFacilitator.settle` currently has a hardcoded
   `Fail("Scalus settlement not yet implemented")` for the Scalus
   provider; Phase 1 replaces that with a delegation to a
@@ -361,6 +365,11 @@ validator to UPLC:
 - `PayloadBuilder` emits `escrowRef` via the `nonce` slot when the
   payload references an escrow UTxO. **Landed (2026-05-27)** via
   `PaymentRequirements.scalusEscrowRef`.
+- `CardanoProvider.Scalus` verifies the structured claim-message proof
+  before settlement. **Landed (2026-05-27)**: the Scalus provider
+  requires `authorization.nonce` to carry the escrowRef, verifies CIP-8
+  against `x402-scalus/v1 || receiver_bytes || amount || validBefore`,
+  and leaves UTxO/datum validation to the Phase 4 settler.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

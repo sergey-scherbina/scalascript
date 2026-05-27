@@ -2969,8 +2969,9 @@ testnet script addresses, but reference-script deployment and real claim
 transaction building remain planned. The client also exposes
 `Wallets.cardano(hex, network, scalusMode = true)` for the planned escrow flow:
 it signs a structured Scalus claim message and carries the escrow UTxO ref in
-`authorization.nonce`; current production Cardano flows should keep using the
-default non-Scalus mode until the settler is implemented.
+`authorization.nonce`. `CardanoProvider.Scalus` can verify that structured
+claim proof before settlement, but current production Cardano flows should keep
+using the default non-Scalus mode until the settler is implemented.
 
 ---
 

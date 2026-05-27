@@ -1255,7 +1255,7 @@ lazy val clientBlockfrost = project
 
 lazy val x402FacilitatorCardano = project
   .in(file("payments/x402/facilitator-cardano"))
-  .dependsOn(x402Core, clientBlockfrost)
+  .dependsOn(x402Core, clientBlockfrost, blockchainCardano)
   .settings(
     name := "scalascript-x402-facilitator-cardano",
     libraryDependencies ++= Seq(

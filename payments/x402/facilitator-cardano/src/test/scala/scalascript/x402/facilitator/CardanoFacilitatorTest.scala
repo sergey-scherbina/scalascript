@@ -77,6 +77,20 @@ class CardanoFacilitatorTest extends AnyFunSuite:
   private def bytesToHex(b: Array[Byte]): String =
     b.map(x => f"${x & 0xFF}%02x").mkString
 
+  private def scalusClaimMessage(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
+    import scalascript.blockchain.cardano.CardanoAddress
+    def uint64(value: BigInt): Array[Byte] =
+      val out = new Array[Byte](8)
+      var v   = value
+      var i   = 7
+      while i >= 0 do
+        out(i) = (v & 0xff).toByte
+        v = v >> 8
+        i -= 1
+      out
+    "x402-scalus/v1".getBytes("UTF-8") ++ CardanoAddress.toBytes(receiver) ++
+      uint64(lovelace) ++ uint64(validBefore)
+
   private val testReq = PaymentRequirements(
     scheme      = PaymentScheme.CardanoExact(BigInt(2_000_000), None),
     network     = Network.Base,
@@ -230,6 +244,72 @@ class CardanoFacilitatorTest extends AnyFunSuite:
     )
     val result = Await.result(fac.verify(payload, testReq), 5.seconds)
     assert(result == VerifyResult.Ok)
+  }
+
+  test("verify: Scalus provider validates structured claim message without payer balance check") {
+    val receiver    = "addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd"
+    val validBefore = BigInt(9_999_999_999L)
+    val req = testReq.copy(
+      network         = Network.CardanoPreprod,
+      payTo           = receiver,
+      scalusEscrowRef = Some("e" * 64 + "#0"),
+    )
+    val message = scalusClaimMessage(receiver, BigInt(2_000_000), validBefore)
+    val proof   = makeCip8Proof(message)
+
+    val mockClient = new MockBlockfrostBase:
+      def getAddressInfo(a: String) = Future.failed(RuntimeException("balance check should not run"))
+      def isTxConfirmed(h: String)  = Future.failed(RuntimeException("confirmation check should not run"))
+
+    val cfg = CardanoFacilitatorConfig(
+      CardanoNetwork.Preprod,
+      CardanoProvider.Scalus("/tmp/node.socket"),
+      receiver,
+    )
+    val fac = CardanoFacilitator(cfg, mockClient)
+    val payload = PaymentPayload(
+      scheme = PaymentScheme.CardanoExact(BigInt(2_000_000), None),
+      network = Network.CardanoPreprod,
+      authorization = testAuth.copy(
+        from        = proof.address,
+        to          = receiver,
+        validBefore = validBefore,
+        nonce       = "e" * 64 + "#0",
+      ),
+      signature = "",
+      cardanoProof = Some(proof),
+    )
+    val result = Await.result(fac.verify(payload, req), 5.seconds)
+    assert(result == VerifyResult.Ok)
+  }
+
+  test("verify: Scalus provider rejects missing escrowRef") {
+    val receiver    = "addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd"
+    val validBefore = BigInt(9_999_999_999L)
+    val req         = testReq.copy(network = Network.CardanoPreprod, payTo = receiver)
+    val proof       = makeCip8Proof(scalusClaimMessage(receiver, BigInt(2_000_000), validBefore))
+
+    val mockClient = new MockBlockfrostBase:
+      def getAddressInfo(a: String) = Future.failed(RuntimeException("balance check should not run"))
+      def isTxConfirmed(h: String)  = Future.failed(RuntimeException("confirmation check should not run"))
+
+    val cfg = CardanoFacilitatorConfig(
+      CardanoNetwork.Preprod,
+      CardanoProvider.Scalus("/tmp/node.socket"),
+      receiver,
+    )
+    val fac = CardanoFacilitator(cfg, mockClient)
+    val payload = PaymentPayload(
+      scheme = PaymentScheme.CardanoExact(BigInt(2_000_000), None),
+      network = Network.CardanoPreprod,
+      authorization = testAuth.copy(to = receiver, validBefore = validBefore, nonce = ""),
+      signature = "",
+      cardanoProof = Some(proof),
+    )
+    val result = Await.result(fac.verify(payload, req), 5.seconds)
+    result match
+      case VerifyResult.Fail(msg) => assert(msg.contains("escrowRef"))
+      case other                  => fail(s"expected Fail, got $other")
   }
 
   test("verify: valid proof + insufficient ADA → Fail") {

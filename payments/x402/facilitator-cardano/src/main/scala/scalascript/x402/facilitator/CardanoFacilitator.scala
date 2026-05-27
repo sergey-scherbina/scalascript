@@ -1,6 +1,7 @@
 package scalascript.x402.facilitator
 
 import scalascript.x402.*
+import scalascript.blockchain.cardano.CardanoAddress
 import scalascript.blockfrost.{BlockfrostClient, BlockfrostConfig, Blockfrost}
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -104,11 +105,17 @@ private class CardanoFacilitatorImpl(
           case None =>
             Future.successful(VerifyResult.Fail("Missing Cardano payment proof"))
           case Some(proof) =>
-            val msgBytes = requirementsMessage(req)
-            if !Cip8Verifier.verify(proof, msgBytes) then
-              Future.successful(VerifyResult.Fail("Invalid CIP-8 signature"))
-            else
-              checkBalance(proof.address, scheme)
+            requirementsMessage(payload, req, scheme) match
+              case Left(reason) =>
+                Future.successful(VerifyResult.Fail(reason))
+              case Right(msgBytes) if !Cip8Verifier.verify(proof, msgBytes) =>
+                Future.successful(VerifyResult.Fail("Invalid CIP-8 signature"))
+              case Right(_) =>
+                config.provider match
+                  case CardanoProvider.Scalus(_, _, _, _) =>
+                    Future.successful(VerifyResult.Ok)
+                  case CardanoProvider.Blockfrost(_) =>
+                    checkBalance(proof.address, scheme)
       case _ =>
         Future.successful(VerifyResult.Fail("CardanoFacilitator only supports CardanoExact scheme"))
 
@@ -145,10 +152,42 @@ private class CardanoFacilitatorImpl(
       VerifyResult.Fail(s"Balance check failed: ${ex.getMessage}")
     }
 
-  // Canonical message signed by the client: UTF-8 bytes of the description field.
-  // Matches the CIP-8 payload convention used by x402 Cardano clients.
-  private def requirementsMessage(req: PaymentRequirements): Array[Byte] =
-    req.description.getBytes("UTF-8")
+  private def requirementsMessage(
+    payload: PaymentPayload,
+    req:     PaymentRequirements,
+    scheme:  PaymentScheme.CardanoExact,
+  ): Either[String, Array[Byte]] =
+    config.provider match
+      case CardanoProvider.Blockfrost(_) =>
+        // Legacy optimistic path: canonical message is UTF-8 bytes of
+        // the description field, matching x402 Cardano clients.
+        Right(req.description.getBytes("UTF-8"))
+      case CardanoProvider.Scalus(_, _, _, _) =>
+        if scheme.asset.nonEmpty then
+          Left("Scalus settlement currently supports lovelace-only CardanoExact payments")
+        else if payload.authorization.nonce.trim.isEmpty then
+          Left("Missing Scalus escrowRef in authorization.nonce")
+        else
+          try Right(scalusClaimMessage(req.payTo, scheme.lovelace, payload.authorization.validBefore))
+          catch case ex: IllegalArgumentException =>
+            Left(s"Invalid Scalus claim message: ${ex.getMessage}")
+
+  private def scalusClaimMessage(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
+    val receiverBytes = CardanoAddress.toBytes(receiver)
+    "x402-scalus/v1".getBytes("UTF-8") ++ receiverBytes ++ uint64(lovelace, "lovelace") ++
+      uint64(validBefore, "validBefore")
+
+  private def uint64(value: BigInt, field: String): Array[Byte] =
+    require(value >= 0, s"$field must be non-negative, got $value")
+    require(value < (BigInt(1) << 64), s"$field is too large for uint64-compatible encoding: $value")
+    val out = new Array[Byte](8)
+    var v   = value
+    var i   = 7
+    while i >= 0 do
+      out(i) = (v & 0xff).toByte
+      v = v >> 8
+      i -= 1
+    out
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 

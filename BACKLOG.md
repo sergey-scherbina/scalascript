@@ -3644,6 +3644,11 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 - [x] `escrowRef` propagated through the payload `nonce` slot
       ✓ Landed (2026-05-27): `PaymentRequirements.scalusEscrowRef`
       maps to `TransferAuthorization.nonce` for Cardano payloads.
+- [x] Scalus provider verifies structured claim-message proof before
+      settlement ✓ Landed (2026-05-27): `CardanoProvider.Scalus`
+      requires escrowRef in `authorization.nonce`, verifies CIP-8
+      against the structured claim message, and skips the legacy
+      payer-balance check.
 - [ ] Round-trip test covering client → validator → claim Tx
 
 #### Phase 6 — Deposit ergonomics + example
