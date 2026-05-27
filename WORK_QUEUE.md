@@ -8,6 +8,14 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Payments & Blockchain — v1.58 Compliance Provider
+
+- [ ] **v1.58-compliance-provider** — AML/KYC/sanctions compliance provider SPI: `payments/compliance/` SPI module (`ComplianceProvider` trait: `screenAml(entity)/verifyKyc(identity)/checkSanctions(party)/getStatus`; `ComplianceRequest/ComplianceResult/KycResult/SanctionsResult/AmlResult` types; `ComplianceError` sealed hierarchy); `payments/compliance-complyadvantage/` ComplyAdvantage REST v1 adapter (POST `/search`, HMAC-SHA256 webhook, 20+ tests); `payments/compliance-chainalysis/` Chainalysis KYT API adapter (POST `/transfers`, `GET /entities`, 15+ tests); `payments/compliance-mock/` MockComplianceProvider for testing (configurable pass/fail per check type, 20+ tests); 4 sbt subprojects. Spec: `docs/compliance-provider.md`.
+
+## Language & Compiler — Spark extensions
+
+- [ ] **spark-lakehouse-l3-iceberg** — Spark Lakehouse Iceberg (L.3): `SparkGen.detectLakehouseFormats` extended to detect `.format("iceberg")` → auto-emit `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.5.2` dep + `spark.sql.extensions` + `spark.sql.catalog.spark_catalog` Iceberg catalog config; `DefaultIcebergVersion = "1.5.2"` constant; `examples/spark-lakehouse-iceberg.ssc` (write/read Iceberg table, time-travel `asOf`, `MERGE INTO`); 6+ codegen tests. Spec: `docs/spark-lakehouse.md §L.3`.
+
 ## Frontend & Clients
 
 _(all done — see Done section below)_
