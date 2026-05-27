@@ -43,12 +43,33 @@ enum BankRailsEvent:
   case UkFpsRejected(txId: String, reason: String)
   case UkFpsReturned(txId: String, code: String, description: String)
 
+  // ── UK BACS Direct Debit (v1.55.4) ───────────────────────────────────────
+  case BacsDdSubmitted(ref: String, settlementDate: String)
+  case BacsDdPaid(ref: String, amount: String)
+  case BacsAuddisAccepted(mandateRef: String)
+  case BacsAruddReturned(ref: String, code: String, description: String)
+
   // ── UK CHAPS (v1.55.5) ───────────────────────────────────────────────────
   // pacs.002 ACCC from BoE / aggregator: same-day RTGS settlement confirmed
   case ChapsSettled(endToEndId: String, amount: String, currency: String)
   // pacs.002 RJCT: payment rejected before or during RTGS queue processing
   case ChapsRejected(endToEndId: String, reason: String)
 
+  // ── India UPI (v1.55.6) ──────────────────────────────────────────────────
+  // UPI Collect request sent; payer has not yet approved
+  case UpiCollectInitiated(txnId: String, vpa: String, amount: String)
+  // Payer approves; final credit notification with UTR (Unique Transaction Reference)
+  case UpiApproved(txnId: String, utrNumber: String)
+  // Payer declines or UPI two-factor times out
+  case UpiDeclined(txnId: String, reason: String)
+
+  // ── Japan Zengin (v1.55.7) ────────────────────────────────────────────────
+  case ZenginSettled(transferId: String, amount: String)
+  case ZenginRejected(transferId: String, reason: String)
+
+  // ── Singapore PayNow (v1.55.8) ────────────────────────────────────────────
+  case PayNowSettled(txnRef: String, proxy: String, amount: String, currency: String)
+  case PayNowFailed(txnRef: String, reason: String)
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String

@@ -59,3 +59,33 @@ case class UkCopNameMismatch(suggested: Option[String])
         s => s"Confirmation of Payee name check returned CloseMatch — suggested name: $s"
       )
     )
+
+// ── UK BACS DD (v1.55.4) ─────────────────────────────────────────────────────
+
+/** BACS 3-day submission cycle missed; the payment cannot be submitted until the next window.
+ *  @param nextWindow the earliest date on which a new BACS submission can be made */
+case class BacsCycleMissed(nextWindow: java.time.LocalDate)
+    extends BankRailsError(s"BACS submission cycle missed — next available window: $nextWindow")
+
+// ── India UPI (v1.55.6) ──────────────────────────────────────────────────────
+
+/** UPI two-factor (UPI PIN entry on payer's device) timed out before the payer approved.
+ *  The transaction is expired; a new collect request must be initiated.
+ *  @param txnId the `txnId` of the collect request that expired */
+case class UpiTwoFactorTimeout(txnId: String)
+    extends BankRailsError(s"UPI two-factor PIN entry timed out for transaction $txnId")
+
+// ── Japan Zengin (v1.55.7) ───────────────────────────────────────────────────
+
+/** Japan Zengin transfer attempted outside the settlement window (08:30–15:30 JST).
+ *  @param nextOpen the next datetime when the Zengin window opens */
+case class ZenginOutsideWindow(nextOpen: java.time.ZonedDateTime)
+    extends BankRailsError(s"Japan Zengin settlement window closed; next open: $nextOpen")
+
+// ── Singapore PayNow (v1.55.8) ───────────────────────────────────────────────
+
+/** PayNow proxy (mobile / NRIC / UEN) was not found in the PayNow proxy registry.
+ *  @param proxyType  "MOBILE", "NRIC", or "UEN"
+ *  @param proxyValue the proxy value that was not resolved */
+case class PayNowProxyNotFound(proxyType: String, proxyValue: String)
+    extends BankRailsError(s"PayNow proxy not found: $proxyType=$proxyValue")

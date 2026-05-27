@@ -2594,6 +2594,17 @@ lazy val paymentsUkChaps = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — India UPI adapter ───────────────────────────────────────
+lazy val paymentsIndiaUpi = project
+  .in(file("runtime/std/payments-india-upi"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-india-upi",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2619,7 +2630,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkChaps,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkChaps, paymentsIndiaUpi,
     markupCore,
   )
   .settings(

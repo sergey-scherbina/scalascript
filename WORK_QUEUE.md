@@ -56,7 +56,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.55.5-uk-chaps** — `runtime/std/payments-uk-chaps/` (UkChapsProvider, ChapsPacs008Builder) + `RailKind.UK_CHAPS`; 25+ tests. Spec: `docs/international-bank-rails.md §v1.55.5`.
 
-- [ ] **v1.55.6-india-upi** — `runtime/std/payments-india-upi/` (UpiProvider, push + collect, RSA-SHA256 webhook) + `RailKind.IN_UPI` + `BankAccount.upiVpa`; 35+ tests. Spec: `docs/international-bank-rails.md §v1.55.6`.
+- [x] **v1.55.6-india-upi** — `runtime/std/payments-india-upi/` (UpiProvider, push + collect, RSA-SHA256 webhook) + `RailKind.IN_UPI` + `BankAccount.upiVpa`; 63 tests. Spec: `docs/international-bank-rails.md §v1.55.6`. (2026-05-27)
 
 - [ ] **v1.55.7-japan-zengin** — `runtime/std/payments-japan-zengin/` (ZenginProvider, kana constraint) + `RailKind.JP_ZENGIN` + `BankAccount.zenginBankCode/zenginBranchCode`; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.7`.
 
