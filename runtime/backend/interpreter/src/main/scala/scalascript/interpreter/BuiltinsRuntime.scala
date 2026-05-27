@@ -755,6 +755,20 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals.get("KeyedStateSpec.value").foreach { valueFn =>
       interp.globals("KeyedStateSpec") = Value.InstanceV("KeyedStateSpec", Map("value" -> valueFn))
     }
+    // v2.1.8 — SideInput + OutputTag companions
+    interp.globals.get("SideInput.of").foreach { ofFn =>
+      interp.globals("SideInput") = Value.InstanceV("SideInput", Map(
+        "of"        -> ofFn,
+        "singleton" -> interp.globals.getOrElse("SideInput.singleton", Value.UnitV),
+        "asMap"     -> interp.globals.getOrElse("SideInput.asMap",     Value.UnitV),
+      ))
+    }
+    interp.globals.get("OutputTag").foreach { tagFn =>
+      interp.globals("OutputTag") = Value.InstanceV("OutputTag", Map(
+        "apply"      -> tagFn,
+        "withFilter" -> interp.globals.getOrElse("OutputTag.withFilter", Value.UnitV),
+      ))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

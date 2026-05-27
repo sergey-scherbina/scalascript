@@ -322,3 +322,69 @@ class FlinkGenTest extends AnyFunSuite:
     assert(code.contains("class ValueState[T]"),  s"ValueState missing from Beam shim, got:\n$code")
     assert(code.contains("case class StateContext"), s"StateContext missing from Beam shim, got:\n$code")
   }
+
+  // ── v2.1.8 — Side inputs / outputs ───────────────────────────────────────
+
+  test("FlinkGen.containsDStream detects withSideInput / SideInput / OutputTag") {
+    assert(FlinkGen.containsDStream("stream.withSideInput(si)"))
+    assert(FlinkGen.containsDStream("val si = SideInput.of(ref)"))
+    assert(FlinkGen.containsDStream("val tag = OutputTag[Error](\"errors\")"))
+    assert(FlinkGen.containsDStream("stream.sideOutput(tag)"))
+    assert(!FlinkGen.containsDStream("val x = 42"))
+  }
+
+  test("FlinkGen DStream shim emits withSideInput / sideOutput / SideInput / OutputTag") {
+    val code = genFlink(dstreamSsc("""stream.withSideInput(SideInput.singleton(1))"""))
+    assert(code.contains("def withSideInput"),       s"withSideInput missing from shim, got:\n$code")
+    assert(code.contains("def sideOutput"),          s"sideOutput missing from shim, got:\n$code")
+    assert(code.contains("case class SideInput[T]"), s"SideInput missing from shim, got:\n$code")
+    assert(code.contains("case class OutputTag[B]"), s"OutputTag missing from shim, got:\n$code")
+  }
+
+  test("BeamGen.containsDStream detects withSideInput / SideInput / OutputTag") {
+    assert(BeamGen.containsDStream("stream.withSideInput(si)"))
+    assert(BeamGen.containsDStream("val si = SideInput.of(ref)"))
+    assert(BeamGen.containsDStream("val tag = OutputTag[Error](\"errors\")"))
+    assert(!BeamGen.containsDStream("val x = 42"))
+  }
+
+  test("BeamGen DStream shim emits withSideInput / sideOutput / SideInput / OutputTag") {
+    val code = genBeam(dstreamSsc("""stream.withSideInput(SideInput.singleton(1))"""))
+    assert(code.contains("def withSideInput"),       s"withSideInput missing from Beam shim, got:\n$code")
+    assert(code.contains("def sideOutput"),          s"sideOutput missing from Beam shim, got:\n$code")
+    assert(code.contains("case class SideInput[T]"), s"SideInput missing from Beam shim, got:\n$code")
+    assert(code.contains("case class OutputTag[B]"), s"OutputTag missing from Beam shim, got:\n$code")
+  }
+
+  // ── v2.1.9 — Windowed joins ───────────────────────────────────────────────
+
+  test("FlinkGen.containsDStream detects join / leftOuterJoin / rightOuterJoin / flatten") {
+    assert(FlinkGen.containsDStream("left.join(right)"))
+    assert(FlinkGen.containsDStream("left.leftOuterJoin(right)"))
+    assert(FlinkGen.containsDStream("left.rightOuterJoin(right)"))
+    assert(FlinkGen.containsDStream("stream.flatten"))
+    assert(!FlinkGen.containsDStream("val x = 42"))
+  }
+
+  test("FlinkGen DStream shim emits join / leftOuterJoin / rightOuterJoin / flatten") {
+    val code = genFlink(dstreamSsc("""left.join(right)"""))
+    assert(code.contains("def join"),           s"join missing from shim, got:\n$code")
+    assert(code.contains("def leftOuterJoin"),  s"leftOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def rightOuterJoin"), s"rightOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def flatten"),        s"flatten missing from shim, got:\n$code")
+  }
+
+  test("BeamGen.containsDStream detects join / leftOuterJoin / rightOuterJoin / flatten") {
+    assert(BeamGen.containsDStream("left.join(right)"))
+    assert(BeamGen.containsDStream("left.leftOuterJoin(right)"))
+    assert(BeamGen.containsDStream("stream.flatten"))
+    assert(!BeamGen.containsDStream("val x = 42"))
+  }
+
+  test("BeamGen DStream shim emits join / leftOuterJoin / rightOuterJoin / flatten") {
+    val code = genBeam(dstreamSsc("""left.join(right)"""))
+    assert(code.contains("def join"),           s"join missing from Beam shim, got:\n$code")
+    assert(code.contains("def leftOuterJoin"),  s"leftOuterJoin missing from Beam shim, got:\n$code")
+    assert(code.contains("def rightOuterJoin"), s"rightOuterJoin missing from Beam shim, got:\n$code")
+    assert(code.contains("def flatten"),        s"flatten missing from Beam shim, got:\n$code")
+  }

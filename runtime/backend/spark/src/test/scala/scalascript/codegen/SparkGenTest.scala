@@ -2799,3 +2799,45 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("case class KeyedStateSpec"), s"KeyedStateSpec missing, got:\n$code")
     assert(code.contains("object KeyedStateSpec"),     s"KeyedStateSpec companion missing, got:\n$code")
   }
+
+  // ── v2.1.8 — Side inputs / outputs ───────────────────────────────────────
+
+  test("SparkGen.containsDStream detects withSideInput / SideInput / OutputTag") {
+    assert(SparkGen.containsDStream("stream.withSideInput(si)"))
+    assert(SparkGen.containsDStream("val si = SideInput.of(ref)"))
+    assert(SparkGen.containsDStream("val tag = OutputTag[Error](\"errors\")"))
+    assert(SparkGen.containsDStream("stream.sideOutput(tag)"))
+    assert(!SparkGen.containsDStream("val x = 42"))
+  }
+
+  test("Spark DStream shim emits withSideInput and sideOutput operators") {
+    val code = gen(dstreamSsc("""stream.withSideInput(SideInput.singleton(1))"""))
+    assert(code.contains("def withSideInput"), s"withSideInput missing from shim, got:\n$code")
+    assert(code.contains("def sideOutput"),    s"sideOutput missing from shim, got:\n$code")
+  }
+
+  test("Spark DStream shim emits SideInput and OutputTag types") {
+    val code = gen(dstreamSsc("""val si = SideInput.of(stream)"""))
+    assert(code.contains("case class SideInput[T]"), s"SideInput missing from shim, got:\n$code")
+    assert(code.contains("object SideInput"),        s"SideInput companion missing from shim, got:\n$code")
+    assert(code.contains("case class OutputTag[B]"), s"OutputTag missing from shim, got:\n$code")
+    assert(code.contains("object OutputTag"),        s"OutputTag companion missing from shim, got:\n$code")
+  }
+
+  // ── v2.1.9 — Windowed joins ───────────────────────────────────────────────
+
+  test("SparkGen.containsDStream detects join / leftOuterJoin / rightOuterJoin / flatten") {
+    assert(SparkGen.containsDStream("left.join(right)"))
+    assert(SparkGen.containsDStream("left.leftOuterJoin(right)"))
+    assert(SparkGen.containsDStream("left.rightOuterJoin(right)"))
+    assert(SparkGen.containsDStream("stream.flatten"))
+    assert(!SparkGen.containsDStream("val x = 42"))
+  }
+
+  test("Spark DStream shim emits join / leftOuterJoin / rightOuterJoin / flatten operators") {
+    val code = gen(dstreamSsc("""left.join(right)"""))
+    assert(code.contains("def join"),           s"join missing from shim, got:\n$code")
+    assert(code.contains("def leftOuterJoin"),  s"leftOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def rightOuterJoin"), s"rightOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def flatten"),        s"flatten missing from shim, got:\n$code")
+  }

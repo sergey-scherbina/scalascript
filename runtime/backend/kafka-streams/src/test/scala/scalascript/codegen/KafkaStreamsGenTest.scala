@@ -264,3 +264,39 @@ class KafkaStreamsGenTest extends AnyFunSuite:
     assert(code.contains("case class KeyedStateSpec"), s"KeyedStateSpec missing, got:\n$code")
     assert(code.contains("object KeyedStateSpec"),     s"KeyedStateSpec companion missing, got:\n$code")
   }
+
+  // ── v2.1.8 — Side inputs / outputs ───────────────────────────────────────
+
+  test("KafkaStreamsGen.containsDStream detects withSideInput / SideInput / OutputTag") {
+    assert(KafkaStreamsGen.containsDStream("stream.withSideInput(si)"))
+    assert(KafkaStreamsGen.containsDStream("val si = SideInput.of(ref)"))
+    assert(KafkaStreamsGen.containsDStream("val tag = OutputTag[Error](\"errors\")"))
+    assert(KafkaStreamsGen.containsDStream("stream.sideOutput(tag)"))
+    assert(!KafkaStreamsGen.containsDStream("val x = 42"))
+  }
+
+  test("KafkaStreams DStream shim emits withSideInput / sideOutput / SideInput / OutputTag") {
+    val code = gen(dstreamSsc("""stream.withSideInput(SideInput.singleton(1))"""))
+    assert(code.contains("def withSideInput"),       s"withSideInput missing from shim, got:\n$code")
+    assert(code.contains("def sideOutput"),          s"sideOutput missing from shim, got:\n$code")
+    assert(code.contains("case class SideInput[T]"), s"SideInput missing from shim, got:\n$code")
+    assert(code.contains("case class OutputTag[B]"), s"OutputTag missing from shim, got:\n$code")
+  }
+
+  // ── v2.1.9 — Windowed joins ───────────────────────────────────────────────
+
+  test("KafkaStreamsGen.containsDStream detects join / leftOuterJoin / rightOuterJoin / flatten") {
+    assert(KafkaStreamsGen.containsDStream("left.join(right)"))
+    assert(KafkaStreamsGen.containsDStream("left.leftOuterJoin(right)"))
+    assert(KafkaStreamsGen.containsDStream("left.rightOuterJoin(right)"))
+    assert(KafkaStreamsGen.containsDStream("stream.flatten"))
+    assert(!KafkaStreamsGen.containsDStream("val x = 42"))
+  }
+
+  test("KafkaStreams DStream shim emits join / leftOuterJoin / rightOuterJoin / flatten") {
+    val code = gen(dstreamSsc("""left.join(right)"""))
+    assert(code.contains("def join"),           s"join missing from shim, got:\n$code")
+    assert(code.contains("def leftOuterJoin"),  s"leftOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def rightOuterJoin"), s"rightOuterJoin missing from shim, got:\n$code")
+    assert(code.contains("def flatten"),        s"flatten missing from shim, got:\n$code")
+  }

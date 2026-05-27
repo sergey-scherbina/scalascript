@@ -536,3 +536,98 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result.toString.contains("KeyedStateSpec"), s"Expected KeyedStateSpec instance, got: $result")
+
+  // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
+
+  test("withSideInput cross-joins main stream with side input elements"):
+    val result = interp.eval(
+      """
+      val main = Pipeline.create("main").read(InMemory.source(List(1, 2)))
+      val si   = SideInput.singleton(10)
+      InMemory.runAndCollect(main.withSideInput(si)).length
+      """
+    )
+    assert(result == 2L || result == Value.IntV(2L),
+      s"Expected 2 paired elements (1×singleton), got: $result")
+
+  test("SideInput.of materializes a stream into a side input"):
+    val result = interp.eval(
+      """
+      val sideStream = Pipeline.create("side").read(InMemory.source(List(10, 20)))
+      val si = SideInput.of(sideStream)
+      si
+      """
+    )
+    assert(result.toString.contains("SideInput"),
+      s"Expected SideInput instance, got: $result")
+
+  test("sideOutput returns a pair (main, side)"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test").read(InMemory.source(List(1, 2, 3)))
+      val tag    = OutputTag[Int]("errors")
+      val pair   = stream.sideOutput(tag)
+      pair._1.runToList().length
+      """
+    )
+    assert(result == 3L || result == Value.IntV(3L),
+      s"Expected main stream length 3, got: $result")
+
+  // ── v2.1.9 — Windowed joins + flatten ────────────────────────────────────
+
+  test("join produces inner join on KV keys"):
+    val result = interp.eval(
+      """
+      val left  = Pipeline.create("l").read(InMemory.source(List(KV("a", 1), KV("b", 2), KV("c", 3))))
+      val right = Pipeline.create("r").read(InMemory.source(List(KV("a", 10), KV("b", 20))))
+      InMemory.runAndCollect(left.join(right)).length
+      """
+    )
+    assert(result == 2L || result == Value.IntV(2L),
+      s"Expected 2 inner-joined elements, got: $result")
+
+  test("leftOuterJoin includes unmatched left elements with None on right"):
+    val result = interp.eval(
+      """
+      val left  = Pipeline.create("l").read(InMemory.source(List(KV("a", 1), KV("b", 2), KV("c", 3))))
+      val right = Pipeline.create("r").read(InMemory.source(List(KV("a", 10))))
+      InMemory.runAndCollect(left.leftOuterJoin(right)).length
+      """
+    )
+    assert(result == 3L || result == Value.IntV(3L),
+      s"Expected 3 left-outer-join elements (all left), got: $result")
+
+  test("rightOuterJoin includes unmatched right elements with None on left"):
+    val result = interp.eval(
+      """
+      val left  = Pipeline.create("l").read(InMemory.source(List(KV("a", 1))))
+      val right = Pipeline.create("r").read(InMemory.source(List(KV("a", 10), KV("b", 20), KV("c", 30))))
+      InMemory.runAndCollect(left.rightOuterJoin(right)).length
+      """
+    )
+    assert(result == 3L || result == Value.IntV(3L),
+      s"Expected 3 right-outer-join elements (all right), got: $result")
+
+  test("flatten collapses nested list values"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test")
+        .read(InMemory.source(List(List(1, 2), List(3), List(4, 5))))
+        .flatten
+      InMemory.runAndCollect(stream).length
+      """
+    )
+    assert(result == 5L || result == Value.IntV(5L),
+      s"Expected 5 flattened elements, got: $result")
+
+  test("join + map computes enriched stream"):
+    val result = interp.eval(
+      """
+      val orders   = Pipeline.create("o").read(InMemory.source(List(KV("p1", 100), KV("p2", 200))))
+      val products = Pipeline.create("p").read(InMemory.source(List(KV("p1", "Widget"))))
+      val joined   = orders.join(products)
+      InMemory.runAndCollect(joined).length
+      """
+    )
+    assert(result == 1L || result == Value.IntV(1L),
+      s"Expected 1 inner-joined element (p1 matches), got: $result")

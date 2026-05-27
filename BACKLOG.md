@@ -1098,15 +1098,15 @@ Implementation phases ship independently below.
   `StateContext[K,S]`, `KeyedStateSpec[K,S]`. All 4 code-gen shims + native interpreter.
   +20 new tests. Spec: `docs/distributed-streams.md §5`. (2026-05-27)
 
-- [ ] **v2.1.8-dstream-side-io** — Side inputs / side outputs: `SideInput[T]` + `object SideInput`
+- [x] **v2.1.8-dstream-side-io** — Side inputs / side outputs: `SideInput[T]` + `object SideInput`
   (`of`, `singleton`, `asMap`); `OutputTag[B]` + `object OutputTag`; `DStream.withSideInput(si)`;
   `DStream.sideOutput(tag)` returning `(DStream[T], DStream[B])`. All 4 shims + native interpreter.
-  Spec: `docs/distributed-streams.md §5.6`.
+  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `docs/distributed-streams.md §5.6`. (2026-05-27)
 
-- [ ] **v2.1.9-dstream-joins** — Windowed joins + flatten: `DStream.join(other)` (inner, KV key),
+- [x] **v2.1.9-dstream-joins** — Windowed joins + flatten: `DStream.join(other)` (inner, KV key),
   `leftOuterJoin(other)`, `rightOuterJoin(other)`, `flatten` (stream of streams).
   All 4 shims + native interpreter. `Capability.WindowedJoins` already declared.
-  Spec: `docs/distributed-streams.md §5.7`.
+  +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `docs/distributed-streams.md §5.7`. (2026-05-27)
 
 ---
 

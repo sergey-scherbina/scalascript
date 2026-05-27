@@ -46,10 +46,11 @@ object DStreamsIntrinsics:
   private val CAP_TIMER_PROC_TIME     = "TimerProcessingTime"
   private val CAP_WINDOWED_JOINS      = "WindowedJoins"
 
-  // Capabilities provided by DirectRunner / NativeRunner (v2.1.2: adds EventTime + WatermarkPerfect)
+  // Capabilities provided by DirectRunner / NativeRunner (v2.1.8: adds SideInputs, SideOutputs)
   private val directCapabilities: Set[String] = Set(
     CAP_AT_LEAST_ONCE, CAP_EVENT_TIME, CAP_WATERMARK_PERFECT,
     CAP_KEYED_STATE, CAP_WINDOWED_JOINS, CAP_TIMER_PROC_TIME,
+    CAP_SIDE_INPUTS, CAP_SIDE_OUTPUTS,
   )
 
   // ── DAG node representation ───────────────────────────────────────────────
@@ -297,6 +298,106 @@ object DStreamsIntrinsics:
         upstream.map(elem => Value.InstanceV("_broadcast_pair",
           Map("_1" -> elem, "_2" -> stateAccessor)))
 
+      // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
+
+      case Value.InstanceV("_dag_withSideInput", fields) =>
+        // Cross product: each main element × each side-input element → (main, si)
+        val upstream  = evalDag(fields("upstream"), ctx)
+        val siVal     = fields("si")
+        val siElems   = siVal match
+          case Value.InstanceV("SideInput", sf) =>
+            sf.get("elements") match
+              case Some(Value.ListV(xs)) => xs
+              case _                    => Nil
+          case Value.ListV(xs) => xs
+          case _               => List(siVal)
+        upstream.flatMap { e =>
+          siElems.map(b => Value.InstanceV("_tuple2", Map("_1" -> e, "_2" -> b)))
+        }
+
+      case Value.InstanceV("_dag_sideOutput", fields) =>
+        // Side-output DAG node: evaluates to elements extracted by tag's filter.
+        // The main stream is the upstream unchanged; this node captures the SIDE stream.
+        val upstream = evalDag(fields("upstream"), ctx)
+        val tag      = fields("tag")
+        tag match
+          case Value.InstanceV("OutputTag", tagFields) =>
+            tagFields.get("filter") match
+              case Some(filterFn) if filterFn != Value.UnitV =>
+                upstream.flatMap { e =>
+                  call(ctx, filterFn, List(e)) match
+                    case Value.InstanceV("Some", sf) => sf.get("value").orElse(sf.get("get")).toList
+                    case _ => Nil
+                }
+              case _ => Iterator.empty
+          case _ => Iterator.empty
+
+      // ── v2.1.9 — Windowed joins + flatten ────────────────────────────────────
+
+      case Value.InstanceV("_dag_join", fields) =>
+        val left  = evalDag(fields("upstream"), ctx).toList
+        val right = evalDag(fields("rightDag"), ctx)
+        val rightMap = LinkedHashMap[Value, List[Value]]()
+        for elem <- right do elem match
+          case Value.InstanceV("KV", kf) => rightMap(kf("key")) = rightMap.getOrElse(kf("key"), Nil) :+ kf("value")
+          case _ =>
+        left.iterator.flatMap {
+          case Value.InstanceV("KV", kf) =>
+            val k = kf("key"); val v = kf("value")
+            rightMap.getOrElse(k, Nil).map { r =>
+              Value.InstanceV("KV", Map("key" -> k,
+                "value" -> Value.InstanceV("_tuple2", Map("_1" -> v, "_2" -> r))))
+            }
+          case _ => Nil
+        }
+
+      case Value.InstanceV("_dag_leftOuterJoin", fields) =>
+        val left  = evalDag(fields("upstream"), ctx).toList
+        val right = evalDag(fields("rightDag"), ctx)
+        val rightMap = LinkedHashMap[Value, List[Value]]()
+        for elem <- right do elem match
+          case Value.InstanceV("KV", kf) => rightMap(kf("key")) = rightMap.getOrElse(kf("key"), Nil) :+ kf("value")
+          case _ =>
+        left.iterator.map {
+          case Value.InstanceV("KV", kf) =>
+            val k = kf("key"); val v = kf("value")
+            val rs = rightMap.getOrElse(k, Nil)
+            val rightOpt = if rs.isEmpty then Value.InstanceV("None", Map.empty)
+                           else Value.InstanceV("Some", Map("value" -> rs.head, "get" -> rs.head))
+            Value.InstanceV("KV", Map("key" -> k,
+              "value" -> Value.InstanceV("_tuple2", Map("_1" -> v, "_2" -> rightOpt))))
+          case other => other
+        }
+
+      case Value.InstanceV("_dag_rightOuterJoin", fields) =>
+        val left  = evalDag(fields("upstream"), ctx)
+        val right = evalDag(fields("rightDag"), ctx).toList
+        val leftMap = LinkedHashMap[Value, List[Value]]()
+        for elem <- left do elem match
+          case Value.InstanceV("KV", kf) => leftMap(kf("key")) = leftMap.getOrElse(kf("key"), Nil) :+ kf("value")
+          case _ =>
+        right.iterator.map {
+          case Value.InstanceV("KV", kf) =>
+            val k = kf("key"); val v = kf("value")
+            val ls = leftMap.getOrElse(k, Nil)
+            val leftOpt = if ls.isEmpty then Value.InstanceV("None", Map.empty)
+                          else Value.InstanceV("Some", Map("value" -> ls.head, "get" -> ls.head))
+            Value.InstanceV("KV", Map("key" -> k,
+              "value" -> Value.InstanceV("_tuple2", Map("_1" -> leftOpt, "_2" -> v))))
+          case other => other
+        }
+
+      case Value.InstanceV("_dag_flatten", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        upstream.flatMap {
+          case Value.InstanceV("DStream", innerFields) =>
+            innerFields.get("__dag") match
+              case Some(innerDag) => evalDag(innerDag, ctx)
+              case None           => Iterator.empty
+          case Value.ListV(xs) => xs.iterator
+          case other           => Iterator.single(other)
+        }
+
       case other =>
         throw InterpretError(s"evalDag: unknown DAG node kind: $other")
 
@@ -502,6 +603,53 @@ object DStreamsIntrinsics:
         val stateDag = getDag(stateStream)
         mkDStreamWithOps(dagNode("broadcastState", Map("upstream" -> dag, "stateDag" -> stateDag)), ctx)
       case _ => throw InterpretError("DStream.broadcastState(stateStream)")
+    }),
+
+    // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
+
+    // withSideInput(si: SideInput[B]) — cross product with side input elements
+    "withSideInput" -> Value.NativeFnV("DStream.withSideInput", Computation.pureFn {
+      case List(si) =>
+        mkDStreamWithOps(dagNode("withSideInput", Map("upstream" -> dag, "si" -> si)), ctx)
+      case _ => throw InterpretError("DStream.withSideInput(si)")
+    }),
+
+    // sideOutput(tag: OutputTag[B]) — returns (mainStream, sideStream) tuple
+    "sideOutput" -> Value.NativeFnV("DStream.sideOutput", Computation.pureFn {
+      case List(tag) =>
+        val sideDag = dagNode("sideOutput", Map("upstream" -> dag, "tag" -> tag))
+        val mainStream = mkDStreamWithOps(dag, ctx)
+        val sideStream = mkDStreamWithOps(sideDag, ctx)
+        Value.InstanceV("_sideOutput_result",
+          Map("_1" -> mainStream, "_2" -> sideStream))
+      case _ => throw InterpretError("DStream.sideOutput(tag)")
+    }),
+
+    // ── v2.1.9 — Windowed joins + flatten ────────────────────────────────────
+
+    "join" -> Value.NativeFnV("DStream.join", Computation.pureFn {
+      case List(other) =>
+        val rightDag = getDag(other)
+        mkDStreamWithOps(dagNode("join", Map("upstream" -> dag, "rightDag" -> rightDag)), ctx)
+      case _ => throw InterpretError("DStream.join(other)")
+    }),
+
+    "leftOuterJoin" -> Value.NativeFnV("DStream.leftOuterJoin", Computation.pureFn {
+      case List(other) =>
+        val rightDag = getDag(other)
+        mkDStreamWithOps(dagNode("leftOuterJoin", Map("upstream" -> dag, "rightDag" -> rightDag)), ctx)
+      case _ => throw InterpretError("DStream.leftOuterJoin(other)")
+    }),
+
+    "rightOuterJoin" -> Value.NativeFnV("DStream.rightOuterJoin", Computation.pureFn {
+      case List(other) =>
+        val rightDag = getDag(other)
+        mkDStreamWithOps(dagNode("rightOuterJoin", Map("upstream" -> dag, "rightDag" -> rightDag)), ctx)
+      case _ => throw InterpretError("DStream.rightOuterJoin(other)")
+    }),
+
+    "flatten" -> Value.NativeFnV("DStream.flatten", Computation.pureFn { _ =>
+      mkDStreamWithOps(dagNode("flatten", Map("upstream" -> dag)), ctx)
     }),
 
     "write" -> Value.NativeFnV("DStream.write", Computation.pureFn {
@@ -797,5 +945,54 @@ object DStreamsIntrinsics:
       args match
         case List(init) => Value.InstanceV("KeyedStateSpec", Map("init" -> toValue(init)))
         case _          => throw InterpretError("KeyedStateSpec(init)")
+    ),
+
+    // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
+
+    QualifiedName("SideInput.of") -> NativeImpl((ctx, args) =>
+      args match
+        case List(stream: Value.InstanceV) =>
+          val dag  = stream.fields.getOrElse("__dag",
+            throw InterpretError("SideInput.of: not a DStream"))
+          val elems = evalDag(dag, ctx).toList
+          Value.InstanceV("SideInput", Map("elements" -> Value.ListV(elems)))
+        case _ => throw InterpretError("SideInput.of(stream)")
+    ),
+    QualifiedName("SideInput.singleton") -> NativeImpl((_, args) =>
+      args match
+        case List(v) => Value.InstanceV("SideInput", Map("elements" -> Value.ListV(List(toValue(v)))))
+        case _       => throw InterpretError("SideInput.singleton(value)")
+    ),
+    QualifiedName("SideInput.asMap") -> NativeImpl((ctx, args) =>
+      args match
+        case List(stream: Value.InstanceV) =>
+          val dag  = stream.fields.getOrElse("__dag",
+            throw InterpretError("SideInput.asMap: not a DStream"))
+          val m = evalDag(dag, ctx).foldLeft(Map.empty[Value, Value]) {
+            case (acc, Value.InstanceV("KV", kf)) => acc + (kf("key") -> kf("value"))
+            case (acc, _) => acc
+          }
+          val mapVal = Value.InstanceV("_side_map", m.map { case (k, v) => k.toString -> v })
+          Value.InstanceV("SideInput", Map("elements" -> Value.ListV(List(mapVal))))
+        case _ => throw InterpretError("SideInput.asMap(stream)")
+    ),
+
+    QualifiedName("OutputTag") -> NativeImpl((_, args) =>
+      args match
+        case List(name) =>
+          Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> Value.UnitV))
+        case _ => throw InterpretError("OutputTag(name)")
+    ),
+    QualifiedName("OutputTag.apply") -> NativeImpl((_, args) =>
+      args match
+        case List(name) =>
+          Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> Value.UnitV))
+        case _ => throw InterpretError("OutputTag(name)")
+    ),
+    QualifiedName("OutputTag.withFilter") -> NativeImpl((_, args) =>
+      args match
+        case List(name, fn) =>
+          Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> toValue(fn)))
+        case _ => throw InterpretError("OutputTag.withFilter(name)(fn)")
     ),
   )

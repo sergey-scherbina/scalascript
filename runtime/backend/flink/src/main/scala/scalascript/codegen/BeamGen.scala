@@ -49,6 +49,14 @@ object BeamGen:
     source.contains("statefulFlatMap")    ||
     source.contains("broadcastState")     ||
     source.contains("KeyedStateSpec")     ||
+    source.contains("withSideInput")      ||
+    source.contains("sideOutput")         ||
+    source.contains("SideInput.")         ||
+    source.contains("OutputTag")          ||
+    source.contains(".join(")             ||
+    source.contains("leftOuterJoin")      ||
+    source.contains("rightOuterJoin")     ||
+    source.contains(".flatten")           ||
     containsConnector(source)
 
   def containsConnector(source: String): Boolean =
@@ -275,6 +283,59 @@ private class BeamGen(
        |        case KV(k, v) => stateMap(k) = v
        |        case v        => stateMap(v) = v
        |      new DStream(_elems.map(elem => (elem, stateMap.toMap)))
+       |    // ── v2.1.8 — Side inputs / side outputs ──────────────────────────
+       |    def withSideInput(si: SideInput[Any]): DStream[Any] =
+       |      new DStream(_elems.flatMap(e => si.elements.map(b => (e, b))))
+       |    def sideOutput(tag: Any): (DStream[Any], DStream[Any]) =
+       |      val sideFn: Any => Option[Any] = tag match
+       |        case OutputTag(_, fn) => fn
+       |        case f: Function1[?, ?] => f.asInstanceOf[Any => Option[Any]]
+       |        case _ => _ => None
+       |      val sideElems = _elems.flatMap(e => sideFn(e))
+       |      (this.asInstanceOf[DStream[Any]], new DStream(sideElems))
+       |    // ── v2.1.9 — Windowed joins + flatten ────────────────────────────
+       |    def join(other: DStream[Any]): DStream[Any] =
+       |      val rightMap = collection.mutable.LinkedHashMap[Any, List[Any]]()
+       |      for elem <- other._elems do elem match
+       |        case KV(k, v) => rightMap(k) = rightMap.getOrElse(k, Nil) :+ v
+       |        case _ =>
+       |      val results = collection.mutable.ListBuffer[Any]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, v) => rightMap.getOrElse(k, Nil).foreach(r => results += KV(k, (v, r)))
+       |        case _ =>
+       |      new DStream(results.toSeq)
+       |    def leftOuterJoin(other: DStream[Any]): DStream[Any] =
+       |      val rightMap = collection.mutable.LinkedHashMap[Any, List[Any]]()
+       |      for elem <- other._elems do elem match
+       |        case KV(k, v) => rightMap(k) = rightMap.getOrElse(k, Nil) :+ v
+       |        case _ =>
+       |      val results = collection.mutable.ListBuffer[Any]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, v) =>
+       |          val rs = rightMap.getOrElse(k, Nil)
+       |          if rs.isEmpty then results += KV(k, (v, None))
+       |          else rs.foreach(r => results += KV(k, (v, Some(r))))
+       |        case _ =>
+       |      new DStream(results.toSeq)
+       |    def rightOuterJoin(other: DStream[Any]): DStream[Any] =
+       |      val leftMap = collection.mutable.LinkedHashMap[Any, List[Any]]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, v) => leftMap(k) = leftMap.getOrElse(k, Nil) :+ v
+       |        case _ =>
+       |      val results = collection.mutable.ListBuffer[Any]()
+       |      for elem <- other._elems do elem match
+       |        case KV(k, v) =>
+       |          val ls = leftMap.getOrElse(k, Nil)
+       |          if ls.isEmpty then results += KV(k, (None, v))
+       |          else ls.foreach(l => results += KV(k, (Some(l), v)))
+       |        case _ =>
+       |      new DStream(results.toSeq)
+       |    def flatten: DStream[Any] =
+       |      new DStream(_elems.flatMap {
+       |        case s: DStream[?] => s._elems
+       |        case s: Seq[?]     => s.asInstanceOf[Seq[Any]]
+       |        case other         => List(other)
+       |      })
        |    def write(sink: Any): DStream[T]            = this
        |    def run(backend: Any): PipelineResult       = PipelineResult("Done", _elems)
        |    def runOpts(b: Any, o: Any): PipelineResult = PipelineResult("Done", _elems)
@@ -383,5 +444,20 @@ private class BeamGen(
        |  case class KeyedStateSpec[K, S](init: S)
        |  object KeyedStateSpec:
        |    def value[K, S](init: S): KeyedStateSpec[K, S] = KeyedStateSpec(init)
+       |
+       |  // ── v2.1.8 — Side inputs / side outputs ────────────────────────────────
+       |  case class SideInput[T](elements: Seq[T])
+       |  object SideInput:
+       |    def of[T](stream: DStream[T]): SideInput[T]       = SideInput(stream.runToList())
+       |    def singleton[T](value: T): SideInput[T]          = SideInput(Seq(value))
+       |    def asMap[K, V](stream: DStream[Any]): SideInput[Any] =
+       |      val m = stream.runToList().collect { case KV(k, v) => (k, v) }.toMap
+       |      SideInput(Seq(m))
+       |
+       |  case class OutputTag[B](name: String, filter: Any => Option[Any] = _ => None)
+       |  object OutputTag:
+       |    def apply[B](name: String): OutputTag[B]                       = new OutputTag(name, _ => None)
+       |    def withFilter[B](name: String)(fn: Any => Option[Any]): OutputTag[B] =
+       |      new OutputTag(name, fn)
        |
        |""".stripMargin
