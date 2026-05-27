@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.54.4-bank-rails-fednow** — `runtime/std/payments-fednow/` FedNow instant payments adapter: ISO 20022 pacs.008.001.08 credit transfer XML builder, pacs.002.001.10 status parser (ACCP/PDNG→Pending, ACSC→Settled, RJCT→Rejected), HMAC-SHA256 webhook receiver, FedNowProvider (USD-only, $500K limit, cancel/direct-debit unsupported), FedNowPlugin SPI, 23 tests, `examples/bank-rails-fednow.ssc`.
+
 - **v1.54.2-bank-rails-ach** — `payments/bank-rails/` (BankRailsProvider SPI + BankTransfer/DirectDebitMandate core types + RCode/CCode) + `runtime/std/payments-ach/` (NachaFile 94-char fixed-width builder, AchProvider, AchWebhookReceiver HMAC-SHA256, AchPlugin Backend SPI, `AchConfig`, same-day ACH, R/C-code handling, `examples/bank-rails-ach.ssc`). 28 tests.
 
 - **blockchain-bitcoin** — secp256k1 ECDSA (RFC 6979 deterministic k), BIP-143 SegWit sighash, BIP-340 Schnorr signing/verification, BIP-341 Taproot (tapTweakHash + tweakedKey + tweakedPrivateKey), P2WPKH bech32 (`bc1q`/`tb1q`) + P2TR bech32m (`bc1p`/`tb1p`) address derivation, PSBT BIP-174 builder/signer/finalizer/deserializer, `BitcoinChainAdapter` (`ChainAdapter` SPI), `ChainId.BitcoinMainnet`/`ChainId.BitcoinTestnet` added to `blockchain-spi`. 45 tests.

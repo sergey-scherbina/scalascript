@@ -2453,6 +2453,17 @@ lazy val paymentsAch = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — FedNow ISO 20022 instant payments adapter ───────────────
+lazy val paymentsFednow = project
+  .in(file("runtime/std/payments-fednow"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-fednow",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2478,7 +2489,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow,
   )
   .settings(
     publish / skip := true

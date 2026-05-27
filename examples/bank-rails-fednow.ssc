@@ -1,0 +1,119 @@
+---
+title: FedNow Bank Rails — US Instant Payments
+version: "1.0"
+requires: [bank-rails-fednow]
+---
+
+# FedNow Bank Rails Example
+
+Demonstrates FedNow instant credit transfers (US Federal Reserve)
+using the `payments-fednow` adapter.
+
+FedNow is T+0 (real-time, 24/7/365) — settlement confirmation typically
+arrives within 20 seconds.  Maximum transfer: $500,000 USD.
+
+## Setup
+
+```scala
+import scalascript.payments.bankrails.*
+import scalascript.payments.money.{Money, Currency}
+import scalascript.payments.fednow.{FedNowProvider, FedNowConfig}
+
+val config   = FedNowConfig.fromEnv   // reads FEDNOW_API_URL, FEDNOW_ROUTING_NUMBER, FEDNOW_PARTICIPANT_ID
+val provider = FedNowProvider(config)
+```
+
+## FedNow Credit Transfer (instant push payment)
+
+Send $1,500.00 from one US bank account to another:
+
+```scala
+val transfer = provider.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.FEDNOW,
+  amount         = Money(150000L, Currency("USD")),     // $1,500.00
+  sender         = BankAccount(
+    accountNumber = Some("123456789"),
+    routingNumber = Some("021000021"),
+    holderName    = "Acme Corp",
+    countryCode   = "US",
+  ),
+  recipient      = BankAccount(
+    accountNumber = Some("987654321"),
+    bankCode      = Some("026009593"),   // recipient ABA routing (FedNow MmbId)
+    holderName    = "Bob LLC",
+    countryCode   = "US",
+  ),
+  reference      = "INV-2026-0088",
+  idempotencyKey = "fednow-transfer-order-88-attempt-1",
+))
+
+// transfer.status == BankTransferStatus.Pending (will reach Settled within ~20 seconds)
+println(s"FedNow transfer ${transfer.id.value} submitted — status: ${transfer.status}")
+```
+
+## Poll for settlement
+
+FedNow settles in real-time; a single poll is usually sufficient:
+
+```scala
+import scala.annotation.tailrec
+import java.time.Instant
+
+@tailrec
+def waitForSettlement(id: TransferId, deadline: Instant): BankTransferStatus =
+  val t = provider.getTransfer(id)
+  t.status match
+    case BankTransferStatus.Settled           => t.status
+    case r: BankTransferStatus.Rejected       => r
+    case _ if Instant.now().isAfter(deadline) => t.status   // timeout
+    case _                                    =>
+      Thread.sleep(2000)
+      waitForSettlement(id, deadline)
+
+val deadline = Instant.now().plusSeconds(60)
+val finalStatus = waitForSettlement(transfer.id, deadline)
+println(s"Final status: $finalStatus")
+```
+
+## Webhook handler
+
+Register a webhook endpoint to receive FedNow event notifications:
+
+```scala
+import scalascript.payments.webhook.{WebhookRequest, WebhookReceiver}
+
+// Route: POST /webhooks/fednow
+val webhookSecret = sys.env("FEDNOW_WEBHOOK_SECRET")
+val receiver      = provider.webhookReceiver
+
+def handleFedNowWebhook(req: WebhookRequest) =
+  receiver.handle(req, webhookSecret) {
+    case BankRailsEvent.FedNowCreditReceived(transfer) =>
+      db.markTransferSettled(transfer.id.value)
+      println(s"FedNow credit received: ${transfer.id.value} settled")
+
+    case BankRailsEvent.FedNowRejected(transfer, code) =>
+      db.markTransferRejected(transfer.id.value, code.value)
+      println(s"FedNow transfer ${transfer.id.value} rejected: ${code.value}")
+  }
+```
+
+## FedNow limits
+
+```scala
+// Attempting to exceed $500,000 USD throws FedNowLimitExceeded
+val bigTransfer = scala.util.Try(provider.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.FEDNOW,
+  amount         = Money(50_000_001L, Currency("USD")),   // $500,000.01 — over limit
+  sender         = BankAccount(accountNumber = Some("111"), holderName = "Big Corp", countryCode = "US"),
+  recipient      = BankAccount(accountNumber = Some("222"), holderName = "Recipient", countryCode = "US"),
+  reference      = "BIG-TXN",
+  idempotencyKey = "big-transfer-test",
+)))
+
+bigTransfer match
+  case scala.util.Failure(e: FedNowLimitExceeded) =>
+    println(s"Correctly rejected: ${e.getMessage}")
+  case _ =>
+    println("Unexpected result")
+```
