@@ -39,6 +39,34 @@ class BlockfrostClientTest extends AnyFunSuite:
     assert(client != null)
   }
 
+  test("BlockfrostProtocolParams parses latest-epoch parameters") {
+    val params = BlockfrostProtocolParams.fromJson(ujson.read(
+      """{
+        |  "min_fee_a": 44,
+        |  "min_fee_b": "155381",
+        |  "max_tx_size": 16384,
+        |  "price_mem": 0.0577,
+        |  "price_step": "0.0000721",
+        |  "coins_per_utxo_size": "4310",
+        |  "collateral_percent": 150,
+        |  "max_collateral_inputs": 3,
+        |  "cost_models": {
+        |    "PlutusV3": [100788, "420"]
+        |  }
+        |}""".stripMargin
+    ))
+
+    assert(params.minFeeA == BigInt(44))
+    assert(params.minFeeB == BigInt(155381))
+    assert(params.maxTxSize == BigInt(16384))
+    assert(params.priceMem == BigDecimal("0.0577"))
+    assert(params.priceStep == BigDecimal("0.0000721"))
+    assert(params.coinsPerUtxoSize == BigInt(4310))
+    assert(params.collateralPercent == 150)
+    assert(params.maxCollateralInputs == 3)
+    assert(params.costModels("PlutusV3") == Seq(100788L, 420L))
+  }
+
   // Live tests — skipped unless BLOCKFROST_KEY is set
 
   test("live: getAddressInfo returns lovelace for known address") {

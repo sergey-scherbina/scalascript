@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-blockfrost-protocol-params** — Added typed `BlockfrostClient.getProtocolParams()` for `/epochs/latest/parameters`, covering fee constants, execution prices, collateral bounds, and Plutus cost models. This is the prerequisite data source for Cardano/Scalus protocol-params fee balancing.
+
 - **x402-cardano-scalus-tx-witness** — Hardened the bloxbean Scalus claim transaction draft with explicit fee/TTL/validity body fields, computed script data hash via bloxbean `ScriptDataHashGenerator`, and relayer `VkeyWitness` signing via `TransactionSigner`. Protocol-params fee balancing and live ex-unit evaluation remain open.
 
 - **v2.1.0** — Distributed Streams spec landed (`docs/distributed-streams.md`). Full Apache Beam model: `DStream[T]` / `KV[K,V]` / `Pipeline` / `PipelineResult`; event-time watermarks (`WatermarkStrategy`); Fixed/Sliding/Session/Global windowing; `Trigger` (AfterWatermark, AfterProcessingTime, AfterCount, Composite); panes (EARLY, ON_TIME, LATE) + accumulation modes (Discarding, Accumulating, AccumulatingAndRetracting); `Capability` enum (Set-based, checked at `.run()`); 5 first-class backends (Native v1.22 actors, Apache Spark, Apache Kafka Streams, Apache Flink, Apache Beam); `DSource[T]` / `DSink[T]` connector abstractions; `Coder[T]` unified serialisation with per-backend adapters; `DirectRunner` in-process test backend; integration bridges (`DStream ↔ Source[A]`, `DStream ↔ Dataset[T]`); 7 implementation phases (v2.1.1–v2.1.7). Go/no-go: **go**.

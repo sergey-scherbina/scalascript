@@ -375,6 +375,11 @@ validator to UPLC:
   explicitly until protocol-params-backed fee balancing, real ex-unit
   evaluation, and integration validation are implemented on top of
   `cardano-client-lib` / Blockfrost.
+- **Landed (2026-05-27):** `BlockfrostClient.getProtocolParams()`
+  reads `/epochs/latest/parameters` into typed
+  `BlockfrostProtocolParams` (`minFeeA`, `minFeeB`, execution prices,
+  collateral bounds, and Plutus cost models). This is the data source
+  for the planned protocol-params-backed fee balancer.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is

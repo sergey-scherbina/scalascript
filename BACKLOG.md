@@ -3810,6 +3810,10 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             bloxbean `ScriptDataHashGenerator` computes the script
             data hash; `TransactionSigner` attaches a relayer
             `VkeyWitness`.
+      - [x] Blockfrost protocol params reader ✓ Landed
+            (2026-05-27): `BlockfrostClient.getProtocolParams()`
+            parses latest-epoch fee, execution-price, collateral,
+            and Plutus cost-model parameters for the planned balancer.
       - [ ] Protocol-params fee balancing + live script ex-unit
             evaluation
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
