@@ -1,0 +1,81 @@
+#!/usr/bin/env ssc
+---
+description: Streams with backpressure — Source/Sink/Flow examples (v1.51)
+imports:
+  - ../../runtime/std/streams.ssc
+---
+
+# Streams with Backpressure
+
+Demonstrates the `Source[A]` / stream combinators introduced in v1.51.
+
+## 1. Backend pipeline
+
+`Source.from` wraps any iterable. Operators chain lazily; `runForeach` drives demand.
+
+```scala
+println("=== 1. Backend pipeline ===")
+Source.from(1 to 100)
+  .map(_ * 2)
+  .filter(_ > 50)
+  .take(5)
+  .runForeach(println)
+// → 52 54 56 58 60
+```
+
+## 2. Stream block
+
+`stream { emit(x) }` lets the producer body run in its own virtual thread.
+
+```scala
+println("\n=== 2. Stream block ===")
+val squares = stream {
+  var i = 1
+  while i <= 5 do
+    emit(i * i)
+    i += 1
+}
+squares.runForeach(println)
+// → 1 4 9 16 25
+```
+
+## 3. runFold aggregation
+
+```scala
+println("\n=== 3. runFold ===")
+val sum = Source.from(1 to 100).runFold(0)((acc, x) => acc + x)
+println(s"Sum 1..100 = $sum")
+// → Sum 1..100 = 5050
+```
+
+## 4. flatMap — sub-streams
+
+```scala
+println("\n=== 4. flatMap ===")
+Source.from(List(1, 2, 3))
+  .flatMap(n => Source.from(1 to n))
+  .runForeach(println)
+// → 1  1 2  1 2 3
+```
+
+## 5. concat — sequential composition
+
+```scala
+println("\n=== 5. concat ===")
+val first  = Source.from(List("a", "b", "c"))
+val second = Source.from(List("d", "e"))
+first.concat(second).runForeach(println)
+// → a b c d e
+```
+
+## 6. Backpressure demo — large producer, small consumer
+
+The producer emits 1 000 000 elements; the consumer takes only 10. The 16-element
+buffer means the producer VT parks after 16 emits; it never allocates all elements.
+
+```scala
+println("\n=== 6. Backpressure ===")
+val first10 = Source.from(1 to 1000000).take(10).runToList()
+println(first10.mkString(", "))
+// → 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+```

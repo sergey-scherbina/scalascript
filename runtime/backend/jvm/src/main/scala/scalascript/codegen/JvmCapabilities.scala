@@ -33,7 +33,8 @@ val JvmCapabilities: Capabilities = Capabilities(
     Feature.McpServer,
     Feature.McpClient,
     Feature.Dataset,
-    Feature.PaymentRequest
+    Feature.PaymentRequest,
+    Feature.Streams
   ),
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),

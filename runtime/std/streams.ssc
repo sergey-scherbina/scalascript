@@ -1,0 +1,46 @@
+---
+name: std-streams
+version: 0.1.0
+description: Backpressured streams — stream { emit(x) } + Source/Sink/Flow combinators
+package: std.streams
+exports:
+  - stream
+  - emit
+  - Source
+  - Sink
+  - Flow
+  - Stream
+---
+
+# `std.streams` — Backpressured Streams
+
+Push-shaped stream API with implicit credit-based backpressure.  Each `stream { … }`
+block runs its producer body on a lightweight virtual thread (JVM/interpreter) or
+an `async function*` (JS).  `emit(x)` yields an element; the consumer controls
+demand via an internal 16-element buffer.
+
+`Stream[A]` is a type alias for `Source[A]`; the two names are interchangeable.
+
+```scalascript
+// Create a stream — body runs on a virtual thread; emit(x) yields each element.
+extern def stream[A](body: () => Unit): Source[A]
+
+// Emit one element from inside a stream body.
+extern def emit[A](value: A): Unit
+```
+
+## `Source` companion
+
+```scalascript
+// Emit every element of an Iterable in order.
+extern def Source.from[A](xs: Iterable[A]): Source[A]
+
+// Emit exactly one element, then complete.
+extern def Source.single[A](x: A): Source[A]
+
+// Complete immediately with no elements.
+extern def Source.empty[A]: Source[A]
+
+// Wrap a v1.10 Generator as a Source.
+extern def Source.fromGenerator[A](gen: Generator[A]): Source[A]
+```

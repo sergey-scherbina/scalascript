@@ -1,0 +1,24 @@
+package scalascript.compiler.plugin.streams
+
+import scalascript.backend.spi.*
+import scalascript.ir.{QualifiedName, NormalizedModule}
+
+/** Interpreter-only plugin that wires backpressured stream intrinsics via NativeImpl.
+ *  Registration: META-INF/services/scalascript.backend.spi.Backend */
+class StreamsInterpreterPlugin extends Backend:
+  def id:          String = "scalascript-streams-interpreter"
+  def displayName: String = "Streams Intrinsics (Interpreter)"
+  def spiVersion:  String = SpiVersion.Current
+
+  def capabilities: Capabilities = Capabilities(
+    features = Set.empty,
+    outputs  = Set.empty,
+    options  = Set.empty,
+    spiRange = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+  )
+
+  def intrinsics:      Map[QualifiedName, IntrinsicImpl] = StreamsIntrinsics.table
+  def acceptedSources: Set[String]                       = Set.empty
+
+  def compile(module: NormalizedModule, opts: BackendOptions): CompileResult =
+    CompileResult.Failed(List(Diagnostic.Generic("StreamsInterpreterPlugin does not compile — intrinsic provider only")))

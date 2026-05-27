@@ -6601,6 +6601,29 @@ function _makeGenerator(genFn) {
   return _wrap(iter);
 }
 
+// ── v1.51.2 Streams — backpressured Source[A] via async function* ──────────
+// stream { emit(x) } compiles to _makeAsyncStream((async function*() { body })())
+// emit(x) inside the body lowers to yield x (same as suspend for generators).
+// Terminal ops (runForeach, runFold, runToList, runDrain) are async and must be
+// awaited at the call site — JsGen auto-inserts await at statement level.
+function _makeAsyncStream(iter) {
+  const self = {
+    [Symbol.asyncIterator]() { return iter; },
+    map(f)    { return _makeAsyncStream((async function*(it) { for await (const v of it) yield f(v); })(iter)); },
+    filter(p) { return _makeAsyncStream((async function*(it) { for await (const v of it) if (p(v)) yield v; })(iter)); },
+    take(n)   { return _makeAsyncStream((async function*(it) { let i=0; for await (const v of it) { if (i++>=n) break; yield v; } })(iter)); },
+    drop(n)   { return _makeAsyncStream((async function*(it) { let i=0; for await (const v of it) { if (i++<n) continue; yield v; } })(iter)); },
+    flatMap(f){ return _makeAsyncStream((async function*(it) { for await (const v of it) { for await (const x of f(v)) yield x; } })(iter)); },
+    concat(other){ return _makeAsyncStream((async function*(it) { for await (const v of it) yield v; for await (const v of other) yield v; })(iter)); },
+    zip(other){ return _makeAsyncStream((async function*(it) { const it2 = other[Symbol.asyncIterator](); for await (const v of it) { const b = await it2.next(); if (b.done) break; const t=[v,b.value]; t._isTuple=true; yield t; } })(iter)); },
+    async runForeach(f) { for await (const v of iter) f(v); },
+    async runFold(z)    { return async (f) => { let acc = z; for await (const v of iter) acc = f(acc, v); return acc; }; },
+    async runToList()   { const a = []; for await (const v of iter) a.push(v); return a; },
+    async runDrain()    { for await (const _ of iter) {} },
+  };
+  return self;
+}
+
 // ── v1.9 Coroutine primitive — JS native generators ────────────────────────
 // coroutineCreate(fn) wraps a function* generator; coroutineResume steps it.
 // suspend(v) inside a coroutineCreate body compiles to `yield v` (JsGen
@@ -7437,6 +7460,9 @@ class JsGen(
   // Set when client/browser code uses `awaitClient(promise)`.  This helper
   // lowers directly to JS `await` and therefore needs the top-level async IIFE.
   private var usesAwaitClient: Boolean = false
+  // Set when the module uses stream terminal operations (runForeach, runFold,
+  // runToList, runDrain) — these are async and need the top-level async IIFE.
+  private var usesStreams: Boolean = false
   // Stack of placeholder counters: each AnonymousFunction pushes 0, Placeholder increments top
   private var phCounters: List[Int] = Nil
   // Names of variables known to hold integer values (for integer division detection)
@@ -7606,6 +7632,7 @@ class JsGen(
     scanForRunAsyncParallel(module)
     scanForRunActors(module)
     scanForAwaitClient(module)
+    scanForStreams(module)
     // v1.27 Phase 3 — sql state.  Reset every module to keep `genModule`
     // re-entrant; emit preamble once when at least one sql block is
     // present (URL-prefix providers + ConnectionRegistry init + resolver).
@@ -7632,7 +7659,7 @@ class JsGen(
     // any actor is blocked on a long-armed `receive` (otherwise an
     // HTTP server bound via `serveAsync(...)` from inside the same
     // `runActors { ... }` body would be unreachable).
-    val needsAsync = usesRunAsyncParallel || usesRunActors || usesAwaitClient || needSqlPreamble
+    val needsAsync = usesRunAsyncParallel || usesRunActors || usesAwaitClient || needSqlPreamble || usesStreams
     if needsAsync then
       line("(async () => {")
       // Write-through `_println` for code that runs *inside* the
@@ -8323,6 +8350,20 @@ class JsGen(
       }.nonEmpty
     }
 
+  private def scanForStreams(module: Module): Unit =
+    def collectTrees(s: Section): List[scala.meta.Tree] =
+      s.content.collect {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.map(ScalaNode.fold(_)(identity))
+      }.flatten ++ s.subsections.flatMap(collectTrees)
+    val terminalNames = Set("runForeach", "runToList", "runDrain", "runFold")
+    usesStreams = module.sections.flatMap(collectTrees).exists { tree =>
+      tree.collect {
+        case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Select(_, scala.meta.Term.Name(m)), _)
+            if terminalNames.contains(m) => ()
+      }.nonEmpty
+    }
+
   private def containsAwaitClient(tree: scala.meta.Tree): Boolean =
     tree.collect {
       case Term.Apply.After_4_6_0(Term.Name("awaitClient"), _) => ()
@@ -8358,6 +8399,7 @@ class JsGen(
     scanForRunAsyncParallel(module)
     scanForRunActors(module)
     scanForAwaitClient(module)
+    scanForStreams(module)
     // Emit `route(...)` registrations from front-matter before user blocks,
     // so a typical user-side `serve(port)` (last statement of the script)
     // sees them already registered.  JS function declarations are hoisted,
@@ -8712,6 +8754,11 @@ class JsGen(
       mergeHelperEmitted(0) = true
       line("function _ssc_mergeDeep(dst, src) { for (const k of Object.keys(src)) { if (dst[k] !== null && typeof dst[k] === 'object' && typeof src[k] === 'object') _ssc_mergeDeep(dst[k], src[k]); else dst[k] = src[k]; } }")
 
+  private def isStreamTerminalStat(t: Term): Boolean = t match
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("runForeach" | "runToList" | "runDrain")), _) => true
+    case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Select(_, Term.Name("runFold")), _), _)   => true
+    case _ => false
+
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, _, rhs) =>
       pats match
@@ -8929,7 +8976,8 @@ class JsGen(
       t match
         case Term.Apply.After_4_6_0(Term.Name("main"), _) => mainCalled = true
         case _ => ()
-      line(genExpr(t) + ";")
+      if isStreamTerminalStat(t) then line(s"await ${genExpr(t)};")
+      else line(genExpr(t) + ";")
 
     case _: Import => () // ignored
     case _: Export => () // ignored
@@ -9233,6 +9281,14 @@ class JsGen(
   private def genGeneratorBody(t: Term): String =
     s"function*() {\n${genGenStmt(t)}\n}"
 
+  private def extractStreamBody(arg: Term): String = arg match
+    case Term.Function.After_4_6_0(_, body) =>
+      s"async function*() {\n${genGenStmt(body.asInstanceOf[Term])}\n}"
+    case Term.Block(List(Term.Function.After_4_6_0(_, body))) =>
+      s"async function*() {\n${genGenStmt(body.asInstanceOf[Term])}\n}"
+    case other =>
+      s"async function*() { return ${genExpr(other)}; }"
+
   // Like genGeneratorBody but emits `return` for the last expression so
   // the coroutine's completion value is propagated via gen.next().done.
   private def genCoroutineBody(t: Term): String =
@@ -9300,7 +9356,7 @@ class JsGen(
     case _       => s"  ${genStatInline(s)}"
 
   private def genGenExpr(t: Term): String = t match
-    case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause) if argClause.values.size == 1 =>
+    case Term.Apply.After_4_6_0(Term.Name("suspend" | "emit"), argClause) if argClause.values.size == 1 =>
       s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
     case _                 => genExpr(t)
@@ -9639,6 +9695,9 @@ class JsGen(
           s"_makePrism('$variantName')"
         case _ => genExpr(t.fun)
 
+    // v1.51.2 Streams — Source.empty (field access, no args)
+    case Term.Select(Term.Name("Source"), Term.Name("empty")) =>
+      "_makeAsyncStream((async function*() {})(  ))"
     // Field/method selection without arguments
     case Term.Select(qual, name) =>
       val qualJs = genExpr(qual)
@@ -9989,6 +10048,30 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
         if argClause.values.size == 1 =>
       s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.51.2 Streams — stream { body } / emit(x) / Source.from / Source.single / Source.empty
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("stream"), _) | Term.Name("stream"),
+        argClause) if argClause.values.size == 1 =>
+      val bodyJs = extractStreamBody(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream(($bodyJs)())"
+    case Term.Apply.After_4_6_0(Term.Name("emit"), argClause)
+        if argClause.values.size == 1 =>
+      s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("from")),
+        argClause) if argClause.values.size == 1 =>
+      val xs = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*(xs) { for (const v of xs) yield v; })($xs))"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("single")),
+        argClause) if argClause.values.size == 1 =>
+      val x = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*() { yield $x; })(  ))"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("fromGenerator")),
+        argClause) if argClause.values.size == 1 =>
+      val gen = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*(g) { for await (const v of { [Symbol.asyncIterator]() { return { async next() { const r = g.next(); return r === null ? { done: true } : { done: false, value: r._value }; } }; } }) yield v; })($gen))"
     // v1.9 Coroutine — coroutineCreate { () => body } / coroutineResume(co, in)
     case Term.Apply.After_4_6_0(
         Term.ApplyType.After_4_6_0(Term.Name("coroutineCreate"), _) | Term.Name("coroutineCreate"),
@@ -10676,9 +10759,15 @@ class JsGen(
           genGeneratorBody(body.asInstanceOf[Term])
         case other => s"function*() { return ${genExpr(other.asInstanceOf[Term])}; }"
       s"_makeGenerator($bodyJs)"
-    case Term.Apply.After_4_6_0(Term.Name("suspend"), argClause)
+    case Term.Apply.After_4_6_0(Term.Name("suspend" | "emit"), argClause)
         if argClause.values.size == 1 =>
       s"(yield ${genExpr(argClause.values.head.asInstanceOf[Term])})"
+    // v1.51.2 Streams inside CPS body
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("stream"), _) | Term.Name("stream"),
+        argClause) if argClause.values.size == 1 =>
+      val bodyJs = extractStreamBody(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream(($bodyJs)())"
 
     // Nested computed / effect inside CPS body — same wrapping as the
     // non-CPS form: by-name body becomes a zero-arg thunk.

@@ -2152,7 +2152,7 @@ lazy val backendInterpreterPluginTests = project
     backendInterpreterServer,
     jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
     fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin,
-    swingPlugin,
+    swingPlugin, streamsPlugin,
   )
   .settings(
     name := "scalascript-backend-interpreter-plugin-tests",
@@ -2164,6 +2164,18 @@ lazy val backendInterpreterPluginTests = project
       legacySources.filter(isStdPluginInterpreterTest)
     },
   )
+
+// ── Streams — interpreter plugin ─────────────────────────────────────────
+lazy val streamsPlugin = project
+  .in(file("runtime/std/streams-plugin"))
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-streams-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.streams"))
 
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
@@ -2206,7 +2218,7 @@ lazy val root = project
     frontendExamples,
     jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
-    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin,
+    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin,
     paymentRequestPlugin, paymentRequest,
   )
   .settings(

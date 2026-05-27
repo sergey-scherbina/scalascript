@@ -31,7 +31,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.Crypto,
     Feature.McpServer,           // v1.17 — own-impl: stdio (HTTP+SSE Phase 2)
     Feature.McpClient,           // v1.17 — own-impl: spawn (HTTP+SSE Phase 2)
-    Feature.Dataset
+    Feature.Dataset,
+    Feature.Streams
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),

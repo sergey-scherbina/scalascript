@@ -34,7 +34,8 @@ val JsCapabilities: Capabilities = Capabilities(
     Feature.McpServer,
     Feature.McpClient,
     Feature.Dataset,
-    Feature.PaymentRequest
+    Feature.PaymentRequest,
+    Feature.Streams
   ),
   outputs        = Set(OutputKind.JavaScriptSource),
   options        = Set("optimizationLevel", "emitAssertions", "target"),

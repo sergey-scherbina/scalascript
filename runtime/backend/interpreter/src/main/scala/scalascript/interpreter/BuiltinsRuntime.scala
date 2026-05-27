@@ -622,6 +622,15 @@ private[interpreter] object BuiltinsRuntime:
         "triples"        -> interp.globals("Graph.triples")
       ))
     }
+    // v1.51 Streams — assemble Source companion from individual Source.* intrinsics
+    interp.globals.get("Source.from").foreach { fromFn =>
+      interp.globals("Source") = Value.InstanceV("Source", Map(
+        "from"          -> fromFn,
+        "single"        -> interp.globals.getOrElse("Source.single", Value.UnitV),
+        "empty"         -> interp.globals.getOrElse("Source.empty", Value.UnitV),
+        "fromGenerator" -> interp.globals.getOrElse("Source.fromGenerator", Value.UnitV),
+      ))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
