@@ -3892,7 +3892,11 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted
       through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.
-- [ ] Integration tests against Preprod (CI-gated by env vars)
+- [x] Integration tests against Preprod (CI-gated by env vars)
+      ✓ Landed (2026-05-27): `BloxbeanPreprodIntegrationTest`
+      builds a balanced claim draft with live Blockfrost Preprod
+      protocol params when `X402_SCALUS_PREPROD_IT=true`; submit is
+      gated separately by `X402_SCALUS_PREPROD_SUBMIT=true`.
 
 #### Phase 5 — Client-side Scalus-mode wallet
 

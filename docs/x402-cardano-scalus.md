@@ -396,6 +396,18 @@ validator to UPLC:
   covered by unit tests with an injected builder.
 - Integration tests against preprod with a funded relayer + a
   pre-deposited escrow UTxO; CI-skipped when env vars unset.
+- **Landed (2026-05-27):** `BloxbeanPreprodIntegrationTest` is gated by
+  `X402_SCALUS_PREPROD_IT=true`. It builds a balanced Preprod claim
+  draft using live Blockfrost protocol params and only submits when
+  `X402_SCALUS_PREPROD_SUBMIT=true` is also set. Required env for build:
+  `X402_CARDANO_BLOCKFROST_KEY` (or `BLOCKFROST_KEY`),
+  `X402_SCALUS_ESCROW_REF`, `X402_SCALUS_RECEIVER_ADDR`,
+  `X402_SCALUS_RELAYER_SKEY_HEX`; optional env:
+  `X402_SCALUS_COLLATERAL_REF`, `X402_SCALUS_RELAYER_KEY_HASH_HEX`,
+  `X402_SCALUS_EX_MEM`, `X402_SCALUS_EX_STEPS`,
+  `X402_SCALUS_TTL_SLOT`, `X402_SCALUS_VALIDITY_START_SLOT`,
+  `X402_SCALUS_LOVELACE`, `X402_SCALUS_COSE_SIGN1_HEX`,
+  `X402_SCALUS_COSE_KEY_HEX`.
 
 ### Phase 5 — client-side Scalus-mode wallet
 
