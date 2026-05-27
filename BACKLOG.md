@@ -3677,11 +3677,19 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 
 #### Phase 4 — Off-chain claim Tx via bloxbean
 
-- [ ] Add `com.bloxbean.cardano:cardano-client-lib` dependency
-- [ ] `ScalusSettler.preprod(cfg)` / `.mainnet(cfg)` factories
+- [x] Add `com.bloxbean.cardano:cardano-client-lib` dependency
+      ✓ Landed (2026-05-27): `x402-facilitator-cardano-scalus`
+      depends on `cardano-client-lib` `0.8.0-preview1`.
+- [x] `ScalusSettler.preprod(cfg)` / `.mainnet(cfg)` factories
+      ✓ Landed (2026-05-27): `ScalusSettlerConfig`, typed
+      `ClaimTxPlan`, injectable `ClaimTxBuilder`, and Blockfrost
+      submit pipeline. Default builder still fails explicitly until
+      Plutus witness construction lands.
 - [ ] Tx building: input = escrow UTxO ref, output = receiver +
       amount, redeemer = CIP-8 proof bytes, witness = relayer key
-- [ ] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
+- [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
+      ✓ Landed (2026-05-27): builder-produced CBOR is submitted
+      through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.
 - [ ] Integration tests against Preprod (CI-gated by env vars)
 
 #### Phase 5 — Client-side Scalus-mode wallet

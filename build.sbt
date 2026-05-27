@@ -1275,6 +1275,7 @@ lazy val x402FacilitatorCardanoScalus = project
   .settings(
     name := "scalascript-x402-facilitator-cardano-scalus",
     libraryDependencies ++= Seq(
+      "com.bloxbean.cardano" % "cardano-client-lib" % "0.8.0-preview1",
       scalatestTest,
     ),
     // The compiled Plutus V3 script ships as a checked-in resource

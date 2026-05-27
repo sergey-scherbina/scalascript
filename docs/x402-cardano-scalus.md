@@ -347,11 +347,18 @@ validator to UPLC:
 ### Phase 4 — off-chain claim Tx via bloxbean
 
 - `ScalusSettler.preprod(cfg)` / `.mainnet(cfg)` constructors.
+- **Landed (2026-05-27):** `ScalusSettlerConfig`, typed
+  `ClaimTxPlan`, injectable `ClaimTxBuilder`, and a submit pipeline
+  that passes builder-produced CBOR to `BlockfrostClient.submitTx`.
 - Tx building: input = escrow_ref, output = receiver + amount,
   collateral from relayer wallet, redeemer = CIP-8 proof bytes.
+- **Still open:** the default `BloxbeanClaimTxBuilder` fails
+  explicitly until Plutus witness / redeemer construction is
+  implemented on top of `cardano-client-lib`.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
-  Ogmios variant added later if needed.
+  Ogmios variant added later if needed. The Blockfrost submit path is
+  covered by unit tests with an injected builder.
 - Integration tests against preprod with a funded relayer + a
   pre-deposited escrow UTxO; CI-skipped when env vars unset.
 

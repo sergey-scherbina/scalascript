@@ -1,7 +1,7 @@
 package scalascript.x402.facilitator.plutus
 
 import scalascript.x402.{PaymentPayload, PaymentRequirements, SettleResult}
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 /** Pluggable settler for `CardanoProvider.Scalus`. Implementations build
  *  and submit a Plutus-escrow claim transaction that releases lovelace
@@ -47,3 +47,19 @@ object ScalusSettler:
    *  by accepting a plain `(payload, req) => Future[SettleResult]`. */
   def asConfigHook(settler: ScalusSettler): (PaymentPayload, PaymentRequirements) => Future[SettleResult] =
     settler.submit
+
+  def preprod(
+    cfg:     ScalusSettlerConfig,
+    builder: ClaimTxBuilder = BloxbeanClaimTxBuilder.unimplemented,
+  )(using ExecutionContext): ScalusSettler =
+    require(cfg.network == scalascript.x402.Network.CardanoPreprod,
+      s"ScalusSettler.preprod requires CardanoPreprod config, got ${cfg.network}")
+    BloxbeanScalusSettler(cfg, builder)
+
+  def mainnet(
+    cfg:     ScalusSettlerConfig,
+    builder: ClaimTxBuilder = BloxbeanClaimTxBuilder.unimplemented,
+  )(using ExecutionContext): ScalusSettler =
+    require(cfg.network == scalascript.x402.Network.CardanoMainnet,
+      s"ScalusSettler.mainnet requires CardanoMainnet config, got ${cfg.network}")
+    BloxbeanScalusSettler(cfg, builder)

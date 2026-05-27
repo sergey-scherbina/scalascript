@@ -2971,7 +2971,9 @@ transaction building remain planned. The client also exposes
 it signs a structured Scalus claim message and carries the escrow UTxO ref in
 `authorization.nonce`. `CardanoProvider.Scalus` can verify that structured
 claim proof before settlement, but current production Cardano flows should keep
-using the default non-Scalus mode until the settler is implemented.
+using the default non-Scalus mode until the Plutus claim transaction builder is
+implemented. `ScalusSettler.preprod/mainnet` exists for wiring and tests; its
+default builder fails explicitly until real bloxbean witness construction lands.
 
 ---
 
