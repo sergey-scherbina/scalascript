@@ -12,6 +12,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **wallet-ledger-bitcoin** — `payments/wallet/vault-ledger-bitcoin/`: `BitcoinApp` object (CLA=0xE1, new protocol v2+; GET_EXTENDED_PUBKEY/REGISTER_WALLET/GET_WALLET_ADDRESS/SIGN_PSBT); `LedgerBitcoinVault` (`Vault` SPI, secp256k1 only, `AppSwitchRequired` guard); `LedgerBitcoinRawSigner` (PSBT bytes → per-input DER sigs concatenated); `walletVaultLedgerBitcoin` sbt subproject; 14 tests.
 
+- **ssc-profile** — `ssc profile <file.ssc>` with per-phase timing + heap allocation (`parse`/`typecheck`/`normalize`/`jvm-codegen`/`link`); flame-graph JSON (`--out`); `--top=N` hottest phases; `--compare=baseline.json` regression diff with ⚠ on >10%; `--runs=N` min/avg/max; `PhaseResult`+`timed` helper; `Profiler.recordPhase`/`phaseEntries()`; 15 tests in `ProfileCommandTest`.
+
 - **js-tree-shaking** — `TreeShaker` worklist reachability from `@main`/exports; `JsGen.generateWithStats` emits only reachable `const`/`function` declarations; `--no-tree-shake` escape hatch; `--stats` prints "Tree-shake: kept N / M symbols" to stderr; 16 tests in `JsTreeShakeTest`.
 
 - **blockchain-cosmos** — `payments/blockchain/cosmos/`: secp256k1 ECDSA (RFC 6979) + ed25519 signing via BouncyCastle; Cosmos StdSignDoc Amino JSON encoding with canonical field order; bech32 address derivation with configurable HRP (`cosmos`/`osmo`/`juno`); `CosmosChainAdapter` implementing `ChainAdapter` SPI; `ChainId.CosmosHub`/`ChainId.Osmosis`/`ChainId.Juno` added to `blockchain-spi`; `BlockchainProvider` SPI trait + `CosmosBackend` ServiceLoader registration. 41 tests.

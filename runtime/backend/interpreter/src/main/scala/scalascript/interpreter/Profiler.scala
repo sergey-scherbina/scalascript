@@ -4,23 +4,30 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.LongAdder
 import scala.jdk.CollectionConverters.*
 
-/** Lightweight call-level profiler for the ScalaScript interpreter.
+/** Lightweight call-level and phase-level profiler for the ScalaScript compiler/interpreter.
  *
- *  When `enabled` is true, `callFun` wraps each user-defined function
- *  invocation with `System.nanoTime()` before/after and accumulates:
- *    - call count  (via `LongAdder` — thread-safe, cheap under contention)
- *    - total wall-clock nanoseconds
+ *  Two independent tracking channels:
  *
- *  Only named user functions are counted (anonymous lambdas with an empty
- *  name are skipped — too noisy).  Native built-ins are never counted here.
+ *  1. **Function-level** (`record` / `topN`): when `enabled` is true, `callFun`
+ *     wraps each user-defined function invocation with `System.nanoTime()` and
+ *     accumulates call count + total wall-clock nanoseconds.  Only named user
+ *     functions are counted; anonymous lambdas (empty name) are skipped.
  *
- *  The object is process-global (singleton) so the CLI can enable it
- *  before running a module and read results afterwards without threading
- *  any extra state through the Interpreter constructor.
+ *  2. **Phase-level** (`recordPhase` / `phaseEntries`): compiler pipeline phases
+ *     (parse, typecheck, normalize, jvm-codegen, js-codegen, link, …) record
+ *     both wall-clock duration and heap allocation delta.  These are written by
+ *     `profileCommand` using the [[PhaseTimer.timed]] helper and are independent
+ *     of the function-level profiler.
+ *
+ *  The object is process-global (singleton) so the CLI can enable it before
+ *  running a module and read results afterwards without threading extra state
+ *  through the Interpreter constructor.
  */
 object Profiler:
 
   @volatile var enabled: Boolean = false
+
+  // ─── Function-level tracking ───────────────────────────────────────────────
 
   private val counts = new ConcurrentHashMap[String, LongAdder]()
   private val nanos  = new ConcurrentHashMap[String, LongAdder]()
@@ -39,27 +46,55 @@ object Profiler:
       .sortBy(-_._3)
       .take(n)
 
-  /** Reset all accumulated data (called before a new run). */
-  def reset(): Unit =
-    counts.clear()
-    nanos.clear()
-    phaseNanos.clear()
-    phaseAllocs.clear()
-
   /** Total wall-clock nanoseconds across all recorded functions. */
   def totalNanos: Long =
     nanos.values().asScala.map(_.sum()).sum
+
+  /** Render a human-readable table of the top-N hotspots.
+   *
+   *  Example:
+   *  {{{
+   *  ── Profile ──────────────────────────────────────────────
+   *    calls      time(ms)  function
+   *    ──────────────────────────────
+   *    832040         1523  fib
+   *         1           12  main
+   *    ──────────────────────────────
+   *    Total wall time: 1547 ms
+   *  }}}
+   */
+  def renderTable(n: Int = 20): String =
+    val rows = topN(n)
+    if rows.isEmpty then return "  (no user functions recorded)\n"
+    val sb = new StringBuilder
+    val hdr = "── Profile " + "─" * 48
+    sb.append(hdr).append('\n')
+    sb.append(f"  ${"calls"}%8s  ${"time(ms)"}%10s  function\n")
+    val sep = "  " + "─" * 34
+    sb.append(sep).append('\n')
+    for (name, calls, ns) <- rows do
+      val ms = ns / 1_000_000L
+      sb.append(f"  $calls%8d  $ms%10d  $name\n")
+    sb.append(sep).append('\n')
+    val totalMs = totalNanos / 1_000_000L
+    sb.append(s"  Total wall time: $totalMs ms\n")
+    sb.toString()
 
   // ── Phase timing ──────────────────────────────────────────────────────
 
   private val phaseNanos  = new ConcurrentHashMap[String, LongAdder]()
   private val phaseAllocs = new ConcurrentHashMap[String, LongAdder]()
 
-  /** Record wall time (and optionally heap delta) for a pipeline phase. */
+  /** Record wall time (and optionally heap delta) for a pipeline phase.
+   *
+   *  `elapsedNs` is nanoseconds; `allocBytes` is net heap allocation bytes
+   *  (may be negative if GC ran during the phase). */
   def recordPhase(phase: String, elapsedNs: Long, allocBytes: Long = 0L): Unit =
     phaseNanos.computeIfAbsent(phase, _ => new LongAdder()).add(elapsedNs)
     phaseAllocs.computeIfAbsent(phase, _ => new LongAdder()).add(allocBytes)
 
+  /** Return phase entries sorted by total wall time descending.
+   *  Each element is `(phaseName, totalNanos, totalAllocBytes)`. */
   def phaseEntries(): List[(String, Long, Long)] =
     phaseNanos.keySet().asScala.toList
       .map(p => (p, phaseNanos.get(p).sum(), phaseAllocs.computeIfAbsent(p, _ => new LongAdder()).sum()))
@@ -109,32 +144,32 @@ object Profiler:
     val funcArr  = funcParts.mkString(",\n")
     "{\n  \"phases\": [\n" + phaseArr + "\n  ],\n  \"functions\": [\n" + funcArr + "\n  ]\n}\n"
 
-  /** Render a human-readable table of the top-N hotspots.
-   *
-   *  Example:
-   *  {{{
-   *  ── Profile ──────────────────────────────────────────────
-   *    calls      time(ms)  function
-   *    ──────────────────────────────
-   *    832040         1523  fib
-   *         1           12  main
-   *    ──────────────────────────────
-   *    Total wall time: 1547 ms
-   *  }}}
-   */
-  def renderTable(n: Int = 20): String =
-    val rows = topN(n)
-    if rows.isEmpty then return "  (no user functions recorded)\n"
-    val sb = new StringBuilder
-    val hdr = "── Profile " + "─" * 48
-    sb.append(hdr).append('\n')
-    sb.append(f"  ${"calls"}%8s  ${"time(ms)"}%10s  function\n")
-    val sep = "  " + "─" * 34
-    sb.append(sep).append('\n')
-    for (name, calls, ns) <- rows do
-      val ms = ns / 1_000_000L
-      sb.append(f"  $calls%8d  $ms%10d  $name\n")
-    sb.append(sep).append('\n')
-    val totalMs = totalNanos / 1_000_000L
-    sb.append(s"  Total wall time: $totalMs ms\n")
-    sb.toString()
+  // ─── Phase-level insertion-order tracking (used by profileCommand) ─────────
+  //
+  // The ConcurrentHashMap above doesn't preserve insertion order.
+  // `profileCommand` writes phases via `recordPhaseOrdered` and reads them back
+  // in insertion order for the flame-graph JSON.  This is a separate channel
+  // from `recordPhase` (which accumulates totals for `renderPhaseTable`).
+
+  private val phaseData =
+    new java.util.concurrent.CopyOnWriteArrayList[(String, Long, Long)]()
+
+  /** Record one phase measurement in insertion order for the profiler output.
+   *  `wallMs` is milliseconds; `allocBytes` is net heap allocation bytes. */
+  def recordPhaseOrdered(name: String, wallMs: Long, allocBytes: Long): Unit =
+    phaseData.add((name, wallMs, allocBytes))
+
+  /** Return recorded phase entries in insertion order.
+   *  Each element is `(phaseName, wallMs, allocBytes)`. */
+  def phaseOrderedEntries(): List[(String, Long, Long)] =
+    phaseData.asScala.toList
+
+  // ─── Reset ────────────────────────────────────────────────────────────────
+
+  /** Reset all accumulated data (both function-level and phase-level). */
+  def reset(): Unit =
+    counts.clear()
+    nanos.clear()
+    phaseNanos.clear()
+    phaseAllocs.clear()
+    phaseData.clear()

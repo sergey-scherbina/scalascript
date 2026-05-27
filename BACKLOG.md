@@ -2029,18 +2029,25 @@ What landed:
 - [x] Add `scalascript-core` aggregate in `build.sbt` — `scalascriptCore` aggregates `ir + backendSpi + core`
 - [x] Add `scalascript-interpreter` aggregate — `scalascriptInterpreterAgg` aggregates eval stack (full HTTP/actor decoupling deferred to Phase 2 lazy loading)
 
-### New tool — `ssc profile file.ssc`
+### New tool — `ssc profile file.ssc` ✓ Landed (2026-05-27)
 
-**Status: landed. Effort: ~3 days. Priority: 7.**
+**Status: complete. Effort: ~3 days. Priority: 7.**
 
-Built-in profiler: invocation counts per function, wall time per section.
-Output: top-20 hotspots, simple call graph, `--profile-output profile.json`.
+Per-phase compiler profiler: wall-clock + heap allocation delta for each pipeline
+phase (parse / typecheck / normalize / jvm-codegen / js-codegen / link).
+Flame-graph JSON output (Brendan Gregg-compatible), `--compare` regression diff,
+`--runs=N` multi-run min/avg/max, `--top=N` hottest phases.
 
 - [x] Add `profile` command to CLI
 - [x] Instrument `eval` / `callValue` with per-function counters (both TCO and non-TCO paths)
 - [x] Print top-20 hotspots by wall time on exit
-- [x] `--top N` flag to limit rows, `--output file.json` for JSON export
-- [x] `ProfileCommandTest` — 5 tests, all green
+- [x] `--top N` flag to limit rows, `--output / --out` for JSON export
+- [x] `PhaseResult` case class + `timed` helper (wall-clock + heap allocation delta)
+- [x] `Profiler.recordPhase` / `phaseEntries()` — phase-level tracking in Profiler
+- [x] Flame-graph JSON: `version`, `file`, `timestamp`, `runs`, `phases[]`, `totalWallMs`
+- [x] `--compare=baseline.json` — regression diff with ⚠ on >10% regressions
+- [x] `--runs=N` — multi-run averaging with min/avg/max display
+- [x] `ProfileCommandTest` — 17 tests, 15 green, 2 cancelled (require assembled jar)
 
 ### Runtime — Numeric value specialization
 

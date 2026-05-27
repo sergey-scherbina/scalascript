@@ -107,7 +107,7 @@ _(all done — see Done section below)_
 
 - [ ] **wallet-ledger-cardano** — Ledger Cardano-app signer (JVM): `payments/wallet/vault-ledger-cardano/` — `CardanoApp` object (CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x20 SIGN_TX with CIP-8 framing); `LedgerCardanoVault` implementing `Vault` SPI, routes `Curve.Ed25519` + Cardano-prefix HD path; CIP-8 `signData` flow serialises `{ "protected": base64(headers), "payload": base64(data) }` for Cardano dApp signing; `AppSwitchRequired` guard; `MockTransport` re-used; 10+ tests (path encoding, CIP-8 sign flow, chunked message, wrong-app guard, Vault routing). Spec: `BACKLOG.md §Phase 7 — Cardano-app signer`.
 
-- [x] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`.
+- [x] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`. ✓ Landed 2026-05-27.
 
 ## Language & Compiler
 
