@@ -576,7 +576,13 @@ def printUsage(): Unit =
     |                         --src-dir <dir> (default: artifact-dir/..), --json.
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
-    |  check                  Type-check .ssc files
+    |  check                  Type-check .ssc files (parse + typer only; no codegen)
+    |                         Flags: --json (structured JSON output)
+    |                                --quiet (no output; exit code only — for CI hooks)
+    |                                --watch (re-check on file change; Ctrl-C to stop)
+    |                                --iface-dir <dir> / -I <dir> (pre-compiled .scim interfaces)
+    |                         Exit codes: 0=clean, 1=type errors, 2=parse errors, 3=file not found
+    |                         Accepts files or directories (recursively checks *.ssc)
     |  test <file(s)>         Run component unit tests — each test is (name, () => Boolean).
     |                         Prints PASS/FAIL per test; exits non-zero on any failure.
     |                         Tests are functions registered with test(name, thunk) in the
@@ -8271,82 +8277,276 @@ def previewCommand(args: List[String]): Unit =
  *  files from `<dir>` and checks against them (same as `check-with-iface`
  *  but with CI-friendly output).
  */
+/** Result of checking a single `.ssc` file.  Used by both human-readable and
+ *  JSON output paths.
+ *
+ *  @param file        display path (as given by the user or discovered)
+ *  @param parseErrors true when the file had a code-block parse error
+ *  @param errors      type errors from the typer
+ *  @param elapsedMs   wall-clock time for parse + type-check of this file
+ *  @param missing     true when the file was not found on disk
+ */
+private case class CheckResult(
+  file:        String,
+  parseErrors: Boolean,
+  errors:      List[scalascript.typer.TypeError],
+  elapsedMs:   Long,
+  missing:     Boolean = false
+):
+  def ok: Boolean = !missing && !parseErrors && errors.isEmpty
+
+/** Check a single `.ssc` file.  Does NOT invoke any backend (no JvmGen / JsGen /
+ *  Interpreter).  Returns a [[CheckResult]] summary.
+ *
+ *  @param file       display name of the file (used in diagnostics)
+ *  @param interfaces pre-loaded `.scim` interfaces (may be empty)
+ *  @param pluginBuiltins extra built-in names from loaded backend plugins
+ */
+private def checkOneFile(
+  file: String,
+  interfaces: Map[String, scalascript.ir.ModuleInterface],
+  pluginBuiltins: Set[String]
+): CheckResult =
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    return CheckResult(file, parseErrors = false, errors = Nil, elapsedMs = 0L, missing = true)
+  val t0 = System.currentTimeMillis()
+  try
+    val module = Parser.parse(os.read(path))
+    // Collect code-block parse errors (structural, with position).
+    var hasParseError = false
+    def walkSection(s: scalascript.ast.Section): Unit =
+      s.content.foreach {
+        case cb: scalascript.ast.Content.CodeBlock
+            if cb.tree.isEmpty && cb.parseError.isDefined =>
+          hasParseError = true
+        case _ => ()
+      }
+      s.subsections.foreach(walkSection)
+    module.sections.foreach(walkSection)
+    if hasParseError then
+      val elapsed = System.currentTimeMillis() - t0
+      CheckResult(file, parseErrors = true, errors = Nil, elapsedMs = elapsed)
+    else
+      val typed =
+        if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
+        else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
+      val elapsed = System.currentTimeMillis() - t0
+      CheckResult(file, parseErrors = false, errors = typed.errors, elapsedMs = elapsed)
+  catch case e: Exception =>
+    val elapsed = System.currentTimeMillis() - t0
+    // Treat an unexpected exception as a parse error so the caller can assign
+    // exit code 2.
+    CheckResult(
+      file, parseErrors = true,
+      errors = List(scalascript.typer.TypeError(e.getMessage, None)),
+      elapsedMs = elapsed
+    )
+
+/** Recursively walk `dir` and return paths of all `.ssc` files. */
+private def collectSscFiles(dir: os.Path): List[os.Path] =
+  if !os.exists(dir) || !os.isDir(dir) then Nil
+  else
+    os.walk(dir)
+      .filter(p => os.isFile(p) && p.ext == "ssc")
+      .sortBy(_.toString)
+      .toList
+
+/** Render `CheckResult` list as structured JSON.
+ *
+ *  Single-file form:
+ *  {{{
+ *    {"file":"f.ssc","errors":[...],"warnings":[],"elapsed_ms":42}
+ *  }}}
+ *  Multi-file form is an array of such objects.
+ */
+private def checkResultsToJson(results: List[CheckResult]): String =
+  def escapeJson(s: String): String =
+    s.replace("\\", "\\\\")
+     .replace("\"", "\\\"")
+     .replace("\n", "\\n")
+     .replace("\r", "\\r")
+     .replace("\t", "\\t")
+  def errorToJson(e: scalascript.typer.TypeError): String =
+    val (line, col) = e.span.map(s => (s.start.line, s.start.column)).getOrElse((0, 0))
+    s"""{"line":$line,"col":$col,"severity":"error","message":"${escapeJson(e.msg)}"}"""
+  def resultToJson(r: CheckResult): String =
+    val errJsons = r.errors.map(errorToJson).mkString(",")
+    val errArray = s"[$errJsons]"
+    val parseNote =
+      if r.missing then s"""{"line":0,"col":0,"severity":"error","message":"file not found"}"""
+      else if r.parseErrors && r.errors.isEmpty then
+        s"""{"line":0,"col":0,"severity":"error","message":"parse error"}"""
+      else ""
+    val allErrs =
+      if parseNote.nonEmpty then
+        if errJsons.isEmpty then s"[$parseNote]" else s"[$parseNote,$errJsons]"
+      else errArray
+    s"""{"file":"${escapeJson(r.file)}","errors":$allErrs,"warnings":[],"elapsed_ms":${r.elapsedMs}}"""
+  if results.length == 1 then resultToJson(results.head)
+  else "[" + results.map(resultToJson).mkString(",\n ") + "]"
+
 def checkCommand(args: List[String]): Unit =
-  var ifaceDir: Option[os.Path] = None
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+  import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
+  import scala.jdk.CollectionConverters.*
+
+  var ifaceDir:   Option[os.Path] = None
+  var jsonMode:   Boolean         = false
+  var quietMode:  Boolean         = false
+  var watchMode:  Boolean         = false
+  val inputs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--iface-dir" | "-I" if it.hasNext =>
         ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case f => files += f
+      case "--json"    => jsonMode  = true
+      case "--quiet"   => quietMode = true
+      case "--watch"   => watchMode = true
+      case f           => inputs += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc check [--iface-dir <dir>] <file.ssc> [...]")
+  if inputs.isEmpty then
+    if !quietMode then
+      System.err.println(
+        "Usage: ssc check [--iface-dir <dir>] [--json] [--quiet] [--watch] <file.ssc|dir/> [...]"
+      )
     System.exit(1)
 
-  // Load interface files if --iface-dir was supplied.
+  // ── Load interface files ─────────────────────────────────────────────────
   val interfaces: Map[String, scalascript.ir.ModuleInterface] =
     ifaceDir match
       case None => Map.empty
       case Some(dir) =>
         if !os.isDir(dir) then
-          System.err.println(s"ssc check: --iface-dir '$dir' is not a directory")
+          if !quietMode then
+            System.err.println(s"ssc check: --iface-dir '$dir' is not a directory")
           System.exit(1)
         os.list(dir).filter(_.ext == "scim").flatMap { p =>
           ArtifactIO.readInterfaceFile(p) match
             case Right(iface) =>
               List(p.last.stripSuffix(".scim") -> iface)
             case Left(err) =>
-              System.err.println(s"ssc check: [warn] skipping interface ${p.last}: $err")
+              if !quietMode then
+                System.err.println(s"ssc check: [warn] skipping interface ${p.last}: $err")
               Nil
         }.toMap
 
-  // Collect intrinsic names from all loaded backend plugins so the typer
-  // does not flag extern-def names (route, Async, Response, …) as undefined.
+  // ── Collect plugin built-in names ─────────────────────────────────────
   val pluginBuiltins: Set[String] =
     BackendRegistry.inProcess
       .flatMap(_.intrinsics.keys)
       .flatMap { qn =>
         val full = qn.value
-        // Include both the full qualified name and its root segment so
-        // `oauth.client.foo` also makes `oauth` visible as a namespace.
         full :: full.split('.').headOption.toList
       }
       .toSet
 
-  var hasErrors = false
+  // ── Expand inputs: files + directories ───────────────────────────────
+  def expandInputs(inList: List[String]): List[String] =
+    inList.flatMap { inp =>
+      val p = os.Path(inp, os.pwd)
+      if os.isDir(p) then collectSscFiles(p).map(_.toString)
+      else List(inp)
+    }
 
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"$file: error: file not found")
-      hasErrors = true
-    else
-      try
-        val module = Parser.parse(os.read(path))
-        // Report code-block parse errors (structured, with position).
-        if reportCodeBlockParseErrors(module, file) then
-          hasErrors = true
+  // ── Exit code helper ─────────────────────────────────────────────────
+  def exitCodeFor(results: List[CheckResult]): Int =
+    if      results.exists(_.missing)                              then 3
+    else if results.exists(r => !r.missing && r.errors.nonEmpty)  then 1
+    else if results.exists(_.parseErrors)                         then 2
+    else                                                               0
+
+  // ── Watch mode ────────────────────────────────────────────────────────
+  if watchMode then
+    // In watch mode we only support a single file argument.
+    val rawFile = inputs.headOption.getOrElse:
+      if !quietMode then System.err.println("ssc check --watch: expected a file argument")
+      System.exit(1); ""
+    val absPath   = Paths.get(rawFile).toAbsolutePath.normalize
+    val dir       = absPath.getParent
+    val displayF  = rawFile
+
+    def timestamp(): String =
+      val now = java.time.LocalTime.now()
+      f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
+
+    def runOnce(): Unit =
+      val t0       = System.currentTimeMillis()
+      val result   = checkOneFile(displayF, interfaces, pluginBuiltins)
+      val elapsed  = System.currentTimeMillis() - t0
+      val ts       = timestamp()
+      if !quietMode then
+        if jsonMode then
+          println(s"[$ts] " + checkResultsToJson(List(result)))
+        else if result.ok then
+          println(s"[$ts] ${absPath.getFileName}: OK (${elapsed}ms)")
         else
-          val typed =
-            if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
-            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
-          if typed.hasErrors then
-            hasErrors = true
-            typed.errors.foreach { e =>
-              val location = e.span match
-                case Some(s) => s"$file:${s.start.line}:${s.start.column}"
-                case None    => file
-              System.err.println(s"$location: error: ${e.msg}")
-            }
+          val nerrs = result.errors.size + (if result.parseErrors then 1 else 0)
+          System.err.println(s"[$ts] ${absPath.getFileName}: $nerrs error(s)")
+          if result.missing then
+            System.err.println(s"[$ts] ${result.file}: error: file not found")
+          else if result.parseErrors then
+            val path = os.Path(displayF, os.pwd)
+            try { val m = Parser.parse(os.read(path)); reportCodeBlockParseErrors(m, displayF) }
+            catch case e: Exception => System.err.println(s"$displayF: error: ${e.getMessage}")
           else
-            println(s"$file: OK")
-      catch case e: Exception =>
-        hasErrors = true
-        System.err.println(s"$file: error: ${e.getMessage}")
+            result.errors.foreach { e =>
+              val loc = e.span.map(s => s"$displayF:${s.start.line}:${s.start.column}").getOrElse(displayF)
+              System.err.println(s"[$ts] $loc: error: ${e.msg}")
+            }
 
-  if hasErrors then System.exit(1)
+    if !quietMode then
+      System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
+    runOnce()
+
+    val watcher = FileSystems.getDefault.newWatchService()
+    dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
+    try
+      while true do
+        val key     = watcher.take()
+        val changed = key.pollEvents().asScala.exists { ev =>
+          ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
+        }
+        if changed then
+          Thread.sleep(50) // debounce
+          runOnce()
+        key.reset()
+    catch case _: InterruptedException => () // Ctrl-C
+    return
+
+  // ── Normal (one-shot) mode ────────────────────────────────────────────
+  val fileList = expandInputs(inputs.toList)
+  if fileList.isEmpty then
+    if !quietMode then System.err.println("ssc check: no .ssc files found")
+    System.exit(1)
+  val results = fileList.map { f => checkOneFile(f, interfaces, pluginBuiltins) }
+  if !quietMode then
+    if jsonMode then
+      println(checkResultsToJson(results))
+    else
+      results.foreach { r =>
+        if r.missing then
+          System.err.println(s"${r.file}: error: file not found")
+        else if r.parseErrors then
+          val path = os.Path(r.file, os.pwd)
+          try
+            val module = Parser.parse(os.read(path))
+            reportCodeBlockParseErrors(module, r.file)
+          catch case e: Exception =>
+            System.err.println(s"${r.file}: error: ${e.getMessage}")
+        else if r.errors.nonEmpty then
+          r.errors.foreach { e =>
+            val location = e.span match
+              case Some(s) => s"${r.file}:${s.start.line}:${s.start.column}"
+              case None    => r.file
+            System.err.println(s"$location: error: ${e.msg}")
+          }
+        else
+          println(s"${r.file}: OK")
+      }
+      val errCount = results.count(r => r.missing || r.parseErrors || r.errors.nonEmpty)
+      if errCount > 1 then System.err.println(s"$errCount errors found.")
+  System.exit(exitCodeFor(results))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc link  —  v2.0 separate compilation

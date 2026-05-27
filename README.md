@@ -656,6 +656,11 @@ ssc run-jvm file.ssc          # same as above (backward-compat alias)
 ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
 ssc watch file.ssc            # watch mode (re-run on change)
 ssc watch-bench file.ssc      # benchmark watch reload cycles on a temp copy
+ssc check file.ssc            # type-check only (parse + typer, no codegen); exit 0=clean 1=type-err 2=parse-err 3=notfound
+ssc check --json file.ssc     # structured JSON diagnostics
+ssc check --quiet file.ssc    # no output, exit code only (for pre-commit hooks)
+ssc check --watch file.ssc    # re-check on file change, Ctrl-C to stop
+ssc check src/                # recursively check all *.ssc files in a directory
 ssc repl                      # interactive REPL
 ssc build myapp.ssc           # build project file → dist/ (--target ssc|jvm|js|web)
 ssc build                     # auto-discover <dirname>.ssc or single .ssc in cwd

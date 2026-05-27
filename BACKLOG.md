@@ -1916,9 +1916,9 @@ a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
     checks `WsConnection.activeCount`, and skips automatically when
     `ulimit -n` is too low for a meaningful run.
 
-### Tooling — `ssc check` standalone type-checker
+### Tooling — `ssc check` standalone type-checker ✓ Landed (2026-05-27)
 
-**Status: landed. Effort: ~1 day. Priority: 2.**
+**Status: fully landed (2026-05-27). Effort: ~1 day. Priority: 2.**
 
 `ssc check src/**/*.ssc` — run the typer without interpreting, exit non-zero on
 diagnostics.  For CI.  Generalises existing `check-with-iface` to standalone.
@@ -1927,7 +1927,12 @@ Supports `--iface-dir <dir>` / `-I <dir>` for checking against pre-compiled inte
 - [x] Add `check` command to CLI dispatch
 - [x] Print diagnostics to stderr in `file:line:col: message` format
 - [x] Exit non-zero when any error found
-- [x] Integration tests in `CheckCommandTest` (7 tests, all green)
+- [x] `--json` flag: structured JSON diagnostics with line/col/severity/message + elapsed_ms
+- [x] `--quiet` flag: suppress all output, exit code only (for pre-commit hooks)
+- [x] `--watch` flag: re-check on file change using Java WatchService, Ctrl-C exits cleanly
+- [x] Directory mode: recursively finds `*.ssc` files, checks each, exits 1 if any error
+- [x] Distinct exit codes: 0=clean, 1=type-errors, 2=parse-errors, 3=file-not-found
+- [x] Integration tests in `CheckCommandTest` (18 tests, all green)
 
 ### Runtime — Interpreter file split ✓ Landed (2026-05-21, Phase 1+2)
 

@@ -8,6 +8,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **blockchain-cosmos** — `payments/blockchain/cosmos/`: secp256k1 ECDSA (RFC 6979) + ed25519 signing via BouncyCastle; Cosmos StdSignDoc Amino JSON encoding with canonical field order; bech32 address derivation with configurable HRP (`cosmos`/`osmo`/`juno`); `CosmosChainAdapter` implementing `ChainAdapter` SPI; `ChainId.CosmosHub`/`ChainId.Osmosis`/`ChainId.Juno` added to `blockchain-spi`; `BlockchainProvider` SPI trait + `CosmosBackend` ServiceLoader registration. 41 tests.
 
+- **ssc-check** — `ssc check` expanded: `--json` (structured diagnostics), `--quiet` (exit-code-only for CI hooks), `--watch` (WatchService re-check on change), directory mode (recursive `*.ssc` scan), distinct exit codes (0/1/2/3). 18 integration tests in `CheckCommandTest`.
+
 - **v1.54.4-bank-rails-fednow** — `runtime/std/payments-fednow/` FedNow instant payments adapter: ISO 20022 pacs.008.001.08 credit transfer XML builder, pacs.002.001.10 status parser (ACCP/PDNG→Pending, ACSC→Settled, RJCT→Rejected), HMAC-SHA256 webhook receiver, FedNowProvider (USD-only, $500K limit, cancel/direct-debit unsupported), FedNowPlugin SPI, 23 tests, `examples/bank-rails-fednow.ssc`.
 
 - **v1.54.2-bank-rails-ach** — `payments/bank-rails/` (BankRailsProvider SPI + BankTransfer/DirectDebitMandate core types + RCode/CCode) + `runtime/std/payments-ach/` (NachaFile 94-char fixed-width builder, AchProvider, AchWebhookReceiver HMAC-SHA256, AchPlugin Backend SPI, `AchConfig`, same-day ACH, R/C-code handling, `examples/bank-rails-ach.ssc`). 28 tests.

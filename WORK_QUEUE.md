@@ -93,7 +93,7 @@ _(all done — see Done section below)_
 - [x] **sbt-interop-plugin** — Build-tool integration: `sbt-scalascript-interop` plugin + Mill module trait + scala-cli directive (2026-05-27)
   _`ssc generate-facade` CLI command; sbt plugin with 4 scripted tests; Mill trait + scala-cli docs. Source: `tools/sbt-plugin/`. Spec: `docs/scala-interop.md §6`._
 
-- [ ] **ssc-check** — Standalone `ssc check <file>` CLI command: type-check without codegen or linking; exit 0 = clean, exit 1 = errors with structured output; `--json` flag for machine-readable diagnostics; `--watch` mode re-checks on save (reuse `ParseCache` + incremental typer); designed for CI pre-commit hooks and IDE integrations. Spec: `BACKLOG.md §Tooling — ssc check standalone type-checker`.
+- [x] **ssc-check** — Standalone `ssc check <file>` CLI command: type-check without codegen or linking; exit 0 = clean, exit 1 = errors with structured output; `--json` flag for machine-readable diagnostics; `--watch` mode re-checks on save (reuse `ParseCache` + incremental typer); designed for CI pre-commit hooks and IDE integrations. Spec: `BACKLOG.md §Tooling — ssc check standalone type-checker`. (2026-05-27)
 
 - [ ] **lsp-phase3** — LSP Phase 3: `textDocument/codeAction` (quick-fix for unknown-name + unused-import diagnostics); `textDocument/formatting` (indent normalisation, trailing-whitespace strip); `textDocument/inlayHint` (inferred types on `val` bindings, effect annotations); `workspace/didChangeWatchedFiles` (auto-reload `.ssc` on disk change without client re-open). Spec: `BACKLOG.md §LSP server`.
 
