@@ -745,6 +745,8 @@ then pause — it survives context rotations and works across sessions.
 LOOP:
     1.  # ── From the MAIN CHECKOUT, not from any worktree ──
         git fetch origin
+        # Re-read AGENTS.md — pick up protocol changes without restarting:
+        Read git show origin/main:AGENTS.md and apply any updated rules
         # Check paused and queue via remote — safe from any context:
         git ls-tree origin/main .work/ | grep -q paused → STOP (announce, await user)
         if user sent a stop signal in the last message → STOP
