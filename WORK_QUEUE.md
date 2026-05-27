@@ -40,7 +40,7 @@ _(all done — see Done section below)_
 
 - [ ] **v1.54.4-bank-rails-fednow** — `runtime/std/payments-fednow/` (FedNow instant via ISO 20022 over FedLine; `pacs.008` credit transfer; `pacs.002` status; webhook adapter). Spec: `docs/bank-rails.md §v1.54.4`.
 
-- [ ] **blockchain-bitcoin** — `runtime/blockchain/bitcoin/`: secp256k1 ECDSA with sighash variants (SIGHASH_ALL/NONE/SINGLE + ANYONECANPAY), SegWit BIP-143 sighash, Taproot BIP-341 Schnorr signing; P2WPKH bech32 address derivation; PSBT (BIP-174) builder + signer + finalizer for hardware-wallet compatibility; `BitcoinChainAdapter` implementing `ChainAdapter` SPI; `BlockchainProvider` / `ChainId.BitcoinMainnet` / `ChainId.BitcoinTestnet`; 20+ tests. Spec: `BACKLOG.md §Phase 5`.
+- [x] **blockchain-bitcoin** — `payments/blockchain/bitcoin/`: secp256k1 ECDSA (RFC 6979), BIP-143 SegWit sighash, BIP-340 Schnorr + BIP-341 Taproot tweakedKey, P2WPKH bech32 + P2TR bech32m addresses, PSBT BIP-174 builder/signer/finalizer, `BitcoinChainAdapter` + `ChainId.BitcoinMainnet/Testnet`; 45 tests. ✓ Landed 2026-05-27.
 
 ## Database
 

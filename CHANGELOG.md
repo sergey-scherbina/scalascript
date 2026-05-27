@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **blockchain-bitcoin** — secp256k1 ECDSA (RFC 6979 deterministic k), BIP-143 SegWit sighash, BIP-340 Schnorr signing/verification, BIP-341 Taproot (tapTweakHash + tweakedKey + tweakedPrivateKey), P2WPKH bech32 (`bc1q`/`tb1q`) + P2TR bech32m (`bc1p`/`tb1p`) address derivation, PSBT BIP-174 builder/signer/finalizer/deserializer, `BitcoinChainAdapter` (`ChainAdapter` SPI), `ChainId.BitcoinMainnet`/`ChainId.BitcoinTestnet` added to `blockchain-spi`. 45 tests.
+
 - v1.54-bank-rails-spec — Bank Rails spec (SEPA/ACH/Pix/FedNow) ✓ (2026-05-27)
 
 - **v1.51.5-streams-buffer** — Streams plugin now supports `.buffer(n, OverflowStrategy)` with `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, and `Fail`; `.throttle(Rate)`; `.debounce(durationMillis)`; `Rate(...)`; `OverflowStrategy` companion constants; and `Source.signal(sig)` as an interpreter current-value adapter. Added 7 interpreter tests and expanded `examples/streams.ssc`. Live UI signal subscriptions and Clock-effect-backed wall-time scheduling are tracked as `v1.51.5b-streams-clock-ui-signals`.

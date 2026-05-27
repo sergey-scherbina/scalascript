@@ -4130,13 +4130,18 @@ regression test green.
       `## Wallet SPI — Scala.js cross-compile / Stage 2` further down
       this file.
 
-### Phase 5 — blockchain-bitcoin
+### Phase 5 — blockchain-bitcoin ✓ Landed (2026-05-27)
 
-- [ ] `blockchain-bitcoin` — secp256k1 with sighash variants
-      (SIGHASH_ALL/NONE/SINGLE + ANYONECANPAY; SegWit BIP-143;
-      Taproot BIP-341)
-- [ ] P2WPKH bech32 addresses
-- [ ] PSBT (BIP-174) for hardware-wallet compatibility
+- [x] `blockchain-bitcoin` — secp256k1 ECDSA with RFC-6979 deterministic k,
+      sighash variants (SIGHASH_ALL/NONE/SINGLE + ANYONECANPAY),
+      BIP-143 SegWit sighash for P2WPKH inputs
+- [x] P2WPKH bech32 (`bc1q`/`tb1q`) and P2TR bech32m (`bc1p`/`tb1p`) addresses
+- [x] PSBT (BIP-174) builder: addInput/addOutput/sign/finalizeInputs/serialize +
+      deserialize; round-trip tested
+- [x] BIP-340 Schnorr sign/verify; BIP-341 tapTweakHash + tweakedKey + tweakedPrivateKey
+- [x] `ChainId.BitcoinMainnet` / `ChainId.BitcoinTestnet` added to `blockchain-spi`
+- [x] `BitcoinChainAdapter` implementing `ChainAdapter` SPI
+- [x] 45 tests — sign/verify, sighash, P2WPKH/P2TR addresses, Bech32/Bech32m, PSBT, Schnorr
 
 ### Phase 6 — blockchain-cardano + x402 Cardano facilitator ✓ Landed (2026-05-20)
 

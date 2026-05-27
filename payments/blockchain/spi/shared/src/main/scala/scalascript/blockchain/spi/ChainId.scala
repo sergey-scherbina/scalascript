@@ -24,6 +24,10 @@ object ChainId:
   val Arbitrum:         ChainId = ChainId("eip155:42161")
   val Optimism:         ChainId = ChainId("eip155:10")
 
+  // Bitcoin (CAIP-2 namespace "bip122"; reference = first 32 bytes of genesis block hash, hex)
+  val BitcoinMainnet: ChainId = ChainId("bip122:000000000019d6689c085ae165831e93")
+  val BitcoinTestnet: ChainId = ChainId("bip122:000000000933ea01ad0ee984209779ba")
+
   // Cardano (CAIP-2 namespace "cardano")
   val CardanoMainnet: ChainId = ChainId("cardano:mainnet")
   val CardanoPreprod: ChainId = ChainId("cardano:preprod")
