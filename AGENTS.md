@@ -539,21 +539,26 @@ claim the *same* task simultaneously — but the rejected push prevents that.
 Run these commands from the **main checkout** (not inside a worktree):
 
 ```bash
-# 1. Get a fresh, authoritative view of the world
-git fetch origin
-git reset --hard origin/main
+# ══ MUST run from the MAIN CHECKOUT (/Users/sergiy/work/my/scalascript) ══
+# ══ NEVER run from a worktree — commits there go on the feature branch,  ══
+# ══ not on main, so the claim file never reaches origin/main.            ══
 
-# 2. Read what's available
-cat WORK_QUEUE.md                     # ordered pending list
-ls .work/active/                      # what's already claimed
-cat .work/active/*.claim 2>/dev/null  # which worktrees own which tasks
+# 1. Fetch fresh remote state
+git fetch origin
+
+# 2. Read what's available — use git show/ls-tree (safe from any context)
+git show origin/main:WORK_QUEUE.md              # ordered pending list
+git ls-tree origin/main .work/active/           # currently claimed slugs
+# ⚠ Do NOT use `cat WORK_QUEUE.md` or `ls .work/active/` — those read from
+#   the local branch, which may be stale or a worktree's feature branch.
 
 # 3. Pick the highest-priority Pending task whose slug has no .claim file
 #    (if every Pending task is claimed, wait or read BACKLOG.md for unlisted work)
 TASK_SLUG="v1.46-phase5-derivation"   # example
 WORKTREE_NAME="feature+phase5-derivation"
 
-# 4. Write the claim file
+# 4. Sync the main checkout, then write the claim file
+git reset --hard origin/main          # ← only safe on the main checkout
 echo "$WORKTREE_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)" > ".work/active/${TASK_SLUG}.claim"
 git add ".work/active/${TASK_SLUG}.claim"
 git commit -m "claim: ${TASK_SLUG}"
@@ -568,6 +573,11 @@ git push origin main
 instant, both push. Git allows only one to fast-forward; the other is rejected
 with "Updates were rejected because the tip of your current branch is behind".
 The loser refetches, sees the winner's claim file, and picks a different task.
+
+**Why worktrees break claiming:** Inside a worktree, `git commit` writes to the
+worktree's feature branch (e.g. `feature/v153`). Then `git push origin main`
+pushes the LOCAL `main` ref — which has no new commit. The push succeeds silently,
+the claim file is invisible on `origin/main`, and another agent picks the same task.
 
 ### Starting work after a successful claim
 
@@ -603,12 +613,13 @@ code is already on main.
 
 ```bash
 git fetch origin
-git ls-tree origin/main .work/active/   # all active claims on remote
-# or:
-for f in .work/active/*.claim; do
-  [ "$f" = ".work/active/.gitkeep" ] && continue
-  printf "%-40s %s\n" "$(basename $f .claim)" "$(cat $f)"
+git ls-tree origin/main .work/active/   # all active claims on remote (authoritative)
+# or parse the content of each claim:
+git ls-tree origin/main .work/active/ | awk '{print $4}' | grep '\.claim$' | while read path; do
+  printf "%-40s %s\n" "$(basename $path .claim)" "$(git show origin/main:$path)"
 done
+# ⚠ Do NOT use `ls .work/active/` or `cat .work/active/*.claim` from a worktree —
+#   those read from the local branch which may predate recent claim commits.
 ```
 
 ### Stale claims (agent died, timed out, or was interrupted)
@@ -716,23 +727,44 @@ then pause — it survives context rotations and works across sessions.
 
 ### The loop
 
+> **⚠️ CRITICAL — worktree vs main checkout (most common double-claim bug)**
+>
+> Steps 1–4 and 10–12 MUST operate on the **main checkout**
+> (`/Users/sergiy/work/my/scalascript`), never from a worktree path.
+>
+> Inside a worktree, `git commit` writes to the **feature branch**, not to
+> `main`. Then `git push origin main` pushes the unchanged local `main` —
+> succeeds silently — and the claim file **never reaches `origin/main`**.
+> Other agents fetch, see no claim, and pick the same task.
+>
+> For reading state (steps 1–3) always use `git ls-tree origin/main` and
+> `git show origin/main:` — these return the authoritative remote view and
+> are safe from any context (worktree or main checkout).
+
 ```
 LOOP:
-    1.  git fetch origin && git reset --hard origin/main
-        if .work/paused exists on origin/main → STOP (announce, await user)
+    1.  # ── From the MAIN CHECKOUT, not from any worktree ──
+        git fetch origin
+        # Check paused and queue via remote — safe from any context:
+        git ls-tree origin/main .work/ | grep -q paused → STOP (announce, await user)
         if user sent a stop signal in the last message → STOP
 
-    2.  Read WORK_QUEUE.md Pending list; check .work/active/ for claimed tasks
+    2.  # ── Read authoritative state from origin/main ──
+        git show origin/main:WORK_QUEUE.md          # pending list
+        git ls-tree origin/main .work/active/       # currently claimed slugs
+        # Do NOT use `cat WORK_QUEUE.md` or `ls .work/active/` — those read
+        # from the local branch, which may be stale or a worktree branch.
         if no unclaimed Pending tasks → propose from BACKLOG (see §"Empty queue protocol")
 
     3.  Pick the highest-priority unclaimed Pending task
         if task is genuinely ambiguous (design decision, unclear scope) →
             ask the user ONE clear question, wait, then proceed
 
-    4.  Claim the task (see §"Task claiming protocol"):
-          echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
-          git add .work/active/<slug>.claim && git commit -m "claim: <slug>"
-          git push origin main
+    4.  # ── Claim — MUST happen from the MAIN CHECKOUT ──
+        git reset --hard origin/main   # sync main checkout before writing
+        echo "<worktree-name> <timestamp>" > .work/active/<slug>.claim
+        git add .work/active/<slug>.claim && git commit -m "claim: <slug>"
+        git push origin main
         if push rejected → go to step 1 (lost the race to another agent)
 
     5.  EnterWorktree("<worktree-name>") off the now-updated origin/main
