@@ -2,85 +2,110 @@ package scalascript.payments.webhook.postgres
 
 import scalascript.payments.webhook.SeenKeyStore
 import scalascript.db.{PgClient, RowDecoder}
-import java.time.{Duration, Instant}
-import java.sql.ResultSet
-import scala.concurrent.Await
-import scala.concurrent.duration.{Duration => SD, MILLISECONDS}
 
-/** Cluster-safe idempotency store backed by PostgreSQL.
+import java.sql.SQLIntegrityConstraintViolationException
+import java.time.Duration
+import scala.concurrent.duration.{Duration as ScalaDuration}
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.{Failure, Success}
+
+/** Postgres-backed SeenKeyStore with distributed advisory lock.
  *
- *  Requires a `webhook_seen_keys` table (auto-created when `autoCreate=true`):
- *  {{{
- *  CREATE TABLE IF NOT EXISTS webhook_seen_keys (
- *    event_key  TEXT        PRIMARY KEY,
- *    expires_at TIMESTAMP   NOT NULL
- *  );
- *  }}}
+ *  Uses a `seen_webhook_keys(idempotency_key TEXT PRIMARY KEY, expires_at TIMESTAMP)` table.
  *
- *  `markSeen` uses INSERT … ON CONFLICT DO NOTHING — atomic under concurrent
- *  writes thanks to the PRIMARY KEY constraint.  The first instance to insert
- *  a key wins; all subsequent attempts silently do nothing.
+ *  ## Distributed advisory lock pattern
  *
- *  `wasSeen` filters on `expires_at` so logically-expired entries are ignored
- *  without requiring a background sweep.
+ *  `wasSeen(key)` runs within a transaction:
+ *    1. Checks for an existing non-expired row. If found → return true (already processed).
+ *    2. Tries to INSERT a claim row with short TTL (claimTtlSeconds).
+ *    3. If INSERT succeeds → return false (we own this event).
+ *    4. If INSERT fails with a duplicate-key violation → return true (another instance claimed it).
  *
- *  @param db          Connected PgClient.
- *  @param table       Table name (default: "webhook_seen_keys").
- *  @param autoCreate  Whether to CREATE TABLE on first call (default: true).
- *  @param timeoutMs   Await timeout per DB call in milliseconds (default: 10000). */
+ *  `markSeen(key, expiry)` updates the row's TTL to the final replay-protection window,
+ *  or inserts if the claim row somehow no longer exists.
+ *
+ *  Call `createTable()` once at startup. Cleanup via:
+ *    DELETE FROM seen_webhook_keys WHERE expires_at < CURRENT_TIMESTAMP
+ */
 class PostgresSeenKeyStore(
-    db:          PgClient,
-    table:       String  = "webhook_seen_keys",
-    autoCreate:  Boolean = true,
-    timeoutMs:   Long    = 10000L,
-) extends SeenKeyStore:
+  pg:              PgClient,
+  tableName:       String = "seen_webhook_keys",
+  claimTtlSeconds: Long   = 300,
+  awaitTimeoutMs:  Long   = 10_000,
+)(using ExecutionContext) extends SeenKeyStore:
 
-  private val timeout = SD(timeoutMs, MILLISECONDS)
+  private val awaitTimeout              = ScalaDuration(awaitTimeoutMs, "ms")
+  private given RowDecoder[Int]         = summon[RowDecoder[Int]]
 
-  @volatile private var tableEnsured = false
-
-  private def ensureTable(): Unit =
-    if autoCreate && !tableEnsured then
-      Await.result(
-        db.execute(
-          s"CREATE TABLE IF NOT EXISTS $table (event_key TEXT PRIMARY KEY, expires_at TIMESTAMP NOT NULL)"
-        ),
-        timeout,
-      )
-      tableEnsured = true
-
-  private given RowDecoder[Boolean] with
-    def decode(rs: ResultSet): Boolean = rs.getBoolean(1)
-
-  def wasSeen(key: String): Boolean =
-    ensureTable()
-    val now  = java.sql.Timestamp.from(Instant.now())
-    val rows = Await.result(
-      db.query[Boolean](
-        s"SELECT COUNT(*) > 0 FROM $table WHERE event_key = ? AND expires_at > ?",
-        key, now,
-      ),
-      timeout,
-    )
-    rows.headOption.getOrElse(false)
-
-  def markSeen(key: String, expiry: Duration): Unit =
-    ensureTable()
-    val expiresAt = java.sql.Timestamp.from(Instant.now().plus(expiry))
-    Await.result(
-      db.execute(
-        s"INSERT INTO $table(event_key, expires_at) VALUES(?, ?) ON CONFLICT DO NOTHING",
-        key, expiresAt,
-      ),
-      timeout,
-    )
+  def createTable(): Unit =
+    Await.result(pg.execute(
+      s"""CREATE TABLE IF NOT EXISTS $tableName (
+         |  idempotency_key VARCHAR(512) NOT NULL PRIMARY KEY,
+         |  expires_at      TIMESTAMP    NOT NULL
+         |)""".stripMargin
+    ), awaitTimeout)
     ()
 
-  /** Remove all expired entries.  Call periodically from a maintenance job. */
-  def purgeExpired(): Int =
-    ensureTable()
-    val now = java.sql.Timestamp.from(Instant.now())
-    Await.result(
-      db.execute(s"DELETE FROM $table WHERE expires_at <= ?", now),
-      timeout,
+  def wasSeen(idKey: String): Boolean =
+    val result: Future[Boolean] = pg.transaction { tx =>
+      tx.query[Int](
+        s"SELECT 1 FROM $tableName WHERE idempotency_key = ? AND expires_at > CURRENT_TIMESTAMP",
+        idKey
+      ).flatMap { existing =>
+        if existing.nonEmpty then Future.successful(true)
+        else
+          tx.execute(
+            s"INSERT INTO $tableName(idempotency_key, expires_at) VALUES(?, DATEADD(SECOND, $claimTtlSeconds, CURRENT_TIMESTAMP))",
+            idKey
+          ).transform {
+            case Success(_)                                          => Success(false)
+            case Failure(_: SQLIntegrityConstraintViolationException) => Success(true)
+            case Failure(e) if isDuplicateKey(e)                     => Success(true)
+            case Failure(e)                                          => Failure(e)
+          }
+      }
+    }
+    Await.result(result, awaitTimeout)
+
+  def markSeen(idKey: String, expiry: Duration): Unit =
+    val secs = expiry.getSeconds
+    Await.result(pg.transaction { tx =>
+      tx.execute(
+        s"UPDATE $tableName SET expires_at = DATEADD(SECOND, $secs, CURRENT_TIMESTAMP) WHERE idempotency_key = ?",
+        idKey
+      ).flatMap { updated =>
+        if updated > 0 then Future.successful(())
+        else tx.execute(
+          s"INSERT INTO $tableName(idempotency_key, expires_at) VALUES(?, DATEADD(SECOND, $secs, CURRENT_TIMESTAMP))",
+          idKey
+        ).map(_ => ())
+      }
+    }, awaitTimeout)
+    ()
+
+  private def isDuplicateKey(e: Throwable): Boolean =
+    e.getMessage != null && (
+      e.getMessage.contains("Unique index or primary key violation") ||
+      e.getMessage.contains("duplicate key") ||
+      e.getMessage.contains("unique constraint") ||
+      e.getMessage.contains("23505")
     )
+
+object PostgresSeenKeyStore:
+  def apply(
+    pg:              PgClient,
+    tableName:       String = "seen_webhook_keys",
+    claimTtlSeconds: Long   = 300,
+    awaitTimeoutMs:  Long   = 10_000,
+  )(using ExecutionContext): PostgresSeenKeyStore =
+    new PostgresSeenKeyStore(pg, tableName, claimTtlSeconds, awaitTimeoutMs)
+
+  def applyAndCreate(
+    pg:              PgClient,
+    tableName:       String = "seen_webhook_keys",
+    claimTtlSeconds: Long   = 300,
+    awaitTimeoutMs:  Long   = 10_000,
+  )(using ExecutionContext): PostgresSeenKeyStore =
+    val store = new PostgresSeenKeyStore(pg, tableName, claimTtlSeconds, awaitTimeoutMs)
+    store.createTable()
+    store

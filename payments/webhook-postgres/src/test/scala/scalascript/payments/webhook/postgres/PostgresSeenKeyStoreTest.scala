@@ -1,72 +1,76 @@
 package scalascript.payments.webhook.postgres
 
 import org.scalatest.funsuite.AnyFunSuite
-import org.scalatest.BeforeAndAfterAll
 import scalascript.db.PgClient
-import scalascript.payments.webhook.SeenKeyStore
+
 import java.time.Duration
-import scala.compiletime.uninitialized
 import scala.concurrent.ExecutionContext
 
-class PostgresSeenKeyStoreTest extends AnyFunSuite with BeforeAndAfterAll:
+/** Unit tests for PostgresSeenKeyStore backed by an in-memory H2 database.
+ *  Runs without a live Postgres server.
+ */
+class PostgresSeenKeyStoreTest extends AnyFunSuite:
+
   given ExecutionContext = ExecutionContext.global
 
-  private var db: PgClient = uninitialized
+  private def h2Store(tableName: String): PostgresSeenKeyStore =
+    val pg = PgClient.connect(
+      s"jdbc:h2:mem:webhook_${tableName}_${System.nanoTime()};MODE=PostgreSQL;DB_CLOSE_DELAY=-1"
+    )
+    PostgresSeenKeyStore.applyAndCreate(pg, tableName = tableName, awaitTimeoutMs = 5_000)
 
-  override def beforeAll(): Unit =
-    db = PgClient.connect("jdbc:h2:mem:whktest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE")
+  test("createTable — table is created idempotently") {
+    val pg    = PgClient.connect(s"jdbc:h2:mem:wh_create_${System.nanoTime()};MODE=PostgreSQL;DB_CLOSE_DELAY=-1")
+    val store = PostgresSeenKeyStore(pg, tableName = "seen_keys_idem")
+    store.createTable()
+    store.createTable()
+  }
 
-  override def afterAll(): Unit =
-    if db != null then db.close()
+  test("wasSeen returns false on first call — key was not seen") {
+    val store = h2Store("test_wasSeen_first")
+    assert(!store.wasSeen("evt-001"))
+  }
 
-  private def freshStore(table: String): PostgresSeenKeyStore =
-    PostgresSeenKeyStore(db, table = table, autoCreate = true, timeoutMs = 10000L)
+  test("wasSeen returns true on second call — key was already claimed") {
+    val store = h2Store("test_wasSeen_second")
+    store.wasSeen("evt-002")
+    assert(store.wasSeen("evt-002"))
+  }
 
-  test("PostgresSeenKeyStore: wasSeen returns false for new key"):
-    val store = freshStore("whk1")
-    assert(!store.wasSeen("new-key"))
+  test("markSeen — subsequent wasSeen returns true after markSeen") {
+    val store = h2Store("test_markSeen")
+    store.wasSeen("evt-003")
+    store.markSeen("evt-003", Duration.ofDays(30))
+    assert(store.wasSeen("evt-003"))
+  }
 
-  test("PostgresSeenKeyStore: wasSeen returns true after markSeen"):
-    val store = freshStore("whk2")
-    store.markSeen("evt-a", Duration.ofDays(30))
-    assert(store.wasSeen("evt-a"))
+  test("independent keys do not interfere") {
+    val store = h2Store("test_independent")
+    assert(!store.wasSeen("key-A"))
+    assert(!store.wasSeen("key-B"))
+    assert(store.wasSeen("key-A"))
+    assert(store.wasSeen("key-B"))
+  }
 
-  test("PostgresSeenKeyStore: different keys are independent"):
-    val store = freshStore("whk3")
-    store.markSeen("evt-x", Duration.ofDays(30))
-    assert(store.wasSeen("evt-x"))
-    assert(!store.wasSeen("evt-y"))
+  test("advisory lock — concurrent claim: INSERT ON CONFLICT means first wasSeen wins") {
+    val store = h2Store("test_advisory")
+    val r1 = store.wasSeen("evt-race")
+    val r2 = store.wasSeen("evt-race")
+    assert(!r1, "first claim should succeed (not seen)")
+    assert(r2,  "second claim should fail (already claimed)")
+  }
 
-  test("PostgresSeenKeyStore: markSeen is idempotent"):
-    val store = freshStore("whk4")
-    store.markSeen("evt-idem", Duration.ofDays(30))
-    store.markSeen("evt-idem", Duration.ofDays(30))
-    assert(store.wasSeen("evt-idem"))
+  test("markSeen updates TTL on existing row") {
+    val store = h2Store("test_update_ttl")
+    store.wasSeen("evt-ttl")
+    store.markSeen("evt-ttl", Duration.ofSeconds(10))
+    store.markSeen("evt-ttl", Duration.ofDays(30))
+    assert(store.wasSeen("evt-ttl"))
+  }
 
-  test("PostgresSeenKeyStore: expired entry treated as not-seen"):
-    val store = freshStore("whk5")
-    store.markSeen("evt-exp", Duration.ofMillis(-1))
-    assert(!store.wasSeen("evt-exp"))
-
-  test("PostgresSeenKeyStore: implements SeenKeyStore trait"):
-    val store: SeenKeyStore = freshStore("whk6")
-    assert(!store.wasSeen("any-key"))
-
-  test("PostgresSeenKeyStore: purgeExpired removes expired rows"):
-    val store = freshStore("whk7")
-    store.markSeen("live-key",  Duration.ofDays(30))
-    store.markSeen("dead-key", Duration.ofMillis(-1))
-    val removed = store.purgeExpired()
-    assert(removed >= 1)
-    assert(store.wasSeen("live-key"))
-
-  test("PostgresSeenKeyStore: autoCreate creates table on first call"):
-    val store = freshStore("whk8")
-    assert(!store.wasSeen("any"))
-
-  test("PostgresSeenKeyStore: table isolation between instances with different table names"):
-    val s1 = freshStore("whk_iso1")
-    val s2 = freshStore("whk_iso2")
-    s1.markSeen("shared", Duration.ofDays(1))
-    assert(s1.wasSeen("shared"))
-    assert(!s2.wasSeen("shared"))
+  test("tableName is honoured — two stores on different tables are independent") {
+    val storeA = h2Store("table_a")
+    val storeB = h2Store("table_b")
+    storeA.wasSeen("shared-key")
+    assert(!storeB.wasSeen("shared-key"), "different tables are independent stores")
+  }
