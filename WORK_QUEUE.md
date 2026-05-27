@@ -101,7 +101,7 @@ _(all done — see Done section below)_
 
 - [ ] **wallet-ledger-js** — Ledger hardware wallet Scala.js integration: `wallet-vault-ledger-js` subproject; WebHID transport (`navigator.hid.requestDevice`) for browser; APDU framing over HID packets; Ethereum app signer (secp256k1 + EIP-712 typed-data); Cardano app signer (CIP-8 framing); connect/disconnect lifecycle; `LedgerVault` implementing `Vault` SPI; 12+ tests via mocked HID device. Spec: `BACKLOG.md §wallet-vault-ledger-js`.
 
-- [ ] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`.
+- [x] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`.
 
 ## Language & Compiler
 

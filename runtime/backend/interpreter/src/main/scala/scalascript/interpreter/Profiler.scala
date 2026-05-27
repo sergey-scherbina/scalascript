@@ -43,10 +43,71 @@ object Profiler:
   def reset(): Unit =
     counts.clear()
     nanos.clear()
+    phaseNanos.clear()
+    phaseAllocs.clear()
 
   /** Total wall-clock nanoseconds across all recorded functions. */
   def totalNanos: Long =
     nanos.values().asScala.map(_.sum()).sum
+
+  // ── Phase timing ──────────────────────────────────────────────────────
+
+  private val phaseNanos  = new ConcurrentHashMap[String, LongAdder]()
+  private val phaseAllocs = new ConcurrentHashMap[String, LongAdder]()
+
+  /** Record wall time (and optionally heap delta) for a pipeline phase. */
+  def recordPhase(phase: String, elapsedNs: Long, allocBytes: Long = 0L): Unit =
+    phaseNanos.computeIfAbsent(phase, _ => new LongAdder()).add(elapsedNs)
+    phaseAllocs.computeIfAbsent(phase, _ => new LongAdder()).add(allocBytes)
+
+  def phaseEntries(): List[(String, Long, Long)] =
+    phaseNanos.keySet().asScala.toList
+      .map(p => (p, phaseNanos.get(p).sum(), phaseAllocs.computeIfAbsent(p, _ => new LongAdder()).sum()))
+      .sortBy(-_._2)
+
+  /** Render a table of pipeline phase times. */
+  def renderPhaseTable(): String =
+    val rows = phaseEntries()
+    if rows.isEmpty then return ""
+    val sb  = new StringBuilder
+    val hdr = "── Phases " + "─" * 49
+    sb.append(hdr).append('\n')
+    sb.append("  " + "time(ms)".formatted("%10s") + "  " + "alloc(KB)".formatted("%10s") + "  phase\n")
+    val sep = "  " + "─" * 34
+    sb.append(sep).append('\n')
+    for (phase, ns, bytes) <- rows do
+      val ms = ns / 1_000_000L
+      val kb = bytes / 1024L
+      sb.append("  " + ms.toString.formatted("%10s") + "  " + kb.toString.formatted("%10s") + "  " + phase + "\n")
+    sb.append(sep).append('\n')
+    sb.toString()
+
+  /** Brendan Gregg folded stacks format suitable for flamegraph.pl.
+   *  Each line: `all;phase <microseconds>` or `all;eval;<func> <microseconds>`. */
+  def renderFolded(n: Int = 20): String =
+    val sb = new StringBuilder
+    for (phase, ns, _) <- phaseEntries() do
+      val us = math.max(1L, ns / 1_000L)
+      sb.append("all;" + phase + " " + us + "\n")
+    for (name, _, ns) <- topN(n) do
+      val us = math.max(1L, ns / 1_000L)
+      sb.append("all;eval;" + name + " " + us + "\n")
+    sb.toString()
+
+  /** Structured JSON output with both phases and per-function data. */
+  def toJsonStructured(n: Int): String =
+    val phaseParts = phaseEntries().map { (name, ns, bytes) =>
+      val ms = ns / 1_000_000.0
+      val kb = bytes / 1024L
+      "    {\"phase\":\"" + name + "\",\"wallMs\":" + ms + ",\"allocKb\":" + kb + "}"
+    }
+    val funcParts = topN(n).map { (name, calls, ns) =>
+      val ms = ns / 1_000_000.0
+      "    {\"function\":\"" + name + "\",\"calls\":" + calls + ",\"wallMs\":" + ms + "}"
+    }
+    val phaseArr = phaseParts.mkString(",\n")
+    val funcArr  = funcParts.mkString(",\n")
+    "{\n  \"phases\": [\n" + phaseArr + "\n  ],\n  \"functions\": [\n" + funcArr + "\n  ]\n}\n"
 
   /** Render a human-readable table of the top-N hotspots.
    *

@@ -9806,9 +9806,11 @@ def fmtCommand(args: List[String]): Unit =
  */
 def profileCommand(args: List[String]): Unit =
   import scalascript.interpreter.Profiler
-  var topN: Int               = 20
-  var jsonOut: Option[String] = None
-  var files: List[String]     = Nil
+  var topN:      Int            = 20
+  var jsonOut:   Option[String] = None
+  var foldedOut: Option[String] = None
+  var compareIn: Option[String] = None
+  var files:     List[String]   = Nil
   val arr = args.toArray
   var i   = 0
   while i < arr.length do
@@ -9820,10 +9822,14 @@ def profileCommand(args: List[String]): Unit =
         i += 2
       case "--output" if i + 1 < arr.length =>
         jsonOut = Some(arr(i + 1)); i += 2
+      case "--folded" if i + 1 < arr.length =>
+        foldedOut = Some(arr(i + 1)); i += 2
+      case "--compare" if i + 1 < arr.length =>
+        compareIn = Some(arr(i + 1)); i += 2
       case f =>
         files = files :+ f; i += 1
   if files.isEmpty then
-    System.err.println("Usage: ssc profile [--top N] [--output profile.json] <file.ssc>")
+    System.err.println("Usage: ssc profile [--top N] [--output profile.json] [--folded out.folded] [--compare baseline.json] <file.ssc>")
     System.exit(1)
   for file <- files do
     val path = os.Path(file, os.pwd)
@@ -9833,29 +9839,74 @@ def profileCommand(args: List[String]): Unit =
       System.out.println(s"Running ${path.last}...")
       Profiler.reset()
       Profiler.enabled = true
+      val rt = Runtime.getRuntime
       try
         val source = os.read(path)
+
+        val t0p = System.nanoTime()
+        val m0p = rt.totalMemory() - rt.freeMemory()
         val module = scalascript.parser.Parser.parse(source)
+        Profiler.recordPhase("parse", System.nanoTime() - t0p, math.max(0L, (rt.totalMemory() - rt.freeMemory()) - m0p))
+
+        val t0t = System.nanoTime()
+        val m0t = rt.totalMemory() - rt.freeMemory()
+        scalascript.typer.Typer.typeCheck(module)
+        Profiler.recordPhase("typecheck", System.nanoTime() - t0t, math.max(0L, (rt.totalMemory() - rt.freeMemory()) - m0t))
+
+        val t0e = System.nanoTime()
+        val m0e = rt.totalMemory() - rt.freeMemory()
         val interp = scalascript.interpreter.Interpreter(
           out     = System.out,
           baseDir = Some(path / os.up)
         )
         interp.run(module)
+        Profiler.recordPhase("eval", System.nanoTime() - t0e, math.max(0L, (rt.totalMemory() - rt.freeMemory()) - m0e))
       catch case e: Exception =>
         System.err.println(s"Runtime error: ${e.getMessage}")
       finally
         Profiler.enabled = false
       System.out.println()
+      System.out.print(Profiler.renderPhaseTable())
       System.out.print(Profiler.renderTable(topN))
       jsonOut.foreach { outPath =>
-        val rows = Profiler.topN(topN)
-        val jsonLines = rows.map { (name, calls, ns) =>
-          val ms = ns / 1_000_000.0
-          s"""  {"function":"$name","calls":$calls,"wallMs":$ms}"""
-        }
-        val json = s"[\n${jsonLines.mkString(",\n")}\n]\n"
+        val json = Profiler.toJsonStructured(topN)
         os.write.over(os.Path(outPath, os.pwd), json)
         System.out.println(s"Profile written to $outPath")
+      }
+      foldedOut.foreach { outPath =>
+        val folded = Profiler.renderFolded(topN)
+        os.write.over(os.Path(outPath, os.pwd), folded)
+        System.out.println(s"Folded stacks written to $outPath")
+      }
+      compareIn.foreach { baselinePath =>
+        val baselineJson = os.read(os.Path(baselinePath, os.pwd))
+        val baseline     = ujson.read(baselineJson)
+        val baseMap: Map[String, Double] =
+          baseline.obj.get("functions").map(_.arr.toList).getOrElse(Nil)
+            .flatMap { obj =>
+              for
+                fn <- obj.obj.get("function").map(_.str)
+                ms <- obj.obj.get("wallMs").map(_.num)
+              yield fn -> ms
+            }.toMap
+        val current = Profiler.topN(topN)
+        val regressions = current.flatMap { (name, _, ns) =>
+          val curMs = ns / 1_000_000.0
+          baseMap.get(name).filter { baseMs =>
+            baseMs > 0 && (curMs - baseMs) / baseMs > 0.05
+          }.map { baseMs =>
+            val pct = ((curMs - baseMs) / baseMs * 100).toInt
+            (name, baseMs, curMs, pct)
+          }
+        }
+        if regressions.isEmpty then
+          System.out.println("No regressions detected (threshold: 5%).")
+        else
+          System.out.println(s"Regressions detected (>${"5"}%):")
+          System.out.println(f"  ${"function"}%-30s  ${"baseline(ms)"}%12s  ${"current(ms)"}%12s  ${"delta"}%6s")
+          regressions.foreach { (name, baseMs, curMs, pct) =>
+            System.out.println(f"  $name%-30s  $baseMs%12.2f  $curMs%12.2f  +$pct%5d%%")
+          }
       }
 
 /** `ssc lsp` — run the Language Server Protocol server over stdio.

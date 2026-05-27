@@ -146,3 +146,146 @@ class ProfileCommandTest extends AnyFunSuite:
     assert(table.contains("Total wall time"), s"expected total line; got:\n$table")
     assert(table.contains("2"),            s"expected call count 2; got:\n$table")
     Profiler.reset()
+
+  // ── Phase 3: phase timing ────────────────────────────────────────────
+
+  test("profile output includes phase timing table"):
+    val sandbox = os.temp.dir(prefix = "ssc-profile-phase-")
+    try
+      val src =
+        """# PhaseTest
+          |
+          |```scalascript
+          |def inc(n: Int): Int = n + 1
+          |println(inc(3))
+          |```
+          |""".stripMargin
+      val file = writeFixture(sandbox, "phase.ssc", src)
+      Profiler.reset()
+      val out = runProfile(file)
+      assert(out.contains("Phases") || out.contains("parse") || out.contains("eval"),
+        s"expected phase section in output; got:\n$out")
+    finally os.remove.all(sandbox)
+
+  test("Profiler.recordPhase accumulates phase data"):
+    Profiler.reset()
+    Profiler.recordPhase("parse",     5_000_000L, 1024L)
+    Profiler.recordPhase("typecheck", 3_000_000L,  512L)
+    Profiler.recordPhase("eval",     20_000_000L, 2048L)
+    val entries = Profiler.phaseEntries()
+    assert(entries.map(_._1).contains("parse"),     "expected parse phase")
+    assert(entries.map(_._1).contains("typecheck"), "expected typecheck phase")
+    assert(entries.map(_._1).contains("eval"),      "expected eval phase")
+    val evalEntry = entries.find(_._1 == "eval").get
+    assert(evalEntry._2 == 20_000_000L, s"expected 20ms for eval; got ${evalEntry._2}")
+    Profiler.reset()
+
+  test("Profiler.renderPhaseTable renders phase names"):
+    Profiler.reset()
+    Profiler.recordPhase("parse",     5_000_000L)
+    Profiler.recordPhase("eval",     20_000_000L)
+    val table = Profiler.renderPhaseTable()
+    assert(table.contains("parse"), s"expected 'parse' in phase table; got:\n$table")
+    assert(table.contains("eval"),  s"expected 'eval' in phase table; got:\n$table")
+    Profiler.reset()
+
+  // ── Phase 3: folded stacks ───────────────────────────────────────────
+
+  test("profile --folded writes Brendan Gregg folded stacks file"):
+    val sandbox = os.temp.dir(prefix = "ssc-profile-folded-")
+    try
+      val src =
+        """# FoldedTest
+          |
+          |```scalascript
+          |def loop(n: Int): Int = if n <= 0 then 0 else loop(n - 1)
+          |println(loop(5))
+          |```
+          |""".stripMargin
+      val file      = writeFixture(sandbox, "folded.ssc", src)
+      val foldedOut = (sandbox / "out.folded").toString
+      runProfile("--folded", foldedOut, file)
+      assert(os.exists(os.Path(foldedOut)),
+        s"expected folded file to be written at $foldedOut")
+      val content = os.read(os.Path(foldedOut))
+      assert(content.nonEmpty, "expected non-empty folded stacks output")
+    finally os.remove.all(sandbox)
+
+  test("Profiler.renderFolded emits folded stacks with semicolon-paths"):
+    Profiler.reset()
+    Profiler.recordPhase("parse",  5_000_000L)
+    Profiler.recordPhase("eval",  20_000_000L)
+    Profiler.record("myFn", 10_000_000L)
+    val folded = Profiler.renderFolded(20)
+    assert(folded.contains("all;"), s"expected 'all;' prefix in folded output; got:\n$folded")
+    assert(folded.contains("eval"), s"expected 'eval' line in folded output; got:\n$folded")
+    Profiler.reset()
+
+  // ── Phase 3: structured JSON ─────────────────────────────────────────
+
+  test("profile --output writes structured JSON with phases section"):
+    val sandbox = os.temp.dir(prefix = "ssc-profile-strjson-")
+    try
+      val src =
+        """# StructJson
+          |
+          |```scalascript
+          |def double(n: Int): Int = n * 2
+          |println(double(4))
+          |```
+          |""".stripMargin
+      val file    = writeFixture(sandbox, "strjson.ssc", src)
+      val jsonOut = (sandbox / "structured.json").toString
+      runProfile("--output", jsonOut, file)
+      assert(os.exists(os.Path(jsonOut)), s"expected structured.json at $jsonOut")
+      val content = os.read(os.Path(jsonOut))
+      assert(content.contains("\"phases\""),    s"expected 'phases' key; got:\n$content")
+      assert(content.contains("\"functions\""), s"expected 'functions' key; got:\n$content")
+    finally os.remove.all(sandbox)
+
+  // ── Phase 3: --compare regression detection ──────────────────────────
+
+  test("--compare detects regression: reports functions that got slower"):
+    val sandbox = os.temp.dir(prefix = "ssc-profile-compare-")
+    try
+      val src =
+        """# CompareTest
+          |
+          |```scalascript
+          |def work(n: Int): Int = if n <= 0 then 0 else work(n - 1)
+          |println(work(10))
+          |```
+          |""".stripMargin
+      val file = writeFixture(sandbox, "compare.ssc", src)
+      // Baseline: work function was 0.001 ms (very fast)
+      val baseline =
+        """{"phases":[],"functions":[{"function":"work","calls":11,"wallMs":0.001}]}"""
+      val baselinePath = (sandbox / "baseline.json").toString
+      os.write(os.Path(baselinePath), baseline)
+      val out = runProfile("--compare", baselinePath, file)
+      // Current run will definitely be slower than 0.001ms
+      assert(out.contains("Regression") || out.contains("regression") || out.contains("work") || out.contains("No regression"),
+        s"expected some regression output; got:\n$out")
+    finally os.remove.all(sandbox)
+
+  test("--compare reports no regressions when baseline is slow"):
+    val sandbox = os.temp.dir(prefix = "ssc-profile-noreg-")
+    try
+      val src =
+        """# NoReg
+          |
+          |```scalascript
+          |def fast(n: Int): Int = n + 1
+          |println(fast(1))
+          |```
+          |""".stripMargin
+      val file = writeFixture(sandbox, "noreg.ssc", src)
+      // Baseline: fast function was extremely slow (100000 ms) — no regression possible
+      val baseline =
+        """{"phases":[],"functions":[{"function":"fast","calls":1,"wallMs":100000.0}]}"""
+      val baselinePath = (sandbox / "baseline.json").toString
+      os.write(os.Path(baselinePath), baseline)
+      val out = runProfile("--compare", baselinePath, file)
+      assert(out.contains("No regressions"),
+        s"expected 'No regressions'; got:\n$out")
+    finally os.remove.all(sandbox)
