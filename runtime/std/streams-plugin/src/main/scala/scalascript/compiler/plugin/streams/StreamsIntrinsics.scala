@@ -758,7 +758,7 @@ object StreamsIntrinsics:
             try
               val client = java.net.http.HttpClient.newHttpClient()
               val req    = java.net.http.HttpRequest.newBuilder()
-                .uri(java.net.URI.create(url.value))
+                .uri(java.net.URI.create(url.v))
                 .header("Accept", "text/event-stream")
                 .build()
               val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofLines())
@@ -817,7 +817,7 @@ object StreamsIntrinsics:
                   latch.countDown()
               java.net.http.HttpClient.newHttpClient()
                 .newWebSocketBuilder()
-                .buildAsync(java.net.URI.create(url.value), listener)
+                .buildAsync(java.net.URI.create(url.v), listener)
                 .get(5, java.util.concurrent.TimeUnit.SECONDS)
                 .request(1)
               latch.await()

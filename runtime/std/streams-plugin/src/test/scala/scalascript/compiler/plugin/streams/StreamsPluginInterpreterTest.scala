@@ -501,3 +501,78 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List("hello", 42L, true))
+
+  // ── v1.51.4 mapAsync / recover / mapError / bracket / SSE / WebSocket ──
+
+  test("mapAsync maps all elements preserving order"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3, 4, 5)).mapAsync(4)(x => x * 3).runToList()
+      """
+    ).asInstanceOf[List[Long]].sorted
+    assert(result == List(3L, 6L, 9L, 12L, 15L))
+
+  test("mapAsync with parallelism 1 is sequential"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3, 4)).mapAsync(1)(x => x + 10).runToList()
+      """
+    )
+    assert(result == List(11L, 12L, 13L, 14L))
+
+  test("recover passes items through when source succeeds"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3)).recover(err => -1).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("mapError passes items through when source succeeds"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3)).mapError(err => err).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("Source.bracket acquires resource, uses it, and releases it"):
+    val result = interp.eval(
+      """
+      var released = List()
+      val src = Source.bracket(
+        () => 42
+      )(
+        r => { released = released :+ true }
+      )(
+        r => Source.from(List(r, r + 1, r + 2))
+      )
+      val items = src.runToList()
+      List(items, released)
+      """
+    )
+    assert(result == List(List(42L, 43L, 44L), List(true)))
+
+  test("Sink.toSseStream formats elements as SSE data lines"):
+    val result = interp.eval(
+      """
+      Source.from(List("hello", "world")).to(Sink.toSseStream)
+      """
+    )
+    assert(result == "data: hello\n\ndata: world\n\n")
+
+  test("Source.fromSse returns empty source when connection fails"):
+    val result = interp.eval(
+      """
+      Source.fromSse("http://localhost:19999/nonexistent").runToList()
+      """
+    )
+    assert(result == Nil)
+
+  test("Source.fromWebSocket returns empty source when connection fails"):
+    val result = interp.eval(
+      """
+      Source.fromWebSocket("ws://localhost:19998/nonexistent").runToList()
+      """
+    )
+    assert(result == Nil)

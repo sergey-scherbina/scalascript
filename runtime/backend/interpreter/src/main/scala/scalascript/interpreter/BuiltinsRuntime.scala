@@ -629,7 +629,10 @@ private[interpreter] object BuiltinsRuntime:
         "single"        -> interp.globals.getOrElse("Source.single", Value.UnitV),
         "empty"         -> interp.globals.getOrElse("Source.empty", Value.UnitV),
         "fromGenerator" -> interp.globals.getOrElse("Source.fromGenerator", Value.UnitV),
-        "signal"        -> interp.globals.getOrElse("Source.signal", Value.UnitV),
+        "signal"        -> interp.globals.getOrElse("Source.signal",        Value.UnitV),
+        "bracket"       -> interp.globals.getOrElse("Source.bracket",       Value.UnitV),
+        "fromSse"       -> interp.globals.getOrElse("Source.fromSse",       Value.UnitV),
+        "fromWebSocket" -> interp.globals.getOrElse("Source.fromWebSocket", Value.UnitV),
       ))
     }
     interp.globals.get("OverflowStrategy.Backpressure").foreach { bp =>
@@ -648,7 +651,9 @@ private[interpreter] object BuiltinsRuntime:
         "foreach" -> fe,
         "fold"    -> interp.globals.getOrElse("Sink.fold",   Value.UnitV),
         "ignore"  -> interp.globals.getOrElse("Sink.ignore", Value.UnitV),
-        "toList"  -> interp.globals.getOrElse("Sink.toList", Value.UnitV),
+        "toList"      -> interp.globals.getOrElse("Sink.toList",      Value.UnitV),
+        "toSseStream" -> interp.globals.getOrElse("Sink.toSseStream", Value.UnitV),
+        "toWsRoom"    -> interp.globals.getOrElse("Sink.toWsRoom",    Value.UnitV),
       ))
     }
     interp.globals.get("Flow.map").foreach { fm =>
