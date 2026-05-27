@@ -28,6 +28,7 @@ case class Eip712Domain(
 trait Wallet:
   def address: String
   def network: Network
+  def cardanoSigningMode: CardanoSigningMode = CardanoSigningMode.Description
 
   /** EIP-712 typed-data signing. EVM wallets implement; Cardano wallets fail. */
   def signEip712(
@@ -38,6 +39,37 @@ trait Wallet:
 
   /** CIP-8 (COSE_Sign1) signing for Cardano. Cardano wallets implement; EVM wallets fail. */
   def signCip8(message: Array[Byte]): Future[CardanoPaymentProof]
+
+enum CardanoSigningMode:
+  case Description
+  case ScalusClaim
+
+case class ScalusClaimMessage(
+  receiver:    String,
+  lovelace:    BigInt,
+  validBefore: BigInt,
+):
+  def bytes: Array[Byte] =
+    ScalusClaimMessage.encode(receiver, lovelace, validBefore)
+
+object ScalusClaimMessage:
+  val domain: String = "x402-scalus/v1"
+
+  def encode(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
+    val receiverBytes = CardanoAddress.toBytes(receiver)
+    domain.getBytes("UTF-8") ++ receiverBytes ++ uint64(lovelace, "lovelace") ++ uint64(validBefore, "validBefore")
+
+  private def uint64(value: BigInt, field: String): Array[Byte] =
+    require(value >= 0, s"$field must be non-negative, got $value")
+    require(value < (BigInt(1) << 64), s"$field is too large for uint64-compatible encoding: $value")
+    val out = new Array[Byte](8)
+    var v   = value
+    var i   = 7
+    while i >= 0 do
+      out(i) = (v & 0xff).toByte
+      v = v >> 8
+      i -= 1
+    out
 
 // ── Private-key wallet (JVM / Node.js automation) ─────────────────────────────
 //
@@ -133,6 +165,7 @@ private class CardanoPrivateKeyWallet(
   privateKeyHex: String,
   val address:   String,
   val network:   Network,
+  override val cardanoSigningMode: CardanoSigningMode = CardanoSigningMode.Description,
 )(using ec: ExecutionContext) extends Wallet:
 
   require(network.isCardano, s"CardanoPrivateKeyWallet requires a Cardano network, got $network")
@@ -177,10 +210,32 @@ object Wallets:
   def cardano(hex: String, network: Network)(using ExecutionContext): Wallet =
     new CardanoPrivateKeyWallet(hex, deriveCardanoEnterpriseAddress(hex, network), network)
 
+  /** Cardano CIP-8 wallet with selectable signing mode. `scalusMode =
+   *  true` signs the structured Scalus claim message used by Plutus
+   *  escrow settlement instead of the legacy request description. */
+  def cardano(hex: String, network: Network, scalusMode: Boolean)(using ExecutionContext): Wallet =
+    new CardanoPrivateKeyWallet(
+      hex,
+      deriveCardanoEnterpriseAddress(hex, network),
+      network,
+      if scalusMode then CardanoSigningMode.ScalusClaim else CardanoSigningMode.Description,
+    )
+
   /** Cardano CIP-8 wallet with an explicit address (use when supplying a
    *  pointer-, script-, or otherwise hand-crafted bech32 address). */
   def cardano(hex: String, address: String, network: Network)(using ExecutionContext): Wallet =
     new CardanoPrivateKeyWallet(hex, address, network)
+
+  /** Cardano CIP-8 wallet with explicit address and selectable signing
+   *  mode. Use for stake-aware, script, or externally supplied payer
+   *  addresses. */
+  def cardano(hex: String, address: String, network: Network, scalusMode: Boolean)(using ExecutionContext): Wallet =
+    new CardanoPrivateKeyWallet(
+      hex,
+      address,
+      network,
+      if scalusMode then CardanoSigningMode.ScalusClaim else CardanoSigningMode.Description,
+    )
 
   /** Cardano CIP-8 wallet with a stake-aware **base** address derived
    *  from both keys (CIP-19 type 0/1): `header || Blake2b-224(payment) ||
@@ -299,10 +354,10 @@ private object PayloadBuilder:
       )
     }
 
-  /** Cardano CIP-8 payload. The message signed is `req.description` (UTF-8),
-   *  matching `CardanoFacilitator.Cip8Verifier.requirementsMessage`. The
-   *  `authorization` field is filled with payer/payee/amount metadata for
-   *  observability — the Cardano facilitator only reads `cardanoProof`. */
+  /** Cardano CIP-8 payload. Legacy wallets sign `req.description` (UTF-8),
+   *  matching `CardanoFacilitator.Cip8Verifier.requirementsMessage`.
+   *  Scalus-mode wallets sign a structured claim message and propagate the
+   *  escrow UTxO ref through `authorization.nonce`. */
   private def buildCardano(wallet: Wallet, req: PaymentRequirements)(using ec: ExecutionContext): Future[PaymentPayload] =
     val lovelace = req.scheme match
       case PaymentScheme.CardanoExact(l, _) => l
@@ -316,9 +371,12 @@ private object PayloadBuilder:
       value       = lovelace,
       validAfter  = BigInt(0),
       validBefore = validBefore,
-      nonce       = "",   // Cardano anti-replay rides on the signed description bytes
+      nonce       = req.scalusEscrowRef.getOrElse(""),
     )
-    val message = req.description.getBytes("UTF-8")
+    val message =
+      if wallet.cardanoSigningMode == CardanoSigningMode.ScalusClaim then
+        ScalusClaimMessage(req.payTo, lovelace, validBefore).bytes
+      else req.description.getBytes("UTF-8")
     wallet.signCip8(message).map { proof =>
       PaymentPayload(
         scheme        = req.scheme,

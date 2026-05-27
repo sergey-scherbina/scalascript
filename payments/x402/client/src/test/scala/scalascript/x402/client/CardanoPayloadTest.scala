@@ -104,6 +104,37 @@ class CardanoPayloadTest extends AnyFunSuite:
     assert(json("scheme")("type").str == "cardanoExact")
   }
 
+  test("Wallets.cardano(..., scalusMode = true): signs structured claim message and carries escrowRef") {
+    val receiver = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod).address
+    val req = cardanoReq.copy(
+      payTo           = receiver,
+      scalusEscrowRef = Some("f" * 64 + "#0"),
+    )
+    val wallet  = Wallets.cardano(testPrivKeyHex, Network.CardanoPreprod, scalusMode = true)
+    val payload = Await.result(buildPayloadForRequest(wallet, req), 5.seconds)
+    val proof   = payload.cardanoProof.getOrElse(fail("cardanoProof missing"))
+    val message = extractCosePayload(proof)
+    val expected = ScalusClaimMessage(
+      receiver    = receiver,
+      lovelace    = BigInt(2_000_000),
+      validBefore = payload.authorization.validBefore,
+    ).bytes
+
+    assert(message.toSeq == expected.toSeq)
+    assert(payload.authorization.nonce == "f" * 64 + "#0")
+    assert(!new String(message, "UTF-8").contains(cardanoReq.description))
+
+    val (sigBytes, pubKey) = extractSigAndKey(proof)
+    assert(verifyEd25519(pubKey, Cip8Signer.sigStructure(message), sigBytes))
+  }
+
+  test("ScalusClaimMessage: rejects invalid receiver address") {
+    val ex = intercept[IllegalArgumentException] {
+      ScalusClaimMessage("addr_test1receiver", BigInt(1), BigInt(2)).bytes
+    }
+    assert(ex.getMessage.contains("Invalid Cardano address"))
+  }
+
   // ── CIP-19 derivation ────────────────────────────────────────────────────────
 
   test("Wallets.cardano(hex, network): derives addr_test1 on Preprod") {
@@ -227,6 +258,14 @@ class CardanoPayloadTest extends AnyFunSuite:
         }.getOrElse(throw RuntimeException("pubkey missing"))
       case _ => throw RuntimeException("not a COSE_Key")
     (sig, pk)
+
+  private def extractCosePayload(proof: CardanoPaymentProof): Array[Byte] =
+    MiniCbor.decode(hexToBytes(proof.signature)) match
+      case MiniCbor.Arr(items) =>
+        items(2) match
+          case MiniCbor.Bytes(b) => b
+          case _                 => throw RuntimeException("bad payload slot")
+      case _ => throw RuntimeException("not a COSE_Sign1")
 
   private def verifyEd25519(pubKey: Array[Byte], message: Array[Byte], sig: Array[Byte]): Boolean =
     import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters

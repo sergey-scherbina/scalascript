@@ -355,8 +355,12 @@ validator to UPLC:
 
 - `Wallets.cardano(hex, network, scalusMode = true)` — signs the
   structured claim message instead of the request description.
+  **Landed (2026-05-27)** as a client-side mode flag; the default
+  remains the legacy description-signing path for the optimistic
+  Blockfrost provider.
 - `PayloadBuilder` emits `escrowRef` via the `nonce` slot when the
-  payload references an escrow UTxO.
+  payload references an escrow UTxO. **Landed (2026-05-27)** via
+  `PaymentRequirements.scalusEscrowRef`.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

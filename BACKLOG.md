@@ -3633,11 +3633,17 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 
 #### Phase 5 — Client-side Scalus-mode wallet
 
-- [ ] `Wallets.cardano(hex, network, scalusMode = true)`
-- [ ] Structured `ScalusClaimMessage` (domain-separated:
+- [x] `Wallets.cardano(hex, network, scalusMode = true)`
+      ✓ Landed (2026-05-27): adds selectable Scalus claim-message
+      signing while preserving the default description-signing path.
+- [x] Structured `ScalusClaimMessage` (domain-separated:
       receiver|amount|validBefore) replaces the description-bytes
       payload for Scalus payments
-- [ ] `escrowRef` propagated through the payload `nonce` slot
+      ✓ Landed (2026-05-27): client tests assert COSE_Sign1 payload
+      bytes and Ed25519 verification.
+- [x] `escrowRef` propagated through the payload `nonce` slot
+      ✓ Landed (2026-05-27): `PaymentRequirements.scalusEscrowRef`
+      maps to `TransferAuthorization.nonce` for Cardano payloads.
 - [ ] Round-trip test covering client → validator → claim Tx
 
 #### Phase 6 — Deposit ergonomics + example

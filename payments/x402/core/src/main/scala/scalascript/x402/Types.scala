@@ -83,6 +83,7 @@ case class PaymentRequirements(
   resource:          String,
   description:       String,
   maxTimeoutSeconds: Int = 300,
+  scalusEscrowRef:   Option[String] = None,
 )
 
 // ── EVM authorization + payload ───────────────────────────────────────────────

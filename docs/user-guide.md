@@ -2966,7 +2966,11 @@ Cardano flow with CIP-8 wallet + Scalus escrow validator).
 Cardano Scalus escrow support is still incomplete: the compiled Plutus validator
 is committed and `EscrowScript.address(network)` can derive stable mainnet and
 testnet script addresses, but reference-script deployment and real claim
-transaction building remain planned.
+transaction building remain planned. The client also exposes
+`Wallets.cardano(hex, network, scalusMode = true)` for the planned escrow flow:
+it signs a structured Scalus claim message and carries the escrow UTxO ref in
+`authorization.nonce`; current production Cardano flows should keep using the
+default non-Scalus mode until the settler is implemented.
 
 ---
 

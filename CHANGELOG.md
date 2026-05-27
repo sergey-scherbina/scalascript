@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-claim-message** — Client-side Scalus payment mode: `Wallets.cardano(hex, network, scalusMode = true)` signs a structured `ScalusClaimMessage` instead of `req.description`; `PaymentRequirements.scalusEscrowRef` is propagated through `authorization.nonce`; Cardano payload tests verify the COSE payload and Ed25519 signature. Real settler / claim Tx remains planned.
+
 - **x402-cardano-scalus-address** — Cardano/Scalus escrow Phase 3 slice: `EscrowScript.address(network)` derives stable CIP-19 enterprise script addresses from the committed Plutus validator bytes. Golden mainnet/preprod bech32 tests pin the address surface for future reference-script deployment and bloxbean claim Tx work.
 
 - **wallet-vault-encrypted-js** — JS-side encrypted vault persistence: `EncryptedLocalVaultJs.create/load/generate/delete/save` wraps the shared `EncryptedLocalVault` core with `VaultFileStore`; browser default uses IndexedDB, falls back to localStorage, then in-memory storage for Node/tests. Durable data remains the shared `VaultFile.toJson` shape. Added Scala.js tests for create/load/unlock, account metadata persistence, and delete.
