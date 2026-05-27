@@ -28,6 +28,12 @@ class AzureKvResolverTest extends AnyFunSuite:
       override def getHeaders: HttpHeaders = new HttpHeaders()
       override def getBody: reactor.core.publisher.Flux[java.nio.ByteBuffer] = null
       override def getBodyAsBinaryData(): com.azure.core.util.BinaryData = null
+      override def getBodyAsByteArray(): reactor.core.publisher.Mono[Array[Byte]] =
+        reactor.core.publisher.Mono.empty()
+      override def getBodyAsString(): reactor.core.publisher.Mono[String] =
+        reactor.core.publisher.Mono.just(message)
+      override def getBodyAsString(charset: java.nio.charset.Charset): reactor.core.publisher.Mono[String] =
+        reactor.core.publisher.Mono.just(message)
     new HttpResponseException(message, fakeResponse)
 
   // ── scheme ─────────────────────────────────────────────────────────────

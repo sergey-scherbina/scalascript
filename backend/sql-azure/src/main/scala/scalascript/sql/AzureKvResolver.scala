@@ -79,15 +79,17 @@ class AzureKvResolver extends SecretResolver:
           e
         )
       case e: HttpResponseException =>
-        throw RuntimeException(
-          s"azure-kv: HTTP ${e.getResponse.getStatusCode} fetching secret" +
-          s" '$secretName' from '$host': ${e.getMessage}",
-          e
-        )
-      case e: com.azure.core.exception.ClientAuthenticationException =>
-        throw RuntimeException(
-          s"azure-kv: authentication failed for vault '$host'" +
-          s" — set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID" +
-          s" or run `az login`",
-          e
-        )
+        // ClientAuthenticationException extends HttpResponseException so it's caught here too
+        if e.getClass.getSimpleName.contains("Authentication") then
+          throw RuntimeException(
+            s"azure-kv: authentication failed for vault '$host'" +
+            s" — set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID" +
+            s" or run `az login`",
+            e
+          )
+        else
+          throw RuntimeException(
+            s"azure-kv: HTTP ${e.getResponse.getStatusCode} fetching secret" +
+            s" '$secretName' from '$host': ${e.getMessage}",
+            e
+          )

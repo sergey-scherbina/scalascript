@@ -1,7 +1,13 @@
 package scalascript.sql
 
 import org.scalatest.funsuite.AnyFunSuite
-import com.google.api.gax.rpc.{NotFoundException, PermissionDeniedException, UnavailableException}
+import com.google.api.gax.rpc.{NotFoundException, PermissionDeniedException, UnavailableException, StatusCode}
+
+/** Minimal StatusCode implementation needed to construct GAX ApiException subtypes. */
+private object GaxCode:
+  def apply(c: StatusCode.Code): StatusCode = new StatusCode:
+    def getCode: StatusCode.Code = c
+    def getTransportCode: AnyRef = c.name
 
 /** Unit tests for GcpSmResolver.
  *
@@ -72,21 +78,24 @@ class GcpSmResolverTest extends AnyFunSuite:
   }
 
   test("NotFoundException → RuntimeException mentioning not found") {
-    val ex = new NotFoundException(new RuntimeException("NOT_FOUND"), null, false)
+    val ex = new NotFoundException(new RuntimeException("NOT_FOUND"),
+      GaxCode(StatusCode.Code.NOT_FOUND), false)
     val r = resolverThrowing(ex)
     val e = intercept[RuntimeException](r.resolve("missing-secret"))
     assert(e.getMessage.contains("not found"))
   }
 
   test("NotFoundException error contains the secret ref") {
-    val ex = new NotFoundException(new RuntimeException("NOT_FOUND"), null, false)
+    val ex = new NotFoundException(new RuntimeException("NOT_FOUND"),
+      GaxCode(StatusCode.Code.NOT_FOUND), false)
     val r = resolverThrowing(ex)
     val e = intercept[RuntimeException](r.resolve("missing-secret"))
     assert(e.getMessage.contains("missing-secret") || e.getMessage.contains("my-project"))
   }
 
   test("PermissionDeniedException → error mentions secretmanager.secretAccessor") {
-    val ex = new PermissionDeniedException(new RuntimeException("PERMISSION_DENIED"), null, false)
+    val ex = new PermissionDeniedException(new RuntimeException("PERMISSION_DENIED"),
+      GaxCode(StatusCode.Code.PERMISSION_DENIED), false)
     val r = resolverThrowing(ex)
     val e = intercept[RuntimeException](r.resolve("locked-secret"))
     assert(e.getMessage.contains("permission denied") || e.getMessage.contains("Permission"))
@@ -94,7 +103,8 @@ class GcpSmResolverTest extends AnyFunSuite:
   }
 
   test("UnavailableException → error mentions unavailable") {
-    val ex = new UnavailableException(new RuntimeException("UNAVAILABLE"), null, false)
+    val ex = new UnavailableException(new RuntimeException("UNAVAILABLE"),
+      GaxCode(StatusCode.Code.UNAVAILABLE), false)
     val r = resolverThrowing(ex)
     val e = intercept[RuntimeException](r.resolve("some-secret"))
     assert(e.getMessage.contains("unavailable") || e.getMessage.contains("Unavailable"))
