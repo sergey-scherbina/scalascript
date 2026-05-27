@@ -42,6 +42,8 @@ _(all done — see Done section below)_
 
 - [x] **blockchain-bitcoin** — `payments/blockchain/bitcoin/`: secp256k1 ECDSA (RFC 6979), BIP-143 SegWit sighash, BIP-340 Schnorr + BIP-341 Taproot tweakedKey, P2WPKH bech32 + P2TR bech32m addresses, PSBT BIP-174 builder/signer/finalizer, `BitcoinChainAdapter` + `ChainId.BitcoinMainnet/Testnet`; 45 tests. ✓ Landed 2026-05-27.
 
+- [ ] **blockchain-cosmos** — `runtime/blockchain/cosmos/`: secp256k1 ECDSA + ed25519 signing; Cosmos SDK `sign_doc` (StdSignDoc JSON + Amino encoding); bech32 address derivation with configurable HRP per chain family (`cosmos1...`, `osmo1...`, `juno1...`); `CosmosChainAdapter` implementing `ChainAdapter` SPI; `ChainId.CosmosHub` / `ChainId.Osmosis` / `ChainId.Juno`; `BlockchainProvider` ServiceLoader registration; 20+ tests. Spec: `BACKLOG.md §Phase 7`.
+
 ## Database
 
 _(all done — see Done section below)_
