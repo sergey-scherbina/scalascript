@@ -1,0 +1,225 @@
+---
+name: traditional-payments-examples
+version: 0.1.0
+description: "v1.53.1 worked examples: PaymentProvider SPI, Money, Stripe adapter, webhooks"
+main: PaymentsExamples
+---
+
+# Traditional Payments — Worked Examples
+
+Demonstrates the v1.53 `PaymentProvider` SPI with the Stripe adapter.
+Requires `STRIPE_SECRET_KEY` env var (use `sk_test_...` for sandbox).
+
+## Configuration
+
+```scala
+val stripe = PaymentProvider.named("stripe")
+// ↑ ServiceLoader picks up StripeProvider via META-INF/services/scalascript.payments.PaymentProvider
+// The key is read from STRIPE_SECRET_KEY via the config subsystem.
+```
+
+## 1. One-time card charge (no SCA)
+
+```scala
+val intent = stripe.createIntent(CreateIntentRequest(
+  amount  = Money(4999L, Currency.USD),    // $49.99
+  method  = Some(PaymentMethod.Card("pm_card_visa")),
+  confirm = true,
+))
+intent match
+  case PaymentIntent.Succeeded(_, _, charge) =>
+    println(s"Paid — charge: ${charge.id.value}, receipt: ${charge.receiptUrl}")
+  case PaymentIntent.Failed(_, err, _)       =>
+    println(s"Failed: ${err.getMessage}")
+  case req: PaymentIntent.RequiresAction     =>
+    println(s"3DS2 redirect: ${req.action.redirectUrl}")
+  case _                                     =>
+    println("Unexpected intent state")
+```
+
+## 2. Charge with SCA / 3DS2 (two-hop flow)
+
+```scala
+// Step 1 — server creates intent, frontend receives SCAChallenge
+route("POST", "/payment/start") { req =>
+  val intentReq = CreateIntentRequest(
+    amount    = Money(BigDecimal("99.00"), Currency.EUR),
+    method    = Some(PaymentMethod.Card("pm_card_threeDSecure2Required")),
+    confirm   = true,
+    returnUrl = Some("https://example.com/payment/confirm"),
+  )
+  stripe.createIntent(intentReq) match
+    case PaymentIntent.RequiresAction(_, _, challenge) =>
+      Response.json(Map("redirect" -> challenge.redirectUrl, "fingerprint" -> challenge.fingerprint))
+    case PaymentIntent.Succeeded(id, _, _) =>
+      Response.json(Map("success" -> true, "intentId" -> id.value))
+    case _ =>
+      Response.status(500)
+}
+
+// Step 2 — issuer redirects back; re-confirm with fingerprint
+route("GET", "/payment/confirm") { req =>
+  val fingerprint = req.queryParam("payment_intent_client_secret")
+  stripe.confirmIntent(IntentId(req.queryParam("payment_intent")), PaymentMethod.Fingerprint(fingerprint)) match
+    case PaymentIntent.Succeeded(_, _, charge) => Response.redirect(s"/order/success?charge=${charge.id.value}")
+    case PaymentIntent.Failed(_, err, _)       => Response.redirect(s"/order/failed?error=${err.getMessage}")
+    case _                                     => Response.status(500)
+}
+```
+
+## 3. Apple Pay completion (closes v1.38 `chargeApplePay` placeholder)
+
+```scala
+route("POST", "/payment/apple/process") { req =>
+  val token     = req.body[ApplePayToken]
+  val decrypted = ApplePay.decryptToken(token, config.getString("apple-pay.cert-pem"), config.getString("apple-pay.key-pem"))
+  stripe.createIntent(CreateIntentRequest(
+    amount  = Money(BigDecimal("49.99"), Currency.USD),
+    method  = Some(PaymentMethod.ApplePayCard(decrypted.onlinePaymentCryptogram.getOrElse(""))),
+    confirm = true,
+  )) match
+    case PaymentIntent.Succeeded(_, _, _) => Response.json(Map("success" -> true))
+    case PaymentIntent.Failed(_, err, _)  => Response.json(Map("error" -> err.getMessage), status = 402)
+    case _                                => Response.status(500)
+}
+```
+
+## 4. Subscribe to a recurring plan
+
+```scala
+val plan = stripe.createPlan(CreatePlanRequest(
+  amount   = Money(999L, Currency.USD),    // $9.99/month
+  interval = BillingInterval.Monthly(),
+))
+val customer = stripe.createCustomer(CreateCustomerRequest(email = "user@example.com"))
+val stored   = stripe.attachMethod(customer.id, PaymentMethod.Card("pm_card_visa"))
+
+val sub = stripe.subscribe(customer.id, plan.id, SubscribeOpts(
+  trialPeriodDays = Some(14),
+  defaultMethod   = Some(stored.vaultId),
+))
+println(s"Subscribed: ${sub.id.value}, status: ${sub.status}, trial ends: ${sub.trialEnd}")
+```
+
+## 5. Upgrade subscription mid-cycle with proration
+
+```scala
+val premiumPlan = stripe.createPlan(CreatePlanRequest(
+  amount   = Money(2999L, Currency.USD),
+  interval = BillingInterval.Monthly(),
+))
+val upgraded = stripe.changeSubscription(sub.id, premiumPlan.id, ProrationMode.CreateProration)
+println(s"Upgraded to ${upgraded.planId.value}, status: ${upgraded.status}")
+```
+
+## 6. Full and partial refund
+
+```scala
+// Full refund
+val fullRefund = stripe.refund(RefundRequest(intentId, reason = RefundReason.RequestedByCustomer))
+println(s"Refund: ${fullRefund.id.value}, status: ${fullRefund.status}")
+
+// Partial refund — $5.00
+val partialRefund = stripe.refund(RefundRequest(
+  intentId = intentId,
+  amount   = Some(Money(500L, Currency.USD)),
+  reason   = RefundReason.Duplicate,
+))
+println(s"Partial: ${partialRefund.amount}")
+```
+
+## 7. Vault customer + stored method + off-session charge
+
+```scala
+val customer = stripe.createCustomer(CreateCustomerRequest(email = "vip@example.com", name = Some("Alice")))
+val stored   = stripe.attachMethod(customer.id, PaymentMethod.Card("pm_card_mastercard"))
+println(s"Stored method: ${stored.brand} •••• ${stored.last4}, exp ${stored.expMonth}/${stored.expYear}")
+
+// Off-session future charge (MIT — merchant-initiated transaction)
+val intent = stripe.createIntent(CreateIntentRequest(
+  amount     = Money(1999L, Currency.USD),
+  method     = Some(PaymentMethod.SavedMethod(stored.vaultId)),
+  confirm    = true,
+  customer   = Some(customer.id),
+  offSession = true,
+))
+```
+
+## 8. Webhook handler (stripe.webhookReceiver)
+
+```scala
+route("POST", "/webhooks/stripe") { req =>
+  val secret   = config.getString("stripe.webhook-secret")
+  val wReq     = WebhookRequest(headers = req.headers, rawBody = req.rawBody)
+  stripe.webhookReceiver.handle(wReq, secret) {
+    case PaymentEvent.PaymentIntentSucceeded(intent) =>
+      db.markPaid(intentToOrder(intent.id.value))
+    case PaymentEvent.InvoicePaymentFailed(invoiceId, subId, attemptsLeft) =>
+      email.send(subToEmail(subId.value), s"Payment failed — $attemptsLeft attempts remaining")
+    case PaymentEvent.DisputeCreated(dispute) =>
+      alertOncall(s"Dispute ${dispute.id.value} requires response by ${dispute.dueDate}")
+    case PaymentEvent.SubscriptionCanceled(sub) =>
+      db.deactivate(sub.customerId.value)
+  }
+  Response.ok
+}
+```
+
+## 9. Dispute evidence submission
+
+```scala
+stripe.submitDisputeEvidence(dispute.id, DisputeEvidence(
+  customerCommunication = Some("Email thread: user confirmed delivery"),
+  receipt               = Some(s"Order #${orderId} paid 2026-05-20 for $49.99 USD"),
+  shippingDocumentation = Some("UPS tracking 1Z... shipped 2026-05-21"),
+  uncategorizedText     = Some("Product delivered and signed for on 2026-05-22"),
+))
+```
+
+## 10. Authorize + delayed capture (marketplace / shipment pattern)
+
+```scala
+// Auth-hold without capturing
+val held = stripe.createIntent(CreateIntentRequest(
+  amount        = Money(5000L, Currency.USD),
+  method        = Some(PaymentMethod.Card("pm_card_visa")),
+  confirm       = true,
+  captureMethod = CaptureMethod.Manual,
+))
+// ... ship the item, verify weight-based final cost ...
+val captured = stripe.captureIntent(held.id, amount = Some(Money(4800L, Currency.USD)))
+println(s"Captured: ${captured.id.value}")
+```
+
+## 11. MockProvider for unit tests (v1.53.6 — stub until then)
+
+```scala
+// Until MockProvider lands in v1.53.6, test with a real test-mode key:
+val testStripe = StripeProvider("sk_test_YOUR_KEY_HERE", PaymentMode.Test)
+val intent = testStripe.createIntent(CreateIntentRequest(
+  amount  = Money(100L, Currency.USD),
+  method  = Some(PaymentMethod.Card("pm_card_visa")),
+  confirm = true,
+))
+assert(intent.isInstanceOf[PaymentIntent.Succeeded])
+```
+
+## 12. Money arithmetic
+
+```scala
+val subtotal = Money(BigDecimal("49.99"), Currency.USD)
+val taxRate  = BigDecimal("0.20")                           // 20% VAT
+val tax      = subtotal * taxRate                           // HALF_EVEN banker's rounding
+val total    = subtotal + tax                               // $59.99
+println(s"Subtotal: $subtotal, Tax: $tax, Total: $total")  // $49.99 USD, $10.00 USD, $59.99 USD
+
+// Allocate $1.00 across 3 seats — no lost penny
+val perSeat  = Money.allocate(Money(100L, Currency.USD), List(BigDecimal(1), BigDecimal(1), BigDecimal(1)))
+println(perSeat.map(_.toDecimal))                          // [0.34, 0.33, 0.33]
+
+// Currency mismatch throws at runtime (not compile time — FxProvider is v1.54+)
+try
+  Money(100L, Currency.USD) + Money(100L, Currency.EUR)
+catch
+  case e: CurrencyMismatch => println(s"Error: ${e.getMessage}")
+```

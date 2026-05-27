@@ -2228,6 +2228,52 @@ lazy val paymentRequest = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Payments — fiat Money type ────────────────────────────────────────────
+lazy val paymentsMoney = project
+  .in(file("payments/money"))
+  .settings(
+    name := "scalascript-payments-money",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Payments — WebhookReceiver SPI ────────────────────────────────────────
+lazy val paymentsWebhook = project
+  .in(file("payments/webhook"))
+  .settings(
+    name := "scalascript-payments-webhook",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Payments — PaymentProvider SPI plugin ────────────────────────────────
+lazy val paymentsPlugin = project
+  .in(file("runtime/std/payments-plugin"))
+  .dependsOn(backendSpi, ir, core, paymentsMoney, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.payments"))
+
+// ── Payments — Stripe adapter ─────────────────────────────────────────────
+lazy val paymentsStripe = project
+  .in(file("runtime/std/payments-stripe"))
+  .dependsOn(paymentsPlugin, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-stripe",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson"   % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2252,6 +2298,7 @@ lazy val root = project
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
+    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe,
   )
   .settings(
     publish / skip := true

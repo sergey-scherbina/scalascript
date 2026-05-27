@@ -1014,7 +1014,7 @@ Implementation phases ship independently below.
 - Bank rails (SEPA / ACH / Pix / FedNow) deferred to v1.54+.
 - Spec-only in v1.53; implementation phased v1.53.1–v1.53.7.
 
-**v1.53.1 — Plugin scaffolding + Money + PaymentProvider SPI + WebhookReceiver + Stripe adapter:**
+**v1.53.1 — Plugin scaffolding + Money + PaymentProvider SPI + WebhookReceiver + Stripe adapter (✓ Landed 2026-05-27):**
 - New `payments/money/` subproject: `Money.scala` + `Currency.scala`.
 - New `payments/webhook/` subproject: `WebhookReceiver.scala` + `SeenKeyStore.scala`.
 - New `runtime/std/payments-plugin/` (2-file plugin + META-INF, mirrors `runtime/std/payment-request-plugin/`).

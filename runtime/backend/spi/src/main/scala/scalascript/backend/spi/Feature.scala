@@ -37,3 +37,4 @@ enum Feature:
   case PaymentRequest            // std.payment — W3C Payment Request API (browser) + Apple/Google Pay server
   case Streams                   // std.streams — backpressured Source/Sink/Flow (jvm, int, js)
   case DistributedStreams        // std.dstreams — DStream[T] / Pipeline Beam-model (native, spark, kafka, flink)
+  case Payments                  // std.payments — PaymentProvider SPI (fiat PSPs: Stripe, PayPal, Adyen, Square)

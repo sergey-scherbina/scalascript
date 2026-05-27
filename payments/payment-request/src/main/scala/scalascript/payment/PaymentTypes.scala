@@ -3,6 +3,8 @@ package scalascript.payment
 /** Shared types for Payment Request API — used by both the JVM server
  *  implementation and the interpreter mock. */
 
+/** @deprecated Use [[scalascript.payments.money.Money]] instead. */
+@deprecated("Use scalascript.payments.money.Money for type-safe fiat amounts", since = "1.53.1")
 case class Amount(currency: String, value: String)
 
 case class PaymentItem(label: String, amount: Amount, pending: Boolean = false)

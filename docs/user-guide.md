@@ -3792,7 +3792,90 @@ manifest with 6 targets, 3 groups, and 4 environments.
 
 ---
 
-## 27. GraalVM Native Binary
+## 27. Traditional Payment Processors (`payments-plugin`)
+
+The payments plugin (`runtime/std/payments-plugin/`) provides a 14-method
+`PaymentProvider` SPI and the fiat-aware `Money` type.  The Stripe adapter
+(`runtime/std/payments-stripe/`) ships in v1.53.1; PayPal, Adyen, and Square
+adapters follow in v1.53.2–v1.53.4.
+
+### Money type
+
+```scala
+import scalascript.payments.money.{Money, Currency}
+
+val price  = Money(4999L, Currency.USD)          // $49.99 — stored as Long minor units
+val tax    = price * BigDecimal("0.20")           // HALF_EVEN banker's rounding
+val total  = price + tax                          // $59.99 — throws CurrencyMismatch if currencies differ
+val seats  = Money.allocate(total, List(1, 1, 1)) // [20.00, 19.99, 19.99] — no lost penny
+```
+
+### Stripe adapter
+
+```scala
+import scalascript.compiler.plugin.payments.*
+import scalascript.payments.stripe.StripeProvider
+
+val stripe = StripeProvider("sk_test_xxx", PaymentMode.Test)
+// or: val stripe = PaymentProvider.named("stripe")   // ServiceLoader picks up StripeProvider
+```
+
+### One-time charge
+
+```scala
+stripe.createIntent(CreateIntentRequest(
+  amount  = Money(4999L, Currency.USD),
+  method  = Some(PaymentMethod.Card("pm_card_visa")),
+  confirm = true,
+)) match
+  case PaymentIntent.Succeeded(_, _, charge) => println(s"Paid: ${charge.id.value}")
+  case PaymentIntent.RequiresAction(_, _, c) => println(s"3DS2: ${c.redirectUrl}")
+  case PaymentIntent.Failed(_, err, _)       => println(s"Error: ${err.getMessage}")
+  case _                                     => ()
+```
+
+### Subscriptions
+
+```scala
+val plan = stripe.createPlan(CreatePlanRequest(Money(999L, Currency.USD), BillingInterval.Monthly()))
+val sub  = stripe.subscribe(customerId, plan.id, SubscribeOpts(trialPeriodDays = Some(14)))
+stripe.changeSubscription(sub.id, premiumPlanId, ProrationMode.CreateProration)
+stripe.cancelSubscription(sub.id, atPeriodEnd = true)
+```
+
+### Webhooks
+
+```scala
+route("POST", "/webhooks/stripe") { req =>
+  val wReq = WebhookRequest(req.headers, req.rawBody)
+  stripe.webhookReceiver.handle(wReq, config.getString("stripe.webhook-secret")) {
+    case PaymentEvent.PaymentIntentSucceeded(intent) => db.markPaid(intent.id.value)
+    case PaymentEvent.DisputeCreated(dispute)        => alertOncall(dispute.id.value)
+  }
+  Response.ok
+}
+```
+
+Webhook verification: `Stripe-Signature` HMAC-SHA256 + ±5-minute timestamp
+tolerance.  The `SeenKeyStore` deduplicates replayed events (in-memory default;
+Redis/Postgres backends in v1.53.7).
+
+### Failure policies
+
+| Error class | Behaviour |
+|---|---|
+| `CardDeclined(retryPolicy = RetryNow)` | Transient — retry with same idempotency key |
+| `CardDeclined(retryPolicy = DoNotRetry)` | Permanent — do not retry |
+| `AuthenticationRequired(challenge)` | 3DS2 redirect needed — pass `challenge.redirectUrl` to frontend |
+| `ProviderUnreachable` | Network/PSP outage — retry with backoff |
+| `RateLimitExceeded(retryAfter)` | Too many requests — wait and retry |
+
+Full reference: [`docs/traditional-payments.md`](traditional-payments.md),
+[`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc).
+
+---
+
+## 28. GraalVM Native Binary
 
 `ssc` can be compiled to a self-contained native binary with no JVM required
 at runtime.
@@ -3847,4 +3930,5 @@ For building a plugin as a native binary itself, see
 - REPL debugger: §24 above, [docs/repl-debugger.md](repl-debugger.md)
 - SwiftUI / iOS / macOS native targets: §25 above, [docs/swiftui.md](swiftui.md)
 - **Deploy plugin (`ssc deploy`): §26 above, [`examples/deploy.ssc`](../examples/deploy.ssc)**
-- GraalVM native binary: §27 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
+- **Traditional payment processors: §27 above, [docs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
+- GraalVM native binary: §28 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
