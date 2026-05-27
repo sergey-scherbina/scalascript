@@ -1,0 +1,9 @@
+{
+  "name": "scalascript-markup-node",
+  "private": true,
+  "description": "npm dependencies for the markup-node Scala.js module. The Scala.js test runner spawns Node.js from this module's target dir; Node walks up to here to find node_modules.",
+  "version": "0.0.0",
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.7"
+  }
+}

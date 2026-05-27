@@ -1024,7 +1024,7 @@ lazy val clientPostgres = project
 //   ConfigLoader  — ties all of the above together
 lazy val backendConfigRuntime = project
   .in(file("backend/config"))
-  .dependsOn(yaml)
+  .dependsOn(yaml, markupCore)
   .settings(
     name := "scalascript-backend-config-runtime",
     libraryDependencies ++= Seq(
@@ -2508,13 +2508,59 @@ lazy val paymentsBankRails = project
   )
 
 // ── Markup — Generic XML/HTML AST + pure-Scala codec (v1.55) ─────────────
-lazy val markupCore = project
-  .in(file("runtime/std/markup-core"))
+// Cross-compiled (JVM + Scala.js) so that markup-js and markup-node can
+// depend on the shared Markup ADT and PureMarkupCodec.
+// JVM alias `markupCore` keeps all existing `.dependsOn(markupCore)` intact.
+lazy val markupCoreCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("runtime/std/markup-core"))
+    .settings(
+      name := "scalascript-markup-core",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % "3.2.18" % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("markupCore"))
+    .jsConfigure(_.withId("markupCoreJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val markupCoreJvm = markupCoreCross.jvm
+lazy val markupCoreJs  = markupCoreCross.js
+// JVM alias — all existing `.dependsOn(markupCore)` continue to work.
+lazy val markupCore    = markupCoreJvm
+
+// ── Markup — Scala.js browser DOMParser/XMLSerializer codec (v1.55.7) ────
+// Requires browser globals DOMParser + XMLSerializer.  No npm deps.
+// Test: sbt markupJs/test (Scala.js Node.js runner — DOMParser tests are
+// structural mock tests; real DOMParser integration requires a browser or jsdom).
+lazy val markupJs = project
+  .in(file("runtime/std/markup-js"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(markupCoreJs)
   .settings(
-    name := "scalascript-markup-core",
-    libraryDependencies ++= Seq(scalatestTest),
+    name := "scalascript-markup-js",
+    scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
+    Test / fork := false,
+  )
+
+// ── Markup — Node.js @xmldom/xmldom codec (v1.55.7) ──────────────────────
+// Requires `npm install` in runtime/std/markup-node/ before running tests.
+// sbt markupNode/test  — real @xmldom/xmldom parse + walk integration tests.
+lazy val markupNode = project
+  .in(file("runtime/std/markup-node"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(markupCoreJs)
+  .settings(
+    name := "scalascript-markup-node",
+    scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Test / fork := false,
   )
 
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
@@ -2664,7 +2710,7 @@ lazy val root = project
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow,
-    markupCore,
+    markupCore, markupCoreJs, markupJs, markupNode,
   )
   .settings(
     publish / skip := true

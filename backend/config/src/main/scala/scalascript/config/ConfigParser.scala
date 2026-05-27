@@ -2,21 +2,23 @@ package scalascript.config
 
 import scalascript.parser.SimpleYaml
 
-/** Parses YAML, JSON (JSON is valid YAML 1.2), and basic HOCON
+/** Parses YAML, JSON (JSON is valid YAML 1.2), basic HOCON, and XML
  *  into the unified [[ConfigValue]] tree.
  *
  *  Phase 5: HOCON include directives are pre-processed before YAML parsing.
- *  Full HOCON parser (proper grammar, all substitution forms) is future work. */
+ *  Full HOCON parser (proper grammar, all substitution forms) is future work.
+ *  Phase 7 (v1.55.7): XML config files parsed via [[XmlConfigParser]]. */
 object ConfigParser:
 
   enum Format:
-    case Yaml, Json, Hocon
+    case Yaml, Json, Hocon, Xml
 
   def detectFormat(fileName: String): Format =
     fileName.toLowerCase.split('.').lastOption.getOrElse("") match
       case "yaml" | "yml"   => Format.Yaml
       case "json"           => Format.Json
       case "conf" | "hocon" => Format.Hocon
+      case "xml"            => Format.Xml
       case _                => Format.Yaml
 
   def parse(content: String, format: Format = Format.Yaml): Either[ConfigError, ConfigValue] =
@@ -25,6 +27,7 @@ object ConfigParser:
   def parse(content: String, format: Format, basePath: java.nio.file.Path): Either[ConfigError, ConfigValue] =
     format match
       case Format.Hocon => parseHocon(content, basePath)
+      case Format.Xml   => XmlConfigParser.parse(content)
       case _            => parseYaml(content)
 
   def parseFrontmatter(yaml: String): Either[ConfigError, ConfigValue] =
