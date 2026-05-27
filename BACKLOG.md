@@ -3848,8 +3848,11 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       `PubKeyCredential(datum.receiverHash)` and whose lovelace amount
       is exactly `datum.amount`. The committed Plutus resource was
       regenerated from 3830 to 5240 hex chars.
-- [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
-      (Phase 2.5)
+- [x] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
+      ✓ Landed (2026-05-27): Claim requires the transaction validity
+      range to be entirely before `datum.validBefore`; Refund requires
+      it to be entirely after `datum.refundAfter`. The committed
+      Plutus resource was regenerated from 5240 to 6096 hex chars.
 - [ ] Unit tests via Scalus's script-context simulator under
       x402-escrow-plutus (Phase 2.5)
 

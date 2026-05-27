@@ -455,6 +455,10 @@ validator to UPLC:
   (2026-05-27)**: a claim transaction must include an output whose
   payment credential is `PubKeyCredential(datum.receiverHash)` and
   whose lovelace amount is exactly `datum.amount`.
+- The on-chain Scalus validator checks validity ranges. **Landed
+  (2026-05-27)**: claim transactions must be entirely before
+  `datum.validBefore`, and refund transactions must be entirely after
+  `datum.refundAfter`.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

@@ -68,10 +68,18 @@ object X402EscrowScript:
               "Claim must be signed by the receiver (proxy: receiverHash)",
             )
             require(paysReceiverExactly(ctx, d), "Claim must pay exact amount to receiver")
+            require(
+              ctx.txInfo.validRange.isEntirelyBefore(d.validBefore),
+              "Claim validity range must end before validBefore",
+            )
           case EscrowRedeemer.Refund =>
             require(
               ctx.txInfo.signatories.contains(d.payerKeyHash),
               "Refund must be signed by the payer",
+            )
+            require(
+              ctx.txInfo.validRange.isEntirelyAfter(d.refundAfter),
+              "Refund validity range must start after refundAfter",
             )
       case _ =>
         require(false, "X402EscrowScript only supports the spending purpose")
