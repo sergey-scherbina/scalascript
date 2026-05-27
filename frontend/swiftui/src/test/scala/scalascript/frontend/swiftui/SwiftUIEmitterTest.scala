@@ -453,3 +453,53 @@ class SwiftUIEmitterTest extends AnyFunSuite:
                       .sources.find(_._1.endsWith("ContentView.swift")).get._2
     assert(cv.contains("tasks.remove(at: __idx_tasks)"))
   }
+
+  // ── v1.51.5c Signal bridge ────────────────────────────────────────────────
+
+  test("emitNative includes SignalBridge.swift when module has signals") {
+    val sig  = ReactiveSignal[Int]("count", 0)
+    val view = View.SignalText(sig, Style())
+    val art  = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+    val bridgeKey = art.sources.keys.find(_.endsWith("SignalBridge.swift"))
+    assert(bridgeKey.isDefined, "SignalBridge.swift should be present when module has signals")
+  }
+
+  test("SignalBridge.swift does NOT appear when module has no signals") {
+    val view = View.Text(() => "hello", Style())
+    val art  = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+    val bridgeKey = art.sources.keys.find(_.endsWith("SignalBridge.swift"))
+    assert(bridgeKey.isEmpty, "SignalBridge.swift should not be emitted when there are no signals")
+  }
+
+  test("signalBridgeSwift contains ObservableSignal class") {
+    val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
+    assert(src.contains("ObservableSignal"))
+    assert(src.contains("@Published public var value: T"))
+    assert(src.contains("ObservableObject"))
+  }
+
+  test("signalBridgeSwift contains asStream method") {
+    val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
+    assert(src.contains("var asStream: AsyncStream<T>"))
+    assert(src.contains("continuation.yield(self.value)"))
+  }
+
+  test("signalBridgeSwift contains bind method") {
+    val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
+    assert(src.contains("func bind(source: AsyncStream<T>)"))
+    assert(src.contains("bindTask?.cancel()"))
+  }
+
+  test("SwiftUIFrameworkBackend has StreamSignalBridge capability") {
+    assert(backend.capabilities.contains(Capability.StreamSignalBridge))
+  }
+
+  test("signalBridgeSwift imports Combine") {
+    val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
+    assert(src.contains("import Combine"))
+  }
+
+  test("signalBridgeSwift is @MainActor isolated") {
+    val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
+    assert(src.contains("@MainActor"))
+  }

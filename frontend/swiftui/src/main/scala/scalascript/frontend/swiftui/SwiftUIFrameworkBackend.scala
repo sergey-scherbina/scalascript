@@ -16,7 +16,8 @@ final class SwiftUIFrameworkBackend extends FrontendFrameworkSpi:
 
   override def capabilities: Set[Capability] = Set(
     Capability.ComponentTree,
-    Capability.SignalState
+    Capability.SignalState,
+    Capability.StreamSignalBridge
   )
 
   override def jsDeps: List[JsDep] = Nil
@@ -46,12 +47,15 @@ final class SwiftUIFrameworkBackend extends FrontendFrameworkSpi:
         val includeIos   = platform != Platform.Desktop(DesktopOs.MacOS)
         val includeMacos = platform != Platform.Mobile(MobileOs.iOS)
         val modelSrc = SwiftUIEmitter.appModelSwift(appName, module)
+        val entryView = module.components.find(_.name == module.entryPoint).map(_.body(())).getOrElse(View.Fragment(Nil))
+        val hasSignals = SwiftUIEmitter.collectSignals(entryView).nonEmpty
         val baseSources = Map(
           "Package.swift"                          -> SwiftUIEmitter.packageSwift(appName, minIos, minMacos, includeIos, includeMacos),
           s"Sources/$appName/${appName}App.swift"  -> SwiftUIEmitter.appSwift(appName),
           s"Sources/$appName/ContentView.swift"    -> SwiftUIEmitter.contentView(appName, module, manifest)
         )
-        val allSources = baseSources ++ modelSrc.map(src => s"Sources/$appName/AppModel.swift" -> src)
+        val bridgeSrc  = if hasSignals then Map(s"Sources/$appName/SignalBridge.swift" -> SwiftUIEmitter.signalBridgeSwift(appName)) else Map.empty
+        val allSources = baseSources ++ bridgeSrc ++ modelSrc.map(src => s"Sources/$appName/AppModel.swift" -> src)
         Some(EmittedArtifact.NativeApp(
           sources = allSources,
           resources   = Map.empty,

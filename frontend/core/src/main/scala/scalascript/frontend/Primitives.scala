@@ -535,3 +535,4 @@ enum Capability:
   case DeepLinks
   case BackgroundTasks
   case FileSystem
+  case StreamSignalBridge

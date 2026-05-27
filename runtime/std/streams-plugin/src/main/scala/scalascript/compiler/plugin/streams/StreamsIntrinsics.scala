@@ -490,6 +490,74 @@ object StreamsIntrinsics:
         while item.isDefined do item = queue.take()
         Value.UnitV
       }),
+
+      // ── v1.51.4 async + error operators ─────────────────────────────────
+
+      "mapAsync" -> Value.NativeFnV("Source.mapAsync", Computation.pureFn {
+        case List(Value.IntV(n)) => Value.NativeFnV("Source.mapAsync$1", Computation.pureFn {
+          case List(f) => startChained { ownQ =>
+            val sem     = new java.util.concurrent.Semaphore((n.toInt) max 1)
+            val all     = drain(queue)
+            val results = new java.util.concurrent.ConcurrentHashMap[Int, Value]()
+            val latch   = new java.util.concurrent.CountDownLatch(all.size)
+            all.zipWithIndex.foreach { (v, i) =>
+              Thread.ofVirtual().start { () =>
+                sem.acquire()
+                try results.put(i, call(f, List(v)))
+                catch case _: Throwable => ()
+                finally
+                  sem.release()
+                  latch.countDown()
+              }
+            }
+            latch.await()
+            for i <- all.indices do
+              Option(results.get(i)).foreach(r => ownQ.put(Some(r)))
+          }
+          case _ => throw InterpretError("Source.mapAsync(n)(f) — inner")
+        })
+        case _ => throw InterpretError("Source.mapAsync(n)(f) — outer")
+      }),
+
+      "recover" -> Value.NativeFnV("Source.recover", Computation.pureFn {
+        case List(handler) =>
+          val q2 = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              var item = queue.take()
+              while item.isDefined do
+                q2.put(Some(item.get))
+                item = queue.take()
+            catch case e: Throwable =>
+              try
+                val msg = Option(e.getMessage).getOrElse(e.getClass.getName)
+                q2.put(Some(call(handler, List(Value.StringV(msg)))))
+              catch case _ => ()
+            finally try q2.put(None) catch case _ => ()
+          }
+          makeSourceV(q2, ctx)
+        case _ => throw InterpretError("Source.recover(handler)")
+      }),
+
+      "mapError" -> Value.NativeFnV("Source.mapError", Computation.pureFn {
+        case List(f) =>
+          val q2 = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              var item = queue.take()
+              while item.isDefined do
+                q2.put(Some(item.get))
+                item = queue.take()
+            catch case e: Throwable =>
+              try
+                val msg = Option(e.getMessage).getOrElse(e.getClass.getName)
+                call(f, List(Value.StringV(msg)))
+              catch case _ => ()
+            finally try q2.put(None) catch case _ => ()
+          }
+          makeSourceV(q2, ctx)
+        case _ => throw InterpretError("Source.mapError(f)")
+      }),
     ))
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
@@ -626,6 +694,185 @@ object StreamsIntrinsics:
     ),
     QualifiedName("OverflowStrategy.Fail") -> NativeImpl((_, _) =>
       Value.InstanceV("OverflowStrategy.Fail", Map.empty)
+    ),
+
+    // ── v1.51.4 SSE / WebSocket / bracket source-sink intrinsics ───────────
+
+    QualifiedName("Source.bracket") -> NativeImpl((ctx, args) =>
+      args match
+        case List(acquire) =>
+          Value.NativeFnV("Source.bracket$1", Computation.pureFn {
+            case List(release) => Value.NativeFnV("Source.bracket$2", Computation.pureFn {
+              case List(use) =>
+                val resource = ctx.synchronized { ctx.invokeCallback(acquire, Nil).asInstanceOf[Value] }
+                val q = newQ()
+                Thread.ofVirtual().start { () =>
+                  try
+                    val src = ctx.synchronized { ctx.invokeCallback(use, List(resource)).asInstanceOf[Value] }
+                    src match
+                      case inst: Value.InstanceV =>
+                        val forward = Value.NativeFnV("_fwdEmit", Computation.pureFn {
+                          case List(x) => q.put(Some(x)); Value.UnitV
+                          case _       => Value.UnitV
+                        })
+                        inst.fields.get("runForeach") match
+                          case Some(rf) => ctx.synchronized { ctx.invokeCallback(rf, List(forward)) }
+                          case None     => ()
+                      case _ => ()
+                  catch case _: Throwable => ()
+                  finally
+                    try ctx.synchronized { ctx.invokeCallback(release, List(resource)) } catch case _ => ()
+                    try q.put(None) catch case _ => ()
+                }
+                makeSourceV(q, ctx)
+              case _ => throw InterpretError("Source.bracket(acquire)(release)(use) — use")
+            })
+            case _ => throw InterpretError("Source.bracket(acquire)(release)(use) — release")
+          })
+        case _ => throw InterpretError("Source.bracket(acquire)(release)(use) — acquire")
+    ),
+
+    QualifiedName("Source.fromSse") -> NativeImpl((ctx, args) =>
+      args match
+        case List(url: String) =>
+          val q = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              val client = java.net.http.HttpClient.newHttpClient()
+              val req    = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Accept", "text/event-stream")
+                .build()
+              val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofLines())
+              val it   = resp.body().iterator()
+              while it.hasNext do
+                val line = it.next()
+                if line.startsWith("data:") then q.put(Some(Value.StringV(line.drop(5).trim)))
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case List(url: Value.StringV) =>
+          val q = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              val client = java.net.http.HttpClient.newHttpClient()
+              val req    = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url.value))
+                .header("Accept", "text/event-stream")
+                .build()
+              val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofLines())
+              val it   = resp.body().iterator()
+              while it.hasNext do
+                val line = it.next()
+                if line.startsWith("data:") then q.put(Some(Value.StringV(line.drop(5).trim)))
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case _ => throw InterpretError("Source.fromSse(url)")
+    ),
+
+    QualifiedName("Source.fromWebSocket") -> NativeImpl((ctx, args) =>
+      args match
+        case List(url: String) =>
+          val q     = newQ()
+          val latch = new java.util.concurrent.CountDownLatch(1)
+          Thread.ofVirtual().start { () =>
+            try
+              val listener = new java.net.http.WebSocket.Listener:
+                override def onText(ws: java.net.http.WebSocket, data: CharSequence, last: Boolean) =
+                  q.put(Some(Value.StringV(data.toString)))
+                  ws.request(1)
+                  null
+                override def onClose(ws: java.net.http.WebSocket, code: Int, reason: String) =
+                  latch.countDown()
+                  null
+                override def onError(ws: java.net.http.WebSocket, error: Throwable) =
+                  latch.countDown()
+              java.net.http.HttpClient.newHttpClient()
+                .newWebSocketBuilder()
+                .buildAsync(java.net.URI.create(url), listener)
+                .get(5, java.util.concurrent.TimeUnit.SECONDS)
+                .request(1)
+              latch.await()
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case List(url: Value.StringV) =>
+          val q     = newQ()
+          val latch = new java.util.concurrent.CountDownLatch(1)
+          Thread.ofVirtual().start { () =>
+            try
+              val listener = new java.net.http.WebSocket.Listener:
+                override def onText(ws: java.net.http.WebSocket, data: CharSequence, last: Boolean) =
+                  q.put(Some(Value.StringV(data.toString)))
+                  ws.request(1)
+                  null
+                override def onClose(ws: java.net.http.WebSocket, code: Int, reason: String) =
+                  latch.countDown()
+                  null
+                override def onError(ws: java.net.http.WebSocket, error: Throwable) =
+                  latch.countDown()
+              java.net.http.HttpClient.newHttpClient()
+                .newWebSocketBuilder()
+                .buildAsync(java.net.URI.create(url.value), listener)
+                .get(5, java.util.concurrent.TimeUnit.SECONDS)
+                .request(1)
+              latch.await()
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case _ => throw InterpretError("Source.fromWebSocket(url)")
+    ),
+
+    QualifiedName("Sink.toSseStream") -> NativeImpl((ctx, _) =>
+      val runFn = Value.NativeFnV("Sink.toSseStream.run", Computation.pureFn {
+        case List(src: Value.InstanceV) =>
+          src.fields.get("runToList") match
+            case Some(rtl) =>
+              ctx.synchronized { ctx.invokeCallback(rtl, Nil) } match
+                case Value.ListV(items) =>
+                  val sb = new StringBuilder
+                  for item <- items do
+                    val s = item match
+                      case Value.StringV(v) => v
+                      case other            => Value.show(other)
+                    sb.append(s"data: $s\n\n")
+                  Value.StringV(sb.toString)
+                case _ => Value.StringV("")
+            case None => throw InterpretError("Sink.toSseStream: not a Source")
+        case _ => Value.UnitV
+      })
+      Value.InstanceV("Sink", Map("run" -> runFn))
+    ),
+
+    QualifiedName("Sink.toWsRoom") -> NativeImpl((ctx, args) =>
+      args match
+        case List(room: Value.InstanceV) =>
+          val broadcastFn = room.fields.getOrElse("broadcast",
+            throw InterpretError("Sink.toWsRoom: not a WsRoom (no broadcast field)"))
+          val runFn = Value.NativeFnV("Sink.toWsRoom.run", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("runForeach") match
+                case Some(rf) =>
+                  val emit = Value.NativeFnV("_wsEmit", Computation.pureFn {
+                    case List(v) =>
+                      val msg = v match
+                        case Value.StringV(s) => Value.StringV(s)
+                        case other            => Value.StringV(Value.show(other))
+                      ctx.synchronized { ctx.invokeCallback(broadcastFn, List(msg)) }
+                      Value.UnitV
+                    case _ => Value.UnitV
+                  })
+                  ctx.synchronized { ctx.invokeCallback(rf, List(emit)).asInstanceOf[Value] }
+                case None => throw InterpretError("Sink.toWsRoom: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Sink", Map("run" -> runFn))
+        case _ => throw InterpretError("Sink.toWsRoom(room)")
     ),
 
     // ── v1.51.3 Sink intrinsics ───────────────────────────────────────────
