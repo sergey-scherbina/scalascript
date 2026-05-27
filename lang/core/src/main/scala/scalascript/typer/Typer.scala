@@ -410,6 +410,26 @@ class Typer(
         case _                 => ()
       }
     }
+    // v1.12.1: run EffectAnalysis verifier — cross-check declared effect rows
+    // (from function type annotations) against name-reachability analysis.
+    cb.tree.foreach { node =>
+      ScalaNode.fold(node) { tree =>
+        val trees = tree match
+          case s: Source     => List(s)
+          case b: Term.Block => List(b)
+          case other         => List(other)
+        val analysisResult = scalascript.transform.EffectAnalysis.analyze(trees)
+        // Include ALL defs (even those with no declared effects) so the verifier
+        // can warn when an effectful function declares no row.
+        val declaredEffects: Map[String, Set[String]] = summaries.collect {
+          case DefSummary(name, SymbolKind.Def, SType.Function(_, _, SType.EffectRow(_, ops)), _) =>
+            name -> ops
+        }.toMap
+        if declaredEffects.nonEmpty || analysisResult.effectfulFuns.nonEmpty then
+          scalascript.transform.EffectAnalysis.verify(declaredEffects, analysisResult, asErrors = false)
+            .foreach(msg => errors += TypeError(msg, None))
+      }
+    }
     summaries.toList
 
   private def checkStat(
@@ -459,14 +479,16 @@ class Typer(
       // the body.  Inference is signature-level only (literals, var refs,
       // simple arithmetic, blocks, if/else) — anything richer falls back to
       // SType.Any.
-      val declaredRet = d.decltpe.map(typeAnnotToSType)
+      // v1.12.1: parse `def f(): T ! Eff` — the `!` infix in the return type
+      // carries the effect row; extract it before falling through to typeAnnotToSType.
+      val (declaredRet, declaredEffects) = parseDeclReturnType(d.decltpe)
       // `extern def` compiles to Defn.Def with body Term.Name("__extern__").
       // Treat as an opaque declaration: use declared return type, skip body check.
       val isExternDef = d.body match { case Term.Name("__extern__") => true; case _ => false }
       // Allow self-recursion: bind the function name in bodyScope before
       // typing the body so `def fib(n) = fib(n-1)` resolves correctly.
       bodyScope.define(Symbol(d.name.value,
-        SType.Function(paramSTypes, declaredRet.getOrElse(SType.Any)),
+        SType.Function(paramSTypes, declaredRet.getOrElse(SType.Any), declaredEffects),
         SymbolKind.Def))
       val retType =
         if isExternDef then declaredRet.getOrElse(SType.Any)
@@ -478,7 +500,7 @@ class Typer(
               checkAssignable(bodyType, declared, d.body.pos)
           }
           rt
-      val fnType = SType.Function(paramSTypes, retType)
+      val fnType = SType.Function(paramSTypes, retType, declaredEffects)
       scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
       out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
 
@@ -598,6 +620,28 @@ class Typer(
               posToSpan(t.pos)
             )
           SType.Any
+
+    // v1.12.1: handle[Eff](body) { cases } — discharge named effect from body type.
+    // Curried form: Term.Apply(Term.Apply(Term.ApplyType("handle", [Eff]), body), cases)
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.ApplyType.After_4_6_0(Term.Name("handle"), targs),
+          bodyClause
+        ),
+        _
+      ) =>
+      val effName  = targs.headOption.collect { case Type.Name(n) => n }.getOrElse("")
+      val bodyType = bodyClause.values.headOption.map(inferType(_, scope)).getOrElse(SType.Any)
+      dischargeEffect(bodyType, effName)
+
+    // handle[Eff](body) — single-apply form (body is the sole argument, no case block yet)
+    case Term.Apply.After_4_6_0(
+        Term.ApplyType.After_4_6_0(Term.Name("handle"), targs),
+        argClause
+      ) =>
+      val effName  = targs.headOption.collect { case Type.Name(n) => n }.getOrElse("")
+      val bodyType = argClause.values.headOption.map(inferType(_, scope)).getOrElse(SType.Any)
+      dischargeEffect(bodyType, effName)
 
     case Term.Apply.After_4_6_0(fun, argClause) =>
       inferType(fun, scope) match
@@ -867,6 +911,32 @@ class Typer(
 
   /** Returns true if `name` appears directly as a `Named` inside `t` at any depth.
    *  Used to detect trivially recursive type aliases like `type A = List[A]`. */
+  /** v1.12.1 — Parse a `def` return-type annotation, extracting the effect row
+   *  when the annotation has the form `T ! Eff` or `T ! (Eff1, Eff2, ...)`.
+   *  Returns `(retType, effectRow)`. */
+  private def parseDeclReturnType(tpeOpt: Option[scala.meta.Type]): (Option[SType], SType.EffectRow) =
+    tpeOpt match
+      case Some(Type.ApplyInfix(retTyp, Type.Name("!"), effTyp)) =>
+        val ret  = typeAnnotToSType(retTyp)
+        val effs: SType.EffectRow = effTyp match
+          case Type.Name(n)   => SType.EffectRow(None, Set(n))
+          case Type.Tuple(es) => SType.EffectRow(None, es.collect { case Type.Name(n) => n }.toSet)
+          case _              => SType.EffectRow(None, Set.empty)
+        (Some(ret), effs)
+      case other => (other.map(typeAnnotToSType), SType.EffectRow(None, Set.empty))
+
+  /** v1.12.1 — Remove `effName` from a body type's effect row.
+   *  Works when `bodyType` is a zero-arity thunk `() => A ! (Eff ∪ E)`,
+   *  returning `A ! E` (or `A` when no effects remain).
+   *  For non-thunk bodies the body type is returned unchanged — the caller
+   *  already has the return type of the call without effects propagated. */
+  private def dischargeEffect(bodyType: SType, effName: String): SType = bodyType match
+    case SType.Function(Nil, retType, SType.EffectRow(tail, ops)) =>
+      val remaining = ops - effName
+      if remaining.isEmpty then retType
+      else SType.Function(Nil, retType, SType.EffectRow(tail, remaining))
+    case other => other
+
   private def isDirectlyRecursive(name: String, t: SType): Boolean = t match
     case SType.Named(`name`, _) => true
     case SType.Named(_, args)   => args.exists(isDirectlyRecursive(name, _))
