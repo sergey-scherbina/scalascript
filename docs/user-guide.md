@@ -2970,7 +2970,9 @@ transaction integration remain planned. The client also exposes
 `Wallets.cardano(hex, network, scalusMode = true)` for the planned escrow flow:
 it signs a structured Scalus claim message and carries the escrow UTxO ref in
 `authorization.nonce`. `CardanoProvider.Scalus` can verify that structured
-claim proof before settlement, but current production Cardano flows should keep
+claim proof before settlement, and the on-chain Scalus validator now checks the
+canonical CIP-8 redeemer proof against the datum's payer key hash and claim
+message hash. Current production Cardano flows should still keep
 using the default non-Scalus mode until the Plutus claim transaction builder is
 validated against Preprod. `BloxbeanClaimTxBuilder.draft` can serialize a
 claim transaction draft with script input/output, redeemer, collateral,

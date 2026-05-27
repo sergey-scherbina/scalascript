@@ -442,6 +442,15 @@ validator to UPLC:
   and leaves UTxO/datum validation to the Phase 4 settler. The binary
   encoder is centralized in `x402-core` as `ScalusClaimMessageCodec`
   so client and facilitator cannot drift.
+- The on-chain Scalus validator verifies the canonical CIP-8 proof
+  carried in the claim redeemer. **Landed (2026-05-27)**: it extracts
+  the Ed25519 public key from the canonical COSE_Key emitted by
+  `Cip8Signer`, checks `blake2b_224(pubKey) == datum.payerKeyHash`,
+  extracts the COSE_Sign1 payload, checks
+  `blake2b_256(payload) == datum.claimMessageHash`, reconstructs the
+  CIP-8 Sig_Structure, and runs the Plutus `verifyEd25519Signature`
+  builtin. This is intentionally a canonical-format parser, not a
+  general CBOR/COSE library.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

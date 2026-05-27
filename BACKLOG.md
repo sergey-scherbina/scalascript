@@ -3821,8 +3821,7 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       library + scalus-plugin 0.15.1. The plugin lowers `@Compile`
       validators correctly under 3.3.7. The sbt task
       `x402EscrowPlutus/emitEscrowHex` writes the compiled CBOR hex
-      (~1208 hex chars / 604 bytes) into
-      `x402-facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex`.
+      `payments/x402/facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex`.
       The main 3.8.3 module reads it via classloader at runtime —
       Scalus library dropped from the 3.8.3 module's deps.
 - [x] `X402EscrowScript` — single-purpose Plutus V3 validator
@@ -3831,14 +3830,18 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
 - [x] `EscrowDatum` + `EscrowRedeemer` (Claim/Refund) at top level
       with `derives FromData, ToData`
 - [x] Structural checks (signatory presence for Claim / Refund)
-      enforced on-chain; full CIP-8 inline verification deferred to
-      Phase 2.5
+      enforced on-chain
 - [x] 4 tests in `X402EscrowCompiledTest`: resource present, hex
       well-formed, decoded length matches, deterministic across reads,
       >100 bytes (proves non-trivial program)
-- [ ] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
+- [x] On-chain CIP-8 verification: COSE_Sign1 decode + Ed25519 verify
       against datum.payerKeyHash; payload-hash equality check
-      (Phase 2.5)
+      ✓ Landed (2026-05-27): the Scalus validator accepts the
+      canonical COSE_Key / COSE_Sign1 shape emitted by `Cip8Signer`,
+      checks `blake2b_224(pubKey) == datum.payerKeyHash`, checks
+      `blake2b_256(payload) == datum.claimMessageHash`, and verifies
+      Ed25519 over the CIP-8 Sig_Structure. The committed Plutus
+      resource was regenerated from 1208 to 3830 hex chars.
 - [ ] Output-shape check: exact lovelace to datum.receiver
       (Phase 2.5)
 - [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`

@@ -1350,7 +1350,7 @@ lazy val x402EscrowPlutus = project
       val _      = (Compile / compile).value
       val cp     = (Compile / fullClasspath).value.files
       val target = ((ThisBuild / baseDirectory).value /
-        "x402/facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex")
+        "payments/x402/facilitator-cardano-scalus/src/main/resources/x402-escrow.plutus.hex")
       IO.createDirectory(target.getParentFile)
       val classpath = cp.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
       val pb = new java.lang.ProcessBuilder(
