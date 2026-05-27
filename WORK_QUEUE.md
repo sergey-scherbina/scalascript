@@ -35,6 +35,10 @@ _(all done — see Done section below)_
 
 ## Language & Compiler — API Tooling
 
+- [x] **v1.29-dap-debugger** — Debug Adapter Protocol server (`runtime/backend/dap/`): all 5 phases — Phase 1 (TCP skeleton + initialize/launch/disconnect + `DapProtocol` framing + `DapServer` TCP accept); Phase 2 (`BreakpointRegistry` + `setBreakpoints` + stopped events); Phase 3 (step execution: `next`/`stepIn`/`stepOut`/`continue` + `StepMode` + depth-tracking); Phase 4 (variable inspection: `scopes`/`variables` + variablesReference tree); Phase 5 (stack frames: `stackTrace` + `DebugFrame` + source mapping). `ssc debug file.ssc [--port 5678]` CLI command. 5 test files (framing, phase1 lifecycle, breakpoint, step, variables, stack). Spec: `docs/dap-debugger.md §Phase 1–5`. (2026-05-21)
+
+- [x] **pwa-plugin** — Progressive Web App support (`runtime/std/pwa-plugin/`): `pwa()` extern def in `std/pwa.ssc`; `PwaIntrinsics` registers `GET /manifest.json` (W3C Web App Manifest JSON) + `GET /sw.js` (cache-first service worker); configurable name/shortName/description/themeColor/backgroundColor/display/startUrl/icons/precache; works in interpreter + JVM codegen; `examples/pwa/pwa-demo.ssc`. Spec: `docs/pwa-plugin.md §Phase 1`. (2026-05-21)
+
 - [x] **openapi-export** — Auto-derive OpenAPI 3.1 JSON from registered `route()` calls: `GET /_openapi.json` built-in endpoint (JSON document with paths/methods/path-parameters); `GET /_swagger` Swagger UI HTML page (CDN-linked). `OpenApiRuntime` registers both alongside `/_health`/`/_ready` when `serve`/`serveAsync` is called; walks `RouteRegistry.all`; extracts `:param` segments → `{param}` OpenAPI notation; inspects `FunV.paramTypes` for typed handlers; non-path typed params → query (GET/DELETE) or `requestBody` (POST/PUT/PATCH); type map String→string / Int+Long→integer / Double+Float→number / Boolean→boolean / other→object; `IntrinsicImpl.registerOpenApiDefaults()` hook wired from `HttpIntrinsics`; skips internal `/_*` routes. (2026-05-27)
 
 ## Language & Compiler — Spark extensions
