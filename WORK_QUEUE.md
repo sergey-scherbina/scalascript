@@ -14,7 +14,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Language & Compiler — Spark extensions
 
-- [ ] **spark-lakehouse-l3-iceberg** — Spark Lakehouse Iceberg (L.3): `SparkGen.detectLakehouseFormats` extended to detect `.format("iceberg")` → auto-emit `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.5.2` dep + `spark.sql.extensions` + `spark.sql.catalog.spark_catalog` Iceberg catalog config; `DefaultIcebergVersion = "1.5.2"` constant; `examples/spark-lakehouse-iceberg.ssc` (write/read Iceberg table, time-travel `asOf`, `MERGE INTO`); 6+ codegen tests. Spec: `docs/spark-lakehouse.md §L.3`.
+- [x] **spark-lakehouse-l3-iceberg** — Spark Lakehouse Iceberg (L.3): `SparkGen.detectLakehouseFormats` extended to detect `.format("iceberg")` → auto-emit `org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.5.2` dep + `spark.sql.extensions` + `spark.sql.catalog.spark_catalog` Iceberg catalog config; `DefaultIcebergVersion = "1.5.2"` constant; `examples/spark-lakehouse-iceberg.ssc` (write/read Iceberg table, time-travel `asOf`, `MERGE INTO`); 6+ codegen tests. Spec: `docs/spark-lakehouse.md §L.3`.
 
 ## Frontend & Clients
 

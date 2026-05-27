@@ -187,7 +187,7 @@ class ComplyAdvantageProvider(config: ComplyAdvantageConfig) extends ComplianceP
     val typePattern  = """"types"\s*:\s*\[([^\]]+)\]""".r
     val sourcePattern = """"source_notes"\s*:\s*\{([^}]+)\}""".r
 
-    val names   = namePattern.findAllMatchIn(body).map(_.group(1)).toList.drop(1) // skip id field
+    val names   = namePattern.findAllMatchIn(body).map(_.group(1)).toList
     val scores  = scorePattern.findAllMatchIn(body).map(m => m.group(1).toDoubleOption.getOrElse(0.0)).toList
     val types   = typePattern.findAllMatchIn(body).map(_.group(1).replace("\"", "").trim).toList
     val sources = sourcePattern.findAllMatchIn(body).map(_.group(1)).toList

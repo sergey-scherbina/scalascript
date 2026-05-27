@@ -1682,6 +1682,128 @@ class SparkGenTest extends AnyFunSuite:
     assert(!flags.any, "empty source must produce empty LakehouseFlags")
   }
 
+  // ── L.3 — Lakehouse formats: Apache Iceberg ───────────────────────────────
+  //
+  // See `docs/spark-lakehouse.md §L.3`.  Detection and emission are symmetric
+  // with L.2 (Delta); same helpers, new format-specific dep coord and config.
+
+  test("iceberg detection — .format(\"iceberg\") triggers dep emit") {
+    val code = gen(
+      """|# Iceberg write
+         |```scalascript
+         |ds.write.format("iceberg").mode("overwrite").save("/tmp/ice")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}""""),
+      s"Iceberg dep must appear when .format(\"iceberg\") is present, got:\n$code")
+  }
+
+  test("iceberg detection — read path .format(\"iceberg\") also triggers dep emit") {
+    val code = gen(
+      """|# Iceberg read
+         |```scalascript
+         |val df = spark.read.format("iceberg").load("/tmp/ice")
+         |df.show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}""""),
+      s"Iceberg dep must appear on read path too, got:\n$code")
+  }
+
+  test("iceberg detection — uppercase .format(\"ICEBERG\") still triggers dep emit") {
+    val code = gen(
+      """|# Uppercase Iceberg
+         |```scalascript
+         |ds.write.format("ICEBERG").save("/tmp/ice")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
+      s"Iceberg dep must match case-insensitively, got:\n$code")
+  }
+
+  test("iceberg detection — module without .format(\"iceberg\") emits NO Iceberg dep") {
+    val code = gen(
+      """|# No Iceberg
+         |```scalascript
+         |val x = Dataset.of(1, 2, 3)
+         |x.foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("iceberg-spark-runtime"),
+      s"Iceberg dep must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("IcebergSparkSessionExtensions"),
+      s"Iceberg extension must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("SparkSessionCatalog"),
+      s"Iceberg catalog must NOT appear when format is absent, got:\n$code")
+  }
+
+  test("iceberg config — IcebergSparkSessionExtensions emitted when detected") {
+    val code = gen(
+      """|# Iceberg config
+         |```scalascript
+         |ds.write.format("iceberg").save("/tmp/ice")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(""".config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")"""),
+      s"Iceberg SQL extension config missing, got:\n$code")
+  }
+
+  test("iceberg config — SparkSessionCatalog + SparkCatalog emitted when detected") {
+    val code = gen(
+      """|# Iceberg catalogs
+         |```scalascript
+         |spark.read.format("iceberg").load("/tmp/ice").show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("org.apache.iceberg.spark.SparkSessionCatalog"),
+      s"Iceberg SparkSessionCatalog missing, got:\n$code")
+    assert(code.contains("org.apache.iceberg.spark.SparkCatalog"),
+      s"Iceberg SparkCatalog missing, got:\n$code")
+  }
+
+  test("iceberg default version constant pins 1.5.2") {
+    assert(SparkGen.DefaultIcebergVersion == "1.5.2",
+      s"DefaultIcebergVersion drift — update spec doc + bump intentionally, got ${SparkGen.DefaultIcebergVersion}")
+  }
+
+  test("detectLakehouseFormats — Iceberg-only block sets only usesIceberg") {
+    val blocks = List(SparkGen.Block("""ds.write.format("iceberg").save("/p")"""))
+    val flags  = SparkGen.detectLakehouseFormats(blocks)
+    assert(flags.usesIceberg, "usesIceberg must be true")
+    assert(!flags.usesDelta,  "usesDelta must remain false")
+    assert(!flags.usesHudi,   "usesHudi must remain false")
+    assert(flags.any)
+  }
+
+  test("iceberg + delta coexist — both deps emitted, spark.sql.extensions joined") {
+    // When both formats appear in the same module, both deps are emitted and the
+    // `spark.sql.extensions` key combines both values comma-separated (Spark
+    // registers all extensions listed there).
+    val code = gen(
+      """|# Delta + Iceberg
+         |```scalascript
+         |ds.write.format("delta").save("/tmp/delta-path")
+         |ds2.write.format("iceberg").save("/tmp/ice-path")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("delta-spark_2.13"),
+      s"Delta dep must appear in combined module, got:\n$code")
+    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
+      s"Iceberg dep must appear in combined module, got:\n$code")
+    // Extensions key appears exactly once, containing both values.
+    assert(code.contains("io.delta.sql.DeltaSparkSessionExtension"),
+      s"Delta extension must be in combined extensions value, got:\n$code")
+    assert(code.contains("IcebergSparkSessionExtensions"),
+      s"Iceberg extension must be in combined extensions value, got:\n$code")
+  }
+
   // ── Phase F.2: Structured Streaming codegen ──────────────────────────────
 
   test("streaming imports are always emitted (Phase F.2)") {
@@ -2983,4 +3105,127 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("def leftOuterJoin"),  s"leftOuterJoin missing from shim, got:\n$code")
     assert(code.contains("def rightOuterJoin"), s"rightOuterJoin missing from shim, got:\n$code")
     assert(code.contains("def flatten"),        s"flatten missing from shim, got:\n$code")
+  }
+
+  // ── L.3 — Lakehouse formats: Apache Iceberg ───────────────────────────────
+  //
+  // See `docs/spark-lakehouse.md §L.3` for the design.  Detection runs over
+  // block sources (case-insensitive regex, same as L.2 Delta).  Each trigger
+  // emits:
+  //   (a) `//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<v>"`
+  //   (b) Five `.config(k, v)` lines: extensions + spark_catalog + catalog.type
+  //       + local catalog + local catalog type.
+
+  test("iceberg detection — .format(\"iceberg\") triggers dep emit") {
+    val code = gen(
+      """|# Iceberg write
+         |```scalascript
+         |df.write.format("iceberg").mode("append").save("local.db.events")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}""""),
+      s"Iceberg dep must appear when .format(\"iceberg\") is present, got:\n$code")
+  }
+
+  test("iceberg detection — read path .format(\"iceberg\") also triggers dep emit") {
+    val code = gen(
+      """|# Iceberg read
+         |```scalascript
+         |val df = spark.read.format("iceberg").load("local.db.events")
+         |df.show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
+      s"Iceberg dep must appear on read path too, got:\n$code")
+  }
+
+  test("iceberg detection — uppercase .format(\"ICEBERG\") triggers dep emit") {
+    val code = gen(
+      """|# Uppercase Iceberg
+         |```scalascript
+         |df.write.format("ICEBERG").save("local.db.t")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
+      s"Iceberg dep must match case-insensitively, got:\n$code")
+  }
+
+  test("iceberg detection — module without .format(\"iceberg\") emits NO Iceberg dep") {
+    val code = gen(
+      """|# No Iceberg
+         |```scalascript
+         |val x = Dataset.of(1, 2, 3)
+         |x.foreach(println)
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("iceberg-spark-runtime-3.5_2.13"),
+      s"Iceberg dep must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("IcebergSparkSessionExtensions"),
+      s"Iceberg extension must NOT appear when format is absent, got:\n$code")
+  }
+
+  test("iceberg config — extension + catalog + catalog.type + local catalog emitted") {
+    val code = gen(
+      """|# Iceberg config
+         |```scalascript
+         |df.write.format("iceberg").save("local.db.events")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(""".config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")"""),
+      s"Iceberg SQL extension config missing, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")"""),
+      s"Iceberg spark_catalog config missing, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.spark_catalog.type", "hive")"""),
+      s"Iceberg spark_catalog.type config missing, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")"""),
+      s"Iceberg local catalog config missing, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.local.type", "hadoop")"""),
+      s"Iceberg local catalog.type config missing, got:\n$code")
+  }
+
+  test("iceberg default version constant pins 1.5.2") {
+    assert(SparkGen.DefaultIcebergVersion == "1.5.2",
+      s"DefaultIcebergVersion drift — update spec doc + bump intentionally, got ${SparkGen.DefaultIcebergVersion}")
+  }
+
+  test("detectLakehouseFormats — Iceberg-only block sets only usesIceberg") {
+    val blocks = List(SparkGen.Block("""df.write.format("iceberg").save("local.db.t")"""))
+    val flags = SparkGen.detectLakehouseFormats(blocks)
+    assert(!flags.usesDelta,   "usesDelta must remain false")
+    assert(flags.usesIceberg,  "usesIceberg must be true")
+    assert(!flags.usesHudi,    "usesHudi must remain false")
+    assert(flags.any)
+  }
+
+  test("detectLakehouseFormats — Delta + Iceberg both detected independently") {
+    val src   = """ds.write.format("delta").save("/p1"); df.write.format("iceberg").save("local.t")"""
+    val flags = SparkGen.detectLakehouseFormats(src)
+    assert(flags.usesDelta   && flags.usesIceberg)
+  }
+
+  test("lakehouseConfigs — Iceberg-only yields 5 sorted pairs") {
+    val pairs = SparkGen.lakehouseConfigs(SparkGen.LakehouseFlags(usesIceberg = true))
+    assert(pairs.size == 5, s"Iceberg should yield 5 config pairs, got: $pairs")
+    val keys = pairs.map(_._1)
+    assert(keys.contains("spark.sql.extensions"))
+    assert(keys.contains("spark.sql.catalog.spark_catalog"))
+    assert(keys.contains("spark.sql.catalog.spark_catalog.type"))
+    assert(keys.contains("spark.sql.catalog.local"))
+    assert(keys.contains("spark.sql.catalog.local.type"))
+  }
+
+  test("lakehouseConfigs — Delta + Iceberg merges shared spark.sql.extensions key") {
+    val flags = SparkGen.LakehouseFlags(usesDelta = true, usesIceberg = true)
+    val pairs = SparkGen.lakehouseConfigs(flags)
+    val extValue = pairs.collectFirst { case (k, v) if k == "spark.sql.extensions" => v }
+    assert(extValue.isDefined, "spark.sql.extensions must be present")
+    assert(extValue.get.contains("io.delta.sql.DeltaSparkSessionExtension"),
+      s"Delta extension must be in merged value, got: ${extValue.get}")
+    assert(extValue.get.contains("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"),
+      s"Iceberg extension must be in merged value, got: ${extValue.get}")
   }

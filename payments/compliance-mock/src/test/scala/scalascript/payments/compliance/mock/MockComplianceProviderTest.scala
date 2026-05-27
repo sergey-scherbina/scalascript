@@ -3,7 +3,7 @@ package scalascript.payments.compliance.mock
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.payments.compliance.*
-import scala.concurrent.{Future, ExecutionContext, Await}
+import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.global
 

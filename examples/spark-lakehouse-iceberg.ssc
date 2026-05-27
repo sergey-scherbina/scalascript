@@ -1,0 +1,104 @@
+#!/usr/bin/env ssc
+---
+name: spark-lakehouse-iceberg
+backend: spark
+spark-version: 3.5.0
+description: Apache Iceberg lakehouse round-trip — write, time-travel read, and MERGE INTO
+---
+
+# Spark Lakehouse — Apache Iceberg (L.3)
+
+Demonstrates the L.3 Iceberg auto-detection in `SparkGen`.
+
+The `.format("iceberg")` literal triggers the auto-emission of:
+
+- `//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:<version>"`
+  so `scala-cli` resolves the Iceberg bundle JAR via Coursier.
+- `.config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")`
+  on `SparkSession.builder()` — registers Iceberg SQL extensions
+  (`CALL`, `ALTER TABLE`, `MERGE INTO`, time-travel syntax).
+- `.config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")`
+  and `.config("spark.sql.catalog.spark_catalog.type", "hive")` — routes the default catalog
+  through Iceberg so unqualified table references use Iceberg semantics.
+- `.config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")`
+  and `.config("spark.sql.catalog.local.type", "hadoop")` — adds a `local.` catalog
+  backed by the local filesystem; `local.db.table` references resolve here.
+
+No `dependencies:` entry is needed in the front-matter; no `spark-config:`
+map is needed for the catalog wiring — the format literal in the source
+IS the contract.
+
+Run with (requires Spark 3.5 + Iceberg 1.5.2 to be accessible via Coursier):
+
+```sh
+RUN_SPARK_ICEBERG=1 ssc run --backend spark examples/spark-lakehouse-iceberg.ssc
+```
+
+## Write and read back
+
+```scalascript
+case class Sale(id: Int, product: String, amount: Double)
+
+val sales = Dataset.of(
+  Sale(1, "widget",  19.99),
+  Sale(2, "gadget",  49.99),
+  Sale(3, "gizmo",    9.49)
+)
+
+val warehousePath = s"/tmp/ssc-iceberg-warehouse-${System.currentTimeMillis()}"
+val tablePath     = s"$warehousePath/db/sales"
+
+// Write as Iceberg — this literal triggers Iceberg dep + config auto-emit.
+sales.write
+  .format("iceberg")
+  .mode("overwrite")
+  .save(tablePath)
+
+println("=== written as Iceberg ===")
+
+// Read back — uses the Iceberg DataSource reader.
+val back = spark.read.format("iceberg").load(tablePath)
+println("schema:")
+back.printSchema()
+println(s"row count: ${back.count()}")
+back.show()
+```
+
+## Time-travel read
+
+```scalascript
+// Read the table at snapshot 0 (the first write).
+// Iceberg maintains a full transaction log; any snapshot is queryable.
+val snapshot0 = spark.read
+  .format("iceberg")
+  .option("snapshot-id", "0")
+  .load(tablePath)
+
+println(s"=== snapshot 0: ${snapshot0.count()} rows ===")
+```
+
+## MERGE INTO (upsert)
+
+```scalascript
+// Register the existing Iceberg table as a view so SQL can reference it.
+spark.read.format("iceberg").load(tablePath).createOrReplaceTempView("sales_iceberg")
+
+// Create an update dataset.
+val updates = Dataset.of(
+  Sale(2, "gadget", 54.99),  // price update
+  Sale(4, "thingamajig", 7.99)  // new row
+)
+updates.createOrReplaceTempView("updates")
+
+// MERGE INTO — Iceberg's extension SQL; registered via IcebergSparkSessionExtensions.
+spark.sql("""
+  MERGE INTO sales_iceberg AS target
+  USING updates AS src
+  ON target.id = src.id
+  WHEN MATCHED THEN UPDATE SET target.amount = src.amount
+  WHEN NOT MATCHED THEN INSERT *
+""")
+
+println("=== after merge ===")
+spark.read.format("iceberg").load(tablePath).show()
+```

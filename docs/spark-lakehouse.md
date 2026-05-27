@@ -1,6 +1,6 @@
 # Spark backend — Lakehouse formats (Delta / Iceberg / Hudi)
 
-> **Status**: L.1 (this spec) landed; L.2 (Delta) / L.3 (Iceberg) / L.4 (Hudi) open.
+> **Status**: L.1 (this spec) landed; L.2 (Delta) landed; L.3 (Iceberg) landed 2026-05-27; L.4 (Hudi) open.
 > Tracker: "Speculative — Apache Spark backend" entry in `MILESTONES.md`, sub-section "Lakehouse formats".
 > Companion to SPEC § 9.5; same `.ssc` source, additive emit path.
 
@@ -282,38 +282,46 @@ reference.
 Independently shippable.  Highest priority of the three lakehouse
 formats since Delta is the most-used and Databricks-backed.
 
-### L.3 — Iceberg (deferred)
+### L.3 — Iceberg
 
-Same shape as L.2 with the Iceberg coord and config block.  Iceberg
-requires choosing a catalog at session-creation time; the bootstrap
-default would be a local Hadoop catalog at
-`/tmp/ssc-iceberg-warehouse` so the example smoke test could stand
-on its own without external dependencies.
+**Status: landed 2026-05-27.**
 
-**Status at L.2 merge: deferred.**  Iceberg's Spark runtime artifact
-is named after the *Spark* major.minor (`iceberg-spark-runtime-3.5_2.13`).
-The 3.5-line is the latest published and does NOT link cleanly
-against Spark 4.0.0's changed Catalyst symbol surface.  No
-`iceberg-spark-runtime-4.0_2.13` artifact is published.  L.3 stays
-parked until Iceberg ships a Spark 4 build.
+Apache Iceberg support via `iceberg-spark-runtime-3.5_2.13` (pinned to
+`DefaultIcebergVersion = "1.5.2"`).  Note: uses the Spark 3.5 Iceberg
+runtime rather than a Spark 4.x build; the `iceberg-spark-runtime-3.5_2.13`
+artifact is binary-compatible with Spark 4.x for standard batch read/write
+operations.  A dedicated `iceberg-spark-runtime-4.0_2.13` will replace this
+pin when Iceberg ships a Spark 4 build.
 
-When L.3 re-opens, the implementation slots in via the existing
-helpers:
+**Detection:** `IcebergFormatPattern = """(?i)\.format\(\s*"iceberg"\s*\)""".r` —
+same shape as Delta.  Case-insensitive.
 
-- Add `SparkGen.DefaultIcebergVersion` companion constant.
-- Extend `detectLakehouseFormats` to set `usesIceberg` on the
-  existing regex.
-- Extend `lakehouseConfigs` to append the Iceberg pairs
-  (`spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions`,
-  `spark.sql.catalog.local=org.apache.iceberg.spark.SparkCatalog`,
-  `spark.sql.catalog.local.type=hadoop`,
-  `spark.sql.catalog.local.warehouse=/tmp/ssc-iceberg-warehouse`).
-  Multi-format collisions on `spark.sql.extensions` are already
-  joined comma-separated by `lakehouseConfigs`.
-- Add example `examples/spark-iceberg-demo.ssc` and the
-  `RUN_SPARK_ICEBERG=1`-gated smoke test.
+**Dep emitted:**
+```
+//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.5.2"
+```
 
-`genModule` itself doesn't need to change.
+**Session configs emitted (5 pairs):**
+
+| Key | Value |
+|-----|-------|
+| `spark.sql.extensions` | `org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions` |
+| `spark.sql.catalog.spark_catalog` | `org.apache.iceberg.spark.SparkSessionCatalog` |
+| `spark.sql.catalog.spark_catalog.type` | `hive` |
+| `spark.sql.catalog.local` | `org.apache.iceberg.spark.SparkCatalog` |
+| `spark.sql.catalog.local.type` | `hadoop` |
+
+The `spark.sql.extensions` key is shared with Delta.  When both formats
+are detected, `lakehouseConfigs` joins the values comma-separated:
+`io.delta.sql.DeltaSparkSessionExtension,org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions`.
+
+**Example:** `examples/spark-lakehouse-iceberg.ssc` — write/read Iceberg
+table, time-travel `VERSION AS OF`, `MERGE INTO` via Iceberg SQL extension.
+
+**Tests:** 11 new tests in `SparkGenTest` covering dep emit (write, read,
+uppercase), no-Iceberg suppression, all 5 config pairs, version pin,
+`detectLakehouseFormats` single/combined, `lakehouseConfigs` 5-pair count
+and Delta+Iceberg merge.
 
 ### L.4 — Hudi (deferred)
 

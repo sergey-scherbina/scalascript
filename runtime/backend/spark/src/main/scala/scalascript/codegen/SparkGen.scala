@@ -68,6 +68,16 @@ object SparkGen:
    *  on Maven Central before bumping. */
   val DefaultDeltaVersion: String = "3.2.0"
 
+  /** Default Apache Iceberg version emitted as the
+   *  `iceberg-spark-runtime-3.5_2.13` dep coordinate when
+   *  `.format("iceberg")` is detected.  Lakehouse track L.3 (see
+   *  `docs/spark-lakehouse.md §L.3`).
+   *
+   *  Pinned to **1.5.2** — latest stable release with confirmed
+   *  Spark 3.5 runtime compatibility.  Verify on Maven Central
+   *  before bumping. */
+  val DefaultIcebergVersion: String = "1.5.2"
+
   /** Maximum number of `${expr}` binds in a single `sql` block that the
    *  emitter routes through `java.util.Map.of(...)`.  Above this threshold
    *  (Phase C.3, v1.25 § 9.5) it switches to `java.util.Map.ofEntries(...)`
@@ -599,7 +609,16 @@ object SparkGen:
       if flags.usesDelta then
         raw += "spark.sql.extensions" -> "io.delta.sql.DeltaSparkSessionExtension"
         raw += "spark.sql.catalog.spark_catalog" -> "org.apache.spark.sql.delta.catalog.DeltaCatalog"
-      // L.3 / L.4 will append their pairs here.
+      // L.3 — Iceberg SQL extension + catalog.  `spark.sql.extensions` is
+      // shared with Delta; the groupBy/mkSeparated merge below joins both
+      // values comma-separated so both extensions register in one pass.
+      if flags.usesIceberg then
+        raw += "spark.sql.extensions"              -> "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+        raw += "spark.sql.catalog.spark_catalog"   -> "org.apache.iceberg.spark.SparkSessionCatalog"
+        raw += "spark.sql.catalog.spark_catalog.type" -> "hive"
+        raw += "spark.sql.catalog.local"           -> "org.apache.iceberg.spark.SparkCatalog"
+        raw += "spark.sql.catalog.local.type"      -> "hadoop"
+      // L.4 will append Hudi pairs here.
       // Merge entries sharing a key by joining values with ',' so
       // multi-format extensions register together.
       raw.toList
@@ -865,6 +884,11 @@ private class SparkGen(
     // baseline.
     if lakehouse.usesDelta then
       sb.append(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}"\n""")
+    // L.3 — Iceberg runtime JAR.  The `iceberg-spark-runtime-3.5_2.13`
+    // bundle includes all Iceberg modules (core, data, arrow, parquet)
+    // needed by `SparkCatalog` and `SparkSessionCatalog`.
+    if lakehouse.usesIceberg then
+      sb.append(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}"\n""")
 
     // Phase G.2 — Hive metastore / warehouse runtime dep.  Emitted
     // when the front-matter `spark-hive-metastore:` or
