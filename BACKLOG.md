@@ -1601,19 +1601,13 @@ assumption for anyone using JAR plugins.
 If `ssc-plugin-host.jar` is missing or `java` is not on PATH, `ssc` prints
 a clear diagnostic pointing to remediation steps.
 
-### Phase 4 — native plugin binaries (opt-in guide, no core changes)
+### Phase 4 — native plugin binaries (opt-in guide, no core changes) ✓ Landed (2026-05-27)
 
-Once Phase 3 ships, plugin authors can optionally compile their plugin to a
-native binary for fully JVM-free deployment:
-
-```
-ssc (native)  →  subprocess wire protocol  →  kafka-plugin (native)
-```
-
-The plugin compiles the same `SubprocessHost` entry point with
-`sbt myPlugin/graalvm-native-image:packageBin`.  Reflection config for a
-plugin is much simpler than for `ssc` (no snakeyaml, no scala-meta).
-No core changes needed — this is documented as a plugin-author guide.
+`docs/native-plugin-guide.md` — full plugin-author guide: prerequisites, entry
+point wiring (depend on `ssc-plugin-host` or inline `SubprocessHost`), sbt
+setup with `GraalVMNativeImagePlugin`, minimal reflection/resource config,
+agent-based config generation, CI matrix, `plugin.yaml` manifest, verification,
+and a JAR-vs-native comparison table.  No core changes.
 
 ### Known tradeoffs
 
