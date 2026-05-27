@@ -1081,9 +1081,11 @@ Implementation phases ship independently below.
   aliases, `TopologyTestDriver` helpers, `Feature.DistributedStreams` in `KafkaStreamsCapabilities`,
   22 new `KafkaStreamsGenTest` tests. Spec: `docs/distributed-streams.md §9.3`. (2026-05-27)
 
-- [ ] **v2.1.5-dstream-flink** — Apache Flink backend (DataStream API) + Apache Beam portability
-  runner; Flink `TypeInformation[T]` bridge; Beam `PipelineOptions` pass-through.
-  Spec: `docs/distributed-streams.md §9.4–9.5`.
+- [x] **v2.1.5-dstream-flink** — Flink + Beam backends: `runtime/backend/flink/` module, `FlinkGen`
+  (DataStream API shim, `_flinkEnv()` helper) + `BeamGen` (Java SDK shim, `_createBeamPipeline()`,
+  runner dep auto-selection), `FlinkBackend`/`BeamBackend` SPI adapters, `FlinkCapabilities`/
+  `BeamCapabilities` (`Feature.DistributedStreams`), ServiceLoader registration, 30 new tests.
+  Spec: `docs/distributed-streams.md §9.4–9.5`. (2026-05-27)
 
 - [ ] **v2.1.6-dstream-connectors** — Production connectors: Kafka source/sink, Parquet/JSON/CSV
   files, JDBC source/sink, S3/GCS/HDFS, Pulsar, Kinesis.  Auto-emitted deps per connector type

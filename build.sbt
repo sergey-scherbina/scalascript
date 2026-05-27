@@ -676,6 +676,16 @@ lazy val backendKafkaStreams = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+lazy val backendFlink = project
+  .in(file("runtime/backend/flink"))
+  .dependsOn(backendSpi, core)
+  .settings(
+    name := "scalascript-backend-flink",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // ── compiler/driver — scala3-compiler isolated from startup classpath ────────
 // Does NOT appear in cli's .dependsOn so dotty is never on the startup CP.
 // cli/stage copies this module's JAR to lib/compiler/jars/ and CompilerLoader
@@ -716,7 +726,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -2344,7 +2354,7 @@ lazy val root = project
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
-    backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendDap,
+    backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
