@@ -616,3 +616,129 @@ class DeployPluginTest extends AnyFunSuite:
     val t = TargetFactory.make("sftp", Map.empty)
     assert(t.kind == "sftp")
     assert(t.isInstanceOf[SftpTarget])
+
+  // ── StaticTarget ──────────────────────────────────────────────────────────
+
+  test("StaticTarget.kind and artifactKind"):
+    val t = new StaticTarget()
+    assert(t.kind == "static")
+    assert(t.artifactKind == ArtifactKind.SpaBundle)
+
+  test("StaticTarget.push: Vercel dry-run returns vercel.app URL"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "vercel", "project" -> "mysite", "token" -> "tok_xxx"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/dist", ArtifactKind.SpaBundle)
+    val result = target.push(ctx, art)
+    assert(result.ref.contains("vercel.app"))
+    assert(result.metadata.get("url").exists(_.contains("vercel.app")))
+
+  test("StaticTarget.push: Netlify dry-run returns netlify.app URL"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "netlify", "project" -> "mysite", "token" -> "tok_xxx"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/dist", ArtifactKind.SpaBundle)
+    val result = target.push(ctx, art)
+    assert(result.ref.contains("netlify.app"))
+
+  test("StaticTarget.push: Cloudflare Pages dry-run returns pages.dev URL"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "cloudflare-pages", "project" -> "mysite",
+        "token" -> "tok_xxx", "team" -> "acct123"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/dist", ArtifactKind.SpaBundle)
+    val result = target.push(ctx, art)
+    assert(result.ref.contains("pages.dev"))
+
+  test("StaticTarget.push: GitHub Pages dry-run returns github.io URL"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "myorg",
+      config     = Map("provider" -> "github-pages", "project" -> "myorg", "token" -> "ghp_xxx"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/dist", ArtifactKind.SpaBundle)
+    val result = target.push(ctx, art)
+    assert(result.ref.contains("github.io"))
+    assert(result.metadata.get("branch").exists(_ == "gh-pages"))
+
+  test("StaticTarget.push: unknown provider throws"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "aws-amplify", "token" -> "tok"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    intercept[DeployError] {
+      target.push(ctx, BuildResult("/tmp/dist", ArtifactKind.SpaBundle))
+    }
+
+  test("StaticTarget.deploy: wraps push result URL into DeployResult"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "vercel", "token" -> "tok"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val ref    = PushResult("https://mysite.vercel.app", metadata = Map("url" -> "https://mysite.vercel.app"))
+    val result = target.deploy(ctx, ref)
+    assert(result.url.exists(_.contains("vercel.app")))
+
+  test("StaticTarget.outputs: returns url from outputsOf"):
+    val target = new StaticTarget()
+    val ctx = DeployContext(
+      targetName = "mysite",
+      config     = Map("provider" -> "netlify", "project" -> "mysite", "token" -> "tok"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = name => if name == "mysite" then Map("url" -> "https://mysite.netlify.app") else Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val outs = target.outputs(ctx)
+    assert(outs("url") == "https://mysite.netlify.app")
+
+  test("TargetFactory: static kind → StaticTarget"):
+    val t = TargetFactory.make("static", Map.empty)
+    assert(t.kind == "static")
+    assert(t.isInstanceOf[StaticTarget])

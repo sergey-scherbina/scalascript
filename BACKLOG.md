@@ -973,11 +973,8 @@ Design decisions locked:
 - `TargetFactory` extended: `traditional + transport=ssh+systemd`, `rsync`, `sftp/ftp`.
 - 18 new tests (SystemdUnitGenerator × 6, SshSystemdTarget × 4, RsyncTarget × 3, SftpTarget × 2, TargetFactory × 3); 71 total.
 
-**v1.52.5 — Static hosting (generic):**
-- SPA bundle push (reuses `Main.scala:1492-1494`)
-- API-based adapters (Vercel, Netlify, Cloudflare Pages as reference implementations)
-- Git-based adapter (push to `gh-pages` for GitHub Pages)
-- Cache invalidation hook post-push
+**✓ Landed (2026-05-27) — v1.52.5 — Static hosting (generic):**
+- `StaticTarget` (`kind: static`): four provider shapes — Vercel (vercel CLI or Deployments API v13), Netlify (netlify CLI or API), Cloudflare Pages (wrangler CLI or API; account_id via `team:`), GitHub Pages (git push to `gh-pages` branch via orphan branch). All dry-run capable. `status` via HTTP GET healthcheck. `outputs` passes URL through. `TargetFactory` extended with `"static"`. 9 new tests; 80 total.
 
 **v1.52.6 — FaaS / serverless (generic):**
 - Lambda zip adapter (AWS-shaped): zip + handler wrapper + alias management

@@ -14,6 +14,8 @@ object TargetFactory:
         new RsyncTarget()
       case "sftp" | "ftp" =>
         new SftpTarget()
+      case "static" =>
+        new StaticTarget()
       case "traditional" =>
         val transport = config.get("transport").collect { case s: String => s }.getOrElse("subprocess")
         transport match
@@ -24,4 +26,4 @@ object TargetFactory:
             val port = config.get("port").collect { case n: Int => n }.getOrElse(8080)
             new LocalSubprocessTarget(port)
       case other =>
-        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, k8s, traditional, rsync, sftp")
+        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, k8s, static, traditional, rsync, sftp")

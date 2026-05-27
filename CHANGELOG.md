@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.52.5-deploy-static** — `StaticTarget` (`kind: static`): Vercel (CLI or Deployments API v13), Netlify (CLI or API), Cloudflare Pages (wrangler or API; account_id via `team:`), GitHub Pages (git push orphan branch to gh-pages). HTTP GET status. TargetFactory `"static"`. 9 new tests; 80 total.
+
 - **v1.52.4-deploy-traditional** — `SystemdUnitGenerator` (FatJar/NativeBinary/NodeBundle unit templates, env vars, pre/post hooks). `SshSystemdTarget` (SSH+SCP artifact + systemd unit; `systemctl restart/is-active`; `journalctl -u` logs; pre/post_deploy). `RsyncTarget` (rsync with configurable SSH rsh; post-deploy hook). `SftpTarget` (SFTP batch upload; post-upload unpack_cmd). TargetFactory extended with transport sub-dispatch for traditional kind + rsync/sftp top-level kinds. 18 new tests; 71 total.
 
 - **v1.52.3-deploy-k8s** — `K8sManifestGenerator`: Deployment (liveness `/_health` + readiness `/_ready` probes, PreStop drain hook, resource limits, nodeSelector, annotations, blue-green slot labels) + Service (ClusterIP, slot-selector for blue-green switching) + Ingress + ConfigMap + Secret (base64-encoded). `K8sTarget`: full 7-verb SPI + `switch()` (kubectl patch Service selector) + `promote()` (scale→switch→scale old to 0); dry-run; `kubectl rollout undo` rollback; log streaming. `TargetFactory` extended with `"k8s" | "kubernetes"`. 17 new tests; 53 total.
