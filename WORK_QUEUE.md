@@ -12,6 +12,11 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 _(all done — see Done section below)_
 
+
+## Language & Compiler — Secret Resolvers (cloud)
+
+- [~] **secret-resolvers-cloud** — Cloud-provider secret resolver plugins: `AwsSmResolver` (AWS Secrets Manager via `software.amazon.awssdk:secretsmanager`, default creds chain, `AWS_REGION`); `GcpSmResolver` (GCP Secret Manager via `com.google.cloud:google-cloud-secretmanager`, ADC, `GOOGLE_CLOUD_PROJECT`); `AzureKvResolver` (Azure Key Vault via `com.azure:azure-security-keyvault-secrets`, `DefaultAzureCredential`). Each as a separate sbt subproject in `backend/sql-aws/`, `backend/sql-gcp/`, `backend/sql-azure/`; each registers via ServiceLoader; each has 8+ tests using mock HTTP/stub clients. Spec: `docs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv`.
+
 ## Language & Compiler — Spark extensions
 
 - [x] **spark-streaming-f2-f4** — Spark Structured Streaming phases F.2–F.4: (F.2) `SparkGen.detectStreaming`, `awaitTermination()` shim, `examples/spark-streaming-rate-console.ssc`, 3+ codegen tests; (F.3) file source/sink + checkpointing comment emit, `examples/spark-streaming-file-parquet.ssc`; (F.4) `.format("kafka")` detection → auto-emit `spark-sql-kafka-0-10_2.13` dep, `examples/spark-streaming-kafka.ssc`. Smoke tests gated by `RUN_SPARK_INTEGRATION`/`RUN_SPARK_KAFKA`. Spec: `docs/spark-streaming.md §F.2–F.4`. ✓ Landed (2026-05-27)
