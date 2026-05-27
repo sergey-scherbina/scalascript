@@ -2442,6 +2442,17 @@ lazy val paymentsSepa = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — ACH Nacha flat-file adapter ─────────────────────────────
+lazy val paymentsAch = project
+  .in(file("runtime/std/payments-ach"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-ach",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2467,7 +2478,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa,
+    paymentsBankRails, paymentsSepa, paymentsAch,
   )
   .settings(
     publish / skip := true

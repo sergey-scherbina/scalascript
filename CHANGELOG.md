@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.54.2-bank-rails-ach** — `payments/bank-rails/` (BankRailsProvider SPI + BankTransfer/DirectDebitMandate core types + RCode/CCode) + `runtime/std/payments-ach/` (NachaFile 94-char fixed-width builder, AchProvider, AchWebhookReceiver HMAC-SHA256, AchPlugin Backend SPI, `AchConfig`, same-day ACH, R/C-code handling, `examples/bank-rails-ach.ssc`). 28 tests.
+
 - **blockchain-bitcoin** — secp256k1 ECDSA (RFC 6979 deterministic k), BIP-143 SegWit sighash, BIP-340 Schnorr signing/verification, BIP-341 Taproot (tapTweakHash + tweakedKey + tweakedPrivateKey), P2WPKH bech32 (`bc1q`/`tb1q`) + P2TR bech32m (`bc1p`/`tb1p`) address derivation, PSBT BIP-174 builder/signer/finalizer/deserializer, `BitcoinChainAdapter` (`ChainAdapter` SPI), `ChainId.BitcoinMainnet`/`ChainId.BitcoinTestnet` added to `blockchain-spi`. 45 tests.
 
 - **v1.51.5b-streams-clock-ui-signals** — Streams now pace `.throttle(Rate)` with interpreter wall-clock scheduling, delay finite `.debounce(durationMillis)` bursts before emitting the latest value, subscribe `Source.signal(sig)` to frontend `ReactiveSignal` updates, and support reverse `sig.bind(source)` for frontend signals. Swing/JavaFX runtime state maps now stay synchronized with the shared signal bus; SwiftUI native bridging is tracked separately as `v1.51.5c-streams-swiftui-bridge`.

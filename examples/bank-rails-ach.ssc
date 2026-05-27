@@ -1,0 +1,150 @@
+---
+title: "ACH Bank Rails Example"
+description: "ACH Credit Transfer and Direct Debit via Nacha flat-file adapter"
+---
+
+# ACH Bank Rails
+
+This example demonstrates how to use the `AchProvider` to initiate ACH credit
+transfers and direct debits using the Nacha flat-file format.
+
+## Setup
+
+```scala
+import scalascript.payments.ach.*
+import scalascript.payments.bankrails.*
+import scalascript.payments.money.{Money, Currency}
+
+val config = AchConfig(
+  achSftpHost      = "sftp.your-ach-gateway.com",
+  achSftpUser      = "ach-user",
+  achSftpKeyPath   = "/etc/ach/id_rsa",
+  achCompanyName   = "ACME CORP",
+  achCompanyId     = "1234567890",
+  achRoutingNumber = "021000021",
+  sameDayAch       = false,
+)
+
+val ach = AchProvider(config)
+```
+
+## ACH Credit Transfer
+
+Push funds from your company account to a recipient.
+
+```scala
+val sender = BankAccount(
+  routingNumber = Some("021000021"),
+  accountNumber = Some("100200300"),
+  holderName    = "Acme Corp",
+  countryCode   = "US",
+)
+
+val recipient = BankAccount(
+  routingNumber = Some("011000138"),
+  accountNumber = Some("987654321"),
+  holderName    = "Jane Smith",
+  countryCode   = "US",
+)
+
+val transfer = ach.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.ACH_CREDIT,
+  amount         = Money(50000L, Currency("USD")),  // $500.00
+  sender         = sender,
+  recipient      = recipient,
+  reference      = "PAYROLL-2026-05",
+  idempotencyKey = "payroll-may-2026-jane-smith",
+))
+
+// transfer.status == BankTransferStatus.Pending
+// Settlement arrives T+1 (same-day) or T+2 (standard)
+```
+
+## Same-Day ACH Credit Transfer
+
+Set `sameDay = true` to use same-day ACH (effective date = today).
+
+```scala
+val sameDay = ach.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.ACH_CREDIT,
+  amount         = Money(10000L, Currency("USD")),  // $100.00
+  sender         = sender,
+  recipient      = recipient,
+  reference      = "URGENT-PAYMENT",
+  idempotencyKey = "urgent-2026-05-27",
+  sameDay        = true,
+))
+```
+
+## ACH Direct Debit
+
+Pull funds from a customer's account (requires prior written authorization / mandate).
+
+```scala
+val customerAccount = BankAccount(
+  routingNumber = Some("021000021"),
+  accountNumber = Some("555666777"),
+  holderName    = "Bob Customer",
+  countryCode   = "US",
+)
+
+val debit = ach.initiateDirectDebit(InitiateDirectDebitRequest(
+  rail            = RailKind.ACH_DEBIT,
+  amount          = Money(9999L, Currency("USD")),   // $99.99
+  mandateId       = MandateId("AUTH-BOB-2026-001"),  // merchant's authorization reference
+  creditorAccount = sender,
+  debtorAccount   = customerAccount,
+  creditorName    = "Acme Corp",
+  reference       = "SUBSCRIPTION-MAY",
+  idempotencyKey  = "sub-bob-2026-05",
+))
+```
+
+## Webhook Handling
+
+ACH returns (R-codes) and Notifications of Change (C-codes) arrive asynchronously
+via webhook.
+
+```scala
+val receiver = ach.webhookReceiver
+
+// In your HTTP route handler:
+val response = receiver.handle(webhookRequest, webhookSecret) {
+  case BankRailsEvent.AchTransferSettled(t) =>
+    println(s"ACH settled: ${t.id.value} — ${t.amount}")
+
+  case BankRailsEvent.AchReturn(t, rCode, desc) =>
+    println(s"ACH return: ${t.id.value} — ${rCode.value}: $desc")
+    // R01 = Insufficient Funds, R10 = Not Authorized, R02 = Account Closed
+
+  case BankRailsEvent.AchNotificationOfChange(t, cCode, corrected) =>
+    println(s"NOC: ${t.id.value} — ${cCode.value}: update account to $corrected")
+    // C01 = incorrect account number — update your records within 6 banking days
+}
+```
+
+## Return Code Reference
+
+Common Nacha R-codes:
+
+| Code | Meaning |
+|------|---------|
+| R01  | Insufficient Funds |
+| R02  | Bank Account Closed |
+| R03  | No Account / Unable to Locate |
+| R04  | Invalid Account Number |
+| R07  | Authorization Revoked by Customer |
+| R08  | Payment Stopped |
+| R10  | Customer Advises Not Authorized |
+| R16  | Bank Account Frozen |
+
+## Notification of Change Codes
+
+| Code | Meaning |
+|------|---------|
+| C01  | Incorrect Bank Account Number |
+| C02  | Incorrect Routing Number |
+| C03  | Incorrect Routing + Account Numbers |
+| C05  | Incorrect Transaction Code |
+| C06  | Incorrect Account Number and Transaction Code |
+| C07  | Incorrect Routing, Account Number and Transaction Code |

@@ -10,17 +10,17 @@ object MandateId:
 
 /** Request to initiate a pull (direct debit) collection against an existing mandate. */
 case class InitiateDirectDebitRequest(
-  rail:           RailKind,               // must be SEPA_DD or ACH_DEBIT
-  amount:         Money,
-  mandateId:      MandateId,
+  rail:            RailKind,               // must be SEPA_DD or ACH_DEBIT
+  amount:          Money,
+  mandateId:       MandateId,
   creditorAccount: BankAccount,
-  debtorAccount:  BankAccount,
-  creditorName:   String,
-  reference:      String,                 // per-collection reference (max 35 chars for SEPA)
-  idempotencyKey: String,
-  sameDay:        Boolean = false,        // ACH only
-  scheduledDate:  Option[java.time.LocalDate] = None,
-  metadata:       Map[String, String] = Map.empty,
+  debtorAccount:   BankAccount,
+  creditorName:    String,
+  reference:       String,                 // per-collection reference (max 35 chars for SEPA)
+  idempotencyKey:  String,
+  sameDay:         Boolean = false,        // ACH only
+  scheduledDate:   Option[java.time.LocalDate] = None,
+  metadata:        Map[String, String] = Map.empty,
 )
 
 /** A direct-debit mandate — customer authorization for merchant to pull funds. */
