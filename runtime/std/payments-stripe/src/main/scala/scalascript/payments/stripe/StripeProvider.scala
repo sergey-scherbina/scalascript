@@ -23,7 +23,7 @@ class StripeProvider(secretKey: String, override val mode: PaymentMode = Payment
 
   def id:          String = "stripe"
   def displayName: String = "Stripe"
-  def spiVersion:  String = "1.53.1"
+  def spiVersion:  String = "1.53.5"
 
   def capabilities: PaymentCapabilities = PaymentCapabilities(
     supportsSubscriptions  = true,
@@ -55,6 +55,15 @@ class StripeProvider(secretKey: String, override val mode: PaymentMode = Payment
       case SetupFutureUsage.OffSession => params += "setup_future_usage" -> "off_session"
     }
     if req.offSession then params += "off_session" -> "true"
+    req.mandateId.foreach(m => params += "mandate" -> m.value)
+    if req.scaExemptions.nonEmpty then
+      val exemption = req.scaExemptions.head match
+        case ScaExemption.LowValue              => "none"
+        case ScaExemption.TrustedListing        => "any"
+        case ScaExemption.TransactionRiskAnalysis => "challenge"
+        case ScaExemption.Recurring             => "none"
+        case ScaExemption.MerchantInitiated     => "none"
+      params += "payment_method_options[card][request_three_d_secure]" -> exemption
     req.metadata.foreach { (k, v) => params += s"metadata[$k]" -> v }
     val json = post("/payment_intents", params.toList)
     parseIntent(json)
@@ -157,6 +166,51 @@ class StripeProvider(secretKey: String, override val mode: PaymentMode = Payment
     evidence.serviceDocumentation.foreach(v => params += "evidence[service_documentation]" -> v)
     val json = post(s"/disputes/${disputeId.value}", params.toList)
     parseDispute(json)
+
+  // ── Group 2b: Mandates ─────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    val params = scala.collection.mutable.ListBuffer[(String, String)]()
+    params += "customer"           -> customerId.value
+    params += "payment_method"     -> vaultId.value
+    params += "usage"              -> (if mandateType == MandateType.SingleUse then "on_session" else "off_session")
+    params += "confirm"            -> "true"
+    params += "automatic_payment_methods[enabled]" -> "true"
+    params += "automatic_payment_methods[allow_redirects]" -> "never"
+    val json      = post("/setup_intents", params.toList)
+    val mandateId = json.obj.get("mandate").flatMap {
+      case ujson.Str(s) => Some(s)
+      case obj          => obj.obj.get("id").map(_.str)
+    }.getOrElse("")
+    Mandate(
+      id          = MandateId(mandateId),
+      status      = MandateStatus.Pending,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = json.obj.get("id").map(_.str),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    val json   = get(s"/mandates/${id.value}")
+    val status = json.obj.get("status").map(_.str).getOrElse("active") match
+      case "active"   => MandateStatus.Active
+      case "inactive" => MandateStatus.Inactive
+      case _          => MandateStatus.Pending
+    val mType = json.obj.get("type").map(_.str).getOrElse("multi_use") match
+      case "single_use" => MandateType.SingleUse
+      case _            => MandateType.MultiUse
+    val pmId   = json.obj.get("payment_method").flatMap {
+      case ujson.Str(s) => Some(s)
+      case obj          => obj.obj.get("id").map(_.str)
+    }
+    Mandate(
+      id          = id,
+      status      = status,
+      mandateType = mType,
+      vaultId     = pmId.map(VaultId(_)),
+      providerRef = json.obj.get("id").map(_.str),
+    )
 
   // ── Group 5: Webhooks ──────────────────────────────────────────────────────
 
@@ -270,13 +324,21 @@ class StripeProvider(secretKey: String, override val mode: PaymentMode = Payment
 
   private def parseStoredMethod(j: ujson.Value): StoredMethod =
     val card = j.obj.get("card").getOrElse(j)
+    val networkToken = card.obj.get("networks").flatMap(_.obj.get("preferred")).flatMap {
+      case ujson.Str(s) if s.nonEmpty => Some(s)
+      case _                          => None
+    }.orElse(card.obj.get("tokenization_method").flatMap {
+      case ujson.Str(s) if s.nonEmpty && s != "null" => Some(s)
+      case _                                          => None
+    })
     StoredMethod(
-      vaultId   = VaultId(j("id").str),
-      last4     = card("last4").str,
-      brand     = card("brand").str,
-      expMonth  = card("exp_month").num.toInt.toString,
-      expYear   = card("exp_year").num.toInt.toString,
-      funding   = card.obj.get("funding").map(_.str).getOrElse("unknown"),
+      vaultId      = VaultId(j("id").str),
+      last4        = card("last4").str,
+      brand        = card("brand").str,
+      expMonth     = card("exp_month").num.toInt.toString,
+      expYear      = card("exp_year").num.toInt.toString,
+      funding      = card.obj.get("funding").map(_.str).getOrElse("unknown"),
+      networkToken = networkToken,
     )
 
   private def parsePlan(j: ujson.Value): Plan =

@@ -31,7 +31,7 @@ class AdyenProvider(
 
   def id:          String = "adyen"
   def displayName: String = "Adyen"
-  def spiVersion:  String = "1.53.3"
+  def spiVersion:  String = "1.53.5"
 
   def capabilities: PaymentCapabilities = PaymentCapabilities(
     supportsSubscriptions  = true,
@@ -58,6 +58,19 @@ class AdyenProvider(
     req.method.foreach(m => body("paymentMethod") = paymentMethodObj(m))
     req.description.foreach(d => body("additionalData") = ujson.Obj("shopperStatement" -> d))
     if req.captureMethod == CaptureMethod.Manual then body("captureDelayHours") = 0
+    if req.offSession then
+      body("shopperInteraction") = "ContAuth"
+      body("recurringProcessingModel") = "Subscription"
+    req.mandateId.foreach(m => body("recurringDetailReference") = m.value)
+    if req.scaExemptions.nonEmpty then
+      val exemption = req.scaExemptions.head match
+        case ScaExemption.LowValue                => "lowValue"
+        case ScaExemption.TrustedListing          => "trustedListing"
+        case ScaExemption.TransactionRiskAnalysis => "transactionRiskAnalysis"
+        case ScaExemption.Recurring               => "recurring"
+        case ScaExemption.MerchantInitiated       => "establishedRelationship"
+      body("authenticationData") = ujson.Obj("attemptAuthentication" -> "never", "authenticationOnly" -> false)
+      body("additionalData")     = ujson.Obj("scaExemption" -> exemption)
     val json = postJson(s"$baseUrl/payments", body)
     parsePaymentResult(json)
 
@@ -124,6 +137,43 @@ class AdyenProvider(
   def listMethods(customerId: CustomerId): List[StoredMethod] =
     val json = getJson(s"$mgmtUrl/merchants/$merchantAccount/paymentMethodSettings?shopperReference=${URLEncoder.encode(customerId.value, "UTF-8")}")
     json.obj.get("data").map(_.arr.toList.map(parseStoredMethod)).getOrElse(List.empty)
+
+  // ── Group 2b: Mandates ────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    // Adyen mandates are created by tokenizing a payment with recurringProcessingModel=Subscription
+    val body = ujson.Obj(
+      "merchantAccount"          -> merchantAccount,
+      "shopperReference"         -> customerId.value,
+      "shopperInteraction"       -> "Ecommerce",
+      "recurringProcessingModel" -> (if mandateType == MandateType.SingleUse then "CardOnFile" else "Subscription"),
+      "storePaymentMethod"       -> true,
+      "amount"                   -> ujson.Obj("value" -> 0, "currency" -> "USD"),
+      "reference"                -> s"MANDATE-${System.currentTimeMillis()}",
+      "returnUrl"                -> "https://your-company.com/mandate/return",
+    )
+    val parts = vaultId.value.split(":", 2)
+    val recurringId = if parts.length == 2 then parts(1) else vaultId.value
+    body("selectedRecurringDetailReference") = recurringId
+    val json     = postJson(s"$baseUrl/payments", body)
+    val mandateRef = json.obj.get("pspReference").map(_.str).getOrElse(s"adyen-mandate-${System.currentTimeMillis()}")
+    Mandate(
+      id          = MandateId(mandateRef),
+      status      = MandateStatus.Pending,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = Some(mandateRef),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    // Adyen: recurring detail reference serves as mandate ID; retrieve via stored payment methods
+    Mandate(
+      id          = id,
+      status      = MandateStatus.Active,
+      mandateType = MandateType.MultiUse,
+      providerRef = Some(id.value),
+    )
 
   // ── Group 3: Subscriptions ────────────────────────────────────────────────
 
@@ -273,16 +323,21 @@ class AdyenProvider(
 
   private def parseStoredMethod(j: ujson.Value): StoredMethod =
     val card = j.obj.get("card").getOrElse(j)
+    val networkToken = card.obj.get("networkToken").flatMap {
+      case ujson.Str(s) if s.nonEmpty => Some(s)
+      case _                          => None
+    }
     StoredMethod(
-      vaultId  = VaultId(j.obj.get("id").orElse(j.obj.get("recurringDetailReference")).map(_.str).getOrElse("")),
-      last4    = card.obj.get("lastFour").orElse(card.obj.get("last4")).map(_.str).getOrElse(""),
-      brand    = card.obj.get("brand").orElse(j.obj.get("paymentMethod")).flatMap {
+      vaultId      = VaultId(j.obj.get("id").orElse(j.obj.get("recurringDetailReference")).map(_.str).getOrElse("")),
+      last4        = card.obj.get("lastFour").orElse(card.obj.get("last4")).map(_.str).getOrElse(""),
+      brand        = card.obj.get("brand").orElse(j.obj.get("paymentMethod")).flatMap {
         case ujson.Str(s) => Some(s)
         case obj          => obj.obj.get("brand").map(_.str)
       }.getOrElse("unknown"),
-      expMonth = card.obj.get("expiryMonth").map(_.str).getOrElse(""),
-      expYear  = card.obj.get("expiryYear").map(_.str).getOrElse(""),
-      funding  = "credit",
+      expMonth     = card.obj.get("expiryMonth").map(_.str).getOrElse(""),
+      expYear      = card.obj.get("expiryYear").map(_.str).getOrElse(""),
+      funding      = "credit",
+      networkToken = networkToken,
     )
 
   private def parseDispute(j: ujson.Value, fallbackId: DisputeId): Dispute =

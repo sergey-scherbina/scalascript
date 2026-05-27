@@ -111,6 +111,15 @@ object PaymentIntent:
       case Canceled(id, _)                 => id
       case Failed(id, _, _)                => id
 
+// ── SCA Exemptions ────────────────────────────────────────────────────────────
+
+enum ScaExemption:
+  case LowValue
+  case TrustedListing
+  case TransactionRiskAnalysis
+  case Recurring
+  case MerchantInitiated
+
 // ── CreateIntentRequest ───────────────────────────────────────────────────────
 
 case class CreateIntentRequest(
@@ -121,6 +130,8 @@ case class CreateIntentRequest(
   captureMethod:    CaptureMethod         = CaptureMethod.Automatic,
   setupFutureUsage: Option[SetupFutureUsage] = None,
   offSession:       Boolean               = false,
+  mandateId:        Option[MandateId]     = None,
+  scaExemptions:    List[ScaExemption]    = List.empty,
   metadata:         Map[String, String]   = Map.empty,
   description:      Option[String]        = None,
   returnUrl:        Option[String]        = None,
@@ -142,13 +153,15 @@ case class Customer(
 )
 
 case class StoredMethod(
-  vaultId:   VaultId,
-  last4:     String,
-  brand:     String,
-  expMonth:  String,
-  expYear:   String,
-  funding:   String,
-  isDefault: Boolean = false,
+  vaultId:      VaultId,
+  last4:        String,
+  brand:        String,
+  expMonth:     String,
+  expYear:      String,
+  funding:      String,
+  isDefault:    Boolean         = false,
+  networkToken: Option[String]  = None,
+  mandateId:    Option[MandateId] = None,
 )
 
 // ── Plans + Subscriptions ─────────────────────────────────────────────────────
@@ -248,7 +261,14 @@ case class Dispute(
 
 enum MandateStatus { case Active, Inactive, Pending }
 enum MandateType   { case MultiUse, SingleUse }
-case class Mandate(id: MandateId, status: MandateStatus, mandateType: MandateType)
+case class Mandate(
+  id:           MandateId,
+  status:       MandateStatus,
+  mandateType:  MandateType,
+  customerId:   Option[CustomerId] = None,
+  vaultId:      Option[VaultId]   = None,
+  providerRef:  Option[String]    = None,
+)
 
 // ── Idempotency ───────────────────────────────────────────────────────────────
 
@@ -316,6 +336,10 @@ trait PaymentProvider:
   def attachMethod(customerId: CustomerId, method: PaymentMethod):         StoredMethod
   def detachMethod(vaultId: VaultId):                                      Unit
   def listMethods(customerId: CustomerId):                                 List[StoredMethod]
+
+  // Group 2b: Mandates
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate
+  def getMandate(id: MandateId):                                           Mandate
 
   // Group 3: Subscriptions
   def createPlan(req: CreatePlanRequest):                                  Plan

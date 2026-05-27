@@ -142,3 +142,61 @@ class StripeProviderTest extends AnyFunSuite:
     val result   = receiver.verify(req, secret)
     assert(result.isRight)
     assert(result.toOption.get.isInstanceOf[PaymentEvent.SubscriptionCanceled])
+
+  // ── v1.53.5: Mandate + SCA exemption + network token ─────────────────────
+
+  test("StripeProvider: spiVersion is 1.53.5"):
+    val p = StripeProvider("sk_test_key")
+    assert(p.spiVersion == "1.53.5")
+
+  test("CreateIntentRequest: scaExemptions field defaults to empty"):
+    val req = CreateIntentRequest(amount = Money(1000L, Currency.USD))
+    assert(req.scaExemptions.isEmpty)
+
+  test("CreateIntentRequest: mandateId field defaults to None"):
+    val req = CreateIntentRequest(amount = Money(1000L, Currency.USD))
+    assert(req.mandateId.isEmpty)
+
+  test("CreateIntentRequest: scaExemptions can be set"):
+    val req = CreateIntentRequest(
+      amount       = Money(500L, Currency.EUR),
+      scaExemptions = List(ScaExemption.LowValue, ScaExemption.TrustedListing),
+    )
+    assert(req.scaExemptions == List(ScaExemption.LowValue, ScaExemption.TrustedListing))
+
+  test("StoredMethod: networkToken field defaults to None"):
+    val sm = StoredMethod(VaultId("v1"), "4242", "visa", "12", "2028", "credit")
+    assert(sm.networkToken.isEmpty)
+
+  test("StoredMethod: mandateId field defaults to None"):
+    val sm = StoredMethod(VaultId("v1"), "4242", "visa", "12", "2028", "credit")
+    assert(sm.mandateId.isEmpty)
+
+  test("StoredMethod: networkToken can be set"):
+    val sm = StoredMethod(VaultId("v2"), "1111", "mastercard", "01", "2027", "debit",
+      networkToken = Some("network-token-xyz"))
+    assert(sm.networkToken.contains("network-token-xyz"))
+
+  test("Mandate: fields correct"):
+    val m = Mandate(
+      id          = MandateId("mandate_abc"),
+      status      = MandateStatus.Active,
+      mandateType = MandateType.MultiUse,
+      customerId  = Some(CustomerId("cus_123")),
+      vaultId     = Some(VaultId("pm_456")),
+      providerRef = Some("si_789"),
+    )
+    assert(m.id.value == "mandate_abc")
+    assert(m.status == MandateStatus.Active)
+    assert(m.mandateType == MandateType.MultiUse)
+    assert(m.customerId.map(_.value).contains("cus_123"))
+
+  test("ScaExemption: all variants exist"):
+    val exemptions = List(
+      ScaExemption.LowValue,
+      ScaExemption.TrustedListing,
+      ScaExemption.TransactionRiskAnalysis,
+      ScaExemption.Recurring,
+      ScaExemption.MerchantInitiated,
+    )
+    assert(exemptions.size == 5)

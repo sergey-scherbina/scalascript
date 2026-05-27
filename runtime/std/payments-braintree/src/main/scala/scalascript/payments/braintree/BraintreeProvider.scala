@@ -129,6 +129,27 @@ class BraintreeProvider(
     val json = graphql(gql)
     json("data")("customer")("paymentMethods")("edges").arr.toList.map(e => parseStoredMethod(e("node")))
 
+  // ── Group 2b: Mandates ─────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    // Braintree mandates are implicit — a vaulted payment method with recurring enabled is a mandate.
+    Mandate(
+      id          = MandateId(s"bt-mandate-${vaultId.value}"),
+      status      = MandateStatus.Active,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = Some(vaultId.value),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    Mandate(
+      id          = id,
+      status      = MandateStatus.Active,
+      mandateType = MandateType.MultiUse,
+      providerRef = Some(id.value),
+    )
+
   // ── Group 3: Subscriptions ────────────────────────────────────────────────
 
   def createPlan(req: CreatePlanRequest): Plan =

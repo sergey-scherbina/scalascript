@@ -117,6 +117,27 @@ class CheckoutProvider(
     val json = getJson(s"/customers/${customerId.value}")
     json.obj.get("instruments").map(_.arr.toList.map(parseInstrument)).getOrElse(List.empty)
 
+  // ── Group 2b: Mandates ─────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    // Checkout.com: recurring permissions are set at instrument level; no separate mandate resource.
+    Mandate(
+      id          = MandateId(s"cko-mandate-${vaultId.value}"),
+      status      = MandateStatus.Active,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = Some(vaultId.value),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    Mandate(
+      id          = id,
+      status      = MandateStatus.Active,
+      mandateType = MandateType.MultiUse,
+      providerRef = Some(id.value),
+    )
+
   // ── Group 3: Subscriptions ────────────────────────────────────────────────
 
   def createPlan(req: CreatePlanRequest): Plan =

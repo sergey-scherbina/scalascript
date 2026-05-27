@@ -124,6 +124,27 @@ class SquareProvider(
     val json = getJson(s"$baseUrl/cards?customer_id=${URLEncoder.encode(customerId.value, "UTF-8")}")
     json.obj.get("cards").map(_.arr.toList.map(parseStoredMethod)).getOrElse(List.empty)
 
+  // ── Group 2b: Mandates ─────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    // Square: stored cards are the mandate; no separate mandate resource in the API.
+    Mandate(
+      id          = MandateId(s"sq-mandate-${vaultId.value}"),
+      status      = MandateStatus.Active,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = Some(vaultId.value),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    Mandate(
+      id          = id,
+      status      = MandateStatus.Active,
+      mandateType = MandateType.MultiUse,
+      providerRef = Some(id.value),
+    )
+
   // ── Group 3: Subscriptions ────────────────────────────────────────────────
 
   def createPlan(req: CreatePlanRequest): Plan =

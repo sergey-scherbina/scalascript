@@ -32,7 +32,7 @@ class PayPalProviderTest extends AnyFunSuite:
     assert(provider.capabilities.supportsGooglePay)
     assert(provider.capabilities.supportsRefunds)
     assert(provider.capabilities.supportsDisputes)
-    assert(!provider.capabilities.supportsMandates)
+    assert(provider.capabilities.supportsMandates)
     assert(!provider.capabilities.supportsSCA)
 
   test("PayPalProvider: webhookReceiver returns PayPalWebhookReceiver"):

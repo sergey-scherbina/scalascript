@@ -29,7 +29,7 @@ class PayPalProvider(
 
   def id:          String = "paypal"
   def displayName: String = "PayPal"
-  def spiVersion:  String = "1.53.2"
+  def spiVersion:  String = "1.53.5"
 
   def capabilities: PaymentCapabilities = PaymentCapabilities(
     supportsSubscriptions  = true,
@@ -41,7 +41,7 @@ class PayPalProvider(
     supportsPartialRefunds = true,
     supportsDisputes       = true,
     supportsMultiCurrency  = true,
-    supportsMandates       = false,
+    supportsMandates       = true,
   )
 
   // ── Group 1: PaymentIntent (mapped to PayPal Orders) ─────────────────────
@@ -58,6 +58,14 @@ class PayPalProvider(
       )),
     )
     req.description.foreach(d => body("purchase_units").arr(0)("description") = d)
+    if req.offSession then
+      body("payment_source") = ujson.Obj(
+        "card" -> ujson.Obj("stored_credential" -> ujson.Obj(
+          "payment_initiator" -> "MERCHANT",
+          "usage" -> "SUBSEQUENT",
+          "previous_network_transaction_reference" -> req.mandateId.map(_.value).getOrElse(""),
+        ))
+      )
     val json = postJson("/v2/checkout/orders", body)
     parseOrder(json)
 
@@ -102,6 +110,40 @@ class PayPalProvider(
   def listMethods(customerId: CustomerId): List[StoredMethod] =
     val json = getReq(s"/v3/vault/payment-tokens?customer_id=${customerId.value}")
     json.obj.get("payment_tokens").map(_.arr.toList.map(parseVaultToken)).getOrElse(List.empty)
+
+  // ── Group 2b: Mandates ─────────────────────────────────────────────────────
+
+  def createMandate(customerId: CustomerId, vaultId: VaultId, mandateType: MandateType): Mandate =
+    // PayPal mandates are created as setup tokens then vaulted
+    val body = ujson.Obj(
+      "customer"       -> ujson.Obj("id" -> customerId.value),
+      "payment_source" -> ujson.Obj(
+        "token" -> ujson.Obj("id" -> vaultId.value, "type" -> "PAYMENT_METHOD_TOKEN")
+      ),
+    )
+    val json      = postJson("/v3/vault/setup-tokens", body)
+    val mandateId = json.obj.get("id").map(_.str).getOrElse(s"paypal-mandate-${System.currentTimeMillis()}")
+    Mandate(
+      id          = MandateId(mandateId),
+      status      = MandateStatus.Pending,
+      mandateType = mandateType,
+      customerId  = Some(customerId),
+      vaultId     = Some(vaultId),
+      providerRef = Some(mandateId),
+    )
+
+  def getMandate(id: MandateId): Mandate =
+    val json   = getReq(s"/v3/vault/setup-tokens/${id.value}")
+    val status = json.obj.get("status").map(_.str).getOrElse("CREATED") match
+      case "APPROVED" | "VAULTED" => MandateStatus.Active
+      case "PAYER_ACTION_REQUIRED" | "CREATED" => MandateStatus.Pending
+      case _ => MandateStatus.Inactive
+    Mandate(
+      id          = id,
+      status      = status,
+      mandateType = MandateType.MultiUse,
+      providerRef = json.obj.get("id").map(_.str),
+    )
 
   // ── Group 3: Subscriptions ────────────────────────────────────────────────
 
@@ -338,13 +380,21 @@ class PayPalProvider(
 
   private def parseVaultToken(j: ujson.Value): StoredMethod =
     val card = j.obj.get("payment_source").flatMap(_.obj.get("card")).getOrElse(j)
+    val networkToken = card.obj.get("network_token").flatMap {
+      case ujson.Str(s) if s.nonEmpty => Some(s)
+      case _                          => None
+    }.orElse(card.obj.get("network_transaction_reference").flatMap(_.obj.get("id")).flatMap {
+      case ujson.Str(s) if s.nonEmpty => Some(s)
+      case _                          => None
+    })
     StoredMethod(
-      vaultId  = VaultId(j.obj.get("id").map(_.str).getOrElse("")),
-      last4    = card.obj.get("last_digits").map(_.str).getOrElse(""),
-      brand    = card.obj.get("brand").map(_.str).getOrElse("unknown"),
-      expMonth = card.obj.get("expiry").map(_.str.take(7).drop(5)).getOrElse(""),
-      expYear  = card.obj.get("expiry").map(_.str.take(4)).getOrElse(""),
-      funding  = "credit",
+      vaultId      = VaultId(j.obj.get("id").map(_.str).getOrElse("")),
+      last4        = card.obj.get("last_digits").map(_.str).getOrElse(""),
+      brand        = card.obj.get("brand").map(_.str).getOrElse("unknown"),
+      expMonth     = card.obj.get("expiry").map(_.str.take(7).drop(5)).getOrElse(""),
+      expYear      = card.obj.get("expiry").map(_.str.take(4)).getOrElse(""),
+      funding      = "credit",
+      networkToken = networkToken,
     )
 
   private def paymentSourceOf(method: PaymentMethod): ujson.Obj = method match
