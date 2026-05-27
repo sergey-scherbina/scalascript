@@ -165,12 +165,13 @@ private class CardanoFacilitatorImpl(
       case CardanoProvider.Scalus(_, _, _, _) =>
         if scheme.asset.nonEmpty then
           Left("Scalus settlement currently supports lovelace-only CardanoExact payments")
-        else if payload.authorization.nonce.trim.isEmpty then
-          Left("Missing Scalus escrowRef in authorization.nonce")
         else
-          try Right(scalusClaimMessage(req.payTo, scheme.lovelace, payload.authorization.validBefore))
-          catch case ex: IllegalArgumentException =>
-            Left(s"Invalid Scalus claim message: ${ex.getMessage}")
+          ScalusEscrowRef.parse(payload.authorization.nonce) match
+            case Left(reason) => Left(reason)
+            case Right(_) =>
+              try Right(scalusClaimMessage(req.payTo, scheme.lovelace, payload.authorization.validBefore))
+              catch case ex: IllegalArgumentException =>
+                Left(s"Invalid Scalus claim message: ${ex.getMessage}")
 
   private def scalusClaimMessage(receiver: String, lovelace: BigInt, validBefore: BigInt): Array[Byte] =
     ScalusClaimMessageCodec.encode(CardanoAddress.toBytes(receiver), lovelace, validBefore)

@@ -364,7 +364,10 @@ validator to UPLC:
   Blockfrost provider.
 - `PayloadBuilder` emits `escrowRef` via the `nonce` slot when the
   payload references an escrow UTxO. **Landed (2026-05-27)** via
-  `PaymentRequirements.scalusEscrowRef`.
+  `PaymentRequirements.scalusEscrowRef`. `x402-core` also exposes
+  `ScalusEscrowRef` to parse and validate the canonical
+  `<64-hex-txhash>#<output-index>` form before the future Tx-builder
+  consumes it.
 - `CardanoProvider.Scalus` verifies the structured claim-message proof
   before settlement. **Landed (2026-05-27)**: the Scalus provider
   requires `authorization.nonce` to carry the escrowRef, verifies CIP-8

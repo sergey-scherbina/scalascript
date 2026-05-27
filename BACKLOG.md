@@ -3653,6 +3653,10 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       `ScalusClaimMessageCodec` in `x402-core` owns the
       `x402-scalus/v1 || receiver_bytes || amount || validBefore`
       encoding used by both client and facilitator.
+- [x] Typed Scalus escrowRef parser ✓ Landed (2026-05-27):
+      `ScalusEscrowRef` parses and validates
+      `<64-hex-txhash>#<output-index>`; Scalus provider verification
+      now rejects malformed nonce-slot escrow refs.
 - [ ] Round-trip test covering client → validator → claim Tx
 
 #### Phase 6 — Deposit ergonomics + example

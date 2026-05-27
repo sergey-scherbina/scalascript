@@ -79,6 +79,26 @@ object ScalusClaimMessageCodec:
       i -= 1
     out
 
+case class ScalusEscrowRef(txHash: String, outputIndex: Int):
+  override def toString: String = s"$txHash#$outputIndex"
+
+object ScalusEscrowRef:
+  private val TxHash = "(?i)[0-9a-f]{64}".r
+
+  def parse(value: String): Either[String, ScalusEscrowRef] =
+    value.split("#", -1).toList match
+      case txHash :: index :: Nil =>
+        if TxHash.pattern.matcher(txHash).matches then
+          index.toIntOption match
+            case Some(i) if i >= 0 => Right(ScalusEscrowRef(txHash.toLowerCase, i))
+            case _                 => Left(s"Invalid Cardano escrow output index: '$index'")
+        else Left(s"Invalid Cardano escrow tx hash: '$txHash'")
+      case _ =>
+        Left("Invalid Cardano escrowRef, expected '<64-hex-txhash>#<output-index>'")
+
+  def require(value: String): ScalusEscrowRef =
+    parse(value).fold(msg => throw IllegalArgumentException(msg), identity)
+
 // ── Payment schemes ───────────────────────────────────────────────────────────
 
 enum PaymentScheme:

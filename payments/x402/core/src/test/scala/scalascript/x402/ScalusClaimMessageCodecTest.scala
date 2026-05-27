@@ -21,3 +21,18 @@ class ScalusClaimMessageCodecTest extends AnyFunSuite:
     intercept[IllegalArgumentException](ScalusClaimMessageCodec.uint64(BigInt(-1), "x"))
     intercept[IllegalArgumentException](ScalusClaimMessageCodec.uint64(BigInt(1) << 64, "x"))
   }
+
+  test("ScalusEscrowRef: parses txhash#index and normalizes hash") {
+    val ref = ScalusEscrowRef.require("A" * 64 + "#12")
+    assert(ref.txHash == "a" * 64)
+    assert(ref.outputIndex == 12)
+    assert(ref.toString == "a" * 64 + "#12")
+  }
+
+  test("ScalusEscrowRef: rejects malformed refs") {
+    assert(ScalusEscrowRef.parse("").isLeft)
+    assert(ScalusEscrowRef.parse("0x" + "a" * 64 + "#0").isLeft)
+    assert(ScalusEscrowRef.parse("a" * 63 + "#0").isLeft)
+    assert(ScalusEscrowRef.parse("a" * 64 + "#-1").isLeft)
+    assert(ScalusEscrowRef.parse("a" * 64 + "#x").isLeft)
+  }
