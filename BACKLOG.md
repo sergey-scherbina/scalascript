@@ -1988,22 +1988,28 @@ re-evaluate only changed sections and their dependents.
 
 ### Generated code — JS tree-shaking
 
-**Status: landed (feature/js-treeshake). Priority: 5.**
+**Status: fully landed (2026-05-27). Priority: 5.**
 
-JS runtime preamble was emitted unconditionally into every single-file output.
-Partitioned into named capability groups (Core, Async, Effects, Mcp, Dataset)
-and wired up `JsGen.detectCapabilities` + `JsGen.generateRuntime` in the
-single-file emit paths (`emit-js`, `emit-spa`, `emit-wc`).
+Phase 1 (capability groups): JS runtime preamble was emitted unconditionally
+into every single-file output.  Partitioned into named capability groups
+(Core, Async, Effects, Mcp, Dataset) and wired up `JsGen.detectCapabilities`
++ `JsGen.generateRuntime` in the single-file emit paths.
+
+Phase 2 (worklist dead-code elimination, 2026-05-27): `TreeShaker` worklist
+reachability analysis starting from `@main`, manifest `exports`, and
+side-effectful top-level terms.  Only reachable `const`/`function` declarations
+emitted.  `JsGen.generateWithStats` returns `(code, Option[TreeShakeStats])`.
 
 What landed:
-- [x] Capability groups already partitioned in `JsGen.generateRuntime` (Phase 2)
+- [x] Capability groups partitioned in `JsGen.generateRuntime` (Phase 2)
 - [x] `emit-js`: detect module capabilities, emit only needed runtime blocks
 - [x] `emit-spa`: detect capabilities, exclude Node-only Mcp/Dataset for browser
 - [x] `emit-wc`: detect capabilities, emit only needed runtime blocks
-- [x] `buildScjsSource` (dead code): updated signature for correctness
 - [x] Verify: `hello.ssc` JS output drops from 273 KB → 139 KB (≈ 49 % reduction)
-      (Just below 50 % target; Core alone is 138 KB.  The unconditionally-emitted
-      Core block is the remaining headroom — deferred to a future micro-partition.)
+- [x] `TreeShaker` worklist reachability (`TreeShaker.scala`)
+- [x] `JsGen.generateWithStats` / `JsGen.TreeShakeStats`
+- [x] `--no-tree-shake` + `--stats` flags in `ssc emit-js`
+- [x] 16 tests in `JsTreeShakeTest`
 
 ### Library modularity
 

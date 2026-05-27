@@ -305,7 +305,7 @@ private def compileViaBackend(
     )
     backend.compile(ir, opts)
 
-private def compileJsSegments(path: os.Path): List[Segment] =
+private def compileJsSegments(path: os.Path, noTreeShake: Boolean = false): List[Segment] =
   val module  = loadModule(path)
   val ir      = Normalize(module)
   val backend = resolveBackend("js")
@@ -317,7 +317,7 @@ private def compileJsSegments(path: os.Path): List[Segment] =
   else
     val baseDir  = Some(path / os.up)
     val preamble = if backend.runtimePreamble.isEmpty then "" else backend.runtimePreamble + "\n"
-    JsGen.generateSegmented(module, baseDir, backend.intrinsics).map {
+    JsGen.generateSegmented(module, baseDir, backend.intrinsics, noTreeShake = noTreeShake).map {
       case JsGen.Segment.ScalaScriptJs(code) =>
         Segment.Code(language = "javascript", code = preamble + code)
       case JsGen.Segment.ScalaSource(src) =>
@@ -550,6 +550,8 @@ def printUsage(): Unit =
     |                         Flags: --spark-master <url>, --spark-version <v>, --dry-run
     |                         Pass extra spark-submit args after `--` (e.g. --executor-memory 4g)
     |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
+    |                         Flags: --no-tree-shake  (emit all symbols; skip dead-code elimination)
+    |                                --stats          (print tree-shaking summary to stderr)
     |  emit-wasm              Compile .ssc scala/scalascript blocks to WebAssembly via Scala.js (writes .wasm + .js)
     |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
     |                         Flags: --frontend <custom|react|solid|vue>
@@ -4687,15 +4689,23 @@ private def watchBenchCommand(args: List[String]): Unit =
     System.exit(1)
 
 def emitJsCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- args do
+  // Parse --no-tree-shake and --stats flags before processing files.
+  var noTreeShake = false
+  var printStats  = false
+  val files = args.filter {
+    case "--no-tree-shake" => noTreeShake = true; false
+    case "--stats"         => printStats  = true; false
+    case _                 => true
+  }
+  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+  for file <- files do
     val path    = os.Path(file, os.pwd)
     val baseDir = Some(path / os.up)
     if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
     else
       try
         val module   = Parser.parse(os.read(path))
-        val segments = compileJsSegments(path)
+        val segments = compileJsSegments(path, noTreeShake = noTreeShake)
         val hasSSBlocks = segments.exists {
           case Segment.Code("javascript", _) => true
           case _                             => false
@@ -4703,6 +4713,10 @@ def emitJsCommand(args: List[String]): Unit =
         if hasSSBlocks then
           val caps = JsGen.detectCapabilities(module, baseDir)
           print(JsGen.generateRuntime(caps))
+        if printStats && !noTreeShake then
+          // Re-run tree-shaking to get stats (shake result is separate from segmented output)
+          val (_, statsOpt) = JsGen.generateWithStats(module, baseDir, noTreeShake = false)
+          statsOpt.foreach(s => System.err.println(s.summary))
         for seg <- segments do seg match
           case Segment.Code("javascript", code) =>
             println(code)

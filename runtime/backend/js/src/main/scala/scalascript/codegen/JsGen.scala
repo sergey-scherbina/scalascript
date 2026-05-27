@@ -16,7 +16,42 @@ object JsGen:
     case ScalaScriptJs(code: String)
     case ScalaSource(source: String)
 
-  /** Generate JS source for all scalascript code blocks in a module. */
+  /** Statistics from a tree-shaking pass.  Returned by [[generateWithStats]]
+   *  and printed to stderr by the CLI when `--stats` is active.
+   *
+   *  @param kept   number of top-level declarations retained in the output
+   *  @param total  total number of top-level declarations before shaking
+   */
+  case class TreeShakeStats(kept: Int, total: Int):
+    def pruned: Int = total - kept
+    /** One-line human-readable summary, e.g. "Tree-shake: kept 42 / 78 symbols (removed 36, -46%)" */
+    def summary: String =
+      val pct = if total == 0 then 0 else (pruned * 100) / total
+      s"Tree-shake: kept $kept / $total symbols (removed $pruned, -$pct%)"
+
+  /** Generate JS source with tree-shaking (default) or without (`noTreeShake = true`).
+   *  Returns both the generated code and the shaking statistics.
+   *
+   *  Use [[generate]] when you only need the code and don't need stats. */
+  def generateWithStats(
+      module:      Module,
+      baseDir:     Option[os.Path] = None,
+      intrinsics:  Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:    Option[os.Path] = None,
+      noTreeShake: Boolean = false
+  ): (String, Option[TreeShakeStats]) =
+    val shakeResult =
+      if noTreeShake then None
+      else Some(TreeShaker.shake(module))
+    val reachable = shakeResult.map(_.reachable)
+    val gen  = new JsGen(baseDir, intrinsics, lockPath, reachableNames = reachable)
+    val code = gen.genModule(module)
+    val stats = shakeResult.map(r => TreeShakeStats(kept = r.kept, total = r.total))
+    (code, stats)
+
+  /** Generate JS source for all scalascript code blocks in a module.
+   *  Tree-shaking is OFF by default here to preserve the existing API behaviour;
+   *  use [[generateWithStats]] to enable it. */
   def generate(
       module:     Module,
       baseDir:    Option[os.Path] = None,
@@ -26,14 +61,21 @@ object JsGen:
     val gen = new JsGen(baseDir, intrinsics, lockPath)
     gen.genModule(module)
 
-  /** Generate segments in document order, preserving scala/scalascript interleaving. */
+  /** Generate segments in document order, preserving scala/scalascript interleaving.
+   *  Tree-shaking is OFF by default to preserve the existing API behaviour.
+   *  Pass `noTreeShake = false` explicitly (or use [[generateWithStats]]) to enable it. */
   def generateSegmented(
-      module:     Module,
-      baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-      lockPath:   Option[os.Path] = None
+      module:      Module,
+      baseDir:     Option[os.Path] = None,
+      intrinsics:  Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:    Option[os.Path] = None,
+      noTreeShake: Boolean = true
   ): List[Segment] =
-    val gen = new JsGen(baseDir, intrinsics, lockPath)
+    val shakeResult =
+      if noTreeShake then None
+      else Some(TreeShaker.shake(module))
+    val reachable = shakeResult.map(_.reachable)
+    val gen = new JsGen(baseDir, intrinsics, lockPath, reachableNames = reachable)
     gen.genModuleSegmented(module)
 
   /** True if the module contains at least one scalascript block. */
@@ -155,14 +197,19 @@ object JsGen:
    *  exists so call sites read symmetrically with the JVM split-runtime
    *  emit (`JvmGen.generateUserOnly`).
    *
+   *  Tree-shaking is OFF by default to preserve the existing API behaviour.
+   *  The CLI passes `noTreeShake = false` to enable dead-code elimination
+   *  for artifact builds.
+   *
    *  v2.0 Phase 2 — split-runtime emit. */
   def generateUserOnly(
-      module:     Module,
-      baseDir:    Option[os.Path] = None,
-      intrinsics: Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
-      lockPath:   Option[os.Path] = None
+      module:      Module,
+      baseDir:     Option[os.Path] = None,
+      intrinsics:  Map[scalascript.ir.QualifiedName, scalascript.backend.spi.IntrinsicImpl] = Map.empty,
+      lockPath:    Option[os.Path] = None,
+      noTreeShake: Boolean = true
   ): String =
-    generate(module, baseDir, intrinsics, lockPath)
+    generateWithStats(module, baseDir, intrinsics, lockPath, noTreeShake)._1
 
 /** JS runtime preamble embedded in every generated page.  Split into
  *  two triple-quoted halves because the combined source exceeds the
@@ -7456,7 +7503,11 @@ class JsGen(
     // Shared across parent + all child generators to track which import-binding `const` names
     // have been declared.  A module imported transitively (e.g. nodes.ssc pulled in by both
     // primitives.ssc and layout.ssc) must not emit duplicate `const TkNode = …` lines.
-    private[codegen] val declaredBindings: mutable.Set[String] = mutable.Set.empty):
+    private[codegen] val declaredBindings: mutable.Set[String] = mutable.Set.empty,
+    // When Some(set), only top-level declarations whose name is in the set are emitted.
+    // None means no filtering (tree-shaking disabled — emit everything).
+    // Populated by TreeShaker.shake() and threaded from the companion object entry points.
+    private[codegen] val reachableNames: Option[Set[String]] = None):
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -8742,9 +8793,39 @@ class JsGen(
       case _             => ()
     }
 
+  /** Returns true if the declaration should be emitted at the top level.
+   *  When tree-shaking is active (`reachableNames.isDefined`), named
+   *  declarations that are not in the reachable set are suppressed. */
+  private def isReachableStat(stat: Stat, topLevel: Boolean): Boolean =
+    if !topLevel then return true          // inner-scope stats: never filtered
+    reachableNames match
+      case None       => true              // tree-shaking off: emit everything
+      case Some(reach) =>
+        stat match
+          case d: Defn.Def     => reach.contains(d.name.value)
+          case Defn.Val(_, List(Pat.Var(n)), _, _) =>
+            reach.contains(n.value)
+          case _: Defn.Val     => true     // multi-pat: conservative keep
+          case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) =>
+            reach.contains(n.value)
+          case _: Defn.Var     => true     // multi-pat or other var: conservative keep
+          case d: Defn.Class   => reach.contains(d.name.value)
+          case d: Defn.Object  => reach.contains(d.name.value)
+          case d: Defn.Enum    => reach.contains(d.name.value)
+          case d: Defn.Given   =>
+            val n = d.name.value
+            if n.nonEmpty then reach.contains(n)
+            else true            // anonymous given: always keep (side-effectful registration)
+          case _: Defn.Trait   => true     // erased anyway; never filtered
+          case _: Term         => true     // top-level term/side effect: always keep
+          case _               => true     // conservative: keep unknown node kinds
+
   private def genBlockStats(stats: List[Stat], topLevel: Boolean): Unit =
     stats.zipWithIndex.foreach { (s, i) =>
       val isLast = i == stats.length - 1
+      // Skip unreachable top-level declarations when tree-shaking is active
+      if !isReachableStat(s, topLevel) then ()
+      else
       s match
         case t: Term if isLast && topLevel =>
           // Track main() calls; auto-output non-unit last expression
