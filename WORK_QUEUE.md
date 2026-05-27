@@ -30,6 +30,18 @@ _(all done — see Done section below)_
 
 - [x] **v1.53.7-payments-webhook-cluster** — `payments/webhook-redis/` `RedisSeenKeyStore` (Lettuce SET NX EX, configurable prefix + timeout, 8 tests) + `payments/webhook-postgres/` `PostgresSeenKeyStore` (HikariCP INSERT ON CONFLICT DO NOTHING, auto-CREATE TABLE, `purgeExpired()`, H2 test suite, 9 tests). Both implement `SeenKeyStore` SPI; cluster-safe idempotency for multi-instance deployments. Spec: `docs/traditional-payments.md §16.7`. (2026-05-27)
 
+- [ ] **v1.54-bank-rails-spec** — Spec doc `docs/bank-rails.md`: SEPA Credit Transfer + Direct Debit, ACH (credit/debit via Nacha), Pix instant payments (Brazil), FedNow instant payments (US). Cover: `BankRailsProvider` SPI (6 methods: `initiateTransfer / getTransfer / cancelTransfer / initiateDirectDebit / getDirectDebit / webhookReceiver`), `BankTransfer` / `DirectDebitMandate` types, idempotency (reuse `IdempotencyKey` from v1.53), settlement timing model (T+0 / T+1 / T+2), webhook event taxonomy per rail. Implementation phases v1.54.1–v1.54.4 in the spec. Spec: `docs/traditional-payments.md §12` (deferred note).
+
+- [ ] **v1.54.1-bank-rails-sepa** — `runtime/std/payments-sepa/` (SEPA Credit Transfer + Core Direct Debit via EBICS or PAIN XML over SFTP; HMAC webhook; mandate lifecycle `MandateStatus`). Spec: `docs/bank-rails.md §v1.54.1`.
+
+- [ ] **v1.54.2-bank-rails-ach** — `runtime/std/payments-ach/` (ACH credit + debit via Nacha flat-file format; same-day ACH flag; R-code rejection handling; SFTP delivery). Spec: `docs/bank-rails.md §v1.54.2`.
+
+- [ ] **v1.54.3-bank-rails-pix** — `runtime/std/payments-pix/` (Pix via DICT API + PSP REST; QR Code Static/Dynamic; webhook `pix.received`). Spec: `docs/bank-rails.md §v1.54.3`.
+
+- [ ] **v1.54.4-bank-rails-fednow** — `runtime/std/payments-fednow/` (FedNow instant via ISO 20022 over FedLine; `pacs.008` credit transfer; `pacs.002` status; webhook adapter). Spec: `docs/bank-rails.md §v1.54.4`.
+
+- [ ] **blockchain-bitcoin** — `runtime/blockchain/bitcoin/`: secp256k1 ECDSA with sighash variants (SIGHASH_ALL/NONE/SINGLE + ANYONECANPAY), SegWit BIP-143 sighash, Taproot BIP-341 Schnorr signing; P2WPKH bech32 address derivation; PSBT (BIP-174) builder + signer + finalizer for hardware-wallet compatibility; `BitcoinChainAdapter` implementing `ChainAdapter` SPI; `BlockchainProvider` / `ChainId.BitcoinMainnet` / `ChainId.BitcoinTestnet`; 20+ tests. Spec: `BACKLOG.md §Phase 5`.
+
 ## Database
 
 _(all done — see Done section below)_

@@ -62,11 +62,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | _(v2.1 DStream complete — see next group)_ | `docs/distributed-streams.md` |
+| **Language & Compiler** | v1.51.6-streams-effects | `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | v1.53.1-payments-spi-stripe | `docs/traditional-payments.md` |
+| **Payments & Blockchain** | v1.54-bank-rails-spec → v1.54.1–v1.54.4 + blockchain-bitcoin | `docs/bank-rails.md` (new) |
 | **Native Platform** | _(queue empty)_ | — |
-| **Distribution & Tooling** | v1.52.1-deploy-plugin | `docs/deploy.md` |
+| **Distribution & Tooling** | _(queue empty)_ | — |
 
 Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
 
