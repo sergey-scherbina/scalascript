@@ -3800,7 +3800,11 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             `BloxbeanClaimTxBuilder.draft` serializes escrow input,
             receiver output, Plutus V3 script, and Spend redeemer;
             not production default.
-      - [ ] Transaction body + script witness + relayer witness
+      - [x] Collateral + required signer body fields ✓ Landed
+            (2026-05-27): optional `ScalusSettlerConfig.collateralRef`
+            and `relayerKeyHashHex` flow into draft transaction
+            collateral inputs and required signers.
+      - [ ] Fee balancing + script data hash + relayer vkey witness
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted
       through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.

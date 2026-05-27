@@ -361,6 +361,11 @@ validator to UPLC:
   receiver output, Plutus V3 script, and Spend redeemer. It is not the
   production default because fee balancing, collateral, and relayer
   witness are still open.
+- **Landed (2026-05-27):** the draft builder now carries optional
+  `ScalusSettlerConfig.collateralRef` into the transaction body's
+  collateral inputs and optional `relayerKeyHashHex` into
+  `requiredSigners`. This pins the production transaction boundary
+  without yet generating the relayer vkey witness.
 - **Still open:** the default `BloxbeanClaimTxBuilder` fails
   explicitly until Plutus witness / redeemer construction is
   implemented on top of `cardano-client-lib`.

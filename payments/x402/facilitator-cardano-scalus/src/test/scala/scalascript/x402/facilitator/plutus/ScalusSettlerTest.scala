@@ -128,6 +128,8 @@ class ScalusSettlerTest extends AnyFunSuite:
       network              = Network.CardanoPreprod,
       blockfrost           = blockfrost,
       relayerSigningKeyHex = "11" * 32,
+      collateralRef        = Some(ScalusEscrowRef("b" * 64, 0)),
+      relayerKeyHashHex    = Some("42" * 28),
     )
     val settler = ScalusSettler.preprod(cfg, builder)
     val result  = Await.result(settler.submit(scalusPayload, req), 5.seconds)
@@ -143,7 +145,25 @@ class ScalusSettlerTest extends AnyFunSuite:
     assert(plan.coseSign1Hex == "c0ffee")
     assert(plan.coseKeyHex == "cafe")
     assert(plan.relayerKeyHex == "11" * 32)
+    assert(plan.collateralRef.contains(ScalusEscrowRef("b" * 64, 0)))
+    assert(plan.requiredSigner.exists(_.toSeq == Array.fill[Byte](28)(0x42.toByte).toSeq))
     assert(plan.claimRedeemer == EscrowRedeemerCodec.claim(CardanoPaymentProof("", "c0ffee", "cafe")))
+  }
+
+  test("BloxbeanScalusSettler: rejects malformed relayer key hash") {
+    val cfg = ScalusSettlerConfig(
+      network              = Network.CardanoPreprod,
+      blockfrost           = SubmitBlockfrost("unused"),
+      relayerSigningKeyHex = "11" * 32,
+      relayerKeyHashHex    = Some("42" * 27),
+    )
+    val builder = new ClaimTxBuilder:
+      def build(plan: ClaimTxPlan): Future[Array[Byte]] =
+        fail("builder should not be called for invalid relayer key hash")
+    val result = Await.result(ScalusSettler.preprod(cfg, builder).submit(scalusPayload, req), 5.seconds)
+    result match
+      case SettleResult.Fail(msg) => assert(msg.contains("relayerKeyHashHex"))
+      case other                  => fail(s"expected Fail, got $other")
   }
 
   test("ScalusSettler.mainnet/preprod: reject mismatched configs") {

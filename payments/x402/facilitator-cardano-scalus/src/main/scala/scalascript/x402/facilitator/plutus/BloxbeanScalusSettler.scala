@@ -11,6 +11,8 @@ case class ScalusSettlerConfig(
   network:              Network,
   blockfrost:           BlockfrostClient,
   relayerSigningKeyHex: String,
+  collateralRef:        Option[ScalusEscrowRef] = None,
+  relayerKeyHashHex:    Option[String]          = None,
 )
 
 case class ClaimTxPlan(
@@ -22,6 +24,8 @@ case class ClaimTxPlan(
   coseSign1Hex:    String,
   coseKeyHex:      String,
   relayerKeyHex:   String,
+  collateralRef:   Option[ScalusEscrowRef] = None,
+  requiredSigner:  Option[Array[Byte]]     = None,
 ):
   lazy val claimRedeemer: com.bloxbean.cardano.client.plutus.spec.PlutusData =
     EscrowRedeemerCodec.claim(CardanoPaymentProof("", coseSign1Hex, coseKeyHex))
@@ -63,12 +67,18 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
       .address(plan.receiverAddress)
       .value(Value.fromCoin(bigInteger(plan.lovelace)))
       .build()
-    val body = TransactionBody.builder()
+    val bodyBuilder = TransactionBody.builder()
       .inputs(Collections.singletonList(input))
       .outputs(Collections.singletonList(output))
       .fee(BigInteger.ZERO)
       .networkId(if plan.network == Network.CardanoMainnet then NetworkId.MAINNET else NetworkId.TESTNET)
-      .build()
+    plan.collateralRef.foreach { ref =>
+      bodyBuilder.collateral(Collections.singletonList(transactionInput(ref)))
+    }
+    plan.requiredSigner.foreach { keyHash =>
+      bodyBuilder.requiredSigners(Collections.singletonList(keyHash))
+    }
+    val body = bodyBuilder.build()
     val script: PlutusV3Script = PlutusV3Script.builder()
       .cborHex(X402EscrowCompiled.doubleCborHex)
       .build()
@@ -92,6 +102,13 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
 
   private def bigInteger(value: BigInt): BigInteger =
     new BigInteger(value.toString)
+
+  private def transactionInput(ref: ScalusEscrowRef): com.bloxbean.cardano.client.transaction.spec.TransactionInput =
+    import com.bloxbean.cardano.client.transaction.spec.TransactionInput
+    TransactionInput.builder()
+      .transactionId(ref.txHash)
+      .index(ref.outputIndex)
+      .build()
 
 final class BloxbeanScalusSettler private (
   cfg:     ScalusSettlerConfig,
@@ -124,6 +141,7 @@ final class BloxbeanScalusSettler private (
         lovelace <- lovelaceEither
         proof    <- payload.cardanoProof.toRight("Missing Cardano payment proof")
         ref      <- ScalusEscrowRef.parse(payload.authorization.nonce)
+        required <- parseOptionalRelayerKeyHash(cfg.relayerKeyHashHex)
       yield ClaimTxPlan(
         network         = cfg.network,
         escrowRef       = ref,
@@ -133,6 +151,8 @@ final class BloxbeanScalusSettler private (
         coseSign1Hex    = proof.signature,
         coseKeyHex      = proof.key,
         relayerKeyHex   = cfg.relayerSigningKeyHex,
+        collateralRef   = cfg.collateralRef,
+        requiredSigner  = required,
       )
 
 object BloxbeanScalusSettler:
@@ -141,3 +161,14 @@ object BloxbeanScalusSettler:
     builder: ClaimTxBuilder = BloxbeanClaimTxBuilder.unimplemented,
   )(using ExecutionContext): BloxbeanScalusSettler =
     new BloxbeanScalusSettler(cfg, builder)
+
+private def parseOptionalRelayerKeyHash(hex: Option[String]): Either[String, Option[Array[Byte]]] =
+  hex match
+    case None => Right(None)
+    case Some(value) =>
+      try
+        val bytes = EscrowRedeemerCodec.hexToBytes(value)
+        if bytes.length == 28 then Right(Some(bytes))
+        else Left(s"relayerKeyHashHex must be 28 bytes (56 hex chars), got ${bytes.length} bytes")
+      catch case ex: IllegalArgumentException =>
+        Left(s"Invalid relayerKeyHashHex: ${ex.getMessage}")

@@ -17,6 +17,8 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     coseSign1Hex    = "c0ffee",
     coseKeyHex      = "cafe",
     relayerKeyHex   = "11" * 32,
+    collateralRef   = Some(ScalusEscrowRef("b" * 64, 3)),
+    requiredSigner  = Some(Array.fill[Byte](28)(0x42.toByte)),
   )
 
   test("draft builder serializes a bloxbean Transaction skeleton") {
@@ -28,6 +30,11 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     assert(tx.getBody.getInputs.size == 1)
     assert(tx.getBody.getInputs.get(0).getTransactionId == "a" * 64)
     assert(tx.getBody.getInputs.get(0).getIndex == 2)
+    assert(tx.getBody.getCollateral.size == 1)
+    assert(tx.getBody.getCollateral.get(0).getTransactionId == "b" * 64)
+    assert(tx.getBody.getCollateral.get(0).getIndex == 3)
+    assert(tx.getBody.getRequiredSigners.size == 1)
+    assert(tx.getBody.getRequiredSigners.get(0).toSeq == Array.fill[Byte](28)(0x42.toByte).toSeq)
     assert(tx.getBody.getOutputs.size == 1)
     assert(tx.getBody.getOutputs.get(0).getAddress == plan.receiverAddress)
     assert(tx.getBody.getOutputs.get(0).getValue.getCoin.toString == "2000000")
