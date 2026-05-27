@@ -13,18 +13,26 @@
 ## Quick status (2026-05-27)
 
 ### In progress
-- x402-cardano-scalus-completion (Phase 3/5/6 remaining items)
-- wallet-solana-standard-js (Scala.js `registerWallet` bridge)
+- secret-resolvers-cloud — AWS Secrets Manager + GCP Secret Manager + Azure Key Vault plugins
 
 ### Next up (top of BACKLOG)
-- v1.20-dsl-primitives (Language & Compiler, ~2.5 weeks)
+- v1.57-payment-rails-apac — Australia NPP + Canada Interac/EFT + Mexico SPEI rails
+- v1.57-fx-provider — FX rate provider SPI + ECB / Open Exchange Rates adapters
+- graph-storage-fullstack — Phase 6: graph query REST routes + client-side cache example
 
 ### Recently completed
-- wallet-ledger-cardano — Ledger Cardano-app CIP-8 JVM signer, 11 tests ✓ (2026-05-27)
-- wallet-ledger-bitcoin — Ledger Bitcoin-app PSBT signer, 14 tests ✓ (2026-05-27)
-- wallet-ledger-solana — Ledger Solana-app signer + Base58, 11 tests ✓ (2026-05-27)
-- ssc-profile — per-phase timing/alloc profiler, --compare regression, 17 tests ✓ (2026-05-27)
-- v1.54.4-bank-rails-fednow — FedNow ISO 20022 `pacs.008`/`pacs.002` ✓ (2026-05-27)
+- wallet-solana-standard-js — Scala.js `registerWallet` bridge ✓ (2026-05-27)
+- x402-cardano-scalus-completion — Phases 3/5/6 complete ✓ (2026-05-27)
+- v1.56-xslt — XSLT 1.0 transformation, Feature.Xslt, 18 tests ✓ (2026-05-27)
+- secret-resolvers-jdk — Vault/Doppler/1Password/pass resolver plugins ✓ (2026-05-27)
+- v1.55.8-singapore-paynow — PayNow proxy resolution + FAST payment, 67 tests ✓ (2026-05-27)
+- v1.55.7-japan-zengin — Zengin fixed-width file, kana validation, 59 tests ✓ (2026-05-27)
+- v1.55.6-india-upi — UPI push+collect + RSA-SHA256, 63 tests ✓ (2026-05-27)
+- v1.55.5-uk-chaps — UK CHAPS ISO 20022 pacs.008, 46 tests ✓ (2026-05-27)
+- v1.55.4-uk-bacs — BACS DD Standard-18 + AUDDIS, 61 tests ✓ (2026-05-27)
+- v1.55.3-uk-faster-payments — UK FPS + CoP name check, 47 tests ✓ (2026-05-27)
+- v1.55.2-sepa-instant — SCT Inst pacs.008, 49 tests ✓ (2026-05-27)
+- v1.55.1-international-swift — SWIFT MT103 + pacs.008 CBPR+, 65 tests ✓ (2026-05-27)
 - v1.52.7-deploy-state-backends — `LocalFileStateBackend`/`S3StateBackend`/`ConsulStateBackend`/`EtcdStateBackend` + `StateBackendFactory` + `StateMigrator`, 105 tests total ✓ (2026-05-27)
 - v1.52.6-deploy-faas — `FaasTarget` (Lambda/Cloudflare Workers/Cloud Run/Vercel Functions), 91 tests total ✓ (2026-05-27)
 - v1.52.5-deploy-static — `StaticTarget` (Vercel/Netlify/Cloudflare Pages/GitHub Pages), 80 tests total ✓ (2026-05-27)
@@ -67,12 +75,12 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 | Direction | Top task | Spec |
 |-----------|----------|------|
-| **Frontend & Clients** | wallet-solana-standard-js | `BACKLOG.md §Phase 5 — Solana DappConnector` |
-| **Language & Compiler** | v1.20-dsl-primitives | `docs/dsl.md` |
+| **Frontend & Clients** | graph-storage-fullstack | `docs/graph-storage.md §Phase 6` |
+| **Language & Compiler** | secret-resolvers-cloud | `docs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv` |
 | **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | x402-cardano-scalus-completion | `docs/x402-cardano-scalus.md §Phase 3–6` |
+| **Payments & Blockchain** | v1.57-payment-rails-apac | `docs/international-bank-rails.md` (new v1.57 spec) |
 | **Native Platform** | _(queue empty)_ | — |
-| **Distribution & Tooling** | _(queue empty)_ | — |
+| **Distribution & Tooling** | v1.57-fx-provider | `docs/traditional-payments.md §FxProvider` |
 
 Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
 
