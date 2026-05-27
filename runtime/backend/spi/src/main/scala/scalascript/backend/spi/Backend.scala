@@ -16,6 +16,7 @@ trait Backend:
   def intrinsics: Map[QualifiedName, IntrinsicImpl] // §8 — platform operations
   def acceptedSources: Set[String]                  // §9 — canonical source-language names this target can embed
   def sqlBlockRunner: Option[SqlBlockRunner] = None  // interpreter `sql` fenced-block executor, when provided
+  def markupCodec: Option[scalascript.markup.MarkupCodec] = None  // xml"..." codec; None means Feature.Markup unsupported
 
   /** Runtime helpers this backend ships alongside the intrinsic
    *  dispatch — typically per-intrinsic strings concatenated.  Core

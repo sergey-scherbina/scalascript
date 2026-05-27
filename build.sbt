@@ -48,6 +48,7 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
   name == "PubSubTest.scala" ||
   name == "SqlBlockInterpreterTest.scala" ||
   name == "TypedHandlerTest.scala" ||
+  name == "SectionXmlBlockTest.scala" ||   // v1.55.2 — requires Value.MarkupV (markup-lang-xml task)
   name.startsWith("Mcp") ||
   name.startsWith("OAuth") ||
   name.startsWith("Oidc")
@@ -72,7 +73,7 @@ lazy val ir = project
 
 lazy val backendSpi = project
   .in(file("runtime/backend/spi"))
-  .dependsOn(ir)
+  .dependsOn(ir, markupCore)
   .settings(
     name := "scalascript-backend-spi",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -585,7 +586,7 @@ lazy val backendCss = project
 // backends no longer reference each other.
 lazy val backendInterpreter = project
   .in(file("runtime/backend/interpreter"))
-  .dependsOn(backendSpi, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
+  .dependsOn(backendSpi, markupCore, core, runtimeServerCommon, runtimeServerJvm, mcpCommon, backendJs, backendSqlRuntime, backendConfigRuntime, frontendCore, backendJvm % Test, backendGraphRuntime % Test, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test)
   .settings(
     name := "scalascript-backend-interpreter",
     libraryDependencies ++= Seq(scalatestTest),

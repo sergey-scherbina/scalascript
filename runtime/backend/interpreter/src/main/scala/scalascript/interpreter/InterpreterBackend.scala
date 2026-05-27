@@ -23,6 +23,7 @@ class InterpreterBackend extends InteractiveBackend:
   def capabilities:    Capabilities                        = InterpreterCapabilities
   def intrinsics:      Map[ir.QualifiedName, IntrinsicImpl] = InterpreterIntrinsics
   def acceptedSources: Set[String]                         = Set("scala", "html", "css")
+  override def markupCodec: Option[scalascript.markup.MarkupCodec] = Some(scalascript.markup.JvmMarkupCodec)
 
   /** One-shot run.  Streams stdout / stderr directly through the JVM's
    *  System streams — `Executed.stdout` / `.stderr` come back empty by

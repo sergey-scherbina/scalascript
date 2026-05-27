@@ -365,3 +365,66 @@ class CapabilityCheckTest extends AnyFunSuite:
     val diags = CapabilityCheck.validate(m, jsFamilyCap.copy(blockLanguages = Set.empty), "js")
     assert(!diags.exists(_.isInstanceOf[Diagnostic.UnsupportedJdbcUrl]),
       s"target without sql shouldn't emit jdbc-url diag, got: $diags")
+
+  // ── v1.55.3 — Feature.Markup gating ─────────────────────────────────────
+
+  /** Module with an xml"..." interpolator in a scalascript fence. */
+  private def xmlInterpolatorModule: ir.NormalizedModule =
+    val src =
+      """|# Test
+         |
+         |```scalascript
+         |val doc = xml"<root/>"
+         |```
+         |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  /** Module with a fenced xml block. */
+  private def xmlFencedModule: ir.NormalizedModule =
+    val src =
+      """|# Test
+         |
+         |```xml
+         |<root><child/></root>
+         |```
+         |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  private val markupCapable: Capabilities = Capabilities(
+    features       = Set(Feature.Markup),
+    outputs        = Set(OutputKind.ExecutionResult),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+    blockLanguages = Set(scalascript.ast.Lang.Xml)
+  )
+
+  private val markupIncapable: Capabilities = Capabilities(
+    features       = Set.empty,
+    outputs        = Set(OutputKind.ExecutionResult),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+  )
+
+  test("detect — xml\"...\" interpolator detects Feature.Markup"):
+    val m = xmlInterpolatorModule
+    assert(CapabilityCheck.detect(m).contains(Feature.Markup),
+      s"xml interpolator should detect Feature.Markup, got: ${CapabilityCheck.detect(m)}")
+
+  test("detect — fenced xml block detects Feature.Markup"):
+    val m = xmlFencedModule
+    assert(CapabilityCheck.detect(m).contains(Feature.Markup),
+      s"fenced xml block should detect Feature.Markup, got: ${CapabilityCheck.detect(m)}")
+
+  test("validate — xml\"...\" on markup-capable backend passes (no diagnostics)"):
+    val m     = xmlInterpolatorModule
+    val diags = CapabilityCheck.validate(m, markupCapable, "jvm")
+    assert(!diags.exists { case Diagnostic.Unsupported(Feature.Markup, _) => true; case _ => false },
+      s"xml interpolator should pass on markup-capable backend, got: $diags")
+
+  test("validate — xml\"...\" on markup-incapable backend rejected with Unsupported(Markup)"):
+    val m     = xmlInterpolatorModule
+    val diags = CapabilityCheck.validate(m, markupIncapable, "js")
+    assert(diags.exists {
+      case Diagnostic.Unsupported(Feature.Markup, "js") => true
+      case _ => false
+    }, s"expected Unsupported(Markup, js) for xml interpolator on incapable backend, got: $diags")

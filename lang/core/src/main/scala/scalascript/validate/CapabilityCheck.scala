@@ -59,11 +59,15 @@ object CapabilityCheck:
          src.contains("Dataset.fromGenerator(") || src.contains("Dataset.fromFile(") ||
          src.contains(".runLocal()") || src.contains(".runParallel()")
                                                                   then detected += Feature.Dataset
+      if XmlInterpolatorPat.findFirstIn(src).isDefined            then detected += Feature.Markup
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
+      case ir.Content.EmbeddedBlock(lang, _, _) if Lang.isXml(lang) =>
+        // Fenced ```xml ... ``` blocks require Feature.Markup
+        detected += Feature.Markup
       case ir.Content.EmbeddedBlock(_, source, _) =>
-        // Foreign-language fences imply the StringInterpolators feature is
+        // Other foreign-language fences imply the StringInterpolators feature is
         // *consumed* (host blocks reference them) — too coarse to detect
         // perfectly here; leave it to Stage 9's SourceLanguage plugins.
         ()
@@ -180,6 +184,8 @@ object CapabilityCheck:
     pat.findFirstIn(src).isDefined
 
   // `s"..."`, `html"..."`, `css"..."`, `md"..."`, …
-  private val InterpolatorPat = """\b[a-zA-Z_][a-zA-Z0-9_]*"[^"]""".r
+  private val InterpolatorPat    = """\b[a-zA-Z_][a-zA-Z0-9_]*"[^"]""".r
+  // `xml"..."` string interpolator — requires Feature.Markup
+  private val XmlInterpolatorPat = """\bxml"[^"]""".r
   // `def name(x: T = expr, …)` — a `=` inside a param clause.
-  private val DefaultParamPat = """def\s+[A-Za-z_][\w]*\s*\([^)]*=\s""".r
+  private val DefaultParamPat    = """def\s+[A-Za-z_][\w]*\s*\([^)]*=\s""".r

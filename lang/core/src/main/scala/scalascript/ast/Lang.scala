@@ -90,9 +90,12 @@ object Lang:
    *
    *  Today: `node.js` (consumed by the Node backend), `sql`
    *  (consumed by the JVM target via `backend-sql-runtime`), and
-   *  `transaction` (multi-statement JDBC transaction, JVM only). */
+   *  `transaction` (multi-statement JDBC transaction, JVM only).
+   *  `xml` fenced blocks (v1.55.2+) are also opaque-exec — the
+   *  backend that declares `Lang.Xml` in `blockLanguages` handles
+   *  them; others emit `UnknownBlockLanguage`. */
   def isOpaqueExec(lang: String): Boolean =
-    isNode(lang) || isSql(lang) || isTransaction(lang)
+    isNode(lang) || isSql(lang) || isTransaction(lang) || isXml(lang)
 
   /** True for opaque-exec blocks whose source is rewritten by the
    *  front-end into a `(template, binds)` pair before the backend

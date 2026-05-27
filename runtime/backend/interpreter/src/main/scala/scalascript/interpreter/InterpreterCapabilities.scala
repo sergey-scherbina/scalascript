@@ -32,7 +32,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.McpServer,           // v1.17 — own-impl: stdio (HTTP+SSE Phase 2)
     Feature.McpClient,           // v1.17 — own-impl: spawn (HTTP+SSE Phase 2)
     Feature.Dataset,
-    Feature.Streams
+    Feature.Streams,
+    Feature.Markup                // xml"..." interpolator + fenced xml blocks via JvmMarkupCodec
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),
@@ -43,7 +44,7 @@ val InterpreterCapabilities: Capabilities = Capabilities(
   // ConnectionRegistry built from front-matter `databases:`.
   // `transaction` blocks execute all statements atomically via
   // `ConnectionRegistry.withTransaction`.
-  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction)
+  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction, scalascript.ast.Lang.Xml)
 )
 
 /** Intrinsics the interpreter routes through `Backend.intrinsics`

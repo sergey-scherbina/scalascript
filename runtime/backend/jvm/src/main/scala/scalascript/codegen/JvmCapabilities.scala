@@ -34,7 +34,8 @@ val JvmCapabilities: Capabilities = Capabilities(
     Feature.McpClient,
     Feature.Dataset,
     Feature.PaymentRequest,
-    Feature.Streams
+    Feature.Streams,
+    Feature.Markup                // xml"..." interpolator + fenced xml blocks (JvmGen emits JvmMarkupCodec calls)
   ),
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),
@@ -43,7 +44,7 @@ val JvmCapabilities: Capabilities = Capabilities(
   // `scalascript.sql.SqlRuntime` for `sql` fenced blocks.
   // `transaction` blocks emit a `withTransaction` call wrapping
   // all statements in one atomic JDBC transaction.
-  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction)
+  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Transaction, scalascript.ast.Lang.Xml)
 )
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as `def`

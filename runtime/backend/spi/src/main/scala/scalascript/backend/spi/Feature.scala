@@ -39,3 +39,4 @@ enum Feature:
   case DistributedStreams        // std.dstreams — DStream[T] / Pipeline Beam-model (native, spark, kafka, flink)
   case Payments                  // std.payments — PaymentProvider SPI (fiat PSPs: Stripe, PayPal, Adyen, Square)
   case BankRails                 // std.bank-rails — BankRailsProvider SPI (SEPA, ACH, Pix, FedNow, SWIFT, SCT Inst, UK FPS/BACS/CHAPS, UPI, Zengin, PayNow)
+  case Markup                    // std.markup — xml"..." interpolator + fenced xml blocks (jvm, int)
