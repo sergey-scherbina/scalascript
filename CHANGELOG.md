@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28
+
+- **oauth-dpop** — DPoP (RFC 9449) sender-constrained tokens. New `DPoP` object: `verifyProof(proofJwt, htm, htu, ...)` validates DPoP proof JWTs (RS256 + ES256; `typ=dpop+jwt`, alg check, JWK extraction + signature verify, `htm`/`htu` binding, `iat` freshness, `jti` single-use via `InMemoryJtiStore`, optional `nonce` + `ath`); `jwkThumbprint(jwk)` (RFC 7638 SHA-256); `accessTokenHash(token)` (SHA-256 `ath`). `AuthServer.issueToken` gains `dpopJwkThumbprint: Option[String]` — injects `cnf.jkt` + sets `token_type=DPoP`. `OAuthRoutes.handleToken` extracts `DPoP` request header, validates via `as.dpopJtiStore`, returns 400 `invalid_dpop_proof` on failure. `OAuthGuard.check` gains `requestMethod`/`requestUrl`/`dpopJtiStore` params — validates `cnf.jkt`-bound tokens against the DPoP proof, backward-compatible when params absent. `AuthServerConfig.dpopNonceLifetimeSeconds`; script API `dpopNonce` field wired. 36 tests in `OAuthDPoPTest`.
+
 ## 2026-05-27
 
 - **spark-lakehouse-l4-hudi** — Apache Hudi lakehouse support (L.4). `SparkGen.DefaultHudiVersion = "0.15.0"`; `lakehouseConfigs` extended with Hudi branch: `spark.serializer=KryoSerializer`, `spark.sql.extensions=HoodieSparkSessionExtension` (merged comma-separated with Delta/Iceberg values), `spark.sql.catalog.spark_catalog=HoodieCatalog`; `genModule` emits `//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:0.15.0"` dep; `examples/spark-lakehouse-hudi.ssc` (write/read/upsert round-trip); `docs/spark-lakehouse.md §L.4` updated; 9 new `SparkGenTest` tests; duplicate Iceberg test block removed from test file.

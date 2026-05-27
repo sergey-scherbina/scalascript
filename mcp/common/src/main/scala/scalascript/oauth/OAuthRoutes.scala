@@ -32,8 +32,14 @@ object OAuthRoutes:
   /** RFC 6749 §3.2 token endpoint.  Body is `application/x-www-form-urlencoded`;
    *  decoded fields drive the choice of grant type.  Client authentication
    *  may come via HTTP Basic in `Authorization` (RFC 6749 §2.3.1) or via
-   *  `client_id` + `client_secret` form fields (§2.3.1 alternative). */
-  def handleToken(as: AuthServer, body: String, headers: Map[String, String]): RouteOutcome =
+   *  `client_id` + `client_secret` form fields (§2.3.1 alternative).
+   *
+   *  @param tokenEndpointUrl  Full URL of this token endpoint, used to validate the
+   *    `htu` claim in any DPoP proof.  When None, derived from `as.config.issuer + "/token"`. */
+  def handleToken(
+    as: AuthServer, body: String, headers: Map[String, String],
+    tokenEndpointUrl: Option[String] = None
+  ): RouteOutcome =
     if isPayloadTooLarge(as, body) then
       return withSecurity(withCors(payloadTooLarge(), as, headers), as)
     if isInsecureRequest(as, headers) then
@@ -51,6 +57,21 @@ object OAuthRoutes:
     // touches stores or runs PBKDF2.  Defeats brute-force probing.
     if !as.rateLimiter.allow(s"token:$clientId") then
       return withCors(rateLimited(), as, headers)
+    // DPoP (RFC 9449) — validate any DPoP proof present in the request.
+    // The proof is optional; tokens without a DPoP proof remain plain Bearer.
+    val dpopThumbprint: Option[String] =
+      headers.iterator.find((k, _) => k.equalsIgnoreCase("DPoP")).map(_._2) match
+        case None =>
+          None
+        case Some(proofJwt) =>
+          val htu = tokenEndpointUrl.getOrElse(as.config.issuer.stripSuffix("/") + "/token")
+          DPoP.verifyProof(proofJwt, "POST", htu, jtiStore = as.dpopJtiStore) match
+            case DPoP.ProofResult.Valid(thumbprint) =>
+              Some(thumbprint)
+            case DPoP.ProofResult.Invalid(reason) =>
+              return withCors(
+                jsonError(400, "invalid_dpop_proof", reason),
+                as, headers)
     val outcome: TokenOutcome = grantType match
       case "authorization_code" =>
         as.issueToken(TokenRequest.AuthorizationCodeGrant(
@@ -59,20 +80,20 @@ object OAuthRoutes:
           clientId     = clientId,
           clientSecret = clientSec,
           codeVerifier = form.get("code_verifier")
-        ))
+        ), dpopJwkThumbprint = dpopThumbprint)
       case "refresh_token" =>
         as.issueToken(TokenRequest.RefreshTokenGrant(
           refreshToken = form.getOrElse("refresh_token", ""),
           scope        = parseScope(form.get("scope")),
           clientId     = clientId,
           clientSecret = clientSec
-        ))
+        ), dpopJwkThumbprint = dpopThumbprint)
       case "client_credentials" =>
         as.issueToken(TokenRequest.ClientCredentialsGrant(
           clientId     = clientId,
           clientSecret = clientSec.getOrElse(""),
           scope        = parseScope(form.get("scope"))
-        ))
+        ), dpopJwkThumbprint = dpopThumbprint)
       case TokenRequest.PasskeyGrantType =>
         // Passkey assertion grant — all binary fields arrive as
         // base64url strings on the wire.
@@ -85,7 +106,7 @@ object OAuthRoutes:
             scope        = parseScope(form.get("scope")),
             clientId     = clientId,
             clientSecret = clientSec
-          ))
+          ), dpopJwkThumbprint = dpopThumbprint)
         catch case _: Throwable =>
           TokenOutcome.Error("invalid_request",
             "passkey grant: missing or malformed signed_data / signature (expected base64url)")

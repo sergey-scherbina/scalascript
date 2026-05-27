@@ -437,6 +437,7 @@ side; script intrinsic queued).
 | RFC 7636 PKCE                     | ✓ (S256 + plain, RFC 7636 test vector verified) |
 | RFC 7662 Token Introspection      | ✓ (/introspect endpoint) |
 | RFC 8414 AS Metadata              | ✓ (/.well-known/oauth-authorization-server) |
+| RFC 9449 DPoP                     | ✓ (`DPoP.verifyProof`, `cnf.jkt` injection, `OAuthGuard` binding; RS256 + ES256) |
 | RFC 9728 Protected Resource Metadata | ✓ (/.well-known/oauth-protected-resource on RS side) |
 | OpenID Connect Core 1.0           | ✓ (id_token, /userinfo, scope filtering) |
 | OpenID Connect Discovery 1.0      | ✓ (/.well-known/openid-configuration) |
@@ -444,5 +445,5 @@ side; script intrinsic queued).
 Test coverage: see `OAuthAuthServerTest`, `OAuthRoutesTest`,
 `OAuthRevocationTest`, `OAuthHttpInstallerTest`, `OAuthScriptTest`,
 `OAuthRsaJwksTest`, `OAuthGuardTest`, `OAuthGuardScriptTest`,
-`OidcServerTest`, `OidcScriptTest`, `McpOAuthBridgeTest` —
-**295 tests** total across the OAuth/OIDC/MCP suites as of v1.17.x.
+`OAuthDPoPTest`, `OidcServerTest`, `OidcScriptTest`, `McpOAuthBridgeTest` —
+**331 tests** total across the OAuth/OIDC/MCP suites as of v1.17.x.

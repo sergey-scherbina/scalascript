@@ -56,7 +56,11 @@ class AuthServer(
    *  Defaults to a no-op (no throttling).  Production deployments
    *  should wire a `RateLimiter.TokenBucket(cap, refillRatePerSec)`
    *  with sensible budgets (10/min/client + 60/min/IP is typical). */
-  val rateLimiter: RateLimiter = RateLimiter.Disabled
+  val rateLimiter: RateLimiter = RateLimiter.Disabled,
+  /** DPoP (RFC 9449) JTI store for proof-replay prevention.  Defaults to
+   *  an in-memory store; wire in a distributed store in multi-node AS
+   *  deployments to prevent cross-node replay. */
+  val dpopJtiStore: DPoP.JtiStore = new DPoP.InMemoryJtiStore
 ):
   import OAuth._
 
@@ -160,12 +164,16 @@ class AuthServer(
   /** Pure token-endpoint logic.  Caller decodes the form-encoded body
    *  into a `TokenRequest` and feeds it here; the returned `TokenOutcome`
    *  carries either the issuable response payload or the spec-shaped
-   *  error pair. */
-  def issueToken(req: TokenRequest): TokenOutcome = req match
-    case g: TokenRequest.AuthorizationCodeGrant => handleAuthCode(g)
-    case g: TokenRequest.RefreshTokenGrant      => handleRefresh(g)
-    case g: TokenRequest.ClientCredentialsGrant => handleClientCreds(g)
-    case g: TokenRequest.PasskeyAssertionGrant  => handlePasskey(g)
+   *  error pair.
+   *
+   *  @param dpopJwkThumbprint  RFC 7638 JWK thumbprint of the DPoP key extracted
+   *    from a validated DPoP proof (RFC 9449).  When supplied the issued access
+   *    token gets a `cnf.jkt` claim and `token_type` is set to `"DPoP"`. */
+  def issueToken(req: TokenRequest, dpopJwkThumbprint: Option[String] = None): TokenOutcome = req match
+    case g: TokenRequest.AuthorizationCodeGrant => handleAuthCode(g, dpopJwkThumbprint)
+    case g: TokenRequest.RefreshTokenGrant      => handleRefresh(g, dpopJwkThumbprint)
+    case g: TokenRequest.ClientCredentialsGrant => handleClientCreds(g, dpopJwkThumbprint)
+    case g: TokenRequest.PasskeyAssertionGrant  => handlePasskey(g, dpopJwkThumbprint)
 
   /** v1.17.x — issue a fresh single-use passkey challenge.  Callers
    *  hand the challenge to the user's browser, which feeds it into
@@ -173,7 +181,7 @@ class AuthServer(
    *  then redeemed at the token endpoint via the passkey grant. */
   def passkeyChallenge(): String = passkeyChallenges.issue()
 
-  private def handlePasskey(g: TokenRequest.PasskeyAssertionGrant): TokenOutcome =
+  private def handlePasskey(g: TokenRequest.PasskeyAssertionGrant, dpopJkt: Option[String]): TokenOutcome =
     authenticateClient(g.clientId, g.clientSecret) match
       case Left(err) => TokenOutcome.Error(err, "client authentication failed")
       case Right(client) =>
@@ -182,7 +190,7 @@ class AuthServer(
             if !g.scope.subsetOf(client.scopes) then
               TokenOutcome.Error("invalid_scope", "requested scopes not granted to client")
             else
-              TokenOutcome.Issued(mintTokens(client, subject, g.scope))
+              TokenOutcome.Issued(mintTokens(client, subject, g.scope, dpopJkt = dpopJkt))
           case Passkey.AssertionOutcome.UnknownCredential(cid) =>
             TokenOutcome.Error("invalid_grant", s"unknown credential: $cid")
           case Passkey.AssertionOutcome.ChallengeMismatch =>
@@ -206,7 +214,7 @@ class AuthServer(
         else
           Passkey.AssertionOutcome.Verified(cred.subject, cred.credentialId)
 
-  private def handleAuthCode(g: TokenRequest.AuthorizationCodeGrant): TokenOutcome =
+  private def handleAuthCode(g: TokenRequest.AuthorizationCodeGrant, dpopJkt: Option[String]): TokenOutcome =
     authenticateClient(g.clientId, g.clientSecret) match
       case Left(err)     => TokenOutcome.Error(err, "client authentication failed")
       case Right(client) =>
@@ -229,9 +237,9 @@ class AuthServer(
                   if pkceMatches(v, ch, m) then Right(()) else Left("invalid_grant: PKCE verification failed")
               pkceCheck match
                 case Left(err) => TokenOutcome.Error(err.takeWhile(_ != ':'), err.dropWhile(_ != ':').stripPrefix(": "))
-                case Right(_)  => TokenOutcome.Issued(mintTokens(client, rec.subject, rec.scope))
+                case Right(_)  => TokenOutcome.Issued(mintTokens(client, rec.subject, rec.scope, dpopJkt = dpopJkt))
 
-  private def handleRefresh(g: TokenRequest.RefreshTokenGrant): TokenOutcome =
+  private def handleRefresh(g: TokenRequest.RefreshTokenGrant, dpopJkt: Option[String]): TokenOutcome =
     authenticateClient(g.clientId, g.clientSecret) match
       case Left(err)     => TokenOutcome.Error(err, "client authentication failed")
       case Right(client) =>
@@ -276,9 +284,10 @@ class AuthServer(
                 tokens.revokeRefreshToken(g.refreshToken)
                 tokens.graveyardAdd(g.refreshToken, rec.familyId)
                 TokenOutcome.Issued(mintTokens(client, rec.subject, newScope,
-                  familyId = Some(rec.familyId), grantType = "refresh_token"))
+                  familyId = Some(rec.familyId), grantType = "refresh_token",
+                  dpopJkt = dpopJkt))
 
-  private def handleClientCreds(g: TokenRequest.ClientCredentialsGrant): TokenOutcome =
+  private def handleClientCreds(g: TokenRequest.ClientCredentialsGrant, dpopJkt: Option[String]): TokenOutcome =
     authenticateClient(g.clientId, Some(g.clientSecret)) match
       case Left(err)     => TokenOutcome.Error(err, "client authentication failed")
       case Right(client) =>
@@ -290,17 +299,21 @@ class AuthServer(
           TokenOutcome.Error("invalid_scope", "requested scopes not granted to client")
         else
           // Client-credentials issues an access token only (no refresh — RFC 6749 §4.4.3).
+          val extra = dpopJkt match
+            case Some(jkt) => ujson.Obj("jti" -> randomOpaqueToken(12), "cnf" -> ujson.Obj("jkt" -> jkt))
+            case None      => ujson.Obj("jti" -> randomOpaqueToken(12))
           val access = signer.sign(buildAccessTokenPayload(
             subject          = client.id,
             scopes           = g.scope,
             expiresInSeconds = config.accessTokenTtlSeconds,
             issuer           = Some(config.issuer),
             clientId         = Some(client.id),
-            extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
+            extra            = extra
           ))
           emit(AuthEvent.TokenIssued(client.id, client.id, g.scope, "client_credentials"))
           TokenOutcome.Issued(TokenResponse(
             accessToken  = access,
+            tokenType    = dpopJkt.map(_ => "DPoP").getOrElse("Bearer"),
             expiresIn    = config.accessTokenTtlSeconds,
             refreshToken = None,
             scope        = g.scope
@@ -313,17 +326,23 @@ class AuthServer(
      *  whole chain.  None on initial issue → a fresh family is born. */
     familyId: Option[String] = None,
     /** Audit-event tag identifying which grant produced these tokens. */
-    grantType: String = "authorization_code"
+    grantType: String = "authorization_code",
+    /** DPoP (RFC 9449) JWK thumbprint.  When set, `cnf.jkt` is injected
+     *  into the access token and `token_type` is set to "DPoP". */
+    dpopJkt: Option[String]
   ): TokenResponse =
     // jti distinguishes back-to-back issuances that share iat/exp/scope —
     // matters for rotation tests + revocation lists.
+    val extra = dpopJkt match
+      case Some(jkt) => ujson.Obj("jti" -> randomOpaqueToken(12), "cnf" -> ujson.Obj("jkt" -> jkt))
+      case None      => ujson.Obj("jti" -> randomOpaqueToken(12))
     val access = signer.sign(buildAccessTokenPayload(
       subject          = subject,
       scopes           = scope,
       expiresInSeconds = config.accessTokenTtlSeconds,
       issuer           = Some(config.issuer),
       clientId         = Some(client.id),
-      extra            = ujson.Obj("jti" -> randomOpaqueToken(12))
+      extra            = extra
     ))
     val refresh = randomOpaqueToken(32)
     val fid     = familyId.getOrElse(refresh)  // fresh family rooted at this token
@@ -338,6 +357,7 @@ class AuthServer(
     emit(AuthEvent.TokenIssued(client.id, subject, scope, grantType))
     TokenResponse(
       accessToken  = access,
+      tokenType    = dpopJkt.map(_ => "DPoP").getOrElse("Bearer"),
       expiresIn    = config.accessTokenTtlSeconds,
       refreshToken = Some(refresh),
       scope        = scope
@@ -590,7 +610,12 @@ case class AuthServerConfig(
    *  clients (any /authorize page rendered through the AS).
    *  Headers: HSTS (when requireTls), X-Content-Type-Options: nosniff,
    *  Referrer-Policy: no-referrer, X-Frame-Options: DENY. */
-  securityHeaders:                 Boolean = true
+  securityHeaders:                 Boolean = true,
+  /** DPoP (RFC 9449) nonce lifetime in seconds.  When set, the AS will
+   *  issue `DPoP-Nonce` values on successful token responses and require
+   *  DPoP proofs to carry a valid nonce claim.  None = nonces not
+   *  required (DPoP still supported without nonces). */
+  dpopNonceLifetimeSeconds:        Option[Long] = None
 )
 
 // ─── Domain types ─────────────────────────────────────────────────────

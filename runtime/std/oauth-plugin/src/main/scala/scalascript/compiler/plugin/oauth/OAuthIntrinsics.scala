@@ -159,6 +159,7 @@ object OAuthIntrinsicHelpers:
         Some(OAuth.RsaTokenSigner.generate(kid))
       case other =>
         throw InterpretError(s"oauth.authServer: unknown signer '$other' (supported: HS256, RS256)")
+    val dpopNonce = fields.get("dpopNonce").collect { case Value.IntV(i) => i }
     new AuthServer(AuthServerConfig(
       issuer                          = issuer,
       signingSecret                   = secret,
@@ -167,7 +168,8 @@ object OAuthIntrinsicHelpers:
       authorizationCodeTtlSeconds     = codeTtl,
       supportedScopes                 = scopes,
       requirePkce                     = pkce,
-      allowDynamicClientRegistration  = allowDcr
+      allowDynamicClientRegistration  = allowDcr,
+      dpopNonceLifetimeSeconds        = dpopNonce
     ), customSigner = customSigner)
 
   def toStringSet(v: Value): Set[String] = v match
