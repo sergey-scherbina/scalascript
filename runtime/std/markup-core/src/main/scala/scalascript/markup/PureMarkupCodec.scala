@@ -329,7 +329,7 @@ object PureMarkupCodec extends MarkupCodec:
       v
 
     private def isNameStart(c: Char): Boolean =
-      c.isLetter || c == '_' || c == ':'
+      c.isLetter || c == '_'
 
     private def isNameChar(c: Char): Boolean =
-      c.isLetterOrDigit || c == '_' || c == '-' || c == '.' || c == ':'
+      c.isLetterOrDigit || c == '_' || c == '-' || c == '.'

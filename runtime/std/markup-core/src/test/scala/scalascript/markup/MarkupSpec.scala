@@ -112,9 +112,11 @@ class XmlInterpolatorSpec extends AnyFunSuite:
   test("xml interpolator — string arg is escaped") {
     val dangerous = "<script>alert(1)</script>"
     val doc = xml"<msg>${dangerous}</msg>"
+    // Parser unescapes entities: text content is the original string
     val text = doc.root.children.collectFirst { case Markup.Text(t) => t }.get
-    assert(text.contains("&lt;script"))
-    assert(!text.contains("<script>"))
+    assert(text == dangerous)
+    // Crucially, no child <script> element was injected — just a text node
+    assert(!doc.root.children.exists(_.isInstanceOf[Markup.Element]))
   }
 
   test("xml interpolator — Markup.raw passes through verbatim") {

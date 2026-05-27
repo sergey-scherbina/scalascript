@@ -1061,6 +1061,54 @@ Implementation phases ship independently below.
 - Configurable replay-protection window (default 30 days).
 - Spec: `docs/traditional-payments.md §5, §16.7`.
 
+## v1.55 — First-class XML / Generic Markup
+
+**Status: spec landed 2026-05-27.**  See `/Users/sergiy/.claude/plans/majestic-napping-moonbeam.md`.
+Motivation: hand-rolled XML string templates in `SepaPainXml` / `Iso20022Xml` / Braintree / Apple plists
+are fragile, unsafely escape values, and can't be validated; enterprise configs ship in XML.
+XSLT deferred to v1.56.
+
+**v1.55.1 — `markup-core` ADT + `xml"..."` interpolator + `PureMarkupCodec` + tests: ✓ Landed (2026-05-27)**
+- `runtime/std/markup-core/`: `Markup` sealed ADT (`Doc/Element/Attr/Text/CData/PI/Comment/DocType/XmlDecl/QName/Raw`),
+  `MarkupCodec` SPI (parse/serialize/validate), `XmlEscape` (5-entity escape/unescape),
+  `PureMarkupCodec` (zero-dep XML 1.0 parser + serializer, ~300 LoC), `xml"..."` string interpolator
+  (mandatory escape + `Markup.raw()` opt-out + `Markup.Element` splice).  17 tests.
+
+**v1.55.2 — `Lang.Xml` + `SectionRuntime.runXmlBlock` + `Value.MarkupV`:**
+- `Lang.scala`: `Xml = "xml"`, `isXml`, extend `isStringBlock` to include `xml`.
+- `SectionRuntime.scala`: `runXmlBlock` (render `${...}` → XML-escaped → parse → `MarkupV`); generalise
+  `renderStringBlock` signature to accept an `escapeFn: String => String`.
+- `Value.scala`: `case MarkupV(doc: Markup.Doc)`.
+- Test: fenced ` ```xml ` block in `.ssc` binds `<section>.xml: Markup.Doc`.
+
+**v1.55.3 — `Feature.Markup` + `Backend.markupCodec` + JVM SAX codec:**
+- `Feature.scala`: `case Markup`.
+- `Backend.scala`: `def markupCodec: Option[MarkupCodec] = None`.
+- `runtime/backend/interpreter/...JvmMarkupCodec`: `javax.xml.parsers.SAXParser` + StAX.
+- Per-backend `*Capabilities.scala`: declare `Feature.Markup` where supported.
+- `CapabilityCheck`: reject programs using `xml"..."` against backends lacking `Feature.Markup`.
+
+**v1.55.4 — Compile-time `xml"..."` well-formedness checker:**
+- `lang/core/.../transform/MarkupInterpolatorCheck.scala`: join interpolation parts with placeholder text,
+  run `PureMarkupCodec.parse` at compile time, emit `Diagnostic.XmlParseError` if malformed.
+
+**v1.55.5 — Element-literal AST (`<foo bar={expr}/>` syntax):**
+- `lang/core/.../transform/MarkupLiteralLower.scala`: opt-in via `import scalascript.markup.*`;
+  `<name attrs>{children}</name>` → `Markup.Element(...)` constructors.
+- `{expr}` in text splices `Markup.Node` children or stringifies + escapes other values.
+
+**v1.55.6 — XSD validation + refactor `SepaPainXml`/`Iso20022Xml` onto `xml"..."`:**
+- `JvmMarkupCodec.validate(doc, xsd)` via `javax.xml.validation`.
+- Rewrite SEPA PAIN.001/008 and FedNow pacs.008/002 templates from string concatenation to `xml"..."`.
+- Golden-file regression suite (byte-for-byte output parity, 12 PAIN.001 fixtures).
+
+**v1.55.7 — `.xml` ConfigParser ingest + `markup-js`/`markup-node` codecs + ServiceLoader:**
+- `backend/config/ConfigParser.scala`: `Format.Xml`, `detectFormat`.
+- `backend/config/.../XmlConfigParser.scala`: XML → `ConfigValue.Object` (Jackson-XML convention).
+- `runtime/std/markup-js/`: JS `DOMParser`/`XMLSerializer` codec.
+- `runtime/std/markup-node/`: Node `@xmldom/xmldom` codec.
+- ServiceLoader `META-INF/services/scalascript.markup.MarkupCodec` wiring.
+
 ## v2.1 — Distributed Streams (Beam-style)
 
 **Status: spec landed 2026-05-27.**  `docs/distributed-streams.md` covers the full design.
