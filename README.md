@@ -243,6 +243,7 @@ compiles them via Scala.js.
 | Typed handlers | `CaseClass => CaseClass` auto-deser (path/query/body) + auto-ser (JSON 200); `Either[Request, Input]` for explicit error handling |
 | SQL databases | `databases:` front-matter declares named JDBC connections; ` ```sql ``` ` fenced blocks execute DDL/DML; ` ```transaction ``` ` fenced blocks run multiple `;`-separated statements atomically (JDBC transaction, commit/rollback); `Db.query/execute` for programmatic access; SQLite, H2, PostgreSQL out of the box |
 | XML markup | ` ```xml ``` ` fenced blocks parse well-formed XML 1.0 into `Value.MarkupV(doc: Markup.Doc)`; `${expr}` interpolation with automatic XML escaping; bound as `<section>.xml`; zero-dependency `PureMarkupCodec` parser |
+| XSLT transformation | `MarkupCodec.default.transform(doc, xslt, params)` applies an XSLT 1.0 stylesheet to a `Markup.Doc`; returns `Either[TransformError, Markup.Doc]`; parameter substitution via `Map[String, String]`; JVM / interpreter only (`Feature.Xslt`); see `examples/xslt-transform.ssc` |
 | Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
 | Progressive Web App | `pwa(name, themeColor, icons, precache)` — registers `GET /manifest.json` + `GET /sw.js`; cache-first precaching service worker; works in `ssc run` and `ssc run-jvm` |
 
@@ -430,6 +431,7 @@ Planned, not implemented yet:
 | [spark-delta-demo.ssc](examples/spark-delta-demo.ssc) | Delta Lake — auto-emit `delta-spark` dep + extension/catalog configs |
 | [spark-hive-demo.ssc](examples/spark-hive-demo.ssc) | Hive metastore via `spark-hive-metastore:` + `@TempView("...")` + `Dataset.fromTable[T]` |
 | [spark-mllib-pipeline.ssc](examples/spark-mllib-pipeline.ssc) | MLlib — Tokenizer + HashingTF + LogisticRegression pipeline end-to-end |
+| [xslt-transform.ssc](examples/xslt-transform.ssc) | XSLT 1.0 transformation — identity, element rename, parameter substitution, HTML generation (`MarkupCodec.transform`) |
 
 Run them all at once:
 

@@ -1465,6 +1465,54 @@ and column from `PureMarkupCodec`.
 **Section binding:** the block is bound as `<sectionIdent>.xml` — the same
 convention as `.html`, `.css`, and `.sql`.
 
+### XSLT transformation (`v1.56`)
+
+`MarkupCodec.transform` applies an XSLT 1.0 stylesheet to a `Markup.Doc` and
+returns `Either[TransformError, Markup.Doc]`.  On the JVM / interpreter backend
+the transform is delegated to `XsltTransformer`, which uses
+`javax.xml.transform.TransformerFactory`.  Other backends return
+`Left(TransformError("XSLT not supported by this codec"))` by default.
+
+```scala
+import scalascript.markup.*
+
+val source = xml"<catalog><book><title>Scala 3</title></book></catalog>"
+
+val xslt = """<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:param name="currency">USD</xsl:param>
+  <xsl:template match="/">
+    <html><body>
+      <xsl:for-each select="catalog/book">
+        <p><xsl:value-of select="title"/> — <xsl:value-of select="$currency"/></p>
+      </xsl:for-each>
+    </body></html>
+  </xsl:template>
+</xsl:stylesheet>"""
+
+MarkupCodec.default.transform(source, xslt, Map("currency" -> "EUR")) match
+  case Right(doc) => println(PureMarkupCodec.serialize(doc, SerializeOpts(omitXmlDecl = true)))
+  case Left(err)  => println(s"Error: ${err.message}")
+```
+
+**Parameters** — top-level `<xsl:param>` values are supplied via
+`params: Map[String, String]` (third argument, defaults to `Map.empty`).
+
+**Error handling** — any of the following returns `Left(TransformError(...))`:
+- Malformed or non-XSL stylesheet document
+- Transform engine error (e.g. undefined variable reference)
+- XSLT output that is not valid XML (use `<xsl:output method="xml"/>` to ensure this)
+
+**Empty output** — stylesheets that produce no element content (e.g. a stylesheet
+whose only template is `<xsl:template match="/"/>`) return a synthetic
+`Markup.Doc` with a single `<empty/>` root element rather than an error.
+
+**Capability gate** — `.transform(` calls on `Markup.Doc` values are detected by
+`CapabilityCheck` and require `Feature.Xslt`.  Backends that don't declare it
+(JS, Wasm, Native) reject the program at the capability-check stage.
+
+**Example** — see `examples/xslt-transform.ssc` for a complete working demo.
+
 ### REST API + SQLite example
 
 A complete todo list with SQLite persistence and a JSON REST API:
