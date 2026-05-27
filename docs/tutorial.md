@@ -1548,3 +1548,170 @@ serve(lower(tree, defaultTheme), 8080)
 - Replace the hand-crafted JSON string with `jsonStringify` from `std/json`.
 - Add a search box: `signal[String]("filter", "")`, pass it to
   `fetchUrlSignal("/api/todos?q=...", refreshTick)`, and filter server-side.
+
+---
+
+# Tutorial 5: Typed Algebraic Effects
+
+This tutorial shows typed algebraic effects in practice — a telemetry-instrumented
+REST handler that uses `Logger`, `Reader[Config]`, and `NonDet`.
+
+All snippets run with `ssc run effects-demo.ssc`.
+
+---
+
+## Step 1: Project setup
+
+Create `effects-demo.ssc`:
+
+````ssc
+---
+name: effects-demo
+version: 1.0.0
+---
+
+# Effects Demo
+
+```scalascript
+println("ready")
+```
+````
+
+```bash
+ssc run effects-demo.ssc
+# ready
+```
+
+---
+
+## Step 2: Declare typed effects
+
+The `!` operator in a function signature states which effects may be performed.
+A function without `!` is total (no effects).
+
+````ssc
+```scalascript
+// effect declared in std/effects/ — shown here for illustration
+effect Logger:
+  def info(msg: String): Unit
+  def warn(msg: String): Unit
+
+// The return type carries the effect: String ! Logger
+def greetUser(name: String): String ! Logger =
+  Logger.info(s"Greeting $name")
+  s"Hello, $name!"
+```
+````
+
+`greetUser` cannot be called outside a `Logger` handler — the compiler
+(via `EffectAnalysis`) reports an error if you forget to discharge it.
+
+---
+
+## Step 3: Discharge with typed stdlib handlers
+
+The stdlib ships typed discharge functions whose signatures carry the effect:
+
+```scalascript
+// runConsoleLogger : (body: A ! Logger) => A
+val result = runConsoleLogger(greetUser("Alice"))
+// prints: [LOG] Greeting Alice
+// result = "Hello, Alice!"
+```
+
+The right-hand side is checked: `greetUser("Alice")` has type `String ! Logger`,
+and `runConsoleLogger` expects exactly that — no mismatch, no unhandled effect.
+
+---
+
+## Step 4: Reader[R] — inject context without threading
+
+`Reader[R]` injects a read-only value into the call tree. No need to pass it
+through every intermediate function.
+
+```scalascript
+case class Config(appName: String, debug: Boolean)
+
+def buildResponse(path: String): String ! Logger & Reader[Config] =
+  val cfg = Reader.get[Config]
+  Logger.info(s"${cfg.appName} handling $path")
+  if cfg.debug then s"[DEBUG] $path OK" else s"$path OK"
+
+val cfg = Config("MyService", debug = true)
+val response = runConsoleLogger(runReader(cfg)(buildResponse("/api/hello")))
+// prints: [LOG] MyService handling /api/hello
+// response = "[DEBUG] /api/hello OK"
+```
+
+---
+
+## Step 5: Multi-shot effects with `multi effect`
+
+Ordinary effects are single-shot: each operation resumes its continuation
+exactly once.  `multi effect` allows a handler to resume many times — enabling
+nondeterminism, search, and backtracking.
+
+```scalascript
+multi effect NonDet:
+  def choose[A](options: List[A]): A
+
+// Collects all paths through a nondeterministic computation
+def handleNonDet[A](body: A ! NonDet): List[A] =
+  handle(body) {
+    case NonDet.choose(opts, resume) =>
+      opts.flatMap(o => resume(o))   // resume once per option
+  }
+
+def tryRoutes(): String ! NonDet =
+  val method = NonDet.choose(List("GET", "POST"))
+  val path   = NonDet.choose(List("/ping", "/health"))
+  s"$method $path"
+
+val allCombinations = handleNonDet(tryRoutes())
+// List("GET /ping", "GET /health", "POST /ping", "POST /health")
+println(allCombinations)
+```
+
+---
+
+## Step 6: Compose effects in one handler stack
+
+Effects compose naturally in the type: `A ! E1 & E2` means both `E1` and `E2`
+must be discharged. Discharge them from the outside in:
+
+```scalascript
+def instrument(path: String): String ! Logger & Reader[Config] & NonDet =
+  val cfg     = Reader.get[Config]
+  val variant = NonDet.choose(List("v1", "v2"))
+  Logger.info(s"${cfg.appName} [$variant] $path")
+  s"$variant:$path"
+
+val cfg = Config("Telemetry", debug = false)
+// Discharge order: NonDet → Reader → Logger (outermost last)
+val results = runConsoleLogger(
+  runReader(cfg)(
+    handleNonDet(instrument("/metrics"))
+  )
+)
+// prints two log lines; results = List("v1:/metrics", "v2:/metrics")
+println(results)
+```
+
+Run the finished file:
+
+```bash
+ssc run effects-demo.ssc
+```
+
+---
+
+## What's Next
+
+- See [`docs/algebraic-effects.md`](algebraic-effects.md) for the full spec:
+  `EffectRow` in `SType`, Rémy-style row unification, and all typed stdlib
+  discharge signatures.
+- See [`examples/algebraic-effects.ssc`](../examples/algebraic-effects.ssc)
+  for a comprehensive runnable example covering every feature.
+- Add the `Reader[Config]` pattern to a real HTTP server: put your config in
+  a `Reader`, call `runReader(cfg)(route(...))`, and never thread the config
+  manually again.

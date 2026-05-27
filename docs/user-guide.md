@@ -575,6 +575,66 @@ def roll(): Int = Random.nextInt(6) + 1
 runSeededRandom(42)(roll())           // always the same
 ```
 
+### Typed Effects (v1.12.1+)
+
+The `!` operator in a function signature declares which effects that function
+may perform. A function with no `!` annotation is total/pure.
+
+```scalascript
+// Function that may perform Logger and Random effects
+def rollAndLog(label: String): Int ! Logger & Random =
+  val n = Random.nextInt(6) + 1
+  Logger.info(s"$label rolled $n")
+  n
+
+// Unhandled effects are compile errors (EffectAnalysis)
+// rollAndLog("d6")  ← compile error: Logger & Random unhandled
+runConsoleLogger(runSeededRandom(42)(rollAndLog("d6")))  // OK
+```
+
+Typed stdlib discharge signatures carry their effect in the type:
+
+```scalascript
+runLogger   : (body: A ! Logger)  => A
+runRandom   : (seed: Long)(body: A ! Random) => A
+```
+
+#### `multi effect` — multi-shot continuations
+
+Ordinary effects are single-shot (the continuation is invoked at most once).
+`multi effect` allows the handler to resume the continuation many times:
+
+```scalascript
+multi effect NonDet:
+  def choose[A](options: List[A]): A
+
+def prog(): List[Int] ! NonDet =
+  val x = NonDet.choose(List(1, 2, 3))
+  val y = NonDet.choose(List(10, 20))
+  List(x + y)
+
+handle(prog()) {
+  case NonDet.choose(opts, resume) =>
+    opts.flatMap(o => resume(o))   // resume called once per option
+}
+// List(11, 21, 12, 22, 13, 23)
+```
+
+#### `Reader[R]` capability
+
+`Reader[R]` injects a read-only context value without threading it through
+every call:
+
+```scalascript
+def greetUser(): String ! Reader[String] =
+  val name = Reader.get[String]
+  s"Hello, $name!"
+
+runReader("Alice")(greetUser())   // "Hello, Alice!"
+```
+
+See [`docs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
+
 ### Direct Syntax (Do-Notation)
 
 Write monadic code without `<-` arrows:
@@ -2237,10 +2297,19 @@ ssc submit file.ssc --dry-run                         # print the spark-submit i
 
 ## 15. WebAssembly backend
 
-`ssc emit-wasm file.ssc` lowers `scalascript` blocks to a WebAssembly module
-(no Node.js / JVM at runtime). `sql` fenced blocks are supported via the
+`ssc emit-wasm file.ssc` lowers `scalascript`/`ssc` blocks to a WebAssembly
+module (no Node.js / JVM at runtime). `sql` fenced blocks are supported via the
 cross-backend SQL runtime (v1.27 Phase 5). Cross-backend semantics: identical
 output to the interpreter and the JS / JVM backends for the same source.
+
+`//> using dep` directives inside blocks are hoisted to the top of the
+compilation unit and deduplicated, so you can pull in scalajs-dom or other
+Scala.js libraries directly from a Wasm block:
+
+```scalascript
+//> using dep org.scala-js::scalajs-dom::2.8.0
+import org.scalajs.dom.window
+```
 
 ```bash
 ssc emit-wasm examples/wasm-fibonacci.ssc -o out.wasm
@@ -2248,7 +2317,10 @@ examples/run-wasm.sh out.wasm
 ```
 
 Examples: `wasm-fibonacci.ssc`, `wasm-sorting.ssc`, `wasm-matrix.ssc`,
-`wasm-primes.ssc`, `wasm-collections.ssc`.
+`wasm-primes.ssc`, `wasm-collections.ssc`, `wasm-scalascript.ssc`
+(Point geometry), `wasm-http.ssc` (HTTP Fetch via scalajs-dom).
+
+Full reference: [`docs/wasm-backend.md`](wasm-backend.md).
 
 ---
 
@@ -3491,8 +3563,87 @@ threading model, `:print` semantics, and known limitations.
 
 ---
 
+## 25. SwiftUI / iOS / macOS Targets
+
+Declare `frontend: swiftui` in the front-matter to target Apple platforms.
+`ssc` generates a valid Swift Package (Package.swift, ContentView.swift,
+AppModel.swift, AppEntry.swift) and delegates build/run/package/publish to
+the local Xcode toolchain or fastlane.
+
+````ssc
+---
+name: my-app
+version: 1.0.0
+frontend: swiftui
+---
+````
+
+### CLI commands
+
+```bash
+ssc run --target ios                 # build + run in iOS Simulator
+ssc run --target ios --device        # deploy to real device via ios-deploy
+ssc package --target ios             # signed .ipa
+ssc publish --target ios             # TestFlight + App Store via fastlane
+ssc package --target macos           # notarized DMG
+ssc publish --target macos           # Mac App Store via fastlane
+```
+
+### View IR → SwiftUI mapping
+
+| ScalaScript View IR | SwiftUI |
+|---------------------|---------|
+| `Column(...)` | `VStack` |
+| `Row(...)` | `HStack` |
+| `Text(s)` | `Text` |
+| `Button(label, action)` | `Button` |
+| `TextInput(value)` | `TextField` |
+| `Toggle(value)` | `Toggle` |
+| `Image(url)` | `AsyncImage` |
+| `LazyList(items)` | `List` |
+
+`ReactiveSignal[T]` lowers to `@State private var` in the generated Swift
+source.
+
+Full reference: [`docs/swiftui.md`](swiftui.md).
+
+---
+
+## 26. GraalVM Native Binary
+
+`ssc` can be compiled to a self-contained native binary with no JVM required
+at runtime.
+
+### Build
+
+```bash
+sbt "cli/graalvmNativeImage"
+# → produces ssc-native in cli/target/
+```
+
+Distribute the single `ssc-native` binary — no JRE, no scala-cli wrapper
+needed for the binary itself.
+
+### Plugin bridge
+
+When the native `ssc` encounters `--plugin foo.jar`, it automatically spawns
+`ssc-plugin-host.jar` as a subprocess. The subprocess loads the plugin JAR via
+`URLClassLoader` + `ServiceLoader` and communicates with the native process
+over a wire protocol. **Plugin authors change nothing** — existing `.sscpkg`
+and `.jar` plugins work without recompilation.
+
+```bash
+ssc-native --plugin my-plugin.jar run file.ssc
+```
+
+For building a plugin as a native binary itself, see
+[`docs/native-plugin-guide.md`](native-plugin-guide.md).
+
+---
+
 ### Feature Quick-Links
 
+- Typed algebraic effects: §4, [docs/algebraic-effects.md](algebraic-effects.md)
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
 - Coroutines + generators: [docs/coroutines.md](coroutines.md)
@@ -3511,3 +3662,5 @@ threading model, `:print` semantics, and known limitations.
 - Config system (YAML/HOCON/JSON + typed binding): §22 above, [docs/config-system.md](config-system.md)
 - Progressive Web App: §23 above, [docs/pwa-plugin.md](pwa-plugin.md)
 - REPL debugger: §24 above, [docs/repl-debugger.md](repl-debugger.md)
+- SwiftUI / iOS / macOS native targets: §25 above, [docs/swiftui.md](swiftui.md)
+- GraalVM native binary: §26 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)

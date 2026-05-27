@@ -103,7 +103,8 @@ bin/http.ssc
 |---|---|
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
 | [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions |
-| [Algebraic Effects](docs/coroutines.md) | Coroutine primitive underlying effects and generators |
+| [Coroutines & Generators](docs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
+| [Algebraic Effects spec](docs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
 | [Metaprogramming](docs/metaprogramming.md) | `inline`, `derives`, `compiletime.*` |
 | [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `runtime/std/parsing/*` |
@@ -127,6 +128,9 @@ bin/http.ssc
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](docs/mcp.md) | MCP server tools + resources, MCP client |
 | [Markdown as Syntax](docs/markdown-as-syntax.md) | How Markdown constructs map to AST nodes |
+| [SwiftUI / iOS / macOS](docs/swiftui.md) | Native Swift Package emission; `ssc run --target ios` / `--target macos`; `ssc package` + `ssc publish` to App Store / TestFlight |
+| [GraalVM native binary](docs/native-platform.md) | `ssc` native binary via GraalVM native-image; no-JVM distribution; `ssc-plugin-host.jar` bridge |
+| [Native plugin guide](docs/native-plugin-guide.md) | Compile a plugin to a native binary — fully JVM-free `ssc → plugin` |
 
 **Planned / partial**
 
@@ -189,6 +193,11 @@ compiles them via Scala.js.
 | Feature | Syntax |
 |---------|--------|
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }`, multi-shot |
+| Typed effect rows | `def foo(): A ! Logger` — effect appears in function type; closed row (no `!`) = total/pure |
+| `multi effect` | Multi-shot effects — continuation can be resumed many times |
+| `Reader[R]` capability | Context-injection effect: `Reader.get`, `runReader(value)(body)` |
+| `NonDet` multi-shot | Nondeterministic branching via multi-shot continuations |
+| `EffectAnalysis` | Compile-time error for unhandled effects (not just a warning) |
 | Standard effects — Logger | `Logger.info(msg)`, `runConsoleLogger`, `runTestLogger` |
 | Standard effects — Random | `Random.nextInt(n)`, `runSeededRandom(seed)` |
 | Standard effects — Clock | `Clock.now()`, `Clock.millis()`, `runSystemClock` |
@@ -404,6 +413,9 @@ Planned, not implemented yet:
 | [wc-demo.ssc](examples/wc-demo.ssc) | Web Components via `ssc emit-wc`, SSR + hydration |
 | [wasm-fibonacci.ssc](examples/wasm-fibonacci.ssc) | `scalascript` → WebAssembly module via `ssc emit-wasm` |
 | [wasm-sorting.ssc](examples/wasm-sorting.ssc) · [wasm-matrix.ssc](examples/wasm-matrix.ssc) · [wasm-primes.ssc](examples/wasm-primes.ssc) · [wasm-collections.ssc](examples/wasm-collections.ssc) | Wasm benchmark suite |
+| [wasm-scalascript.ssc](examples/wasm-scalascript.ssc) | `scalascript` blocks → WebAssembly — Point geometry with `//> using dep` |
+| [wasm-http.ssc](examples/wasm-http.ssc) | HTTP Fetch via scalajs-dom in Wasm — `//> using dep` hoisted directive |
+| [algebraic-effects.ssc](examples/algebraic-effects.ssc) | Typed effects end-to-end — discharge signatures, `Reader[R]`, `NonDet`, `multi effect` |
 | [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) and covered by an Electron Add-flow smoke test |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
@@ -560,7 +572,8 @@ ScalaScript supports the following bundled backends, all loaded through the
 | `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
 | `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
 | `bin/ssc-spark file.ssc`   | `spark`       | Apache Spark 4 — generates a Scala 3.7.1 `.sc` script with `//> using dep` directives, runs via `scala-cli`. Auto-detects `sql` blocks, `@SqlFn` UDFs, `readStream`/`writeStream`, `.format("delta")`, `@TempView`, MLlib imports. See [§13 of the User Guide](docs/user-guide.md#13-apache-spark). |
-| `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
+| `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript`/`ssc` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |
+| `ssc-native` (GraalVM) | `native` | No-JVM `ssc` binary; plugins via `ssc-plugin-host.jar` subprocess bridge |
 | (sub-backend) | `node`        | Node.js runtime variant of `js` — emits server-side JS with `fs`/`path` shims and a cross-backend SQL runtime (v1.27 Phase 4). |
 | (sub-backends) | `frontend-{react,vue,solid,custom}` | Frontend Framework SPI (v1.18 Phase A): same `.ssc` UI source compiled to React (`useState`/`useEffect`), Vue 3 (`ref`/render), Solid (`createSignal`/`createEffect`), or a minimal custom runtime — `ShowSignal`/`ToggleSignal`/`ForSignal` reactive primitives shared across all four. See [`docs/frontend-framework-spi-plan.md`](docs/frontend-framework-spi-plan.md). |
 | JVM desktop sub-backend | `frontend-swing` | Partially implemented JDK-only JVM desktop frontend. It provides SPI discovery, `ssc run-jvm --frontend swing`, Swing source emission for text/buttons/fields/toggles/stacks/spacers/dividers/scroll views, basic style hints, local signal actions, Swing `fetchAction` / `fetchTable` / typed route client dispatch through generated JVM `BackendTransport`, no-socket full-stack examples, and a `swing-plugin` skeleton for future interpreter intrinsics; JavaFX/Compose adapters remain planned. See [`docs/jvm-desktop-frontend.md`](docs/jvm-desktop-frontend.md). |
