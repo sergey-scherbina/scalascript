@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **wallet-ledger-cardano** — `payments/wallet/vault-ledger-cardano/`: `CardanoApp` object (CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x21 SIGN_TX); `CardanoCip8` minimal COSE Sig_Structure builder (hand-rolled CBOR, no deps); `LedgerCardanoVault` (`Vault` SPI, Ed25519 only, `AppSwitchRequired` guard via `Dashboard.getAppName`); `LedgerCardanoRawSigner` (CIP-8 wrapping, 64-byte ed25519 sig); `walletVaultLedgerCardano` sbt subproject (JVM-only); 11 tests.
+
 - **wallet-ledger-solana** — `payments/wallet/vault-ledger-solana/`: `SolanaApp` object (CLA=0xE0, INS=0x04 SIGN_TRANSACTION, INS=0x05 GET_PUBKEY, INS=0x07 SIGN_OFFCHAIN_MESSAGE); lightweight `Base58` encoder (Bitcoin/Solana alphabet, pure Scala, no deps); `LedgerSolanaVault` (`Vault` SPI, Ed25519 only, `AppSwitchRequired` guard); `LedgerSolanaRawSigner` (64-byte ed25519 sig, no v-byte); `walletVaultLedgerSolana` sbt subproject; 13 tests.
 
 - **wallet-ledger-js** — Added `payments/wallet/vault-ledger-js`: Scala.js WebHID Ledger transport (`navigator.hid`), 64-byte HID APDU framing, browser `LedgerVault` lifecycle, Ethereum signer reuse, Cardano CIP-8 COSE helper, and 13 mocked WebHID tests.
