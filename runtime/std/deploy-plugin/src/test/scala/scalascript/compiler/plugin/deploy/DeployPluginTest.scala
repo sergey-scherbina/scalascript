@@ -174,3 +174,119 @@ class DeployPluginTest extends AnyFunSuite:
 
   test("ArtifactRegistry.artifactKindFor: unknown defaults to FatJar"):
     assert(ArtifactRegistry.artifactKindFor("unknown-kind") == ArtifactKind.FatJar)
+
+  // ── DockerfileGenerator ────────────────────────────────────────────────────
+
+  test("DockerfileGenerator: FatJar uses eclipse-temurin base image"):
+    val df = DockerfileGenerator.generate(ArtifactKind.FatJar)
+    assert(df.contains("eclipse-temurin:21-jre-alpine"))
+    assert(df.contains("COPY app.jar app.jar"))
+    assert(df.contains("app.jar"))
+    assert(df.contains("EXPOSE 8080"))
+
+  test("DockerfileGenerator: NativeBinary uses distroless base image"):
+    val df = DockerfileGenerator.generate(ArtifactKind.NativeBinary)
+    assert(df.contains("gcr.io/distroless/cc"))
+    assert(df.contains("COPY app app"))
+    assert(df.contains("/app/app"))
+
+  test("DockerfileGenerator: NodeBundle uses node:22-alpine"):
+    val df = DockerfileGenerator.generate(ArtifactKind.NodeBundle)
+    assert(df.contains("node:22-alpine"))
+    assert(df.contains("COPY app.js app.js"))
+    assert(df.contains("app.js"))
+
+  test("DockerfileGenerator: SpaBundle uses nginx:alpine"):
+    val df = DockerfileGenerator.generate(ArtifactKind.SpaBundle)
+    assert(df.contains("nginx:alpine"))
+    assert(df.contains("COPY dist/ /usr/share/nginx/html"))
+    assert(df.contains("EXPOSE 80"))
+
+  test("DockerfileGenerator: custom appPort in FatJar"):
+    val cfg = DockerfileGenerator.DockerfileConfig(appPort = 9090)
+    val df  = DockerfileGenerator.generate(ArtifactKind.FatJar, cfg)
+    assert(df.contains("EXPOSE 9090"))
+    assert(df.contains("localhost:9090/_health"))
+
+  test("DockerfileGenerator: build args emitted for FatJar"):
+    val cfg = DockerfileGenerator.DockerfileConfig(buildArgs = Map("VERSION" -> "1.0"))
+    val df  = DockerfileGenerator.generate(ArtifactKind.FatJar, cfg)
+    assert(df.contains("ARG VERSION=1.0"))
+
+  test("DockerfileGenerator: labels emitted for NativeBinary"):
+    val cfg = DockerfileGenerator.DockerfileConfig(labels = Map("maintainer" -> "ci@example.com"))
+    val df  = DockerfileGenerator.generate(ArtifactKind.NativeBinary, cfg)
+    assert(df.contains("""LABEL maintainer="ci@example.com""""))
+
+  test("DockerfileGenerator: unsupported kind throws"):
+    intercept[DeployError] {
+      DockerfileGenerator.generate(ArtifactKind.War)
+    }
+
+  test("DockerfileGenerator: writeDockerfile creates file on disk"):
+    val dir = os.temp.dir()
+    try
+      val path = DockerfileGenerator.writeDockerfile(ArtifactKind.FatJar, dir)
+      assert(os.exists(path))
+      assert(path.last == "Dockerfile")
+      val content = os.read(path)
+      assert(content.contains("eclipse-temurin"))
+    finally
+      os.remove.all(dir)
+
+  // ── TargetFactory ──────────────────────────────────────────────────────────
+
+  test("TargetFactory: resolves container kind"):
+    val t = TargetFactory.make("container", Map.empty)
+    assert(t.kind == "container")
+    assert(t.artifactKind == ArtifactKind.OciImage)
+
+  test("TargetFactory: resolves traditional kind"):
+    val t = TargetFactory.make("traditional", Map("port" -> Integer.valueOf(9090)))
+    assert(t.kind == "traditional")
+
+  test("TargetFactory: unknown kind throws"):
+    intercept[DeployError] {
+      TargetFactory.make("kubernetes", Map.empty)
+    }
+
+  // ── ContainerTarget dry-run ─────────────────────────────────────────────────
+
+  test("ContainerTarget.outputs: returns image and digest keys"):
+    val target = new ContainerTarget()
+    val ctx = DeployContext(
+      targetName = "myapp",
+      config     = Map("registry" -> "ghcr.io/org", "tag" -> "v1.0"),
+      env        = "local",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val outs = target.outputs(ctx)
+    assert(outs.contains("image"))
+    assert(outs("image").contains("ghcr.io/org/myapp:v1.0"))
+
+  test("ContainerTarget.build: dry-run prints message without running docker"):
+    val target = new ContainerTarget()
+    val workDir = os.temp.dir()
+    try
+      // Create a dummy artifact so it can be located
+      os.makeDir.all(workDir / ".ssc-artifacts")
+      os.write(workDir / ".ssc-artifacts" / "app.jar", "")
+      val ctx = DeployContext(
+        targetName = "api",
+        config     = Map("registry" -> "registry.example.com", "tag" -> "latest"),
+        env        = "local",
+        slot       = None,
+        dryRun     = true,
+        verbose    = false,
+        outputsOf  = _ => Map.empty,
+        workDir    = workDir,
+      )
+      val result = target.build(ctx)
+      assert(result.artifactKind == ArtifactKind.OciImage)
+      assert(result.artifactPath.contains("api"))
+    finally
+      os.remove.all(workDir)

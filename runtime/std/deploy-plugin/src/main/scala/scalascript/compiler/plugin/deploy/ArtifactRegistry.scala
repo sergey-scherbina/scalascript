@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.deploy
 /** Maps ArtifactKind to the builder that produces the artifact.
  *  Builders for existing kinds are stubs — the real invocations live in
  *  `scalascript.cli.Main` and are called through `ssc` subcommands.
- *  v1.52.1 only uses FatJar (for the local subprocess adapter). */
+ *  OciImage returns the base artifact path; ContainerTarget owns the Docker build step. */
 object ArtifactRegistry:
 
   /** Build the artifact for a deploy context, returning the path.
@@ -26,8 +26,13 @@ object ArtifactRegistry:
         val out = (workDir / ".ssc-artifacts" / "dist").toString
         if verbose then println(s"[deploy/build] spaBundle → $out")
         out
+      case ArtifactKind.OciImage =>
+        // Underlying artifact (FatJar by default); ContainerTarget wraps it in a Dockerfile
+        val out = (workDir / ".ssc-artifacts" / "app.jar").toString
+        if verbose then println(s"[deploy/build] ociImage base → $out")
+        out
       case other =>
-        throw DeployError(s"[deploy/artifact-build-failed] ArtifactKind.$other not yet implemented in v1.52.1")
+        throw DeployError(s"[deploy/artifact-build-failed] ArtifactKind.$other not yet implemented")
 
   def artifactKindFor(kindStr: String): ArtifactKind =
     kindStr.toLowerCase match

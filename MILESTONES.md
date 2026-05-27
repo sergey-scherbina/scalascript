@@ -16,9 +16,10 @@
 _(none)_
 
 ### Next up (top of BACKLOG)
-_(Language & Compiler v2.1 DStream series complete — check BACKLOG for next group)_
+- v1.52.3-deploy-k8s (Kubernetes target + blue-green + multi-region fault tolerance)
 
 ### Recently completed
+- v1.52.2-deploy-container — `DockerfileGenerator` (4 base-image recipes), `ContainerTarget` (all 7 SPI verbs, buildctl/buildx/docker fallback, multi-platform, digest rollback), `TargetFactory`, 36 tests total ✓ (2026-05-27)
 - v2.1.10-dstream-conformance — new `backendConformance` module; 8 cross-backend conformance tests; `examples/distributed-streams.ssc` expanded to 12 examples; all 4 shims now declare all 7 backend aliases ✓ (2026-05-27)
 - v2.1.9-dstream-joins — `join`/`leftOuterJoin`/`rightOuterJoin`/`flatten`; all 4 shims + native interpreter `evalDag`; `CAP_WINDOWED_JOINS`; +20 tests ✓ (2026-05-27)
 - v2.1.8-dstream-side-io — `SideInput[T]`/`OutputTag[B]`/`withSideInput`/`sideOutput`; all 4 shims + native interpreter; `CAP_SIDE_INPUTS`/`CAP_SIDE_OUTPUTS`; +16 tests ✓ (2026-05-27)

@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.52.2-deploy-container** — `DockerfileGenerator`: four base-image recipes per `ArtifactKind` (FatJar→`eclipse-temurin:21-jre-alpine`, NativeBinary→`gcr.io/distroless/cc`, NodeBundle→`node:22-alpine`, SpaBundle→`nginx:alpine`); build-args/labels/env/port/HEALTHCHECK support; `writeDockerfile` helper. `ContainerTarget`: full 7-verb `DeployTarget` SPI (`build`/`push`/`deploy`/`rollback`/`status`/`logs`/`outputs`); builder auto-detect (`buildctl` → `docker buildx` → `docker build`); multi-platform via `platform:`; digest capture for rollback; dry-run throughout. `TargetFactory`: resolves `kind: container | traditional`. `ArtifactRegistry` extended with `OciImage`. 14 new tests; 36 deploy-plugin tests total.
+
 - **v1.53.7-payments-webhook-cluster** — `payments/webhook-redis/`: `RedisSeenKeyStore` uses Lettuce `SET NX EX` (atomic set-if-not-exists with TTL) for cluster-safe deduplication; configurable key prefix (`whk:`) + await timeout; 8 tests with in-memory stub client. `payments/webhook-postgres/`: `PostgresSeenKeyStore` uses `INSERT … ON CONFLICT DO NOTHING` (atomic under PRIMARY KEY constraint) with auto-CREATE TABLE, expired-entry filtering in `wasSeen`, and `purgeExpired()` maintenance method; tested with H2 in-memory database (9 tests). Both modules added to sbt build; both implement `SeenKeyStore` SPI from `payments/webhook/`.
 
 - **x402-cardano-scalus-validator-validity-range** — The Scalus Plutus validator now enforces claim/refund validity windows: claims must be entirely before `datum.validBefore`, refunds entirely after `datum.refundAfter`. Validator CBOR regenerated.

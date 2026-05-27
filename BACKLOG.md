@@ -952,11 +952,12 @@ Design decisions locked:
 - `examples/deploy.ssc` with 6 targets, 3 groups, 4 environments
 - 22 unit tests; 509 core tests pass
 
-**v1.52.2 — Container target (generic OCI):**
-- Dockerfile generator per `ArtifactKind` (four base-image choices from spec §6.1)
-- `docker build` / `docker buildx` / `buildctl` invocation; multi-platform via `platform:`
-- OCI registry push with auth via `${env:…}` / `${vault:…}`
-- `outputs()`: `{ "digest": "sha256:…", "image": "…" }`
+**✓ Landed (2026-05-27) — v1.52.2 — Container target (generic OCI):**
+- `DockerfileGenerator` — four base-image recipes (`eclipse-temurin:21-jre-alpine` / `gcr.io/distroless/cc` / `node:22-alpine` / `nginx:alpine`) per `ArtifactKind`; build-args, labels, env vars, custom `appPort`, `HEALTHCHECK` wired.
+- `ContainerTarget` implementing all 7 `DeployTarget` SPI verbs; builder auto-detect (`buildctl` → `docker buildx` → `docker build`); multi-platform via `platform:` config; `docker push` with digest capture for rollback; `docker inspect` status; `docker logs` streaming; dry-run support throughout.
+- `TargetFactory` — resolves `kind: container | traditional` to concrete `DeployTarget`.
+- `ArtifactRegistry` extended with `OciImage` case.
+- 14 new tests (Dockerfile generator × 9, TargetFactory × 3, ContainerTarget × 2); 36 deploy-plugin tests total.
 
 **v1.52.3 — Kubernetes target + blue-green + multi-region fault tolerance:**
 - K8s manifest generator: `Deployment` + `Service` + `Ingress` + `ConfigMap` + `Secret`
