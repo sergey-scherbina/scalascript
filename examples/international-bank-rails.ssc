@@ -1,0 +1,33 @@
+# International Bank Rails — Example
+
+> Placeholder. Full example with SWIFT + SCT Inst + UPI wire-transfer flows
+> will be added in v1.55.1 when `payments-swift/` ships.
+
+```scalascript
+// Example: send a SWIFT cross-border wire (v1.55.1+)
+//
+// import std.payments.swift.*
+//
+// val transfer = swiftProvider.initiateTransfer(InitiateTransferRequest(
+//   rail      = RailKind.SWIFT_PACS008,
+//   amount    = Money(100_00L, "USD"),
+//   sender    = BankAccount(
+//     bic         = Some("CHASUS33"),
+//     accountNumber = Some("000123456789"),
+//     holderName  = "Acme Corp",
+//     countryCode = "US"
+//   ),
+//   recipient = BankAccount(
+//     bic         = Some("DEUTDEDB"),
+//     iban        = Some("DE89370400440532013000"),
+//     holderName  = "Supplier GmbH",
+//     countryCode = "DE"
+//   ),
+//   reference      = "INV-2026-001",
+//   idempotencyKey = "swift-acme-001",
+//   chargeBearer   = ChargeBearer.SHA
+// ))
+// println(s"Transfer ${transfer.id.value}: ${transfer.status}")
+
+println("international-bank-rails: placeholder — see docs/international-bank-rails.md §15")
+```

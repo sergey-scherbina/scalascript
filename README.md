@@ -122,6 +122,8 @@ bin/http.ssc
 | [Frontend Toolkit](docs/frontend-toolkit-spec.md) | High-level declarative widgets: Forms, Routing, Widgets v2, Table |
 | [Cluster Management](docs/cluster-management.md) | Bully election, phi-accrual failure detector, federation, Raft, ZooKeeper client |
 | [x402 micropayments](docs/x402.md) | HTTP 402 protocol, Ethereum + Cardano flows, MCP × x402 paid tools |
+| [Bank Rails v1.54](docs/bank-rails.md) | SEPA CT/DD, ACH, Pix, FedNow — `BankRailsProvider` SPI, mandate lifecycle, async settlement |
+| [International Bank Rails v1.55](docs/international-bank-rails.md) | SWIFT MT103 + pacs.008, SEPA Instant, UK FPS/BACS/CHAPS, India UPI, Japan Zengin, Singapore PayNow |
 | [Browser SQL](docs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [Electron SQL](docs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
 | [Electron Persistence Bridge](docs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |

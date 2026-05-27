@@ -25,8 +25,9 @@
 
 - **Card PSPs** — Stripe / PayPal / Adyen / Square are fully covered by v1.53. Nothing in
   v1.54 changes the `PaymentProvider` SPI.
-- **UPI / BACS / SWIFT / SEPA Instant CT (SCT Inst)** — These are real-world rails but are
-  excluded from v1.54. Future milestones may add them as `RailKind` cases.
+- **UPI / BACS / SWIFT / SEPA Instant CT (SCT Inst) and more** — Excluded from v1.54.
+  Fully specified and implemented in **[v1.55 — International & Domestic-Instant Bank Rails](international-bank-rails.md)**:
+  SWIFT MT103 + pacs.008, SCT Inst, UK FPS/BACS/CHAPS, India UPI, Japan Zengin, Singapore PayNow.
 - **Real-time gross settlement (RTGS)** — Fedwire, TARGET2, CHAPS require direct central-bank
   connectivity; not appropriate for a plugin-level SPI.
 - **AML / KYC screening** — Bank rails require AML checks in production; a `ComplianceProvider`
