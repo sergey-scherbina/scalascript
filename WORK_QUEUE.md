@@ -32,7 +32,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.54-bank-rails-spec** — Spec doc `docs/bank-rails.md`: SEPA Credit Transfer + Direct Debit, ACH (credit/debit via Nacha), Pix instant payments (Brazil), FedNow instant payments (US). Cover: `BankRailsProvider` SPI (6 methods: `initiateTransfer / getTransfer / cancelTransfer / initiateDirectDebit / getDirectDebit / webhookReceiver`), `BankTransfer` / `DirectDebitMandate` types, idempotency (reuse `IdempotencyKey` from v1.53), settlement timing model (T+0 / T+1 / T+2), webhook event taxonomy per rail. Implementation phases v1.54.1–v1.54.4 in the spec. Spec: `docs/traditional-payments.md §12` (deferred note). (2026-05-27)
 
-- [ ] **v1.54.1-bank-rails-sepa** — `runtime/std/payments-sepa/` (SEPA Credit Transfer + Core Direct Debit via EBICS or PAIN XML over SFTP; HMAC webhook; mandate lifecycle `MandateStatus`). Spec: `docs/bank-rails.md §v1.54.1`.
+- [x] **v1.54.1-bank-rails-sepa** — `payments/bank-rails/` SPI (BankRailsProvider, BankTransfer, DirectDebitMandate, RailKind, BankRailsEvent, RCode/CCode) + `runtime/std/payments-sepa/` (PAIN.001 CT + PAIN.008 DD XML builder; HMAC-SHA256 webhook receiver; SepaProvider; SepaPlugin; Feature.BankRails; 30 tests; example). Spec: `docs/bank-rails.md §v1.54.1`. (2026-05-27)
 
 - [ ] **v1.54.2-bank-rails-ach** — `runtime/std/payments-ach/` (ACH credit + debit via Nacha flat-file format; same-day ACH flag; R-code rejection handling; SFTP delivery). Spec: `docs/bank-rails.md §v1.54.2`.
 

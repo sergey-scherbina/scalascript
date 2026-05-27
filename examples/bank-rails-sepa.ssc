@@ -1,0 +1,123 @@
+---
+title: SEPA Bank Rails — Credit Transfer + Direct Debit
+version: "1.0"
+requires: [bank-rails-sepa]
+---
+
+# SEPA Bank Rails Example
+
+Demonstrates SEPA Credit Transfer (CT) and SEPA Core Direct Debit (DD)
+using the `payments-sepa` adapter.
+
+## Setup
+
+```scala
+import scalascript.payments.bankrails.*
+import scalascript.payments.money.{Money, Currency}
+import scalascript.payments.sepa.{SepaProvider, SepaConfig}
+
+val config   = SepaConfig.fromEnv   // reads SEPA_API_URL, SEPA_API_KEY, SEPA_CREDITOR_ID
+val provider = SepaProvider(config)
+```
+
+## SEPA Credit Transfer (push payment)
+
+Send €149.50 from a German account to a French account:
+
+```scala
+val transfer = provider.initiateTransfer(InitiateTransferRequest(
+  rail           = RailKind.SEPA_CT,
+  amount         = Money(14950L, Currency("EUR")),      // €149.50
+  sender         = BankAccount(
+    iban        = Some("DE89370400440532013000"),
+    holderName  = "Acme GmbH",
+    countryCode = "DE",
+  ),
+  recipient      = BankAccount(
+    iban        = Some("FR7630006000011234567890189"),
+    holderName  = "Fournisseur SA",
+    countryCode = "FR",
+  ),
+  reference      = "INV-2026-0042",
+  idempotencyKey = "transfer-order-42-attempt-1",
+))
+
+// transfer.status == BankTransferStatus.Pending (T+1 settlement)
+println(s"Transfer ${transfer.id.value} submitted — status: ${transfer.status}")
+```
+
+## SEPA Core Direct Debit (pull payment)
+
+Collect €29.99 subscription fee with a FRST (first) mandate:
+
+```scala
+val mandateId = MandateId("MND-2026-CUSTOMER-001")
+val debit = provider.initiateDirectDebit(InitiateDirectDebitRequest(
+  rail            = RailKind.SEPA_DD,
+  amount          = Money(2999L, Currency("EUR")),      // €29.99
+  mandateId       = mandateId,
+  creditorAccount = BankAccount(
+    iban        = Some("DE89370400440532013000"),
+    holderName  = "Acme GmbH",
+    countryCode = "DE",
+    bankCode    = Some("DE98ZZZ09999999999"),  // creditor scheme ID
+  ),
+  debtorAccount   = BankAccount(
+    iban        = Some("NL91ABNA0417164300"),
+    holderName  = "Jan de Vries",
+    countryCode = "NL",
+  ),
+  creditorName    = "Acme GmbH",
+  reference       = "SUB-2026-05",
+  idempotencyKey  = "dd-customer-001-may-2026",
+))
+
+// debit.status == BankTransferStatus.Pending (T+2 settlement; D-2 rule applies)
+println(s"Direct debit ${debit.id.value} submitted — status: ${debit.status}")
+```
+
+## Webhook handler
+
+Register a webhook endpoint to receive SEPA event notifications:
+
+```scala
+import scalascript.payments.webhook.{WebhookRequest, WebhookReceiver}
+
+// Route: POST /webhooks/sepa
+val webhookSecret = sys.env("SEPA_WEBHOOK_SECRET")
+val receiver      = provider.webhookReceiver
+
+def handleSepaWebhook(req: WebhookRequest) =
+  receiver.handle(req, webhookSecret) {
+    case BankRailsEvent.SepaTransferCompleted(transfer) =>
+      db.markTransferSettled(transfer.id.value)
+      println(s"Transfer ${transfer.id.value} settled ✓")
+
+    case BankRailsEvent.SepaTransferRejected(transfer, code) =>
+      db.markTransferRejected(transfer.id.value, code.value)
+      println(s"Transfer ${transfer.id.value} rejected: ${code.value}")
+
+    case BankRailsEvent.SepaTransferReturned(transfer, code) =>
+      db.markTransferReturned(transfer.id.value, code.value)
+      alertOps(s"Transfer ${transfer.id.value} returned: ${code.value}")
+
+    case BankRailsEvent.SepaMandateActivated(mandate) =>
+      db.activateMandate(mandate.id.value)
+
+    case BankRailsEvent.SepaMandateCanceled(mandate) =>
+      db.cancelMandate(mandate.id.value)
+  }
+```
+
+## Idempotent retry
+
+Bank rails guarantee at-most-once delivery if you reuse the same idempotency key:
+
+```scala
+// Safe to retry — same key returns the original transfer
+val retry = provider.initiateTransfer(InitiateTransferRequest(
+  // ... same fields ...
+  idempotencyKey = "transfer-order-42-attempt-1",   // same key
+))
+// retry.id.value == transfer.id.value  (same transfer, not a duplicate)
+```

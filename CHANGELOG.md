@@ -12,6 +12,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - v1.54-bank-rails-spec — Bank Rails spec (SEPA/ACH/Pix/FedNow) ✓ (2026-05-27)
 
+- **v1.54.1-bank-rails-sepa** — `payments/bank-rails/` SPI + `runtime/std/payments-sepa/` SEPA CT+DD adapter: PAIN.001/008 XML builder, HMAC-SHA256 webhook, SepaProvider, Feature.BankRails, 30 tests. (2026-05-27)
+
 - **v1.51.5-streams-buffer** — Streams plugin now supports `.buffer(n, OverflowStrategy)` with `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, and `Fail`; `.throttle(Rate)`; `.debounce(durationMillis)`; `Rate(...)`; `OverflowStrategy` companion constants; and `Source.signal(sig)` as an interpreter current-value adapter. Added 7 interpreter tests and expanded `examples/streams.ssc`. Live UI signal subscriptions and Clock-effect-backed wall-time scheduling are tracked as `v1.51.5b-streams-clock-ui-signals`.
 
 - **x402-cardano-scalus-validator-simulator-tests** — Added `x402-escrow-plutus` ScalaTest coverage that constructs Scalus `ScriptContext` values directly for the escrow validator. Tests cover the claim happy path, tampered CIP-8 signature rejection, wrong receiver amount rejection, claim validity-window rejection, refund happy path, and refund timing rejection.

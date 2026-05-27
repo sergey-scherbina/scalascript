@@ -2420,6 +2420,28 @@ lazy val paymentsMock = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — BankRailsProvider SPI core types ────────────────────────
+lazy val paymentsBankRails = project
+  .in(file("payments/bank-rails"))
+  .dependsOn(paymentsMoney, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-bank-rails",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
+lazy val paymentsSepa = project
+  .in(file("runtime/std/payments-sepa"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-sepa",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2445,6 +2467,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
+    paymentsBankRails, paymentsSepa,
   )
   .settings(
     publish / skip := true
