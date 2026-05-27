@@ -993,6 +993,73 @@ Design decisions locked:
 - State migration CLI: `ssc deploy state migrate --from local --to s3`
 - Production env enforcement that a non-local state backend is configured
 
+## v1.53 — Traditional Payment Processors
+
+**Status: spec landed 2026-05-27.**  `docs/traditional-payments.md` covers the full design.
+Closes the `chargeCard()` placeholder from v1.38 Payment Request.
+Implementation phases ship independently below.
+
+**Locked design decisions:**
+- `PaymentProvider` SPI (14 methods): `createIntent / confirmIntent / captureIntent / voidIntent` + `createCustomer / attachMethod / detachMethod / listMethods` + `createPlan / subscribe / changeSubscription / cancelSubscription` + `refund / submitDisputeEvidence` + `webhookReceiver`.
+- Fiat-aware `Money(minorUnits: Long, currency: Currency)` type — replaces `Amount(String, String)` from v1.38.  ISO 4217 + crypto codes, Long minor units, banker's rounding (`HALF_EVEN`), `allocate` for split-without-remainder.
+- `WebhookReceiver[E]` SPI with HMAC/RSA verify + `SeenKeyStore` idempotency + replay protection.
+- `IdempotencyKey` opaque type threaded via implicit context; auto-derived from request hash as fallback; adapters pass to PSP header/field.
+- `PaymentIntent` sealed state machine: `RequiresPaymentMethod → RequiresConfirmation → RequiresAction(SCAChallenge) → Processing → Succeeded | Failed | Canceled`.
+- SCA / 3DS2 modelled via `SCAChallenge(redirectUrl, returnUrl, fingerprint)`.
+- Subscription lifecycle: `Trialing | Active | PastDue | Canceled | Unpaid | Paused`.
+- `ProrationMode: CreateProration | AlwaysInvoice | None`.
+- Vault: `Customer.create + attachMethod + detachMethod + listMethods(Stream[StoredMethod])`.
+- Four PSP adapter families: Stripe (canonical v1.53.1), PayPal+Braintree (v1.53.2), Adyen+Checkout.com (v1.53.3), Square (v1.53.4).
+- `PaymentCapabilities` flag record (13 booleans).
+- Effect-row integration via `IO[T] ! Payment` (v1.12); `MockProvider` discharges all operations in tests without network.
+- `Feature.Payments` enum case in `runtime/backend/spi/src/main/scala/scalascript/backend/spi/Feature.scala`.
+- No `payments:` manifest block, no `ssc payments` CLI in v1.53.
+- Bank rails (SEPA / ACH / Pix / FedNow) deferred to v1.54+.
+- Spec-only in v1.53; implementation phased v1.53.1–v1.53.7.
+
+**v1.53.1 — Plugin scaffolding + Money + PaymentProvider SPI + WebhookReceiver + Stripe adapter:**
+- New `payments/money/` subproject: `Money.scala` + `Currency.scala`.
+- New `payments/webhook/` subproject: `WebhookReceiver.scala` + `SeenKeyStore.scala`.
+- New `runtime/std/payments-plugin/` (2-file plugin + META-INF, mirrors `runtime/std/payment-request-plugin/`).
+- `Feature.Payments` case added to `runtime/backend/spi/src/main/scala/scalascript/backend/spi/Feature.scala`.
+- `payments/payment-request/.../PaymentTypes.scala:6` — `Amount` deprecated.
+- New `runtime/std/payments-stripe/` — full Stripe adapter: PaymentIntent / SCA / Customer / Vault / Subscription / Refund / Dispute / Webhook.
+- `examples/traditional-payments.ssc` — 12 worked snippets.
+- Spec: `docs/traditional-payments.md §16`.
+
+**v1.53.2 — PayPal Checkout + Braintree adapters:**
+- `runtime/std/payments-paypal/` — PayPal Checkout (OAuth2, Order API, RSA webhook verify).
+- `runtime/std/payments-braintree/` — Braintree (GraphQL, HMAC-SHA1 webhook).
+- Spec: `docs/traditional-payments.md §11.2`.
+
+**v1.53.3 — Adyen + Checkout.com adapters:**
+- `runtime/std/payments-adyen/` — Adyen (X-API-Key, Drop-in, HMAC over notification fields, `additionalData`).
+- `runtime/std/payments-checkout/` — Checkout.com (sk_xxx, Frames, HMAC-SHA256 over raw body).
+- Spec: `docs/traditional-payments.md §11.3`.
+
+**v1.53.4 — Square adapter:**
+- `runtime/std/payments-square/` — Square (Bearer token, Web Payments SDK nonce, HMAC-SHA1 webhook).
+- Spec: `docs/traditional-payments.md §11.4`.
+
+**v1.53.5 — Vault + Mandates + SCA polish:**
+- Cross-PSP mandate model (`Mandate`, `MandateStatus`).
+- PSD2 `setup_future_usage` / mandate flags in `CreateIntentRequest`.
+- Network Token metadata exposed in `StoredMethod`.
+- SCA exemption flags in `CreateIntentRequest.scaExemptions`.
+- Spec: `docs/traditional-payments.md §10.4, §7`.
+
+**v1.53.6 — Effect-row decomposition + MockProvider:**
+- `Payment` split into `Charging | Refunding | Subscribing | Vaulting | Webhooking`.
+- `MockProvider` (fully in-memory, configurable success/failure, no network).
+- Spec: `docs/traditional-payments.md §16.6`.
+
+**v1.53.7 — Cluster-aware webhook idempotency:**
+- `RedisSeenKeyStore` (reuses `backend/redis/`).
+- `PostgresSeenKeyStore` (reuses `backend/postgres/`).
+- Distributed advisory lock for double-processing prevention.
+- Configurable replay-protection window (default 30 days).
+- Spec: `docs/traditional-payments.md §5, §16.7`.
+
 ## v2.1 — Distributed Streams (Beam-style)
 
 **Status: spec landed 2026-05-27.**  `docs/distributed-streams.md` covers the full design.

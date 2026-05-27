@@ -20,6 +20,7 @@ _(none)_
 - **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v1.53 — Traditional Payment Processors spec (`docs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
 - v2.1.0 — Distributed Streams spec (`docs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
 - v1.52 — Deploy to Hostings/Clouds/K8s spec (`docs/deploy.md`) + go decision ✓ (2026-05-27)
 - v1.51 — Streams with Backpressure spec (`docs/streams.md`) + go decision ✓ (2026-05-27)
@@ -48,7 +49,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | **Frontend & Clients** | _(queue empty)_ | — |
 | **Language & Compiler** | v2.1.1-dstream-native-bounded + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | _(queue empty)_ | — |
+| **Payments & Blockchain** | v1.53.1-payments-spi-stripe | `docs/traditional-payments.md` |
 | **Native Platform** | _(queue empty)_ | — |
 | **Distribution & Tooling** | v1.52.1-deploy-plugin | `docs/deploy.md` |
 

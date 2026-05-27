@@ -14,7 +14,7 @@ _(all done — see Done section below)_
 
 ## Payments & Blockchain
 
-_(all done — see Done section below)_
+- [ ] **v1.53.1-payments-spi-stripe** — `payments/money/` + `payments/webhook/` + `runtime/std/payments-plugin/` + `Feature.Payments` enum case + Stripe adapter (PaymentIntent / SCA / Customer / Vault / Subscription / Refund / Dispute / Webhook) + `examples/traditional-payments.ssc`. Closes `chargeCard()` placeholder from v1.38. Spec: `docs/traditional-payments.md §16`.
 
 ## Database
 
