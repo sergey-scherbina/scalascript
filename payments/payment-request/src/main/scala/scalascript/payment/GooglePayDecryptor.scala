@@ -46,7 +46,7 @@ object GooglePayDecryptor:
   // ── Verification ──────────────────────────────────────────────────────────
 
   private def verifyIntermediateKey(token: GooglePayToken): Unit =
-    val signedKeyData = token.intermediateSigningKey.signedKey.getBytes("UTF-8")
+    val _ = token.intermediateSigningKey.signedKey.getBytes("UTF-8")
     val verified = GoogleRootSigningKeys.exists { rootKeyB64 =>
       try
         val rootKey = decodePublicKey(rootKeyB64)

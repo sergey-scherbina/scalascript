@@ -1,8 +1,9 @@
 package scalascript.payment
 
-import java.net.{URL, HttpURLConnection}
+import java.net.HttpURLConnection
 import java.io.{BufferedReader, InputStreamReader}
 import javax.net.ssl.*
+import javax.crypto.KeyAgreement
 import java.security.*
 import java.security.cert.{CertificateFactory, X509Certificate}
 import java.io.FileInputStream
@@ -30,7 +31,7 @@ object ApplePayClient:
       s"""{"merchantIdentifier":"$merchantId","displayName":"$merchantName","initiative":"web","initiativeContext":"$domainName"}"""
 
     val sslContext = buildSslContext(certPath, keyPath)
-    val url        = URL(validationUrl)
+    val url        = java.net.URI(validationUrl).toURL
     val conn       = url.openConnection().asInstanceOf[HttpURLConnection]
     conn match
       case httpsConn: javax.net.ssl.HttpsURLConnection =>
@@ -80,7 +81,7 @@ object ApplePayClient:
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  private def buildSslContext(certPath: String, keyPath: String): SSLContext =
+  private def buildSslContext(certPath: String, @annotation.unused keyPath: String): SSLContext =
     val ks = KeyStore.getInstance("PKCS12")
     // Load from PEM — convert using BouncyCastle or pre-converted P12
     FileInputStream(certPath).use { fis =>
@@ -160,7 +161,6 @@ object ApplePayClient:
     cipher.doFinal(data)
 
   private def parseDecryptedPayload(bytes: Array[Byte]): ApplePayDecryptedToken =
-    import scala.util.parsing.json.*
     val json = String(bytes, "UTF-8")
     // Minimal JSON extraction (avoids adding a JSON dep to this module)
     def field(key: String): Option[String] =
