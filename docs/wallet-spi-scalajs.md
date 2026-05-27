@@ -513,7 +513,7 @@ resolve).
 
 ### Stage 5 — `wallet-vault-encrypted` cross-compile
 
-Status: **landed 2026-05-20** (except IndexedDB persistence, deferred).
+Status: **landed 2026-05-20**; JS persistence landed 2026-05-27.
 
 Stage 5 does two things in one slice: it lights up the deferred KDF
 + AEAD primitives in the Stage-2 noble backend, and cross-compiles the
@@ -612,18 +612,24 @@ a JVM-only `EncryptedLocalVaultFs` wrapper that keeps the original
   (added 9 new KDF + AEAD parity assertions, mirrored byte-for-byte
   in `cryptoBouncycastle`'s `CrossPlatformFixturesTest`).
 
-#### Stage 5 — deferred / follow-ups
+#### Stage 5d — JS persistence layer ✓ Landed (2026-05-27)
 
-- **JS-side persistence layer**.  The shared vault code takes a
-  `save: VaultFile => Unit` callback; on JVM that callback writes
-  JSON to a `Path` via `EncryptedLocalVaultFs`.  On Scala.js the
-  callback is currently caller-supplied (the test suite uses an
-  in-memory `var saved: Option[VaultFile]`).  A future
-  `wallet-vault-encrypted-js` persistence helper will wire it to
-  `window.indexedDB` (or `localStorage` for small vaults).  The
-  shared core lights up unchanged once that lands; this slice
-  doesn't need it because every Stage 5 test exercises in-memory
-  serialisation only.
+- `js/src/main/scala/.../EncryptedLocalVaultJs.scala` adds browser-side
+  convenience entry points mirroring the JVM filesystem helper:
+  `EncryptedLocalVaultJs.create/load/generate/delete/save`.
+- `VaultFileStore` is the JS persistence contract.  Implementations:
+  `IndexedDbVaultFileStore` (default in browsers), `LocalStorageVaultFileStore`
+  (fallback for small/simple environments), and `MemoryVaultFileStore`
+  (Node/tests/final fallback).
+- IndexedDB stores `{ id, json }` records where `json` is the exact shared
+  `VaultFile.toJson` representation.  No crypto or file-format fork: all
+  encryption/decryption remains in the shared `EncryptedLocalVault` core.
+- `saveAccounts()` remains synchronous in the shared vault API, so JS wrappers
+  use a fire-and-forget `save` callback and also expose
+  `EncryptedLocalVaultJs.save(vault, store)` when callers need an awaitable
+  explicit persistence point.
+- Tests: `EncryptedLocalVaultJsTest` covers create → load → unlock,
+  account metadata persistence through the JS save callback, and delete.
 
 ### Stage 6 — `wallet-connect` cross-compile ✓ Landed (2026-05-20)
 

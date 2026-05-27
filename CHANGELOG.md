@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **wallet-vault-encrypted-js** — JS-side encrypted vault persistence: `EncryptedLocalVaultJs.create/load/generate/delete/save` wraps the shared `EncryptedLocalVault` core with `VaultFileStore`; browser default uses IndexedDB, falls back to localStorage, then in-memory storage for Node/tests. Durable data remains the shared `VaultFile.toJson` shape. Added Scala.js tests for create/load/unlock, account metadata persistence, and delete.
+
 - **sbt-interop-plugin** — `ssc generate-facade` CLI command + `sbt-scalascript-interop` sbt plugin (Tier 3 interop): `ssc generate-facade <artifactDir> [-o <outDir>]` reads `.scim` artifacts and writes Scala 3 facade sources (delegating to `FacadeGenerator.generate`); `ScalascriptInteropPlugin` (Scala 2.12, `tools/sbt-plugin/`) auto-hooks into `Compile / sourceGenerators` via `sscGenerateFacade` task; `sscArtifactDir` and `sscBinary` settings; 4 scripted tests (`basic`, `identity`, `multi-module`, `no-artifacts`); Mill module trait + scala-cli directive documented in `docs/scala-interop.md §6`.
 
 - **watch-100ms** — watch reload benchmark + hot-path hashing cleanup: new `ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>` command runs watch reload cycles against a temporary copy and reports warm-up/p50/max; `WatchCycleBenchTest` covers the incremental path; `ParseCache` and `SectionSnapshot` SHA-256 hex encoding now use a direct char loop instead of per-byte `String.format`; incremental typer reuses precomputed section hashes when building snapshots for retyped sections.

@@ -1493,9 +1493,12 @@ lazy val walletSpi    = walletSpiJvm
 // `jvm/` adds the `java.nio.file`-based persistence wrappers:
 // `VaultFileIo.{read,write}` and `EncryptedLocalVaultFs.{create,load,generate}`
 // (preserves the pre-Stage-5 JVM-side API surface so all downstream
-// callers and existing tests keep working).  The Scala.js side wires
-// its own `save` callback (IndexedDB persistence is deferred — the
-// shared core lights up unchanged once that lands).
+// callers and existing tests keep working).
+//
+// `js/` adds `EncryptedLocalVaultJs` plus IndexedDB / localStorage /
+// in-memory `VaultFileStore` implementations.  The JS helper wraps the
+// shared core with browser persistence while preserving the same VaultFile
+// JSON shape used by the JVM filesystem wrapper.
 //
 // JS tests depend on `cryptoNobleJs` so `CryptoBackend.get()` resolves
 // to the Stage-2 noble backend (Stage 5a added PBKDF2 / Argon2id /

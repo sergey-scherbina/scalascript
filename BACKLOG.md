@@ -4064,13 +4064,11 @@ Test count parity:
 
 Deferred / follow-ups:
 
-- [ ] **JS-side persistence layer** — `EncryptedLocalVault` takes a
-      pluggable `save: VaultFile => Unit` sink; on JVM it's wired to
-      `java.nio.file` by `EncryptedLocalVaultFs`.  A future
-      `wallet-vault-encrypted-js` helper will wire it to
-      `window.indexedDB` (or `localStorage` for small vaults).  The
-      shared core lights up unchanged; this slice doesn't need it
-      because every Stage 5 test exercises in-memory serialisation.
+- [x] **JS-side persistence layer** — landed 2026-05-27.
+      `EncryptedLocalVaultJs` wires the shared vault core to
+      `VaultFileStore` implementations for IndexedDB, localStorage, and
+      in-memory Node/test fallback.  The durable value remains the shared
+      `VaultFile.toJson` format; no crypto or file-format fork.
 
 ### Stage 6 — `wallet-connect` cross-compile ✓ Landed (2026-05-20)
 
@@ -4217,11 +4215,11 @@ Landed in tandem with blockchain-spi Phase 1.
 - [x] `wallet-vault-encrypted-jvm` — filesystem (`VaultFile` /
       `EncryptedLocalVaultFs`) — `java.nio.file.Path`-based read /
       write.
-- [ ] `wallet-vault-encrypted-js` — IndexedDB persistence helper
-      (the shared `EncryptedLocalVault.create` takes a pluggable
-      `save: VaultFile => Unit` sink — the JS-side
-      `window.indexedDB` wrapper is the only deferred sub-item of
-      Stage 5).
+- [x] `wallet-vault-encrypted-js` — IndexedDB persistence helper
+      (2026-05-27).  `EncryptedLocalVaultJs` defaults to IndexedDB in
+      browsers, falls back to localStorage, then to an in-memory store for
+      Node/tests.  `EncryptedLocalVaultJsTest` covers create/load/unlock,
+      account metadata persistence, and delete.
 
 ### Phase 3 — DappConnector EIP-1193 ✓ Scaffold landed (2026-05-20)
 

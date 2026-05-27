@@ -433,12 +433,12 @@ EIP-712 digest + address derivation).
 
 ### Phase 2 — Encrypted Vault
 
-- [ ] `wallet-vault-encrypted` — interface (cross-compile)
-- [ ] BIP-39 mnemonic generation / restore (24-word default)
-- [ ] Argon2id → AES-GCM(seed) password unlock
-- [ ] `wallet-vault-encrypted-jvm` — filesystem
+- [x] `wallet-vault-encrypted` — interface (cross-compile)
+- [x] BIP-39 mnemonic generation / restore (24-word default)
+- [x] Argon2id → AES-GCM(seed) password unlock
+- [x] `wallet-vault-encrypted-jvm` — filesystem
       (`~/.scalascript/wallets/<id>.vault`)
-- [ ] `wallet-vault-encrypted-js` — IndexedDB
+- [x] `wallet-vault-encrypted-js` — IndexedDB / localStorage / memory fallback
 
 ### Phase 3 — DappConnector EIP-1193 (Scala.js)
 
