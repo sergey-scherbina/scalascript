@@ -517,11 +517,12 @@ class AuthServer(
    *  Endpoint paths use `config.issuer` as the prefix; users adjust by
    *  pointing reverse-proxies / route registration at the same prefix. */
   def metadataJson(
-    authorizationEndpoint: String = "/authorize",
-    tokenEndpoint:         String = "/token",
-    introspectionEndpoint: String = "/introspect",
-    registrationEndpoint:  String = "/register",
-    revocationEndpoint:    String = "/revoke"
+    authorizationEndpoint:          String = "/authorize",
+    tokenEndpoint:                  String = "/token",
+    introspectionEndpoint:          String = "/introspect",
+    registrationEndpoint:           String = "/register",
+    revocationEndpoint:             String = "/revoke",
+    pushedAuthorizationEndpoint:    String = "/par"
   ): ujson.Value =
     val base = config.issuer.stripSuffix("/")
     val obj = ujson.Obj(
@@ -561,12 +562,52 @@ class AuthServer(
     // doc omits the field entirely.
     if signer.publicJwk.isDefined then
       obj("jwks_uri") = base + "/.well-known/jwks.json"
+    // RFC 9126 §7: advertise the PAR endpoint always; add require flag
+    // when parRequired is set so clients know direct /authorize is blocked.
+    obj("pushed_authorization_request_endpoint") = base + pushedAuthorizationEndpoint
+    if config.parRequired then
+      obj("require_pushed_authorization_requests") = true
     obj
 
   /** v1.17.x — JWKS document for this AS.  Contains every signer's
    *  public JWK; HMAC signers contribute nothing (their key MUST NOT
    *  be published).  Use as the wire body for `/.well-known/jwks.json`. */
   def jwksJson: ujson.Value = OAuth.jwksDocument(List(signer))
+
+  // ─── PAR (RFC 9126) ─────────────────────────────────────────────────
+
+  /** RFC 9126 Pushed Authorization Request store.  Clients POST to /par
+   *  and receive a short-lived `request_uri`; /authorize retrieves and
+   *  consumes the stored params via this store. */
+  val parRequests: PushedAuthRequestStore = new InMemoryPushedAuthRequestStore
+
+  /** Validate the client + redirect_uri, stash the authorization params,
+   *  and return a single-use `request_uri` + TTL.
+   *
+   *  @param clientId     client_id from form or Basic auth
+   *  @param clientSecret secret from form or Basic auth (None for public clients)
+   *  @param params       full decoded form map from the /par request body */
+  def pushAuthorizationRequest(
+    clientId:     String,
+    clientSecret: Option[String],
+    params:       Map[String, String]
+  ): PushOutcome =
+    authenticateClient(clientId, clientSecret) match
+      case Left(err) => PushOutcome.Error(err, "client authentication failed")
+      case Right(client) =>
+        val redirectUri = params.getOrElse("redirect_uri", "")
+        if redirectUri.isEmpty || !client.redirectUris.contains(redirectUri) then
+          PushOutcome.Error("invalid_request", "redirect_uri not registered for client")
+        else
+          val nonce      = OAuth.randomOpaqueToken(24)
+          val requestUri = s"urn:ietf:params:oauth:request_uri:$nonce"
+          parRequests.save(PushedAuthRequest(
+            requestUri = requestUri,
+            clientId   = clientId,
+            params     = params,
+            expiresAt  = java.time.Instant.now.getEpochSecond + config.parRequestTtlSeconds
+          ))
+          PushOutcome.Pushed(requestUri, config.parRequestTtlSeconds)
 
 // ─── Configuration ────────────────────────────────────────────────────
 
@@ -615,7 +656,16 @@ case class AuthServerConfig(
    *  issue `DPoP-Nonce` values on successful token responses and require
    *  DPoP proofs to carry a valid nonce claim.  None = nonces not
    *  required (DPoP still supported without nonces). */
-  dpopNonceLifetimeSeconds:        Option[Long] = None
+  dpopNonceLifetimeSeconds:        Option[Long] = None,
+  /** RFC 9126 PAR — TTL of a pushed authorization request in seconds.
+   *  The client has this window between POST /par and the user-agent
+   *  arriving at /authorize.  90 seconds is the RFC example. */
+  parRequestTtlSeconds:            Long = 90,
+  /** RFC 9126 PAR — when true, /authorize rejects direct authorization
+   *  parameters and requires a `request_uri` obtained via /par.
+   *  Hardened deployments flip this on to force all auth flows through
+   *  the back-channel push step. */
+  parRequired:                     Boolean = false
 )
 
 // ─── Domain types ─────────────────────────────────────────────────────
@@ -926,3 +976,29 @@ class InMemoryTokenStore(graveyardCap: Int = 10_000) extends TokenStore:
         Option(graveQueue.pollFirst()) match
           case Some(t) => graveyard.remove(t)
           case None    => return ()
+
+// ─── PAR (RFC 9126) domain types + storage ────────────────────────────
+
+/** RFC 9126 pushed authorization request record. */
+case class PushedAuthRequest(
+  requestUri: String,
+  clientId:   String,
+  params:     Map[String, String],
+  expiresAt:  Long
+)
+
+enum PushOutcome:
+  case Pushed(requestUri: String, expiresIn: Long)
+  case Error(error: String, description: String)
+
+trait PushedAuthRequestStore:
+  def save(req: PushedAuthRequest): Unit
+  /** Consume the entry (single-use).  Returns None if absent or expired. */
+  def consume(requestUri: String): Option[PushedAuthRequest]
+
+class InMemoryPushedAuthRequestStore extends PushedAuthRequestStore:
+  private val m = new ConcurrentHashMap[String, PushedAuthRequest]()
+  def save(req: PushedAuthRequest): Unit = m.put(req.requestUri, req)
+  def consume(requestUri: String): Option[PushedAuthRequest] =
+    Option(m.remove(requestUri))
+      .filter(_.expiresAt >= java.time.Instant.now.getEpochSecond)

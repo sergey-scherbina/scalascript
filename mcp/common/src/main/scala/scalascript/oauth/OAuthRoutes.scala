@@ -291,6 +291,42 @@ object OAuthRoutes:
             // hop; Empty responses have no headers to attach.
             case _                           => outcome
 
+  // ─── /par (RFC 9126 Pushed Authorization Requests) ──────────────────
+
+  /** RFC 9126 pushed authorization endpoint.  Body is form-urlencoded
+   *  with the same parameters as `/authorize`.  On success returns 201
+   *  with `{"request_uri": "urn:ietf:params:oauth:request_uri:<nonce>",
+   *  "expires_in": <seconds>}`; the client then redirects the user-agent
+   *  to `/authorize?client_id=...&request_uri=<request_uri>`. */
+  def handlePar(
+    as: AuthServer, body: String, headers: Map[String, String]
+  ): RouteOutcome =
+    if isPayloadTooLarge(as, body) then
+      return withSecurity(withCors(payloadTooLarge(), as, headers), as)
+    if isInsecureRequest(as, headers) then
+      return withSecurity(withCors(tlsRequired(), as, headers), as)
+    val form       = parseForm(body)
+    val basicCreds = extractBasicAuth(headers)
+    val clientId   = basicCreds.map(_._1).orElse(form.get("client_id")).getOrElse("")
+    val clientSec  = basicCreds.map(_._2).orElse(form.get("client_secret"))
+    if clientId.isEmpty then
+      return withSecurity(withCors(
+        jsonError(400, "invalid_request", "missing client_id"), as, headers), as)
+    if !as.rateLimiter.allow(s"par:$clientId") then
+      return withSecurity(withCors(rateLimited(), as, headers), as)
+    as.pushAuthorizationRequest(clientId, clientSec, form) match
+      case PushOutcome.Pushed(requestUri, expiresIn) =>
+        withSecurity(withCors(
+          RouteOutcome.Json(201,
+            ujson.Obj(
+              "request_uri" -> requestUri,
+              "expires_in"  -> ujson.Num(expiresIn.toDouble)),
+            Map("Cache-Control" -> "no-store")),
+          as, headers), as)
+      case PushOutcome.Error(err, descr) =>
+        val status = if err == "invalid_client" then 401 else 400
+        withSecurity(withCors(jsonError(status, err, descr), as, headers), as)
+
   // ─── /revoke (RFC 7009) ─────────────────────────────────────────────
 
   /** Revocation endpoint.  Body is form-urlencoded with `token` (req'd)
@@ -356,15 +392,32 @@ object OAuthRoutes:
     loginUrl:     Option[String => String] = None,
     selfUrl:      Option[String]           = None
   ): RouteOutcome =
+    // RFC 9126: resolve effective params from a PAR request_uri or direct query.
+    val effectiveQuery: Map[String, String] = query.get("request_uri") match
+      case None =>
+        if as.config.parRequired then
+          return jsonError(400, "invalid_request", "pushed authorization request required")
+        query
+      case Some(uri) =>
+        as.parRequests.consume(uri) match
+          case None =>
+            return jsonError(400, "invalid_request",
+              "request_uri not found, expired, or already used")
+          case Some(stored) =>
+            val qClientId = query.getOrElse("client_id", "")
+            if qClientId.nonEmpty && qClientId != stored.clientId then
+              return jsonError(400, "invalid_request",
+                "client_id mismatch with pushed request")
+            stored.params
     val req = AuthorizationRequest(
-      responseType        = query.getOrElse("response_type", ""),
-      clientId            = query.getOrElse("client_id", ""),
-      redirectUri         = query.getOrElse("redirect_uri", ""),
-      scope               = parseScope(query.get("scope")),
-      state               = query.get("state"),
-      codeChallenge       = query.get("code_challenge"),
-      codeChallengeMethod = query.get("code_challenge_method"),
-      nonce               = query.get("nonce")
+      responseType        = effectiveQuery.getOrElse("response_type", ""),
+      clientId            = effectiveQuery.getOrElse("client_id", ""),
+      redirectUri         = effectiveQuery.getOrElse("redirect_uri", ""),
+      scope               = parseScope(effectiveQuery.get("scope")),
+      state               = effectiveQuery.get("state"),
+      codeChallenge       = effectiveQuery.get("code_challenge"),
+      codeChallengeMethod = effectiveQuery.get("code_challenge_method"),
+      nonce               = effectiveQuery.get("nonce")
     )
     subjectFor(headers) match
       case None =>
