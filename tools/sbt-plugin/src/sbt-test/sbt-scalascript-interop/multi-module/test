@@ -1,0 +1,3 @@
+# Multi-module: two .scim files sharing the same package → one merged facade file.
+> sscGenerateFacade
+$ exists target/scala-3.5.2/src_managed/main/ssc-facade/demo/math.scala

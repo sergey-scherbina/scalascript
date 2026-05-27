@@ -1,0 +1,3 @@
+# Plugin generates facade sources from a legacy .scim artifact.
+> sscGenerateFacade
+$ exists target/scala-3.5.2/src_managed/main/ssc-facade/demo/math.scala

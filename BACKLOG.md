@@ -1896,25 +1896,28 @@ downstream consumers don't pull in JvmGen / scalameta etc.).
 - [x] 34 tests: 10 FacadeGenerator + 4 integration + 6 Effects +
       4 Actors + 10 ScalascriptLoader.  All green.
 
-### Tier 3 — `sbt-scalascript-interop` plugin — DEFERRED (no demand yet)
+### Tier 3 — `sbt-scalascript-interop` plugin — ✓ Landed (2026-05-27)
 
-Build-tool integration so consumers don't have to hand-wire Tier 2.
-Deliberately deferred: Tier 4 (`ssc link --emit-scala-facade`) gives
-consumers a self-contained JAR that doesn't need a plugin at all, and
-no external consumer has asked for sbt-side ergonomics yet.  When
-demand materialises:
+Build-tool integration for consumers who want automatic facade source
+generation wired into their sbt/Mill/scala-cli build.
 
-- [ ] sbt plugin: `addSbtPlugin("org.scalascript" %% "sbt-scalascript-interop" % …)`.
-  Adds `Compile / sourceGenerators` task that runs `FacadeGenerator`
-  against `scalascriptArtifactDir`.  Adds Tier-2 lib to
-  `libraryDependencies`.  Adds linked `.jar` to `unmanagedJars`.
-- [ ] Mill module trait `ScalascriptInteropModule`.
-- [ ] scala-cli `directive:` form (`//> using interop "scalascript-interop"
-      artifactDir ".ssc-artifacts"`).
-- [ ] ~15 fixture-project tests.
+What landed:
+- [x] `ssc generate-facade <artifactDir> [-o <outputDir>]` CLI command.
+  Reads `.scim` artifacts, calls `FacadeGenerator.generate`, writes
+  Scala 3 facade sources.  Exits 0 even when nothing is emitted
+  (Tier-5 identity artifacts produce no file — expected).
+- [x] `sbt-scalascript-interop` plugin (`tools/sbt-plugin/`):
+  - `ScalascriptInteropPlugin` with `sscArtifactDir` setting,
+    `sscBinary` setting (default: `"ssc"`), and `sscGenerateFacade`
+    task hooked into `Compile / sourceGenerators`.
+  - 4 scripted tests: `basic`, `identity`, `multi-module`, `no-artifacts`.
+- [x] Mill module trait `ScalascriptInteropModule` — documented as a
+  `build.sc` snippet in `docs/scala-interop.md §6.3`.
+- [x] scala-cli directive documented in `docs/scala-interop.md §6.4`.
 
-When picked up, lives in `scalascript-sbt-plugin` repo (separate
-repository — easier publish cadence than the monorepo).
+Source lives in `tools/sbt-plugin/` (ready to extract to a separate
+`scalascript-sbt-plugin` repo for independent publish cadence when
+there's a Maven/Sonatype publishing need).
 
 ### Tier 4 — compiler `--emit-scala-facade` flag — partial (v0.1)
 

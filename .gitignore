@@ -5,6 +5,7 @@
 !.gitignore
 !.gitattributes
 !.work/
+!.ssc-artifacts/
 
 
 # Build outputs

@@ -1,0 +1,3 @@
+# Tier-5 identity artifact: facade generation succeeds but emits no files.
+> sscGenerateFacade
+-$ exists target/scala-3.5.2/src_managed/main/ssc-facade/demo/math.scala

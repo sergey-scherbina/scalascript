@@ -1,0 +1,2 @@
+# Non-existent artifact dir: plugin warns and returns empty sources (no error).
+> sscGenerateFacade

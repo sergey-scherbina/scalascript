@@ -1,0 +1,16 @@
+{
+  "magic": "SSCART",
+  "abiVersion": "2.0",
+  "pkg": ["demo", "math"],
+  "moduleName": "math-trig",
+  "moduleVersion": null,
+  "sourceHash": "0000000000000000000000000000000000000000000000000000000000000002",
+  "exports": [
+    { "name": "sin", "fqn": "demo_math_sin", "kind": "def" },
+    { "name": "cos", "fqn": "demo_math_cos", "kind": "def" }
+  ],
+  "scalaFacade": {
+    "demo.math.sin": "_ssc_runtime.demo_math_sin",
+    "demo.math.cos": "_ssc_runtime.demo_math_cos"
+  }
+}

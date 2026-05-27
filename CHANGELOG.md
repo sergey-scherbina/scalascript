@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **sbt-interop-plugin** — `ssc generate-facade` CLI command + `sbt-scalascript-interop` sbt plugin (Tier 3 interop): `ssc generate-facade <artifactDir> [-o <outDir>]` reads `.scim` artifacts and writes Scala 3 facade sources (delegating to `FacadeGenerator.generate`); `ScalascriptInteropPlugin` (Scala 2.12, `tools/sbt-plugin/`) auto-hooks into `Compile / sourceGenerators` via `sscGenerateFacade` task; `sscArtifactDir` and `sscBinary` settings; 4 scripted tests (`basic`, `identity`, `multi-module`, `no-artifacts`); Mill module trait + scala-cli directive documented in `docs/scala-interop.md §6`.
+
 - **watch-100ms** — watch reload benchmark + hot-path hashing cleanup: new `ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>` command runs watch reload cycles against a temporary copy and reports warm-up/p50/max; `WatchCycleBenchTest` covers the incremental path; `ParseCache` and `SectionSnapshot` SHA-256 hex encoding now use a direct char loop instead of per-byte `String.format`; incremental typer reuses precomputed section hashes when building snapshots for retyped sections.
 
 - **v1.50-native-p4** — Native plugin binary guide: `docs/native-plugin-guide.md` — complete plugin-author guide for building GraalVM native binaries from existing plugins. Covers: `GraalVMNativeImagePlugin` sbt setup, minimal reflection/resource config, agent-based config generation, CI matrix (ubuntu/macos arm64/macos x86_64), `plugin.yaml` manifest for native executables, and JAR-vs-native comparison table. No core changes. Fully JVM-free `ssc (native) → wire protocol → plugin (native)` deployments now documented.

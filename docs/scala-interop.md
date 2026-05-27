@@ -19,10 +19,8 @@ Status:
   consumers can now `import demo.a.add` against a ScalaScript-built
   JAR directly via `scala-cli run --jar lib.jar --scala 3.8.3` —
   no facade `.class` files, no plugin, no manual demangling.
-- **Tier 3** deferred — sbt/Mill/scala-cli plugin.  No external
-  demand yet, and with Tier 5 the natural-FQN path is so direct
-  that a build-tool plugin's value is mostly cosmetic (avoiding the
-  `unmanagedJars` wiring).
+- **Tier 3** ✓ landed — `sbt-scalascript-interop` plugin + Mill
+  + scala-cli documentation (2026-05-27).  See §6 for the full API.
 
 Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 
@@ -295,42 +293,119 @@ Within a major ScalaScript ABI, interop is `+ minor` backward-compatible.
 
 ## 6. Tier 3 — `scalascript-sbt-plugin`
 
-A separate repo / artifact: `sbt-scalascript-interop`.
+**Status: ✓ landed (2026-05-27).** Plugin source in `tools/sbt-plugin/`
+(monorepo, to be extracted to a separate `scalascript-sbt-plugin` repo
+for independent publish cadence).
 
-### 6.1 sbt API
+### 6.1 `ssc generate-facade` CLI command
 
-```scala
-addSbtPlugin("org.scalascript" %% "sbt-scalascript-interop" % "0.1.0")
+The underlying plumbing is a new CLI command added in this tier:
 
-// In build.sbt
-enablePlugins(ScalascriptInteropPlugin)
-scalascriptArtifactDir := file(".ssc-artifacts")
-scalascriptInteropVersion := "0.1.0"   // optional, defaults to compatible
+```
+ssc generate-facade <artifactDir> [-o <outputDir>]
 ```
 
-The plugin:
-- Adds `scalascript-interop_3` to `libraryDependencies` automatically.
-- Adds a `Compile / sourceGenerators` task that runs
-  `FacadeGenerator.generate` against `scalascriptArtifactDir` and writes
-  to `target/scala-3.x/src_managed/scalascript-facade/*.scala`.
-- Adds the linked `.jar` (output of `ssc link --bytecode`) as an
-  `unmanagedJars` entry.
-- Adds the Scala 3 source path of `.ssc.scala` sidecars (Phase 3+
-  source maps) to the source-jar so IDE source-attach surfaces both
-  layers.
+Reads all `.scim` files from `<artifactDir>`, runs
+`FacadeGenerator.generate`, and writes the resulting Scala 3 source
+files to `<outputDir>` (default: current directory).  Exits 0 even
+when no facade is emitted (Tier-5 identity artifacts produce no file).
 
-### 6.2 Mill / scala-cli equivalents
+### 6.2 sbt plugin
 
-Mill: a `ScalascriptInteropModule` trait providing the same task set.
-scala-cli: a `directive:` block (`//> using interop "scalascript-interop"
-artifactDir ".ssc-artifacts"`).
+Plugin lives in `tools/sbt-plugin/` (`sbt-scalascript-interop`).
 
-These can be added on demand.
+**Minimal setup:**
 
-### 6.3 Effort
+```scala
+// project/plugins.sbt
+addSbtPlugin("org.scalascript" % "sbt-scalascript-interop" % "0.1.0")
 
-~300 LoC for sbt plugin + ~15 tests against a fixture project.
-**~1 week.**
+// build.sbt
+enablePlugins(ScalascriptInteropPlugin)
+sscArtifactDir := baseDirectory.value / ".ssc-artifacts"
+```
+
+**Settings:**
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sscArtifactDir` | `File` | — (required) | Directory containing `.scim` artifacts |
+| `sscBinary` | `String` | `"ssc"` | Path to `ssc` binary (or absolute path) |
+
+**Tasks:**
+
+| Task | Returns | Hooked into |
+|------|---------|-------------|
+| `sscGenerateFacade` | `Seq[File]` | `Compile / sourceGenerators` |
+
+The plugin forks `ssc generate-facade <sscArtifactDir> -o <managedSrc>`,
+collecting all generated `.scala` files and returning them to sbt's
+source generation pipeline.  Output lands in
+`target/scala-<v>/src_managed/main/ssc-facade/`.
+
+If `sscArtifactDir` does not exist the task logs a warning and returns
+`Seq.empty` — no error, so the build succeeds even before the first
+`ssc emit-interface` run.
+
+**Four scripted tests ship with the plugin:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `basic` | Legacy Tier-1 `.scim` → facade `.scala` written to managed-src |
+| `identity` | Tier-5 identity `.scim` → no file written (normal, not an error) |
+| `multi-module` | Two `.scim` for the same package → one merged facade file |
+| `no-artifacts` | Non-existent `sscArtifactDir` → warning, empty result, no crash |
+
+### 6.3 Mill
+
+No Mill plugin code ships yet (demand-driven).  The equivalent wiring
+in a Mill `build.sc`:
+
+```scala
+import mill._, scalalib._
+import os._
+
+trait ScalascriptInteropModule extends ScalaModule {
+  def sscArtifactDir: os.Path = millSourcePath / ".ssc-artifacts"
+  def sscBinary: String = "ssc"
+
+  override def generatedSources: T[Seq[PathRef]] = T {
+    val outDir = T.dest / "ssc-facade"
+    os.makeDir.all(outDir)
+    if (os.exists(sscArtifactDir)) {
+      os.proc(sscBinary, "generate-facade",
+              sscArtifactDir.toString, "-o", outDir.toString)
+        .call(stdout = os.Inherit, stderr = os.Inherit)
+    }
+    super.generatedSources() ++ Seq(PathRef(outDir))
+  }
+}
+
+// In build.sc:
+object myApp extends ScalascriptInteropModule {
+  override def sscArtifactDir = os.pwd / ".ssc-artifacts"
+}
+```
+
+### 6.4 scala-cli
+
+No dedicated directive yet.  The equivalent `using` block in a `.sc`
+or `.scala` file:
+
+```scala
+//> using scala "3.8.3"
+//> using jar ".ssc-artifacts/../lib.jar"   // the linked .jar from ssc link
+```
+
+To wire facade generation, add a pre-compile hook in your build
+script or Makefile:
+
+```bash
+ssc generate-facade .ssc-artifacts -o src_managed/
+```
+
+A proper scala-cli plugin directive can be added once
+[scala-cli plugin API](https://scala-cli.virtuslab.org) stabilises.
 
 ---
 
@@ -455,10 +530,11 @@ For consumers upgrading from manual `import _ssc_runtime.*` patterns:
 2. **Tier 2 — interop library.** (~1 week)
    - 3 source files (`facade`, `runtime`, `loader`); 30 tests.
    - Lands in `interop/` subproject here OR in a new repo (TBD).
-3. **Tier 3 — sbt plugin.** (~1 week)
-   - sbt plugin + Mill module + scala-cli directive.
-   - Lands in `scalascript-sbt-plugin` repo (separate, easier
-     publish cadence).
+3. **Tier 3 — sbt plugin.** ✓ landed (2026-05-27)
+   - `ssc generate-facade` CLI command.
+   - `sbt-scalascript-interop` plugin + 4 scripted tests.
+   - Mill trait + scala-cli directive documented in §6.3–6.4.
+   - Source in `tools/sbt-plugin/`; publish to its own repo TBD.
 4. **Tier 4 — `--emit-scala-facade` flag.** (~2 days)
    - Only after Tiers 2-3 prove the design.
 

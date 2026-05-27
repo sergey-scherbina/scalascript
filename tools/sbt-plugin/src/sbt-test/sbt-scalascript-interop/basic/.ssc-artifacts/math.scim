@@ -1,0 +1,16 @@
+{
+  "magic": "SSCART",
+  "abiVersion": "2.0",
+  "pkg": ["demo", "math"],
+  "moduleName": "math",
+  "moduleVersion": null,
+  "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "exports": [
+    { "name": "add",    "fqn": "demo_math_add",    "kind": "def" },
+    { "name": "double", "fqn": "demo_math_double", "kind": "def" }
+  ],
+  "scalaFacade": {
+    "demo.math.add":    "_ssc_runtime.demo_math_add",
+    "demo.math.double": "_ssc_runtime.demo_math_double"
+  }
+}
