@@ -1,0 +1,134 @@
+#!/usr/bin/env ssc
+---
+name: spark-catalog-hive
+backend: spark
+spark-version: 4.0.0
+spark-warehouse: /tmp/ssc-hive-warehouse-catalog
+description: Spark Catalog DSL phases G.2–G.4 — @TempView + Hive warehouse + Dataset.fromTable[T]
+---
+
+# Spark Catalog DSL
+
+Demonstrates the v1.25 § 9.5 Phase G catalog surface in one end-to-end
+run:
+
+- **G.2 — front-matter Hive wiring**: `spark-warehouse:` in the YAML
+  above wires `.enableHiveSupport()`, the `spark.sql.warehouse.dir`
+  config line, and the `spark-hive_2.13` runtime dep.  No external Hive
+  metastore required — Spark uses its embedded Derby metastore at the
+  warehouse path automatically.
+
+- **G.3 — `@TempView` annotation**: annotate any `val` that holds a
+  `Dataset[T]` with `@TempView("view_name")`.  The ScalaScript emitter
+  strips the annotation and appends
+  `varName.createOrReplaceTempView("view_name")` so the bound dataset
+  becomes queryable from subsequent `sql` blocks without any manual
+  catalog wiring.
+
+- **G.4 — `Dataset.fromTable[T]` shim**: reads a table or view from
+  the session catalog as a typed `Dataset[T]`, routing through
+  `spark.table(name).as[T]` and the Phase E encoder derivation.
+  Works symmetrically for both temp views (G.3) and Hive-managed tables
+  (G.2).
+
+Run with:
+
+```sh
+ssc run --backend spark examples/spark-catalog-hive.ssc
+```
+
+## Data model
+
+```scalascript
+case class Product(id: Int, name: String, price: Double, category: String)
+```
+
+## Register a temp view with @TempView
+
+The `@TempView("products")` annotation strips the marker and emits
+`products.createOrReplaceTempView("products")` immediately after the
+`val` declaration.  The next `sql` block can then `SELECT * FROM
+products` without any manual catalog call.
+
+```scalascript
+@TempView("products")
+val products = Dataset.of(
+  Product(1, "Widget",    9.99,  "tools"),
+  Product(2, "Gadget",   24.99,  "electronics"),
+  Product(3, "Sprocket",  4.50,  "tools"),
+  Product(4, "Gizmo",    49.99,  "electronics"),
+  Product(5, "Doohickey", 1.25,  "misc")
+)
+```
+
+## SQL query against the registered view
+
+The `sql` block resolves `products` through Spark's session catalog —
+the same lookup path as any `spark.sql("SELECT …")` invocation.
+
+```sql
+SELECT category, COUNT(*) AS count, ROUND(SUM(price), 2) AS total
+FROM products
+GROUP BY category
+ORDER BY total DESC
+```
+
+```scalascript
+println("=== category totals ===")
+_sqlBlock_0.show()
+```
+
+## Filter expensive items via SQL
+
+```sql
+SELECT id, name, price
+FROM products
+WHERE price > 10.00
+ORDER BY price DESC
+```
+
+```scalascript
+println("=== items over $10 ===")
+_sqlBlock_1.show()
+```
+
+## Typed read-back via Dataset.fromTable[T]
+
+`Dataset.fromTable[Product]("products")` resolves the same temp view
+and returns a typed `Dataset[Product]`, so downstream code works with
+case-class fields directly instead of `Row.getAs[...]` calls.
+
+```scalascript
+val typed = Dataset.fromTable[Product]("products")
+val cheapItems = typed.filter(_.price < 10.0).collect().toList
+println(s"=== cheap items (price < 10) ===")
+cheapItems.foreach(p => println(s"  ${p.name}: $$${p.price}"))
+println(s"total cheap item count: ${cheapItems.size}")
+```
+
+## Composition: @TempView + @SqlFn + fromTable in one block
+
+The G.3 and D (UDF) annotation passes compose cleanly — both run on
+the same block source before the cleaned code is emitted, so a block
+can carry both annotations.
+
+```scalascript
+@SqlFn
+def discountedPrice(price: Double, pct: Int): Double =
+  price * (1.0 - pct / 100.0)
+
+@TempView("discounted")
+val discounted = products.map(p => p.copy(price = discountedPrice(p.price, 20)))
+```
+
+```sql
+SELECT name, price FROM discounted ORDER BY price
+```
+
+```scalascript
+println("=== 20% discounted prices ===")
+_sqlBlock_2.show()
+
+val readBack = Dataset.fromTable[Product]("discounted")
+println(s"discounted row count: ${readBack.count()}")
+```
