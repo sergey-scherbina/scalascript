@@ -31,6 +31,12 @@ package scalascript.ast
  *  of the v1.26 milestone) lifts `(sqlWithQ, binds)` into the IR.  Other
  *  backends (JS / Node / Wasm) reject via `UnknownBlockLanguage`.
  *  See `isOpaqueExec` and `isParameterizedExec`.
+ *
+ *  `xml` — well-formed XML 1.0 with `${expr}` interpolation.  Each
+ *  interpolated value is XML-escaped (< > & " ') before the result is
+ *  parsed by `PureMarkupCodec`, producing a `Value.MarkupV(doc)`.
+ *  Bound as `<sectionIdent>.xml` in the interpreter's global scope.
+ *  See `isXml` and BACKLOG.md §v1.55.2.
  */
 object Lang:
   val Scala       = "scala"
@@ -44,6 +50,7 @@ object Lang:
   val NodeShort   = "node"         // alias for node.js
   val Sql         = "sql"
   val Transaction = "transaction"
+  val Xml         = "xml"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
@@ -62,6 +69,9 @@ object Lang:
 
   def isTransaction(lang: String): Boolean =
     lang == Transaction
+
+  def isXml(lang: String): Boolean =
+    lang == Xml
 
   /** True for blocks whose body is a `String` value with `${expr}`
    *  interpolation (html, css, javascript). Not parsed by scalameta. */
@@ -103,4 +113,5 @@ object Lang:
     case Node | NodeShort          => "Node.js"
     case Sql                       => "SQL"
     case Transaction               => "SQL Transaction"
+    case Xml                       => "XML"
     case other                     => other

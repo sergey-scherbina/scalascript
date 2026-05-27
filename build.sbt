@@ -111,7 +111,7 @@ lazy val yaml = project
 
 lazy val core = project
   .in(file("lang/core"))
-  .dependsOn(backendSpi, backendSqlRuntime, logger, yaml)
+  .dependsOn(backendSpi, backendSqlRuntime, logger, yaml, markupCore)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(

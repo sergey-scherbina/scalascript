@@ -150,6 +150,9 @@ enum Value:
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
   case DocV(parts: List[Value])
+  /** Parsed XML document produced by a fenced ` ```xml ` block.
+   *  The `doc` value is the root `Markup.Doc` from `markup-core`. */
+  case MarkupV(doc: scalascript.markup.Markup.Doc)
   /** Opaque JVM-handle bridge.  Wraps a Java object that the interpreter
    *  cannot inspect structurally but needs to thread through user code
    *  (e.g. `java.sql.Connection` for v1.26 sql blocks).  `typeName` is
@@ -222,6 +225,7 @@ object Value:
     case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
+    case MarkupV(doc)         => scalascript.markup.PureMarkupCodec.serialize(doc)
     case Foreign(tn, h)       =>
       val short = Option(h).map(_.getClass.getSimpleName).getOrElse("null")
       s"<foreign:$tn ($short)>"

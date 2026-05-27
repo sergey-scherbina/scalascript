@@ -133,7 +133,7 @@ _(all done — see Done section below)_
 
 ## Language & Compiler
 
-- [ ] **markup-lang-xml** — Wire `xml"..."` into language runtime: add `Lang.Xml = "xml"` / `isXml` to `Lang.scala`; extend `SectionRuntime` with `runXmlBlock` (render `${…}` → XML-escaped → parse → `MarkupV`); generalise `renderStringBlock` to accept `escapeFn: String => String`; add `Value.MarkupV(doc: Markup.Doc)` case to `Value.scala`; 8+ tests: fenced `` ```xml `` block binds `MarkupV`, element text escaping, splice of string value, splice of `Markup.Node`. Pre-written test skeleton in `runtime/backend/interpreter/src/test/scala/scalascript/SectionXmlBlockTest.scala`. Spec: `BACKLOG.md §v1.55.2`.
+- [x] **markup-lang-xml** — Wire `xml"..."` into language runtime: add `Lang.Xml = "xml"` / `isXml` to `Lang.scala`; extend `SectionRuntime` with `runXmlBlock` (render `${…}` → XML-escaped → parse → `MarkupV`); generalise `renderStringBlock` to accept `escapeFn: String => String`; add `Value.MarkupV(doc: Markup.Doc)` case to `Value.scala`; 8+ tests: fenced `` ```xml `` block binds `MarkupV`, element text escaping, splice of string value, splice of `Markup.Node`. Pre-written test skeleton in `runtime/backend/interpreter/src/test/scala/scalascript/SectionXmlBlockTest.scala`. Spec: `BACKLOG.md §v1.55.2`.
 
 - [ ] **markup-feature-backend** — `Feature.Markup` + `Backend.markupCodec` SPI + JVM SAX codec: add `case Markup` to `Feature.scala`; `def markupCodec: Option[MarkupCodec] = None` to `Backend.scala`; `JvmMarkupCodec` in `runtime/backend/interpreter/` using `javax.xml.parsers.SAXParser`; declare `Feature.Markup` in `*Capabilities.scala` for interpreter+JVM backends; `CapabilityCheck` rejects `xml"..."` on backends lacking `Feature.Markup`; 8+ tests. Spec: `BACKLOG.md §v1.55.3`.
 

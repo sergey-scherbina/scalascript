@@ -27,6 +27,8 @@ private[interpreter] object SectionRuntime:
         runSqlBlock(cb, section, interp)
       case cb: Content.CodeBlock if Lang.isTransaction(cb.lang) =>
         runTransactionBlock(cb, section, interp)
+      case cb: Content.CodeBlock if Lang.isXml(cb.lang) =>
+        runXmlBlock(cb, section, interp)
       case imp: Content.Import =>
         runImport(imp, interp)
       case _ => ()
@@ -103,6 +105,24 @@ private[interpreter] object SectionRuntime:
       interp.globals(id) = Value.InstanceV(id, updated)
     }
 
+  def runXmlBlock(cb: Content.CodeBlock, section: Section, interp: Interpreter): Unit =
+    val rendered = renderStringBlock(
+      src      = cb.source,
+      escape   = false,
+      interp   = interp,
+      escapeFn = Some(scalascript.markup.XmlEscape.escape)
+    )
+    val doc = scalascript.markup.PureMarkupCodec.parse(rendered) match
+      case Right(d) => d
+      case Left(e)  => throw InterpretError(e.getMessage)
+    val result = Value.MarkupV(doc)
+    sectionIdent(section.heading.text).foreach { id =>
+      val existing = interp.globals.get(id) match
+        case Some(Value.InstanceV(_, fields)) => fields
+        case _                                => Map.empty[String, Value]
+      interp.globals(id) = Value.InstanceV(id, existing + (Lang.Xml -> result))
+    }
+
   def sectionIdent(text: String): Option[String] =
     val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
     if parts.isEmpty then None
@@ -112,7 +132,12 @@ private[interpreter] object SectionRuntime:
       val raw  = head + tail.mkString
       Some(if raw.head.isDigit then "_" + raw else raw)
 
-  def renderStringBlock(src: String, escape: Boolean, interp: Interpreter): String =
+  def renderStringBlock(
+    src:       String,
+    escape:    Boolean,
+    interp:    Interpreter,
+    escapeFn:  Option[String => String] = None
+  ): String =
     val sb  = StringBuilder()
     var i   = 0
     val len = src.length
@@ -126,7 +151,10 @@ private[interpreter] object SectionRuntime:
           val parsed  = scala.meta.dialects.Scala3(exprSrc).parse[scala.meta.Term].get
           val v       = Computation.run(interp.eval(parsed, interp.globals.toMap))
           val shown   = Value.show(v)
-          sb.append(if escape then interp.htmlEscapeUnlessRaw(v, shown) else shown)
+          val out     = escapeFn match
+            case Some(fn) => fn(shown)
+            case None     => if escape then interp.htmlEscapeUnlessRaw(v, shown) else shown
+          sb.append(out)
           i = end + 1
       else
         sb.append(src.charAt(i)); i += 1

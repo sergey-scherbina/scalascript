@@ -1426,6 +1426,45 @@ UPDATE balances SET total = total - ${amount} WHERE user_id = ${userId}
 
 Connections come from `databases:` front-matter; the default name is `"default"`.
 
+### `xml` fenced blocks
+
+A ` ```xml ``` ` fenced block is parsed as well-formed XML 1.0 and bound to the
+section identifier as a `Markup.Doc` value (from `markup-core`).
+
+````ssc
+## Invoice
+
+```scala
+val company = "Acme & Sons"
+val amount  = 1200
+```
+
+```xml
+<invoice>
+  <company>${company}</company>
+  <amount>${amount}</amount>
+</invoice>
+```
+````
+
+After execution `Invoice.xml` is a `Value.MarkupV(doc)` where `doc` is a
+`scalascript.markup.Markup.Doc`.
+
+**Interpolation and escaping:**
+- `${expr}` evaluates the expression in the surrounding ScalaScript scope.
+- The result is XML-escaped before being embedded: `<` → `&lt;`, `&` → `&amp;`,
+  `>` → `&gt;`, `"` → `&quot;`, `'` → `&apos;`.
+- The escaped content is then parsed by `PureMarkupCodec`, so entity references
+  are decoded back into the text nodes of the resulting `Markup.Doc`.
+  The net effect is safe: a string like `"A & B <Corp>"` becomes text content
+  `A & B <Corp>` without injecting child elements.
+
+**Parse errors:** a malformed `xml` block throws `InterpretError` with the line
+and column from `PureMarkupCodec`.
+
+**Section binding:** the block is bound as `<sectionIdent>.xml` — the same
+convention as `.html`, `.css`, and `.sql`.
+
 ### REST API + SQLite example
 
 A complete todo list with SQLite persistence and a JSON REST API:

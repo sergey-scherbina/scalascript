@@ -1074,12 +1074,12 @@ XSLT deferred to v1.56.
   `PureMarkupCodec` (zero-dep XML 1.0 parser + serializer, ~300 LoC), `xml"..."` string interpolator
   (mandatory escape + `Markup.raw()` opt-out + `Markup.Element` splice).  17 tests.
 
-**v1.55.2 — `Lang.Xml` + `SectionRuntime.runXmlBlock` + `Value.MarkupV`:**
-- `Lang.scala`: `Xml = "xml"`, `isXml`, extend `isStringBlock` to include `xml`.
-- `SectionRuntime.scala`: `runXmlBlock` (render `${...}` → XML-escaped → parse → `MarkupV`); generalise
-  `renderStringBlock` signature to accept an `escapeFn: String => String`.
-- `Value.scala`: `case MarkupV(doc: Markup.Doc)`.
-- Test: fenced ` ```xml ` block in `.ssc` binds `<section>.xml: Markup.Doc`.
+**v1.55.2 — `Lang.Xml` + `SectionRuntime.runXmlBlock` + `Value.MarkupV`: ✓ Landed (2026-05-27)**
+- `Lang.scala`: `Xml = "xml"`, `isXml`, label entry; `isStringBlock` unchanged (xml is not a string block).
+- `SectionRuntime.scala`: `runXmlBlock` (render `${...}` → XML-escaped via `XmlEscape.escape` → parse via `PureMarkupCodec` → `MarkupV`); `renderStringBlock` signature generalised with `escapeFn: Option[String => String] = None`.
+- `Value.scala`: `case MarkupV(doc: Markup.Doc)`; `show` serializes via `PureMarkupCodec.serialize`.
+- `build.sbt`: added `markupCore` to `core` module's `dependsOn`.
+- 8 tests in `SectionXmlBlockTest` all pass.
 
 **v1.55.3 — `Feature.Markup` + `Backend.markupCodec` + JVM SAX codec:**
 - `Feature.scala`: `case Markup`.
