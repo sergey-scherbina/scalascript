@@ -5,8 +5,8 @@
 !.gitignore
 !.gitattributes
 !.work/
-!.ssc-artifacts/
 
+.ssc-artifacts/
 
 # Build outputs
 target/
