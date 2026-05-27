@@ -12,6 +12,18 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 _(all done — see Done section below)_
 
+## Language & Compiler — Spark extensions
+
+- [~] **spark-streaming-f2-f4** — Spark Structured Streaming phases F.2–F.4: (F.2) `SparkGen.detectStreaming`, `awaitTermination()` shim, `examples/spark-streaming-rate-console.ssc`, 3+ codegen tests; (F.3) file source/sink + checkpointing comment emit, `examples/spark-streaming-file-parquet.ssc`; (F.4) `.format("kafka")` detection → auto-emit `spark-sql-kafka-0-10_2.13` dep, `examples/spark-streaming-kafka.ssc`. Smoke tests gated by `RUN_SPARK_INTEGRATION`/`RUN_SPARK_KAFKA`. Spec: `docs/spark-streaming.md §F.2–F.4`.
+
+- [~] **spark-lakehouse-l2** — Spark Lakehouse Delta Lake (L.2): `SparkGen.detectLakehouseFormats` detects `.format("delta")` → auto-emit `io.delta:delta-spark_2.13` dep + `spark.sql.extensions`/`spark.sql.catalog.spark_catalog` config; `SparkGen.lakehouseImports`; `examples/spark-lakehouse-delta.ssc` (write/read Parquet→Delta, merge-into); 6+ codegen tests. L.3 Iceberg and L.4 Hudi remain deferred. Spec: `docs/spark-lakehouse.md §L.2`.
+
+- [~] **spark-catalog-g2-g4** — Spark Catalog phases G.2–G.4: (G.2) front-matter `spark-hive-metastore:`/`spark-warehouse:` keys → emit `spark-hive_2.13` dep + `enableHiveSupport()` + config keys; (G.3) `@TempView("name")` annotation rewriter → `createOrReplaceTempView`; (G.4) `Dataset.fromTable[T](name)` shim via `spark.table(name).as[T]`; `examples/spark-catalog-hive.ssc`; 8+ codegen tests. Spec: `docs/spark-catalog.md §G.2–G.4`.
+
+- [~] **spark-mllib-m2-m5** — Spark MLlib phases M.2–M.5: (M.2) `SparkGen.containsMllib` detection → auto-emit `spark-mllib_2.13` dep; (M.3) `aenc_Vector` given in `SscSparkEncoders` shim via `UDTEncoder(new VectorUDT(), classOf[VectorUDT])`, gated on `usesMllib`; (M.4) `examples/spark-mllib-pipeline.ssc` (Tokenizer+HashingTF+LogisticRegression pipeline); (M.5) `examples/spark-mllib-model-save-load.ssc` (model.write.save + PipelineModel.load); 10+ codegen tests. Spec: `docs/spark-mllib.md §M.2–M.5`.
+
+- [~] **v1.56-xslt** — XSLT transformation support (deferred from v1.55): `Markup.transform(xslt: String): Markup.Doc` via `javax.xml.transform.TransformerFactory` (JVM); `XsltTransformer` class with `apply(source: Markup.Doc, params: Map[String, String]): Markup.Doc`; `JvmMarkupCodec.transform` implementation; `MarkupCodec.transform` SPI hook (default: `UnsupportedOperationException`); `Feature.Xslt` capability flag declared in `InterpreterCapabilities`/`JvmCapabilities`; `CapabilityCheck` rejects `transform` on non-XSLT backends; `examples/xslt-transform.ssc`; 12+ tests. Spec: `BACKLOG.md §v1.55` (XSLT deferred note) + `docs/markup-core`.
+
 ## Payments & Blockchain
 
 - [x] **x402-cardano-scalus-validator-simulator-tests** — Scalus script-context simulator tests for Cardano Scalus escrow validator happy path and rejection branches (signature, receiver/amount, validity range). Spec: `docs/x402-cardano-scalus.md §Phase 2`. (2026-05-27)
