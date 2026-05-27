@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **markup-element-literal (v1.55.5)** — `MarkupLiteralLower` AST transform in `lang/core/transform/`: source-level preprocessor that, when `import scalascript.markup.*` is present in a scalascript block, rewrites `<name attr={expr}>children</name>` and `<name/>` syntax to `Markup.Element(QName.local/prefixed(...), attrs, children)` constructor calls before scalameta parsing; namespaced tags, nested elements, text children, string and expression attributes all supported; wired into `Parser.parse` after `RouteDeriver.derive`. 16 tests.
+
 - **markup-feature-backend (v1.55.3)** — `Feature.Markup` + `Backend.markupCodec` SPI + `JvmMarkupCodec`. `case Markup` added to `Feature` enum; `def markupCodec: Option[MarkupCodec] = None` added to `Backend` trait; `JvmMarkupCodec` (SAX parse + PureMarkupCodec serialize + XSD validate via `javax.xml.validation`) wired into `InterpreterBackend` + declared in `InterpreterCapabilities`/`JvmCapabilities`; `CapabilityCheck` detects `xml"..."` interpolator and fenced xml blocks, rejects on backends lacking `Feature.Markup`; 16 tests.
 
 - **markup-lang-xml (v1.55.2)** — `Lang.Xml = "xml"` + `isXml`; `Value.MarkupV(doc: Markup.Doc)`; `SectionRuntime.runXmlBlock` (XML-escape interpolated values, parse via `PureMarkupCodec`, bind as `<section>.xml`); `renderStringBlock` generalised with `escapeFn: Option[String => String]`; `markupCore` added to `core` dependsOn. 8 tests in `SectionXmlBlockTest` pass.

@@ -1,7 +1,7 @@
 package scalascript.parser
 
 import scalascript.ast.*
-import scalascript.transform.RouteDeriver
+import scalascript.transform.{RouteDeriver, MarkupLiteralLower}
 import org.commonmark.node.{
   Node            as CmNode,
   Document        as CmDocument,
@@ -63,7 +63,7 @@ object Parser:
     val raw      =
       if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
       else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
-    RouteDeriver.derive(raw)
+    MarkupLiteralLower.lower(RouteDeriver.derive(raw))
 
   /** Wrap every scalascript-block's contents in nested `object`s matching
    *  the front-matter `package:` segments.  `package: org.example.ui`
