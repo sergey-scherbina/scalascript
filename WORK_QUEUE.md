@@ -48,7 +48,7 @@ _(all done — see Done section below)_
 
 - [ ] **v1.55.1-international-swift** — `payments/bank-rails/` type additions (Uetr, ChargeBearer, GpiHop, BankTransfer.gpiTrail, RailKind.SWIFT_MT103/SWIFT_PACS008, BankAccount.bic) + `runtime/std/payments-swift/` (SwiftProvider, SwiftMt103Builder, SwiftPacs008Builder, GpiTracker, 35+ tests). Spec: `docs/international-bank-rails.md §v1.55.1`.
 
-- [ ] **v1.55.2-sepa-instant** — Extend `runtime/std/payments-sepa/`: `RailKind.SCT_INST`, `SepaPainXml.buildSctInstPacs008`, `SctInstSettled/SctInstRejected` events, `SctInstTimeout` error; 12+ tests. Spec: `docs/international-bank-rails.md §v1.55.2`.
+- [x] **v1.55.2-sepa-instant** — Extend `runtime/std/payments-sepa/`: `RailKind.SCT_INST`, `SepaPainXml.buildSctInstPacs008`, `SctInstSettled/SctInstRejected` events, `SctInstTimeout` error; 19 new tests (49 total). Spec: `docs/international-bank-rails.md §v1.55.2`. (2026-05-27)
 
 - [ ] **v1.55.3-uk-faster-payments** — `runtime/std/payments-uk-fps/` (UkFpsProvider, ConfirmationOfPayee) + `RailKind.UK_FPS` + `BankAccount.sortCode` + CoP name-check; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.3`.
 

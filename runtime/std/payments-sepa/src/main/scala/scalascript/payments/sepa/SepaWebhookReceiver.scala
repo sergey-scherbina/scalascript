@@ -12,7 +12,9 @@ import java.time.Instant
  *  Supported event types (JSON `"type"` field):
  *    sepa.transfer.completed, sepa.transfer.rejected, sepa.transfer.returned,
  *    sepa.directdebit.completed, sepa.directdebit.returned,
- *    sepa.mandate.activated, sepa.mandate.cancelled
+ *    sepa.mandate.activated, sepa.mandate.cancelled,
+ *    SCTInst.CreditTransfer.Settlement  (v1.55.2 SCT Inst settled — pacs.002 ACCC)
+ *    SCTInst.CreditTransfer.Rejection   (v1.55.2 SCT Inst rejected — pacs.002 RJCT)
  */
 class SepaWebhookReceiver(
     override val config:   WebhookConfig  = WebhookConfig(),
@@ -42,14 +44,16 @@ class SepaWebhookReceiver(
       case scala.util.Failure(e)     => Left(MalformedPayload(s"SEPA event parse error: ${e.getMessage}"))
 
   def idempotencyKey(event: BankRailsEvent): String = event match
-    case BankRailsEvent.SepaTransferCompleted(t)       => s"sepa.transfer.completed.${t.id.value}"
-    case BankRailsEvent.SepaTransferRejected(t, _)     => s"sepa.transfer.rejected.${t.id.value}"
-    case BankRailsEvent.SepaTransferReturned(t, _)     => s"sepa.transfer.returned.${t.id.value}"
-    case BankRailsEvent.SepaDirectDebitCompleted(t)    => s"sepa.dd.completed.${t.id.value}"
-    case BankRailsEvent.SepaDirectDebitReturned(t, _)  => s"sepa.dd.returned.${t.id.value}"
-    case BankRailsEvent.SepaMandateActivated(m)        => s"sepa.mandate.activated.${m.id.value}"
-    case BankRailsEvent.SepaMandateCanceled(m)         => s"sepa.mandate.cancelled.${m.id.value}"
-    case other                                          => s"sepa.event.${other.getClass.getSimpleName}"
+    case BankRailsEvent.SepaTransferCompleted(t)         => s"sepa.transfer.completed.${t.id.value}"
+    case BankRailsEvent.SepaTransferRejected(t, _)       => s"sepa.transfer.rejected.${t.id.value}"
+    case BankRailsEvent.SepaTransferReturned(t, _)       => s"sepa.transfer.returned.${t.id.value}"
+    case BankRailsEvent.SepaDirectDebitCompleted(t)      => s"sepa.dd.completed.${t.id.value}"
+    case BankRailsEvent.SepaDirectDebitReturned(t, _)    => s"sepa.dd.returned.${t.id.value}"
+    case BankRailsEvent.SepaMandateActivated(m)          => s"sepa.mandate.activated.${m.id.value}"
+    case BankRailsEvent.SepaMandateCanceled(m)           => s"sepa.mandate.cancelled.${m.id.value}"
+    case BankRailsEvent.SctInstSettled(e2eId, _, _)      => s"sctinst.settled.$e2eId"
+    case BankRailsEvent.SctInstRejected(e2eId, _)        => s"sctinst.rejected.$e2eId"
+    case other                                            => s"sepa.event.${other.getClass.getSimpleName}"
 
   // ── JSON event parsing ─────────────────────────────────────────────────────
 
@@ -84,6 +88,22 @@ class SepaWebhookReceiver(
         BankRailsEvent.SepaMandateActivated(parseMandate(body, MandateStatus.Active))
       case "sepa.mandate.cancelled"  =>
         BankRailsEvent.SepaMandateCanceled(parseMandate(body, MandateStatus.Canceled))
+      // SCT Inst events: aggregator delivers pacs.002 ACCC/RJCT notifications
+      // using the SCTInst.CreditTransfer.* naming convention from the EBA RT1/TIPS scheme
+      case "SCTInst.CreditTransfer.Settlement" =>
+        // pacs.002 ACCC — settlement confirmed by TIPS/RT1 within the 10-second window
+        val e2eId    = extractJsonString(body, "end_to_end_id").getOrElse(
+                         extractJsonString(body, "endToEndId").getOrElse("unknown"))
+        val amount   = extractJsonString(body, "amount").getOrElse("0")
+        val currency = extractJsonString(body, "currency").getOrElse("EUR")
+        BankRailsEvent.SctInstSettled(e2eId, amount, currency)
+      case "SCTInst.CreditTransfer.Rejection" =>
+        // pacs.002 RJCT — rejection within the 10-second SCT Inst window
+        val e2eId  = extractJsonString(body, "end_to_end_id").getOrElse(
+                       extractJsonString(body, "endToEndId").getOrElse("unknown"))
+        val reason = extractJsonString(body, "reason").orElse(
+                       extractJsonString(body, "reason_code")).getOrElse("UNKNOWN")
+        BankRailsEvent.SctInstRejected(e2eId, reason)
       case other =>
         throw new IllegalArgumentException(s"Unknown SEPA event type: $other")
 

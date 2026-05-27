@@ -380,3 +380,235 @@ class SepaProviderTest extends AnyFunSuite:
   test("SepaPainXml.formatAmount: EUR 0.99"):
     val money = Money(99L, Currency("EUR"))
     assert(SepaPainXml.formatAmount(money) == "0.99")
+
+  // ── SCT Inst: pacs.008 XML structure tests ────────────────────────────────
+
+  test("SepaPainXml.buildSctInstPacs008: document has pacs.008.001.08 namespace"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-REF-001",
+      idempotencyKey = "sct-inst-001",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08"),
+      "SCT Inst must use pacs.008.001.08 namespace, not pain.001")
+
+  test("SepaPainXml.buildSctInstPacs008: LclInstrm is INST"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-REF-002",
+      idempotencyKey = "sct-inst-002",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<LclInstrm><Cd>INST</Cd></LclInstrm>"),
+      "SCT Inst local instrument must be INST (not CORE or empty)")
+
+  test("SepaPainXml.buildSctInstPacs008: SvcLvl is SEPA"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-REF-003",
+      idempotencyKey = "sct-inst-003",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<SvcLvl><Cd>SEPA</Cd></SvcLvl>"),
+      "SCT Inst service level must be SEPA")
+
+  test("SepaPainXml.buildSctInstPacs008: SttlmMtd is CLRG"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-REF-004",
+      idempotencyKey = "sct-inst-004",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<SttlmMtd>CLRG</SttlmMtd>"),
+      "SCT Inst settlement method must be CLRG (cleared via scheme)")
+
+  test("SepaPainXml.buildSctInstPacs008: ClrSys is SCTInst"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-REF-005",
+      idempotencyKey = "sct-inst-005",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<Cd>SCTInst</Cd>"),
+      "ClrSys must identify SCTInst scheme for TIPS/RT1 routing")
+
+  test("SepaPainXml.buildSctInstPacs008: contains sender IBAN"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-IBAN-TEST",
+      idempotencyKey = "sct-inst-006",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("DE89370400440532013000"), "Sender IBAN must appear in pacs.008")
+
+  test("SepaPainXml.buildSctInstPacs008: contains recipient IBAN"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-IBAN-CDTR",
+      idempotencyKey = "sct-inst-007",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("FR7630006000011234567890189"), "Recipient IBAN must appear in pacs.008")
+
+  test("SepaPainXml.buildSctInstPacs008: EndToEndId set from idempotency key"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-E2E",
+      idempotencyKey = "sct-e2e-ref-xyz",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<EndToEndId>sct-e2e-ref-xyz</EndToEndId>"),
+      "EndToEndId must equal idempotency key (maps to SCT Inst end-to-end reference)")
+
+  test("SepaPainXml.buildSctInstPacs008: IntrBkSttlmAmt present with correct currency"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = Money(4999L, Currency("EUR")),
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-AMT",
+      idempotencyKey = "sct-inst-amt-001",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("""IntrBkSttlmAmt Ccy="EUR">49.99"""),
+      "IntrBkSttlmAmt element must carry the settlement amount and EUR currency")
+
+  test("SepaPainXml.buildSctInstPacs008: uses FIToFICstmrCdtTrf root element (not CstmrCdtTrfInitn)"):
+    val req = InitiateTransferRequest(
+      rail           = RailKind.SCT_INST,
+      amount         = amount100EUR,
+      sender         = senderDE,
+      recipient      = recipientFR,
+      reference      = "INST-ROOT",
+      idempotencyKey = "sct-inst-root",
+    )
+    val xml = SepaPainXml.buildSctInstPacs008(req)
+    assert(xml.contains("<FIToFICstmrCdtTrf>"),
+      "SCT Inst pacs.008 must use FIToFICstmrCdtTrf root (FI-to-FI), not CstmrCdtTrfInitn (customer-to-FI)")
+    assert(!xml.contains("<CstmrCdtTrfInitn>"),
+      "SCT Inst must not contain CstmrCdtTrfInitn element")
+
+  // ── SCT Inst: SepaProvider routing tests ─────────────────────────────────
+
+  test("SepaProvider.supportedRails includes SCT_INST"):
+    val config = SepaConfig(
+      apiUrl     = "https://api.example.com/v1",
+      apiKey     = "test-key",
+      creditorId = "DE98ZZZ09999999999",
+    )
+    val provider = SepaProvider(config)
+    assert(provider.supportedRails.contains(RailKind.SCT_INST),
+      "SepaProvider must declare SCT_INST support (EU Regulation 2024/886)")
+
+  // ── SCT Inst: SctInstTimeout error tests ─────────────────────────────────
+
+  test("SctInstTimeout carries endToEndId and elapsed milliseconds"):
+    val err = SctInstTimeout("e2e-timeout-001", 10_250L)
+    assert(err.endToEndId == "e2e-timeout-001")
+    assert(err.elapsedMs == 10_250L)
+    assert(err.getMessage.contains("e2e-timeout-001"))
+    assert(err.getMessage.contains("10250"))
+
+  test("SctInstTimeout is a BankRailsError subtype"):
+    val err: BankRailsError = SctInstTimeout("e2e-001", 9999L)
+    assert(err.isInstanceOf[BankRailsError])
+    assert(err.isInstanceOf[SctInstTimeout])
+
+  // ── SCT Inst: webhook SctInstSettled event tests ──────────────────────────
+
+  test("SepaWebhookReceiver: parses SCTInst.CreditTransfer.Settlement event"):
+    val secret = "sct-inst-secret"
+    val body   = """{"type":"SCTInst.CreditTransfer.Settlement","end_to_end_id":"inst-e2e-001","amount":"250.00","currency":"EUR"}"""
+    val sig    = makeSignature(secret, body)
+    val recv   = SepaWebhookReceiver()
+    val req    = WebhookRequest(headers = Map("X-SEPA-Signature" -> sig), rawBody = body)
+    val result = recv.verify(req, secret)
+    assert(result.isRight, s"Expected Right but got $result")
+    result.toOption.get match
+      case BankRailsEvent.SctInstSettled(e2eId, amount, currency) =>
+        assert(e2eId    == "inst-e2e-001")
+        assert(amount   == "250.00")
+        assert(currency == "EUR")
+      case other => fail(s"Expected SctInstSettled, got $other")
+
+  test("SepaWebhookReceiver: parses SCTInst.CreditTransfer.Rejection event"):
+    val secret = "sct-inst-secret"
+    val body   = """{"type":"SCTInst.CreditTransfer.Rejection","end_to_end_id":"inst-e2e-002","reason":"AC01"}"""
+    val sig    = makeSignature(secret, body)
+    val recv   = SepaWebhookReceiver()
+    val req    = WebhookRequest(headers = Map("X-SEPA-Signature" -> sig), rawBody = body)
+    val result = recv.verify(req, secret)
+    assert(result.isRight, s"Expected Right but got $result")
+    result.toOption.get match
+      case BankRailsEvent.SctInstRejected(e2eId, reason) =>
+        assert(e2eId  == "inst-e2e-002")
+        assert(reason == "AC01")
+      case other => fail(s"Expected SctInstRejected, got $other")
+
+  test("SepaWebhookReceiver: SCTInst.CreditTransfer.Settlement with camelCase endToEndId field"):
+    val secret = "sct-inst-secret"
+    val body   = """{"type":"SCTInst.CreditTransfer.Settlement","endToEndId":"inst-e2e-003","amount":"100.00","currency":"EUR"}"""
+    val sig    = makeSignature(secret, body)
+    val recv   = SepaWebhookReceiver()
+    val req    = WebhookRequest(headers = Map("X-SEPA-Signature" -> sig), rawBody = body)
+    val result = recv.verify(req, secret)
+    assert(result.isRight)
+    result.toOption.get match
+      case BankRailsEvent.SctInstSettled(e2eId, _, _) =>
+        assert(e2eId == "inst-e2e-003", "Should fall back to endToEndId camelCase field")
+      case other => fail(s"Expected SctInstSettled, got $other")
+
+  test("SepaWebhookReceiver: SCTInst.CreditTransfer.Rejection falls back to reason_code field"):
+    val secret = "sct-inst-secret"
+    val body   = """{"type":"SCTInst.CreditTransfer.Rejection","end_to_end_id":"inst-e2e-004","reason_code":"MS03"}"""
+    val sig    = makeSignature(secret, body)
+    val recv   = SepaWebhookReceiver()
+    val req    = WebhookRequest(headers = Map("X-SEPA-Signature" -> sig), rawBody = body)
+    val result = recv.verify(req, secret)
+    assert(result.isRight)
+    result.toOption.get match
+      case BankRailsEvent.SctInstRejected(_, reason) =>
+        assert(reason == "MS03", "Should fall back to reason_code field when reason absent")
+      case other => fail(s"Expected SctInstRejected, got $other")
+
+  test("SepaWebhookReceiver: wrong HMAC rejects SCTInst.CreditTransfer.Settlement"):
+    val secret = "correct-secret"
+    val body   = """{"type":"SCTInst.CreditTransfer.Settlement","end_to_end_id":"inst-e2e-005","amount":"10.00","currency":"EUR"}"""
+    val sig    = makeSignature("wrong-secret", body)
+    val recv   = SepaWebhookReceiver()
+    val req    = WebhookRequest(headers = Map("X-SEPA-Signature" -> sig), rawBody = body)
+    val result = recv.verify(req, secret)
+    assert(result.isLeft, "Wrong HMAC must be rejected for SCT Inst event")
+    assert(result.swap.toOption.get.isInstanceOf[InvalidSignature])
+
+  // ── SCT Inst: RailKind enum tests ─────────────────────────────────────────
+
+  test("RailKind.SCT_INST is a distinct rail kind"):
+    assert(RailKind.SCT_INST != RailKind.SEPA_CT)
+    assert(RailKind.SCT_INST != RailKind.SEPA_DD)
+    assert(RailKind.SCT_INST.toString == "SCT_INST")

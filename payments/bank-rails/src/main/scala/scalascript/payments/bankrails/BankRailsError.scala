@@ -28,3 +28,11 @@ case class PixKeyNotFound(key: String)
 
 case class NachaCutoffMissed(scheduledDate: java.time.LocalDate)
     extends BankRailsError(s"ACH cut-off missed for $scheduledDate — next available date is next business day")
+
+/** SCT Inst 10-second transmission window exceeded (HTTP 408-style).
+ *  EBA sanctions screening must complete within the 10s window; if the aggregator
+ *  cannot confirm settlement in time it returns a timeout error.
+ *  @param endToEndId the EndToEndId of the transfer that timed out
+ *  @param elapsedMs  milliseconds elapsed before the timeout was declared */
+case class SctInstTimeout(endToEndId: String, elapsedMs: Long)
+    extends BankRailsError(s"SCT Inst 10-second window exceeded for $endToEndId (${elapsedMs}ms elapsed)")

@@ -26,6 +26,12 @@ enum BankRailsEvent:
   case FedNowCreditReceived(transfer: BankTransfer)
   case FedNowRejected(transfer: BankTransfer, code: RejectCode)
 
+  // ── SEPA Instant (SCT Inst) — v1.55.2 ───────────────────────────────────
+  // pacs.002 ACCC from TIPS/RT1 acknowledgment via aggregator
+  case SctInstSettled(endToEndId: String, amount: String, currency: String)
+  // pacs.002 RJCT within the 10-second SCT Inst window
+  case SctInstRejected(endToEndId: String, reason: String)
+
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String

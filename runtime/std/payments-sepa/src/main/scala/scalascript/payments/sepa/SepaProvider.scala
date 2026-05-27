@@ -11,12 +11,20 @@ import java.time.{Duration, Instant}
 
 /** SEPA BankRailsProvider adapter.
  *
- *  Implements SEPA Credit Transfer (PAIN.001) and SEPA Core Direct Debit (PAIN.008)
- *  via an aggregator REST API.  Signature auth via Bearer token.
+ *  Implements SEPA Credit Transfer (PAIN.001), SEPA Core Direct Debit (PAIN.008),
+ *  and SEPA Instant Credit Transfer / SCT Inst (pacs.008.001.08) via an aggregator
+ *  REST API.  Signature auth via Bearer token.
+ *
+ *  SCT Inst (RailKind.SCT_INST) uses the same aggregator endpoint as SEPA CT but
+ *  submits a pacs.008 pacs message with LclInstrm=INST and SttlmMtd=CLRG/SCTInst.
+ *  The aggregator routes the message to TIPS (ECB) or RT1 (EBA CLEARING).
+ *
+ *  Note: EU Regulation 2024/886 mandates that all eurozone PSPs offering SEPA CT
+ *  must also offer SCT Inst at no extra charge (mandatory since March 2024).
  *
  *  Configuration via SepaConfig (or environment variables at construction time).
  *
- *  See docs/bank-rails.md §8 v1.54.1.
+ *  See docs/bank-rails.md §8 v1.54.1 and docs/international-bank-rails.md §v1.55.2.
  */
 class SepaProvider(config: SepaConfig) extends BankRailsProvider:
 
@@ -25,16 +33,20 @@ class SepaProvider(config: SepaConfig) extends BankRailsProvider:
     .build()
 
   def id:             String       = "sepa"
-  def displayName:    String       = "SEPA (Credit Transfer + Core Direct Debit)"
-  def spiVersion:     String       = "1.54.1"
-  def supportedRails: Set[RailKind] = Set(RailKind.SEPA_CT, RailKind.SEPA_DD)
+  def displayName:    String       = "SEPA (Credit Transfer + Core Direct Debit + SCT Inst)"
+  def spiVersion:     String       = "1.55.2"
+  // SCT_INST added v1.55.2: same aggregator as CT, routed to TIPS/RT1 via pacs.008 INST
+  def supportedRails: Set[RailKind] = Set(RailKind.SEPA_CT, RailKind.SEPA_DD, RailKind.SCT_INST)
 
-  // ── Push: SEPA Credit Transfer ─────────────────────────────────────────────
+  // ── Push: SEPA Credit Transfer + SCT Inst ─────────────────────────────────
 
   def initiateTransfer(req: InitiateTransferRequest): BankTransfer =
     if !supportedRails.contains(req.rail) then
       throw UnsupportedRail(req.rail, id)
-    val painXml = SepaPainXml.buildPain001(req)
+    // SCT Inst uses pacs.008 with INST local instrument; CT uses pain.001
+    val painXml = req.rail match
+      case RailKind.SCT_INST => SepaPainXml.buildSctInstPacs008(req)
+      case _                 => SepaPainXml.buildPain001(req)
     val respBody = postXml("/transfers", painXml)
     // Parse transfer ID from response; fall back to idempotency key if not present
     val transferId = extractField(respBody, "transfer_id")

@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.55.2-sepa-instant** — Extended `runtime/std/payments-sepa/` with SEPA Instant Credit Transfer (SCT Inst): `RailKind.SCT_INST`, `SepaPainXml.buildSctInstPacs008` (pacs.008.001.08 with `LclInstrm=INST`, `SttlmMtd=CLRG`, `ClrSys=SCTInst`), `BankRailsEvent.SctInstSettled/SctInstRejected`, `BankRailsError.SctInstTimeout` (10-second window exceeded); `SepaProvider.supportedRails` extended; webhook parsing for `SCTInst.CreditTransfer.Settlement/Rejection`; 19 new tests (49 total).
+
 - **wallet-solana-standard-js** — Scala.js Solana Wallet Standard browser registration (`wallet-connector-wallet-std/js/`): `WalletInfo` JS-native trait (name, icon, chains, features), `WalletStandardJs.register(info, connector)` dispatches `wallet-standard:register-wallet` CustomEvent + legacy `window.standard.wallets.registerWallet`, `StandardWalletConnectorJs` feature-map bridge; 6 Node.js smoke tests via `global.window` stub.
 
 - **v1.55.1-markup-core** — `runtime/std/markup-core/`: first-class XML / Generic Markup milestone (v1.55) phase 1.  Delivers `Markup` sealed ADT (`Doc`, `Element`, `Attr`, `Text`, `CData`, `PI`, `Comment`, `DocType`, `XmlDecl`, `QName`, `Raw`); `MarkupCodec` SPI (parse / serialize / validate); `XmlEscape` (5-entity escape + unescape, text + attr variants); `PureMarkupCodec` (zero-dependency XML 1.0 recursive-descent parser + serializer, ~300 LoC, handles namespaces / CDATA / entities / PIs / comments / self-closing / mixed content); `xml"..."` string interpolator (mandatory XML-escape for all args, `Markup.raw(...)` passthrough, `Markup.Element` splice via serializer, `Markup.Doc` splice).  17 tests (`MarkupSpec` + `XmlInterpolatorSpec`).
