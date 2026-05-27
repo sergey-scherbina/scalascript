@@ -87,6 +87,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "check"               => checkCommand(args.tail)
     case "run"                 => runCommand(args.tail)
     case "watch"               => watchCommand(args.tail)
+    case "watch-bench"         => watchBenchCommand(args.tail)
     case "repl"                => replCommand(args.tail)
     case "emit-js"             => emitJsCommand(args.tail)
     case "emit-wasm"           => emitWasmCommand(args.tail)
@@ -533,6 +534,8 @@ def printUsage(): Unit =
     |                                --open-browser / --no-open-browser controls browser auto-open for web preview
     |  watch                  Run .ssc and re-run on every file change
     |                         Flags: --frontend <custom|react|solid|vue|swing>  (overrides frontmatter frontend:)
+    |  watch-bench            Benchmark one watch reload cycle on a temp copy
+    |                         Flags: --cycles <n>, --target-ms <n>, --require-target
     |  repl                   Start interactive REPL (blank line runs, :quit exits)
     |  compile                Compile and run .ssc on JVM via scala-cli
     |                         Flags: --server-backend <jdk|jetty|netty>
@@ -4348,6 +4351,118 @@ def watchCommand(args: List[String]): Unit =
       else
         runOnce(headless = false)
     key.reset()
+
+private case class WatchBenchConfig(
+    file:          String = "",
+    cycles:        Int = 7,
+    targetMs:      Long = 100,
+    requireTarget: Boolean = false
+)
+
+private def watchBenchCommand(args: List[String]): Unit =
+  if args.isEmpty then
+    System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
+    System.exit(1)
+  var cfg = WatchBenchConfig()
+  var i   = 0
+  def nextValue(flag: String): String =
+    if i + 1 >= args.length then
+      System.err.println(s"watch-bench: missing value for $flag")
+      System.exit(1)
+    i += 1
+    args(i)
+  while i < args.length do
+    args(i) match
+      case "--cycles" =>
+        cfg = cfg.copy(cycles = nextValue("--cycles").toInt)
+      case "--target-ms" =>
+        cfg = cfg.copy(targetMs = nextValue("--target-ms").toLong)
+      case "--require-target" =>
+        cfg = cfg.copy(requireTarget = true)
+      case s if !s.startsWith("-") && cfg.file.isEmpty =>
+        cfg = cfg.copy(file = s)
+      case other =>
+        System.err.println(s"watch-bench: unknown argument: $other")
+        System.exit(1)
+    i += 1
+  if cfg.file.isEmpty then
+    System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
+    System.exit(1)
+  if cfg.cycles < 1 then
+    System.err.println("watch-bench: --cycles must be positive")
+    System.exit(1)
+
+  val srcPath = os.Path(java.nio.file.Paths.get(cfg.file).toAbsolutePath.normalize)
+  if !os.exists(srcPath) then
+    System.err.println(s"watch-bench: file not found: ${cfg.file}")
+    System.exit(1)
+
+  val tmpDir  = os.temp.dir(prefix = "ssc-watch-bench-", deleteOnExit = true)
+  val tmpFile = tmpDir / srcPath.last
+  os.copy(srcPath, tmpFile)
+  ParseCache.clear()
+
+  def isServerSource(): Boolean =
+    os.read(tmpFile).linesIterator.exists { line =>
+      line.replaceAll("//.*", "").contains("serve(")
+    }
+
+  def mutate(cycle: Int): Unit =
+    val marker = s"// watch-bench-cycle-$cycle"
+    val src    = os.read(tmpFile)
+    val idx    = src.lastIndexOf("```")
+    val next =
+      if idx >= 0 then src.take(idx) + marker + "\n" + src.drop(idx)
+      else src + s"\n# Watch Bench $cycle\n```scala\n$marker\n```\n"
+    os.write.over(tmpFile, next)
+
+  var prevSnapshots: List[SectionSnapshot] = Nil
+  var interp: Interpreter = null
+  var checkpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
+  val serverMode = isServerSource()
+  def benchInterpreter(headless: Boolean): Interpreter =
+    Interpreter(
+      out = new java.io.PrintStream(java.io.ByteArrayOutputStream(), true, "UTF-8"),
+      baseDir = Some(tmpFile / os.up),
+      headless = headless
+    )
+
+  def reloadOnce(cold: Boolean): Long =
+    val t0 = System.nanoTime()
+    val module = ParseCache.getOrParse(tmpFile)
+    val (typed, newSnapshots) = Typer.typeCheckIncrementalModule(module, prevSnapshots)
+    val oldSnapshots = prevSnapshots
+    prevSnapshots = newSnapshots
+    if typed.errors.nonEmpty then
+      typed.errors.foreach(e => System.err.println(s"watch-bench type: ${e.show}"))
+    if serverMode then
+      scalascript.server.Routes.clear()
+      benchInterpreter(headless = true).run(module)
+    else if cold || interp == null || checkpoints.isEmpty then
+      interp = benchInterpreter(headless = false)
+      checkpoints = interp.runWithCheckpoints(module)
+    else
+      val prevHashes = oldSnapshots.map(_.sectionHash)
+      val currHashes = newSnapshots.map(_.sectionHash)
+      val firstChanged = currHashes.zipWithIndex.collectFirst {
+        case (h, idx) if prevHashes.lift(idx).forall(_ != h) => idx
+      }.getOrElse(module.sections.length)
+      checkpoints = interp.runSectionsIncremental(module.sections, firstChanged, checkpoints)
+    (System.nanoTime() - t0) / 1_000_000L
+
+  val warmMs = reloadOnce(cold = true)
+  val samples = (1 to cfg.cycles).map { cycle =>
+    mutate(cycle)
+    val ms = reloadOnce(cold = false)
+    println(s"cycle $cycle: ${ms}ms")
+    ms
+  }.toVector.sorted
+  val p50 = samples(samples.length / 2)
+  val max = samples.last
+  println(s"watch-bench: file=${srcPath.last} mode=${if serverMode then "server" else "script"} warm=${warmMs}ms p50=${p50}ms max=${max}ms target=${cfg.targetMs}ms")
+  if cfg.requireTarget && max > cfg.targetMs then
+    System.err.println(s"watch-bench: max ${max}ms exceeded target ${cfg.targetMs}ms")
+    System.exit(1)
 
 def emitJsCommand(args: List[String]): Unit =
   if args.isEmpty then { println("Error: No files specified"); System.exit(1) }

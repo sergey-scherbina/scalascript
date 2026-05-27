@@ -57,4 +57,15 @@ object ParseCache:
   /** Compute a SHA-256 hex digest of `bytes`. */
   def sha256hex(bytes: Array[Byte]): String =
     val md = java.security.MessageDigest.getInstance("SHA-256")
-    md.digest(bytes).map("%02x".format(_)).mkString
+    toHex(md.digest(bytes))
+
+  private def toHex(bytes: Array[Byte]): String =
+    val out = new Array[Char](bytes.length * 2)
+    val hex = "0123456789abcdef"
+    var i = 0
+    while i < bytes.length do
+      val b = bytes(i) & 0xff
+      out(i * 2) = hex.charAt(b >>> 4)
+      out(i * 2 + 1) = hex.charAt(b & 0x0f)
+      i += 1
+    String(out)

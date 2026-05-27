@@ -87,6 +87,18 @@ ssc serve server.ssc    # starts server, hot-reloads routes on every save
 Each reload prints a timestamp (`[HH:mm:ss] Reloading ...`) and clears
 the terminal so you always see fresh output at the top.
 
+To measure reload latency without editing your real file, use `watch-bench`.
+It copies the source to a temporary directory, mutates a code block between
+cycles, and runs the same parse-cache + incremental type-check + reload path:
+
+```bash
+ssc watch-bench --cycles 10 --target-ms 100 examples/rest-api.ssc
+ssc watch-bench --cycles 10 --target-ms 100 --require-target examples/rest-api.ssc
+```
+
+The output includes warm-up, p50, and max cycle times. `--require-target`
+exits non-zero when the max cycle exceeds the target.
+
 ### REPL
 
 ```bash

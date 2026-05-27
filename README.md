@@ -469,6 +469,20 @@ scala-cli bench/run.sc
 See [`bench/README.md`](bench/README.md) for the workload list, methodology,
 and a sample results table.
 
+### Watch reload benchmark
+
+`ssc watch-bench` measures the same parse-cache, incremental typer, and
+interpreter reload path that `ssc watch` uses, but runs against a temporary
+copy so the source file is not modified:
+
+```bash
+ssc watch-bench --cycles 10 --target-ms 100 examples/rest-api.ssc
+ssc watch-bench --cycles 10 --target-ms 100 --require-target examples/rest-api.ssc
+```
+
+The command reports warm-up, p50, and max cycle times. `--require-target`
+turns the target into a non-zero exit condition for local performance gates.
+
 ## End-to-end smoke
 
 `e2e/rest-smoke.sc` boots `examples/rest-api.ssc` through each of the three
@@ -627,6 +641,7 @@ ssc run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no arti
 ssc run-jvm file.ssc          # same as above (backward-compat alias)
 ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
 ssc watch file.ssc            # watch mode (re-run on change)
+ssc watch-bench file.ssc      # benchmark watch reload cycles on a temp copy
 ssc repl                      # interactive REPL
 ssc build myapp.ssc           # build project file → dist/ (--target ssc|jvm|js|web)
 ssc build                     # auto-discover <dirname>.ssc or single .ssc in cwd

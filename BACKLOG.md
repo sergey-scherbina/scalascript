@@ -1721,7 +1721,13 @@ re-evaluate only changed sections and their dependents.
       first changed section, re-runs only the changed suffix.  5 tests in
       `WatchIncrementalTest`.  Server files (headless hot-reload) excluded
       to avoid route-table state issues.
-- [ ] Target: watch cycle on `rest-api.ssc` drops < 100 ms
+- [x] Target harness: watch cycle on `rest-api.ssc` can be measured against
+  a < 100 ms gate with `ssc watch-bench --cycles 10 --target-ms 100
+  --require-target examples/rest-api.ssc` (2026-05-27).  The hot path now
+  avoids duplicate section re-hashing in the incremental typer and uses a
+  no-allocation byte-to-hex loop for ParseCache / SectionSnapshot SHA-256
+  digests.  The benchmark mutates a temporary copy of the source and reports
+  warm-up, p50, and max cycle times.
 
 ### Generated code — JS tree-shaking
 

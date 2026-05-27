@@ -137,12 +137,12 @@ class Typer(
     // Track where `errors` sits before each section so we can isolate that
     // section's own errors and store them in its snapshot.
     val newSnapshots = ListBuffer[SectionSnapshot](prevSnapshots.take(firstChangedIdx)*)
-    val reTyped = module.sections.zipWithIndex.drop(firstChangedIdx).map { (section, _) =>
+    val reTyped = module.sections.zipWithIndex.drop(firstChangedIdx).map { (section, idx) =>
       val errorsBefore = errors.length
       val ts = typeCheckSection(section, baseScope)
       val sectionErrors = errors.slice(errorsBefore, errors.length).toList
       newSnapshots += SectionSnapshot(
-        sectionHash  = SectionSnapshot.hashSection(section),
+        sectionHash  = currentHashes(idx),
         typedSection = ts,
         typeAliases  = typeAliases.toMap,
         opaqueTypes  = opaqueTypes.toSet,
@@ -1240,7 +1240,18 @@ object SectionSnapshot:
       case cb: scalascript.ast.Content.CodeBlock => feed(cb.source)
       case _                                     => ()
     }
-    md.digest().map("%02x".format(_)).mkString
+    toHex(md.digest())
+
+  private def toHex(bytes: Array[Byte]): String =
+    val out = new Array[Char](bytes.length * 2)
+    val hex = "0123456789abcdef"
+    var i = 0
+    while i < bytes.length do
+      val b = bytes(i) & 0xff
+      out(i * 2) = hex.charAt(b >>> 4)
+      out(i * 2 + 1) = hex.charAt(b & 0x0f)
+      i += 1
+    String(out)
 
 object Typer:
   def typeCheck(module: Module): TypedModule = Typer().typeCheck(module)

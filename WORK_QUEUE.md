@@ -45,8 +45,8 @@ _(all done — see Done section below)_
 
 - [x] **ws-load-10k** — Smoke test: 10 000 concurrent WebSocket connections without OOM (2026-05-27)
 
-- [ ] **watch-100ms** — Watch cycle optimization: `ssc --watch rest-api.ssc` target < 100 ms per cycle
-  _Spec: `BACKLOG.md §Compiler — AST cache`. Core checkpoint+incremental already landed. Need benchmark harness + profile-driven fixes to hit target._
+- [x] **watch-100ms** — Watch cycle optimization: `ssc --watch rest-api.ssc` target < 100 ms per cycle (2026-05-27)
+  _Added `ssc watch-bench` reload harness over a temporary source copy, plus hot-path hashing fixes: ParseCache / SectionSnapshot use direct hex encoding and incremental typer reuses precomputed section hashes instead of hashing retyped sections twice. Spec: `BACKLOG.md §Compiler — AST cache`._
 
 - [ ] **sbt-interop-plugin** — Build-tool integration: `sbt-scalascript-interop` plugin + Mill module trait + scala-cli directive
   _Spec: `BACKLOG.md §Tier 3 — build-tool integration`. Deliberate separate repo (`scalascript-sbt-plugin`). ~15 fixture tests._
