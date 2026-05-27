@@ -2278,6 +2278,31 @@ lazy val paymentsWebhook = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Payments — Redis-backed cluster-safe SeenKeyStore ────────────────────
+lazy val paymentsWebhookRedis = project
+  .in(file("payments/webhook-redis"))
+  .dependsOn(paymentsWebhook, clientRedis, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-webhook-redis",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Payments — Postgres-backed cluster-safe SeenKeyStore ─────────────────
+lazy val paymentsWebhookPostgres = project
+  .in(file("payments/webhook-postgres"))
+  .dependsOn(paymentsWebhook, clientPostgres, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-webhook-postgres",
+    libraryDependencies ++= Seq(
+      "com.h2database" % "h2" % "2.2.224" % Test,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Payments — PaymentProvider SPI plugin ────────────────────────────────
 lazy val paymentsPlugin = project
   .in(file("runtime/std/payments-plugin"))
@@ -2406,7 +2431,7 @@ lazy val root = project
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
-    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
+    paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
   )
   .settings(
     publish / skip := true
