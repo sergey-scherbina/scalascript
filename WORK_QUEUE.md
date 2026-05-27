@@ -41,6 +41,18 @@ _(all done — see Done section below)_
 - [x] **v1.50-native-p3-plugin-bridge** — `ssc-plugin-host.jar` + automatic bridge (existing plugins unchanged) (2026-05-27)
   _New `ssc-plugin-host` sbt subproject: `SubprocessHost` main loads any existing plugin JAR via URLClassLoader + ServiceLoader + wire protocol. Native `ssc` auto-spawns it when `--plugin foo.jar` given. Plugin authors change nothing. Spec: `BACKLOG.md §Phase 3`._
 
+- [ ] **v1.50-native-p4-plugin-guide** — Plugin-author guide: compile your plugin to a native binary via GraalVM native-image (docs only, no core changes)
+  _Spec: `BACKLOG.md §Phase 4`. Deliverable: `docs/native-plugin-guide.md` + example plugin config snippet. Unlocks fully JVM-free `ssc (native) → wire protocol → plugin (native)` deployments._
+
+- [ ] **ws-load-10k** — Smoke test: 10 000 concurrent WebSocket connections without OOM
+  _Spec: `BACKLOG.md §Runtime — Project Loom`. Requires a dedicated load-test harness (WsStress or similar). Core VT wiring already in place._
+
+- [ ] **watch-100ms** — Watch cycle optimization: `ssc --watch rest-api.ssc` target < 100 ms per cycle
+  _Spec: `BACKLOG.md §Compiler — AST cache`. Core checkpoint+incremental already landed. Need benchmark harness + profile-driven fixes to hit target._
+
+- [ ] **sbt-interop-plugin** — Build-tool integration: `sbt-scalascript-interop` plugin + Mill module trait + scala-cli directive
+  _Spec: `BACKLOG.md §Tier 3 — build-tool integration`. Deliberate separate repo (`scalascript-sbt-plugin`). ~15 fixture tests._
+
 ## Language & Compiler
 
 - [x] **v1.12.1-effects-types** — Add `EffectRow` to `SType`, Rémy-style row unification, `!` operator in `TypeParser`, `multi effect` keyword, handler discharge in typer, `EffectAnalysis` verifier mode, §9 diagnostics. (2026-05-26)
