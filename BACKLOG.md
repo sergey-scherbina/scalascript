@@ -3691,6 +3691,10 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             `EscrowRedeemerCodec` builds bloxbean `PlutusData`
             `Claim(coseSign1Bytes, coseKeyBytes)` and exposes it on
             `ClaimTxPlan.claimRedeemer`.
+      - [x] Draft bloxbean Transaction skeleton ✓ Landed (2026-05-27):
+            `BloxbeanClaimTxBuilder.draft` serializes escrow input,
+            receiver output, Plutus V3 script, and Spend redeemer;
+            not production default.
       - [ ] Transaction body + script witness + relayer witness
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted

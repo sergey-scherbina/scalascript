@@ -356,6 +356,11 @@ validator to UPLC:
   `PlutusData` for `Claim(coseSign1Bytes, coseKeyBytes)` as
   constructor alternative 0, and `ClaimTxPlan.claimRedeemer` exposes it
   to the transaction builder.
+- **Landed (2026-05-27):** `BloxbeanClaimTxBuilder.draft` serializes a
+  bloxbean `Transaction` skeleton containing the escrow script input,
+  receiver output, Plutus V3 script, and Spend redeemer. It is not the
+  production default because fee balancing, collateral, and relayer
+  witness are still open.
 - **Still open:** the default `BloxbeanClaimTxBuilder` fails
   explicitly until Plutus witness / redeemer construction is
   implemented on top of `cardano-client-lib`.

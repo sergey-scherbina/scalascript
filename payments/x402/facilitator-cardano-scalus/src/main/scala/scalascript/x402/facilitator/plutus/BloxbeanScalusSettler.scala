@@ -3,6 +3,8 @@ package scalascript.x402.facilitator.plutus
 import scalascript.blockfrost.BlockfrostClient
 import scalascript.x402.*
 
+import java.math.BigInteger
+import java.util.Collections
 import scala.concurrent.{ExecutionContext, Future}
 
 case class ScalusSettlerConfig(
@@ -36,6 +38,60 @@ object BloxbeanClaimTxBuilder:
     Future.failed(UnsupportedOperationException(
       "Bloxbean claim transaction construction is not implemented yet"
     ))
+
+  /** Draft serializer for the deterministic script-input/output/redeemer
+   *  skeleton. It is intentionally not the default production builder:
+   *  fee balancing, collateral inputs, relayer vkey witness, and script
+   *  data hash evaluation still have to be layered in before submission
+   *  to a live network. */
+  val draft: ClaimTxBuilder = BloxbeanClaimTxDraftBuilder
+
+object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
+  def build(plan: ClaimTxPlan): Future[Array[Byte]] =
+    Future.successful(buildTransaction(plan).serialize())
+
+  def buildTransaction(plan: ClaimTxPlan): com.bloxbean.cardano.client.transaction.spec.Transaction =
+    import com.bloxbean.cardano.client.plutus.spec.*
+    import com.bloxbean.cardano.client.spec.{Era, NetworkId}
+    import com.bloxbean.cardano.client.transaction.spec.*
+
+    val input = TransactionInput.builder()
+      .transactionId(plan.escrowRef.txHash)
+      .index(plan.escrowRef.outputIndex)
+      .build()
+    val output = TransactionOutput.builder()
+      .address(plan.receiverAddress)
+      .value(Value.fromCoin(bigInteger(plan.lovelace)))
+      .build()
+    val body = TransactionBody.builder()
+      .inputs(Collections.singletonList(input))
+      .outputs(Collections.singletonList(output))
+      .fee(BigInteger.ZERO)
+      .networkId(if plan.network == Network.CardanoMainnet then NetworkId.MAINNET else NetworkId.TESTNET)
+      .build()
+    val script: PlutusV3Script = PlutusV3Script.builder()
+      .cborHex(X402EscrowCompiled.doubleCborHex)
+      .build()
+      .asInstanceOf[PlutusV3Script]
+    val redeemer = Redeemer.builder()
+      .tag(RedeemerTag.Spend)
+      .index(0)
+      .data(plan.claimRedeemer)
+      .exUnits(ExUnits.builder().mem(BigInteger.ZERO).steps(BigInteger.ZERO).build())
+      .build()
+    val witnesses = TransactionWitnessSet.builder()
+      .plutusV3Scripts(Collections.singletonList(script))
+      .redeemers(Collections.singletonList(redeemer))
+      .build()
+    Transaction.builder()
+      .era(Era.Conway)
+      .body(body)
+      .witnessSet(witnesses)
+      .isValid(true)
+      .build()
+
+  private def bigInteger(value: BigInt): BigInteger =
+    new BigInteger(value.toString)
 
 final class BloxbeanScalusSettler private (
   cfg:     ScalusSettlerConfig,
