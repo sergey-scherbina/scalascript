@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **watch-100ms** — watch reload benchmark + hot-path hashing cleanup: new `ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>` command runs watch reload cycles against a temporary copy and reports warm-up/p50/max; `WatchCycleBenchTest` covers the incremental path; `ParseCache` and `SectionSnapshot` SHA-256 hex encoding now use a direct char loop instead of per-byte `String.format`; incremental typer reuses precomputed section hashes when building snapshots for retyped sections.
+
 - **v1.50-native-p4** — Native plugin binary guide: `docs/native-plugin-guide.md` — complete plugin-author guide for building GraalVM native binaries from existing plugins. Covers: `GraalVMNativeImagePlugin` sbt setup, minimal reflection/resource config, agent-based config generation, CI matrix (ubuntu/macos arm64/macos x86_64), `plugin.yaml` manifest for native executables, and JAR-vs-native comparison table. No core changes. Fully JVM-free `ssc (native) → wire protocol → plugin (native)` deployments now documented.
 
 - **ws-load-10k** — Smoke test: 10 000 concurrent WebSocket connections via Loom virtual threads. `WsLoad10kTest` asserts ≥ 99 % open, heap growth < 1 GB, `WsConnection.activeCount` tracks correctly, all drain cleanly. Auto-skips when `ulimit -n` < 22 000. Satisfies the Project-Loom follow-up deferred since 2026-05-21.
