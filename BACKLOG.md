@@ -993,6 +993,44 @@ Design decisions locked:
 - State migration CLI: `ssc deploy state migrate --from local --to s3`
 - Production env enforcement that a non-local state backend is configured
 
+## v2.1 — Distributed Streams (Beam-style)
+
+**Status: spec landed 2026-05-27.**  `docs/distributed-streams.md` covers the full design.
+Implementation phases ship independently below.
+
+- [ ] **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded
+  backend (wraps `Dataset[T]` partitions; no watermarks yet); `DirectRunner` test backend;
+  `Feature.DistributedStreams` flag; `examples/distributed-streams.ssc`.
+  Spec: `docs/distributed-streams.md §13`.
+
+- [ ] **v2.1.2-dstream-native-unbounded** — Native unbounded backend: actor mailboxes as stream
+  elements, watermark propagation via `WatermarkStrategy`, event-time windowing on native backend,
+  `Trigger.afterWatermark` support. Spec: `docs/distributed-streams.md §9.1`.
+
+- [ ] **v2.1.3-dstream-spark** — Spark backend: bounded via `Dataset[T]` (micro-batch),
+  unbounded via Spark Structured Streaming; `SparkGen.scala` extension; `Coder[T]` ↔ Spark
+  `Encoder[T]` bridge; `Feature.SparkStreaming` flag. Spec: `docs/distributed-streams.md §9.2`.
+
+- [ ] **v2.1.4-dstream-kafka** — Kafka Streams backend: `StreamsBuilder` topology compilation,
+  `KV[K,V]` → KStream/KTable inference, Kafka `Serde[T]` bridge, `Topology.describe()` in
+  diagnostics. Spec: `docs/distributed-streams.md §9.3`.
+
+- [ ] **v2.1.5-dstream-flink** — Apache Flink backend (DataStream API) + Apache Beam portability
+  runner; Flink `TypeInformation[T]` bridge; Beam `PipelineOptions` pass-through.
+  Spec: `docs/distributed-streams.md §9.4–9.5`.
+
+- [ ] **v2.1.6-dstream-connectors** — Production connectors: Kafka source/sink, Parquet/JSON/CSV
+  files, JDBC source/sink, S3/GCS/HDFS, Pulsar, Kinesis.  Auto-emitted deps per connector type
+  (same pattern as Spark Kafka detector in `SparkGen.scala:308-321`).
+  Spec: `docs/distributed-streams.md §6`.
+
+- [ ] **v2.1.7-dstream-stateful** — Stateful processing + timers: `KeyedStateSpec[K, S]`,
+  `processElement` with `StateContext`, event-time and processing-time timers, `ValueState`,
+  `MapState`, `ListState`, `BagState`; broadcast state pattern.
+  Spec: `docs/distributed-streams.md §5`.
+
+---
+
 ## v2.0 — Separate compilation of modules
 
 **Status: working separate compilation landed 2026-05-19.**  All six

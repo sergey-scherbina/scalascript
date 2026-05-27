@@ -16,10 +16,11 @@
 _(none)_
 
 ### Next up (top of BACKLOG)
-- **v1.12.1** — `EffectRow` in `SType`, row unification, `!` operator, `multi effect`, handler discharge (`BACKLOG.md §v1.12`)
+- **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded backend + `DirectRunner` (`BACKLOG.md §v2.1`)
 - **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v2.1.0 — Distributed Streams spec (`docs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
 - v1.52 — Deploy to Hostings/Clouds/K8s spec (`docs/deploy.md`) + go decision ✓ (2026-05-27)
 - v1.51 — Streams with Backpressure spec (`docs/streams.md`) + go decision ✓ (2026-05-27)
 - v1.50 — GraalVM native-image build + `ssc-plugin-host` bridge + native plugin guide ✓ (2026-05-27)
@@ -45,7 +46,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v1.12.1-effects-types + v1.51.1-streams-plugin | `docs/algebraic-effects.md`, `docs/streams.md` |
+| **Language & Compiler** | v2.1.1-dstream-native-bounded + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | _(queue empty)_ | — |
 | **Native Platform** | _(queue empty)_ | — |
