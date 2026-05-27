@@ -10,7 +10,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Payments & Blockchain — v1.58 Compliance Provider
 
-- [ ] **v1.58-compliance-provider** — AML/KYC/sanctions compliance provider SPI: `payments/compliance/` SPI module (`ComplianceProvider` trait: `screenAml(entity)/verifyKyc(identity)/checkSanctions(party)/getStatus`; `ComplianceRequest/ComplianceResult/KycResult/SanctionsResult/AmlResult` types; `ComplianceError` sealed hierarchy); `payments/compliance-complyadvantage/` ComplyAdvantage REST v1 adapter (POST `/search`, HMAC-SHA256 webhook, 20+ tests); `payments/compliance-chainalysis/` Chainalysis KYT API adapter (POST `/transfers`, `GET /entities`, 15+ tests); `payments/compliance-mock/` MockComplianceProvider for testing (configurable pass/fail per check type, 20+ tests); 4 sbt subprojects. Spec: `docs/compliance-provider.md`.
+- [x] **v1.58-compliance-provider** — AML/KYC/sanctions compliance provider SPI: `payments/compliance/` SPI module (`ComplianceProvider` trait: `screenAml(entity)/verifyKyc(identity)/checkSanctions(party)/getStatus`; `ComplianceRequest/ComplianceResult/KycResult/SanctionsResult/AmlResult` types; `ComplianceError` sealed hierarchy); `payments/compliance-complyadvantage/` ComplyAdvantage REST v1 adapter (POST `/search`, HMAC-SHA256 webhook, 20+ tests); `payments/compliance-chainalysis/` Chainalysis KYT API adapter (POST `/transfers`, `GET /entities`, 15+ tests); `payments/compliance-mock/` MockComplianceProvider for testing (configurable pass/fail per check type, 20+ tests); 4 sbt subprojects. Spec: `docs/compliance-provider.md`.
 
 ## Language & Compiler — Spark extensions
 

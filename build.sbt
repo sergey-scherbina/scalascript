@@ -2795,6 +2795,50 @@ lazy val paymentsAuNpp = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Compliance provider — SPI module ─────────────────────────────────────
+lazy val paymentsCompliance = project
+  .in(file("payments/compliance"))
+  .dependsOn(testUtils % Test)
+  .settings(
+    name := "payments-compliance",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Compliance provider — ComplyAdvantage REST v1 adapter ─────────────────
+lazy val paymentsComplianceComplyAdvantage = project
+  .in(file("payments/compliance-complyadvantage"))
+  .dependsOn(paymentsCompliance, testUtils % Test)
+  .settings(
+    name := "payments-compliance-complyadvantage",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Compliance provider — Chainalysis KYT v2 adapter ─────────────────────
+lazy val paymentsComplianceChainalysis = project
+  .in(file("payments/compliance-chainalysis"))
+  .dependsOn(paymentsCompliance, testUtils % Test)
+  .settings(
+    name := "payments-compliance-chainalysis",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── Compliance provider — Mock (testing) ─────────────────────────────────
+lazy val paymentsComplianceMock = project
+  .in(file("payments/compliance-mock"))
+  .dependsOn(paymentsCompliance, testUtils % Test)
+  .settings(
+    name := "payments-compliance-mock",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Tax provider — SPI module ─────────────────────────────────────────────
 lazy val paymentsTax = project
   .in(file("payments/tax"))
@@ -2867,6 +2911,7 @@ lazy val root = project
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsAuNpp, paymentsMxSpei, paymentsCaEft,
     fxSpi, fxEcb, fxOer,
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
+    paymentsCompliance, paymentsComplianceComplyAdvantage, paymentsComplianceChainalysis, paymentsComplianceMock,
     markupCore, markupCoreJs, markupJs, markupNode,
   )
   .settings(
