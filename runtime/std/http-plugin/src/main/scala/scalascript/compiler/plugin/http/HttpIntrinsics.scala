@@ -50,10 +50,12 @@ object HttpIntrinsics:
       args match
         case List(port: Long) =>
           ctx.registerHealthDefaults()
+          ctx.registerOpenApiDefaults()
           ctx.startServerAsync(port.toInt, ".")
           ()
         case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
           ctx.registerHealthDefaults()
+          ctx.registerOpenApiDefaults()
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           if !ctx.headless then

@@ -79,6 +79,7 @@ trait NativeContext:
   def headless: Boolean = false
   def registerRoute(method: String, path: String, handler: Any): Unit = ()
   def registerHealthDefaults(): Unit = ()
+  def registerOpenApiDefaults(): Unit = ()
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
   def invokeCallback(fn: Any, args: List[Any]): Any = ()
   // Outbound HTTP client state — scoped inside httpClient{} blocks.

@@ -789,6 +789,9 @@ class Interpreter(
   private[interpreter] def registerHealthDefaults(): Unit =
     ClusterRoutesRuntime.registerHealthDefaults(this)
 
+  private[interpreter] def registerOpenApiDefaults(): Unit =
+    OpenApiRuntime.registerOpenApiDefaults(this)
+
   private[interpreter] def registerClusterDrainRoute(): Unit =
     ClusterRoutesRuntime.registerClusterDrainRoute(this)
 
@@ -845,6 +848,7 @@ class Interpreter(
           style    = if Interpreter.this.currentLoadingFile.isDefined then "load" else "route"
         )
       override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
+      override def registerOpenApiDefaults(): Unit = Interpreter.this.registerOpenApiDefaults()
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
       override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
