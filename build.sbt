@@ -879,7 +879,8 @@ lazy val cli = project
                                   "scalascript-oauth-plugin", "scalascript-fetch-plugin",
                                   "scalascript-graph-plugin", "scalascript-sql-plugin",
                                   "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin",
-                                  "scalascript-swing-plugin")
+                                  "scalascript-swing-plugin", "scalascript-streams-plugin",
+                                  "scalascript-dstreams-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
@@ -905,6 +906,8 @@ lazy val cli = project
         (mcpPlugin      / packagePlugin).value,
         (swingPlugin    / packagePlugin).value,
         (pwaPlugin      / packagePlugin).value,
+        (streamsPlugin  / packagePlugin).value,
+        (dstreamsPlugin / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2178,6 +2181,18 @@ lazy val streamsPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.streams"))
 
+// ── DStreams — interpreter plugin ─────────────────────────────────────────
+lazy val dstreamsPlugin = project
+  .in(file("runtime/std/dstreams-plugin"))
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-dstreams-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.dstreams"))
+
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
   .in(file("runtime/std/payment-request-plugin"))
@@ -2219,7 +2234,7 @@ lazy val root = project
     frontendExamples,
     jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
-    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin,
+    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     paymentRequestPlugin, paymentRequest,
   )
   .settings(

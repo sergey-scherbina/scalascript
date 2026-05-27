@@ -1065,10 +1065,10 @@ Implementation phases ship independently below.
 **Status: spec landed 2026-05-27.**  `docs/distributed-streams.md` covers the full design.
 Implementation phases ship independently below.
 
-- [ ] **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded
+- [x] **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded
   backend (wraps `Dataset[T]` partitions; no watermarks yet); `DirectRunner` test backend;
   `Feature.DistributedStreams` flag; `examples/distributed-streams.ssc`.
-  Spec: `docs/distributed-streams.md §13`.
+  Spec: `docs/distributed-streams.md §13`. (2026-05-27)
 
 - [ ] **v2.1.2-dstream-native-unbounded** — Native unbounded backend: actor mailboxes as stream
   elements, watermark propagation via `WatermarkStrategy`, event-time windowing on native backend,

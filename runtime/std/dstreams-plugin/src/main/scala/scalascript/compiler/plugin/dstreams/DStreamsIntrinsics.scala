@@ -1,0 +1,535 @@
+package scalascript.compiler.plugin.dstreams
+
+import scalascript.backend.spi.*
+import scalascript.ir.QualifiedName
+import scalascript.interpreter.{Value, InterpretError, Computation}
+
+import scala.collection.mutable.{ListBuffer, LinkedHashMap}
+
+/** DStream / Pipeline intrinsics for the tree-walking interpreter.
+ *
+ *  Architecture (v2.1.1 — native bounded backend only):
+ *  - `Pipeline.create(name)` builds a lazy DAG via `PipelineNode` case classes.
+ *  - `.read(source)`, `.map(f)`, `.filter(p)`, … append nodes to the DAG.
+ *  - `.run(Backend.Direct)` or `.run(Backend.Native)` walks the DAG and
+ *    executes it synchronously on the calling thread (DirectRunner).
+ *  - `InMemory.source(list)` and `InMemory.runAndCollect(stream)` are the
+ *    testing entry-points used by unit tests and `examples/distributed-streams.ssc`.
+ *
+ *  All pipeline DAG nodes are plain Scala case objects stored in a `Value.InstanceV`
+ *  under the key `"__dag"`.  The runner unpacks them and drives execution. */
+object DStreamsIntrinsics:
+
+  // NativeImpl receives unwrapped primitives from the interpreter bridge.
+  // Wrap them back to Value so they can be stored in DAG nodes / returned.
+  private def toValue(a: Any): Value = a match
+    case n: Long    => Value.IntV(n)
+    case i: Int     => Value.IntV(i.toLong)
+    case d: Double  => Value.DoubleV(d)
+    case s: String  => Value.StringV(s)
+    case b: Boolean => Value.BoolV(b)
+    case ()         => Value.UnitV
+    case v: Value   => v
+    case _          => Value.StringV(a.toString)
+
+  // ── Capability constants (match spec enum) ────────────────────────────────
+
+  private val CAP_AT_LEAST_ONCE       = "AtLeastOnce"
+  private val CAP_EXACTLY_ONCE        = "ExactlyOnce"
+  private val CAP_EVENT_TIME          = "EventTime"
+  private val CAP_KEYED_STATE         = "KeyedState"
+  private val CAP_BROADCAST_STATE     = "BroadcastState"
+  private val CAP_SIDE_INPUTS         = "SideInputs"
+  private val CAP_SIDE_OUTPUTS        = "SideOutputs"
+  private val CAP_TIMER_EVENT_TIME    = "TimerEventTime"
+  private val CAP_TIMER_PROC_TIME     = "TimerProcessingTime"
+  private val CAP_WINDOWED_JOINS      = "WindowedJoins"
+
+  // Capabilities provided by DirectRunner / NativeRunner (v2.1.1 bounded subset)
+  private val directCapabilities: Set[String] = Set(
+    CAP_AT_LEAST_ONCE, CAP_KEYED_STATE, CAP_WINDOWED_JOINS, CAP_TIMER_PROC_TIME,
+  )
+
+  // ── DAG node representation ───────────────────────────────────────────────
+  // Stored as Value.InstanceV("_dag_<kind>", fields) inside a DStream Value.
+
+  private def dagNode(kind: String, fields: Map[String, Value]): Value =
+    Value.InstanceV(s"_dag_$kind", fields)
+
+  private def getDag(v: Value): Value = v match
+    case Value.InstanceV("DStream", fields) =>
+      fields.getOrElse("__dag", throw InterpretError("DStream missing __dag"))
+    case other => throw InterpretError(s"Expected DStream, got: $other")
+
+  // ── DAG evaluation (DirectRunner) ─────────────────────────────────────────
+
+  private def call(ctx: NativeContext, f: Value, args: List[Value]): Value =
+    ctx.synchronized { ctx.invokeCallback(f, args).asInstanceOf[Value] }
+
+  private def evalDag(dag: Value, ctx: NativeContext): Iterator[Value] =
+    dag match
+
+      case Value.InstanceV("_dag_source_list", fields) =>
+        fields("elements") match
+          case Value.ListV(xs) => xs.iterator
+          case _ => Iterator.empty
+
+      case Value.InstanceV("_dag_source_local", fields) =>
+        // DSource.fromLocalSource — drain the Source[A] into an iterator
+        val src = fields("source")
+        val buf = ListBuffer[Value]()
+        src match
+          case inst: Value.InstanceV =>
+            val forward = Value.NativeFnV("_collect", Computation.pureFn {
+              case List(x) => buf += x; Value.UnitV
+              case _       => Value.UnitV
+            })
+            inst.fields.get("runForeach") match
+              case Some(rf) => call(ctx, rf, List(forward))
+              case None     => throw InterpretError("fromLocalSource: not a Source")
+          case _ => throw InterpretError("fromLocalSource: not a Source")
+        buf.iterator
+
+      case Value.InstanceV("_dag_map", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        upstream.map(v => call(ctx, f, List(v)))
+
+      case Value.InstanceV("_dag_filter", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val pred     = fields("pred")
+        upstream.filter(v => call(ctx, pred, List(v)) == Value.BoolV(true))
+
+      case Value.InstanceV("_dag_flatMap", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        upstream.flatMap { v =>
+          call(ctx, f, List(v)) match
+            case Value.ListV(xs) => xs.iterator
+            case inner: Value.InstanceV =>
+              // Support both List and DStream inner results
+              inner.fields.get("__dag") match
+                case Some(innerDag) => evalDag(innerDag, ctx)
+                case None =>
+                  // treat as Source[A] — drain it
+                  val buf = ListBuffer[Value]()
+                  val forward = Value.NativeFnV("_collect", Computation.pureFn {
+                    case List(x) => buf += x; Value.UnitV
+                    case _       => Value.UnitV
+                  })
+                  inner.fields.get("runForeach") match
+                    case Some(rf) => call(ctx, rf, List(forward))
+                    case None     => ()
+                  buf.iterator
+            case _ => Iterator.empty
+        }
+
+      case Value.InstanceV("_dag_keyBy", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val keyFn    = fields("keyFn")
+        upstream.map { v =>
+          val k = call(ctx, keyFn, List(v))
+          Value.InstanceV("KV", Map("key" -> k, "value" -> v))
+        }
+
+      case Value.InstanceV("_dag_combinePerKey", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        val groups   = LinkedHashMap[Value, Value]()
+        for kv <- upstream do
+          kv match
+            case Value.InstanceV("KV", kvFields) =>
+              val k = kvFields("key")
+              val v = kvFields("value")
+              groups.get(k) match
+                case Some(acc) => groups(k) = call(ctx, f, List(acc, v))
+                case None      => groups(k) = v
+            case _ =>
+        groups.iterator.map { case (k, v) =>
+          Value.InstanceV("KV", Map("key" -> k, "value" -> v))
+        }
+
+      case Value.InstanceV("_dag_merge", fields) =>
+        val left  = evalDag(fields("left"), ctx)
+        val right = evalDag(fields("right"), ctx)
+        left ++ right
+
+      case Value.InstanceV("_dag_mapWithTimestamp", fields) =>
+        // v2.1.1: processing time only; timestamps are wall-clock millis
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        upstream.map { v =>
+          val ts = Value.IntV(System.currentTimeMillis())
+          call(ctx, f, List(v, ts))
+        }
+
+      case Value.InstanceV("_dag_assignTimestamps", fields) =>
+        // timestamps are discarded in v2.1.1; just pass elements through
+        evalDag(fields("upstream"), ctx)
+
+      case other =>
+        throw InterpretError(s"evalDag: unknown DAG node kind: $other")
+
+  // ── Collect results from a running pipeline ────────────────────────────────
+
+  private def runToList(dag: Value, ctx: NativeContext): List[Value] =
+    evalDag(dag, ctx).toList
+
+  // ── Capability negotiation ─────────────────────────────────────────────────
+
+  private def collectRequiredCaps(dag: Value): Set[String] =
+    val caps = scala.collection.mutable.Set[String](CAP_AT_LEAST_ONCE)
+    def walk(node: Value): Unit = node match
+      case Value.InstanceV(kind, fields) =>
+        kind match
+          case "_dag_statefulMap" | "_dag_statefulFlatMap" => caps += CAP_KEYED_STATE
+          case "_dag_join" | "_dag_leftOuterJoin" | "_dag_rightOuterJoin" => caps += CAP_WINDOWED_JOINS
+          case "_dag_broadcastState" => caps += CAP_BROADCAST_STATE
+          case "_dag_withSideInput"  => caps += CAP_SIDE_INPUTS
+          case "_dag_sideOutput"     => caps += CAP_SIDE_OUTPUTS
+          case "_dag_timerEventTime" => caps += CAP_TIMER_EVENT_TIME; caps += CAP_EVENT_TIME
+          case "_dag_timerProcessing"=> caps += CAP_TIMER_PROC_TIME
+          case _ =>
+        fields.values.foreach {
+          case inner: Value.InstanceV => walk(inner)
+          case _ =>
+        }
+      case _ =>
+    walk(dag)
+    caps.toSet
+
+  private def backendProvides(backendName: String): Set[String] = backendName match
+    case "Direct" | "Native" => directCapabilities
+    case "Spark"             => Set(
+      CAP_AT_LEAST_ONCE, CAP_EXACTLY_ONCE, CAP_EVENT_TIME, CAP_KEYED_STATE,
+      CAP_BROADCAST_STATE, CAP_SIDE_INPUTS, CAP_SIDE_OUTPUTS,
+      CAP_TIMER_EVENT_TIME, CAP_TIMER_PROC_TIME, CAP_WINDOWED_JOINS,
+    )
+    case _ => directCapabilities
+
+  private def checkCapabilities(dag: Value, backendName: String): Option[String] =
+    val required = collectRequiredCaps(dag)
+    val provided = backendProvides(backendName)
+    val missing  = required -- provided
+    if missing.isEmpty then None
+    else Some(
+      s"CAPABILITY_MISMATCH: backend '$backendName' does not support: ${missing.mkString(", ")}. " +
+      s"Consider Backend.Spark or Backend.Flink for these capabilities."
+    )
+
+  // ── PipelineResult ────────────────────────────────────────────────────────
+
+  private def mkResult(results: List[Value]): Value =
+    Value.InstanceV("PipelineResult", Map(
+      "state"            -> Value.StringV("Done"),
+      "__results"        -> Value.ListV(results),
+      "waitUntilFinish"  -> Value.NativeFnV("PipelineResult.waitUntilFinish", Computation.pureFn { _ =>
+        Value.StringV("Done")
+      }),
+      "cancel"           -> Value.NativeFnV("PipelineResult.cancel", Computation.pureFn { _ =>
+        Value.UnitV
+      }),
+    ))
+
+  // ── Pipeline execution ────────────────────────────────────────────────────
+
+  private def executePipeline(dag: Value, backendName: String, ctx: NativeContext): Value =
+    checkCapabilities(dag, backendName) match
+      case Some(err) => throw InterpretError(err)
+      case None      =>
+        dag match
+          // If the final node is a write, run through it but discard sink output
+          case Value.InstanceV("_dag_write", fields) =>
+            val results = runToList(fields("upstream"), ctx)
+            val sink    = fields("sink")
+            // Store results in the sink's buffer if it's an InMemory sink
+            sink match
+              case Value.InstanceV("_inmemory_sink", sinkFields) =>
+                sinkFields.get("__buffer") match
+                  case Some(bufRef: Value.InstanceV) =>
+                    // The buffer is a mutable ref — store via the put fn
+                    bufRef.fields.get("put") match
+                      case Some(putFn) => call(ctx, putFn, List(Value.ListV(results)))
+                      case None        => ()
+                  case _ => ()
+              case _ => ()
+            mkResult(results)
+          case other =>
+            val results = runToList(other, ctx)
+            mkResult(results)
+
+  // ── DStream operator wiring ───────────────────────────────────────────────
+
+  private def dstreamOps(dag: Value, ctx: NativeContext): Map[String, Value] = Map(
+
+    "map" -> Value.NativeFnV("DStream.map", Computation.pureFn {
+      case List(f) => mkDStreamWithOps(dagNode("map", Map("upstream" -> dag, "f" -> f)), ctx)
+      case _       => throw InterpretError("DStream.map(f)")
+    }),
+
+    "filter" -> Value.NativeFnV("DStream.filter", Computation.pureFn {
+      case List(pred) => mkDStreamWithOps(dagNode("filter", Map("upstream" -> dag, "pred" -> pred)), ctx)
+      case _          => throw InterpretError("DStream.filter(pred)")
+    }),
+
+    "flatMap" -> Value.NativeFnV("DStream.flatMap", Computation.pureFn {
+      case List(f) => mkDStreamWithOps(dagNode("flatMap", Map("upstream" -> dag, "f" -> f)), ctx)
+      case _       => throw InterpretError("DStream.flatMap(f)")
+    }),
+
+    "keyBy" -> Value.NativeFnV("DStream.keyBy", Computation.pureFn {
+      case List(keyFn) => mkDStreamWithOps(dagNode("keyBy", Map("upstream" -> dag, "keyFn" -> keyFn)), ctx)
+      case _           => throw InterpretError("DStream.keyBy(keyFn)")
+    }),
+
+    "combinePerKey" -> Value.NativeFnV("DStream.combinePerKey", Computation.pureFn {
+      case List(f) => mkDStreamWithOps(dagNode("combinePerKey", Map("upstream" -> dag, "f" -> f)), ctx)
+      case _       => throw InterpretError("DStream.combinePerKey(f)")
+    }),
+
+    "merge" -> Value.NativeFnV("DStream.merge", Computation.pureFn {
+      case List(other) =>
+        val otherDag = getDag(other)
+        mkDStreamWithOps(dagNode("merge", Map("left" -> dag, "right" -> otherDag)), ctx)
+      case _ => throw InterpretError("DStream.merge(other)")
+    }),
+
+    "mapWithTimestamp" -> Value.NativeFnV("DStream.mapWithTimestamp", Computation.pureFn {
+      case List(f) => mkDStreamWithOps(dagNode("mapWithTimestamp", Map("upstream" -> dag, "f" -> f)), ctx)
+      case _       => throw InterpretError("DStream.mapWithTimestamp(f)")
+    }),
+
+    "assignTimestamps" -> Value.NativeFnV("DStream.assignTimestamps", Computation.pureFn {
+      case List(f) => mkDStreamWithOps(dagNode("assignTimestamps", Map("upstream" -> dag, "f" -> f)), ctx)
+      case _       => throw InterpretError("DStream.assignTimestamps(f)")
+    }),
+
+    "write" -> Value.NativeFnV("DStream.write", Computation.pureFn {
+      case List(sink) => mkDStreamWithOps(dagNode("write", Map("upstream" -> dag, "sink" -> sink)), ctx)
+      case _          => throw InterpretError("DStream.write(sink)")
+    }),
+
+    "requires" -> Value.NativeFnV("DStream.requires", Computation.pureFn { _ =>
+      Value.ListV(collectRequiredCaps(dag).toList.map(Value.StringV(_)))
+    }),
+
+    "run" -> Value.NativeFnV("DStream.run", Computation.pureFn {
+      case List(backend) =>
+        val backendName = backend match
+          case Value.StringV(s)              => s
+          case Value.InstanceV(name, _)      => name
+          case _                             => "Direct"
+        executePipeline(dag, backendName, ctx)
+      case _ => throw InterpretError("DStream.run(backend)")
+    }),
+
+    "runOpts" -> Value.NativeFnV("DStream.runOpts", Computation.pureFn {
+      case List(backend, _) =>
+        val backendName = backend match
+          case Value.StringV(s)         => s
+          case Value.InstanceV(name, _) => name
+          case _                        => "Direct"
+        executePipeline(dag, backendName, ctx)
+      case _ => throw InterpretError("DStream.runOpts(backend, opts)")
+    }),
+
+    // Bounded terminal operators — execute eagerly
+    "runToList" -> Value.NativeFnV("DStream.runToList", Computation.pureFn { _ =>
+      Value.ListV(runToList(dag, ctx))
+    }),
+
+    "runFold" -> Value.NativeFnV("DStream.runFold", Computation.pureFn {
+      case List(z) => Value.NativeFnV("DStream.runFold$1", Computation.pureFn {
+        case List(f) =>
+          var acc = z
+          for v <- evalDag(dag, ctx) do acc = call(ctx, f, List(acc, v))
+          acc
+        case _ => throw InterpretError("DStream.runFold(z)(f) — inner")
+      })
+      case _ => throw InterpretError("DStream.runFold(z)(f) — outer")
+    }),
+
+    "runForeach" -> Value.NativeFnV("DStream.runForeach", Computation.pureFn {
+      case List(f) =>
+        for v <- evalDag(dag, ctx) do call(ctx, f, List(v))
+        Value.UnitV
+      case _ => throw InterpretError("DStream.runForeach(f)")
+    }),
+
+    "runCount" -> Value.NativeFnV("DStream.runCount", Computation.pureFn { _ =>
+      Value.IntV(evalDag(dag, ctx).size.toLong)
+    }),
+  )
+
+  private def mkDStreamWithOps(dag: Value, ctx: NativeContext): Value =
+    Value.InstanceV("DStream", Map("__dag" -> dag) ++ dstreamOps(dag, ctx))
+
+  // ── Pipeline object ───────────────────────────────────────────────────────
+
+  private def mkPipeline(name: String, ctx: NativeContext): Value =
+    Value.InstanceV("Pipeline", Map(
+      "name" -> Value.StringV(name),
+
+      "read" -> Value.NativeFnV("Pipeline.read", Computation.pureFn {
+        case List(dsource: Value.InstanceV) =>
+          val dag = dsource.fields.getOrElse("__dag",
+            throw InterpretError("Pipeline.read: not a DSource"))
+          mkDStreamWithOps(dag, ctx)
+        case _ => throw InterpretError("Pipeline.read(source: DSource[T])")
+      }),
+    ))
+
+  // ── InMemory sink buffer ──────────────────────────────────────────────────
+
+  private def mkInMemorySink(): Value =
+    val buf = ListBuffer[Value]()
+    val putFn = Value.NativeFnV("InMemorySink.put", Computation.pureFn {
+      case List(Value.ListV(xs)) => buf ++= xs; Value.UnitV
+      case _                    => Value.UnitV
+    })
+    val getFn = Value.NativeFnV("InMemorySink.get", Computation.pureFn { _ =>
+      Value.ListV(buf.toList)
+    })
+    Value.InstanceV("_inmemory_sink", Map(
+      "__buffer" -> Value.InstanceV("_buf_ref", Map("put" -> putFn, "get" -> getFn)),
+      "get"      -> getFn,
+    ))
+
+  // ── Intrinsic table ───────────────────────────────────────────────────────
+
+  val table: Map[QualifiedName, IntrinsicImpl] = Map(
+
+    // Pipeline.create(name)
+    QualifiedName("Pipeline.create") -> NativeImpl((ctx, args) =>
+      args match
+        case List(name: String) => mkPipeline(name, ctx)
+        case _                  => throw InterpretError("Pipeline.create(name: String)")
+    ),
+
+    // runPipeline(pipeline, backend) — functional alternative to pipeline.run(backend)
+    QualifiedName("runPipeline") -> NativeImpl((ctx, args) =>
+      def backendNameOf(a: Any): String = a match
+        case s: String                   => s
+        case Value.InstanceV(name, _)    => name
+        case _                           => "Direct"
+      args match
+        case List(_, stream: Value.InstanceV) =>
+          val dag = stream.fields.getOrElse("__dag",
+            throw InterpretError("runPipeline: first arg must be a Pipeline / DStream"))
+          executePipeline(dag, backendNameOf(args.head), ctx)
+        case List(stream: Value.InstanceV, backend) =>
+          val dag = stream.fields.getOrElse("__dag",
+            throw InterpretError("runPipeline: arg must be a DStream"))
+          executePipeline(dag, backendNameOf(backend), ctx)
+        case _ => throw InterpretError("runPipeline(pipeline, backend)")
+    ),
+
+    // InMemory.source(list)
+    QualifiedName("InMemory.source") -> NativeImpl((_, args) =>
+      args match
+        case List(Value.ListV(elems)) =>
+          val dag = dagNode("source_list", Map("elements" -> Value.ListV(elems)))
+          Value.InstanceV("DSource", Map("__dag" -> dag))
+        case _ => throw InterpretError("InMemory.source(elements: List[T])")
+    ),
+
+    // InMemory.sourceWithTimestamps(list of (T, Long))
+    QualifiedName("InMemory.sourceWithTimestamps") -> NativeImpl((_, args) =>
+      args match
+        case List(Value.ListV(pairs)) =>
+          val elems = pairs.map {
+            case Value.TupleV(List(v, _)) => v
+            case v                        => v
+          }
+          val dag = dagNode("source_list", Map("elements" -> Value.ListV(elems)))
+          Value.InstanceV("DSource", Map("__dag" -> dag))
+        case _ => throw InterpretError("InMemory.sourceWithTimestamps(elements: List[(T, Long)])")
+    ),
+
+    // InMemory.sink() — returns a DSink + getter pair
+    QualifiedName("InMemory.sink") -> NativeImpl((_, _) =>
+      mkInMemorySink()
+    ),
+
+    // InMemory.runAndCollect(stream) — DirectRunner convenience
+    QualifiedName("InMemory.runAndCollect") -> NativeImpl((ctx, args) =>
+      args match
+        case List(stream: Value.InstanceV) =>
+          val dag = stream.fields.getOrElse("__dag",
+            throw InterpretError("InMemory.runAndCollect: not a DStream"))
+          Value.ListV(runToList(dag, ctx))
+        case _ => throw InterpretError("InMemory.runAndCollect(stream: DStream[T])")
+    ),
+
+    // DSource.fromLocalSource(src: Source[A])
+    QualifiedName("DSource.fromLocalSource") -> NativeImpl((_, args) =>
+      args match
+        case List(src: Value) =>
+          val dag = dagNode("source_local", Map("source" -> src))
+          Value.InstanceV("DSource", Map("__dag" -> dag))
+        case _ => throw InterpretError("DSource.fromLocalSource(src: Source[A])")
+    ),
+
+    // Backend.Direct / Backend.Native / Backend.Spark — singleton values
+    QualifiedName("Backend.Direct")  -> NativeImpl((_, _) => Value.InstanceV("Direct",  Map.empty)),
+    QualifiedName("Backend.Native")  -> NativeImpl((_, _) => Value.InstanceV("Native",  Map.empty)),
+    QualifiedName("Backend.Spark")   -> NativeImpl((_, _) => Value.InstanceV("Spark",   Map.empty)),
+
+    // Window constructors (return tagged values; only identity for v2.1.1)
+    QualifiedName("Window.fixed")    -> NativeImpl((_, args) => args match
+      case List(ms) => Value.InstanceV("Window.Fixed",   Map("ms" -> toValue(ms)))
+      case _        => throw InterpretError("Window.fixed(durationMs)")
+    ),
+    QualifiedName("Window.sliding")  -> NativeImpl((_, args) => args match
+      case List(ms, p) => Value.InstanceV("Window.Sliding", Map("ms" -> toValue(ms), "period" -> toValue(p)))
+      case _           => throw InterpretError("Window.sliding(durationMs, periodMs)")
+    ),
+    QualifiedName("Window.session")  -> NativeImpl((_, args) => args match
+      case List(ms) => Value.InstanceV("Window.Session",  Map("gapMs" -> toValue(ms)))
+      case _        => throw InterpretError("Window.session(gapMs)")
+    ),
+    QualifiedName("Window.global")   -> NativeImpl((_, _) => Value.InstanceV("Window.Global", Map.empty)),
+
+    // Trigger constructors
+    QualifiedName("Trigger.afterWatermark")       -> NativeImpl((_, _) => Value.StringV("Trigger.AfterWatermark")),
+    QualifiedName("Trigger.afterProcessingTime")  -> NativeImpl((_, args) =>
+      Value.InstanceV("Trigger.AfterProcessingTime",
+        Map("ms" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+    ),
+    QualifiedName("Trigger.afterCount")           -> NativeImpl((_, args) =>
+      Value.InstanceV("Trigger.AfterCount",
+        Map("n" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+    ),
+    QualifiedName("Trigger.repeatedly")           -> NativeImpl((_, args) =>
+      Value.InstanceV("Trigger.Repeatedly",
+        Map("inner" -> args.headOption.map(toValue).getOrElse(Value.UnitV)))
+    ),
+
+    // WatermarkStrategy constructors
+    QualifiedName("WatermarkStrategy.monotonicallyIncreasing") -> NativeImpl((_, _) =>
+      Value.StringV("WatermarkStrategy.MonotonicallyIncreasing")
+    ),
+    QualifiedName("WatermarkStrategy.atEnd")        -> NativeImpl((_, _) =>
+      Value.StringV("WatermarkStrategy.AtEnd")
+    ),
+    QualifiedName("WatermarkStrategy.boundedOutOfOrder") -> NativeImpl((_, args) =>
+      Value.InstanceV("WatermarkStrategy.BoundedOutOfOrder",
+        Map("lagMs" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+    ),
+
+    // AccumulationMode
+    QualifiedName("AccumulationMode.Discarding")   -> NativeImpl((_, _) => Value.StringV("AccumulationMode.Discarding")),
+    QualifiedName("AccumulationMode.Accumulating") -> NativeImpl((_, _) => Value.StringV("AccumulationMode.Accumulating")),
+
+    // KV constructor — args are unwrapped primitives or Values
+    QualifiedName("KV") -> NativeImpl((_, args) =>
+      args match
+        case List(k, v) => Value.InstanceV("KV", Map("key" -> toValue(k), "value" -> toValue(v)))
+        case _          => throw InterpretError("KV(key, value)")
+    ),
+    QualifiedName("KV.apply") -> NativeImpl((_, args) =>
+      args match
+        case List(k, v) => Value.InstanceV("KV", Map("key" -> toValue(k), "value" -> toValue(v)))
+        case _          => throw InterpretError("KV(key, value)")
+    ),
+  )

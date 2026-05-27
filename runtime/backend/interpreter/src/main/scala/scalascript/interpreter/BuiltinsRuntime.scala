@@ -646,6 +646,63 @@ private[interpreter] object BuiltinsRuntime:
         "filter" -> interp.globals.getOrElse("Flow.filter", Value.UnitV),
       ))
     }
+    // v2.1.1 DStreams — assemble companions from individual DStream.* intrinsics
+    interp.globals.get("Pipeline.create").foreach { createFn =>
+      interp.globals("Pipeline") = Value.InstanceV("Pipeline", Map("create" -> createFn))
+    }
+    interp.globals.get("InMemory.source").foreach { sourceFn =>
+      interp.globals("InMemory") = Value.InstanceV("InMemory", Map(
+        "source"               -> sourceFn,
+        "sourceWithTimestamps" -> interp.globals.getOrElse("InMemory.sourceWithTimestamps", Value.UnitV),
+        "sink"                 -> interp.globals.getOrElse("InMemory.sink",                 Value.UnitV),
+        "runAndCollect"        -> interp.globals.getOrElse("InMemory.runAndCollect",        Value.UnitV),
+      ))
+    }
+    interp.globals.get("DSource.fromLocalSource").foreach { fromLocalFn =>
+      interp.globals("DSource") = Value.InstanceV("DSource", Map(
+        "fromLocalSource" -> fromLocalFn,
+      ))
+    }
+    interp.globals.get("Backend.Direct").foreach { directFn =>
+      interp.globals("Backend") = Value.InstanceV("Backend", Map(
+        "Direct" -> directFn,
+        "Native" -> interp.globals.getOrElse("Backend.Native", Value.UnitV),
+        "Spark"  -> interp.globals.getOrElse("Backend.Spark",  Value.UnitV),
+      ))
+    }
+    interp.globals.get("Window.fixed").foreach { fixedFn =>
+      interp.globals("Window") = Value.InstanceV("Window", Map(
+        "fixed"   -> fixedFn,
+        "sliding" -> interp.globals.getOrElse("Window.sliding", Value.UnitV),
+        "session" -> interp.globals.getOrElse("Window.session", Value.UnitV),
+        "global"  -> interp.globals.getOrElse("Window.global",  Value.UnitV),
+      ))
+    }
+    interp.globals.get("Trigger.afterWatermark").foreach { awFn =>
+      interp.globals("Trigger") = Value.InstanceV("Trigger", Map(
+        "afterWatermark"      -> awFn,
+        "afterProcessingTime" -> interp.globals.getOrElse("Trigger.afterProcessingTime", Value.UnitV),
+        "afterCount"          -> interp.globals.getOrElse("Trigger.afterCount",          Value.UnitV),
+        "repeatedly"          -> interp.globals.getOrElse("Trigger.repeatedly",          Value.UnitV),
+      ))
+    }
+    interp.globals.get("WatermarkStrategy.atEnd").foreach { atEndFn =>
+      interp.globals("WatermarkStrategy") = Value.InstanceV("WatermarkStrategy", Map(
+        "atEnd"                      -> atEndFn,
+        "monotonicallyIncreasing"    -> interp.globals.getOrElse("WatermarkStrategy.monotonicallyIncreasing", Value.UnitV),
+        "boundedOutOfOrder"          -> interp.globals.getOrElse("WatermarkStrategy.boundedOutOfOrder",      Value.UnitV),
+      ))
+    }
+    interp.globals.get("AccumulationMode.Discarding").foreach { discFn =>
+      interp.globals("AccumulationMode") = Value.InstanceV("AccumulationMode", Map(
+        "Discarding"   -> discFn,
+        "Accumulating" -> interp.globals.getOrElse("AccumulationMode.Accumulating", Value.UnitV),
+      ))
+    }
+    interp.globals.get("KV").foreach { kvFn =>
+      // KV is also used as a constructor directly; ensure it's accessible
+      interp.globals("KV") = kvFn
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

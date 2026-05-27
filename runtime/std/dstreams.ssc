@@ -1,0 +1,156 @@
+---
+name: std-dstreams
+version: 0.1.0
+description: Distributed streams — DStream[T] / Pipeline Beam-style DAG + native bounded backend
+package: std.dstreams
+exports:
+  - DStream
+  - KV
+  - Pipeline
+  - PipelineResult
+  - PipelineState
+  - PipelineOptions
+  - Backend
+  - Capability
+  - Window
+  - Trigger
+  - WatermarkStrategy
+  - AccumulationMode
+  - Pane
+  - DSource
+  - DSink
+  - InMemory
+---
+
+# `std.dstreams` — Distributed Streams
+
+Apache-Beam-style pipeline DSL that compiles to the native ScalaScript actor cluster, Apache Spark,
+Apache Kafka Streams, and Apache Flink from the same user-code.  Companion to
+[`docs/distributed-streams.md`](../../docs/distributed-streams.md).
+
+In v2.1.1 only the **native bounded backend** (`Backend.Direct` and `Backend.Native`) is
+available; Spark / Kafka / Flink backends land in v2.1.3–v2.1.5.
+
+## Core types
+
+```scalascript
+// The primary distributed-stream type — a lazy pipeline stage.
+type DStream[T]
+
+// Keyed pair — required by keyBy / combinePerKey / aggregatePerKey.
+case class KV[K, V](key: K, value: V)
+
+// A compiled, runnable pipeline DAG.
+type Pipeline
+
+// Handle returned by pipeline.run() — for monitoring and cancellation.
+type PipelineResult
+
+// Pipeline execution state.
+enum PipelineState:
+  case Running
+  case Done
+  case Failed(cause: String)
+  case Cancelled
+
+// Backend-specific submission options.
+case class PipelineOptions(
+  parallelism:     Option[Int]          = None,
+  checkpointDir:   Option[String]       = None,
+  maxInFlight:     Option[Int]          = None,
+  extraProperties: Map[String, String]  = Map.empty,
+)
+```
+
+## Capability
+
+```scalascript
+// Runtime capability required by operators; negotiated at pipeline.run().
+enum Capability:
+  case AtLeastOnce
+  case ExactlyOnce
+  case EventTime
+  case WatermarkPerfect
+  case KeyedState
+  case BroadcastState
+  case SideInputs
+  case SideOutputs
+  case TimerEventTime
+  case TimerProcessingTime
+  case WindowedJoins
+```
+
+## Window / Trigger / Watermark
+
+```scalascript
+// Window shape — see docs/distributed-streams.md §7.3
+extern object Window:
+  def fixed(durationMs: Long):                Window
+  def sliding(durationMs: Long, periodMs: Long): Window
+  def session(gapMs: Long):                   Window
+  def global:                                 Window
+
+// Trigger — controls when a pane fires — see §7 of the spec.
+extern object Trigger:
+  def afterWatermark:                          Trigger
+  def afterProcessingTime(durationMs: Long):   Trigger
+  def afterCount(n: Int):                      Trigger
+  def repeatedly(t: Trigger):                  Trigger
+
+// Watermark assignment — see §7.2
+extern object WatermarkStrategy:
+  def monotonicallyIncreasing: WatermarkStrategy[Any]
+  def atEnd:                   WatermarkStrategy[Any]
+  def boundedOutOfOrder(lagMs: Long): WatermarkStrategy[Any]
+
+// Accumulation mode — Discarding | Accumulating
+extern object AccumulationMode:
+  def Discarding:    AccumulationMode
+  def Accumulating:  AccumulationMode
+```
+
+## Backend
+
+```scalascript
+// Backend selector — see docs/distributed-streams.md §9.
+extern object Backend:
+  // In-process synchronous runner — all capabilities; used for tests.
+  def Direct: Backend
+  // Native ScalaScript distributed actor cluster.
+  def Native: Backend
+  // Apache Spark — requires SPARK_MASTER env var or SparkConfig.
+  def Spark: Backend
+```
+
+## Pipeline builder
+
+```scalascript
+// Create a new named pipeline.
+extern object Pipeline:
+  def create(name: String): Pipeline
+
+// Terminal: submit the pipeline to a backend.
+extern def runPipeline(p: Pipeline, backend: Backend): PipelineResult
+extern def runPipelineOpts(p: Pipeline, backend: Backend, opts: PipelineOptions): PipelineResult
+```
+
+## DSource / DSink
+
+```scalascript
+// Typed source for a DStream pipeline.
+type DSource[T]
+
+// Typed sink for a DStream pipeline.
+type DSink[T]
+
+// Bridge: lift a local Source[A] (v1.51) into a bounded DStream.
+extern object DSource:
+  def fromLocalSource[A](src: Source[A]): DSource[A]
+
+// In-memory connectors (testing / bounded).
+extern object InMemory:
+  def source[T](elements: List[T]):                   DSource[T]
+  def sourceWithTimestamps[T](elements: List[(T, Long)]): DSource[T]
+  def sink[T]():                                       DSink[T]
+  def runAndCollect[T](stream: DStream[T]):            List[T]
+```

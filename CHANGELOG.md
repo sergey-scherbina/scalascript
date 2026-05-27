@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` Beam-style API on the native bounded backend. `Pipeline.create(name).read(DSource).map/filter/flatMap/keyBy/combinePerKey/merge.run(Backend.Direct|Native)`. `InMemory.source` / `InMemory.runAndCollect` testing helpers. `DSource.fromLocalSource` bridge from `Source[A]`. `Feature.DistributedStreams` flag. `Capability` negotiation at `.run()` (`CAPABILITY_MISMATCH` on missing cap). `examples/distributed-streams.ssc` (3 bounded examples). `dstreams-plugin` (23 tests green). `BuiltinsRuntime.setupPluginCompanions` extended for all DStream companion objects.
+
 - **x402-cardano-scalus-static-exunits** — Added static `ScalusExUnits` wiring for the Cardano/Scalus claim Tx draft: configured ex-units now flow into `ClaimTxPlan`, the bloxbean redeemer, and balanced fee estimation. Live node-backed ex-unit evaluation remains open.
 
 - **x402-cardano-scalus-fee-balancer** — Added `ScalusFeeBalancer` and `BloxbeanClaimTxBuilder.draftBalanced(...)`: the Cardano/Scalus claim Tx draft now estimates protocol min-fee from Blockfrost protocol params and final serialized CBOR size, with async params wiring for Blockfrost-backed builders. Live script ex-unit evaluation remains open.

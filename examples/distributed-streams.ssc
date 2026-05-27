@@ -1,0 +1,75 @@
+#!/usr/bin/env ssc
+---
+description: Distributed Streams — DStream[T] / Pipeline bounded examples (v2.1.1)
+imports:
+  - ../../runtime/std/dstreams.ssc
+---
+
+# Distributed Streams — `DStream[T]` / `Pipeline`
+
+Three bounded pipeline examples running on `Backend.Direct` (in-process DirectRunner).
+All use `InMemory.source` — no external cluster, broker, or Spark installation required.
+
+## 1. Map / filter / runToList
+
+Basic element-wise transforms on a bounded source, then eager collection.
+
+```scala
+println("=== 1. Map / filter / runToList ===")
+val result = Pipeline.create("numbers")
+  .read(InMemory.source(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)))
+  .filter(x => x % 2 == 0)
+  .map(x => x * x)
+  .runToList()
+println(result.mkString(", "))
+// → 4, 16, 36, 64, 100
+```
+
+## 2. Word count with keyBy + combinePerKey
+
+Classic streaming word count on a bounded input. Keyed aggregation without
+any external state — the native DirectRunner accumulates per-key totals in-process.
+
+```scala
+println("\n=== 2. Word count ===")
+val words = List(
+  "hello", "world", "hello", "scala", "world",
+  "hello", "distributed", "streams", "scala",
+)
+val counts = Pipeline.create("word-count")
+  .read(InMemory.source(words))
+  .map(w => KV(w, 1))
+  .combinePerKey((a, b) => a + b)
+  .runToList()
+
+counts.sortBy(_.toString).foreach(kv => println(s"  $kv"))
+// → KV(distributed,1) KV(hello,3) KV(scala,2) KV(streams,1) KV(world,2)
+```
+
+## 3. Multi-stage ETL with runFold
+
+Extract-transform-load pipeline: parse CSV-like strings, filter valid rows,
+compute a running total, and return a single aggregate — demonstrating that
+`runFold` works as a terminal operator on a bounded `DStream`.
+
+```scala
+println("\n=== 3. ETL — CSV parse → filter → aggregate ===")
+val csvRows = List(
+  "alice,120", "bob,invalid", "carol,85", "dave,200", "eve,-5", "frank,95",
+)
+val totalRevenue = Pipeline.create("etl-revenue")
+  .read(InMemory.source(csvRows))
+  .flatMap { row =>
+    val parts = row.split(",")
+    if parts.length == 2 then
+      val maybeNum = parts(1).toIntOption
+      maybeNum match
+        case Some(n) if n > 0 => List(n)
+        case _                => List()
+    else List()
+  }
+  .runFold(0)((acc, x) => acc + x)
+
+println(s"Total revenue = $totalRevenue")
+// → Total revenue = 500
+```

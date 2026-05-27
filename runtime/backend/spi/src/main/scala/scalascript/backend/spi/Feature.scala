@@ -36,3 +36,4 @@ enum Feature:
   case Dataset                   // std.mapreduce Dataset[T] (jvm, js, int)
   case PaymentRequest            // std.payment — W3C Payment Request API (browser) + Apple/Google Pay server
   case Streams                   // std.streams — backpressured Source/Sink/Flow (jvm, int, js)
+  case DistributedStreams        // std.dstreams — DStream[T] / Pipeline Beam-model (native, spark, kafka, flink)

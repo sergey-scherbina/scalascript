@@ -16,10 +16,11 @@
 _(none)_
 
 ### Next up (top of BACKLOG)
-- **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` types + native bounded backend + `DirectRunner` (`BACKLOG.md §v2.1`)
+- **v2.1.2-dstream-native-unbounded** — Native unbounded backend + processing-time windows + watermarks (`BACKLOG.md §v2.1`)
 - **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v2.1.1-dstream-native-bounded — `DStream[T]` / `Pipeline` native bounded backend, DirectRunner, 23 tests, `examples/distributed-streams.ssc` ✓ (2026-05-27)
 - v1.53 — Traditional Payment Processors spec (`docs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
 - v2.1.0 — Distributed Streams spec (`docs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
 - v1.52 — Deploy to Hostings/Clouds/K8s spec (`docs/deploy.md`) + go decision ✓ (2026-05-27)
@@ -47,7 +48,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v2.1.1-dstream-native-bounded + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
+| **Language & Compiler** | v2.1.2-dstream-native-unbounded + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | v1.53.1-payments-spi-stripe | `docs/traditional-payments.md` |
 | **Native Platform** | _(queue empty)_ | — |
