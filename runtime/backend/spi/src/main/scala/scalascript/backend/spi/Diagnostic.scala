@@ -26,3 +26,9 @@ enum Diagnostic:
   // browser (e.g. `h2:`, `postgres:`).  Only JS-supported schemes
   // (`sqlite:`, `sqlite-opfs:`, `duckdb:`) are allowed on the client side.
   case UnsupportedClientSideDbUrl(db: String, url: String, block: String)
+  // v1.55.4 — a `xml"..."` interpolation whose static parts (joined with
+  // placeholder text for dynamic holes) do not form well-formed XML.
+  // `message` is the parse-error description; `line` / `col` are
+  // 1-indexed positions within the reconstructed candidate string so the
+  // user can locate the broken construct.
+  case XmlParseError(message: String, line: Int, col: Int)

@@ -137,7 +137,7 @@ _(all done — see Done section below)_
 
 - [ ] **markup-feature-backend** — `Feature.Markup` + `Backend.markupCodec` SPI + JVM SAX codec: add `case Markup` to `Feature.scala`; `def markupCodec: Option[MarkupCodec] = None` to `Backend.scala`; `JvmMarkupCodec` in `runtime/backend/interpreter/` using `javax.xml.parsers.SAXParser`; declare `Feature.Markup` in `*Capabilities.scala` for interpreter+JVM backends; `CapabilityCheck` rejects `xml"..."` on backends lacking `Feature.Markup`; 8+ tests. Spec: `BACKLOG.md §v1.55.3`.
 
-- [ ] **markup-compile-check** — Compile-time `xml"..."` well-formedness: `lang/core/.../transform/MarkupInterpolatorCheck.scala` joins interpolation parts with placeholder text, runs `PureMarkupCodec.parse` at compile time, emits `Diagnostic.XmlParseError` on malformed input; 8+ tests (malformed tag, unclosed element, mismatched tags, valid doc passes). Spec: `BACKLOG.md §v1.55.4`.
+- [x] **markup-compile-check** — Compile-time `xml"..."` well-formedness: `lang/core/.../transform/MarkupInterpolatorCheck.scala` joins interpolation parts with placeholder text, runs `PureMarkupCodec.parse` at compile time, emits `Diagnostic.XmlParseError` on malformed input; 8+ tests (malformed tag, unclosed element, mismatched tags, valid doc passes). Spec: `BACKLOG.md §v1.55.4`. (2026-05-27)
 
 - [ ] **markup-element-literal** — Opt-in `<foo bar={expr}/>` element-literal syntax: `lang/core/.../transform/MarkupLiteralLower.scala`; `import scalascript.markup.*` enables; `<name attrs>{children}</name>` → `Markup.Element(…)` constructors; 10+ tests. Spec: `BACKLOG.md §v1.55.5`.
 

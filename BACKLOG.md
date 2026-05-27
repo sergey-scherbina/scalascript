@@ -1088,9 +1088,14 @@ XSLT deferred to v1.56.
 - Per-backend `*Capabilities.scala`: declare `Feature.Markup` where supported.
 - `CapabilityCheck`: reject programs using `xml"..."` against backends lacking `Feature.Markup`.
 
-**v1.55.4 — Compile-time `xml"..."` well-formedness checker:**
-- `lang/core/.../transform/MarkupInterpolatorCheck.scala`: join interpolation parts with placeholder text,
-  run `PureMarkupCodec.parse` at compile time, emit `Diagnostic.XmlParseError` if malformed.
+**v1.55.4 — Compile-time `xml"..."` well-formedness checker: ✓ Landed (2026-05-27)**
+- `MarkupInterpolatorCheck` in `lang/core/.../transform/`: walks scalameta trees in scalascript blocks,
+  joins `Term.Interpolate("xml", parts, _)` string parts with `<placeholder/>` for each hole, calls
+  `PureMarkupCodec.parse` at compile time, emits `Diagnostic.XmlParseError(message, line, col)`.
+- `Diagnostic.XmlParseError` added to `backend/spi/Diagnostic.scala`.
+- `markupCore` added as a dependency of the `core` sbt module.
+- 10 tests in `MarkupInterpolatorCheckTest` (valid self-closing, open/close, interpolation, nested,
+  attributes, namespace, unclosed tag, mismatched tags, bad attribute, two-errors-in-one-file).
 
 **v1.55.5 — Element-literal AST (`<foo bar={expr}/>` syntax):**
 - `lang/core/.../transform/MarkupLiteralLower.scala`: opt-in via `import scalascript.markup.*`;
