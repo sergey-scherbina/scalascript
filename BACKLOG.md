@@ -3842,8 +3842,12 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       `blake2b_256(payload) == datum.claimMessageHash`, and verifies
       Ed25519 over the CIP-8 Sig_Structure. The committed Plutus
       resource was regenerated from 1208 to 3830 hex chars.
-- [ ] Output-shape check: exact lovelace to datum.receiver
-      (Phase 2.5)
+- [x] Output-shape check: exact lovelace to datum.receiver
+      ✓ Landed (2026-05-27): Claim now requires at least one
+      transaction output whose payment credential is
+      `PubKeyCredential(datum.receiverHash)` and whose lovelace amount
+      is exactly `datum.amount`. The committed Plutus resource was
+      regenerated from 3830 to 5240 hex chars.
 - [ ] Validity-range check vs `datum.validBefore` / `datum.refundAfter`
       (Phase 2.5)
 - [ ] Unit tests via Scalus's script-context simulator under

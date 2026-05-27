@@ -451,6 +451,10 @@ validator to UPLC:
   CIP-8 Sig_Structure, and runs the Plutus `verifyEd25519Signature`
   builtin. This is intentionally a canonical-format parser, not a
   general CBOR/COSE library.
+- The on-chain Scalus validator checks claim output shape. **Landed
+  (2026-05-27)**: a claim transaction must include an output whose
+  payment credential is `PubKeyCredential(datum.receiverHash)` and
+  whose lovelace amount is exactly `datum.amount`.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 

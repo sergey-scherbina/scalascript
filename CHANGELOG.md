@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-validator-output-shape** — The Scalus Plutus validator now enforces claim output shape: at least one transaction output must pay exactly `datum.amount` lovelace to `PubKeyCredential(datum.receiverHash)`. Validator CBOR regenerated.
+
 - **v1.53.6-payments-mock-provider** — `runtime/std/payments-mock/`: fully in-memory `MockProvider` with `MockMode` enum (Succeed / Fail(error) / RequireSCA(redirectUrl)) configurable per effect group (`chargeMode`, `refundMode`, `disputeMode`, `subscribeMode`, `vaultMode`). All 16 SPI methods implemented against `ConcurrentHashMap` state; `recorded*` inspection helpers + `reset()`. `MockWebhookReceiver`: skips HMAC verification, parses minimal JSON events, exposes `recorded: List[PaymentEvent]` for assertions. `PaymentEffect` enum (Charging / Refunding / Disputing / Subscribing / Vaulting / Webhooking) + `PaymentEffect.of(op)` added to SPI. ServiceLoader registration via META-INF/services. 41 new tests.
 
 - **x402-cardano-scalus-validator-cip8** — The Scalus Plutus validator now checks canonical CIP-8 claim redeemers on-chain: COSE_Key public-key extraction, payer key-hash match, COSE_Sign1 payload hash match, Sig_Structure reconstruction, and Plutus `verifyEd25519Signature`. `x402EscrowPlutus/emitEscrowHex` now writes to the actual `payments/x402/...` resource path; committed validator CBOR regenerated.

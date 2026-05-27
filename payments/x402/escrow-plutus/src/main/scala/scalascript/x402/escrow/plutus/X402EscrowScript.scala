@@ -4,7 +4,7 @@ import scalus.*
 import scalus.Compile
 import scalus.uplc.builtin.{Builtins, ByteString, Data, FromData, ToData}
 import scalus.cardano.onchain.plutus.prelude.*
-import scalus.cardano.onchain.plutus.v1.PubKeyHash
+import scalus.cardano.onchain.plutus.v1.{Credential, PubKeyHash, Value}
 import scalus.cardano.onchain.plutus.v3.{ScriptContext, ScriptInfo}
 import scalus.uplc.PlutusV3
 
@@ -67,6 +67,7 @@ object X402EscrowScript:
               ctx.txInfo.signatories.contains(d.receiverHash),
               "Claim must be signed by the receiver (proxy: receiverHash)",
             )
+            require(paysReceiverExactly(ctx, d), "Claim must pay exact amount to receiver")
           case EscrowRedeemer.Refund =>
             require(
               ctx.txInfo.signatories.contains(d.payerKeyHash),
@@ -87,6 +88,13 @@ object X402EscrowScript:
     Builtins.blake2b_224(pubKey) == datum.payerKeyHash.hash &&
       Builtins.blake2b_256(payload) == datum.claimMessageHash &&
       Builtins.verifyEd25519Signature(pubKey, sigStructure, sig)
+
+  inline private def paysReceiverExactly(ctx: ScriptContext, datum: EscrowDatum): Boolean =
+    val receiverCredential = Credential.PubKeyCredential(datum.receiverHash)
+    ctx.txInfo.outputs.exists { out =>
+      out.address.credential === receiverCredential &&
+        Value.getLovelace(out.value) == datum.amount
+    }
 
   inline private def canonicalCoseKeyPubKey(coseKey: ByteString): ByteString =
     require(Builtins.lengthOfByteString(coseKey) == BigInt(42), "COSE_Key length")
