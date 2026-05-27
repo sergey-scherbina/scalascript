@@ -1774,6 +1774,39 @@ lazy val walletVaultLedgerJvm = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Scala.js-only WebHID transport for Ledger hardware wallets in the browser.
+// Implements the same LedgerTransport SPI as Hid4JavaTransport (JVM) but uses
+// navigator.hid.requestDevice / navigator.hid.getDevices (WebHID API, Chrome ≥ 89).
+// Includes: HidTransport (WebHID), HidFraming (64-byte APDU packet framing),
+// LedgerApdu (command/response helpers), EthApp (secp256k1 + EIP-712),
+// CardanoApp (Ed25519 + CIP-8 CBOR framing), LedgerVault (Vault SPI).
+// Shared vault-ledger and vault-ledger-ethereum sources are compiled inline via
+// unmanagedSourceDirectories so the JS module bundles all required types.
+// 12 tests via MockTransport; no real Ledger device required.
+lazy val walletVaultLedgerJs = project
+  .in(file("payments/wallet/vault-ledger-js"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(walletSpiJs, cryptoSpiJs, blockchainSpiJs)
+  .settings(
+    name := "scalascript-wallet-vault-ledger-js",
+    libraryDependencies ++= Seq(
+      "org.scala-js" %%% "scalajs-dom" % "2.8.0",
+      "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+    ),
+    // Inline the shared (JVM-source-compatible) vault-ledger and
+    // vault-ledger-ethereum sources so they compile under Scala.js.
+    // Those sources only use JDK classes that Scala.js emulates
+    // (java.util.Arrays.copyOfRange, java.nio.charset.StandardCharsets).
+    Compile / unmanagedSourceDirectories ++= Seq(
+      baseDirectory.value / ".." / "vault-ledger" / "src" / "main" / "scala",
+      baseDirectory.value / ".." / "vault-ledger-ethereum" / "src" / "main" / "scala",
+    ),
+    scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Test / fork := false,
+  )
+
 lazy val walletVaultLedgerEthereum = project
   .in(file("payments/wallet/vault-ledger-ethereum"))
   .dependsOn(walletVaultLedger, walletVaultLedger % "test->test", walletSpi, cryptoSpi, blockchainEvm, cryptoBouncycastle % Test)
@@ -2502,7 +2535,7 @@ lazy val root = project
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerEthereum, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI,
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)

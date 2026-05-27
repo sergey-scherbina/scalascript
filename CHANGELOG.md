@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **wallet-ledger-js** — Added `payments/wallet/vault-ledger-js`: Scala.js WebHID Ledger transport (`navigator.hid`), 64-byte HID APDU framing, browser `LedgerVault` lifecycle, Ethereum signer reuse, Cardano CIP-8 COSE helper, and 13 mocked WebHID tests.
+
 - **js-tree-shaking** — `TreeShaker` worklist reachability from `@main`/exports; `JsGen.generateWithStats` emits only reachable `const`/`function` declarations; `--no-tree-shake` escape hatch; `--stats` prints "Tree-shake: kept N / M symbols" to stderr; 16 tests in `JsTreeShakeTest`.
 
 - **blockchain-cosmos** — `payments/blockchain/cosmos/`: secp256k1 ECDSA (RFC 6979) + ed25519 signing via BouncyCastle; Cosmos StdSignDoc Amino JSON encoding with canonical field order; bech32 address derivation with configurable HRP (`cosmos`/`osmo`/`juno`); `CosmosChainAdapter` implementing `ChainAdapter` SPI; `ChainId.CosmosHub`/`ChainId.Osmosis`/`ChainId.Juno` added to `blockchain-spi`; `BlockchainProvider` SPI trait + `CosmosBackend` ServiceLoader registration. 41 tests.

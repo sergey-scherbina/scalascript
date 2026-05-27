@@ -329,6 +329,7 @@ Planned, not implemented yet:
 | x402 micropayments | HTTP 402 → typed payment challenge / settlement via `Payment[T]`, `x402Server { … }`, `x402Client(...)` — Ethereum + Cardano payment families |
 | Blockchain SPI (draft / planned, not fully implemented) | `BlockchainBackend` trait — EVM (mainnet, L2s), Bitcoin, Solana, Cardano via pluggable backends. See [`docs/blockchain-spi.md`](docs/blockchain-spi.md) |
 | Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
+| Ledger hardware wallets | JVM HID and browser WebHID vaults — Ledger HID APDU framing, Ethereum app signing, Cardano CIP-8 helpers |
 | Solana Wallet Standard | `solana-wallet-std` translator — Wallet Standard ↔ unified Wallet SPI |
 | ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
 | Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator with on-chain canonical CIP-8 proof verification, exact receiver-output check, claim/refund validity-window checks, Scalus script-context validator tests, stable `EscrowScript.address(network)` script address helper, Scalus-mode structured claim-message signing, server-side Scalus proof verification, bloxbean claim Tx draft with script data hash + relayer witness, typed Blockfrost protocol params, protocol min-fee draft balancing, static/bloxbean/Blockfrost/Ogmios Plutus ex-units, and env-gated Preprod integration coverage |
@@ -419,6 +420,7 @@ Planned, not implemented yet:
 | [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) and covered by an Electron Add-flow smoke test |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
+| [wallet-ledger-js.ssc](examples/wallet-ledger-js.ssc) | Browser Ledger/WebHID vault sketch — connect lifecycle, Ethereum signer, Cardano CIP-8 helper |
 | [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |
 | [spark-encoder-demo.ssc](examples/spark-encoder-demo.ssc) | Scala 3 native `Encoder[T]` derivation — `Dataset[CaseClass]` end-to-end on Spark 4 |
 | [spark-streaming-rate-console.ssc](examples/spark-streaming-rate-console.ssc) | Structured Streaming — rate source → console sink with auto-`awaitTermination` |

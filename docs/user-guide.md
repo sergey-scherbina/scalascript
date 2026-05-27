@@ -3957,7 +3957,7 @@ For building a plugin as a native binary itself, see
 - Apache Spark: §14 above, [docs/spark-streaming.md](spark-streaming.md), [docs/spark-lakehouse.md](spark-lakehouse.md), [docs/spark-catalog.md](spark-catalog.md), [docs/spark-mllib.md](spark-mllib.md)
 - Actors + cluster: [docs/actors-dist.md](actors-dist.md), [docs/cluster-management.md](cluster-management.md)
 - Frontend toolkit + framework SPI: [docs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [docs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
-- x402 micropayments + wallet SPI: [docs/x402.md](x402.md), [docs/blockchain-spi.md](blockchain-spi.md), [docs/micropayment-spi.md](micropayment-spi.md)
+- x402 micropayments + wallet SPI: [docs/x402.md](x402.md), [docs/wallet-spi.md](wallet-spi.md), [docs/wallet-spi-scalajs.md](wallet-spi-scalajs.md), [docs/blockchain-spi.md](blockchain-spi.md), [docs/micropayment-spi.md](micropayment-spi.md)
 - MCP: [docs/mcp.md](mcp.md)
 - Metaprogramming: [docs/metaprogramming.md](metaprogramming.md)
 - Error handling: [docs/error-handling.md](error-handling.md)

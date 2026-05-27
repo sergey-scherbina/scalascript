@@ -4726,9 +4726,14 @@ device, one seed, per-chain on-device apps; the Vault routes
       `hash=Keccak256` to SIGN_TRANSACTION and `hash=None` (64-B
       `[domain||msgHash]`) to SIGN_EIP712. Covers all 6 EVM x402
       chains via the single Ethereum app. 13 tests.
-- [ ] `wallet-vault-ledger-js` — WebHID transport (Scala.js).
-      Deferred — Scala.js cross-compile of the shared types comes
-      with the broader wallet-spi Scala.js sweep.
+- [x] `wallet-vault-ledger-js` — WebHID transport (Scala.js).
+      ✓ Landed (2026-05-27). Adds `HidTransport` /
+      `WebHidLedgerTransport` over `navigator.hid`, Ledger HID
+      64-byte APDU framing, connect/disconnect lifecycle,
+      `LedgerVault` for browser hardware wallets, Ethereum app
+      routing through the shared EVM signer, and 13 mocked WebHID
+      Scala.js tests. The JS slice includes a Cardano CIP-8 helper;
+      the standalone JVM Cardano Ledger vault remains tracked below.
 - [ ] Solana-app signer: `wallet-vault-ledger-solana` — ed25519 + Solana
       sign-doc framing; CLA=0xE0, INS=0x04 SIGN_TRANSACTION / INS=0x07
       SIGN_OFFCHAIN_MESSAGE; default path `m/44'/501'/0'/0'`; Base58

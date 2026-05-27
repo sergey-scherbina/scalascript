@@ -731,6 +731,30 @@ so the Node test runner walks up to find `@noble/ciphers` +
   Live `wss://relay.walletconnect.com` integration lands in the
   future PWA-wallet sprint that surfaces WC v2 in the actual browser.
 
+### Stage 7 — `wallet-vault-ledger-js` WebHID vault ✓ Landed (2026-05-27)
+
+The browser Ledger slice adds a Scala.js-only
+`payments/wallet/vault-ledger-js` module.  It compiles the shared
+Ledger APDU and Ethereum app sources inline, then layers browser
+transport and hardware-vault entry points on top:
+
+- `scalascript.wallet.ledger.HidTransport` wraps `navigator.hid` for
+  real browser sessions and exposes `connect` / `disconnect` through
+  `LedgerVault`.
+- `scalascript.wallet.vault.ledger.js.WebHidLedgerTransport` is the
+  small testable transport adapter over a `WebHidDevice` facade.
+- Ledger HID 64-byte packet framing is covered by round-trip and
+  ordering tests.
+- Ethereum signing reuses `wallet-vault-ledger-ethereum`; the browser
+  vault probes the active Ledger app and raises `AppSwitchRequired`
+  like the JVM path.
+- Cardano support lands as a CIP-8 helper: extended public key lookup,
+  COSE_Sign1, Sig_structure, and COSE_Key framing over WebHID.
+
+Verification: `sbt 'walletVaultLedgerJs / Test / test'` runs 13
+Node-backed Scala.js tests with a mocked HID device; no real Ledger is
+needed in CI.
+
 ### CryptoBackend SPI surface — what every future backend must provide
 
 With Stage 6 closed, the full set of [[CryptoBackend]] primitives any

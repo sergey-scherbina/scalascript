@@ -474,18 +474,23 @@ EIP-712 digest + address derivation).
 See §5.1 for the architecture. The implementation lands one chain at
 a time so the device-protocol surface stays reviewable.
 
-- [ ] `wallet-vault-ledger` — shared types (cross-compile):
+- [x] `wallet-vault-ledger` — shared types (cross-compile):
       `LedgerTransport` trait, APDU codecs, `AppSwitchRequired`
       error, `getAppName` probe, curve→app routing table
-- [ ] `wallet-vault-ledger-jvm` — `hid4java`-backed transport
-- [ ] `wallet-vault-ledger-js` — WebHID transport for Scala.js
-- [ ] Ethereum-app signer first: secp256k1 + EIP-712 / EIP-3009
+- [x] `wallet-vault-ledger-jvm` — `hid4java`-backed transport
+- [x] `wallet-vault-ledger-js` — WebHID transport for Scala.js
+      (landed 2026-05-27): `navigator.hid` device selection,
+      Ledger 64-byte HID APDU framing, `LedgerVault` lifecycle, and
+      mocked WebHID tests.
+- [x] Ethereum-app signer first: secp256k1 + EIP-712 / EIP-3009
       (covers all 6 EVM x402 chains in one impl)
 - [ ] Solana-app signer: ed25519 + Solana sign-doc framing
 - [ ] Bitcoin-app signer: PSBT-aware (depends on
       blockchain-spi Phase 5)
-- [ ] Cardano-app signer: CIP-8 framing (depends on blockchain-spi
-      Phase 6)
+- [ ] Cardano-app signer: CIP-8 framing
+      The Scala.js WebHID slice includes a CIP-8 helper for browser
+      proofs; the standalone JVM `wallet-vault-ledger-cardano`
+      module remains tracked in `WORK_QUEUE.md`.
 - [ ] Optional `wallet-vault-ledger-bluetooth-js` for Nano X /
       Stax via WebBLE
 - [ ] Optional `wallet-vault-trezor` follow-up

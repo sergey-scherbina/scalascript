@@ -1,0 +1,49 @@
+#!/usr/bin/env ssc
+---
+name: wallet-ledger-js
+version: 1.0.0
+description: Browser Ledger/WebHID vault sketch for Ethereum signing and Cardano CIP-8 proofs.
+target: js
+frontend:
+  openBrowser: false
+---
+
+# wallet-ledger-js
+
+Browser-only hardware wallet flow:
+
+- `LedgerVault` opens a Ledger device through WebHID.
+- Ethereum signing is routed through the Ledger Ethereum app.
+- Cardano CIP-8 proofs use the Cardano app helper and COSE framing.
+
+```scalascript
+import scala.concurrent.ExecutionContext.Implicits.global
+import scalascript.crypto.Curve
+import scalascript.wallet.spi.UnlockCredential
+import scalascript.wallet.ledger.{HidNavigator, HidTransport, LedgerVault}
+import scalascript.wallet.vault.ledger.js.cardano.CardanoApp
+
+val ledgerVendorId = 0x2c97
+
+def connectLedger(navigator: HidNavigator) =
+  val transport = HidTransport(navigator)
+  val vault = LedgerVault(transport)
+  vault.unlock(UnlockCredential.None).map(_ => vault)
+
+def ethereumSigner(vault: LedgerVault) =
+  vault.getSigner(Curve.Secp256k1, "m/44'/60'/0'/0/0")
+
+def cardanoProof(transport: scalascript.wallet.vault.ledger.LedgerTransport, payload: Array[Byte]) =
+  CardanoApp.signCip8(
+    transport = transport,
+    path      = CardanoApp.DefaultCardanoPath,
+    payload   = payload,
+    address   = None,
+  )
+```
+
+## Usage
+
+Run this from a Chromium-based browser context after bundling the
+Scala.js frontend.  WebHID requires HTTPS or `localhost`; the device
+selection prompt is always user-initiated by the browser.
