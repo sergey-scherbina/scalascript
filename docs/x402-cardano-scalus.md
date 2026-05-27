@@ -359,8 +359,8 @@ validator to UPLC:
 - **Landed (2026-05-27):** `BloxbeanClaimTxBuilder.draft` serializes a
   bloxbean `Transaction` skeleton containing the escrow script input,
   receiver output, Plutus V3 script, and Spend redeemer. It is not the
-  production default because protocol-parameter fee balancing and live
-  script-cost evaluation are still open.
+  production default because live script-cost evaluation and Preprod
+  integration validation are still open.
 - **Landed (2026-05-27):** the draft builder now carries optional
   `ScalusSettlerConfig.collateralRef` into the transaction body's
   collateral inputs and optional `relayerKeyHashHex` into
@@ -380,6 +380,12 @@ validator to UPLC:
   `BlockfrostProtocolParams` (`minFeeA`, `minFeeB`, execution prices,
   collateral bounds, and Plutus cost models). This is the data source
   for the planned protocol-params-backed fee balancer.
+- **Landed (2026-05-27):** `ScalusFeeBalancer` estimates protocol
+  min-fee from Blockfrost params and serialized transaction size, and
+  `BloxbeanClaimTxBuilder.draftBalanced(...)` performs a two-pass draft
+  rebuild so the body fee matches the final CBOR size. Script ex-units
+  can be added to the estimate, but live ex-unit evaluation remains
+  open until the builder has a node-backed `TransactionEvaluator`.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is

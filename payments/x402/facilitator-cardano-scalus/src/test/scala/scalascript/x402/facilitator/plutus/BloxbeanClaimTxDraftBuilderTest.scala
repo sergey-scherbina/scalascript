@@ -4,7 +4,12 @@ import com.bloxbean.cardano.client.plutus.spec.{ConstrPlutusData, RedeemerTag}
 import com.bloxbean.cardano.client.spec.NetworkId
 import com.bloxbean.cardano.client.transaction.spec.Transaction
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.blockfrost.BlockfrostProtocolParams
 import scalascript.x402.{Network, ScalusEscrowRef}
+
+import scala.concurrent.{Await, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.*
 
 class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
 
@@ -22,6 +27,18 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     feeLovelace     = BigInt(170_000),
     ttlSlot         = Some(123456L),
     validityStart   = Some(123000L),
+  )
+
+  private val params = BlockfrostProtocolParams(
+    minFeeA             = BigInt(44),
+    minFeeB             = BigInt(155381),
+    maxTxSize           = BigInt(16384),
+    priceMem            = BigDecimal("0.0577"),
+    priceStep           = BigDecimal("0.0000721"),
+    coinsPerUtxoSize    = BigInt(4310),
+    collateralPercent   = 150,
+    maxCollateralInputs = 3,
+    costModels          = Map.empty,
   )
 
   test("draft builder serializes a bloxbean Transaction skeleton") {
@@ -55,4 +72,23 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     assert(redeemer.getTag == RedeemerTag.Spend)
     assert(redeemer.getIndex.intValue == 0)
     assert(redeemer.getData.asInstanceOf[ConstrPlutusData].getAlternative == 0L)
+  }
+
+  test("balanced draft estimates fee from protocol params and serialized size") {
+    val tx = BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan.copy(feeLovelace = BigInt(0)), params)
+    val expected = ScalusFeeBalancer.estimate(params, tx.serialize().length).total
+    assert(tx.getBody.getFee.toString == expected.toString)
+  }
+
+  test("draftBalanced builder fetches protocol params before serializing") {
+    var fetched = false
+    val builder = BloxbeanClaimTxBuilder.draftBalanced { () =>
+      fetched = true
+      Future.successful(params)
+    }
+    val bytes = Await.result(builder.build(plan.copy(feeLovelace = BigInt(0))), 5.seconds)
+    val tx = Transaction.deserialize(bytes)
+
+    assert(fetched)
+    assert(tx.getBody.getFee == BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan.copy(feeLovelace = BigInt(0)), params).getBody.getFee)
   }

@@ -2975,12 +2975,13 @@ using the default non-Scalus mode until the Plutus claim transaction builder is
 validated against Preprod. `BloxbeanClaimTxBuilder.draft` can serialize a
 claim transaction draft with script input/output, redeemer, collateral,
 required signer, script data hash, and relayer vkey witness. It is still not
-the production default: protocol-params fee balancing and live script ex-unit
-evaluation remain planned. `BlockfrostClient.getProtocolParams()` is available
-for that planned balancer and reads latest-epoch fee/execution/collateral
-settings plus Plutus cost models. `ScalusSettler.preprod/mainnet` exists for
-wiring and tests; its default builder fails explicitly until the remaining
-production pieces land.
+the production default: live script ex-unit evaluation and Preprod validation
+remain planned. `BlockfrostClient.getProtocolParams()` reads latest-epoch
+fee/execution/collateral settings plus Plutus cost models, and
+`BloxbeanClaimTxBuilder.draftBalanced(...)` can use those params to estimate
+protocol min-fee from final draft CBOR size. `ScalusSettler.preprod/mainnet`
+exists for wiring and tests; its default builder fails explicitly until the
+remaining production pieces land.
 
 ---
 

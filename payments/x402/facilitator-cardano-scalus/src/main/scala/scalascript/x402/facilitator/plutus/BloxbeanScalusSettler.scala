@@ -1,6 +1,6 @@
 package scalascript.x402.facilitator.plutus
 
-import scalascript.blockfrost.BlockfrostClient
+import scalascript.blockfrost.{BlockfrostClient, BlockfrostProtocolParams}
 import scalascript.x402.*
 
 import java.math.BigInteger
@@ -51,13 +51,37 @@ object BloxbeanClaimTxBuilder:
 
   /** Draft serializer for the deterministic script-input/output/redeemer
    *  skeleton. It is intentionally not the default production builder:
-   *  protocol-parameter fee balancing and live script-cost evaluation still
-   *  have to be layered in before submission to a live network. */
+   *  live script-cost evaluation and integration validation still have to
+   *  be layered in before submission to a live network. */
   val draft: ClaimTxBuilder = BloxbeanClaimTxDraftBuilder
+
+  def draftBalanced(params: BlockfrostProtocolParams): ClaimTxBuilder =
+    (plan: ClaimTxPlan) =>
+      Future.successful(BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan, params).serialize())
+
+  def draftBalanced(fetchParams: () => Future[BlockfrostProtocolParams])(using ExecutionContext): ClaimTxBuilder =
+    (plan: ClaimTxPlan) =>
+      fetchParams().map { params =>
+        BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan, params).serialize()
+      }
+
+  def draftBalancedFromBlockfrost(cfg: ScalusSettlerConfig)(using ExecutionContext): ClaimTxBuilder =
+    draftBalanced(() => cfg.blockfrost.getProtocolParams())
 
 object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
   def build(plan: ClaimTxPlan): Future[Array[Byte]] =
     Future.successful(buildTransaction(plan).serialize())
+
+  def buildBalancedTransaction(
+    plan:   ClaimTxPlan,
+    params: BlockfrostProtocolParams,
+  ): com.bloxbean.cardano.client.transaction.spec.Transaction =
+    val first = buildTransaction(plan.copy(feeLovelace = BigInt(0)))
+    val firstFee = ScalusFeeBalancer.estimate(params, first.serialize().length).total
+    val second = buildTransaction(plan.copy(feeLovelace = firstFee))
+    val secondFee = ScalusFeeBalancer.estimate(params, second.serialize().length).total
+    if secondFee == firstFee then second
+    else buildTransaction(plan.copy(feeLovelace = secondFee))
 
   def buildTransaction(plan: ClaimTxPlan): com.bloxbean.cardano.client.transaction.spec.Transaction =
     import com.bloxbean.cardano.client.plutus.spec.*
