@@ -702,8 +702,10 @@ val ordered =
 `std/streams.ssc` and the streams plugin. The interpreter path supports
 bounded `buffer` with `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`,
 and `Fail`, deterministic order-preserving `throttle`, latest-value
-`debounce`, and `Source.signal(sig)` as a current-value adapter. Live UI
-signal subscriptions and reverse `sig.bind(source)` are planned follow-ups.
+`debounce`, `Source.signal(sig)` live subscriptions for frontend signals, and
+reverse `sig.bind(source)` in the interpreter/JVM desktop path. SwiftUI codegen
+still lowers signals to native `@State`; a platform-native stream bridge is
+tracked separately.
 
 ### Reactive Signals
 

@@ -2215,7 +2215,7 @@ lazy val backendInterpreterPluginTests = project
 // ── Streams — interpreter plugin ─────────────────────────────────────────
 lazy val streamsPlugin = project
   .in(file("runtime/std/streams-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-streams-plugin",
     libraryDependencies ++= Seq(scalatestTest),

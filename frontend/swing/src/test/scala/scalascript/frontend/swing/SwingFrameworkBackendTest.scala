@@ -3,7 +3,7 @@ package scalascript.frontend.swing
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.frontend.*
 
-import javax.swing.{JButton, JLabel}
+import javax.swing.{JButton, JLabel, SwingUtilities}
 import scala.annotation.nowarn
 
 class SwingFrameworkBackendTest extends AnyFunSuite:
@@ -160,6 +160,18 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     assert(label.getText == "0")
     button.doClick()
     assert(label.getText == "1")
+  }
+
+  test("SwingRuntime refreshes bindings when ReactiveSignal changes externally") {
+    val count = ReactiveSignal[Int]("count", 0)
+    val root = View.SignalText(count)
+    val panel = SwingRuntime.buildRoot(root)
+    val label = findFirst[JLabel](panel).getOrElse(fail("missing label"))
+
+    assert(label.getText == "0")
+    count.set(7)
+    SwingUtilities.invokeAndWait(() => ())
+    assert(label.getText == "7")
   }
 
   test("SwingRuntime dispatches FetchAction through configured in-process dispatcher") {

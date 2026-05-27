@@ -1,12 +1,16 @@
 package scalascript.compiler.plugin.streams
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.compiler.plugin.frontend.FrontendInterpreterPlugin
 import scalascript.testkit.TestInterpreter
 
 class StreamsPluginInterpreterTest extends AnyFunSuite:
 
   private def interp: TestInterpreter =
     TestInterpreter(List(StreamsInterpreterPlugin()))
+
+  private def interpWithFrontend: TestInterpreter =
+    TestInterpreter(List(FrontendInterpreterPlugin(), StreamsInterpreterPlugin()))
 
   test("Source.from emits all elements in order"):
     val result = interp.eval(
@@ -356,6 +360,17 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
     )
     assert(result == List(1L, 2L, 3L, 4L))
 
+  test("throttle applies wall-clock pacing in the interpreter path"):
+    val start = System.currentTimeMillis()
+    val result = interp.eval(
+      """
+      Source.from(1 to 3).throttle(Rate(1, 60)).runToList()
+      """
+    )
+    val elapsed = System.currentTimeMillis() - start
+    assert(result == List(1L, 2L, 3L))
+    assert(elapsed >= 90L)
+
   test("debounce emits the latest value from a burst"):
     val result = interp.eval(
       """
@@ -371,3 +386,14 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List(42L))
+
+  test("Source.signal subscribes to ReactiveSignal changes and signal.bind writes back"):
+    val result = interpWithFrontend.eval(
+      """
+      val count = signal("count", 0)
+      val observed = Source.signal(count).take(4)
+      count.bind(Source.from(List(1, 2, 3)))
+      observed.runToList()
+      """
+    )
+    assert(result == List(0L, 1L, 2L, 3L))

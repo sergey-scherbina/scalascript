@@ -3,6 +3,7 @@
 description: Streams with backpressure — Source/Sink/Flow examples (v1.51)
 imports:
   - ../../runtime/std/streams.ssc
+  - ../../runtime/std/ui/primitives.ssc
 ---
 
 # Streams with Backpressure
@@ -103,4 +104,18 @@ println(throttled.mkString(", "))
 val last = Source.from(1 to 4).debounce(100).runToList()
 println(last.mkString(", "))
 // → 4
+```
+
+## 8. Signal bridge
+
+`Source.signal(sig)` observes a UI signal and `sig.bind(source)` writes a stream
+back into it. This is the same bridge used by in-process Swing/JavaFX runtimes.
+
+```scala
+println("\n=== 8. Signal bridge ===")
+val count = signal("count", 0)
+val observed = Source.signal(count).take(4)
+count.bind(Source.from(List(1, 2, 3)))
+println(observed.runToList().mkString(", "))
+// → 0, 1, 2, 3
 ```

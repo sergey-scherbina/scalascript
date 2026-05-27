@@ -3,6 +3,7 @@ package scalascript.frontend.javafx
 import scalascript.frontend.*
 
 import _root_.javafx.application.Application
+import _root_.javafx.application.Platform
 import _root_.javafx.geometry.{Insets, Orientation}
 import _root_.javafx.scene.control.*
 import _root_.javafx.scene.layout.*
@@ -45,12 +46,32 @@ object JavaFxRuntime:
   // ─── RuntimeState ──────────────────────────────────────────────────────────
 
   final class RuntimeState private[javafx] (
-      val signals:  mutable.Map[String, Any],
-      val bindings: mutable.Map[String, mutable.Buffer[() => Unit]],
-      val fetchDispatcher: Option[FetchDispatcher]
+      val signals:     mutable.Map[String, Any],
+      val signalRefs:  Map[String, ReactiveSignal[Any]],
+      val bindings:    mutable.Map[String, mutable.Buffer[() => Unit]],
+      val fetchDispatcher: Option[FetchDispatcher],
+      private val subscribed: mutable.Set[String] = mutable.Set.empty,
+      private val suppressExternalRefresh: mutable.Set[String] = mutable.Set.empty
   ):
+    private def onUiThread(run: => Unit): Unit =
+      try
+        if Platform.isFxApplicationThread then run
+        else Platform.runLater(() => run)
+      catch case _: IllegalStateException => run
+
     def bindSignal(id: String)(refresh: => Unit): Unit =
       bindings.getOrElseUpdate(id, mutable.Buffer.empty) += (() => refresh)
+      if !subscribed.contains(id) then
+        signalRefs.get(id).foreach { signal =>
+          subscribed += id
+          signal.subscribe { value =>
+            if !suppressExternalRefresh.contains(id) then
+              onUiThread {
+                signals.update(id, value)
+                refreshSignal(id)
+              }
+          }
+        }
       refresh
 
     def refreshSignal(id: String): Unit =
@@ -58,7 +79,13 @@ object JavaFxRuntime:
 
     def setSignal(id: String, value: Any): Unit =
       signals.update(id, value)
-      refreshSignal(id)
+      signalRefs.get(id) match
+        case Some(signal) =>
+          suppressExternalRefresh += id
+          try signal.set(value)
+          finally suppressExternalRefresh -= id
+          refreshSignal(id)
+        case None         => refreshSignal(id)
 
     def incrementSignal(id: String, by: Int): Unit =
       val next = signals.get(id).collect { case n: Int => n }.getOrElse(0) + by
@@ -76,8 +103,10 @@ object JavaFxRuntime:
 
   object RuntimeState:
     def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
+      val collected = collectSignals(view)
       RuntimeState(
-        mutable.Map.from(collectSignals(view).map(s => s.id -> s.value)),
+        mutable.Map.from(collected.map(s => s.id -> s.value)),
+        collected.map(s => s.id -> s.signal.asInstanceOf[ReactiveSignal[Any]]).toMap,
         mutable.Map.empty,
         fetchDispatcher
       )
@@ -293,14 +322,14 @@ object JavaFxRuntime:
 
   // ─── Signal collection (mirrors JavaFxEmitter.collectSignals) ──────────────
 
-  private final case class SignalInitial(id: String, value: Any)
+  private final case class SignalInitial(id: String, value: Any, signal: ReactiveSignal[?])
 
   @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], sig: ReactiveSignal[?]): Map[String, SignalInitial] =
       acc.updatedWith(sig.id) {
         case existing @ Some(_) => existing
-        case None               => Some(SignalInitial(sig.id, sig.apply()))
+        case None               => Some(SignalInitial(sig.id, sig.apply(), sig))
       }
     def action(acc: Map[String, SignalInitial], h: EventHandler): Map[String, SignalInitial] =
       h match

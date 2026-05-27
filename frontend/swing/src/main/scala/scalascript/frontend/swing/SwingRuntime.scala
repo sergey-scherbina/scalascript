@@ -95,12 +95,30 @@ object SwingRuntime:
     root
 
   final class RuntimeState private[swing] (
-      val signals:  mutable.Map[String, Any],
-      val bindings: mutable.Map[String, mutable.Buffer[() => Unit]],
-      val fetchDispatcher: Option[FetchDispatcher]
+      val signals:     mutable.Map[String, Any],
+      val signalRefs:  Map[String, ReactiveSignal[Any]],
+      val bindings:    mutable.Map[String, mutable.Buffer[() => Unit]],
+      val fetchDispatcher: Option[FetchDispatcher],
+      private val subscribed: mutable.Set[String] = mutable.Set.empty,
+      private val suppressExternalRefresh: mutable.Set[String] = mutable.Set.empty
   ):
+    private def onUiThread(run: => Unit): Unit =
+      if SwingUtilities.isEventDispatchThread then run
+      else SwingUtilities.invokeLater(() => run)
+
     def bindSignal(id: String)(refresh: => Unit): Unit =
       bindings.getOrElseUpdate(id, mutable.Buffer.empty) += (() => refresh)
+      if !subscribed.contains(id) then
+        signalRefs.get(id).foreach { signal =>
+          subscribed += id
+          signal.subscribe { value =>
+            if !suppressExternalRefresh.contains(id) then
+              onUiThread {
+                signals.update(id, value)
+                refreshSignal(id)
+              }
+          }
+        }
       refresh
 
     def refreshSignal(id: String): Unit =
@@ -108,7 +126,13 @@ object SwingRuntime:
 
     def setSignal(id: String, value: Any): Unit =
       signals.update(id, value)
-      refreshSignal(id)
+      signalRefs.get(id) match
+        case Some(signal) =>
+          suppressExternalRefresh += id
+          try signal.set(value)
+          finally suppressExternalRefresh -= id
+          refreshSignal(id)
+        case None         => refreshSignal(id)
 
     def incrementSignal(id: String, by: Int): Unit =
       val next = signals.get(id).collect { case n: Int => n }.getOrElse(0) + by
@@ -126,8 +150,10 @@ object SwingRuntime:
 
   object RuntimeState:
     def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
+      val collected = collectSignals(view)
       RuntimeState(
-        mutable.Map.from(collectSignals(view).map(s => s.id -> s.value)),
+        mutable.Map.from(collected.map(s => s.id -> s.value)),
+        collected.map(s => s.id -> s.signal.asInstanceOf[ReactiveSignal[Any]]).toMap,
         mutable.Map.empty,
         fetchDispatcher
       )
@@ -423,14 +449,14 @@ object SwingRuntime:
         i += 1
     out.toString
 
-  private final case class SignalInitial(id: String, value: Any)
+  private final case class SignalInitial(id: String, value: Any, signal: ReactiveSignal[?])
 
   @nowarn("cat=deprecation")
   private def collectSignals(view: View[?]): List[SignalInitial] =
     def add(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
       acc.updatedWith(signal.id) {
         case existing @ Some(_) => existing
-        case None               => Some(SignalInitial(signal.id, signal.apply()))
+        case None               => Some(SignalInitial(signal.id, signal.apply(), signal))
       }
     def action(acc: Map[String, SignalInitial], handler: EventHandler): Map[String, SignalInitial] =
       handler match

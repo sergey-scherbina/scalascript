@@ -1,6 +1,7 @@
 package scalascript.compiler.plugin.streams
 
 import scalascript.backend.spi.*
+import scalascript.frontend.ReactiveSignal
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
 
@@ -29,6 +30,14 @@ object StreamsIntrinsics:
     case v: Value   => v
     case _          => Value.StringV(a.toString)
 
+  private def toHostAny(v: Value): Any = v match
+    case Value.IntV(n)    => n.toInt
+    case Value.DoubleV(d) => d
+    case Value.StringV(s) => s
+    case Value.BoolV(b)   => b
+    case Value.UnitV      => ()
+    case other            => other
+
   private def newQ(): Queue = new Queue(16)
 
   private def sourceFromValues(values: List[Value], ctx: NativeContext): Value =
@@ -37,6 +46,14 @@ object StreamsIntrinsics:
       try for v <- values do queue.put(Some(v))
       catch case _: Throwable => ()
       finally try queue.put(None) catch case _ => ()
+    }
+    makeSourceV(queue, ctx)
+
+  private def sourceFromReactiveSignal(signal: ReactiveSignal[?], ctx: NativeContext): Value =
+    val queue = newQ()
+    queue.put(Some(toValue(signal.apply())))
+    signal.asInstanceOf[ReactiveSignal[Any]].subscribe { value =>
+      queue.put(Some(toValue(value)))
     }
     makeSourceV(queue, ctx)
 
@@ -82,6 +99,41 @@ object StreamsIntrinsics:
     case n: Long      => Some(n.toInt)
     case n: Int       => Some(n)
     case _            => None
+
+  private def positiveMillis(raw: Value, op: String): Long = raw match
+    case Value.IntV(n) if n >= 0 => n
+    case Value.IntV(_)           => throw InterpretError(s"Source.$op: duration must be >= 0")
+    case other                   => intArg(other).map(_.toLong).filter(_ >= 0).getOrElse {
+      throw InterpretError(s"Source.$op(durationMillis)")
+    }
+
+  private def rateArgs(rate: Value): (Int, Long) = rate match
+    case Value.InstanceV("Rate", fields) =>
+      val elements = fields.get("elements").collect { case Value.IntV(n) => n.toInt }.getOrElse(0)
+      val perMillis = fields.get("perMillis").collect { case Value.IntV(n) => n }.getOrElse(1000L)
+      if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
+      if perMillis < 0 then throw InterpretError("Source.throttle: rate perMillis must be >= 0")
+      (elements, perMillis)
+    case raw if intArg(raw).isDefined =>
+      val elements = intArg(raw).get
+      if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
+      (elements, 1000L)
+    case _ => throw InterpretError("Source.throttle(rate)")
+
+  private def sleepMillis(ms: Long): Unit =
+    if ms > 0 then Thread.sleep(ms)
+
+  private def bindSourceToSignal(source: Value.InstanceV, signal: ReactiveSignal[Any], ctx: NativeContext): Value =
+    val runForeach = source.fields.getOrElse("runForeach", throw InterpretError("signal.bind(source): not a Source"))
+    val setter = Value.NativeFnV("ReactiveSignal.bind.set", Computation.pureFn {
+      case List(v) => signal.set(toHostAny(v)); Value.UnitV
+      case _       => Value.UnitV
+    })
+    Thread.ofVirtual().start { () =>
+      try ctx.synchronized { ctx.invokeCallback(runForeach, List(setter)) }
+      catch case _: Throwable => ()
+    }
+    Value.UnitV
 
   private def makeSourceV(queue: Queue, ctx: NativeContext): Value =
 
@@ -350,20 +402,30 @@ object StreamsIntrinsics:
       }),
 
       "throttle" -> Value.NativeFnV("Source.throttle", Computation.pureFn {
-        case List(Value.InstanceV("Rate", fields)) =>
-          val elements = fields.get("elements").collect { case Value.IntV(n) => n }.getOrElse(0L)
-          if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
-          sourceFromValues(drain(queue), ctx)
-        case List(rawElements) if intArg(rawElements).isDefined =>
-          val elements = intArg(rawElements).get
-          if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
-          sourceFromValues(drain(queue), ctx)
+        case List(rate) =>
+          val (elements, perMillis) = rateArgs(rate)
+          startChained { ownQ =>
+            var emittedInWindow = 0
+            var windowStartNs = System.nanoTime()
+            var item = queue.take()
+            while item.isDefined do
+              if emittedInWindow >= elements then
+                val elapsedMs = (System.nanoTime() - windowStartNs) / 1000000L
+                sleepMillis(math.max(0L, perMillis - elapsedMs))
+                windowStartNs = System.nanoTime()
+                emittedInWindow = 0
+              ownQ.put(Some(item.get))
+              emittedInWindow += 1
+              item = queue.take()
+          }
         case _ => throw InterpretError("Source.throttle(rate)")
       }),
 
       "debounce" -> Value.NativeFnV("Source.debounce", Computation.pureFn {
-        case List(_) =>
+        case List(duration) =>
+          val durationMillis = positiveMillis(duration, "debounce")
           val values = drain(queue)
+          if values.nonEmpty then sleepMillis(durationMillis)
           sourceFromValues(values.lastOption.toList, ctx)
         case _ => throw InterpretError("Source.debounce(duration)")
       }),
@@ -521,9 +583,18 @@ object StreamsIntrinsics:
 
     QualifiedName("Source.signal") -> NativeImpl((ctx, args) =>
       args match
+        case List(Value.Foreign("ReactiveSignal", signal: ReactiveSignal[?])) =>
+          sourceFromReactiveSignal(signal, ctx)
         case List(sig: Value) => sourceFromValues(List(sourceValue(sig)), ctx)
         case List(sig)        => sourceFromValues(List(toValue(sig)), ctx)
         case _ => throw InterpretError("Source.signal(sig)")
+    ),
+
+    QualifiedName("ReactiveSignal.bind") -> NativeImpl((ctx, args) =>
+      args match
+        case List(Value.Foreign("ReactiveSignal", signal: ReactiveSignal[?]), source: Value.InstanceV) =>
+          bindSourceToSignal(source, signal.asInstanceOf[ReactiveSignal[Any]], ctx)
+        case _ => throw InterpretError("ReactiveSignal.bind(signal, source)")
     ),
 
     QualifiedName("Rate") -> NativeImpl((_, args) =>

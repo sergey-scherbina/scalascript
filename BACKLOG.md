@@ -918,14 +918,15 @@ Design decisions locked:
 **v1.51.5 — Buffer strategies, time-based ops, UI signal adapter:** ✓ Landed (2026-05-27)
 - `.buffer(n, OverflowStrategy)` with interpreter strategies:
   `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, `Fail`
-- `.throttle(Rate)`, `.debounce(Duration)` with deterministic
-  interpreter semantics (order-preserving throttle, latest-value debounce)
-- `Source.signal[A](sig): Source[A]` current-value adapter in the
-  interpreter path
+- `.throttle(Rate)`, `.debounce(Duration)` with interpreter wall-clock pacing
+  and latest-value debounce
+- `Source.signal[A](sig): Source[A]` live frontend `ReactiveSignal`
+  subscription plus generic current-value adapter in the interpreter path
+- `sig.bind(source)` reverse bridge for frontend `ReactiveSignal` values
+- Swing/JavaFX runtime state maps synchronize with the shared signal bus
 - 7 new interpreter tests; `examples/streams.ssc`, `runtime/std/streams.ssc`,
   README, user guide, and spec updated.
-- Follow-up: clock-effect-backed wall-time scheduling plus live
-  JavaFX/Swing/SwiftUI signal subscription and reverse `sig.bind(source)`.
+- Follow-up: platform-native SwiftUI stream/signal bridge.
 
 **v1.51.6 — Effect-row integration (open / deferred):**
 - `Source[A] ! Stream` via `Perform("Stream", …)` through `Computation` ADT
@@ -934,12 +935,12 @@ Design decisions locked:
 
 ### Streams v1.51.5 follow-ups
 
-Found while working on v1.51.5-streams-buffer. The shipped interpreter
-path gives deterministic semantics for `.throttle`, `.debounce`, and
-`Source.signal`; live UI runtimes still need subscription-backed
-`Source.signal`, reverse `sig.bind(source)`, and Clock-effect-backed
-wall-time scheduling. No blocker for the interpreter milestone; track as
-a focused follow-up before advertising UI-live streams as complete.
+Found while working on v1.51.5-streams-buffer. v1.51.5b landed interpreter
+wall-clock `.throttle`/`.debounce`, subscription-backed `Source.signal`,
+reverse `sig.bind(source)`, and Swing/JavaFX state-map synchronization.
+SwiftUI still lowers signals to native `@State`; a platform-native
+stream/signal bridge remains before advertising SwiftUI live streams as
+complete.
 
 ## v1.52 — Deploy to Hostings, Clouds & Kubernetes-like Environments
 

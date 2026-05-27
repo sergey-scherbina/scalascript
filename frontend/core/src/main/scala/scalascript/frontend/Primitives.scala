@@ -18,8 +18,25 @@ trait Signal[T]:
  *  (JS, Kotlin, Swift, Scala Native), not just JavaScript. */
 class ReactiveSignal[T](val id: String, initial: T) extends Signal[T]:
   private var _value: T = initial
-  override def apply(): T            = _value
-  override def set(value: T): Unit   = _value = value
+  private val listeners = scala.collection.mutable.LinkedHashMap.empty[Long, T => Unit]
+  private var nextListenerId: Long = 0L
+  override def apply(): T = synchronized(_value)
+  override def set(value: T): Unit =
+    val snapshot = synchronized {
+      _value = value
+      listeners.values.toList
+    }
+    snapshot.foreach(_(value))
+
+  /** Subscribe to value changes. The callback is invoked after the value is
+   *  stored; the returned function removes the subscription. */
+  def subscribe(listener: T => Unit): () => Unit =
+    val id = synchronized {
+      nextListenerId += 1
+      listeners(nextListenerId) = listener
+      nextListenerId
+    }
+    () => synchronized { listeners.remove(id); () }
 
 /** Reactive list signal.  Backs `View.ForSignal`.
  *  `id` replaces `jsName` from v0.2 — same naming contract as `ReactiveSignal`. */

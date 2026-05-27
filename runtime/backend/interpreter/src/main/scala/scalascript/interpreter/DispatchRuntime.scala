@@ -360,6 +360,13 @@ private[interpreter] object DispatchRuntime:
         fields.get("id") match
           case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(interp, id))
           case _                    => interp.located("Signal handle missing id")
+      // Plugin-provided frontend signal bridge. The streams plugin registers
+      // `ReactiveSignal.bind(signal, source)`; dispatch keeps method syntax
+      // (`sig.bind(source)`) without hard-coding streams into the core.
+      case (recv @ Value.Foreign("ReactiveSignal", _), "bind", List(source)) =>
+        interp.globals.get("ReactiveSignal.bind") match
+          case Some(fn) => interp.callValue(fn, List(recv, source), env)
+          case None     => interp.located("No method 'bind' on ReactiveSignal")
       // ── Class method (declared inside `class`/`case class` body) ──
       case (Value.InstanceV(typeName, fields), fname, fargs)
         if interp.typeMethods.get(typeName).exists(_.contains(fname)) =>
@@ -526,4 +533,3 @@ private[interpreter] object DispatchRuntime:
           interp.callValue(fields(method), recv :: args, env)
       }
     }
-

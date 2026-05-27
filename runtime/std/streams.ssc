@@ -47,8 +47,13 @@ extern def Source.empty[A]: Source[A]
 extern def Source.fromGenerator[A](gen: Generator[A]): Source[A]
 
 // Treat a reactive/current-value signal as a one-element Source in the
-// interpreter path. UI runtimes can extend this to live signal updates.
+// interpreter path. Frontend ReactiveSignal values emit the initial value and
+// every subsequent update.
 extern def Source.signal[A](sig: Any): Source[A]
+
+// Reverse bridge used by method syntax `sig.bind(source)` for frontend
+// ReactiveSignal values in the interpreter/JVM desktop path.
+extern def ReactiveSignal.bind[A](sig: Any, source: Source[A]): Unit
 
 enum OverflowStrategy:
   case Backpressure

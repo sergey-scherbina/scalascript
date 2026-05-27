@@ -462,10 +462,10 @@ Sink.toActor[A](pid: ActorPid): Sink[A]
 used (`runtime/std/actors.ssc:131`), the `Block` overflow strategy means the
 stream naturally applies backpressure back to the producer.
 
-### 8.5 UI signal adapter (`Source.signal` — v1.51.5)
+### 8.5 UI signal adapter (`Source.signal` / `sig.bind` — v1.51.5b)
 
 ```ssc
-// Treat a ReactiveSignal as a Source — emits each new value on change
+// Treat a ReactiveSignal as a Source — emits initial value + each update
 Source.signal[A](sig: ReactiveSignal[A]): Source[A]
 
 // Bind a Source back to a ReactiveSignal — last-value-wins
@@ -473,18 +473,26 @@ def bind[A](source: Source[A]): Unit  // method on ReactiveSignal[A]
 ```
 
 `ReactiveSignal[A]` is declared in
-`frontend/core/src/main/scala/scalascript/frontend/Primitives.scala:7-26`.
+`frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`.
+v1.51.5b adds a shared `subscribe` hook, so interpreter streams can listen to
+frontend signals without making UI runtimes depend on the streams plugin.
 The SwiftUI lowering lives in
 `frontend/swiftui/src/main/scala/scalascript/frontend/swiftui/SwiftUIEmitter.scala:13-22, 67-97`.
 The JavaFX and Swing signal buses are in
-`frontend/javafx/src/main/scala/scalascript/frontend/javafx/JavaFxRuntime.scala:49-69`
+`frontend/javafx/src/main/scala/scalascript/frontend/javafx/JavaFxRuntime.scala`
 and
-`frontend/swing/src/main/scala/scalascript/frontend/swing/SwingRuntime.scala:102-119`.
+`frontend/swing/src/main/scala/scalascript/frontend/swing/SwingRuntime.scala`.
 
-**Important caveat.** Signals are last-value-wins; streams preserve order. If a
-signal changes faster than the consumer processes elements, intermediate values
-are silently discarded in `Source.signal`. This is correct and expected
-behaviour — it is documented explicitly at the call site.
+In-process Swing and JavaFX runtimes keep their local state maps synchronized
+with the underlying `ReactiveSignal`, so a stream can update a UI signal and the
+bound controls refresh on the UI thread. SwiftUI currently lowers signals to
+native `@State` in generated Swift code; a platform-native stream bridge remains
+planned before SwiftUI can consume JVM/interpreter `Source.signal` live updates.
+
+**Important caveat.** Signals are still current-value state. `Source.signal`
+emits each observed `set` call in interpreter/JVM desktop runs, but consumers
+should not use UI signals as an audit/event-sourcing log; use an explicit
+event stream with bounded overflow policy for that.
 
 ---
 
@@ -796,16 +804,17 @@ bridge.
    (`Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, `Fail`).
    **Landed (2026-05-27)** in `streams-plugin`.
 2. Implement time-based operators: `.throttle(Rate)`, `.debounce(Duration)`.
-   **Landed (2026-05-27)** as deterministic interpreter semantics:
-   throttle preserves order and validates the rate; debounce emits the latest
-   value from a burst. Clock-effect-backed wall-time scheduling remains a
-   backend/runtime follow-up.
+   **Landed (2026-05-27)** as interpreter wall-clock scheduling:
+   throttle preserves order and paces by `Rate(elements, perMillis)`; debounce
+   emits the latest value from a burst after the debounce duration.
 3. Implement the UI signal adapter:
-   - `Source.signal[A](sig): Source[A]` **landed (2026-05-27)** in the
-     interpreter path as a current-value adapter. UI runtimes can extend this
-     to live signal subscription.
-   - `sig.bind(source: Source[A]): Unit` reverse adapter remains planned.
-   - JavaFX/Swing/SwiftUI live signal-bus wiring remains planned.
+   - `Source.signal[A](sig): Source[A]` **landed (2026-05-27)** for
+     frontend `ReactiveSignal` live subscriptions plus generic current-value
+     instances.
+   - `sig.bind(source: Source[A]): Unit` **landed (2026-05-27)** for
+     frontend `ReactiveSignal` in the interpreter/JVM desktop path.
+   - JavaFX/Swing in-process signal-bus wiring **landed (2026-05-27)**.
+   - SwiftUI platform-native stream bridging remains planned.
 
 ### v1.51.6 — Effect-row integration (open / deferred)
 
@@ -873,12 +882,12 @@ as a standard code-review checklist item.
 
 ### UI signal adapter: last-value-wins vs order preservation
 
-`Source.signal(sig)` conflates rapid signal updates — if `sig` changes twice
-before the consumer processes the first change, only the second value is seen.
-This is intentional (UI rendering is idempotent and last-value-wins is correct
-for display), but it means `Source.signal` is **not** a general-purpose reactive
-event stream. For event sourcing or audit logging, use `Source.fromCallback`
-with a bounded buffer and `OverflowStrategy.Fail` instead.
+`Source.signal(sig)` observes frontend `ReactiveSignal.set` calls in
+interpreter/JVM desktop runs. This is useful for UI coordination, but it is not
+a durable event log: subscribers start from the current value, updates are
+process-local, and platform codegen backends may have native signal stores. For
+event sourcing or audit logging, use `Source.fromCallback` with a bounded
+buffer and `OverflowStrategy.Fail` instead.
 
 ---
 
