@@ -979,11 +979,8 @@ Design decisions locked:
 **✓ Landed (2026-05-27) — v1.52.6 — FaaS / serverless (generic):**
 - `FaasTarget` (`kind: faas`): four provider shapes — AWS Lambda (LambdaZip via `buildLambdaZip` + `aws lambda create-function/update-function-code/publish-version/update-alias`), Cloudflare Workers (`wrangler deploy` with `CLOUDFLARE_API_TOKEN`), GCP Cloud Run (`gcloud run deploy`), Vercel Functions (`vercel --prod`). All dry-run capable. `rollback` via Lambda alias version. `logs` via `aws logs tail`. `TargetFactory` extended with `"faas"/"lambda"/"serverless"`. 11 new tests; 91 total.
 
-**v1.52.7 — Remote state backends:**
-- `LocalFileStateBackend`, `S3StateBackend`, `ConsulStateBackend`, `EtcdStateBackend`
-- Lock semantics with TTL; lock-break via `--force`
-- State migration CLI: `ssc deploy state migrate --from local --to s3`
-- Production env enforcement that a non-local state backend is configured
+**✓ Landed (2026-05-27) — v1.52.7 — Remote state backends:**
+- `JsonState` (minimal JSON ser/de for StateRecord; no external deps). `LocalFileStateBackend` (file-based at `~/.ssc-state/<app>/<env>/<target>.json`; sibling `.lock` file with TTL; contention detection). `S3StateBackend` (`aws s3api` subprocess; optimistic lock via head-object + mtime TTL). `ConsulStateBackend` (Consul KV HTTP API v1; session-based lock with TTL). `EtcdStateBackend` (`etcdctl` subprocess; lease-based lock). `StateBackendFactory` (backend config dispatch + production enforcement). `StateMigrator` (`ssc deploy state migrate`; dry-run; skipped/failed reporting). 14 new tests; 105 total.
 
 ## v1.53 — Traditional Payment Processors
 

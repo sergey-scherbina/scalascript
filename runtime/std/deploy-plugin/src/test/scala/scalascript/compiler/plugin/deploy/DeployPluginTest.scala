@@ -887,3 +887,132 @@ class DeployPluginTest extends AnyFunSuite:
   test("TargetFactory: lambda kind → FaasTarget"):
     val t = TargetFactory.make("lambda", Map.empty)
     assert(t.isInstanceOf[FaasTarget])
+
+  // ── JsonState ──────────────────────────────────────────────────────────────
+
+  test("JsonState: round-trip with slot"):
+    val rec = StateRecord("production", "backend", Some("green"), "v2", "sha256:abc", "2026-05-27T00:00:00Z", "ci", Map("url" -> "https://example.com"))
+    val json   = JsonState.serialize(rec)
+    val parsed = JsonState.parse(json)
+    assert(parsed.env          == "production")
+    assert(parsed.target       == "backend")
+    assert(parsed.slot         == Some("green"))
+    assert(parsed.revision     == "v2")
+    assert(parsed.artifactHash == "sha256:abc")
+    assert(parsed.deployedBy   == "ci")
+    assert(parsed.outputs      == Map("url" -> "https://example.com"))
+
+  test("JsonState: round-trip without slot"):
+    val rec    = StateRecord("staging", "api", None, "v1", "sha256:def", "2026-05-27T00:00:00Z", "dev", Map.empty)
+    val parsed = JsonState.parse(JsonState.serialize(rec))
+    assert(parsed.slot   == None)
+    assert(parsed.target == "api")
+
+  // ── LocalFileStateBackend ──────────────────────────────────────────────────
+
+  test("LocalFileStateBackend: write and read round-trip"):
+    val dir     = os.temp.dir()
+    val backend = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "testapp"))
+    val key     = StateKey("staging", "api")
+    val rec     = StateRecord("staging", "api", None, "v3", "sha256:xyz", "2026-05-27T00:00:00Z", "ci", Map("url" -> "https://api.example.com"))
+    backend.write(key, rec)
+    val read = backend.read(key)
+    assert(read.isDefined)
+    assert(read.get.revision     == "v3")
+    assert(read.get.artifactHash == "sha256:xyz")
+    assert(read.get.outputs      == Map("url" -> "https://api.example.com"))
+
+  test("LocalFileStateBackend: read returns None for missing key"):
+    val dir     = os.temp.dir()
+    val backend = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "testapp"))
+    assert(backend.read(StateKey("prod", "missing")) == None)
+
+  test("LocalFileStateBackend: write with slot creates slot-qualified file"):
+    val dir     = os.temp.dir()
+    val backend = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "testapp"))
+    val key     = StateKey("production", "backend", Some("blue"))
+    val rec     = StateRecord("production", "backend", Some("blue"), "v1", "sha256:aaa", "2026-05-27T00:00:00Z", "ci", Map.empty)
+    backend.write(key, rec)
+    val read = backend.read(key)
+    assert(read.isDefined)
+    assert(read.get.slot == Some("blue"))
+
+  test("LocalFileStateBackend: lock and unlock"):
+    val dir     = os.temp.dir()
+    val backend = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "testapp"))
+    val key     = StateKey("prod", "svc")
+    val handle  = backend.lock(key, 60)
+    assert(handle.key == key)
+    assert(handle.token.nonEmpty)
+    backend.unlock(handle)
+    // after unlock, can lock again
+    val handle2 = backend.lock(key, 60)
+    backend.unlock(handle2)
+    assert(handle2.token != handle.token)
+
+  test("LocalFileStateBackend: lock contention throws DeployError when fresh"):
+    val dir     = os.temp.dir()
+    val backend = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "testapp"))
+    val key     = StateKey("prod", "svc2")
+    val handle  = backend.lock(key, 3600)
+    assertThrows[DeployError](backend.lock(key, 3600))
+    backend.unlock(handle)
+
+  // ── StateBackendFactory ────────────────────────────────────────────────────
+
+  test("StateBackendFactory: local backend (default)"):
+    val dir = os.temp.dir()
+    val b   = StateBackendFactory.make(Map("backend" -> "local", "path" -> dir.toString))
+    assert(b.isInstanceOf[LocalFileStateBackend])
+
+  test("StateBackendFactory: unknown backend throws"):
+    assertThrows[DeployError](StateBackendFactory.make(Map("backend" -> "oracle-nosql")))
+
+  test("StateBackendFactory: production env with local backend throws"):
+    val dir = os.temp.dir()
+    val env = DeployEnvironment.parse("production", Map("purpose" -> "production"))
+    val b   = StateBackendFactory.make(Map("backend" -> "local", "path" -> dir.toString))
+    assertThrows[DeployError](StateBackendFactory.requireRemoteForProduction(env, b))
+
+  test("StateBackendFactory: production env with noop backend does NOT throw"):
+    val env = DeployEnvironment.parse("production", Map("purpose" -> "production"))
+    StateBackendFactory.requireRemoteForProduction(env, NoopStateBackend)
+
+  // ── StateMigrator ──────────────────────────────────────────────────────────
+
+  test("StateMigrator: dry-run reports copies without writing"):
+    val dir  = os.temp.dir()
+    val src  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "srcapp"))
+    val dst  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "dstapp"))
+    val key  = StateKey("prod", "svc")
+    val rec  = StateRecord("prod", "svc", None, "v1", "sha256:aaa", "2026-05-27T00:00:00Z", "ci", Map.empty)
+    src.write(key, rec)
+    val result = StateMigrator.migrate(src, dst, List(key), dryRun = true)
+    assert(result.copied  == 1)
+    assert(result.skipped == 0)
+    assert(result.failed.isEmpty)
+    assert(dst.read(key) == None)
+
+  test("StateMigrator: migrates records from src to dst"):
+    val dir  = os.temp.dir()
+    val src  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "srcapp2"))
+    val dst  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "dstapp2"))
+    val key  = StateKey("staging", "api")
+    val rec  = StateRecord("staging", "api", None, "v2", "sha256:bbb", "2026-05-27T00:00:00Z", "dev", Map("url" -> "https://api.staging.example.com"))
+    src.write(key, rec)
+    val result = StateMigrator.migrate(src, dst, List(key))
+    assert(result.copied  == 1)
+    assert(result.failed.isEmpty)
+    val dstRec = dst.read(key)
+    assert(dstRec.isDefined)
+    assert(dstRec.get.revision == "v2")
+    assert(dstRec.get.outputs  == Map("url" -> "https://api.staging.example.com"))
+
+  test("StateMigrator: missing keys counted as skipped"):
+    val dir  = os.temp.dir()
+    val src  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "srcapp3"))
+    val dst  = new LocalFileStateBackend(Map("path" -> dir.toString, "app" -> "dstapp3"))
+    val key  = StateKey("prod", "ghost")
+    val result = StateMigrator.migrate(src, dst, List(key))
+    assert(result.skipped == 1)
+    assert(result.copied  == 0)

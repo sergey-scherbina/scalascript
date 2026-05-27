@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.52.7-deploy-state-backends** — `JsonState` (zero-dep JSON ser/de for StateRecord). `LocalFileStateBackend` (~/.ssc-state/<app>/<env>/<target>.json; sibling .lock with TTL contention detection). `S3StateBackend` (aws s3api subprocess; optimistic mtime-based TTL lock). `ConsulStateBackend` (Consul KV HTTP API v1; session-based locking). `EtcdStateBackend` (etcdctl subprocess; lease-based locking). `StateBackendFactory` (backend dispatch; production-env enforcement). `StateMigrator` (ssc deploy state migrate; dry-run; skipped/failed tracking). 14 new tests; 105 total.
+
 - **v1.52.6-deploy-faas** — `FaasTarget` (`kind: faas`): AWS Lambda (LambdaZip via `buildLambdaZip`+`ZipOutputStream`; `aws lambda create-function/update-function-code/publish-version/update-alias "live"`; `aws logs tail`), Cloudflare Workers (`wrangler deploy` with `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`), GCP Cloud Run (`gcloud run deploy --platform managed --allow-unauthenticated`), Vercel Functions (`vercel --prod`). All dry-run capable; `rollback` via Lambda alias version pointer. `TargetFactory` extended with `"faas"/"lambda"/"serverless"`. 11 new tests; 91 total.
 
 - **v1.52.5-deploy-static** — `StaticTarget` (`kind: static`): Vercel (CLI or Deployments API v13), Netlify (CLI or API), Cloudflare Pages (wrangler or API; account_id via `team:`), GitHub Pages (git push orphan branch to gh-pages). HTTP GET status. TargetFactory `"static"`. 9 new tests; 80 total.
