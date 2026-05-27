@@ -18,6 +18,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **blockchain-bitcoin** — secp256k1 ECDSA (RFC 6979 deterministic k), BIP-143 SegWit sighash, BIP-340 Schnorr signing/verification, BIP-341 Taproot (tapTweakHash + tweakedKey + tweakedPrivateKey), P2WPKH bech32 (`bc1q`/`tb1q`) + P2TR bech32m (`bc1p`/`tb1p`) address derivation, PSBT BIP-174 builder/signer/finalizer/deserializer, `BitcoinChainAdapter` (`ChainAdapter` SPI), `ChainId.BitcoinMainnet`/`ChainId.BitcoinTestnet` added to `blockchain-spi`. 45 tests.
 
+- **v1.51.4-streams-sse-ws** — `mapAsync(n)(f)` parallel map (semaphore-bounded, ordered results); `.recover(handler)` error recovery; `.mapError(f)` error transformation; `Source.bracket(acquire)(release)(use)` resource lifecycle; `Source.fromSse(url)` SSE HTTP client source; `Sink.toSseStream` SSE response formatter; `Source.fromWebSocket(url)` WebSocket message source; `Sink.toWsRoom(room)` WsRoom broadcast sink. All operators in the interpreter plugin; Source/Sink companions updated in BuiltinsRuntime. 8 new tests (49 → 57 total).
+
 - **v1.51.5b-streams-clock-ui-signals** — Streams now pace `.throttle(Rate)` with interpreter wall-clock scheduling, delay finite `.debounce(durationMillis)` bursts before emitting the latest value, subscribe `Source.signal(sig)` to frontend `ReactiveSignal` updates, and support reverse `sig.bind(source)` for frontend signals. Swing/JavaFX runtime state maps now stay synchronized with the shared signal bus; SwiftUI native bridging is tracked separately as `v1.51.5c-streams-swiftui-bridge`.
 
 - v1.54-bank-rails-spec — Bank Rails spec (SEPA/ACH/Pix/FedNow) ✓ (2026-05-27)

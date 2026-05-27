@@ -909,11 +909,7 @@ Design decisions locked:
 - `broadcast(n)` → queue-per-subscriber; slowest controls demand
 - Promote "emit on cancelled stream" to configurable error
 
-**v1.51.4 — SSE/WS adapters, `mapAsync`, error recovery:**
-- `Source.fromSse`, `Sink.toSseStream` in `runtime/std/http-plugin/.../HttpIntrinsics.scala:218-282`
-- `Source.fromWebSocket`, `Sink.toWsRoom` in `runtime/std/ws-plugin/.../WsIntrinsics.scala:51-86`
-- `mapAsync(n)(f)` with configurable parallelism (best-effort cancel)
-- `.recover(pf)`, `.mapError(f)`, `Source.bracket(acquire)(release)(use)`
+**v1.51.4 — SSE/WS adapters, `mapAsync`, error recovery:** ✓ Landed (2026-05-27)
 
 **v1.51.5 — Buffer strategies, time-based ops, UI signal adapter:** ✓ Landed (2026-05-27)
 - `.buffer(n, OverflowStrategy)` with interpreter strategies:
