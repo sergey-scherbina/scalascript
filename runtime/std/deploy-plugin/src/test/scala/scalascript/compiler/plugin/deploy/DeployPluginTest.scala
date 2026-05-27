@@ -247,7 +247,7 @@ class DeployPluginTest extends AnyFunSuite:
 
   test("TargetFactory: unknown kind throws"):
     intercept[DeployError] {
-      TargetFactory.make("kubernetes", Map.empty)
+      TargetFactory.make("oracle-cloud", Map.empty)
     }
 
   // ── ContainerTarget dry-run ─────────────────────────────────────────────────
@@ -290,3 +290,155 @@ class DeployPluginTest extends AnyFunSuite:
       assert(result.artifactPath.contains("api"))
     finally
       os.remove.all(workDir)
+
+  // ── K8sManifestGenerator ───────────────────────────────────────────────────
+
+  test("K8sManifestGenerator.deployment: contains apiVersion apps/v1"):
+    val cfg = K8sManifestGenerator.K8sConfig(namespace = "prod", replicas = 3, image = "myapp:v1")
+    val yaml = K8sManifestGenerator.deployment("myapp", cfg)
+    assert(yaml.contains("apiVersion: apps/v1"))
+    assert(yaml.contains("kind: Deployment"))
+    assert(yaml.contains("replicas: 3"))
+    assert(yaml.contains("namespace: prod"))
+    assert(yaml.contains("image: myapp:v1"))
+
+  test("K8sManifestGenerator.deployment: liveness and readiness probes wired to /_health and /_ready"):
+    val cfg  = K8sManifestGenerator.K8sConfig(appPort = 9090)
+    val yaml = K8sManifestGenerator.deployment("api", cfg)
+    assert(yaml.contains("/_health"))
+    assert(yaml.contains("/_ready"))
+    assert(yaml.contains("containerPort: 9090"))
+
+  test("K8sManifestGenerator.deployment: PreStop exec sleep hook present"):
+    val yaml = K8sManifestGenerator.deployment("svc", K8sManifestGenerator.K8sConfig())
+    assert(yaml.contains("preStop"))
+    assert(yaml.contains("sleep 5"))
+
+  test("K8sManifestGenerator.service: selector points to app label"):
+    val yaml = K8sManifestGenerator.service("myapp", K8sManifestGenerator.K8sConfig())
+    assert(yaml.contains("kind: Service"))
+    assert(yaml.contains("app: myapp"))
+    assert(yaml.contains("port: 80"))
+
+  test("K8sManifestGenerator.service: blue-green slot selector appended"):
+    val yaml = K8sManifestGenerator.service("myapp", K8sManifestGenerator.K8sConfig(), activeSlot = Some("blue"))
+    assert(yaml.contains("slot: blue"))
+
+  test("K8sManifestGenerator.ingress: host and ingress class emitted"):
+    val cfg  = K8sManifestGenerator.K8sConfig(ingressClass = "traefik")
+    val yaml = K8sManifestGenerator.ingress("myapp", "api.example.com", cfg)
+    assert(yaml.contains("kind: Ingress"))
+    assert(yaml.contains("api.example.com"))
+    assert(yaml.contains("traefik"))
+
+  test("K8sManifestGenerator.configMap: emitted when configData is non-empty"):
+    val cfg = K8sManifestGenerator.K8sConfig(configData = Map("LOG_LEVEL" -> "info"))
+    val cm  = K8sManifestGenerator.configMap("myapp", cfg)
+    assert(cm.isDefined)
+    assert(cm.get.contains("kind: ConfigMap"))
+    assert(cm.get.contains("LOG_LEVEL"))
+
+  test("K8sManifestGenerator.configMap: absent when configData is empty"):
+    val cm = K8sManifestGenerator.configMap("myapp", K8sManifestGenerator.K8sConfig())
+    assert(cm.isEmpty)
+
+  test("K8sManifestGenerator.secret: base64-encodes values"):
+    val cfg = K8sManifestGenerator.K8sConfig(secretData = Map("DB_PASS" -> "s3cr3t"))
+    val sec = K8sManifestGenerator.secret("myapp", cfg)
+    assert(sec.isDefined)
+    assert(sec.get.contains("kind: Secret"))
+    val encoded = java.util.Base64.getEncoder.encodeToString("s3cr3t".getBytes("UTF-8"))
+    assert(sec.get.contains(encoded))
+
+  test("K8sManifestGenerator.bundle: Deployment + Service separated by ---"):
+    val cfg  = K8sManifestGenerator.K8sConfig()
+    val yaml = K8sManifestGenerator.bundle("app", cfg)
+    assert(yaml.contains("kind: Deployment"))
+    assert(yaml.contains("kind: Service"))
+    assert(yaml.contains("---"))
+
+  test("K8sManifestGenerator.blueGreenDeployments: blue replicas > 0, green starts at 0"):
+    val cfg  = K8sManifestGenerator.K8sConfig(replicas = 3)
+    val yaml = K8sManifestGenerator.blueGreenDeployments("app", cfg, "app:v2")
+    assert(yaml.contains("name: app-blue"))
+    assert(yaml.contains("name: app-green"))
+    assert(yaml.contains("replicas: 3"))
+    assert(yaml.contains("replicas: 0"))
+
+  // ── K8sTarget ──────────────────────────────────────────────────────────────
+
+  test("K8sTarget.kind and artifactKind"):
+    val t = new K8sTarget()
+    assert(t.kind == "k8s")
+    assert(t.artifactKind == ArtifactKind.OciImage)
+
+  test("K8sTarget.build: returns OciImage result with image from config"):
+    val target = new K8sTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("image" -> "registry.example.com/api:v2"),
+      env        = "staging",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.build(ctx)
+    assert(result.artifactKind == ArtifactKind.OciImage)
+    assert(result.artifactPath == "registry.example.com/api:v2")
+
+  test("K8sTarget.deploy: dry-run applies manifest without kubectl"):
+    val target  = new K8sTarget()
+    val workDir = os.temp.dir()
+    try
+      val ctx = DeployContext(
+        targetName = "api",
+        config     = Map("image" -> "app:v1", "namespace" -> "default"),
+        env        = "staging",
+        slot       = None,
+        dryRun     = true,
+        verbose    = false,
+        outputsOf  = _ => Map.empty,
+        workDir    = workDir,
+      )
+      val result = target.deploy(ctx, PushResult("app:v1"))
+      assert(result.revision == "app:v1")
+    finally
+      os.remove.all(workDir)
+
+  test("K8sTarget.rollback: dry-run reports without kubectl"):
+    val target = new K8sTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("namespace" -> "default"),
+      env        = "staging",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.rollback(ctx, RevisionRef("v1"))
+    assert(result.revision == "v1")
+
+  test("K8sTarget.switch: dry-run flips slot blue → green"):
+    val target = new K8sTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("active_slot" -> "blue"),
+      env        = "production",
+      slot       = Some("blue"),
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val next = target.switch(ctx)
+    assert(next == "green")
+
+  test("TargetFactory: resolves k8s kind"):
+    val t = TargetFactory.make("k8s", Map.empty)
+    assert(t.kind == "k8s")
+    val t2 = TargetFactory.make("kubernetes", Map.empty)
+    assert(t2.kind == "k8s")

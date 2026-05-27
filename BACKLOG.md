@@ -959,14 +959,11 @@ Design decisions locked:
 - `ArtifactRegistry` extended with `OciImage` case.
 - 14 new tests (Dockerfile generator × 9, TargetFactory × 3, ContainerTarget × 2); 36 deploy-plugin tests total.
 
-**v1.52.3 — Kubernetes target + blue-green + multi-region fault tolerance:**
-- K8s manifest generator: `Deployment` + `Service` + `Ingress` + `ConfigMap` + `Secret`
-- Apply via `kubectl` subprocess; probe wiring to `RestRuntime.scala:640-648` `/_health`/`/_ready`
-- PreStop hook wired to `actors.ssc:416-428` + `cluster/index.ssc:46,58` draining
-- `rollback` via `kubectl rollout undo`; `logs` via `kubectl logs -f` → `Stream[LogLine]` (v1.51)
-- Blue-green slot management: two `Deployment`s + `Service` selector flip
-- Multi-region orchestration + quorum health check
-- `ssc deploy switch` and `ssc deploy promote` ship here
+**✓ Landed (2026-05-27) — v1.52.3 — Kubernetes target + blue-green:**
+- `K8sManifestGenerator`: `Deployment` (liveness `/_health`, readiness `/_ready`, PreStop sleep drain, resource requests/limits, nodeSelector, annotations, blue/green slot label) + `Service` (ClusterIP, slot selector for blue-green) + `Ingress` (host, ingress class) + `ConfigMap` + `Secret` (base64-encoded). `bundle()` combines all; `blueGreenDeployments()` emits standby slot at 0 replicas.
+- `K8sTarget`: full 7-verb `DeployTarget` SPI + `switch(ctx)` (kubectl patch service selector) + `promote(ctx, from, to)` (scale → switch → scale old to 0); blue-green enabled via `blue_green: "true"` config key; `kubectl` subprocess with configurable `kubeconfig`/`context`; `kubectl rollout undo` rollback; `kubectl logs -l app=<name>` streaming; dry-run throughout.
+- `TargetFactory` extended with `"k8s" | "kubernetes"`.
+- 17 new tests (manifest generator × 11, K8sTarget × 5, TargetFactory × 1); 53 total.
 
 **v1.52.4 — Traditional hosting (SSH + systemd, rsync, SFTP):**
 - SSH + SCP adapter: copies fat-JAR/native binary; renders systemd unit template; `systemctl restart`
