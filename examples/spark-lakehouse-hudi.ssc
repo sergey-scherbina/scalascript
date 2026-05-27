@@ -1,0 +1,87 @@
+#!/usr/bin/env ssc
+---
+name: spark-lakehouse-hudi
+backend: spark
+spark-version: 3.5.0
+description: Apache Hudi lakehouse round-trip — write, read back, and upsert (MergeOnRead)
+---
+
+# Spark Lakehouse — Apache Hudi (L.4)
+
+Demonstrates the L.4 Hudi auto-detection in `SparkGen`.
+
+The `.format("hudi")` literal triggers the auto-emission of:
+
+- `//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:<version>"`
+  so `scala-cli` resolves the Hudi bundle JAR via Coursier.
+- `.config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")`
+  required by Hudi for efficient Avro/Parquet serde of the record payload.
+- `.config("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension")`
+  registers Hudi's Spark SQL extensions (`CALL bootstrap`, `CALL run_clustering`, etc.).
+- `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")`
+  routes unqualified table references through the Hudi catalog.
+
+No `dependencies:` entry is needed in the front-matter; no `spark-config:`
+map is needed for the catalog wiring — the format literal in the source
+IS the contract.
+
+Run with (requires Spark 3.5 + Hudi 0.15.0 to be accessible via Coursier):
+
+```sh
+RUN_SPARK_HUDI=1 ssc run --backend spark examples/spark-lakehouse-hudi.ssc
+```
+
+## Write and read back
+
+```scalascript
+case class Trip(id: Int, driver: String, fare: Double)
+
+val trips = Dataset.of(
+  Trip(1, "alice", 12.50),
+  Trip(2, "bob",   23.75),
+  Trip(3, "carol",  8.00)
+)
+
+val warehousePath = s"/tmp/ssc-hudi-warehouse-${System.currentTimeMillis()}"
+val tablePath     = s"$warehousePath/trips"
+
+// Write as Hudi — this literal triggers Hudi dep + config auto-emit.
+trips.write
+  .format("hudi")
+  .option("hoodie.table.name", "trips")
+  .option("hoodie.datasource.write.recordkey.field", "id")
+  .option("hoodie.datasource.write.precombine.field", "fare")
+  .mode("overwrite")
+  .save(tablePath)
+
+println("=== written as Hudi (Copy-on-Write) ===")
+
+// Read back — uses the Hudi DataSource reader.
+val back = spark.read.format("hudi").load(tablePath)
+println("schema:")
+back.printSchema()
+println(s"row count: ${back.count()}")
+back.show()
+```
+
+## Upsert (incremental write)
+
+```scalascript
+// Upsert: update an existing record and insert a new one.
+val updates = Dataset.of(
+  Trip(2, "bob",   29.99),  // fare update
+  Trip(4, "dave",  15.00)   // new row
+)
+
+updates.write
+  .format("hudi")
+  .option("hoodie.table.name", "trips")
+  .option("hoodie.datasource.write.recordkey.field", "id")
+  .option("hoodie.datasource.write.precombine.field", "fare")
+  .option("hoodie.datasource.write.operation", "upsert")
+  .mode("append")
+  .save(tablePath)
+
+println("=== after upsert ===")
+spark.read.format("hudi").load(tablePath).show()
+```

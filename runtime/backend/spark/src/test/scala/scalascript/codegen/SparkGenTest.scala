@@ -1682,126 +1682,123 @@ class SparkGenTest extends AnyFunSuite:
     assert(!flags.any, "empty source must produce empty LakehouseFlags")
   }
 
-  // ── L.3 — Lakehouse formats: Apache Iceberg ───────────────────────────────
+  // ── L.4 — Lakehouse formats: Apache Hudi ─────────────────────────────────
   //
-  // See `docs/spark-lakehouse.md §L.3`.  Detection and emission are symmetric
-  // with L.2 (Delta); same helpers, new format-specific dep coord and config.
+  // See `docs/spark-lakehouse.md §L.4`.  Detection and emission mirror L.3
+  // (Iceberg) and L.2 (Delta): same regex approach, Hudi-specific dep coord
+  // and three config pairs (serializer + SQL extension + catalog override).
 
-  test("iceberg detection — .format(\"iceberg\") triggers dep emit") {
+  test("hudi detection — .format(\"hudi\") triggers dep emit") {
     val code = gen(
-      """|# Iceberg write
+      """|# Hudi write
          |```scalascript
-         |ds.write.format("iceberg").mode("overwrite").save("/tmp/ice")
+         |ds.write.format("hudi").mode("overwrite").save("/tmp/hudi")
          |```
          |""".stripMargin
     )
-    assert(code.contains(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}""""),
-      s"Iceberg dep must appear when .format(\"iceberg\") is present, got:\n$code")
+    assert(code.contains(s"""//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:${SparkGen.DefaultHudiVersion}""""),
+      s"Hudi dep must appear when .format(\"hudi\") is present, got:\n$code")
   }
 
-  test("iceberg detection — read path .format(\"iceberg\") also triggers dep emit") {
+  test("hudi detection — read path .format(\"hudi\") also triggers dep emit") {
     val code = gen(
-      """|# Iceberg read
+      """|# Hudi read
          |```scalascript
-         |val df = spark.read.format("iceberg").load("/tmp/ice")
+         |val df = spark.read.format("hudi").load("/tmp/hudi")
          |df.show()
          |```
          |""".stripMargin
     )
-    assert(code.contains(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}""""),
-      s"Iceberg dep must appear on read path too, got:\n$code")
+    assert(code.contains(s"""//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:${SparkGen.DefaultHudiVersion}""""),
+      s"Hudi dep must appear on read path too, got:\n$code")
   }
 
-  test("iceberg detection — uppercase .format(\"ICEBERG\") still triggers dep emit") {
+  test("hudi detection — uppercase .format(\"HUDI\") still triggers dep emit") {
     val code = gen(
-      """|# Uppercase Iceberg
+      """|# Uppercase Hudi
          |```scalascript
-         |ds.write.format("ICEBERG").save("/tmp/ice")
+         |ds.write.format("HUDI").save("/tmp/hudi")
          |```
          |""".stripMargin
     )
-    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
-      s"Iceberg dep must match case-insensitively, got:\n$code")
+    assert(code.contains("hudi-spark3.5-bundle_2.13"),
+      s"Hudi dep must match case-insensitively, got:\n$code")
   }
 
-  test("iceberg detection — module without .format(\"iceberg\") emits NO Iceberg dep") {
+  test("hudi detection — module without .format(\"hudi\") emits NO Hudi dep") {
     val code = gen(
-      """|# No Iceberg
+      """|# No Hudi
          |```scalascript
          |val x = Dataset.of(1, 2, 3)
          |x.foreach(println)
          |```
          |""".stripMargin
     )
-    assert(!code.contains("iceberg-spark-runtime"),
-      s"Iceberg dep must NOT appear when format is absent, got:\n$code")
-    assert(!code.contains("IcebergSparkSessionExtensions"),
-      s"Iceberg extension must NOT appear when format is absent, got:\n$code")
-    assert(!code.contains("SparkSessionCatalog"),
-      s"Iceberg catalog must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("hudi-spark3.5-bundle"),
+      s"Hudi dep must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("HoodieSparkSessionExtension"),
+      s"Hudi extension must NOT appear when format is absent, got:\n$code")
+    assert(!code.contains("HoodieCatalog"),
+      s"Hudi catalog must NOT appear when format is absent, got:\n$code")
   }
 
-  test("iceberg config — IcebergSparkSessionExtensions emitted when detected") {
+  test("hudi config — KryoSerializer emitted when Hudi detected") {
     val code = gen(
-      """|# Iceberg config
+      """|# Hudi config
          |```scalascript
-         |ds.write.format("iceberg").save("/tmp/ice")
+         |ds.write.format("hudi").save("/tmp/hudi")
          |```
          |""".stripMargin
     )
-    assert(code.contains(""".config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")"""),
-      s"Iceberg SQL extension config missing, got:\n$code")
+    assert(code.contains(""".config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")"""),
+      s"Hudi KryoSerializer config missing, got:\n$code")
   }
 
-  test("iceberg config — SparkSessionCatalog + SparkCatalog emitted when detected") {
+  test("hudi config — HoodieSparkSessionExtension + HoodieCatalog emitted when detected") {
     val code = gen(
-      """|# Iceberg catalogs
+      """|# Hudi catalogs
          |```scalascript
-         |spark.read.format("iceberg").load("/tmp/ice").show()
+         |spark.read.format("hudi").load("/tmp/hudi").show()
          |```
          |""".stripMargin
     )
-    assert(code.contains("org.apache.iceberg.spark.SparkSessionCatalog"),
-      s"Iceberg SparkSessionCatalog missing, got:\n$code")
-    assert(code.contains("org.apache.iceberg.spark.SparkCatalog"),
-      s"Iceberg SparkCatalog missing, got:\n$code")
+    assert(code.contains("org.apache.spark.sql.hudi.HoodieSparkSessionExtension"),
+      s"Hudi SQL extension config missing, got:\n$code")
+    assert(code.contains("org.apache.spark.sql.hudi.catalog.HoodieCatalog"),
+      s"Hudi catalog config missing, got:\n$code")
   }
 
-  test("iceberg default version constant pins 1.5.2") {
-    assert(SparkGen.DefaultIcebergVersion == "1.5.2",
-      s"DefaultIcebergVersion drift — update spec doc + bump intentionally, got ${SparkGen.DefaultIcebergVersion}")
+  test("hudi default version constant pins 0.15.0") {
+    assert(SparkGen.DefaultHudiVersion == "0.15.0",
+      s"DefaultHudiVersion drift — update spec doc + bump intentionally, got ${SparkGen.DefaultHudiVersion}")
   }
 
-  test("detectLakehouseFormats — Iceberg-only block sets only usesIceberg") {
-    val blocks = List(SparkGen.Block("""ds.write.format("iceberg").save("/p")"""))
+  test("detectLakehouseFormats — Hudi-only block sets only usesHudi") {
+    val blocks = List(SparkGen.Block("""ds.write.format("hudi").save("/tmp/hudi")"""))
     val flags  = SparkGen.detectLakehouseFormats(blocks)
-    assert(flags.usesIceberg, "usesIceberg must be true")
-    assert(!flags.usesDelta,  "usesDelta must remain false")
-    assert(!flags.usesHudi,   "usesHudi must remain false")
+    assert(flags.usesHudi,   "usesHudi must be true")
+    assert(!flags.usesDelta, "usesDelta must remain false")
+    assert(!flags.usesIceberg, "usesIceberg must remain false")
     assert(flags.any)
   }
 
-  test("iceberg + delta coexist — both deps emitted, spark.sql.extensions joined") {
-    // When both formats appear in the same module, both deps are emitted and the
-    // `spark.sql.extensions` key combines both values comma-separated (Spark
-    // registers all extensions listed there).
+  test("hudi + delta coexist — both deps emitted, spark.sql.extensions joined") {
     val code = gen(
-      """|# Delta + Iceberg
+      """|# Delta + Hudi
          |```scalascript
          |ds.write.format("delta").save("/tmp/delta-path")
-         |ds2.write.format("iceberg").save("/tmp/ice-path")
+         |ds2.write.format("hudi").save("/tmp/hudi-path")
          |```
          |""".stripMargin
     )
     assert(code.contains("delta-spark_2.13"),
       s"Delta dep must appear in combined module, got:\n$code")
-    assert(code.contains("iceberg-spark-runtime-3.5_2.13"),
-      s"Iceberg dep must appear in combined module, got:\n$code")
-    // Extensions key appears exactly once, containing both values.
+    assert(code.contains("hudi-spark3.5-bundle_2.13"),
+      s"Hudi dep must appear in combined module, got:\n$code")
     assert(code.contains("io.delta.sql.DeltaSparkSessionExtension"),
       s"Delta extension must be in combined extensions value, got:\n$code")
-    assert(code.contains("IcebergSparkSessionExtensions"),
-      s"Iceberg extension must be in combined extensions value, got:\n$code")
+    assert(code.contains("HoodieSparkSessionExtension"),
+      s"Hudi extension must be in combined extensions value, got:\n$code")
   }
 
   // ── Phase F.2: Structured Streaming codegen ──────────────────────────────

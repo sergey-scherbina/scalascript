@@ -10,7 +10,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Language & Compiler — Spark extensions (new)
 
-- [ ] **spark-lakehouse-l4-hudi** — Spark Lakehouse Hudi (L.4): `SparkGen.detectLakehouseFormats` extended to detect `.format("hudi")` → auto-emit `org.apache.hudi:hudi-spark3.5-bundle_2.13:<DefaultHudiVersion>` dep + `spark.serializer=KryoSerializer` + `spark.sql.extensions=HoodieSparkSessionExtension` + `spark.sql.catalog.spark_catalog=HoodieCatalog` configs; `DefaultHudiVersion` constant; `examples/spark-lakehouse-hudi.ssc` (write/read/upsert Hudi table); 8+ codegen tests. Spec: `docs/spark-lakehouse.md §L.4`.
+- [x] **spark-lakehouse-l4-hudi** — Spark Lakehouse Hudi (L.4): `SparkGen.detectLakehouseFormats` extended to detect `.format("hudi")` → auto-emit `org.apache.hudi:hudi-spark3.5-bundle_2.13:0.15.0` dep + `spark.serializer=KryoSerializer` + `spark.sql.extensions=HoodieSparkSessionExtension` + `spark.sql.catalog.spark_catalog=HoodieCatalog` configs; `DefaultHudiVersion = "0.15.0"` constant; `examples/spark-lakehouse-hudi.ssc` (write/read/upsert Hudi table); 9 codegen tests. Spec: `docs/spark-lakehouse.md §L.4`. (2026-05-27)
 
 ## OAuth / Security
 

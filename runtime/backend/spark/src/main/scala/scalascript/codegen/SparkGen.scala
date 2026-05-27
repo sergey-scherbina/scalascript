@@ -78,6 +78,16 @@ object SparkGen:
    *  before bumping. */
   val DefaultIcebergVersion: String = "1.5.2"
 
+  /** Default Apache Hudi version emitted as the
+   *  `hudi-spark3.5-bundle_2.13` dep coordinate when
+   *  `.format("hudi")` is detected.  Lakehouse track L.4 (see
+   *  `docs/spark-lakehouse.md §L.4`).
+   *
+   *  Pinned to **0.15.0** — latest stable Hudi 0.x release with
+   *  confirmed Spark 3.5 runtime compatibility.  Verify on Maven
+   *  Central before bumping. */
+  val DefaultHudiVersion: String = "0.15.0"
+
   /** Maximum number of `${expr}` binds in a single `sql` block that the
    *  emitter routes through `java.util.Map.of(...)`.  Above this threshold
    *  (Phase C.3, v1.25 § 9.5) it switches to `java.util.Map.ofEntries(...)`
@@ -618,7 +628,13 @@ object SparkGen:
         raw += "spark.sql.catalog.spark_catalog.type" -> "hive"
         raw += "spark.sql.catalog.local"           -> "org.apache.iceberg.spark.SparkCatalog"
         raw += "spark.sql.catalog.local.type"      -> "hadoop"
-      // L.4 will append Hudi pairs here.
+      // L.4 — Hudi: Kryo serializer + SQL extension + catalog override.
+      // `spark.sql.extensions` is merged comma-separated with Delta/Iceberg
+      // values by the groupBy/mkSeparated pass below.
+      if flags.usesHudi then
+        raw += "spark.serializer"                -> "org.apache.spark.serializer.KryoSerializer"
+        raw += "spark.sql.extensions"            -> "org.apache.spark.sql.hudi.HoodieSparkSessionExtension"
+        raw += "spark.sql.catalog.spark_catalog" -> "org.apache.spark.sql.hudi.catalog.HoodieCatalog"
       // Merge entries sharing a key by joining values with ',' so
       // multi-format extensions register together.
       raw.toList
@@ -889,6 +905,10 @@ private class SparkGen(
     // needed by `SparkCatalog` and `SparkSessionCatalog`.
     if lakehouse.usesIceberg then
       sb.append(s"""//> using dep "org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:${SparkGen.DefaultIcebergVersion}"\n""")
+    // L.4 — Hudi runtime bundle.  The `hudi-spark3.5-bundle_2.13` uber-JAR
+    // packages the Hudi client, Avro serde, and Spark extensions together.
+    if lakehouse.usesHudi then
+      sb.append(s"""//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:${SparkGen.DefaultHudiVersion}"\n""")
 
     // Phase G.2 — Hive metastore / warehouse runtime dep.  Emitted
     // when the front-matter `spark-hive-metastore:` or

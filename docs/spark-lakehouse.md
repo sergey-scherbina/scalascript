@@ -1,6 +1,6 @@
 # Spark backend — Lakehouse formats (Delta / Iceberg / Hudi)
 
-> **Status**: L.1 (this spec) landed; L.2 (Delta) landed; L.3 (Iceberg) landed 2026-05-27; L.4 (Hudi) open.
+> **Status**: L.1 (this spec) landed; L.2 (Delta) landed; L.3 (Iceberg) landed 2026-05-27; L.4 (Hudi) landed 2026-05-27.
 > Tracker: "Speculative — Apache Spark backend" entry in `MILESTONES.md`, sub-section "Lakehouse formats".
 > Companion to SPEC § 9.5; same `.ssc` source, additive emit path.
 
@@ -323,18 +323,25 @@ uppercase), no-Iceberg suppression, all 5 config pairs, version pin,
 `detectLakehouseFormats` single/combined, `lakehouseConfigs` 5-pair count
 and Delta+Iceberg merge.
 
-### L.4 — Hudi (deferred)
+### L.4 — Hudi (landed 2026-05-27)
 
-Same shape as L.2 with the Hudi coord and config block.  Hudi
-requires Kryo serializer (`spark.serializer=org.apache.spark.serializer.KryoSerializer`)
-plus the `HoodieSparkSessionExtension` and `HoodieCatalog`
-overrides on `spark_catalog`.
+Same shape as L.2/L.3: `.format("hudi")` (case-insensitive) in any
+`scalascript` block triggers automatic emission of:
 
-**Status at L.2 merge: deferred.**  Same Spark-major naming issue
-as L.3: `hudi-spark3.5-bundle_2.13` is the latest released and is
-built against Spark 3.5.  No `hudi-spark4.0-bundle_2.13` artifact
-is published.  L.4 stays parked until that lands; the slot-in
-pattern at L.3 applies symmetrically here.
+- `//> using dep "org.apache.hudi:hudi-spark3.5-bundle_2.13:<DefaultHudiVersion>"`
+  (`DefaultHudiVersion = "0.15.0"`)
+- `.config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")`
+  (required by Hudi for efficient Avro/Parquet serde of the record payload)
+- `.config("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension")`
+  (merged comma-separated with Delta/Iceberg extensions if those are also present)
+- `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog")`
+
+No `dependencies:` entry or `spark-config:` map is required; the
+`.format("hudi")` literal in the source is the sole contract.
+
+**Implementation:** `SparkGen.DefaultHudiVersion`, `LakehouseFlags.usesHudi`,
+`lakehouseConfigs` Hudi branch, `genModule` dep emit, 9 new tests in
+`SparkGenTest`, and `examples/spark-lakehouse-hudi.ssc` (write/read/upsert).
 
 ## Testing strategy
 
@@ -379,13 +386,10 @@ pattern at L.3 applies symmetrically here.
     `NoSuchMethodError` or `AbstractMethodError`.  No
     `iceberg-spark-runtime-4.0_2.13` artifact exists at the time
     of writing.  L.3 will re-open once that coordinate ships.
-  - **Hudi — L.4 DEFERRED.**  Same Spark-major naming issue:
-    `hudi-spark3.5-bundle_2.13` is the latest released bundle and
-    is built against Spark 3.5's binary API.  Hudi's own roadmap
-    tracks Spark 4 support under HUDI-7706 (community issue); when
-    `hudi-spark4.0-bundle_2.13` lands on Maven Central, L.4
-    re-opens.  Emitting the 3.5 bundle today would link-fail at
-    runtime the same way Iceberg does.
+  - **Hudi — L.4 LANDED 2026-05-27.**  `hudi-spark3.5-bundle_2.13:0.15.0`
+    targets Spark 3.5 (the `spark-version: 3.5.0` front-matter default).
+    When `hudi-spark4.0-bundle_2.13` lands on Maven Central, bump
+    `DefaultHudiVersion` and update the artifact suffix accordingly.
 
 - **Version-pin overrides.**  L.2 emits the Delta coord at
   `SparkGen.DefaultDeltaVersion`.  A future phase will let users
