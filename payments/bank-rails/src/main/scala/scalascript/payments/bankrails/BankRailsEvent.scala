@@ -32,6 +32,11 @@ enum BankRailsEvent:
   // pacs.002 RJCT within the 10-second SCT Inst window
   case SctInstRejected(endToEndId: String, reason: String)
 
+  // ── UK Faster Payments (v1.55.3) ─────────────────────────────────────────
+  case UkFpsAccepted(txId: String, amount: String)
+  case UkFpsRejected(txId: String, reason: String)
+  case UkFpsReturned(txId: String, code: String, description: String)
+
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String

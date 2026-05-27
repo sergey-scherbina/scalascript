@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.55.3-uk-faster-payments** — New `runtime/std/payments-uk-fps/` subproject: `UkFpsProvider` (BankRailsProvider for UK_FPS rail, REST JSON over HTTPS to aggregator, CoP name-check before each payment), `ConfirmationOfPayee` (CoP client with `CopResult` enum: Matched/CloseMatch/NoMatch/AccountSwitched/Unavailable), `UkFpsWebhookReceiver` (HMAC-SHA256 `X-FPS-Signature` verify; parses `uk.faster-payments.credit/rejected/return` → `UkFpsAccepted/Rejected/Returned`), `UkFpsPlugin` (ServiceLoader registration). SPI additions: `RailKind.UK_FPS` + 7 other future rail cases, `BankAccount.sortCode` (and other v1.55 fields), `BankRailsEvent.UkFpsAccepted/Rejected/Returned`, `BankRailsError.UkCopNameMismatch`. 47 tests.
+
 - **v1.55.2-sepa-instant** — Extended `runtime/std/payments-sepa/` with SEPA Instant Credit Transfer (SCT Inst): `RailKind.SCT_INST`, `SepaPainXml.buildSctInstPacs008` (pacs.008.001.08 with `LclInstrm=INST`, `SttlmMtd=CLRG`, `ClrSys=SCTInst`), `BankRailsEvent.SctInstSettled/SctInstRejected`, `BankRailsError.SctInstTimeout` (10-second window exceeded); `SepaProvider.supportedRails` extended; webhook parsing for `SCTInst.CreditTransfer.Settlement/Rejection`; 19 new tests (49 total).
 
 - **wallet-solana-standard-js** — Scala.js Solana Wallet Standard browser registration (`wallet-connector-wallet-std/js/`): `WalletInfo` JS-native trait (name, icon, chains, features), `WalletStandardJs.register(info, connector)` dispatches `wallet-standard:register-wallet` CustomEvent + legacy `window.standard.wallets.registerWallet`, `StandardWalletConnectorJs` feature-map bridge; 6 Node.js smoke tests via `global.window` stub.

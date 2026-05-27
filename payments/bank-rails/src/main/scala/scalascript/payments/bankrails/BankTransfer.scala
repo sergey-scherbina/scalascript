@@ -9,15 +9,23 @@ object TransferId:
   extension (id: TransferId) def value: String = id
 
 /** Bank account details. Fields used depend on the rail (IBAN for SEPA,
- *  routingNumber+accountNumber for ACH, pixKey for Pix). */
+ *  routingNumber+accountNumber for ACH, pixKey for Pix, sortCode+accountNumber for UK FPS/BACS).
+ *  All v1.55 fields default to None — existing call sites compile unchanged. */
 case class BankAccount(
-  iban:          Option[String] = None,    // SEPA
-  accountNumber: Option[String] = None,    // ACH / Pix / FedNow
-  routingNumber: Option[String] = None,    // ACH (ABA routing number)
-  bankCode:      Option[String] = None,    // Pix ISPB / FedNow routing
-  pixKey:        Option[String] = None,    // Pix key (CPF/CNPJ/phone/email/EVP)
-  holderName:    String,
-  countryCode:   String,                   // ISO 3166-1 alpha-2
+  iban:             Option[String] = None,    // SEPA / SWIFT
+  accountNumber:    Option[String] = None,    // ACH / Pix / FedNow / UK FPS / UK BACS
+  routingNumber:    Option[String] = None,    // ACH (ABA routing number)
+  bankCode:         Option[String] = None,    // Pix ISPB / FedNow routing
+  pixKey:           Option[String] = None,    // Pix key (CPF/CNPJ/phone/email/EVP)
+  holderName:       String,
+  countryCode:      String,                   // ISO 3166-1 alpha-2
+  // v1.55 additions — all default to None, no existing call sites break
+  bic:              Option[String] = None,    // SWIFT/SCT Inst: BIC8 or BIC11
+  sortCode:         Option[String] = None,    // UK FPS / BACS: 6-digit sort code "XX-XX-XX"
+  upiVpa:           Option[String] = None,    // India UPI: Virtual Payment Address (name@bank)
+  zenginBankCode:   Option[String] = None,    // Japan Zengin: 4-digit bank code
+  zenginBranchCode: Option[String] = None,    // Japan Zengin: 3-digit branch code
+  paynowProxy:      Option[String] = None,    // SG PayNow: mobile / NRIC / UEN proxy
 )
 
 /** Request to initiate a push bank transfer (credit transfer, Pix, FedNow). */

@@ -29,6 +29,8 @@ case class PixKeyNotFound(key: String)
 case class NachaCutoffMissed(scheduledDate: java.time.LocalDate)
     extends BankRailsError(s"ACH cut-off missed for $scheduledDate — next available date is next business day")
 
+// ── v1.55 error additions ─────────────────────────────────────────────────────
+
 /** SCT Inst 10-second transmission window exceeded (HTTP 408-style).
  *  EBA sanctions screening must complete within the 10s window; if the aggregator
  *  cannot confirm settlement in time it returns a timeout error.
@@ -36,3 +38,12 @@ case class NachaCutoffMissed(scheduledDate: java.time.LocalDate)
  *  @param elapsedMs  milliseconds elapsed before the timeout was declared */
 case class SctInstTimeout(endToEndId: String, elapsedMs: Long)
     extends BankRailsError(s"SCT Inst 10-second window exceeded for $endToEndId (${elapsedMs}ms elapsed)")
+
+/** UK FPS Confirmation of Payee name-check failed (result was NoMatch).
+ *  `suggested` is the bank-registered name if CoP returned a CloseMatch. */
+case class UkCopNameMismatch(suggested: Option[String])
+    extends BankRailsError(
+      suggested.fold("Confirmation of Payee name check returned NoMatch")(
+        s => s"Confirmation of Payee name check returned CloseMatch — suggested name: $s"
+      )
+    )

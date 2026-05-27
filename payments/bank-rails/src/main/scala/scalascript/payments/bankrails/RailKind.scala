@@ -11,3 +11,11 @@ enum RailKind:
   case FEDNOW     // FedNow instant (US) — T+0, < 10 seconds
   // v1.55 additions
   case SCT_INST   // SEPA Instant Credit Transfer (SCT Inst) — T+0, < 10 seconds, TIPS/RT1
+  case SWIFT_MT103    // legacy ISO 15022 wire (deprecated path, keep for aggregator compat)
+  case SWIFT_PACS008  // ISO 20022 CBPR+ pacs.008.001.10 (preferred for new integrations)
+  case UK_FPS         // UK Faster Payments Service — T+0, < 2 seconds
+  case UK_BACS_DD     // UK BACS Direct Debit (3-day cycle)
+  case UK_CHAPS       // UK CHAPS same-day high-value RTGS (via aggregator)
+  case IN_UPI         // India Unified Payments Interface (push + collect)
+  case JP_ZENGIN      // Japan Zengin Data Telecommunication System
+  case SG_PAYNOW      // Singapore PayNow (FAST + proxy resolution)
