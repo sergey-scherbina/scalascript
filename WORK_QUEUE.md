@@ -97,6 +97,12 @@ _(all done — see Done section below)_
 
 - [ ] **lsp-phase3** — LSP Phase 3: `textDocument/codeAction` (quick-fix for unknown-name + unused-import diagnostics); `textDocument/formatting` (indent normalisation, trailing-whitespace strip); `textDocument/inlayHint` (inferred types on `val` bindings, effect annotations); `workspace/didChangeWatchedFiles` (auto-reload `.ssc` on disk change without client re-open). Spec: `BACKLOG.md §LSP server`.
 
+- [ ] **js-tree-shaking** — Dead-code elimination in JS output: mark reachable symbols from `@main` / exported defs; emit only reachable `const`/`function` declarations; `--no-tree-shake` escape hatch; `ssc build --stats` reports removed vs kept symbol counts. Spec: `BACKLOG.md §Generated code — JS tree-shaking`.
+
+- [ ] **wallet-ledger-js** — Ledger hardware wallet Scala.js integration: `wallet-vault-ledger-js` subproject; WebHID transport (`navigator.hid.requestDevice`) for browser; APDU framing over HID packets; Ethereum app signer (secp256k1 + EIP-712 typed-data); Cardano app signer (CIP-8 framing); connect/disconnect lifecycle; `LedgerVault` implementing `Vault` SPI; 12+ tests via mocked HID device. Spec: `BACKLOG.md §wallet-vault-ledger-js`.
+
+- [ ] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`.
+
 ## Language & Compiler
 
 - [x] **v2.1.6-dstream-connectors** — `Kafka`/`Files`/`FileFormat`/`Jdbc`/`Pulsar`/`Kinesis` stubs in all 4 code-gen shims (Spark, KafkaStreams, Flink, Beam) + native interpreter intrinsics; `containsConnector` in each generator; `DSource.fromDataset` bridge; SparkGen Kafka dep extended; `DSink[T] = Any` alias; 14 new tests. Spec: `docs/distributed-streams.md §6`. (2026-05-27)
