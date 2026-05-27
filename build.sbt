@@ -2464,6 +2464,17 @@ lazy val paymentsFednow = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — Pix instant payments adapter (Brazil) ───────────────────
+lazy val paymentsPix = project
+  .in(file("runtime/std/payments-pix"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-pix",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2489,7 +2500,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix,
   )
   .settings(
     publish / skip := true

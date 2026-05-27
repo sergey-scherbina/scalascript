@@ -1,0 +1,145 @@
+---
+title: "Pix Instant Payments (Brazil)"
+version: "1.0.0"
+requires: ["payments-pix"]
+---
+
+# Pix Instant Payments Example
+
+This example demonstrates the Pix instant payment adapter for Brazil,
+covering:
+- Initiating a Pix credit transfer using a recipient's Pix key (email)
+- Generating static and dynamic EMV QR codes for in-person/e-commerce payment
+- Handling incoming Pix webhook events (received, refunded, rejected)
+
+## Configuration
+
+```scala
+import scalascript.payments.pix.{PixProvider, PixConfig}
+import scalascript.payments.bankrails.*
+import scalascript.payments.money.{Money, Currency}
+
+val pixConfig = PixConfig(
+  pixApiUrl       = "https://api-pix.gerencianet.com.br",
+  pixClientId     = sys.env("PIX_CLIENT_ID"),
+  pixClientSecret = sys.env("PIX_CLIENT_SECRET"),
+  pixPixKey       = sys.env("PIX_PIX_KEY"),  // merchant's Pix key
+)
+
+val pix = PixProvider(pixConfig)
+```
+
+## Initiating a Pix Transfer
+
+```scala
+// Recipient identified by their Pix key (email in this case)
+val recipient = BankAccount(
+  pixKey      = Some("pagador@cliente.com.br"),
+  holderName  = "Maria Silva",
+  countryCode = "BR",
+)
+
+val sender = BankAccount(
+  pixKey      = Some(pixConfig.pixPixKey),
+  holderName  = "Loja Exemplo Ltda",
+  countryCode = "BR",
+)
+
+val request = InitiateTransferRequest(
+  rail           = RailKind.PIX,
+  amount         = Money(5000L, Currency("BRL")),  // R$ 50.00
+  sender         = sender,
+  recipient      = recipient,
+  reference      = "Pedido #12345",
+  idempotencyKey = "order12345attempt1",
+)
+
+val transfer = pix.initiateTransfer(request)
+println(s"Transfer initiated: ${transfer.id.value}, status: ${transfer.status}")
+// Transfer initiated: E0000000020260527120000000001, status: Pending
+
+// Pix settles in < 10 seconds — poll or wait for webhook
+val settled = pix.getTransfer(transfer.id)
+println(s"Transfer status: ${settled.status}")
+// Transfer status: Settled
+```
+
+## Generating a Static QR Code
+
+```scala
+import scalascript.payments.pix.PixQrCode
+
+// Static QR: reusable, no per-transaction txid
+val staticQr = PixQrCode.buildStatic(PixQrCode.StaticConfig(
+  pixKey       = "loja@empresa.com.br",
+  merchantName = "Loja Exemplo",
+  merchantCity = "Sao Paulo",
+  amount       = Some(Money(2999L, Currency("BRL"))),  // R$ 29.99 fixed amount
+))
+
+println(s"Static QR payload (first 60 chars): ${staticQr.take(60)}...")
+// 00020126360014br.gov.bcb.pix0116loja@empresa.com.br...
+```
+
+## Generating a Dynamic QR Code (e-commerce)
+
+```scala
+// Dynamic QR: one-time use, includes URL for amount/beneficiary lookup
+val txid = "order12345txid00000000000000000000"
+
+val dynamicQr = PixQrCode.buildDynamic(PixQrCode.DynamicConfig(
+  cobvUrl      = s"pix.loja-exemplo.com.br/v2/cobv/$txid",
+  merchantName = "Loja Exemplo",
+  merchantCity = "Sao Paulo",
+  amount       = Some(Money(9900L, Currency("BRL"))),  // R$ 99.00
+  txid         = txid,
+))
+
+println(s"Dynamic QR payload length: ${dynamicQr.length}")
+println(s"CRC suffix: ${dynamicQr.takeRight(8)}")  // 6304XXXX
+```
+
+## Handling Pix Webhooks
+
+```scala
+import scalascript.payments.pix.PixWebhookReceiver
+import scalascript.payments.bankrails.BankRailsEvent
+import scalascript.payments.webhook.{WebhookRequest, WebhookResponse}
+
+val receiver = PixWebhookReceiver()
+
+def handlePixWebhook(headers: Map[String, String], body: String): WebhookResponse =
+  val req = WebhookRequest(headers, body)
+  receiver.handle(req, pixConfig.pixClientSecret):
+    case BankRailsEvent.PixReceived(transfer) =>
+      println(s"Payment received! e2eId=${transfer.id.value} amount=${transfer.amount}")
+      // mark order as paid in your database
+
+    case BankRailsEvent.PixRefunded(transfer, originalId) =>
+      println(s"Refund processed for original transfer ${originalId.value}")
+      // update order refund status
+
+    case BankRailsEvent.PixRejected(transfer, code) =>
+      println(s"Payment rejected: ${code.value}")
+      // notify customer to retry
+```
+
+## Pix Automático (Recurring / cobv)
+
+```scala
+// Pix Automático: scheduled debit with recurring consent
+val directDebitReq = InitiateDirectDebitRequest(
+  rail            = RailKind.PIX,
+  amount          = Money(10000L, Currency("BRL")),  // R$ 100.00
+  mandateId       = MandateId("CONSENT-UUID-001"),
+  creditorAccount = sender,
+  debtorAccount   = recipient,
+  creditorName    = "Loja Exemplo Ltda",
+  reference       = "Assinatura mensal #001",
+  idempotencyKey  = "subscription001jan2026",
+  scheduledDate   = Some(java.time.LocalDate.of(2026, 6, 1)),
+)
+
+val cobv = pix.initiateDirectDebit(directDebitReq)
+println(s"cobv created: ${cobv.id.value}, status: ${cobv.status}")
+```

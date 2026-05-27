@@ -27,7 +27,7 @@ case class InitiateTransferRequest(
   sender:         BankAccount,
   recipient:      BankAccount,
   reference:      String,                // end-to-end reference (max 35 chars for SEPA)
-  idempotencyKey: String,   // end-to-end idempotency key (used as EndToEndId in PAIN XML)
+  idempotencyKey: String,   // end-to-end idempotency key (used as EndToEndId in PAIN XML, txid for Pix)
   sameDay:        Boolean = false,       // ACH same-day flag; ignored for non-ACH rails
   scheduledDate:  Option[java.time.LocalDate] = None,  // None = earliest possible
   metadata:       Map[String, String] = Map.empty,
