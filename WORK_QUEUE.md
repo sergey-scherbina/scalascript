@@ -58,7 +58,7 @@ _(all done — see Done section below)_
 
 - [x] **v1.55.6-india-upi** — `runtime/std/payments-india-upi/` (UpiProvider, push + collect, RSA-SHA256 webhook) + `RailKind.IN_UPI` + `BankAccount.upiVpa`; 63 tests. Spec: `docs/international-bank-rails.md §v1.55.6`. (2026-05-27)
 
-- [ ] **v1.55.7-japan-zengin** — `runtime/std/payments-japan-zengin/` (ZenginProvider, kana constraint) + `RailKind.JP_ZENGIN` + `BankAccount.zenginBankCode/zenginBranchCode`; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.7`.
+- [x] **v1.55.7-japan-zengin** — `runtime/std/payments-japan-zengin/` (ZenginProvider, kana constraint) + `RailKind.JP_ZENGIN` + `BankAccount.zenginBankCode/zenginBranchCode`; 59 tests. Landed 2026-05-27.
 
 - [ ] **v1.55.8-singapore-paynow** — `runtime/std/payments-sg-paynow/` (PayNowProvider, proxy resolution) + `RailKind.SG_PAYNOW` + `BankAccount.paynowProxy`; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.8`.
 

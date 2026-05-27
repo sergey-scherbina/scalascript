@@ -62,30 +62,27 @@ case class UkCopNameMismatch(suggested: Option[String])
 
 // ── UK BACS DD (v1.55.4) ─────────────────────────────────────────────────────
 
-/** BACS 3-day submission cycle missed; the payment cannot be submitted until the next window.
- *  @param nextWindow the earliest date on which a new BACS submission can be made */
+/** BACS Direct Debit submission missed the current cycle cut-off.
+ *  `nextWindow` is the next available submission date (typically next business day). */
 case class BacsCycleMissed(nextWindow: java.time.LocalDate)
-    extends BankRailsError(s"BACS submission cycle missed — next available window: $nextWindow")
+    extends BankRailsError(s"BACS cycle cut-off missed; next available submission date: $nextWindow")
 
-// ── India UPI (v1.55.6) ──────────────────────────────────────────────────────
+// ── India UPI (v1.55.6) ───────────────────────────────────────────────────────
 
-/** UPI two-factor (UPI PIN entry on payer's device) timed out before the payer approved.
- *  The transaction is expired; a new collect request must be initiated.
- *  @param txnId the `txnId` of the collect request that expired */
+/** UPI Collect two-factor approval timed out (payer did not respond on their device).
+ *  `txnId` is the NPCI transaction ID that expired. */
 case class UpiTwoFactorTimeout(txnId: String)
-    extends BankRailsError(s"UPI two-factor PIN entry timed out for transaction $txnId")
+    extends BankRailsError(s"UPI two-factor approval timed out for transaction $txnId")
 
-// ── Japan Zengin (v1.55.7) ───────────────────────────────────────────────────
+// ── Japan Zengin (v1.55.7) ────────────────────────────────────────────────────
 
-/** Japan Zengin transfer attempted outside the settlement window (08:30–15:30 JST).
- *  @param nextOpen the next datetime when the Zengin window opens */
+/** Zengin transfer attempted outside the settlement window (08:30–15:30 JST, M–F).
+ *  `nextOpen` is the next time the settlement window opens (JST). */
 case class ZenginOutsideWindow(nextOpen: java.time.ZonedDateTime)
-    extends BankRailsError(s"Japan Zengin settlement window closed; next open: $nextOpen")
+    extends BankRailsError(s"Zengin settlement window not open; next open: $nextOpen")
 
-// ── Singapore PayNow (v1.55.8) ───────────────────────────────────────────────
+// ── Singapore PayNow (v1.55.8) ────────────────────────────────────────────────
 
-/** PayNow proxy (mobile / NRIC / UEN) was not found in the PayNow proxy registry.
- *  @param proxyType  "MOBILE", "NRIC", or "UEN"
- *  @param proxyValue the proxy value that was not resolved */
+/** PayNow proxy (mobile / NRIC / UEN) not found in the PayNow proxy registry. */
 case class PayNowProxyNotFound(proxyType: String, proxyValue: String)
     extends BankRailsError(s"PayNow proxy not found: $proxyType=$proxyValue")

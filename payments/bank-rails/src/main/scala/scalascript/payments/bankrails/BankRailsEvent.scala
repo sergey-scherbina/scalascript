@@ -43,14 +43,10 @@ enum BankRailsEvent:
   case UkFpsRejected(txId: String, reason: String)
   case UkFpsReturned(txId: String, code: String, description: String)
 
-  // ── UK BACS Direct Debit (v1.55.4) ───────────────────────────────────────
-  // Aggregator confirms file accepted into BACS 3-day cycle
+  // ── UK BACS DD (v1.55.4) ─────────────────────────────────────────────────
   case BacsDdSubmitted(ref: String, settlementDate: String)
-  // Day 3 settlement confirmation — payment collected
   case BacsDdPaid(ref: String, amount: String)
-  // New mandate accepted by payer's bank via AUDDIS
   case BacsAuddisAccepted(mandateRef: String)
-  // Unpaid direct debit returned (ARUDD) — code is ARUDD/ADDACS return code
   case BacsAruddReturned(ref: String, code: String, description: String)
 
   // ── UK CHAPS (v1.55.5) ───────────────────────────────────────────────────
@@ -60,20 +56,20 @@ enum BankRailsEvent:
   case ChapsRejected(endToEndId: String, reason: String)
 
   // ── India UPI (v1.55.6) ──────────────────────────────────────────────────
-  // UPI Collect request sent; payer has not yet approved
   case UpiCollectInitiated(txnId: String, vpa: String, amount: String)
-  // Payer approves; final credit notification with UTR (Unique Transaction Reference)
   case UpiApproved(txnId: String, utrNumber: String)
-  // Payer declines or UPI two-factor times out
   case UpiDeclined(txnId: String, reason: String)
 
-  // ── Japan Zengin (v1.55.7) ────────────────────────────────────────────────
+  // ── Japan Zengin (v1.55.7) ───────────────────────────────────────────────
+  // Transfer confirmed settled by the Zengin system via aggregator callback
   case ZenginSettled(transferId: String, amount: String)
+  // Transfer rejected (kana mismatch, invalid branch code, etc.)
   case ZenginRejected(transferId: String, reason: String)
 
-  // ── Singapore PayNow (v1.55.8) ────────────────────────────────────────────
+  // ── Singapore PayNow (v1.55.8) ───────────────────────────────────────────
   case PayNowSettled(txnRef: String, proxy: String, amount: String, currency: String)
   case PayNowFailed(txnRef: String, reason: String)
+
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String
