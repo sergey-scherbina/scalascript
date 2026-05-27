@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.57-fx-provider** — FX rate provider SPI: `payments/fx/` (`FxProvider` trait, `FxRate`, `CurrencyPair`, `FxError` hierarchy, `FxMoneyConverter`); `payments/fx-ecb/` (`EcbFxProvider` — ECB daily XML feed, EUR base, 1h TTL cache); `payments/fx-openexchangerates/` (`OerFxProvider` — OER API v6, USD base, mock HTTP server tests); 76 tests total (19 SPI + 26 ECB + 31 OER). Spec updated in `docs/traditional-payments.md §FxProvider`.
+
 - **v1.57.3-payment-rails-mexico-spei** — Mexico SPEI adapter: `runtime/std/payments-mx-spei/` (`MxSpeiProvider`, `MxSpeiApi`, `MxSpeiWebhookReceiver`, `MxSpeiPlugin`); `ClabeValidator` with 18-digit control-digit check (multipliers [3,7,1,3,7,1,...]); `RailKind.MX_SPEI`; `BankAccount.clabe` additive field; `BankRailsEvent.MxSpeiConfirmed/MxSpeiRejected/MxSpeiReturned`; HMAC-SHA256 `X-SPEI-Signature` webhook; SPEI irrevocable cancel guard; `paymentsMxSpei` sbt module; 44 tests.
 
 - **graph-storage-fullstack** — Graph storage Phase 6 full-stack examples: `examples/graph-fullstack.ssc` (Electron frontend + embedded TinkerGraph server; `GET /api/graph/vertices`, `GET /api/graph/neighbors/:id`, `POST /api/graph/vertex`; IndexedDB cache-first read with background refresh; React module+neighbor list); `examples/graph-fullstack-rdf.ssc` (RDF4J in-memory backend; `GET /api/graph/triples`, `POST /api/graph/sparql`, `PUT /api/graph/rdf`; SPARQL query panel; triple table rendering).

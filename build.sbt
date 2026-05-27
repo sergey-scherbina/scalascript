@@ -2751,6 +2751,39 @@ lazy val paymentsCaEft = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── FX rate provider — SPI module ────────────────────────────────────────
+lazy val fxSpi = project
+  .in(file("payments/fx"))
+  .dependsOn(paymentsBankRails, testUtils % Test)
+  .settings(
+    name := "payments-fx",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── FX rate provider — ECB daily reference rates adapter ─────────────────
+lazy val fxEcb = project
+  .in(file("payments/fx-ecb"))
+  .dependsOn(fxSpi, markupCore, testUtils % Test)
+  .settings(
+    name := "payments-fx-ecb",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// ── FX rate provider — Open Exchange Rates adapter ────────────────────────
+lazy val fxOer = project
+  .in(file("payments/fx-openexchangerates"))
+  .dependsOn(fxSpi, testUtils % Test)
+  .settings(
+    name := "payments-fx-openexchangerates",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2777,6 +2810,7 @@ lazy val root = project
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsMxSpei, paymentsCaEft,
+    fxSpi, fxEcb, fxOer,
     markupCore, markupCoreJs, markupJs, markupNode,
   )
   .settings(

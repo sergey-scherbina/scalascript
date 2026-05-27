@@ -428,9 +428,8 @@ remainder.  Used by proration engines, marketplace splits, and tax rounding.
 `1.5` rounds to `2` (even).  Minimises cumulative bias in large tables — critical for
 correct VAT/GST computation over many line items, and for proration credits.
 
-**Currency conversion**: explicitly out of scope for v1.53.  `Money +` across currencies
-throws `CurrencyMismatch` at runtime.  An `FxProvider` SPI for rate lookup is deferred
-to a future milestone (§14).
+**Currency conversion**: `Money +` across currencies throws `CurrencyMismatch` at runtime.
+Use `FxProvider` / `FxMoneyConverter` (§FxProvider) for cross-currency conversion.
 
 **JSON encoding**: PSPs universally use decimal strings — `"19.99"` not `19.99` — because
 IEEE 754 `double` cannot represent `0.1 + 0.2` exactly.  `Money.toJson` emits
@@ -955,8 +954,9 @@ error: CardDeclined [do_not_retry]
   as a separate spec and milestone.  The `PaymentProvider` SPI is designed to accommodate
   async-settlement modes so v1.54 adapters will slot in without breaking the 14-method
   trait contract.
-- **Currency conversion / FX** — `FxProvider` SPI deferred.  v1.53 enforces same-currency
-  arithmetic; `Money +` across currencies throws.
+- **Currency conversion / FX** — `FxProvider` SPI landed in v1.57 (`payments/fx/`,
+  `payments/fx-ecb/`, `payments/fx-openexchangerates/`).  `Money +` across currencies
+  still throws; use `FxMoneyConverter` for explicit conversion.
 - **Tax calculation** — `TaxProvider` SPI (Stripe Tax / Avalara / TaxJar) deferred.
 - **Marketplace / connected accounts / split payments** — Stripe Connect, Braintree
   Marketplace, Adyen MarketPay deferred.  `supportsConnectedAccounts` capability flag
@@ -981,8 +981,47 @@ error: CardDeclined [do_not_retry]
   `runtime/std/payments-square/` — each its own sbt subproject and release artifact.
 - **v1.54 — Bank rails spec**: SEPA Direct Debit, ACH, Pix, FedNow, UPI — async
   settlement, mandate management, return-code handling, AML/KYC notes.
-- **FX / multi-currency**: `FxProvider` SPI with adapters for fixer.io,
-  ECB rates feed, Open Exchange Rates.
+- **FX / multi-currency**: `FxProvider` SPI landed (v1.57).  Adapters: `EcbFxProvider`
+  (ECB daily reference rates, EUR base) and `OerFxProvider` (Open Exchange Rates API v6,
+  USD base).  `FxMoneyConverter` utility for batch conversion.
+  Module layout: `payments/fx/` (SPI), `payments/fx-ecb/`, `payments/fx-openexchangerates/`.
+
+### FxProvider
+
+**SPI module**: `payments/fx/`  (`name := "payments-fx"`)
+
+```scala
+trait FxProvider:
+  def id: String
+  def displayName: String
+  def getRate(from: Currency, to: Currency)(using ExecutionContext): Future[FxRate]
+  def convert(money: Money, to: Currency)(using ExecutionContext): Future[Money]
+  def getRates(pairs: Set[CurrencyPair])(using ExecutionContext): Future[Map[CurrencyPair, FxRate]]
+
+case class FxRate(from: Currency, to: Currency, rate: BigDecimal, mid: BigDecimal,
+                  bid: Option[BigDecimal], ask: Option[BigDecimal], timestamp: Instant)
+case class CurrencyPair(from: Currency, to: Currency)
+
+sealed abstract class FxError(message: String, cause: Throwable = null) extends RuntimeException
+object FxError:
+  final case class RateUnavailable(from: Currency, to: Currency) extends FxError(...)
+  final case class FxProviderError(message: String, cause: Throwable = null) extends FxError(...)
+
+class FxMoneyConverter(provider: FxProvider):
+  def convert(money: Money, to: Currency)(using ExecutionContext): Future[Money]
+  def convertAll(moneys: List[Money], to: Currency)(using ExecutionContext): Future[List[Money]]
+```
+
+**Adapters:**
+
+| Module | Class | Base | Cache TTL | Scheme |
+|--------|-------|------|-----------|--------|
+| `payments/fx-ecb/` | `EcbFxProvider` | EUR | 1 hour | `"ecb"` |
+| `payments/fx-openexchangerates/` | `OerFxProvider` | USD | 1 hour | `"openexchangerates"` / `"oer"` |
+
+Cross-rates are derived on the fly: `rate(A→B) = rate(BASE→B) / rate(BASE→A)`.
+
+`OerConfig.appId` is read from `OPENEXCHANGERATES_APP_ID` env var (`OerConfig.fromEnv`).
 - **Tax**: `TaxProvider` SPI (Stripe Tax, Avalara, TaxJar) + automated tax line items
   in invoices.
 - **Marketplace**: `ConnectedAccount` abstraction for Stripe Connect / Braintree
