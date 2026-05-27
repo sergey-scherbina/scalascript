@@ -1,6 +1,6 @@
 package scalascript.interpreter
 
-import scalascript.server.{RouteRegistry, Routes}
+import scalascript.server.RouteRegistry
 
 /** Registers built-in `/_openapi.json` and `/_swagger` routes.
  *

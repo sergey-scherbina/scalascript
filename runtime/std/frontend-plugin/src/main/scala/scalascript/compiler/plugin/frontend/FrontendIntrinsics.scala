@@ -147,12 +147,15 @@ object FrontendIntrinsics:
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(port: Long) =>
           ctx.registerHealthDefaults()
+          ctx.registerOpenApiDefaults()
           ctx.startServer(port.toInt, ".")
         case List(port: Long, dir: String) =>
           ctx.registerHealthDefaults()
+          ctx.registerOpenApiDefaults()
           ctx.startServer(port.toInt, dir)
         case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
           ctx.registerHealthDefaults()
+          ctx.registerOpenApiDefaults()
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           ctx.startTlsServer(port.toInt, ".", cert, key)

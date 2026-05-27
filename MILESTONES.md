@@ -13,14 +13,17 @@
 ## Quick status (2026-05-27)
 
 ### In progress
-- secret-resolvers-cloud — AWS Secrets Manager + GCP Secret Manager + Azure Key Vault plugins
-
-### Next up (top of BACKLOG)
-- v1.57-payment-rails-apac — Australia NPP + Canada Interac/EFT + Mexico SPEI rails
+- v1.57.1-payment-rails-australia-npp — Australia NPP/PayID adapter
+- v1.57.2-payment-rails-canada-eft — Canada Interac e-Transfer + EFT adapter
+- v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE adapter
 - v1.57-fx-provider — FX rate provider SPI + ECB / Open Exchange Rates adapters
 - graph-storage-fullstack — Phase 6: graph query REST routes + client-side cache example
 
 ### Recently completed
+- v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE, 44 tests ✓ (2026-05-27)
+- graph-storage-fullstack — Phase 6 full-stack examples ✓ (2026-05-27)
+- openapi-export — `/_openapi.json` + `/_swagger` built-in routes ✓ (2026-05-27)
+- secret-resolvers-cloud — AWS/GCP/Azure secret resolver plugins ✓ (2026-05-27)
 - wallet-solana-standard-js — Scala.js `registerWallet` bridge ✓ (2026-05-27)
 - x402-cardano-scalus-completion — Phases 3/5/6 complete ✓ (2026-05-27)
 - v1.56-xslt — XSLT 1.0 transformation, Feature.Xslt, 18 tests ✓ (2026-05-27)
