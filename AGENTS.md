@@ -228,6 +228,36 @@ self-cleanup, and what NOT to do follow.
   Clean status after you just edited something means you wrote to
   the wrong place.
 
+**Context compaction — when summaries carry stale paths:**
+
+Long sessions get compacted: a summary replaces the full transcript,
+and the next session reads that summary as its starting point.
+Summaries routinely contain absolute paths like
+`/Users/sergiy/work/my/scalascript/payments/foo/Bar.scala` — the paths
+where the earlier session was (incorrectly) writing.  A new session
+that blindly follows those paths writes to shared `main` again,
+perpetuating the mistake across context boundaries.
+
+How to break the cycle after compaction:
+
+1. Read the `Primary working directory` line from the **system prompt**
+   (not from the summary) — it is the authoritative CWD for this
+   session.
+2. Run `pwd` once.  If the output matches `Primary working directory`,
+   you are in the worktree.  If not, `cd` there first.
+3. Scan the summary for absolute paths.  Any path that starts with
+   `/Users/sergiy/work/my/scalascript/` but does *not* start with
+   `/Users/sergiy/work/my/scalascript/.claude/worktrees/<name>/` is a
+   shared-main path.  Treat it as a hint about *which file*, never as
+   the write destination.  Rebuild the correct path by prepending the
+   worktree root from step 1.
+4. Your first Write / Edit call is the moment the cycle breaks or
+   repeats.  Check the path one final time before sending it.
+
+One quick sanity check: after your first edit, run `git status` inside
+the worktree.  If the status is clean, you wrote to the wrong place —
+stop and move the file per the self-cleanup steps below.
+
 **Self-cleanup if it already happened (don't panic — files are not
 lost yet):**
 
