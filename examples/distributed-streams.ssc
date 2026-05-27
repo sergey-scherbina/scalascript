@@ -1,13 +1,13 @@
 #!/usr/bin/env ssc
 ---
-description: Distributed Streams — DStream[T] / Pipeline bounded examples (v2.1.1)
+description: Distributed Streams — DStream[T] / Pipeline bounded examples (v2.1.10)
 imports:
   - ../../runtime/std/dstreams.ssc
 ---
 
 # Distributed Streams — `DStream[T]` / `Pipeline`
 
-Three bounded pipeline examples running on `Backend.Direct` (in-process DirectRunner).
+Bounded pipeline examples running on `Backend.Direct` (in-process DirectRunner).
 All use `InMemory.source` — no external cluster, broker, or Spark installation required.
 
 ## 1. Map / filter / runToList
@@ -49,8 +49,7 @@ counts.sortBy(_.toString).foreach(kv => println(s"  $kv"))
 ## 3. Multi-stage ETL with runFold
 
 Extract-transform-load pipeline: parse CSV-like strings, filter valid rows,
-compute a running total, and return a single aggregate — demonstrating that
-`runFold` works as a terminal operator on a bounded `DStream`.
+compute a running total, and return a single aggregate.
 
 ```scala
 println("\n=== 3. ETL — CSV parse → filter → aggregate ===")
@@ -72,4 +71,194 @@ val totalRevenue = Pipeline.create("etl-revenue")
 
 println(s"Total revenue = $totalRevenue")
 // → Total revenue = 500
+```
+
+## 4. Event-time windowing
+
+Fixed 60-second event-time windows with watermark, applied to a bounded
+timestamp source. `withWatermark(WatermarkStrategy.atEnd)` tells the
+DirectRunner the watermark advances past all elements at end-of-input.
+
+```scala
+println("\n=== 4. Windowed word count (event-time) ===")
+val timestamped = List(
+  ("hello world", 0L),
+  ("hello scala", 10000L),
+  ("world scala", 70000L),
+)
+val windowed = Pipeline.create("windowed-wc")
+  .read(InMemory.sourceWithTimestamps(timestamped))
+  .flatMap(_.split(" ").toList)
+  .map(w => KV(w, 1))
+  .withWatermark(WatermarkStrategy.atEnd)
+  .window(Window.fixed(60000L))
+  .withTrigger(Trigger.afterWatermark)
+  .combinePerKey((a, b) => a + b)
+  .runToList()
+
+windowed.sortBy(_.toString).foreach(kv => println(s"  $kv"))
+// window 0–60s: KV(hello,2) KV(scala,1) KV(world,1)
+// window 60–120s: KV(scala,1) KV(world,1)
+```
+
+## 5. Stateful running sum per key (v2.1.7)
+
+`statefulMap(init)(f)` accumulates per-key state across elements.
+`f: (State, Elem) => (NewState, Output)`.
+
+```scala
+println("\n=== 5. Stateful running sum ===")
+val events = List(KV("alice", 10), KV("bob", 5), KV("alice", 20), KV("bob", 15), KV("alice", 5))
+val running = Pipeline.create("running-sum")
+  .read(InMemory.source(events))
+  .statefulMap(0)((sum, kv) => (sum + kv.value, KV(kv.key, sum + kv.value)))
+  .runToList()
+
+running.foreach(kv => println(s"  $kv"))
+// → KV(alice,10) KV(bob,5) KV(alice,30) KV(bob,20) KV(alice,35)
+```
+
+## 6. Broadcast state — enrichment with reference data (v2.1.7)
+
+`broadcastState(refStream)` broadcasts all elements of a reference stream
+to every main-stream element as a `Map[K, V]`-like accessor.
+
+```scala
+println("\n=== 6. Broadcast state enrichment ===")
+val products = InMemory.source(List(KV("p1", "Widget"), KV("p2", "Gadget")))
+val orders   = List(KV("p1", 3), KV("p2", 1), KV("p1", 2))
+
+val enriched = Pipeline.create("order-enrichment")
+  .read(InMemory.source(orders))
+  .broadcastState(products)
+  .map { case (order, catalog) =>
+    val name = catalog.get(order.key).getOrElse("Unknown")
+    s"${order.key}: qty=${order.value} name=$name"
+  }
+  .runToList()
+
+enriched.foreach(println)
+// → p1: qty=3 name=Widget
+// → p2: qty=1 name=Gadget
+// → p1: qty=2 name=Widget
+```
+
+## 7. Side inputs — cross-join enrichment (v2.1.8)
+
+`SideInput.singleton(v)` creates a side input with one element.
+`withSideInput(si)` cross-joins every main element with every side element,
+producing `(mainElem, sideElem)` pairs.
+
+```scala
+println("\n=== 7. Side inputs ===")
+val multiplier = SideInput.singleton(10)
+val values     = List(1, 2, 3, 4, 5)
+
+val scaled = Pipeline.create("scale-by-side")
+  .read(InMemory.source(values))
+  .withSideInput(multiplier)
+  .map { case (v, m) => v * m }
+  .runToList()
+
+println(scaled.mkString(", "))
+// → 10, 20, 30, 40, 50
+```
+
+## 8. Side outputs — split a stream by predicate (v2.1.8)
+
+`sideOutput(tag)` routes elements matching the tag's filter to a side stream.
+The main stream retains all elements; the side stream holds only the filtered ones.
+
+```scala
+println("\n=== 8. Side outputs ===")
+val errorTag  = OutputTag.withFilter[String]("errors")(e => if e.startsWith("ERR") then Some(e) else None)
+val logLines  = List("INFO start", "ERR crash", "INFO ok", "ERR timeout", "INFO done")
+
+val (mainStream, errorStream) = Pipeline.create("log-split")
+  .read(InMemory.source(logLines))
+  .sideOutput(errorTag)
+
+println("Errors:   " + errorStream.runToList().mkString(", "))
+// → Errors:   ERR crash, ERR timeout
+```
+
+## 9. Inner join on KV keys (v2.1.9)
+
+`join(other)` performs an inner equi-join on `KV` keys.
+Only keys present in both streams appear in the output.
+
+```scala
+println("\n=== 9. Inner join ===")
+val prices    = InMemory.source(List(KV("apple", 1.5), KV("banana", 0.8), KV("cherry", 3.0)))
+val inventory = InMemory.source(List(KV("apple", 100), KV("cherry", 25)))
+
+val joined = Pipeline.create("price-inventory-join")
+  .read(prices)
+  .join(inventory)
+  .map { case KV(item, (price, qty)) => s"$item: price=$price qty=$qty" }
+  .runToList()
+
+joined.foreach(println)
+// → apple: price=1.5 qty=100
+// → cherry: price=3.0 qty=25
+```
+
+## 10. Left outer join — retain all left elements (v2.1.9)
+
+`leftOuterJoin(other)` keeps every left `KV`, with the right value as `Some`
+when a match exists and `None` when it doesn't.
+
+```scala
+println("\n=== 10. Left outer join ===")
+val users   = InMemory.source(List(KV("u1", "Alice"), KV("u2", "Bob"), KV("u3", "Carol")))
+val premium = InMemory.source(List(KV("u1", true), KV("u3", true)))
+
+val withTier = Pipeline.create("user-tier")
+  .read(users)
+  .leftOuterJoin(premium)
+  .map { case KV(uid, (name, isPrem)) =>
+    val tier = isPrem.map(_ => "premium").getOrElse("free")
+    s"$uid $name $tier"
+  }
+  .runToList()
+
+withTier.foreach(println)
+// → u1 Alice premium
+// → u2 Bob free
+// → u3 Carol premium
+```
+
+## 11. Flatten nested streams (v2.1.9)
+
+`flatten` collapses a `DStream[DStream[T]]` or `DStream[Seq[T]]` into a
+flat `DStream[T]`.
+
+```scala
+println("\n=== 11. Flatten ===")
+val groups = List(List(1, 2, 3), List(4, 5), List(6))
+val flat   = Pipeline.create("flatten-example")
+  .read(InMemory.source(groups))
+  .flatten
+  .runToList()
+
+println(flat.mkString(", "))
+// → 1, 2, 3, 4, 5, 6
+```
+
+## 12. Processing-time timer — periodic per-key callback (v2.1.2)
+
+`timerProcessing(intervalMs)(f)` fires `f` once per unique key in the
+bounded DirectRunner (simulates a processing-time trigger firing once per key).
+
+```scala
+println("\n=== 12. Processing-time timer ===")
+val keyedEvents = List(KV("sensor-A", 42), KV("sensor-B", 7), KV("sensor-A", 100))
+val fired = Pipeline.create("timer-demo")
+  .read(InMemory.source(keyedEvents))
+  .timerProcessing(5000L)(kv => List(s"flush:${kv.key}"))
+  .runToList()
+
+fired.foreach(println)
+// → flush:sensor-A
+// → flush:sensor-B
 ```

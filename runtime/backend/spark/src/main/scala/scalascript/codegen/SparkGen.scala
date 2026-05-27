@@ -1722,9 +1722,13 @@ private class SparkGen(
        |    val Accumulating: String = "Accumulating"
        |
        |  object Backend:
-       |    val Direct: String = "Direct"
-       |    val Native: String = "Native"
-       |    val Spark: String  = "Spark"
+       |    val Direct: String       = "Direct"
+       |    val Native: String       = "Native"
+       |    val Spark: String        = "Spark"
+       |    val KafkaStreams: String  = "KafkaStreams"
+       |    val Kafka: String        = "KafkaStreams"
+       |    val Flink: String        = "Flink"
+       |    val Beam: String         = "Beam"
        |
        |  case class PipelineResult(state: String, __results: Seq[Any]):
        |    def waitUntilFinish(): String = state

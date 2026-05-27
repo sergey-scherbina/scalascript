@@ -211,6 +211,8 @@ private class KafkaStreamsGen(
        |    val Spark: String        = "Spark"
        |    val KafkaStreams: String  = "KafkaStreams"
        |    val Kafka: String        = "KafkaStreams"
+       |    val Flink: String        = "Flink"
+       |    val Beam: String         = "Beam"
        |
        |  case class PipelineResult(state: String, __results: Seq[Any]):
        |    def waitUntilFinish(): String = state

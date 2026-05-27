@@ -1108,6 +1108,14 @@ Implementation phases ship independently below.
   All 4 shims + native interpreter. `Capability.WindowedJoins` already declared.
   +8 interpreter tests, +8 generator tests (Spark/Kafka/Flink/Beam). Spec: `docs/distributed-streams.md §5.7`. (2026-05-27)
 
+- [x] **v2.1.10-dstream-conformance** — Cross-backend conformance suite (§14.3): new
+  `runtime/backend/conformance/` module (`backendConformance`) with `DStreamConformanceTest`
+  (8 tests): word count, windowed word count, stateful sum, side inputs, joins, connectors,
+  backend aliases, full operator surface. All 8 tests pass across Spark/KafkaStreams/Flink/Beam.
+  SparkGen + KafkaStreamsGen `Backend` object extended with missing `Flink`/`Beam` aliases (now
+  all 4 shims declare all 7 backend aliases). `examples/distributed-streams.ssc` expanded from
+  3 examples to 12, covering v2.1.2–v2.1.9 operators. (2026-05-27)
+
 ---
 
 ## v2.0 — Separate compilation of modules

@@ -19,6 +19,7 @@ _(none)_
 _(Language & Compiler v2.1 DStream series complete — check BACKLOG for next group)_
 
 ### Recently completed
+- v2.1.10-dstream-conformance — new `backendConformance` module; 8 cross-backend conformance tests; `examples/distributed-streams.ssc` expanded to 12 examples; all 4 shims now declare all 7 backend aliases ✓ (2026-05-27)
 - v2.1.9-dstream-joins — `join`/`leftOuterJoin`/`rightOuterJoin`/`flatten`; all 4 shims + native interpreter `evalDag`; `CAP_WINDOWED_JOINS`; +20 tests ✓ (2026-05-27)
 - v2.1.8-dstream-side-io — `SideInput[T]`/`OutputTag[B]`/`withSideInput`/`sideOutput`; all 4 shims + native interpreter; `CAP_SIDE_INPUTS`/`CAP_SIDE_OUTPUTS`; +16 tests ✓ (2026-05-27)
 - v2.1.7-dstream-stateful — `statefulMap`/`statefulFlatMap`/`broadcastState`/`timerEventTime`; state types `ValueState`/`MapState`/`ListState`/`BagState`; `StateContext`/`KeyedStateSpec`; all 4 shims + native interpreter, 20 new tests ✓ (2026-05-27)

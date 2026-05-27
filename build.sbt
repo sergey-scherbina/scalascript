@@ -686,6 +686,16 @@ lazy val backendFlink = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+lazy val backendConformance = project
+  .in(file("runtime/backend/conformance"))
+  .dependsOn(backendSpark, backendKafkaStreams, backendFlink)
+  .settings(
+    name := "scalascript-backend-conformance",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // ── compiler/driver — scala3-compiler isolated from startup classpath ────────
 // Does NOT appear in cli's .dependsOn so dotty is never on the startup CP.
 // cli/stage copies this module's JAR to lib/compiler/jars/ and CompilerLoader
