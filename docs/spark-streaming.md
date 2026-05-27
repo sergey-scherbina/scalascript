@@ -1,6 +1,6 @@
 # Apache Spark Structured Streaming backend (v1.25 § 9.5 Phase F)
 
-> Status: F.1 (this document) landed; F.2/F.3/F.4 follow.
+> Status: F.1–F.4 landed (2026-05-27). All phases complete.
 
 Layered on top of the closed v1.25 § 9.5 Phases A–E Spark backend.
 Adds Structured Streaming support to the same `.ssc → Scala 3 + Spark
@@ -148,39 +148,39 @@ Phase F is **additive** — no breaking changes:
 ## Phases
 
 - **F.1 — Spec doc (this document).**  Lands first per AGENTS.md
-  spec-driven-development rule.
+  spec-driven-development rule. ✓ Landed (2026-05-27).
 
-- **F.2 — Core streaming codegen + first example.**
-  - Add streaming-detection helper `SparkGen.detectStreaming` (or
-    inline in `genModule`).
-  - Add streaming imports line to `sparkImports`.
-  - Emit `awaitTermination()` shim when needed.
-  - `examples/spark-streaming-rate-console.ssc`: rate source →
-    console sink with `Trigger.ProcessingTime("1 second")`.  Smoke-
-    test friendly, no external deps, exercises the full path.
-  - Test coverage: structural assertions in `SparkGenTest`
-    (`awaitTermination` emitted iff `readStream` present, not
-    emitted for batch code, not double-emitted when user already
-    calls it).  Smoke test (gated by `RUN_SPARK_INTEGRATION`):
-    `scala-cli compile` of the generated rate-console source.
+- **F.2 — Core streaming codegen + first example.** ✓ Landed (2026-05-27).
+  - `SparkGen.containsStreaming` detects `spark.readStream` / `.writeStream`.
+  - `SparkGen.containsAwaitTermination` detects user-supplied call (opt-out).
+  - Auto-emitted `spark.streams.active.headOption.foreach(_.awaitTermination())`
+    shim in `@main def runSparkJob` when `isStreaming && !containsAwaitTermination`.
+  - Streaming imports (`Trigger`, `StreamingQuery`, `OutputMode`) always emitted.
+  - `examples/spark-streaming-rate-console.ssc`: rate source → console sink
+    with `Trigger.ProcessingTime("1 second")`.
+  - 6 codegen tests in `SparkGenTest` (streaming imports always emitted;
+    batch no shim; streaming shim emitted; user-supplied opt-out; writeStream
+    alone triggers; non-Kafka no dep).
 
-- **F.3 — File source/sink + checkpointing.**
-  - Detection of file-stream patterns (e.g. `.readStream.parquet(…)`,
-    `.csv(…)`, `.json(…)`) → emit a `// note: file sinks require
-    .option("checkpointLocation", …)` comment near the writer
-    boilerplate.  Pure heuristic; no source rewrite.
-  - Example: `examples/spark-streaming-file-parquet.ssc` — reads
-    files from a directory, transforms, writes parquet with a
-    checkpoint dir under `/tmp`.
+- **F.3 — File source/sink + checkpointing.** ✓ Landed (2026-05-27).
+  - `SparkGen.containsFileStreamSink` detects `.format("parquet"|"csv"|"json"|"orc"|"text")`.
+  - `SparkGen.containsCheckpointLocation` detects user-supplied checkpoint option.
+  - When `isStreaming && containsFileStreamSink && !containsCheckpointLocation`:
+    emits `// NOTE Phase F.3` comment in generated file header.
+  - `examples/spark-streaming-file-parquet.ssc` — parquet directory source +
+    parquet sink with explicit checkpoint dir.
+  - 4 codegen tests (streaming + file format triggers hint; user checkpoint
+    suppresses hint; batch no hint; console-sink no hint).
 
-- **F.4 — Kafka source/sink.**
-  - Detect `.format("kafka")` → auto-add the
-    `spark-sql-kafka-0-10_2.13` dep.
-  - Example: `examples/spark-streaming-kafka.ssc` — read from Kafka
-    topic, write to another topic, gated by `RUN_SPARK_KAFKA=1`
-    for the smoke test (needs a running broker).
+- **F.4 — Kafka source/sink.** ✓ Landed (2026-05-27).
+  - `SparkGen.containsKafkaFormat` detects `.format("kafka")`.
+  - Auto-emits `//> using dep "org.apache.spark:spark-sql-kafka-0-10_2.13:<v>"`
+    in the file header when detected.
+  - `examples/spark-streaming-kafka.ssc` — Kafka topic source → Kafka topic
+    sink with explicit checkpoint; smoke test gated by `RUN_SPARK_KAFKA=1`.
+  - 3 codegen tests (non-Kafka no dep; kafka dep emitted; dep tracks sparkVersion).
 
-Each phase merges to `origin/main` independently per AGENTS.md rule 3.
+All phases merged to `origin/main` per AGENTS.md rule 3.
 
 ## Testing strategy
 
