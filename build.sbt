@@ -2507,6 +2507,16 @@ lazy val paymentsBankRails = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Markup — Generic XML/HTML AST + pure-Scala codec (v1.55) ─────────────
+lazy val markupCore = project
+  .in(file("runtime/std/markup-core"))
+  .settings(
+    name := "scalascript-markup-core",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
 lazy val paymentsSepa = project
   .in(file("runtime/std/payments-sepa"))
@@ -2577,6 +2587,7 @@ lazy val root = project
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix,
+    markupCore,
   )
   .settings(
     publish / skip := true
