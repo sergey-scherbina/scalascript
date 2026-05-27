@@ -2274,6 +2274,32 @@ lazy val paymentsStripe = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val paymentsPaypal = project
+  .in(file("runtime/std/payments-paypal"))
+  .dependsOn(paymentsPlugin, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-paypal",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson"   % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val paymentsBraintree = project
+  .in(file("runtime/std/payments-braintree"))
+  .dependsOn(paymentsPlugin, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-braintree",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson"   % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2298,7 +2324,7 @@ lazy val root = project
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
-    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe,
+    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree,
   )
   .settings(
     publish / skip := true

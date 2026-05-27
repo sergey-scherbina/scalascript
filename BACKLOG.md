@@ -1024,7 +1024,7 @@ Implementation phases ship independently below.
 - `examples/traditional-payments.ssc` — 12 worked snippets.
 - Spec: `docs/traditional-payments.md §16`.
 
-**v1.53.2 — PayPal Checkout + Braintree adapters:**
+**v1.53.2 — PayPal Checkout + Braintree adapters (✓ Landed 2026-05-27):**
 - `runtime/std/payments-paypal/` — PayPal Checkout (OAuth2, Order API, RSA webhook verify).
 - `runtime/std/payments-braintree/` — Braintree (GraphQL, HMAC-SHA1 webhook).
 - Spec: `docs/traditional-payments.md §11.2`.
