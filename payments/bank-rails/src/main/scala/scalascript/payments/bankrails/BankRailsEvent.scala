@@ -73,10 +73,10 @@ enum BankRailsEvent:
   case PayNowFailed(txnRef: String, reason: String)
 
   // ── Australia NPP / Osko (v1.57.1) ──────────────────────────────────────
-  // Osko settlement confirmed; payid carries the resolved PayID proxy value
-  case NppSettled(endToEndId: String, payid: String, amount: String, currency: String)
-  // PayID not found or NPP transaction rejected
-  case NppFailed(endToEndId: String, reason: String)
+  // NPP Osko settlement confirmed by receiving participant
+  case AuNppCredited(transfer: BankTransfer)
+  // NPP transfer returned after settlement
+  case AuNppReturned(transfer: BankTransfer, returnCode: String)
 
   // ── Canada Interac e-Transfer + EFT (v1.57.2) ────────────────────────────
   // Interac e-Transfer accepted by recipient (deposited or auto-deposited)

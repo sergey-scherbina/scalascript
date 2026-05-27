@@ -98,6 +98,9 @@ case class PayNowProxyNotFound(proxyType: String, proxyValue: String)
 case class NppPayIdNotFound(payid: String)
     extends BankRailsError(s"AU NPP PayID not found: $payid")
 
+case class UnsupportedCurrency(currency: String, rail: String, supported: String)
+    extends BankRailsError(s"$rail only supports $supported; got $currency")
+
 // ── Canada Interac e-Transfer (v1.57.2) ───────────────────────────────────────
 
 /** Interac e-Transfer recipient (email or phone) was not found in the Interac network.

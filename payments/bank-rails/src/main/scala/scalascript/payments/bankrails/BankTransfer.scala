@@ -28,6 +28,7 @@ case class BankAccount(
   paynowProxy:      Option[String] = None,    // SG PayNow: mobile / NRIC / UEN proxy
   // v1.57 additions — all default to None, no existing call sites break
   payid:             Option[String] = None,   // AU NPP: PayID proxy (mobile/email/ABN)
+  bsbNumber:         Option[String] = None,   // AU NPP: BSB (Bank-State-Branch) 6-digit code
   transitNumber:     Option[String] = None,   // Canada EFT: 5-digit transit/branch number
   institutionNumber: Option[String] = None,   // Canada EFT: 3-digit institution (bank) number
   email:             Option[String] = None,   // Canada Interac e-Transfer: recipient email
