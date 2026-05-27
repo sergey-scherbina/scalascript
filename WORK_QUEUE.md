@@ -15,7 +15,7 @@ _(all done — see Done section below)_
 
 ## Language & Compiler — Secret Resolvers (cloud)
 
-- [~] **secret-resolvers-cloud** — Cloud-provider secret resolver plugins: `AwsSmResolver` (AWS Secrets Manager via `software.amazon.awssdk:secretsmanager`, default creds chain, `AWS_REGION`); `GcpSmResolver` (GCP Secret Manager via `com.google.cloud:google-cloud-secretmanager`, ADC, `GOOGLE_CLOUD_PROJECT`); `AzureKvResolver` (Azure Key Vault via `com.azure:azure-security-keyvault-secrets`, `DefaultAzureCredential`). Each as a separate sbt subproject in `backend/sql-aws/`, `backend/sql-gcp/`, `backend/sql-azure/`; each registers via ServiceLoader; each has 8+ tests using mock HTTP/stub clients. Spec: `docs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv`.
+- [x] **secret-resolvers-cloud** — Cloud-provider secret resolver plugins: `AwsSmResolver` (AWS Secrets Manager via `software.amazon.awssdk:secretsmanager`, default creds chain, `AWS_REGION`); `GcpSmResolver` (GCP Secret Manager via `com.google.cloud:google-cloud-secretmanager`, ADC, `GOOGLE_CLOUD_PROJECT`); `AzureKvResolver` (Azure Key Vault via `com.azure:azure-security-keyvault-secrets`, `DefaultAzureCredential`). Each as a separate sbt subproject in `backend/sql-aws/`, `backend/sql-gcp/`, `backend/sql-azure/`; each registers via ServiceLoader; injectable protected methods for testability (11 AWS tests, 12 GCP tests, 12 Azure tests — 35 total). Spec: `docs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv`. (2026-05-27)
 
 ## Language & Compiler — Spark extensions
 

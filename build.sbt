@@ -1078,6 +1078,52 @@ lazy val backendSqlRuntimeJs = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Cloud-provider secret resolver plugins (docs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv).
+// Each is a separate sbt sub-project that registers via ServiceLoader.
+// Kept as optional thin adapters so the main `backendSqlRuntime` stays
+// free of heavy cloud-SDK deps.
+
+lazy val sqlAws = project
+  .in(file("backend/sql-aws"))
+  .dependsOn(backendSqlRuntime)
+  .settings(
+    name := "scalascript-sql-aws",
+    libraryDependencies ++= Seq(
+      "software.amazon.awssdk" % "secretsmanager" % "2.26.31",
+      "com.lihaoyi"           %% "ujson"           % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val sqlGcp = project
+  .in(file("backend/sql-gcp"))
+  .dependsOn(backendSqlRuntime)
+  .settings(
+    name := "scalascript-sql-gcp",
+    libraryDependencies ++= Seq(
+      "com.google.cloud" % "google-cloud-secretmanager" % "2.46.0",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+lazy val sqlAzure = project
+  .in(file("backend/sql-azure"))
+  .dependsOn(backendSqlRuntime)
+  .settings(
+    name := "scalascript-sql-azure",
+    libraryDependencies ++= Seq(
+      "com.azure" % "azure-security-keyvault-secrets" % "4.8.7",
+      "com.azure" % "azure-identity"                  % "1.13.3",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Shared typed-data mapping runtime foundation.
 // Phase 4 starts with emitted JSON codec facade snippets used by typed
 // route clients; later phases grow explicit/derived user codecs here.
@@ -2693,7 +2739,7 @@ lazy val root = project
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
     backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
-    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
+    cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
     x402Core, x402Server, x402Client,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
