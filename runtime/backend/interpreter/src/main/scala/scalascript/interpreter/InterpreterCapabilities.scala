@@ -33,7 +33,8 @@ val InterpreterCapabilities: Capabilities = Capabilities(
     Feature.McpClient,           // v1.17 — own-impl: spawn (HTTP+SSE Phase 2)
     Feature.Dataset,
     Feature.Streams,
-    Feature.Markup                // xml"..." interpolator + fenced xml blocks via JvmMarkupCodec
+    Feature.Markup,               // xml"..." interpolator + fenced xml blocks via JvmMarkupCodec
+    Feature.Xslt                  // XSLT 1.0 transform via JvmMarkupCodec.transform
   ),
   outputs  = Set(OutputKind.ExecutionResult),
   options  = Set("emitAssertions"),

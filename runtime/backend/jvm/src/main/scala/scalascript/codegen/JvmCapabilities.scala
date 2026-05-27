@@ -35,7 +35,8 @@ val JvmCapabilities: Capabilities = Capabilities(
     Feature.Dataset,
     Feature.PaymentRequest,
     Feature.Streams,
-    Feature.Markup                // xml"..." interpolator + fenced xml blocks (JvmGen emits JvmMarkupCodec calls)
+    Feature.Markup,               // xml"..." interpolator + fenced xml blocks (JvmGen emits JvmMarkupCodec calls)
+    Feature.Xslt                  // XSLT 1.0 transform via JvmMarkupCodec.transform
   ),
   outputs  = Set(OutputKind.ScalaSource),
   options  = Set("optimizationLevel", "emitAssertions"),

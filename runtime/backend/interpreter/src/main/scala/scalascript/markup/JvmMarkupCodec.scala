@@ -57,6 +57,11 @@ object JvmMarkupCodec extends MarkupCodec:
   def serialize(doc: Markup.Doc, opts: SerializeOpts = SerializeOpts.default): String =
     PureMarkupCodec.serialize(doc, opts)
 
+  // ── Transform ─────────────────────────────────────────────────────────
+
+  override def transform(doc: Markup.Doc, xslt: String, params: Map[String, String] = Map.empty): Either[TransformError, Markup.Doc] =
+    XsltTransformer(doc, xslt, params)
+
   // ── Validate ──────────────────────────────────────────────────────────
 
   override def validate(doc: Markup.Doc, xsd: String): List[ValidationError] =

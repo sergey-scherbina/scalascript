@@ -1,0 +1,113 @@
+#!/usr/bin/env ssc
+---
+title: XSLT Transformation — Markup.Doc transform example (v1.56)
+version: "1.0"
+requires: [markup, xslt]
+---
+
+# XSLT Transformation
+
+Demonstrates `MarkupCodec.transform` introduced in v1.56.  Reads an XML
+document, applies two XSLT stylesheets — one that renames elements and one
+that generates an HTML report from data — and prints the results.
+
+## 1. Identity transform
+
+Copy the document unchanged using `<xsl:copy-of select="/"/>`:
+
+```scala
+import scalascript.markup.*
+
+val source = xml"""<catalog>
+  <book id="b1"><title>Scala 3</title><price>49.99</price></book>
+  <book id="b2"><title>FP in Scala</title><price>34.99</price></book>
+</catalog>"""
+
+val identity = """<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:template match="/">
+    <xsl:copy-of select="/"/>
+  </xsl:template>
+</xsl:stylesheet>"""
+
+MarkupCodec.default.transform(source, identity) match
+  case Right(doc) =>
+    println("=== 1. Identity transform ===")
+    println(PureMarkupCodec.serialize(doc, SerializeOpts(omitXmlDecl = true, pretty = true)))
+  case Left(err) =>
+    println(s"Error: ${err.message}")
+```
+
+## 2. Element rename — wrap books in a report element
+
+Rename `<catalog>` to `<report>` and `<book>` to `<item>`:
+
+```scala
+val renameXslt = """<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:template match="catalog">
+    <report><xsl:apply-templates/></report>
+  </xsl:template>
+  <xsl:template match="book">
+    <item id="{@id}"><xsl:apply-templates/></item>
+  </xsl:template>
+  <xsl:template match="@*|node()">
+    <xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy>
+  </xsl:template>
+</xsl:stylesheet>"""
+
+MarkupCodec.default.transform(source, renameXslt) match
+  case Right(doc) =>
+    println("=== 2. Element rename ===")
+    println(PureMarkupCodec.serialize(doc, SerializeOpts(omitXmlDecl = true, pretty = true)))
+  case Left(err) =>
+    println(s"Error: ${err.message}")
+```
+
+## 3. HTML generation with parameter substitution
+
+Generate an HTML table from the catalog.  The stylesheet accepts a `currency`
+parameter that labels the price column:
+
+```scala
+val htmlXslt = """<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <xsl:param name="currency">USD</xsl:param>
+  <xsl:template match="/">
+    <html>
+      <body>
+        <table>
+          <tr><th>Title</th><th><xsl:value-of select="$currency"/></th></tr>
+          <xsl:for-each select="catalog/book">
+            <tr>
+              <td><xsl:value-of select="title"/></td>
+              <td><xsl:value-of select="price"/></td>
+            </tr>
+          </xsl:for-each>
+        </table>
+      </body>
+    </html>
+  </xsl:template>
+</xsl:stylesheet>"""
+
+MarkupCodec.default.transform(source, htmlXslt, Map("currency" -> "EUR")) match
+  case Right(doc) =>
+    println("=== 3. HTML generation with parameter ===")
+    println(PureMarkupCodec.serialize(doc, SerializeOpts(omitXmlDecl = true, pretty = true)))
+  case Left(err) =>
+    println(s"Error: ${err.message}")
+```
+
+## 4. Error handling — malformed stylesheet
+
+`transform` returns `Left(TransformError(...))` for invalid stylesheets:
+
+```scala
+val badXslt = "<not-a-stylesheet/>"
+MarkupCodec.default.transform(source, badXslt) match
+  case Left(err) =>
+    println(s"=== 4. Error handling ===")
+    println(s"Caught expected error: ${err.message}")
+  case Right(_) =>
+    println("Unexpected success — should have failed")
+```
