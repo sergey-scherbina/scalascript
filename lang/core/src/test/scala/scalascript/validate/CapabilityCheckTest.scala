@@ -428,3 +428,50 @@ class CapabilityCheckTest extends AnyFunSuite:
       case Diagnostic.Unsupported(Feature.Markup, "js") => true
       case _ => false
     }, s"expected Unsupported(Markup, js) for xml interpolator on incapable backend, got: $diags")
+
+  // ── v1.56 — Feature.Xslt gating ─────────────────────────────────────────
+
+  /** Module that calls `.transform(` on a Markup.Doc value. */
+  private def xsltTransformModule: ir.NormalizedModule =
+    val src =
+      """|# Test
+         |
+         |```scalascript
+         |val result = doc.transform(xslt)
+         |```
+         |""".stripMargin
+    Normalize(Parser.parse(src))
+
+  private val xsltCapable: Capabilities = Capabilities(
+    features       = Set(Feature.Markup, Feature.Xslt),
+    outputs        = Set(OutputKind.ExecutionResult),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
+    blockLanguages = Set(scalascript.ast.Lang.Xml)
+  )
+
+  private val xsltIncapable: Capabilities = Capabilities(
+    features       = Set(Feature.Markup),   // has Markup but not Xslt
+    outputs        = Set(OutputKind.ExecutionResult),
+    options        = Set.empty,
+    spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current)
+  )
+
+  test("detect — .transform( call detects Feature.Xslt"):
+    val m = xsltTransformModule
+    assert(CapabilityCheck.detect(m).contains(Feature.Xslt),
+      s".transform( call should detect Feature.Xslt, got: ${CapabilityCheck.detect(m)}")
+
+  test("validate — .transform( on xslt-capable backend passes (no diagnostics)"):
+    val m     = xsltTransformModule
+    val diags = CapabilityCheck.validate(m, xsltCapable, "jvm")
+    assert(!diags.exists { case Diagnostic.Unsupported(Feature.Xslt, _) => true; case _ => false },
+      s".transform( should pass on xslt-capable backend, got: $diags")
+
+  test("validate — .transform( on xslt-incapable backend rejected with Unsupported(Xslt)"):
+    val m     = xsltTransformModule
+    val diags = CapabilityCheck.validate(m, xsltIncapable, "js")
+    assert(diags.exists {
+      case Diagnostic.Unsupported(Feature.Xslt, "js") => true
+      case _ => false
+    }, s"expected Unsupported(Xslt, js) for .transform( on incapable backend, got: $diags")

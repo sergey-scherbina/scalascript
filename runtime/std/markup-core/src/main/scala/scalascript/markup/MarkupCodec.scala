@@ -15,6 +15,13 @@ trait MarkupCodec:
   def validate(doc: Markup.Doc, xsd: String): List[ValidationError] =
     throw UnsupportedOperationException(s"XSD validation not supported by codec '$id'")
 
+  /** Apply an XSLT stylesheet to `doc` and return the transformed document.
+   *  JVM implementation delegates to [[XsltTransformer]]; other backends
+   *  return `Left(TransformError(...))` by default. */
+  def transform(doc: Markup.Doc, xslt: String, params: Map[String, String] = Map.empty): Either[TransformError, Markup.Doc] =
+    val _ = (doc, xslt, params)
+    Left(TransformError("XSLT not supported by this codec"))
+
 object MarkupCodec:
   private var _default: MarkupCodec = PureMarkupCodec
 
@@ -35,6 +42,8 @@ case class ParseError(message: String, line: Int, column: Int) extends RuntimeEx
 )
 
 case class ValidationError(message: String, line: Int, column: Int)
+
+case class TransformError(message: String)
 
 case class SerializeOpts(
   pretty:      Boolean = false,

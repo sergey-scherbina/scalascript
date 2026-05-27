@@ -60,6 +60,7 @@ object CapabilityCheck:
          src.contains(".runLocal()") || src.contains(".runParallel()")
                                                                   then detected += Feature.Dataset
       if XmlInterpolatorPat.findFirstIn(src).isDefined            then detected += Feature.Markup
+      if XsltTransformPat.findFirstIn(src).isDefined             then detected += Feature.Xslt
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
@@ -187,5 +188,7 @@ object CapabilityCheck:
   private val InterpolatorPat    = """\b[a-zA-Z_][a-zA-Z0-9_]*"[^"]""".r
   // `xml"..."` string interpolator — requires Feature.Markup
   private val XmlInterpolatorPat = """\bxml"[^"]""".r
+  // `.transform(` method call on a Markup.Doc value — requires Feature.Xslt
+  private val XsltTransformPat   = """\.transform\s*\(""".r
   // `def name(x: T = expr, …)` — a `=` inside a param clause.
   private val DefaultParamPat    = """def\s+[A-Za-z_][\w]*\s*\([^)]*=\s""".r
