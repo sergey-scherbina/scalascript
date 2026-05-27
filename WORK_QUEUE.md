@@ -8,6 +8,16 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Language & Compiler — Spark extensions (new)
+
+- [ ] **spark-lakehouse-l4-hudi** — Spark Lakehouse Hudi (L.4): `SparkGen.detectLakehouseFormats` extended to detect `.format("hudi")` → auto-emit `org.apache.hudi:hudi-spark3.5-bundle_2.13:<DefaultHudiVersion>` dep + `spark.serializer=KryoSerializer` + `spark.sql.extensions=HoodieSparkSessionExtension` + `spark.sql.catalog.spark_catalog=HoodieCatalog` configs; `DefaultHudiVersion` constant; `examples/spark-lakehouse-hudi.ssc` (write/read/upsert Hudi table); 8+ codegen tests. Spec: `docs/spark-lakehouse.md §L.4`.
+
+## OAuth / Security
+
+- [ ] **oauth-dpop** — DPoP (RFC 9449) sender-constrained tokens for the existing OAuth 2.1 AS: `DPoPProofVerifier` (validate `DPoP` header: JWK + alg check, `htm`/`htu` binding, `jti` replay prevention, nonce challenge/response); `cnf.jkt` (JWK thumbprint) injected into issued access tokens when DPoP proof present on `/token`; `OAuthGuard.check` extended to validate DPoP proof on resource requests when `cnf.jkt` is set; `AuthServerConfig.dpopNonceLifetimeSeconds`; script API: `oauth.authServer(...)` DPoP mode auto-enabled; 25+ tests. Spec: `docs/oauth.md §DPoP` (new section).
+
+- [ ] **oauth-par** — PAR (RFC 9126 Pushed Authorization Requests): new `POST /par` endpoint in `OAuthRoutes` accepting the same parameters as `/authorize`; returns `request_uri` (urn:ietf:params:oauth:request_uri:<nonce>) + `expires_in`; `/authorize` accepts `request_uri` param and retrieves stored params; `AuthServerConfig.parRequired` flag (when true, `/authorize` rejects direct params); `request_uri` consumed once (single-use); `PushedAuthRequest` storage in `AuthorizationCodeStore`-adjacent map; 18+ tests. Spec: `docs/oauth.md §PAR` (new section).
+
 ## Payments & Blockchain — v1.58 Compliance Provider
 
 - [x] **v1.58-compliance-provider** — AML/KYC/sanctions compliance provider SPI: `payments/compliance/` SPI module (`ComplianceProvider` trait: `screenAml(entity)/verifyKyc(identity)/checkSanctions(party)/getStatus`; `ComplianceRequest/ComplianceResult/KycResult/SanctionsResult/AmlResult` types; `ComplianceError` sealed hierarchy); `payments/compliance-complyadvantage/` ComplyAdvantage REST v1 adapter (POST `/search`, HMAC-SHA256 webhook, 20+ tests); `payments/compliance-chainalysis/` Chainalysis KYT API adapter (POST `/transfers`, `GET /entities`, 15+ tests); `payments/compliance-mock/` MockComplianceProvider for testing (configurable pass/fail per check type, 20+ tests); 4 sbt subprojects. Spec: `docs/compliance-provider.md`.
