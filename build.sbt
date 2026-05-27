@@ -2346,6 +2346,19 @@ lazy val paymentsCheckout = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val paymentsSquare = project
+  .in(file("runtime/std/payments-square"))
+  .dependsOn(paymentsPlugin, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-square",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson"   % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2370,7 +2383,7 @@ lazy val root = project
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
-    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout,
+    paymentsMoney, paymentsWebhook, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare,
   )
   .settings(
     publish / skip := true
