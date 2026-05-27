@@ -1657,8 +1657,11 @@ a full NIO migration.  Affects `runtime-server-common` + `runtimeServerJvm`.
 - [x] MCP test servers switched from `newCachedThreadPool()` to
   `newVirtualThreadPerTaskExecutor()` (2026-05-21) — `McpHttpBidiTest`,
   `McpHttpSseNotifyTest`, `McpStreamableHttpTest`; all 4 tests green.
-- [ ] Smoke test: 10 000 concurrent WS connections without OOM
-  - Deferred: requires a dedicated load-test harness; core change is in place.
+- [x] Smoke test: 10 000 concurrent WS connections without OOM (2026-05-27)
+  - `WsLoad10kTest` opens 10 000 concurrent WebSocket connections via Loom
+    virtual threads, asserts at least 99% open, keeps heap growth under 1 GB,
+    checks `WsConnection.activeCount`, and skips automatically when
+    `ulimit -n` is too low for a meaningful run.
 
 ### Tooling — `ssc check` standalone type-checker
 
