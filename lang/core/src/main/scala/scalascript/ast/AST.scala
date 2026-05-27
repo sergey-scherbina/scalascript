@@ -66,6 +66,15 @@ case class Manifest(
    *  these as metadata so code generators can preserve endpoint method/path
    *  and request/response type names before runtime clients are implemented. */
   apiClients: List[ApiClientDecl] = Nil,
+  /** Named deploy targets declared in front-matter `deploy:`.
+   *  Raw YAML map — consumed by `ssc deploy` via DeployManifest.parse. */
+  deploy: Map[String, Any] = Map.empty,
+  /** Multi-target topology groups declared in front-matter `groups:`. */
+  groups: Map[String, Any] = Map.empty,
+  /** Deployment environments declared in front-matter `environments:`. */
+  environments: Map[String, Any] = Map.empty,
+  /** Remote state backend config declared in front-matter `state:`. */
+  deployState: Map[String, Any] = Map.empty,
   span: Option[Span] = None
 )
 

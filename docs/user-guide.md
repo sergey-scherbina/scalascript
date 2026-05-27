@@ -3631,7 +3631,168 @@ Full reference: [`docs/swiftui.md`](swiftui.md).
 
 ---
 
-## 26. GraalVM Native Binary
+## 26. Deploy Plugin (`ssc deploy`)
+
+The deploy plugin (`std/deploy-plugin`) adds a multi-target, topology-aware
+deploy system driven by frontmatter in your `.ssc` file.  It is a CLI-time
+plugin — no compile step; all work happens at `ssc deploy` time.
+
+### Manifest blocks
+
+Add up to four blocks inside the YAML frontmatter of your `.ssc` file:
+
+```yaml
+---
+name: myapp
+version: 0.1.0
+# --- deploy targets ----------------------------------------------------------
+deploy:
+  api:
+    kind: traditional
+    transport: subprocess
+    port: 8080
+    jar: .ssc-artifacts/api.jar
+  worker:
+    kind: traditional
+    transport: subprocess
+    port: 9090
+    jar: .ssc-artifacts/worker.jar
+  web:
+    kind: k8s
+    cluster: my-cluster
+    namespace: prod
+    image: registry.example.com/web:latest
+
+# --- multi-target groups -----------------------------------------------------
+groups:
+  local-stack:
+    members: [api, worker]
+    exec: parallel
+    failure: rollback-all
+  full-deploy:
+    members: [api, web]
+    exec: sequence
+    deps:
+      web: [api]
+    failure: abort-remaining
+
+# --- environments -------------------------------------------------------------
+environments:
+  local:
+    purpose: local
+    targets: [api, worker]
+  production:
+    purpose: production
+    targets: [api, web]
+    blue-green:
+      switch: instant
+      health-check: /_health
+      bake-time: 5m
+---
+```
+
+| Block | Purpose |
+|-------|---------|
+| `deploy:` | Per-target configuration. Required. |
+| `groups:` | Named multi-target groups with exec mode + dependency DAG. |
+| `environments:` | Named deploy environments with purpose axis + blue-green config. |
+| `state:` | State-backend configuration (optional; defaults to no-op). |
+
+### `ssc deploy` subcommands
+
+```bash
+ssc deploy myapp.ssc               # deploy default target (or all in default env)
+ssc deploy myapp.ssc --env production  # deploy all targets for 'production' env
+ssc deploy myapp.ssc --group local-stack  # deploy a named group
+ssc deploy myapp.ssc --target api  # deploy a single named target
+ssc deploy myapp.ssc --dry-run     # print plan without executing
+ssc deploy myapp.ssc --verbose     # verbose output
+
+ssc deploy myapp.ssc plan          # print execution plan (stages, deps, env)
+ssc deploy myapp.ssc status        # report health of all targets
+ssc deploy myapp.ssc envs          # list environments from the manifest
+```
+
+### Execution modes
+
+| Mode | YAML | Behaviour |
+|------|------|-----------|
+| `parallel` | `exec: parallel` | All targets in one stage (virtual threads). |
+| `sequence` | `exec: sequence` | Targets one at a time in listed order. |
+| `pipeline` | `exec: pipeline` | Explicitly-specified stages; each stage is parallel. |
+
+If `deps:` is provided, `parallel` and `sequence` both respect the DAG —
+topology sort is computed with Kahn's algorithm, and cycle detection throws a
+`DeployError` with `dag-cycle` in the message.
+
+### Failure policies
+
+| Policy | YAML | Behaviour |
+|--------|------|-----------|
+| `RollbackAll` | `failure: rollback-all` | On any failure, roll back all already-succeeded targets in the group. |
+| `ContinueRemaining` | `failure: continue-remaining` | Skip dependents of the failed target; deploy everything else. |
+| `AbortRemaining` | `failure: abort-remaining` | Stop immediately on first failure. |
+
+### Target adapters (v1.52.1)
+
+| `kind` | `transport` | Adapter | Status |
+|--------|-------------|---------|--------|
+| `traditional` | `subprocess` | `LocalSubprocessTarget` | ✓ implemented |
+| `k8s` | *(any)* | `StubDeployTarget` | stub (v1.52.2+) |
+| `faas` | *(any)* | `StubDeployTarget` | stub (v1.52.3+) |
+| `static` | *(any)* | `StubDeployTarget` | stub (v1.52.4+) |
+
+The `LocalSubprocessTarget` spawns `java -jar <jar>` and polls `/_health`
+(HTTP 200) for up to 30 seconds before declaring the target healthy.
+
+### Artifact kinds
+
+`ArtifactKind` controls what `ssc deploy build` produces:
+
+| String alias | Enum | Produces |
+|---|---|---|
+| `fat-jar` / `fatjar` | `FatJar` | Assembly JAR (default) |
+| `thin-jar` | `ThinJar` | Thin JAR |
+| `native` / `native-binary` | `NativeBinary` | GraalVM native binary |
+| `node` / `node-bundle` | `NodeBundle` | Node.js bundle |
+| `spa` / `spa-bundle` | `SpaBundle` | SPA dist directory |
+| `oci` / `oci-image` | `OciImage` | OCI container image |
+| `lambda` / `lambda-zip` | `LambdaZip` | AWS Lambda ZIP |
+| `rsync` / `rsync-tree` | `RsyncTree` | Raw rsync tree |
+
+### State backend
+
+The `state:` block configures where deploy state is persisted (revision,
+artifact hash, deploy time, outputs).  In v1.52.1 the only backend is the
+no-op (in-memory, not persisted):
+
+```yaml
+state:
+  backend: noop
+```
+
+### Environments and blue-green
+
+`environments:` supports a `base:` key for inheritance and a `purpose:` axis:
+
+| Purpose | YAML |
+|---------|------|
+| `local` | Development workstation |
+| `test` | CI / ephemeral PR environments |
+| `staging` | Pre-production |
+| `production` | Live traffic |
+
+`ssc deploy` automatically selects the `local`-purpose environment when no
+`--env` flag is given (if one exists in the manifest).
+
+### Full example
+
+See [`examples/deploy.ssc`](../examples/deploy.ssc) for a complete annotated
+manifest with 6 targets, 3 groups, and 4 environments.
+
+---
+
+## 27. GraalVM Native Binary
 
 `ssc` can be compiled to a self-contained native binary with no JVM required
 at runtime.
@@ -3685,4 +3846,5 @@ For building a plugin as a native binary itself, see
 - Progressive Web App: §23 above, [docs/pwa-plugin.md](pwa-plugin.md)
 - REPL debugger: §24 above, [docs/repl-debugger.md](repl-debugger.md)
 - SwiftUI / iOS / macOS native targets: §25 above, [docs/swiftui.md](swiftui.md)
-- GraalVM native binary: §26 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
+- **Deploy plugin (`ssc deploy`): §26 above, [`examples/deploy.ssc`](../examples/deploy.ssc)**
+- GraalVM native binary: §27 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)

@@ -1,0 +1,164 @@
+#!/usr/bin/env ssc
+---
+name: my-app
+version: 1.4.2
+description: Deploy examples for v1.52 — five target categories + local dev environment
+
+# ── Deploy targets ────────────────────────────────────────────────────────────
+
+deploy:
+  # Container / Kubernetes (v1.52.2–v1.52.3)
+  backend-prod:
+    kind: k8s
+    cluster: prod-east-1
+    namespace: app
+    image: registry.example.com/my-app:${version}
+    replicas: 3
+    artifact: fat-jar
+
+  backend-eu:
+    kind: k8s
+    cluster: prod-eu-west-1
+    namespace: app
+    image: registry.example.com/my-app:${version}
+
+  # FaaS / Serverless (v1.52.6)
+  backend-edge:
+    kind: faas
+    provider: cloudflare-workers
+    route: /api/*
+
+  # Static hosting (v1.52.5)
+  frontend:
+    kind: static
+    provider: cloudflare-pages
+    project: my-app
+
+  # Traditional VPS — local subprocess (v1.52.1: only implemented adapter)
+  api-local:
+    kind: traditional
+    transport: subprocess
+    port: 8080
+
+  ui-local:
+    kind: traditional
+    transport: subprocess
+    port: 5173
+
+# ── Groups — multi-target topology ────────────────────────────────────────────
+
+groups:
+  # Three k8s regions in parallel; partial deploy acceptable
+  multi-region:
+    mode: parallel
+    members: [backend-prod, backend-eu]
+    max_parallelism: 2
+    on_failure: continue_remaining
+
+  # Backend first (pipeline stage 1), then frontend reads its URL (stage 2)
+  full-stack:
+    mode: pipeline
+    stages:
+      - [backend-prod]
+      - [frontend]
+    on_failure: rollback_all
+
+  # Local dev: API + UI as subprocesses
+  local-stack:
+    mode: parallel
+    members: [api-local, ui-local]
+    on_failure: abort_remaining
+
+# ── Environments ──────────────────────────────────────────────────────────────
+
+environments:
+  # Developer machine — subprocess targets only
+  local:
+    purpose: local
+    active_groups: [local-stack]
+
+  # Per-PR ephemeral environment inheriting production topology
+  test-pr-42:
+    purpose: test
+    base: production
+    target_overrides:
+      backend-prod:
+        replicas: 1
+        cluster: test-east-1
+        image: registry.example.com/my-app:pr-42-${git.sha}
+
+  staging:
+    purpose: staging
+    base: production
+    target_overrides:
+      backend-prod: { replicas: 2 }
+      backend-eu: { replicas: 1 }
+
+  production:
+    purpose: production
+    active_groups: [multi-region, full-stack]
+    fault_tolerance:
+      multi_region: [us-east, eu-west]
+      quorum: 1
+      failover_strategy: active-active
+    blue_green:
+      enabled: true
+      active_slot: blue
+      switch_strategy: gradual
+      steps: [10, 50, 100]
+      step_interval: 5m
+      health_gate: /_health
+      smoke_tests: [./scripts/smoke.sh]
+      hold_duration: 30m
+
+# ── State backend (optional) ──────────────────────────────────────────────────
+# state:
+#   backend: s3
+#   bucket: ssc-deploy-state
+#   prefix: my-app/
+---
+
+# Deploy Examples
+
+This file demonstrates all v1.52 deploy patterns. Use `ssc deploy --dry-run` to
+validate the manifest without making real changes.
+
+## Local development
+
+Start the app locally as a subprocess pair:
+
+```sh
+ssc deploy --env=local          # starts api-local:8080 + ui-local:5173
+ssc deploy status --env=local   # polls /_health on both ports
+```
+
+## Inspect the plan
+
+See the resolved DAG before acting:
+
+```sh
+ssc deploy plan full-stack --env=production
+ssc deploy envs
+```
+
+## Deploy to production
+
+```sh
+ssc deploy --env=production --dry-run     # validate; no side effects
+ssc deploy multi-region --env=production  # 2 regions in parallel
+ssc deploy full-stack --env=production    # backend → frontend pipeline
+```
+
+## Blue-green switch
+
+```sh
+ssc deploy --env=production               # deploy to inactive slot
+ssc deploy switch --env=production        # health-gate → smoke → gradual
+ssc deploy rollback --env=production      # re-switch within hold window
+```
+
+## Promote across environments
+
+```sh
+ssc deploy promote --from=test-pr-42 --to=staging
+```

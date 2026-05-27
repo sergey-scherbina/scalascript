@@ -706,7 +706,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(
@@ -2156,7 +2156,7 @@ lazy val backendInterpreterPluginTests = project
     backendInterpreterServer,
     jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
     fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin,
-    swingPlugin, streamsPlugin,
+    swingPlugin, streamsPlugin, dstreamsPlugin, deployPlugin,
   )
   .settings(
     name := "scalascript-backend-interpreter-plugin-tests",
@@ -2192,6 +2192,21 @@ lazy val dstreamsPlugin = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
   .settings(sscpkgSettings("scalascript.std.dstreams"))
+
+// ── Deploy — CLI-time plugin ───────────────────────────────────────────────
+lazy val deployPlugin = project
+  .in(file("runtime/std/deploy-plugin"))
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-deploy-plugin",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "os-lib" % "0.10.7",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.deploy"))
 
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
@@ -2235,6 +2250,7 @@ lazy val root = project
     jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
     httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
+    deployPlugin,
     paymentRequestPlugin, paymentRequest,
   )
   .settings(

@@ -192,6 +192,10 @@ object Parser:
           m.asScala.collect { case (k, v) => k.toString -> v.toString }.toMap
       }.getOrElse(Map.empty),
       apiClients = parseApiClients(raw),
+      deploy = parseRawMap(raw, "deploy"),
+      groups = parseRawMap(raw, "groups"),
+      environments = parseRawMap(raw, "environments"),
+      deployState = parseRawMap(raw, "state"),
       raw = raw
     )
 
@@ -294,6 +298,11 @@ object Parser:
         val value = Option(m.group(2)).getOrElse(m.group(3))
         key -> value
       }.toMap
+
+  private def parseRawMap(raw: Map[String, Any], key: String): Map[String, Any] =
+    raw.get(key).collect { case m: java.util.Map[?, ?] =>
+      m.asScala.iterator.collect { case (k: String, v) => k -> (v: Any) }.toMap
+    }.getOrElse(Map.empty)
 
   private def parseDatabases(raw: Map[String, Any]): List[DatabaseDecl] =
     raw.get("databases").collect {

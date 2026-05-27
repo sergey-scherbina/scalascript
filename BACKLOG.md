@@ -942,18 +942,15 @@ Design decisions locked:
 - **Spec-only in v1.52**: no code; implementation phased v1.52.1–v1.52.7.
 - **Minimal depth**: SPI + taxonomy + examples per category; per-provider sections deferred to phase docs.
 
-### Implementation milestones (open)
+### Implementation milestones
 
-**v1.52.1 — Plugin scaffolding + AST + CLI stub + orchestrator core + local env:**
-- Create `runtime/std/deploy-plugin/` (four-file layout mirroring `http-plugin`/`ws-plugin`)
-- `DeployTarget` + `DeployGroup` + `DeployEnvironment` + `ArtifactKind` + `StateBackend` SPI traits
-- `ArtifactRegistry` wiring to existing builders (`Main.scala:1370-1417`, `1479`, `1481-1494`, `633-636`)
-- `lang/core/src/main/scala/scalascript/ast/AST.scala:19-70` — add `deploy`, `groups`, `environments`, `state` optional fields to `Manifest`
-- `tools/cli/src/main/scala/scalascript/cli/Main.scala:84-137` — add `case "deploy" => deployCommand(...)`
-- Multi-target orchestrator core: DAG resolver (cycle detection), parallel/sequence/pipeline executor, output→input wiring, partial-failure handler, structured event stream, progress reporter
-- Local environment runner: `transport: subprocess` adapter — spawns fat-JAR process, polls `/_health`
-- `ssc deploy plan <group> --env=<env>`, `ssc deploy --dry-run`, `ssc deploy envs`
-- `examples/deploy.ssc` with ten examples from spec §15
+**✓ Landed (2026-05-27) — v1.52.1 — Plugin scaffolding + AST + CLI stub + orchestrator core + local env:**
+- `runtime/std/deploy-plugin/`: `DeployTarget`, `DeployGroup`, `DeployEnvironment`, `ArtifactKind`, `StateBackend`, `ArtifactRegistry`, `DeployManifest`, `LocalSubprocessTarget` SPI + adapters
+- `DeployDag.topoSort` (Kahn's algorithm + cycle detection) + `toStages` + `DeployOrchestrator` (virtual threads, failure policies)
+- `lang/core`: `Manifest` extended with `deploy`/`groups`/`environments`/`deployState` optional fields
+- `ssc deploy [plan|status|envs] --env --group --target --dry-run --verbose`
+- `examples/deploy.ssc` with 6 targets, 3 groups, 4 environments
+- 22 unit tests; 509 core tests pass
 
 **v1.52.2 — Container target (generic OCI):**
 - Dockerfile generator per `ArtifactKind` (four base-image choices from spec §6.1)
