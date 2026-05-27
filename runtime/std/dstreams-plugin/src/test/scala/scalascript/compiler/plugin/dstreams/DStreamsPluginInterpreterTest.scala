@@ -274,3 +274,131 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List.empty)
+
+  // ── v2.1.2 — window / watermark / timerProcessing ────────────────────────
+
+  test("window(Window.fixed) + combinePerKey aggregates bounded source"):
+    // DirectRunner: bounded source is exhausted synchronously → all elements land in one
+    // processing-time window → combinePerKey sees all elements → same as word-count test.
+    val result = interp.eval(
+      """
+      val words = List("hello", "world", "hello", "scala", "world", "hello")
+      val stream = Pipeline.create("window-wc")
+        .read(InMemory.source(words))
+        .map(w => KV(w, 1))
+        .window(Window.fixed(60000))
+        .combinePerKey((a, b) => a + b)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val kvMap = result.asInstanceOf[List[?]].collect {
+      case v: Value.InstanceV if v.typeName == "KV" =>
+        v.fields("key").toString -> v.fields("value")
+    }.toMap
+    assert(kvMap("StringV(hello)") == Value.IntV(3L))
+    assert(kvMap("StringV(world)") == Value.IntV(2L))
+    assert(kvMap("StringV(scala)") == Value.IntV(1L))
+
+  test("withWatermark(atEnd) + window + combinePerKey"):
+    val result = interp.eval(
+      """
+      val pairs = List(("hello", 1000L), ("world", 2000L), ("hello", 3000L))
+      val stream = Pipeline.create("wm-test")
+        .read(InMemory.sourceWithTimestamps(pairs))
+        .map(w => KV(w, 1))
+        .withWatermark(WatermarkStrategy.atEnd)
+        .window(Window.fixed(60000))
+        .combinePerKey((a, b) => a + b)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val kvMap = result.asInstanceOf[List[?]].collect {
+      case v: Value.InstanceV if v.typeName == "KV" =>
+        v.fields("key").toString -> v.fields("value")
+    }.toMap
+    assert(kvMap("StringV(hello)") == Value.IntV(2L))
+    assert(kvMap("StringV(world)") == Value.IntV(1L))
+
+  test("withTrigger pass-through preserves elements"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("trigger-test")
+        .read(InMemory.source(List(1, 2, 3)))
+        .map(x => KV(x, x * 10))
+        .window(Window.global)
+        .withTrigger(Trigger.afterCount(2))
+        .combinePerKey((a, b) => a + b)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    assert(result.asInstanceOf[List[?]].length == 3)
+
+  test("withAllowedLateness pass-through preserves elements"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("lateness-test")
+        .read(InMemory.source(List(1, 2, 3, 4, 5)))
+        .filter(x => x % 2 == 0)
+        .map(x => KV(x, 1))
+        .window(Window.fixed(60000))
+        .withAllowedLateness(5000)
+        .combinePerKey((a, b) => a + b)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    assert(result.asInstanceOf[List[?]].length == 2)
+
+  test("timerProcessing fires callback for each unique key"):
+    // f: K => Iterable[B]; result is DStream[KV[K, B]]
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("timer-test")
+        .read(InMemory.source(List("a", "b", "a", "c", "b", "a")))
+        .keyBy(s => s)
+        .combinePerKey((acc, _) => acc)
+        .timerProcessing(1000)(k => List(42))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val list = result.asInstanceOf[List[?]]
+    assert(list.length == 3)
+    val kvs = list.collect {
+      case v: Value.InstanceV if v.typeName == "KV" =>
+        v.fields("key").toString -> v.fields("value")
+    }.toMap
+    assert(kvs.values.forall(_ == Value.IntV(42L)))
+
+  test("window requires EventTime capability — provided by Backend.Direct"):
+    // window(Window.fixed) triggers EventTime; Direct provides it in v2.1.2
+    val result = interp.eval(
+      """
+      Pipeline.create("cap-test")
+        .read(InMemory.source(List(1, 2)))
+        .map(x => KV(x, 1))
+        .window(Window.fixed(60000))
+        .requires()
+      """
+    )
+    result match
+      case caps: List[?] =>
+        assert(caps.contains("EventTime"))
+        assert(caps.contains("AtLeastOnce"))
+      case _ => fail(s"Expected List of capabilities, got: $result")
+
+  test("window sliding + combinePerKey on bounded source"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("sliding-test")
+        .read(InMemory.source(List("x", "y", "x")))
+        .map(w => KV(w, 1))
+        .window(Window.sliding(60000, 30000))
+        .combinePerKey((a, b) => a + b)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val kvMap = result.asInstanceOf[List[?]].collect {
+      case v: Value.InstanceV if v.typeName == "KV" =>
+        v.fields("key").toString -> v.fields("value")
+    }.toMap
+    assert(kvMap("StringV(x)") == Value.IntV(2L))
+    assert(kvMap("StringV(y)") == Value.IntV(1L))

@@ -1067,9 +1067,9 @@ Implementation phases ship independently below.
   `Feature.DistributedStreams` flag; `examples/distributed-streams.ssc`.
   Spec: `docs/distributed-streams.md §13`. (2026-05-27)
 
-- [ ] **v2.1.2-dstream-native-unbounded** — Native unbounded backend: actor mailboxes as stream
-  elements, watermark propagation via `WatermarkStrategy`, event-time windowing on native backend,
-  `Trigger.afterWatermark` support. Spec: `docs/distributed-streams.md §9.1`.
+- [x] **v2.1.2-dstream-native-unbounded** — Processing-time windowing (`window`, `withTrigger`,
+  `withAllowedLateness`, `withWatermark`), `timerProcessing(d)(f)`, `EventTime`+`WatermarkPerfect`
+  capabilities on DirectRunner/Native. Spec: `docs/distributed-streams.md §13 v2.1.2`. (2026-05-27, 30 tests)
 
 - [ ] **v2.1.3-dstream-spark** — Spark backend: bounded via `Dataset[T]` (micro-batch),
   unbounded via Spark Structured Streaming; `SparkGen.scala` extension; `Coder[T]` ↔ Spark

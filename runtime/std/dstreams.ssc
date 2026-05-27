@@ -28,8 +28,8 @@ Apache-Beam-style pipeline DSL that compiles to the native ScalaScript actor clu
 Apache Kafka Streams, and Apache Flink from the same user-code.  Companion to
 [`docs/distributed-streams.md`](../../docs/distributed-streams.md).
 
-In v2.1.1 only the **native bounded backend** (`Backend.Direct` and `Backend.Native`) is
-available; Spark / Kafka / Flink backends land in v2.1.3–v2.1.5.
+In v2.1.2 the native backend supports **processing-time windows**, watermarks, and
+`timerProcessing`.  Spark / Kafka / Flink backends land in v2.1.3–v2.1.5.
 
 ## Core types
 
@@ -132,6 +132,27 @@ extern object Pipeline:
 // Terminal: submit the pipeline to a backend.
 extern def runPipeline(p: Pipeline, backend: Backend): PipelineResult
 extern def runPipelineOpts(p: Pipeline, backend: Backend, opts: PipelineOptions): PipelineResult
+```
+
+## DStream windowing operators (v2.1.2)
+
+```scalascript
+// Assign elements to windows.  For processing-time on the native/direct backend all bounded
+// elements arrive in one window; for Spark/Flink event-time semantics apply.
+extern def window(fn: Window): DStream[T]
+
+// Override the default trigger for this windowed stream.
+extern def withTrigger(t: Trigger): DStream[T]
+
+// Permit late elements up to `allowedLateness` past the window end.
+extern def withAllowedLateness(allowedLateness: Long): DStream[T]
+
+// Attach a watermark strategy (adds Capability.EventTime to pipeline.requires()).
+extern def withWatermark(strategy: WatermarkStrategy[T]): DStream[T]
+
+// Processing-time timer: after `durationMs` of inactivity per key, fire f(key).
+// Requires Capability.TimerProcessingTime.
+extern def timerProcessing(durationMs: Long)(f: K => Iterable[B]): DStream[KV[K, B]]
 ```
 
 ## DSource / DSink

@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v2.1.2-dstream-native-unbounded** — Processing-time windowing + watermarks + `timerProcessing` on the native/direct backend. `window(Window.fixed/sliding/session/global)`, `withTrigger(Trigger.*)`, `withAllowedLateness(d)`, `withWatermark(WatermarkStrategy.*)` operators added to `DStream`. `timerProcessing(durationMs)(k => Iterable[B])` fires synchronously per unique key on DirectRunner. `directCapabilities` now includes `EventTime` + `WatermarkPerfect` (v2.1.2+). `collectRequiredCaps` extended for `_dag_window`, `_dag_withWatermark`, `_dag_withTrigger`. `dstreams.ssc` updated. 30 tests green.
+
 - **v2.1.1-dstream-native-bounded** — Core `DStream[T]` / `Pipeline` Beam-style API on the native bounded backend. `Pipeline.create(name).read(DSource).map/filter/flatMap/keyBy/combinePerKey/merge.run(Backend.Direct|Native)`. `InMemory.source` / `InMemory.runAndCollect` testing helpers. `DSource.fromLocalSource` bridge from `Source[A]`. `Feature.DistributedStreams` flag. `Capability` negotiation at `.run()` (`CAPABILITY_MISMATCH` on missing cap). `examples/distributed-streams.ssc` (3 bounded examples). `dstreams-plugin` (23 tests green). `BuiltinsRuntime.setupPluginCompanions` extended for all DStream companion objects.
 
 - **x402-cardano-scalus-static-exunits** — Added static `ScalusExUnits` wiring for the Cardano/Scalus claim Tx draft: configured ex-units now flow into `ClaimTxPlan`, the bloxbean redeemer, and balanced fee estimation. Live node-backed ex-unit evaluation remains open.

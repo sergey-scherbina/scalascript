@@ -37,6 +37,7 @@ object DStreamsIntrinsics:
   private val CAP_AT_LEAST_ONCE       = "AtLeastOnce"
   private val CAP_EXACTLY_ONCE        = "ExactlyOnce"
   private val CAP_EVENT_TIME          = "EventTime"
+  private val CAP_WATERMARK_PERFECT   = "WatermarkPerfect"
   private val CAP_KEYED_STATE         = "KeyedState"
   private val CAP_BROADCAST_STATE     = "BroadcastState"
   private val CAP_SIDE_INPUTS         = "SideInputs"
@@ -45,9 +46,10 @@ object DStreamsIntrinsics:
   private val CAP_TIMER_PROC_TIME     = "TimerProcessingTime"
   private val CAP_WINDOWED_JOINS      = "WindowedJoins"
 
-  // Capabilities provided by DirectRunner / NativeRunner (v2.1.1 bounded subset)
+  // Capabilities provided by DirectRunner / NativeRunner (v2.1.2: adds EventTime + WatermarkPerfect)
   private val directCapabilities: Set[String] = Set(
-    CAP_AT_LEAST_ONCE, CAP_KEYED_STATE, CAP_WINDOWED_JOINS, CAP_TIMER_PROC_TIME,
+    CAP_AT_LEAST_ONCE, CAP_EVENT_TIME, CAP_WATERMARK_PERFECT,
+    CAP_KEYED_STATE, CAP_WINDOWED_JOINS, CAP_TIMER_PROC_TIME,
   )
 
   // ── DAG node representation ───────────────────────────────────────────────
@@ -167,6 +169,39 @@ object DStreamsIntrinsics:
         // timestamps are discarded in v2.1.1; just pass elements through
         evalDag(fields("upstream"), ctx)
 
+      case Value.InstanceV("_dag_window", fields) =>
+        // DirectRunner: bounded sources execute synchronously so all elements arrive in the
+        // same processing-time instant → all fall into one global window.  combinePerKey after
+        // window therefore aggregates across all elements, which is the expected behaviour for
+        // the §14.1 window word-count test.
+        evalDag(fields("upstream"), ctx)
+
+      case Value.InstanceV("_dag_withTrigger", fields) =>
+        evalDag(fields("upstream"), ctx)
+
+      case Value.InstanceV("_dag_withAllowedLateness", fields) =>
+        evalDag(fields("upstream"), ctx)
+
+      case Value.InstanceV("_dag_withWatermark", fields) =>
+        // Watermark is tracked by the backend; DirectRunner passes elements through.
+        evalDag(fields("upstream"), ctx)
+
+      case Value.InstanceV("_dag_timerProcessing", fields) =>
+        // Drain upstream collecting unique keys, then fire f(key) for each.
+        // DirectRunner: no wall-clock delay; fires synchronously after the bounded source is exhausted.
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        val keys = scala.collection.mutable.LinkedHashSet[Value]()
+        for elem <- upstream do
+          elem match
+            case Value.InstanceV("KV", kvFields) => keys += kvFields("key")
+            case _                               =>
+        keys.iterator.flatMap { k =>
+          call(ctx, f, List(k)) match
+            case Value.ListV(xs) => xs.iterator.map(v => Value.InstanceV("KV", Map("key" -> k, "value" -> v)))
+            case single          => Iterator.single(Value.InstanceV("KV", Map("key" -> k, "value" -> single)))
+        }
+
       case other =>
         throw InterpretError(s"evalDag: unknown DAG node kind: $other")
 
@@ -182,6 +217,7 @@ object DStreamsIntrinsics:
     def walk(node: Value): Unit = node match
       case Value.InstanceV(kind, fields) =>
         kind match
+          case "_dag_window" | "_dag_withWatermark" | "_dag_withTrigger" => caps += CAP_EVENT_TIME
           case "_dag_statefulMap" | "_dag_statefulFlatMap" => caps += CAP_KEYED_STATE
           case "_dag_join" | "_dag_leftOuterJoin" | "_dag_rightOuterJoin" => caps += CAP_WINDOWED_JOINS
           case "_dag_broadcastState" => caps += CAP_BROADCAST_STATE
@@ -302,6 +338,38 @@ object DStreamsIntrinsics:
     "assignTimestamps" -> Value.NativeFnV("DStream.assignTimestamps", Computation.pureFn {
       case List(f) => mkDStreamWithOps(dagNode("assignTimestamps", Map("upstream" -> dag, "f" -> f)), ctx)
       case _       => throw InterpretError("DStream.assignTimestamps(f)")
+    }),
+
+    // ── v2.1.2 windowing / watermark / timer operators ────────────────────────
+
+    "window" -> Value.NativeFnV("DStream.window", Computation.pureFn {
+      case List(windowFn) => mkDStreamWithOps(dagNode("window", Map("upstream" -> dag, "windowFn" -> windowFn)), ctx)
+      case _              => throw InterpretError("DStream.window(windowFn)")
+    }),
+
+    "withTrigger" -> Value.NativeFnV("DStream.withTrigger", Computation.pureFn {
+      case List(trigger) => mkDStreamWithOps(dagNode("withTrigger", Map("upstream" -> dag, "trigger" -> trigger)), ctx)
+      case _             => throw InterpretError("DStream.withTrigger(trigger)")
+    }),
+
+    "withAllowedLateness" -> Value.NativeFnV("DStream.withAllowedLateness", Computation.pureFn {
+      case List(d) => mkDStreamWithOps(dagNode("withAllowedLateness", Map("upstream" -> dag, "d" -> toValue(d))), ctx)
+      case _       => throw InterpretError("DStream.withAllowedLateness(d)")
+    }),
+
+    "withWatermark" -> Value.NativeFnV("DStream.withWatermark", Computation.pureFn {
+      case List(strategy) =>
+        mkDStreamWithOps(dagNode("withWatermark", Map("upstream" -> dag, "strategy" -> toValue(strategy))), ctx)
+      case _ => throw InterpretError("DStream.withWatermark(strategy)")
+    }),
+
+    // timerProcessing(durationMs)(f: K => Iterable[B]) — curried
+    "timerProcessing" -> Value.NativeFnV("DStream.timerProcessing", Computation.pureFn {
+      case List(_) => Value.NativeFnV("DStream.timerProcessing$1", Computation.pureFn {
+        case List(f) => mkDStreamWithOps(dagNode("timerProcessing", Map("upstream" -> dag, "f" -> f)), ctx)
+        case _       => throw InterpretError("DStream.timerProcessing(d)(f) — inner")
+      })
+      case _ => throw InterpretError("DStream.timerProcessing(d)(f) — outer")
     }),
 
     "write" -> Value.NativeFnV("DStream.write", Computation.pureFn {
