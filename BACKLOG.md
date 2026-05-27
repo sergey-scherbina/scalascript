@@ -3894,7 +3894,12 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             bloxbean `TransactionEvaluator` results into typed
             `ScalusExUnits`; evaluated-balanced draft rebuilds the
             redeemer and fee from evaluator output.
-      - [ ] Blockfrost/Ogmios evaluate endpoint for live ex-units
+      - [x] Blockfrost/Ogmios evaluate endpoint for live ex-units
+            ✓ Landed (2026-05-27): `BlockfrostClient.evaluateTx`
+            posts CBOR to `/utils/txs/evaluate`;
+            `ScalusTxEvaluator.blockfrost(...)` and
+            `ScalusTxEvaluator.ogmiosHttp(url)` map endpoint
+            responses into typed claim ex-units.
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted
       through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.

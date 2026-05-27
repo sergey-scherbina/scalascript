@@ -2983,7 +2983,11 @@ protocol min-fee from final draft CBOR size. `ScalusSettlerConfig.claimExUnits`
 can carry conservative static Plutus ex-units into the redeemer and fee estimate.
 For node-backed evaluation, `ScalusTxEvaluator.bloxbean(...)` adapts bloxbean
 `TransactionEvaluator` results and the evaluated-balanced draft path rebuilds
-the redeemer and fee from evaluator output. `BloxbeanPreprodIntegrationTest` is
+the redeemer and fee from evaluator output. For hosted node evaluation,
+`BlockfrostClient.evaluateTx(cbor)`, `ScalusTxEvaluator.blockfrost(...)`, and
+`ScalusTxEvaluator.ogmiosHttp(url)` map Blockfrost/Ogmios budget responses into
+typed `ScalusExUnits` before the same evaluated-balanced rebuild path runs.
+`BloxbeanPreprodIntegrationTest` is
 skipped by default; set `X402_SCALUS_PREPROD_IT=true` plus the required
 Blockfrost/escrow/relayer env vars to build a live Preprod draft, and set
 `X402_SCALUS_PREPROD_SUBMIT=true` only when you intentionally want to submit it.

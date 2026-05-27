@@ -396,6 +396,13 @@ validator to UPLC:
   `BloxbeanClaimTxDraftBuilder.buildEvaluatedBalancedTransaction(...)`
   rebuilds the draft with evaluator-provided claim ex-units before
   calculating the balanced fee.
+- **Landed (2026-05-27):** live evaluate endpoint wiring:
+  `BlockfrostClient.evaluateTx(cbor)` posts CBOR to
+  `/utils/txs/evaluate`, `ScalusTxEvaluator.blockfrost(...)` maps the
+  response into claim ex-units, and `ScalusTxEvaluator.ogmiosHttp(url)`
+  posts Ogmios JSON-RPC `evaluateTransaction` requests with
+  `{ transaction: { cbor } }`. Both parsers accept Ogmios-style
+  `validator: "spend:0"` / `budget` responses.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is
@@ -484,5 +491,7 @@ validator to UPLC:
 - CIP-19 (addresses): <https://cips.cardano.org/cips/cip19/>
 - Scalus: <https://scalus.org>
 - bloxbean cardano-client-lib: <https://github.com/bloxbean/cardano-client-lib>
+- Blockfrost evaluate endpoint: <https://docs.blockfrost.io/#tag/Cardano-Utilities/paths/~1utils~1txs~1evaluate/post>
+- Ogmios evaluateTransaction: <https://ogmios.dev/mini-protocols/local-tx-submission/#evaluating-transactions>
 - Existing optimistic facilitator: `x402-facilitator-cardano/.../CardanoFacilitator.scala`
 - x402 protocol: [`docs/x402.md`](x402.md)

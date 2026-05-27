@@ -67,6 +67,28 @@ class BlockfrostClientTest extends AnyFunSuite:
     assert(params.costModels("PlutusV3") == Seq(100788L, 420L))
   }
 
+  test("BlockfrostEvaluationResult parses Ogmios-style array response") {
+    val results = BlockfrostEvaluationResult.parseAll(ujson.read(
+      """[
+        |  {"validator":"spend:0","budget":{"memory":1700,"cpu":476468}},
+        |  {"validator":"mint:2","budget":{"memory":"42","steps":"99"}}
+        |]""".stripMargin
+    ))
+
+    assert(results == Seq(
+      BlockfrostEvaluationResult("spend:0", BigInt(1700), BigInt(476468)),
+      BlockfrostEvaluationResult("mint:2", BigInt(42), BigInt(99)),
+    ))
+  }
+
+  test("BlockfrostEvaluationResult parses map response") {
+    val results = BlockfrostEvaluationResult.parseAll(ujson.read(
+      """{"spend:0":{"memory":1700,"steps":476468}}"""
+    ))
+
+    assert(results == Seq(BlockfrostEvaluationResult("spend:0", BigInt(1700), BigInt(476468))))
+  }
+
   // Live tests — skipped unless BLOCKFROST_KEY is set
 
   test("live: getAddressInfo returns lovelace for known address") {

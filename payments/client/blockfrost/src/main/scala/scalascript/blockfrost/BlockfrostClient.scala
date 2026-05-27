@@ -36,6 +36,45 @@ case class BlockfrostProtocolParams(
   costModels:          Map[String, Seq[Long]],
 )
 
+case class BlockfrostEvaluationResult(
+  validator: String,
+  memory:    BigInt,
+  steps:     BigInt,
+)
+
+object BlockfrostEvaluationResult:
+  def parseAll(json: ujson.Value): Seq[BlockfrostEvaluationResult] =
+    json match
+      case ujson.Arr(values) => values.toSeq.map(parseOne)
+      case ujson.Obj(values) if values.contains("result") => parseAll(values("result"))
+      case ujson.Obj(values) if values.contains("validator") => Seq(parseOne(json))
+      case ujson.Obj(values) =>
+        values.toSeq.map { case (validator, budget) =>
+          fromBudget(validator, budget)
+        }
+      case other => throw IllegalArgumentException(s"Unsupported Blockfrost evaluation response: $other")
+
+  private def parseOne(json: ujson.Value): BlockfrostEvaluationResult =
+    val obj = json.obj
+    val validator = obj.get("validator").map(_.str)
+      .orElse(obj.get("redeemer").map(_.str))
+      .getOrElse(throw IllegalArgumentException(s"Missing evaluation validator: $json"))
+    fromBudget(validator, obj.getOrElse("budget", json))
+
+  private def fromBudget(validator: String, budget: ujson.Value): BlockfrostEvaluationResult =
+    val obj = budget.obj
+    BlockfrostEvaluationResult(
+      validator = validator,
+      memory    = big(obj.getOrElse("memory", obj.getOrElse("mem", ujson.Num(0)))),
+      steps     = big(obj.getOrElse("cpu", obj.getOrElse("steps", ujson.Num(0)))),
+    )
+
+  private def big(value: ujson.Value): BigInt =
+    value match
+      case ujson.Num(n) => BigDecimal(n).toBigInt
+      case ujson.Str(s) => BigInt(s)
+      case other        => throw IllegalArgumentException(s"Evaluation budget value is not numeric: $other")
+
 object BlockfrostProtocolParams:
   def fromJson(json: ujson.Value): BlockfrostProtocolParams =
     def big(name: String): BigInt =
@@ -81,6 +120,9 @@ trait BlockfrostClient:
   def isTxConfirmed(txHash: String): Future[Boolean]
   def getUtxos(address: String): Future[Seq[BlockfrostUtxo]]
   def submitTx(cbor: Array[Byte]): Future[String]
+  def evaluateTx(cbor: Array[Byte]): Future[Seq[BlockfrostEvaluationResult]] =
+    val _ = cbor
+    Future.failed(NotImplementedError("evaluateTx not implemented"))
   def getProtocolParams(): Future[BlockfrostProtocolParams] =
     Future.failed(NotImplementedError("getProtocolParams not implemented"))
 
@@ -154,6 +196,17 @@ private class BlockfrostClientImpl(config: BlockfrostConfig)(using ec: Execution
       if resp.code.code != 200 then
         throw RuntimeException(s"Blockfrost protocol params ${resp.code}: ${resp.body}")
       BlockfrostProtocolParams.fromJson(ujson.read(resp.body))
+    }
+
+  override def evaluateTx(cbor: Array[Byte]): Future[Seq[BlockfrostEvaluationResult]] =
+    Future {
+      val url  = s"${config.baseUrl}/utils/txs/evaluate"
+      val resp = basicRequest.headers(authHeaders ++ Map("Content-Type" -> "application/cbor"))
+        .body(cbor).post(uri"$url")
+        .response(asStringAlways).send(backend)
+      if resp.code.code != 200 then
+        throw RuntimeException(s"Blockfrost evaluate ${resp.code}: ${resp.body}")
+      BlockfrostEvaluationResult.parseAll(ujson.read(resp.body))
     }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
