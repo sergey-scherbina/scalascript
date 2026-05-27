@@ -4697,7 +4697,7 @@ Landed in tandem with blockchain-spi Phase 1.
       not yet provision one. To resolve before first production
       deployment.
 
-### Phase 5 — Solana DappConnector ✓ Landed JVM translator (2026-05-20)
+### Phase 5 — Solana DappConnector ✓ Landed (2026-05-27)
 
 - [x] `wallet-connector-wallet-std` — Solana Wallet Standard request
       surface (`standard:connect` / `standard:disconnect`,
@@ -4705,9 +4705,10 @@ Landed in tandem with blockchain-spi Phase 1.
       `wallet:setActiveChain`). Sui-side features deferred.
 - [x] Blockchain-spi Phase 3 dependency satisfied by the existing
       `SolanaChainAdapter`.
-- [ ] Scala.js `registerWallet` integration with
-      `window.standard.wallets` (waits for `wallet-spi` Scala.js
-      cross-compile, same blocker as Phase 3 EIP-1193 / Phase 4 WC).
+- [x] Scala.js `registerWallet` integration with
+      `window.standard.wallets` — `WalletStandardJs.register(info, connector)`,
+      `WalletInfo` JS-native trait, `StandardWalletConnectorJs` feature-map
+      bridge; 6 Node.js tests via `global.window` stub. Landed 2026-05-27.
 
 ### Phase 6 — ERC-4337 SmartAccountStrategy ✓ Landed (2026-05-20)
 
