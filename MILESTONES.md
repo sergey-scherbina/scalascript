@@ -10,15 +10,21 @@
 
 ---
 
-## Quick status (2026-05-26)
+## Quick status (2026-05-27)
 
 ### In progress
-- **v1.12.1** — Typed Algebraic Effects: type system + parser (Language & Compiler queue)
+_(none)_
 
 ### Next up (top of BACKLOG)
 - **v1.12.1** — `EffectRow` in `SType`, row unification, `!` operator, `multi effect`, handler discharge (`BACKLOG.md §v1.12`)
+- **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v1.51 — Streams with Backpressure spec (`docs/streams.md`) + go decision ✓ (2026-05-27)
+- v1.50 — GraalVM native-image build + `ssc-plugin-host` bridge + native plugin guide ✓ (2026-05-27)
+- v1.12.3 — Effects stdlib: `NonDet`, `Reader`, typed discharge signatures, `examples/algebraic-effects.ssc` ✓ (2026-05-26)
+- v1.12.2 — One-shot effect runtime fast path + JS `function*` + dynamic violation check ✓ (2026-05-26)
+- v1.12.1 — Typed Algebraic Effects type system + parser + diagnostics ✓ (2026-05-26)
 - v1.12 — Typed Algebraic Effects spec (`docs/algebraic-effects.md`) + go decision ✓ (2026-05-26)
 - v1.48 (SwiftUI Phase 3) — Reactive list lowering + `@Observable` AppModel ✓ (2026-05-26)
 - v1.46 — Typed Route Clients (all phases, including pagination) ✓ (2026-05-26)
@@ -38,7 +44,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v1.12.1-effects-types | `docs/algebraic-effects.md` |
+| **Language & Compiler** | v1.12.1-effects-types + v1.51.1-streams-plugin | `docs/algebraic-effects.md`, `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | _(queue empty)_ | — |
 | **Native Platform** | _(queue empty)_ | — |

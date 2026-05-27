@@ -6,13 +6,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+<<<<<<< HEAD
 - **x402-cardano-scalus-escrow-ref** — Added typed `ScalusEscrowRef` parsing/validation for canonical `<64-hex-txhash>#<output-index>` refs and wired `CardanoProvider.Scalus` verification to reject malformed nonce-slot escrow refs before settlement.
 
+=======
+<<<<<<< HEAD
+>>>>>>> 93d1bde2 (feat(streams): v1.51 Streams with Backpressure spec (docs/streams.md))
 - **x402-cardano-scalus-claim-codec** — Factored Scalus claim-message binary encoding into `x402-core` as `ScalusClaimMessageCodec`, with unit tests for domain/receiver/uint64 layout. The Cardano client and facilitator now share the same encoder.
 
 - **x402-cardano-scalus-server-verify** — `CardanoProvider.Scalus` now verifies the structured Scalus claim-message CIP-8 proof and requires the escrow UTxO ref in `authorization.nonce`, while preserving the legacy Blockfrost description-signing + payer-balance verification path. Claim Tx / UTxO datum validation remains planned in the settler.
 
 - **x402-cardano-scalus-claim-message** — Client-side Scalus payment mode: `Wallets.cardano(hex, network, scalusMode = true)` signs a structured `ScalusClaimMessage` instead of `req.description`; `PaymentRequirements.scalusEscrowRef` is propagated through `authorization.nonce`; Cardano payload tests verify the COSE payload and Ed25519 signature. Real settler / claim Tx remains planned.
+=======
+- **v1.51** — Streams with Backpressure spec: `docs/streams.md` — full design for `Source[A]` / `Sink[A]` / `Flow[A, B]` / `Stream[A]`; hybrid pull/push (push surface, `request(n)` credit underneath); default credit = 16 / buffer = 16 (Akka default); two-level architecture (uniform `Computation`-based semantics + JVM/interpreter VT+ArrayBlockingQueue and JS `async function*` fast paths); overflow strategies aliased from `actors.ssc Overflow`; errors flow downstream + cancel upstream; integration adapters for Generator/SSE/WS/Actor/UI-signals (`Source.signal` scoped to v1.51.5); effect-row integration deferred to v1.51.6+. Go/no-go: **go** — implementation sequence v1.51.1 → v1.51.2 → v1.51.3 → v1.51.4 → v1.51.5 defined.
+>>>>>>> d0e3f39a (feat(streams): v1.51 Streams with Backpressure spec (docs/streams.md))
 
 - **x402-cardano-scalus-address** — Cardano/Scalus escrow Phase 3 slice: `EscrowScript.address(network)` derives stable CIP-19 enterprise script addresses from the committed Plutus validator bytes. Golden mainnet/preprod bech32 tests pin the address surface for future reference-script deployment and bloxbean claim Tx work.
 
