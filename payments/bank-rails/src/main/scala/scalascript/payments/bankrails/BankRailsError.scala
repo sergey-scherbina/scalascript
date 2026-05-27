@@ -81,8 +81,11 @@ case class UpiTwoFactorTimeout(txnId: String)
 case class ZenginOutsideWindow(nextOpen: java.time.ZonedDateTime)
     extends BankRailsError(s"Zengin settlement window not open; next open: $nextOpen")
 
-// ── Singapore PayNow (v1.55.8) ────────────────────────────────────────────────
+// ── Singapore PayNow (v1.55.8) ───────────────────────────────────────────────
 
-/** PayNow proxy (mobile / NRIC / UEN) not found in the PayNow proxy registry. */
+/** PayNow proxy (mobile / NRIC / UEN / VPA) was not found in the PayNow proxy registry.
+ *  Raised during proxy resolution before the payment is submitted to the FAST network.
+ *  @param proxyType  "MOBILE", "NRIC", "UEN", or "VPA"
+ *  @param proxyValue the proxy value that was not resolved */
 case class PayNowProxyNotFound(proxyType: String, proxyValue: String)
     extends BankRailsError(s"PayNow proxy not found: $proxyType=$proxyValue")

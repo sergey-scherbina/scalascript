@@ -67,7 +67,9 @@ enum BankRailsEvent:
   case ZenginRejected(transferId: String, reason: String)
 
   // ── Singapore PayNow (v1.55.8) ───────────────────────────────────────────
+  // FAST settlement confirmed; proxy field carries the resolved proxy value
   case PayNowSettled(txnRef: String, proxy: String, amount: String, currency: String)
+  // Proxy not found or transaction rejected by the FAST network
   case PayNowFailed(txnRef: String, reason: String)
 
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
