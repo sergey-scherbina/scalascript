@@ -965,11 +965,13 @@ Design decisions locked:
 - `TargetFactory` extended with `"k8s" | "kubernetes"`.
 - 17 new tests (manifest generator × 11, K8sTarget × 5, TargetFactory × 1); 53 total.
 
-**v1.52.4 — Traditional hosting (SSH + systemd, rsync, SFTP):**
-- SSH + SCP adapter: copies fat-JAR/native binary; renders systemd unit template; `systemctl restart`
-- Rsync adapter: syncs `RsyncTree`/`SpaBundle` to webroot
-- SFTP and FTP adapters: upload `Tarball`
-- `status` via SSH + `systemctl is-active`; `logs` via SSH + `journalctl -f` → `Stream[LogLine]`
+**✓ Landed (2026-05-27) — v1.52.4 — Traditional hosting (SSH + systemd, rsync, SFTP):**
+- `SystemdUnitGenerator`: generates `.service` unit files for FatJar/NativeBinary/NodeBundle with ExecStart, user, WorkingDirectory, Environment vars, Restart, TimeoutStopSec, KillMode, [Install] section.
+- `SshSystemdTarget` (`kind: traditional`, `transport: ssh+systemd`): SCP artifact + SCP systemd unit → `systemctl daemon-reload` + `systemctl restart`; `ssh journalctl -u <service>` logs; `systemctl is-active` status; pre/post_deploy hooks.
+- `RsyncTarget` (`kind: rsync`): `rsync -avz --delete` with configurable `--rsh` SSH command; post_deploy hook; `journalctl -u nginx` log access.
+- `SftpTarget` (`kind: sftp`): generates SFTP batch file; `sftp -b` tarball upload; post-upload `unpack_cmd` via SSH.
+- `TargetFactory` extended: `traditional + transport=ssh+systemd`, `rsync`, `sftp/ftp`.
+- 18 new tests (SystemdUnitGenerator × 6, SshSystemdTarget × 4, RsyncTarget × 3, SftpTarget × 2, TargetFactory × 3); 71 total.
 
 **v1.52.5 — Static hosting (generic):**
 - SPA bundle push (reuses `Main.scala:1492-1494`)

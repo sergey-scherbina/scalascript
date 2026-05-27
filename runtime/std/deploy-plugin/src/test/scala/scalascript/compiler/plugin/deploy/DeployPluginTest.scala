@@ -442,3 +442,177 @@ class DeployPluginTest extends AnyFunSuite:
     assert(t.kind == "k8s")
     val t2 = TargetFactory.make("kubernetes", Map.empty)
     assert(t2.kind == "k8s")
+
+  // ── SystemdUnitGenerator ───────────────────────────────────────────────────
+
+  test("SystemdUnitGenerator: FatJar unit contains java -jar"):
+    val cfg  = SystemdUnitGenerator.SystemdConfig(artifactKind = ArtifactKind.FatJar, workingDir = "/opt/myapp")
+    val unit = SystemdUnitGenerator.generate("myapp", cfg)
+    assert(unit.contains("ExecStart=java"))
+    assert(unit.contains("app.jar"))
+    assert(unit.contains("/opt/myapp"))
+    assert(unit.contains("[Service]"))
+    assert(unit.contains("[Install]"))
+
+  test("SystemdUnitGenerator: NativeBinary unit uses plain binary path"):
+    val cfg  = SystemdUnitGenerator.SystemdConfig(artifactKind = ArtifactKind.NativeBinary, workingDir = "/srv/app")
+    val unit = SystemdUnitGenerator.generate("svc", cfg)
+    assert(unit.contains("/srv/app/app"))
+    assert(!unit.contains("java"))
+
+  test("SystemdUnitGenerator: NodeBundle unit uses node"):
+    val cfg  = SystemdUnitGenerator.SystemdConfig(artifactKind = ArtifactKind.NodeBundle, workingDir = "/srv/node")
+    val unit = SystemdUnitGenerator.generate("api", cfg)
+    assert(unit.contains("node /srv/node/app.js"))
+
+  test("SystemdUnitGenerator: env vars emitted as Environment= lines"):
+    val cfg  = SystemdUnitGenerator.SystemdConfig(envVars = Map("PORT" -> "9000", "LOG_LEVEL" -> "info"))
+    val unit = SystemdUnitGenerator.generate("svc", cfg)
+    assert(unit.contains("Environment=PORT=9000"))
+    assert(unit.contains("Environment=LOG_LEVEL=info"))
+
+  test("SystemdUnitGenerator: unsupported kind throws"):
+    intercept[DeployError] {
+      SystemdUnitGenerator.generate("svc", SystemdUnitGenerator.SystemdConfig(artifactKind = ArtifactKind.War))
+    }
+
+  test("SystemdUnitGenerator.unitName: returns <name>.service"):
+    assert(SystemdUnitGenerator.unitName("myapp") == "myapp.service")
+
+  // ── SshSystemdTarget ──────────────────────────────────────────────────────
+
+  test("SshSystemdTarget.kind and artifactKind"):
+    val t = new SshSystemdTarget()
+    assert(t.kind == "traditional")
+    assert(t.artifactKind == ArtifactKind.FatJar)
+
+  test("SshSystemdTarget.deploy: dry-run without SSH"):
+    val target = new SshSystemdTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("host" -> "example.com", "user" -> "deploy"),
+      env        = "staging",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.deploy(ctx, PushResult("example.com:/opt/api/app.jar"))
+    assert(result.url.exists(_.contains("example.com")))
+
+  test("SshSystemdTarget.rollback: dry-run"):
+    val target = new SshSystemdTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("host" -> "example.com"),
+      env        = "staging",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val result = target.rollback(ctx, RevisionRef(""))
+    assert(result.revision == "stopped")
+
+  test("SshSystemdTarget.outputs: returns host port url"):
+    val target = new SshSystemdTarget()
+    val ctx = DeployContext(
+      targetName = "api",
+      config     = Map("host" -> "vps.example.com", "app_port" -> Integer.valueOf(9090)),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val outs = target.outputs(ctx)
+    assert(outs("host") == "vps.example.com")
+    assert(outs("port") == "9090")
+    assert(outs("url").contains("vps.example.com"))
+
+  // ── RsyncTarget ───────────────────────────────────────────────────────────
+
+  test("RsyncTarget.kind and artifactKind"):
+    val t = new RsyncTarget()
+    assert(t.kind == "rsync")
+    assert(t.artifactKind == ArtifactKind.RsyncTree)
+
+  test("RsyncTarget.push: dry-run without rsync"):
+    val target  = new RsyncTarget()
+    val workDir = os.temp.dir()
+    try
+      os.makeDir.all(workDir / ".ssc-artifacts" / "dist")
+      val ctx = DeployContext(
+        targetName = "frontend",
+        config     = Map("host" -> "cdn.example.com", "user" -> "deploy"),
+        env        = "staging",
+        slot       = None,
+        dryRun     = true,
+        verbose    = false,
+        outputsOf  = _ => Map.empty,
+        workDir    = workDir,
+      )
+      val art    = BuildResult((workDir / ".ssc-artifacts" / "dist").toString, ArtifactKind.RsyncTree)
+      val result = target.push(ctx, art)
+      assert(result.ref.contains("cdn.example.com"))
+    finally
+      os.remove.all(workDir)
+
+  test("RsyncTarget.outputs: returns host path url"):
+    val target = new RsyncTarget()
+    val ctx = DeployContext(
+      targetName = "frontend",
+      config     = Map("host" -> "cdn.example.com", "remote_path" -> "/var/www/site"),
+      env        = "production",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val outs = target.outputs(ctx)
+    assert(outs("host") == "cdn.example.com")
+    assert(outs("path") == "/var/www/site")
+
+  // ── SftpTarget ────────────────────────────────────────────────────────────
+
+  test("SftpTarget.kind and artifactKind"):
+    val t = new SftpTarget()
+    assert(t.kind == "sftp")
+    assert(t.artifactKind == ArtifactKind.Tarball)
+
+  test("SftpTarget.push: dry-run without sftp"):
+    val target = new SftpTarget()
+    val ctx = DeployContext(
+      targetName = "app",
+      config     = Map("host" -> "files.example.com", "user" -> "uploader"),
+      env        = "staging",
+      slot       = None,
+      dryRun     = true,
+      verbose    = false,
+      outputsOf  = _ => Map.empty,
+      workDir    = os.temp.dir(),
+    )
+    val art    = BuildResult("/tmp/deploy.tar.gz", ArtifactKind.Tarball)
+    val result = target.push(ctx, art)
+    assert(result.ref.contains("files.example.com"))
+
+  // ── TargetFactory: traditional transport dispatch ─────────────────────────
+
+  test("TargetFactory: traditional + transport=ssh+systemd → SshSystemdTarget"):
+    val t = TargetFactory.make("traditional", Map("transport" -> "ssh+systemd", "host" -> "h"))
+    assert(t.kind == "traditional")
+    assert(t.isInstanceOf[SshSystemdTarget])
+
+  test("TargetFactory: rsync kind → RsyncTarget"):
+    val t = TargetFactory.make("rsync", Map.empty)
+    assert(t.kind == "rsync")
+    assert(t.isInstanceOf[RsyncTarget])
+
+  test("TargetFactory: sftp kind → SftpTarget"):
+    val t = TargetFactory.make("sftp", Map.empty)
+    assert(t.kind == "sftp")
+    assert(t.isInstanceOf[SftpTarget])

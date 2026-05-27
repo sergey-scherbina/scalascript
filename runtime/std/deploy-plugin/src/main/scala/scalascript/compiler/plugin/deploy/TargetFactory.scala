@@ -10,8 +10,18 @@ object TargetFactory:
         new ContainerTarget()
       case "k8s" | "kubernetes" =>
         new K8sTarget()
+      case "rsync" =>
+        new RsyncTarget()
+      case "sftp" | "ftp" =>
+        new SftpTarget()
       case "traditional" =>
-        val port = config.get("port").collect { case n: Int => n }.getOrElse(8080)
-        new LocalSubprocessTarget(port)
+        val transport = config.get("transport").collect { case s: String => s }.getOrElse("subprocess")
+        transport match
+          case "ssh+systemd" | "ssh" => new SshSystemdTarget()
+          case "rsync"               => new RsyncTarget()
+          case "sftp" | "ftp"       => new SftpTarget()
+          case _                    =>
+            val port = config.get("port").collect { case n: Int => n }.getOrElse(8080)
+            new LocalSubprocessTarget(port)
       case other =>
-        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, k8s, traditional")
+        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, k8s, traditional, rsync, sftp")
