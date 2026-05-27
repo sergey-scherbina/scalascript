@@ -195,3 +195,39 @@ class KafkaStreamsGenTest extends AnyFunSuite:
     assert(code.contains("TopologyTestDriver"),
       s"TopologyTestDriver reference must be in shim, got:\n$code")
   }
+
+  // ── v2.1.6 — Production connectors ───────────────────────────────────────
+
+  test("containsConnector detects Kafka, Files, Jdbc, Pulsar, Kinesis") {
+    assert(KafkaStreamsGen.containsConnector("Kafka.source(brokers, topic)"))
+    assert(KafkaStreamsGen.containsConnector("Kafka.sink(brokers, topic)"))
+    assert(KafkaStreamsGen.containsConnector("Kafka.changelog(brokers, topic)"))
+    assert(KafkaStreamsGen.containsConnector("Files.source(\"/data\", FileFormat.Parquet)"))
+    assert(KafkaStreamsGen.containsConnector("Files.sink(\"/out\", FileFormat.Json)"))
+    assert(KafkaStreamsGen.containsConnector("Jdbc.source(url, \"table\")"))
+    assert(KafkaStreamsGen.containsConnector("Jdbc.sink(url, \"table\")"))
+    assert(KafkaStreamsGen.containsConnector("Pulsar.source(svc, topic, sub)"))
+    assert(KafkaStreamsGen.containsConnector("Kinesis.source(stream, region)"))
+    assert(!KafkaStreamsGen.containsConnector("InMemory.source(List(1, 2))"))
+  }
+
+  test("connector stubs are emitted when Kafka.source is detected") {
+    val code = gen(dstreamSsc("""val src = Kafka.source[String]("localhost:9092", "my-topic")"""))
+    assert(code.contains("object Kafka"),   s"Kafka companion must be emitted, got:\n$code")
+    assert(code.contains("object Files"),   s"Files companion must be emitted, got:\n$code")
+    assert(code.contains("object Jdbc"),    s"Jdbc companion must be emitted, got:\n$code")
+    assert(code.contains("object Pulsar"),  s"Pulsar companion must be emitted, got:\n$code")
+    assert(code.contains("object Kinesis"), s"Kinesis companion must be emitted, got:\n$code")
+    assert(code.contains("type DSink[T]"),  s"DSink type alias must be emitted, got:\n$code")
+  }
+
+  test("connector stubs are emitted when Files.source is detected") {
+    val code = gen(dstreamSsc("""val src = Files.source[String]("/data/events", FileFormat.Json)"""))
+    assert(code.contains("object FileFormat"), s"FileFormat companion must be emitted, got:\n$code")
+    assert(code.contains("val Parquet"),       s"FileFormat.Parquet must be in shim, got:\n$code")
+  }
+
+  test("connector stubs return DSource (Seq.empty) API") {
+    val code = gen(dstreamSsc("""val src = Kafka.source[String]("b", "t")"""))
+    assert(code.contains("Seq.empty[T]"), s"Kafka.source stub must return Seq.empty[T], got:\n$code")
+  }

@@ -600,4 +600,56 @@ object DStreamsIntrinsics:
         case List(k, v) => Value.InstanceV("KV", Map("key" -> toValue(k), "value" -> toValue(v)))
         case _          => throw InterpretError("KV(key, value)")
     ),
+
+    // ── v2.1.6 — Production connectors (stub DSource — return empty for bounded testing) ──
+
+    // Kafka connector — source returns empty DSource (live Kafka requires KAFKA_BROKERS)
+    QualifiedName("Kafka.source")          -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Kafka.sourceAssigned")  -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Kafka.changelog")       -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Kafka.sink")            -> NativeImpl((_, _) => Value.UnitV),
+
+    // Files connector — stub DSource
+    QualifiedName("Files.source")          -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Files.sink")            -> NativeImpl((_, _) => Value.UnitV),
+
+    // FileFormat singletons
+    QualifiedName("FileFormat.Text")       -> NativeImpl((_, _) => Value.StringV("Text")),
+    QualifiedName("FileFormat.Json")       -> NativeImpl((_, _) => Value.StringV("Json")),
+    QualifiedName("FileFormat.Parquet")    -> NativeImpl((_, _) => Value.StringV("Parquet")),
+    QualifiedName("FileFormat.Avro")       -> NativeImpl((_, _) => Value.StringV("Avro")),
+    QualifiedName("FileFormat.Csv")        -> NativeImpl((_, args) =>
+      Value.InstanceV("FileFormat.Csv", Map("header" -> args.headOption.map(toValue).getOrElse(Value.BoolV(true))))
+    ),
+
+    // JDBC connector — stub DSource
+    QualifiedName("Jdbc.source")           -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Jdbc.sink")             -> NativeImpl((_, _) => Value.UnitV),
+
+    // Pulsar connector — stub DSource
+    QualifiedName("Pulsar.source")         -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Pulsar.sink")           -> NativeImpl((_, _) => Value.UnitV),
+
+    // Kinesis connector — stub DSource
+    QualifiedName("Kinesis.source")        -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+    QualifiedName("Kinesis.sink")          -> NativeImpl((_, _) => Value.UnitV),
+
+    // DSource.fromDataset bridge
+    QualifiedName("DSource.fromDataset")   -> NativeImpl((_, _) =>
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
   )

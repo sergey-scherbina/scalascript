@@ -402,3 +402,64 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     }.toMap
     assert(kvMap("StringV(x)") == Value.IntV(2L))
     assert(kvMap("StringV(y)") == Value.IntV(1L))
+
+  // ── v2.1.6 — Production connector stubs ──────────────────────────────────
+
+  test("Kafka.source returns empty DSource (bounded stub)"):
+    val result = interp.eval(
+      """
+      val src = Kafka.source("localhost:9092", "events")
+      val stream = Pipeline.create("t").read(src)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    assert(result == List(), s"Kafka.source stub should return empty DSource, got: $result")
+
+  test("Files.source returns empty DSource (bounded stub)"):
+    val result = interp.eval(
+      """
+      val src = Files.source("/data/events.json", FileFormat.Json)
+      val stream = Pipeline.create("t").read(src)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    assert(result == List(), s"Files.source stub should return empty DSource, got: $result")
+
+  test("Jdbc.source returns empty DSource (bounded stub)"):
+    val result = interp.eval(
+      """
+      val src = Jdbc.source("jdbc:postgresql://localhost/db", "events")
+      val stream = Pipeline.create("t").read(src)
+      InMemory.runAndCollect(stream)
+      """
+    )
+    assert(result == List(), s"Jdbc.source stub should return empty DSource, got: $result")
+
+  test("Kafka companion is accessible after plugin load"):
+    val result = interp.eval(
+      """
+      Kafka.source("b", "t")
+      "ok"
+      """
+    )
+    assert(result.toString.contains("ok"))
+
+  test("Files + Jdbc + Pulsar + Kinesis companions are accessible"):
+    val result = interp.eval(
+      """
+      val f = Files.source("/p", FileFormat.Parquet)
+      val j = Jdbc.source("url", "tbl")
+      val p = Pulsar.source("svc", "t", "sub")
+      val k = Kinesis.source("stream", "us-east-1")
+      "ok"
+      """
+    )
+    assert(result.toString.contains("ok"))
+
+  test("FileFormat singletons are accessible"):
+    val result = interp.eval(
+      """
+      List(FileFormat.Text, FileFormat.Json, FileFormat.Parquet, FileFormat.Avro).length
+      """
+    )
+    assert(result == 4L || result == Value.IntV(4L))

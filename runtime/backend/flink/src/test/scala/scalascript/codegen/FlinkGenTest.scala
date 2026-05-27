@@ -241,3 +241,38 @@ class FlinkGenTest extends AnyFunSuite:
     assert(BeamCapabilities.features.contains(scalascript.backend.spi.Feature.DistributedStreams),
       "BeamCapabilities must declare Feature.DistributedStreams")
   }
+
+  // ── v2.1.6 — Production connectors ───────────────────────────────────────
+
+  test("FlinkGen.containsConnector detects all connector types") {
+    assert(FlinkGen.containsConnector("Kafka.source(b, t)"))
+    assert(FlinkGen.containsConnector("Kafka.sink(b, t)"))
+    assert(FlinkGen.containsConnector("Files.source(\"/data\", FileFormat.Parquet)"))
+    assert(FlinkGen.containsConnector("Jdbc.source(url, \"tbl\")"))
+    assert(FlinkGen.containsConnector("Pulsar.source(svc, t, sub)"))
+    assert(FlinkGen.containsConnector("Kinesis.source(s, region)"))
+    assert(!FlinkGen.containsConnector("InMemory.source(List(1))"))
+  }
+
+  test("FlinkGen connector stubs emitted when Kafka.source detected") {
+    val code = genFlink(dstreamSsc("""val src = Kafka.source[String]("b", "t")"""))
+    assert(code.contains("object Kafka"),   s"Kafka companion missing, got:\n$code")
+    assert(code.contains("object Files"),   s"Files companion missing, got:\n$code")
+    assert(code.contains("object Jdbc"),    s"Jdbc companion missing, got:\n$code")
+    assert(code.contains("object Pulsar"),  s"Pulsar companion missing, got:\n$code")
+    assert(code.contains("object Kinesis"), s"Kinesis companion missing, got:\n$code")
+    assert(code.contains("type DSink[T]"),  s"DSink type alias missing, got:\n$code")
+  }
+
+  test("BeamGen containsConnector detects connectors") {
+    assert(BeamGen.containsConnector("Kafka.source(b, t)"))
+    assert(BeamGen.containsConnector("Files.source(\"/p\", FileFormat.Json)"))
+    assert(!BeamGen.containsConnector("InMemory.source(List(1))"))
+  }
+
+  test("BeamGen connector stubs emitted when Jdbc.source detected") {
+    val code = genBeam(dstreamSsc("""val src = Jdbc.source[String]("jdbc:pg://...", "events")"""))
+    assert(code.contains("object Jdbc"),    s"Jdbc companion missing, got:\n$code")
+    assert(code.contains("object Kafka"),   s"Kafka companion missing, got:\n$code")
+    assert(code.contains("type DSink[T]"),  s"DSink type alias missing, got:\n$code")
+  }

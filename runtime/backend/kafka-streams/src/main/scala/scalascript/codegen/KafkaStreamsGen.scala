@@ -50,11 +50,21 @@ object KafkaStreamsGen:
     source.contains("Window.session")     ||
     source.contains("Window.global")      ||
     source.contains("WatermarkStrategy.") ||
-    source.contains("Trigger.")
+    source.contains("Trigger.")           ||
+    containsConnector(source)
 
   /** Does the source use a live Kafka source (requires a broker)? */
   def containsKafkaSource(source: String): Boolean =
     source.contains("Kafka.source") || source.contains("Kafka.changelog")
+
+  /** Does the source reference a production connector? */
+  def containsConnector(source: String): Boolean =
+    source.contains("Kafka.source")   || source.contains("Kafka.sink")   ||
+    source.contains("Kafka.changelog")||
+    source.contains("Files.source")   || source.contains("Files.sink")   ||
+    source.contains("Jdbc.source")    || source.contains("Jdbc.sink")    ||
+    source.contains("Pulsar.source")  || source.contains("Pulsar.sink")  ||
+    source.contains("Kinesis.source") || source.contains("Kinesis.sink")
 
 private class KafkaStreamsGen(
     baseDir:  Option[os.Path],
@@ -271,5 +281,40 @@ private class KafkaStreamsGen(
        |    props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234")
        |    val driver = new TopologyTestDriver(topology, props)
        |    driver.close()
+       |
+       |  // ── v2.1.6 — Production connector stubs ──────────────────────────────
+       |  object Kafka:
+       |    def source[T](brokers: String = "", topic: String = "", groupId: String = "ssc",
+       |                  startOffset: Any = "Latest"): DSource[T]              = Seq.empty[T]
+       |    def sourceAssigned[T](brokers: String, assignments: Any): DSource[T] = Seq.empty[T]
+       |    def changelog[T](brokers: String, topic: String): DSource[T]         = Seq.empty[T]
+       |    def sink[T](brokers: String, topic: String): Any                      = ()
+       |
+       |  object Files:
+       |    def source[T](path: String, format: Any = "Text"): DSource[T] = Seq.empty[T]
+       |    def sink[T](path: String, format: Any = "Text"): Any          = ()
+       |
+       |  object FileFormat:
+       |    val Text: String    = "Text"
+       |    val Json: String    = "Json"
+       |    def Csv(header: Boolean = true): Any = ("Csv", header)
+       |    val Parquet: String = "Parquet"
+       |    val Avro: String    = "Avro"
+       |
+       |  object Jdbc:
+       |    def source[T](url: String, table: String, query: Option[String] = None,
+       |                  partitions: Int = 1): DSource[T] = Seq.empty[T]
+       |    def sink[T](url: String, table: String, batchSz: Int = 1000): Any = ()
+       |
+       |  object Pulsar:
+       |    def source[T](serviceUrl: String, topic: String,
+       |                  subscription: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](serviceUrl: String, topic: String): Any = ()
+       |
+       |  object Kinesis:
+       |    def source[T](stream: String, region: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](stream: String, region: String): Any          = ()
+       |
+       |  type DSink[T] = Any
        |
        |""".stripMargin

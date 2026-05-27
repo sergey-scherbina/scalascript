@@ -47,10 +47,19 @@ object FlinkGen:
     source.contains("Window.session")     ||
     source.contains("Window.global")      ||
     source.contains("WatermarkStrategy.") ||
-    source.contains("Trigger.")
+    source.contains("Trigger.")           ||
+    containsConnector(source)
 
   def containsKafkaSource(source: String): Boolean =
     source.contains("Kafka.source") || source.contains("Kafka.changelog")
+
+  def containsConnector(source: String): Boolean =
+    source.contains("Kafka.source")   || source.contains("Kafka.sink")   ||
+    source.contains("Kafka.changelog")||
+    source.contains("Files.source")   || source.contains("Files.sink")   ||
+    source.contains("Jdbc.source")    || source.contains("Jdbc.sink")    ||
+    source.contains("Pulsar.source")  || source.contains("Pulsar.sink")  ||
+    source.contains("Kinesis.source") || source.contains("Kinesis.sink")
 
 private class FlinkGen(
     baseDir:       Option[os.Path],
@@ -268,5 +277,40 @@ private class FlinkGen(
        |    val env = StreamExecutionEnvironment.getExecutionEnvironment
        |    env.setParallelism(_flinkParallelism)
        |    env
+       |
+       |  // ── v2.1.6 — Production connector stubs ──────────────────────────────
+       |  object Kafka:
+       |    def source[T](brokers: String = "", topic: String = "", groupId: String = "ssc",
+       |                  startOffset: Any = "Latest"): DSource[T]              = Seq.empty[T]
+       |    def sourceAssigned[T](brokers: String, assignments: Any): DSource[T] = Seq.empty[T]
+       |    def changelog[T](brokers: String, topic: String): DSource[T]         = Seq.empty[T]
+       |    def sink[T](brokers: String, topic: String): Any                      = ()
+       |
+       |  object Files:
+       |    def source[T](path: String, format: Any = "Text"): DSource[T] = Seq.empty[T]
+       |    def sink[T](path: String, format: Any = "Text"): Any          = ()
+       |
+       |  object FileFormat:
+       |    val Text: String    = "Text"
+       |    val Json: String    = "Json"
+       |    def Csv(header: Boolean = true): Any = ("Csv", header)
+       |    val Parquet: String = "Parquet"
+       |    val Avro: String    = "Avro"
+       |
+       |  object Jdbc:
+       |    def source[T](url: String, table: String, query: Option[String] = None,
+       |                  partitions: Int = 1): DSource[T] = Seq.empty[T]
+       |    def sink[T](url: String, table: String, batchSz: Int = 1000): Any = ()
+       |
+       |  object Pulsar:
+       |    def source[T](serviceUrl: String, topic: String,
+       |                  subscription: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](serviceUrl: String, topic: String): Any = ()
+       |
+       |  object Kinesis:
+       |    def source[T](stream: String, region: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](stream: String, region: String): Any          = ()
+       |
+       |  type DSink[T] = Any
        |
        |""".stripMargin

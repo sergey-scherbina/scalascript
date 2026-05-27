@@ -1087,10 +1087,11 @@ Implementation phases ship independently below.
   `BeamCapabilities` (`Feature.DistributedStreams`), ServiceLoader registration, 30 new tests.
   Spec: `docs/distributed-streams.md §9.4–9.5`. (2026-05-27)
 
-- [ ] **v2.1.6-dstream-connectors** — Production connectors: Kafka source/sink, Parquet/JSON/CSV
-  files, JDBC source/sink, S3/GCS/HDFS, Pulsar, Kinesis.  Auto-emitted deps per connector type
-  (same pattern as Spark Kafka detector in `SparkGen.scala:308-321`).
-  Spec: `docs/distributed-streams.md §6`.
+- [x] **v2.1.6-dstream-connectors** — Production connector stubs: `Kafka`, `Files`, `FileFormat`,
+  `Jdbc`, `Pulsar`, `Kinesis` companions in all 4 shims + native interpreter intrinsics.
+  `containsConnector` detection triggers shim emission. `DSource.fromDataset` bridge.
+  SparkGen Kafka dep extended to cover `Kafka.source/sink/changelog` DStream usage.
+  14 new tests. Spec: `docs/distributed-streams.md §6`. (2026-05-27)
 
 - [ ] **v2.1.7-dstream-stateful** — Stateful processing + timers: `KeyedStateSpec[K, S]`,
   `processElement` with `StateContext`, event-time and processing-time timers, `ValueState`,

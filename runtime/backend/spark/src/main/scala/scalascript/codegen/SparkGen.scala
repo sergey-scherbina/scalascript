@@ -294,15 +294,25 @@ object SparkGen:
 
   /** Does the joined source contain a DStream pipeline entry point? */
   def containsDStream(source: String): Boolean =
-    source.contains("Pipeline.create")   ||
-    source.contains("InMemory.source")   ||
-    source.contains("Backend.Spark")     ||
-    source.contains("Window.fixed")      ||
-    source.contains("Window.sliding")    ||
-    source.contains("Window.session")    ||
-    source.contains("Window.global")     ||
+    source.contains("Pipeline.create")    ||
+    source.contains("InMemory.source")    ||
+    source.contains("Backend.Spark")      ||
+    source.contains("Window.fixed")       ||
+    source.contains("Window.sliding")     ||
+    source.contains("Window.session")     ||
+    source.contains("Window.global")      ||
     source.contains("WatermarkStrategy.") ||
-    source.contains("Trigger.")
+    source.contains("Trigger.")           ||
+    containsConnector(source)
+
+  /** Does the joined source contain a production connector call? */
+  def containsConnector(source: String): Boolean =
+    source.contains("Kafka.source")   || source.contains("Kafka.sink")   ||
+    source.contains("Kafka.changelog")||
+    source.contains("Files.source")   || source.contains("Files.sink")   ||
+    source.contains("Jdbc.source")    || source.contains("Jdbc.sink")    ||
+    source.contains("Pulsar.source")  || source.contains("Pulsar.sink")  ||
+    source.contains("Kinesis.source") || source.contains("Kinesis.sink")
 
   // ── Phase F — Structured Streaming detection helpers ─────────────────────
   //
@@ -707,7 +717,10 @@ private class SparkGen(
     val needsAwaitShim: Boolean =
       isStreaming && !SparkGen.containsAwaitTermination(joinedUserSrc)
     val needsKafkaDep: Boolean =
-      SparkGen.containsKafkaFormat(joinedUserSrc)
+      SparkGen.containsKafkaFormat(joinedUserSrc) ||
+      (needsDStream && SparkGen.containsConnector(joinedUserSrc) &&
+        (joinedUserSrc.contains("Kafka.source") || joinedUserSrc.contains("Kafka.sink") ||
+         joinedUserSrc.contains("Kafka.changelog")))
     // Phase M.2 — MLlib detection.  When the user imports any
     // `org.apache.spark.ml.*` class (or the abbreviated `o.a.s.ml.`
     // alias), auto-emit `//> using dep "org.apache.spark:spark-mllib_2.13:<v>"`
@@ -1767,5 +1780,44 @@ private class SparkGen(
        |    stream.run(backend)
        |  def runPipelineOpts[T](stream: DStream[T], b: Any, o: Any): PipelineResult =
        |    stream.run(b)
+       |
+       |  // ── v2.1.6 — Production connector stubs ──────────────────────────────
+       |  // Kafka.source / Files.source / Jdbc.source / Pulsar.source / Kinesis.source
+       |  // return empty Seq[T] in the bounded shim (no cluster required).
+       |  // Live sources require the appropriate connector dep and cluster env var.
+       |
+       |  object Kafka:
+       |    def source[T](brokers: String = "", topic: String = "", groupId: String = "ssc",
+       |                  startOffset: Any = "Latest"): DSource[T]              = Seq.empty[T]
+       |    def sourceAssigned[T](brokers: String, assignments: Any): DSource[T] = Seq.empty[T]
+       |    def changelog[T](brokers: String, topic: String): DSource[T]         = Seq.empty[T]
+       |    def sink[T](brokers: String, topic: String): Any                      = ()
+       |
+       |  object Files:
+       |    def source[T](path: String, format: Any = "Text"): DSource[T] = Seq.empty[T]
+       |    def sink[T](path: String, format: Any = "Text"): Any          = ()
+       |
+       |  object FileFormat:
+       |    val Text: String    = "Text"
+       |    val Json: String    = "Json"
+       |    def Csv(header: Boolean = true): Any = ("Csv", header)
+       |    val Parquet: String = "Parquet"
+       |    val Avro: String    = "Avro"
+       |
+       |  object Jdbc:
+       |    def source[T](url: String, table: String, query: Option[String] = None,
+       |                  partitions: Int = 1): DSource[T] = Seq.empty[T]
+       |    def sink[T](url: String, table: String, batchSz: Int = 1000): Any = ()
+       |
+       |  object Pulsar:
+       |    def source[T](serviceUrl: String, topic: String,
+       |                  subscription: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](serviceUrl: String, topic: String): Any = ()
+       |
+       |  object Kinesis:
+       |    def source[T](stream: String, region: String): DSource[T] = Seq.empty[T]
+       |    def sink[T](stream: String, region: String): Any          = ()
+       |
+       |  type DSink[T] = Any
        |
        |""".stripMargin

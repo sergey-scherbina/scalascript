@@ -703,6 +703,54 @@ private[interpreter] object BuiltinsRuntime:
       // KV is also used as a constructor directly; ensure it's accessible
       interp.globals("KV") = kvFn
     }
+    // v2.1.6 — Production connector companions
+    interp.globals.get("Kafka.source").foreach { srcFn =>
+      interp.globals("Kafka") = Value.InstanceV("Kafka", Map(
+        "source"         -> srcFn,
+        "sourceAssigned" -> interp.globals.getOrElse("Kafka.sourceAssigned", Value.UnitV),
+        "changelog"      -> interp.globals.getOrElse("Kafka.changelog",      Value.UnitV),
+        "sink"           -> interp.globals.getOrElse("Kafka.sink",           Value.UnitV),
+      ))
+    }
+    interp.globals.get("Files.source").foreach { srcFn =>
+      interp.globals("Files") = Value.InstanceV("Files", Map(
+        "source" -> srcFn,
+        "sink"   -> interp.globals.getOrElse("Files.sink", Value.UnitV),
+      ))
+    }
+    interp.globals.get("FileFormat.Text").foreach { textFn =>
+      interp.globals("FileFormat") = Value.InstanceV("FileFormat", Map(
+        "Text"    -> textFn,
+        "Json"    -> interp.globals.getOrElse("FileFormat.Json",    Value.UnitV),
+        "Parquet" -> interp.globals.getOrElse("FileFormat.Parquet", Value.UnitV),
+        "Avro"    -> interp.globals.getOrElse("FileFormat.Avro",    Value.UnitV),
+        "Csv"     -> interp.globals.getOrElse("FileFormat.Csv",     Value.UnitV),
+      ))
+    }
+    interp.globals.get("Jdbc.source").foreach { srcFn =>
+      interp.globals("Jdbc") = Value.InstanceV("Jdbc", Map(
+        "source" -> srcFn,
+        "sink"   -> interp.globals.getOrElse("Jdbc.sink", Value.UnitV),
+      ))
+    }
+    interp.globals.get("Pulsar.source").foreach { srcFn =>
+      interp.globals("Pulsar") = Value.InstanceV("Pulsar", Map(
+        "source" -> srcFn,
+        "sink"   -> interp.globals.getOrElse("Pulsar.sink", Value.UnitV),
+      ))
+    }
+    interp.globals.get("Kinesis.source").foreach { srcFn =>
+      interp.globals("Kinesis") = Value.InstanceV("Kinesis", Map(
+        "source" -> srcFn,
+        "sink"   -> interp.globals.getOrElse("Kinesis.sink", Value.UnitV),
+      ))
+    }
+    interp.globals.get("DSource.fromDataset").foreach { fromDatasetFn =>
+      val existing = interp.globals.get("DSource").collect {
+        case Value.InstanceV(_, fs) => fs
+      }.getOrElse(Map.empty)
+      interp.globals("DSource") = Value.InstanceV("DSource", existing + ("fromDataset" -> fromDatasetFn))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
