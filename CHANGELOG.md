@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **markup-feature-backend (v1.55.3)** — `Feature.Markup` + `Backend.markupCodec` SPI + `JvmMarkupCodec`. `case Markup` added to `Feature` enum; `def markupCodec: Option[MarkupCodec] = None` added to `Backend` trait; `JvmMarkupCodec` (SAX parse + PureMarkupCodec serialize + XSD validate via `javax.xml.validation`) wired into `InterpreterBackend` + declared in `InterpreterCapabilities`/`JvmCapabilities`; `CapabilityCheck` detects `xml"..."` interpolator and fenced xml blocks, rejects on backends lacking `Feature.Markup`; 16 tests.
+
 - **markup-lang-xml (v1.55.2)** — `Lang.Xml = "xml"` + `isXml`; `Value.MarkupV(doc: Markup.Doc)`; `SectionRuntime.runXmlBlock` (XML-escape interpolated values, parse via `PureMarkupCodec`, bind as `<section>.xml`); `renderStringBlock` generalised with `escapeFn: Option[String => String]`; `markupCore` added to `core` dependsOn. 8 tests in `SectionXmlBlockTest` pass.
 
 - **markup-compile-check (v1.55.4)** — Compile-time `xml"..."` well-formedness checker. `MarkupInterpolatorCheck` in `lang/core/transform/`: walks scalameta trees, joins `xml"..."` string parts with `<placeholder/>` for each `${expr}` hole, calls `PureMarkupCodec.parse` — emits `Diagnostic.XmlParseError(message, line, col)` on failure. Added `markupCore` dep to `core` sbt module. 10 tests.

@@ -1081,12 +1081,14 @@ XSLT deferred to v1.56.
 - `build.sbt`: added `markupCore` to `core` module's `dependsOn`.
 - 8 tests in `SectionXmlBlockTest` all pass.
 
-**v1.55.3 — `Feature.Markup` + `Backend.markupCodec` + JVM SAX codec:**
-- `Feature.scala`: `case Markup`.
-- `Backend.scala`: `def markupCodec: Option[MarkupCodec] = None`.
-- `runtime/backend/interpreter/...JvmMarkupCodec`: `javax.xml.parsers.SAXParser` + StAX.
-- Per-backend `*Capabilities.scala`: declare `Feature.Markup` where supported.
-- `CapabilityCheck`: reject programs using `xml"..."` against backends lacking `Feature.Markup`.
+**v1.55.3 — `Feature.Markup` + `Backend.markupCodec` + JVM SAX codec: ✓ Landed (2026-05-27)**
+- `Feature.scala`: `case Markup` (gates xml"..." interpolator + fenced xml blocks).
+- `Backend.scala`: `def markupCodec: Option[MarkupCodec] = None` SPI hook.
+- `JvmMarkupCodec` in `runtime/backend/interpreter/`: SAX parse (`SAXParserFactory` + `LexicalHandler`), serialize delegates to `PureMarkupCodec`, XSD validate via `javax.xml.validation.SchemaFactory`.
+- `InterpreterCapabilities` + `JvmCapabilities`: declare `Feature.Markup` + `Lang.Xml` in `blockLanguages`.
+- `InterpreterBackend`: override `markupCodec = Some(JvmMarkupCodec)`.
+- `CapabilityCheck`: detect `xml"..."` interpolator (via `XmlInterpolatorPat`) and fenced xml blocks; reject if backend lacks `Feature.Markup`.
+- 16 tests: 12 in `JvmMarkupCodecTest` + 4 new in `CapabilityCheckTest`.
 
 **v1.55.4 — Compile-time `xml"..."` well-formedness checker: ✓ Landed (2026-05-27)**
 - `MarkupInterpolatorCheck` in `lang/core/.../transform/`: walks scalameta trees in scalascript blocks,
