@@ -13,12 +13,18 @@
 ## Quick status (2026-05-27)
 
 ### In progress
-_(none)_
+- x402-cardano-scalus-completion (Phase 3/5/6 remaining items)
+- wallet-solana-standard-js (Scala.js `registerWallet` bridge)
 
 ### Next up (top of BACKLOG)
-- v1.53.1-payments-spi-stripe (Stripe adapter)
+- v1.20-dsl-primitives (Language & Compiler, ~2.5 weeks)
 
 ### Recently completed
+- wallet-ledger-cardano — Ledger Cardano-app CIP-8 JVM signer, 11 tests ✓ (2026-05-27)
+- wallet-ledger-bitcoin — Ledger Bitcoin-app PSBT signer, 14 tests ✓ (2026-05-27)
+- wallet-ledger-solana — Ledger Solana-app signer + Base58, 11 tests ✓ (2026-05-27)
+- ssc-profile — per-phase timing/alloc profiler, --compare regression, 17 tests ✓ (2026-05-27)
+- v1.54.4-bank-rails-fednow — FedNow ISO 20022 `pacs.008`/`pacs.002` ✓ (2026-05-27)
 - v1.52.7-deploy-state-backends — `LocalFileStateBackend`/`S3StateBackend`/`ConsulStateBackend`/`EtcdStateBackend` + `StateBackendFactory` + `StateMigrator`, 105 tests total ✓ (2026-05-27)
 - v1.52.6-deploy-faas — `FaasTarget` (Lambda/Cloudflare Workers/Cloud Run/Vercel Functions), 91 tests total ✓ (2026-05-27)
 - v1.52.5-deploy-static — `StaticTarget` (Vercel/Netlify/Cloudflare Pages/GitHub Pages), 80 tests total ✓ (2026-05-27)
@@ -61,10 +67,10 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 | Direction | Top task | Spec |
 |-----------|----------|------|
-| **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v1.51.6-streams-effects | `docs/streams.md` |
+| **Frontend & Clients** | wallet-solana-standard-js | `BACKLOG.md §Phase 5 — Solana DappConnector` |
+| **Language & Compiler** | v1.20-dsl-primitives | `docs/dsl.md` |
 | **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | v1.54-bank-rails-spec → v1.54.1–v1.54.4 + blockchain-bitcoin | `docs/bank-rails.md` (new) |
+| **Payments & Blockchain** | x402-cardano-scalus-completion | `docs/x402-cardano-scalus.md §Phase 3–6` |
 | **Native Platform** | _(queue empty)_ | — |
 | **Distribution & Tooling** | _(queue empty)_ | — |
 

@@ -44,6 +44,24 @@ _(all done — see Done section below)_
 
 - [x] **blockchain-cosmos** — `payments/blockchain/cosmos/`: secp256k1 + ed25519, StdSignDoc Amino, bech32 HRP (cosmos/osmo/juno), `CosmosChainAdapter`, `ChainId.CosmosHub/Osmosis/Juno`, `BlockchainProvider` ServiceLoader; 41 tests. ✓ Landed 2026-05-27.
 
+- [x] **v1.55-international-bank-rails-spec** — Spec doc `docs/international-bank-rails.md`: SWIFT MT103 + ISO 20022 pacs.008 (CBPR+), SEPA Instant (SCT Inst), UK FPS + BACS DD + CHAPS, India UPI, Japan Zengin, Singapore PayNow. 9 new `RailKind` cases, `Uetr`/`ChargeBearer`/`GpiHop` SWIFT types, `BankAccount` additive fields, 28 new `BankRailsEvent` cases, 8 new `BankRailsError` cases, settlement timing table, 8 implementation phases v1.55.1–v1.55.8. (2026-05-27)
+
+- [ ] **v1.55.1-international-swift** — `payments/bank-rails/` type additions (Uetr, ChargeBearer, GpiHop, BankTransfer.gpiTrail, RailKind.SWIFT_MT103/SWIFT_PACS008, BankAccount.bic) + `runtime/std/payments-swift/` (SwiftProvider, SwiftMt103Builder, SwiftPacs008Builder, GpiTracker, 35+ tests). Spec: `docs/international-bank-rails.md §v1.55.1`.
+
+- [ ] **v1.55.2-sepa-instant** — Extend `runtime/std/payments-sepa/`: `RailKind.SCT_INST`, `SepaPainXml.buildSctInstPacs008`, `SctInstSettled/SctInstRejected` events, `SctInstTimeout` error; 12+ tests. Spec: `docs/international-bank-rails.md §v1.55.2`.
+
+- [ ] **v1.55.3-uk-faster-payments** — `runtime/std/payments-uk-fps/` (UkFpsProvider, ConfirmationOfPayee) + `RailKind.UK_FPS` + `BankAccount.sortCode` + CoP name-check; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.3`.
+
+- [ ] **v1.55.4-uk-bacs** — `runtime/std/payments-uk-bacs/` (UkBacsProvider, BacsFile, AuddisFile) + `RailKind.UK_BACS_DD` + AUDDIS/ARUDD flows; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.4`.
+
+- [ ] **v1.55.5-uk-chaps** — `runtime/std/payments-uk-chaps/` (UkChapsProvider, ChapsPacs008Builder) + `RailKind.UK_CHAPS`; 25+ tests. Spec: `docs/international-bank-rails.md §v1.55.5`.
+
+- [ ] **v1.55.6-india-upi** — `runtime/std/payments-india-upi/` (UpiProvider, push + collect, RSA-SHA256 webhook) + `RailKind.IN_UPI` + `BankAccount.upiVpa`; 35+ tests. Spec: `docs/international-bank-rails.md §v1.55.6`.
+
+- [ ] **v1.55.7-japan-zengin** — `runtime/std/payments-japan-zengin/` (ZenginProvider, kana constraint) + `RailKind.JP_ZENGIN` + `BankAccount.zenginBankCode/zenginBranchCode`; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.7`.
+
+- [ ] **v1.55.8-singapore-paynow** — `runtime/std/payments-sg-paynow/` (PayNowProvider, proxy resolution) + `RailKind.SG_PAYNOW` + `BankAccount.paynowProxy`; 30+ tests. Spec: `docs/international-bank-rails.md §v1.55.8`.
+
 ## Database
 
 _(all done — see Done section below)_
@@ -108,6 +126,10 @@ _(all done — see Done section below)_
 - [x] **wallet-ledger-cardano** — Ledger Cardano-app signer (JVM): `payments/wallet/vault-ledger-cardano/` — `CardanoApp` object (CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x21 SIGN_TX with CIP-8 framing); `LedgerCardanoVault` implementing `Vault` SPI, routes `Curve.Ed25519` + Cardano-prefix HD path; CIP-8 COSE_Sign1 Sig_Structure builder (hand-rolled CBOR, no deps); `AppSwitchRequired` guard; `MockTransport` re-used; 11 tests. ✓ Landed 2026-05-27.
 
 - [x] **ssc-profile** — `ssc profile <file.ssc>` CLI command: instrument parse + typecheck + codegen phases with wall-clock + allocation counters; output flame-graph-ready JSON (Brendan Gregg folded stacks format) to `profile.json`; `--top=N` flag prints N hottest functions to stdout; `--compare <baseline.json>` shows regression vs prior run. Spec: `BACKLOG.md §New tool — ssc profile file.ssc`. ✓ Landed 2026-05-27.
+
+- [ ] **x402-cardano-scalus-completion** — Complete x402 Cardano Scalus escrow settlement Phases 3/5/6: (Phase 3) `ReferenceScriptDeployer` helper that builds a bloxbean Tx publishing the compiled Plutus script as a Cardano reference script (deploy-once; writes txHash+outputIndex to a config field), 2 tests; (Phase 5) full round-trip integration test `ScalusRoundTripTest` exercising Scalus client CIP-8 sign → `CardanoProvider.Scalus` verify + settle plan construction end-to-end with mock Blockfrost HTTP; (Phase 6) `EscrowDeposit.build(payerWallet, req)` — constructs and signs a bloxbean deposit Tx locking ADA at the script address with `EscrowDatum` (payerKeyHash, receiverHash, amount, validBefore, refundAfter, claimMessageHash), 3 tests; `examples/x402-cardano-scalus.ssc` full walkthrough showing the complete Preprod flow; update `BACKLOG.md §Phase 9 follow-up` to point at the new Scalus flows. Module: `payments/x402/facilitator-cardano-scalus/`. Spec: `docs/x402-cardano-scalus.md §Phase 3–6`. (2026-05-27)
+
+- [ ] **wallet-solana-standard-js** — Scala.js `registerWallet` integration for `wallet-connector-wallet-std`: add `WalletStandardJs` object in `wallet-connector-wallet-std/js/src/` implementing `window.standard.wallets` registration protocol (announce event via `window.dispatchEvent(new CustomEvent("wallet-standard:register-wallet", { detail: ... }))`); `WalletInfo` JS value shape (name, icon, chains, features); `StandardWalletConnectorJs` bridging `WalletConnectorWalletStd` to the browser registry; `WalletStandardJsTest` suite (6 tests: announce event dispatched on register, features shape, chains list, connect handler wiring, signMessage wiring, signTransaction wiring) via Node.js `global.window` property stub. Unblocked: wallet-spi Scala.js cross-compile Stage 1–6 all landed 2026-05-20. Spec: `BACKLOG.md §Phase 5 — Solana DappConnector`. (2026-05-27)
 
 ## Language & Compiler
 

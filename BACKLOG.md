@@ -4741,20 +4741,18 @@ device, one seed, per-chain on-device apps; the Vault routes
       routing through the shared EVM signer, and 13 mocked WebHID
       Scala.js tests. The JS slice includes a Cardano CIP-8 helper;
       the standalone JVM Cardano Ledger vault remains tracked below.
-- [ ] Solana-app signer: `wallet-vault-ledger-solana` — ed25519 + Solana
+- [x] Solana-app signer: `wallet-vault-ledger-solana` — ed25519 + Solana
       sign-doc framing; CLA=0xE0, INS=0x04 SIGN_TRANSACTION / INS=0x07
       SIGN_OFFCHAIN_MESSAGE; default path `m/44'/501'/0'/0'`; Base58
-      pubkey display; 10+ tests via MockTransport.
-      **In WORK_QUEUE as `wallet-ledger-solana`** (claimed 2026-05-27).
-- [ ] Bitcoin-app signer: `wallet-vault-ledger-bitcoin` — PSBT-aware;
+      pubkey display; 11 tests. ✓ Landed 2026-05-27 (`94520b7c`).
+- [x] Bitcoin-app signer: `wallet-vault-ledger-bitcoin` — PSBT-aware;
       CLA=0xE1 (new Bitcoin app protocol v2+); INS=0x04 SIGN_PSBT;
       LedgerBitcoinVault wraps PsbtBuilder from blockchain-bitcoin;
-      10+ tests via MockTransport.
-      **In WORK_QUEUE as `wallet-ledger-bitcoin`** (claimed 2026-05-27).
-- [ ] Cardano-app signer: `wallet-vault-ledger-cardano` — CIP-8 framing;
-      CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x20 SIGN_TX;
-      10+ tests via MockTransport.
-      **In WORK_QUEUE as `wallet-ledger-cardano`** (unclaimed).
+      14 tests. ✓ Landed 2026-05-27 (`14572bd3`).
+- [x] Cardano-app signer: `wallet-vault-ledger-cardano` — CIP-8 framing;
+      CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x21 SIGN_TX;
+      CIP-8 COSE_Sign1 Sig_Structure (hand-rolled CBOR); 11 tests.
+      ✓ Landed 2026-05-27 (`19ad76cd`).
 - [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
       Nano X / Stax. Deferred.
 - [ ] Optional `wallet-vault-trezor` follow-up. Deferred.
