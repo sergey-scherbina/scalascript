@@ -107,7 +107,9 @@ _(all done — see Done section below)_
 
 - [ ] **v1.51.4-streams-sse-ws** — `Source.fromSse`/`Sink.toSseStream` in HTTP plugin + `Source.fromWebSocket`/`Sink.toWsRoom` in WS plugin + `mapAsync(n)(f)` + `.recover(pf)`/`.mapError(f)`/`Source.bracket`. Spec: `docs/streams.md §14.4`.
 
-- [ ] **v1.51.5-streams-buffer** — `.buffer(n, OverflowStrategy)` (Drop/Fail/Backpressure/DropHead) + `.throttle(Rate)` + `.debounce(Duration)` + `Source.signal(sig)` UI adapter (Swing/JavaFX/SwiftUI). Spec: `docs/streams.md §14.5`.
+- [x] **v1.51.5-streams-buffer** — `.buffer(n, OverflowStrategy)` (Drop/Fail/Backpressure/DropHead) + `.throttle(Rate)` + `.debounce(Duration)` + `Source.signal(sig)` current-value adapter in the interpreter path. Spec: `docs/streams.md §14.5`. (2026-05-27)
+
+- [ ] **v1.51.5b-streams-clock-ui-signals** — Clock-effect-backed `.throttle`/`.debounce` scheduling plus live JavaFX/Swing/SwiftUI `Source.signal` subscriptions and reverse `sig.bind(source)`. Spec: `BACKLOG.md §Streams v1.51.5 follow-ups`.
 
 - [ ] **v1.51.6-streams-effects** — `Source[A] ! Stream` effect-row integration + `runStream { … }` discharge runner analogous to `runLogger`. Spec: `docs/streams.md §14.6`.
 

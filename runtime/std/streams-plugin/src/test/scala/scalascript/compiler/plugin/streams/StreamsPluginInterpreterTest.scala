@@ -312,3 +312,62 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List(12L, 14L, 16L, 18L, 20L))
+
+  // ── v1.51.5 buffer, time operators, and signal adapter ─────────────────
+
+  test("buffer with Backpressure preserves all elements"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 5).buffer(2, OverflowStrategy.Backpressure).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L, 4L, 5L))
+
+  test("buffer with Drop keeps the first capacity elements"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 5).buffer(3, OverflowStrategy.Drop).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("buffer with DropHead keeps the newest capacity elements"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 5).buffer(3, OverflowStrategy.DropHead).runToList()
+      """
+    )
+    assert(result == List(3L, 4L, 5L))
+
+  test("buffer with Fail rejects overflow"):
+    assertThrows[Exception] {
+      interp.eval(
+        """
+        Source.from(1 to 5).buffer(3, OverflowStrategy.Fail).runToList()
+        """
+      )
+    }
+
+  test("throttle accepts Rate and preserves element order"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 4).throttle(Rate(2, 1000)).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L, 4L))
+
+  test("debounce emits the latest value from a burst"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 4).debounce(100).runToList()
+      """
+    )
+    assert(result == List(4L))
+
+  test("Source.signal emits the signal's current value"):
+    val result = interp.eval(
+      """
+      Source.signal(42).runToList()
+      """
+    )
+    assert(result == List(42L))

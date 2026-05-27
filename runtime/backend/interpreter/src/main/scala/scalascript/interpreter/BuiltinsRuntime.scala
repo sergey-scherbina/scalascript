@@ -629,6 +629,17 @@ private[interpreter] object BuiltinsRuntime:
         "single"        -> interp.globals.getOrElse("Source.single", Value.UnitV),
         "empty"         -> interp.globals.getOrElse("Source.empty", Value.UnitV),
         "fromGenerator" -> interp.globals.getOrElse("Source.fromGenerator", Value.UnitV),
+        "signal"        -> interp.globals.getOrElse("Source.signal", Value.UnitV),
+      ))
+    }
+    interp.globals.get("OverflowStrategy.Backpressure").foreach { bp =>
+      interp.globals("OverflowStrategy") = Value.InstanceV("OverflowStrategy", Map(
+        "Backpressure" -> bp,
+        "Block"        -> interp.globals.getOrElse("OverflowStrategy.Block",       Value.UnitV),
+        "Drop"         -> interp.globals.getOrElse("OverflowStrategy.Drop",        Value.UnitV),
+        "DropHead"     -> interp.globals.getOrElse("OverflowStrategy.DropHead",    Value.UnitV),
+        "DropOldest"   -> interp.globals.getOrElse("OverflowStrategy.DropOldest",  Value.UnitV),
+        "Fail"         -> interp.globals.getOrElse("OverflowStrategy.Fail",        Value.UnitV),
       ))
     }
     // v1.51.3 Sink + Flow companions

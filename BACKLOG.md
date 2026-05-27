@@ -915,16 +915,31 @@ Design decisions locked:
 - `mapAsync(n)(f)` with configurable parallelism (best-effort cancel)
 - `.recover(pf)`, `.mapError(f)`, `Source.bracket(acquire)(release)(use)`
 
-**v1.51.5 — Buffer strategies, time-based ops, UI signal adapter:**
-- `.buffer(n, OverflowStrategy)` with all four strategies
-- `.throttle(Rate)`, `.debounce(Duration)` (tie into v1.12 `Clock` effect for testable timing)
-- `Source.signal[A](sig: ReactiveSignal[A]): Source[A]` and `sig.bind(source)` reverse adapter
-- Wire into `frontend/core/.../Primitives.scala:7-26`, `frontend/javafx/.../JavaFxRuntime.scala:49-69`, `frontend/swing/.../SwingRuntime.scala:102-119`, `frontend/swiftui/.../SwiftUIEmitter.scala:13-22`
+**v1.51.5 — Buffer strategies, time-based ops, UI signal adapter:** ✓ Landed (2026-05-27)
+- `.buffer(n, OverflowStrategy)` with interpreter strategies:
+  `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, `Fail`
+- `.throttle(Rate)`, `.debounce(Duration)` with deterministic
+  interpreter semantics (order-preserving throttle, latest-value debounce)
+- `Source.signal[A](sig): Source[A]` current-value adapter in the
+  interpreter path
+- 7 new interpreter tests; `examples/streams.ssc`, `runtime/std/streams.ssc`,
+  README, user guide, and spec updated.
+- Follow-up: clock-effect-backed wall-time scheduling plus live
+  JavaFX/Swing/SwiftUI signal subscription and reverse `sig.bind(source)`.
 
 **v1.51.6 — Effect-row integration (open / deferred):**
 - `Source[A] ! Stream` via `Perform("Stream", …)` through `Computation` ADT
 - `runStream { … }` discharge runner analogous to `runLogger`
 - Re-evaluate after v1.51.5
+
+### Streams v1.51.5 follow-ups
+
+Found while working on v1.51.5-streams-buffer. The shipped interpreter
+path gives deterministic semantics for `.throttle`, `.debounce`, and
+`Source.signal`; live UI runtimes still need subscription-backed
+`Source.signal`, reverse `sig.bind(source)`, and Clock-effect-backed
+wall-time scheduling. No blocker for the interpreter milestone; track as
+a focused follow-up before advertising UI-live streams as complete.
 
 ## v1.52 — Deploy to Hostings, Clouds & Kubernetes-like Environments
 

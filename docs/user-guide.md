@@ -683,6 +683,28 @@ runAsyncParallel {
 }
 ```
 
+### Streams
+
+```scalascript
+val latest =
+  Source.from(1 to 5)
+    .buffer(3, OverflowStrategy.DropHead)
+    .debounce(100)
+    .runToList()
+
+val ordered =
+  Source.from(1 to 4)
+    .throttle(Rate(2, 1000))
+    .runToList()
+```
+
+`Source[A]`, `Sink[A]`, and `Flow[A, B]` are provided by
+`std/streams.ssc` and the streams plugin. The interpreter path supports
+bounded `buffer` with `Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`,
+and `Fail`, deterministic order-preserving `throttle`, latest-value
+`debounce`, and `Source.signal(sig)` as a current-value adapter. Live UI
+signal subscriptions and reverse `sig.bind(source)` are planned follow-ups.
+
 ### Reactive Signals
 
 ```scalascript

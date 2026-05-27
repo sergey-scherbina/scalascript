@@ -789,22 +789,23 @@ temperatureSource
 
 ### v1.51.5 — Buffer strategies, time-based operators, UI signal adapter
 
-**Scope:** advanced backpressure and UI reactivity bridge.
+**Scope:** advanced backpressure and the first interpreter-side UI reactivity
+bridge.
 
-1. Implement `.buffer(n, OverflowStrategy)` with all four strategies
-   (`Block`, `DropOldest`, `DropNewest`, `Fail`).
+1. Implement `.buffer(n, OverflowStrategy)` with all interpreter strategies
+   (`Backpressure`/`Block`, `Drop`, `DropHead`/`DropOldest`, `Fail`).
+   **Landed (2026-05-27)** in `streams-plugin`.
 2. Implement time-based operators: `.throttle(Rate)`, `.debounce(Duration)`.
-   Both tie into the v1.12 `Clock` effect for testable timing.
+   **Landed (2026-05-27)** as deterministic interpreter semantics:
+   throttle preserves order and validates the rate; debounce emits the latest
+   value from a burst. Clock-effect-backed wall-time scheduling remains a
+   backend/runtime follow-up.
 3. Implement the UI signal adapter:
-   - `Source.signal[A](sig: ReactiveSignal[A]): Source[A]` in
-     `frontend/core/src/main/scala/scalascript/frontend/Primitives.scala`.
-   - `sig.bind(source: Source[A]): Unit` reverse adapter.
-   - Wire into the JavaFX signal bus
-     (`frontend/javafx/src/main/scala/scalascript/frontend/javafx/JavaFxRuntime.scala:49-69`)
-     and Swing bus
-     (`frontend/swing/src/main/scala/scalascript/frontend/swing/SwingRuntime.scala:102-119`).
-   - Wire into the SwiftUI `@Observable` AppModel
-     (`frontend/swiftui/src/main/scala/scalascript/frontend/swiftui/SwiftUIEmitter.scala:13-22, 67-97`).
+   - `Source.signal[A](sig): Source[A]` **landed (2026-05-27)** in the
+     interpreter path as a current-value adapter. UI runtimes can extend this
+     to live signal subscription.
+   - `sig.bind(source: Source[A]): Unit` reverse adapter remains planned.
+   - JavaFX/Swing/SwiftUI live signal-bus wiring remains planned.
 
 ### v1.51.6 — Effect-row integration (open / deferred)
 

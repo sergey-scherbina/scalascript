@@ -79,3 +79,28 @@ val first10 = Source.from(1 to 1000000).take(10).runToList()
 println(first10.mkString(", "))
 // → 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 ```
+
+## 7. Buffer strategies and time operators
+
+`buffer` makes overflow behavior explicit. `throttle` preserves order while
+applying a rate limit in runtimes with clock support; the interpreter keeps the
+same observable element order. `debounce` keeps the latest value from a burst.
+
+```scala
+println("\n=== 7. Buffer and timing ===")
+val newest = Source.from(1 to 5)
+  .buffer(3, OverflowStrategy.DropHead)
+  .runToList()
+println(newest.mkString(", "))
+// → 3, 4, 5
+
+val throttled = Source.from(1 to 4)
+  .throttle(Rate(2, 1000))
+  .runToList()
+println(throttled.mkString(", "))
+// → 1, 2, 3, 4
+
+val last = Source.from(1 to 4).debounce(100).runToList()
+println(last.mkString(", "))
+// → 4
+```

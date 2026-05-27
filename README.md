@@ -541,6 +541,7 @@ scala-cli conformance/run.sc
 | direct | Direct-syntax do-notation: `direct[M]`, `.!` bind, pure lift, control flow |
 | coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]`, `coroutineCancel` |
 | generators | `generator[T] { yield(v) }`, pipeline composition, lazy streams |
+| streams | `Source[A]` / `Sink[A]` / `Flow[A, B]`, `stream { emit(x) }`, bounded buffers, overflow strategies, throttle/debounce, and `Source.signal` current-value adapter |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |

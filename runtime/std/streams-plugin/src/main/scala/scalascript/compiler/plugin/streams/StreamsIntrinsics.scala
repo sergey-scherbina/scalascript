@@ -31,6 +31,58 @@ object StreamsIntrinsics:
 
   private def newQ(): Queue = new Queue(16)
 
+  private def sourceFromValues(values: List[Value], ctx: NativeContext): Value =
+    val queue = newQ()
+    Thread.ofVirtual().start { () =>
+      try for v <- values do queue.put(Some(v))
+      catch case _: Throwable => ()
+      finally try queue.put(None) catch case _ => ()
+    }
+    makeSourceV(queue, ctx)
+
+  private def drain(queue: Queue): List[Value] =
+    val buf = ListBuffer[Value]()
+    var item = queue.take()
+    while item.isDefined do
+      buf += item.get
+      item = queue.take()
+    buf.toList
+
+  private def strategyName(v: Value): String = v match
+    case Value.StringV(s) => s
+    case Value.InstanceV(name, _) => name.split('.').lastOption.getOrElse(name)
+    case other => Value.show(other)
+
+  private def bufferedValues(values: List[Value], capacity: Int, strategy: Value): List[Value] =
+    if capacity < 0 then throw InterpretError("Source.buffer: capacity must be >= 0")
+    strategyName(strategy) match
+      case "Backpressure" | "Block" =>
+        values
+      case "Drop" | "DropNew" =>
+        values.take(capacity)
+      case "DropHead" | "DropOldest" =>
+        values.takeRight(capacity)
+      case "Fail" =>
+        if values.length > capacity then throw InterpretError("Source.buffer: buffer overflow")
+        values
+      case other =>
+        throw InterpretError(s"Source.buffer: unknown overflow strategy $other")
+
+  private def sourceValue(v: Value): Value = v match
+    case Value.InstanceV(_, fields) =>
+      fields.get("value")
+        .orElse(fields.get("current"))
+        .orElse(fields.get("initial"))
+        .orElse(fields.get("default"))
+        .getOrElse(v)
+    case other => other
+
+  private def intArg(v: Any): Option[Int] = v match
+    case Value.IntV(n) => Some(n.toInt)
+    case n: Long      => Some(n.toInt)
+    case n: Int       => Some(n)
+    case _            => None
+
   private def makeSourceV(queue: Queue, ctx: NativeContext): Value =
 
     def call(f: Value, args: List[Value]): Value =
@@ -283,6 +335,39 @@ object StreamsIntrinsics:
         }
       }),
 
+      // ── v1.51.5 buffer/time/signal operators ────────────────────────────
+
+      "buffer" -> Value.NativeFnV("Source.buffer", Computation.pureFn {
+        case List(n, strategy: Value) if intArg(n).isDefined =>
+          sourceFromValues(bufferedValues(drain(queue), intArg(n).get, strategy), ctx)
+        case List(n) if intArg(n).isDefined =>
+          val capacity = intArg(n).get
+          Value.NativeFnV("Source.buffer$1", Computation.pureFn {
+            case List(strategy) => sourceFromValues(bufferedValues(drain(queue), capacity, strategy), ctx)
+            case _              => throw InterpretError("Source.buffer(n)(strategy)")
+          })
+        case _ => throw InterpretError("Source.buffer(n, strategy)")
+      }),
+
+      "throttle" -> Value.NativeFnV("Source.throttle", Computation.pureFn {
+        case List(Value.InstanceV("Rate", fields)) =>
+          val elements = fields.get("elements").collect { case Value.IntV(n) => n }.getOrElse(0L)
+          if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
+          sourceFromValues(drain(queue), ctx)
+        case List(rawElements) if intArg(rawElements).isDefined =>
+          val elements = intArg(rawElements).get
+          if elements <= 0 then throw InterpretError("Source.throttle: rate elements must be > 0")
+          sourceFromValues(drain(queue), ctx)
+        case _ => throw InterpretError("Source.throttle(rate)")
+      }),
+
+      "debounce" -> Value.NativeFnV("Source.debounce", Computation.pureFn {
+        case List(_) =>
+          val values = drain(queue)
+          sourceFromValues(values.lastOption.toList, ctx)
+        case _ => throw InterpretError("Source.debounce(duration)")
+      }),
+
       // ── v1.51.3 Sink + Flow routing ──────────────────────────────────────
 
       "to" -> Value.NativeFnV("Source.to", Computation.pureFn {
@@ -432,6 +517,44 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("Source.fromGenerator(gen: Generator)")
+    ),
+
+    QualifiedName("Source.signal") -> NativeImpl((ctx, args) =>
+      args match
+        case List(sig: Value) => sourceFromValues(List(sourceValue(sig)), ctx)
+        case List(sig)        => sourceFromValues(List(toValue(sig)), ctx)
+        case _ => throw InterpretError("Source.signal(sig)")
+    ),
+
+    QualifiedName("Rate") -> NativeImpl((_, args) =>
+      args match
+        case List(elements, perMillis) if intArg(elements).isDefined && intArg(perMillis).isDefined =>
+          Value.InstanceV("Rate", Map(
+            "elements"  -> Value.IntV(intArg(elements).get.toLong),
+            "perMillis" -> Value.IntV(intArg(perMillis).get.toLong),
+          ))
+        case List(elements) if intArg(elements).isDefined =>
+          Value.InstanceV("Rate", Map("elements" -> Value.IntV(intArg(elements).get.toLong), "perMillis" -> Value.IntV(1000L)))
+        case _ => throw InterpretError("Rate(elements, perMillis)")
+    ),
+
+    QualifiedName("OverflowStrategy.Backpressure") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.Backpressure", Map.empty)
+    ),
+    QualifiedName("OverflowStrategy.Block") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.Block", Map.empty)
+    ),
+    QualifiedName("OverflowStrategy.Drop") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.Drop", Map.empty)
+    ),
+    QualifiedName("OverflowStrategy.DropHead") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.DropHead", Map.empty)
+    ),
+    QualifiedName("OverflowStrategy.DropOldest") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.DropOldest", Map.empty)
+    ),
+    QualifiedName("OverflowStrategy.Fail") -> NativeImpl((_, _) =>
+      Value.InstanceV("OverflowStrategy.Fail", Map.empty)
     ),
 
     // ── v1.51.3 Sink intrinsics ───────────────────────────────────────────

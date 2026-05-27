@@ -10,6 +10,8 @@ exports:
   - Sink
   - Flow
   - Stream
+  - OverflowStrategy
+  - Rate
 ---
 
 # `std.streams` — Backpressured Streams
@@ -43,4 +45,22 @@ extern def Source.empty[A]: Source[A]
 
 // Wrap a v1.10 Generator as a Source.
 extern def Source.fromGenerator[A](gen: Generator[A]): Source[A]
+
+// Treat a reactive/current-value signal as a one-element Source in the
+// interpreter path. UI runtimes can extend this to live signal updates.
+extern def Source.signal[A](sig: Any): Source[A]
+
+enum OverflowStrategy:
+  case Backpressure
+  case Block
+  case Drop
+  case DropHead
+  case DropOldest
+  case Fail
+
+case class Rate(elements: Int, perMillis: Int = 1000)
+
+extern def Source.buffer[A](n: Int, strategy: OverflowStrategy): Source[A]
+extern def Source.throttle[A](rate: Rate): Source[A]
+extern def Source.debounce[A](durationMillis: Int): Source[A]
 ```
