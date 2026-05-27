@@ -174,3 +174,141 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List(1L, 2L, 3L))
+
+  // ── v1.51.3 combining operators ──────────────────────────────────────────
+
+  test("merge interleaves two sources"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2)).merge(Source.from(List(3, 4))).runToList()
+      """
+    ).asInstanceOf[List[Long]].sorted
+    assert(result == List(1L, 2L, 3L, 4L))
+
+  test("merge with empty source"):
+    val result = interp.eval(
+      """
+      Source.empty.merge(Source.from(List(1, 2, 3))).runToList()
+      """
+    ).asInstanceOf[List[Long]].sorted
+    assert(result == List(1L, 2L, 3L))
+
+  test("zipWith pairs and transforms elements"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3)).zipWith(Source.from(List(10, 20, 30)))((a, b) => a + b).runToList()
+      """
+    )
+    assert(result == List(11L, 22L, 33L))
+
+  test("broadcast fans out to n subscribers"):
+    val result = interp.eval(
+      """
+      val sources = Source.from(List(1, 2, 3)).broadcast(2)
+      val a = sources(0).runToList()
+      val b = sources(1).runToList()
+      List(a, b)
+      """
+    )
+    assert(result == List(List(1L, 2L, 3L), List(1L, 2L, 3L)))
+
+  test("balance distributes elements across consumers"):
+    // balance(2) splits 4 elements into 2 sub-sources of 2 elements each
+    val count0 = interp.eval("Source.from(1 to 4).balance(2)(0).runToList().length")
+    val count1 = interp.eval("Source.from(1 to 4).balance(2)(1).runToList().length")
+    assert(count0.asInstanceOf[Long] + count1.asInstanceOf[Long] == 4L)
+
+  test("groupBy partitions stream by key"):
+    val result = interp.eval(
+      """
+      var evens = List()
+      var odds = List()
+      Source.from(1 to 6).groupBy(x => x % 2).runForeach(pair => {
+        val key = pair._1
+        val items = pair._2.runToList()
+        if (key == 0) { evens = items }
+        else { odds = items }
+      })
+      List(evens, odds)
+      """
+    )
+    assert(result == List(List(2L, 4L, 6L), List(1L, 3L, 5L)))
+
+  test("mergeSubstreams flattens stream of streams"):
+    val raw = interp.eval(
+      """
+      Source.from(List(1, 2, 3))
+        .map(x => Source.from(List(x, x * 10)))
+        .mergeSubstreams()
+        .runToList()
+      """
+    ).asInstanceOf[List[?]]
+    assert(raw.map(_.asInstanceOf[Long]).sorted == List(1L, 2L, 3L, 10L, 20L, 30L))
+
+  // ── v1.51.3 Sink + Flow ──────────────────────────────────────────────────
+
+  test("Sink.foreach runs side effects via .to"):
+    val result = interp.eval(
+      """
+      var total = 0
+      val sink = Sink.foreach(x => { total = total + x })
+      Source.from(List(1, 2, 3)).to(sink)
+      total
+      """
+    )
+    assert(result == 6L)
+
+  test("Sink.fold accumulates via .to"):
+    val result = interp.eval(
+      """
+      val sink = Sink.fold(0)((acc, x) => acc + x)
+      Source.from(1 to 5).to(sink)
+      """
+    )
+    assert(result == 15L)
+
+  test("Sink.ignore discards all elements"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 100).to(Sink.ignore)
+      42
+      """
+    )
+    assert(result == 42L)
+
+  test("Sink.toList collects via .to"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3)).to(Sink.toList)
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("Flow.map transforms elements via .via"):
+    val result = interp.eval(
+      """
+      val flow = Flow.map(x => x * 2)
+      Source.from(1 to 5).via(flow).runToList()
+      """
+    )
+    assert(result == List(2L, 4L, 6L, 8L, 10L))
+
+  test("Flow.filter retains matching elements via .via"):
+    val result = interp.eval(
+      """
+      val flow = Flow.filter(x => x % 2 == 0)
+      Source.from(1 to 10).via(flow).runToList()
+      """
+    )
+    assert(result == List(2L, 4L, 6L, 8L, 10L))
+
+  test("Flow chaining: map then filter via two .via calls"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 10)
+        .via(Flow.map(x => x * 2))
+        .via(Flow.filter(x => x > 10))
+        .runToList()
+      """
+    )
+    assert(result == List(12L, 14L, 16L, 18L, 20L))

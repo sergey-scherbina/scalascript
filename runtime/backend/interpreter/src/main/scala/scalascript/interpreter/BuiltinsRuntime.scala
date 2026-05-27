@@ -631,6 +631,21 @@ private[interpreter] object BuiltinsRuntime:
         "fromGenerator" -> interp.globals.getOrElse("Source.fromGenerator", Value.UnitV),
       ))
     }
+    // v1.51.3 Sink + Flow companions
+    interp.globals.get("Sink.foreach").foreach { fe =>
+      interp.globals("Sink") = Value.InstanceV("Sink", Map(
+        "foreach" -> fe,
+        "fold"    -> interp.globals.getOrElse("Sink.fold",   Value.UnitV),
+        "ignore"  -> interp.globals.getOrElse("Sink.ignore", Value.UnitV),
+        "toList"  -> interp.globals.getOrElse("Sink.toList", Value.UnitV),
+      ))
+    }
+    interp.globals.get("Flow.map").foreach { fm =>
+      interp.globals("Flow") = Value.InstanceV("Flow", Map(
+        "map"    -> fm,
+        "filter" -> interp.globals.getOrElse("Flow.filter", Value.UnitV),
+      ))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

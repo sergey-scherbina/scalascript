@@ -4,7 +4,7 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
 
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.{ListBuffer, LinkedHashMap}
 
 /** Backpressured stream intrinsics for the tree-walking interpreter.
  *
@@ -34,7 +34,7 @@ object StreamsIntrinsics:
   private def makeSourceV(queue: Queue, ctx: NativeContext): Value =
 
     def call(f: Value, args: List[Value]): Value =
-      ctx.invokeCallback(f, args).asInstanceOf[Value]
+      ctx.synchronized { ctx.invokeCallback(f, args).asInstanceOf[Value] }
 
     def startChained(bodyFn: Queue => Unit): Value =
       val q2 = newQ()
@@ -134,7 +134,6 @@ object StreamsIntrinsics:
 
       "zip" -> Value.NativeFnV("Source.zip", Computation.pureFn {
         case List(other) => startChained { ownQ =>
-          // Collect other to a list then zip
           val otherList = other match
             case inst: Value.InstanceV =>
               inst.fields.get("runToList") match
@@ -151,6 +150,159 @@ object StreamsIntrinsics:
             item = queue.take()
         }
         case _ => throw InterpretError("Source.zip(other: Source)")
+      }),
+
+      // ── v1.51.3 combining operators ──────────────────────────────────────
+
+      "merge" -> Value.NativeFnV("Source.merge", Computation.pureFn {
+        case List(other) => startChained { ownQ =>
+          var item = queue.take()
+          while item.isDefined do
+            ownQ.put(Some(item.get))
+            item = queue.take()
+          val forward = Value.NativeFnV("_fwdEmit", Computation.pureFn {
+            case List(x) => ownQ.put(Some(x)); Value.UnitV
+            case _       => Value.UnitV
+          })
+          other match
+            case inst: Value.InstanceV =>
+              inst.fields.get("runForeach") match
+                case Some(rf) => call(rf, List(forward))
+                case None     => throw InterpretError("Source.merge: not a Source")
+            case _ => throw InterpretError("Source.merge: not a Source")
+        }
+        case _ => throw InterpretError("Source.merge(other: Source)")
+      }),
+
+      "zipWith" -> Value.NativeFnV("Source.zipWith", Computation.pureFn {
+        case List(other) => Value.NativeFnV("Source.zipWith$1", Computation.pureFn {
+          case List(f) => startChained { ownQ =>
+            val otherList = other match
+              case inst: Value.InstanceV =>
+                inst.fields.get("runToList") match
+                  case Some(rtl) =>
+                    call(rtl, Nil) match
+                      case Value.ListV(xs) => xs
+                      case _ => Nil
+                  case None => Nil
+              case _ => Nil
+            val it = otherList.iterator
+            var item = queue.take()
+            while item.isDefined && it.hasNext do
+              ownQ.put(Some(call(f, List(item.get, it.next()))))
+              item = queue.take()
+          }
+          case _ => throw InterpretError("Source.zipWith(other)(f) — inner")
+        })
+        case _ => throw InterpretError("Source.zipWith(other)(f) — outer")
+      }),
+
+      "broadcast" -> Value.NativeFnV("Source.broadcast", Computation.pureFn {
+        case List(Value.IntV(n)) =>
+          val ni = n.toInt
+          val buf = ListBuffer[Value]()
+          var item = queue.take()
+          while item.isDefined do
+            buf += item.get
+            item = queue.take()
+          val all = buf.toList
+          Value.ListV(
+            (0 until ni).toList.map { _ =>
+              val q = newQ()
+              Thread.ofVirtual().start { () =>
+                try for v <- all do q.put(Some(v))
+                catch case _: Throwable => ()
+                finally try q.put(None) catch case _ => ()
+              }
+              makeSourceV(q, ctx)
+            }
+          )
+        case _ => throw InterpretError("Source.broadcast(n: Int)")
+      }),
+
+      "balance" -> Value.NativeFnV("Source.balance", Computation.pureFn {
+        case List(Value.IntV(n)) =>
+          val ni = n.toInt
+          val buf = ListBuffer[Value]()
+          var item = queue.take()
+          while item.isDefined do
+            buf += item.get
+            item = queue.take()
+          val all = buf.toList
+          Value.ListV(
+            (0 until ni).toList.map { i =>
+              val slice = (i until all.length by ni).map(all(_)).toList
+              val q = newQ()
+              Thread.ofVirtual().start { () =>
+                try for v <- slice do q.put(Some(v))
+                catch case _: Throwable => ()
+                finally try q.put(None) catch case _ => ()
+              }
+              makeSourceV(q, ctx)
+            }
+          )
+        case _ => throw InterpretError("Source.balance(n: Int)")
+      }),
+
+      "groupBy" -> Value.NativeFnV("Source.groupBy", Computation.pureFn {
+        case List(keyFn) => startChained { ownQ =>
+          val groups = LinkedHashMap[Value, ListBuffer[Value]]()
+          var item = queue.take()
+          while item.isDefined do
+            val key = call(keyFn, List(item.get))
+            groups.getOrElseUpdate(key, ListBuffer()) += item.get
+            item = queue.take()
+          for (k, vs) <- groups do
+            val elems = vs.toList
+            val q = newQ()
+            Thread.ofVirtual().start { () =>
+              try for v <- elems do q.put(Some(v))
+              catch case _: Throwable => ()
+              finally try q.put(None) catch case _ => ()
+            }
+            ownQ.put(Some(Value.TupleV(List(k, makeSourceV(q, ctx)))))
+        }
+        case _ => throw InterpretError("Source.groupBy(keyFn)")
+      }),
+
+      "mergeSubstreams" -> Value.NativeFnV("Source.mergeSubstreams", Computation.pureFn { _ =>
+        startChained { ownQ =>
+          val forward = Value.NativeFnV("_fwdEmit", Computation.pureFn {
+            case List(x) => ownQ.put(Some(x)); Value.UnitV
+            case _       => Value.UnitV
+          })
+          var item = queue.take()
+          while item.isDefined do
+            item.get match
+              case inner: Value.InstanceV =>
+                inner.fields.get("runForeach") match
+                  case Some(rf) => call(rf, List(forward))
+                  case None     => ()
+              case _ => ()
+            item = queue.take()
+        }
+      }),
+
+      // ── v1.51.3 Sink + Flow routing ──────────────────────────────────────
+
+      "to" -> Value.NativeFnV("Source.to", Computation.pureFn {
+        case List(sink: Value.InstanceV) =>
+          sink.fields.get("run") match
+            case Some(runFn) =>
+              val selfSrc = makeSourceV(queue, ctx)
+              call(runFn, List(selfSrc))
+            case None => throw InterpretError("Source.to: not a Sink")
+        case _ => throw InterpretError("Source.to(sink)")
+      }),
+
+      "via" -> Value.NativeFnV("Source.via", Computation.pureFn {
+        case List(flow: Value.InstanceV) =>
+          flow.fields.get("apply") match
+            case Some(applyFn) =>
+              val selfSrc = makeSourceV(queue, ctx)
+              call(applyFn, List(selfSrc))
+            case None => throw InterpretError("Source.via: not a Flow")
+        case _ => throw InterpretError("Source.via(flow)")
       }),
 
       "runForeach" -> Value.NativeFnV("Source.runForeach", Computation.pureFn {
@@ -280,5 +432,100 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("Source.fromGenerator(gen: Generator)")
+    ),
+
+    // ── v1.51.3 Sink intrinsics ───────────────────────────────────────────
+
+    QualifiedName("Sink.foreach") -> NativeImpl((ctx, args) =>
+      args match
+        case List(f) =>
+          val fv = toValue(f)
+          val runFn = Value.NativeFnV("Sink.foreach.run", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("runForeach") match
+                case Some(rf) => ctx.synchronized { ctx.invokeCallback(rf, List(fv)).asInstanceOf[Value] }
+                case None     => throw InterpretError("Sink.foreach: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Sink", Map("run" -> runFn))
+        case _ => throw InterpretError("Sink.foreach(f)")
+    ),
+
+    QualifiedName("Sink.fold") -> NativeImpl((ctx, args) =>
+      args match
+        case List(z) =>
+          val zv = toValue(z)
+          Value.NativeFnV("Sink.fold$1", Computation.pureFn {
+            case List(f) =>
+              val runFn = Value.NativeFnV("Sink.fold.run", Computation.pureFn {
+                case List(src: Value.InstanceV) =>
+                  src.fields.get("runFold") match
+                    case Some(rf) =>
+                      val curried = ctx.synchronized { ctx.invokeCallback(rf, List(zv)).asInstanceOf[Value] }
+                      curried match
+                        case fn: Value.NativeFnV =>
+                          ctx.synchronized { ctx.invokeCallback(fn, List(f)).asInstanceOf[Value] }
+                        case _ => throw InterpretError("Sink.fold: runFold not curried")
+                    case None => throw InterpretError("Sink.fold: not a Source")
+                case _ => Value.UnitV
+              })
+              Value.InstanceV("Sink", Map("run" -> runFn))
+            case _ => throw InterpretError("Sink.fold(z)(f) — inner")
+          })
+        case _ => throw InterpretError("Sink.fold(z)(f) — outer")
+    ),
+
+    QualifiedName("Sink.ignore") -> NativeImpl((ctx, _) =>
+      val runFn = Value.NativeFnV("Sink.ignore.run", Computation.pureFn {
+        case List(src: Value.InstanceV) =>
+          src.fields.get("runDrain") match
+            case Some(rd) => ctx.synchronized { ctx.invokeCallback(rd, Nil).asInstanceOf[Value] }
+            case None     => throw InterpretError("Sink.ignore: not a Source")
+        case _ => Value.UnitV
+      })
+      Value.InstanceV("Sink", Map("run" -> runFn))
+    ),
+
+    QualifiedName("Sink.toList") -> NativeImpl((ctx, _) =>
+      val runFn = Value.NativeFnV("Sink.toList.run", Computation.pureFn {
+        case List(src: Value.InstanceV) =>
+          src.fields.get("runToList") match
+            case Some(rtl) => ctx.synchronized { ctx.invokeCallback(rtl, Nil).asInstanceOf[Value] }
+            case None      => throw InterpretError("Sink.toList: not a Source")
+        case _ => Value.UnitV
+      })
+      Value.InstanceV("Sink", Map("run" -> runFn))
+    ),
+
+    // ── v1.51.3 Flow intrinsics ───────────────────────────────────────────
+
+    QualifiedName("Flow.map") -> NativeImpl((ctx, args) =>
+      args match
+        case List(f) =>
+          val fv = toValue(f)
+          val applyFn = Value.NativeFnV("Flow.map.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("map") match
+                case Some(mapFn) => ctx.synchronized { ctx.invokeCallback(mapFn, List(fv)).asInstanceOf[Value] }
+                case None        => throw InterpretError("Flow.map: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.map(f)")
+    ),
+
+    QualifiedName("Flow.filter") -> NativeImpl((ctx, args) =>
+      args match
+        case List(pred) =>
+          val pv = toValue(pred)
+          val applyFn = Value.NativeFnV("Flow.filter.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("filter") match
+                case Some(filterFn) => ctx.synchronized { ctx.invokeCallback(filterFn, List(pv)).asInstanceOf[Value] }
+                case None           => throw InterpretError("Flow.filter: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.filter(pred)")
     ),
   )
