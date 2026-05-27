@@ -30,6 +30,8 @@ case class BankAccount(
   payid:             Option[String] = None,   // AU NPP: PayID proxy (mobile/email/ABN)
   transitNumber:     Option[String] = None,   // Canada EFT: 5-digit transit/branch number
   institutionNumber: Option[String] = None,   // Canada EFT: 3-digit institution (bank) number
+  email:             Option[String] = None,   // Canada Interac e-Transfer: recipient email
+  phone:             Option[String] = None,   // Canada Interac e-Transfer: recipient phone
   clabe:             Option[String] = None,   // Mexico SPEI: 18-digit CLABE account number
 )
 

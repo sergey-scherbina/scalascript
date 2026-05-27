@@ -2740,6 +2740,17 @@ lazy val paymentsMxSpei = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Bank Rails — Canada Interac e-Transfer + EFT adapter ─────────────────
+lazy val paymentsCaEft = project
+  .in(file("runtime/std/payments-ca-eft"))
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .settings(
+    name := "scalascript-payments-ca-eft",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2765,7 +2776,7 @@ lazy val root = project
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
-    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsMxSpei,
+    paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsMxSpei, paymentsCaEft,
     markupCore, markupCoreJs, markupJs, markupNode,
   )
   .settings(

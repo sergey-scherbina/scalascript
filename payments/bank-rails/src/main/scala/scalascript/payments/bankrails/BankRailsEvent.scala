@@ -78,10 +78,14 @@ enum BankRailsEvent:
   // PayID not found or NPP transaction rejected
   case NppFailed(endToEndId: String, reason: String)
 
-  // ── Canada Interac e-Transfer (v1.57.2) ───────────────────────────────────
+  // ── Canada Interac e-Transfer + EFT (v1.57.2) ────────────────────────────
+  // Interac e-Transfer accepted by recipient (deposited or auto-deposited)
   case CaInteracSent(transferId: String, recipient: String, amount: String)
+  // Interac e-Transfer recalled by sender before recipient deposited
   case CaInteracReclaimed(transferId: String, reason: String)
+  // Interac e-Transfer expired (recipient did not deposit within the expiry window)
   case CaInteracExpired(transferId: String)
+  // EFT (AFT debit) returned — cheque returned / NSF / account closed etc.
   case CaEftReturned(transferId: String, returnCode: String, description: String)
 
   // ── Mexico SPEI (v1.57.3) ────────────────────────────────────────────────
