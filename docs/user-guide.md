@@ -2973,7 +2973,9 @@ it signs a structured Scalus claim message and carries the escrow UTxO ref in
 claim proof before settlement, and the on-chain Scalus validator now checks the
 canonical CIP-8 redeemer proof against the datum's payer key hash and claim
 message hash, the receiver output's exact lovelace amount, and the
-claim/refund validity window. Current production Cardano flows should still keep
+claim/refund validity window; `X402EscrowScriptSimulatorTest` also covers the
+validator happy path and rejection branches through constructed Scalus
+`ScriptContext` values. Current production Cardano flows should still keep
 using the default non-Scalus mode until the Plutus claim transaction builder is
 validated against Preprod. `BloxbeanClaimTxBuilder.draft` can serialize a
 claim transaction draft with script input/output, redeemer, collateral,

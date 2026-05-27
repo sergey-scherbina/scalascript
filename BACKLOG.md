@@ -3853,8 +3853,12 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       range to be entirely before `datum.validBefore`; Refund requires
       it to be entirely after `datum.refundAfter`. The committed
       Plutus resource was regenerated from 5240 to 6096 hex chars.
-- [ ] Unit tests via Scalus's script-context simulator under
+- [x] Unit tests via Scalus's script-context simulator under
       x402-escrow-plutus (Phase 2.5)
+      ✓ Landed (2026-05-27): `X402EscrowScriptSimulatorTest`
+      constructs `ScriptContext` values directly and validates claim
+      happy path plus rejection branches for tampered CIP-8 signature,
+      wrong receiver amount, invalid claim range, and refund timing.
 
 #### Phase 3 — Escrow address + reference script
 

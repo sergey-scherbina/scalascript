@@ -1341,6 +1341,7 @@ lazy val x402EscrowPlutus = project
     scalaVersion := "3.3.7",
     libraryDependencies ++= Seq(
       "org.scalus" %% "scalus" % "0.15.1",
+      scalatestTest,
     ),
     // Required so `PlutusV3.compile(...)` actually lowers @Compile
     // objects to Plutus Core. Fails to load against Scala 3.8.x —

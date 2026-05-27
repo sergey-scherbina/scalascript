@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-validator-simulator-tests** — Added `x402-escrow-plutus` ScalaTest coverage that constructs Scalus `ScriptContext` values directly for the escrow validator. Tests cover the claim happy path, tampered CIP-8 signature rejection, wrong receiver amount rejection, claim validity-window rejection, refund happy path, and refund timing rejection.
+
 - **v1.52.7-deploy-state-backends** — `JsonState` (zero-dep JSON ser/de for StateRecord). `LocalFileStateBackend` (~/.ssc-state/<app>/<env>/<target>.json; sibling .lock with TTL contention detection). `S3StateBackend` (aws s3api subprocess; optimistic mtime-based TTL lock). `ConsulStateBackend` (Consul KV HTTP API v1; session-based locking). `EtcdStateBackend` (etcdctl subprocess; lease-based locking). `StateBackendFactory` (backend dispatch; production-env enforcement). `StateMigrator` (ssc deploy state migrate; dry-run; skipped/failed tracking). 14 new tests; 105 total.
 
 - **v1.52.6-deploy-faas** — `FaasTarget` (`kind: faas`): AWS Lambda (LambdaZip via `buildLambdaZip`+`ZipOutputStream`; `aws lambda create-function/update-function-code/publish-version/update-alias "live"`; `aws logs tail`), Cloudflare Workers (`wrangler deploy` with `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`), GCP Cloud Run (`gcloud run deploy --platform managed --allow-unauthenticated`), Vercel Functions (`vercel --prod`). All dry-run capable; `rollback` via Lambda alias version pointer. `TargetFactory` extended with `"faas"/"lambda"/"serverless"`. 11 new tests; 91 total.

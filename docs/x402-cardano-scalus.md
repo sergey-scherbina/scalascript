@@ -459,6 +459,12 @@ validator to UPLC:
   (2026-05-27)**: claim transactions must be entirely before
   `datum.validBefore`, and refund transactions must be entirely after
   `datum.refundAfter`.
+- Scalus script-context simulator tests for the on-chain validator.
+  **Landed (2026-05-27)**: `x402-escrow-plutus` now builds
+  `ScriptContext` values directly and verifies claim happy path,
+  tampered CIP-8 signature rejection, wrong receiver amount rejection,
+  claim validity-window rejection, refund happy path, and refund timing
+  rejection.
 - Tests: round-trip a Scalus-mode payment through the validator's
   off-chain claim flow (using Phase 4 settler).
 
@@ -473,8 +479,10 @@ validator to UPLC:
 
 - **Phase 1**: unit tests for the trait stub + facilitator
   delegation. No real chain interaction.
-- **Phase 2**: Scalus's evaluator running the compiled validator
-  against constructed datums / redeemers / script contexts.
+- **Phase 2**: Scalus script-context tests run the validator against
+  constructed datums / redeemers / script contexts. Landed coverage
+  includes claim happy path and rejection branches for signature,
+  output amount, validity range, and refund timing.
 - **Phase 3**: golden-string tests for script address per network.
 - **Phase 4**: integration tests skipped by default (`assume(env
   set)`), executed in CI under a `cardano-preprod-it` profile with
