@@ -72,6 +72,23 @@ enum BankRailsEvent:
   // Proxy not found or transaction rejected by the FAST network
   case PayNowFailed(txnRef: String, reason: String)
 
+  // ── Australia NPP / Osko (v1.57.1) ──────────────────────────────────────
+  // Osko settlement confirmed; payid carries the resolved PayID proxy value
+  case NppSettled(endToEndId: String, payid: String, amount: String, currency: String)
+  // PayID not found or NPP transaction rejected
+  case NppFailed(endToEndId: String, reason: String)
+
+  // ── Canada Interac e-Transfer (v1.57.2) ───────────────────────────────────
+  case CaInteracSent(transferId: String, recipient: String, amount: String)
+  case CaInteracReclaimed(transferId: String, reason: String)
+  case CaInteracExpired(transferId: String)
+  case CaEftReturned(transferId: String, returnCode: String, description: String)
+
+  // ── Mexico SPEI (v1.57.3) ────────────────────────────────────────────────
+  case MxSpeiConfirmed(claveRastreo: String, amount: String, currency: String)
+  case MxSpeiRejected(claveRastreo: String, errorCode: String, reason: String)
+  case MxSpeiReturned(claveRastreo: String, returnCode: String, description: String)
+
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String

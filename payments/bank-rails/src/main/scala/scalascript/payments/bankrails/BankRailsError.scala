@@ -89,3 +89,27 @@ case class ZenginOutsideWindow(nextOpen: java.time.ZonedDateTime)
  *  @param proxyValue the proxy value that was not resolved */
 case class PayNowProxyNotFound(proxyType: String, proxyValue: String)
     extends BankRailsError(s"PayNow proxy not found: $proxyType=$proxyValue")
+
+// ── Australia NPP (v1.57.1) ───────────────────────────────────────────────────
+
+/** NPP PayID (mobile / email / ABN / ACN / ORG) was not found in the PayID directory.
+ *  Raised during PayID resolution before the payment is submitted to the Osko network.
+ *  @param payid the PayID proxy value that was not resolved */
+case class NppPayIdNotFound(payid: String)
+    extends BankRailsError(s"AU NPP PayID not found: $payid")
+
+// ── Canada Interac e-Transfer (v1.57.2) ───────────────────────────────────────
+
+/** Interac e-Transfer recipient (email or phone) was not found in the Interac network.
+ *  @param recipient the email address or phone number that could not be found */
+case class InteracRecipientNotFound(recipient: String)
+    extends BankRailsError(s"Interac e-Transfer recipient not found: $recipient")
+
+// ── Mexico SPEI (v1.57.3) ────────────────────────────────────────────────────
+
+/** CLABE (Clave Bancaria Estandarizada) control-digit validation failed.
+ *  CLABE is an 18-digit number where the last digit is derived from the first 17.
+ *  @param clabe  the CLABE that failed validation
+ *  @param reason human-readable failure reason (wrong length, non-digits, bad check digit) */
+case class ClabeValidationError(clabe: String, reason: String)
+    extends BankRailsError(s"CLABE validation failed for '$clabe': $reason")

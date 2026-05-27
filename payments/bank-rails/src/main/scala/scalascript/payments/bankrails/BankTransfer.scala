@@ -26,6 +26,11 @@ case class BankAccount(
   zenginBankCode:   Option[String] = None,    // Japan Zengin: 4-digit bank code
   zenginBranchCode: Option[String] = None,    // Japan Zengin: 3-digit branch code
   paynowProxy:      Option[String] = None,    // SG PayNow: mobile / NRIC / UEN proxy
+  // v1.57 additions — all default to None, no existing call sites break
+  payid:            Option[String] = None,    // AU NPP: PayID proxy (mobile/email/ABN)
+  transitNumber:    Option[String] = None,    // Canada EFT: 5-digit transit/branch number
+  institutionNumber: Option[String] = None,   // Canada EFT: 3-digit institution (bank) number
+  clabe:            Option[String] = None,    // Mexico SPEI: 18-digit CLABE account number
 )
 
 /** Request to initiate a push bank transfer (credit transfer, Pix, FedNow). */

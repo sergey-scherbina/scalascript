@@ -19,3 +19,8 @@ enum RailKind:
   case IN_UPI          // India Unified Payments Interface (push + collect)
   case JP_ZENGIN       // Japan Zengin Data Telecommunication System
   case SG_PAYNOW       // Singapore PayNow (FAST + proxy resolution)
+  case AU_NPP          // Australia New Payments Platform (PayID + Osko)
+  // v1.57 additions
+  case CA_INTERAC      // Canada Interac e-Transfer (push by email/phone)
+  case CA_EFT          // Canada EFT via CPA Standard 005 (AFT credit/debit)
+  case MX_SPEI         // Mexico SPEI instant transfer (via STP/aggregator, CLABE)
