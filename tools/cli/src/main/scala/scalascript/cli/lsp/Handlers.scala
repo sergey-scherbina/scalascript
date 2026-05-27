@@ -57,7 +57,10 @@ class Handlers(docs: Documents):
         ),
         "completionProvider"       -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
-        )
+        ),
+        "codeActionProvider"       -> true,
+        "documentFormattingProvider" -> true,
+        "inlayHintProvider"        -> true
       ),
       "serverInfo" -> ujson.Obj(
         "name"    -> "scalascript-lsp",
@@ -851,3 +854,160 @@ class Handlers(docs: Documents):
       "start" -> ujson.Obj("line" -> sl, "character" -> sc),
       "end"   -> ujson.Obj("line" -> el, "character" -> ec)
     )
+  // ─── codeAction ─────────────────────────────────────────────────────
+
+  def codeAction(params: ujson.Value): ujson.Value =
+    val td  = params.obj("textDocument")
+    val uri = td("uri").str
+    val contextDiags = params.objOpt
+      .flatMap(_.get("context")).flatMap(_.objOpt)
+      .flatMap(_.get("diagnostics")).flatMap(_.arrOpt)
+      .map(_.toList)
+      .getOrElse(Nil)
+    docs.get(uri) match
+      case None => ujson.Arr()
+      case Some(_) =>
+        val actions = List.newBuilder[ujson.Value]
+        contextDiags.foreach { d =>
+          val msg = d.objOpt.flatMap(_.get("message")).flatMap(_.strOpt).getOrElse("")
+          if msg.startsWith("Reference to undefined name: ") then
+            val name = msg.stripPrefix("Reference to undefined name: ").trim
+            docs.importedInterfaces.foreach { case (alias, iface) =>
+              if (iface.exports ++ iface.externDefs).exists(_.name == name) then
+                actions += ujson.Obj(
+                  "title" -> s"Add import: import $alias.*",
+                  "kind"  -> "quickfix",
+                  "edit"  -> ujson.Obj(
+                    "changes" -> ujson.Obj(
+                      uri -> ujson.Arr(ujson.Obj(
+                        "range"   -> rangeJson(0, 0, 0, 0),
+                        "newText" -> s"import $alias.*\n"
+                      ))
+                    )
+                  )
+                )
+            }
+          else if msg.startsWith("Unused import: ") then
+            val diagRange = d.objOpt.flatMap(_.get("range"))
+            diagRange.foreach { r =>
+              val line = r.objOpt.flatMap(_.get("start")).flatMap(_.objOpt)
+                .flatMap(_.get("line")).flatMap(_.numOpt).map(_.toInt).getOrElse(0)
+              actions += ujson.Obj(
+                "title" -> "Remove unused import",
+                "kind"  -> "quickfix",
+                "edit"  -> ujson.Obj(
+                  "changes" -> ujson.Obj(
+                    uri -> ujson.Arr(ujson.Obj(
+                      "range"   -> rangeJson(line, 0, line + 1, 0),
+                      "newText" -> ""
+                    ))
+                  )
+                )
+              )
+            }
+        }
+        ujson.Arr.from(actions.result())
+
+  // ─── formatting ─────────────────────────────────────────────────────
+
+  def formatting(params: ujson.Value): ujson.Value =
+    val td  = params.obj("textDocument")
+    val uri = td("uri").str
+    docs.get(uri) match
+      case None => ujson.Arr()
+      case Some(state) =>
+        val lines = state.text.linesIterator.toIndexedSeq
+        val edits = List.newBuilder[ujson.Value]
+        lines.zipWithIndex.foreach { case (line, idx) =>
+          val stripped = line.stripTrailing()
+          val detabbed = stripped.replaceAll("	", "  ")
+          if detabbed != line then
+            edits += ujson.Obj(
+              "range"   -> rangeJson(idx, 0, idx, line.length),
+              "newText" -> detabbed
+            )
+        }
+        ujson.Arr.from(edits.result())
+
+  // ─── inlayHint ──────────────────────────────────────────────────────
+
+  def inlayHint(params: ujson.Value): ujson.Value =
+    val td  = params.obj("textDocument")
+    val uri = td("uri").str
+    val rangeStartLine = params.objOpt.flatMap(_.get("range")).flatMap(_.objOpt)
+      .flatMap(_.get("start")).flatMap(_.objOpt)
+      .flatMap(_.get("line")).flatMap(_.numOpt).map(_.toInt).getOrElse(0)
+    val rangeEndLine = params.objOpt.flatMap(_.get("range")).flatMap(_.objOpt)
+      .flatMap(_.get("end")).flatMap(_.objOpt)
+      .flatMap(_.get("line")).flatMap(_.numOpt).map(_.toInt).getOrElse(Int.MaxValue)
+    docs.get(uri) match
+      case None => ujson.Arr()
+      case Some(state) =>
+        import scala.meta.*
+        val hints = List.newBuilder[ujson.Value]
+        val blocks = state.module.toList.flatMap(collectBlocks)
+        blocks.foreach { case (cb, blockLine0) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) { tree =>
+              tree.traverse {
+                case d: Defn.Val if d.decltpe.isEmpty =>
+                  d.pats.foreach {
+                    case Pat.Var(n) =>
+                      val fileLine = n.pos.startLine + blockLine0
+                      if fileLine >= rangeStartLine && fileLine <= rangeEndLine then
+                        val inferredType = state.typed.flatMap { tm =>
+                          def search(sec: scalascript.typer.TypedSection): Option[String] =
+                            sec.definitions.collectFirst {
+                              case scalascript.typer.TypedDef.CodeBlock(_, _, defs) =>
+                                defs.find(_.name == n.value)
+                            }.flatten.map(_.tpe.show)
+                              .orElse(sec.subsections.iterator.flatMap(search).nextOption())
+                          tm.sections.iterator.flatMap(search).nextOption()
+                        }
+                        inferredType.foreach { tpe =>
+                          hints += ujson.Obj(
+                            "position" -> ujson.Obj(
+                              "line"      -> fileLine,
+                              "character" -> (n.pos.startColumn + n.value.length)
+                            ),
+                            "label"       -> s": $tpe",
+                            "kind"        -> 1,
+                            "paddingLeft" -> false
+                          )
+                        }
+                    case _ => ()
+                  }
+              }
+            }
+          }
+        }
+        ujson.Arr.from(hints.result())
+
+  // ─── didChangeWatchedFiles ───────────────────────────────────────────
+
+  def didChangeWatchedFiles(params: ujson.Value): List[LspProtocol.Notification] =
+    val changes = params.objOpt.flatMap(_.get("changes")).flatMap(_.arrOpt)
+      .map(_.toList).getOrElse(Nil)
+    changes.flatMap { c =>
+      val fileUri    = c.objOpt.flatMap(_.get("uri")).flatMap(_.strOpt).getOrElse("")
+      val changeType = c.objOpt.flatMap(_.get("type")).flatMap(_.numOpt).map(_.toInt).getOrElse(0)
+      if !fileUri.endsWith(".ssc") then Nil
+      else changeType match
+        case 3 =>
+          docs.close(fileUri); Nil
+        case _ =>
+          Documents.uriToPath(fileUri) match
+            case None => Nil
+            case Some(path) =>
+              val newText = scala.util.Try(os.read(path)).getOrElse("")
+              if docs.get(fileUri).isDefined then
+                val state = docs.change(fileUri, -1, newText)
+                List(LspProtocol.Notification(
+                  "textDocument/publishDiagnostics",
+                  ujson.Obj(
+                    "uri"         -> fileUri,
+                    "diagnostics" -> ujson.Arr.from(state.diagnostics.map(diagToJson))
+                  )
+                ))
+              else Nil
+    }

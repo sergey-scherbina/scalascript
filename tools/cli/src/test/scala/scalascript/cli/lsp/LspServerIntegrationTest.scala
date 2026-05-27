@@ -288,3 +288,69 @@ class LspServerIntegrationTest extends AnyFunSuite:
         assert(edits.nonEmpty, "expected at least one text edit")
     }
   }
+
+  test("ssc lsp: initialize advertises codeAction, formatting, inlayHint capabilities") {
+    withLspServer { (out, in) =>
+      val caps = initialize(out, in)
+      assert(caps("codeActionProvider").bool == true, "codeActionProvider")
+      assert(caps("documentFormattingProvider").bool == true, "documentFormattingProvider")
+      assert(caps("inlayHintProvider").bool == true, "inlayHintProvider")
+    }
+  }
+
+  test("ssc lsp: textDocument/formatting returns edits for trailing whitespace") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri     = "file:///tmp/fmt-integ.ssc"
+      val docText = "# T   \n\n```scala\nval x = 1  \n```\n"
+      didOpen(out, in, uri, docText)
+      val fmtResp = req(out, in, 2, "textDocument/formatting",
+        ujson.Obj(
+          "textDocument" -> ujson.Obj("uri" -> uri),
+          "options"      -> ujson.Obj("tabSize" -> 2, "insertSpaces" -> true)
+        ))
+      assert(fmtResp.obj.contains("result"), s"no result: $fmtResp")
+      val edits = fmtResp("result").arr
+      assert(edits.nonEmpty, "expected edits for trailing whitespace")
+    }
+  }
+
+  test("ssc lsp: textDocument/inlayHint returns array for open doc") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri     = "file:///tmp/ih-integ.ssc"
+      val docText = "# T\n\n```scala\nval x = 42\n```\n"
+      didOpen(out, in, uri, docText)
+      val ihResp = req(out, in, 2, "textDocument/inlayHint",
+        ujson.Obj(
+          "textDocument" -> ujson.Obj("uri" -> uri),
+          "range" -> ujson.Obj(
+            "start" -> ujson.Obj("line" -> 0, "character" -> 0),
+            "end"   -> ujson.Obj("line" -> 10, "character" -> 0)
+          )
+        ))
+      assert(ihResp.obj.contains("result"), s"no result: $ihResp")
+      // Result is an array (possibly empty if typer doesn't infer the type)
+      assert(ihResp("result").arrOpt.isDefined, "expected array result")
+    }
+  }
+
+  test("ssc lsp: textDocument/codeAction returns array") {
+    withLspServer { (out, in) =>
+      initialize(out, in)
+      val uri     = "file:///tmp/ca-integ.ssc"
+      val docText = "# T\n\n```scala\nval x: Int = 1\n```\n"
+      didOpen(out, in, uri, docText)
+      val caResp = req(out, in, 2, "textDocument/codeAction",
+        ujson.Obj(
+          "textDocument" -> ujson.Obj("uri" -> uri),
+          "range"        -> ujson.Obj(
+            "start" -> ujson.Obj("line" -> 3, "character" -> 0),
+            "end"   -> ujson.Obj("line" -> 3, "character" -> 14)
+          ),
+          "context"      -> ujson.Obj("diagnostics" -> ujson.Arr())
+        ))
+      assert(caResp.obj.contains("result"), s"no result: $caResp")
+      assert(caResp("result").arrOpt.isDefined, "expected array result")
+    }
+  }

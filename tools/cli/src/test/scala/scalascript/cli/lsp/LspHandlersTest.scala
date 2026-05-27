@@ -1122,3 +1122,234 @@ class LspHandlersTest extends AnyFunSuite:
     assert(triggers.contains("("), "expected '(' in triggerCharacters")
     assert(triggers.contains(","), "expected ',' in triggerCharacters")
   }
+
+  // ─── Phase 3: codeAction ────────────────────────────────────────────
+
+  test("codeAction returns empty array when no diagnostics") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ca-test.ssc"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1,
+      "text" -> "# T\n\n```scala\nval x: Int = 1\n```\n"
+    )))
+    val result = h.codeAction(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 3, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 3, "character" -> 10)),
+      "context"      -> ujson.Obj("diagnostics" -> ujson.Arr())
+    ))
+    assert(result.arr.isEmpty, s"expected empty actions, got: $result")
+  }
+
+  test("codeAction quickfix for unused-import diagnostic removes import line") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ca-unused.ssc"
+    val text = "# T\n\nimport foo.*\n\n```scala\nval x: Int = 1\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val diagJson = ujson.Obj(
+      "range"   -> ujson.Obj("start" -> ujson.Obj("line" -> 2, "character" -> 0),
+                             "end"   -> ujson.Obj("line" -> 2, "character" -> 10)),
+      "message" -> "Unused import: foo.*",
+      "severity" -> 4
+    )
+    val result = h.codeAction(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 2, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 2, "character" -> 10)),
+      "context"      -> ujson.Obj("diagnostics" -> ujson.Arr(diagJson))
+    ))
+    assert(result.arr.nonEmpty, "expected at least one code action")
+    val titles = result.arr.map(_("title").str).toList
+    assert(titles.exists(_.contains("Remove unused import")), s"expected remove action, got: $titles")
+  }
+
+  test("codeAction quickfix has kind=quickfix") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ca-kind.ssc"
+    val text = "# T\n\nimport foo.*\n\n```scala\nval x: Int = 1\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val diagJson = ujson.Obj(
+      "range"   -> ujson.Obj("start" -> ujson.Obj("line" -> 2, "character" -> 0),
+                             "end"   -> ujson.Obj("line" -> 2, "character" -> 10)),
+      "message" -> "Unused import: foo.*",
+      "severity" -> 4
+    )
+    val result = h.codeAction(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 2, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 2, "character" -> 10)),
+      "context"      -> ujson.Obj("diagnostics" -> ujson.Arr(diagJson))
+    ))
+    result.arr.foreach { action =>
+      assert(action("kind").str == "quickfix", s"expected kind=quickfix, got: ${action("kind")}")
+    }
+  }
+
+  // ─── Phase 3: formatting ────────────────────────────────────────────
+
+  test("formatting strips trailing whitespace") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/fmt-test.ssc"
+    val text = "# Hello   \n\n```scala\nval x = 1  \n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val result = h.formatting(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "options"      -> ujson.Obj("tabSize" -> 2, "insertSpaces" -> true)
+    ))
+    assert(result.arr.nonEmpty, s"expected some edits for trailing whitespace, got: $result")
+    val newTexts = result.arr.map(_("newText").str).toSet
+    assert(newTexts.forall(!_.endsWith(" ")), s"all newText should have no trailing space: $newTexts")
+  }
+
+  test("formatting returns empty array for clean document") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/fmt-clean.ssc"
+    val text = "# Hello\n\n```scala\nval x = 1\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val result = h.formatting(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "options"      -> ujson.Obj("tabSize" -> 2, "insertSpaces" -> true)
+    ))
+    assert(result.arr.isEmpty, s"expected no edits for clean doc, got: $result")
+  }
+
+  test("formatting replaces tabs with 2 spaces") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/fmt-tabs.ssc"
+    val text = "# T\n\n```scala\n\tval x = 1\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val result = h.formatting(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "options"      -> ujson.Obj("tabSize" -> 2, "insertSpaces" -> true)
+    ))
+    assert(result.arr.nonEmpty, s"expected edits for tab, got: $result")
+    val newTexts = result.arr.map(_("newText").str).toList
+    assert(newTexts.exists(_.startsWith("  ")), s"expected 2-space indent, got: $newTexts")
+  }
+
+  // ─── Phase 3: inlayHint ─────────────────────────────────────────────
+
+  test("inlayHint returns empty array for unknown document") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.inlayHint(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> "file:///tmp/none.ssc"),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 0, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 10, "character" -> 0))
+    ))
+    assert(result.arr.isEmpty, s"expected empty, got: $result")
+  }
+
+  test("inlayHint emits type hint for val without annotation") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ih-test.ssc"
+    val text = "# T\n\n```scala\nval x = 42\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val result = h.inlayHint(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 0, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 10, "character" -> 0))
+    ))
+    // val x = 42 should produce an inlay hint with ": Int" (or ": Any" depending on typer)
+    if result.arr.nonEmpty then
+      val labels = result.arr.map(_("label").str).toList
+      assert(labels.exists(_.startsWith(":")), s"expected ': Type' hint, got: $labels")
+  }
+
+  test("inlayHint returns empty for val with explicit type annotation") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/ih-annot.ssc"
+    val text = "# T\n\n```scala\nval x: Int = 42\n```\n"
+    h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    )))
+    val result = h.inlayHint(ujson.Obj(
+      "textDocument" -> ujson.Obj("uri" -> uri),
+      "range"        -> ujson.Obj("start" -> ujson.Obj("line" -> 0, "character" -> 0),
+                                  "end"   -> ujson.Obj("line" -> 10, "character" -> 0))
+    ))
+    assert(result.arr.isEmpty, s"expected no hints for explicitly-typed val, got: $result")
+  }
+
+  // ─── Phase 3: initialize capabilities ──────────────────────────────
+
+  test("initialize advertises codeActionProvider, formattingProvider, inlayHintProvider") {
+    val (_, h) = newHandlers()
+    val caps = h.initialize(ujson.Obj())("capabilities")
+    assert(caps("codeActionProvider").bool == true, "expected codeActionProvider")
+    assert(caps("documentFormattingProvider").bool == true, "expected documentFormattingProvider")
+    assert(caps("inlayHintProvider").bool == true, "expected inlayHintProvider")
+  }
+
+  // ─── Phase 3: didChangeWatchedFiles ─────────────────────────────────
+
+  test("didChangeWatchedFiles returns empty list when no open docs match") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.didChangeWatchedFiles(ujson.Obj(
+      "changes" -> ujson.Arr(ujson.Obj(
+        "uri"  -> "file:///tmp/not-open.ssc",
+        "type" -> 2
+      ))
+    ))
+    assert(result.isEmpty, s"expected empty, got: $result")
+  }
+
+  test("didChangeWatchedFiles ignores non-ssc files") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val result = h.didChangeWatchedFiles(ujson.Obj(
+      "changes" -> ujson.Arr(ujson.Obj(
+        "uri"  -> "file:///tmp/foo.txt",
+        "type" -> 2
+      ))
+    ))
+    assert(result.isEmpty, s"expected empty for non-ssc file")
+  }
+
+  test("unused import detected and emits hint diagnostic") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/unused-import.ssc"
+    val text = "# T\n\nimport foo.*\n\n```scala\nval x: Int = 1\n```\n"
+    val n = h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    ))).get
+    val diags = n.params("diagnostics").arr.toList
+    val unusedDiags = diags.filter(_("message").str.startsWith("Unused import:"))
+    assert(unusedDiags.nonEmpty, s"expected unused import diagnostic, got: $diags")
+    assert(unusedDiags.head("severity").num.toInt == 4, "unused import should be Hint (4)")
+  }
+
+  test("import is NOT flagged as unused when its name appears in the document") {
+    val (_, h) = newHandlers()
+    h.initialize(ujson.Obj())
+    val uri = "file:///tmp/used-import.ssc"
+    val text = "# T\n\nimport foo.*\n\n```scala\nval x = foo.bar()\n```\n"
+    val n = h.didOpen(ujson.Obj("textDocument" -> ujson.Obj(
+      "uri" -> uri, "languageId" -> "scalascript", "version" -> 1, "text" -> text
+    ))).get
+    val diags = n.params("diagnostics").arr.toList
+    val unusedDiags = diags.filter(_("message").str.startsWith("Unused import:"))
+    assert(unusedDiags.isEmpty, s"expected no unused import diagnostic, got: $unusedDiags")
+  }

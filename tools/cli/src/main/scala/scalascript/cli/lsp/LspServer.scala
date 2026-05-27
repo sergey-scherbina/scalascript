@@ -133,6 +133,18 @@ class LspServer(
           val result = handlers.signatureHelp(params)
           reply(LspProtocol.success(id, result))
 
+        case "textDocument/codeAction" =>
+          val result = handlers.codeAction(params)
+          reply(LspProtocol.success(id, result))
+
+        case "textDocument/formatting" =>
+          val result = handlers.formatting(params)
+          reply(LspProtocol.success(id, result))
+
+        case "textDocument/inlayHint" =>
+          val result = handlers.inlayHint(params)
+          reply(LspProtocol.success(id, result))
+
         case other =>
           reply(LspProtocol.failure(id, ErrorCodes.MethodNotFound, s"method not found: $other"))
     catch case e: Exception =>
@@ -165,6 +177,12 @@ class LspServer(
         try handlers.didClose(params)
         catch case e: Exception =>
           err.println(s"[lsp] didClose error: ${e.getMessage}")
+        DispatchResult.Continue
+
+      case "workspace/didChangeWatchedFiles" =>
+        try handlers.didChangeWatchedFiles(params).foreach(pushNotification)
+        catch case e: Exception =>
+          err.println(s"[lsp] didChangeWatchedFiles error: ${e.getMessage}")
         DispatchResult.Continue
 
       case _ =>

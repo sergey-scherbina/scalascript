@@ -111,7 +111,8 @@ class Documents:
         catch case e: Exception =>
           (None, Nil, List(LspDiagnostic(0, 0, 0, 1, 1, s"type-check failure: ${e.getMessage}", "typer")))
 
-    DocumentState(uri, version, text, mod, typed, parseDiags ++ typerDiags, newSnapshots)
+    val unusedImportDiags = detectUnusedImports(text)
+    DocumentState(uri, version, text, mod, typed, parseDiags ++ typerDiags ++ unusedImportDiags, newSnapshots)
 
   /** Walk a parsed module's sections and collect parse-error diagnostics
    *  from `Content.CodeBlock.parseError` (positions in block-local
@@ -136,6 +137,40 @@ class Documents:
       }
       s.subsections.foreach(walk)
     m.sections.foreach(walk)
+    buf.toList
+
+  private def detectUnusedImports(text: String): List[LspDiagnostic] =
+    val importRe = """^\s*import\s+(\S+)""".r
+    val lines    = text.linesIterator.toIndexedSeq
+    val buf      = scala.collection.mutable.ListBuffer.empty[LspDiagnostic]
+    lines.zipWithIndex.foreach { case (line, idx) =>
+      importRe.findFirstMatchIn(line).foreach { m =>
+        val importExpr = m.group(1)
+        val names: List[String] =
+          if importExpr.endsWith(".*") then
+            List(importExpr.stripSuffix(".*").split("\\.").last)
+          else
+            val braceIdx = importExpr.indexOf('{')
+            if braceIdx >= 0 then
+              importExpr.drop(braceIdx + 1).stripSuffix("}").split(",").toList
+                .map(_.trim).filterNot(_.isEmpty)
+            else
+              List(importExpr.split("\\.").last)
+        val isUsed = names.exists { name =>
+          lines.zipWithIndex.exists { case (l, i) => i != idx && l.contains(name) }
+        }
+        if !isUsed then
+          buf += LspDiagnostic(
+            line      = idx,
+            column    = line.indexOf("import"),
+            endLine   = idx,
+            endColumn = line.length,
+            severity  = 4,
+            message   = s"Unused import: $importExpr",
+            source    = "typer"
+          )
+      }
+    }
     buf.toList
 
   private def typeErrorToDiagnostic(te: TypeError): LspDiagnostic =
