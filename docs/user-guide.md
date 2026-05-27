@@ -2979,7 +2979,9 @@ the production default: live script ex-unit evaluation and Preprod validation
 remain planned. `BlockfrostClient.getProtocolParams()` reads latest-epoch
 fee/execution/collateral settings plus Plutus cost models, and
 `BloxbeanClaimTxBuilder.draftBalanced(...)` can use those params to estimate
-protocol min-fee from final draft CBOR size. `ScalusSettler.preprod/mainnet`
+protocol min-fee from final draft CBOR size. `ScalusSettlerConfig.claimExUnits`
+can carry conservative static Plutus ex-units into the redeemer and fee estimate
+until live node-backed ex-unit evaluation lands. `ScalusSettler.preprod/mainnet`
 exists for wiring and tests; its default builder fails explicitly until the
 remaining production pieces land.
 

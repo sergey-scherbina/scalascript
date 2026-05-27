@@ -133,6 +133,7 @@ class ScalusSettlerTest extends AnyFunSuite:
       feeLovelace          = BigInt(170_000),
       ttlSlot              = Some(123456L),
       validityStartSlot    = Some(123000L),
+      claimExUnits         = ScalusExUnits(mem = BigInt(1000), steps = BigInt(2000)),
     )
     val settler = ScalusSettler.preprod(cfg, builder)
     val result  = Await.result(settler.submit(scalusPayload, req), 5.seconds)
@@ -153,6 +154,7 @@ class ScalusSettlerTest extends AnyFunSuite:
     assert(plan.feeLovelace == BigInt(170_000))
     assert(plan.ttlSlot.contains(123456L))
     assert(plan.validityStart.contains(123000L))
+    assert(plan.claimExUnits == ScalusExUnits(mem = BigInt(1000), steps = BigInt(2000)))
     assert(plan.claimRedeemer == EscrowRedeemerCodec.claim(CardanoPaymentProof("", "c0ffee", "cafe")))
   }
 

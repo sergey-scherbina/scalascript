@@ -7,6 +7,8 @@ import java.math.BigInteger
 import java.util.Collections
 import scala.concurrent.{ExecutionContext, Future}
 
+case class ScalusExUnits(mem: BigInt, steps: BigInt)
+
 case class ScalusSettlerConfig(
   network:              Network,
   blockfrost:           BlockfrostClient,
@@ -16,6 +18,7 @@ case class ScalusSettlerConfig(
   feeLovelace:          BigInt                  = BigInt(0),
   ttlSlot:              Option[Long]            = None,
   validityStartSlot:    Option[Long]            = None,
+  claimExUnits:         ScalusExUnits           = ScalusExUnits(BigInt(0), BigInt(0)),
 )
 
 case class ClaimTxPlan(
@@ -32,6 +35,7 @@ case class ClaimTxPlan(
   feeLovelace:     BigInt                  = BigInt(0),
   ttlSlot:         Option[Long]            = None,
   validityStart:   Option[Long]            = None,
+  claimExUnits:    ScalusExUnits           = ScalusExUnits(BigInt(0), BigInt(0)),
 ):
   lazy val claimRedeemer: com.bloxbean.cardano.client.plutus.spec.PlutusData =
     EscrowRedeemerCodec.claim(CardanoPaymentProof("", coseSign1Hex, coseKeyHex))
@@ -76,10 +80,11 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
     plan:   ClaimTxPlan,
     params: BlockfrostProtocolParams,
   ): com.bloxbean.cardano.client.transaction.spec.Transaction =
+    val exUnits = Seq(plan.claimExUnits.mem -> plan.claimExUnits.steps)
     val first = buildTransaction(plan.copy(feeLovelace = BigInt(0)))
-    val firstFee = ScalusFeeBalancer.estimate(params, first.serialize().length).total
+    val firstFee = ScalusFeeBalancer.estimate(params, first.serialize().length, exUnits).total
     val second = buildTransaction(plan.copy(feeLovelace = firstFee))
-    val secondFee = ScalusFeeBalancer.estimate(params, second.serialize().length).total
+    val secondFee = ScalusFeeBalancer.estimate(params, second.serialize().length, exUnits).total
     if secondFee == firstFee then second
     else buildTransaction(plan.copy(feeLovelace = secondFee))
 
@@ -107,7 +112,7 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
       .tag(RedeemerTag.Spend)
       .index(0)
       .data(plan.claimRedeemer)
-      .exUnits(ExUnits.builder().mem(BigInteger.ZERO).steps(BigInteger.ZERO).build())
+      .exUnits(ExUnits.builder().mem(bigInteger(plan.claimExUnits.mem)).steps(bigInteger(plan.claimExUnits.steps)).build())
       .build()
     val scriptDataHash = ScriptDataHashGenerator.generate(
       Era.Conway,
@@ -198,6 +203,7 @@ final class BloxbeanScalusSettler private (
         feeLovelace     = cfg.feeLovelace,
         ttlSlot         = cfg.ttlSlot,
         validityStart   = cfg.validityStartSlot,
+        claimExUnits    = cfg.claimExUnits,
       )
 
 object BloxbeanScalusSettler:

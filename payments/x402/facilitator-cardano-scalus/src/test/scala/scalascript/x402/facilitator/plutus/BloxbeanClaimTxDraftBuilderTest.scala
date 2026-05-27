@@ -27,6 +27,7 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     feeLovelace     = BigInt(170_000),
     ttlSlot         = Some(123456L),
     validityStart   = Some(123000L),
+    claimExUnits    = ScalusExUnits(mem = BigInt(1000), steps = BigInt(2000)),
   )
 
   private val params = BlockfrostProtocolParams(
@@ -72,11 +73,17 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     assert(redeemer.getTag == RedeemerTag.Spend)
     assert(redeemer.getIndex.intValue == 0)
     assert(redeemer.getData.asInstanceOf[ConstrPlutusData].getAlternative == 0L)
+    assert(redeemer.getExUnits.getMem == BigInt(1000).bigInteger)
+    assert(redeemer.getExUnits.getSteps == BigInt(2000).bigInteger)
   }
 
   test("balanced draft estimates fee from protocol params and serialized size") {
     val tx = BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan.copy(feeLovelace = BigInt(0)), params)
-    val expected = ScalusFeeBalancer.estimate(params, tx.serialize().length).total
+    val expected = ScalusFeeBalancer.estimate(
+      params,
+      tx.serialize().length,
+      Seq(plan.claimExUnits.mem -> plan.claimExUnits.steps),
+    ).total
     assert(tx.getBody.getFee.toString == expected.toString)
   }
 
@@ -90,5 +97,6 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     val tx = Transaction.deserialize(bytes)
 
     assert(fetched)
-    assert(tx.getBody.getFee == BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan.copy(feeLovelace = BigInt(0)), params).getBody.getFee)
+    val expectedTx = BloxbeanClaimTxDraftBuilder.buildBalancedTransaction(plan.copy(feeLovelace = BigInt(0)), params)
+    assert(tx.getBody.getFee == expectedTx.getBody.getFee)
   }

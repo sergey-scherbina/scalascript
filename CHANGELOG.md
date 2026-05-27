@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-static-exunits** — Added static `ScalusExUnits` wiring for the Cardano/Scalus claim Tx draft: configured ex-units now flow into `ClaimTxPlan`, the bloxbean redeemer, and balanced fee estimation. Live node-backed ex-unit evaluation remains open.
+
 - **x402-cardano-scalus-fee-balancer** — Added `ScalusFeeBalancer` and `BloxbeanClaimTxBuilder.draftBalanced(...)`: the Cardano/Scalus claim Tx draft now estimates protocol min-fee from Blockfrost protocol params and final serialized CBOR size, with async params wiring for Blockfrost-backed builders. Live script ex-unit evaluation remains open.
 
 - **v1.53** — Traditional Payment Processors spec landed (`docs/traditional-payments.md`). `PaymentProvider` SPI (14 methods: PaymentIntent / Customer+Vault / Subscriptions / Refunds+Disputes / Webhooks), fiat-aware `Money` type (Long minor units, ISO 4217 + crypto codes, banker's rounding, `allocate`), `WebhookReceiver[E]` primitive (HMAC/RSA verify + `SeenKeyStore` idempotency + replay protection), `IdempotencyKey` threading, `SCAChallenge` / 3DS2 flow, subscription lifecycle (proration / dunning / invoicing), full dispute lifecycle + evidence submission, vault (`Customer` + `StoredMethod` + `Mandate`). Closes `chargeCard()` placeholder from v1.38 Payment Request. Adapters deferred to v1.53.1–v1.53.7 (Stripe canonical first, then PayPal/Braintree, Adyen/Checkout.com, Square). Bank rails (SEPA/ACH/Pix/FedNow) deferred to v1.54+. Go/no-go: **go**.

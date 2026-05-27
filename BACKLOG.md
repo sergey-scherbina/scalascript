@@ -3886,6 +3886,10 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             linear min-fee formula to final draft CBOR size;
             `BloxbeanClaimTxBuilder.draftBalanced(...)` supports
             static params or async Blockfrost params.
+      - [x] Static Plutus ex-units wiring ✓ Landed
+            (2026-05-27): `ScalusSettlerConfig.claimExUnits` flows
+            into `ClaimTxPlan`, redeemer `ExUnits`, and balanced fee
+            estimation.
       - [ ] Live script ex-unit evaluation via node-backed
             `TransactionEvaluator`
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)

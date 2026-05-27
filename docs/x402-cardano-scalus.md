@@ -386,6 +386,10 @@ validator to UPLC:
   rebuild so the body fee matches the final CBOR size. Script ex-units
   can be added to the estimate, but live ex-unit evaluation remains
   open until the builder has a node-backed `TransactionEvaluator`.
+- **Landed (2026-05-27):** static `ScalusExUnits` now flows from
+  `ScalusSettlerConfig.claimExUnits` into `ClaimTxPlan`, the claim
+  redeemer's `ExUnits`, and the balanced fee estimate. Operators can
+  pin conservative ex-units before live evaluator wiring lands.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is
