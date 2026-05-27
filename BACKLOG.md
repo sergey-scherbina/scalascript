@@ -1747,7 +1747,7 @@ worth a separate fix when somebody has cycles.
 
 ## CLI — native binary (GraalVM native-image)
 
-**Status:** planned — unblocked, ready to implement.
+**Status:** Phase 1 ✓ Landed (2026-05-27). Phase 2–3 planned — unblocked.
 
 Produce a self-contained `ssc` native executable via GraalVM native-image:
 no JVM installation required, cold-start drops from ~1-2 s → ~50-100 ms.
@@ -1755,9 +1755,14 @@ Current baseline: `ssc.jar` 29.4 MiB → ProGuard-shrunk `ssc-min.jar` 26.4 MiB
 (task: `sbt cli/shrinkJar`).  Native-image produces a 60-100 MiB binary
 (embeds GC + thread runtime) but removes the JVM dependency entirely.
 
-### Phase 1 — replace snakeyaml (~2 days)
+### Phase 1 — replace snakeyaml ✓ Landed (2026-05-27)
 
-snakeyaml is the highest-risk dependency for native-image: it uses Java bean
+`lang/yaml/src/main/scala/scalascript/parser/SimpleYaml.scala` — pure-Scala
+recursive-descent YAML subset parser (~250 LOC); returns Java collection types
+matching snakeyaml's "native" load API (LinkedHashMap/ArrayList) so all call
+sites work unchanged.  `org.yaml.snakeyaml` removed from `build.sbt`.
+
+snakeyaml was the highest-risk dependency for native-image: it uses Java bean
 reflection extensively and has a long history of requiring hand-patched
 `reflect-config.json` that drifts on every update.
 
@@ -4724,14 +4729,20 @@ device, one seed, per-chain on-device apps; the Vault routes
 - [ ] `wallet-vault-ledger-js` — WebHID transport (Scala.js).
       Deferred — Scala.js cross-compile of the shared types comes
       with the broader wallet-spi Scala.js sweep.
-- [ ] Solana-app signer: ed25519 + Solana sign-doc framing.
-      Deferred to follow-up slice (mirror of `EthereumApp` for
-      `app-solana`; CLA=0xE0, INS=0x05 SIGN_OFFCHAIN_MESSAGE /
-      INS=0x04 SIGN; default path `m/44'/501'/0'/0'`).
-- [ ] Bitcoin-app signer: PSBT-aware (depends on blockchain-spi
-      Phase 5). Deferred.
-- [ ] Cardano-app signer: CIP-8 framing (depends on blockchain-spi
-      Phase 6). Deferred.
+- [ ] Solana-app signer: `wallet-vault-ledger-solana` — ed25519 + Solana
+      sign-doc framing; CLA=0xE0, INS=0x04 SIGN_TRANSACTION / INS=0x07
+      SIGN_OFFCHAIN_MESSAGE; default path `m/44'/501'/0'/0'`; Base58
+      pubkey display; 10+ tests via MockTransport.
+      **In WORK_QUEUE as `wallet-ledger-solana`** (claimed 2026-05-27).
+- [ ] Bitcoin-app signer: `wallet-vault-ledger-bitcoin` — PSBT-aware;
+      CLA=0xE1 (new Bitcoin app protocol v2+); INS=0x04 SIGN_PSBT;
+      LedgerBitcoinVault wraps PsbtBuilder from blockchain-bitcoin;
+      10+ tests via MockTransport.
+      **In WORK_QUEUE as `wallet-ledger-bitcoin`** (claimed 2026-05-27).
+- [ ] Cardano-app signer: `wallet-vault-ledger-cardano` — CIP-8 framing;
+      CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x20 SIGN_TX;
+      10+ tests via MockTransport.
+      **In WORK_QUEUE as `wallet-ledger-cardano`** (unclaimed).
 - [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
       Nano X / Stax. Deferred.
 - [ ] Optional `wallet-vault-trezor` follow-up. Deferred.
