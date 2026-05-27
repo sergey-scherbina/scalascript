@@ -13,6 +13,9 @@ case class ScalusSettlerConfig(
   relayerSigningKeyHex: String,
   collateralRef:        Option[ScalusEscrowRef] = None,
   relayerKeyHashHex:    Option[String]          = None,
+  feeLovelace:          BigInt                  = BigInt(0),
+  ttlSlot:              Option[Long]            = None,
+  validityStartSlot:    Option[Long]            = None,
 )
 
 case class ClaimTxPlan(
@@ -26,6 +29,9 @@ case class ClaimTxPlan(
   relayerKeyHex:   String,
   collateralRef:   Option[ScalusEscrowRef] = None,
   requiredSigner:  Option[Array[Byte]]     = None,
+  feeLovelace:     BigInt                  = BigInt(0),
+  ttlSlot:         Option[Long]            = None,
+  validityStart:   Option[Long]            = None,
 ):
   lazy val claimRedeemer: com.bloxbean.cardano.client.plutus.spec.PlutusData =
     EscrowRedeemerCodec.claim(CardanoPaymentProof("", coseSign1Hex, coseKeyHex))
@@ -45,9 +51,8 @@ object BloxbeanClaimTxBuilder:
 
   /** Draft serializer for the deterministic script-input/output/redeemer
    *  skeleton. It is intentionally not the default production builder:
-   *  fee balancing, collateral inputs, relayer vkey witness, and script
-   *  data hash evaluation still have to be layered in before submission
-   *  to a live network. */
+   *  protocol-parameter fee balancing and live script-cost evaluation still
+   *  have to be layered in before submission to a live network. */
   val draft: ClaimTxBuilder = BloxbeanClaimTxDraftBuilder
 
 object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
@@ -56,8 +61,11 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
 
   def buildTransaction(plan: ClaimTxPlan): com.bloxbean.cardano.client.transaction.spec.Transaction =
     import com.bloxbean.cardano.client.plutus.spec.*
+    import com.bloxbean.cardano.client.plutus.util.ScriptDataHashGenerator
     import com.bloxbean.cardano.client.spec.{Era, NetworkId}
+    import com.bloxbean.cardano.client.transaction.TransactionSigner
     import com.bloxbean.cardano.client.transaction.spec.*
+    import com.bloxbean.cardano.client.crypto.SecretKey
 
     val input = TransactionInput.builder()
       .transactionId(plan.escrowRef.txHash)
@@ -67,18 +75,6 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
       .address(plan.receiverAddress)
       .value(Value.fromCoin(bigInteger(plan.lovelace)))
       .build()
-    val bodyBuilder = TransactionBody.builder()
-      .inputs(Collections.singletonList(input))
-      .outputs(Collections.singletonList(output))
-      .fee(BigInteger.ZERO)
-      .networkId(if plan.network == Network.CardanoMainnet then NetworkId.MAINNET else NetworkId.TESTNET)
-    plan.collateralRef.foreach { ref =>
-      bodyBuilder.collateral(Collections.singletonList(transactionInput(ref)))
-    }
-    plan.requiredSigner.foreach { keyHash =>
-      bodyBuilder.requiredSigners(Collections.singletonList(keyHash))
-    }
-    val body = bodyBuilder.build()
     val script: PlutusV3Script = PlutusV3Script.builder()
       .cborHex(X402EscrowCompiled.doubleCborHex)
       .build()
@@ -89,16 +85,38 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
       .data(plan.claimRedeemer)
       .exUnits(ExUnits.builder().mem(BigInteger.ZERO).steps(BigInteger.ZERO).build())
       .build()
+    val scriptDataHash = ScriptDataHashGenerator.generate(
+      Era.Conway,
+      Collections.singletonList(redeemer),
+      Collections.emptyList(),
+      CostMdls(),
+    )
+    val bodyBuilder = TransactionBody.builder()
+      .inputs(Collections.singletonList(input))
+      .outputs(Collections.singletonList(output))
+      .fee(bigInteger(plan.feeLovelace))
+      .scriptDataHash(scriptDataHash)
+      .networkId(if plan.network == Network.CardanoMainnet then NetworkId.MAINNET else NetworkId.TESTNET)
+    plan.collateralRef.foreach { ref =>
+      bodyBuilder.collateral(Collections.singletonList(transactionInput(ref)))
+    }
+    plan.requiredSigner.foreach { keyHash =>
+      bodyBuilder.requiredSigners(Collections.singletonList(keyHash))
+    }
+    plan.ttlSlot.foreach(bodyBuilder.ttl)
+    plan.validityStart.foreach(bodyBuilder.validityStartInterval)
+    val body = bodyBuilder.build()
     val witnesses = TransactionWitnessSet.builder()
       .plutusV3Scripts(Collections.singletonList(script))
       .redeemers(Collections.singletonList(redeemer))
       .build()
-    Transaction.builder()
+    val tx = Transaction.builder()
       .era(Era.Conway)
       .body(body)
       .witnessSet(witnesses)
       .isValid(true)
       .build()
+    TransactionSigner.INSTANCE.sign(tx, SecretKey.create(EscrowRedeemerCodec.hexToBytes(plan.relayerKeyHex)))
 
   private def bigInteger(value: BigInt): BigInteger =
     new BigInteger(value.toString)
@@ -153,6 +171,9 @@ final class BloxbeanScalusSettler private (
         relayerKeyHex   = cfg.relayerSigningKeyHex,
         collateralRef   = cfg.collateralRef,
         requiredSigner  = required,
+        feeLovelace     = cfg.feeLovelace,
+        ttlSlot         = cfg.ttlSlot,
+        validityStart   = cfg.validityStartSlot,
       )
 
 object BloxbeanScalusSettler:

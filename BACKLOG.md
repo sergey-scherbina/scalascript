@@ -3804,7 +3804,14 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
             (2026-05-27): optional `ScalusSettlerConfig.collateralRef`
             and `relayerKeyHashHex` flow into draft transaction
             collateral inputs and required signers.
-      - [ ] Fee balancing + script data hash + relayer vkey witness
+      - [x] Draft script data hash + relayer vkey witness ✓ Landed
+            (2026-05-27): explicit `feeLovelace`, `ttlSlot`, and
+            `validityStartSlot` flow into the transaction body;
+            bloxbean `ScriptDataHashGenerator` computes the script
+            data hash; `TransactionSigner` attaches a relayer
+            `VkeyWitness`.
+      - [ ] Protocol-params fee balancing + live script ex-unit
+            evaluation
 - [x] Submission via Blockfrost `submitTx` (Ogmios as Phase-5+ option)
       ✓ Landed (2026-05-27): builder-produced CBOR is submitted
       through `BlockfrostClient.submitTx`; tests pin Ok/Fail behavior.

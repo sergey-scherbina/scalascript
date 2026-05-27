@@ -359,16 +359,22 @@ validator to UPLC:
 - **Landed (2026-05-27):** `BloxbeanClaimTxBuilder.draft` serializes a
   bloxbean `Transaction` skeleton containing the escrow script input,
   receiver output, Plutus V3 script, and Spend redeemer. It is not the
-  production default because fee balancing, collateral, and relayer
-  witness are still open.
+  production default because protocol-parameter fee balancing and live
+  script-cost evaluation are still open.
 - **Landed (2026-05-27):** the draft builder now carries optional
   `ScalusSettlerConfig.collateralRef` into the transaction body's
   collateral inputs and optional `relayerKeyHashHex` into
   `requiredSigners`. This pins the production transaction boundary
   without yet generating the relayer vkey witness.
+- **Landed (2026-05-27):** the draft builder now also carries explicit
+  `feeLovelace`, `ttlSlot`, and `validityStartSlot` config into the
+  transaction body, computes the script data hash from the claim
+  redeemer via bloxbean `ScriptDataHashGenerator`, and attaches a
+  relayer `VkeyWitness` using `TransactionSigner`.
 - **Still open:** the default `BloxbeanClaimTxBuilder` fails
-  explicitly until Plutus witness / redeemer construction is
-  implemented on top of `cardano-client-lib`.
+  explicitly until protocol-params-backed fee balancing, real ex-unit
+  evaluation, and integration validation are implemented on top of
+  `cardano-client-lib` / Blockfrost.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is

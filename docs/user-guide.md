@@ -2966,14 +2966,19 @@ Cardano flow with CIP-8 wallet + Scalus escrow validator).
 Cardano Scalus escrow support is still incomplete: the compiled Plutus validator
 is committed and `EscrowScript.address(network)` can derive stable mainnet and
 testnet script addresses, but reference-script deployment and real claim
-transaction building remain planned. The client also exposes
+transaction integration remain planned. The client also exposes
 `Wallets.cardano(hex, network, scalusMode = true)` for the planned escrow flow:
 it signs a structured Scalus claim message and carries the escrow UTxO ref in
 `authorization.nonce`. `CardanoProvider.Scalus` can verify that structured
 claim proof before settlement, but current production Cardano flows should keep
 using the default non-Scalus mode until the Plutus claim transaction builder is
-implemented. `ScalusSettler.preprod/mainnet` exists for wiring and tests; its
-default builder fails explicitly until real bloxbean witness construction lands.
+validated against Preprod. `BloxbeanClaimTxBuilder.draft` can serialize a
+claim transaction draft with script input/output, redeemer, collateral,
+required signer, script data hash, and relayer vkey witness. It is still not
+the production default: protocol-params fee balancing and live script ex-unit
+evaluation remain planned. `ScalusSettler.preprod/mainnet` exists for wiring
+and tests; its default builder fails explicitly until the remaining production
+pieces land.
 
 ---
 

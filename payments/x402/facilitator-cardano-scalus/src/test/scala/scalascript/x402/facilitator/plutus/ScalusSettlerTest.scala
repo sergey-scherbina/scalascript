@@ -130,6 +130,9 @@ class ScalusSettlerTest extends AnyFunSuite:
       relayerSigningKeyHex = "11" * 32,
       collateralRef        = Some(ScalusEscrowRef("b" * 64, 0)),
       relayerKeyHashHex    = Some("42" * 28),
+      feeLovelace          = BigInt(170_000),
+      ttlSlot              = Some(123456L),
+      validityStartSlot    = Some(123000L),
     )
     val settler = ScalusSettler.preprod(cfg, builder)
     val result  = Await.result(settler.submit(scalusPayload, req), 5.seconds)
@@ -147,6 +150,9 @@ class ScalusSettlerTest extends AnyFunSuite:
     assert(plan.relayerKeyHex == "11" * 32)
     assert(plan.collateralRef.contains(ScalusEscrowRef("b" * 64, 0)))
     assert(plan.requiredSigner.exists(_.toSeq == Array.fill[Byte](28)(0x42.toByte).toSeq))
+    assert(plan.feeLovelace == BigInt(170_000))
+    assert(plan.ttlSlot.contains(123456L))
+    assert(plan.validityStart.contains(123000L))
     assert(plan.claimRedeemer == EscrowRedeemerCodec.claim(CardanoPaymentProof("", "c0ffee", "cafe")))
   }
 

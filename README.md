@@ -331,7 +331,7 @@ Planned, not implemented yet:
 | Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
 | Solana Wallet Standard | `solana-wallet-std` translator — Wallet Standard ↔ unified Wallet SPI |
 | ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
-| Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator, stable `EscrowScript.address(network)` script address helper, planned Scalus-mode wallet flow with structured claim-message signing, server-side Scalus proof verification, and bloxbean settler wiring |
+| Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator, stable `EscrowScript.address(network)` script address helper, Scalus-mode structured claim-message signing, server-side Scalus proof verification, and bloxbean claim Tx draft with script data hash + relayer witness; protocol-params fee balancing remains planned |
 | Cross-backend crypto | JVM: native `Ed25519`, secp256k1, BLS12-381; JS: `@noble/curves` Scala.js backend — uniform `CryptoBackend` SPI |
 | MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
 

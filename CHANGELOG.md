@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **x402-cardano-scalus-tx-witness** — Hardened the bloxbean Scalus claim transaction draft with explicit fee/TTL/validity body fields, computed script data hash via bloxbean `ScriptDataHashGenerator`, and relayer `VkeyWitness` signing via `TransactionSigner`. Protocol-params fee balancing and live ex-unit evaluation remain open.
+
 - **v2.1.0** — Distributed Streams spec landed (`docs/distributed-streams.md`). Full Apache Beam model: `DStream[T]` / `KV[K,V]` / `Pipeline` / `PipelineResult`; event-time watermarks (`WatermarkStrategy`); Fixed/Sliding/Session/Global windowing; `Trigger` (AfterWatermark, AfterProcessingTime, AfterCount, Composite); panes (EARLY, ON_TIME, LATE) + accumulation modes (Discarding, Accumulating, AccumulatingAndRetracting); `Capability` enum (Set-based, checked at `.run()`); 5 first-class backends (Native v1.22 actors, Apache Spark, Apache Kafka Streams, Apache Flink, Apache Beam); `DSource[T]` / `DSink[T]` connector abstractions; `Coder[T]` unified serialisation with per-backend adapters; `DirectRunner` in-process test backend; integration bridges (`DStream ↔ Source[A]`, `DStream ↔ Dataset[T]`); 7 implementation phases (v2.1.1–v2.1.7). Go/no-go: **go**.
 
 - **x402-cardano-scalus-tx-required-fields** — Extended the bloxbean Scalus claim transaction draft with optional collateral input and required signer key hash: `ScalusSettlerConfig.collateralRef` maps into body collateral, `relayerKeyHashHex` maps into body required signers, with validation and round-trip tests. Fee balancing and relayer vkey witness remain open.

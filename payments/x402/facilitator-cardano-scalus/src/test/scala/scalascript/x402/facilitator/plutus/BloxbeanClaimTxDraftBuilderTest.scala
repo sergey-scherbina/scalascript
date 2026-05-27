@@ -19,6 +19,9 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     relayerKeyHex   = "11" * 32,
     collateralRef   = Some(ScalusEscrowRef("b" * 64, 3)),
     requiredSigner  = Some(Array.fill[Byte](28)(0x42.toByte)),
+    feeLovelace     = BigInt(170_000),
+    ttlSlot         = Some(123456L),
+    validityStart   = Some(123000L),
   )
 
   test("draft builder serializes a bloxbean Transaction skeleton") {
@@ -35,10 +38,17 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     assert(tx.getBody.getCollateral.get(0).getIndex == 3)
     assert(tx.getBody.getRequiredSigners.size == 1)
     assert(tx.getBody.getRequiredSigners.get(0).toSeq == Array.fill[Byte](28)(0x42.toByte).toSeq)
+    assert(tx.getBody.getFee.toString == "170000")
+    assert(tx.getBody.getTtl == 123456L)
+    assert(tx.getBody.getValidityStartInterval == 123000L)
+    assert(tx.getBody.getScriptDataHash.length == 32)
     assert(tx.getBody.getOutputs.size == 1)
     assert(tx.getBody.getOutputs.get(0).getAddress == plan.receiverAddress)
     assert(tx.getBody.getOutputs.get(0).getValue.getCoin.toString == "2000000")
 
+    assert(tx.getWitnessSet.getVkeyWitnesses.size == 1)
+    assert(tx.getWitnessSet.getVkeyWitnesses.get(0).getVkey.length == 32)
+    assert(tx.getWitnessSet.getVkeyWitnesses.get(0).getSignature.length == 64)
     assert(tx.getWitnessSet.getPlutusV3Scripts.size == 1)
     assert(tx.getWitnessSet.getRedeemers.size == 1)
     val redeemer = tx.getWitnessSet.getRedeemers.get(0)
