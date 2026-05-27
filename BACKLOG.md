@@ -2709,23 +2709,26 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   questions.  No code changes; gives the parallel Streaming track
 >   (`feature/spark-phase-f-streaming`) a stable contract to compose
 >   against.
-> - **L.2 — Delta Lake (landed 2026-05-20).**  `.format("delta")`
->   detection (case-insensitive regex on all collected block sources)
->   triggers `//> using dep "io.delta:delta-spark_2.13:3.2.0"` in the
->   header plus `.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")`
->   and `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")`
->   on `SparkSession.builder()`.  Layered between adaptive `local*`
+> - **L.2 — Delta Lake (landed 2026-05-27).**  Three detection
+>   paths: `.format("delta")` (case-insensitive), `import io.delta.*`,
+>   and `DeltaTable.` identifier — any one triggers the full L.2 emit.
+>   Auto-emits `//> using dep "io.delta:delta-spark_2.13:3.2.0"`,
+>   `.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")`,
+>   `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")`,
+>   and `import io.delta.tables.DeltaTable` in the generated source
+>   (via `lakehouseImports`).  Layered between adaptive `local*`
 >   defaults and user `spark-config:` so user overrides win
 >   (Spark builder is last-write).  `SparkGen.DefaultDeltaVersion`
 >   constant pins 3.2.0 (first Delta release with confirmed
->   Spark 4 `_2.13` support).  Tests: 12 new `SparkGenTest` cases
->   covering positive/negative detection, read+write symmetry,
->   case-insensitive matching, the substring trap (`"delta-stage"`
->   must not match), config ordering, and the helper functions
->   (`detectLakehouseFormats`, `lakehouseConfigs`) directly.
->   Example `examples/spark-delta-demo.ssc` (case-class Dataset
->   round-trip via `.format("delta")` write + read).  Smoke test
->   gated by `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_DELTA=1`.
+>   Spark 4 `_2.13` support).  `detectLakehouseFormats(String)`
+>   overload added.  Tests: 23 new `SparkGenTest` cases covering
+>   positive/negative detection across all 3 paths, read+write
+>   symmetry, case-insensitive matching, the substring trap
+>   (`"delta-stage"` must not match), config ordering, and the
+>   helper functions directly.  Examples: `spark-delta-demo.ssc`
+>   (original) + `spark-lakehouse-delta.ssc` (round-trip + Delta
+>   Table API history).  Smoke test gated by
+>   `RUN_SPARK_INTEGRATION=1` AND `RUN_SPARK_DELTA=1`.
 > - **L.3 — Iceberg (DEFERRED, 2026-05-20).**  Iceberg's Spark
 >   runtime artifact is named after the Spark major.minor it targets
 >   (`iceberg-spark-runtime-3.5_2.13`).  The 3.5 line is the latest

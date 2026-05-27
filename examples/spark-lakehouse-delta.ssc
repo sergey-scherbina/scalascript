@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: spark-lakehouse-delta
+backend: spark
+spark-version: 4.0.0
+description: Delta Lake lakehouse round-trip — write, read back, and inspect history
+---
+
+# Spark Lakehouse — Delta Lake (L.2)
+
+Demonstrates the L.2 Delta Lake auto-detection in `SparkGen`.
+
+The `.format("delta")` literal and the `import io.delta.tables.DeltaTable`
+statement each independently trigger the auto-emission of:
+
+- `//> using dep "io.delta:delta-spark_2.13:<version>"` so `scala-cli`
+  resolves the Delta runtime JAR via Coursier.
+- `.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")`
+  on `SparkSession.builder()` — registers Delta's SQL grammar extensions
+  (e.g. `MERGE INTO`, `DESCRIBE HISTORY`).
+- `.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")`
+  — makes Delta the default table catalog so ACID semantics apply to all
+  tables in this session.
+- `import io.delta.tables.DeltaTable` — auto-injected into the generated
+  source so the fluent Delta API (`forPath`, `history`, `vacuum`, `merge`)
+  is in scope without any manual front-matter entry.
+
+No `dependencies:` entry is needed in the front-matter; no `spark-config:`
+map is needed for the catalog wiring — the format literal and/or Delta
+import in the source IS the contract.
+
+Run with:
+
+```sh
+ssc run --backend spark examples/spark-lakehouse-delta.ssc
+```
+
+## Write and read back
+
+```scalascript
+case class Product(id: Int, name: String, price: Double)
+
+val products = Dataset.of(
+  Product(1, "widget",  9.99),
+  Product(2, "gadget", 24.99),
+  Product(3, "gizmo",   4.49)
+)
+
+val deltaPath = s"/tmp/ssc-lakehouse-delta-${System.currentTimeMillis()}"
+
+// Write as Delta — this literal triggers Delta dep + config auto-emit.
+products.write
+  .format("delta")
+  .mode("overwrite")
+  .save(deltaPath)
+
+println("=== written as Delta ===")
+
+// Read back via the standard Spark DataFrameReader path.
+val back = spark.read.format("delta").load(deltaPath)
+println("schema:")
+back.printSchema()
+println(s"row count: ${back.count()}")
+back.show()
+```
+
+## Inspect Delta history via the DeltaTable API
+
+```scalascript
+import io.delta.tables.DeltaTable
+
+// `DeltaTable.forPath` returns a fluent table handle backed by Delta's
+// transaction log.  The `history()` call reads the `_delta_log/` entries
+// and returns a DataFrame with operation, timestamp, and metrics columns.
+val dt = DeltaTable.forPath(spark, deltaPath)
+
+println("=== Delta transaction history ===")
+dt.history().select("version", "timestamp", "operation").show()
+```

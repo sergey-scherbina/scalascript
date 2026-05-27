@@ -511,24 +511,66 @@ object SparkGen:
    *  type `.format("Delta")` or `.format("DELTA")` and the runtime
    *  accepts all variants.  Capturing the literal `.format(` prefix
    *  (and not just the name) avoids matching `.format("delta-stage")`
-   *  or other arbitrary string occurrences. */
+   *  or other arbitrary string occurrences.
+   *
+   *  Additionally, two supplemental patterns detect Delta usage via
+   *  the Delta table API path:
+   *
+   *  - `DeltaImportPattern` — `import io.delta.` anywhere in the source
+   *    (e.g. `import io.delta.tables.DeltaTable`).  Users who build
+   *    on top of `DeltaTable.forName(...)` / `DeltaTable.create(...)`
+   *    / `DeltaTable.merge(...)` may skip `.format("delta")` entirely
+   *    and go straight to the Delta API; the import is the reliable
+   *    indicator.
+   *  - `DeltaTablePattern` — `DeltaTable.` bare identifier followed by
+   *    any non-space character.  Catches the common case where the user
+   *    imported via a wildcard or alias and calls `DeltaTable.forName`
+   *    / `DeltaTable.create` etc. directly without the `io.delta.`
+   *    qualifier visible in the source. */
   private val DeltaFormatPattern   = """(?i)\.format\(\s*"delta"\s*\)""".r
+  private val DeltaImportPattern   = """(?m)\bimport\s+io\.delta\.""".r
+  private val DeltaTablePattern    = """\bDeltaTable\.""".r
   private val IcebergFormatPattern = """(?i)\.format\(\s*"iceberg"\s*\)""".r
   private val HudiFormatPattern    = """(?i)\.format\(\s*"hudi"\s*\)""".r
 
+  /** Returns true if `source` contains any Delta-specific pattern:
+   *  `.format("delta")` (case-insensitive), `import io.delta.`, or
+   *  `DeltaTable.`.  Used by `detectLakehouseFormats` to consolidate
+   *  the three detection paths into a single boolean. */
+  private def containsDelta(source: String): Boolean =
+    DeltaFormatPattern.findFirstIn(source).isDefined  ||
+    DeltaImportPattern.findFirstIn(source).isDefined  ||
+    DeltaTablePattern.findFirstIn(source).isDefined
+
   /** Scan all collected block sources for `.format("delta" | "iceberg"
-   *  | "hudi")` literals and return the union of detected formats.
-   *  Blocks are scanned by simple regex find — O(n) per block, no
-   *  parsing or AST traversal, so the cost is negligible against
-   *  the rest of code generation. */
+   *  | "hudi")` literals — plus Delta's alternative detection paths
+   *  (`import io.delta.*` and `DeltaTable.` identifiers) — and return
+   *  the union of detected formats.  Blocks are scanned by simple
+   *  regex find — O(n) per block, no parsing or AST traversal, so the
+   *  cost is negligible against the rest of code generation.
+   *
+   *  Overload accepting a raw `source: String` is also provided for
+   *  callers that have already joined the block sources (e.g. tests
+   *  or reuse from the streaming detection helpers). */
   def detectLakehouseFormats(blocks: List[Block]): LakehouseFlags =
     blocks.foldLeft(LakehouseFlags.Empty) { (acc, b) =>
       LakehouseFlags(
-        usesDelta   = acc.usesDelta   || DeltaFormatPattern.findFirstIn(b.src).isDefined,
+        usesDelta   = acc.usesDelta   || containsDelta(b.src),
         usesIceberg = acc.usesIceberg || IcebergFormatPattern.findFirstIn(b.src).isDefined,
         usesHudi    = acc.usesHudi    || HudiFormatPattern.findFirstIn(b.src).isDefined
       )
     }
+
+  /** Overload for callers that have a single joined source string
+   *  (e.g. the streaming / Hive detection helpers that already
+   *  compute `joinedUserSrc`).  Same detection logic; no allocation
+   *  of a synthetic `Block` list. */
+  def detectLakehouseFormats(source: String): LakehouseFlags =
+    LakehouseFlags(
+      usesDelta   = containsDelta(source),
+      usesIceberg = IcebergFormatPattern.findFirstIn(source).isDefined,
+      usesHudi    = HudiFormatPattern.findFirstIn(source).isDefined
+    )
 
   /** Configuration pairs the lakehouse formats need installed on
    *  `SparkSession.builder()` at session-creation time.  Returned in
@@ -849,6 +891,12 @@ private class SparkGen(
 
     // Spark imports.
     sb.append(sparkImports)
+    // Lakehouse track L.2 — Delta API imports (gated on Delta detection).
+    // `import io.delta.tables.DeltaTable` makes the fluent Delta API
+    // (merge, history, vacuum, etc.) available throughout the @main body.
+    // Emitted after the base Spark imports, before the PhaseE shim.
+    // Non-Delta modules produce byte-identical output (empty string gate).
+    sb.append(lakehouseImports(lakehouse))
 
     // Phase E — Scala 3 native `Encoder` derivation shim (v1.25 § 9.5).
     // Emitted at top level so its `inline given derived[T <: Product]`
@@ -1262,6 +1310,25 @@ private class SparkGen(
        |import org.apache.spark.sql.types._
        |import org.apache.spark.sql.streaming.{Trigger, StreamingQuery, OutputMode}
        |""".stripMargin
+
+  /** Lakehouse track L.2 — additional imports auto-emitted when Delta is
+   *  detected in the module source.  Emitted immediately after
+   *  `sparkImports` so `DeltaTable` (the fluent API for merge, history,
+   *  vacuum, schema evolution, etc.) and `DeltaMergeBuilder` are in
+   *  scope throughout the generated `@main def runSparkJob` body.
+   *
+   *  The `io.delta.tables.DeltaTable` import is the canonical entry point
+   *  for all advanced Delta operations beyond basic read / write.  Even
+   *  if the user only writes `ds.write.format("delta").save(path)`, having
+   *  the import present means they can expand to `DeltaTable.forPath(...)`
+   *  / `.history()` / `.vacuum()` without hitting an unresolved identifier
+   *  and having to regenerate the source.
+   *
+   *  Gated on `lakehouse.usesDelta` so non-Delta modules produce
+   *  byte-identical headers to today's baseline (no new imports). */
+  private def lakehouseImports(flags: SparkGen.LakehouseFlags): String =
+    if !flags.usesDelta then ""
+    else "import io.delta.tables.DeltaTable\n"
 
   /** Phase E — Scala 3 native Spark `Encoder` derivation.
    *

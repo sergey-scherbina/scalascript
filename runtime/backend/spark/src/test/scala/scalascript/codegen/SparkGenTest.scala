@@ -1539,6 +1539,149 @@ class SparkGenTest extends AnyFunSuite:
     assert(pairs(1)._2 == "io.delta.sql.DeltaSparkSessionExtension")
   }
 
+  // ── L.2 supplemental: import io.delta. and DeltaTable. detection ──────────
+
+  test("delta detection — import io.delta.tables.DeltaTable triggers dep + config emit") {
+    // Users who use the Delta Table API (merge, history, vacuum) import
+    // `io.delta.tables.DeltaTable` rather than `.format("delta")`.
+    // Both paths should produce the same auto-emit outcome.
+    val code = gen(
+      """|# Delta Table API
+         |```scalascript
+         |import io.delta.tables.DeltaTable
+         |val dt = DeltaTable.forPath(spark, "/tmp/out")
+         |dt.history().show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains(s"""//> using dep "io.delta:delta-spark_2.13:${SparkGen.DefaultDeltaVersion}""""),
+      s"Delta dep must appear when import io.delta. is present, got:\n$code")
+    assert(code.contains(""".config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")"""),
+      s"Delta SQL extension config must appear when import io.delta. is present, got:\n$code")
+    assert(code.contains(""".config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")"""),
+      s"Delta catalog config must appear when import io.delta. is present, got:\n$code")
+  }
+
+  test("delta detection — DeltaTable. identifier triggers dep + config emit") {
+    // Users may import DeltaTable via a wildcard or aliased import; the
+    // bare `DeltaTable.` identifier is still a reliable signal.
+    val code = gen(
+      """|# DeltaTable identifier
+         |```scalascript
+         |import io.delta.tables._
+         |DeltaTable.forPath(spark, "/tmp/table").vacuum(168)
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("delta-spark_2.13"),
+      s"Delta dep must appear when DeltaTable. is in source, got:\n$code")
+    assert(code.contains("DeltaSparkSessionExtension"),
+      s"Delta extension config must appear when DeltaTable. is in source, got:\n$code")
+  }
+
+  test("delta detection — import io.delta. also emits DeltaTable import in generated source") {
+    // When Delta is detected, `lakehouseImports` adds
+    // `import io.delta.tables.DeltaTable` to the generated file
+    // so the DeltaTable API is always in scope without the user having
+    // to declare it in front-matter.
+    val code = gen(
+      """|# Delta with format
+         |```scalascript
+         |ds.write.format("delta").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("import io.delta.tables.DeltaTable"),
+      s"Generated source must import DeltaTable when Delta is detected, got:\n$code")
+  }
+
+  test("delta detection — no delta usage emits no delta dep or config") {
+    // Regression: a batch parquet module must not trigger any Delta
+    // output — neither dep line, config lines, nor the DeltaTable import.
+    val code = gen(
+      """|# Pure parquet
+         |```scalascript
+         |val ds = Dataset.of(1, 2, 3)
+         |ds.write.format("parquet").save("/tmp/parquet-out")
+         |```
+         |""".stripMargin
+    )
+    assert(!code.contains("delta-spark_2.13"),
+      s"Delta dep must NOT appear for parquet-only module, got:\n$code")
+    assert(!code.contains("io.delta.sql.DeltaSparkSessionExtension"),
+      s"Delta extension must NOT appear for parquet-only module, got:\n$code")
+    assert(!code.contains("org.apache.spark.sql.delta.catalog.DeltaCatalog"),
+      s"Delta catalog must NOT appear for parquet-only module, got:\n$code")
+    assert(!code.contains("import io.delta.tables.DeltaTable"),
+      s"DeltaTable import must NOT appear for parquet-only module, got:\n$code")
+  }
+
+  test("delta config — sql.extensions key emitted for delta") {
+    // Targeted assertion: verify the exact key name for the Delta SQL extension.
+    val code = gen(
+      """|# Delta SQL ext
+         |```scalascript
+         |ds.write.format("delta").save("/tmp/out")
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""spark.sql.extensions"""),
+      s"spark.sql.extensions key must be emitted when Delta detected, got:\n$code")
+    assert(code.contains("io.delta.sql.DeltaSparkSessionExtension"),
+      s"DeltaSparkSessionExtension value must be emitted, got:\n$code")
+  }
+
+  test("delta config — spark_catalog override emitted for delta") {
+    // Targeted assertion: verify the exact key name for the Delta catalog.
+    val code = gen(
+      """|# Delta catalog
+         |```scalascript
+         |spark.read.format("delta").load("/tmp/out").show()
+         |```
+         |""".stripMargin
+    )
+    assert(code.contains("""spark.sql.catalog.spark_catalog"""),
+      s"spark.sql.catalog.spark_catalog key must be emitted when Delta detected, got:\n$code")
+    assert(code.contains("org.apache.spark.sql.delta.catalog.DeltaCatalog"),
+      s"DeltaCatalog value must be emitted, got:\n$code")
+  }
+
+  test("delta config — batch module without delta emits byte-identical to before") {
+    // The additive contract: non-Delta sources produce the same bytes
+    // as before L.2 landed.  Concretely: no new dep lines, no config
+    // lines, no DeltaTable import.  Uses a simple batch module as the
+    // baseline (same pattern as the existing negative-detection test
+    // but focused on the import absence).
+    val baseModule = "# Base\n```scalascript\nval x = Dataset.of(1, 2, 3)\nx.foreach(println)\n```\n"
+    val code = gen(baseModule)
+    // All three possible Delta artifacts must be absent.
+    assert(!code.contains("io.delta"),
+      s"No io.delta artifact must appear in a non-Delta module, got:\n$code")
+    assert(!code.contains("DeltaTable"),
+      s"No DeltaTable reference must appear in a non-Delta module, got:\n$code")
+    assert(!code.contains("DeltaCatalog"),
+      s"No DeltaCatalog reference must appear in a non-Delta module, got:\n$code")
+    assert(!code.contains("DeltaSparkSessionExtension"),
+      s"No DeltaSparkSessionExtension reference must appear in a non-Delta module, got:\n$code")
+  }
+
+  test("detectLakehouseFormats(String) overload — detects delta via format string") {
+    val flags = SparkGen.detectLakehouseFormats("""ds.write.format("delta").save("/p")""")
+    assert(flags.usesDelta,    "usesDelta must be true for .format(\"delta\")")
+    assert(!flags.usesIceberg, "usesIceberg must remain false")
+    assert(!flags.usesHudi,    "usesHudi must remain false")
+  }
+
+  test("detectLakehouseFormats(String) overload — detects delta via import io.delta.") {
+    val flags = SparkGen.detectLakehouseFormats("import io.delta.tables.DeltaTable\n val dt = DeltaTable.forPath(spark, \"/p\")")
+    assert(flags.usesDelta, "usesDelta must be true when import io.delta. is present")
+  }
+
+  test("detectLakehouseFormats(String) overload — empty string returns empty flags") {
+    val flags = SparkGen.detectLakehouseFormats("")
+    assert(!flags.any, "empty source must produce empty LakehouseFlags")
+  }
+
   // ── Phase F.2: Structured Streaming codegen ──────────────────────────────
 
   test("streaming imports are always emitted (Phase F.2)") {
