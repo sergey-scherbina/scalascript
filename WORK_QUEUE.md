@@ -44,8 +44,7 @@ _(all done — see Done section below)_
 - [ ] **v1.50-native-p4-plugin-guide** — Plugin-author guide: compile your plugin to a native binary via GraalVM native-image (docs only, no core changes)
   _Spec: `BACKLOG.md §Phase 4`. Deliverable: `docs/native-plugin-guide.md` + example plugin config snippet. Unlocks fully JVM-free `ssc (native) → wire protocol → plugin (native)` deployments._
 
-- [ ] **ws-load-10k** — Smoke test: 10 000 concurrent WebSocket connections without OOM
-  _Spec: `BACKLOG.md §Runtime — Project Loom`. Requires a dedicated load-test harness (WsStress or similar). Core VT wiring already in place._
+- [x] **ws-load-10k** — Smoke test: 10 000 concurrent WebSocket connections without OOM (2026-05-27)
 
 - [ ] **watch-100ms** — Watch cycle optimization: `ssc --watch rest-api.ssc` target < 100 ms per cycle
   _Spec: `BACKLOG.md §Compiler — AST cache`. Core checkpoint+incremental already landed. Need benchmark harness + profile-driven fixes to hit target._
