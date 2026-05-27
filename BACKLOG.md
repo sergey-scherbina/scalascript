@@ -873,6 +873,59 @@ Design decisions locked:
 - `examples/algebraic-effects.ssc` showcase
 - Promote `EffectAnalysis` warnings to errors
 
+## v1.51 — Streams with Backpressure
+
+**Spec landed 2026-05-27** — `docs/streams.md` complete. Go/no-go: **go**.
+
+Design decisions locked:
+- Types: `Source[A]` / `Sink[A]` / `Flow[A, B]` / `Stream[A] = Source[A]` — zero parser changes; all `SType.Named` applications.
+- Hybrid push/pull: `stream { emit(x) }` push surface; `request(n)` credit protocol underneath.
+- Defaults: credit = 16, buffer = 16 (Akka Streams default). Migration from `Generator`: use `.buffer(1, OverflowStrategy.Block)` for rendezvous semantics.
+- Overflow strategies: alias existing `Overflow` enum from `runtime/std/actors.ssc:121-125` (`Block` / `DropOldest` / `DropNewest` / `Fail`).
+- Error propagation: errors flow downstream + cancel upstream (Akka Streams `Supervision.Stop` default).
+- Backend fast paths: JVM/interpreter = VT + `ArrayBlockingQueue(16)`; JS = native `async function*` + `Symbol.asyncIterator` (new emit path).
+- UI signal adapter (`Source.signal`, `signal.bind`) scoped to v1.51.5.
+- Effect-row integration (`A ! Stream`) deferred to v1.51.6+.
+
+### Implementation milestones (open)
+
+**v1.51.1 — Plugin scaffolding + `Source` core (interpreter + JVM only):**
+- Create `runtime/std/streams-plugin/` (four-file layout mirroring `http-plugin`/`ws-plugin`)
+- Create `runtime/std/streams.ssc` with `Source[A]`, `Sink[A]`, `Flow[A, B]`, `stream { emit }` extern, `map`/`filter`/`runForeach`/`runFold`/`runToList`
+- Extend `CoroutineRuntime.scala:8` with `ArrayBlockingQueue(16)` for stream sources
+- Add `Feature.Streams` to `Feature.scala:37`; advertise in interpreter and JVM capabilities
+- `examples/streams.ssc` with six examples from spec §13
+
+**v1.51.2 — JS backend (`async function*` emit path):**
+- Add `_makeAsyncStream(asyncGenFn)` runtime helper to JS preamble alongside `_makeGenerator` (`JsGen.scala:6579-6602`)
+- Compile `stream { body }` → `_makeAsyncStream(async function*() { body })`; `emit(x)` → `yield x`
+- Consumer iteration → `for await (const x of asyncStream)`
+- Add `Feature.Streams` to `JsCapabilities.scala`
+- Cross-backend parity tests
+
+**v1.51.3 — Flow + Sink + combining operators:**
+- `Flow[A, B]` + `Sink[A]` types + `.to(sink)` connection
+- `zip`, `merge`, `concat`, `broadcast(n)`, `balance(n)`, `groupBy(key)`, `mergeSubstreams`
+- `broadcast(n)` → queue-per-subscriber; slowest controls demand
+- Promote "emit on cancelled stream" to configurable error
+
+**v1.51.4 — SSE/WS adapters, `mapAsync`, error recovery:**
+- `Source.fromSse`, `Sink.toSseStream` in `runtime/std/http-plugin/.../HttpIntrinsics.scala:218-282`
+- `Source.fromWebSocket`, `Sink.toWsRoom` in `runtime/std/ws-plugin/.../WsIntrinsics.scala:51-86`
+- `mapAsync(n)(f)` with configurable parallelism (best-effort cancel)
+- `.recover(pf)`, `.mapError(f)`, `Source.bracket(acquire)(release)(use)`
+
+**v1.51.5 — Buffer strategies, time-based ops, UI signal adapter:**
+- `.buffer(n, OverflowStrategy)` with all four strategies
+- `.throttle(Rate)`, `.debounce(Duration)` (tie into v1.12 `Clock` effect for testable timing)
+- `Source.signal[A](sig: ReactiveSignal[A]): Source[A]` and `sig.bind(source)` reverse adapter
+- Wire into `frontend/core/.../Primitives.scala:7-26`, `frontend/javafx/.../JavaFxRuntime.scala:49-69`, `frontend/swing/.../SwingRuntime.scala:102-119`, `frontend/swiftui/.../SwiftUIEmitter.scala:13-22`
+
+**v1.51.6 — Effect-row integration (open / deferred):**
+- `Source[A] ! Stream` via `Perform("Stream", …)` through `Computation` ADT
+- `runStream { … }` discharge runner analogous to `runLogger`
+- Re-evaluate after v1.51.5
+
 ## v2.0 — Separate compilation of modules
 
 **Status: working separate compilation landed 2026-05-19.**  All six

@@ -53,6 +53,8 @@ _(all done — see Done section below)_
 
 ## Language & Compiler
 
+- [ ] **v1.51.1-streams-plugin** — `runtime/std/streams-plugin/` + `Source` core (`map`/`filter`/`runForeach`/`runFold`/`runToList`), interpreter + JVM only, `Feature.Streams` flag, `examples/streams.ssc`. Spec: `docs/streams.md §14`.
+
 - [x] **v1.12.1-effects-types** — Add `EffectRow` to `SType`, Rémy-style row unification, `!` operator in `TypeParser`, `multi effect` keyword, handler discharge in typer, `EffectAnalysis` verifier mode, §9 diagnostics. (2026-05-26)
   _Spec: `docs/algebraic-effects.md` §3, §4, §5.1, §13 v1.12.1._
 
