@@ -294,9 +294,15 @@ object SparkGen:
 
   /** Does the joined source contain a DStream pipeline entry point? */
   def containsDStream(source: String): Boolean =
-    source.contains("Pipeline.create") ||
-    source.contains("InMemory.source") ||
-    source.contains("Backend.Spark")
+    source.contains("Pipeline.create")   ||
+    source.contains("InMemory.source")   ||
+    source.contains("Backend.Spark")     ||
+    source.contains("Window.fixed")      ||
+    source.contains("Window.sliding")    ||
+    source.contains("Window.session")    ||
+    source.contains("Window.global")     ||
+    source.contains("WatermarkStrategy.") ||
+    source.contains("Trigger.")
 
   // ── Phase F — Structured Streaming detection helpers ─────────────────────
   //

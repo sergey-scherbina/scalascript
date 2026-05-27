@@ -1076,9 +1076,10 @@ Implementation phases ship independently below.
   for bounded sources; `Feature.DistributedStreams` in `SparkCapabilities`. 14 new `SparkGenTest` tests;
   integration tests gated by `SPARK_MASTER`. Spec: `docs/distributed-streams.md §9.2`. (2026-05-27)
 
-- [ ] **v2.1.4-dstream-kafka** — Kafka Streams backend: `StreamsBuilder` topology compilation,
-  `KV[K,V]` → KStream/KTable inference, Kafka `Serde[T]` bridge, `Topology.describe()` in
-  diagnostics. Spec: `docs/distributed-streams.md §9.3`.
+- [x] **v2.1.4-dstream-kafka** — Kafka Streams backend: `runtime/backend/kafka-streams/` module,
+  `KafkaStreamsGen` with `containsDStream` + `dstreamKafkaShim` emission, `Backend.KafkaStreams`/`Kafka`
+  aliases, `TopologyTestDriver` helpers, `Feature.DistributedStreams` in `KafkaStreamsCapabilities`,
+  22 new `KafkaStreamsGenTest` tests. Spec: `docs/distributed-streams.md §9.3`. (2026-05-27)
 
 - [ ] **v2.1.5-dstream-flink** — Apache Flink backend (DataStream API) + Apache Beam portability
   runner; Flink `TypeInformation[T]` bridge; Beam `PipelineOptions` pass-through.
