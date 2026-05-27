@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>GOLDEN-011</MsgId>
+      <CreDtTm>NORMALIZED_DATETIME</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>15600.00</CtrlSum>
+      <InitgPty>
+        <Nm>Wien Consulting GmbH</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PII-GOLDEN-011</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>15600.00</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>NORMALIZED_DATE</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Wien Consulting GmbH</Nm>
+        <PstlAdr><Ctry>AT</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>AT611904300234573201</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>GOLDEN-011</InstrId>
+          <EndToEndId>GOLDEN-011</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">15600.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Stockholm Consulting AB</Nm>
+          <PstlAdr><Ctry>SE</Ctry></PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>SE4550000000058398257466</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>CONSULTING-Q2-2026</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>GOLDEN-001</MsgId>
+      <CreDtTm>NORMALIZED_DATETIME</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>100.00</CtrlSum>
+      <InitgPty>
+        <Nm>Acme GmbH</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PII-GOLDEN-001</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>100.00</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>NORMALIZED_DATE</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Acme GmbH</Nm>
+        <PstlAdr><Ctry>DE</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>GOLDEN-001</InstrId>
+          <EndToEndId>GOLDEN-001</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">100.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Fournisseur SA</Nm>
+          <PstlAdr><Ctry>FR</Ctry></PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>FR7630006000011234567890189</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>ORDER-001</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

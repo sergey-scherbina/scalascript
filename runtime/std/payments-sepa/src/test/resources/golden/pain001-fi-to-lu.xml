@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>GOLDEN-012</MsgId>
+      <CreDtTm>NORMALIZED_DATETIME</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>42000.00</CtrlSum>
+      <InitgPty>
+        <Nm>Helsinki Ventures OY</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PII-GOLDEN-012</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>42000.00</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>NORMALIZED_DATE</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Helsinki Ventures OY</Nm>
+        <PstlAdr><Ctry>FI</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>FI2112345600000785</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>GOLDEN-012</InstrId>
+          <EndToEndId>GOLDEN-012</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">42000.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Luxembourg Fund SA</Nm>
+          <PstlAdr><Ctry>LU</Ctry></PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>LU280019400644750000</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>FUND-TRANSFER-2026</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

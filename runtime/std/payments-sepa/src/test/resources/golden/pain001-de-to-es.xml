@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>GOLDEN-005</MsgId>
+      <CreDtTm>NORMALIZED_DATETIME</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>250.75</CtrlSum>
+      <InitgPty>
+        <Nm>Berlin Exports GmbH</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PII-GOLDEN-005</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>250.75</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>NORMALIZED_DATE</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Berlin Exports GmbH</Nm>
+        <PstlAdr><Ctry>DE</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>GOLDEN-005</InstrId>
+          <EndToEndId>GOLDEN-005</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">250.75</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Madrid Imports SL</Nm>
+          <PstlAdr><Ctry>ES</Ctry></PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>ES9121000418450200051332</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>INV-2026-0042</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

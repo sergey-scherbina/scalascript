@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>GOLDEN-003</MsgId>
+      <CreDtTm>NORMALIZED_DATETIME</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>99999.99</CtrlSum>
+      <InitgPty>
+        <Nm>Big Corp GmbH</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PII-GOLDEN-003</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>99999.99</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl><Cd>SEPA</Cd></SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>NORMALIZED_DATE</ReqdExctnDt>
+      <Dbtr>
+        <Nm>Big Corp GmbH</Nm>
+        <PstlAdr><Ctry>DE</Ctry></PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
+      </DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>GOLDEN-003</InstrId>
+          <EndToEndId>GOLDEN-003</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">99999.99</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Large Vendor SA</Nm>
+          <PstlAdr><Ctry>FR</Ctry></PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>FR7630006000011234567890189</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>LARGE-PAYMENT</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

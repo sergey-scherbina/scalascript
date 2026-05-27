@@ -2520,7 +2520,7 @@ lazy val markupCore = project
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
 lazy val paymentsSepa = project
   .in(file("runtime/std/payments-sepa"))
-  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, markupCore, testUtils % Test)
   .settings(
     name := "scalascript-payments-sepa",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2542,7 +2542,7 @@ lazy val paymentsAch = project
 // ── Bank Rails — FedNow ISO 20022 instant payments adapter ───────────────
 lazy val paymentsFednow = project
   .in(file("runtime/std/payments-fednow"))
-  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, testUtils % Test)
+  .dependsOn(backendSpi, paymentsBankRails, paymentsWebhook, markupCore, testUtils % Test)
   .settings(
     name := "scalascript-payments-fednow",
     libraryDependencies ++= Seq(scalatestTest),

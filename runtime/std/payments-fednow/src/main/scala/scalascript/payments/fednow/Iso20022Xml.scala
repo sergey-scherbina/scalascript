@@ -1,5 +1,6 @@
 package scalascript.payments.fednow
 
+import scalascript.markup.*
 import scalascript.payments.bankrails.*
 import scalascript.payments.money.Money
 import java.time.{LocalDateTime, ZoneOffset}
@@ -12,6 +13,10 @@ import java.time.format.DateTimeFormatter
  *
  *  These are minimal but valid ISO 20022 XML documents suitable for submission
  *  to the FedNow Connect REST API via FedLine Advantage.
+ *
+ *  XML is built via the `xml"..."` interpolator (scalascript.markup) which
+ *  auto-escapes all interpolated values.  The result is serialized by
+ *  PureMarkupCodec.serialize.
  *
  *  See docs/bank-rails.md §v1.54.4 and the FedNow ISO 20022 Message Guide.
  */
@@ -28,7 +33,6 @@ object Iso20022Xml:
    *                 Dbtr, DbtrAcct, DbtrAgt, Cdtr, CdtrAcct, CdtrAgt
    *
    *  @param req  the transfer request
-   *  @param participantId  FedNow participant ID of the sending FI
    *  @param routingNumber  ABA routing number of the sending FI
    */
   def buildPacs008(req: InitiateTransferRequest, routingNumber: String): String =
@@ -40,6 +44,7 @@ object Iso20022Xml:
                       .getOrElse(now.toLocalDate.format(DateFmt))
     val amount    = formatAmount(req.amount)
     val currency  = req.amount.currency.toString
+    val creDtTm   = now.format(DtTmFmt)
 
     // Use ABA routing (bankCode) if present, otherwise fall back to routingNumber config
     val dbtrRoutingNum = req.sender.bankCode.orElse(req.sender.routingNumber)
@@ -47,40 +52,42 @@ object Iso20022Xml:
     val cdtrRoutingNum = req.recipient.bankCode.orElse(req.recipient.routingNumber)
                            .getOrElse("021000021")  // placeholder; real transfers supply this
 
-    // Use IBAN if present, otherwise use Othr/accountNumber
-    val dbtrAcctElem = req.sender.iban match
-      case Some(iban) => s"<IBAN>${xml(iban)}</IBAN>"
-      case None       => s"<Othr><Id>${xml(req.sender.accountNumber.getOrElse(""))}</Id></Othr>"
+    // Account ID elements — IBAN if present, otherwise Othr/Id (account number)
+    // Markup.raw() splices pre-formed XML verbatim; values are pre-escaped via XmlEscape.
+    val dbtrAcctInner: Markup.Raw = req.sender.iban match
+      case Some(iban) => Markup.raw(s"<IBAN>${XmlEscape.escapeText(iban)}</IBAN>")
+      case None       => Markup.raw(s"<Othr><Id>${XmlEscape.escapeText(req.sender.accountNumber.getOrElse(""))}</Id></Othr>")
 
-    val cdtrAcctElem = req.recipient.iban match
-      case Some(iban) => s"<IBAN>${xml(iban)}</IBAN>"
-      case None       => s"<Othr><Id>${xml(req.recipient.accountNumber.getOrElse(""))}</Id></Othr>"
+    val cdtrAcctInner: Markup.Raw = req.recipient.iban match
+      case Some(iban) => Markup.raw(s"<IBAN>${XmlEscape.escapeText(iban)}</IBAN>")
+      case None       => Markup.raw(s"<Othr><Id>${XmlEscape.escapeText(req.recipient.accountNumber.getOrElse(""))}</Id></Othr>")
 
-    s"""<?xml version="1.0" encoding="UTF-8"?>
+    val doc = xml"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
   <FIToFICstmrCdtTrf>
     <GrpHdr>
-      <MsgId>${xml(msgId)}</MsgId>
-      <CreDtTm>${now.format(DtTmFmt)}</CreDtTm>
+      <MsgId>${msgId}</MsgId>
+      <CreDtTm>${creDtTm}</CreDtTm>
       <NbOfTxs>1</NbOfTxs>
       <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>
     </GrpHdr>
     <CdtTrfTxInf>
       <PmtId>
-        <InstrId>${xml(instrId)}</InstrId>
-        <EndToEndId>${xml(e2eId)}</EndToEndId>
+        <InstrId>${instrId}</InstrId>
+        <EndToEndId>${e2eId}</EndToEndId>
       </PmtId>
-      <IntrBkSttlmAmt Ccy="$currency">$amount</IntrBkSttlmAmt>
-      <IntrBkSttlmDt>$sttlmDt</IntrBkSttlmDt>
-      <Dbtr><Nm>${xml(req.sender.holderName)}</Nm></Dbtr>
-      <DbtrAcct><Id>$dbtrAcctElem</Id></DbtrAcct>
-      <DbtrAgt><FinInstnId><ClrSysMmbId><MmbId>${xml(dbtrRoutingNum)}</MmbId></ClrSysMmbId></FinInstnId></DbtrAgt>
-      <Cdtr><Nm>${xml(req.recipient.holderName)}</Nm></Cdtr>
-      <CdtrAcct><Id>$cdtrAcctElem</Id></CdtrAcct>
-      <CdtrAgt><FinInstnId><ClrSysMmbId><MmbId>${xml(cdtrRoutingNum)}</MmbId></ClrSysMmbId></FinInstnId></CdtrAgt>
+      <IntrBkSttlmAmt Ccy="${currency}">${amount}</IntrBkSttlmAmt>
+      <IntrBkSttlmDt>${sttlmDt}</IntrBkSttlmDt>
+      <Dbtr><Nm>${req.sender.holderName}</Nm></Dbtr>
+      <DbtrAcct><Id>${dbtrAcctInner}</Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><ClrSysMmbId><MmbId>${dbtrRoutingNum}</MmbId></ClrSysMmbId></FinInstnId></DbtrAgt>
+      <Cdtr><Nm>${req.recipient.holderName}</Nm></Cdtr>
+      <CdtrAcct><Id>${cdtrAcctInner}</Id></CdtrAcct>
+      <CdtrAgt><FinInstnId><ClrSysMmbId><MmbId>${cdtrRoutingNum}</MmbId></ClrSysMmbId></FinInstnId></CdtrAgt>
     </CdtTrfTxInf>
   </FIToFICstmrCdtTrf>
 </Document>"""
+    PureMarkupCodec.serialize(doc)
 
   /** Parse a pacs.002.001.10 FIToFIPaymentStatusReport and return the TxSts code.
    *
@@ -129,10 +136,3 @@ object Iso20022Xml:
 
   /** Truncate to max length and strip leading/trailing whitespace. */
   private def sanitize(s: String, maxLen: Int): String = s.trim.take(maxLen)
-
-  /** XML-escape a string (only characters that must be escaped in XML content). */
-  private[fednow] def xml(s: String): String =
-    s.replace("&", "&amp;")
-     .replace("<", "&lt;")
-     .replace(">", "&gt;")
-     .replace("\"", "&quot;")

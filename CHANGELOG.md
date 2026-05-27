@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **markup-xsd-sepa-refactor (v1.55.6)** — `ValidationError(message, line, column)` confirmed in `MarkupCodec.scala`; `SepaPainXml` (PAIN.001/008 + SCT Inst pacs.008) and `Iso20022Xml` (FedNow pacs.008) refactored from raw string concat to `xml"..."` interpolator + `PureMarkupCodec.serialize`; `markupCore` added as dep to `paymentsSepa` + `paymentsFednow` in build.sbt; 12 PAIN.001 golden-file fixtures + `SepaPainXmlGoldenTest` (22 tests) + `Iso20022XmlGoldenTest` (11 tests); all 105 tests (71 SEPA + 34 FedNow) pass.
+
 - **markup-element-literal (v1.55.5)** — `MarkupLiteralLower` AST transform in `lang/core/transform/`: source-level preprocessor that, when `import scalascript.markup.*` is present in a scalascript block, rewrites `<name attr={expr}>children</name>` and `<name/>` syntax to `Markup.Element(QName.local/prefixed(...), attrs, children)` constructor calls before scalameta parsing; namespaced tags, nested elements, text children, string and expression attributes all supported; wired into `Parser.parse` after `RouteDeriver.derive`. 16 tests.
 
 - **markup-feature-backend (v1.55.3)** — `Feature.Markup` + `Backend.markupCodec` SPI + `JvmMarkupCodec`. `case Markup` added to `Feature` enum; `def markupCodec: Option[MarkupCodec] = None` added to `Backend` trait; `JvmMarkupCodec` (SAX parse + PureMarkupCodec serialize + XSD validate via `javax.xml.validation`) wired into `InterpreterBackend` + declared in `InterpreterCapabilities`/`JvmCapabilities`; `CapabilityCheck` detects `xml"..."` interpolator and fenced xml blocks, rejects on backends lacking `Feature.Markup`; 16 tests.

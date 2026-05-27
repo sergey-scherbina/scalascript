@@ -1,5 +1,6 @@
 package scalascript.payments.sepa
 
+import scalascript.markup.*
 import scalascript.payments.bankrails.*
 import scalascript.payments.money.Money
 import java.time.{LocalDateTime, ZoneOffset}
@@ -14,6 +15,10 @@ import java.time.format.DateTimeFormatter
  *
  *  These are minimal but valid XML documents suitable for submission to a SEPA-
  *  participating bank or aggregator API.  Fields are ISO 20022 compliant.
+ *
+ *  XML is built via the `xml"..."` interpolator (scalascript.markup) which
+ *  auto-escapes all interpolated values.  The result is serialized by
+ *  PureMarkupCodec.serialize.
  */
 object SepaPainXml:
 
@@ -36,60 +41,62 @@ object SepaPainXml:
                       .getOrElse(now.plusDays(1).toLocalDate.format(DateFmt))
     val amount    = formatAmount(req.amount)
     val currency  = req.amount.currency.toString
+    val creDtTm   = now.format(DtTmFmt)
 
-    s"""<?xml version="1.0" encoding="UTF-8"?>
+    val doc = xml"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
   <CstmrCdtTrfInitn>
     <GrpHdr>
-      <MsgId>${xml(msgId)}</MsgId>
-      <CreDtTm>${now.format(DtTmFmt)}</CreDtTm>
+      <MsgId>${msgId}</MsgId>
+      <CreDtTm>${creDtTm}</CreDtTm>
       <NbOfTxs>1</NbOfTxs>
-      <CtrlSum>$amount</CtrlSum>
+      <CtrlSum>${amount}</CtrlSum>
       <InitgPty>
-        <Nm>${xml(req.sender.holderName)}</Nm>
+        <Nm>${req.sender.holderName}</Nm>
       </InitgPty>
     </GrpHdr>
     <PmtInf>
-      <PmtInfId>${xml(pmtInfId)}</PmtInfId>
+      <PmtInfId>${pmtInfId}</PmtInfId>
       <PmtMtd>TRF</PmtMtd>
       <NbOfTxs>1</NbOfTxs>
-      <CtrlSum>$amount</CtrlSum>
+      <CtrlSum>${amount}</CtrlSum>
       <PmtTpInf>
         <SvcLvl><Cd>SEPA</Cd></SvcLvl>
       </PmtTpInf>
-      <ReqdExctnDt>$execDate</ReqdExctnDt>
+      <ReqdExctnDt>${execDate}</ReqdExctnDt>
       <Dbtr>
-        <Nm>${xml(req.sender.holderName)}</Nm>
-        <PstlAdr><Ctry>${xml(req.sender.countryCode)}</Ctry></PstlAdr>
+        <Nm>${req.sender.holderName}</Nm>
+        <PstlAdr><Ctry>${req.sender.countryCode}</Ctry></PstlAdr>
       </Dbtr>
       <DbtrAcct>
-        <Id><IBAN>${xml(req.sender.iban.getOrElse(""))}</IBAN></Id>
+        <Id><IBAN>${req.sender.iban.getOrElse("")}</IBAN></Id>
       </DbtrAcct>
       <DbtrAgt>
         <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
       </DbtrAgt>
       <CdtTrfTxInf>
         <PmtId>
-          <InstrId>${xml(e2eId)}</InstrId>
-          <EndToEndId>${xml(e2eId)}</EndToEndId>
+          <InstrId>${e2eId}</InstrId>
+          <EndToEndId>${e2eId}</EndToEndId>
         </PmtId>
         <Amt>
-          <InstdAmt Ccy="$currency">$amount</InstdAmt>
+          <InstdAmt Ccy="${currency}">${amount}</InstdAmt>
         </Amt>
         <Cdtr>
-          <Nm>${xml(req.recipient.holderName)}</Nm>
-          <PstlAdr><Ctry>${xml(req.recipient.countryCode)}</Ctry></PstlAdr>
+          <Nm>${req.recipient.holderName}</Nm>
+          <PstlAdr><Ctry>${req.recipient.countryCode}</Ctry></PstlAdr>
         </Cdtr>
         <CdtrAcct>
-          <Id><IBAN>${xml(req.recipient.iban.getOrElse(""))}</IBAN></Id>
+          <Id><IBAN>${req.recipient.iban.getOrElse("")}</IBAN></Id>
         </CdtrAcct>
         <RmtInf>
-          <Ustrd>${xml(req.reference.take(140))}</Ustrd>
+          <Ustrd>${req.reference.take(140)}</Ustrd>
         </RmtInf>
       </CdtTrfTxInf>
     </PmtInf>
   </CstmrCdtTrfInitn>
 </Document>"""
+    PureMarkupCodec.serialize(doc)
 
   /** Build a minimal PAIN.008.001.02 Direct Debit Initiation message.
    *
@@ -117,36 +124,38 @@ object SepaPainXml:
     val mndtDate   = mandate.signedAt
                        .map(i => java.time.LocalDate.ofInstant(i, ZoneOffset.UTC).format(DateFmt))
                        .getOrElse(now.toLocalDate.format(DateFmt))
+    val creDtTm    = now.format(DtTmFmt)
+    val schmeId    = req.creditorAccount.bankCode.getOrElse("UNKNOWN")
 
-    s"""<?xml version="1.0" encoding="UTF-8"?>
+    val doc = xml"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02">
   <CstmrDrctDbtInitn>
     <GrpHdr>
-      <MsgId>${xml(msgId)}</MsgId>
-      <CreDtTm>${now.format(DtTmFmt)}</CreDtTm>
+      <MsgId>${msgId}</MsgId>
+      <CreDtTm>${creDtTm}</CreDtTm>
       <NbOfTxs>1</NbOfTxs>
-      <CtrlSum>$amount</CtrlSum>
+      <CtrlSum>${amount}</CtrlSum>
       <InitgPty>
-        <Nm>${xml(req.creditorName)}</Nm>
+        <Nm>${req.creditorName}</Nm>
       </InitgPty>
     </GrpHdr>
     <PmtInf>
-      <PmtInfId>${xml(pmtInfId)}</PmtInfId>
+      <PmtInfId>${pmtInfId}</PmtInfId>
       <PmtMtd>DD</PmtMtd>
       <NbOfTxs>1</NbOfTxs>
-      <CtrlSum>$amount</CtrlSum>
+      <CtrlSum>${amount}</CtrlSum>
       <PmtTpInf>
         <SvcLvl><Cd>SEPA</Cd></SvcLvl>
         <LclInstrm><Cd>CORE</Cd></LclInstrm>
-        <SeqTp>$seqTp</SeqTp>
+        <SeqTp>${seqTp}</SeqTp>
       </PmtTpInf>
-      <ReqdColltnDt>$collDate</ReqdColltnDt>
+      <ReqdColltnDt>${collDate}</ReqdColltnDt>
       <Cdtr>
-        <Nm>${xml(req.creditorName)}</Nm>
-        <PstlAdr><Ctry>${xml(req.creditorAccount.countryCode)}</Ctry></PstlAdr>
+        <Nm>${req.creditorName}</Nm>
+        <PstlAdr><Ctry>${req.creditorAccount.countryCode}</Ctry></PstlAdr>
       </Cdtr>
       <CdtrAcct>
-        <Id><IBAN>${xml(req.creditorAccount.iban.getOrElse(""))}</IBAN></Id>
+        <Id><IBAN>${req.creditorAccount.iban.getOrElse("")}</IBAN></Id>
       </CdtrAcct>
       <CdtrAgt>
         <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
@@ -155,7 +164,7 @@ object SepaPainXml:
         <Id>
           <PrvtId>
             <Othr>
-              <Id>${xml(req.creditorAccount.bankCode.getOrElse("UNKNOWN"))}</Id>
+              <Id>${schmeId}</Id>
               <SchmeNm><Prtry>SEPA</Prtry></SchmeNm>
             </Othr>
           </PrvtId>
@@ -163,33 +172,34 @@ object SepaPainXml:
       </CdtrSchmeId>
       <DrctDbtTxInf>
         <PmtId>
-          <InstrId>${xml(e2eId)}</InstrId>
-          <EndToEndId>${xml(e2eId)}</EndToEndId>
+          <InstrId>${e2eId}</InstrId>
+          <EndToEndId>${e2eId}</EndToEndId>
         </PmtId>
-        <InstdAmt Ccy="$currency">$amount</InstdAmt>
+        <InstdAmt Ccy="${currency}">${amount}</InstdAmt>
         <DrctDbtTx>
           <MndtRltdInf>
-            <MndtId>${xml(mndtId)}</MndtId>
-            <DtOfSgntr>$mndtDate</DtOfSgntr>
+            <MndtId>${mndtId}</MndtId>
+            <DtOfSgntr>${mndtDate}</DtOfSgntr>
           </MndtRltdInf>
         </DrctDbtTx>
         <DbtrAgt>
           <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
         </DbtrAgt>
         <Dbtr>
-          <Nm>${xml(req.debtorAccount.holderName)}</Nm>
-          <PstlAdr><Ctry>${xml(req.debtorAccount.countryCode)}</Ctry></PstlAdr>
+          <Nm>${req.debtorAccount.holderName}</Nm>
+          <PstlAdr><Ctry>${req.debtorAccount.countryCode}</Ctry></PstlAdr>
         </Dbtr>
         <DbtrAcct>
-          <Id><IBAN>${xml(req.debtorAccount.iban.getOrElse(""))}</IBAN></Id>
+          <Id><IBAN>${req.debtorAccount.iban.getOrElse("")}</IBAN></Id>
         </DbtrAcct>
         <RmtInf>
-          <Ustrd>${xml(req.reference.take(140))}</Ustrd>
+          <Ustrd>${req.reference.take(140)}</Ustrd>
         </RmtInf>
       </DrctDbtTxInf>
     </PmtInf>
   </CstmrDrctDbtInitn>
 </Document>"""
+    PureMarkupCodec.serialize(doc)
 
   /** Build a pacs.008.001.08 FI-to-FI Customer Credit Transfer for SEPA Instant (SCT Inst).
    *
@@ -214,65 +224,62 @@ object SepaPainXml:
     val e2eId    = sanitize(req.idempotencyKey, 35)
     val amount   = formatAmount(req.amount)
     val currency = req.amount.currency.toString
-    // SCT Inst uses today as interbank settlement date (T+0 instant)
     val sttlmDate = now.toLocalDate.format(DateFmt)
+    val creDtTm  = now.format(DtTmFmt)
 
-    s"""<?xml version="1.0" encoding="UTF-8"?>
+    val doc = xml"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
   <FIToFICstmrCdtTrf>
     <GrpHdr>
-      <MsgId>${xml(msgId)}</MsgId>
-      <CreDtTm>${now.format(DtTmFmt)}</CreDtTm>
+      <MsgId>${msgId}</MsgId>
+      <CreDtTm>${creDtTm}</CreDtTm>
       <NbOfTxs>1</NbOfTxs>
       <SttlmInf>
-        <!-- SttlmMtd=CLRG: cleared via the SCT Inst scheme (TIPS or RT1) -->
         <SttlmMtd>CLRG</SttlmMtd>
         <ClrSys>
-          <!-- SCTInst: identifies the EBA SEPA Instant Credit Transfer scheme -->
           <Cd>SCTInst</Cd>
         </ClrSys>
       </SttlmInf>
     </GrpHdr>
     <CdtTrfTxInf>
       <PmtId>
-        <InstrId>${xml(e2eId)}</InstrId>
-        <EndToEndId>${xml(e2eId)}</EndToEndId>
+        <InstrId>${e2eId}</InstrId>
+        <EndToEndId>${e2eId}</EndToEndId>
       </PmtId>
       <PmtTpInf>
         <SvcLvl><Cd>SEPA</Cd></SvcLvl>
-        <!-- LclInstrm INST: marks this as a SEPA Instant CT, routes to TIPS/RT1 -->
         <LclInstrm><Cd>INST</Cd></LclInstrm>
       </PmtTpInf>
-      <!-- IntrBkSttlmAmt: interbank settlement amount (same as instructed for single-hop) -->
-      <IntrBkSttlmAmt Ccy="$currency">$amount</IntrBkSttlmAmt>
-      <IntrBkSttlmDt>$sttlmDate</IntrBkSttlmDt>
-      <InstdAmt Ccy="$currency">$amount</InstdAmt>
+      <IntrBkSttlmAmt Ccy="${currency}">${amount}</IntrBkSttlmAmt>
+      <IntrBkSttlmDt>${sttlmDate}</IntrBkSttlmDt>
+      <InstdAmt Ccy="${currency}">${amount}</InstdAmt>
       <DbtrAgt>
         <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
       </DbtrAgt>
       <Dbtr>
-        <Nm>${xml(req.sender.holderName)}</Nm>
-        <PstlAdr><Ctry>${xml(req.sender.countryCode)}</Ctry></PstlAdr>
+        <Nm>${req.sender.holderName}</Nm>
+        <PstlAdr><Ctry>${req.sender.countryCode}</Ctry></PstlAdr>
       </Dbtr>
       <DbtrAcct>
-        <Id><IBAN>${xml(req.sender.iban.getOrElse(""))}</IBAN></Id>
+        <Id><IBAN>${req.sender.iban.getOrElse("")}</IBAN></Id>
       </DbtrAcct>
       <CdtrAgt>
         <FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>
       </CdtrAgt>
       <Cdtr>
-        <Nm>${xml(req.recipient.holderName)}</Nm>
-        <PstlAdr><Ctry>${xml(req.recipient.countryCode)}</Ctry></PstlAdr>
+        <Nm>${req.recipient.holderName}</Nm>
+        <PstlAdr><Ctry>${req.recipient.countryCode}</Ctry></PstlAdr>
       </Cdtr>
       <CdtrAcct>
-        <Id><IBAN>${xml(req.recipient.iban.getOrElse(""))}</IBAN></Id>
+        <Id><IBAN>${req.recipient.iban.getOrElse("")}</IBAN></Id>
       </CdtrAcct>
       <RmtInf>
-        <Ustrd>${xml(req.reference.take(140))}</Ustrd>
+        <Ustrd>${req.reference.take(140)}</Ustrd>
       </RmtInf>
     </CdtTrfTxInf>
   </FIToFICstmrCdtTrf>
 </Document>"""
+    PureMarkupCodec.serialize(doc)
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -288,10 +295,3 @@ object SepaPainXml:
 
   /** Truncate to max length and strip leading/trailing whitespace. */
   private def sanitize(s: String, maxLen: Int): String = s.trim.take(maxLen)
-
-  /** XML-escape a string (only the characters that must be escaped in XML content). */
-  private[sepa] def xml(s: String): String =
-    s.replace("&", "&amp;")
-     .replace("<", "&lt;")
-     .replace(">", "&gt;")
-     .replace("\"", "&quot;")

@@ -141,7 +141,7 @@ _(all done — see Done section below)_
 
 - [x] **markup-element-literal** — Opt-in `<foo bar={expr}/>` element-literal syntax: `lang/core/.../transform/MarkupLiteralLower.scala`; `import scalascript.markup.*` enables; `<name attrs>{children}</name>` → `Markup.Element(…)` constructors; 10+ tests. Spec: `BACKLOG.md §v1.55.5`. (2026-05-27)
 
-- [~] **markup-xsd-sepa-refactor** — XSD validation + refactor SEPA/FedNow XML: `JvmMarkupCodec.validate(doc, xsd)` via `javax.xml.validation`; rewrite `SepaPainXml` PAIN.001/008 + FedNow pacs.008/002 from string concat to `xml"..."` interpolator; golden-file regression suite (12 PAIN.001 fixtures). Spec: `BACKLOG.md §v1.55.6`.
+- [x] **markup-xsd-sepa-refactor** — XSD validation + refactor SEPA/FedNow XML: `JvmMarkupCodec.validate(doc, xsd)` via `javax.xml.validation`; rewrite `SepaPainXml` PAIN.001/008 + FedNow pacs.008/002 from string concat to `xml"..."` interpolator; golden-file regression suite (12 PAIN.001 fixtures). Spec: `BACKLOG.md §v1.55.6`. (2026-05-27)
 
 - [~] **markup-config-js** — `.xml` ConfigParser + JS/Node markup codecs: `ConfigParser.Format.Xml` + detectFormat; `XmlConfigParser.scala` (XML → `ConfigValue.Object`); `runtime/std/markup-js/` (JS DOMParser/XMLSerializer); `runtime/std/markup-node/` (Node @xmldom/xmldom); ServiceLoader wiring for all 3 codec variants. Spec: `BACKLOG.md §v1.55.7`.
 
