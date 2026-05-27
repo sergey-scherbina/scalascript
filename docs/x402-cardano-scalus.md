@@ -390,6 +390,12 @@ validator to UPLC:
   `ScalusSettlerConfig.claimExUnits` into `ClaimTxPlan`, the claim
   redeemer's `ExUnits`, and the balanced fee estimate. Operators can
   pin conservative ex-units before live evaluator wiring lands.
+- **Landed (2026-05-27):** `ScalusTxEvaluator.bloxbean(...)` adapts
+  bloxbean `TransactionEvaluator` results into typed
+  `ScalusEvaluatedRedeemer` / `ScalusExUnits`, and
+  `BloxbeanClaimTxDraftBuilder.buildEvaluatedBalancedTransaction(...)`
+  rebuilds the draft with evaluator-provided claim ex-units before
+  calculating the balanced fee.
 - Witnessing: relayer Ed25519 signature on the Tx body hash.
 - Submission via Blockfrost `submitTx` (already in our client) —
   Ogmios variant added later if needed. The Blockfrost submit path is

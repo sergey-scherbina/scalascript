@@ -2980,9 +2980,11 @@ remain planned. `BlockfrostClient.getProtocolParams()` reads latest-epoch
 fee/execution/collateral settings plus Plutus cost models, and
 `BloxbeanClaimTxBuilder.draftBalanced(...)` can use those params to estimate
 protocol min-fee from final draft CBOR size. `ScalusSettlerConfig.claimExUnits`
-can carry conservative static Plutus ex-units into the redeemer and fee estimate
-until live node-backed ex-unit evaluation lands. `BloxbeanPreprodIntegrationTest`
-is skipped by default; set `X402_SCALUS_PREPROD_IT=true` plus the required
+can carry conservative static Plutus ex-units into the redeemer and fee estimate.
+For node-backed evaluation, `ScalusTxEvaluator.bloxbean(...)` adapts bloxbean
+`TransactionEvaluator` results and the evaluated-balanced draft path rebuilds
+the redeemer and fee from evaluator output. `BloxbeanPreprodIntegrationTest` is
+skipped by default; set `X402_SCALUS_PREPROD_IT=true` plus the required
 Blockfrost/escrow/relayer env vars to build a live Preprod draft, and set
 `X402_SCALUS_PREPROD_SUBMIT=true` only when you intentionally want to submit it.
 `ScalusSettler.preprod/mainnet` exists for wiring and tests; its default builder

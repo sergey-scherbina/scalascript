@@ -72,6 +72,14 @@ object BloxbeanClaimTxBuilder:
   def draftBalancedFromBlockfrost(cfg: ScalusSettlerConfig)(using ExecutionContext): ClaimTxBuilder =
     draftBalanced(() => cfg.blockfrost.getProtocolParams())
 
+  def draftEvaluatedBalanced(
+    params:    BlockfrostProtocolParams,
+    evaluator: ScalusTxEvaluator,
+  )(using ExecutionContext): ClaimTxBuilder =
+    (plan: ClaimTxPlan) =>
+      BloxbeanClaimTxDraftBuilder.buildEvaluatedBalancedTransaction(plan, params, evaluator)
+        .map(_.serialize())
+
 object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
   def build(plan: ClaimTxPlan): Future[Array[Byte]] =
     Future.successful(buildTransaction(plan).serialize())
@@ -87,6 +95,19 @@ object BloxbeanClaimTxDraftBuilder extends ClaimTxBuilder:
     val secondFee = ScalusFeeBalancer.estimate(params, second.serialize().length, exUnits).total
     if secondFee == firstFee then second
     else buildTransaction(plan.copy(feeLovelace = secondFee))
+
+  def buildEvaluatedBalancedTransaction(
+    plan:      ClaimTxPlan,
+    params:    BlockfrostProtocolParams,
+    evaluator: ScalusTxEvaluator,
+  )(using ExecutionContext): Future[com.bloxbean.cardano.client.transaction.spec.Transaction] =
+    val unevaluated = buildBalancedTransaction(plan.copy(claimExUnits = ScalusExUnits(BigInt(0), BigInt(0))), params)
+    evaluator.evaluate(unevaluated).map { results =>
+      val evaluatedPlan = ScalusTxEvaluator.claimSpendExUnits(results)
+        .map(ex => plan.copy(claimExUnits = ex))
+        .getOrElse(plan)
+      buildBalancedTransaction(evaluatedPlan, params)
+    }
 
   def buildTransaction(plan: ClaimTxPlan): com.bloxbean.cardano.client.transaction.spec.Transaction =
     import com.bloxbean.cardano.client.plutus.spec.*
