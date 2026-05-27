@@ -58,9 +58,18 @@ class Handlers(docs: Documents):
         "completionProvider"       -> ujson.Obj(
           "triggerCharacters" -> ujson.Arr(".", " ")
         ),
-        "codeActionProvider"       -> true,
+        "codeActionProvider"         -> true,
         "documentFormattingProvider" -> true,
-        "inlayHintProvider"        -> true
+        "inlayHintProvider"          -> true,
+        "workspace" -> ujson.Obj(
+          "fileOperations" -> ujson.Obj(
+            "didChangeWatchedFiles" -> ujson.Obj(
+              "watchers" -> ujson.Arr(
+                ujson.Obj("globPattern" -> "**/*.ssc")
+              )
+            )
+          )
+        )
       ),
       "serverInfo" -> ujson.Obj(
         "name"    -> "scalascript-lsp",
