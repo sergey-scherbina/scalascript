@@ -16,10 +16,11 @@
 _(none)_
 
 ### Next up (top of BACKLOG)
-- **v2.1.3-dstream-spark** — Spark backend: bounded + Structured Streaming, `SparkGen.scala` extension (`BACKLOG.md §v2.1`)
+- **v2.1.4-dstream-kafka** — Kafka Streams backend: `StreamsBuilder` topology compilation, `KV[K,V]` → KStream/KTable inference (`BACKLOG.md §v2.1`)
 - **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v2.1.3-dstream-spark — `SparkGen` DStream shim: full pipeline DSL emitted inside `@main`, `Feature.DistributedStreams` in `SparkCapabilities`, 14 new tests ✓ (2026-05-27)
 - v2.1.2-dstream-native-unbounded — Processing-time windowing, `timerProcessing`, `withWatermark`, `EventTime`+`WatermarkPerfect` capabilities, 30 tests ✓ (2026-05-27)
 - v2.1.1-dstream-native-bounded — `DStream[T]` / `Pipeline` native bounded backend, DirectRunner, 23 tests, `examples/distributed-streams.ssc` ✓ (2026-05-27)
 - v1.53 — Traditional Payment Processors spec (`docs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
@@ -49,7 +50,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | Direction | Top task | Spec |
 |-----------|----------|------|
 | **Frontend & Clients** | _(queue empty)_ | — |
-| **Language & Compiler** | v2.1.3-dstream-spark + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
+| **Language & Compiler** | v2.1.4-dstream-kafka + v1.51.1-streams-plugin | `docs/distributed-streams.md`, `docs/algebraic-effects.md`, `docs/streams.md` |
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | v1.53.1-payments-spi-stripe | `docs/traditional-payments.md` |
 | **Native Platform** | _(queue empty)_ | — |

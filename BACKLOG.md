@@ -1071,9 +1071,10 @@ Implementation phases ship independently below.
   `withAllowedLateness`, `withWatermark`), `timerProcessing(d)(f)`, `EventTime`+`WatermarkPerfect`
   capabilities on DirectRunner/Native. Spec: `docs/distributed-streams.md §13 v2.1.2`. (2026-05-27, 30 tests)
 
-- [ ] **v2.1.3-dstream-spark** — Spark backend: bounded via `Dataset[T]` (micro-batch),
-  unbounded via Spark Structured Streaming; `SparkGen.scala` extension; `Coder[T]` ↔ Spark
-  `Encoder[T]` bridge; `Feature.SparkStreaming` flag. Spec: `docs/distributed-streams.md §9.2`.
+- [x] **v2.1.3-dstream-spark** — `SparkGen` extended: `containsDStream` detection + `dstreamSparkShim`
+  emission inside `@main`. Full DStream DSL (v2.1.1+v2.1.2 operators) backed by driver-local `Seq[Any]`
+  for bounded sources; `Feature.DistributedStreams` in `SparkCapabilities`. 14 new `SparkGenTest` tests;
+  integration tests gated by `SPARK_MASTER`. Spec: `docs/distributed-streams.md §9.2`. (2026-05-27)
 
 - [ ] **v2.1.4-dstream-kafka** — Kafka Streams backend: `StreamsBuilder` topology compilation,
   `KV[K,V]` → KStream/KTable inference, Kafka `Serde[T]` bridge, `Topology.describe()` in

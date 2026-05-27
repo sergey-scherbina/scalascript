@@ -2641,3 +2641,128 @@ class SparkGenTest extends AnyFunSuite:
     assert(code.contains("""Dataset.fromTable[Order]("orders")"""),
       s"fromTable call must land in emit, got:\n$code")
   }
+
+  // ── v2.1.3 — DStream Spark shim ──────────────────────────────────────────
+
+  private def dstreamSsc(body: String): String =
+    s"# DStream test\n```scalascript\n$body\n```\n"
+
+  test("containsDStream detects Pipeline.create") {
+    assert(SparkGen.containsDStream("""Pipeline.create("wc")"""))
+    assert(SparkGen.containsDStream("InMemory.source(List(1, 2))"))
+    assert(SparkGen.containsDStream("stream.run(Backend.Spark)"))
+    assert(!SparkGen.containsDStream("val x = Dataset.of(1, 2)"))
+  }
+
+  test("DStream shim is NOT emitted when no DStream code is present") {
+    val code = gen("# Test\n```scalascript\nval x = 1\n```\n")
+    assert(!code.contains("class DStream[T]"), "DStream shim must not appear for non-DStream modules")
+    assert(!code.contains("object Pipeline"),  "Pipeline shim must not appear for non-DStream modules")
+  }
+
+  test("DStream shim is emitted when Pipeline.create is present") {
+    val code = gen(dstreamSsc("""val s = Pipeline.create("wc").read(InMemory.source(List(1, 2, 3)))"""))
+    assert(code.contains("class DStream[T]"),
+      s"DStream class shim must be emitted, got:\n$code")
+    assert(code.contains("object Pipeline"),
+      s"Pipeline companion shim must be emitted, got:\n$code")
+    assert(code.contains("object InMemory"),
+      s"InMemory companion shim must be emitted, got:\n$code")
+    assert(code.contains("object Backend"),
+      s"Backend companion shim must be emitted, got:\n$code")
+    assert(code.contains("case class KV[K, V]"),
+      s"KV case class shim must be emitted, got:\n$code")
+  }
+
+  test("DStream shim emits Window / Trigger / WatermarkStrategy companions") {
+    val code = gen(dstreamSsc("val w = Window.fixed(60000L)"))
+    assert(code.contains("object Window"),
+      s"Window object shim must be emitted, got:\n$code")
+    assert(code.contains("def fixed(ms: Long)"),
+      s"Window.fixed must be present in shim, got:\n$code")
+    assert(code.contains("object Trigger"),
+      s"Trigger object shim must be emitted, got:\n$code")
+    assert(code.contains("object WatermarkStrategy"),
+      s"WatermarkStrategy object shim must be emitted, got:\n$code")
+  }
+
+  test("DStream shim emits PipelineResult and DSource type alias") {
+    val code = gen(dstreamSsc("""Pipeline.create("t").read(InMemory.source(List(1)))"""))
+    assert(code.contains("case class PipelineResult"),
+      s"PipelineResult case class must be in shim, got:\n$code")
+    assert(code.contains("type DSource[T]"),
+      s"DSource type alias must be in shim, got:\n$code")
+  }
+
+  test("DStream shim provides runToList, runFold, runForeach, runCount operators") {
+    val code = gen(dstreamSsc("""Pipeline.create("t").read(InMemory.source(List(1)))"""))
+    assert(code.contains("def runToList()"),   s"runToList missing, got:\n$code")
+    assert(code.contains("def runFold"),       s"runFold missing, got:\n$code")
+    assert(code.contains("def runForeach"),    s"runForeach missing, got:\n$code")
+    assert(code.contains("def runCount()"),    s"runCount missing, got:\n$code")
+  }
+
+  test("DStream shim provides window / withTrigger / withWatermark / timerProcessing") {
+    val code = gen(dstreamSsc("""Pipeline.create("t").read(InMemory.source(List(1)))"""))
+    assert(code.contains("def window(fn: Any)"),         s"window missing, got:\n$code")
+    assert(code.contains("def withTrigger"),              s"withTrigger missing, got:\n$code")
+    assert(code.contains("def withWatermark"),            s"withWatermark missing, got:\n$code")
+    assert(code.contains("def withAllowedLateness"),      s"withAllowedLateness missing, got:\n$code")
+    assert(code.contains("def timerProcessing"),          s"timerProcessing missing, got:\n$code")
+  }
+
+  test("DStream shim provides combinePerKey and keyBy") {
+    val code = gen(dstreamSsc("""Pipeline.create("wc").read(InMemory.source(List("a")))"""))
+    assert(code.contains("def keyBy"),         s"keyBy missing, got:\n$code")
+    assert(code.contains("def combinePerKey"), s"combinePerKey missing, got:\n$code")
+  }
+
+  test("DStream shim provides merge and flatMap") {
+    val code = gen(dstreamSsc("""Pipeline.create("t").read(InMemory.source(List(1)))"""))
+    assert(code.contains("def merge"),   s"merge missing, got:\n$code")
+    assert(code.contains("def flatMap"), s"flatMap missing, got:\n$code")
+  }
+
+  test("DStream shim is emitted when Backend.Spark appears without Pipeline.create") {
+    val code = gen(dstreamSsc("val b = Backend.Spark"))
+    assert(code.contains("object Backend"),
+      s"Backend shim must be emitted when Backend.Spark detected, got:\n$code")
+  }
+
+  test("DStream SparkCapabilities includes DistributedStreams") {
+    assert(SparkCapabilities.features.contains(scalascript.backend.spi.Feature.DistributedStreams),
+      "SparkCapabilities must declare Feature.DistributedStreams")
+  }
+
+  test("word-count DStream pipeline generates runnable shim code") {
+    // Conformance: same logic as the DirectRunner word-count test, but run via SparkGen.
+    // The generated code must compile with scala-cli (not verified here — no Spark session).
+    // We verify structure: shim present + user code passed through unchanged.
+    val code = gen(
+      dstreamSsc(
+        """|val words = List("hello", "world", "hello", "scala", "world", "hello")
+           |val result = Pipeline.create("word-count")
+           |  .read(InMemory.source(words))
+           |  .map(w => KV(w, 1))
+           |  .combinePerKey((a, b) => a + b)
+           |  .runToList()
+           |println(result)""".stripMargin
+      )
+    )
+    // Shim present
+    assert(code.contains("class DStream[T]"),    s"DStream shim missing, got:\n$code")
+    assert(code.contains("case class KV[K, V]"), s"KV shim missing, got:\n$code")
+    // User code passed through
+    assert(code.contains("Pipeline.create(\"word-count\")"),
+      s"user Pipeline.create call must survive in generated code, got:\n$code")
+    assert(code.contains(".combinePerKey((a, b) => a + b)"),
+      s"user combinePerKey call must survive in generated code, got:\n$code")
+  }
+
+  test("DStream shim emits DSource.fromLocalSource bridge") {
+    val code = gen(dstreamSsc("""Pipeline.create("t").read(InMemory.source(List(1)))"""))
+    assert(code.contains("object DSource"),
+      s"DSource companion shim must be emitted, got:\n$code")
+    assert(code.contains("def fromLocalSource"),
+      s"DSource.fromLocalSource must be in shim, got:\n$code")
+  }

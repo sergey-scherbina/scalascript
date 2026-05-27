@@ -38,7 +38,8 @@ val SparkCapabilities: Capabilities = Capabilities(
     Feature.Crypto,
     Feature.McpServer,
     Feature.McpClient,
-    Feature.Dataset
+    Feature.Dataset,
+    Feature.DistributedStreams
   ),
   outputs        = Set(OutputKind.ExecutionResult),
   // `sparkConfig`  carries the encoded `Map[String, String]` of
