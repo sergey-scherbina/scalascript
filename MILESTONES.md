@@ -19,6 +19,7 @@ _(none)_
 _(Language & Compiler v2.1 DStream series complete — check BACKLOG for next group)_
 
 ### Recently completed
+- v2.1.7-dstream-stateful — `statefulMap`/`statefulFlatMap`/`broadcastState`/`timerEventTime`; state types `ValueState`/`MapState`/`ListState`/`BagState`; `StateContext`/`KeyedStateSpec`; all 4 shims + native interpreter, 20 new tests ✓ (2026-05-27)
 - v2.1.6-dstream-connectors — `Kafka`/`Files`/`Jdbc`/`Pulsar`/`Kinesis` stubs in all 4 shims + native interpreter, `containsConnector` detection, 14 new tests ✓ (2026-05-27)
 - v2.1.5-dstream-flink — Flink + Beam backends: `FlinkGen`/`BeamGen`/`FlinkBackend`/`BeamBackend`, `PipelineOptions`, `_flinkEnv`/`_createBeamPipeline`, 30 tests ✓ (2026-05-27)
 - v2.1.4-dstream-kafka — Kafka Streams backend: `KafkaStreamsGen` + `KafkaStreamsBackend` + `KafkaStreamsCapabilities`, `dstreamKafkaShim`, 22 tests ✓ (2026-05-27)

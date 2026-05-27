@@ -231,3 +231,36 @@ class KafkaStreamsGenTest extends AnyFunSuite:
     val code = gen(dstreamSsc("""val src = Kafka.source[String]("b", "t")"""))
     assert(code.contains("Seq.empty[T]"), s"Kafka.source stub must return Seq.empty[T], got:\n$code")
   }
+
+  // ── v2.1.7 — Stateful processing ─────────────────────────────────────────
+
+  test("KafkaStreamsGen.containsDStream detects statefulMap / broadcastState / KeyedStateSpec") {
+    assert(KafkaStreamsGen.containsDStream("stream.statefulMap(0)((s, v) => (s + v, s + v))"))
+    assert(KafkaStreamsGen.containsDStream("stream.statefulFlatMap(Nil)((s, v) => (s, List(v)))"))
+    assert(KafkaStreamsGen.containsDStream("stream.broadcastState(products)"))
+    assert(KafkaStreamsGen.containsDStream("val spec = KeyedStateSpec.value(0)"))
+    assert(!KafkaStreamsGen.containsDStream("val x = 1"))
+  }
+
+  test("KafkaStreams DStream shim emits statefulMap / statefulFlatMap / broadcastState") {
+    val code = gen(dstreamSsc("""stream.statefulMap(0)((s, v) => (s, v))"""))
+    assert(code.contains("def statefulMap"),     s"statefulMap missing from shim, got:\n$code")
+    assert(code.contains("def statefulFlatMap"), s"statefulFlatMap missing from shim, got:\n$code")
+    assert(code.contains("def broadcastState"),  s"broadcastState missing from shim, got:\n$code")
+    assert(code.contains("def timerEventTime"),  s"timerEventTime missing from shim, got:\n$code")
+  }
+
+  test("KafkaStreams DStream shim emits state types ValueState / MapState / ListState / BagState") {
+    val code = gen(dstreamSsc("""stream.statefulMap(0)((s, v) => (s, v))"""))
+    assert(code.contains("class ValueState[T]"),  s"ValueState missing, got:\n$code")
+    assert(code.contains("class MapState[K, V]"), s"MapState missing, got:\n$code")
+    assert(code.contains("class ListState[T]"),   s"ListState missing, got:\n$code")
+    assert(code.contains("class BagState[T]"),    s"BagState missing, got:\n$code")
+  }
+
+  test("KafkaStreams DStream shim emits StateContext and KeyedStateSpec") {
+    val code = gen(dstreamSsc("""val spec = KeyedStateSpec.value(0)"""))
+    assert(code.contains("case class StateContext"),   s"StateContext missing, got:\n$code")
+    assert(code.contains("case class KeyedStateSpec"), s"KeyedStateSpec missing, got:\n$code")
+    assert(code.contains("object KeyedStateSpec"),     s"KeyedStateSpec companion missing, got:\n$code")
+  }

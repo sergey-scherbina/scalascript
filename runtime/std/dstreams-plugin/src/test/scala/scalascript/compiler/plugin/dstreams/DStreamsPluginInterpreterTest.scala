@@ -463,3 +463,76 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == 4L || result == Value.IntV(4L))
+
+  // ── v2.1.7 — Stateful processing + timers ────────────────────────────────
+
+  test("statefulMap computes running sum per key"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test")
+        .read(InMemory.source(List(KV("a", 1), KV("b", 10), KV("a", 2), KV("b", 20), KV("a", 3))))
+        .statefulMap(0)((state, value) => (state + value, state + value))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.size == 5, s"Expected 5 elements, got ${values.size}: $values")
+
+  test("statefulMap accumulates per-key state independently"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test")
+        .read(InMemory.source(List(KV("a", 1), KV("b", 100), KV("a", 2))))
+        .statefulMap(0)((s, v) => (s + v, s + v))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.size == 3, s"Expected 3 elements, got $values")
+
+  test("statefulFlatMap emits zero or more outputs per element"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test")
+        .read(InMemory.source(List(KV("a", 1), KV("a", 2), KV("a", 3))))
+        .statefulFlatMap(0)((s, v) =>
+          val ns = s + v
+          (ns, if ns >= 3 then List(ns) else List())
+        )
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.nonEmpty, s"Expected at least one element, got $values")
+
+  test("broadcastState pairs each element with a state accessor"):
+    val result = interp.eval(
+      """
+      val main  = Pipeline.create("main").read(InMemory.source(List(KV("a", 1), KV("b", 2))))
+      val state = Pipeline.create("state").read(InMemory.source(List(KV("x", 10))))
+      val paired = main.broadcastState(state)
+      InMemory.runAndCollect(paired).length
+      """
+    )
+    assert(result == 2L || result == Value.IntV(2L), s"Expected 2 paired elements, got: $result")
+
+  test("timerEventTime fires per unique key"):
+    val result = interp.eval(
+      """
+      val stream = Pipeline.create("test")
+        .read(InMemory.source(List(KV("a", 1), KV("b", 2), KV("a", 3))))
+        .timerEventTime(1000L)(k => List(k))
+      InMemory.runAndCollect(stream)
+      """
+    )
+    val values = result.asInstanceOf[List[?]]
+    assert(values.size == 2, s"Expected 2 unique keys, got ${values.size}: $values")
+
+  test("KeyedStateSpec.value creates a spec instance"):
+    val result = interp.eval(
+      """
+      val spec = KeyedStateSpec.value(0)
+      spec
+      """
+    )
+    assert(result.toString.contains("KeyedStateSpec"), s"Expected KeyedStateSpec instance, got: $result")

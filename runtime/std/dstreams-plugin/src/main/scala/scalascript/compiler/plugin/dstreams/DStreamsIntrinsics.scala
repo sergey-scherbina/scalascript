@@ -202,6 +202,101 @@ object DStreamsIntrinsics:
             case single          => Iterator.single(Value.InstanceV("KV", Map("key" -> k, "value" -> single)))
         }
 
+      // ── v2.1.7 — Stateful processing eval ────────────────────────────────────
+
+      case Value.InstanceV("_dag_timerEventTime", fields) =>
+        // Same as timerProcessing in DirectRunner: fires synchronously for all keys.
+        val upstream = evalDag(fields("upstream"), ctx)
+        val f        = fields("f")
+        val keys = scala.collection.mutable.LinkedHashSet[Value]()
+        for elem <- upstream do
+          elem match
+            case Value.InstanceV("KV", kvFields) => keys += kvFields("key")
+            case _                               =>
+        keys.iterator.flatMap { k =>
+          call(ctx, f, List(k)) match
+            case Value.ListV(xs) => xs.iterator.map(v => Value.InstanceV("KV", Map("key" -> k, "value" -> v)))
+            case single          => Iterator.single(Value.InstanceV("KV", Map("key" -> k, "value" -> single)))
+        }
+
+      case Value.InstanceV("_dag_statefulMap", fields) =>
+        // Per-key state: f(state, value) => (newState, output). f is curried: f(state)(value).
+        // DirectRunner: executes synchronously; state lives in a LinkedHashMap per this evaluation.
+        val upstream = evalDag(fields("upstream"), ctx)
+        val init     = fields("init")
+        val f        = fields("f")
+        val states   = LinkedHashMap[Value, Value]()
+        val results  = ListBuffer[Value]()
+        for elem <- upstream do
+          elem match
+            case Value.InstanceV("KV", kvFields) =>
+              val k = kvFields("key")
+              val v = kvFields("value")
+              val s = states.getOrElse(k, init)
+              call(ctx, f, List(s, v)) match
+                case Value.InstanceV(_, pairFields) =>
+                  val ns  = pairFields.getOrElse("_1", pairFields.getOrElse("first",  s))
+                  val out = pairFields.getOrElse("_2", pairFields.getOrElse("second", v))
+                  states(k) = ns
+                  results += Value.InstanceV("KV", Map("key" -> k, "value" -> out))
+                case Value.ListV(List(ns, out)) =>
+                  states(k) = ns
+                  results += Value.InstanceV("KV", Map("key" -> k, "value" -> out))
+                case other =>
+                  results += Value.InstanceV("KV", Map("key" -> k, "value" -> other))
+            case _ =>
+        results.iterator
+
+      case Value.InstanceV("_dag_statefulFlatMap", fields) =>
+        val upstream = evalDag(fields("upstream"), ctx)
+        val init     = fields("init")
+        val f        = fields("f")
+        val states   = LinkedHashMap[Value, Value]()
+        val results  = ListBuffer[Value]()
+        for elem <- upstream do
+          elem match
+            case Value.InstanceV("KV", kvFields) =>
+              val k = kvFields("key")
+              val v = kvFields("value")
+              val s = states.getOrElse(k, init)
+              val (ns, outs) = call(ctx, f, List(s, v)) match
+                case Value.InstanceV(_, pairFields) =>
+                  val ns   = pairFields.getOrElse("_1", pairFields.getOrElse("first", s))
+                  val outs = pairFields.getOrElse("_2", pairFields.getOrElse("second", Value.ListV(Nil)))
+                  (ns, outs)
+                case Value.ListV(List(ns, outs)) => (ns, outs)
+                case other                       => (s, other)
+              states(k) = ns
+              val outList = outs match
+                case Value.ListV(xs) => xs
+                case single          => List(single)
+              results ++= outList.map(o => Value.InstanceV("KV", Map("key" -> k, "value" -> o)))
+            case _ =>
+        results.iterator
+
+      case Value.InstanceV("_dag_broadcastState", fields) =>
+        // Each element of the main stream is paired with a state-accessor instance.
+        // State stream KV elements build a Map[Value, Value]; the accessor provides `get(key)`.
+        val upstream   = evalDag(fields("upstream"), ctx)
+        val stateElems = evalDag(fields("stateDag"), ctx).toList
+        val stateMap   = LinkedHashMap[Value, Value]()
+        for elem <- stateElems do
+          elem match
+            case Value.InstanceV("KV", kvFields) => stateMap(kvFields("key")) = kvFields("value")
+            case v                               => stateMap(v) = v
+        val frozenMap = stateMap.toMap
+        val getterFn = Value.NativeFnV("BroadcastMap.get", Computation.pureFn {
+          case List(k) =>
+            val kv = toValue(k)
+            frozenMap.get(kv) match
+              case Some(v) => Value.InstanceV("Some", Map("value" -> v, "get" -> v))
+              case None    => Value.InstanceV("None", Map.empty)
+          case _ => Value.InstanceV("None", Map.empty)
+        })
+        val stateAccessor = Value.InstanceV("_broadcast_map", Map("get" -> getterFn))
+        upstream.map(elem => Value.InstanceV("_broadcast_pair",
+          Map("_1" -> elem, "_2" -> stateAccessor)))
+
       case other =>
         throw InterpretError(s"evalDag: unknown DAG node kind: $other")
 
@@ -370,6 +465,43 @@ object DStreamsIntrinsics:
         case _       => throw InterpretError("DStream.timerProcessing(d)(f) — inner")
       })
       case _ => throw InterpretError("DStream.timerProcessing(d)(f) — outer")
+    }),
+
+    // ── v2.1.7 — Stateful processing operators ────────────────────────────────
+
+    // timerEventTime(tsMs)(f: K => Iterable[B]) — curried, event-time timer
+    "timerEventTime" -> Value.NativeFnV("DStream.timerEventTime", Computation.pureFn {
+      case List(_) => Value.NativeFnV("DStream.timerEventTime$1", Computation.pureFn {
+        case List(f) => mkDStreamWithOps(dagNode("timerEventTime", Map("upstream" -> dag, "f" -> f)), ctx)
+        case _       => throw InterpretError("DStream.timerEventTime(ts)(f) — inner")
+      })
+      case _ => throw InterpretError("DStream.timerEventTime(ts)(f) — outer")
+    }),
+
+    // statefulMap(initState)(f: (S, A) => (S, B)) — curried, per-key state
+    "statefulMap" -> Value.NativeFnV("DStream.statefulMap", Computation.pureFn {
+      case List(init) => Value.NativeFnV("DStream.statefulMap$1", Computation.pureFn {
+        case List(f) => mkDStreamWithOps(dagNode("statefulMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
+        case _       => throw InterpretError("DStream.statefulMap(init)(f) — inner")
+      })
+      case _ => throw InterpretError("DStream.statefulMap(init)(f) — outer")
+    }),
+
+    // statefulFlatMap(initState)(f: (S, A) => (S, Iterable[B])) — curried
+    "statefulFlatMap" -> Value.NativeFnV("DStream.statefulFlatMap", Computation.pureFn {
+      case List(init) => Value.NativeFnV("DStream.statefulFlatMap$1", Computation.pureFn {
+        case List(f) => mkDStreamWithOps(dagNode("statefulFlatMap", Map("upstream" -> dag, "init" -> init, "f" -> f)), ctx)
+        case _       => throw InterpretError("DStream.statefulFlatMap(init)(f) — inner")
+      })
+      case _ => throw InterpretError("DStream.statefulFlatMap(init)(f) — outer")
+    }),
+
+    // broadcastState(stateStream) — pairs each elem with broadcast state map
+    "broadcastState" -> Value.NativeFnV("DStream.broadcastState", Computation.pureFn {
+      case List(stateStream) =>
+        val stateDag = getDag(stateStream)
+        mkDStreamWithOps(dagNode("broadcastState", Map("upstream" -> dag, "stateDag" -> stateDag)), ctx)
+      case _ => throw InterpretError("DStream.broadcastState(stateStream)")
     }),
 
     "write" -> Value.NativeFnV("DStream.write", Computation.pureFn {
@@ -651,5 +783,19 @@ object DStreamsIntrinsics:
     // DSource.fromDataset bridge
     QualifiedName("DSource.fromDataset")   -> NativeImpl((_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+    ),
+
+    // ── v2.1.7 — Stateful processing state types ─────────────────────────────
+
+    // KeyedStateSpec.value[K, S](init) — returns a spec instance
+    QualifiedName("KeyedStateSpec.value") -> NativeImpl((_, args) =>
+      args match
+        case List(init) => Value.InstanceV("KeyedStateSpec", Map("init" -> toValue(init)))
+        case _          => throw InterpretError("KeyedStateSpec.value(init)")
+    ),
+    QualifiedName("KeyedStateSpec") -> NativeImpl((_, args) =>
+      args match
+        case List(init) => Value.InstanceV("KeyedStateSpec", Map("init" -> toValue(init)))
+        case _          => throw InterpretError("KeyedStateSpec(init)")
     ),
   )

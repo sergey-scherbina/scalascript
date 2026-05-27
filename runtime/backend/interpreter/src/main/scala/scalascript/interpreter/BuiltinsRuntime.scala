@@ -751,6 +751,10 @@ private[interpreter] object BuiltinsRuntime:
       }.getOrElse(Map.empty)
       interp.globals("DSource") = Value.InstanceV("DSource", existing + ("fromDataset" -> fromDatasetFn))
     }
+    // v2.1.7 — KeyedStateSpec companion
+    interp.globals.get("KeyedStateSpec.value").foreach { valueFn =>
+      interp.globals("KeyedStateSpec") = Value.InstanceV("KeyedStateSpec", Map("value" -> valueFn))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

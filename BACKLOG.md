@@ -1093,10 +1093,10 @@ Implementation phases ship independently below.
   SparkGen Kafka dep extended to cover `Kafka.source/sink/changelog` DStream usage.
   14 new tests. Spec: `docs/distributed-streams.md §6`. (2026-05-27)
 
-- [ ] **v2.1.7-dstream-stateful** — Stateful processing + timers: `KeyedStateSpec[K, S]`,
-  `processElement` with `StateContext`, event-time and processing-time timers, `ValueState`,
-  `MapState`, `ListState`, `BagState`; broadcast state pattern.
-  Spec: `docs/distributed-streams.md §5`.
+- [x] **v2.1.7-dstream-stateful** — Stateful processing + timers: `statefulMap`, `statefulFlatMap`,
+  `broadcastState`, `timerEventTime`; `ValueState`, `MapState`, `ListState`, `BagState`;
+  `StateContext[K,S]`, `KeyedStateSpec[K,S]`. All 4 code-gen shims + native interpreter.
+  +20 new tests. Spec: `docs/distributed-streams.md §5`. (2026-05-27)
 
 ---
 

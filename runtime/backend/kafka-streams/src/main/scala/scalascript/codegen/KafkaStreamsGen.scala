@@ -51,6 +51,10 @@ object KafkaStreamsGen:
     source.contains("Window.global")      ||
     source.contains("WatermarkStrategy.") ||
     source.contains("Trigger.")           ||
+    source.contains("statefulMap")        ||
+    source.contains("statefulFlatMap")    ||
+    source.contains("broadcastState")     ||
+    source.contains("KeyedStateSpec")     ||
     containsConnector(source)
 
   /** Does the source use a live Kafka source (requires a broker)? */
@@ -236,6 +240,40 @@ private class KafkaStreamsGen(
        |        case KV(k, _) => keys += k
        |        case _        =>
        |      new DStream(keys.toSeq.flatMap(k => f(k).map(v => KV(k, v))))
+       |    def timerEventTime(tsMs: Long)(f: Any => Iterable[Any]): DStream[Any] =
+       |      val keys = collection.mutable.LinkedHashSet[Any]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, _) => keys += k
+       |        case _        =>
+       |      new DStream(keys.toSeq.flatMap(k => f(k).map(v => KV(k, v))))
+       |    def statefulMap(initState: Any)(f: (Any, Any) => (Any, Any)): DStream[Any] =
+       |      val states = collection.mutable.LinkedHashMap[Any, Any]()
+       |      val results = collection.mutable.ListBuffer[Any]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, v) =>
+       |          val s = states.getOrElse(k, initState)
+       |          val (ns, out) = f(s, v)
+       |          states(k) = ns
+       |          results += KV(k, out)
+       |        case _ =>
+       |      new DStream(results.toSeq)
+       |    def statefulFlatMap(initState: Any)(f: (Any, Any) => (Any, Iterable[Any])): DStream[Any] =
+       |      val states = collection.mutable.LinkedHashMap[Any, Any]()
+       |      val results = collection.mutable.ListBuffer[Any]()
+       |      for elem <- _elems do elem match
+       |        case KV(k, v) =>
+       |          val s = states.getOrElse(k, initState)
+       |          val (ns, outs) = f(s, v)
+       |          states(k) = ns
+       |          results ++= outs.map(o => KV(k, o))
+       |        case _ =>
+       |      new DStream(results.toSeq)
+       |    def broadcastState(stateStream: DStream[Any]): DStream[Any] =
+       |      val stateMap = collection.mutable.LinkedHashMap[Any, Any]()
+       |      for elem <- stateStream._elems do elem match
+       |        case KV(k, v) => stateMap(k) = v
+       |        case v        => stateMap(v) = v
+       |      new DStream(_elems.map(elem => (elem, stateMap.toMap)))
        |    def write(sink: Any): DStream[T]            = this
        |    def run(backend: Any): PipelineResult       = PipelineResult("Done", _elems)
        |    def runOpts(b: Any, o: Any): PipelineResult = PipelineResult("Done", _elems)
@@ -316,5 +354,42 @@ private class KafkaStreamsGen(
        |    def sink[T](stream: String, region: String): Any          = ()
        |
        |  type DSink[T] = Any
+       |
+       |  // ── v2.1.7 — Stateful processing state types ───────────────────────────
+       |  class ValueState[T](private var _v: Option[T] = None):
+       |    def get(): Option[T] = _v
+       |    def set(v: T): Unit  = _v = Some(v)
+       |    def clear(): Unit    = _v = None
+       |    def isEmpty: Boolean = _v.isEmpty
+       |
+       |  class MapState[K, V]:
+       |    private val _m = collection.mutable.HashMap.empty[K, V]
+       |    def get(k: K): Option[V]        = _m.get(k)
+       |    def put(k: K, v: V): Unit       = _m(k) = v
+       |    def remove(k: K): Unit          = { _m.remove(k); () }
+       |    def contains(k: K): Boolean     = _m.contains(k)
+       |    def entries(): Iterable[(K, V)] = _m.toList
+       |    def isEmpty: Boolean            = _m.isEmpty
+       |    def clear(): Unit               = _m.clear()
+       |
+       |  class ListState[T]:
+       |    private val _l = collection.mutable.ListBuffer.empty[T]
+       |    def add(v: T): Unit    = _l += v
+       |    def get(): Iterable[T] = _l.toList
+       |    def clear(): Unit      = _l.clear()
+       |    def isEmpty: Boolean   = _l.isEmpty
+       |
+       |  class BagState[T]:
+       |    private val _b = collection.mutable.ListBuffer.empty[T]
+       |    def add(v: T): Unit    = _b += v
+       |    def get(): Iterable[T] = _b.toList
+       |    def clear(): Unit      = _b.clear()
+       |    def isEmpty: Boolean   = _b.isEmpty
+       |
+       |  case class StateContext[K, S](key: K, state: S)
+       |
+       |  case class KeyedStateSpec[K, S](init: S)
+       |  object KeyedStateSpec:
+       |    def value[K, S](init: S): KeyedStateSpec[K, S] = KeyedStateSpec(init)
        |
        |""".stripMargin

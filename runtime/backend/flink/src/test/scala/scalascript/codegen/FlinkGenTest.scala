@@ -276,3 +276,49 @@ class FlinkGenTest extends AnyFunSuite:
     assert(code.contains("object Kafka"),   s"Kafka companion missing, got:\n$code")
     assert(code.contains("type DSink[T]"),  s"DSink type alias missing, got:\n$code")
   }
+
+  // ── v2.1.7 — Stateful processing ─────────────────────────────────────────
+
+  test("FlinkGen.containsDStream detects statefulMap / statefulFlatMap / broadcastState") {
+    assert(FlinkGen.containsDStream("stream.statefulMap(0)((s, v) => (s + v, s + v))"))
+    assert(FlinkGen.containsDStream("stream.statefulFlatMap(Nil)((s, v) => (s, List(v)))"))
+    assert(FlinkGen.containsDStream("stream.broadcastState(products)"))
+    assert(FlinkGen.containsDStream("val spec = KeyedStateSpec.value(0)"))
+  }
+
+  test("FlinkGen DStream shim emits statefulMap / statefulFlatMap / broadcastState operators") {
+    val code = genFlink(dstreamSsc("""stream.statefulMap(0)((s, v) => (s, v))"""))
+    assert(code.contains("def statefulMap"),     s"statefulMap missing from shim, got:\n$code")
+    assert(code.contains("def statefulFlatMap"), s"statefulFlatMap missing from shim, got:\n$code")
+    assert(code.contains("def broadcastState"),  s"broadcastState missing from shim, got:\n$code")
+    assert(code.contains("def timerEventTime"),  s"timerEventTime missing from shim, got:\n$code")
+  }
+
+  test("FlinkGen DStream shim emits state types ValueState / MapState / ListState / BagState") {
+    val code = genFlink(dstreamSsc("""stream.statefulMap(0)((s, v) => (s, v))"""))
+    assert(code.contains("class ValueState[T]"), s"ValueState missing, got:\n$code")
+    assert(code.contains("class MapState[K, V]"), s"MapState missing, got:\n$code")
+    assert(code.contains("class ListState[T]"),   s"ListState missing, got:\n$code")
+    assert(code.contains("class BagState[T]"),    s"BagState missing, got:\n$code")
+  }
+
+  test("FlinkGen DStream shim emits StateContext and KeyedStateSpec") {
+    val code = genFlink(dstreamSsc("""val spec = KeyedStateSpec.value(0)"""))
+    assert(code.contains("case class StateContext"),   s"StateContext missing, got:\n$code")
+    assert(code.contains("case class KeyedStateSpec"), s"KeyedStateSpec missing, got:\n$code")
+    assert(code.contains("object KeyedStateSpec"),     s"KeyedStateSpec companion missing, got:\n$code")
+  }
+
+  test("BeamGen.containsDStream detects stateful operators") {
+    assert(BeamGen.containsDStream("stream.statefulMap(0)((s, v) => (s, v))"))
+    assert(BeamGen.containsDStream("stream.broadcastState(ref)"))
+    assert(BeamGen.containsDStream("val spec = KeyedStateSpec.value(0)"))
+  }
+
+  test("BeamGen DStream shim emits stateful operators and state types") {
+    val code = genBeam(dstreamSsc("""stream.statefulMap(0)((s, v) => (s, v))"""))
+    assert(code.contains("def statefulMap"),      s"statefulMap missing from Beam shim, got:\n$code")
+    assert(code.contains("def broadcastState"),   s"broadcastState missing from Beam shim, got:\n$code")
+    assert(code.contains("class ValueState[T]"),  s"ValueState missing from Beam shim, got:\n$code")
+    assert(code.contains("case class StateContext"), s"StateContext missing from Beam shim, got:\n$code")
+  }
