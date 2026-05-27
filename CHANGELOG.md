@@ -6,7 +6,11 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **wallet-ledger-solana** — `payments/wallet/vault-ledger-solana/`: `SolanaApp` object (CLA=0xE0, INS=0x04 SIGN_TRANSACTION, INS=0x05 GET_PUBKEY, INS=0x07 SIGN_OFFCHAIN_MESSAGE); lightweight `Base58` encoder (Bitcoin/Solana alphabet, pure Scala, no deps); `LedgerSolanaVault` (`Vault` SPI, Ed25519 only, `AppSwitchRequired` guard); `LedgerSolanaRawSigner` (64-byte ed25519 sig, no v-byte); `walletVaultLedgerSolana` sbt subproject; 13 tests.
+
 - **wallet-ledger-js** — Added `payments/wallet/vault-ledger-js`: Scala.js WebHID Ledger transport (`navigator.hid`), 64-byte HID APDU framing, browser `LedgerVault` lifecycle, Ethereum signer reuse, Cardano CIP-8 COSE helper, and 13 mocked WebHID tests.
+
+- **wallet-ledger-bitcoin** — `payments/wallet/vault-ledger-bitcoin/`: `BitcoinApp` object (CLA=0xE1, new protocol v2+; GET_EXTENDED_PUBKEY/REGISTER_WALLET/GET_WALLET_ADDRESS/SIGN_PSBT); `LedgerBitcoinVault` (`Vault` SPI, secp256k1 only, `AppSwitchRequired` guard); `LedgerBitcoinRawSigner` (PSBT bytes → per-input DER sigs concatenated); `walletVaultLedgerBitcoin` sbt subproject; 14 tests.
 
 - **js-tree-shaking** — `TreeShaker` worklist reachability from `@main`/exports; `JsGen.generateWithStats` emits only reachable `const`/`function` declarations; `--no-tree-shake` escape hatch; `--stats` prints "Tree-shake: kept N / M symbols" to stderr; 16 tests in `JsTreeShakeTest`.
 
