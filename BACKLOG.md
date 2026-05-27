@@ -926,6 +926,73 @@ Design decisions locked:
 - `runStream { … }` discharge runner analogous to `runLogger`
 - Re-evaluate after v1.51.5
 
+## v1.52 — Deploy to Hostings, Clouds & Kubernetes-like Environments
+
+**Spec landed 2026-05-27** — `docs/deploy.md` complete. Go/no-go: **go**.
+
+Design decisions locked:
+- **Five target categories**: container (OCI), Kubernetes-like, FaaS/serverless, static hosting, traditional hosting (SSH+systemd, rsync, SFTP/FTP, WAR drop, IIS).
+- **Dual interface**: declarative `deploy:` + `groups:` + `environments:` blocks in manifest + `ssc deploy [target|group] --env=<env>` CLI subcommand driven by manifest.
+- **`DeployTarget` SPI**: 6-verb lifecycle — `build / push / deploy / rollback / status / logs` — plus `outputs()` for cross-target value passing.
+- **`DeployGroup` SPI**: multi-target orchestrator with `Parallel | Sequence | Pipeline(stages)` exec modes, DAG dependency resolution, three failure policies (`RollbackAll` / `ContinueRemaining` / `AbortRemaining`), structured event stream.
+- **`DeployEnvironment` SPI**: orthogonal env axis — `local` (subprocess, dev machine) / `test-*` (ephemeral per-PR) / `staging` / `production`. Inheritance via `base:`, per-target `target_overrides:`.
+- **Fault tolerance** (production): `fault_tolerance: { multi_region, quorum, failover_strategy }` with orchestrator-level regional health checks.
+- **Blue-green** (production): two-slot model; `switch_strategy: instant | gradual(steps, interval)`, health-gated, smoke-tested, `hold_duration` for zero-rebuild rollback. `ssc deploy switch` + `ssc deploy promote --from --to`.
+- **Hybrid state**: stateless default (reads from target-native state); optional remote state backend (`s3`, `consul`, `etcd`); production envs require remote state.
+- **Spec-only in v1.52**: no code; implementation phased v1.52.1–v1.52.7.
+- **Minimal depth**: SPI + taxonomy + examples per category; per-provider sections deferred to phase docs.
+
+### Implementation milestones (open)
+
+**v1.52.1 — Plugin scaffolding + AST + CLI stub + orchestrator core + local env:**
+- Create `runtime/std/deploy-plugin/` (four-file layout mirroring `http-plugin`/`ws-plugin`)
+- `DeployTarget` + `DeployGroup` + `DeployEnvironment` + `ArtifactKind` + `StateBackend` SPI traits
+- `ArtifactRegistry` wiring to existing builders (`Main.scala:1370-1417`, `1479`, `1481-1494`, `633-636`)
+- `lang/core/src/main/scala/scalascript/ast/AST.scala:19-70` — add `deploy`, `groups`, `environments`, `state` optional fields to `Manifest`
+- `tools/cli/src/main/scala/scalascript/cli/Main.scala:84-137` — add `case "deploy" => deployCommand(...)`
+- Multi-target orchestrator core: DAG resolver (cycle detection), parallel/sequence/pipeline executor, output→input wiring, partial-failure handler, structured event stream, progress reporter
+- Local environment runner: `transport: subprocess` adapter — spawns fat-JAR process, polls `/_health`
+- `ssc deploy plan <group> --env=<env>`, `ssc deploy --dry-run`, `ssc deploy envs`
+- `examples/deploy.ssc` with ten examples from spec §15
+
+**v1.52.2 — Container target (generic OCI):**
+- Dockerfile generator per `ArtifactKind` (four base-image choices from spec §6.1)
+- `docker build` / `docker buildx` / `buildctl` invocation; multi-platform via `platform:`
+- OCI registry push with auth via `${env:…}` / `${vault:…}`
+- `outputs()`: `{ "digest": "sha256:…", "image": "…" }`
+
+**v1.52.3 — Kubernetes target + blue-green + multi-region fault tolerance:**
+- K8s manifest generator: `Deployment` + `Service` + `Ingress` + `ConfigMap` + `Secret`
+- Apply via `kubectl` subprocess; probe wiring to `RestRuntime.scala:640-648` `/_health`/`/_ready`
+- PreStop hook wired to `actors.ssc:416-428` + `cluster/index.ssc:46,58` draining
+- `rollback` via `kubectl rollout undo`; `logs` via `kubectl logs -f` → `Stream[LogLine]` (v1.51)
+- Blue-green slot management: two `Deployment`s + `Service` selector flip
+- Multi-region orchestration + quorum health check
+- `ssc deploy switch` and `ssc deploy promote` ship here
+
+**v1.52.4 — Traditional hosting (SSH + systemd, rsync, SFTP):**
+- SSH + SCP adapter: copies fat-JAR/native binary; renders systemd unit template; `systemctl restart`
+- Rsync adapter: syncs `RsyncTree`/`SpaBundle` to webroot
+- SFTP and FTP adapters: upload `Tarball`
+- `status` via SSH + `systemctl is-active`; `logs` via SSH + `journalctl -f` → `Stream[LogLine]`
+
+**v1.52.5 — Static hosting (generic):**
+- SPA bundle push (reuses `Main.scala:1492-1494`)
+- API-based adapters (Vercel, Netlify, Cloudflare Pages as reference implementations)
+- Git-based adapter (push to `gh-pages` for GitHub Pages)
+- Cache invalidation hook post-push
+
+**v1.52.6 — FaaS / serverless (generic):**
+- Lambda zip adapter (AWS-shaped): zip + handler wrapper + alias management
+- Cloudflare Workers: `NodeBundle` + Wasm bundle; `wrangler deploy` subprocess
+- `rollback` via alias version pointer; `logs` via provider log stream → `Stream[LogLine]`
+
+**v1.52.7 — Remote state backends:**
+- `LocalFileStateBackend`, `S3StateBackend`, `ConsulStateBackend`, `EtcdStateBackend`
+- Lock semantics with TTL; lock-break via `--force`
+- State migration CLI: `ssc deploy state migrate --from local --to s3`
+- Production env enforcement that a non-local state backend is configured
+
 ## v2.0 — Separate compilation of modules
 
 **Status: working separate compilation landed 2026-05-19.**  All six

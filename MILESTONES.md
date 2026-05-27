@@ -20,6 +20,7 @@ _(none)_
 - **v1.51.1** — Streams plugin scaffolding + `Source` core, interpreter + JVM (`BACKLOG.md §v1.51`)
 
 ### Recently completed
+- v1.52 — Deploy to Hostings/Clouds/K8s spec (`docs/deploy.md`) + go decision ✓ (2026-05-27)
 - v1.51 — Streams with Backpressure spec (`docs/streams.md`) + go decision ✓ (2026-05-27)
 - v1.50 — GraalVM native-image build + `ssc-plugin-host` bridge + native plugin guide ✓ (2026-05-27)
 - v1.12.3 — Effects stdlib: `NonDet`, `Reader`, typed discharge signatures, `examples/algebraic-effects.ssc` ✓ (2026-05-26)
@@ -48,6 +49,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | **Database** | _(queue empty)_ | — |
 | **Payments & Blockchain** | _(queue empty)_ | — |
 | **Native Platform** | _(queue empty)_ | — |
+| **Distribution & Tooling** | v1.52.1-deploy-plugin | `docs/deploy.md` |
 
 Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
 

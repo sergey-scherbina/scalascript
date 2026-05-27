@@ -6,6 +6,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-27
 
+- **v1.52** — Deploy spec landed (`docs/deploy.md`). Five target categories (container/k8s/faas/static/traditional), dual CLI+manifest interface, 6-verb `DeployTarget` SPI + `outputs()` for cross-target wiring, `DeployGroup` orchestrator with parallel/sequence/pipeline modes + DAG dependency resolution + three failure policies, `DeployEnvironment` axis for local/test/staging/production environments with `base:` inheritance + multi-region fault tolerance + quorum-based health checks + blue-green slot switching (`instant`/`gradual`) + `ssc deploy switch` + `ssc deploy promote`. Hybrid stateless+optional-remote-state model. Per-provider adapters deferred to v1.52.1–v1.52.7. Go/no-go: **go**.
+
 - **x402-cardano-scalus-tx-draft** — Added `BloxbeanClaimTxBuilder.draft`, a non-default bloxbean Transaction skeleton builder that serializes the escrow input, receiver output, Plutus V3 script, and Spend redeemer; tests round-trip through bloxbean `Transaction.deserialize`. Fee balancing, collateral, and relayer witness remain open.
 
 - **x402-cardano-scalus-claim-tx-builder** — Added bloxbean Plutus redeemer construction for Scalus escrow claims: `EscrowRedeemerCodec.claim` encodes `Claim(coseSign1Bytes, coseKeyBytes)` as constructor 0, and `ClaimTxPlan.claimRedeemer` exposes it to the future transaction builder. Full transaction body / script witness / relayer witness remain open.
