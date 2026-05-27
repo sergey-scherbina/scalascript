@@ -7227,6 +7227,27 @@ function runAuthWith(user) {
     finally { _authUser = prior; }
   };
 }
+
+// ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
+//
+// Stream.emit(x)  — produces a Perform node inside a runStream body
+// runStream(bodyFn)  — collects all Stream.emit values; returns Source[A]
+
+const Stream = {
+  emit: (x) => _perform('Stream', 'emit', [x]),
+};
+
+function runStream(bodyFn) {
+  const emitted = [];
+  const handlers = {
+    'Stream.emit': function(args) {
+      emitted.push(args[0]);
+      return args[args.length - 1](undefined);
+    },
+  };
+  _handle(bodyFn, new Set(['Stream.emit']), handlers);
+  return _makeAsyncStream((async function*(xs) { for (const v of xs) yield v; })(emitted));
+}
 """
 
 /** Browser-SPA overlay loaded AFTER `JsRuntime` so its `serve(...)` /
@@ -8361,6 +8382,8 @@ class JsGen(
       tree.collect {
         case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Select(_, scala.meta.Term.Name(m)), _)
             if terminalNames.contains(m) => ()
+        // v1.51.6: runStream { body } also requires the streams preamble
+        case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Name("runStream"), _) => ()
       }.nonEmpty
     }
 

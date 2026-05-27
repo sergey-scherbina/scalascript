@@ -156,3 +156,10 @@ private[interpreter] object StdEffectsRuntime:
     interp.globals("Reader") = Value.InstanceV("Reader", Map(
       "ask" -> Value.NativeFnV("Reader.ask", _ => Pure(Value.UnitV)),
     ))
+
+    // Stream: emit(x) — algebraic effect for producing stream elements.
+    // Discharge via runStream { body } (v1.51.6).
+    interp.globals("Stream") = Value.InstanceV("Stream", Map(
+      "emit" -> Value.NativeFnV("Stream.emit",
+        args => Perform("Stream", "emit", args)),
+    ))

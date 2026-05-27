@@ -452,3 +452,34 @@ private[interpreter] object EffectHandlers:
       "body"    -> Value.StringV(resp.body()),
       "headers" -> Value.MapV(hdrs)
     ))
+
+  // ── Stream (v1.51.6) ─────────────────────────────────────────────────
+  // runStream { body } — collects all Stream.emit(x) calls in body order,
+  // then wraps the list as a Source[A] via Source.from (streams plugin) or
+  // returns a ListV if the plugin is not loaded.
+  def streamRun(initial: Computation, interp: Interpreter): Computation =
+    val buf = scala.collection.mutable.ListBuffer.empty[Value]
+    def finish(): Computation =
+      val emitted = Value.ListV(buf.toList)
+      val src = interp.globals.get("Source.from") match
+        case Some(fn) =>
+          try interp.invoke(fn, List(emitted))
+          catch case _: Throwable => emitted
+        case None => emitted
+      Pure(src)
+    def loop(current: Computation): Computation =
+      current match
+        case Pure(_) => finish()
+        case Perform("Stream", "emit", args) =>
+          buf += args.headOption.getOrElse(Value.UnitV)
+          loop(Pure(Value.UnitV))
+        case Perform(_, _, _) => current
+        case FlatMap(sub, f) => sub match
+          case Pure(v)                         => loop(f(v))
+          case FlatMap(s2, g)                  => loop(FlatMap(s2, x => FlatMap(g(x), f)))
+          case Perform("Stream", "emit", args) =>
+            buf += args.headOption.getOrElse(Value.UnitV)
+            loop(f(Value.UnitV))
+          case Perform(_, _, _)                =>
+            FlatMap(sub, v => loop(f(v)))
+    loop(initial)

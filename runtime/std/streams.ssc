@@ -6,6 +6,7 @@ package: std.streams
 exports:
   - stream
   - emit
+  - runStream
   - Source
   - Sink
   - Flow
@@ -68,4 +69,30 @@ case class Rate(elements: Int, perMillis: Int = 1000)
 extern def Source.buffer[A](n: Int, strategy: OverflowStrategy): Source[A]
 extern def Source.throttle[A](rate: Rate): Source[A]
 extern def Source.debounce[A](durationMillis: Int): Source[A]
+```
+
+## `Stream` algebraic effect (v1.51.6)
+
+Algebraic-effect style producer: instead of a virtual thread, the body is a
+pure computation tree.  `Stream.emit(x)` injects a `Perform` node;
+`runStream { body }` walks the tree, collects every emitted value in order,
+and converts the list to a `Source[A]` via `Source.from`.
+
+```scalascript
+// Emit one element from inside a runStream body.
+extern def Stream.emit[A](value: A): Unit
+
+// Discharge a Stream-effect body; returns a Source[A] of all emitted values.
+extern def runStream[A](body: => Unit): Source[A]
+```
+
+Example:
+
+```scalascript
+val src = runStream {
+  Stream.emit(1)
+  Stream.emit(2)
+  Stream.emit(3)
+}
+src.runToList()  // => List(1, 2, 3)
 ```

@@ -3083,6 +3083,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Clock"),   Term.Name(op)), _) if clockPrimitiveOps(op)   => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Logger"),  Term.Name(op)), _) if loggerPrimitiveOps(op)  => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Async"),   Term.Name(op)), _) if asyncPrimitiveOps(op)   => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Stream"),  Term.Name("emit")), _)                         => ()
     }.nonEmpty
 
   // ─── Strategy D, Step 2 ──────────────────────────────────────────
@@ -9358,6 +9359,26 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  val prior = _authUser.get()
        |  _authUser.set(Some(user))
        |  try bodyThunk() finally _authUser.set(prior)
+       |
+       |// ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
+       |//
+       |// Stream.emit(x)  — Perform node inside a runStream body
+       |// runStream(bodyThunk)  — collects all emitted values; returns List[Any]
+       |//   (at JVM codegen level the result is a plain List; Source.from would
+       |//   need the streams plugin to be on the classpath at compiled-script time)
+       |
+       |object Stream:
+       |  def emit(x: Any): Any = _perform("Stream", "emit", x)
+       |
+       |def runStream(bodyThunk: () => Any): Any =
+       |  val emitted = scala.collection.mutable.ArrayBuffer.empty[Any]
+       |  _handle(bodyThunk, Set("Stream.emit"), Map(
+       |    "Stream.emit" -> { (args: List[Any]) =>
+       |      emitted += args.head
+       |      args.last.asInstanceOf[Any => Any](())
+       |    },
+       |  ))
+       |  emitted.toList
        |
        |""".stripMargin
 

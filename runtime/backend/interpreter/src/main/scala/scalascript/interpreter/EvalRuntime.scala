@@ -182,6 +182,12 @@ private[interpreter] object EvalRuntime:
         case _ => throw InterpretError("runHttpStub(routes: Map[String, String]) { body }")
       EffectHandlers.httpRun(eval(bodyClause.values.head, env, interp), Some(routes), interp)
 
+    // ── v1.51.6 Stream effect handler
+    // runStream { body }  — discharges Stream.emit(x) performs; returns Source[A]
+    case Term.Apply.After_4_6_0(Term.Name("runStream"), bodyArgClause)
+        if bodyArgClause.values.size == 1 =>
+      EffectHandlers.streamRun(eval(bodyArgClause.values.head, env, interp), interp)
+
     // ── v1.4 State effect handlers ────────────────────────────────────────
     // runState(s0) { body }  — runs body intercepting State performs;
     //                          returns (finalState, result) as a tuple

@@ -397,3 +397,107 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List(0L, 1L, 2L, 3L))
+
+  // ── v1.51.6 Stream algebraic effect ──────────────────────────────────
+
+  test("Stream.emit via runStream collects emitted values as Source"):
+    val result = interp.eval(
+      """
+      val src = runStream {
+        Stream.emit(10)
+        Stream.emit(20)
+        Stream.emit(30)
+      }
+      src.runToList()
+      """
+    )
+    assert(result == List(10L, 20L, 30L))
+
+  test("runStream with no emissions returns empty Source"):
+    val result = interp.eval(
+      """
+      val src = runStream { () }
+      src.runToList()
+      """
+    )
+    assert(result == List())
+
+  test("runStream from helper function"):
+    val result = interp.eval(
+      """
+      def countdown(n: Int): Unit =
+        if n > 0 then
+          Stream.emit(n)
+          countdown(n - 1)
+      val src = runStream { countdown(5) }
+      src.runToList()
+      """
+    )
+    assert(result == List(5L, 4L, 3L, 2L, 1L))
+
+  test("runStream result supports map"):
+    val result = interp.eval(
+      """
+      val src = runStream {
+        Stream.emit(1)
+        Stream.emit(2)
+        Stream.emit(3)
+      }
+      src.map(x => x * 10).runToList()
+      """
+    )
+    assert(result == List(10L, 20L, 30L))
+
+  test("runStream result supports filter"):
+    val result = interp.eval(
+      """
+      val src = runStream {
+        Stream.emit(1)
+        Stream.emit(2)
+        Stream.emit(3)
+        Stream.emit(4)
+      }
+      src.filter(x => x % 2 == 0).runToList()
+      """
+    )
+    assert(result == List(2L, 4L))
+
+  test("runStream result supports runForeach"):
+    val result = interp.eval(
+      """
+      var buf = List()
+      val src = runStream {
+        Stream.emit(10)
+        Stream.emit(20)
+      }
+      src.runForeach(x => { buf = buf :+ x })
+      buf
+      """
+    )
+    assert(result == List(10L, 20L))
+
+  test("runStream result supports runFold"):
+    val result = interp.eval(
+      """
+      val src = runStream {
+        Stream.emit(1)
+        Stream.emit(2)
+        Stream.emit(3)
+      }
+      src.runFold(0)((acc, x) => acc + x)
+      """
+    )
+    assert(result == 6L)
+
+  test("Stream.emit with mixed types emits as-is"):
+    val result = interp.eval(
+      """
+      val src = runStream {
+        Stream.emit("hello")
+        Stream.emit(42)
+        Stream.emit(true)
+      }
+      src.runToList()
+      """
+    )
+    assert(result == List("hello", 42L, true))

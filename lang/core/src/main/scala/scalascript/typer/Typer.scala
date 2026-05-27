@@ -222,6 +222,9 @@ class Typer(
     // runHttp { body }
     s.define(Symbol("runHttp",         runnerType("Http"),    SymbolKind.Def))
     s.define(Symbol("runHttpStub",     runnerType2("Http"),   SymbolKind.Def))
+    // runStream { body } — v1.51.6
+    s.define(Symbol("runStream",       runnerType("Stream"),  SymbolKind.Def))
+    s.define(Symbol("Stream",  SType.Named("Stream",  Nil), SymbolKind.Object))
     // NonDet and Reader globals
     s.define(Symbol("NonDet",   SType.Named("NonDet",  Nil), SymbolKind.Object))
     s.define(Symbol("Reader",   SType.Named("Reader",  Nil), SymbolKind.Object))
