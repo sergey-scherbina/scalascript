@@ -43,6 +43,12 @@ enum BankRailsEvent:
   case UkFpsRejected(txId: String, reason: String)
   case UkFpsReturned(txId: String, code: String, description: String)
 
+  // ── UK CHAPS (v1.55.5) ───────────────────────────────────────────────────
+  // pacs.002 ACCC from BoE / aggregator: same-day RTGS settlement confirmed
+  case ChapsSettled(endToEndId: String, amount: String, currency: String)
+  // pacs.002 RJCT: payment rejected before or during RTGS queue processing
+  case ChapsRejected(endToEndId: String, reason: String)
+
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 
 opaque type RCode = String
