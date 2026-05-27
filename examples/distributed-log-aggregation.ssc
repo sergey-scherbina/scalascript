@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: distributed-log-aggregation
 description: Distributed log aggregation — ERROR counts per service across cluster (v1.22)

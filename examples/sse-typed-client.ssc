@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: sse-typed-client
 version: "0.1"

@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: spinner-test
 description: Unit tests for the Spinner component — run with `ssc test`.

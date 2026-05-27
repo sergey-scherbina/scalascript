@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 title: Distributed Dataset wire shuffle
 description: DatasetWirePartition reduceByKey shuffle through std/mapreduce actor workers

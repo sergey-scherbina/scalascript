@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: dataset-stats
 description: End-to-end Dataset pipeline using the v1.21 follow-up API — union, zip, top, sum, avg

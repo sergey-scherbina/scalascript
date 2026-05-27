@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 title: Spark shared schema reader
 description: Spark typed readers using SparkSchemaCodec field metadata

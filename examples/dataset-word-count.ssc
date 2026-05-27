@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: dataset-word-count
 description: Word count via Dataset — reads a text file, counts top-10 words

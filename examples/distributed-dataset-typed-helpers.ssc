@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 title: Distributed Dataset typed helpers
 description: Domain-typed Dataset values through distributed MapReduce wire helpers

@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: x402-server
 version: 1.0.0

@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 title: Distributed Dataset codec
 description: Typed DatasetCodec partition payloads for distributed MapReduce workers

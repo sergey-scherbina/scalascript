@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 # Mount handlers demo
 
 Demonstrates `mount()` — registering `.ssc` handler files as HTTP routes.

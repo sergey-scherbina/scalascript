@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: distributed-word-count
 description: Distributed word count — named handlers, 3-node cluster, groupBy shuffle (v1.22)

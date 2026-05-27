@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: graph-neo4j-storage
 version: 0.1.0

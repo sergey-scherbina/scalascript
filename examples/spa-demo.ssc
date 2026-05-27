@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: spa-demo
 version: 1.0.0

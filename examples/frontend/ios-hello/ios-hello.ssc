@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: ios-hello
 version: 1.0.0

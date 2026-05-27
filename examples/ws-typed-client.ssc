@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: ws-typed-client
 version: "0.1"

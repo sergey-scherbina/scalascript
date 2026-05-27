@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: spark-tuple-demo
 backend: spark

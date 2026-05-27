@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: dataset-typed-mapping
 backend: jvm

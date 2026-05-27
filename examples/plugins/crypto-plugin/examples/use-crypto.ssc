@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 # Use Crypto Plugin
 
 Demonstrates calling `extern def` functions provided by the

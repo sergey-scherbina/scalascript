@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: word-count
 description: Classic word count via Apache Spark backend — Dataset[String] + SQL bridge

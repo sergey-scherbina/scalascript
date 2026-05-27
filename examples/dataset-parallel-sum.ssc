@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: dataset-parallel-sum
 description: Parallel sum-of-squares across cores via Dataset.runParallel()

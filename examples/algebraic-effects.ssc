@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: algebraic-effects
 description: Typed algebraic effects showcase — Logger + State + NonDet, capability vs handler style (v1.12.3)

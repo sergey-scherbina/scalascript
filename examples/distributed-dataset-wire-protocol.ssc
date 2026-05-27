@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 title: Distributed Dataset wire protocol
 description: DatasetWirePartition payloads through std/mapreduce actor workers

@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: distributed-join
 description: Distributed simple join — orders joined with customers by customerId (v1.22)

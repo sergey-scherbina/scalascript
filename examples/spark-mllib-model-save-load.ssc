@@ -1,3 +1,4 @@
+#!/usr/bin/env ssc
 ---
 name: spark-mllib-model-save-load
 backend: spark
