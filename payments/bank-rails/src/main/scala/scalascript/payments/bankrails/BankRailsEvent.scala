@@ -85,9 +85,12 @@ enum BankRailsEvent:
   case CaEftReturned(transferId: String, returnCode: String, description: String)
 
   // ── Mexico SPEI (v1.57.3) ────────────────────────────────────────────────
-  case MxSpeiConfirmed(claveRastreo: String, amount: String, currency: String)
-  case MxSpeiRejected(claveRastreo: String, errorCode: String, reason: String)
-  case MxSpeiReturned(claveRastreo: String, returnCode: String, description: String)
+  // BANXICO settlement confirmed at recipient bank (spei.transfer.confirmed)
+  case MxSpeiConfirmed(transfer: BankTransfer)
+  // Transfer rejected by BANXICO or recipient institution (spei.transfer.rejected)
+  case MxSpeiRejected(transfer: BankTransfer, errorCode: String)
+  // Settled transfer returned by recipient bank (spei.transfer.returned)
+  case MxSpeiReturned(transfer: BankTransfer, returnCode: String)
 
 // ── ACH-specific return codes (Nacha R-codes) ────────────────────────────────
 

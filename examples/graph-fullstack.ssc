@@ -1,0 +1,159 @@
+#!/usr/bin/env ssc
+---
+name: graph-fullstack
+version: 1.0.0
+description: >
+  Full-stack Electron/React app demonstrating Phase 6 graph storage:
+  server-side property graph (embedded TinkerGraph) exposed via REST routes,
+  client-side IndexedDB caching of query results, and background refresh.
+frontend: electron
+graphs:
+  deps:
+    model: property
+    side: server
+    backend: embedded-tinkergraph
+---
+
+# Graph Fullstack — Module Dependency Viewer
+
+A full-stack example app that stores a module dependency graph server-side
+and lets the React/Electron frontend browse vertices and neighbors,
+with results cached locally in IndexedDB.
+
+## Data model
+
+```scala
+import scalascript.typeddata.{JsonCodec, VertexCodec, EdgeCodec, key, graphLabel, graphEdge, graphFrom, graphTo}
+
+@graphLabel("Module")
+case class Module(
+  @key id:   String,
+  path:      String,
+  language:  String = "scala",
+) derives JsonCodec, VertexCodec
+
+@graphEdge("imports")
+case class Imports(
+  @graphFrom from:   String,
+  @graphTo   to:     String,
+  reason:            String = "direct",
+) derives JsonCodec, EdgeCodec
+```
+
+## Server startup — seed the graph
+
+```scala @side=server @startup
+Graph.putVertex("deps", Module("core",     "core/Core.ssc"))
+Graph.putVertex("deps", Module("api",      "api/Api.ssc"))
+Graph.putVertex("deps", Module("frontend", "frontend/App.ssc"))
+Graph.putVertex("deps", Module("utils",    "utils/Helpers.ssc"))
+
+Graph.putEdge("deps", Imports("api",      "core",  "direct"))
+Graph.putEdge("deps", Imports("frontend", "api",   "direct"))
+Graph.putEdge("deps", Imports("frontend", "utils", "direct"))
+Graph.putEdge("deps", Imports("api",      "utils", "direct"))
+```
+
+## Server routes
+
+```scala @side=server
+route("GET", "/api/graph/vertices") { req =>
+  val modules = Graph.vertices[Module]("deps")
+  Response.json(modules)
+}
+
+route("GET", "/api/graph/neighbors/:id") { req =>
+  val id        = req.pathParams("id")
+  val neighbors = Graph.neighbors[Module]("deps", id, Some("imports"))
+  Response.json(neighbors)
+}
+
+route("POST", "/api/graph/vertex") { req =>
+  val module = req.bodyAs[Module]
+  Graph.putVertex("deps", module)
+  val edge = req.body.parseJsonField[Imports]("edge")
+  edge.foreach(e => Graph.putEdge("deps", e))
+  Response.status(201, "created")
+}
+```
+
+## Client — imports
+
+[signal, serve, fetchUrlSignal, fetchAction](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider](std/ui/layout.ssc)
+[heading, text, code](std/ui/typography.ssc)
+[button, textInput](std/ui/form.ssc)
+
+## Client — typed API clients
+
+```scala @side=client
+apiClients:
+  getVertices:  GET  /api/graph/vertices          → List[Module]
+  getNeighbors: GET  /api/graph/neighbors/:id     → List[Module]
+  addVertex:    POST /api/graph/vertex             → Unit
+```
+
+## Client — IndexedDB cache
+
+```scala @side=client
+val moduleCache = IndexedDb.store[Module]("graph-cache")
+```
+
+## Client — app state and data loading
+
+```scala @side=client
+val selectedId   = signal("selectedId", "")
+val tick         = signal("tick", 0)
+
+// Cache-first: try IndexedDB, then refresh from server in background
+val cachedModules = moduleCache.getAll()
+val modules = if cachedModules.nonEmpty then
+  // Return cache immediately, refresh in background
+  fetchUrlSignal("modules", "/api/graph/vertices", tick).foreach { fresh =>
+    moduleCache.putAll(fresh)
+  }
+  signal("modules", cachedModules)
+else
+  // No cache — fetch from server and populate cache
+  val fetched = fetchUrlSignal("modules", "/api/graph/vertices", tick)
+  fetched.foreach(ms => moduleCache.putAll(ms))
+  fetched
+
+val neighbors = fetchUrlSignal(
+  "neighbors",
+  s"/api/graph/neighbors/${selectedId.value}",
+  selectedId,
+  enabled = selectedId.value.nonEmpty,
+)
+```
+
+## Client — view
+
+```scala @side=client
+val moduleListItem = (m: Module) =>
+  hstack([
+    text(s"${m.id} (${m.path})"),
+    button("Neighbors", signal("selectedId", m.id)),
+  ])
+
+val neighborItem = (m: Module) =>
+  text(s"  → ${m.id}")
+
+val view = lower(defaultTheme(vstack([
+  heading("Module Dependency Graph", 1),
+  text("Server: embedded TinkerGraph  |  Cache: IndexedDB"),
+  divider(),
+  heading("Modules", 2),
+  vstack(modules.value.map(moduleListItem)),
+  divider(),
+  heading(s"Neighbors of '${selectedId.value}'", 2),
+  if selectedId.value.isEmpty then
+    text("Select a module above to see its imports.")
+  else
+    vstack(neighbors.value.map(neighborItem)),
+])))
+
+serve(view, 3000)
+```

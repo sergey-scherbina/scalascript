@@ -23,7 +23,7 @@ _(all done — see Done section below)_
 
 - [ ] **v1.57.2-payment-rails-canada-eft** — Canada Interac e-Transfer + EFT adapter: `runtime/std/payments-ca-eft/` subproject; `CaEftProvider` implementing `BankRailsProvider` for `RailKind.CA_INTERAC` + `RailKind.CA_EFT`; Interac e-Transfer send (push by email/phone) via Interac Hub REST API; EFT (AFT credit/AFT debit, CPA Standard 005 format); `BankAccount.transitNumber` + `BankAccount.institutionNumber` additive fields; webhook events `interac.transfer.sent/reclaimed/expired`; 40+ tests. Spec: `docs/payment-rails-apac.md §CA_INTERAC`.
 
-- [ ] **v1.57.3-payment-rails-mexico-spei** — Mexico SPEI (Sistema de Pagos Electrónicos Interbancarios) adapter: `runtime/std/payments-mx-spei/` subproject; `MxSpeiProvider` implementing `BankRailsProvider` for `RailKind.MX_SPEI`; CLABE validation (18-digit control-digit); SPEI transfer via STP/Conekta aggregator REST API; `BankAccount.clabe` additive field; webhook events `spei.transfer.confirmed/rejected/returned`; 30+ tests. Spec: `docs/payment-rails-apac.md §MX_SPEI`.
+- [x] **v1.57.3-payment-rails-mexico-spei** — Mexico SPEI (Sistema de Pagos Electrónicos Interbancarios) adapter: `runtime/std/payments-mx-spei/` subproject; `MxSpeiProvider` implementing `BankRailsProvider` for `RailKind.MX_SPEI`; CLABE validation (18-digit control-digit); SPEI transfer via STP/Conekta aggregator REST API; `BankAccount.clabe` additive field; webhook events `spei.transfer.confirmed/rejected/returned`; 30+ tests. Spec: `docs/payment-rails-apac.md §MX_SPEI`. (2026-05-27)
 
 ## Payments & Blockchain — v1.57 FX Provider
 
@@ -31,7 +31,7 @@ _(all done — see Done section below)_
 
 ## Frontend & Clients — Graph Storage Full-Stack Example
 
-- [ ] **graph-storage-fullstack** — Graph storage Phase 6: full-stack Electron/React frontend that queries server graph routes and caches selected results locally. New example `examples/graph-fullstack.ssc` with: (1) server graph routes using `graphs:` front-matter (`backend: embedded-tinkergraph`); REST endpoints `GET /api/graph/vertices`, `GET /api/graph/neighbors/:id`, `POST /api/graph/vertex`; (2) React frontend using generated `ApiClient` to call graph routes; client-side `IndexedDb.store[Module]("graph-cache")` caching of query results; cache-first read with background refresh; (3) `examples/graph-fullstack-rdf.ssc` RDF variant with `backend: rdf4j-memory` and SPARQL escape-hatch endpoint `POST /api/graph/sparql`; 20+ tests covering route handler codegen + graph facade + cache wiring. Spec: `docs/graph-storage.md §Phase 6`.
+- [x] **graph-storage-fullstack** — Graph storage Phase 6: full-stack Electron/React frontend that queries server graph routes and caches selected results locally. New example `examples/graph-fullstack.ssc` with: (1) server graph routes using `graphs:` front-matter (`backend: embedded-tinkergraph`); REST endpoints `GET /api/graph/vertices`, `GET /api/graph/neighbors/:id`, `POST /api/graph/vertex`; (2) React frontend using generated `ApiClient` to call graph routes; client-side `IndexedDb.store[Module]("graph-cache")` caching of query results; cache-first read with background refresh; (3) `examples/graph-fullstack-rdf.ssc` RDF variant with `backend: rdf4j-memory` and SPARQL escape-hatch endpoint `POST /api/graph/sparql`; 20+ tests covering route handler codegen + graph facade + cache wiring. Spec: `docs/graph-storage.md §Phase 6`. (2026-05-27)
 
 ## Language & Compiler — API Tooling
 

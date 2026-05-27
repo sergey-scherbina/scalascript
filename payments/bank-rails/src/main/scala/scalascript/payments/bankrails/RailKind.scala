@@ -23,4 +23,4 @@ enum RailKind:
   // v1.57 additions
   case CA_INTERAC      // Canada Interac e-Transfer (push by email/phone)
   case CA_EFT          // Canada EFT via CPA Standard 005 (AFT credit/debit)
-  case MX_SPEI         // Mexico SPEI instant transfer (via STP/aggregator, CLABE)
+  case MX_SPEI         // Mexico SPEI (BANXICO real-time gross settlement via STP/aggregator)

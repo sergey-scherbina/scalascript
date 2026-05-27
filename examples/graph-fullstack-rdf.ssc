@@ -1,0 +1,117 @@
+#!/usr/bin/env ssc
+---
+name: graph-fullstack-rdf
+version: 1.0.0
+description: >
+  Full-stack RDF graph example demonstrating Phase 6 graph storage:
+  server-side RDF4J in-memory store exposed via REST routes (triples + SPARQL),
+  client-side rendering of subject/predicate/object triples.
+graphs:
+  kg:
+    model: rdf
+    side: server
+    backend: rdf4j-memory
+---
+
+# Graph Fullstack RDF — Knowledge Graph Browser
+
+A full-stack example that stores RDF triples in an RDF4J in-memory store
+and exposes them via REST. The React frontend fetches all triples and
+renders a simple `<subject> <predicate> <object>` table.
+
+## Data model
+
+```scala
+import scalascript.typeddata.{JsonCodec, RdfCodec, RdfNode, rdf, rdfClass, rdfId}
+
+@rdfClass("urn:schema:Person")
+case class Person(
+  @rdfId                              id:    String,
+  @rdf("urn:schema:name")             name:  String,
+  @rdf("urn:schema:email")            email: String,
+) derives JsonCodec, RdfCodec
+```
+
+## Server startup — seed the knowledge graph
+
+```scala @side=server @startup
+Graph.putRdf("kg", Person("urn:person:1", "Ada Lovelace",  "ada@example.com"))
+Graph.putRdf("kg", Person("urn:person:2", "Alan Turing",   "alan@example.com"))
+Graph.putRdf("kg", Person("urn:person:3", "Grace Hopper",  "grace@example.com"))
+```
+
+## Server routes
+
+```scala @side=server
+route("GET", "/api/graph/triples") { req =>
+  val triples = Graph.triples("kg", subject = None)
+  Response.json(triples)
+}
+
+route("POST", "/api/graph/sparql") { req =>
+  val query  = req.bodyAs[String]
+  val rows   = Sparql.select("kg", query)
+  Response.json(rows)
+}
+
+route("PUT", "/api/graph/rdf") { req =>
+  val person = req.bodyAs[Person]
+  Graph.putRdf("kg", person)
+  Response.status(201, "inserted")
+}
+```
+
+## Client — imports
+
+[signal, serve, fetchUrlSignal, fetchAction](std/ui/primitives.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[vstack, hstack, divider](std/ui/layout.ssc)
+[heading, text, code](std/ui/typography.ssc)
+[button, textInput](std/ui/form.ssc)
+[table, tableHeader, tableRow, tableCell](std/ui/table.ssc)
+
+## Client — typed API clients
+
+```scala @side=client
+apiClients:
+  getTriples:   GET  /api/graph/triples    → List[Triple]
+  runSparql:    POST /api/graph/sparql     → List[Map[String, RdfNode]]
+  insertPerson: PUT  /api/graph/rdf        → Unit
+```
+
+## Client — app state
+
+```scala @side=client
+val sparqlQuery  = signal("sparqlQuery", "SELECT ?s ?p ?o WHERE { ?s ?p ?o . } LIMIT 20")
+val tick         = signal("tick", 0)
+val triples      = fetchUrlSignal("triples", "/api/graph/triples", tick)
+```
+
+## Client — view
+
+```scala @side=client
+val tripleRow = (t: Triple) =>
+  tableRow([
+    tableCell(code(t.subject.toString)),
+    tableCell(code(t.predicate.toString)),
+    tableCell(code(t.`object`.toString)),
+  ])
+
+val view = lower(defaultTheme(vstack([
+  heading("RDF Knowledge Graph", 1),
+  text("Backend: RDF4J in-memory store  |  Model: RDF triples"),
+  divider(),
+  heading("Triples", 2),
+  table(
+    tableHeader(["Subject", "Predicate", "Object"]),
+    triples.value.map(tripleRow),
+  ),
+  divider(),
+  heading("SPARQL Query", 2),
+  textInput(sparqlQuery, "Enter SPARQL SELECT query..."),
+  button("Run Query", fetchAction("POST", "/api/graph/sparql", sparqlQuery, tick)),
+])))
+
+serve(view, 3001)
+```
