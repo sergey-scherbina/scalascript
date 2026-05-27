@@ -19,6 +19,11 @@ case class ScalusSettlerConfig(
   ttlSlot:              Option[Long]            = None,
   validityStartSlot:    Option[Long]            = None,
   claimExUnits:         ScalusExUnits           = ScalusExUnits(BigInt(0), BigInt(0)),
+  /** UTxO ref of the already-deployed reference script, in canonical
+   *  `"<64-hex-txhash>#<output-index>"` form.  Set this after running
+   *  `ReferenceScriptDeployer.deploy` once so subsequent claim Txs can
+   *  use the reference script instead of embedding the validator inline. */
+  referenceScriptRef:   Option[String]          = None,
 )
 
 case class ClaimTxPlan(

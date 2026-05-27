@@ -1,0 +1,300 @@
+#!/usr/bin/env ssc
+---
+name: x402-cardano-scalus
+version: 1.0.0
+description: On-chain-enforced x402 Cardano payment using Plutus V3 escrow (Scalus + bloxbean). Full Preprod flow — deposit → 402 request → facilitator claim.
+---
+
+# x402-cardano-scalus
+
+Plutus-escrow x402 flow on Cardano Preprod.  Funds are locked at the x402
+escrow script address before the HTTP request; the facilitator builds and
+submits a claim transaction that releases them to the receiver on successful
+verification.
+
+The three actors:
+
+- **Payer** — locks ADA at the script address via `EscrowDeposit.build`, then
+  signs a `ScalusClaimMessage` with `Wallets.cardano(..., scalusMode = true)`.
+- **Facilitator** — uses `CardanoProvider.Scalus` + `ScalusSettler.preprod`.
+  On a valid 402, `verify` checks the structured CIP-8 proof; `settle` submits
+  the claim Tx via Blockfrost.
+- **Receiver** — any bech32 address; receives the exact lovelace amount once
+  the claim Tx confirms.
+
+Key types:
+
+- [`EscrowDeposit`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/EscrowDeposit.scala) — builds the deposit Tx
+- [`EscrowDatumOffChain`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/EscrowDeposit.scala) — off-chain datum encoding
+- [`ScalusSettler`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/ScalusSettler.scala) — pluggable settler interface
+- [`ScalusSettlerConfig`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/BloxbeanScalusSettler.scala) — settler config (network, keys, fees)
+- [`ReferenceScriptDeployer`](../payments/x402/facilitator-cardano-scalus/src/main/scala/scalascript/x402/facilitator/plutus/ReferenceScriptDeployer.scala) — one-time reference-script deployment helper
+
+See [`docs/x402-cardano-scalus.md`](../docs/x402-cardano-scalus.md) for the full
+design and phase breakdown.
+
+## Step 1 — Deploy reference script (one-time)
+
+Deploy the compiled Plutus V3 validator as an on-chain reference script.
+Store the returned `"<txHash>#<index>"` in `referenceScriptRef`.
+
+```scalascript
+import scalascript.x402.facilitator.plutus.*
+import scalascript.blockfrost.{Blockfrost, BlockfrostConfig}
+import scalascript.x402.Network
+import scala.concurrent.Await
+import scala.concurrent.duration.*
+import scala.concurrent.ExecutionContext.Implicits.global
+
+val blockfrostKey  = sys.env.getOrElse("X402_CARDANO_BLOCKFROST_KEY", sys.env.getOrElse("BLOCKFROST_KEY",
+  throw RuntimeException("Set X402_CARDANO_BLOCKFROST_KEY")))
+val relayerKeyHex  = sys.env.getOrElse("X402_SCALUS_RELAYER_SKEY_HEX",
+  throw RuntimeException("Set X402_SCALUS_RELAYER_SKEY_HEX (32-byte Ed25519 hex)"))
+
+val blockfrost = Blockfrost.connect(BlockfrostConfig(
+  blockfrostKey, baseUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+))
+
+val (deployTxHash, deployIdx) = Await.result(
+  ReferenceScriptDeployer.deploy(blockfrost, Network.CardanoPreprod, relayerKeyHex),
+  60.seconds,
+)
+println(s"Reference script deployed: $deployTxHash#$deployIdx")
+// Store this as X402_SCALUS_REF_SCRIPT_REF
+```
+
+## Step 2 — Payer: deposit ADA at the escrow script address
+
+The payer builds and submits a deposit transaction.  The UTxO reference
+(`<txHash>#<outputIndex>`) is passed to the facilitator as the escrow ref.
+
+```scalascript
+import scalascript.x402.facilitator.plutus.*
+import scalascript.x402.client.Wallets
+import scalascript.blockfrost.{Blockfrost, BlockfrostConfig}
+import scalascript.x402.*
+import scala.concurrent.Await
+import scala.concurrent.duration.*
+import scala.concurrent.ExecutionContext.Implicits.global
+
+val blockfrostKey  = sys.env.getOrElse("X402_CARDANO_BLOCKFROST_KEY", sys.env.getOrElse("BLOCKFROST_KEY",
+  throw RuntimeException("Set X402_CARDANO_BLOCKFROST_KEY")))
+val payerKeyHex    = sys.env.getOrElse("CARDANO_PAYER_KEY",
+  throw RuntimeException("Set CARDANO_PAYER_KEY (32-byte Ed25519 hex)"))
+val receiverAddr   = sys.env.getOrElse("X402_SCALUS_RECEIVER_ADDR",
+  throw RuntimeException("Set X402_SCALUS_RECEIVER_ADDR (bech32 receiver address)"))
+val relayerKeyHex  = sys.env.getOrElse("X402_SCALUS_RELAYER_SKEY_HEX",
+  throw RuntimeException("Set X402_SCALUS_RELAYER_SKEY_HEX"))
+
+val blockfrost = Blockfrost.connect(BlockfrostConfig(
+  blockfrostKey, baseUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+))
+
+// Derive the public key from the payer private key so EscrowDeposit can
+// compute payerKeyHash = Blake2b-224(pubKey).
+val payerWallet       = Wallets.cardano(payerKeyHex, Network.CardanoPreprod)
+val payerPubKeyHex    = ???  // derive via RawPrivateKeyVault; see CardanoPayloadTest
+
+val lovelace          = BigInt(5_000_000)   // 5 ADA
+val nowSec            = System.currentTimeMillis() / 1000
+val validBeforeSlot   = nowSec + 3600       // 1 hour from now
+val refundAfterSlot   = nowSec + 86400      // 24 hours from now
+
+val cfg = ScalusSettlerConfig(
+  network              = Network.CardanoPreprod,
+  blockfrost           = blockfrost,
+  relayerSigningKeyHex = relayerKeyHex,
+  feeLovelace          = BigInt(200_000),
+)
+
+val req = PaymentRequirements(
+  scheme      = PaymentScheme.CardanoExact(lovelace, None),
+  network     = Network.CardanoPreprod,
+  asset       = Assets.USDC_BASE,
+  payTo       = receiverAddr,
+  resource    = "/api/premium",
+  description = "Preprod Scalus escrow deposit",
+)
+
+val depositPlan = Await.result(
+  EscrowDeposit.build(payerPubKeyHex, req, validBeforeSlot, refundAfterSlot, cfg),
+  30.seconds,
+)
+
+val depositTxHash = Await.result(blockfrost.submitTx(depositPlan.depositTxCbor), 30.seconds)
+println(s"Deposit Tx submitted: $depositTxHash")
+println(s"Escrow ref: $depositTxHash#0   (pass this to the HTTP client)")
+// Store as X402_SCALUS_ESCROW_REF=<depositTxHash>#0
+```
+
+## Step 3 — Client: make the HTTP 402 request with Scalus mode
+
+The payer signs the structured `ScalusClaimMessage` and passes the escrow ref.
+
+```scalascript
+import scalascript.x402.client.{X402Client, Wallets}
+import scalascript.x402.*
+import scala.concurrent.Await
+import scala.concurrent.duration.*
+import scala.concurrent.ExecutionContext.Implicits.global
+
+val serverUrl   = sys.env.getOrElse("X402_SERVER_URL", "http://localhost:8080")
+val payerKeyHex = sys.env.getOrElse("CARDANO_PAYER_KEY",
+  throw RuntimeException("Set CARDANO_PAYER_KEY"))
+val escrowRef   = sys.env.getOrElse("X402_SCALUS_ESCROW_REF",
+  throw RuntimeException("Set X402_SCALUS_ESCROW_REF (e.g. <txHash>#0)"))
+
+// Scalus-mode wallet signs ScalusClaimMessage instead of req.description.
+// The escrow ref travels via PaymentRequirements.scalusEscrowRef →
+// authorization.nonce so the facilitator can locate the UTxO.
+val wallet = Wallets.cardano(payerKeyHex, Network.CardanoPreprod, scalusMode = true)
+println(s"Payer address: ${wallet.address}")
+
+import sttp.client4.*
+val http    = DefaultSyncBackend()
+val backend = (method: String, url: String, headers: Map[String, String], body: String) =>
+  import scalascript.x402.client.HttpResponse
+  val req  = basicRequest.headers(headers)
+  val resp = if method == "GET" then req.get(uri"$url").send(http)
+             else req.post(uri"$url").body(body).send(http)
+  Future.successful(HttpResponse(resp.code.code, Map.empty, resp.body.getOrElse("")))
+
+val client = X402Client(
+  wallet    = wallet,
+  maxAmount = BigInt(10_000_000),
+  backend   = backend,
+)
+
+// Note: the 402 response carries scalusEscrowRef in the requirements JSON.
+// The X402Client feeds it through to the payload builder automatically.
+val resp = Await.result(client.get(s"$serverUrl/api/premium"), 30.seconds)
+println(s"Status: ${resp.status}")
+println(s"Body:   ${resp.body}")
+```
+
+## Step 4 — Server: Scalus facilitator verifies and claims
+
+```scalascript
+import scalascript.x402.server.withPayment
+import scalascript.x402.*
+import scalascript.x402.facilitator.{
+  CardanoFacilitator, CardanoFacilitatorConfig, CardanoNetwork, CardanoProvider,
+}
+import scalascript.x402.facilitator.plutus.{ScalusSettler, ScalusSettlerConfig, ScalusExUnits}
+import scalascript.blockfrost.{Blockfrost, BlockfrostConfig}
+import scalascript.x402.client.BloxbeanClaimTxBuilder
+import scala.concurrent.ExecutionContext.Implicits.global
+
+val blockfrostKey  = sys.env.getOrElse("X402_CARDANO_BLOCKFROST_KEY", sys.env.getOrElse("BLOCKFROST_KEY",
+  throw RuntimeException("Set X402_CARDANO_BLOCKFROST_KEY")))
+val receiverAddr   = sys.env.getOrElse("X402_SCALUS_RECEIVER_ADDR",
+  throw RuntimeException("Set X402_SCALUS_RECEIVER_ADDR"))
+val relayerKeyHex  = sys.env.getOrElse("X402_SCALUS_RELAYER_SKEY_HEX",
+  throw RuntimeException("Set X402_SCALUS_RELAYER_SKEY_HEX"))
+val escrowRef      = sys.env.getOrElse("X402_SCALUS_ESCROW_REF",
+  throw RuntimeException("Set X402_SCALUS_ESCROW_REF"))
+
+val blockfrost = Blockfrost.connect(BlockfrostConfig(
+  blockfrostKey, baseUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+))
+
+val settlerCfg = ScalusSettlerConfig(
+  network              = Network.CardanoPreprod,
+  blockfrost           = blockfrost,
+  relayerSigningKeyHex = relayerKeyHex,
+  feeLovelace          = BigInt(200_000),
+  // Conservative ex-units; tune via BloxbeanPreprodIntegrationTest or
+  // live evaluation before mainnet.
+  claimExUnits         = ScalusExUnits(mem = BigInt(600_000), steps = BigInt(200_000_000)),
+)
+
+val settler = ScalusSettler.preprod(
+  settlerCfg,
+  // Use the balanced draft builder backed by live Blockfrost protocol params.
+  scalascript.x402.facilitator.plutus.BloxbeanClaimTxBuilder.draftBalancedFromBlockfrost(settlerCfg),
+)
+
+val lovelace = BigInt(5_000_000)
+val facilitator = CardanoFacilitator(
+  CardanoFacilitatorConfig(
+    network         = CardanoNetwork.Preprod,
+    provider        = CardanoProvider.Scalus("/tmp/node.socket"),
+    receiverAddress = receiverAddr,
+    scalusSettle    = Some(ScalusSettler.asConfigHook(settler)),
+  ),
+  blockfrost,
+)
+
+val req = PaymentRequirements(
+  scheme           = PaymentScheme.CardanoExact(lovelace, None),
+  network          = Network.CardanoPreprod,
+  asset            = Assets.USDC_BASE,
+  payTo            = receiverAddr,
+  resource         = "/api/premium",
+  description      = "Preprod Scalus escrow — 5 ADA",
+  scalusEscrowRef  = Some(escrowRef),
+)
+
+serve {
+  get("/health") { _ => Response.json(Map("status" -> "ok")) }
+
+  withPayment(PaymentConfig(requirements = req, facilitator = facilitator)) {
+    get("/api/premium") { _ =>
+      Response.json(Map(
+        "message" -> "Scalus-escrow-gated premium data",
+        "network" -> "CardanoPreprod",
+      ))
+    }
+  }
+}
+```
+
+## Usage
+
+```bash
+# ── Prerequisites ────────────────────────────────────────────────────────────
+# 1. Preprod Blockfrost project ID: https://blockfrost.io
+export X402_CARDANO_BLOCKFROST_KEY=preprodXXXXXXXXXXXXXXXXXXXXXX
+
+# 2. Raw Ed25519 signing key for the facilitator's relayer wallet (32 bytes hex)
+export X402_SCALUS_RELAYER_SKEY_HEX=$(openssl rand -hex 32)
+
+# 3. Receiver bech32 address (the payee once claim lands on-chain)
+export X402_SCALUS_RECEIVER_ADDR=addr_test1...
+
+# 4. Raw Ed25519 payer key (32 bytes hex) — different from relayer
+export CARDANO_PAYER_KEY=$(openssl rand -hex 32)
+# Derive payer address from the key (the example prints it on start)
+
+# ── Step 1: deploy reference script (run once per network) ───────────────────
+ssc run examples/x402-cardano-scalus.ssc --step deploy
+# Prints: Reference script deployed: <txHash>#0
+# → Add to X402_SCALUS_RELAYER_SKEY_HEX or store for later steps
+
+# ── Step 2: fund escrow UTxO ──────────────────────────────────────────────────
+# First fund the payer address via the Preprod faucet:
+# https://docs.cardano.org/cardano-testnet/tools/faucet
+ssc run examples/x402-cardano-scalus.ssc --step deposit
+# Prints: Deposit Tx submitted: <txHash>
+export X402_SCALUS_ESCROW_REF=<txHash>#0
+
+# ── Step 3: start the server ──────────────────────────────────────────────────
+ssc run examples/x402-cardano-scalus.ssc --step server &
+
+# ── Step 4: run the client ───────────────────────────────────────────────────
+export X402_SERVER_URL=http://localhost:8080
+ssc run examples/x402-cardano-scalus.ssc --step client
+```
+
+## Notes
+
+- The claim Tx is submitted by the **facilitator**, not the payer.  The
+  relayer key (`X402_SCALUS_RELAYER_SKEY_HEX`) pays the Tx fee and
+  witnesses the script spending; its address must hold enough ADA for the
+  fee + collateral.
+- `ScalusSettlerConfig.claimExUnits` pins static ex-units.  For production
+  use `BloxbeanClaimTxBuilder.draftEvaluatedBalanced(...)` to get live
+  ex-unit measurements from Blockfrost or Ogmios before fee balancing.
+- See `BloxbeanPreprodIntegrationTest` for a full integration test that
+  exercises the balanced claim draft against real Preprod data (skipped
+  unless `X402_SCALUS_PREPROD_IT=true`).

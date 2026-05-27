@@ -13,7 +13,7 @@ class EscrowScriptTest extends AnyFunSuite:
 
   test("address: derives mainnet enterprise script address") {
     val address = EscrowScript.address(Network.CardanoMainnet)
-    assert(address == "addr1wxj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qm75nhg")
+    assert(address == "addr1w9jy7xtwcuh8pp08ete45esset9rskafz7gqapgej5x59ss78k05l")
 
     val bytes = Bech32.decode(address).getOrElse(fail("mainnet address must decode"))
     assert(bytes.length == 29)
@@ -25,7 +25,7 @@ class EscrowScriptTest extends AnyFunSuite:
     val preprod = EscrowScript.address(Network.CardanoPreprod)
     val preview = EscrowScript.address(Network.CardanoPreview)
 
-    assert(preprod == "addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd")
+    assert(preprod == "addr_test1wpjy7xtwcuh8pp08ete45esset9rskafz7gqapgej5x59ss90znm6")
     assert(preprod == preview)
 
     val bytes = Bech32.decode(preprod).getOrElse(fail("testnet address must decode"))

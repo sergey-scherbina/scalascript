@@ -17,7 +17,7 @@ class BloxbeanClaimTxDraftBuilderTest extends AnyFunSuite:
     network         = Network.CardanoPreprod,
     escrowRef       = ScalusEscrowRef("a" * 64, 2),
     scriptAddress   = EscrowScript.address(Network.CardanoPreprod),
-    receiverAddress = "addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd",
+    receiverAddress = EscrowScript.address(Network.CardanoPreprod),
     lovelace        = BigInt(2_000_000),
     coseSign1Hex    = "c0ffee",
     coseKeyHex      = "cafe",

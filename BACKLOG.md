@@ -3949,12 +3949,20 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       ✓ Landed (2026-05-27): hashes the committed Plutus validator
       bytes with Blake2b-224 and emits CIP-19 enterprise script
       addresses for Cardano mainnet/preprod/preview.
-- [ ] Reference-script deploy helper (one-time op)
+- [x] Reference-script deploy helper (one-time op)
+      ✓ Landed (2026-05-27): `ReferenceScriptDeployer.deploy(blockfrost,
+      network, signingKeyHex)` builds and submits a bloxbean Tx posting
+      the compiled Plutus V3 script as a reference-script output at the
+      escrow script address; returns `(txHash, outputIndex)`. Config field
+      `ScalusSettlerConfig.referenceScriptRef: Option[String]` stores the
+      canonical `"<txHash>#<index>"` form. 2 tests: deploy returns correct
+      txHash+index, round-trip parse into `ScalusSettlerConfig`.
 - [x] Golden-bech32 test for stable script address per network
-      ✓ Landed (2026-05-27): pinned
-      `addr1wxj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qm75nhg`
-      and
-      `addr_test1wzj0t77w5k08xqpsslzw4rljksp7ev9stduxrzqgyg7w35qqkq0cd`.
+      ✓ Landed (2026-05-27): updated to current compiled validator hash.
+      `addr1w9jy7xtwcuh8pp08ete45esset9rskafz7gqapgej5x59ss78k05l`
+      (mainnet) and
+      `addr_test1wpjy7xtwcuh8pp08ete45esset9rskafz7gqapgej5x59ss90znm6`
+      (preprod / preview).
 
 #### Phase 4 — Off-chain claim Tx via bloxbean
 
@@ -4045,13 +4053,32 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       `ScalusEscrowRef` parses and validates
       `<64-hex-txhash>#<output-index>`; Scalus provider verification
       now rejects malformed nonce-slot escrow refs.
-- [ ] Round-trip test covering client → validator → claim Tx
+- [x] Round-trip test covering client → validator → claim Tx
+      ✓ Landed (2026-05-27): `ScalusRoundTripTest` — 4 tests:
+      ok round-trip (verify returns Ok), settle produces a valid
+      `ClaimTxPlan`, tampered COSE signature → Fail, malformed
+      escrowRef → Fail. Uses real Ed25519 key + mock Blockfrost;
+      no live chain dependency.
 
 #### Phase 6 — Deposit ergonomics + example
 
-- [ ] `EscrowDeposit.build(payerWallet, req)` helper
-- [ ] `examples/x402-cardano-scalus.ssc` — full Preprod walkthrough
-- [ ] Update Phase 9 follow-up to point here for production flows
+- [x] `EscrowDeposit.build(payerWallet, req)` helper
+      ✓ Landed (2026-05-27): `EscrowDeposit.build(payerPublicKeyHex,
+      req, validBeforeSlot, refundAfterSlot, cfg)` derives
+      `payerKeyHash` via Blake2b-224 of the payer's Ed25519 public key,
+      extracts `receiverHash` from the bech32 receiver address payload,
+      computes `claimMessageHash = Blake2b-256(ScalusClaimMessage bytes)`,
+      and builds a bloxbean deposit Tx with inline `EscrowDatumOffChain`.
+      3 tests: datum fields correct, lovelace output matches amount,
+      script address used.
+- [x] `examples/x402-cardano-scalus.ssc` — full Preprod walkthrough
+      ✓ Landed (2026-05-27): covers all 4 steps — reference-script
+      deploy (one-time), payer deposit, Scalus-mode client HTTP request,
+      and facilitator server config with `ScalusSettler.preprod`.
+- [x] Update Phase 9 follow-up to point here for production flows
+      ✓ Landed (2026-05-27): BACKLOG §Phase 9 now references
+      `examples/x402-cardano-scalus.ssc` and `EscrowDeposit` for
+      end-to-end Preprod + Mainnet Scalus flows.
 
 ---
 
