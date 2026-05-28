@@ -70,11 +70,14 @@ private[interpreter] object TcoRuntime:
             val selfTco = Value.NativeFnV(curFun.name, a => throw new TailCall(a))
             envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
             envStableFor  = curFun
-          val callEnv = curFun.params match
+          val callEnv: Env = curFun.params match
             case Nil               => envStable
-            case p :: Nil          => envStable.updated(p, curArgs.head)
-            case p1 :: p2 :: Nil   => envStable.updated(p1, curArgs.head).updated(p2, curArgs(1))
-            case _                 => envStable ++ curFun.params.iterator.zip(curArgs.iterator).toMap
+            case p :: Nil          => FrameMap.one(p, curArgs.head, envStable)
+            case p1 :: p2 :: Nil   => FrameMap.two(p1, curArgs.head, p2, curArgs(1), envStable)
+            case ps                =>
+              val names = ps.toArray
+              val vals  = curArgs.iterator.take(names.length).toArray
+              FrameMap.of(names, vals, envStable)
           current = interp.eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
         // Exits via `return` inside the match; the condition stays `true`.
