@@ -4814,7 +4814,8 @@ device, one seed, per-chain on-device apps; the Vault routes
       ✓ Landed 2026-05-27 (`19ad76cd`).
 - [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
       Nano X / Stax. Deferred.
-- [ ] Optional `wallet-vault-trezor` follow-up. Deferred.
+- [x] `wallet-vault-trezor` — `TrezorEthVault` + `TrezorBridge` + `TrezorSession` + `MockTrezorBridge`; 29 tests.
+      ✓ Landed 2026-05-28.
 
 ### Phase 8 — MPC Vault
 

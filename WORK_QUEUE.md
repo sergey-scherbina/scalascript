@@ -318,7 +318,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Wallet — Trezor vault adapter
 
-- [ ] **wallet-vault-trezor** — Trezor hardware wallet vault adapter: `payments/wallet/wallet-vault-trezor/` sbt subproject; `TrezorVault` implementing `Vault` SPI; `TrezorBridge` HTTP client for Trezor Bridge local daemon (`http://127.0.0.1:21325`); JSON wire protocol: `GET /` (version), `POST /enumerate` (list devices), `POST /{session}/call` (send APDU-like messages); `TrezorMessageCodec` (protobuf-shaped JSON for Initialize / GetPublicKey / SignTx / EthereumSignTx); supports EVM (secp256k1 `m/44'/60'/0'/0/n`) + Cardano (ed25519 `m/1852'/1815'/0'/0/0` HD derivation, CIP-8 COSE_Sign1 framing); `TrezorSession` lifecycle (acquire → call → release); `TrezorVaultPlugin` ServiceLoader registration; `MockTrezorBridge` for tests; 20+ tests. Spec: new `docs/wallet-vault-trezor.md`.
+- [x] **wallet-vault-trezor** — Trezor hardware wallet vault adapter: `payments/wallet/vault-trezor/` sbt subproject; `TrezorEthVault` implementing `Vault` SPI; `TrezorBridge` trait + `HttpTrezorBridge` (Trezor Bridge local daemon `http://127.0.0.1:21325`); `TrezorSession` (acquire/release lifecycle); BIP-32 path encoding via `Bip32.parse` → `address_n` int array; `ButtonRequest` auto-ack loop; `MockTrezorBridge` with response queues for tests; 29 tests. Spec: `docs/wallet-vault-trezor.md`. ✓ Landed 2026-05-28.
 
 ## Wallet — Ledger WebBLE (Scala.js)
 

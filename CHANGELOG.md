@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Wallet Trezor vault adapter
+
+- **wallet-vault-trezor** — `payments/wallet/vault-trezor/` sbt subproject: `TrezorEthVault` (implements `Vault` SPI; `unlock/lock/getSigner`; `ButtonRequest` auto-ack loop up to 10 retries); `TrezorBridge` trait + `HttpTrezorBridge` (java.net.http, `Origin: https://bridge.trezor.io`); `TrezorSession` (acquire/release with guaranteed release via `transformWith`); `TrezorMessages` (`TrezorDeviceInfo`, `TrezorResponse`, `Bip32.parse`, `TrezorMessageType` constants, `TrezorDeviceFailure`); `MockTrezorBridge` (per-messageType response queues, recorded calls); `enqueueFeatures/PublicKey/EthSignature/Failure` helpers. 29 tests (TrezorBridgeTest 11, TrezorSessionTest 4, TrezorEthVaultTest 14).
+
 ## 2026-05-28 — x402 Cardano Scalus thin-glue wiring
 
 - **x402-cardano-scalus-wire** — `CardanoScalusFacilitator.preprod/mainnet` factory in `x402-facilitator-cardano-scalus` wires `ScalusSettler.asConfigHook` into `CardanoFacilitatorConfig.scalusSettle`; removes the "not yet implemented" stub; 8 new tests total (5 in `CardanoScalusFacilitatorTest` + 3 in `CardanoFacilitatorTest`). Closes last open backlog checkbox in x402 Phase 6.
