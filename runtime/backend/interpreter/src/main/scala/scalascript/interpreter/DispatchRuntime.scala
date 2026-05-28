@@ -264,19 +264,26 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"      => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
-            case Value.ListV(results) => Value.ListV(results.flatMap {
-              case Value.ListV(inner) => inner
-              case v                  => List(v)
-            })
-            case other => other
-          }
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(buf.toList))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.ListV(inner) => buf ++= inner; loop(rest)
+                case v                  => buf += v;      loop(rest)
+              }
+          loop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"       => args match
         case List(f) =>
           Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(flags) =>
-              Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(true)) => v })
+              val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+              var items = ls; var fs = flags
+              while items.nonEmpty && fs.nonEmpty do
+                if fs.head == Value.BoolV(true) then buf += items.head
+                items = items.tail; fs = fs.tail
+              Value.ListV(buf.toList)
             case other => other
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -284,21 +291,32 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(flags) =>
-              Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(false)) => v })
+              val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+              var items = ls; var fs = flags
+              while items.nonEmpty && fs.nonEmpty do
+                if fs.head != Value.BoolV(true) then buf += items.head
+                items = items.tail; fs = fs.tail
+              Value.ListV(buf.toList)
             case other => other
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap(Computation.discardToUnit)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil    => Computation.PureUnit
+            case h :: t => interp.callValue1(f, h, env).flatMap(_ => loop(t))
+          loop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
-            case Value.ListV(flags) =>
-              Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
-            case _ => Value.intV(0)
-          }
+          def loop(remaining: List[Value], acc: Long): Computation = remaining match
+            case Nil => Computation.pureIntV(acc)
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.BoolV(true) => loop(rest, acc + 1L)
+                case _                 => loop(rest, acc)
+              }
+          loop(ls, 0L)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "find"         => args match
         case List(f) =>
@@ -429,7 +447,12 @@ private[interpreter] object DispatchRuntime:
           val tuples = items.map((k, v) => Value.TupleV(List(k, v)))
           Computation.mapSequence(tuples, t => interp.callValue1(f, t, env)).map {
             case Value.ListV(flags) =>
-              Value.MapV(items.zip(flags).collect { case ((k, v), Value.BoolV(true)) => k -> v }.toMap)
+              val buf = scala.collection.mutable.Map.empty[Value, Value]
+              var is = items; var fs = flags
+              while is.nonEmpty && fs.nonEmpty do
+                if fs.head == Value.BoolV(true) then buf += is.head
+                is = is.tail; fs = fs.tail
+              Value.MapV(buf.toMap)
             case _ => Value.EmptyMap
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
