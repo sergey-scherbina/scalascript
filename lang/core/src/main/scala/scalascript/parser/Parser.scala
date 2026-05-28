@@ -58,8 +58,11 @@ object Parser:
       else
         val base = shebangLines + fmStripped
         (mdLine: Int) => base + mdLine
-    val sections = extractSections(doc, mdLineToFileLine)
     val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
+    // When `package:` is set, wrapSectionInPackage replaces every code-block
+    // tree with a re-parsed package-wrapped form.  Skip the initial scalameta
+    // parse here so we don't do it twice.
+    val sections = extractSections(doc, mdLineToFileLine, skipInitialParse = pkg.nonEmpty)
     val raw      =
       if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
       else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
@@ -432,7 +435,8 @@ object Parser:
 
   private def extractSections(
       doc:              CmDocument,
-      mdLineToFileLine: Int => Int
+      mdLineToFileLine: Int => Int,
+      skipInitialParse: Boolean
   ): List[Section] =
     val roots = ListBuffer[Section]()
     val stack = Stack[Frame]()
@@ -458,7 +462,7 @@ object Parser:
             subsections = ListBuffer.empty
           ))
         case other =>
-          toContent(other, mdLineToFileLine).foreach { c =>
+          toContent(other, mdLineToFileLine, skipInitialParse).foreach { c =>
             if stack.nonEmpty then stack.top.content += c
             else preContent += c
           }
@@ -473,7 +477,7 @@ object Parser:
 
   // ─── Node → Content ──────────────────────────────────────────────
 
-  private def toContent(node: CmNode, mdLineToFileLine: Int => Int): Option[Content] = node match
+  private def toContent(node: CmNode, mdLineToFileLine: Int => Int, skipInitialParse: Boolean): Option[Content] = node match
     case f: CmFenced =>
       val info     = Option(f.getInfo).getOrElse("").trim
       val lang     = info.takeWhile(!_.isWhitespace).toLowerCase
@@ -481,7 +485,7 @@ object Parser:
       val attrs    = parseFenceAttrs(tailAttrs)
       val src  = Option(f.getLiteral).getOrElse("")
       val (tree, parseError) =
-        if Lang.isParseable(lang) then parseScalaWithDiagnostic(src)
+        if Lang.isParseable(lang) && !skipInitialParse then parseScalaWithDiagnostic(src)
         else (None, None)
       // CommonMark's source span on a `FencedCodeBlock` covers the whole
       // block including the opening + closing fence rows.  The first line

@@ -221,9 +221,24 @@ class Scope(val parent: Option[Scope] = None, val name: String = "<root>"):
 
   def define(sym: Symbol): Unit                  = symbols(sym.name) = sym
   def defineType(n: String, s: TypeScheme): Unit = types(n) = s
-  def lookup(n: String): Option[Symbol]          = symbols.get(n).orElse(parent.flatMap(_.lookup(n)))
-  def lookupType(n: String): Option[TypeScheme]  = types.get(n).orElse(parent.flatMap(_.lookupType(n)))
-  def child(childName: String): Scope            = Scope(Some(this), childName)
+
+  def lookup(n: String): Option[Symbol] =
+    var scope: Scope = this
+    while scope != null do
+      val hit = scope.symbols.get(n)
+      if hit.isDefined then return hit
+      scope = scope.parent.orNull
+    None
+
+  def lookupType(n: String): Option[TypeScheme] =
+    var scope: Scope = this
+    while scope != null do
+      val hit = scope.types.get(n)
+      if hit.isDefined then return hit
+      scope = scope.parent.orNull
+    None
+
+  def child(childName: String): Scope = Scope(Some(this), childName)
 
 enum Constraint:
   case Equal(lhs: SType, rhs: SType)
