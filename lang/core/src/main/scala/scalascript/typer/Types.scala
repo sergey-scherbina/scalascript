@@ -66,6 +66,10 @@ enum SType:
     case Function(params, r, effs) =>
       val effStr = showEffects(effs)
       s"(${params.map(_.show).mkString(", ")}) => ${r.show}$effStr"
+    // Unit (0-tuple) renders as "Unit" for .scim backward compatibility.
+    // 1-tuple uses trailing comma to distinguish (A,) from parenthesised (A).
+    case Tuple(Nil)           => "Unit"
+    case Tuple(List(t))       => s"(${t.show},)"
     case Tuple(elems)         => s"(${elems.map(_.show).mkString(", ")})"
     // `&` binds tighter than `|`, so nested `Intersection` inside `Union`
     // prints without parens; the reverse needs them so the precedence
@@ -165,7 +169,8 @@ enum SType:
     case _                        => Set.empty
 
 object SType:
-  val Unit: SType    = Named("Unit", Nil)
+  /** Unit is the 0-tuple — the monoid identity for tuple concatenation. */
+  val Unit: SType    = Tuple(Nil)
   val Boolean: SType = Named("Boolean", Nil)
   val Int: SType     = Named("Int", Nil)
   val Long: SType    = Named("Long", Nil)
@@ -179,6 +184,26 @@ object SType:
   def list(elem: SType): SType        = Named("List", scala.List(elem))
   def option(elem: SType): SType      = Named("Option", scala.List(elem))
   def map(k: SType, v: SType): SType  = Named("Map", scala.List(k, v))
+
+  /** Monoid concatenation of two tuple types.
+   *  Flattens eagerly: both sides are expanded to their elem lists, then
+   *  concatenated.  A 1-element result collapses to its element (so
+   *  `() ++ A = A` and `A ++ () = A` satisfy the identity laws).
+   *
+   *  Non-tuple arguments are treated as 1-elem "virtual tuples":
+   *    `Int ++ String  =  (Int, String)`
+   *    `() ++ Int      =  Int`
+   *    `(Int,) ++ ()   =  Int`
+   */
+  def tupleConcat(t1: SType, t2: SType): SType =
+    def elems(t: SType): scala.List[SType] = t match
+      case Tuple(es) => es
+      case _         => scala.List(t)
+    val combined = elems(t1) ++ elems(t2)
+    combined match
+      case Nil         => Tuple(Nil)         // () ++ () = ()
+      case scala.List(t) => t               // singleton flattens to element
+      case _           => Tuple(combined)
 
 case class Symbol(name: String, tpe: SType, kind: SymbolKind, mutable: Boolean = false)
 
@@ -229,6 +254,11 @@ object Unifier:
           p1.zip(p2).foreach { case (x, y) => solve(x, y) }
           solve(r1, r2)
           solveEffectRow(e1, e2)
+        // Unit (0-tuple) is the identity — unifies with anything via the monoid laws.
+        case (SType.Tuple(Nil), _) | (_, SType.Tuple(Nil)) => ()
+        // 1-tuple is isomorphic to its element: (A,) ≅ A.
+        case (SType.Tuple(scala.List(t)), other) => solve(t, other)
+        case (other, SType.Tuple(scala.List(t))) => solve(other, t)
         case (SType.Tuple(e1), SType.Tuple(e2)) if e1.length == e2.length =>
           e1.zip(e2).foreach { case (x, y) => solve(x, y) }
         case (SType.Nothing, _) | (_, SType.Any) => ()

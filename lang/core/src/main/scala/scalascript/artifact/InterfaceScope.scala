@@ -78,11 +78,13 @@ object InterfaceScope:
    *  `SType.show`, `parseSType` reconstructs a structurally equal `SType`
    *  value.  The grammar handled is a small Scala-flavoured type language:
    *
-   *    Type    ::= Func
+   *    Type    ::= Concat
+   *    Concat  ::= Func { `++` Func }                       // right-assoc, lowest prec (v1.60)
    *    Func    ::= Union `=>` Func | Union                  // right-assoc
    *    Union   ::= Inter { `|` Inter }                      // flat, lower-prec
    *    Inter   ::= Primary { `&` Primary }                  // flat, tighter
-   *    Primary ::= `(` `)`                                  // Unit / nullary fn params
+   *    Primary ::= `(` `)`                                  // Unit (0-tuple) / nullary fn params
+   *              | `(` Type `,` `)`                         // 1-tuple with trailing comma (v1.60)
    *              | `(` Type `,` Type {`,` Type} `)`         // tuple / multi-arg fn params
    *              | `(` Type `)`                             // parenthesised
    *              | Path [ `[` TArg {`,` TArg} `]` ]         // named / type app / HK
@@ -202,10 +204,17 @@ object InterfaceScope:
               case Primary.Single(inner) => SType.Function(List(inner), rhs, effs)
           }
         else
-          lhs match
+          val base = lhs match
             case Primary.Group(elems)  => Some(SType.Tuple(elems))
             case Primary.Empty         => Some(SType.Unit)
             case Primary.Single(inner) => Some(inner)
+          // Tuple concatenation: `T ++ U` — right-associative, lowest precedence.
+          base.flatMap { t =>
+            if consumePlusPlus() then
+              parseType().map(rhs => SType.tupleConcat(t, rhs))
+            else
+              Some(t)
+          }
       }
 
     /** Parse a Union-level expression — a chain of `|`-separated
@@ -438,6 +447,13 @@ object InterfaceScope:
           (resultType, SType.EffectRow(None, Set.empty))
       }
 
+    /** Consume `++` preceded by optional ws. */
+    private def consumePlusPlus(): Boolean =
+      skipWs()
+      if pos + 1 < len && s.charAt(pos) == '+' && s.charAt(pos + 1) == '+' then
+        pos += 2; true
+      else false
+
     /** Consume a single `!` (but not `!=`) preceded by optional ws. */
     private def consumeBang(): Boolean =
       skipWs()
@@ -484,10 +500,17 @@ object InterfaceScope:
             val elems = scala.collection.mutable.ListBuffer(first)
             var ok    = true
             while ok && consume(',') do
-              parseType() match
-                case Some(t) => elems += t
-                case None    => ok = false
-            if !ok || !consume(')') then None
+              skipWs()
+              // Trailing comma before ')' — 1-tuple `(A,)`.
+              if pos < len && s.charAt(pos) == ')' then
+                ok = false  // stop loop; elems stays as-is
+              else
+                parseType() match
+                  case Some(t) => elems += t
+                  case None    => ok = false
+            if !consume(')') then None
+            // `(A,)` — explicit 1-tuple, not a parenthesised expression.
+            else if elems.length == 1 && !ok then Some(Primary.Group(elems.toList))
             else if elems.length == 1 then Some(Primary.Single(first))
             else Some(Primary.Group(elems.toList))
 
@@ -520,7 +543,9 @@ object InterfaceScope:
                   else
                     Some(Primary.Single(SType.Named(name, argList)))
           else
-            Some(Primary.Single(SType.Named(name, Nil)))
+            // "Unit" normalises to Tuple(Nil) — the canonical 0-tuple.
+            if name == "Unit" then Some(Primary.Single(SType.Tuple(Nil)))
+            else Some(Primary.Single(SType.Named(name, Nil)))
 
     /** A single type argument inside `[...]`.  A bare `_` is recognised
      *  as the higher-kinded placeholder marker (rendered as

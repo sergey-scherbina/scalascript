@@ -107,6 +107,42 @@ class ParseSTypeTest extends AnyFunSuite:
     assert(parse("()") == SType.Unit)
   }
 
+  test("1-tuple (A,) is distinct from (A)") {
+    assert(parse("(Int,)")    == SType.Tuple(List(SType.Int)))
+    assert(parse("(String,)") == SType.Tuple(List(SType.String)))
+  }
+
+  // ── Tuple monoid ++ ────────────────────────────────────────────────────
+
+  test("(Int, String) ++ (Boolean, Long) concatenates to 4-tuple") {
+    assert(parse("(Int, String) ++ (Boolean, Long)") ==
+      SType.Tuple(List(SType.Int, SType.String, SType.Boolean, SType.Named("Long", Nil))))
+  }
+
+  test("Unit ++ (Int, String) = (Int, String) — left identity") {
+    assert(parse("Unit ++ (Int, String)") ==
+      SType.Tuple(List(SType.Int, SType.String)))
+  }
+
+  test("(Int, String) ++ Unit = (Int, String) — right identity") {
+    assert(parse("(Int, String) ++ Unit") ==
+      SType.Tuple(List(SType.Int, SType.String)))
+  }
+
+  test("() ++ () = Unit — empty concat") {
+    assert(parse("() ++ ()") == SType.Unit)
+  }
+
+  test("A ++ B flattens non-tuple args as singletons") {
+    assert(parse("Int ++ String") ==
+      SType.Tuple(List(SType.Int, SType.String)))
+  }
+
+  test("1-tuple concat: (Int,) ++ (String,) = (Int, String)") {
+    assert(parse("(Int,) ++ (String,)") ==
+      SType.Tuple(List(SType.Int, SType.String)))
+  }
+
   // ── Qualified paths ────────────────────────────────────────────────────
 
   test("dotted path stays as Named with dots preserved") {
@@ -139,7 +175,7 @@ class ParseSTypeTest extends AnyFunSuite:
     assert(parse("   ")     == SType.Any)
     assert(parse("???")     == SType.Any)
     assert(parse("List[")   == SType.Any)
-    assert(parse("(Int,)")  == SType.Any)
+    assert(parse("(Int ,")  == SType.Any)
     assert(parse("=> Int")  == SType.Any)
     assert(parse("Int =>")  == SType.Any)
   }

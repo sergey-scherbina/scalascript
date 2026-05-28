@@ -1020,6 +1020,10 @@ class Typer(
     // flatten chains so `A | B | C` becomes a single `SType.Union(A, B, C)`
     // matching the canonical form the parser produces from `.scim`
     // round-trips.
+    // Tuple concatenation: `(A, B) ++ (C, D)` → flat `(A, B, C, D)`.
+    // Right-associative, lowest precedence — resolved before `|` and `&`.
+    case Type.ApplyInfix(lhs, Type.Name("++"), rhs) =>
+      SType.tupleConcat(typeAnnotToSType(lhs), typeAnnotToSType(rhs))
     case Type.ApplyInfix(lhs, Type.Name("|"), rhs) =>
       val l = typeAnnotToSType(lhs)
       val r = typeAnnotToSType(rhs)
