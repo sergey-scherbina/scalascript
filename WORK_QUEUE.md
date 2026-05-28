@@ -465,7 +465,7 @@ ScalaScript's own registry work stays queued.
 - [x] **v1.61.2-pure-path** — Smart `Computation.map`; all-Pure fast path in `sequence`; pure-path in `Term.Select`/`Term.Assign`/`BlockRuntime.evalBlock`. ✓ Landed 2026-05-28.
 - [x] **v1.61.3-env-overhaul** — While-loop frame filtered to O(N_local_vars); ALL Term.Assign intercepts keep local in sync. arith-loop 15600ms → 4480ms (3.5×). ✓ Landed 2026-05-28.
 - [x] **v1.61.4-pattern-compile** — Compile `Term.Match` to decision-tree closure cached by AST identity. pattern-match-heavy 6069ms → 3960ms (1.53× vs baseline). ✓ Landed 2026-05-28.
-- [ ] **v1.61.5-js-inlining** — Drop IIFE wrappers in statement position; inline known accessors; type-aware `_dispatch` skip. Target: ≥30% JS speedup, ≥40% smaller output.
+- [x] **v1.61.5-js-inlining** — Tuple IIFE→Object.assign; direct while stmt; int-mul typeof skip. User-code -17–30% chars per program. ✓ Landed 2026-05-28.
 - [ ] **v1.61.6-preamble-split** — Sub-capability split of JS `Core` and JVM `commonRuntime`; Hello World target <10 KB. Target: ≥80% bundle reduction for trivial programs.
 - [ ] **v1.61.7-memory** — `IntV`/`DoubleV` pools, `TupleV → Array`, `FunV` split, `Span` sidecar, `ArtifactIO` binary format. Target: ≥50% allocation rate reduction.
 

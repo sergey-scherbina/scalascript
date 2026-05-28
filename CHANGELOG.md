@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.61.5 JS codegen inlining
+
+- **v1.61.5-js-inlining** — Three targeted JS codegen quality improvements: (1) Tuple literals now emit `Object.assign([...], {_isTuple: true})` instead of a three-step IIFE — saves ~20 chars per tuple, one fewer closure allocation per creation (4 emission sites); (2) `Term.While` in statement context emits a direct `while (cond) { body; }` statement without IIFE wrapper — saves ~28 chars per while loop in statement position; (3) Integer `*` skips the `typeof === 'string'` guard when both operands are known integers via `isIntExpr` — saves ~52 chars and one typeof check per int multiply. `PatternRuntime.scala`: remove stale `import Computation.Pure`. No behavior change; 183/184 tests pass (1 pre-existing Choose failure).
+
 ## 2026-05-28 — v1.63.4c Remote HTTP JSON client
 
 - **v1.63.4c-remote-stubs-async-wire** — Added explicit `Remote.http[A, B](url)` / `remoteHttpFunction` client calls for remote handler POST HTTP JSON fallback routes. The client posts ScalaScript value JSON, decodes the response, and maps non-2xx/network/decode failures into typed `RemoteCallError` values through `tryCall`. Added embedded JDK HTTP server coverage in `RemotePluginInterpreterTest`; typed `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` are tracked in `v1.63.4d`.
