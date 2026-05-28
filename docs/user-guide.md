@@ -3081,6 +3081,30 @@ Distributed actors + cluster primitives baked in across all server backends:
 | ZooKeeper client | `zkClient { … }` for legacy coordinator integration |
 | Operational routes | `GET /_ssc-cluster/status`, `/members`, `/leader` — built-in across server backends |
 
+Typed actor references are available as a typed surface over the existing
+distributed `Pid` runtime:
+
+```scalascript
+runActors {
+  startNode("node-a")
+  registerBehavior("echo", (arg: Any) =>
+    receive { case "ping" => println("pong") }
+  )
+
+  val ref = spawnRemote[String]("node-a", "echo", ())
+  println(ref.address)
+  println(ref.isLocal)
+  ref.publishAs("actors.echo")
+  ref.tell("ping")
+}
+```
+
+`spawnRemote` invokes a named behavior registered on the target node; it does
+not serialize arbitrary closures.  The current implementation uses the JSON
+`ssc-actors-v1` control channel (`cluster_spawn` / `cluster_spawn_ack`);
+binary MsgPack/CBOR transport is planned in the distributed wire milestone.
+See [`examples/actors-typed-remote-spawn.ssc`](../examples/actors-typed-remote-spawn.ssc).
+
 Specs: [`docs/cluster-management.md`](cluster-management.md),
 [`docs/cluster-raft.md`](cluster-raft.md),
 [`docs/cluster-federation.md`](cluster-federation.md),

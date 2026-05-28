@@ -198,6 +198,100 @@ class MultiNodeClusterTest extends AnyFunSuite:
       procB.foreach(_.destroyForcibly())
       os.remove.all(sandbox)
 
+  test("two-node cluster — spawnRemote starts a registered behavior on peer"):
+    val jar = requireJar()
+    val sandbox = os.temp.dir(prefix = "ssc-remote-spawn-")
+    var procA: Option[Process] = None
+    var procB: Option[Process] = None
+    try
+      val portA = freePort()
+      val portB = freePort()
+      val urlA = s"ws://127.0.0.1:$portA/_ssc-actors"
+      val urlB = s"ws://127.0.0.1:$portB/_ssc-actors"
+      val srcA =
+        s"""---
+           |name: remote-spawn-a
+           |---
+           |
+           |# Remote spawn A
+           |
+           |```scalascript
+           |runActors {
+           |  startNode("node-a", "$urlA")
+           |  serveAsync($portA)
+           |  registerBehavior("echo", (arg: Any) =>
+           |    receive {
+           |      case "ping" =>
+           |        println("REMOTE_SPAWN_OK")
+           |        stop()
+           |    }
+           |  )
+           |  spawn { () =>
+           |    val s = self()
+           |    sendAfter(15000, s, "timeout")
+           |    receive { case "timeout" =>
+           |      println("REMOTE_SPAWN_TIMEOUT")
+           |      stop()
+           |    }
+           |  }
+           |}
+           |```
+           |""".stripMargin
+      val srcB =
+        s"""---
+           |name: remote-spawn-b
+           |---
+           |
+           |# Remote spawn B
+           |
+           |```scalascript
+           |runActors {
+           |  startNode("node-b", "$urlB")
+           |  serveAsync($portB)
+           |  spawn { () =>
+           |    val s = self()
+           |    setReconnectPolicy(300, 1200)
+           |    sendAfter(800, s, "join")
+           |    receive { case "join" =>
+           |      joinCluster(List("$urlA"))
+           |      sendAfter(2500, s, "spawn")
+           |      receive { case "spawn" =>
+           |        val ref = spawnRemote[String]("node-a", "echo", ())
+           |        ref.tell("ping")
+           |        sendAfter(1000, s, "done")
+           |        receive { case "done" => stop() }
+           |      }
+           |    }
+           |  }
+           |}
+           |```
+           |""".stripMargin
+
+      val (pA, outA) = spawnNode(jar, sandbox, "remote-a", portA, Nil, srcA)
+      procA = Some(pA)
+      Thread.sleep(500)
+      val (pB, outB) = spawnNode(jar, sandbox, "remote-b", portB, Nil, srcB)
+      procB = Some(pB)
+
+      val gotA = pA.waitFor(25, java.util.concurrent.TimeUnit.SECONDS)
+      val gotB = pB.waitFor(25, java.util.concurrent.TimeUnit.SECONDS)
+      if !gotA then pA.destroyForcibly()
+      if !gotB then pB.destroyForcibly()
+
+      val txtA = scala.io.Source.fromFile(outA).mkString
+      val txtB = scala.io.Source.fromFile(outB).mkString
+      info(s"remote-a out:\n$txtA")
+      info(s"remote-b out:\n$txtB")
+
+      assert(txtA.contains("REMOTE_SPAWN_OK"),
+        s"node-a did not run remote-spawned behavior:\nA:\n$txtA\nB:\n$txtB")
+      assert(!txtA.contains("REMOTE_SPAWN_TIMEOUT"),
+        s"node-a timed out waiting for remote spawn:\nA:\n$txtA\nB:\n$txtB")
+    finally
+      procA.foreach(_.destroyForcibly())
+      procB.foreach(_.destroyForcibly())
+      os.remove.all(sandbox)
+
   test("five-node cluster — all observe the same Bully leader"):
     val jar = requireJar()
     val sandbox = os.pwd / "target" / "ssc-multinode-5"

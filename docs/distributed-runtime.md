@@ -78,9 +78,10 @@ shape `A => Source[B]`, while distributed `flatMap` has shape
 | `startNode` / `connectNode` / `register` / `whereis` | `runtime/std/nodes.ssc` | Implemented |
 | `joinCluster(seeds, token)` | `runtime/std/cluster/membership.ssc` | Implemented |
 | Cluster membership, phi failure detector, leader election | `runtime/std/actors.ssc`, `runtime/std/cluster/` | Implemented |
-| `setClusterAuthToken(token)` / `SSC_CLUSTER_TOKEN` | `runtime/std/actors.ssc` | Implemented; JVM term-lowering gap remains |
+| `setClusterAuthToken(token)` / `SSC_CLUSTER_TOKEN` | `runtime/std/actors.ssc`, `JvmGen.scala` | Implemented for interpreter and JVM lowering |
+| Typed ScalaScript wrapper `ActorRef[M]` | `runtime/std/actors.ssc`, interpreter dispatch | Implemented as a typed surface over `Pid` |
 | Typed Scala wrapper `ActorRef[M]` | `lang/interop/src/main/scala/scalascript/interop/runtime/Actors.scala` | v0.1 stub |
-| `spawnRemote` / `cluster_spawn` | `docs/distributed-wire-protocol.md` | Planned |
+| `spawnRemote` / `cluster_spawn` | `runtime/std/actors.ssc`, `ActorInterp.scala` | Implemented over JSON `ssc-actors-v1`; binary wire integration remains v1.62 |
 | Operational routes | `/_ssc-cluster/status`, `drain`, `events`, `step-down`, `metrics-prom` | Implemented |
 
 ### Async Calls
@@ -784,12 +785,19 @@ work queue links. No runtime changes.
 
 ### v1.63.2 - Typed Actors and Remote Spawn
 
-- Complete typed `ActorRef[M]`.
-- Add `spawnRemote`.
-- Add `BehaviorRegistry`.
-- Add `cluster_spawn` / `cluster_spawn_ack` wire messages.
-- Fix JVM lowering for `setClusterAuthToken`.
-- Add two-node actor tests.
+- Complete typed `ActorRef[M]`. ✓ Landed 2026-05-28: `ActorRef[M]`,
+  `LocalActorRef[M]`, `NodeId`, `actorRef`, `ref.tell`, `ref.address`,
+  `ref.isLocal`, `ref.tryLocal`, and `ref.publishAs`.
+- Add `spawnRemote`. ✓ Landed 2026-05-28 for named behavior spawn over the
+  existing JSON actor WebSocket transport.
+- Add `BehaviorRegistry`. ✓ Landed 2026-05-28 as `registerBehavior(name,
+  behavior)`.
+- Add `cluster_spawn` / `cluster_spawn_ack` wire messages. ✓ Landed
+  2026-05-28 on the `ssc-actors-v1` JSON control channel; MsgPack/CBOR
+  profiles remain under `docs/distributed-wire-protocol.md`.
+- Fix JVM lowering for `setClusterAuthToken`. ✓ Landed 2026-05-28.
+- Add two-node actor tests. ✓ Landed 2026-05-28 as a jar-gated CLI
+  multi-node smoke test plus interpreter local-path coverage.
 
 ### v1.63.3 - Cluster Capability, Seed Discovery, and Code Identity
 
@@ -857,7 +865,7 @@ work queue links. No runtime changes.
 | Phase | Tests |
 |---|---|
 | v1.63.1 | `Source(1,2,3).distributed.map(_*2).local.runToList == List(2,4,6)` through DirectRunner; bounded variant fails on a tiny byte limit; `BasicStreamOps` compiles against both `Source` and `DStream` |
-| v1.63.2 | Local spawn still works; `spawnRemote` delivers message in two-node interpreter test; `ref.isLocal` / `ref.address` / `ref.tryLocal` correct; JVM `setClusterAuthToken` test |
+| v1.63.2 | Local spawn still works; `spawnRemote` delivers through the local interpreter path and jar-gated two-node CLI smoke; `ref.isLocal` / `ref.address` / `ref.tryLocal` correct; JVM `setClusterAuthToken` test |
 | v1.63.3 | Mock DNS/K8s seed discovery; `cluster Demo:` lowering; `clusterOf()` fails clearly before `startNode`; code identity stable and mismatch diagnostics clear |
 | v1.63.4 | `@remote def echo` plus generated client round-trip; timeout/decode/auth errors surface as typed `RemoteCallError`; JSON fallback works without binary wire |
 | v1.63.5 | `ssc cluster run` two local processes; `handlers` lists exported operations; worker bundle contains code identity and registry metadata |

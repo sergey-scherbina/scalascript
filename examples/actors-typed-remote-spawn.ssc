@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: actors-typed-remote-spawn
+description: Typed ActorRef helpers and named spawnRemote behavior registry
+---
+
+# Typed ActorRef + named spawnRemote
+
+```scalascript
+runActors {
+  startNode("typed-demo")
+
+  registerBehavior("echo", (arg: Any) =>
+    receive {
+      case "ping" => println("spawnRemote: pong")
+    }
+  )
+
+  val localRef = spawnRemote[String]("typed-demo", "echo", ())
+  println(localRef.address == Some("typed-demo"))
+  println(localRef.isLocal)
+  localRef.tryLocal match
+    case Some(_) => println("local ref")
+    case None    => println("remote ref")
+
+  localRef.publishAs("typed.echo")
+  globalWhereis("typed.echo") match
+    case Some(ref) => ref.tell("ping")
+    case None      => println("missing")
+}
+```

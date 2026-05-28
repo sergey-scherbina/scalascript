@@ -48,6 +48,15 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     code should not include "val members = clusterMembers()"
     code should include ("Actor.clusterMembers()")
 
+  test("JvmGen: top-level `setClusterAuthToken()` rewrites to Actor.setClusterAuthToken()"):
+    val code = jvmCode("""
+      setClusterAuthToken("s3cret")
+      println("done")
+    """)
+    code should include ("""Actor.setClusterAuthToken("s3cret")""")
+    code should include ("def setClusterAuthToken(token: Any)")
+    code should include ("case \"setClusterAuthToken\"")
+
   test("JvmGen: pattern match on NodeJoined / NodeLeft pulls in the runtime"):
     // No call to any actor intrinsic — only pattern matches.  Used to
     // not trigger `blocksUseActors`, so `case class NodeJoined` wasn't
@@ -175,13 +184,19 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   private def compileWithScalaCli(code: String): Int =
     val sc = jvmCode(code)
     val tmp = java.io.File.createTempFile("ssc-jvmgen-effects-", ".sc")
+    val err = java.io.File.createTempFile("ssc-jvmgen-effects-", ".err")
     tmp.deleteOnExit()
+    err.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
     val proc = ProcessBuilder("scala-cli", "compile", tmp.getAbsolutePath)
-      .redirectError(ProcessBuilder.Redirect.DISCARD)
+      .redirectError(err)
       .redirectOutput(ProcessBuilder.Redirect.DISCARD)
       .start()
-    proc.waitFor()
+    val exitCode = proc.waitFor()
+    if exitCode != 0 then
+      val msg = scala.io.Source.fromFile(err).mkString
+      println(s"scala-cli compile failed for ${tmp.getAbsolutePath}:\n$msg")
+    exitCode
 
   test("JvmGen: scala-cli compiles a module with top-level subscribeClusterEvents()"):
     assume(hasScalaCli, "scala-cli not available")

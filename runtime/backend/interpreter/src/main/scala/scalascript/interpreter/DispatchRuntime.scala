@@ -543,6 +543,21 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchInstance(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     typeName match
+      case "Pid" => name match
+        case "tell" | "!" => args match
+          case List(msg) => Perform("Actor", "send", List(recv, msg))
+          case _         => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case "address" if args.isEmpty =>
+          Perform("Actor", "actorRefAddress", List(recv))
+        case "isLocal" if args.isEmpty =>
+          Perform("Actor", "actorRefIsLocal", List(recv))
+        case "tryLocal" if args.isEmpty =>
+          Perform("Actor", "actorRefTryLocal", List(recv))
+        case "publishAs" | "publish" => args match
+          case List(Value.StringV(n)) => Perform("Actor", "actorRefPublish", List(recv, Value.StringV(n)))
+          case _                      => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
       case "Signal" => name match
         case "get" | "apply" =>
           fields.get("id") match

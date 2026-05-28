@@ -230,6 +230,7 @@ compiles them via Scala.js.
 |---------|--------|
 | Local actors | `spawn`, `self()`, `pid ! msg`, `receive { case ... }`, `link`, `exit`, supervision |
 | Distributed actors | actor cluster over WS, bully leader election, Phi-accrual FD, gossip, membership events |
+| Typed actor refs + named remote spawn | `ActorRef[M]`, `ref.tell(msg)`, `ref.address`, `ref.isLocal`, `registerBehavior`, `spawnRemote` over the current JSON actor WS control channel |
 
 ### Web and HTTP
 
@@ -385,6 +386,7 @@ Planned, not implemented yet:
 | [signals-demo.ssc](examples/signals-demo.ssc) | Reactive signals — `Signal`, `computed`, `effect`, diamond dedup |
 | [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — JSON-backed and ephemeral handlers |
 | [actors-demo.ssc](examples/actors-demo.ssc) | Actors — spawn, send, receive, supervision, cluster |
+| [actors-typed-remote-spawn.ssc](examples/actors-typed-remote-spawn.ssc) | Typed `ActorRef[M]` helpers plus named `registerBehavior` / `spawnRemote` |
 | [ws-recv-demo.ssc](examples/ws-recv-demo.ssc) | Sync-style `ws.recv()` loop alternative to `onMessage` callbacks |
 | [mcp-demo.ssc](examples/mcp-demo.ssc) | MCP server with tools and resources; MCP client usage |
 | [dataset-stats.ssc](examples/dataset-stats.ssc) | Dataset MapReduce — `runLocal`, `runParallel`, aggregations |

@@ -14,7 +14,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.63.1-stream-bridge-basic-ops** — Stream bridge and shared safe operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`, `_dag_sink_local`, and bounded/materialization tests. Spec: `docs/distributed-runtime.md §v1.63.1`. ✓ Landed 2026-05-28.
 
-- [ ] **v1.63.2-typed-actors-remote-spawn** — Typed actors and remote spawn: complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`, `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for `setClusterAuthToken`, and two-node actor tests. Spec: `docs/distributed-runtime.md §v1.63.2`.
+- [x] **v1.63.2-typed-actors-remote-spawn** — Typed actors and remote spawn: complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`, `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for `setClusterAuthToken`, and two-node actor tests. Spec: `docs/distributed-runtime.md §v1.63.2`. ✓ Landed 2026-05-28.
 
 - [ ] **v1.63.3-cluster-capability-seed-code-identity** — Cluster capability, seed discovery, and code identity: add `Cluster`, `SeedResolver`, `.ssc` / `.sscc` code identity, `cluster:` and registry front matter, `cluster Demo:` lowering, and diagnostics for missing handlers/codecs and code mismatch. Spec: `docs/distributed-runtime.md §v1.63.3`.
 

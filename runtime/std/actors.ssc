@@ -61,6 +61,17 @@ exports:
   - clusterMetricSum
   - clusterMetricNames
   - subscribeMetricEvents
+  - ActorRef
+  - LocalActorRef
+  - NodeId
+  - BehaviorDescriptor
+  - actorRef
+  - actorRefAddress
+  - actorRefIsLocal
+  - actorRefTryLocal
+  - actorRefPublish
+  - registerBehavior
+  - spawnRemote
 ---
 
 # std.actors — Actor supervision
@@ -129,6 +140,41 @@ enum Overflow:
 // `overflow`  — strategy applied when the mailbox is full.
 // `behavior`  — actor body; receives nothing, communicates via `receive`.
 extern def spawnBounded(capacity: Int, overflow: Overflow, behavior: () => Unit): Any
+
+// ─── Typed actor references + named remote spawn (v1.63.2) ───────────────────
+
+// v1.63.2 is a typed surface over the existing distributed `Pid` runtime.
+// The aliases are intentionally representation-preserving: they let user code
+// document and check the message type at call sites without changing the
+// current interpreter/JVM wire shape.
+type ActorRef[M] = Any
+type LocalActorRef[M] = Any
+type NodeId = String
+
+case class BehaviorDescriptor[M](name: String)
+
+def actorRef[M](pid: Any): ActorRef[M] = pid
+
+extern def actorRefAddress[M](ref: ActorRef[M]): Option[NodeId]
+extern def actorRefIsLocal[M](ref: ActorRef[M]): Boolean
+extern def actorRefTryLocal[M](ref: ActorRef[M]): Option[LocalActorRef[M]]
+extern def actorRefPublish[M](ref: ActorRef[M], name: String): ActorRef[M]
+
+// Register a named behavior on this node.  `spawnRemote` invokes this registry
+// by name; it never ships arbitrary closures over the network.
+extern def registerBehavior[M](name: String, behavior: Any => Unit): Unit
+
+// Spawn a registered behavior on `nodeId`.  Local node ids use the same code
+// path and return immediately.  Remote spawn uses the `cluster_spawn` /
+// `cluster_spawn_ack` actor-control envelope over the existing JSON v1 wire.
+extern def spawnRemote[M](nodeId: NodeId, behavior: BehaviorDescriptor[M], args: Any): ActorRef[M]
+
+extension [M](ref: ActorRef[M])
+  def tell(msg: M): Unit = ref ! msg
+  def address: Option[NodeId] = actorRefAddress(ref)
+  def isLocal: Boolean = actorRefIsLocal(ref)
+  def tryLocal: Option[LocalActorRef[M]] = actorRefTryLocal(ref)
+  def publishAs(name: String): ActorRef[M] = actorRefPublish(ref, name)
 
 // ─── Process introspection ────────────────────────────────────────────────────
 

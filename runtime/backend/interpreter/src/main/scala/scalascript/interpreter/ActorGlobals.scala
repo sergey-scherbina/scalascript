@@ -35,6 +35,37 @@ private[interpreter] object ActorGlobals:
       case Nil => Perform("Actor", "self", Nil)
       case _   => throw InterpretError("self takes no arguments")
     })
+    g("actorRef") = Value.NativeFnV("actorRef", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Computation.Pure(pid)
+      case _ => throw InterpretError("actorRef(pid): ActorRef[M]")
+    })
+    g("actorRefAddress") = Value.NativeFnV("actorRefAddress", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "actorRefAddress", List(pid))
+      case _ => throw InterpretError("actorRefAddress(ref): Option[String]")
+    })
+    g("actorRefIsLocal") = Value.NativeFnV("actorRefIsLocal", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "actorRefIsLocal", List(pid))
+      case _ => throw InterpretError("actorRefIsLocal(ref): Boolean")
+    })
+    g("actorRefTryLocal") = Value.NativeFnV("actorRefTryLocal", {
+      case List(pid @ Value.InstanceV("Pid", _)) => Perform("Actor", "actorRefTryLocal", List(pid))
+      case _ => throw InterpretError("actorRefTryLocal(ref): Option[Any]")
+    })
+    g("actorRefPublish") = Value.NativeFnV("actorRefPublish", {
+      case List(pid @ Value.InstanceV("Pid", _), Value.StringV(name)) =>
+        Perform("Actor", "actorRefPublish", List(pid, Value.StringV(name)))
+      case _ => throw InterpretError("actorRefPublish(ref, name): ActorRef[M]")
+    })
+    g("registerBehavior") = Value.NativeFnV("registerBehavior", {
+      case List(Value.StringV(name), behavior) =>
+        Perform("Actor", "registerBehavior", List(Value.StringV(name), behavior))
+      case _ => throw InterpretError("registerBehavior(name, behavior): Unit")
+    })
+    g("spawnRemote") = Value.NativeFnV("spawnRemote", {
+      case List(Value.StringV(nodeId), descriptor, arg) =>
+        Perform("Actor", "spawnRemote", List(Value.StringV(nodeId), descriptor, arg))
+      case _ => throw InterpretError("spawnRemote(nodeId, behavior, args): ActorRef[M]")
+    })
     g("exit") = Value.NativeFnV("exit", {
       case List(pid @ Value.InstanceV("Pid", _), reason) =>
         Perform("Actor", "exit", List(pid, reason))

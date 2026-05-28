@@ -67,6 +67,43 @@ class ActorDistributedTest extends AnyFunSuite with Matchers:
       }
     """) shouldBe "test@host:1"
 
+  test("typed ActorRef helpers expose address/local metadata and publish"):
+    captured("""
+      runActors {
+        startNode("typed-node")
+        val worker = spawn { () =>
+          receive {
+            case "ping" => println("pong")
+          }
+        }
+        val ref: ActorRef[String] = actorRef(worker)
+        println(ref.address == Some("typed-node"))
+        println(ref.isLocal)
+        ref.tryLocal match
+          case Some(_) => println("local")
+          case None    => println("remote")
+        val published = ref.publishAs("typed-worker")
+        globalWhereis("typed-worker") match
+          case Some(_) => println("published")
+          case None    => println("missing")
+        published.tell("ping")
+      }
+    """) shouldBe "true\ntrue\nlocal\npublished\npong"
+
+  test("spawnRemote uses local BehaviorRegistry path when nodeId is local"):
+    captured("""
+      runActors {
+        startNode("local-spawn")
+        registerBehavior("echo", (arg: Any) =>
+          receive {
+            case "ping" => println("spawnRemote local")
+          }
+        )
+        val ref = spawnRemote[String]("local-spawn", "echo", ())
+        ref.tell("ping")
+      }
+    """) shouldBe "spawnRemote local"
+
   test("ValueSerializer round-trips IntV"):
     import scalascript.interpreter.{Value, ValueSerializer}
     val v = Value.IntV(42L)

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.63.2 Typed actors and remote spawn
+
+- **v1.63.2-typed-actors-remote-spawn** — Added typed ScalaScript `ActorRef[M]` / `LocalActorRef[M]` aliases over `Pid`, `ref.tell`, `ref.address`, `ref.isLocal`, `ref.tryLocal`, `ref.publishAs`, `registerBehavior`, and `spawnRemote`. Interpreter actor runtime now handles named behavior spawn via JSON `cluster_spawn` / `cluster_spawn_ack`; JVM lowering now supports bare `setClusterAuthToken(...)`; JVM codegen always emits the effect runtime needed by the inlined Logger facade. Added interpreter coverage, jar-gated two-node CLI remote-spawn smoke, docs, and `examples/actors-typed-remote-spawn.ssc`.
+
 ## 2026-05-28 — v1.63.1 Source↔DStream stream bridge
 
 - **v1.63.1-stream-bridge-basic-ops** — Bidirectional bridge between local `Source[A]` and distributed `DStream[A]`: `Source[A].distributed` wraps a local source into a `_dag_source_local` DAG node (dispatched via `DispatchRuntime.dispatchInstanceFallback` → `interp.globals("Source.distributed")` to avoid circular plugin dependency); `DStream[A].local()` materialises the full DAG through DirectRunner and returns a `Source` InstanceV with all BasicStreamOps (map/filter/merge/runForeach/runFold/runToList) wired as NativeFnV fields; `DStream[A].localBounded(maxBytes)` raises `InterpretError` when the approximate byte count exceeds the limit. `runtime/std/streams-bridge.ssc` declares the bridge API and `BasicStreamOps[F[_]]` shared trait. 9 new tests; round-trip `Source(1,2,3).distributed.map(_*2).local.runToList == List(2,4,6)` verified. Also fixes `ActorGlobals` pattern-extractor bug from upstream `b806ef2a` commit (smart constructors `Value.intV`/`Value.doubleV` used in `case` patterns replaced with case-class extractors `Value.IntV`/`Value.DoubleV`).

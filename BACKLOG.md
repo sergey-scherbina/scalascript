@@ -28,10 +28,14 @@ network semantics or deployment constraints.
       operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`,
       `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`,
       `_dag_sink_local`, and bounded/materialization tests.
-- [ ] **v1.63.2-typed-actors-remote-spawn** - Typed actors and remote spawn:
+- [x] **v1.63.2-typed-actors-remote-spawn** - Typed actors and remote spawn:
       complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`,
       `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for
-      `setClusterAuthToken`, and two-node actor tests.
+      `setClusterAuthToken`, and two-node actor tests. Landed 2026-05-28:
+      typed `ActorRef[M]` helpers over `Pid`, `registerBehavior`,
+      JSON `cluster_spawn` / `cluster_spawn_ack`, JVM
+      `setClusterAuthToken` lowering, local interpreter coverage, jar-gated
+      two-node CLI smoke, and `examples/actors-typed-remote-spawn.ssc`.
 - [ ] **v1.63.3-cluster-capability-seed-code-identity** - Cluster capability,
       seed discovery, and code identity: add `Cluster`, `SeedResolver`,
       `.ssc` / `.sscc` code identity, `cluster:` and registry front matter,

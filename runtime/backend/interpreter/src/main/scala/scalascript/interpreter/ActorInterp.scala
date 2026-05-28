@@ -77,6 +77,13 @@ private[interpreter] trait ActorInterp:
   // Cluster-wide name → Pid registry, populated by globalRegister broadcasts.
   private val globalRegistry =
     new java.util.concurrent.ConcurrentHashMap[String, Value]()
+  // v1.63.2 — named behavior registry for remote actor spawn. Values are
+  // ScalaScript functions of shape `Any => Unit`; remote spawn never ships
+  // arbitrary closures, it invokes one of these names on the target node.
+  private val behaviorRegistry =
+    new java.util.concurrent.ConcurrentHashMap[String, Value]()
+  private val remoteSpawnAcks =
+    new java.util.concurrent.ConcurrentHashMap[String, java.util.concurrent.CompletableFuture[Either[String, Value]]]()
   // Heartbeat: last pong timestamp per peer (epoch ms); initialised to connect time.
   private val peerLastPong =
     new java.util.concurrent.ConcurrentHashMap[String, Long]()
@@ -680,6 +687,36 @@ private[interpreter] trait ActorInterp:
   private def mkPid(nodeId: String, localId: Long): Value =
     Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.intV(localId)))
 
+  private def spawnRegisteredBehavior(name: String, arg: Value): Either[String, Value] = this.synchronized {
+    val rt = actorRt
+    if rt == null then Left("actor runtime is not running")
+    else
+      val behavior = behaviorRegistry.get(name)
+      if behavior == null then Left(s"behavior not found: $name")
+      else
+        val childId = rt.nextId
+        rt.nextId += 1
+        rt.mailboxes(childId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
+        val savedCurrent = rt.currentId
+        rt.currentId = childId
+        val childBody =
+          try callValue(behavior, List(arg), Map.empty)
+          finally rt.currentId = savedCurrent
+        rt.pending(childId) = childBody
+        rt.ready.enqueue(childId)
+        val t = schedulerThread; if t != null then t.interrupt()
+        Right(mkPid(localNodeId, childId))
+  }
+
+  private def pidNodeId(fields: Map[String, Value]): String =
+    fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+
+  private def pidLocalId(fields: Map[String, Value]): Long =
+    fields.get("localId").collect {
+      case Value.IntV(n)    => n
+      case Value.DoubleV(d) => d.toLong
+    }.getOrElse(-1L)
+
   /** v1.23 — shared peer-loss cleanup.  Runs from three sites that
    *  notice a peer is gone: outbound recv-loop exit, inbound recv-loop
    *  exit, and the heartbeat thread's timeout branch.  Idempotent: all
@@ -878,6 +915,46 @@ private[interpreter] trait ActorInterp:
               s"[cluster:dbg] $localNodeId recv global_reg name=$name from=$nodeId localId=$localId")
             if name.nonEmpty && nodeId.nonEmpty then
               globalRegistry.put(name, mkPid(nodeId, localId))
+          case "cluster_spawn" =>
+            val req  = m.get(Value.StringV("requestId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val name = m.get(Value.StringV("behavior")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val arg  = m.get(Value.StringV("args"))
+              .map(ValueSerializer.fromParsed)
+              .getOrElse(Value.UnitV)
+            if req.nonEmpty && name.nonEmpty then
+              val ack =
+                spawnRegisteredBehavior(name, arg) match
+                  case Right(Value.InstanceV("Pid", fields)) =>
+                    val nid = pidNodeId(fields)
+                    val lid = pidLocalId(fields)
+                    s"""{"t":"cluster_spawn_ack","requestId":${jsonStr(req)},"ok":true,"pid":{"nodeId":${jsonStr(nid)},"localId":$lid}}"""
+                  case Right(_) =>
+                    s"""{"t":"cluster_spawn_ack","requestId":${jsonStr(req)},"ok":false,"error":"spawn did not return a Pid"}"""
+                  case Left(err) =>
+                    s"""{"t":"cluster_spawn_ack","requestId":${jsonStr(req)},"ok":false,"error":${jsonStr(err)}}"""
+              Option(peerChannels.get(peerNodeId)).foreach { send =>
+                try send(ack) catch case _: Throwable => ()
+              }
+          case "cluster_spawn_ack" =>
+            val req = m.get(Value.StringV("requestId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if req.nonEmpty then
+              val fut = remoteSpawnAcks.remove(req)
+              if fut != null then
+                val ok = m.get(Value.StringV("ok")).collect { case Value.BoolV(b) => b }.getOrElse(false)
+                if ok then
+                  m.get(Value.StringV("pid")) match
+                    case Some(Value.MapV(pm)) =>
+                      val nid = pm.get(Value.StringV("nodeId")).collect { case Value.StringV(s) => s }.getOrElse(peerNodeId)
+                      val lid = pm.get(Value.StringV("localId")) match
+                        case Some(Value.IntV(n))    => n
+                        case Some(Value.DoubleV(d)) => d.toLong
+                        case _                      => -1L
+                      fut.complete(Right(mkPid(nid, lid)))
+                    case _ =>
+                      fut.complete(Left("cluster_spawn_ack missing pid"))
+                else
+                  val err = m.get(Value.StringV("error")).collect { case Value.StringV(s) => s }.getOrElse("remote spawn failed")
+                  fut.complete(Left(err))
           case "phi_vector" =>
             // v1.23 — peer broadcasted its phi vector.  Replace our stored
             // view of that peer's perspective on the rest of the cluster.
@@ -1327,6 +1404,79 @@ private[interpreter] trait ActorInterp:
 
     case "self" =>
       Right(k(mkPid(localNodeId, id)))
+
+    case "actorRefAddress" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        val raw = pidNodeId(fields)
+        val nid = if raw.nonEmpty then raw else localNodeId
+        Right(k(if nid.nonEmpty then Value.OptionV(Some(Value.StringV(nid))) else Value.OptionV(None)))
+      case _ => throw InterpretError("actorRefAddress(ref)")
+
+    case "actorRefIsLocal" => args match
+      case List(Value.InstanceV("Pid", fields)) =>
+        val nid = pidNodeId(fields)
+        Right(k(Value.BoolV(nid.isEmpty || nid == localNodeId)))
+      case _ => throw InterpretError("actorRefIsLocal(ref)")
+
+    case "actorRefTryLocal" => args match
+      case List(pid @ Value.InstanceV("Pid", fields)) =>
+        val nid = pidNodeId(fields)
+        val local = nid.isEmpty || nid == localNodeId
+        Right(k(if local then Value.OptionV(Some(pid)) else Value.OptionV(None)))
+      case _ => throw InterpretError("actorRefTryLocal(ref)")
+
+    case "actorRefPublish" => args match
+      case List(Value.InstanceV("Pid", fields), Value.StringV(name)) =>
+        val rawNid = pidNodeId(fields)
+        val nid    = if rawNid.nonEmpty then rawNid else localNodeId
+        val lid    = pidLocalId(fields)
+        val stampedPid = mkPid(nid, lid)
+        globalRegistry.put(name, stampedPid)
+        val payload =
+          s"""{"t":"global_reg","name":${jsonStr(name)},"nodeId":${jsonStr(nid)},"localId":${jsonStr(lid.toString)}}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(stampedPid))
+      case _ => throw InterpretError("actorRefPublish(ref, name)")
+
+    case "registerBehavior" => args match
+      case List(Value.StringV(name), behavior) =>
+        behaviorRegistry.put(name, behavior)
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("registerBehavior(name, behavior)")
+
+    case "spawnRemote" => args match
+      case List(Value.StringV(nodeId), descriptor, arg) =>
+        val behaviorName = descriptor match
+          case Value.InstanceV("BehaviorDescriptor", fields) =>
+            fields.get("name").collect { case Value.StringV(s) => s }.getOrElse("")
+          case Value.StringV(s) => s
+          case _                => ""
+        if behaviorName.isEmpty then throw InterpretError("spawnRemote: empty behavior name")
+        val spawned =
+          if nodeId.isEmpty || nodeId == localNodeId then
+            spawnRegisteredBehavior(behaviorName, arg).fold(err => throw InterpretError(err), identity)
+          else
+            val send = peerChannels.get(nodeId)
+            if send == null then throw InterpretError(s"spawnRemote: peer not connected: $nodeId")
+            val req = java.util.UUID.randomUUID().toString
+            val fut = new java.util.concurrent.CompletableFuture[Either[String, Value]]()
+            remoteSpawnAcks.put(req, fut)
+            val payload =
+              s"""{"t":"cluster_spawn","requestId":${jsonStr(req)},"behavior":${jsonStr(behaviorName)},"args":${ValueSerializer.serialize(arg)}}"""
+            try send(payload)
+            catch
+              case e: Throwable =>
+                remoteSpawnAcks.remove(req)
+                throw InterpretError(s"spawnRemote send failed: ${e.getMessage}")
+            val result =
+              try fut.get(5000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+              catch
+                case _: java.util.concurrent.TimeoutException =>
+                  remoteSpawnAcks.remove(req)
+                  throw InterpretError(s"spawnRemote timed out waiting for $nodeId/$behaviorName")
+            result.fold(err => throw InterpretError(err), identity)
+        Right(k(spawned))
+      case _ => throw InterpretError("spawnRemote(nodeId, behavior, args)")
 
     case "processInfo" => args match
       case List(Value.InstanceV("Pid", fields)) =>

@@ -321,7 +321,10 @@ class JvmGen(
     sb.append(generatorRuntime)
     sb.append(fsRuntime)
     sb.append(htmlDslTagBindings(collectUserTopNames(blocks)))
-    if effectOps.nonEmpty                                  then sb.append(effectsRuntime)
+    // commonRuntime inlines Logger, whose effect-style static methods call
+    // _perform. Keep the effect runtime available even for route-only modules
+    // that do not otherwise use explicit effects.
+    sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(mutualTcoRuntime)
     if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
@@ -810,7 +813,7 @@ class JvmGen(
     // user code shadows via its own top-level definitions where it wants
     // to (Scala 3 resolves the local binding over the wildcard import).
     body.append(htmlDslTagBindings(Set.empty))
-    if capabilities.contains(Effects)   then body.append(effectsRuntime)
+    body.append(effectsRuntime)
     if capabilities.contains(MutualTco) then body.append(mutualTcoRuntime)
     if capabilities.contains(Reactive)  then body.append(reactiveRuntime)
     if capabilities.contains(Serve)     then body.append(serveRuntime)
@@ -2820,7 +2823,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         "setAutoReelect",
         "useRaftLeaderElection", "useExternalCoordinator", "leaderProtocol",
         "leaderHistory",
-        "setReconnectPolicy", "setHeartbeatTimeout", "setQuorumSize", "requestGossip",
+        "setReconnectPolicy", "setHeartbeatTimeout", "setQuorumSize",
+        "setClusterAuthToken", "requestGossip",
         "clusterConfigSet", "clusterConfigGet", "clusterConfigKeys",
         "subscribeConfigEvents",
         "setDraining", "isDraining", "drainingPeers", "subscribeDrainEvents",
@@ -4103,6 +4107,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         if argClause.values.size == 1 =>
       val n = emitExpr(argClause.values(0).asInstanceOf[Term])
       s"Actor.setQuorumSize($n)"
+    // v1.23 — cluster endpoint shared-secret
+    case Term.Apply.After_4_6_0(Term.Name("setClusterAuthToken"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setClusterAuthToken(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — periodic gossip re-discovery
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
@@ -5042,6 +5050,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         if argClause.values.size == 1 =>
       val n = emitExpr(argClause.values(0).asInstanceOf[Term])
       s"Actor.setQuorumSize($n)"
+    // v1.23 — cluster endpoint shared-secret
+    case Term.Apply.After_4_6_0(Term.Name("setClusterAuthToken"), argClause)
+        if argClause.values.size == 1 =>
+      s"Actor.setClusterAuthToken(${emitExpr(argClause.values.head.asInstanceOf[Term])})"
     // v1.23 — periodic gossip re-discovery
     case Term.Apply.After_4_6_0(Term.Name("requestGossip"), argClause)
         if argClause.values.isEmpty =>
@@ -7018,6 +7030,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    _perform("Actor", "setHeartbeatTimeout", intervalMs, deadAfterMs)
        |  // v1.23 — quorum-aware Bully threshold (split-brain guard)
        |  def setQuorumSize(n: Any): Any = _perform("Actor", "setQuorumSize", n)
+       |  // v1.23 — cluster endpoint shared-secret
+       |  def setClusterAuthToken(token: Any): Any = _perform("Actor", "setClusterAuthToken", token)
        |  // v1.23 — periodic gossip re-discovery (ask peers for their peer list)
        |  def requestGossip(): Any = _perform("Actor", "requestGossip")
        |  // v1.23 — cluster configuration distribution
@@ -8614,6 +8628,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |        case _         => 40000L
        |      _peerHeartbeatIntervalMs  = iv.max(1L)
        |      _peerHeartbeatDeadAfterMs = dead.max(_peerHeartbeatIntervalMs)
+       |      Right(k(()))
+       |    // v1.23 — cluster endpoint shared-secret
+       |    case "setClusterAuthToken" =>
+       |      _clusterAuthToken = args.headOption.map(_.toString).getOrElse("")
        |      Right(k(()))
        |    // v1.23 — quorum-aware Bully threshold
        |    case "setQuorumSize" =>
