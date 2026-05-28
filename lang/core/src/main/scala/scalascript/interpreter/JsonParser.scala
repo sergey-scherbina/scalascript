@@ -102,7 +102,7 @@ object JsonParser:
         case '"' => Value.StringV(parseString())
         case 't' => expect("true");  Value.True
         case 'f' => expect("false"); Value.False
-        case 'n' => expect("null");  Value.OptionV(None)
+        case 'n' => expect("null");  Value.NoneV
         case '[' =>
           pos += 1; skipWs()
           val items = scala.collection.mutable.ListBuffer.empty[Value]

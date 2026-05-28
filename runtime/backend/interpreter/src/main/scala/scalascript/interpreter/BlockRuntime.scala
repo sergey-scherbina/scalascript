@@ -106,14 +106,14 @@ private[interpreter] object BlockRuntime:
   ): Computation =
     (tag, monadValue) match
       case (AsyncM,  Value.OptionV(Some(inner)))                  => cont(inner)
-      case (AsyncM,  Value.OptionV(None))                         => Pure(Value.OptionV(None))
+      case (AsyncM,  Value.NoneV)                         => Computation.PureNone
       case (AsyncM,  Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
       case (AsyncM,  Value.InstanceV("Left", _))                  => Pure(monadValue)
       case (EitherM, Value.OptionV(Some(inner)))                  => cont(inner)
-      case (EitherM, Value.OptionV(None))                         =>
+      case (EitherM, Value.NoneV)                         =>
         Pure(Value.InstanceV("Left", Map("value" -> Value.UnitV)))
       case (OptionM, Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
-      case (OptionM, Value.InstanceV("Left", _))                  => Pure(Value.OptionV(None))
+      case (OptionM, Value.InstanceV("Left", _))                  => Computation.PureNone
       case (ListM | OtherM, _) | _ =>
         val contFn = Value.NativeFnV("direct-lift-cont", args => cont(args.head))
         DispatchRuntime.dispatch(monadValue, "flatMap", List(contFn), cur, interp)

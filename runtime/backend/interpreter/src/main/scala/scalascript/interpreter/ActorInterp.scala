@@ -1409,7 +1409,7 @@ private[interpreter] trait ActorInterp:
       case List(Value.InstanceV("Pid", fields)) =>
         val raw = pidNodeId(fields)
         val nid = if raw.nonEmpty then raw else localNodeId
-        Right(k(if nid.nonEmpty then Value.OptionV(Some(Value.StringV(nid))) else Value.OptionV(None)))
+        Right(k(if nid.nonEmpty then Value.OptionV(Some(Value.StringV(nid))) else Value.NoneV))
       case _ => throw InterpretError("actorRefAddress(ref)")
 
     case "actorRefIsLocal" => args match
@@ -1422,7 +1422,7 @@ private[interpreter] trait ActorInterp:
       case List(pid @ Value.InstanceV("Pid", fields)) =>
         val nid = pidNodeId(fields)
         val local = nid.isEmpty || nid == localNodeId
-        Right(k(if local then Value.OptionV(Some(pid)) else Value.OptionV(None)))
+        Right(k(if local then Value.OptionV(Some(pid)) else Value.NoneV))
       case _ => throw InterpretError("actorRefTryLocal(ref)")
 
     case "actorRefPublish" => args match
@@ -1482,7 +1482,7 @@ private[interpreter] trait ActorInterp:
       case List(Value.InstanceV("Pid", fields)) =>
         val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(-1L)
         if !rt.mailboxes.contains(targetId) then
-          Right(k(Value.OptionV(None)))
+          Right(k(Value.NoneV))
         else
           val mailboxSize = rt.mailboxes.get(targetId).map(_.size).getOrElse(0)
           val links = rt.links.get(targetId)
@@ -1799,7 +1799,7 @@ private[interpreter] trait ActorInterp:
           if nodeRegistry.containsKey(name) && rt.mailboxes.contains(nodeRegistry.get(name)) then
             Value.OptionV(Some(mkPid(localNodeId, nodeRegistry.get(name))))
           else
-            Value.OptionV(None)
+            Value.NoneV
         Right(k(result))
       case _ => throw InterpretError("whereis(name)")
 
@@ -1830,7 +1830,7 @@ private[interpreter] trait ActorInterp:
       case List(Value.StringV(name)) =>
         val result = Option(globalRegistry.get(name)) match
           case Some(pid) => Value.OptionV(Some(pid))
-          case None      => Value.OptionV(None)
+          case None      => Value.NoneV
         Right(k(result))
       case _ => throw InterpretError("globalWhereis(name)")
 
@@ -2008,7 +2008,7 @@ private[interpreter] trait ActorInterp:
         val peers = scala.collection.mutable.ListBuffer.empty[Value]
         peerChannels.keySet().forEach(nid => peers += Value.StringV(nid))
         val token =
-          if clusterAuthToken.isEmpty then Value.OptionV(None)
+          if clusterAuthToken.isEmpty then Value.NoneV
           else Value.OptionV(Some(Value.StringV(clusterAuthToken)))
         Right(k(Value.InstanceV("ClusterCapability", Map(
           "localNodeId" -> Value.StringV(localNodeId),
@@ -2232,7 +2232,7 @@ private[interpreter] trait ActorInterp:
       case List(Value.StringV(key)) =>
         val entry = clusterConfig.get(key)
         val result =
-          if entry == null then Value.OptionV(None)
+          if entry == null then Value.NoneV
           else Value.OptionV(Some(Value.StringV(entry._1)))
         Right(k(result))
       case _ => throw InterpretError("clusterConfigGet(key: String): Option[String]")

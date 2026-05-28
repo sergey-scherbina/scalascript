@@ -18,7 +18,7 @@ private[interpreter] object DatasetRuntime:
           val nextFn = fields("next")
           val buf    = scala.collection.mutable.ListBuffer[Value]()
           var optV   = Computation.run(interp.callValue(nextFn, Nil, Map.empty))
-          while optV != Value.OptionV(None) do
+          while optV != Value.NoneV do
             optV match
               case Value.OptionV(Some(v)) => buf += v
               case _ =>

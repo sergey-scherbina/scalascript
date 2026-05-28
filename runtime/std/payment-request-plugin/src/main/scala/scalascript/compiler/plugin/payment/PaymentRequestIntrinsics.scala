@@ -108,8 +108,8 @@ object PaymentRequestIntrinsics:
     // ── PaymentMethod constructors ────────────────────────────────────────
 
     QualifiedName("PaymentMethod.Card") -> NativeImpl((_, args) =>
-      val networks = args.headOption.getOrElse(Value.ListV(Nil)).asInstanceOf[Value]
-      val types    = args.lift(1).getOrElse(Value.ListV(Nil)).asInstanceOf[Value]
+      val networks = args.headOption.getOrElse(Value.EmptyList).asInstanceOf[Value]
+      val types    = args.lift(1).getOrElse(Value.EmptyList).asInstanceOf[Value]
       Value.InstanceV("PaymentMethod.Card", Map("networks" -> networks, "types" -> types))
     ),
 

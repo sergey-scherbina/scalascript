@@ -154,7 +154,7 @@ object OAuthClientIntrinsicHelpers:
     fields("current") = Value.NativeFnV("TokenHolder.current", Computation.pureFn { _ =>
       h.current() match
         case Some(t) => Value.OptionV(Some(Value.StringV(t)))
-        case None    => Value.OptionV(None)
+        case None    => Value.NoneV
     })
 
     fields("clear") = Value.NativeFnV("TokenHolder.clear", Computation.pureFn { _ =>
@@ -197,7 +197,7 @@ object OAuthClientIntrinsicHelpers:
     OAuthClient.Tokens(access, ttype, expIn, refresh, idTok, scopeSet)
 
   def ujsonToValue(v: ujson.Value): Value = v match
-    case ujson.Null    => Value.OptionV(None)
+    case ujson.Null    => Value.NoneV
     case ujson.True    => Value.True
     case ujson.False   => Value.False
     case ujson.Str(s)  => Value.StringV(s)

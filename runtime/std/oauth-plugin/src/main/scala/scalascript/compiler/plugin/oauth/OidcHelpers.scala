@@ -35,7 +35,7 @@ object OidcIntrinsicHelpers:
       case List(Value.StringV(token)) => idp.userInfoFor(token) match
         case UserInfoOutcome.Found(c)    =>
           Value.OptionV(Some(OAuthIntrinsicHelpers.ujsonToValue(c)))
-        case _                            => Value.OptionV(None)
+        case _                            => Value.NoneV
       case _ => throw InterpretError("idp.userInfo(token)")
     })
 

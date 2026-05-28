@@ -31,7 +31,7 @@ private[interpreter] object StorageRuntime:
         case "get" => args match
           case List(Value.StringV(k)) =>
             resume(state.get(k).map(v => Value.OptionV(Some(Value.StringV(v))))
-                                .getOrElse(Value.OptionV(None)))
+                                .getOrElse(Value.NoneV))
           case _ => throw InterpretError("Storage.get(key: String)")
         case "put" => args match
           case List(Value.StringV(k), v) =>

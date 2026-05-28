@@ -232,7 +232,7 @@ object OAuthIntrinsicHelpers:
     OAuthHttp.installRoutes(as, ctx, basePath)
 
   def ujsonToValue(v: ujson.Value): Value = v match
-    case ujson.Null    => Value.OptionV(None)
+    case ujson.Null    => Value.NoneV
     case ujson.True    => Value.True
     case ujson.False   => Value.False
     case ujson.Str(s)  => Value.StringV(s)
@@ -311,7 +311,7 @@ object OAuthIntrinsicHelpers:
       ))
 
   def valueToUjson(v: Value): ujson.Value = v match
-    case Value.OptionV(None)    => ujson.Null
+    case Value.NoneV    => ujson.Null
     case Value.OptionV(Some(x)) => valueToUjson(x)
     case Value.BoolV(b)         => if b then ujson.True else ujson.False
     case Value.StringV(s)       => ujson.Str(s)

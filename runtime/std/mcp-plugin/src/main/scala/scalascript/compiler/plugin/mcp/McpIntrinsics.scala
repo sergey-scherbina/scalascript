@@ -1007,7 +1007,7 @@ private object Mcp:
     Value.MapV(m.map { case (k, v) => Value.StringV(k) -> anyToValue(v) })
 
   def anyToValue(a: Any): Value = a match
-    case null            => Value.OptionV(None)
+    case null            => Value.NoneV
     case b: Boolean      => Value.boolV(b)
     case s: String       => Value.StringV(s)
     case d: Double       => Value.doubleV(d)
@@ -1330,7 +1330,7 @@ private object Mcp:
     Value.InstanceV("PromptDescriptor", Map(
       "name"        -> Value.StringV(name),
       "description" -> Value.StringV(desc),
-      "args"        -> Value.ListV(Nil)
+      "args"        -> Value.EmptyList
     ))
 
   def toolResultFromJson(v: ujson.Value): Value =
@@ -1426,7 +1426,7 @@ private object Mcp:
       McpAuth.AuthResult.Invalid("invalid_token", s"validator returned unexpected: ${Value.show(v)}")
 
   def authClaimsToValueOpt(c: Option[McpAuth.AuthClaims]): Value = c match
-    case None => Value.OptionV(None)
+    case None => Value.NoneV
     case Some(claims) =>
       Value.OptionV(Some(Value.InstanceV("AuthClaims", Map(
         "subject" -> Value.StringV(claims.subject),
@@ -1463,16 +1463,16 @@ private object Mcp:
     case McpProtocol.ElicitationResult.Decline =>
       Value.InstanceV("ElicitationResult", Map(
         "action"  -> Value.StringV("decline"),
-        "content" -> Value.OptionV(None)
+        "content" -> Value.NoneV
       ))
     case McpProtocol.ElicitationResult.Cancel =>
       Value.InstanceV("ElicitationResult", Map(
         "action"  -> Value.StringV("cancel"),
-        "content" -> Value.OptionV(None)
+        "content" -> Value.NoneV
       ))
 
   def jsonToValue(v: ujson.Value): Value = v match
-    case ujson.Null    => Value.OptionV(None)
+    case ujson.Null    => Value.NoneV
     case ujson.True    => Value.True
     case ujson.False   => Value.False
     case ujson.Str(s)  => Value.StringV(s)
@@ -1482,7 +1482,7 @@ private object Mcp:
     case ujson.Obj(kv) => Value.MapV(kv.iterator.map((k, v) => Value.StringV(k) -> jsonToValue(v)).toMap)
 
   def valueToJson(v: Value): ujson.Value = v match
-    case Value.OptionV(None)    => ujson.Null
+    case Value.NoneV    => ujson.Null
     case Value.OptionV(Some(x)) => valueToJson(x)
     case Value.BoolV(b)         => if b then ujson.True else ujson.False
     case Value.StringV(s)       => ujson.Str(s)

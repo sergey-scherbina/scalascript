@@ -123,7 +123,7 @@ final class InterpreterHttpHandler(
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(requestValue)) match
             case Value.OptionV(Some(v)) => userPayload = Some(v)
-            case Value.OptionV(None)    => authRejected = true
+            case Value.NoneV    => authRejected = true
             case other                  => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"WS auth hook error: ${e.getMessage}")
@@ -184,13 +184,13 @@ final class InterpreterHttpHandler(
       "session" -> Value.MapV(r.session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "cookies" -> Value.MapV(r.cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "bearerToken" -> r.bearerToken.map(t => Value.OptionV(Some(Value.StringV(t))))
-        .getOrElse(Value.OptionV(None)),
+        .getOrElse(Value.NoneV),
       "jwtClaims"   -> r.jwtClaims.map(c =>
           Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
-        .getOrElse(Value.OptionV(None)),
+        .getOrElse(Value.NoneV),
       "basicAuth"   -> r.basicAuth.map((u, p) =>
           Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
-        .getOrElse(Value.OptionV(None))
+        .getOrElse(Value.NoneV)
     ))
 
   private def liftWsRequest(r: Request): Value =
@@ -399,7 +399,7 @@ private final class InterpreterWsListener(
     })
     val userValue: Value = userPayload match
       case Some(v) => Value.OptionV(Some(v))
-      case None    => Value.OptionV(None)
+      case None    => Value.NoneV
     Value.InstanceV("WebSocket", Map(
       "send"        -> send,
       "sendBytes"   -> sendBytes,

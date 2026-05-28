@@ -741,9 +741,9 @@ private def syntheticRequest(
     "form"        -> Value.MapV(Map.empty),
     "files"       -> Value.MapV(Map.empty),
     "session"     -> Value.MapV(Map.empty),
-    "bearerToken" -> Value.OptionV(None),
-    "jwtClaims"   -> Value.OptionV(None),
-    "basicAuth"   -> Value.OptionV(None)
+    "bearerToken" -> Value.NoneV,
+    "jwtClaims"   -> Value.NoneV,
+    "basicAuth"   -> Value.NoneV
   ))
 
 private def extractResponseBody(v: scalascript.interpreter.Value): String =
@@ -4292,9 +4292,9 @@ def replHandleCall(cmd: String, @annotation.unused interp: Interpreter): Unit =
         "form"        -> Value.MapV(Map.empty),
         "files"       -> Value.MapV(Map.empty),
         "session"     -> Value.MapV(Map.empty),
-        "bearerToken" -> Value.OptionV(None),
-        "jwtClaims"   -> Value.OptionV(None),
-        "basicAuth"   -> Value.OptionV(None)
+        "bearerToken" -> Value.NoneV,
+        "jwtClaims"   -> Value.NoneV,
+        "basicAuth"   -> Value.NoneV
       ))
       try
         val result = entry.interpreter.invoke(entry.handler, List(req))

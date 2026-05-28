@@ -44,7 +44,7 @@ object SqlIntrinsics:
                   Value.StringV(col) -> wrapJdbc(v)
                 }.toMap)
               ).toList)
-            case _ => Value.ListV(Nil)
+            case _ => Value.EmptyList
         case _ => throw new RuntimeException("Db.query(dbName: String, sql: String, params: List[Any])")
     ),
 
@@ -96,7 +96,7 @@ object SqlIntrinsics:
     case Value.CharV(c)   => c.toString
     case Value.UnitV      => null
     case Value.NullV      => null
-    case Value.OptionV(None) => null
+    case Value.NoneV => null
     case Value.OptionV(Some(inner)) => unwrapValue(inner)
     case _                => v.toString
 
@@ -171,7 +171,7 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
     case Value.CharV(c)             => c
     case Value.UnitV                => null
     case Value.NullV                => null
-    case Value.OptionV(None)        => null
+    case Value.NoneV        => null
     case Value.OptionV(Some(inner)) => unwrapForJdbc(inner)
     case Value.Foreign(_, h)        => h
     case other                      => other

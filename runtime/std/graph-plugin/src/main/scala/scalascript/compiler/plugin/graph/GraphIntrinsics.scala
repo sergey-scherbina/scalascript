@@ -175,13 +175,13 @@ object GraphIntrinsics:
     case other => other.toString
 
   private def subjectOption(value: Any): Option[String] = value match
-    case Value.OptionV(None) => None
+    case Value.NoneV => None
     case null => None
     case other => Some(subjectString(other))
 
   private def optionString(value: Any): Option[String] = value match
     case null => None
-    case Value.OptionV(None) => None
+    case Value.NoneV => None
     case Value.OptionV(Some(v)) => asString(v)
     case s: String => Some(s)
     case v: Value => asString(v)
@@ -193,7 +193,7 @@ object GraphIntrinsics:
     case Value.DoubleV(d) => Some(if d == d.toLong.toDouble then d.toLong.toString else d.toString)
     case Value.BoolV(b) => Some(b.toString)
     case Value.OptionV(Some(v)) => asString(v)
-    case Value.OptionV(None) => None
+    case Value.NoneV => None
     case other => Some(Value.show(other))
 
   private def decap(value: String): String =

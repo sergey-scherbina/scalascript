@@ -43,7 +43,7 @@ private[interpreter] object PatternRuntime:
             }
           case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
             matchPat(args.head, v, env, interp)
-          case Value.OptionV(None) if typeName == "None" && args.isEmpty =>
+          case Value.NoneV if typeName == "None" && args.isEmpty =>
             Some(env)
           case _ => None
       }
@@ -104,7 +104,7 @@ private[interpreter] object PatternRuntime:
   def evalCollection(v: Value, interp: Interpreter): List[Value] = v match
     case Value.ListV(ls)        => ls
     case Value.OptionV(Some(v)) => List(v)
-    case Value.OptionV(None)    => Nil
+    case Value.NoneV    => Nil
     case _ => interp.located(s"Cannot iterate over ${Value.show(v)}")
 
   def evalForYield(enums: List[Enumerator], body: Term, env: Env, interp: Interpreter): Computation =
@@ -131,13 +131,13 @@ private[interpreter] object PatternRuntime:
       case Enumerator.Guard(cond) :: rest =>
         interp.eval(cond, env).flatMap {
           case Value.BoolV(true) => evalForYield(rest, body, env, interp)
-          case _                 => Pure(Value.ListV(Nil))
+          case _                 => Computation.PureEmptyList
         }
       case Enumerator.Val(pat, rhs) :: rest =>
         interp.eval(rhs, env).flatMap { v =>
           matchPat(pat, v, env, interp) match
             case Some(patEnv) => evalForYield(rest, body, patEnv, interp)
-            case None         => Pure(Value.ListV(Nil))
+            case None         => Computation.PureEmptyList
         }
       case _ :: rest => evalForYield(rest, body, env, interp)
 

@@ -693,7 +693,7 @@ object StreamsIntrinsics:
           Thread.ofVirtual().start { () =>
             try
               var step = ctx.invokeCallback(nextFn, Nil).asInstanceOf[Value]
-              while step != Value.OptionV(None) do
+              while step != Value.NoneV do
                 step match
                   case Value.OptionV(Some(v)) => queue.put(Some(v))
                   case _ =>
@@ -1213,7 +1213,7 @@ object StreamsIntrinsics:
                   while running do
                     val result = ctx.synchronized { ctx.invokeCallback(f, List(state)).asInstanceOf[Value] }
                     result match
-                      case Value.OptionV(None) => running = false
+                      case Value.NoneV => running = false
                       case Value.OptionV(Some(Value.TupleV(xs))) if xs.length == 2 =>
                         q.put(Some(xs(1)))
                         state = xs(0)

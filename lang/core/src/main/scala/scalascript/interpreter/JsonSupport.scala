@@ -37,7 +37,7 @@ def jsonToJson(v: Value): String =
     case Value.ListV(items)         => items.map(jsonToJson).mkString("[", ",", "]")
     case Value.MapV(entries)        =>
       entries.map((k, v) => quote(keyStr(k)) + ":" + jsonToJson(v)).mkString("{", ",", "}")
-    case Value.OptionV(None)        => "null"
+    case Value.NoneV        => "null"
     case Value.OptionV(Some(x))     => jsonToJson(x)
     case Value.TupleV(elems)        => elems.map(jsonToJson).mkString("[", ",", "]")
     case Value.InstanceV(_, fields) =>
@@ -65,11 +65,11 @@ def wrapJson(inner: Value): Value =
   val getFn = Value.NativeFnV("JsonValue.get", Computation.pureFn {
     case List(Value.StringV(k)) => inner match
       case Value.MapV(m) => Value.OptionV(m.get(Value.StringV(k)).map(wrapJson))
-      case _             => Value.OptionV(None)
+      case _             => Value.NoneV
     case List(Value.IntV(i)) => inner match
       case Value.ListV(items) if i >= 0 && i < items.length =>
         Value.OptionV(Some(wrapJson(items(i.toInt))))
-      case _ => Value.OptionV(None)
+      case _ => Value.NoneV
     case _ => throw InterpretError("JsonValue.get(key | index)")
   })
   val asStringFn = Value.NativeFnV("JsonValue.asString", Computation.pureFn(_ => inner match
@@ -94,11 +94,11 @@ def wrapJson(inner: Value): Value =
     case other         => typedFail("asMap", other)))
   val rawFn    = Value.NativeFnV("JsonValue.raw",    Computation.pureFn(_ => inner))
   val isNullFn = Value.NativeFnV("JsonValue.isNull", Computation.pureFn(_ => inner match
-    case Value.UnitV | Value.OptionV(None) => Value.True
+    case Value.UnitV | Value.NoneV => Value.True
     case _                                  => Value.False))
   val keysFn = Value.NativeFnV("JsonValue.keys", Computation.pureFn(_ => inner match
     case Value.MapV(m) => Value.ListV(m.keys.toList)
-    case _             => Value.ListV(Nil)))
+    case _             => Value.EmptyList))
   val sizeFn = Value.NativeFnV("JsonValue.size", Computation.pureFn(_ => inner match
     case Value.ListV(items) => Value.intV(items.length.toLong)
     case Value.MapV(m)      => Value.intV(m.size.toLong)

@@ -143,7 +143,7 @@ class Interpreter(
       "algorithm" -> Value.StringV("sha256"),
       "digest"    -> Value.StringV(""),
       "format"    -> Value.StringV("unknown"),
-      "module"    -> Value.OptionV(None)
+      "module"    -> Value.NoneV
     ))
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
@@ -669,7 +669,7 @@ class Interpreter(
       "algorithm" -> Value.StringV("sha256"),
       "digest"    -> Value.StringV(digest),
       "format"    -> Value.StringV(format),
-      "module"    -> module.manifest.flatMap(_.name).map(name => Value.OptionV(Some(Value.StringV(name)))).getOrElse(Value.OptionV(None))
+      "module"    -> module.manifest.flatMap(_.name).map(name => Value.OptionV(Some(Value.StringV(name)))).getOrElse(Value.NoneV)
     ))
 
   private def autoCallMain(): Unit =

@@ -92,7 +92,7 @@ private[interpreter] object CoroutineRuntime:
               case Value.InstanceV("Generator", fields) =>
                 val innerNext = fields("next")
                 var sub = Computation.run(interp.callValue(innerNext, Nil, Map.empty))
-                while sub != Value.OptionV(None) do
+                while sub != Value.NoneV do
                   sub match
                     case Value.OptionV(Some(v)) => ownQ.put(Some(v))
                     case _ =>
@@ -107,11 +107,11 @@ private[interpreter] object CoroutineRuntime:
           val otherNext = other.fields("next")
           var a = queue.take()
           var b = Computation.run(interp.callValue(otherNext, Nil, Map.empty))
-          while a.isDefined && b != Value.OptionV(None) do
+          while a.isDefined && b != Value.NoneV do
             val bVal = b match { case Value.OptionV(Some(v)) => v; case _ => Value.UnitV }
             ownQ.put(Some(Value.TupleV(List(a.get, bVal))))
             a = queue.take()
-            b = if a.isDefined then Computation.run(interp.callValue(otherNext, Nil, Map.empty)) else Value.OptionV(None)
+            b = if a.isDefined then Computation.run(interp.callValue(otherNext, Nil, Map.empty)) else Value.NoneV
         }
         case _ => throw InterpretError("Generator.zip(other: Generator)")
       }),

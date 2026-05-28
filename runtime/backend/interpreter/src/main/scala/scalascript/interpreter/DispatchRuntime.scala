@@ -70,7 +70,7 @@ private[interpreter] object DispatchRuntime:
         case List(Value.StringV(pat)) =>
           val m = java.util.regex.Pattern.compile(pat).matcher(s)
           if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
-          else Pure(Value.OptionV(None))
+          else Computation.PureNone
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "split"       => args match
         case List(Value.StringV(sep)) =>
@@ -285,7 +285,7 @@ private[interpreter] object DispatchRuntime:
       case "find"         => args match
         case List(f) =>
           def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.OptionV(None))
+            case Nil => Computation.PureNone
             case h :: rest =>
               interp.callValue(f, List(h), env).flatMap {
                 case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
@@ -454,12 +454,12 @@ private[interpreter] object DispatchRuntime:
           case _           => dispatchFallback(recv, name, args, env, interp)
       case "map"       => args match
         case List(f) => opt match
-          case None    => Pure(Value.OptionV(None))
+          case None    => Computation.PureNone
           case Some(v) => interp.callValue(f, List(v), env).map(r => Value.OptionV(Some(r)))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
-          case None    => Pure(Value.OptionV(None))
+          case None    => Computation.PureNone
           case Some(v) => interp.callValue(f, List(v), env).map {
             case o: Value.OptionV => o
             case other            => Value.OptionV(Some(other))
@@ -467,10 +467,10 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"    => args match
         case List(f) => opt match
-          case None    => Pure(Value.OptionV(None))
+          case None    => Computation.PureNone
           case Some(v) => interp.callValue(f, List(v), env).map {
             case Value.BoolV(true) => Value.OptionV(Some(v))
-            case _                 => Value.OptionV(None)
+            case _                 => Value.NoneV
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
@@ -618,9 +618,9 @@ private[interpreter] object DispatchRuntime:
       case "Left" => name match
         case "isRight"   => Computation.PureFalse
         case "isLeft"    => Computation.PureTrue
-        case "toOption"  => Pure(Value.OptionV(None))
+        case "toOption"  => Computation.PureNone
         case "swap"      => Pure(Value.InstanceV("Right", fields))
-        case "toSeq"     => Pure(Value.ListV(Nil))
+        case "toSeq"     => Computation.PureEmptyList
         case "getOrElse" => args match
           case List(d) => Pure(d)
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)

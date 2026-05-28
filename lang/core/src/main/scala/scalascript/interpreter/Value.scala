@@ -201,8 +201,10 @@ object Value:
     else DoubleV(d)
 
   // Pre-cached constants used by the Computation monad's run loop.
-  val True:  BoolV = BoolV(true)
-  val False: BoolV = BoolV(false)
+  val True:      BoolV   = BoolV(true)
+  val False:     BoolV   = BoolV(false)
+  val NoneV:     OptionV = OptionV(None)
+  val EmptyList: ListV   = ListV(Nil)
 
   def boolV(b: Boolean): BoolV = if b then True else False
 
@@ -299,10 +301,12 @@ enum Computation:
 object Computation:
   // Singleton Pure wrappers for the most common return values — eliminates one
   // allocation per call on every hot dispatch path (isRight, isEmpty, foreach, etc.).
-  val PureUnit:  Pure = Pure(Value.UnitV)
-  val PureNull:  Pure = Pure(Value.NullV)
-  val PureTrue:  Pure = Pure(Value.True)
-  val PureFalse: Pure = Pure(Value.False)
+  val PureUnit:      Pure = Pure(Value.UnitV)
+  val PureNull:      Pure = Pure(Value.NullV)
+  val PureTrue:      Pure = Pure(Value.True)
+  val PureFalse:     Pure = Pure(Value.False)
+  val PureNone:      Pure = Pure(Value.NoneV)
+  val PureEmptyList: Pure = Pure(Value.EmptyList)
 
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)

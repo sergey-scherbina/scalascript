@@ -233,8 +233,8 @@ private[interpreter] object GivenRuntime:
     case Value.BoolV(_)        => "Boolean"
     case Value.CharV(_)        => "Char"
     case Value.ListV(h :: _)   => s"List[${runtimeValueType(h)}]"
-    case Value.ListV(Nil)      => "List[_]"
+    case Value.EmptyList      => "List[_]"
     case Value.OptionV(Some(h)) => s"Option[${runtimeValueType(h)}]"
-    case Value.OptionV(None)   => "Option[_]"
+    case Value.NoneV   => "Option[_]"
     case Value.InstanceV(t, _) => t
     case _                     => "_"

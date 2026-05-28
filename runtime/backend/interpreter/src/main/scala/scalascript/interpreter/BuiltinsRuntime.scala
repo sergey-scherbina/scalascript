@@ -88,13 +88,13 @@ private[interpreter] object BuiltinsRuntime:
       "fill"     -> interp.globals("List.fill"),
       "tabulate" -> interp.globals("List.tabulate"),
       "range"    -> interp.globals("List.range"),
-      "empty"    -> Value.ListV(Nil),
+      "empty"    -> Value.EmptyList,
       "apply"    -> listNative
     ))
     // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
-    interp.globals("None") = Value.OptionV(None)
+    interp.globals("None") = Value.NoneV
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(Some(v))); case _ => throw InterpretError("Some requires exactly one argument") })
-    interp.globals("Nil")  = Value.ListV(Nil)
+    interp.globals("Nil")  = Value.EmptyList
 
     // ── Exception constructors ────────────────────────────────────────
     // Allow `throw RuntimeException("msg")` and `try ... catch { case e: ... }`

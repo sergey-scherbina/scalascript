@@ -259,7 +259,7 @@ private[interpreter] object ActorGlobals:
     g("clusterOf") = Value.NativeFnV("clusterOf", {
       case Nil => Perform("Actor", "clusterOf", List(Value.InstanceV("SeedResolver", Map(
         "kind" -> Value.StringV("static"),
-        "urls" -> Value.ListV(Nil),
+        "urls" -> Value.EmptyList,
         "serviceName" -> Value.StringV(""),
         "namespace" -> Value.StringV("default"),
         "port" -> Value.intV(9100),

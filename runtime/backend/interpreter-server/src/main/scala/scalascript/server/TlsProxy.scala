@@ -99,7 +99,7 @@ object TlsProxy:
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(request)) match
             case Value.OptionV(Some(v)) => userPayload = Some(v)
-            case Value.OptionV(None)    => authRejected = true
+            case Value.NoneV    => authRejected = true
             case other                  => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"TLS WS auth hook error: ${e.getMessage}")

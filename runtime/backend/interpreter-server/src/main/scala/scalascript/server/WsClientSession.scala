@@ -112,7 +112,7 @@ final class WsClientSession(
       case Nil =>
         client.recv() match
           case Some(msg) => OptionV(Some(StringV(msg)))
-          case None      => OptionV(None)
+          case None      => Value.NoneV
       case _ => throw InterpretError("ws.recv()")
     })
     val isClosedFn = NativeFnV("WebSocket.isClosed", pureFn {

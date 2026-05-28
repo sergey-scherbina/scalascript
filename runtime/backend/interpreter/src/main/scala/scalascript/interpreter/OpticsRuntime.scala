@@ -121,7 +121,7 @@ private[interpreter] object OpticsRuntime:
     val getOptionFn = Value.NativeFnV("Prism.getOption", {
       case List(s) => s match
         case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(Some(s)))
-        case _                                          => Pure(Value.OptionV(None))
+        case _                                          => Computation.PureNone
       case _ => throw InterpretError("Prism.getOption(s)")
     })
     val reverseGetFn = Value.NativeFnV("Prism.reverseGet", {

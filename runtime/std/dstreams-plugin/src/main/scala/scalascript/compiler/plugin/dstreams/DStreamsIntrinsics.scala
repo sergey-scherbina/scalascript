@@ -263,7 +263,7 @@ object DStreamsIntrinsics:
               val (ns, outs) = call(ctx, f, List(s, v)) match
                 case Value.InstanceV(_, pairFields) =>
                   val ns   = pairFields.getOrElse("_1", pairFields.getOrElse("first", s))
-                  val outs = pairFields.getOrElse("_2", pairFields.getOrElse("second", Value.ListV(Nil)))
+                  val outs = pairFields.getOrElse("_2", pairFields.getOrElse("second", Value.EmptyList))
                   (ns, outs)
                 case Value.ListV(List(ns, outs)) => (ns, outs)
                 case other                       => (s, other)
@@ -956,19 +956,19 @@ object DStreamsIntrinsics:
 
     // Kafka connector — source returns empty DSource (live Kafka requires KAFKA_BROKERS)
     QualifiedName("Kafka.source")          -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Kafka.sourceAssigned")  -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Kafka.changelog")       -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Kafka.sink")            -> NativeImpl((_, _) => Value.UnitV),
 
     // Files connector — stub DSource
     QualifiedName("Files.source")          -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Files.sink")            -> NativeImpl((_, _) => Value.UnitV),
 
@@ -983,25 +983,25 @@ object DStreamsIntrinsics:
 
     // JDBC connector — stub DSource
     QualifiedName("Jdbc.source")           -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Jdbc.sink")             -> NativeImpl((_, _) => Value.UnitV),
 
     // Pulsar connector — stub DSource
     QualifiedName("Pulsar.source")         -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Pulsar.sink")           -> NativeImpl((_, _) => Value.UnitV),
 
     // Kinesis connector — stub DSource
     QualifiedName("Kinesis.source")        -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
     QualifiedName("Kinesis.sink")          -> NativeImpl((_, _) => Value.UnitV),
 
     // DSource.fromDataset bridge
     QualifiedName("DSource.fromDataset")   -> NativeImpl((_, _) =>
-      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.ListV(Nil)))))
+      Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
     ),
 
     // ── v2.1.7 — Stateful processing state types ─────────────────────────────
