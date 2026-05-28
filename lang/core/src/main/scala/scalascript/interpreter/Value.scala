@@ -399,6 +399,25 @@ object Computation:
           return FlatMap(comp, r => loopRest(start, List(r)))
     Pure(Value.ListV(buf.toList))
 
+  /** Like mapSequence but over an integer range [from, until) without allocating a List[Int]. */
+  def mapSequenceRange(from: Int, until: Int, f: Int => Computation): Computation =
+    if from >= until then return PureEmptyList
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](until - from)
+    var i = from
+    while i < until do
+      f(i) match
+        case Pure(v) => buf += v; i += 1
+        case comp    =>
+          val prefix = buf.toList
+          val start  = i + 1
+          def loopRest(j: Int, acc: List[Value]): Computation =
+            if j >= until then Pure(Value.ListV(prefix ++ acc.reverse))
+            else f(j) match
+              case Pure(rv) => loopRest(j + 1, rv :: acc)
+              case fc       => FlatMap(fc, rv => loopRest(j + 1, rv :: acc))
+          return FlatMap(comp, r => loopRest(start, List(r)))
+    Pure(Value.ListV(buf.toList))
+
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =

@@ -70,8 +70,8 @@ private[interpreter] object BuiltinsRuntime:
         Pure(Value.NativeFnV("List.tabulate.n", {
           case List(f) =>
             // f(i) may perform effects — sequence the computations
-            Computation.sequence((0 until n.toInt).toList.map(i =>
-              interp.callValue1(f, Value.intV(i), Map.empty)))
+            Computation.mapSequenceRange(0, n.toInt, i =>
+              interp.callValue1(f, Value.intV(i), Map.empty))
           case _ => throw InterpretError("List.tabulate(n)(f)")
         }))
       case _ => throw InterpretError("List.tabulate(n)(f)")
