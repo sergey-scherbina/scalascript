@@ -1145,20 +1145,44 @@ private def buildArtifactsInto(
   var skipped  = 0
   var failed   = 0
 
+  // Phase 3a: parallel read+parse pre-pass.
+  // Parser.parse is stateless and thread-safe; staleness checks are read-only.
+  // The main loop below stays sequential: normalize/interface/codegen/write
+  // have cross-file ordering deps that prevent parallelism there.
+  type PreParsed = (Boolean, Boolean, Boolean, Array[Byte], scalascript.ast.Module)
+  val preCache = new java.util.concurrent.ConcurrentHashMap[os.Path, PreParsed]()
+  CompileStats.time("par-parse") {
+    val nCores = Runtime.getRuntime.availableProcessors().max(1)
+    val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(nodes.length.max(1)))
+    try
+      val tasks = nodes.map { node =>
+        pool.submit[Unit] { () =>
+          val cSt = ModuleGraph.isStale(node.path, artDir)
+          val jSt = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
+          val sSt = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+          if cSt || jSt || sSt then
+            val bytes  = os.read.bytes(node.path)
+            val module = Parser.parse(new String(bytes, "UTF-8"))
+            preCache.put(node.path, (cSt, jSt, sSt, bytes, module))
+        }
+      }
+      tasks.foreach(_.get())
+    finally pool.shutdown()
+  }
+
   for node <- nodes do
-    val relPath  = node.relPath(srcDir)
-    val baseName = node.path.last.stripSuffix(".ssc")
-    val coreStale = ModuleGraph.isStale(node.path, artDir)
-    val jvmStale  = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
-    val jsStale   = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+    val relPath   = node.relPath(srcDir)
+    val baseName  = node.path.last.stripSuffix(".ssc")
+    val cached    = Option(preCache.get(node.path))
+    val coreStale = cached.exists(_._1)
+    val jvmStale  = cached.exists(_._2)
+    val jsStale   = cached.exists(_._3)
     val stale     = coreStale || jvmStale || jsStale
     if !stale then
       skipped += 1
     else
       val ok = scala.util.Try {
-        val sourceBytes = os.read.bytes(node.path)
-        val src         = new String(sourceBytes, "UTF-8")
-        val module      = CompileStats.time("parse")     { Parser.parse(src) }
+        val (_, _, _, sourceBytes, module) = cached.get
         if reportCodeBlockParseErrors(module, relPath) then
           throw new RuntimeException(s"parse error in $relPath")
         val ir          = CompileStats.time("normalize") { Normalize(module) }
