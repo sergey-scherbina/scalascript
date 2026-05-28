@@ -2803,6 +2803,12 @@ function _makePrism(variant) {
   return { _type: 'Prism', _variant: variant, getOption, reverseGet, set, modify, andThen };
 }
 
+function _tupleConcat(a, b) {
+  const r = [...a, ...b];
+  if (a._isTuple && b._isTuple) r._isTuple = true;
+  return r;
+}
+
 function _dispatch(obj, method, args) {
   if (Array.isArray(obj)) {
     switch(method) {
@@ -10373,7 +10379,7 @@ class JsGen(
         case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
         case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
         case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
-        case "++" | ":::" => s"[...($lhsJs), ...(${genExpr(args.head)})]"
+        case "++" | ":::" => s"_tupleConcat($lhsJs, ${genExpr(args.head)})"
         // HTML DSL: `attr.cls := "hero"` builds an Attr object.
         case ":=" => s"_attr($lhsJs, $rhsJs)"
         // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
@@ -11049,7 +11055,7 @@ class JsGen(
           case "::"           => s"[$vl, ...$vr]"
           case ":+"           => s"[...$vl, $vr]"
           case "+:"           => s"[$vl, ...$vr]"
-          case "++" | ":::"   => s"[...$vl, ...$vr]"
+          case "++" | ":::"   => s"_tupleConcat($vl, $vr)"
           case "!"            => s"Actor.send($vl, $vr)"
           case "->"           =>
             val tmp = freshTmp()

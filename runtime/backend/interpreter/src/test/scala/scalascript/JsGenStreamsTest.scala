@@ -172,3 +172,22 @@ class JsGenStreamsTest extends AnyFunSuite:
     val out = js("""runStream { Stream.error("boom") }""")
     assert(out.contains("error") && (out.contains("Stream") || out.contains("'Stream'")),
       s"expected Stream.error reference in user code: ${out.take(2000)}")
+
+  // ── Tuple monoid ++ JS lowering ─────────────────────────────────────────
+
+  test("Core runtime includes _tupleConcat helper"):
+    val rt = JsGen.generateRuntime(Set(JsGen.Capability.Core))
+    assert(rt.contains("function _tupleConcat("),
+      s"missing _tupleConcat in Core runtime")
+    assert(rt.contains("_isTuple"),
+      s"_tupleConcat must set _isTuple on result")
+
+  test("tuple ++ lowers to _tupleConcat call"):
+    val out = js("val r = (1, 2) ++ (3, 4)")
+    assert(out.contains("_tupleConcat"),
+      s"expected _tupleConcat call in JS output: ${out.take(500)}")
+
+  test("list ++ also uses _tupleConcat (runtime polymorphism)"):
+    val out = js("val r = List(1, 2) ++ List(3, 4)")
+    assert(out.contains("_tupleConcat"),
+      s"expected _tupleConcat call in JS output: ${out.take(500)}")

@@ -413,6 +413,43 @@ def main(): Unit =
     """) shouldBe "1=one\n2=two\n3=three"
   }
 
+  // ── Tuple monoid ++ ─────────────────────────────────────────────
+
+  test("tuple ++ concatenation") {
+    captured("""
+      val a = (1, "hello")
+      val b = (true, 42)
+      val r = a ++ b
+      println(r)
+    """) shouldBe "(1, hello, true, 42)"
+  }
+
+  test("tuple ++ left identity: () ++ t = t") {
+    captured("""
+      val t = (1, 2)
+      val r = () ++ t
+      println(r)
+    """) shouldBe "(1, 2)"
+  }
+
+  test("tuple ++ right identity: t ++ () = t") {
+    captured("""
+      val t = (1, 2)
+      val r = t ++ ()
+      println(r)
+    """) shouldBe "(1, 2)"
+  }
+
+  test("tuple ++ associativity") {
+    captured("""
+      val a = (1, 10)
+      val b = (2, 20)
+      val c = (3, 30)
+      println((a ++ b) ++ c)
+      println(a ++ (b ++ c))
+    """) shouldBe "(1, 10, 2, 20, 3, 30)\n(1, 10, 2, 20, 3, 30)"
+  }
+
   // ── While loop ───────────────────────────────────────────────────
 
   test("while loop") {

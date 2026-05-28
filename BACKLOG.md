@@ -1026,11 +1026,11 @@ Effect runners described uniformly as `Out(E) ++ (R,)`.
 - `++` in type parser (`Typer.scala`) — right-associative, low precedence
 - `parseSType` normalizes `Named("Unit", Nil)` → `Tuple(Nil)` for `.scim` compat
 
-### v1.60.2 — Value level and backends
-- `Value.UnitV` unified with `Value.TupleV(Nil)` — structural equality
-- `++` on tuple values in `DispatchRuntime.scala` — concat via `TupleV(as ++ bs)`
-- JS lowering: `[...a, ...b]` with `_isTuple = true`
-- JVM lowering: `_TupleConcat` helper or inline expansion
+### v1.60.2 — Value level and backends ✓ Landed 2026-05-28
+- `TupleV ++ TupleV` dispatch in `DispatchRuntime.scala` — monoid concat with `UnitV` identity
+- JS lowering: `_tupleConcat(a, b)` helper — preserves `_isTuple = true` for tuple operands
+- JVM lowering: `_tupleConcat` with `scala.Tuple.fromArray` for tuple concat, `List ++ List` for lists
+- 4 interpreter tests (concat, left/right identity, associativity) + 3 JsGen codegen tests
 
 ### v1.60.3 — Docs and spec integration
 - `algebraic-effects.md` §"Unified runner signature" — `Out(E) ++ (R,)` table

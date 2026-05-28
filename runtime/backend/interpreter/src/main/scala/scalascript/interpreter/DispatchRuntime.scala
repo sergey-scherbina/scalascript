@@ -341,6 +341,10 @@ private[interpreter] object DispatchRuntime:
       case (Value.DoubleV(d), "floor",     Nil) => Pure(Value.DoubleV(math.floor(d)))
       case (Value.DoubleV(d), "ceil",      Nil) => Pure(Value.DoubleV(math.ceil(d)))
       // ── Tuple ────────────────────────────────────────────────────
+      case (Value.TupleV(as), "++", List(Value.TupleV(bs))) => Pure(Value.TupleV(as ++ bs))
+      case (Value.TupleV(as), "++", List(Value.UnitV))      => Pure(Value.TupleV(as))
+      case (Value.UnitV,      "++", List(Value.TupleV(bs))) => Pure(Value.TupleV(bs))
+      case (Value.UnitV,      "++", List(Value.UnitV))      => Pure(Value.UnitV)
       case (Value.TupleV(es), "_1", Nil) => Pure(es(0))
       case (Value.TupleV(es), "_2", Nil) => Pure(es(1))
       case (Value.TupleV(es), "_3", Nil) => Pure(es(2))

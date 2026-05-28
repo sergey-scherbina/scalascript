@@ -5118,7 +5118,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
             case "+" | "-" | "*" | "/" | "%" |
                  "<" | ">" | "<=" | ">="          => s"""_binOp("${op.value}", $vl, $vr)"""
             case "::"                              => s"$vl :: $vr.asInstanceOf[List[Any]]"
-            case "++" | ":::"                      => s"$vl.asInstanceOf[List[Any]] ++ $vr.asInstanceOf[List[Any]]"
+            case "++" | ":::"                      => s"_tupleConcat($vl, $vr)"
             case ":+"                              => s"$vl.asInstanceOf[List[Any]] :+ $vr"
             case "+:"                              => s"$vl +: $vr.asInstanceOf[List[Any]]"
             case "->"                              => s"($vl, $vr)"
@@ -5576,6 +5576,17 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    p.productPrefix + "(" + p.productIterator.map(_show).mkString(", ") + ")"
        |  case p: Product => p.productPrefix
        |  case other     => other.toString
+       |
+       |def _tupleConcat(a: Any, b: Any): Any = (a, b) match
+       |  case (at: scala.Tuple, bt: scala.Tuple) =>
+       |    scala.Tuple.fromArray(at.productIterator.toArray ++ bt.productIterator.toArray)
+       |  case (at: scala.Tuple, _) if b == () =>
+       |    at
+       |  case (_, bt: scala.Tuple) if a == () =>
+       |    bt
+       |  case (_ , _) if a == () && b == () => ()
+       |  case (al: List[?], bl: List[?]) => al.asInstanceOf[List[Any]] ++ bl.asInstanceOf[List[Any]]
+       |  case _ => List(a, b)
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
        |def print(v: Any): Unit   = scala.Predef.print(_show(v))

@@ -308,8 +308,8 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **v2.0-cross-platform-smoke** — Cross-platform portability for v2.0 artifact pipeline: `InterfaceExtractor.normalizeLineEndings` + `sourceFileHash` (CRLF→LF before hashing); `ModuleGraph.isStale/isJvmStale/isJsStale` updated; 13 tests in `CrossPlatformSmokeTest`; `docs/v2.0-scale-benchmark.md` updated. (2026-05-28)
 - [x] **interpreter-ergonomics** — Interpreter ergonomics — All 3 items landed (v1.13 + 2026-05-19)
 - [x] **wasm-backend-phase1** — WASM backend: scalascript/ssc block support (Phase 1), integration tests + example (Phase 2), `//> using dep` hoisting + HTTP Fetch example (Phase 3) — All 3 phases landed (2026-05-26)
-- [ ] **v1.60.1-tuple-monoid-types** — `SType.Unit = Tuple(Nil)`; `tupleConcat` smart constructor; `++` in type parser; `.scim` normalization. Spec: `docs/tuple-monoid.md §6 Track 1`.
-- [ ] **v1.60.2-tuple-monoid-values** — `Value.UnitV` unified with `TupleV(Nil)`; `++` in `DispatchRuntime`; JS and JVM lowering. Spec: `docs/tuple-monoid.md §6 Track 2`.
+- [x] **v1.60.1-tuple-monoid-types** — `SType.Unit = Tuple(Nil)`; `tupleConcat` smart constructor; `++` in type parser; 1-tuple `(A,)` surface syntax; 49 tests. ✓ Landed 2026-05-28.
+- [x] **v1.60.2-tuple-monoid-values** — `TupleV ++ TupleV` in `DispatchRuntime`; `_tupleConcat` JS helper (sets `_isTuple`); JVM `_tupleConcat` with `scala.Tuple.fromArray`; 4 interpreter + 3 JsGen tests. ✓ Landed 2026-05-28.
 - [ ] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` unified runner table; `streams.ssc` update; confirm all tests green. Spec: `docs/tuple-monoid.md §6 Track 3`.
 
 ## x402 — Cardano Scalus thin-glue wiring
