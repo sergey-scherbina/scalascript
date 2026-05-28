@@ -152,7 +152,7 @@ private[interpreter] object PatternRuntime:
         interp.eval(rhs, env).flatMap { rhsV =>
           val items = evalCollection(rhsV, interp)
           def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.UnitV)
+            case Nil => Computation.PureUnit
             case item :: tail =>
               matchPat(pat, item, env, interp) match
                 case Some(patEnv) =>
@@ -164,7 +164,7 @@ private[interpreter] object PatternRuntime:
       case Enumerator.Guard(cond) :: rest =>
         interp.eval(cond, env).flatMap {
           case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp)
-          case _                 => Pure(Value.UnitV)
+          case _                 => Computation.PureUnit
         }
       case Enumerator.Val(pat, rhs) :: rest =>
         interp.eval(rhs, env).flatMap { v =>
@@ -172,6 +172,6 @@ private[interpreter] object PatternRuntime:
             case Some(patEnv) =>
               val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
               evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp)
-            case None => Pure(Value.UnitV)
+            case None => Computation.PureUnit
         }
       case _ :: rest => evalForDo(rest, body, outerEnv, loopVars, interp)

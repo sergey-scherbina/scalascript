@@ -171,8 +171,8 @@ private[interpreter] object BuiltinsRuntime:
         }))
     )
     interp.globals("setTraceVerbose") = Value.NativeFnV("setTraceVerbose", {
-      case List(Value.BoolV(v)) => interp.traceVerbose = v; Pure(Value.UnitV)
-      case _                    => Pure(Value.UnitV)
+      case List(Value.BoolV(v)) => interp.traceVerbose = v; Computation.PureUnit
+      case _                    => Computation.PureUnit
     })
 
     // ── Using — RAII resource management (try-finally close) ─────────────
@@ -260,8 +260,8 @@ private[interpreter] object BuiltinsRuntime:
       }),
       // constValue and summonInline are handled as Term.ApplyType in eval;
       // these stubs exist so `compiletime` resolves as a namespace object.
-      "constValue"    -> Value.NativeFnV("compiletime.constValue",    _ => Pure(Value.UnitV)),
-      "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Pure(Value.UnitV))
+      "constValue"    -> Value.NativeFnV("compiletime.constValue",    _ => Computation.PureUnit),
+      "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Computation.PureUnit)
     ))
 
     interp.globals("math.Pi")   = Value.doubleV(math.Pi)
@@ -326,8 +326,8 @@ private[interpreter] object BuiltinsRuntime:
       case _ => Pure(Value.StringV(""))
     })
     interp.globals("setLocale") = Value.NativeFnV("setLocale", {
-      case List(Value.StringV(code)) => interp.i18nLocale = code; Pure(Value.UnitV)
-      case _                         => Pure(Value.UnitV)
+      case List(Value.StringV(code)) => interp.i18nLocale = code; Computation.PureUnit
+      case _                         => Computation.PureUnit
     })
     interp.globals("wc") = Value.NativeFnV("wc", {
       case tag :: component :: rest =>
@@ -352,7 +352,7 @@ private[interpreter] object BuiltinsRuntime:
           case None =>
             Pure(Value.InstanceV("_Raw", Map("html" ->
               Value.StringV(s"<$tagStr-component></$tagStr-component>"))))
-      case _ => Pure(Value.UnitV)
+      case _ => Computation.PureUnit
     })
 
     // ─── Typed HTML DSL — `div(cls := "x", h1("hi"))` style ───────────
@@ -569,7 +569,7 @@ private[interpreter] object BuiltinsRuntime:
       case List(Value.StringV(path), Value.StringV(contents)) =>
         val p = java.nio.file.Paths.get(path)
         java.nio.file.Files.write(p, contents.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-        Pure(Value.UnitV)
+        Computation.PureUnit
       case _ => throw InterpretError("writeFile(path: String, contents: String): Unit")
     })
     interp.globals("readFile") = Value.NativeFnV("readFile", {
@@ -581,7 +581,7 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("deleteFile") = Value.NativeFnV("deleteFile", {
       case List(Value.StringV(path)) =>
         java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(path))
-        Pure(Value.UnitV)
+        Computation.PureUnit
       case _ => throw InterpretError("deleteFile(path: String): Unit")
     })
     interp.globals("exists") = Value.NativeFnV("exists", {

@@ -1740,7 +1740,7 @@ private[interpreter] trait ActorInterp:
           peerLost(pnId, "", "")
         }
         } // close Thread.ofVirtual().start
-        Pure(Value.UnitV)
+        Computation.PureUnit
       })
       wsRoutes.register(
         path      = "/_ssc-actors",

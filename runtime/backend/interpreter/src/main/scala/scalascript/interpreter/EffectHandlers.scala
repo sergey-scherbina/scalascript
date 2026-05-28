@@ -487,7 +487,7 @@ private[interpreter] object EffectHandlers:
         case Pure(v) => finish(v)
         case Perform("Stream", "emit", args) =>
           buf += args.headOption.getOrElse(Value.UnitV)
-          loop(Pure(Value.UnitV))
+          loop(Computation.PureUnit)
         case Perform("Stream", "complete", _) =>
           terminated = true
           finish(Value.UnitV)
@@ -498,7 +498,7 @@ private[interpreter] object EffectHandlers:
             case None                   => "Stream error")
           finish(Value.UnitV)
         case Perform("Stream", "request", _) =>
-          loop(Pure(Value.UnitV))  // advisory no-op in v1.51.6
+          loop(Computation.PureUnit)  // advisory no-op in v1.51.6
         case Perform(_, _, _) => current
         case FlatMap(sub, f) => sub match
           case Pure(v)                          => loop(f(v))

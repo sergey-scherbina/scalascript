@@ -153,7 +153,7 @@ private[interpreter] object CoroutineRuntime:
           if genQ == null then
             throw InterpretError("suspend called outside a coroutine or generator body")
           genQ.put(Some(v))
-          Pure(Value.UnitV)
+          Computation.PureUnit
       case _ => throw InterpretError("suspend(v)")
     })
 
@@ -210,6 +210,6 @@ private[interpreter] object CoroutineRuntime:
           if thread != null then
             thread.interrupt()
             thread.join(500)
-        Pure(Value.UnitV)
+        Computation.PureUnit
       case _ => throw InterpretError("coroutineCancel(co)")
     })

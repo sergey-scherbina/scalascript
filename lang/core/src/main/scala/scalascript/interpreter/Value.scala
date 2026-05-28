@@ -297,6 +297,13 @@ enum Computation:
   case FlatMap(sub: Computation, k: Value => Computation)
 
 object Computation:
+  // Singleton Pure wrappers for the most common return values — eliminates one
+  // allocation per call on every hot dispatch path (isRight, isEmpty, foreach, etc.).
+  val PureUnit:  Pure = Computation.PureUnit
+  val PureNull:  Pure = Pure(Value.NullV)
+  val PureTrue:  Pure = Computation.PureTrue
+  val PureFalse: Pure = Computation.PureFalse
+
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)
 

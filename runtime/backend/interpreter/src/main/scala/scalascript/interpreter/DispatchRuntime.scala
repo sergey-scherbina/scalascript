@@ -296,10 +296,10 @@ private[interpreter] object DispatchRuntime:
       case "exists"       => args match
         case List(f) =>
           def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.boolV(false))
+            case Nil => Computation.PureFalse
             case h :: rest =>
               interp.callValue(f, List(h), env).flatMap {
-                case Value.BoolV(true) => Pure(Value.boolV(true))
+                case Value.BoolV(true) => Computation.PureTrue
                 case _                 => loop(rest)
               }
           loop(ls)
@@ -307,10 +307,10 @@ private[interpreter] object DispatchRuntime:
       case "forall"       => args match
         case List(f) =>
           def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.boolV(true))
+            case Nil => Computation.PureTrue
             case h :: rest =>
               interp.callValue(f, List(h), env).flatMap {
-                case Value.BoolV(false) => Pure(Value.boolV(false))
+                case Value.BoolV(false) => Computation.PureFalse
                 case _                  => loop(rest)
               }
           loop(ls)
@@ -475,7 +475,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
         case List(f) => opt match
-          case None    => Pure(Value.UnitV)
+          case None    => Computation.PureUnit
           case Some(v) => interp.callValue(f, List(v), env).map(_ => Value.UnitV)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
@@ -534,7 +534,7 @@ private[interpreter] object DispatchRuntime:
     name match
       case "++" => args match
         case List(Value.TupleV(bs)) => Pure(Value.TupleV(bs))
-        case List(Value.UnitV)      => Pure(Value.UnitV)
+        case List(Value.UnitV)      => Computation.PureUnit
         case List(v)                => Pure(v)
         case _                      => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
@@ -573,7 +573,7 @@ private[interpreter] object DispatchRuntime:
             case _                    => interp.located("Signal handle missing id")
         case "set" => args match
           case List(v) => fields.get("id") match
-            case Some(Value.IntV(id)) => SignalRuntime.signalSet(interp, id, v); Pure(Value.UnitV)
+            case Some(Value.IntV(id)) => SignalRuntime.signalSet(interp, id, v); Computation.PureUnit
             case _                    => interp.located("Signal handle missing id")
           case _       => dispatchFallback(recv, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
@@ -596,8 +596,8 @@ private[interpreter] object DispatchRuntime:
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
       case "Right" => name match
-        case "isRight"   => Pure(Value.boolV(true))
-        case "isLeft"    => Pure(Value.boolV(false))
+        case "isRight"   => Computation.PureTrue
+        case "isLeft"    => Computation.PureFalse
         case "toOption"  => Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
         case "swap"      => Pure(Value.InstanceV("Left", fields))
         case "toSeq"     => Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
@@ -616,8 +616,8 @@ private[interpreter] object DispatchRuntime:
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
       case "Left" => name match
-        case "isRight"   => Pure(Value.boolV(false))
-        case "isLeft"    => Pure(Value.boolV(true))
+        case "isRight"   => Computation.PureFalse
+        case "isLeft"    => Computation.PureTrue
         case "toOption"  => Pure(Value.OptionV(None))
         case "swap"      => Pure(Value.InstanceV("Right", fields))
         case "toSeq"     => Pure(Value.ListV(Nil))

@@ -43,7 +43,7 @@ private[interpreter] object EvalRuntime:
           case Lit.String(v)  => Pure(Value.StringV(v))
           case Lit.Boolean(v) => Pure(Value.boolV(v))
           case Lit.Char(v)    => Pure(Value.CharV(v))
-          case Lit.Unit()     => Pure(Value.UnitV)
+          case Lit.Unit()     => Computation.PureUnit
           case Lit.Null()     => Pure(Value.NullV)
           case _              => Pure(Value.NullV)
         interp.litCache.put(lit, c)
@@ -350,7 +350,7 @@ private[interpreter] object EvalRuntime:
       val body  = bodyArgClause.values.head.asInstanceOf[Term]
       val thunk = Value.FunV(Nil, body, env, "")
       SignalRuntime.makeEffect(interp, thunk)
-      Pure(Value.UnitV)
+      Computation.PureUnit
 
     // ── v1.16 restartable { handlers } { body } ───────────────────────────
     // Common Lisp condition-system style handler: the body runs in a virtual
@@ -503,7 +503,7 @@ private[interpreter] object EvalRuntime:
         interp.threadValues(argComps) { argVs =>
           interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
             interp.globals(lhs.value) = newV
-            Pure(Value.UnitV)
+            Computation.PureUnit
           }
         }
       }
@@ -728,7 +728,7 @@ private[interpreter] object EvalRuntime:
         }
         eval(t.expr, frameView, interp).flatMap {
           case Value.BoolV(true) => eval(t.body, frameView, interp).flatMap(_ => loop)
-          case _                 => Pure(Value.UnitV)
+          case _                 => Computation.PureUnit
         }
       loop
 
@@ -739,8 +739,8 @@ private[interpreter] object EvalRuntime:
     // var/field assignment
     case Term.Assign(Term.Name(name), rhs) =>
       eval(rhs, env, interp) match
-        case Pure(v) => interp.globals(name) = v; Pure(Value.UnitV)
-        case c       => c.flatMap { v => interp.globals(name) = v; Pure(Value.UnitV) }
+        case Pure(v) => interp.globals(name) = v; Computation.PureUnit
+        case c       => c.flatMap { v => interp.globals(name) = v; Computation.PureUnit }
 
     // summon[TC[T]] — retrieve a given instance from the table
     case t: Term.ApplyType =>

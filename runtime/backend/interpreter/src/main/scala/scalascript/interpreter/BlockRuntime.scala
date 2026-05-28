@@ -150,7 +150,7 @@ private[interpreter] object BlockRuntime:
     interp._insideDirectBlock.set(true)
 
     def step(remaining: List[Stat], cur: Env): Computation = remaining match
-      case Nil => Pure(Value.UnitV)
+      case Nil => Computation.PureUnit
 
       case (t: Term.Throw) :: Nil =>
         interp.eval(t.expr, cur).flatMap { v =>

@@ -154,7 +154,7 @@ private[interpreter] object StdEffectsRuntime:
     // compiles and runs without errors; the real context value is injected by
     // withReader (user-defined or std library).
     interp.globals("Reader") = Value.InstanceV("Reader", Map(
-      "ask" -> Value.NativeFnV("Reader.ask", _ => Pure(Value.UnitV)),
+      "ask" -> Value.NativeFnV("Reader.ask", _ => Computation.PureUnit),
     ))
 
     // Stream: emit/complete/error/request — algebraic effect ops (v1.51.6).

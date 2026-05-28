@@ -199,7 +199,7 @@ private[interpreter] object DatasetRuntime:
           val text = run().map(v => Value.show(v)).mkString("", "\n", "\n")
           java.nio.file.Files.write(java.nio.file.Paths.get(path),
             text.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-          Pure(Value.UnitV)
+          Computation.PureUnit
         case _ => throw InterpretError("Dataset.saveToFile(path: String): Unit")
       }),
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
@@ -265,7 +265,7 @@ private[interpreter] object DatasetRuntime:
       "foreach" -> Value.NativeFnV("Dataset.foreach", {
         case List(action) =>
           run().foreach(item => Computation.run(interp.callValue(action, List(item), Map.empty)))
-          Pure(Value.UnitV)
+          Computation.PureUnit
         case _ => throw InterpretError("Dataset.foreach(action: T => Unit): Unit")
       }),
       "first"  -> Value.NativeFnV("Dataset.first",  Computation.pureFn(_ => Value.OptionV(run().headOption))),

@@ -15,7 +15,7 @@ private[interpreter] object SignalRuntime:
       case _           => throw InterpretError("computed { ... }")
     })
     interp.globals("effect") = Value.NativeFnV("effect", {
-      case List(thunk) => makeEffect(interp, thunk); Pure(Value.UnitV)
+      case List(thunk) => makeEffect(interp, thunk); Computation.PureUnit
       case _           => throw InterpretError("effect { ... }")
     })
 
