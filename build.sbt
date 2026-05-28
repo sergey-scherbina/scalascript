@@ -48,6 +48,7 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
   name == "PubSubTest.scala" ||
   name == "SqlBlockInterpreterTest.scala" ||
   name == "TypedHandlerTest.scala" ||
+  name == "TypedRpcBinaryTest.scala" ||
   name.startsWith("Mcp") ||
   name.startsWith("OAuth") ||
   name.startsWith("Oidc")

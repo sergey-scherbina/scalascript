@@ -48,7 +48,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.2-actors-binary-ws** — Actor cluster binary WebSocket: `ssc-actors-v2.<format>` subprotocols, binary WS frames for actor user messages and cluster control envelopes (registry, heartbeat, gossip, leader election, pub/sub, config, drain, metrics, phi vectors), preserving JSON `ssc-actors-v1` fallback. Spec: `docs/distributed-wire-protocol.md §Phase 2`. ✓ Landed 2026-05-28.
 
-- [ ] **v1.62.3-typed-rpc-binary** — Typed route clients/RPC binary negotiation: generated HTTP `Accept`/`Content-Type` for MsgPack/CBOR wire payloads, JSON fallback, 406/415 errors, binary WS subscription frames, and SSE text/base64 fallback. Spec: `docs/distributed-wire-protocol.md §Phase 3`.
+- [x] **v1.62.3-typed-rpc-binary** — Typed route clients/RPC binary negotiation: generated HTTP `Accept`/`Content-Type` for MsgPack/CBOR wire payloads, JSON fallback, 406/415 errors, binary WS subscription frames, and SSE text/base64 fallback. Spec: `docs/distributed-wire-protocol.md §Phase 3`. ✓ Landed 2026-05-29.
 
 - [ ] **v1.62.4-dataset-binary-partitions** — Distributed Dataset/MapReduce binary partitions and shuffle: route `DatasetWirePartition` through `WireCodec[A]`, chunk large partitions, and run distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`.
 

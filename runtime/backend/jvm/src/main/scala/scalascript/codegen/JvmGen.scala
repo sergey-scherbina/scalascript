@@ -1926,6 +1926,44 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |def _ssc_api_set_retry(maxRetries: Int, delayMs: Long): Unit =
        |  _ssc_api_retry_policy = (maxRetries, delayMs)
        |
+       |private var _ssc_api_wire_format: String = "json"
+       |def _ssc_api_set_wire_format(fmt: String): Unit =
+       |  _ssc_api_wire_format = fmt
+       |
+       |private val _SscWireMsgPack = "application/vnd.scalascript.wire+msgpack"
+       |private val _SscWireCbor    = "application/vnd.scalascript.wire+cbor"
+       |
+       |private def _ssc_api_accept_header: String = _ssc_api_wire_format match
+       |  case "cbor"    => s"$_SscWireCbor, $_SscWireMsgPack, application/json;q=0.5"
+       |  case "msgpack" => s"$_SscWireMsgPack, application/json;q=0.5"
+       |  case _         => "application/json"
+       |
+       |private def _ssc_api_encode_binary_body(jsonBody: String): Array[Byte] =
+       |  val payload = scalascript.wire.WireValue.Str(jsonBody)
+       |  val env     = scalascript.wire.WireEnvelope.rpc(_ssc_api_wire_format, "request", payload)
+       |  _ssc_api_wire_format match
+       |    case "cbor"    => scalascript.wire.cbor.CborWireCodec.encodeEnvelope(env)
+       |    case "msgpack" => scalascript.wire.msgpack.MsgPackWireCodec.encodeEnvelope(env)
+       |    case _         => jsonBody.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+       |
+       |private def _ssc_api_decode_binary_response(
+       |  bytes: Array[Byte], contentType: String
+       |): scalascript.backend.spi.BackendResponse =
+       |  val ct = contentType.split(';').head.trim.toLowerCase
+       |  val envResult = ct match
+       |    case `_SscWireMsgPack` | "application/x-msgpack" =>
+       |      scalascript.wire.msgpack.MsgPackWireCodec.decodeEnvelope(bytes)
+       |    case `_SscWireCbor` | "application/cbor" =>
+       |      scalascript.wire.cbor.CborWireCodec.decodeEnvelope(bytes)
+       |    case _ => Left(scalascript.wire.WireDecodeError.MalformedInput("not a wire response"))
+       |  envResult match
+       |    case Left(_)  => scalascript.backend.spi.BackendResponse(200, Map.empty, bytes)
+       |    case Right(e) => e.payload match
+       |      case scalascript.wire.WireValue.Str(json) =>
+       |        scalascript.backend.spi.BackendResponse(200, Map("Content-Type" -> "application/json"),
+       |          json.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+       |      case _ => scalascript.backend.spi.BackendResponse(200, Map.empty, bytes)
+       |
        |class _SscCancelToken:
        |  private val _cancelled = new java.util.concurrent.atomic.AtomicBoolean(false)
        |  def cancel(): Unit = _cancelled.set(true)
@@ -1956,22 +1994,49 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |inline def _ssc_api_request[Req, Resp](methodRaw: String, pathTemplate: String, input: Req, callHeaders: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Resp =
        |  if cancelToken != null && cancelToken.isCancelled then
        |    throw RuntimeException("typed route client: request cancelled")
-       |  val method = methodRaw.toUpperCase
-       |  val url = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
-       |  val body = _ssc_api_body[Req](method, input)
-       |  val baseHeaders: Map[String, String] =
-       |    if body.nonEmpty then Map("Content-Type" -> "application/json") else Map.empty
-       |  val req = scalascript.backend.spi.BackendRequest(method, url, baseHeaders ++ _ssc_api_extra_headers ++ callHeaders, _ssc_ui_utf8(body))
+       |  val method   = methodRaw.toUpperCase
+       |  val url      = _ssc_api_path(pathTemplate, input) + _ssc_api_query(pathTemplate, input)
+       |  val jsonBody = _ssc_api_body[Req](method, input)
+       |  val useBinary = _ssc_api_wire_format != "json" && jsonBody.nonEmpty
+       |  val (reqBodyBytes, ctHeader): (Array[Byte], Map[String, String]) =
+       |    if useBinary then
+       |      val raw = _ssc_api_encode_binary_body(jsonBody)
+       |      val b64 = java.util.Base64.getEncoder.encodeToString(raw)
+       |      (_ssc_ui_utf8(b64), Map("Content-Type" -> (if _ssc_api_wire_format == "cbor" then _SscWireCbor else _SscWireMsgPack)))
+       |    else if jsonBody.nonEmpty then
+       |      (_ssc_ui_utf8(jsonBody), Map("Content-Type" -> "application/json"))
+       |    else
+       |      (Array.emptyByteArray, Map.empty)
+       |  val acceptHeader = Map("Accept" -> _ssc_api_accept_header)
+       |  val req = scalascript.backend.spi.BackendRequest(method, url,
+       |    ctHeader ++ acceptHeader ++ _ssc_api_extra_headers ++ callHeaders, reqBodyBytes)
        |  val (maxRetries, delayMs) = _ssc_api_retry_policy
-       |  val response = _ssc_api_send(req, maxRetries, delayMs, 0, cancelToken)
-       |  val responseBody = String(response.body, java.nio.charset.StandardCharsets.UTF_8)
-       |  if response.status < 200 || response.status >= 300 then
-       |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + response.status + ": " + responseBody)
+       |  val rawResponse = _ssc_api_send(req, maxRetries, delayMs, 0, cancelToken)
+       |  val responseBody = String(rawResponse.body, java.nio.charset.StandardCharsets.UTF_8)
+       |  if rawResponse.status < 200 || rawResponse.status >= 300 then
+       |    throw RuntimeException("typed route client: " + method + " " + url + " returned " + rawResponse.status + ": " + responseBody)
+       |  val respCt = rawResponse.headers.get("Content-Type").orElse(rawResponse.headers.get("content-type")).getOrElse("")
+       |  val response =
+       |    if respCt.toLowerCase.contains("vnd.scalascript.wire") then
+       |      try
+       |        val decoded = java.util.Base64.getDecoder.decode(responseBody.trim)
+       |        _ssc_api_decode_binary_response(decoded, respCt)
+       |      catch case _: Exception => rawResponse
+       |    else rawResponse
        |  _ssc_typed_json_decode_response[Resp](response)
        |
        |trait _SscWsHandle extends AutoCloseable:
        |  def send(msg: String): Unit
        |  def close(): Unit
+       |
+       |private def _ssc_api_ws_decode_frame[Resp](bytes: Array[Byte])(using dec: io.circe.Decoder[Resp]): Either[String, Resp] =
+       |  scalascript.wire.msgpack.MsgPackWireCodec.decodeEnvelope(bytes).orElse(
+       |    scalascript.wire.cbor.CborWireCodec.decodeEnvelope(bytes)) match
+       |    case Right(env) => env.payload match
+       |      case scalascript.wire.WireValue.Str(json) => io.circe.parser.decode[Resp](json)
+       |      case _ => Left("binary WS frame: expected string payload")
+       |    case Left(_) =>
+       |      Left("binary WS frame: decode error")
        |
        |def _ssc_api_ws_request[Req, Resp](
        |  pathTemplate: String, input: Req,
@@ -1988,14 +2053,25 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  @volatile var wsRef: java.net.http.WebSocket = null
        |  @volatile var closed = false
        |  val handle = new _SscWsHandle:
-       |    def send(msg: String): Unit = if wsRef != null && !closed then wsRef.sendText(msg, true)
+       |    def send(msg: String): Unit =
+       |      if wsRef != null && !closed then
+       |        if _ssc_api_wire_format != "json" then
+       |          val raw = _ssc_api_encode_binary_body(msg)
+       |          wsRef.sendBinary(java.nio.ByteBuffer.wrap(raw), true)
+       |        else wsRef.sendText(msg, true)
        |    def close(): Unit = { closed = true; if wsRef != null then wsRef.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "") }
        |  val listener = new java.net.http.WebSocket.Listener:
        |    private val buf = new StringBuilder
+       |    private val binBuf = new java.io.ByteArrayOutputStream
        |    override def onOpen(ws: java.net.http.WebSocket): Unit =
        |      wsRef = ws
        |      if input != (()) then
-       |        try ws.sendText(io.circe.Encoder[Req].apply(input).noSpaces, true) catch case e: Exception => ()
+       |        try
+       |          val jsonStr = io.circe.Encoder[Req].apply(input).noSpaces
+       |          if _ssc_api_wire_format != "json" then
+       |            ws.sendBinary(java.nio.ByteBuffer.wrap(_ssc_api_encode_binary_body(jsonStr)), true)
+       |          else ws.sendText(jsonStr, true)
+       |        catch case e: Exception => ()
        |      onOpen(handle)
        |      ws.request(1)
        |    override def onText(ws: java.net.http.WebSocket, data: CharSequence, last: Boolean): java.util.concurrent.CompletableFuture[?] =
@@ -2005,6 +2081,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |        io.circe.parser.decode[Resp](text) match
        |          case Right(v) => try onEvent(v) catch case e: Exception => onError("WS decode error: " + e.getMessage)
        |          case Left(e)  => onError("WS decode error: " + e.getMessage)
+       |      ws.request(1)
+       |      null
+       |    override def onBinary(ws: java.net.http.WebSocket, data: java.nio.ByteBuffer, last: Boolean): java.util.concurrent.CompletableFuture[?] =
+       |      val arr = new Array[Byte](data.remaining); data.get(arr); binBuf.write(arr)
+       |      if last then
+       |        val bytes = binBuf.toByteArray; binBuf.reset()
+       |        _ssc_api_ws_decode_frame[Resp](bytes) match
+       |          case Right(v) => try onEvent(v) catch case e: Exception => onError("WS binary decode error: " + e.getMessage)
+       |          case Left(e)  => onError("WS binary decode error: " + e)
        |      ws.request(1)
        |      null
        |    override def onError(ws: java.net.http.WebSocket, error: Throwable): Unit =

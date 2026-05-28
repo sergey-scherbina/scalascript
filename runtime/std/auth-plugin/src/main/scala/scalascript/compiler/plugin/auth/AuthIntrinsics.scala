@@ -128,8 +128,8 @@ object AuthIntrinsics:
 
     QualifiedName("webauthnUpdateSignCount") -> NativeImpl((_, args) =>
       args match
-        case List(uid: String, cid: String, cnt: Long) =>
-          Value.boolV(0))
+        case List(_: String, _: String, _: Long) =>
+          Value.boolV(false)
         case _ => throw InterpretError(
           "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
     ),
@@ -169,8 +169,8 @@ object AuthIntrinsics:
 
     QualifiedName("rateLimit") -> NativeImpl((_, args) =>
       args match
-        case List(key: String, lim: Long, win: Long) =>
-          Value.boolV(0))
+        case List(_: String, _: Long, _: Long) =>
+          Value.boolV(false)
         case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
     ),
 
@@ -203,10 +203,10 @@ object AuthIntrinsics:
 
     QualifiedName("totpValid") -> NativeImpl((_, args) =>
       args match
-        case List(s: String, code: String) =>
-          Value.boolV(0))
-        case List(s: String, code: String, skew: Long) =>
-          Value.boolV(0))
+        case List(_: String, _: String) =>
+          Value.boolV(false)
+        case List(_: String, _: String, _: Long) =>
+          Value.boolV(false)
         case _ => throw InterpretError("totpValid(secret, code[, skew])")
     ),
 
@@ -221,8 +221,8 @@ object AuthIntrinsics:
 
     QualifiedName("verifyPassword") -> NativeImpl((_, args) =>
       args match
-        case List(pass: String, encoded: String) =>
-          Value.boolV(0))
+        case List(_: String, _: String) =>
+          Value.boolV(false)
         case _ => throw InterpretError("verifyPassword(password, encoded)")
     ),
 

@@ -1,5 +1,9 @@
 package scalascript.interpreter
 
+import scalascript.wire.{WireEnvelope, WireValue}
+import scalascript.wire.msgpack.MsgPackWireCodec
+import scalascript.wire.cbor.CborWireCodec
+
 /** v1.30 Phase 7 — typed handler auto-deserialization / serialization.
  *
  *  Detects handler functions with non-Request, non-Map parameters and wraps
@@ -77,43 +81,52 @@ object TypedHandlerWrapper:
     errorDetails: Boolean,
   ): Value =
     Value.NativeFnV("typed-handler", Computation.pureFn { args =>
-      val reqV = args.head.asInstanceOf[Value.InstanceV]
+      val reqV        = args.head.asInstanceOf[Value.InstanceV]
       val pathParams  = extractStringMap(reqV.fields.get("params"))
       val queryParams = extractStringMap(reqV.fields.get("query"))
-      val bodyStr     = reqV.fields.get("body").collect { case Value.StringV(s) if s.nonEmpty => s }
-      val jsonBody: Map[String, Value] = bodyStr.flatMap(s =>
-        try Some(parseJsonObject(s)) catch case _: Throwable => None
-      ).getOrElse(Map.empty)
+      val headers     = extractStringMap(reqV.fields.get("headers"))
+      val contentType = headers.get("content-type").getOrElse("")
+      val accept      = headers.get("accept").getOrElse("")
+      val bodyStrRaw  = reqV.fields.get("body").collect { case Value.StringV(s) if s.nonEmpty => s }
 
-      // Check for Either[Request, Input] first param shape
-      // typeToString renders it as "Either[Request, CreateInput]"
-      dataParams match
-        case List((paramName, typeName)) if isEitherRequest(typeName) =>
-          // Either[Request, Input] — try deserialization; on failure return Left(req)
-          val innerType = extractEitherRight(typeName)
-          deserializeParam(paramName, innerType, pathParams, queryParams, jsonBody, globalsView) match
-            case Right(v) =>
-              // Pass Right(v) as InstanceV("Right", ...) — interpreter's convention
-              val eitherRight = Value.InstanceV("Right", Map("value" -> v))
-              val result = invoke(f, List(eitherRight) ++ trailingArgs(reqV, trailingReq, trailingCtx))
-              serializeOutput(result)
-            case Left(_) =>
-              val eitherLeft = Value.InstanceV("Left", Map("value" -> reqV))
-              val result = invoke(f, List(eitherLeft) ++ trailingArgs(reqV, trailingReq, trailingCtx))
-              serializeOutput(result)
-        case _ =>
-          // Normal typed params — deserialize each one
-          val desered = dataParams.map { case (name, typeName) =>
-            deserializeParam(name, typeName, pathParams, queryParams, jsonBody, globalsView)
-          }
-          val errors = desered.collect { case Left(err) => err }
-          if errors.nonEmpty then
-            val body = if errorDetails then s"""{"error":"${errors.head}"}""" else "{}"
-            httpErrorResponse(400, body)
-          else
-            val dataArgs = desered.collect { case Right(v) => v }
-            val result = invoke(f, dataArgs ++ trailingArgs(reqV, trailingReq, trailingCtx))
-            serializeOutput(result)
+      decodeBinaryBody(contentType, bodyStrRaw) match
+        case Left(errResp) => errResp
+        case Right(bodyStr) =>
+          negotiateResponseFormat(accept) match
+            case Left(_) => httpErrorResponse(406, """{"error":"not acceptable"}""")
+            case Right(respFmt) =>
+              val jsonBody: Map[String, Value] = bodyStr.flatMap(s =>
+                try Some(parseJsonObject(s)) catch case _: Throwable => None
+              ).getOrElse(Map.empty)
+
+              // Check for Either[Request, Input] first param shape
+              val rawResult = dataParams match
+                case List((paramName, typeName)) if isEitherRequest(typeName) =>
+                  val innerType = extractEitherRight(typeName)
+                  deserializeParam(paramName, innerType, pathParams, queryParams, jsonBody, globalsView) match
+                    case Right(v) =>
+                      val eitherRight = Value.InstanceV("Right", Map("value" -> v))
+                      val result = invoke(f, List(eitherRight) ++ trailingArgs(reqV, trailingReq, trailingCtx))
+                      serializeOutput(result)
+                    case Left(_) =>
+                      val eitherLeft = Value.InstanceV("Left", Map("value" -> reqV))
+                      val result = invoke(f, List(eitherLeft) ++ trailingArgs(reqV, trailingReq, trailingCtx))
+                      serializeOutput(result)
+                case _ =>
+                  val desered = dataParams.map { case (name, typeName) =>
+                    deserializeParam(name, typeName, pathParams, queryParams, jsonBody, globalsView)
+                  }
+                  val errors = desered.collect { case Left(err) => err }
+                  if errors.nonEmpty then
+                    val body = if errorDetails then s"""{"error":"${errors.head}"}""" else "{}"
+                    httpErrorResponse(400, body)
+                  else
+                    val dataArgs = desered.collect { case Right(v) => v }
+                    val result = invoke(f, dataArgs ++ trailingArgs(reqV, trailingReq, trailingCtx))
+                    serializeOutput(result)
+
+              if respFmt == "json" then rawResult
+              else encodeWireResponse(rawResult, respFmt)
     })
 
   private def trailingArgs(reqV: Value.InstanceV, trailingReq: Boolean, trailingCtx: Boolean): List[Value] =
@@ -288,6 +301,78 @@ object TypedHandlerWrapper:
         while i < s.length && s.charAt(i).isWhitespace do i += 1
     if i < s.length && s.charAt(i) == ']' then i += 1
     (Value.ListV(items.toList), i)
+
+  // ── binary content negotiation ───────────────────────────────────────────
+
+  private val WireMsgPack = "application/vnd.scalascript.wire+msgpack"
+  private val WireCbor    = "application/vnd.scalascript.wire+cbor"
+
+  /** Decode a binary-encoded (Base64 WireEnvelope) body to its JSON string payload.
+   *  Plain JSON/text bodies pass through unchanged. Returns Left(errorResponse) for
+   *  400 (bad body) or 415 (unsupported wire format). */
+  private def decodeBinaryBody(contentType: String, bodyStr: Option[String]): Either[Value, Option[String]] =
+    val ct = contentType.split(';').head.trim.toLowerCase
+    ct match
+      case "" | "application/json" | "text/json" | "text/plain" => Right(bodyStr)
+      case `WireMsgPack` | "application/x-msgpack"              => decodeBinaryEnvelope("msgpack", bodyStr)
+      case `WireCbor`    | "application/cbor"                   => decodeBinaryEnvelope("cbor", bodyStr)
+      case s if s.startsWith("application/vnd.scalascript.wire+") =>
+        val fmt = s.drop("application/vnd.scalascript.wire+".length)
+        Left(httpErrorResponse(415, s"""{"error":"unsupported wire format: $fmt"}"""))
+      case _ => Right(bodyStr)
+
+  private def decodeBinaryEnvelope(format: String, bodyStr: Option[String]): Either[Value, Option[String]] =
+    bodyStr match
+      case None => Right(None)
+      case Some(b64) =>
+        try
+          val bytes = java.util.Base64.getDecoder.decode(b64.trim)
+          val envResult = format match
+            case "msgpack" => MsgPackWireCodec.decodeEnvelope(bytes)
+            case "cbor"    => CborWireCodec.decodeEnvelope(bytes)
+            case _         => Left(scalascript.wire.WireDecodeError.MalformedInput("unsupported format"))
+          envResult match
+            case Left(_)  => Left(httpErrorResponse(400, """{"error":"binary body decode error"}"""))
+            case Right(e) => e.payload match
+              case WireValue.Str(json) => Right(Some(json))
+              case _                   => Left(httpErrorResponse(400, """{"error":"expected string payload in wire envelope"}"""))
+        catch case _: Exception => Left(httpErrorResponse(400, """{"error":"malformed binary body"}"""))
+
+  /** Negotiate response format from Accept header.
+   *  Returns Right("json"|"msgpack"|"cbor") or Left(()) for 406 Not Acceptable. */
+  private def negotiateResponseFormat(accept: String): Either[Unit, String] =
+    if accept.isEmpty then Right("json")
+    else
+      val lc = accept.toLowerCase
+      val wantCbor    = lc.contains("vnd.scalascript.wire+cbor")
+      val wantMsgPack = lc.contains("vnd.scalascript.wire+msgpack") || lc.contains("x-msgpack")
+      val wantJson    = lc.contains("application/json") || lc.contains("text/") || lc.contains("*/*")
+      if wantCbor then Right("cbor")
+      else if wantMsgPack then Right("msgpack")
+      else if wantJson then Right("json")
+      else Left(())
+
+  /** Encode a Response value's body as a Base64-encoded binary WireEnvelope.
+   *  Non-Response values are returned unchanged. */
+  private def encodeWireResponse(v: Value, format: String): Value = v match
+    case r: Value.InstanceV if r.typeName == "Response" =>
+      val existingHeaders = r.fields.get("headers") match
+        case Some(Value.MapV(m)) => m
+        case _                   => Map.empty[Value, Value]
+      val jsonBody = r.fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+      val env      = WireEnvelope.rpc(format, "response", WireValue.Str(jsonBody))
+      val bytesOpt: Option[Array[Byte]] = format match
+        case "msgpack" => Some(MsgPackWireCodec.encodeEnvelope(env))
+        case "cbor"    => Some(CborWireCodec.encodeEnvelope(env))
+        case _         => None
+      bytesOpt match
+        case None => v
+        case Some(bytes) =>
+          val b64        = java.util.Base64.getEncoder.encodeToString(bytes)
+          val ct         = if format == "cbor" then WireCbor else WireMsgPack
+          val newHeaders = existingHeaders + (Value.StringV("Content-Type") -> Value.StringV(ct))
+          Value.InstanceV("Response", r.fields + ("body" -> Value.StringV(b64)) + ("headers" -> Value.MapV(newHeaders)))
+    case other => other
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
