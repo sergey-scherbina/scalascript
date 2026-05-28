@@ -17,14 +17,14 @@ private[interpreter] object EvalRuntime:
     // currentSpan: block-relative 0-based line; docLine = debugBlockDocLine + blockLine + 1.
     // callStack.length is the current call depth (0 at top level).
     interp.debugHooks.foreach { hooks =>
-      interp.currentSpan.foreach { case (blockLine, _) =>
+      if interp.currentSpanLine >= 0 then
+        val blockLine  = interp.currentSpanLine
         val docLine    = interp.debugBlockDocLine + blockLine + 1
         val callFrames = interp.callStack.toIndexedSeq.map { case (n, sf, l) =>
           scalascript.interpreter.debug.CallFrameEntry(n, sf, l)
         }
         val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStack.length, env, callFrames)
         hooks.onStep(frame)
-      }
     }
     term match
     // Literals — interned by Lit identity so a hot loop reuses the same

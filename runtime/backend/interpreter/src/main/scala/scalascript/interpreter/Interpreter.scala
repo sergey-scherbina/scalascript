@@ -196,7 +196,11 @@ class Interpreter(
   private inline def placeholderIdx: Int          = _phIdxTL.get()
   private inline def placeholderIdx_=(v: Int): Unit = _phIdxTL.set(v)
   // Tracks the last known source position for error messages (0-based line, 0-based column).
-  private[interpreter] var currentSpan: Option[(Int, Int)] = None
+  // -1 = no position known (replaces Option[(Int, Int)] to avoid per-node allocation).
+  private[interpreter] var currentSpanLine: Int = -1
+  private[interpreter] var currentSpanCol:  Int = -1
+  private[interpreter] inline def currentSpan: Option[(Int, Int)] =
+    if currentSpanLine < 0 then None else Some((currentSpanLine, currentSpanCol))
   // Source of the code block currently being executed — used to print the
   // offending line under the error message with a caret.
   private[interpreter] var currentSource: String = ""
@@ -526,7 +530,9 @@ class Interpreter(
   /** Update currentSpan from a scalameta tree's position (no-op if position is empty). */
   private[interpreter] def trackPos(tree: scala.meta.Tree): Unit =
     val p = tree.pos
-    if !p.isEmpty then currentSpan = Some((p.startLine - lineOffset, p.startColumn))
+    if !p.isEmpty then
+      currentSpanLine = p.startLine - lineOffset
+      currentSpanCol  = p.startColumn
 
   // ─── Public API ──────────────────────────────────────────────────
 

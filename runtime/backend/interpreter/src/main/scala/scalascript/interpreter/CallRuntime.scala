@@ -32,7 +32,7 @@ private[interpreter] object CallRuntime:
       val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
       val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
-      val relLine   = interp.currentSpan.map(_._1 + 1).getOrElse(0)
+      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStack += ((frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine))
       val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
