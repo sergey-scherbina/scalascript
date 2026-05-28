@@ -368,7 +368,54 @@ to discharge their effects in their runner signatures:
 
 (`E` here denotes the implicit row variable — see §11 for the future explicit form.)
 
-### 8.3 `Computation` ADT remains
+### 8.3 Unified runner signature — `Out(E) ++ (R,)`
+
+Every algebraic effect `E` has an **output type** `Out(E)` — the extra value the
+runner emits beyond the body's return value:
+
+| Effect        | `Out(E)`       | Meaning                       |
+|---------------|----------------|-------------------------------|
+| `Logger`      | `()`           | side-effect only              |
+| `Random`      | `()`           | capability injection          |
+| `Clock`       | `()`           | capability injection          |
+| `Env`         | `()`           | capability injection          |
+| `Http`        | `()`           | side-effect only              |
+| `NonDet`      | `()`           | exploration (multi-shot)      |
+| `State[S]`    | `(S,)`         | final state is emitted        |
+| `Stream[A]`   | `(Source[A],)` | emitted elements              |
+
+The **unified runner signature** is:
+
+```
+run[E](body: R ! E) : Out(E) ++ (R,)
+```
+
+Because `()` is the identity for `++` (the tuple monoid), runners where
+`Out(E) = ()` return `() ++ (R,)` = `(R,)` which flattens to `R` — not a
+1-tuple. The concrete return types of today's runners follow directly:
+
+```
+runLogger { body: A ! Logger }
+  = Out(Logger) ++ (A,)  =  () ++ (A,)  =  (A,)  ≅  A
+
+runState(s₀) { body: A ! State[S] }
+  = Out(State[S]) ++ (A,)  =  (S,) ++ (A,)  =  (S, A)
+
+runStream { body: R ! Stream[A] }
+  = Out(Stream[A]) ++ (R,)  =  (Source[A],) ++ (R,)  =  (Source[A], R)
+```
+
+All three match the actual return types in the current implementation — the
+unified model is purely descriptive for `Logger`/`Random`/etc. (they were
+already correct) and structurally enforced for `State` and `Stream`.
+
+`Out(E)` and `++` are part of the v1.60 tuple monoid (`docs/tuple-monoid.md`).
+The `()` identity and `++` flatten operator live in the type system
+(`SType.Unit = Tuple(Nil)`, `SType.tupleConcat`), the interpreter
+(`DispatchRuntime` `TupleV.++`), and both backends
+(`_tupleConcat` in JS/JVM).
+
+### 8.4 `Computation` ADT remains
 
 The `Computation = Pure | Perform | FlatMap` Free monad
 (`runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Value.scala:240-306`)

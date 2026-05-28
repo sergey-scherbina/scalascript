@@ -1013,29 +1013,14 @@ Implementation phases ship independently below.
 **v1.53.7 — Cluster-aware webhook idempotency: ✓ Landed (2026-05-27)**
 - `RedisSeenKeyStore` (Lettuce `SET NX EX`); `PostgresSeenKeyStore` (`INSERT … ON CONFLICT DO NOTHING`); both in `payments/webhook-redis/` + `payments/webhook-postgres/`. 17 tests.
 
-## v1.60 — Tuple Monoid
-
-**Status: spec landed 2026-05-28.** See `docs/tuple-monoid.md`.
+## v1.60 — Tuple Monoid ✓ Landed 2026-05-28
 
 `Unit = ()` (0-tuple), `++` concatenation on tuples with monoid laws.
-Effect runners described uniformly as `Out(E) ++ (R,)`.
+Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/tuple-monoid.md`.
 
-### v1.60.1 — Core type system
-- `SType.Unit` → `SType.Tuple(Nil)` — 0-tuple as canonical unit type
-- `SType.tupleConcat(t1, t2)` smart constructor — eager flattening
-- `++` in type parser (`Typer.scala`) — right-associative, low precedence
-- `parseSType` normalizes `Named("Unit", Nil)` → `Tuple(Nil)` for `.scim` compat
-
-### v1.60.2 — Value level and backends ✓ Landed 2026-05-28
-- `TupleV ++ TupleV` dispatch in `DispatchRuntime.scala` — monoid concat with `UnitV` identity
-- JS lowering: `_tupleConcat(a, b)` helper — preserves `_isTuple = true` for tuple operands
-- JVM lowering: `_tupleConcat` with `scala.Tuple.fromArray` for tuple concat, `List ++ List` for lists
-- 4 interpreter tests (concat, left/right identity, associativity) + 3 JsGen codegen tests
-
-### v1.60.3 — Docs and spec integration
-- `algebraic-effects.md` §"Unified runner signature" — `Out(E) ++ (R,)` table
-- `streams.ssc` extern API update — tuple `++` section
-- Confirm all existing tests pass under `Unit = Tuple(Nil)`
+**v1.60.1** ✓ — `SType.Unit = Tuple(Nil)`, `tupleConcat`, `++` type operator, `(A,)` 1-tuple syntax, 49 tests.
+**v1.60.2** ✓ — `TupleV.++` in DispatchRuntime, `_tupleConcat` JS/JVM, 4+3 tests.
+**v1.60.3** ✓ — `algebraic-effects.md` §8.3 unified runner table, `streams.ssc` tuple section, docs complete.
 
 ## v1.55 — First-class XML / Generic Markup
 

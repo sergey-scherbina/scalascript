@@ -14,6 +14,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **v1.60.2-tuple-monoid-values** — Value level + backends: `TupleV ++ TupleV` in `DispatchRuntime` (concat `as ++ bs`, `UnitV` as identity on both sides); JS: `_tupleConcat(a, b)` runtime helper in Core (spreads arrays, sets `_isTuple = true` when both operands are tuples — preserves list semantics for non-tuple arrays); JVM: `_tupleConcat` with `scala.Tuple.fromArray` for tuple operands, `List ++ List` fallback; both `++` codegen paths now route through `_tupleConcat`. 4 interpreter tests + 3 JsGen codegen tests.
 
+- **v1.60.3-tuple-monoid-docs** — Docs: `algebraic-effects.md` §8.3 "Unified runner signature" with `Out(E) ++ (R,)` table covering all 8 built-in effects + the `Out(E) ++ (R,)` derivation formula; `streams.ssc` "Tuple monoid" section explaining `runStream`'s `(Source[A], R)` return as `Out(Stream[A]) ++ (R,)`; `BACKLOG.md` v1.60 section marked complete.
+
 ## 2026-05-28 — Wallet Trezor vault adapter
 
 - **wallet-vault-trezor** — `payments/wallet/vault-trezor/` sbt subproject: `TrezorEthVault` (implements `Vault` SPI; `unlock/lock/getSigner`; `ButtonRequest` auto-ack loop up to 10 retries); `TrezorBridge` trait + `HttpTrezorBridge` (java.net.http, `Origin: https://bridge.trezor.io`); `TrezorSession` (acquire/release with guaranteed release via `transformWith`); `TrezorMessages` (`TrezorDeviceInfo`, `TrezorResponse`, `Bip32.parse`, `TrezorMessageType` constants, `TrezorDeviceFailure`); `MockTrezorBridge` (per-messageType response queues, recorded calls); `enqueueFeatures/PublicKey/EthSignature/Failure` helpers. 29 tests (TrezorBridgeTest 11, TrezorSessionTest 4, TrezorEthVaultTest 14).

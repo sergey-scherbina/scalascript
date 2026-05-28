@@ -1,7 +1,7 @@
 ---
 title: Tuple Monoid — Heterogeneous Lists and Effect Output Unification
 version: v1.60
-status: spec
+status: landed 2026-05-28
 ---
 
 # Tuple Monoid

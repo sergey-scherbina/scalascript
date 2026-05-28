@@ -211,3 +211,30 @@ Type safety — `Stream[A]` is parameterized so mixed-type emits are a compile e
 // runStream { Stream.emit(1); Stream.emit("x") }
 //   ↑ compile error: Stream[Int] vs Stream[String] in effect row
 ```
+
+## Tuple monoid and the unified runner signature
+
+`runStream` return type `(Source[A], R)` is an instance of the general
+`Out(E) ++ (R,)` runner pattern (v1.60 tuple monoid):
+
+```
+Out(Stream[A])  = (Source[A],)        — 1-tuple
+Out(Stream[A]) ++ (R,) = (Source[A], R)  — 2-tuple
+```
+
+The `++` operator concatenates tuples; `()` is the identity (equivalent to
+`Unit`). For a pure side-effect runner like `runLogger`, `Out(Logger) = ()`
+so `() ++ (A,) = (A,)` which collapses to `A`.  `runStream` with `R = Unit`
+gives `(Source[A], Unit)` — destructure as `val (src, _) = runStream { … }`.
+
+Tuple `++` is available on all tuple values:
+
+```scalascript
+val a = (1, "hello")
+val b = (true, 3.14)
+val r = a ++ b     // (1, "hello", true, 3.14) — 4-tuple
+val u = () ++ a    // (1, "hello") — left identity
+val v = a ++ ()    // (1, "hello") — right identity
+```
+
+See `docs/tuple-monoid.md` for the full algebraic specification.

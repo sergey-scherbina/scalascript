@@ -310,7 +310,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **wasm-backend-phase1** — WASM backend: scalascript/ssc block support (Phase 1), integration tests + example (Phase 2), `//> using dep` hoisting + HTTP Fetch example (Phase 3) — All 3 phases landed (2026-05-26)
 - [x] **v1.60.1-tuple-monoid-types** — `SType.Unit = Tuple(Nil)`; `tupleConcat` smart constructor; `++` in type parser; 1-tuple `(A,)` surface syntax; 49 tests. ✓ Landed 2026-05-28.
 - [x] **v1.60.2-tuple-monoid-values** — `TupleV ++ TupleV` in `DispatchRuntime`; `_tupleConcat` JS helper (sets `_isTuple`); JVM `_tupleConcat` with `scala.Tuple.fromArray`; 4 interpreter + 3 JsGen tests. ✓ Landed 2026-05-28.
-- [ ] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` unified runner table; `streams.ssc` update; confirm all tests green. Spec: `docs/tuple-monoid.md §6 Track 3`.
+- [x] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` §8.3 "Unified runner signature" with `Out(E) ++ (R,)` table; `streams.ssc` tuple monoid section; `BACKLOG.md`/`CHANGELOG.md` v1.60 closed. ✓ Landed 2026-05-28.
 
 ## x402 — Cardano Scalus thin-glue wiring
 
