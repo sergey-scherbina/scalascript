@@ -4,6 +4,54 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Distributed Wire Protocol (v1.62 planned)
+
+Spec: [`docs/distributed-wire-protocol.md`](docs/distributed-wire-protocol.md).
+
+Internal ScalaScript-to-ScalaScript distributed traffic currently has several
+JSON-shaped paths: actor WebSocket envelopes, typed route clients/RPC,
+Dataset/MapReduce worker messages, and object sync routes. v1.62 introduces an
+opt-in common wire layer with JSON fallback plus MsgPack and CBOR binary
+profiles. Binary stays opt-in until JVM/interpreter/JS/browser/Electron
+conformance is green.
+
+- [x] **v1.62.0-distributed-wire-spec** - Spec and backlog.
+      Defines covered surfaces, JSON/MsgPack/CBOR profiles, opt-in `wire:`
+      config, WS/HTTP negotiation, JS/browser support from the first
+      implementation phase, same-version-only binary compatibility, security,
+      compression, resource limits, observability, and staged implementation
+      plan. Landed 2026-05-28.
+- [ ] **v1.62.1-wire-core** - Shared wire runtime:
+      `WireValue`, `WireEnvelope`, `WireCodec[A]`, errors, limits,
+      negotiation types, front-matter/CLI parsing, JSON/MsgPack/CBOR codec
+      profiles for JVM/interpreter and JS/browser, and cross-format golden
+      vectors.
+- [ ] **v1.62.2-actors-binary-ws** - Actor cluster binary WebSocket:
+      `ssc-actors-v2.<format>` subprotocols, binary WS frames for user
+      messages plus registry, heartbeat, gossip, leader, pub/sub, config,
+      drain, metrics, and phi-vector envelopes; JSON v1 fallback preserved.
+- [ ] **v1.62.3-typed-rpc-binary** - Typed route clients/RPC binary
+      negotiation: generated HTTP `Accept`/`Content-Type` support for
+      `application/vnd.scalascript.wire+msgpack` and `+cbor`, JSON fallback,
+      binary WS subscription frames, and text/base64 SSE fallback.
+- [ ] **v1.62.4-dataset-binary-partitions** - Distributed Dataset/MapReduce
+      binary partitions and shuffle: route `DatasetWirePartition` through
+      `WireCodec[A]`, add chunking for large partitions, and run
+      distributed-map/shuffle conformance with JSON, MsgPack, and CBOR.
+- [ ] **v1.62.5-dstream-native-wire** - Native DStream runner wire
+      integration: binary element batches, watermarks, triggers, side inputs,
+      side outputs, checkpoint metadata, and errors; external Spark/Kafka/
+      Flink/Beam protocols remain unchanged.
+- [ ] **v1.62.6-object-sync-binary** - Client/server object-sync binary
+      payloads for generated ScalaScript clients and servers; public/debug
+      JSON routes remain available.
+- [ ] **v1.62.7-wire-security-ops** - Security, compression, and operations:
+      HMAC frame signatures, session ids, sequence numbers, replay windows,
+      gzip/zstd negotiation, mTLS hooks, limits enforcement, and metrics.
+- [ ] **v1.62.8-wire-compatibility** - Pre-stable compatibility/evolution:
+      schema-id hashing, additive-change rules, default/unknown-field policy,
+      old/new vector tests, and explicit mixed-version opt-in.
+
 ## Architecture & Extensibility Roadmap (v1.x–v2.x)
 
 Cross-cutting improvements to make ScalaScript easier to extend, consume, and

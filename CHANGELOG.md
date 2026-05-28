@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Distributed wire protocol spec
+
+- **v1.62.0-distributed-wire-spec** — New `docs/distributed-wire-protocol.md` planning an opt-in internal wire layer for distributed actors, cluster control, Dataset/MapReduce, native DStream, typed route clients/RPC, WebSocket subscriptions, and object sync. The spec includes JSON fallback, MsgPack and CBOR binary profiles, JS/browser support, same-version-only initial compatibility, negotiation, security, compression, limits, observability, and backlog phases v1.62.1-v1.62.8.
+
 ## 2026-05-28 — Coinbase Prime MPC adapter
 
 - **wallet-vault-mpc-coinbase** — `CoinbaseRemoteSigningClient` extending `HttpRemoteSigningClient`; EC P-256 ECDSA request signing (`X-CB-ACCESS-KEY` / `X-CB-ACCESS-TIMESTAMP` / `X-CB-ACCESS-SIGNATURE`); `CoinbaseAuth` (SHA256withECDSA over `timestamp+method+path+body`); `CoinbaseWire` (signing request JSON, hex payload, SECP256K1/ED25519/P256 algorithm names, poll status decoding); `CoinbaseVault` named constructor + `CoinbasePlugin` ServiceLoader; `docs/wallet-vault-mpc.md §Coinbase`; 17 tests including ECDSA signature verification. sbt: `walletVaultMpcCoinbase`.

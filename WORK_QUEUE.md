@@ -8,6 +8,26 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Distributed Wire Protocol — v1.62
+
+- [x] **v1.62.0-distributed-wire-spec** — Spec and backlog for an opt-in internal distributed wire layer across actors, cluster control plane, Dataset/MapReduce, native DStream runner, typed route clients/RPC, WebSocket subscriptions, and object sync. Covers JSON fallback plus MsgPack and CBOR profiles, JS/browser support, same-version-only initial binary compatibility, negotiation, security, compression, resource limits, observability, and phases v1.62.1–v1.62.8. Spec: `docs/distributed-wire-protocol.md`. ✓ Landed 2026-05-28.
+
+- [ ] **v1.62.1-wire-core** — Shared wire runtime: add `WireValue`, `WireEnvelope`, `WireCodec[A]`, decode errors, resource limits, negotiation/config types, front-matter/CLI parsing for `wire:`, JSON/MsgPack/CBOR codec profiles on JVM/interpreter and JS/browser, and golden cross-format vectors. Spec: `docs/distributed-wire-protocol.md §Phase 1`.
+
+- [ ] **v1.62.2-actors-binary-ws** — Actor cluster binary WebSocket: `ssc-actors-v2.<format>` subprotocols, binary WS frames for actor user messages and cluster control envelopes (registry, heartbeat, gossip, leader election, pub/sub, config, drain, metrics, phi vectors), preserving JSON `ssc-actors-v1` fallback. Spec: `docs/distributed-wire-protocol.md §Phase 2`.
+
+- [ ] **v1.62.3-typed-rpc-binary** — Typed route clients/RPC binary negotiation: generated HTTP `Accept`/`Content-Type` for MsgPack/CBOR wire payloads, JSON fallback, 406/415 errors, binary WS subscription frames, and SSE text/base64 fallback. Spec: `docs/distributed-wire-protocol.md §Phase 3`.
+
+- [ ] **v1.62.4-dataset-binary-partitions** — Distributed Dataset/MapReduce binary partitions and shuffle: route `DatasetWirePartition` through `WireCodec[A]`, chunk large partitions, and run distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`.
+
+- [ ] **v1.62.5-dstream-native-wire** — Native DStream runner binary wire: element batches, watermarks, triggers, side inputs, side outputs, checkpoint metadata, and errors over the shared wire layer. External Spark/Kafka/Flink/Beam protocols stay unchanged. Spec: `docs/distributed-wire-protocol.md §Phase 5`.
+
+- [ ] **v1.62.6-object-sync-binary** — Client/server object sync binary payloads for generated ScalaScript clients/servers, with public/debug JSON routes retained. Spec: `docs/distributed-wire-protocol.md §Phase 6`.
+
+- [ ] **v1.62.7-wire-security-ops** — Wire security and operations: HMAC frame signatures, session ids, sequence numbers, replay windows, gzip/zstd negotiation, mTLS hooks, frame/depth/chunk limits, and metrics. Spec: `docs/distributed-wire-protocol.md §Phase 7`.
+
+- [ ] **v1.62.8-wire-compatibility** — Binary compatibility before first stable release: schema-id hashing, additive evolution rules, default/unknown-field policy, old/new test vectors, and explicit mixed-version opt-in. Spec: `docs/distributed-wire-protocol.md §Phase 8`.
+
 ## Government Interaction — v1.59 Bureau
 
 - [x] **v1.59.1-bureau-core** — `gov/bureau-core/` module: all SPI types (`CountryCode` opaque type + constants, `LegalForm` enum, `TaxIdentifier`/`TaxIdType`, `BusinessEntity`, `GovDomain`, `SubmissionResult`/`SubmissionStatus`/`GovError`); domain provider traits (`CountryProvider`, `FiscalProvider`, `SocialProvider`, `RegistryProvider`, `CustomsProvider`, `StatisticsProvider`, `EnvProvider`); shared fiscal/social/registry types (`FiscalInvoice`+`Currency`+`ExchangeRate`, `TaxDeclaration`, `AuditFile`, `ContributionDeclaration`, `EmployeeRecord`, `PaymentReference`, `BusinessRecord`, `VatPayerStatus`); `BureauError` sealed hierarchy (7 cases). `BureauCoreTest`: type construction, `BusinessEntity.requireTaxId`, `SubmissionStatus`, `BureauError` hierarchy. Spec: `docs/bureau.md §3–§7`.

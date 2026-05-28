@@ -203,6 +203,12 @@ actors-supervision
 | Scope | Full: core + register/whereis + heartbeat + node-down | One coherent milestone |
 | Serializer | JSON (binary uPickle deferred) | Debuggable; cross-language compatible |
 
+Binary wire follow-up: [`docs/distributed-wire-protocol.md`](distributed-wire-protocol.md)
+defines the planned opt-in `json` / `msgpack` / `cbor` negotiation layer for
+actors and the rest of ScalaScript's internal distributed runtime. This
+document keeps the current JSON `ssc-actors-v1` contract as the implemented
+baseline.
+
 ### Node identity and Pid extension
 
 `startNode("name@host:port")` registers the node's identity in a
