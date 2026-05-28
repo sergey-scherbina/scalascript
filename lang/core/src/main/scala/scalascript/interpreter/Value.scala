@@ -359,6 +359,27 @@ object Computation:
     case Pure(_) => PureUnit
     case _       => FlatMap(c, discardToUnit)
 
+  /** Map f over ls and collect results into ListV without building an intermediate
+   *  List[Computation].  All-Pure fast path: all f(item) results are Pure — no
+   *  FlatMap nodes allocated, just ArrayBuffer → toList → ListV. */
+  def mapSequence(ls: List[Value], f: Value => Computation): Computation =
+    if ls.isEmpty then return PureEmptyList
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+    var head = ls
+    while head.nonEmpty do
+      f(head.head) match
+        case Pure(v) => buf += v; head = head.tail
+        case comp    =>
+          val prefix = buf.toList
+          def loopRest(vs: List[Value], acc: List[Value]): Computation = vs match
+            case Nil => Pure(Value.ListV(prefix ++ acc.reverse))
+            case v :: rest =>
+              f(v) match
+                case Pure(rv) => loopRest(rest, rv :: acc)
+                case fc       => FlatMap(fc, rv => loopRest(rest, rv :: acc))
+          return FlatMap(comp, r => loopRest(head.tail, List(r)))
+    Pure(Value.ListV(buf.toList))
+
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =

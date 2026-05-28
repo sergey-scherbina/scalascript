@@ -260,11 +260,11 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "map"          => args match
-        case List(f) => Computation.sequence(ls.map(item => interp.callValue1(f, item, env)))
+        case List(f) => Computation.mapSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"      => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(results) => Value.ListV(results.flatMap {
               case Value.ListV(inner) => inner
               case v                  => List(v)
@@ -274,7 +274,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"       => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(flags) =>
               Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(true)) => v })
             case other => other
@@ -282,7 +282,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filterNot"    => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(flags) =>
               Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(false)) => v })
             case other => other
@@ -290,11 +290,11 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).flatMap(Computation.discardToUnit)
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(flags) =>
               Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
             case _ => Value.intV(0)
@@ -335,7 +335,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "sortBy"       => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(keys) =>
               Value.ListV(ls.zip(keys).sortBy(p => Value.show(p._2)).map(_._1))
             case _ => recv
