@@ -44,16 +44,16 @@ private[interpreter] object DerivesRuntime:
       case "Hash" =>
         Value.InstanceV("Hash", Map(
           "hash" -> Value.NativeFnV("Hash.hash", {
-            case List(v) => Pure(Value.intV(structuralHash(v, interp).toLong))
-            case _       => Pure(Value.intV(0))
+            case List(v) => Computation.pureIntV(structuralHash(v, interp).toLong)
+            case _       => Computation.pureIntV(0)
           })
         ))
 
       case "Order" =>
         Value.InstanceV("Order", Map(
           "compare" -> Value.NativeFnV("Order.compare", {
-            case List(a, b) => Pure(Value.intV(structuralCompare(a, b, interp).toLong))
-            case _          => Pure(Value.intV(0))
+            case List(a, b) => Computation.pureIntV(structuralCompare(a, b, interp).toLong)
+            case _          => Computation.pureIntV(0)
           }),
           "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) < 0);  case _ => Computation.PureFalse }),
           "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) > 0);  case _ => Computation.PureFalse }),

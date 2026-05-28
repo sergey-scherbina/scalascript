@@ -191,6 +191,12 @@ object Value:
     if n >= _poolMin && n <= _poolMax then _intVPool((n - _poolMin).toInt)
     else IntV(n)
 
+  // Pre-cached Pure(IntV) pool — parallel to _intVPool.  Every `Pure(intV(n))`
+  // in the hot dispatch path hits this cache when n is in range, so both the
+  // IntV AND the Pure wrapper are allocation-free.
+  private[interpreter] val _pureIntPool: Array[Computation.Pure] =
+    _intVPool.map(Computation.Pure(_))
+
   // Pre-cached DoubleV constants for 0.0 and 1.0.
   val DoubleZero: DoubleV = DoubleV(0.0)
   val DoubleOne:  DoubleV = DoubleV(1.0)
@@ -310,6 +316,10 @@ object Computation:
   val PureEmptyList: Pure = Pure(Value.EmptyList)
 
   inline def pureBool(b: Boolean): Pure = if b then PureTrue else PureFalse
+
+  def pureIntV(n: Long): Pure =
+    if n >= -2048L && n <= 16383L then Value._pureIntPool((n + 2048L).toInt)
+    else Pure(Value.IntV(n))
 
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)

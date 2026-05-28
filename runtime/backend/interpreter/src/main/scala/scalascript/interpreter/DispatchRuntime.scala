@@ -45,15 +45,15 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchString(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
-      case "length"      => Pure(Value.intV(s.length.toLong))
-      case "size"        => Pure(Value.intV(s.length.toLong))
+      case "length"      => Computation.pureIntV(s.length.toLong)
+      case "size"        => Computation.pureIntV(s.length.toLong)
       case "isEmpty"     => Computation.pureBool(s.isEmpty)
       case "nonEmpty"    => Computation.pureBool(s.nonEmpty)
       case "trim"        => Pure(Value.StringV(s.trim))
       case "toUpperCase" => Pure(Value.StringV(s.toUpperCase))
       case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
       case "reverse"     => Pure(Value.StringV(s.reverse))
-      case "toInt"       => Pure(Value.intV(s.toLong))
+      case "toInt"       => Computation.pureIntV(s.toLong)
       case "toDouble"    => Pure(Value.doubleV(s.toDouble))
       case "toString"    => Pure(Value.StringV(s))
       case "mkString"    => Pure(Value.StringV(s))
@@ -103,13 +103,13 @@ private[interpreter] object DispatchRuntime:
       case "last"        =>
         if s.isEmpty then interp.located("last on empty String") else Pure(Value.CharV(s.last))
       case "indexOf"     => args match
-        case List(Value.StringV(t)) => Pure(Value.intV(s.indexOf(t).toLong))
-        case List(Value.CharV(c))   => Pure(Value.intV(s.indexOf(c.toInt).toLong))
+        case List(Value.StringV(t)) => Computation.pureIntV(s.indexOf(t).toLong)
+        case List(Value.CharV(c))   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
         case _                      => dispatchFallback(recv, name, args, env, interp)
       case "codePointAt" => args match
         case List(Value.IntV(i)) =>
           if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
-          else Pure(Value.intV(s.codePointAt(i.toInt).toLong))
+          else Computation.pureIntV(s.codePointAt(i.toInt).toLong)
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "map"         => args match
         case List(f) =>
@@ -148,8 +148,8 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchChar(c: Char, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
-      case "toInt"    => Pure(Value.intV(c.toInt.toLong))
-      case "toLong"   => Pure(Value.intV(c.toLong))
+      case "toInt"    => Computation.pureIntV(c.toInt.toLong)
+      case "toLong"   => Computation.pureIntV(c.toLong)
       case "toString" => Pure(Value.StringV(c.toString))
       case "isDigit"  => Computation.pureBool(c.isDigit)
       case "isLetter" => Computation.pureBool(c.isLetter)
@@ -161,8 +161,8 @@ private[interpreter] object DispatchRuntime:
   private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     lazy val recv = Value.ListV(ls)
     name match
-      case "length"       => Pure(Value.intV(ls.length.toLong))
-      case "size"         => Pure(Value.intV(ls.size.toLong))
+      case "length"       => Computation.pureIntV(ls.length.toLong)
+      case "size"         => Computation.pureIntV(ls.size.toLong)
       case "isEmpty"      => Computation.pureBool(ls.isEmpty)
       case "nonEmpty"     => Computation.pureBool(ls.nonEmpty)
       case "head"         => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
@@ -195,7 +195,7 @@ private[interpreter] object DispatchRuntime:
         case List(v)                  => Computation.pureBool(ls.contains(v))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "indexOf"      => args match
-        case List(v)                  => Pure(Value.intV(ls.indexOf(v).toLong))
+        case List(v)                  => Computation.pureIntV(ls.indexOf(v).toLong)
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "apply"        => args match
         case List(Value.IntV(i)) =>
@@ -361,7 +361,7 @@ private[interpreter] object DispatchRuntime:
   private def dispatchMap(m: Map[Value, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     lazy val recv = Value.MapV(m)
     name match
-      case "size"     => Pure(Value.intV(m.size.toLong))
+      case "size"     => Computation.pureIntV(m.size.toLong)
       case "isEmpty"  => Computation.pureBool(m.isEmpty)
       case "nonEmpty" => Computation.pureBool(m.nonEmpty)
       case "keys"     => Pure(Value.ListV(m.keys.toList))
@@ -488,7 +488,7 @@ private[interpreter] object DispatchRuntime:
       case "toDouble"  => Pure(Value.doubleV(n.toDouble))
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)
-      case "abs"       => Pure(Value.intV(math.abs(n)))
+      case "abs"       => Computation.pureIntV(math.abs(n))
       case "toString"  => Pure(Value.StringV(n.toString))
       case "to"        => args match
         case List(Value.IntV(m)) => Pure(Value.ListV((n to m).map(Value.intV(_)).toList))
@@ -502,11 +502,11 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchDouble(d: Double, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
-      case "toInt"    => Pure(Value.intV(d.toLong))
-      case "toLong"   => Pure(Value.intV(d.toLong))
+      case "toInt"    => Computation.pureIntV(d.toLong)
+      case "toLong"   => Computation.pureIntV(d.toLong)
       case "abs"      => Pure(Value.doubleV(math.abs(d)))
       case "toString" => Pure(Value.StringV(d.toString))
-      case "round"    => Pure(Value.intV(math.round(d)))
+      case "round"    => Computation.pureIntV(math.round(d))
       case "floor"    => Pure(Value.doubleV(math.floor(d)))
       case "ceil"     => Pure(Value.doubleV(math.ceil(d)))
       case _ => extensionDispatch(Value.doubleV(d), name, args, env, interp)
@@ -704,33 +704,33 @@ private[interpreter] object DispatchRuntime:
     // rather than the previous O(N) linear scan through 40 tuple-match cases.
     op match
       case "+" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a + b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a + b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a + b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a + b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a + b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a + b))
         case (Value.StringV(a), b)                => Pure(Value.StringV(a + Value.show(b)))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "-" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a - b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a - b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a - b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a - b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a - b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a - b))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "*" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a * b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a * b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a * b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a * b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a * b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a * b))
         case (Value.StringV(a), Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "/" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a / b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a / b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a / b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a / b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a / b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a / b))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "%" => (lhs, rhs) match
-        case (Value.IntV(a), Value.IntV(b)) => Pure(Value.intV(a % b))
+        case (Value.IntV(a), Value.IntV(b)) => Computation.pureIntV(a % b)
         case _                              => dispatch(lhs, op, args, env, interp)
       case "==" => Computation.pureBool(lhs == rhs)
       case "!=" => Computation.pureBool(lhs != rhs)

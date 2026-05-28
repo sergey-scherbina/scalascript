@@ -36,8 +36,8 @@ private[interpreter] object EvalRuntime:
       if cached != null then cached
       else
         val c = lit match
-          case Lit.Int(v)     => Pure(Value.intV(v.toLong))
-          case Lit.Long(v)    => Pure(Value.intV(v))
+          case Lit.Int(v)     => Computation.pureIntV(v.toLong)
+          case Lit.Long(v)    => Computation.pureIntV(v)
           case Lit.Double(v)  => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.String(v)  => Pure(Value.StringV(v))
@@ -790,11 +790,11 @@ private[interpreter] object EvalRuntime:
       eval(t.arg, env, interp).flatMap { v =>
         (t.op.value, v) match
           case ("!", Value.BoolV(b))   => Computation.pureBool(!b)
-          case ("-", Value.IntV(n))    => Pure(Value.intV(-n))
+          case ("-", Value.IntV(n))    => Computation.pureIntV(-n)
           case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
           case ("+", n: Value.IntV)    => Pure(n)
           case ("+", d: Value.DoubleV) => Pure(d)
-          case ("~", Value.IntV(n))    => Pure(Value.intV(~n))
+          case ("~", Value.IntV(n))    => Computation.pureIntV(~n)
           case (op, other)             => interp.located(s"Cannot apply unary $op to ${Value.show(other)}")
       }
 
