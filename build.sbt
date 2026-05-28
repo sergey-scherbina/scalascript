@@ -2953,6 +2953,17 @@ lazy val bureauPlRegistry = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Government Interaction — EU (VIES VAT verification) ───────────────────
+lazy val bureauEu = project
+  .in(file("gov/bureau-eu"))
+  .dependsOn(bureauCore, testUtils % Test)
+  .settings(
+    name := "scalascript-bureau-eu",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2983,7 +2994,7 @@ lazy val root = project
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
     paymentsCompliance, paymentsComplianceComplyAdvantage, paymentsComplianceChainalysis, paymentsComplianceMock,
     markupCore, markupCoreJs, markupJs, markupNode,
-    bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial,
+    bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial, bureauEu,
   )
   .settings(
     publish / skip := true
