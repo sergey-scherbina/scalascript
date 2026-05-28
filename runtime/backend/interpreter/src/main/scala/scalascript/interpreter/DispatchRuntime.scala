@@ -281,7 +281,7 @@ private[interpreter] object DispatchRuntime:
               val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
               var items = ls; var fs = flags
               while items.nonEmpty && fs.nonEmpty do
-                if fs.head == Value.BoolV(true) then buf += items.head
+                if fs.head == Value.True then buf += items.head
                 items = items.tail; fs = fs.tail
               Value.ListV(buf.toList)
             case other => other
@@ -294,7 +294,7 @@ private[interpreter] object DispatchRuntime:
               val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
               var items = ls; var fs = flags
               while items.nonEmpty && fs.nonEmpty do
-                if fs.head != Value.BoolV(true) then buf += items.head
+                if fs.head != Value.True then buf += items.head
                 items = items.tail; fs = fs.tail
               Value.ListV(buf.toList)
             case other => other
@@ -450,7 +450,7 @@ private[interpreter] object DispatchRuntime:
               val buf = scala.collection.mutable.Map.empty[Value, Value]
               var is = items; var fs = flags
               while is.nonEmpty && fs.nonEmpty do
-                if fs.head == Value.BoolV(true) then buf += is.head
+                if fs.head == Value.True then buf += is.head
                 is = is.tail; fs = fs.tail
               Value.MapV(buf.toMap)
             case _ => Value.EmptyMap
@@ -458,7 +458,13 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"  => args match
         case List(f) =>
-          Computation.mapSequence(m.toList.map((k, v) => Value.TupleV(List(k, v))), t => interp.callValue1(f, t, env)).flatMap(Computation.discardToUnit)
+          val it = m.iterator
+          def loop(): Computation =
+            if !it.hasNext then Computation.PureUnit
+            else
+              val (k, v) = it.next()
+              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap(_ => loop())
+          loop()
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ =>
         // String-key access shorthand: map.key (no args, unknown method name = key lookup)
