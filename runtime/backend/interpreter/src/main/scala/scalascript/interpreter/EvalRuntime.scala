@@ -41,7 +41,7 @@ private[interpreter] object EvalRuntime:
           case Lit.Double(v)  => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.String(v)  => Pure(Value.StringV(v))
-          case Lit.Boolean(v) => Pure(Value.BoolV(v))
+          case Lit.Boolean(v) => Pure(Value.boolV(v))
           case Lit.Char(v)    => Pure(Value.CharV(v))
           case Lit.Unit()     => Pure(Value.UnitV)
           case Lit.Null()     => Pure(Value.NullV)
@@ -310,7 +310,7 @@ private[interpreter] object EvalRuntime:
         case pf: Term.PartialFunction =>
           val id = interp.receiveSpecNext; interp.receiveSpecNext += 1
           interp.receiveSpecs(id) = (pf.cases, env)
-          Perform("Actor", "receive", List(Value.IntV(id)))
+          Perform("Actor", "receive", List(Value.intV(id)))
         case _ =>
           interp.located("receive expects a partial function { case msg => ... }")
 
@@ -331,7 +331,7 @@ private[interpreter] object EvalRuntime:
         case pf: Term.PartialFunction =>
           val id = interp.receiveSpecNext; interp.receiveSpecNext += 1
           interp.receiveSpecs(id) = (pf.cases, env)
-          Perform("Actor", "receive_t", List(Value.IntV(id), Value.IntV(timeoutMs)))
+          Perform("Actor", "receive_t", List(Value.intV(id), Value.intV(timeoutMs)))
         case _ =>
           interp.located("receive expects a partial function { case msg => ... }")
 
@@ -773,7 +773,7 @@ private[interpreter] object EvalRuntime:
     case t: Term.ApplyUnary =>
       eval(t.arg, env, interp).flatMap { v =>
         (t.op.value, v) match
-          case ("!", Value.BoolV(b))   => Pure(Value.BoolV(!b))
+          case ("!", Value.BoolV(b))   => Pure(Value.boolV(!b))
           case ("-", Value.IntV(n))    => Pure(Value.intV(-n))
           case ("-", Value.DoubleV(d)) => Pure(Value.DoubleV(-d))
           case ("+", n: Value.IntV)    => Pure(n)

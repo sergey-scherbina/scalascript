@@ -586,7 +586,7 @@ private[interpreter] object BuiltinsRuntime:
     })
     interp.globals("exists") = Value.NativeFnV("exists", {
       case List(Value.StringV(path)) =>
-        Pure(Value.BoolV(java.nio.file.Files.exists(java.nio.file.Paths.get(path))))
+        Pure(Value.boolV(java.nio.file.Files.exists(java.nio.file.Paths.get(path))))
       case _ => throw InterpretError("exists(path: String): Boolean")
     })
 

@@ -188,6 +188,8 @@ object Value:
   val True:  BoolV = BoolV(true)
   val False: BoolV = BoolV(false)
 
+  def boolV(b: Boolean): BoolV = if b then True else False
+
   def show(v: Value): String = v match
     case IntV(n)              => n.toString
     case DoubleV(d)           => if d == d.toLong.toDouble then d.toLong.toString else d.toString

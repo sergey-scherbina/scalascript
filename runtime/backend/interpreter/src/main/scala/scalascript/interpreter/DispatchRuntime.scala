@@ -25,8 +25,8 @@ private[interpreter] object DispatchRuntime:
       // ── String ──────────────────────────────────────────────────
       case (Value.StringV(s), "length",       Nil) => Pure(Value.intV(s.length.toLong))
       case (Value.StringV(s), "size",         Nil) => Pure(Value.intV(s.length.toLong))
-      case (Value.StringV(s), "isEmpty",      Nil) => Pure(Value.BoolV(s.isEmpty))
-      case (Value.StringV(s), "nonEmpty",     Nil) => Pure(Value.BoolV(s.nonEmpty))
+      case (Value.StringV(s), "isEmpty",      Nil) => Pure(Value.boolV(s.isEmpty))
+      case (Value.StringV(s), "nonEmpty",     Nil) => Pure(Value.boolV(s.nonEmpty))
       case (Value.StringV(s), "trim",         Nil) => Pure(Value.StringV(s.trim))
       case (Value.StringV(s), "toUpperCase",  Nil) => Pure(Value.StringV(s.toUpperCase))
       case (Value.StringV(s), "toLowerCase",  Nil) => Pure(Value.StringV(s.toLowerCase))
@@ -34,13 +34,13 @@ private[interpreter] object DispatchRuntime:
       case (Value.StringV(s), "toInt",        Nil) => Pure(Value.intV(s.toLong))
       case (Value.StringV(s), "toDouble",     Nil) => Pure(Value.DoubleV(s.toDouble))
       case (Value.StringV(s), "toString",     Nil) => Pure(Value.StringV(s))
-      case (Value.StringV(s), "contains",     List(Value.StringV(t))) => Pure(Value.BoolV(s.contains(t)))
-      case (Value.StringV(s), "startsWith",   List(Value.StringV(t))) => Pure(Value.BoolV(s.startsWith(t)))
+      case (Value.StringV(s), "contains",     List(Value.StringV(t))) => Pure(Value.boolV(s.contains(t)))
+      case (Value.StringV(s), "startsWith",   List(Value.StringV(t))) => Pure(Value.boolV(s.startsWith(t)))
       case (Value.StringV(s), "matchPrefix",  List(Value.StringV(pat))) =>
         val m = java.util.regex.Pattern.compile(pat).matcher(s)
         if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
         else Pure(Value.OptionV(None))
-      case (Value.StringV(s), "endsWith",     List(Value.StringV(t))) => Pure(Value.BoolV(s.endsWith(t)))
+      case (Value.StringV(s), "endsWith",     List(Value.StringV(t))) => Pure(Value.boolV(s.endsWith(t)))
       case (Value.StringV(s), "split",        List(Value.StringV(sep))) =>
         Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
       case (Value.StringV(s), "mkString",     _)  => Pure(Value.StringV(s))
@@ -72,8 +72,8 @@ private[interpreter] object DispatchRuntime:
       case (Value.CharV(c), "toInt",      Nil) => Pure(Value.intV(c.toInt.toLong))
       case (Value.CharV(c), "toLong",     Nil) => Pure(Value.intV(c.toLong))
       case (Value.CharV(c), "toString",   Nil) => Pure(Value.StringV(c.toString))
-      case (Value.CharV(c), "isDigit",    Nil) => Pure(Value.BoolV(c.isDigit))
-      case (Value.CharV(c), "isLetter",   Nil) => Pure(Value.BoolV(c.isLetter))
+      case (Value.CharV(c), "isDigit",    Nil) => Pure(Value.boolV(c.isDigit))
+      case (Value.CharV(c), "isLetter",   Nil) => Pure(Value.boolV(c.isLetter))
       case (Value.StringV(s), "map",          List(f)) =>
         Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map {
           case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
@@ -102,8 +102,8 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "apply",      List(Value.IntV(i))) =>
         if i < 0 || i >= ls.length then interp.located(s"index $i out of bounds for list of length ${ls.length}")
         else Pure(ls(i.toInt))
-      case (Value.ListV(ls), "isEmpty",    Nil)  => Pure(Value.BoolV(ls.isEmpty))
-      case (Value.ListV(ls), "nonEmpty",   Nil)  => Pure(Value.BoolV(ls.nonEmpty))
+      case (Value.ListV(ls), "isEmpty",    Nil)  => Pure(Value.boolV(ls.isEmpty))
+      case (Value.ListV(ls), "nonEmpty",   Nil)  => Pure(Value.boolV(ls.nonEmpty))
       case (Value.ListV(ls), "head",       Nil)  => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
       case (Value.ListV(ls), "tail",       Nil)  => Pure(Value.ListV(ls.tail))
       case (Value.ListV(ls), "last",       Nil)  => Pure(ls.lastOption.getOrElse(interp.located("last on Nil")))
@@ -113,7 +113,7 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "sorted",     Nil)  => Pure(Value.ListV(ls.sortBy(Value.show)))
       case (Value.ListV(ls), "toList",     Nil)  => Pure(Value.ListV(ls))
       case (Value.ListV(ls), "toSet",      Nil)  => Pure(Value.ListV(ls.distinct))
-      case (Value.ListV(ls), "contains",   List(v)) => Pure(Value.BoolV(ls.contains(v)))
+      case (Value.ListV(ls), "contains",   List(v)) => Pure(Value.boolV(ls.contains(v)))
       case (Value.ListV(ls), "indexOf",    List(v)) => Pure(Value.intV(ls.indexOf(v).toLong))
       case (Value.ListV(ls), "take",       List(Value.IntV(n))) => Pure(Value.ListV(ls.take(n.toInt)))
       case (Value.ListV(ls), "drop",       List(Value.IntV(n))) => Pure(Value.ListV(ls.drop(n.toInt)))
@@ -164,19 +164,19 @@ private[interpreter] object DispatchRuntime:
         loop(ls)
       case (Value.ListV(ls), "exists",     List(f)) =>
         def loop(remaining: List[Value]): Computation = remaining match
-          case Nil => Pure(Value.BoolV(false))
+          case Nil => Pure(Value.boolV(false))
           case h :: rest =>
             interp.callValue(f, List(h), env).flatMap {
-              case Value.BoolV(true) => Pure(Value.BoolV(true))
+              case Value.BoolV(true) => Pure(Value.boolV(true))
               case _                 => loop(rest)
             }
         loop(ls)
       case (Value.ListV(ls), "forall",     List(f)) =>
         def loop(remaining: List[Value]): Computation = remaining match
-          case Nil => Pure(Value.BoolV(true))
+          case Nil => Pure(Value.boolV(true))
           case h :: rest =>
             interp.callValue(f, List(h), env).flatMap {
-              case Value.BoolV(false) => Pure(Value.BoolV(false))
+              case Value.BoolV(false) => Pure(Value.boolV(false))
               case _                  => loop(rest)
             }
         loop(ls)
@@ -243,13 +243,13 @@ private[interpreter] object DispatchRuntime:
       case (Value.ListV(ls), "prepended",  List(v)) => Pure(Value.ListV(v +: ls))
       // ── Map ─────────────────────────────────────────────────────
       case (Value.MapV(m), "size",       Nil)     => Pure(Value.intV(m.size.toLong))
-      case (Value.MapV(m), "isEmpty",    Nil)     => Pure(Value.BoolV(m.isEmpty))
-      case (Value.MapV(m), "nonEmpty",   Nil)     => Pure(Value.BoolV(m.nonEmpty))
+      case (Value.MapV(m), "isEmpty",    Nil)     => Pure(Value.boolV(m.isEmpty))
+      case (Value.MapV(m), "nonEmpty",   Nil)     => Pure(Value.boolV(m.nonEmpty))
       case (Value.MapV(m), "keys",       Nil)     => Pure(Value.ListV(m.keys.toList))
       case (Value.MapV(m), "values",     Nil)     => Pure(Value.ListV(m.values.toList))
       case (Value.MapV(m), "toList",     Nil)     =>
         Pure(Value.ListV(m.toList.map { (k, v) => Value.TupleV(List(k, v)) }))
-      case (Value.MapV(m), "contains",   List(k)) => Pure(Value.BoolV(m.contains(k)))
+      case (Value.MapV(m), "contains",   List(k)) => Pure(Value.boolV(m.contains(k)))
       case (Value.MapV(m), "get",        List(k)) => Pure(Value.OptionV(m.get(k)))
       case (Value.MapV(m), "apply",      List(k)) =>
         Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
@@ -292,10 +292,10 @@ private[interpreter] object DispatchRuntime:
         Pure(m.getOrElse(Value.StringV(key), interp.located(s"No key '$key' in map")))
       // ── Option ──────────────────────────────────────────────────
       case (Value.OptionV(Some(v)), "get",        Nil) => Pure(v)
-      case (Value.OptionV(opt),     "isDefined",  Nil) => Pure(Value.BoolV(opt.isDefined))
-      case (Value.OptionV(opt),     "isEmpty",    Nil) => Pure(Value.BoolV(opt.isEmpty))
-      case (Value.OptionV(opt),     "nonEmpty",   Nil) => Pure(Value.BoolV(opt.nonEmpty))
-      case (Value.OptionV(opt),     "contains",   List(v)) => Pure(Value.BoolV(opt.contains(v)))
+      case (Value.OptionV(opt),     "isDefined",  Nil) => Pure(Value.boolV(opt.isDefined))
+      case (Value.OptionV(opt),     "isEmpty",    Nil) => Pure(Value.boolV(opt.isEmpty))
+      case (Value.OptionV(opt),     "nonEmpty",   Nil) => Pure(Value.boolV(opt.nonEmpty))
+      case (Value.OptionV(opt),     "contains",   List(v)) => Pure(Value.boolV(opt.contains(v)))
       case (Value.OptionV(Some(v)), "getOrElse",  _)   => Pure(v)
       case (Value.OptionV(None),    "getOrElse",  List(d)) => Pure(d)
       case (Value.OptionV(opt),     "map",        List(f)) =>
@@ -408,10 +408,10 @@ private[interpreter] object DispatchRuntime:
         val merged = existing + (Value.StringV(name) -> Value.StringV(value))
         Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
       // ── Either (Left / Right) methods ────────────────────────────
-      case (Value.InstanceV("Right", _),      "isRight",   Nil) => Pure(Value.BoolV(true))
-      case (Value.InstanceV("Left",  _),      "isRight",   Nil) => Pure(Value.BoolV(false))
-      case (Value.InstanceV("Right", _),      "isLeft",    Nil) => Pure(Value.BoolV(false))
-      case (Value.InstanceV("Left",  _),      "isLeft",    Nil) => Pure(Value.BoolV(true))
+      case (Value.InstanceV("Right", _),      "isRight",   Nil) => Pure(Value.boolV(true))
+      case (Value.InstanceV("Left",  _),      "isRight",   Nil) => Pure(Value.boolV(false))
+      case (Value.InstanceV("Right", _),      "isLeft",    Nil) => Pure(Value.boolV(false))
+      case (Value.InstanceV("Left",  _),      "isLeft",    Nil) => Pure(Value.boolV(true))
       case (Value.InstanceV("Right", fields), "getOrElse", List(_)) =>
         Pure(fields.getOrElse("value", Value.UnitV))
       case (Value.InstanceV("Left",  _),      "getOrElse", List(d)) => Pure(d)
@@ -497,18 +497,18 @@ private[interpreter] object DispatchRuntime:
       case (Value.DoubleV(a), "/",  Value.IntV(b))    => Pure(Value.DoubleV(a / b))
       case (Value.StringV(a), "+",  b)                => Pure(Value.StringV(a + Value.show(b)))
       case (Value.StringV(a), "*",  Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
-      case (a, "==",  b) => Pure(Value.BoolV(a == b))
-      case (a, "!=",  b) => Pure(Value.BoolV(a != b))
-      case (Value.IntV(a),    "<",  Value.IntV(b))    => Pure(Value.BoolV(a < b))
-      case (Value.IntV(a),    ">",  Value.IntV(b))    => Pure(Value.BoolV(a > b))
-      case (Value.IntV(a),    "<=", Value.IntV(b))    => Pure(Value.BoolV(a <= b))
-      case (Value.IntV(a),    ">=", Value.IntV(b))    => Pure(Value.BoolV(a >= b))
-      case (Value.DoubleV(a), "<",  Value.DoubleV(b)) => Pure(Value.BoolV(a < b))
-      case (Value.DoubleV(a), ">",  Value.DoubleV(b)) => Pure(Value.BoolV(a > b))
-      case (Value.DoubleV(a), "<=", Value.DoubleV(b)) => Pure(Value.BoolV(a <= b))
-      case (Value.DoubleV(a), ">=", Value.DoubleV(b)) => Pure(Value.BoolV(a >= b))
-      case (Value.BoolV(a),   "&&", Value.BoolV(b))   => Pure(Value.BoolV(a && b))
-      case (Value.BoolV(a),   "||", Value.BoolV(b))   => Pure(Value.BoolV(a || b))
+      case (a, "==",  b) => Pure(Value.boolV(a == b))
+      case (a, "!=",  b) => Pure(Value.boolV(a != b))
+      case (Value.IntV(a),    "<",  Value.IntV(b))    => Pure(Value.boolV(a < b))
+      case (Value.IntV(a),    ">",  Value.IntV(b))    => Pure(Value.boolV(a > b))
+      case (Value.IntV(a),    "<=", Value.IntV(b))    => Pure(Value.boolV(a <= b))
+      case (Value.IntV(a),    ">=", Value.IntV(b))    => Pure(Value.boolV(a >= b))
+      case (Value.DoubleV(a), "<",  Value.DoubleV(b)) => Pure(Value.boolV(a < b))
+      case (Value.DoubleV(a), ">",  Value.DoubleV(b)) => Pure(Value.boolV(a > b))
+      case (Value.DoubleV(a), "<=", Value.DoubleV(b)) => Pure(Value.boolV(a <= b))
+      case (Value.DoubleV(a), ">=", Value.DoubleV(b)) => Pure(Value.boolV(a >= b))
+      case (Value.BoolV(a),   "&&", Value.BoolV(b))   => Pure(Value.boolV(a && b))
+      case (Value.BoolV(a),   "||", Value.BoolV(b))   => Pure(Value.boolV(a || b))
       case (v, "::",  Value.ListV(ls))                => Pure(Value.ListV(v :: ls))
       case (Value.ListV(a), "++", Value.ListV(b))     => Pure(Value.ListV(a ++ b))
       case (Value.ListV(a), ":::", Value.ListV(b))    => Pure(Value.ListV(a ++ b))
