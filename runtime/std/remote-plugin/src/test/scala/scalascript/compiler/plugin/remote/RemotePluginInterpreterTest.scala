@@ -87,3 +87,22 @@ class RemotePluginInterpreterTest extends AnyFunSuite:
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("application/scalascript-value+json"))),
       "body" -> Value.StringV(ValueSerializer.serialize(Value.StringV("echo:wire")))
     )))
+
+  test("source @remote annotation and remote def sugar feed the same runtime registry"):
+    val interp = runModule(
+      """|# Remote
+         |
+         |```scala
+         |@remote(name = "demo.upper", path = "/rpc/upper")
+         |def upper(value: String): String = value.toUpperCase
+         |
+         |remote def localEcho(value: String): String = "local:" + value
+         |
+         |val upperResult = remoteCall("demo.upper", "hello")
+         |val localResult = remoteCall("localEcho", "hello")
+         |```
+         |""".stripMargin
+    )
+
+    assert(interp.exportedGlobals("upperResult") == Value.StringV("HELLO"))
+    assert(interp.exportedGlobals("localResult") == Value.StringV("local:hello"))

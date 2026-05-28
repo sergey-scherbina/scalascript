@@ -842,14 +842,15 @@ work queue links. No runtime changes.
   `RemoteHandlerRegistry`. ✓ Landed 2026-05-28 for manifest
   `remoteHandlers:` entries in the interpreter path via backend SPI
   `RemoteHandlerRegistry` / `RemoteHandlerInfo` / `RemoteCallError` and a
-  local registry populated before user sections run. Annotation/sugar lowering
-  remains planned.
+  local registry populated before user sections run. ✓ Landed 2026-05-28 in
+  follow-up `v1.63.4b` for source `@remote(name = ..., path = ...) def` and
+  simple `remote def echo(...)` lowering into the same metadata.
 - Add `Remote.function[A, B](name)` returning `B ! Async | RemoteCallError`.
   ✓ Landed 2026-05-28 as `std.remote` `Remote.function`, `remoteCall`,
   `remoteTryCall`, and `remoteHandlers()` over the in-process interpreter
   registry. The current runtime call is synchronous; effect-row async lowering
   remains planned.
-- Add `remoteStub[Api]`.
+- Add `remoteStub[Api]`. Planned follow-up.
 - Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
   2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
   handler declares `path:`. WebSocket/internal-wire transport remains planned.

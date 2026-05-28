@@ -3148,13 +3148,15 @@ remoteHandlers:
 
 This metadata is parsed and preserved in AST/IR/`.sscc` today. `remoteHandlers:`
 entries are also lowered by the interpreter into a local remote handler
-registry. Import `std.remote` and call named operations through
+registry. Source `@remote(name = "users.get", path = "/api/v1/users/:id") def`
+and simple `remote def echo(...)` declarations lower into the same metadata.
+Import `std.remote` and call named operations through
 `Remote.function[A, B]("users.get")`; `remoteTryCall` returns a typed
 `RemoteCallError` in `Left(...)` when the handler is unavailable. If a handler
 declares `path`, the interpreter also exposes a POST HTTP JSON fallback route
 using the current ScalaScript value JSON shape. `remoteSources:`,
-`remoteBehaviors:`, `@remote`, `remote def`, `remoteStub[Api]`, async effect-row
-lowering, and WebSocket/internal-wire transports are still planned.
+`remoteBehaviors:`, `remoteStub[Api]`, async effect-row lowering, and
+WebSocket/internal-wire transports are still planned.
 
 See [`examples/remote-registry-rpc.ssc`](../examples/remote-registry-rpc.ssc).
 The parser rejects registry entries whose `function`, `source`, or `behavior`

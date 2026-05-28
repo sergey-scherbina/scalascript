@@ -38,7 +38,7 @@ object Parser:
       if isWrapped then s"# Script\n\n```scala\n${clusterStrippedBody.trim}\n```\n"
       else clusterStrippedBody
     val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
-    val manifest = mergeSourceCluster(fmOpt.map(parseManifest), sourceCluster)
+    val manifest0 = mergeSourceCluster(fmOpt.map(parseManifest), sourceCluster)
     // Map a CommonMark 0-indexed line in `mdSrc` back to a 0-indexed line in
     // the ORIGINAL `source` file.  For the standard path this is a simple
     // additive offset (shebang lines + front-matter lines that were stripped
@@ -59,14 +59,14 @@ object Parser:
       else
         val base = shebangLines + fmStripped
         (mdLine: Int) => base + mdLine
-    val pkg      = manifest.flatMap(_.pkg).getOrElse(Nil)
+    val pkg      = manifest0.flatMap(_.pkg).getOrElse(Nil)
     // When `package:` is set, wrapSectionInPackage replaces every code-block
     // tree with a re-parsed package-wrapped form.  Skip the initial scalameta
     // parse here so we don't do it twice.
     val sections = extractSections(doc, mdLineToFileLine, skipInitialParse = pkg.nonEmpty)
-    val raw      =
-      if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
-      else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
+    val finalSections = if pkg.isEmpty then sections else sections.map(wrapSectionInPackage(_, pkg))
+    val manifest = mergeSourceRemoteHandlers(manifest0, finalSections)
+    val raw      = Module(manifest, finalSections, sourceText = Some(source))
     validateRemoteRegistries(raw)
     MarkupLiteralLower.lower(RouteDeriver.derive(raw))
 
@@ -83,8 +83,7 @@ object Parser:
         // in objects.  Otherwise the surface forms survive into the nested code
         // that scalameta sees and the whole block silently fails to parse
         // (cb.tree = None → imports from this file see no symbols).
-        val preprocessed =
-          preprocessExtern(preprocessEffects(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(cb.source)))))
+        val preprocessed = preprocessForScala(cb.source)
         val nested = pkg.foldRight(preprocessed) { (seg, body) =>
           val indented = body.linesIterator.map("  " + _).mkString("\n")
           s"object $seg:\n$indented"
@@ -412,6 +411,68 @@ object Parser:
         )
       }
     }
+
+  private def mergeSourceRemoteHandlers(manifest: Option[Manifest], sections: List[Section]): Option[Manifest] =
+    val discovered = collectSourceRemoteHandlers(sections)
+    if discovered.isEmpty then manifest
+    else
+      val base = manifest.getOrElse(emptyManifest)
+      val existing = base.remoteHandlers.map(_.name).toSet
+      Some(base.copy(remoteHandlers = base.remoteHandlers ++ discovered.filterNot(h => existing.contains(h.name))))
+
+  private def emptyManifest: Manifest =
+    Manifest(
+      name = None,
+      version = None,
+      description = None,
+      dependencies = Map.empty,
+      exports = Nil,
+      targets = Nil,
+      routes = Nil,
+      pkg = None,
+      translations = Map.empty,
+      raw = Map.empty
+    )
+
+  private def collectSourceRemoteHandlers(sections: List[Section]): List[RemoteHandlerDecl] =
+    def fromTree(tree: scala.meta.Tree): List[RemoteHandlerDecl] =
+      import scala.meta.*
+      def initName(init: Init): String = init.tpe match
+        case Type.Name(n)                 => n
+        case Type.Select(_, Type.Name(n)) => n
+        case other                        => other.syntax.split('.').lastOption.getOrElse(other.syntax)
+      def stringArg(init: Init, key: String): Option[String] =
+        init.argClauses.flatMap(_.values).collectFirst {
+          case Term.Assign(Term.Name(`key`), Lit.String(value)) => value
+        }
+      def remoteAnnotation(mods: List[Mod]): Option[Init] =
+        mods.collectFirst {
+          case Mod.Annot(init) if initName(init) == "remote" => init
+        }
+      def typeText(tpe: Option[Type]): Option[String] = tpe.map(_.syntax)
+      def firstParamType(d: Defn.Def): Option[String] =
+        d.paramClauseGroups.headOption
+          .flatMap(_.paramClauses.headOption)
+          .flatMap(_.values.headOption)
+          .flatMap(_.decltpe)
+          .map(_.syntax)
+      tree.collect {
+        case d: Defn.Def if remoteAnnotation(d.mods).nonEmpty =>
+          val init = remoteAnnotation(d.mods).get
+          RemoteHandlerDecl(
+            name         = stringArg(init, "name").getOrElse(d.name.value),
+            function     = d.name.value,
+            path         = stringArg(init, "path"),
+            requestType  = stringArg(init, "request").orElse(firstParamType(d)),
+            responseType = stringArg(init, "response").orElse(typeText(d.decltpe))
+          )
+      }
+    def loop(section: Section): List[RemoteHandlerDecl] =
+      section.content.collect {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.map(node => ScalaNode.fold(node)(fromTree)).getOrElse(Nil)
+      }.flatten ++ section.subsections.flatMap(loop)
+    sections.flatMap(loop)
 
   private def parseRemoteSources(raw: Map[String, Any]): List[RemoteSourceDecl] =
     parseNamedRegistry(raw, "remoteSources", "remote-sources").flatMap { (name, mm) =>
@@ -1171,6 +1232,18 @@ object Parser:
           i += 1
     result.toString
 
+  private def preprocessRemoteDefs(code: String): String =
+    val remoteDef = """^(\s*)remote\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""".r
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => remoteDef.findFirstIn(l).isDefined) then return code
+    lines.map {
+      case remoteDef(indent, name, tail) => s"${indent}@remote(name = \"$name\")\n${indent}def $name$tail"
+      case other => other
+    }.mkString("\n")
+
+  private def preprocessForScala(code: String): String =
+    preprocessExtern(preprocessEffects(preprocessRemoteDefs(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(code))))))
+
   /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
    *
    *  Public so `transform.Denormalize` can rebuild the AST trees that
@@ -1192,7 +1265,7 @@ object Parser:
   def parseScalaWithDiagnostic(code: String): (Option[ScalaNode], Option[CodeBlockParseError]) =
     import scala.meta.*
     given Dialect = dialects.Scala3
-    val processed = preprocessExtern(preprocessEffects(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(code)))))
+    val processed = preprocessForScala(code)
     processed.parse[Source] match
       case Parsed.Success(tree) => (Some(ScalaNode(tree)), None)
       case sourceErr: Parsed.Error =>

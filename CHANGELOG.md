@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.63.4b Remote source sugar
+
+- **v1.63.4b-remote-sugar-stubs-wire** — Parser now lowers source `@remote(name = ..., path = ...) def` and simple `remote def echo(...)` declarations into `remoteHandlers:` metadata, so annotated/sugared handlers reuse the same interpreter `RemoteHandlerRegistry`, validation, and HTTP JSON fallback from v1.63.4. Updated `examples/remote-registry-rpc.ssc`, docs, and parser coverage. Remaining RPC pieces are tracked as `v1.63.4c-remote-stubs-async-wire`.
+
 ## 2026-05-28 — v1.63.4 Remote registries and async RPC base
 
 - **v1.63.4-remote-registries-async-rpc** — Added backend SPI `RemoteHandlerRegistry`, `RemoteHandlerInfo`, and `RemoteCallError`; interpreter now lowers manifest `remoteHandlers:` entries into a local registry and exposes POST HTTP JSON fallback routes for handlers with `path:`. Added `runtime/std/remote.ssc` plus `remote-plugin` intrinsics for `Remote.function`, `remoteCall`, `remoteTryCall`, and `remoteHandlers()`, with typed `Left(RemoteCallError)` results for unavailable handlers. Added `examples/remote-registry-rpc.ssc` and targeted interpreter-plugin tests. Remaining planned pieces are `@remote` / `remote def`, `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire transport, and binary `WireCodec[A]` negotiation.

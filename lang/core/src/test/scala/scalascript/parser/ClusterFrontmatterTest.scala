@@ -169,3 +169,35 @@ class ClusterFrontmatterTest extends AnyFunSuite:
     assert(cluster.authTokenFrom.contains("""K8sSecret("ssc-cluster-token", key = "token")"""))
     assert(cluster.heartbeat == Map("intervalMs" -> "5000", "deadAfterMs" -> "40000"))
     assert(cluster.quorum.contains(2))
+
+  test("remote annotation lowers into remoteHandlers metadata"):
+    val mod = Parser.parse(
+      """# Remote
+        |
+        |```scala
+        |case class UserId(value: String)
+        |case class User(name: String)
+        |
+        |@remote(name = "users.get", path = "/api/v1/users/:id")
+        |def getUser(id: UserId): User = User(id.value)
+        |```
+        |""".stripMargin
+    )
+
+    val h = mod.manifest.get.remoteHandlers.head
+    assert((h.name, h.function, h.path, h.requestType, h.responseType) ==
+      ("users.get", "getUser", Some("/api/v1/users/:id"), Some("UserId"), Some("User")))
+
+  test("remote def sugar lowers into remoteHandlers metadata"):
+    val mod = Parser.parse(
+      """# Remote
+        |
+        |```scala
+        |remote def echo(value: String): String = "echo:" + value
+        |```
+        |""".stripMargin
+    )
+
+    val h = mod.manifest.get.remoteHandlers.head
+    assert((h.name, h.function, h.requestType, h.responseType) ==
+      ("echo", "echo", Some("String"), Some("String")))

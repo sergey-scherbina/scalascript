@@ -63,9 +63,17 @@ network semantics or deployment constraints.
       Remaining follow-ups: `@remote` / `remote def` source sugar,
       `remoteStub[Api]`, effect-row async lowering, WebSocket/internal-wire
       transport, and binary `WireCodec[A]` negotiation.
-- [ ] **v1.63.4b-remote-sugar-stubs-wire** - Remote RPC follow-ups after the
+- [x] **v1.63.4b-remote-sugar-stubs-wire** - Remote RPC follow-ups after the
       registry base: lower `@remote` / `remote def` source declarations into
       `remoteHandlers:`, add `remoteStub[Api]`, make generated calls return
+      `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
+      and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
+      Landed 2026-05-28 for source `@remote(name = ..., path = ...) def` and
+      simple `remote def echo(...)` lowering into `remoteHandlers:` metadata,
+      parser validation, and example coverage. Remaining pieces split into
+      `v1.63.4c`.
+- [ ] **v1.63.4c-remote-stubs-async-wire** - Remote RPC stubs and transports:
+      add `remoteStub[Api]`, make generated calls return
       `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
       and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
 - [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
