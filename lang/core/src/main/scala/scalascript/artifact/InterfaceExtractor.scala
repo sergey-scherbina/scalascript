@@ -25,10 +25,20 @@ import scala.collection.mutable.ListBuffer
  */
 object InterfaceExtractor:
 
+  private val hexDigits = "0123456789abcdef"
+
   /** Compute a SHA-256 hex digest of raw bytes. */
   def sha256(bytes: Array[Byte]): String =
-    val md = java.security.MessageDigest.getInstance("SHA-256")
-    md.digest(bytes).map("%02x".format(_)).mkString
+    val md     = java.security.MessageDigest.getInstance("SHA-256")
+    val digest = md.digest(bytes)
+    val chars  = new Array[Char](digest.length << 1)
+    var i = 0
+    while i < digest.length do
+      val b = digest(i)
+      chars(i << 1)       = hexDigits.charAt((b >>> 4) & 0xF)
+      chars((i << 1) + 1) = hexDigits.charAt(b & 0xF)
+      i += 1
+    new String(chars)
 
   /** Normalize CRLF (`\r\n`) and bare CR (`\r`) to LF (`\n`).
    *
