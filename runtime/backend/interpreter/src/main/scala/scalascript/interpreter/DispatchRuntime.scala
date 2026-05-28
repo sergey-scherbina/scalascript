@@ -77,10 +77,16 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "take"        => args match
-        case List(Value.IntV(n)) => Pure(Value.StringV(s.take(n.toInt)))
+        case List(Value.IntV(n)) =>
+          if n >= s.length then Pure(recv)
+          else if n <= 0 then Pure(Value.StringV(""))
+          else Pure(Value.StringV(s.take(n.toInt)))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "drop"        => args match
-        case List(Value.IntV(n)) => Pure(Value.StringV(s.drop(n.toInt)))
+        case List(Value.IntV(n)) =>
+          if n <= 0 then Pure(recv)
+          else if n >= s.length then Pure(Value.StringV(""))
+          else Pure(Value.StringV(s.drop(n.toInt)))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "substring"   => args match
         case List(Value.IntV(a)) =>
@@ -203,17 +209,29 @@ private[interpreter] object DispatchRuntime:
           else Pure(ls(i.toInt))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "take"         => args match
-        case List(Value.IntV(n))      => Pure(Value.ListV(ls.take(n.toInt)))
-        case _                        => dispatchFallback(recv, name, args, env, interp)
+        case List(Value.IntV(n)) =>
+          if n >= ls.length then Pure(recv)
+          else if n <= 0 then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.take(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "drop"         => args match
-        case List(Value.IntV(n))      => Pure(Value.ListV(ls.drop(n.toInt)))
-        case _                        => dispatchFallback(recv, name, args, env, interp)
+        case List(Value.IntV(n)) =>
+          if n <= 0 then Pure(recv)
+          else if n >= ls.length then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.drop(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "takeRight"    => args match
-        case List(Value.IntV(n))      => Pure(Value.ListV(ls.takeRight(n.toInt)))
-        case _                        => dispatchFallback(recv, name, args, env, interp)
+        case List(Value.IntV(n)) =>
+          if n >= ls.length then Pure(recv)
+          else if n <= 0 then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.takeRight(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "dropRight"    => args match
-        case List(Value.IntV(n))      => Pure(Value.ListV(ls.dropRight(n.toInt)))
-        case _                        => dispatchFallback(recv, name, args, env, interp)
+        case List(Value.IntV(n)) =>
+          if n <= 0 then Pure(recv)
+          else if n >= ls.length then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.dropRight(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "splitAt"      => args match
         case List(Value.IntV(n)) =>
           val (a, b) = ls.splitAt(n.toInt)
@@ -760,11 +778,17 @@ private[interpreter] object DispatchRuntime:
         case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))
         case _               => dispatch(lhs, op, args, env, interp)
       case "++" => (lhs, rhs) match
-        case (Value.ListV(a), Value.ListV(b)) => Pure(Value.ListV(a ++ b))
-        case _                                => dispatch(lhs, op, args, env, interp)
+        case (Value.ListV(a), Value.ListV(b)) =>
+          if b.isEmpty then Pure(lhs)
+          else if a.isEmpty then Pure(rhs)
+          else Pure(Value.ListV(a ++ b))
+        case _ => dispatch(lhs, op, args, env, interp)
       case ":::" => (lhs, rhs) match
-        case (Value.ListV(a), Value.ListV(b)) => Pure(Value.ListV(a ++ b))
-        case _                                => dispatch(lhs, op, args, env, interp)
+        case (Value.ListV(a), Value.ListV(b)) =>
+          if b.isEmpty then Pure(lhs)
+          else if a.isEmpty then Pure(rhs)
+          else Pure(Value.ListV(a ++ b))
+        case _ => dispatch(lhs, op, args, env, interp)
       case ":+" => lhs match
         case Value.ListV(ls) => Pure(Value.ListV(ls :+ rhs))
         case _               => dispatch(lhs, op, args, env, interp)
