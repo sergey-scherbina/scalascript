@@ -178,7 +178,9 @@ private[interpreter] object DispatchRuntime:
       case "init"         => Pure(Value.ListV(ls.init))
       case "reverse"      => Pure(Value.ListV(ls.reverse))
       case "distinct"     => Pure(Value.ListV(ls.distinct))
-      case "sorted"       => Pure(Value.ListV(ls.sortBy(Value.show)))
+      case "sorted"       =>
+        val sortedKeyed = ls.map(v => (v, Value.show(v)))
+        Pure(Value.ListV(sortedKeyed.sortBy(_._2).map(_._1)))
       case "toList"       => Pure(recv)
       case "toSet"        => Pure(Value.ListV(ls.distinct))
       case "flatten"      =>
