@@ -4,198 +4,178 @@ import Computation.{Pure, Perform}
 
 /** Built-in method dispatch: String, Char, Int, Double, Boolean, List, Option, Map,
  *  Tuple, Either, and instance field access.  User-defined extensions are checked
- *  first (via `interp.extensions`), then the built-in match.
+ *  first (via `interp.extensions`), then type-dispatched built-in methods.
+ *
+ *  v1.61.1 — Reorganized from a flat 300-case tuple match to a two-level dispatch:
+ *  1. `recv match` on the value type (one instanceof check, O(1))
+ *  2. `name match` inside each per-type method (Scala 3 compiles to hashCode switch, O(1))
+ *  This eliminates the previous O(position-in-list) linear scan.
+ *  Extensions early-exit added: if no user extensions are registered the
+ *  7-way extension probe is skipped entirely.
  */
 private[interpreter] object DispatchRuntime:
 
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    // User-defined extensions take priority over built-in dispatch for primitive/std types.
-    val userExt = recv match
-      case _: Value.OptionV => interp.extensions.get(("Option", name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.ListV   => interp.extensions.get(("List",   name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.IntV    => interp.extensions.get(("Int",    name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.DoubleV => interp.extensions.get(("Double", name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.StringV => interp.extensions.get(("String", name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.BoolV   => interp.extensions.get(("Boolean",name)).map(interp.callValue(_, recv :: args, env))
-      case _: Value.MapV    => interp.extensions.get(("Map",    name)).map(interp.callValue(_, recv :: args, env))
-      case _                => None
-    if userExt.isDefined then userExt.get
-    else
-    (recv, name, args) match
-      // ── String ──────────────────────────────────────────────────
-      case (Value.StringV(s), "length",       Nil) => Pure(Value.intV(s.length.toLong))
-      case (Value.StringV(s), "size",         Nil) => Pure(Value.intV(s.length.toLong))
-      case (Value.StringV(s), "isEmpty",      Nil) => Pure(Value.boolV(s.isEmpty))
-      case (Value.StringV(s), "nonEmpty",     Nil) => Pure(Value.boolV(s.nonEmpty))
-      case (Value.StringV(s), "trim",         Nil) => Pure(Value.StringV(s.trim))
-      case (Value.StringV(s), "toUpperCase",  Nil) => Pure(Value.StringV(s.toUpperCase))
-      case (Value.StringV(s), "toLowerCase",  Nil) => Pure(Value.StringV(s.toLowerCase))
-      case (Value.StringV(s), "reverse",      Nil) => Pure(Value.StringV(s.reverse))
-      case (Value.StringV(s), "toInt",        Nil) => Pure(Value.intV(s.toLong))
-      case (Value.StringV(s), "toDouble",     Nil) => Pure(Value.DoubleV(s.toDouble))
-      case (Value.StringV(s), "toString",     Nil) => Pure(Value.StringV(s))
-      case (Value.StringV(s), "contains",     List(Value.StringV(t))) => Pure(Value.boolV(s.contains(t)))
-      case (Value.StringV(s), "startsWith",   List(Value.StringV(t))) => Pure(Value.boolV(s.startsWith(t)))
-      case (Value.StringV(s), "matchPrefix",  List(Value.StringV(pat))) =>
-        val m = java.util.regex.Pattern.compile(pat).matcher(s)
-        if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
-        else Pure(Value.OptionV(None))
-      case (Value.StringV(s), "endsWith",     List(Value.StringV(t))) => Pure(Value.boolV(s.endsWith(t)))
-      case (Value.StringV(s), "split",        List(Value.StringV(sep))) =>
-        Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
-      case (Value.StringV(s), "mkString",     _)  => Pure(Value.StringV(s))
-      case (Value.StringV(s), "take",         List(Value.IntV(n))) => Pure(Value.StringV(s.take(n.toInt)))
-      case (Value.StringV(s), "drop",         List(Value.IntV(n))) => Pure(Value.StringV(s.drop(n.toInt)))
-      case (Value.StringV(s), "substring",    List(Value.IntV(a))) =>
-        Pure(Value.StringV(s.substring(a.toInt.max(0).min(s.length))))
-      case (Value.StringV(s), "substring",    List(Value.IntV(a), Value.IntV(b))) =>
-        val from = a.toInt.max(0).min(s.length)
-        val to   = b.toInt.max(from).min(s.length)
-        Pure(Value.StringV(s.substring(from, to)))
-      case (Value.StringV(s), "replace",      List(Value.StringV(a), Value.StringV(b))) => Pure(Value.StringV(s.replace(a, b)))
-      case (Value.StringV(s), "charAt",       List(Value.IntV(i))) =>
-        if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
-        else Pure(Value.CharV(s.charAt(i.toInt)))
-      case (Value.StringV(s), "apply",        List(Value.IntV(i))) =>
-        if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
-        else Pure(Value.CharV(s.charAt(i.toInt)))
-      case (Value.StringV(s), "head",         Nil) =>
+    // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
+    if interp.extensions.nonEmpty then
+      val userExt = recv match
+        case _: Value.OptionV => interp.extensions.get(("Option",  name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.ListV   => interp.extensions.get(("List",    name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.IntV    => interp.extensions.get(("Int",     name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.DoubleV => interp.extensions.get(("Double",  name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.StringV => interp.extensions.get(("String",  name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.BoolV   => interp.extensions.get(("Boolean", name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.MapV    => interp.extensions.get(("Map",     name)).map(interp.callValue(_, recv :: args, env))
+        case _                => None
+      if userExt.isDefined then return userExt.get
+    recv match
+      case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
+      case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
+      case Value.MapV(m)           => dispatchMap(m, name, args, env, interp)
+      case Value.OptionV(opt)      => dispatchOption(recv, opt, name, args, env, interp)
+      case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
+      case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
+      case Value.CharV(c)          => dispatchChar(c, name, args, env, interp)
+      case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
+      case Value.UnitV             => dispatchUnit(recv, name, args, env, interp)
+      case Value.InstanceV(t, f)   => dispatchInstance(recv, t, f, name, args, env, interp)
+      case other                   => dispatchFallback(other, name, args, env, interp)
+
+  // ── String ──────────────────────────────────────────────────────────────────
+
+  private def dispatchString(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "length"      => Pure(Value.intV(s.length.toLong))
+      case "size"        => Pure(Value.intV(s.length.toLong))
+      case "isEmpty"     => Pure(Value.boolV(s.isEmpty))
+      case "nonEmpty"    => Pure(Value.boolV(s.nonEmpty))
+      case "trim"        => Pure(Value.StringV(s.trim))
+      case "toUpperCase" => Pure(Value.StringV(s.toUpperCase))
+      case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
+      case "reverse"     => Pure(Value.StringV(s.reverse))
+      case "toInt"       => Pure(Value.intV(s.toLong))
+      case "toDouble"    => Pure(Value.DoubleV(s.toDouble))
+      case "toString"    => Pure(Value.StringV(s))
+      case "mkString"    => Pure(Value.StringV(s))
+      case "contains"    => args match
+        case List(Value.StringV(t)) => Pure(Value.boolV(s.contains(t)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "startsWith"  => args match
+        case List(Value.StringV(t)) => Pure(Value.boolV(s.startsWith(t)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "endsWith"    => args match
+        case List(Value.StringV(t)) => Pure(Value.boolV(s.endsWith(t)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "matchPrefix" => args match
+        case List(Value.StringV(pat)) =>
+          val m = java.util.regex.Pattern.compile(pat).matcher(s)
+          if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
+          else Pure(Value.OptionV(None))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "split"       => args match
+        case List(Value.StringV(sep)) =>
+          Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "take"        => args match
+        case List(Value.IntV(n)) => Pure(Value.StringV(s.take(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "drop"        => args match
+        case List(Value.IntV(n)) => Pure(Value.StringV(s.drop(n.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "substring"   => args match
+        case List(Value.IntV(a)) =>
+          Pure(Value.StringV(s.substring(a.toInt.max(0).min(s.length))))
+        case List(Value.IntV(a), Value.IntV(b)) =>
+          val from = a.toInt.max(0).min(s.length)
+          val to   = b.toInt.max(from).min(s.length)
+          Pure(Value.StringV(s.substring(from, to)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "replace"     => args match
+        case List(Value.StringV(a), Value.StringV(b)) => Pure(Value.StringV(s.replace(a, b)))
+        case _                                        => dispatchFallback(recv, name, args, env, interp)
+      case "charAt" | "apply" => args match
+        case List(Value.IntV(i)) =>
+          if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
+          else Pure(Value.CharV(s.charAt(i.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "head"        =>
         if s.isEmpty then interp.located("head on empty String") else Pure(Value.CharV(s.head))
-      case (Value.StringV(s), "last",         Nil) =>
+      case "last"        =>
         if s.isEmpty then interp.located("last on empty String") else Pure(Value.CharV(s.last))
-      case (Value.StringV(s), "indexOf",      List(Value.StringV(t))) => Pure(Value.intV(s.indexOf(t).toLong))
-      case (Value.StringV(s), "indexOf",      List(Value.CharV(c)))   => Pure(Value.intV(s.indexOf(c.toInt).toLong))
-      case (Value.StringV(s), "codePointAt",  List(Value.IntV(i)))    =>
-        if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
-        else Pure(Value.intV(s.codePointAt(i.toInt).toLong))
-      // ── Char ────────────────────────────────────────────────────
-      case (Value.CharV(c), "toInt",      Nil) => Pure(Value.intV(c.toInt.toLong))
-      case (Value.CharV(c), "toLong",     Nil) => Pure(Value.intV(c.toLong))
-      case (Value.CharV(c), "toString",   Nil) => Pure(Value.StringV(c.toString))
-      case (Value.CharV(c), "isDigit",    Nil) => Pure(Value.boolV(c.isDigit))
-      case (Value.CharV(c), "isLetter",   Nil) => Pure(Value.boolV(c.isLetter))
-      case (Value.StringV(s), "map",          List(f)) =>
-        Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map {
-          case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
-          case _                  => Value.StringV(s)
-        }
-      case (Value.StringV(s), "takeWhile",    List(f)) =>
-        def loop(i: Int): Computation =
-          if i >= s.length then Pure(Value.StringV(s))
-          else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
-            case Value.BoolV(true) => loop(i + 1)
-            case _                 => Pure(Value.StringV(s.substring(0, i)))
+      case "indexOf"     => args match
+        case List(Value.StringV(t)) => Pure(Value.intV(s.indexOf(t).toLong))
+        case List(Value.CharV(c))   => Pure(Value.intV(s.indexOf(c.toInt).toLong))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "codePointAt" => args match
+        case List(Value.IntV(i)) =>
+          if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
+          else Pure(Value.intV(s.codePointAt(i.toInt).toLong))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "map"         => args match
+        case List(f) =>
+          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map {
+            case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
+            case _                  => Value.StringV(s)
           }
-        loop(0)
-      case (Value.StringV(s), "dropWhile",    List(f)) =>
-        def loop(i: Int): Computation =
-          if i >= s.length then Pure(Value.StringV(""))
-          else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
-            case Value.BoolV(true) => loop(i + 1)
-            case _                 => Pure(Value.StringV(s.substring(i)))
-          }
-        loop(0)
-      // ── List ────────────────────────────────────────────────────
-      case (Value.ListV(ls), "length",     Nil)  => Pure(Value.intV(ls.length.toLong))
-      case (Value.ListV(ls), "size",       Nil)  => Pure(Value.intV(ls.size.toLong))
-      case (Value.ListV(ls), "indices",    Nil)  => Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
-      case (Value.ListV(ls), "apply",      List(Value.IntV(i))) =>
-        if i < 0 || i >= ls.length then interp.located(s"index $i out of bounds for list of length ${ls.length}")
-        else Pure(ls(i.toInt))
-      case (Value.ListV(ls), "isEmpty",    Nil)  => Pure(Value.boolV(ls.isEmpty))
-      case (Value.ListV(ls), "nonEmpty",   Nil)  => Pure(Value.boolV(ls.nonEmpty))
-      case (Value.ListV(ls), "head",       Nil)  => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
-      case (Value.ListV(ls), "tail",       Nil)  => Pure(Value.ListV(ls.tail))
-      case (Value.ListV(ls), "last",       Nil)  => Pure(ls.lastOption.getOrElse(interp.located("last on Nil")))
-      case (Value.ListV(ls), "init",       Nil)  => Pure(Value.ListV(ls.init))
-      case (Value.ListV(ls), "reverse",    Nil)  => Pure(Value.ListV(ls.reverse))
-      case (Value.ListV(ls), "distinct",   Nil)  => Pure(Value.ListV(ls.distinct))
-      case (Value.ListV(ls), "sorted",     Nil)  => Pure(Value.ListV(ls.sortBy(Value.show)))
-      case (Value.ListV(ls), "toList",     Nil)  => Pure(Value.ListV(ls))
-      case (Value.ListV(ls), "toSet",      Nil)  => Pure(Value.ListV(ls.distinct))
-      case (Value.ListV(ls), "contains",   List(v)) => Pure(Value.boolV(ls.contains(v)))
-      case (Value.ListV(ls), "indexOf",    List(v)) => Pure(Value.intV(ls.indexOf(v).toLong))
-      case (Value.ListV(ls), "take",       List(Value.IntV(n))) => Pure(Value.ListV(ls.take(n.toInt)))
-      case (Value.ListV(ls), "drop",       List(Value.IntV(n))) => Pure(Value.ListV(ls.drop(n.toInt)))
-      case (Value.ListV(ls), "splitAt",    List(Value.IntV(n))) =>
-        val (a, b) = ls.splitAt(n.toInt)
-        Pure(Value.TupleV(List(Value.ListV(a), Value.ListV(b))))
-      case (Value.ListV(ls), "takeRight",  List(Value.IntV(n))) => Pure(Value.ListV(ls.takeRight(n.toInt)))
-      case (Value.ListV(ls), "dropRight",  List(Value.IntV(n))) => Pure(Value.ListV(ls.dropRight(n.toInt)))
-      // Higher-order: sequence the callback computations
-      case (Value.ListV(ls), "map",        List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env)))
-      case (Value.ListV(ls), "flatMap",    List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
-          case Value.ListV(results) => Value.ListV(results.flatMap {
-            case Value.ListV(inner) => inner
-            case v                  => List(v)
-          })
-          case other => other
-        }
-      case (Value.ListV(ls), "filter",     List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
-          case Value.ListV(flags) =>
-            Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(true)) => v })
-          case other => other
-        }
-      case (Value.ListV(ls), "filterNot",  List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
-          case Value.ListV(flags) =>
-            Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(false)) => v })
-          case other => other
-        }
-      case (Value.ListV(ls), "foreach",    List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map(_ => Value.UnitV)
-      case (Value.ListV(ls), "count",      List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
-          case Value.ListV(flags) =>
-            Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
-          case _ => Value.intV(0)
-        }
-      case (Value.ListV(ls), "find",       List(f)) =>
-        def loop(remaining: List[Value]): Computation = remaining match
-          case Nil => Pure(Value.OptionV(None))
-          case h :: rest =>
-            interp.callValue(f, List(h), env).flatMap {
-              case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
-              case _                 => loop(rest)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "takeWhile"   => args match
+        case List(f) =>
+          def loop(i: Int): Computation =
+            if i >= s.length then Pure(Value.StringV(s))
+            else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+              case Value.BoolV(true) => loop(i + 1)
+              case _                 => Pure(Value.StringV(s.substring(0, i)))
             }
-        loop(ls)
-      case (Value.ListV(ls), "exists",     List(f)) =>
-        def loop(remaining: List[Value]): Computation = remaining match
-          case Nil => Pure(Value.boolV(false))
-          case h :: rest =>
-            interp.callValue(f, List(h), env).flatMap {
-              case Value.BoolV(true) => Pure(Value.boolV(true))
-              case _                 => loop(rest)
+          loop(0)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "dropWhile"   => args match
+        case List(f) =>
+          def loop(i: Int): Computation =
+            if i >= s.length then Pure(Value.StringV(""))
+            else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+              case Value.BoolV(true) => loop(i + 1)
+              case _                 => Pure(Value.StringV(s.substring(i)))
             }
-        loop(ls)
-      case (Value.ListV(ls), "forall",     List(f)) =>
-        def loop(remaining: List[Value]): Computation = remaining match
-          case Nil => Pure(Value.boolV(true))
-          case h :: rest =>
-            interp.callValue(f, List(h), env).flatMap {
-              case Value.BoolV(false) => Pure(Value.boolV(false))
-              case _                  => loop(rest)
-            }
-        loop(ls)
-      case (Value.ListV(ls), "sortBy",     List(f)) =>
-        Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
-          case Value.ListV(keys) =>
-            Value.ListV(ls.zip(keys).sortBy(p => Value.show(p._2)).map(_._1))
-          case _ => Value.ListV(ls)
-        }
-      case (Value.ListV(ls), "zip",        List(Value.ListV(other))) =>
-        Pure(Value.ListV(ls.zip(other).map { case (a, b) => Value.TupleV(List(a, b)) }))
-      case (Value.ListV(ls), "zipWithIndex", Nil) =>
-        Pure(Value.ListV(ls.zipWithIndex.map { case (a, i) => Value.TupleV(List(a, Value.intV(i.toLong))) }))
-      case (Value.ListV(ls), "mkString",   Nil)  => Pure(Value.StringV(ls.map(Value.show).mkString))
-      case (Value.ListV(ls), "mkString",   List(Value.StringV(sep))) =>
-        Pure(Value.StringV(ls.map(Value.show).mkString(sep)))
-      case (Value.ListV(ls), "mkString",   List(Value.StringV(s), Value.StringV(sep), Value.StringV(e))) =>
-        Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
-      case (Value.ListV(ls), "sum",        Nil)  =>
+          loop(0)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foreach"     => args match
+        case List(f) =>
+          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map(_ => Value.UnitV)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Char ────────────────────────────────────────────────────────────────────
+
+  private def dispatchChar(c: Char, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "toInt"    => Pure(Value.intV(c.toInt.toLong))
+      case "toLong"   => Pure(Value.intV(c.toLong))
+      case "toString" => Pure(Value.StringV(c.toString))
+      case "isDigit"  => Pure(Value.boolV(c.isDigit))
+      case "isLetter" => Pure(Value.boolV(c.isLetter))
+      case _ => extensionDispatch(Value.CharV(c), name, args, env, interp)
+                  .getOrElse(interp.located(s"No method '$name' on Char"))
+
+  // ── List ────────────────────────────────────────────────────────────────────
+
+  private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.ListV(ls)
+    name match
+      case "length"       => Pure(Value.intV(ls.length.toLong))
+      case "size"         => Pure(Value.intV(ls.size.toLong))
+      case "isEmpty"      => Pure(Value.boolV(ls.isEmpty))
+      case "nonEmpty"     => Pure(Value.boolV(ls.nonEmpty))
+      case "head"         => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
+      case "tail"         => Pure(Value.ListV(ls.tail))
+      case "last"         => Pure(ls.lastOption.getOrElse(interp.located("last on Nil")))
+      case "init"         => Pure(Value.ListV(ls.init))
+      case "reverse"      => Pure(Value.ListV(ls.reverse))
+      case "distinct"     => Pure(Value.ListV(ls.distinct))
+      case "sorted"       => Pure(Value.ListV(ls.sortBy(Value.show)))
+      case "toList"       => Pure(recv)
+      case "toSet"        => Pure(Value.ListV(ls.distinct))
+      case "flatten"      => Pure(Value.ListV(ls.flatMap { case Value.ListV(inner) => inner; case v => List(v) }))
+      case "sum"          =>
         Pure(ls.foldLeft[Value](Value.intV(0)) {
           case (Value.IntV(a),    Value.IntV(b))    => Value.intV(a + b)
           case (Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(a + b)
@@ -203,269 +183,492 @@ private[interpreter] object DispatchRuntime:
           case (Value.DoubleV(a), Value.IntV(b))    => Value.DoubleV(a + b)
           case (a, b) => interp.located(s"Cannot sum $a and $b")
         })
-      case (Value.ListV(ls), "min",        Nil)  =>
+      case "min"          =>
         Pure(ls.minBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
-      case (Value.ListV(ls), "max",        Nil)  =>
+      case "max"          =>
         Pure(ls.maxBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
-      case (Value.ListV(ls), "foldLeft",   List(init)) =>
-        Pure(Value.NativeFnV("foldLeft", {
-          case List(f) =>
-            def loop(remaining: List[Value], acc: Value): Computation = remaining match
-              case Nil       => Pure(acc)
-              case h :: rest => interp.callValue(f, List(acc, h), env).flatMap(v => loop(rest, v))
-            loop(ls, init)
-          case _ => throw InterpretError("foldLeft expects one function argument")
-        }))
-      case (Value.ListV(ls), "foldRight",  List(init)) =>
-        Pure(Value.NativeFnV("foldRight", {
-          case List(f) =>
-            def loop(remaining: List[Value], acc: Value): Computation = remaining match
-              case Nil       => Pure(acc)
-              case h :: rest => interp.callValue(f, List(h, acc), env).flatMap(v => loop(rest, v))
-            loop(ls.reverse, init)
-          case _ => throw InterpretError("foldRight expects one function argument")
-        }))
-      case (Value.ListV(ls), "reduceLeft", List(f)) =>
-        ls match
+      case "zipWithIndex" =>
+        Pure(Value.ListV(ls.zipWithIndex.map { case (a, i) => Value.TupleV(List(a, Value.intV(i.toLong))) }))
+      case "indices"      =>
+        Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
+      case "contains"     => args match
+        case List(v)                  => Pure(Value.boolV(ls.contains(v)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "indexOf"      => args match
+        case List(v)                  => Pure(Value.intV(ls.indexOf(v).toLong))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "apply"        => args match
+        case List(Value.IntV(i)) =>
+          if i < 0 || i >= ls.length then interp.located(s"index $i out of bounds for list of length ${ls.length}")
+          else Pure(ls(i.toInt))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "take"         => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.take(n.toInt)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "drop"         => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.drop(n.toInt)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "takeRight"    => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.takeRight(n.toInt)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "dropRight"    => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.dropRight(n.toInt)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "splitAt"      => args match
+        case List(Value.IntV(n)) =>
+          val (a, b) = ls.splitAt(n.toInt)
+          Pure(Value.TupleV(List(Value.ListV(a), Value.ListV(b))))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "appended"     => args match
+        case List(v)                  => Pure(Value.ListV(ls :+ v))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "prepended"    => args match
+        case List(v)                  => Pure(Value.ListV(v +: ls))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "sliding"      => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "grouped"      => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "zip"          => args match
+        case List(Value.ListV(other)) =>
+          Pure(Value.ListV(ls.zip(other).map { case (a, b) => Value.TupleV(List(a, b)) }))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "mkString"     => args match
+        case Nil                      => Pure(Value.StringV(ls.map(Value.show).mkString))
+        case List(Value.StringV(sep)) => Pure(Value.StringV(ls.map(Value.show).mkString(sep)))
+        case List(Value.StringV(s), Value.StringV(sep), Value.StringV(e)) =>
+          Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "map"          => args match
+        case List(f) => Computation.sequence(ls.map(item => interp.callValue(f, List(item), env)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "flatMap"      => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+            case Value.ListV(results) => Value.ListV(results.flatMap {
+              case Value.ListV(inner) => inner
+              case v                  => List(v)
+            })
+            case other => other
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "filter"       => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+            case Value.ListV(flags) =>
+              Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(true)) => v })
+            case other => other
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "filterNot"    => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+            case Value.ListV(flags) =>
+              Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(false)) => v })
+            case other => other
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foreach"      => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map(_ => Value.UnitV)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "count"        => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+            case Value.ListV(flags) =>
+              Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
+            case _ => Value.intV(0)
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "find"         => args match
+        case List(f) =>
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.OptionV(None))
+            case h :: rest =>
+              interp.callValue(f, List(h), env).flatMap {
+                case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
+                case _                 => loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "exists"       => args match
+        case List(f) =>
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.boolV(false))
+            case h :: rest =>
+              interp.callValue(f, List(h), env).flatMap {
+                case Value.BoolV(true) => Pure(Value.boolV(true))
+                case _                 => loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "forall"       => args match
+        case List(f) =>
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.boolV(true))
+            case h :: rest =>
+              interp.callValue(f, List(h), env).flatMap {
+                case Value.BoolV(false) => Pure(Value.boolV(false))
+                case _                  => loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "sortBy"       => args match
+        case List(f) =>
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+            case Value.ListV(keys) =>
+              Value.ListV(ls.zip(keys).sortBy(p => Value.show(p._2)).map(_._1))
+            case _ => recv
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foldLeft"     => args match
+        case List(init) =>
+          Pure(Value.NativeFnV("foldLeft", {
+            case List(f) =>
+              def loop(remaining: List[Value], acc: Value): Computation = remaining match
+                case Nil       => Pure(acc)
+                case h :: rest => interp.callValue(f, List(acc, h), env).flatMap(v => loop(rest, v))
+              loop(ls, init)
+            case _ => throw InterpretError("foldLeft expects one function argument")
+          }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foldRight"    => args match
+        case List(init) =>
+          Pure(Value.NativeFnV("foldRight", {
+            case List(f) =>
+              def loop(remaining: List[Value], acc: Value): Computation = remaining match
+                case Nil       => Pure(acc)
+                case h :: rest => interp.callValue(f, List(h, acc), env).flatMap(v => loop(rest, v))
+              loop(ls.reverse, init)
+            case _ => throw InterpretError("foldRight expects one function argument")
+          }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "reduceLeft"   => args match
+        case List(f) => ls match
           case Nil => interp.located("reduceLeft on empty list")
           case h :: t =>
             def loop(remaining: List[Value], acc: Value): Computation = remaining match
               case Nil       => Pure(acc)
               case x :: rest => interp.callValue(f, List(acc, x), env).flatMap(v => loop(rest, v))
             loop(t, h)
-      case (Value.ListV(ls), "flatten",    Nil) =>
-        Pure(Value.ListV(ls.flatMap { case Value.ListV(inner) => inner; case v => List(v) }))
-      case (Value.ListV(ls), "sliding",    List(Value.IntV(n))) =>
-        Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
-      case (Value.ListV(ls), "grouped",    List(Value.IntV(n))) =>
-        Pure(Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList))
-      case (Value.ListV(ls), "appended",   List(v)) => Pure(Value.ListV(ls :+ v))
-      case (Value.ListV(ls), "prepended",  List(v)) => Pure(Value.ListV(v +: ls))
-      // ── Map ─────────────────────────────────────────────────────
-      case (Value.MapV(m), "size",       Nil)     => Pure(Value.intV(m.size.toLong))
-      case (Value.MapV(m), "isEmpty",    Nil)     => Pure(Value.boolV(m.isEmpty))
-      case (Value.MapV(m), "nonEmpty",   Nil)     => Pure(Value.boolV(m.nonEmpty))
-      case (Value.MapV(m), "keys",       Nil)     => Pure(Value.ListV(m.keys.toList))
-      case (Value.MapV(m), "values",     Nil)     => Pure(Value.ListV(m.values.toList))
-      case (Value.MapV(m), "toList",     Nil)     =>
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Map ─────────────────────────────────────────────────────────────────────
+
+  private def dispatchMap(m: Map[Value, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.MapV(m)
+    name match
+      case "size"     => Pure(Value.intV(m.size.toLong))
+      case "isEmpty"  => Pure(Value.boolV(m.isEmpty))
+      case "nonEmpty" => Pure(Value.boolV(m.nonEmpty))
+      case "keys"     => Pure(Value.ListV(m.keys.toList))
+      case "values"   => Pure(Value.ListV(m.values.toList))
+      case "toList"   =>
         Pure(Value.ListV(m.toList.map { (k, v) => Value.TupleV(List(k, v)) }))
-      case (Value.MapV(m), "contains",   List(k)) => Pure(Value.boolV(m.contains(k)))
-      case (Value.MapV(m), "get",        List(k)) => Pure(Value.OptionV(m.get(k)))
-      case (Value.MapV(m), "apply",      List(k)) =>
-        Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
-      case (Value.MapV(m), "getOrElse",  List(k, d)) => Pure(m.getOrElse(k, d))
-      case (Value.MapV(m), "updated",    List(k, v)) => Pure(Value.MapV(m + (k -> v)))
-      case (Value.MapV(m), "removed",    List(k))    => Pure(Value.MapV(m - k))
-      // Scala syntax: `m + (k -> v)` parses as `m.+((k, v))` — accept the
-      // tupled form as a shortcut for `.updated`, and `++` for map merge.
-      case (Value.MapV(m), "+",  List(Value.TupleV(List(k, v))))  => Pure(Value.MapV(m + (k -> v)))
-      case (Value.MapV(m), "++", List(Value.MapV(other)))         => Pure(Value.MapV(m ++ other))
-      case (Value.MapV(m), "-",  List(k))                          => Pure(Value.MapV(m - k))
-      case (Value.MapV(m), "map",        List(f)) =>
-        Computation.sequence(m.toList.map { (k, v) =>
-          interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-        }).map {
-          case Value.ListV(entries) =>
-            Value.MapV(entries.collect {
-              case Value.TupleV(List(nk, nv)) => nk -> nv
-            }.toMap)
-          case _ => Value.MapV(Map.empty)
-        }
-      case (Value.MapV(m), "filter",     List(f)) =>
-        val items = m.toList
-        Computation.sequence(items.map { (k, v) =>
-          interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-        }).map {
-          case Value.ListV(flags) =>
-            Value.MapV(items.zip(flags).collect {
-              case ((k, v), Value.BoolV(true)) => k -> v
-            }.toMap)
-          case _ => Value.MapV(Map.empty)
-        }
-      case (Value.MapV(m), "foreach",    List(f)) =>
-        Computation.sequence(m.toList.map { (k, v) =>
-          interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-        }).map(_ => Value.UnitV)
-      case (Value.MapV(m), "mkString",   Nil)  => Pure(Value.StringV(Value.show(Value.MapV(m))))
-      // String-key access shorthand: map.key
-      case (Value.MapV(m), key, Nil) =>
-        Pure(m.getOrElse(Value.StringV(key), interp.located(s"No key '$key' in map")))
-      // ── Option ──────────────────────────────────────────────────
-      case (Value.OptionV(Some(v)), "get",        Nil) => Pure(v)
-      case (Value.OptionV(opt),     "isDefined",  Nil) => Pure(Value.boolV(opt.isDefined))
-      case (Value.OptionV(opt),     "isEmpty",    Nil) => Pure(Value.boolV(opt.isEmpty))
-      case (Value.OptionV(opt),     "nonEmpty",   Nil) => Pure(Value.boolV(opt.nonEmpty))
-      case (Value.OptionV(opt),     "contains",   List(v)) => Pure(Value.boolV(opt.contains(v)))
-      case (Value.OptionV(Some(v)), "getOrElse",  _)   => Pure(v)
-      case (Value.OptionV(None),    "getOrElse",  List(d)) => Pure(d)
-      case (Value.OptionV(opt),     "map",        List(f)) =>
-        opt match
+      case "mkString" => Pure(Value.StringV(Value.show(recv)))
+      case "contains" => args match
+        case List(k)       => Pure(Value.boolV(m.contains(k)))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "get"      => args match
+        case List(k)       => Pure(Value.OptionV(m.get(k)))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "apply"    => args match
+        case List(k)       => Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "getOrElse" => args match
+        case List(k, d)    => Pure(m.getOrElse(k, d))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "updated"  => args match
+        case List(k, v)    => Pure(Value.MapV(m + (k -> v)))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "removed"  => args match
+        case List(k)       => Pure(Value.MapV(m - k))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "+"        => args match
+        case List(Value.TupleV(List(k, v))) => Pure(Value.MapV(m + (k -> v)))
+        case _                              => dispatchFallback(recv, name, args, env, interp)
+      case "++"       => args match
+        case List(Value.MapV(other))        => Pure(Value.MapV(m ++ other))
+        case _                              => dispatchFallback(recv, name, args, env, interp)
+      case "-"        => args match
+        case List(k)       => Pure(Value.MapV(m - k))
+        case _             => dispatchFallback(recv, name, args, env, interp)
+      case "map"      => args match
+        case List(f) =>
+          Computation.sequence(m.toList.map { (k, v) =>
+            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
+          }).map {
+            case Value.ListV(entries) =>
+              Value.MapV(entries.collect { case Value.TupleV(List(nk, nv)) => nk -> nv }.toMap)
+            case _ => Value.MapV(Map.empty)
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "filter"   => args match
+        case List(f) =>
+          val items = m.toList
+          Computation.sequence(items.map { (k, v) =>
+            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
+          }).map {
+            case Value.ListV(flags) =>
+              Value.MapV(items.zip(flags).collect { case ((k, v), Value.BoolV(true)) => k -> v }.toMap)
+            case _ => Value.MapV(Map.empty)
+          }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foreach"  => args match
+        case List(f) =>
+          Computation.sequence(m.toList.map { (k, v) =>
+            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
+          }).map(_ => Value.UnitV)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ =>
+        // String-key access shorthand: map.key (no args, unknown method name = key lookup)
+        if args.isEmpty then Pure(m.getOrElse(Value.StringV(name), interp.located(s"No key '$name' in map")))
+        else dispatchFallback(recv, name, args, env, interp)
+
+  // ── Option ──────────────────────────────────────────────────────────────────
+
+  private def dispatchOption(recv: Value, opt: Option[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "isDefined" => Pure(Value.boolV(opt.isDefined))
+      case "isEmpty"   => Pure(Value.boolV(opt.isEmpty))
+      case "nonEmpty"  => Pure(Value.boolV(opt.nonEmpty))
+      case "toList"    => Pure(Value.ListV(opt.toList))
+      case "get"       => opt match
+        case Some(v) => Pure(v)
+        case None    => interp.located("Option.get on None")
+      case "contains"  => args match
+        case List(v)    => Pure(Value.boolV(opt.contains(v)))
+        case _          => dispatchFallback(recv, name, args, env, interp)
+      case "getOrElse" => args match
+        case List(d)    => opt match
+          case Some(v) => Pure(v)
+          case None    => Pure(d)
+        case _          => dispatchFallback(recv, name, args, env, interp)
+      case "orElse"    => opt match
+        case Some(_) => Pure(recv)
+        case None    => args match
+          case List(other) => Pure(other)
+          case _           => dispatchFallback(recv, name, args, env, interp)
+      case "map"       => args match
+        case List(f) => opt match
           case None    => Pure(Value.OptionV(None))
           case Some(v) => interp.callValue(f, List(v), env).map(r => Value.OptionV(Some(r)))
-      case (Value.OptionV(opt),     "flatMap",    List(f)) =>
-        opt match
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "flatMap"   => args match
+        case List(f) => opt match
           case None    => Pure(Value.OptionV(None))
           case Some(v) => interp.callValue(f, List(v), env).map {
             case o: Value.OptionV => o
             case other            => Value.OptionV(Some(other))
           }
-      case (Value.OptionV(opt),     "filter",     List(f)) =>
-        opt match
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "filter"    => args match
+        case List(f) => opt match
           case None    => Pure(Value.OptionV(None))
           case Some(v) => interp.callValue(f, List(v), env).map {
             case Value.BoolV(true) => Value.OptionV(Some(v))
             case _                 => Value.OptionV(None)
           }
-      case (Value.OptionV(opt),     "foreach",    List(f)) =>
-        opt match
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "foreach"   => args match
+        case List(f) => opt match
           case None    => Pure(Value.UnitV)
           case Some(v) => interp.callValue(f, List(v), env).map(_ => Value.UnitV)
-      case (Value.OptionV(opt),     "toList",     Nil) => Pure(Value.ListV(opt.toList))
-      case (Value.OptionV(None),    "orElse",     List(other)) => Pure(other)
-      case (opt: Value.OptionV,     "orElse",     _) => Pure(opt)
-      // ── Int / Double ─────────────────────────────────────────────
-      case (Value.IntV(n),    "toDouble",  Nil) => Pure(Value.DoubleV(n.toDouble))
-      case (Value.IntV(n),    "toLong",    Nil) => Pure(Value.intV(n))
-      case (Value.IntV(n),    "toInt",     Nil) => Pure(Value.intV(n))
-      case (Value.IntV(n),    "abs",       Nil) => Pure(Value.intV(math.abs(n)))
-      case (Value.IntV(n),    "toString",  Nil) => Pure(Value.StringV(n.toString))
-      case (Value.IntV(n),    "to",        List(Value.IntV(m))) =>
-        Pure(Value.ListV((n to m).map(Value.intV(_)).toList))
-      case (Value.IntV(n),    "until",     List(Value.IntV(m))) =>
-        Pure(Value.ListV((n until m).map(Value.intV(_)).toList))
-      case (Value.DoubleV(d), "toInt",     Nil) => Pure(Value.intV(d.toLong))
-      case (Value.DoubleV(d), "toLong",    Nil) => Pure(Value.intV(d.toLong))
-      case (Value.DoubleV(d), "abs",       Nil) => Pure(Value.DoubleV(math.abs(d)))
-      case (Value.DoubleV(d), "toString",  Nil) => Pure(Value.StringV(d.toString))
-      case (Value.DoubleV(d), "round",     Nil) => Pure(Value.intV(math.round(d)))
-      case (Value.DoubleV(d), "floor",     Nil) => Pure(Value.DoubleV(math.floor(d)))
-      case (Value.DoubleV(d), "ceil",      Nil) => Pure(Value.DoubleV(math.ceil(d)))
-      // ── Tuple ────────────────────────────────────────────────────
-      // Bare values are treated as 1-tuples: (A, B) ++ C = (A, B, C)
-      // () ++ A = A, A ++ () = A  (identity, mirrors type-level tupleConcat)
-      case (Value.TupleV(as), "++", List(Value.TupleV(bs))) => Pure(Value.TupleV(as ++ bs))
-      case (Value.TupleV(as), "++", List(Value.UnitV))      => Pure(Value.TupleV(as))
-      case (Value.UnitV,      "++", List(Value.TupleV(bs))) => Pure(Value.TupleV(bs))
-      case (Value.UnitV,      "++", List(Value.UnitV))      => Pure(Value.UnitV)
-      case (Value.TupleV(as), "++", List(v))                => Pure(Value.TupleV(as :+ v))
-      case (v,                "++", List(Value.TupleV(bs))) => Pure(Value.TupleV(v :: bs))
-      case (Value.UnitV,      "++", List(v))                => Pure(v)
-      case (v,                "++", List(Value.UnitV))       => Pure(v)
-      case (v, "++", List(w))
-        if !v.isInstanceOf[Value.ListV] && !v.isInstanceOf[Value.MapV] =>
-        Pure(Value.TupleV(List(v, w)))
-      case (Value.TupleV(es), "_1", Nil) => Pure(es(0))
-      case (Value.TupleV(es), "_2", Nil) => Pure(es(1))
-      case (Value.TupleV(es), "_3", Nil) => Pure(es(2))
-      case (Value.TupleV(es), "_4", Nil) => Pure(es(3))
-      // ── Signal methods (reactive) — must precede the generic InstanceV
-      // field-access paths so `.get`/`.set` don't fall into them. ──
-      case (Value.InstanceV("Signal", fields), "get", Nil) =>
-        fields.get("id") match
-          case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(interp, id))
-          case _                    => interp.located("Signal handle missing id")
-      case (Value.InstanceV("Signal", fields), "set", List(v)) =>
-        fields.get("id") match
-          case Some(Value.IntV(id)) => SignalRuntime.signalSet(interp, id, v); Pure(Value.UnitV)
-          case _                    => interp.located("Signal handle missing id")
-      case (Value.InstanceV("Signal", fields), "apply", Nil) =>
-        // s() — sugar for s.get
-        fields.get("id") match
-          case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(interp, id))
-          case _                    => interp.located("Signal handle missing id")
-      // Plugin-provided frontend signal bridge. The streams plugin registers
-      // `ReactiveSignal.bind(signal, source)`; dispatch keeps method syntax
-      // (`sig.bind(source)`) without hard-coding streams into the core.
-      case (recv @ Value.Foreign("ReactiveSignal", _), "bind", List(source)) =>
-        interp.globals.get("ReactiveSignal.bind") match
-          case Some(fn) => interp.callValue(fn, List(recv, source), env)
-          case None     => interp.located("No method 'bind' on ReactiveSignal")
-      // ── Class method (declared inside `class`/`case class` body) ──
-      case (Value.InstanceV(typeName, fields), fname, fargs)
-        if interp.typeMethods.get(typeName).exists(_.contains(fname)) =>
-        val fn = interp.typeMethods(typeName)(fname)
-        // Re-bind the method's closure with this instance's data fields so the
-        // body can refer to them by name (`x`, `y`, …).
-        interp.callFun(fn.copy(closure = fn.closure ++ fields), fargs)
-      // ── Response builder methods (cookie sessions) ───────────────
-      // `resp.withSession(Map(...))` / `resp.clearSession()` attach a
-      // `setSession` field; the HTTP runtime turns that into a Set-Cookie.
-      // Must precede the InstanceV no-arg / enum-companion cases below so
-      // `clearSession()` and `withSession(...)` aren't shadowed by field
-      // lookup on the Response instance.
-      case (Value.InstanceV("Response", fields), "withSession", List(Value.MapV(m))) =>
-        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
-      case (Value.InstanceV("Response", fields), "clearSession", Nil) =>
-        Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
-      // `resp.withHeader("X-Trace-Id", "abc")` — used by std/middleware.ssc
-      // to attach observability headers without rebuilding the Response
-      // by hand.  Merges into the existing `headers` Map; later
-      // withHeader calls overwrite earlier ones for the same key.
-      case (Value.InstanceV("Response", fields), "withHeader", List(Value.StringV(name), Value.StringV(value))) =>
-        val existing = fields.get("headers") match
-          case Some(Value.MapV(m)) => m
-          case _                   => Map.empty[Value, Value]
-        val merged = existing + (Value.StringV(name) -> Value.StringV(value))
-        Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
-      // ── Either (Left / Right) methods ────────────────────────────
-      case (Value.InstanceV("Right", _),      "isRight",   Nil) => Pure(Value.boolV(true))
-      case (Value.InstanceV("Left",  _),      "isRight",   Nil) => Pure(Value.boolV(false))
-      case (Value.InstanceV("Right", _),      "isLeft",    Nil) => Pure(Value.boolV(false))
-      case (Value.InstanceV("Left",  _),      "isLeft",    Nil) => Pure(Value.boolV(true))
-      case (Value.InstanceV("Right", fields), "getOrElse", List(_)) =>
-        Pure(fields.getOrElse("value", Value.UnitV))
-      case (Value.InstanceV("Left",  _),      "getOrElse", List(d)) => Pure(d)
-      case (Value.InstanceV("Right", fields), "map",       List(f)) =>
-        interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env).map(v =>
-          Value.InstanceV("Right", Map("value" -> v)))
-      case (Value.InstanceV("Left",  _),      "map",       List(_)) => Pure(recv)
-      case (Value.InstanceV("Right", fields), "flatMap",   List(f)) =>
-        interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env)
-      case (Value.InstanceV("Left",  _),      "flatMap",   List(_)) => Pure(recv)
-      case (Value.InstanceV("Right", fields), "fold",      List(_, r)) =>
-        interp.callValue(r, List(fields.getOrElse("value", Value.UnitV)), env)
-      case (Value.InstanceV("Left",  fields), "fold",      List(l, _)) =>
-        interp.callValue(l, List(fields.getOrElse("value", Value.UnitV)), env)
-      case (Value.InstanceV("Right", fields), "toOption",  Nil) =>
-        Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
-      case (Value.InstanceV("Left",  _),      "toOption",  Nil) =>
-        Pure(Value.OptionV(None))
-      case (Value.InstanceV("Right", fields), "swap",      Nil) =>
-        Pure(Value.InstanceV("Left",  fields))
-      case (Value.InstanceV("Left",  fields), "swap",      Nil) =>
-        Pure(Value.InstanceV("Right", fields))
-      case (Value.InstanceV("Right", fields), "toSeq",     Nil) =>
-        Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
-      case (Value.InstanceV("Left",  _),      "toSeq",     Nil) =>
-        Pure(Value.ListV(Nil))
-      // ── Exception .getMessage — alias for .message field ─────────
-      case (Value.InstanceV(_, fields), "getMessage", Nil) =>
-        Pure(fields.getOrElse("message", Value.StringV("")))
-      // ── Instance (case class / enum case) field access ───────────
-      // No-arg defs and no-arg native fns are called automatically on access
-      case (Value.InstanceV(_, fields), fname, Nil) =>
-        fields.get(fname) match
-          case Some(f: Value.FunV)      if f.params.isEmpty => interp.callFun(f, Nil)
-          case Some(f: Value.NativeFnV)                     => f.f(Nil)
-          case Some(v)                                       => Pure(v)
-          // Scala's auto-generated `toString` on case classes / enum cases:
-          // fall through to the generic Value.show path so users get the
-          // expected "Circle(3.0)" rendering without having to define it.
-          case None if fname == "toString"                   => Pure(Value.StringV(Value.show(recv)))
-          // Fall through to extension method dispatch before erroring.
-          case None =>
-            extensionDispatch(recv, fname, Nil, env, interp)
-              .getOrElse(interp.located(s"No field '$fname'"))
-      // ── Enum companion call (Color.RGB(1,2,3)) ───────────────────
-      case (Value.InstanceV(_, fields), fname, fargs) if fields.contains(fname) =>
-        interp.callValue(fields(fname), fargs, env)
-      // ── Generic ──────────────────────────────────────────────────
-      case (v, "toString", Nil)   => Pure(Value.StringV(Value.show(v)))
-      case (v, "apply",    fargs) => interp.callValue(v, fargs, env)
-      // ── Extension method via given: "hello".show → Show[String].show("hello")
-      case _ =>
-        extensionDispatch(recv, name, args, env, interp)
-          .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Int ─────────────────────────────────────────────────────────────────────
+
+  private def dispatchInt(n: Long, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.IntV(n)
+    name match
+      case "toDouble"  => Pure(Value.DoubleV(n.toDouble))
+      case "toLong"    => Pure(recv)
+      case "toInt"     => Pure(recv)
+      case "abs"       => Pure(Value.intV(math.abs(n)))
+      case "toString"  => Pure(Value.StringV(n.toString))
+      case "to"        => args match
+        case List(Value.IntV(m)) => Pure(Value.ListV((n to m).map(Value.IntV(_)).toList))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "until"     => args match
+        case List(Value.IntV(m)) => Pure(Value.ListV((n until m).map(Value.IntV(_)).toList))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Double ──────────────────────────────────────────────────────────────────
+
+  private def dispatchDouble(d: Double, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "toInt"    => Pure(Value.intV(d.toLong))
+      case "toLong"   => Pure(Value.intV(d.toLong))
+      case "abs"      => Pure(Value.DoubleV(math.abs(d)))
+      case "toString" => Pure(Value.StringV(d.toString))
+      case "round"    => Pure(Value.intV(math.round(d)))
+      case "floor"    => Pure(Value.DoubleV(math.floor(d)))
+      case "ceil"     => Pure(Value.DoubleV(math.ceil(d)))
+      case _ => extensionDispatch(Value.DoubleV(d), name, args, env, interp)
+                  .getOrElse(interp.located(s"No method '$name' on Double"))
+
+  // ── Tuple ───────────────────────────────────────────────────────────────────
+
+  private def dispatchTuple(es: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.TupleV(es)
+    name match
+      case "++"  => args match
+        case List(Value.TupleV(bs)) => Pure(Value.TupleV(es ++ bs))
+        case List(Value.UnitV)      => Pure(recv)
+        case List(v)                => Pure(Value.TupleV(es :+ v))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "_1"  => if es.length > 0 then Pure(es(0)) else interp.located("_1 on empty tuple")
+      case "_2"  => if es.length > 1 then Pure(es(1)) else interp.located("_2 on tuple with <2 elements")
+      case "_3"  => if es.length > 2 then Pure(es(2)) else interp.located("_3 on tuple with <3 elements")
+      case "_4"  => if es.length > 3 then Pure(es(3)) else interp.located("_4 on tuple with <4 elements")
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Unit ────────────────────────────────────────────────────────────────────
+
+  private def dispatchUnit(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "++" => args match
+        case List(Value.TupleV(bs)) => Pure(Value.TupleV(bs))
+        case List(Value.UnitV)      => Pure(Value.UnitV)
+        case List(v)                => Pure(v)
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── InstanceV ───────────────────────────────────────────────────────────────
+
+  private def dispatchInstance(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    typeName match
+      case "Signal" => name match
+        case "get" | "apply" =>
+          fields.get("id") match
+            case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(interp, id))
+            case _                    => interp.located("Signal handle missing id")
+        case "set" => args match
+          case List(v) => fields.get("id") match
+            case Some(Value.IntV(id)) => SignalRuntime.signalSet(interp, id, v); Pure(Value.UnitV)
+            case _                    => interp.located("Signal handle missing id")
+          case _       => dispatchFallback(recv, name, args, env, interp)
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
+      case "Response" => name match
+        case "withSession" => args match
+          case List(Value.MapV(m)) =>
+            Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
+          case _                   => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case "clearSession" =>
+          Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
+        case "withHeader" => args match
+          case List(Value.StringV(hname), Value.StringV(value)) =>
+            val existing = fields.get("headers") match
+              case Some(Value.MapV(m)) => m
+              case _                   => Map.empty[Value, Value]
+            val merged = existing + (Value.StringV(hname) -> Value.StringV(value))
+            Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
+          case _           => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
+      case "Right" => name match
+        case "isRight"   => Pure(Value.boolV(true))
+        case "isLeft"    => Pure(Value.boolV(false))
+        case "toOption"  => Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
+        case "swap"      => Pure(Value.InstanceV("Left", fields))
+        case "toSeq"     => Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
+        case "getOrElse" => Pure(fields.getOrElse("value", Value.UnitV))
+        case "map"       => args match
+          case List(f) =>
+            interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env).map(v =>
+              Value.InstanceV("Right", Map("value" -> v)))
+          case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case "flatMap"   => args match
+          case List(f) => interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env)
+          case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case "fold"      => args match
+          case List(_, r) => interp.callValue(r, List(fields.getOrElse("value", Value.UnitV)), env)
+          case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
+      case "Left" => name match
+        case "isRight"   => Pure(Value.boolV(false))
+        case "isLeft"    => Pure(Value.boolV(true))
+        case "toOption"  => Pure(Value.OptionV(None))
+        case "swap"      => Pure(Value.InstanceV("Right", fields))
+        case "toSeq"     => Pure(Value.ListV(Nil))
+        case "getOrElse" => args match
+          case List(d) => Pure(d)
+          case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case "map"       => Pure(recv)
+        case "flatMap"   => Pure(recv)
+        case "fold"      => args match
+          case List(l, _) => interp.callValue(l, List(fields.getOrElse("value", Value.UnitV)), env)
+          case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
+      case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
+  private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // ReactiveSignal bridge (no hard-coding streams into core)
+    if typeName == "ReactiveSignal" && name == "bind" then
+      args match
+        case List(source) =>
+          interp.globals.get("ReactiveSignal.bind") match
+            case Some(fn) => interp.callValue(fn, List(recv, source), env)
+            case None     => interp.located("No method 'bind' on ReactiveSignal")
+        case _ => dispatchFallback(recv, name, args, env, interp)
+    // Exception .getMessage alias
+    else if name == "getMessage" && args.isEmpty then
+      Pure(fields.getOrElse("message", Value.StringV("")))
+    // Class methods (declared inside `class`/`case class` body)
+    else if interp.typeMethods.get(typeName).exists(_.contains(name)) then
+      val fn = interp.typeMethods(typeName)(name)
+      interp.callFun(fn.copy(closure = fn.closure ++ fields), args)
+    // No-arg / native field access (must precede enum-companion check so plain
+    // field values like IntV(3) are returned directly instead of being "called")
+    else if args.isEmpty then
+      fields.get(name) match
+        case Some(f: Value.FunV)      if f.params.isEmpty => interp.callFun(f, Nil)
+        case Some(f: Value.NativeFnV)                     => f.f(Nil)
+        case Some(v)                                      => Pure(v)
+        case None if name == "toString"                   => Pure(Value.StringV(Value.show(recv)))
+        case None =>
+          extensionDispatch(recv, name, Nil, env, interp)
+            .getOrElse(interp.located(s"No field '$name'"))
+    // Enum companion call (Color.RGB(1,2,3)) — only when args are present
+    else if fields.contains(name) then
+      interp.callValue(fields(name), args, env)
+    else
+      extensionDispatch(recv, name, args, env, interp)
+        .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+
+  // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
+
+  private def dispatchFallback(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // Cross-type ++ cases: bare value on LEFT with TupleV/UnitV on right
+    if name == "++" then
+      args match
+        case List(Value.TupleV(bs)) if !recv.isInstanceOf[Value.ListV] && !recv.isInstanceOf[Value.MapV] =>
+          recv match
+            case Value.UnitV      => Pure(Value.TupleV(bs))
+            case Value.TupleV(as) => Pure(Value.TupleV(as ++ bs))   // shouldn't reach here but safe
+            case _                => Pure(Value.TupleV(recv :: bs))
+        case List(Value.UnitV) if !recv.isInstanceOf[Value.ListV] && !recv.isInstanceOf[Value.MapV] =>
+          recv match
+            case Value.TupleV(as) => Pure(Value.TupleV(as))         // shouldn't reach here but safe
+            case _                => Pure(recv)
+        case List(w) if !recv.isInstanceOf[Value.ListV] && !recv.isInstanceOf[Value.MapV] =>
+          recv match
+            case Value.TupleV(as) => Pure(Value.TupleV(as :+ w))    // shouldn't reach here but safe
+            case Value.UnitV      => Pure(w)                         // shouldn't reach here but safe
+            case _                => Pure(Value.TupleV(List(recv, w)))
+        case _ => extensionDispatch(recv, name, args, env, interp)
+                    .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+    else
+      extensionDispatch(recv, name, args, env, interp)
+        .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
 
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     val rhs = args.headOption.getOrElse(Value.UnitV)
@@ -532,7 +735,6 @@ private[interpreter] object DispatchRuntime:
     interp.extensions.get((typeName, method)).map { fn =>
       interp.callValue(fn, recv :: args, env)
     }.orElse {
-      // Walk the parent chain (e.g. Right → Either, PChar → Parser, Red → Color).
       var parent: Option[String] = interp.parentTypes.get(typeName)
       var found: Option[Computation] = None
       while parent.isDefined && found.isEmpty do
