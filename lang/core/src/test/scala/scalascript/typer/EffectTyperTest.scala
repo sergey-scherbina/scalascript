@@ -32,7 +32,7 @@ class EffectTyperTest extends AnyFunSuite:
     val greetType = types("greet")
     greetType match
       case SType.Function(List(SType.String), SType.Unit, SType.EffectRow(_, ops)) =>
-        assert(ops == Set("Logger"), s"expected Set(Logger) but got $ops")
+        assert(ops == Set(EffectOp("Logger")), s"expected Set(EffectOp(Logger)) but got $ops")
       case other => fail(s"unexpected type: ${other.show}")
   }
 
@@ -45,7 +45,7 @@ class EffectTyperTest extends AnyFunSuite:
     val t = types("auditedShuffle")
     t match
       case SType.Function(_, _, SType.EffectRow(_, ops)) =>
-        assert(ops == Set("Logger", "Random"), s"expected {Logger, Random} but got $ops")
+        assert(ops == Set(EffectOp("Logger"), EffectOp("Random")), s"expected {Logger, Random} but got $ops")
       case other => fail(s"unexpected type: ${other.show}")
   }
 

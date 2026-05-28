@@ -7298,23 +7298,50 @@ function runAuthWith(user) {
 
 // ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
 //
-// Stream.emit(x)  — produces a Perform node inside a runStream body
-// runStream(bodyFn)  — collects all Stream.emit values; returns Source[A]
+// Stream.emit(x)       — produce element (! Stream[A])
+// Stream.complete()    — early termination
+// Stream.error(msg)    — fail the stream
+// Stream.request(n)    — advisory demand hint (no-op in v1.51.6)
+// runStream(bodyFn)    — discharge Stream effect; returns [Source[A], R]
 
 const Stream = {
-  emit: (x) => _perform('Stream', 'emit', [x]),
+  emit:     (x)   => _perform('Stream', 'emit',     [x]),
+  complete: ()    => _perform('Stream', 'complete',  []),
+  error:    (msg) => _perform('Stream', 'error',    [msg]),
+  request:  (n)   => _perform('Stream', 'request',  [n]),
 };
 
 function runStream(bodyFn) {
   const emitted = [];
+  let terminated = false;
+  let errorMsg   = null;
+  let bodyResult = undefined;
   const handlers = {
     'Stream.emit': function(args) {
-      emitted.push(args[0]);
+      if (!terminated && errorMsg === null) emitted.push(args[0]);
       return args[args.length - 1](undefined);
     },
+    'Stream.complete': function(args) {
+      terminated = true;
+      return args[args.length - 1](undefined);
+    },
+    'Stream.error': function(args) {
+      errorMsg = args[0] ?? 'Stream error';
+      return args[args.length - 1](undefined);
+    },
+    'Stream.request': function(args) {
+      return args[args.length - 1](undefined);  // advisory no-op
+    },
   };
-  _handle(bodyFn, new Set(['Stream.emit']), handlers);
-  return _makeAsyncStream((async function*(xs) { for (const v of xs) yield v; })(emitted));
+  bodyResult = _handle(bodyFn, new Set(['Stream.emit','Stream.complete','Stream.error','Stream.request']), handlers);
+  let source;
+  if (errorMsg !== null) {
+    const msg = errorMsg;
+    source = _makeAsyncStream((async function*() { throw new Error(msg); })());
+  } else {
+    source = _makeAsyncStream((async function*(xs) { for (const v of xs) yield v; })(emitted));
+  }
+  return [source, bodyResult];
 }
 """
 
@@ -7955,11 +7982,13 @@ class JsGen(
                     allText.contains("Flow.")
     if hasAsync || hasStreams then caps += Async
     // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
+    // v1.51.6: Stream algebraic effect also lives in JsRuntimeV14Effects (at the end).
     val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
                  allText.contains("Clock.")  || allText.contains("Env.")    ||
                  allText.contains("Auth.")   || allText.contains("runLogger") ||
                  allText.contains("runRandom") || allText.contains("runClock") ||
-                 allText.contains("runEnv")  || allText.contains("runAuth")
+                 allText.contains("runEnv")  || allText.contains("runAuth")  ||
+                 allText.contains("Stream.") || allText.contains("runStream")
     if hasV14 then caps += Effects
     // MCP — `JsRuntimeMcp`.
     val hasMcp = allText.contains("mcpServer") || allText.contains("serveMcp") ||

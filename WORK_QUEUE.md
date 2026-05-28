@@ -256,7 +256,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.51.5c-streams-swiftui-bridge** — Platform-native SwiftUI stream/signal bridge for generated `@State` values, matching the interpreter/JVM desktop `Source.signal` + `sig.bind(source)` behavior where practical. Spec: `docs/streams.md §8.5`. (2026-05-27)
 
-- [x] **v1.51.6-streams-effects** — `Source[A] ! Stream` effect-row integration + `runStream { … }` discharge runner analogous to `runLogger`. Spec: `docs/streams.md §14.6`. (2026-05-27)
+- [x] **v1.51.6-streams-typed** — Type-safe algebraic-effect integration: `Stream[A]` parameterized effect op (`EffectOp(name, args)` type-system extension), 4 ops (`emit/complete/error/request`), `runStream[A, R]: (Source[A], R)` canonical form, cross-backend parity (interpreter + JS + JVM all return the tuple). Spec: `docs/streams.md §14.6`. (2026-05-28)
 
 - [x] **v1.51.3-streams-flow-sink** — `Flow[A, B]` + `Sink[A]` types; `.to(sink)` / `.via(flow)` routing; combining operators `zip` / `merge` / `concat` / `broadcast(n)` / `balance(n)` (queue-per-subscriber); `groupBy(key)` + `mergeSubstreams`; interpreter intrinsics in `StreamsIntrinsics.scala`; JS lowering in JsGen. Spec: `docs/streams.md §14.3`. (2026-05-27)
 

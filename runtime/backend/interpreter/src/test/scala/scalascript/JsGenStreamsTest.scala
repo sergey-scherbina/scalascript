@@ -135,3 +135,40 @@ class JsGenStreamsTest extends AnyFunSuite:
   test("scan(z)(f) call chain is present in generated JS"):
     val out = js("Source.from(List(1, 2, 3)).scan(0)((acc, x) => acc + x).runToList()")
     assert(out.contains("'scan'") || out.contains(".scan("))
+
+  // ── v1.51.6 Stream algebraic effect JS lowering ─────────────────────────
+  // Note: JsGen.generate returns user-code only (no runtime preamble).
+  // The `_perform('Stream', …)` definitions live in JsRuntimeV14Effects.
+  // These tests verify (a) the Effects runtime section contains the Stream op
+  // definitions and (b) the generated user code references Stream / runStream.
+
+  test("JsRuntimeV14Effects contains Stream.emit _perform definition"):
+    val rt = JsGen.generateRuntime(Set(JsGen.Capability.Effects))
+    assert(rt.contains("_perform('Stream', 'emit'"),   s"missing Stream.emit in Effects runtime")
+    assert(rt.contains("_perform('Stream', 'complete'"), s"missing Stream.complete in Effects runtime")
+    assert(rt.contains("_perform('Stream', 'error'"),   s"missing Stream.error in Effects runtime")
+    assert(rt.contains("_perform('Stream', 'request'"), s"missing Stream.request in Effects runtime")
+    assert(rt.contains("function runStream("),          s"missing runStream in Effects runtime")
+    assert(rt.contains("_makeAsyncStream"),             s"missing _makeAsyncStream in Effects runtime")
+
+  test("runStream body with Stream.emit: user code references Stream and runStream"):
+    val out = js(
+      """
+      val (src, _) = runStream { Stream.emit(1) }
+      src
+      """
+    )
+    assert(out.contains("runStream") || out.contains("_call(runStream"),
+      s"expected runStream reference in user code: ${out.take(2000)}")
+    assert(out.contains("Stream") || out.contains("'Stream'"),
+      s"expected Stream reference in user code: ${out.take(2000)}")
+
+  test("runStream body with Stream.complete: user code references Stream.complete"):
+    val out = js("runStream { Stream.complete() }")
+    assert(out.contains("complete") && (out.contains("Stream") || out.contains("'Stream'")),
+      s"expected Stream.complete reference in user code: ${out.take(2000)}")
+
+  test("runStream body with Stream.error: user code references Stream.error"):
+    val out = js("""runStream { Stream.error("boom") }""")
+    assert(out.contains("error") && (out.contains("Stream") || out.contains("'Stream'")),
+      s"expected Stream.error reference in user code: ${out.take(2000)}")

@@ -885,7 +885,7 @@ Design decisions locked:
 - Error propagation: errors flow downstream + cancel upstream (Akka Streams `Supervision.Stop` default).
 - Backend fast paths: JVM/interpreter = VT + `ArrayBlockingQueue(16)`; JS = native `async function*` + `Symbol.asyncIterator` (new emit path).
 - UI signal adapter (`Source.signal`, `signal.bind`) scoped to v1.51.5.
-- Effect-row integration (`A ! Stream`) deferred to v1.51.6+.
+- Effect-row integration (`A ! Stream`) — **landed in v1.51.6 (2026-05-28)**.
 
 ### Implementation milestones (open)
 
@@ -924,10 +924,12 @@ Design decisions locked:
   README, user guide, and spec updated.
 - Follow-up: platform-native SwiftUI stream/signal bridge.
 
-**v1.51.6 — Effect-row integration (open / deferred):**
-- `Source[A] ! Stream` via `Perform("Stream", …)` through `Computation` ADT
-- `runStream { … }` discharge runner analogous to `runLogger`
-- Re-evaluate after v1.51.5
+**v1.51.6 — Effect-row integration (Landed 2026-05-28):**
+- `Stream[A]` parameterized effect op (`EffectOp(name, args)` type-system extension)
+- `Stream.emit[A]`, `Stream.complete[A]`, `Stream.error[A]`, `Stream.request[A]` ops
+- `runStream[A, R](body): (Source[A], R)` — canonical algebraic-effects discharge runner
+- Type-safe: `Stream.emit(x)` arg type unifies with `runStream` element type; mixed-type emits = compile error
+- Cross-backend parity: interpreter, JS, JVM all return `(Source[A], R)` tuple
 
 ### Streams v1.51.5 follow-ups
 

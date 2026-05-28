@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import scalascript.ir.ModuleInterface
-import scalascript.typer.{Symbol, Scope, SType, SymbolKind as TSymbolKind, RefMember, MatchCase}
+import scalascript.typer.{Symbol, Scope, SType, EffectOp, SymbolKind as TSymbolKind, RefMember, MatchCase}
 
 /** A `Scope` populated from a pre-compiled `ModuleInterface`.
  *
@@ -446,24 +446,29 @@ object InterfaceScope:
       then { pos += 1; true }
       else false
 
-    /** Parse an effect set after `!`: either a single name or `(Name1, Name2, ...)`. */
+    /** Parse an effect set after `!`: either a single op or `(Op1, Op2[T], ...)`.
+     *  Each op may be a plain name or a parameterized form `Name[T1, T2]`. */
     private def parseEffectSet(): Option[SType.EffectRow] =
+      def parseEffectOp(): Option[EffectOp] =
+        parseNamedOrApp() match
+          case Some(Primary.Single(SType.Named(name, args))) => Some(EffectOp(name, args))
+          case _ => None
       skipWs()
       if peek == '(' then
         pos += 1  // consume '('
-        val names = scala.collection.mutable.ListBuffer.empty[String]
+        val ops = scala.collection.mutable.ListBuffer.empty[EffectOp]
         var ok    = true
         var first = true
         while ok && (first || consume(',')) do
           first = false
           skipWs()
-          parsePath() match
-            case Some(n) => names += n
-            case None    => ok = false
+          parseEffectOp() match
+            case Some(op) => ops += op
+            case None     => ok = false
         if !ok || !consume(')') then None
-        else Some(SType.EffectRow(None, names.toSet))
+        else Some(SType.EffectRow(None, ops.toSet))
       else
-        parsePath().map(n => SType.EffectRow(None, Set(n)))
+        parseEffectOp().map(op => SType.EffectRow(None, Set(op)))
 
     private def parseParen(): Option[Primary] =
       // Caller has verified that we sit on '('.
