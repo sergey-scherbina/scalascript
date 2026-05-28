@@ -96,7 +96,7 @@ private[interpreter] object EffectHandlers:
             resume(Value.IntV(rng.nextInt(n.toInt).toLong))
           case _ => throw InterpretError("Random.nextInt(n: Int)")
         case "nextDouble" =>
-          resume(Value.DoubleV(rng.nextDouble()))
+          resume(Value.doubleV(rng.nextDouble()))
         case "uuid" =>
           val bytes = new Array[Byte](16)
           rng.nextBytes(bytes)
@@ -137,7 +137,7 @@ private[interpreter] object EffectHandlers:
       java.time.format.DateTimeFormatter.ISO_INSTANT.format(inst)
     def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
       op match
-        case "now"    => resume(Value.IntV(nowMs()))
+        case "now"    => resume(Value.intV(nowMs()))
         case "nowIso" => resume(Value.StringV(nowIso()))
         case "sleep"  => args match
           case List(Value.IntV(ms)) =>
@@ -223,13 +223,13 @@ private[interpreter] object EffectHandlers:
           m.get(key) match
             case Some(v) =>
               Value.InstanceV("Response", Map(
-                "status"  -> Value.IntV(200),
+                "status"  -> Value.intV(200),
                 "headers" -> Value.MapV(Map.empty),
                 "body"    -> Value.StringV(Value.show(v))
               ))
             case None =>
               Value.InstanceV("Response", Map(
-                "status"  -> Value.IntV(404),
+                "status"  -> Value.intV(404),
                 "headers" -> Value.MapV(Map.empty),
                 "body"    -> Value.StringV("")
               ))
@@ -448,7 +448,7 @@ private[interpreter] object EffectHandlers:
       else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
     }.toMap
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(resp.statusCode().toLong),
+      "status"  -> Value.intV(resp.statusCode().toLong),
       "body"    -> Value.StringV(resp.body()),
       "headers" -> Value.MapV(hdrs)
     ))
