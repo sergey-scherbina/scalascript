@@ -119,7 +119,7 @@ private[interpreter] object DispatchRuntime:
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "map"         => args match
         case List(f) =>
-          Computation.sequence(s.toList.map(c => interp.callValue1(f, Value.CharV(c), env))).map {
+          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).map {
             case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
             case _                  => Value.StringV(s)
           }
@@ -146,7 +146,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"     => args match
         case List(f) =>
-          Computation.sequence(s.toList.map(c => interp.callValue1(f, Value.CharV(c), env))).flatMap(Computation.discardToUnit)
+          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -416,9 +416,8 @@ private[interpreter] object DispatchRuntime:
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "map"      => args match
         case List(f) =>
-          Computation.sequence(m.toList.map { (k, v) =>
-            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-          }).map {
+          val pairs = m.toList
+          Computation.mapSequence(pairs.map((k, v) => Value.TupleV(List(k, v))), t => interp.callValue1(f, t, env)).map {
             case Value.ListV(entries) =>
               Value.MapV(entries.collect { case Value.TupleV(List(nk, nv)) => nk -> nv }.toMap)
             case _ => Value.EmptyMap
@@ -427,9 +426,8 @@ private[interpreter] object DispatchRuntime:
       case "filter"   => args match
         case List(f) =>
           val items = m.toList
-          Computation.sequence(items.map { (k, v) =>
-            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-          }).map {
+          val tuples = items.map((k, v) => Value.TupleV(List(k, v)))
+          Computation.mapSequence(tuples, t => interp.callValue1(f, t, env)).map {
             case Value.ListV(flags) =>
               Value.MapV(items.zip(flags).collect { case ((k, v), Value.BoolV(true)) => k -> v }.toMap)
             case _ => Value.EmptyMap
@@ -437,9 +435,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"  => args match
         case List(f) =>
-          Computation.sequence(m.toList.map { (k, v) =>
-            interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-          }).flatMap(Computation.discardToUnit)
+          Computation.mapSequence(m.toList.map((k, v) => Value.TupleV(List(k, v))), t => interp.callValue1(f, t, env)).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ =>
         // String-key access shorthand: map.key (no args, unknown method name = key lookup)

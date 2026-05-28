@@ -326,7 +326,7 @@ private[interpreter] object OpticsRuntime:
       case _ => Pure(target)
     case PathStep.EachStep :: rest => target match
       case Value.ListV(items) =>
-        Computation.sequence(items.map(item => opticModifyAll(item, rest, f, interp))).map {
+        Computation.mapSequence(items, item => opticModifyAll(item, rest, f, interp)).map {
           case Value.ListV(updated) => Value.ListV(updated)
           case _                    => target
         }
