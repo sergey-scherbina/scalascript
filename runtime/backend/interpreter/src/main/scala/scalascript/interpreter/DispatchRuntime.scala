@@ -74,7 +74,8 @@ private[interpreter] object DispatchRuntime:
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "split"       => args match
         case List(Value.StringV(sep)) =>
-          Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep)).toList.map(Value.StringV(_))))
+          val parts = s.split(java.util.regex.Pattern.quote(sep))
+          Pure(Value.ListV(parts.iterator.map(Value.StringV(_)).toList))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "take"        => args match
         case List(Value.IntV(n)) =>
@@ -180,7 +181,13 @@ private[interpreter] object DispatchRuntime:
       case "sorted"       => Pure(Value.ListV(ls.sortBy(Value.show)))
       case "toList"       => Pure(recv)
       case "toSet"        => Pure(Value.ListV(ls.distinct))
-      case "flatten"      => Pure(Value.ListV(ls.flatMap { case Value.ListV(inner) => inner; case v => List(v) }))
+      case "flatten"      =>
+        val flatBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        ls.foreach {
+          case Value.ListV(inner) => flatBuf ++= inner
+          case v                  => flatBuf += v
+        }
+        Pure(Value.ListV(flatBuf.toList))
       case "sum"          =>
         // Direct accumulator: avoids N intermediate IntV/DoubleV allocations from foldLeft.
         var intAcc   = 0L
@@ -272,10 +279,10 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.ListV(zipBuf.toList))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "mkString"     => args match
-        case Nil                      => Pure(Value.StringV(ls.map(Value.show).mkString))
-        case List(Value.StringV(sep)) => Pure(Value.StringV(ls.map(Value.show).mkString(sep)))
+        case Nil                      => Pure(Value.StringV(ls.iterator.map(Value.show).mkString))
+        case List(Value.StringV(sep)) => Pure(Value.StringV(ls.iterator.map(Value.show).mkString(sep)))
         case List(Value.StringV(s), Value.StringV(sep), Value.StringV(e)) =>
-          Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
+          Pure(Value.StringV(ls.iterator.map(Value.show).mkString(s, sep, e)))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "map"          => args match
         case List(f) => Computation.mapSequence(ls, item => interp.callValue1(f, item, env))
