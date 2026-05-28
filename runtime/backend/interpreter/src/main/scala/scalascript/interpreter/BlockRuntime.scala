@@ -24,6 +24,7 @@ private[interpreter] object BlockRuntime:
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   def evalBlock(stats: List[Stat], env: Env, interp: Interpreter): Computation =
     val local = mutable.Map.from(env)
+    val localView = new MutableEnvView(local)
     val localOverrides: mutable.Set[String] =
       mutable.Set.from(local.iterator.collect {
         case (k, v) if !interp.globals.get(k).contains(v) => k
@@ -36,13 +37,13 @@ private[interpreter] object BlockRuntime:
         }
         s match
           case Defn.Val(_, pats, _, rhs) =>
-            interp.eval(rhs, local.toMap).flatMap { rhsVal =>
+            interp.eval(rhs, localView).flatMap { rhsVal =>
               pats match
                 case List(Pat.Var(n)) =>
                   local(n.value) = rhsVal
                   localOverrides += n.value
                 case List(pat) =>
-                  PatternRuntime.matchPat(pat, rhsVal, local.toMap, interp) match
+                  PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
                     case Some(patEnv) =>
                       patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
                     case None         => interp.located("Val pattern match failed")
@@ -50,7 +51,7 @@ private[interpreter] object BlockRuntime:
               step(rest, Value.UnitV)
             }
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-            interp.eval(rhs, local.toMap).flatMap { v =>
+            interp.eval(rhs, localView).flatMap { v =>
               local(n.value) = v
               localOverrides += n.value
               step(rest, Value.UnitV)
@@ -58,7 +59,7 @@ private[interpreter] object BlockRuntime:
           // Local var mutation: write to local AND globals so that both the
           // current evalBlock and any enclosing while loop (via freshEnv) see it.
           case Term.Assign(Term.Name(x), rhs) if localOverrides.contains(x) =>
-            interp.eval(rhs, local.toMap).flatMap { v =>
+            interp.eval(rhs, localView).flatMap { v =>
               local(x)           = v
               interp.globals(x)  = v
               step(rest, Value.UnitV)
@@ -68,10 +69,10 @@ private[interpreter] object BlockRuntime:
               if op.value.lengthIs > 1 && op.value.last == '=' &&
                  !Set(">=", "<=", "!=", "==").contains(op.value) && localOverrides.contains(lhs.value) =>
             val baseOp = op.value.init
-            interp.eval(lhs, local.toMap).flatMap { lhsV =>
-              val argComps = argClause.values.map(interp.eval(_, local.toMap))
+            interp.eval(lhs, localView).flatMap { lhsV =>
+              val argComps = argClause.values.map(interp.eval(_, localView))
               interp.threadValues(argComps) { argVs =>
-                interp.infix(lhsV, baseOp, argVs, local.toMap).flatMap { newV =>
+                interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
                   local(lhs.value)          = newV
                   interp.globals(lhs.value) = newV
                   step(rest, Value.UnitV)
@@ -79,7 +80,7 @@ private[interpreter] object BlockRuntime:
               }
             }
           case t: Term =>
-            interp.eval(t, local.toMap).flatMap(v => step(rest, v))
+            interp.eval(t, localView).flatMap(v => step(rest, v))
           case stat =>
             interp.execStat(stat, local)
             step(rest, Value.UnitV)

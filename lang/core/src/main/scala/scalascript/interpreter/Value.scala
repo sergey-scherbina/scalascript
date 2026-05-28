@@ -110,6 +110,22 @@ object FrameMap:
   def of(names: Array[String], vals: Array[Value], parent: Map[String, Value]): FrameMap =
     new FrameMapN(names, vals, parent)
 
+/** Presents a `scala.collection.mutable.Map` as an immutable `Map[String, Value]`
+ *  without copying it.  Used by `BlockRuntime.evalBlock` to avoid the
+ *  `local.toMap` allocation on every statement.
+ *
+ *  Mutation ops (`updated`, `removed`) flatten to a copied Map — they are
+ *  rare in the eval path (only when a `val/var` binding is used as a key). */
+final class MutableEnvView(m: scala.collection.mutable.Map[String, Value])
+    extends scala.collection.immutable.AbstractMap[String, Value]:
+  override def get(key: String): Option[Value]     = m.get(key)
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 = m.getOrElse(key, default)
+  override def contains(key: String): Boolean      = m.contains(key)
+  override def iterator: Iterator[(String, Value)] = m.iterator
+  override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+    (m.toMap: Map[String, Value]).updated(key, value).asInstanceOf[Map[String, V1]]
+  override def removed(key: String): Map[String, Value] = m.toMap.removed(key)
+
 enum Value:
   case IntV(v: Long)
   case DoubleV(v: Double)
