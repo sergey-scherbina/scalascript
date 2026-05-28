@@ -3075,15 +3075,37 @@ val wallet = await(Wallets.metaMask(Network.Base))
 active EIP-155 chain, and signs x402 EIP-712 authorizations with
 `eth_signTypedData_v4`.
 
+MPC wallet vaults use the same wallet SPI but delegate signatures to an
+external provider instead of holding local keys. The shared
+`wallet-vault-mpc` module defines `RemoteSigningClient`, `McpVault`, and
+`McpRemoteSigner`; provider adapters live in separate modules. Fireblocks is
+available through `wallet-vault-mpc-fireblocks`:
+
+```scalascript
+import scalascript.wallet.vault.mpc.fireblocks.*
+
+val vault = FireblocksVault(
+  apiKey        = sys.env("FIREBLOCKS_API_KEY"),
+  privateKeyPem = sys.env("FIREBLOCKS_PRIVATE_KEY_PEM"),
+  baseUrl       = sys.env.getOrElse("FIREBLOCKS_BASE_URL", "https://api.fireblocks.io"),
+  options       = FireblocksOptions(vaultAccountId = "0", assetId = "ETH"),
+)
+```
+
+The Fireblocks adapter signs each request with Fireblocks RS256 JWT auth,
+creates RAW transactions via `/v1/transactions`, and polls
+`/v1/transactions/{id}` until the signature is completed or failed.
+
 Specs:
 - [`docs/x402.md`](x402.md) — protocol + flows
 - [`docs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
 - [`docs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
+- [`docs/wallet-vault-mpc.md`](wallet-vault-mpc.md) — MPC remote signing vaults
 - [`docs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
 
 Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-metamask.ssc`,
-`x402-cardano.ssc` (end-to-end
-Cardano flow with CIP-8 wallet + Scalus escrow validator).
+`x402-cardano.ssc` (end-to-end Cardano flow with CIP-8 wallet + Scalus
+escrow validator), `wallet-mpc-fireblocks.ssc`.
 
 Cardano Scalus escrow support is still incomplete: the compiled Plutus validator
 is committed and `EscrowScript.address(network)` can derive stable mainnet and

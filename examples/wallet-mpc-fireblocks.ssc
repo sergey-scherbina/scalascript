@@ -1,0 +1,47 @@
+#!/usr/bin/env ssc
+---
+name: wallet-mpc-fireblocks
+version: 1.0.0
+description: Fireblocks MPC vault sketch using the wallet-vault-mpc Fireblocks adapter.
+target: jvm
+---
+
+# wallet-mpc-fireblocks
+
+This example shows the intended JVM-side wiring for a Fireblocks-backed MPC
+vault. Credentials stay in environment variables; signatures are produced by
+Fireblocks, not by a local private key.
+
+```scalascript
+import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.*
+import scalascript.crypto.{Curve, HashAlgo}
+import scalascript.wallet.spi.UnlockCredential
+import scalascript.wallet.vault.mpc.fireblocks.*
+
+val vault = FireblocksVault(
+  apiKey        = sys.env("FIREBLOCKS_API_KEY"),
+  privateKeyPem = sys.env("FIREBLOCKS_PRIVATE_KEY_PEM"),
+  baseUrl       = sys.env.getOrElse("FIREBLOCKS_BASE_URL", "https://api.fireblocks.io"),
+  options       = FireblocksOptions(
+    vaultAccountId = sys.env.getOrElse("FIREBLOCKS_VAULT_ACCOUNT_ID", "0"),
+    assetId        = sys.env.getOrElse("FIREBLOCKS_ASSET_ID", "ETH"),
+  ),
+)
+
+Await.result(vault.unlock(UnlockCredential.None), 30.seconds)
+
+val signer = vault.getSigner(Curve.Secp256k1, "m/44'/60'/0'/0/0")
+val payload = Array[Byte](0x11, 0x22, 0x33, 0x44)
+val signature = Await.result(signer.sign(payload, HashAlgo.Keccak256), 60.seconds)
+
+println(s"Fireblocks signature bytes: ${signature.length}")
+```
+
+## Usage
+
+Provide `FIREBLOCKS_API_KEY`, `FIREBLOCKS_PRIVATE_KEY_PEM`, and optionally
+`FIREBLOCKS_BASE_URL`, `FIREBLOCKS_VAULT_ACCOUNT_ID`, `FIREBLOCKS_ASSET_ID`.
+The private key must be a Fireblocks API RSA private key in PKCS8 PEM format.
+

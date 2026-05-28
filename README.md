@@ -335,6 +335,7 @@ Planned, not implemented yet:
 | Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
 | Browser MetaMask wallet | `x402ClientJs` helper — `Wallets.metaMask(Network.Base)` over `window.ethereum` + EIP-712 signing |
 | Ledger hardware wallets | JVM HID and browser WebHID vaults — Ledger HID APDU framing, Ethereum app signing, Cardano CIP-8 helpers |
+| MPC wallet vaults | `wallet-vault-mpc` remote signing core plus `wallet-vault-mpc-fireblocks` provider adapter — Fireblocks JWT auth, RAW transaction signing, polling |
 | Solana Wallet Standard | `solana-wallet-std` translator — Wallet Standard ↔ unified Wallet SPI |
 | ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
 | Cardano CIP-8 wallet | Ed25519 key-derived enterprise bech32 address, CIP-8 message signing, Scalus-source escrow validator with on-chain canonical CIP-8 proof verification, exact receiver-output check, claim/refund validity-window checks, Scalus script-context validator tests, stable `EscrowScript.address(network)` script address helper, Scalus-mode structured claim-message signing, server-side Scalus proof verification, bloxbean claim Tx draft with script data hash + relayer witness, typed Blockfrost protocol params, protocol min-fee draft balancing, static/bloxbean/Blockfrost/Ogmios Plutus ex-units, and env-gated Preprod integration coverage |
@@ -427,6 +428,7 @@ Planned, not implemented yet:
 | [x402-metamask.ssc](examples/x402-metamask.ssc) | Browser x402 wallet helper — connect MetaMask and sign EIP-712 via `window.ethereum` |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
 | [wallet-ledger-js.ssc](examples/wallet-ledger-js.ssc) | Browser Ledger/WebHID vault sketch — connect lifecycle, Ethereum signer, Cardano CIP-8 helper |
+| [wallet-mpc-fireblocks.ssc](examples/wallet-mpc-fireblocks.ssc) | JVM Fireblocks MPC vault sketch — remote secp256k1 signing through Fireblocks RAW transactions |
 | [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |
 | [spark-encoder-demo.ssc](examples/spark-encoder-demo.ssc) | Scala 3 native `Encoder[T]` derivation — `Dataset[CaseClass]` end-to-end on Spark 4 |
 | [spark-streaming-rate-console.ssc](examples/spark-streaming-rate-console.ssc) | Structured Streaming — rate source → console sink with auto-`awaitTermination` |

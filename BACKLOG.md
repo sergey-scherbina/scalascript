@@ -4837,16 +4837,21 @@ device, one seed, per-chain on-device apps; the Vault routes
         provider-specific auth decoration
   - [x] `MpcSerialization` — base64 codec + curve/hash naming + JSON
         marshalling for sign request, account list, operation status
-- [ ] Curve-specific MPC protocol modules — **deferred**. Each MPC
-      vendor (Fireblocks GG18/CMP for secp256k1; Coinbase MPC for
-      ECDSA; ZenGo/Web3Auth/Lit Protocol; the FROST-Ed25519 family)
-      ships its own SDK semantics. Plan is one provider-specific
-      adapter module per vendor (e.g. `wallet-vault-mpc-fireblocks`,
-      `wallet-vault-mpc-coinbase`) that subclasses
-      `HttpRemoteSigningClient` and bundles vendor-mandated request
-      decoration (HMAC signing, idempotency keys, polling cadence) —
-      kept out of `wallet-vault-mpc` so the trait surface stays
-      vendor-neutral.
+- [x] `wallet-vault-mpc-fireblocks` — Fireblocks provider adapter.
+      ✓ Landed 2026-05-28. Adds a dedicated sbt subproject,
+      `FireblocksRemoteSigningClient`, RS256 JWT auth with `X-API-Key`,
+      RAW transaction request generation, `/v1/transactions/{id}` polling,
+      `FireblocksVault`, `FireblocksPlugin` ServiceLoader discovery,
+      `docs/wallet-vault-mpc.md`, `examples/wallet-mpc-fireblocks.ssc`,
+      and 16 mock-HTTP/JWT/wire tests.
+- [ ] Remaining curve/vendor-specific MPC protocol modules — **deferred**.
+      Coinbase MPC, ZenGo/Web3Auth/Lit Protocol, and the FROST-Ed25519
+      family ship their own SDK semantics. Plan is one provider-specific
+      adapter module per vendor (for example `wallet-vault-mpc-coinbase`)
+      that subclasses or composes the shared `HttpRemoteSigningClient` and
+      bundles vendor-mandated request decoration (HMAC/JWT signing,
+      idempotency keys, polling cadence) — kept out of `wallet-vault-mpc`
+      so the trait surface stays vendor-neutral.
 
 ---
 
