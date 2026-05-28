@@ -116,3 +116,29 @@ val msgs = runLoggerToList {
 }
 println(msgs)
 ```
+
+## Stream effect — typed producer (v1.51.6)
+
+`Stream[A]` is a parameterized algebraic effect. `runStream { body }` discharges
+it and returns `(Source[A], R)` — the collected source and the body's final value.
+
+```scalascript
+// Producer — emits via effect, returns a meaningful value
+def readNumbers(shouldStop: Boolean): Int ! Stream[Int] =
+  Stream.emit(1)
+  Stream.emit(2)
+  if shouldStop then Stream.complete()
+  Stream.emit(3)
+  3  // count of emitted lines (full path)
+
+val (nums, count) = runStream { readNumbers(false) }
+nums.runToList()  // List(1, 2, 3)
+count             // 3
+
+val (partial, _) = runStream { readNumbers(true) }
+partial.runToList()  // List(1, 2)  — complete() stopped before emit(3)
+
+// Mixed-type emits are a compile error:
+// runStream { Stream.emit(1); Stream.emit("x") }
+//   // error: Stream[Int] vs Stream[String] in effect row
+```

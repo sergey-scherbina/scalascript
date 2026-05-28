@@ -148,26 +148,66 @@ extern def Flow.debounce[A](durationMillis: Int): Flow[A, A]
 
 ## `Stream` algebraic effect (v1.51.6)
 
-Algebraic-effect style producer: instead of a virtual thread, the body is a
-pure computation tree.  `Stream.emit(x)` injects a `Perform` node;
-`runStream { body }` walks the tree, collects every emitted value in order,
-and converts the list to a `Source[A]` via `Source.from`.
+Algebraic-effect style producer: the body is a pure computation tree parameterized
+by the element type `A`.  `Stream.emit(x)` injects a `Perform` node typed
+`Unit ! Stream[A]`; `runStream { body }` discharges `Stream[A]` from the body's
+effect row, collects every emitted value in order, and returns a tuple
+`(Source[A], R)` where `R` is the body's final return type.
+
+The handler also supports early termination (`Stream.complete()`), error signalling
+(`Stream.error(msg)`), and advisory demand hints (`Stream.request(n)`).
 
 ```scalascript
-// Emit one element from inside a runStream body.
-extern def Stream.emit[A](value: A): Unit
+// Emit one element from inside a runStream body; typed ! Stream[A].
+extern def Stream.emit[A](value: A): Unit ! Stream[A]
 
-// Discharge a Stream-effect body; returns a Source[A] of all emitted values.
-extern def runStream[A](body: => Unit): Source[A]
+// Terminate the stream early; subsequent emit calls after complete() are ignored.
+extern def Stream.complete[A](): Nothing ! Stream[A]
+
+// Fail the stream with a message; downstream consumers see the error on first pull.
+extern def Stream.error[A](msg: String): Nothing ! Stream[A]
+
+// Advisory demand hint — record that n elements are requested.
+// v1.51.6: no-op; future versions may use this for backpressure.
+extern def Stream.request[A](n: Int): Unit ! Stream[A]
+
+// Discharge a Stream-effect body.
+// Returns (Source[A], R): the collected source and the body's final value.
+extern def runStream[A, R](body: => R): (Source[A], R)
 ```
 
-Example:
+Example — body returns `Unit` (most common case):
 
 ```scalascript
-val src = runStream {
+val (src, _) = runStream {
   Stream.emit(1)
   Stream.emit(2)
   Stream.emit(3)
 }
 src.runToList()  // => List(1, 2, 3)
+```
+
+Example — body returns a meaningful value:
+
+```scalascript
+def readNumbers(shouldStop: Boolean): Int ! Stream[Int] =
+  Stream.emit(1)
+  Stream.emit(2)
+  if shouldStop then Stream.complete()
+  Stream.emit(3)
+  3  // return count of emitted items (full path)
+
+val (nums, count) = runStream { readNumbers(false) }
+nums.runToList()  // => List(1, 2, 3)
+count             // => 3
+
+val (partial, _) = runStream { readNumbers(true) }
+partial.runToList()  // => List(1, 2)  — complete() stopped before emit(3)
+```
+
+Type safety — `Stream[A]` is parameterized so mixed-type emits are a compile error:
+
+```scalascript
+// runStream { Stream.emit(1); Stream.emit("x") }
+//   ↑ compile error: Stream[Int] vs Stream[String] in effect row
 ```

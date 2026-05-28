@@ -2,6 +2,7 @@ package scalascript.artifact
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.parser.Parser
+import scalascript.ir.ArtifactVersion
 import scala.concurrent.{Future, Await}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.*
@@ -113,7 +114,7 @@ class CrossPlatformSmokeTest extends AnyFunSuite:
       val srcName = "my_module.ssc"
       val scimPath = artDir / (srcName.stripSuffix(".ssc") + ".scim")
       assert(scimPath.last == "my_module.scim")
-      assert(scimPath.segments.last == "my_module.scim")
+      assert(scimPath.segments.toList.last == "my_module.scim")
     finally os.remove.all(base)
 
   // ── 4. Concurrent artifact writes ────────────────────────────────────────

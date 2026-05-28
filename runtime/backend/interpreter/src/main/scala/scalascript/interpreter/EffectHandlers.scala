@@ -454,32 +454,69 @@ private[interpreter] object EffectHandlers:
     ))
 
   // ── Stream (v1.51.6) ─────────────────────────────────────────────────
-  // runStream { body } — collects all Stream.emit(x) calls in body order,
-  // then wraps the list as a Source[A] via Source.from (streams plugin) or
-  // returns a ListV if the plugin is not loaded.
+  // runStream { body } — canonical algebraic-effects form.
+  // Collects Stream.emit(x) calls; handles complete()/error(msg)/request(n).
+  // Returns (Source[A], R): a tuple of the emitted source and the body's final value.
   def streamRun(initial: Computation, interp: Interpreter): Computation =
-    val buf = scala.collection.mutable.ListBuffer.empty[Value]
-    def finish(): Computation =
+    val buf        = scala.collection.mutable.ListBuffer.empty[Value]
+    var terminated = false
+    var errorMsg   = Option.empty[String]
+
+    def makeSource(): Value =
       val emitted = Value.ListV(buf.toList)
-      val src = interp.globals.get("Source.from") match
-        case Some(fn) =>
-          try interp.invoke(fn, List(emitted))
-          catch case _: Throwable => emitted
-        case None => emitted
-      Pure(src)
+      if errorMsg.isDefined then
+        // Return a Source that fails on first pull by wrapping in a failed source if available.
+        interp.globals.get("Source.failed") match
+          case Some(fn) =>
+            try interp.invoke(fn, List(Value.StringV(errorMsg.get)))
+            catch case _: Throwable => emitted
+          case None => emitted
+      else
+        interp.globals.get("Source.from") match
+          case Some(fn) =>
+            try interp.invoke(fn, List(emitted))
+            catch case _: Throwable => emitted
+          case None => emitted
+
+    def finish(bodyResult: Value): Computation =
+      Pure(Value.TupleV(List(makeSource(), bodyResult)))
+
     def loop(current: Computation): Computation =
+      if terminated || errorMsg.isDefined then return finish(Value.UnitV)
       current match
-        case Pure(_) => finish()
+        case Pure(v) => finish(v)
         case Perform("Stream", "emit", args) =>
           buf += args.headOption.getOrElse(Value.UnitV)
           loop(Pure(Value.UnitV))
+        case Perform("Stream", "complete", _) =>
+          terminated = true
+          finish(Value.UnitV)
+        case Perform("Stream", "error", args) =>
+          errorMsg = Some(args.headOption match
+            case Some(Value.StringV(m)) => m
+            case Some(v)                => v.toString
+            case None                   => "Stream error")
+          finish(Value.UnitV)
+        case Perform("Stream", "request", _) =>
+          loop(Pure(Value.UnitV))  // advisory no-op in v1.51.6
         case Perform(_, _, _) => current
         case FlatMap(sub, f) => sub match
-          case Pure(v)                         => loop(f(v))
-          case FlatMap(s2, g)                  => loop(FlatMap(s2, x => FlatMap(g(x), f)))
-          case Perform("Stream", "emit", args) =>
+          case Pure(v)                          => loop(f(v))
+          case FlatMap(s2, g)                   => loop(FlatMap(s2, x => FlatMap(g(x), f)))
+          case Perform("Stream", "emit", args)  =>
             buf += args.headOption.getOrElse(Value.UnitV)
             loop(f(Value.UnitV))
-          case Perform(_, _, _)                =>
+          case Perform("Stream", "complete", _) =>
+            terminated = true
+            finish(Value.UnitV)
+          case Perform("Stream", "error", args) =>
+            errorMsg = Some(args.headOption match
+              case Some(Value.StringV(m)) => m
+              case Some(v)                => v.toString
+              case None                   => "Stream error")
+            finish(Value.UnitV)
+          case Perform("Stream", "request", _)  =>
+            loop(f(Value.UnitV))
+          case Perform(_, _, _)                 =>
             FlatMap(sub, v => loop(f(v)))
     loop(initial)

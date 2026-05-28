@@ -619,24 +619,7 @@ error [TYPE_MISMATCH]: cannot connect Source[Int] to Sink[String]
 
 ### 12.1 Effect-row integration
 
-With v1.12's typed effect rows in place, a future milestone can integrate
-streams as an effect:
-
-```ssc
-// Source[A] ! Stream means: this computation produces a stream as an effect
-def readLines(path: String): Source[String] ! (FileIO, Stream)
-
-handle[Stream](readLines("data.txt")) {
-  case Stream.emit(x, resume) => process(x); resume(())
-}
-```
-
-The `Stream` effect would carry `Perform("Stream", "emit" | "request" | "complete" | "error", …)`
-ops through the existing
-`Computation = Pure | Perform | FlatMap` ADT
-(`lang/core/src/main/scala/scalascript/interpreter/Value.scala:240-306`).
-This is the same mechanism v1.12 uses for multi-shot algebraic effects.
-Discharge is via a `runStream { … }` runner analogous to `runLogger { … }`.
+Implemented in v1.51.6 — see §14.6 for the normative specification.
 
 ### 12.2 JDK Flow + Reactive Streams TCK adapter
 
@@ -816,11 +799,80 @@ bridge.
    - JavaFX/Swing in-process signal-bus wiring **landed (2026-05-27)**.
    - SwiftUI platform-native stream bridging remains planned.
 
-### v1.51.6 — Effect-row integration (open / deferred)
+### v1.51.6 — Effect-row integration (Landed 2026-05-28)
 
-Re-evaluate after v1.51.5. If a concrete need for `Source[A] ! Stream` arises
-(e.g. cross-stage effect propagation, structured concurrency over streams),
-implement the `Perform("Stream", …)` hookup into the `Computation` ADT per §12.1.
+Full algebraic-effect integration for streams. `Stream[A]` is a parameterized
+effect that unifies with the emit calls inside a `runStream` body, enforcing
+type safety at compile time.
+
+#### Surface API
+
+```ssc
+// Emit one element (typed ! Stream[A])
+extern def Stream.emit[A](value: A): Unit ! Stream[A]
+
+// Terminate the stream early — subsequent emits are dropped
+extern def Stream.complete[A](): Nothing ! Stream[A]
+
+// Fail the stream with a message — downstream sees the error on first pull
+extern def Stream.error[A](msg: String): Nothing ! Stream[A]
+
+// Advisory demand hint — no-op in v1.51.6; reserved for future backpressure
+extern def Stream.request[A](n: Int): Unit ! Stream[A]
+
+// Discharge the Stream effect.  Returns (Source[A], R): emitted source + body result.
+extern def runStream[A, R](body: => R): (Source[A], R)
+```
+
+#### Parameterized effect ops
+
+`Stream[A]` is represented as `EffectOp("Stream", List(A))` inside `EffectRow`.
+All existing effects (`Logger`, `Clock`, etc.) remain as `EffectOp(name, Nil)`.
+Effects may carry 0, 1, or N type args — the `EffectOp(name, args: List[SType])`
+shape supports arbitrary arity. Future effects like `State[S, V]` or `Reader[R]`
+can carry multiple type parameters without any additional type-system changes.
+
+Unification of two `EffectOp`s: same name AND pairwise-unifiable arg lists.
+A `Stream[Int]` and `Stream[String]` in the same effect row is a compile error.
+
+#### Canonical function shape
+
+```ssc
+// Producer — emits via effect, no meaningful return value
+def readLines(): Unit ! Stream[String] =
+  Stream.emit("hello")
+  Stream.emit("world")
+
+val (src, _) = runStream { readLines() }
+src.runToList()  // List("hello", "world")
+
+// Producer + result — emits via effect AND returns a value
+def readLines(): Int ! Stream[String] =
+  Stream.emit("hello")
+  Stream.emit("world")
+  2  // count of emitted lines
+
+val (src, count) = runStream { readLines() }
+src.runToList()  // List("hello", "world")
+count            // 2
+```
+
+#### Cross-backend parity
+
+All three backends return the `(Source[A], R)` tuple from `runStream`:
+
+- **Interpreter**: `TupleV(List(sourceV, bodyResultV))` — `Source.from(emitted)` or
+  `Source.failed(msg)` for the error path
+- **JS**: `[_makeAsyncStream(...), bodyResult]` — standard 2-element JS array;
+  the stream side uses an async generator; the error path yields a generator
+  that `throw`s on first iteration
+- **JVM**: `(emitted.toList, bodyResult)` — a plain Scala tuple; error path
+  throws `RuntimeException(msg)` immediately
+
+#### Known open
+
+Consumer-side `handle[Stream[A]] { case Stream.emit(x, resume) => … }` multi-shot
+continuation is deferred to v1.51.7+.
 
 ---
 

@@ -157,9 +157,11 @@ private[interpreter] object StdEffectsRuntime:
       "ask" -> Value.NativeFnV("Reader.ask", _ => Pure(Value.UnitV)),
     ))
 
-    // Stream: emit(x) — algebraic effect for producing stream elements.
-    // Discharge via runStream { body } (v1.51.6).
+    // Stream: emit/complete/error/request — algebraic effect ops (v1.51.6).
+    // Discharge via runStream { body } → (Source[A], R).
     interp.globals("Stream") = Value.InstanceV("Stream", Map(
-      "emit" -> Value.NativeFnV("Stream.emit",
-        args => Perform("Stream", "emit", args)),
+      "emit"     -> Value.NativeFnV("Stream.emit",     args => Perform("Stream", "emit",     args)),
+      "complete" -> Value.NativeFnV("Stream.complete", _    => Perform("Stream", "complete", Nil)),
+      "error"    -> Value.NativeFnV("Stream.error",    args => Perform("Stream", "error",    args)),
+      "request"  -> Value.NativeFnV("Stream.request",  args => Perform("Stream", "request",  args)),
     ))

@@ -12,6 +12,15 @@ case class RefMember(kind: String, name: String, sig: SType)
  *  Surface-only: the typer / interpreter never reduces these. */
 case class MatchCase(pattern: SType, rhs: SType)
 
+/** A single algebraic-effect operation, optionally parameterized by type args.
+ *  `EffectOp("Logger", Nil)` — non-parameterized (classic scalar effect).
+ *  `EffectOp("Stream", List(SType.Int))` — parameterized with one type arg (v1.51.6+).
+ *  Supports arbitrary arity: `EffectOp("State", List(S, A))` for two-arg effects (future). */
+case class EffectOp(name: String, args: List[SType] = Nil):
+  def show: String =
+    if args.isEmpty then name
+    else s"$name[${args.map(_.show).mkString(", ")}]"
+
 /** Internal type representation for type-checking.
  *  Kept separate from the AST so the typer can introduce unification variables
  *  and apply substitutions without modifying source trees.
@@ -19,7 +28,7 @@ case class MatchCase(pattern: SType, rhs: SType)
 enum SType:
   case Named(name: String, args: List[SType])
   case Var(id: Int)
-  case Function(params: List[SType], result: SType, effects: EffectRow = EffectRow(None, Set.empty))
+  case Function(params: List[SType], result: SType, effects: EffectRow = EffectRow(None, Set.empty[EffectOp]))
   case Tuple(elems: List[SType])
   case Union(types: List[SType])
   case Intersection(types: List[SType])
@@ -38,10 +47,10 @@ enum SType:
    *  `show` / `parseSType` so interface artifacts retain the declared
    *  shape verbatim. */
   case Match(scrutinee: SType, cases: List[MatchCase])
-  /** An effect row `{ Eff1, Eff2, … }` with an optional open tail variable.
-   *  Only appears as the `effects` field of `SType.Function`; never stands
-   *  alone as a value type. */
-  case EffectRow(tail: Option[Int], ops: Set[String])
+  /** An effect row `{ Eff1, Eff2[T], … }` with an optional open tail variable.
+   *  Ops may be non-parameterized (`Logger`) or parameterized (`Stream[A]`, `State[S, A]`).
+   *  Only appears as the `effects` field of `SType.Function`; never stands alone as a value type. */
+  case EffectRow(tail: Option[Int], ops: Set[EffectOp])
   case Error(msg: String)
 
   def show: String = this match
@@ -71,7 +80,7 @@ enum SType:
     case Match(scrutinee, cases) =>
       val body = cases.map(c => s"case ${c.pattern.show} => ${c.rhs.show}").mkString("; ")
       s"${showMatchScrutinee(scrutinee)} match { $body }"
-    case EffectRow(_, ops)    => s"{ ${ops.mkString(", ")} }"
+    case EffectRow(_, ops)    => s"{ ${ops.map(_.show).mkString(", ")} }"
     case Error(msg)           => s"<error: $msg>"
 
   /** Render a type that appears as the *parameter* of a unary function
@@ -117,8 +126,8 @@ enum SType:
 
   private def showEffects(row: EffectRow): String =
     if row.ops.isEmpty then ""
-    else if row.ops.size == 1 then s" ! ${row.ops.head}"
-    else s" ! (${row.ops.mkString(", ")})"
+    else if row.ops.size == 1 then s" ! ${row.ops.head.show}"
+    else s" ! (${row.ops.map(_.show).mkString(", ")})"
 
   def isError: Boolean = this match
     case Error(_) => true
@@ -130,7 +139,8 @@ enum SType:
     case Function(params, result, effs) =>
       val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
                               .orElse(effs.tail.filterNot(id => m.contains(id)))
-      Function(params.map(_.subst(m)), result.subst(m), effs.copy(tail = newTail))
+      val newOps = effs.ops.map(op => EffectOp(op.name, op.args.map(_.subst(m))))
+      Function(params.map(_.subst(m)), result.subst(m), EffectRow(newTail, newOps))
     case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
     case Union(types)             => Union(types.map(_.subst(m)))
     case Intersection(types)      => Intersection(types.map(_.subst(m)))
@@ -144,7 +154,8 @@ enum SType:
     case Var(id)                  => Set(id)
     case Named(_, args)           => args.flatMap(_.freeVars).toSet
     case Function(params, result, effs) =>
-      params.flatMap(_.freeVars).toSet ++ result.freeVars ++ effs.tail.toSet
+      params.flatMap(_.freeVars).toSet ++ result.freeVars ++ effs.tail.toSet ++
+      effs.ops.flatMap(op => op.args.flatMap(_.freeVars)).toSet
     case Tuple(elems)             => elems.flatMap(_.freeVars).toSet
     case Union(types)             => types.flatMap(_.freeVars).toSet
     case Intersection(types)      => types.flatMap(_.freeVars).toSet
@@ -225,16 +236,36 @@ object Unifier:
 
     def solveEffectRow(e1: SType.EffectRow, e2: SType.EffectRow): Unit =
       if error.isDefined then return
+      def unifyOp(op1: EffectOp, op2: EffectOp): Unit =
+        if op1.name != op2.name then
+          error = Some(s"Effect op name mismatch: ${op1.name} ≠ ${op2.name}")
+        else if op1.args.length != op2.args.length then
+          error = Some(s"Effect op '${op1.name}' arity mismatch: ${op1.args.length} vs ${op2.args.length}")
+        else
+          op1.args.zip(op2.args).foreach { case (a, b) => solve(a, b) }
+      def matchByName(smaller: Set[EffectOp], larger: Set[EffectOp]): Unit =
+        for op <- smaller do
+          larger.find(_.name == op.name) match
+            case Some(other) => unifyOp(op, other)
+            case None => error = Some(s"Effect '${op.name}' not in row {${larger.map(_.show).mkString(", ")}}")
       (e1.tail, e2.tail) match
         case (None, None) =>
-          if e1.ops != e2.ops then
-            error = Some(s"Effect row mismatch: {${e1.ops.mkString(", ")}} ≠ {${e2.ops.mkString(", ")}}")
+          val names1 = e1.ops.map(_.name)
+          val names2 = e2.ops.map(_.name)
+          if names1 != names2 then
+            error = Some(s"Effect row mismatch: {${e1.ops.map(_.show).mkString(", ")}} ≠ {${e2.ops.map(_.show).mkString(", ")}}")
+          else
+            matchByName(e1.ops, e2.ops)
         case (Some(_), None) =>
-          if !(e2.ops subsetOf e1.ops) then
-            error = Some(s"Effect row mismatch: open {${e1.ops.mkString(", ")}} vs closed {${e2.ops.mkString(", ")}}")
+          if !(e2.ops.map(_.name) subsetOf e1.ops.map(_.name)) then
+            error = Some(s"Effect row mismatch: open {${e1.ops.map(_.show).mkString(", ")}} vs closed {${e2.ops.map(_.show).mkString(", ")}}")
+          else
+            matchByName(e2.ops, e1.ops)
         case (None, Some(_)) =>
-          if !(e1.ops subsetOf e2.ops) then
-            error = Some(s"Effect row mismatch: closed {${e1.ops.mkString(", ")}} vs open {${e2.ops.mkString(", ")}}")
+          if !(e1.ops.map(_.name) subsetOf e2.ops.map(_.name)) then
+            error = Some(s"Effect row mismatch: closed {${e1.ops.map(_.show).mkString(", ")}} vs open {${e2.ops.map(_.show).mkString(", ")}}")
+          else
+            matchByName(e1.ops, e2.ops)
         case (Some(_), Some(_)) =>
           ()
 

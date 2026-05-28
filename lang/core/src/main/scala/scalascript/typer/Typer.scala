@@ -200,9 +200,9 @@ class Typer(
     // Typed discharge signatures for standard effect runners (v1.12.3).
     // Each runner takes a body thunk that carries the named effect in its row,
     // and returns the body's result with that effect discharged.
-    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(None, Set(eff))))
+    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(None, Set(EffectOp(eff)))))
     val bodyWithEff: String => SType = eff =>
-      SType.Function(Nil, SType.Any, SType.EffectRow(None, Set(eff)))
+      SType.Function(Nil, SType.Any, SType.EffectRow(None, Set(EffectOp(eff))))
     val runnerType: String => SType = eff =>
       SType.Function(List(bodyWithEff(eff)), SType.Any)
     val runnerType2: String => SType = eff =>
@@ -426,7 +426,7 @@ class Typer(
         // can warn when an effectful function declares no row.
         val declaredEffects: Map[String, Set[String]] = summaries.collect {
           case DefSummary(name, SymbolKind.Def, SType.Function(_, _, SType.EffectRow(_, ops)), _) =>
-            name -> ops
+            name -> ops.map(_.name)
         }.toMap
         if declaredEffects.nonEmpty || analysisResult.effectfulFuns.nonEmpty then
           scalascript.transform.EffectAnalysis.verify(declaredEffects, analysisResult, asErrors = false)
@@ -922,9 +922,17 @@ class Typer(
       case Some(Type.ApplyInfix(retTyp, Type.Name("!"), effTyp)) =>
         val ret  = typeAnnotToSType(retTyp)
         val effs: SType.EffectRow = effTyp match
-          case Type.Name(n)   => SType.EffectRow(None, Set(n))
-          case Type.Tuple(es) => SType.EffectRow(None, es.collect { case Type.Name(n) => n }.toSet)
-          case _              => SType.EffectRow(None, Set.empty)
+          case Type.Name(n) =>
+            SType.EffectRow(None, Set(EffectOp(n)))
+          case Type.Apply.After_4_6_0(Type.Name(n), argClause) =>
+            SType.EffectRow(None, Set(EffectOp(n, argClause.values.map(typeAnnotToSType).toList)))
+          case Type.Tuple(es) =>
+            SType.EffectRow(None, es.collect {
+              case Type.Name(n) => EffectOp(n)
+              case Type.Apply.After_4_6_0(Type.Name(n), argClause) =>
+                EffectOp(n, argClause.values.map(typeAnnotToSType).toList)
+            }.toSet)
+          case _ => SType.EffectRow(None, Set.empty[EffectOp])
         (Some(ret), effs)
       case other => (other.map(typeAnnotToSType), SType.EffectRow(None, Set.empty))
 
@@ -935,7 +943,7 @@ class Typer(
    *  already has the return type of the call without effects propagated. */
   private def dischargeEffect(bodyType: SType, effName: String): SType = bodyType match
     case SType.Function(Nil, retType, SType.EffectRow(tail, ops)) =>
-      val remaining = ops - effName
+      val remaining = ops.filterNot(_.name == effName)
       if remaining.isEmpty then retType
       else SType.Function(Nil, retType, SType.EffectRow(tail, remaining))
     case other => other

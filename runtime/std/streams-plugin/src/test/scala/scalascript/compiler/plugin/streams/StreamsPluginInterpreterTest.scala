@@ -403,7 +403,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("Stream.emit via runStream collects emitted values as Source"):
     val result = interp.eval(
       """
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit(10)
         Stream.emit(20)
         Stream.emit(30)
@@ -416,7 +416,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("runStream with no emissions returns empty Source"):
     val result = interp.eval(
       """
-      val src = runStream { () }
+      val (src, _) = runStream { () }
       src.runToList()
       """
     )
@@ -429,7 +429,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
         if n > 0 then
           Stream.emit(n)
           countdown(n - 1)
-      val src = runStream { countdown(5) }
+      val (src, _) = runStream { countdown(5) }
       src.runToList()
       """
     )
@@ -438,7 +438,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("runStream result supports map"):
     val result = interp.eval(
       """
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit(1)
         Stream.emit(2)
         Stream.emit(3)
@@ -451,7 +451,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("runStream result supports filter"):
     val result = interp.eval(
       """
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit(1)
         Stream.emit(2)
         Stream.emit(3)
@@ -466,7 +466,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
     val result = interp.eval(
       """
       var buf = List()
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit(10)
         Stream.emit(20)
       }
@@ -479,7 +479,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("runStream result supports runFold"):
     val result = interp.eval(
       """
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit(1)
         Stream.emit(2)
         Stream.emit(3)
@@ -492,7 +492,7 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
   test("Stream.emit with mixed types emits as-is"):
     val result = interp.eval(
       """
-      val src = runStream {
+      val (src, _) = runStream {
         Stream.emit("hello")
         Stream.emit(42)
         Stream.emit(true)
@@ -501,6 +501,65 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List("hello", 42L, true))
+
+  // ── v1.51.6 — Stream effect typed: complete, error, request, body result ──
+
+  test("runStream returns tuple (source, bodyResult)"):
+    val result = interp.eval(
+      """
+      val (src, r) = runStream {
+        Stream.emit(1)
+        Stream.emit(2)
+        42
+      }
+      List(src.runToList(), r)
+      """
+    )
+    assert(result == List(List(1L, 2L), 42L))
+
+  test("Stream.complete() stops emission early"):
+    val result = interp.eval(
+      """
+      val (src, _) = runStream {
+        Stream.emit(1)
+        Stream.complete()
+        Stream.emit(2)
+      }
+      src.runToList()
+      """
+    )
+    assert(result == List(1L))
+
+  test("Stream.error() causes source to fail on consumption"):
+    val threw = interp.eval(
+      """
+      val (src, _) = runStream {
+        Stream.emit(1)
+        Stream.error("boom")
+        Stream.emit(2)
+      }
+      try {
+        src.runToList()
+        false
+      } catch {
+        case e => true
+      }
+      """
+    )
+    assert(threw == true)
+
+  test("Stream.request() is advisory no-op"):
+    val result = interp.eval(
+      """
+      val (src, _) = runStream {
+        Stream.request(8)
+        Stream.emit(1)
+        Stream.emit(2)
+      }
+      src.runToList()
+      """
+    )
+    assert(result == List(1L, 2L))
 
   // ── v1.51.4 mapAsync / recover / mapError / bracket / SSE / WebSocket ──
 

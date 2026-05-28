@@ -3083,7 +3083,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Clock"),   Term.Name(op)), _) if clockPrimitiveOps(op)   => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Logger"),  Term.Name(op)), _) if loggerPrimitiveOps(op)  => ()
       case Term.Apply.After_4_6_0(Term.Select(Term.Name("Async"),   Term.Name(op)), _) if asyncPrimitiveOps(op)   => ()
-      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Stream"),  Term.Name("emit")), _)                         => ()
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name("Stream"),  Term.Name(_)), _)    => ()
     }.nonEmpty
 
   // ─── Strategy D, Step 2 ──────────────────────────────────────────
@@ -9362,23 +9362,45 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |
        |// ── v1.51.6 Stream algebraic effect ────────────────────────────────────────
        |//
-       |// Stream.emit(x)  — Perform node inside a runStream body
-       |// runStream(bodyThunk)  — collects all emitted values; returns List[Any]
-       |//   (at JVM codegen level the result is a plain List; Source.from would
-       |//   need the streams plugin to be on the classpath at compiled-script time)
+       |// Stream.emit(x)       — Perform node inside a runStream body
+       |// Stream.complete()    — early termination
+       |// Stream.error(msg)    — fail the stream
+       |// Stream.request(n)    — advisory demand hint (no-op)
+       |// runStream(bodyThunk) — discharges Stream effect; returns (List[Any], Any)
+       |//   tuple of (emitted values as List, body result).
        |
        |object Stream:
-       |  def emit(x: Any): Any = _perform("Stream", "emit", x)
+       |  def emit(x: Any): Any     = _perform("Stream", "emit",     x)
+       |  def complete(): Any       = _perform("Stream", "complete")
+       |  def error(msg: Any): Any  = _perform("Stream", "error",    msg)
+       |  def request(n: Any): Any  = _perform("Stream", "request",  n)
        |
        |def runStream(bodyThunk: () => Any): Any =
-       |  val emitted = scala.collection.mutable.ArrayBuffer.empty[Any]
-       |  _handle(bodyThunk, Set("Stream.emit"), Map(
-       |    "Stream.emit" -> { (args: List[Any]) =>
-       |      emitted += args.head
-       |      args.last.asInstanceOf[Any => Any](())
-       |    },
-       |  ))
-       |  emitted.toList
+       |  val emitted    = scala.collection.mutable.ArrayBuffer.empty[Any]
+       |  var terminated = false
+       |  var errorMsg: Option[String] = None
+       |  val bodyResult = _handle(bodyThunk,
+       |    Set("Stream.emit", "Stream.complete", "Stream.error", "Stream.request"),
+       |    Map(
+       |      "Stream.emit" -> { (args: List[Any]) =>
+       |        if !terminated && errorMsg.isEmpty then emitted += args.head
+       |        args.last.asInstanceOf[Any => Any](())
+       |      },
+       |      "Stream.complete" -> { (args: List[Any]) =>
+       |        terminated = true
+       |        args.last.asInstanceOf[Any => Any](())
+       |      },
+       |      "Stream.error" -> { (args: List[Any]) =>
+       |        errorMsg = Some(String.valueOf(args.head))
+       |        args.last.asInstanceOf[Any => Any](())
+       |      },
+       |      "Stream.request" -> { (args: List[Any]) =>
+       |        args.last.asInstanceOf[Any => Any](())  // advisory no-op
+       |      },
+       |    ))
+       |  errorMsg match
+       |    case Some(msg) => throw new RuntimeException(msg)
+       |    case None      => (emitted.toList, bodyResult)
        |
        |""".stripMargin
 
