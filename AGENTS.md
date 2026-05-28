@@ -196,6 +196,50 @@ The shared `main` checkout is only ever for two things:
    followed immediately by `git push origin main` (Rule 3).  No
    stops, no edits in between.
 
+#### When EnterWorktree is unavailable — create one manually
+
+`EnterWorktree` may be rejected with "Must not already be in a worktree"
+even when the session's `Primary working directory` is not a real git
+worktree (it's just a regular directory inside the main repo tree with no
+`.git` file).  **Always verify before trusting the system prompt:**
+
+```bash
+# A real worktree has a .git FILE whose content starts with "gitdir:"
+cat .git 2>/dev/null | head -1
+# Real worktree → "gitdir: /Users/sergiy/work/my/scalascript/.git/worktrees/NAME"
+# NOT a worktree → file missing, or .git is a directory
+```
+
+If the check shows you are **not** in a real worktree, create one now
+with plain git — no tool needed:
+
+```bash
+BRANCH="feature/your-task-name"
+WT="/Users/sergiy/work/my/scalascript/.claude/worktrees/$BRANCH"
+git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH"
+```
+
+Then do **all** work (reads, writes, compiles, tests, commits) from `$WT`
+using relative paths or `$WT`-prefixed absolute paths.  The absolute-path
+trap applies here too — use `$WT/...`, never `/Users/sergiy/work/my/scalascript/...`.
+
+Push when done — **directly from the worktree branch**, skipping the
+shared `main` checkout entirely:
+
+```bash
+git -C "$WT" push origin "$BRANCH:main"
+```
+
+Clean up afterward:
+
+```bash
+git -C /Users/sergiy/work/my/scalascript worktree remove "$WT"
+```
+
+This pattern — `worktree add` → work → `push branch:main` → `worktree remove` —
+is the safe path when `EnterWorktree` is not available.  It produces
+exactly the same isolation guarantee.
+
 #### The absolute-path trap (and how not to lose work to it)
 
 The single most common way agents accidentally edit shared `main` is
