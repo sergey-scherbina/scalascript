@@ -572,7 +572,19 @@ object Parser:
           case (fn, origin) if !available.contains(fn) =>
             throw new RuntimeException(s"$origin references missing local definition '$fn'")
         }
+        val availableTypes = collectTopLevelTypeNames(module.sections) ++ builtinRegistryTypes
+        val requiredTypes =
+          m.remoteHandlers.flatMap(h => List(h.requestType.map(_ -> s"remoteHandlers.${h.name}.request"), h.responseType.map(_ -> s"remoteHandlers.${h.name}.response")).flatten) ++
+          m.remoteSources.flatMap(s => List(s.paramsType.map(_ -> s"remoteSources.${s.name}.params"), s.itemType.map(_ -> s"remoteSources.${s.name}.item")).flatten) ++
+          m.remoteBehaviors.flatMap(b => b.argsType.map(_ -> s"remoteBehaviors.${b.name}.args").toList)
+        requiredTypes.collectFirst {
+          case (typeName, origin) if !availableTypes.contains(typeName) =>
+            throw new RuntimeException(s"$origin references missing local type '$typeName'")
+        }
     }
+
+  private val builtinRegistryTypes: Set[String] =
+    Set("Unit", "Any", "String", "Boolean", "Int", "Long", "Double", "Float", "Short", "Byte")
 
   private def collectTopLevelValueNames(sections: List[Section]): Set[String] =
     def fromTree(tree: scala.meta.Tree): Set[String] =
@@ -584,6 +596,22 @@ object Parser:
       }.flatMap {
         case s: String => List(s)
         case xs: List[?] => xs.collect { case s: String => s }
+      }.toSet
+    def loop(section: Section): Set[String] =
+      section.content.collect {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.map(node => ScalaNode.fold(node)(fromTree)).getOrElse(Set.empty)
+      }.foldLeft(Set.empty[String])(_ ++ _) ++ section.subsections.flatMap(loop)
+    sections.flatMap(loop).toSet
+
+  private def collectTopLevelTypeNames(sections: List[Section]): Set[String] =
+    def fromTree(tree: scala.meta.Tree): Set[String] =
+      import scala.meta.*
+      tree.collect {
+        case d: Defn.Class => d.name.value
+        case d: Defn.Trait => d.name.value
+        case d: Defn.Enum  => d.name.value
+        case d: Defn.Type  => d.name.value
       }.toSet
     def loop(section: Section): Set[String] =
       section.content.collect {

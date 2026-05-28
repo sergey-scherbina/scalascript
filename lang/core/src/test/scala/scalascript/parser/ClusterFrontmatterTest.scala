@@ -66,6 +66,11 @@ class ClusterFrontmatterTest extends AnyFunSuite:
         |    args: ThumbnailWorkerArgs""".stripMargin,
       """
         |```scala
+        |case class UserId(value: String)
+        |case class User(name: String)
+        |case class OrderFilter(account: String)
+        |case class OrderEvent(id: String)
+        |case class ThumbnailWorkerArgs(path: String)
         |def getUser(id: UserId): User = ???
         |def orderEvents(filter: OrderFilter): List[OrderEvent] = List()
         |def thumbnailWorker(args: ThumbnailWorkerArgs): Unit = ()
@@ -93,6 +98,8 @@ class ClusterFrontmatterTest extends AnyFunSuite:
         |    response: User""".stripMargin,
       """
         |```scala
+        |case class UserId(value: String)
+        |case class User(name: String)
         |def getUser(id: UserId): User = ???
         |```
         |""".stripMargin
@@ -117,6 +124,24 @@ class ClusterFrontmatterTest extends AnyFunSuite:
       )
     }
     assert(err.getMessage.contains("remoteHandlers.users.get references missing local definition 'missingGetUser'"))
+
+  test("registry front matter rejects missing request or response types"):
+    val err = intercept[RuntimeException] {
+      withFrontmatter(
+        """remoteHandlers:
+          |  users.get:
+          |    function: getUser
+          |    request: MissingUserId
+          |    response: User""".stripMargin,
+        """
+          |```scala
+          |case class User(name: String)
+          |def getUser(id: Any): User = ???
+          |```
+          |""".stripMargin
+      )
+    }
+    assert(err.getMessage.contains("remoteHandlers.users.get.request references missing local type 'MissingUserId'"))
 
   test("source cluster block lowers into cluster metadata"):
     val mod = Parser.parse(

@@ -36,11 +36,11 @@ network semantics or deployment constraints.
       JSON `cluster_spawn` / `cluster_spawn_ack`, JVM
       `setClusterAuthToken` lowering, local interpreter coverage, jar-gated
       two-node CLI smoke, and `examples/actors-typed-remote-spawn.ssc`.
-- [ ] **v1.63.3-cluster-capability-seed-code-identity** - Cluster capability,
+- [x] **v1.63.3-cluster-capability-seed-code-identity** - Cluster capability,
       seed discovery, and code identity: add `Cluster`, `SeedResolver`,
       `.ssc` / `.sscc` code identity, `cluster:` and registry front matter,
       `cluster Demo:` lowering, and diagnostics for missing handlers/codecs
-      and code mismatch. Partial landed 2026-05-28: backend SPI `Cluster`,
+      and code mismatch. Landed 2026-05-28: backend SPI `Cluster`,
       `SeedResolver`, `CodeIdentity`; ScalaScript `ClusterCapability`,
       `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`,
       `assertCodeIdentity`; interpreter static seed resolution and clear
@@ -48,7 +48,7 @@ network semantics or deployment constraints.
       registry front matter in AST/IR/`.sscc`; DNS/K8s seed resolver runtime.
       Missing registry function/source/behavior targets are rejected at parse
       time; top-level `cluster Demo:` blocks lower into `ClusterDecl`
-      metadata. Remaining: Consul resolver runtime and codec validation.
+      metadata; missing registry request/response/args types are rejected.
 - [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
       RPC: compile `@remote` / `remote def` / manifest handlers into
       `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning
