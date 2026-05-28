@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.61.2 Computation pure-path elimination
+
+- **v1.61.2-pure-path** — Smart `Computation.map` constructor (skips FlatMap allocation when sub is Pure); all-Pure fast path in `Computation.sequence` (skips N-deep FlatMap chain for pure list operations); `Term.Select` pure-path in `EvalRuntime` (skips FlatMap for field access when receiver is Pure); `Term.Assign` pure-path (skips FlatMap for global-var assignment with pure RHS); `BlockRuntime.evalBlock` pure-paths for local-var assignment and compound assignment. Reduces FlatMap allocations on hot interpreter paths. No behavior change.
+
 ## 2026-05-28 — v1.61.1 Interpreter dispatch table
 
 - **v1.61.1-dispatch-table** — Replace flat 300-case `(recv, name, args)` triple-match in `DispatchRuntime` with two-level dispatch: `recv match` selects the per-type handler (one `instanceof` check, O(1)); each handler uses `name match` which Scala 3 compiles as a hashCode-based switch (O(1) average). Extensions early-exit: when `interp.extensions` is empty (the common case), the 7-way `HashMap` probe is skipped on every `dispatch` call. Also fixes `dispatchInstanceFallback` field-access ordering: no-arg field access checked before enum-companion call. No behavior change.
