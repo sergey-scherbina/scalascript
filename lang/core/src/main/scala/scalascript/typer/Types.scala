@@ -137,22 +137,41 @@ enum SType:
     case Error(_) => true
     case _        => false
 
-  def subst(m: Map[Int, SType]): SType = this match
-    case Var(id)                  => m.getOrElse(id, this)
-    case Named(n, args)           => Named(n, args.map(_.subst(m)))
+  def subst(m: Map[Int, SType]): SType =
+    if m.isEmpty then return this
+    this match
+      case Var(id)                  => m.getOrElse(id, this)
+      case Named(n, args)           => Named(n, args.map(_.subst(m)))
+      case Function(params, result, effs) =>
+        val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
+                                .orElse(effs.tail.filterNot(id => m.contains(id)))
+        val newOps = effs.ops.map(op => EffectOp(op.name, op.args.map(_.subst(m))))
+        Function(params.map(_.subst(m)), result.subst(m), EffectRow(newTail, newOps))
+      case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
+      case Union(types)             => Union(types.map(_.subst(m)))
+      case Intersection(types)      => Intersection(types.map(_.subst(m)))
+      case Refinement(base, mem)    =>
+        Refinement(base.subst(m), mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.subst(m))))
+      case Match(scrut, cs)         =>
+        Match(scrut.subst(m), cs.map(c => MatchCase(c.pattern.subst(m), c.rhs.subst(m))))
+      case _                        => this
+
+  /** Short-circuit occurs check: true if unification variable `id` appears in this type.
+   *  Avoids building a Set[Int] — returns as soon as the variable is found. */
+  def containsFreeVar(id: Int): Boolean = this match
+    case Var(i)                        => i == id
+    case Named(_, args)                => args.exists(_.containsFreeVar(id))
     case Function(params, result, effs) =>
-      val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
-                              .orElse(effs.tail.filterNot(id => m.contains(id)))
-      val newOps = effs.ops.map(op => EffectOp(op.name, op.args.map(_.subst(m))))
-      Function(params.map(_.subst(m)), result.subst(m), EffectRow(newTail, newOps))
-    case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
-    case Union(types)             => Union(types.map(_.subst(m)))
-    case Intersection(types)      => Intersection(types.map(_.subst(m)))
-    case Refinement(base, mem)    =>
-      Refinement(base.subst(m), mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.subst(m))))
-    case Match(scrut, cs)         =>
-      Match(scrut.subst(m), cs.map(c => MatchCase(c.pattern.subst(m), c.rhs.subst(m))))
-    case _                        => this
+      params.exists(_.containsFreeVar(id)) || result.containsFreeVar(id) ||
+      effs.tail.contains(id) ||
+      effs.ops.exists(op => op.args.exists(_.containsFreeVar(id)))
+    case Tuple(elems)                  => elems.exists(_.containsFreeVar(id))
+    case Union(types)                  => types.exists(_.containsFreeVar(id))
+    case Intersection(types)           => types.exists(_.containsFreeVar(id))
+    case Refinement(base, mem)         => base.containsFreeVar(id) || mem.exists(_.sig.containsFreeVar(id))
+    case Match(scrut, cs)              =>
+      scrut.containsFreeVar(id) || cs.exists(c => c.pattern.containsFreeVar(id) || c.rhs.containsFreeVar(id))
+    case _                             => false
 
   def freeVars: Set[Int] = this match
     case Var(id)                  => Set(id)
@@ -250,7 +269,7 @@ enum UnifyResult:
 
 object Unifier:
   def unify(constraints: List[Constraint]): UnifyResult =
-    var subst = Map.empty[Int, SType]
+    var subst: scala.collection.immutable.IntMap[SType] = scala.collection.immutable.IntMap.empty
     var error = Option.empty[String]
 
     def solve(t1: SType, t2: SType): Unit =
@@ -259,8 +278,8 @@ object Unifier:
       val s2 = t2.subst(subst)
       (s1, s2) match
         case (a, b) if a == b => ()
-        case (SType.Var(id), t) if !t.freeVars.contains(id) => subst = subst + (id -> t)
-        case (t, SType.Var(id)) if !t.freeVars.contains(id) => subst = subst + (id -> t)
+        case (SType.Var(id), t) if !t.containsFreeVar(id) => subst = subst.updated(id, t)
+        case (t, SType.Var(id)) if !t.containsFreeVar(id) => subst = subst.updated(id, t)
         case (SType.Var(id), _) => error = Some(s"Occurs check failed: ${s1.show}")
         case (SType.Named(n1, a1), SType.Named(n2, a2)) if n1 == n2 && a1.length == a2.length =>
           a1.zip(a2).foreach { case (x, y) => solve(x, y) }
