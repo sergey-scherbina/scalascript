@@ -702,18 +702,25 @@ private[interpreter] object EvalRuntime:
     // interp.globals value CHANGED since entry (i.e., was written by Term.Assign).  This prevents
     // a pre-existing interp.globals entry (e.g. the HTML `<a>` tag) from clobbering a local
     // `var a = 0` that happens to shadow it.
+    //
+    // Hot path: instead of creating a new Map each iteration, maintain a mutable frame
+    // that is updated in-place and exposed via MutableEnvView.  O(K) lookup per iteration
+    // where K = keys that changed in globals (typically 0 or 1); no Map allocation.
     case t: Term.While =>
+      val frame    = scala.collection.mutable.HashMap.from(env)
       val entrySnap: Map[String, Value] = env.iterator.flatMap { (k, _) =>
         interp.globals.get(k).map(k -> _)
       }.toMap
+      val frameView = new MutableEnvView(frame)
       def loop: Computation =
-        val freshEnv = env.map { (k, v) =>
+        // Refresh mutable frame: only overwrite a key if globals changed since entry.
+        frame.foreachEntry { (k, _) =>
           interp.globals.get(k) match
-            case Some(gv) if entrySnap.get(k).forall(_ != gv) => k -> gv
-            case _                                             => k -> v
+            case Some(gv) if entrySnap.get(k).forall(_ != gv) => frame(k) = gv
+            case _                                             =>
         }
-        eval(t.expr, freshEnv, interp).flatMap {
-          case Value.BoolV(true) => eval(t.body, freshEnv, interp).flatMap(_ => loop)
+        eval(t.expr, frameView, interp).flatMap {
+          case Value.BoolV(true) => eval(t.body, frameView, interp).flatMap(_ => loop)
           case _                 => Pure(Value.UnitV)
         }
       loop
