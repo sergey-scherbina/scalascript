@@ -64,8 +64,8 @@ object Parser:
     // parse here so we don't do it twice.
     val sections = extractSections(doc, mdLineToFileLine, skipInitialParse = pkg.nonEmpty)
     val raw      =
-      if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
-      else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
+      if pkg.isEmpty then Module(manifest, sections)
+      else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)))
     MarkupLiteralLower.lower(RouteDeriver.derive(raw))
 
   /** Wrap every scalascript-block's contents in nested `object`s matching

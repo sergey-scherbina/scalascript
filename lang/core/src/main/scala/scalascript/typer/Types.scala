@@ -137,7 +137,7 @@ enum SType:
     case Error(_) => true
     case _        => false
 
-  def subst(m: Map[Int, SType]): SType =
+  def subst(m: scala.collection.immutable.IntMap[SType]): SType =
     if m.isEmpty then return this
     this match
       case Var(id)                  => m.getOrElse(id, this)
@@ -174,19 +174,29 @@ enum SType:
       scrut.containsFreeVar(id) || cs.exists(c => c.pattern.containsFreeVar(id) || c.rhs.containsFreeVar(id))
     case _                             => false
 
-  def freeVars: Set[Int] = this match
-    case Var(id)                  => Set(id)
-    case Named(_, args)           => args.flatMap(_.freeVars).toSet
+  def freeVars: Set[Int] =
+    val acc = scala.collection.mutable.BitSet.empty
+    collectFreeVars(acc)
+    acc.toSet
+
+  private def collectFreeVars(into: scala.collection.mutable.BitSet): Unit = this match
+    case Var(id)                        => into += id
+    case Named(_, args)                 => args.foreach(_.collectFreeVars(into))
     case Function(params, result, effs) =>
-      params.flatMap(_.freeVars).toSet ++ result.freeVars ++ effs.tail.toSet ++
-      effs.ops.flatMap(op => op.args.flatMap(_.freeVars)).toSet
-    case Tuple(elems)             => elems.flatMap(_.freeVars).toSet
-    case Union(types)             => types.flatMap(_.freeVars).toSet
-    case Intersection(types)      => types.flatMap(_.freeVars).toSet
-    case Refinement(base, mem)    => base.freeVars ++ mem.flatMap(_.sig.freeVars).toSet
-    case Match(scrut, cs)         =>
-      scrut.freeVars ++ cs.flatMap(c => c.pattern.freeVars ++ c.rhs.freeVars).toSet
-    case _                        => Set.empty
+      params.foreach(_.collectFreeVars(into))
+      result.collectFreeVars(into)
+      effs.tail.foreach(into += _)
+      effs.ops.foreach(op => op.args.foreach(_.collectFreeVars(into)))
+    case Tuple(elems)                   => elems.foreach(_.collectFreeVars(into))
+    case Union(types)                   => types.foreach(_.collectFreeVars(into))
+    case Intersection(types)            => types.foreach(_.collectFreeVars(into))
+    case Refinement(base, mem)          =>
+      base.collectFreeVars(into)
+      mem.foreach(_.sig.collectFreeVars(into))
+    case Match(scrut, cs)               =>
+      scrut.collectFreeVars(into)
+      cs.foreach { c => c.pattern.collectFreeVars(into); c.rhs.collectFreeVars(into) }
+    case _                              => ()
 
 object SType:
   /** Unit is the 0-tuple — the monoid identity for tuple concatenation. */
@@ -243,7 +253,7 @@ enum SymbolKind:
 case class TypeScheme(typeParams: List[Int], body: SType):
   def instantiate(fresh: () => Int): SType =
     if typeParams.isEmpty then body
-    else body.subst(typeParams.map(p => p -> SType.Var(fresh())).toMap)
+    else body.subst(scala.collection.immutable.IntMap.from(typeParams.map(p => p -> SType.Var(fresh()))))
 
 class Scope(val parent: Option[Scope] = None, val name: String = "<root>"):
   private val symbols = collection.mutable.Map[String, Symbol]()
