@@ -839,11 +839,23 @@ work queue links. No runtime changes.
 ### v1.63.4 - Remote Registries and Async RPC
 
 - Compile `@remote` / `remote def` / manifest handlers into
-  `RemoteHandlerRegistry`.
+  `RemoteHandlerRegistry`. ✓ Landed 2026-05-28 for manifest
+  `remoteHandlers:` entries in the interpreter path via backend SPI
+  `RemoteHandlerRegistry` / `RemoteHandlerInfo` / `RemoteCallError` and a
+  local registry populated before user sections run. Annotation/sugar lowering
+  remains planned.
 - Add `Remote.function[A, B](name)` returning `B ! Async | RemoteCallError`.
+  ✓ Landed 2026-05-28 as `std.remote` `Remote.function`, `remoteCall`,
+  `remoteTryCall`, and `remoteHandlers()` over the in-process interpreter
+  registry. The current runtime call is synchronous; effect-row async lowering
+  remains planned.
 - Add `remoteStub[Api]`.
-- Support in-process, HTTP, and WebSocket/internal-wire transports.
-- Gate binary payloads on v1.62.1 `WireCodec[A]`; keep JSON fallback.
+- Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
+  2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
+  handler declares `path:`. WebSocket/internal-wire transport remains planned.
+- Gate binary payloads on v1.62.1 `WireCodec[A]`; keep JSON fallback. JSON
+  fallback currently uses the interpreter `ValueSerializer`; `WireCodec[A]`
+  binary negotiation remains planned.
 
 ### v1.63.5 - Cluster Runner and Worker Bundles
 

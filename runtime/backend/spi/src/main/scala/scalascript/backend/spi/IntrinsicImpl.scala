@@ -128,6 +128,12 @@ trait NativeContext:
     throw new UnsupportedOperationException(
       s"No database registry for '$dbName' — add a databases: section to front-matter"
     )
+  // Remote handler registry — used by std/remote-plugin. The interpreter
+  // populates it from front-matter `remoteHandlers:` entries and exposes
+  // in-process calls plus HTTP JSON fallback routes.
+  def remoteHandlers: List[RemoteHandlerInfo] = Nil
+  def invokeRemoteHandler(name: String, @annotation.unused payload: Any): Either[RemoteCallError, Any] =
+    Left(RemoteCallError.HandlerNotFound(name))
   // Storage-schema metadata for interpreter case-class instances. Native
   // storage intrinsics can ask for the canonical persisted name of a runtime
   // field without depending on interpreter internals.

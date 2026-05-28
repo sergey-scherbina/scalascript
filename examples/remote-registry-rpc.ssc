@@ -1,0 +1,30 @@
+---
+name: remote-registry-rpc
+description: Named remote handler registry with in-process Remote.function and HTTP JSON fallback
+remoteHandlers:
+  demo.echo:
+    function: echo
+    path: /rpc/echo
+    request: String
+    response: String
+---
+
+# Remote Registry RPC
+
+[Remote, RemoteFunction, RemoteCallError](../runtime/std/remote.ssc)
+
+```scala
+def echo(value: String): String =
+  "echo:" + value
+
+val echoFn = Remote.function[String, String]("demo.echo")
+println(echoFn.call("hello"))
+
+echoFn.tryCall("typed") match
+  case Right(value) => println(value)
+  case Left(error)  => println("remote error: " + error.toString)
+
+Remote.handlers().foreach { info =>
+  println(info.name + " -> " + info.function)
+}
+```

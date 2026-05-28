@@ -1,7 +1,6 @@
 package scalascript.interpreter
 
 import scala.meta.*
-import Computation.Pure
 
 /** Pattern matching, for-comprehension evaluation, and collection iteration helpers. */
 private[interpreter] object PatternRuntime:
@@ -137,6 +136,14 @@ private[interpreter] object PatternRuntime:
           val tn = typeName  // capture for closure
           (scrutV, env) =>
             scrutV match
+              case Value.OptionV(Some(v)) if tn == "Some" && bindNames.length == 1 =>
+                val bname = bindNames(0)
+                val patEnv = if bname == null then env else FrameMap.one(bname, v, env)
+                if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                else null
+              case Value.NoneV if tn == "None" && bindNames.isEmpty =>
+                if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+                else null
               case Value.InstanceV(t, fields) if t == tn =>
                 if fieldOrderCache == null then
                   fieldOrderCache = interp.typeFieldOrder

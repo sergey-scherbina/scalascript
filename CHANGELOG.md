@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.63.4 Remote registries and async RPC base
+
+- **v1.63.4-remote-registries-async-rpc** — Added backend SPI `RemoteHandlerRegistry`, `RemoteHandlerInfo`, and `RemoteCallError`; interpreter now lowers manifest `remoteHandlers:` entries into a local registry and exposes POST HTTP JSON fallback routes for handlers with `path:`. Added `runtime/std/remote.ssc` plus `remote-plugin` intrinsics for `Remote.function`, `remoteCall`, `remoteTryCall`, and `remoteHandlers()`, with typed `Left(RemoteCallError)` results for unavailable handlers. Added `examples/remote-registry-rpc.ssc` and targeted interpreter-plugin tests. Remaining planned pieces are `@remote` / `remote def`, `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire transport, and binary `WireCodec[A]` negotiation.
+
 ## 2026-05-28 — v1.63.3 Cluster capability base
 
 - **v1.63.3-cluster-capability-seed-code-identity** — Added backend SPI `Cluster`, `SeedResolver`, and `CodeIdentity`; exposed ScalaScript `ClusterCapability`, `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`, and `assertCodeIdentity`; interpreter now returns cluster snapshots, resolves static/DNS/K8s seed descriptors, computes deterministic SHA-256 code identity, and reports explicit diagnostics for the still-planned Consul resolver. Added typed `cluster:` / `remoteHandlers:` / `remoteSources:` / `remoteBehaviors:` front-matter metadata in AST/IR/`.sscc`, parser validation for missing registry target definitions and missing registry types, and source-level `cluster Demo:` lowering.

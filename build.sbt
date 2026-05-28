@@ -948,6 +948,7 @@ lazy val cli = project
                                   "scalascript-oauth-plugin", "scalascript-fetch-plugin",
                                   "scalascript-graph-plugin", "scalascript-sql-plugin",
                                   "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin",
+                                  "scalascript-remote-plugin",
                                   "scalascript-swing-plugin", "scalascript-streams-plugin",
                                   "scalascript-dstreams-plugin")
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
@@ -973,6 +974,7 @@ lazy val cli = project
         (httpPlugin     / packagePlugin).value,
         (wsPlugin       / packagePlugin).value,
         (mcpPlugin      / packagePlugin).value,
+        (remotePlugin   / packagePlugin).value,
         (swingPlugin    / packagePlugin).value,
         (pwaPlugin      / packagePlugin).value,
         (streamsPlugin  / packagePlugin).value,
@@ -2414,6 +2416,17 @@ lazy val mcpPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.mcp"))
 
+lazy val remotePlugin = project
+  .in(file("runtime/std/remote-plugin"))
+  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-remote-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.remote"))
+
 lazy val pwaPlugin = project
   .in(file("runtime/std/pwa-plugin"))
   .dependsOn(backendSpi, ir, core)
@@ -2430,7 +2443,7 @@ lazy val backendInterpreterPluginTests = project
     backendInterpreter % "compile->compile;test->test",
     backendInterpreterServer,
     jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
-    fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin,
+    fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin, remotePlugin,
     swingPlugin, streamsPlugin, dstreamsPlugin, deployPlugin,
   )
   .settings(
@@ -3102,7 +3115,7 @@ lazy val root = project
     frontendExamples,
     jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
     authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
-    httpPlugin, wsPlugin, mcpPlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
+    httpPlugin, wsPlugin, mcpPlugin, remotePlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
     deployPlugin,
     paymentRequestPlugin, paymentRequest,
     paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,

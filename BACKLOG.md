@@ -49,11 +49,25 @@ network semantics or deployment constraints.
       Missing registry function/source/behavior targets are rejected at parse
       time; top-level `cluster Demo:` blocks lower into `ClusterDecl`
       metadata; missing registry request/response/args types are rejected.
-- [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
+- [x] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
       RPC: compile `@remote` / `remote def` / manifest handlers into
       `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning
       `B ! Async | RemoteCallError`, add `remoteStub[Api]`, and support
       in-process/HTTP/WS transports with JSON fallback and future `WireCodec`.
+      Landed 2026-05-28: backend SPI `RemoteHandlerRegistry`,
+      `RemoteHandlerInfo`, and `RemoteCallError`; interpreter lowering for
+      manifest `remoteHandlers:` entries into a local registry; `std.remote`
+      plus `remote-plugin` for `Remote.function`, `remoteCall`,
+      `remoteTryCall`, and `remoteHandlers()`; POST HTTP JSON fallback routes
+      for handlers with `path:`; tests and `examples/remote-registry-rpc.ssc`.
+      Remaining follow-ups: `@remote` / `remote def` source sugar,
+      `remoteStub[Api]`, effect-row async lowering, WebSocket/internal-wire
+      transport, and binary `WireCodec[A]` negotiation.
+- [ ] **v1.63.4b-remote-sugar-stubs-wire** - Remote RPC follow-ups after the
+      registry base: lower `@remote` / `remote def` source declarations into
+      `remoteHandlers:`, add `remoteStub[Api]`, make generated calls return
+      `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
+      and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
 - [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
       bundles: `ssc cluster run/package/status/handlers/stop`, worker bundle
       packaging with code identity and registry metadata, roles, advertised

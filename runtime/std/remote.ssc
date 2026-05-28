@@ -1,0 +1,65 @@
+---
+name: std-remote
+version: 0.1.0
+description: Remote handler registry and async-RPC client facade
+package: std.remote
+exports:
+  - Either
+  - Left
+  - Right
+  - RemoteCallError
+  - RemoteHandlerInfo
+  - RemoteFunction
+  - Remote
+  - remoteFunction
+  - remoteCall
+  - remoteTryCall
+  - remoteHandlers
+---
+
+# `std.remote`
+
+Remote registries expose named operations such as `users.get` without shipping
+arbitrary closures.  The first runtime path is in-process and HTTP JSON
+fallback; binary WebSocket/internal-wire transports are planned in v1.62/v1.63
+follow-ups.
+
+```scalascript
+[Either, Left, Right](./either.ssc)
+
+enum RemoteCallError:
+  case Unavailable(node: String)
+  case Timeout(operation: String, durationMs: Int)
+  case Decode(message: String)
+  case HandlerNotFound(name: String)
+  case CodeMismatch(localHash: String, remoteHash: String)
+  case Unauthorized
+  case Cancelled
+  case RemoteFailed(code: String, message: String)
+  case NetworkError(message: String)
+
+case class RemoteHandlerInfo(
+  name: String,
+  function: String,
+  path: Option[String] = None,
+  requestType: Option[String] = None,
+  responseType: Option[String] = None,
+  transports: List[String] = List("in-process")
+)
+
+case class RemoteFunction[A, B](name: String):
+  def call(value: A): B = remoteCall[A, B](name, value)
+  def tryCall(value: A): Either[RemoteCallError, B] = remoteTryCall[A, B](name, value)
+
+extern def remoteFunction[A, B](name: String): RemoteFunction[A, B]
+extern def remoteCall[A, B](name: String, value: A): B
+extern def remoteTryCall[A, B](name: String, value: A): Either[RemoteCallError, B]
+extern def remoteHandlers(): List[RemoteHandlerInfo]
+
+object Remote:
+  def function[A, B](name: String): RemoteFunction[A, B] =
+    remoteFunction[A, B](name)
+
+  def handlers(): List[RemoteHandlerInfo] =
+    remoteHandlers()
+```

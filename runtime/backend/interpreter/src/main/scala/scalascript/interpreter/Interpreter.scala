@@ -548,6 +548,9 @@ class Interpreter(
   private[interpreter] var sqlRegistry: scalascript.sql.ConnectionRegistry =
     scalascript.sql.ConnectionRegistry.empty
   private[interpreter] var sqlBlockCounter: Int = 0
+  private case class RemoteHandlerEntry(info: scalascript.backend.spi.RemoteHandlerInfo)
+  private val remoteHandlerRegistry =
+    new java.util.concurrent.ConcurrentHashMap[String, RemoteHandlerEntry]()
 
   def run(module: Module): Unit =
     runInit(module)
@@ -662,6 +665,7 @@ class Interpreter(
     }
     multiShotEffects = scalascript.transform.EffectAnalysis.analyze(allTrees).multiShotEffects
     registerFrontmatterRoutes(module)
+    registerFrontmatterRemoteHandlers(module)
 
   private def computeCodeIdentity(module: Module): Value =
     val (format, bytes) = module.sourceText match
@@ -790,6 +794,106 @@ class Interpreter(
         routeRegistry.register(r.method, r.path, lazyHandler, this)
       }
     }
+
+  /** Compile `remoteHandlers:` manifest entries into the interpreter's local
+   *  registry.  The registered handler is lazy: the actual function is looked
+   *  up in globals at call time, after sections have been evaluated.
+   *
+   *  If a handler declares `path`, also expose a POST JSON fallback route whose
+   *  body is the current ValueSerializer JSON shape used by the actor wire.
+   */
+  private def registerFrontmatterRemoteHandlers(module: Module): Unit =
+    module.manifest.foreach { m =>
+      m.remoteHandlers.foreach { h =>
+        val transports =
+          if h.path.isDefined then Set("in-process", "http-json")
+          else Set("in-process")
+        val info = scalascript.backend.spi.RemoteHandlerInfo(
+          name         = h.name,
+          function     = h.function,
+          path         = h.path,
+          requestType  = h.requestType,
+          responseType = h.responseType,
+          transports   = transports
+        )
+        remoteHandlerRegistry.put(h.name, RemoteHandlerEntry(info))
+        h.path.foreach { path =>
+          val routeHandler = Value.NativeFnV(
+            s"remote.handler.${h.name}",
+            Computation.pureFn { args =>
+              val req = args.headOption.getOrElse(Value.UnitV)
+              val body = req match
+                case Value.InstanceV("Request", fields) =>
+                  fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+                case _ => ""
+              val payload =
+                if body.trim.isEmpty then Value.UnitV
+                else
+                  try ValueSerializer.deserialize(body)
+                  catch case e: Throwable =>
+                    returnRemoteResponse(400, s"remote decode failed: ${e.getMessage}")
+              invokeRemoteHandlerValue(h.name, payload) match
+                case Right(value) =>
+                  returnRemoteResponse(200, ValueSerializer.serialize(value), "application/scalascript-value+json")
+                case Left(err) =>
+                  returnRemoteResponse(remoteStatus(err), remoteErrorText(err))
+            }
+          )
+          routeRegistry.register("POST", path, routeHandler, this)
+        }
+      }
+    }
+
+  private def returnRemoteResponse(
+      status:      Int,
+      body:        String,
+      contentType: String = "text/plain; charset=utf-8"
+  ): Value =
+    Value.InstanceV("Response", Map(
+      "status"  -> Value.intV(status),
+      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(contentType))),
+      "body"    -> Value.StringV(body)
+    ))
+
+  private def remoteStatus(err: scalascript.backend.spi.RemoteCallError): Int = err match
+    case scalascript.backend.spi.RemoteCallError.HandlerNotFound(_) => 404
+    case scalascript.backend.spi.RemoteCallError.Unauthorized       => 401
+    case scalascript.backend.spi.RemoteCallError.Decode(_)          => 400
+    case scalascript.backend.spi.RemoteCallError.Timeout(_, _)      => 504
+    case scalascript.backend.spi.RemoteCallError.Unavailable(_)     => 503
+    case _                                                          => 500
+
+  private def remoteErrorText(err: scalascript.backend.spi.RemoteCallError): String = err match
+    case scalascript.backend.spi.RemoteCallError.HandlerNotFound(name) =>
+      s"remote handler not found: $name"
+    case scalascript.backend.spi.RemoteCallError.Decode(message) =>
+      s"remote decode failed: $message"
+    case scalascript.backend.spi.RemoteCallError.RemoteFailed(code, message) =>
+      s"remote handler failed ($code): $message"
+    case other => other.toString
+
+  private[interpreter] def remoteHandlerInfos: List[scalascript.backend.spi.RemoteHandlerInfo] =
+    remoteHandlerRegistry.values().toArray.toList
+      .collect { case e: RemoteHandlerEntry => e.info }
+      .sortBy(_.name)
+
+  private[interpreter] def invokeRemoteHandlerValue(
+      name:    String,
+      payload: Value
+  ): Either[scalascript.backend.spi.RemoteCallError, Value] =
+    Option(remoteHandlerRegistry.get(name)) match
+      case None => Left(scalascript.backend.spi.RemoteCallError.HandlerNotFound(name))
+      case Some(entry) =>
+        globals.get(entry.info.function) match
+          case None =>
+            Left(scalascript.backend.spi.RemoteCallError.HandlerNotFound(name))
+          case Some(handler) =>
+            try Right(Computation.run(callValue(handler, List(payload), Map.empty)))
+            catch
+              case e: InterpretError =>
+                Left(scalascript.backend.spi.RemoteCallError.RemoteFailed("handler_failed", e.getMessage))
+              case e: Throwable =>
+                Left(scalascript.backend.spi.RemoteCallError.RemoteFailed("handler_failed", String.valueOf(e.getMessage)))
 
   // ─── Minimal NativeContext for Http effect ───────────────────────────
   //
@@ -931,6 +1035,15 @@ class Interpreter(
           case None      => throw new scalascript.server.RestValidationError(msg)
       override def dbConnect(dbName: String): java.sql.Connection =
         Interpreter.this.sqlRegistry.connect(dbName)
+      override def remoteHandlers: List[scalascript.backend.spi.RemoteHandlerInfo] =
+        Interpreter.this.remoteHandlerInfos
+      override def invokeRemoteHandler(
+          name:    String,
+          payload: Any
+      ): Either[scalascript.backend.spi.RemoteCallError, Any] =
+        payload match
+          case v: Value => Interpreter.this.invokeRemoteHandlerValue(name, v)
+          case other    => Interpreter.this.invokeRemoteHandlerValue(name, wrapAnyAsValue(other))
       override def storageFieldName(typeName: String, fieldName: String): String =
         Interpreter.this.typeFieldSchemas
           .get(typeName)
