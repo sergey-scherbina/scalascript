@@ -719,30 +719,15 @@ unblocks downstream features as early as possible.
      resolver, both with `ssc.lock` SHA-256 integrity-check.
      `ssc lock` / `ssc lock check` CLI.  Central registry
      deferred to v1.19.x.
- 24. **v1.20 — DSL primitives + `runtime/std/parsing`** (~2.5 weeks).
+ 24. **v1.20 — DSL primitives + `runtime/std/parsing`** ✓ Landed (all sub-versions).
      User-defined string interpolators cross-backend +
      parser-combinator library (`runtime/std/parsing/*`) + AST/pretty-
      printer helpers (`runtime/std/dsl/*`).  Reified-by-default; Parser
      as ADT; left-recursion combinator family; context-in-parser
      via ADT nodes (foundation for v1.20.2).  Full design in
      [`docs/dsl.md`](docs/dsl.md).
- 24a. **v1.20.1 — DSL: parser error recovery** (~1 week).
-     Three recovery strategies (skip-to-sync, error nodes,
-     multi-error accumulation) as opt-in extensions on the
-     v1.20 Parser ADT.  LSP-friendly DSL'и become viable.
-     Ships as `runtime/std/parsing/recovery.ssc`.  Independent —
-     can ship in any order after v1.20.
- 24b. **v1.20.2 — DSL: indentation-aware parsing** (~3-5 days).
-     `runtime/std/parsing/layout.ssc` built on the v1.20 context
-     ADT-nodes (§5.8): `withIndent`, `sameIndent`, `block`,
-     `line` combinators.  Indent-significant DSLs (config
-     formats, query languages).  Independent of v1.20.1 / v1.20.3.
- 24c. **v1.20.3 — DSL: multi-pass pipeline** (~1 week).
-     `runtime/std/dsl/passes.ssc` with `Pass[A, B]` combinators
-     (`andThen` / `parallel` / `recover`) + walker helpers
-     for name resolution / type check / evaluation.
-     Foundation for full external DSLs.  Independent — can
-     ship in any order after v1.20.
+     v1.20.1 (parser error recovery), v1.20.2 (indentation-aware),
+     v1.20.3 (multi-pass pipeline) — all landed.  See CHANGELOG v1.20.
  25. **v1.21 — Local map-reduce (`Dataset[T]`)** ✓ Landed.
      Lazy `Dataset[T]` fluent API with sequential + parallel
      local execution (v1.3 Async.parallel on JVM; sequential
@@ -3771,7 +3756,7 @@ Spec in `docs/x402.md`.
 
 - [x] `CardanoFacilitatorConfig` + `CardanoProvider` enum (Blockfrost, Scalus)
 - [x] `CardanoProvider.Blockfrost`: balance check via Blockfrost API + CIP-8 verify
-- [ ] `CardanoProvider.Scalus`: server-side Tx building via Scalus + cardano-client-lib (bloxbean)
+- [x] `CardanoProvider.Scalus`: server-side Tx building via Scalus + cardano-client-lib (bloxbean) — ✓ Landed via Phase 10 (x402-facilitator-cardano-scalus module + ScalusSettler)
 - [x] CIP-8 signature verification (COSE_Sign1 + COSE_Key, Ed25519 via BouncyCastle)
 - [x] Settlement: Blockfrost path — optimistic Ok after verify; Scalus — stub Fail
 - [x] Tests: MiniCbor round-trips, CIP-8 verify, balance check, native assets, settlement
@@ -3948,8 +3933,8 @@ issues documented in [`docs/x402-cardano-scalus.md`](docs/x402-cardano-scalus.md
       `ClaimTxPlan`, injectable `ClaimTxBuilder`, and Blockfrost
       submit pipeline. Default builder still fails explicitly until
       Plutus witness construction lands.
-- [ ] Tx building: input = escrow UTxO ref, output = receiver +
-      amount, redeemer = CIP-8 proof bytes, witness = relayer key
+- [x] Tx building: input = escrow UTxO ref, output = receiver +
+      amount, redeemer = CIP-8 proof bytes, witness = relayer key — ✓ Landed (2026-05-27, all sub-items complete)
       - [x] Redeemer construction ✓ Landed (2026-05-27):
             `EscrowRedeemerCodec` builds bloxbean `PlutusData`
             `Claim(coseSign1Bytes, coseKeyBytes)` and exposes it on
