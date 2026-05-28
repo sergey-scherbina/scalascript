@@ -1802,7 +1802,7 @@ worth a separate fix when somebody has cycles.
 
 ## CLI — native binary (GraalVM native-image)
 
-**Status:** Phase 1 ✓ Landed (2026-05-27). Phase 2–3 planned — unblocked.
+**Status:** Phase 1 ✓ Landed (2026-05-27). Phase 2 ✓ Landed (2026-05-27). Phase 3 ✓ Landed (2026-05-27). Phase 4 ✓ Landed (2026-05-27).
 
 Produce a self-contained `ssc` native executable via GraalVM native-image:
 no JVM installation required, cold-start drops from ~1-2 s → ~50-100 ms.
@@ -1830,7 +1830,7 @@ Deliverable: `scalascript.parser.FrontmatterParser` — hand-rolled recursive
 descent, ~200 LOC, replaces all `snakeyaml` call sites.  All existing
 frontmatter tests must pass.
 
-### Phase 2 — native-image build (~3-4 days)
+### Phase 2 — native-image build ✓ Landed (2026-05-27)
 
 1. **Reflection config** — run `native-image-agent` while exercising all CLI
    paths (run / compile / watch / serve / emit-* examples).  Curate generated
@@ -1870,7 +1870,7 @@ frontmatter tests must pass.
    `ssc.jar` remains the default (`java -jar ssc.jar`); native binary is a
    convenience for users who want instant startup without a JVM.
 
-### Phase 3 — `ssc-plugin-host` + automatic bridge (~3 days)
+### Phase 3 — `ssc-plugin-host` + automatic bridge ✓ Landed (2026-05-27)
 
 **Goal: existing plugins work without any changes from plugin authors.**
 

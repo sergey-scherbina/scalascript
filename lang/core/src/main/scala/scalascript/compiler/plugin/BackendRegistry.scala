@@ -93,17 +93,21 @@ object BackendRegistry:
           case scala.util.Failure(t) =>
             log.warn(s"[ssc] --plugin ${jar.last}: bridge spawn failed — ${t.getMessage}")
 
-  /** Look for ssc-plugin-host.jar next to the running binary or in $SSC_HOME/lib/. */
+  /** Look for ssc-plugin-host.jar in:
+   *   1. $SSC_HOME/lib/ssc-plugin-host.jar
+   *   2. <binary-dir>/lib/ssc-plugin-host.jar  (matches release archive layout)
+   *   3. <binary-dir>/ssc-plugin-host.jar      (flat install / dev override) */
   private def findPluginHostJar(): Option[os.Path] =
     val fromEnv = Option(System.getenv("SSC_HOME"))
       .map(h => os.Path(java.nio.file.Paths.get(h).toAbsolutePath) / "lib" / "ssc-plugin-host.jar")
     val fromBin = scala.util.Try {
       val cmd = ProcessHandle.current().info().command()
       if cmd.isPresent then
-        Some(os.Path(java.nio.file.Paths.get(cmd.get).toAbsolutePath) / os.up / "ssc-plugin-host.jar")
-      else None
-    }.toOption.flatten
-    (fromEnv.toList ++ fromBin.toList).find(os.exists(_))
+        val binDir = os.Path(java.nio.file.Paths.get(cmd.get).toAbsolutePath) / os.up
+        List(binDir / "lib" / "ssc-plugin-host.jar", binDir / "ssc-plugin-host.jar")
+      else Nil
+    }.getOrElse(Nil)
+    (fromEnv.toList ++ fromBin).find(os.exists(_))
 
   /** Return "java" if it is on PATH, or the JAVA_HOME bin path if set. */
   private def findJava(): Option[String] =

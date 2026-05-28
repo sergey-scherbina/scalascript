@@ -41,18 +41,31 @@ jobs:
       - name: Build native ssc binary
         run: sbt cli/graalvm-native-image:packageBin
 
-      - name: Rename artifact
+      - name: Build ssc-plugin-host.jar
+        # ssc-plugin-host.jar is a plain JVM fat-jar (no GraalVM needed for the
+        # jar itself).  It ships alongside the native binary so that --plugin
+        # <foo.jar> works in native mode via the subprocess bridge.
+        run: sbt pluginHost/assembly
+
+      - name: Collect artifacts
         run: |
-          mkdir -p dist
+          mkdir -p dist/lib
           cp tools/cli/target/graalvm-native-image/ssc dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
+          PLUGIN_HOST=$(find tools/plugin-host/target -name "ssc-plugin-host.jar" | head -1)
+          cp "$PLUGIN_HOST" dist/lib/ssc-plugin-host.jar
 
       - name: Create release archive
+        # Archive layout:
+        #   ssc                        (native executable)
+        #   lib/ssc-plugin-host.jar    (JVM host for --plugin <jar> bridge)
+        #   README.md
         run: |
-          mkdir -p dist/archive
+          mkdir -p dist/archive/lib
           cp dist/${{ matrix.artifact }} dist/archive/ssc
-          cp native-image-configs/README.md dist/archive/ 2>/dev/null || true
-          tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist/archive ssc
+          cp dist/lib/ssc-plugin-host.jar dist/archive/lib/ssc-plugin-host.jar
+          cp native-image-configs/README.md dist/archive/README.md 2>/dev/null || true
+          tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist/archive .
 
       - name: Upload native binary artifact
         uses: actions/upload-artifact@v4
