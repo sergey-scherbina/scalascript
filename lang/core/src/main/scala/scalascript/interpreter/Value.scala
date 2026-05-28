@@ -216,6 +216,12 @@ object Value:
 
   def boolV(b: Boolean): BoolV = if b then True else False
 
+  /** Smart constructor for Option[Value]: avoids allocating OptionV(None)
+   *  on cache-miss map lookups — returns the NoneV singleton instead. */
+  def optionV(opt: Option[Value]): OptionV = opt match
+    case None    => NoneV
+    case Some(v) => OptionV(Some(v))
+
   def show(v: Value): String = v match
     case IntV(n)              => n.toString
     case DoubleV(d)           => if d == d.toLong.toDouble then d.toLong.toString else d.toString
@@ -319,6 +325,11 @@ object Computation:
 
   inline def pureBool(b: Boolean): Pure = if b then PureTrue else PureFalse
 
+  /** Lift an Option[Value] into a Pure Computation without allocating OptionV(None). */
+  def pureOptionV(opt: Option[Value]): Pure = opt match
+    case None    => PureNone
+    case Some(v) => Pure(Value.OptionV(Some(v)))
+
   def pureIntV(n: Long): Pure =
     if n >= -2048L && n <= 16383L then Value._pureIntPool((n + 2048L).toInt)
     else Pure(Value.IntV(n))
@@ -333,6 +344,14 @@ object Computation:
   /** Cached continuation: discard result and return Unit.  Used by foreach-style callers
    *  to avoid allocating a new `_ => PureUnit` lambda on every call. */
   val discardToUnit: Value => Computation = _ => PureUnit
+
+  /** Cached continuation: wrap a value in OptionV(Some(...)). Used by Option.map.
+   *  Avoids one lambda allocation per Option.map call site. */
+  val wrapSome: Value => Value = v => Value.OptionV(Some(v))
+
+  /** Cached Computation continuation: wrap result in OptionV(Some(v)) and lift to Pure.
+   *  Using flatMap(wrapSomeC) instead of map(wrapSome) saves the `v => Pure(f(v))` lambda. */
+  val wrapSomeC: Value => Computation = v => Pure(Value.OptionV(Some(v)))
 
   /** Run computation c and discard its result (return Unit).  Avoids one lambda allocation
    *  vs `.map(_ => Value.UnitV)` or `.flatMap(_ => PureUnit)`. */

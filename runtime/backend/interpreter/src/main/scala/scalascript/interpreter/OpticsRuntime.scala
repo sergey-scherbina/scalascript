@@ -253,7 +253,7 @@ private[interpreter] object OpticsRuntime:
 
   def buildPathOptional(steps: List[PathStep], interp: Interpreter): Value.InstanceV =
     val getOptionFn = Value.NativeFnV("Optional.getOption", {
-      case List(s) => Pure(Value.OptionV(opticGetOption(s, steps)))
+      case List(s) => Computation.pureOptionV(opticGetOption(s, steps))
       case _       => throw InterpretError("Optional.getOption(s)")
     })
     val setFn = Value.NativeFnV("Optional.set", {

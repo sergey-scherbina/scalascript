@@ -171,9 +171,9 @@ private[interpreter] object DispatchRuntime:
       case "size"         => Computation.pureIntV(ls.size.toLong)
       case "isEmpty"      => Computation.pureBool(ls.isEmpty)
       case "nonEmpty"     => Computation.pureBool(ls.nonEmpty)
-      case "head"         => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
-      case "tail"         => Pure(Value.ListV(ls.tail))
-      case "last"         => Pure(ls.lastOption.getOrElse(interp.located("last on Nil")))
+      case "head"         => if ls.isEmpty then interp.located("head on Nil") else Pure(ls.head)
+      case "tail"         => if ls.isEmpty then interp.located("tail on Nil") else if ls.tail.isEmpty then Computation.PureEmptyList else Pure(Value.ListV(ls.tail))
+      case "last"         => if ls.isEmpty then interp.located("last on Nil") else Pure(ls.last)
       case "init"         => Pure(Value.ListV(ls.init))
       case "reverse"      => Pure(Value.ListV(ls.reverse))
       case "distinct"     => Pure(Value.ListV(ls.distinct))
@@ -391,7 +391,7 @@ private[interpreter] object DispatchRuntime:
         case List(k)       => Computation.pureBool(m.contains(k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "get"      => args match
-        case List(k)       => Pure(Value.OptionV(m.get(k)))
+        case List(k)       => Computation.pureOptionV(m.get(k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "apply"    => args match
         case List(k)       => Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
@@ -475,7 +475,7 @@ private[interpreter] object DispatchRuntime:
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue(f, List(v), env).map(r => Value.OptionV(Some(r)))
+          case Some(v) => interp.callValue(f, List(v), env).flatMap(Computation.wrapSomeC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
