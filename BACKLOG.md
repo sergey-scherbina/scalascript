@@ -55,9 +55,9 @@ conformance is green.
 ## Architecture & Extensibility Roadmap (v1.x–v2.x)
 
 Cross-cutting improvements to make ScalaScript easier to extend, consume, and
-distribute — identified in the 2026-05-28 architectural review.  Full analysis
-in the plan file and the seven spec docs below.  Seven themes, roughly ordered
-by impact and risk.
+distribute — identified in the 2026-05-28 architectural review.  Ten themes
+(A–J), roughly ordered by impact and risk.  Companion plan:
+`~/.claude/plans/glowing-swinging-river.md`.
 
 ### Theme C — Distribution ecosystem (multi-channel, not Maven-only)
 
@@ -211,6 +211,62 @@ enforcement.  Full analysis in `docs/arch-library-modularity.md`.
   `ssc package --lib --precompile` → `.scim` in `ir/`; `ImportResolver` prefers
   pre-compiled; `ssc check-compat old.ssclib new.ssclib` reports API breakage.
   Spec: `docs/arch-library-modularity.md §6 Phase 6`.
+
+### Theme I — Package Registry (discoverability)
+
+Identified 2026-05-28. Without a registry the ecosystem cannot grow: users
+cannot find libraries, authors cannot reach users.  Solution: GitHub repo +
+GitHub Pages static site, zero server infrastructure, PR-based publishing.
+Full spec: `docs/arch-registry.md`.
+
+- [ ] **arch-registry-p1** — Registry repository + `packages.yaml` schema:
+  create `github.com/scalascript/registry`; define YAML schema; seed with
+  3-5 first-party packages; `validate.yml` CI (schema check + `ssc check`).
+  Spec: `docs/arch-registry.md §5 Phase 1`.
+
+- [ ] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI:
+  `RegistryClient` (fetch + cache `packages.yaml`, TTL 1h); `ssc search <query>`
+  (local search with ranking); `ssc info <name>`; `ssc add <name>` writes to
+  manifest; mock-HTTP tests.  Spec: `docs/arch-registry.md §5 Phase 2`.
+
+- [ ] **arch-registry-p3** — GitHub Pages HTML index:
+  `tools/registry-site/generate.sc` scala-cli script; `publish.yml` workflow;
+  `site/index.html` (client-side lunr.js search); per-package JSON pages;
+  `registry.scalascript.io` CNAME.  Spec: `docs/arch-registry.md §5 Phase 3`.
+
+- [ ] **arch-registry-p4** — Private registry support:
+  `registry.url` config in `~/.config/scalascript/config.yaml`; `--registry
+  <url>` CLI flag; enterprise internal mirror documentation.
+  Spec: `docs/arch-registry.md §5 Phase 4`.
+
+### Theme J — Lightweight FFI (@jvm / @js + glue.jar)
+
+Identified 2026-05-28. Community libraries cannot call Java or JS APIs today —
+only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
+`BackendRegistry` plugin.  Full spec: `docs/arch-ffi.md`.
+
+- [ ] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen:
+  `JvmInline` annotation AST node; annotation parser; `JvmGen` emits inline
+  expression as method body; `$N` argument substitution; `CapabilityCheck`
+  errors on `@jvm`-only def called from JS; `examples/ffi-inline.ssc`; 10+ tests.
+  Spec: `docs/arch-ffi.md §6 Phase 1`.
+
+- [ ] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour:
+  `JsGen` emits `@js("...")` as function body; `@interpreterUnsupported`
+  annotation + clear error; cross-backend parity tests (both `@jvm` + `@js`).
+  Spec: `docs/arch-ffi.md §6 Phase 2`.
+
+- [ ] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`:
+  `ssclib-manifest.yaml` `glue.jvm`/`glue.js` fields; `ImportResolver` adds
+  `glue.jar` to JVM classpath; `ssc package --lib --jvm-glue <jar>`; integration
+  test with glue fixture.  Spec: `docs/arch-ffi.md §6 Phase 3`.
+  _Prerequisite: arch-lib-p4 (`.ssclib` format)._
+
+- [ ] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar:
+  JS codegen injects `js/glue.js` before `.ssc` output; `glue.jar`
+  `META-INF/services` loaded into `BackendRegistry` → interpreter support;
+  end-to-end JS test with `glue.js`-using library.
+  Spec: `docs/arch-ffi.md §6 Phase 4`.
 
 ### Theme G — Metaprogramming v2.x (deferred)
 
