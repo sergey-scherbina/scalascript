@@ -4,6 +4,10 @@ Status: planned. This document defines how local, remote, and distributed
 execution surfaces should compose across streams, actors, and asynchronous
 function calls.
 
+See also: [`docs/cluster-operations.md`](cluster-operations.md) — operational companion
+covering auth-token rotation, persistent cluster state, rolling upgrades, multi-AZ
+deployment, and autoscaling.
+
 This spec builds on:
 
 - [`docs/actors-dist.md`](actors-dist.md) - current actor cluster model.
