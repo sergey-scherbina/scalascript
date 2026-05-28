@@ -10211,17 +10211,25 @@ def clusterCommand(args: List[String]): Unit =
     case "drain"    :: rest => clusterDrainCommand(rest)
     case "events"   :: rest => clusterEventsCommand(rest)
     case "step-down" :: rest => clusterStepDownCommand(rest)
+    case "handlers" :: rest => clusterHandlersCommand(rest)
+    case "run"      :: rest => clusterRunCommand(rest)
+    case "package"  :: rest => clusterPackageCommand(rest)
+    case "stop"     :: rest => clusterStopCommand(rest)
     case ("help" | "--help" | "-h") :: _ =>
       println("Usage: ssc cluster <subcommand>")
       println("  status    <url> [--json] [--token=<t>]            show JSON snapshot")
       println("  drain     <url> [--off]  [--token=<t>]            toggle drain mode")
       println("  events    <url> [--since=<ms>] [--token=<t>]      dump events ring")
       println("  step-down <url> [--token=<t>]                     graceful leader step-down")
+      println("  handlers  --seed <url> [--token=<t>] [--json]     list exported handlers")
+      println("  run       <file.ssc> [--role <r>] [--node-id <id>] [--bind <addr>] [--join <url>]")
+      println("  package   <file.ssc> --out <dist.zip> [--target worker]")
+      println("  stop      --seed <url> [--token=<t>]              drain then step-down")
       println()
       println("Auth: --token=<t> or SSC_CLUSTER_TOKEN env.  Sends")
       println("`Authorization: Bearer <token>` on every request.")
     case _ =>
-      System.err.println("Usage: ssc cluster {status|drain|events|step-down} <url> [opts]")
+      System.err.println("Usage: ssc cluster {status|drain|events|step-down|handlers|run|package|stop} <url> [opts]")
       System.exit(2)
 
 private def clusterStepDownCommand(args: List[String]): Unit =
@@ -10551,3 +10559,209 @@ def generateFacadeCommand(args: List[String]): Unit =
       os.makeDir.all(target / os.up)
       os.write.over(target, content)
       System.err.println(s"[ssc] generate-facade: wrote ${outPath.relativeTo(os.pwd)}/${relPath}")
+
+// ── v1.63.5 — cluster run/package/handlers/stop ──────────────────────────────
+
+/** `ssc cluster handlers --seed <url>` — fetch GET <url>/_ssc-cluster/handlers
+ *  and list exported remote-handler operations. */
+private def clusterHandlersCommand(args: List[String]): Unit =
+  val (flags, positional) = args.partition(_.startsWith("--"))
+  val seedOpt = flags.collectFirst { case s if s.startsWith("--seed=") => s.drop(7) }
+    .orElse(flags.zipWithIndex.collectFirst { case ("--seed", i) if i + 1 < flags.size => flags(i + 1) })
+    .orElse(positional.headOption)
+  if seedOpt.isEmpty then
+    System.err.println("Usage: ssc cluster handlers --seed <url> [--token=<t>] [--json]")
+    System.exit(2)
+  else
+    val seed = seedOpt.get
+    val handlersUrl =
+      if seed.endsWith("/_ssc-cluster/handlers") then seed
+      else seed.stripSuffix("/") + "/_ssc-cluster/handlers"
+    val token = clusterAuthTokenFor(flags)
+    val rawJson = flags.contains("--json")
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    val req = applyClusterAuth(
+      java.net.http.HttpRequest.newBuilder()
+        .uri(java.net.URI.create(handlersUrl))
+        .timeout(java.time.Duration.ofSeconds(10)),
+      token
+    ).GET().build()
+    val respOpt =
+      try Some(client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()))
+      catch case e: Throwable =>
+        System.err.println(s"failed to GET $handlersUrl: ${e.getMessage}")
+        System.exit(1)
+        None
+    respOpt.foreach { resp =>
+      if resp.statusCode() != 200 then
+        System.err.println(s"unexpected status ${resp.statusCode()} from $handlersUrl")
+        System.err.println(resp.body())
+        System.exit(1)
+      else if rawJson then
+        println(resp.body())
+      else
+        // Hand-rolled extraction of name/path/transports from JSON array.
+        val body = resp.body()
+        println("Remote handlers:")
+        val entries = scala.collection.mutable.ArrayBuffer.empty[(String, String, String)]
+        var pos = 0
+        while pos < body.length do
+          val nameStart = body.indexOf("\"name\":\"", pos)
+          if nameStart < 0 then pos = body.length
+          else
+            val ns = nameStart + 8
+            val ne = body.indexOf('"', ns)
+            val name = if ne > ns then body.substring(ns, ne) else "?"
+            val pathStart = body.indexOf("\"path\":\"", pos)
+            val path =
+              if pathStart >= 0 && pathStart < body.indexOf('}', nameStart) then
+                val ps = pathStart + 8; val pe = body.indexOf('"', ps)
+                if pe > ps then body.substring(ps, pe) else ""
+              else ""
+            entries += ((name, path, ""))
+            pos = ne + 1
+        if entries.isEmpty then println("  (none)")
+        else entries.foreach { (name, path, _) =>
+          println(s"  $name${if path.nonEmpty then s" → $path" else ""}")
+        }
+    }
+
+/** `ssc cluster run <file.ssc> [--role <r>] [--node-id <id>] [--bind <addr>] [--join <url>]`
+ *  — run a .ssc file as a cluster node by injecting cluster env vars and
+ *  delegating to the normal `ssc run` command. */
+private def clusterRunCommand(args: List[String]): Unit =
+  if args.isEmpty then
+    System.err.println("Usage: ssc cluster run <file.ssc> [--role <r>] [--node-id <id>] [--bind <addr:port>] [--join <ws-url>] [--token <t>]")
+    System.exit(2)
+  val it = args.iterator
+  var fileArg: Option[String] = None
+  var roleFlag: Option[String] = None
+  var nodeIdFlag: Option[String] = None
+  var bindFlag: Option[String] = None
+  var joinFlag: Option[String] = None
+  var tokenFlag: Option[String] = None
+  val extra = scala.collection.mutable.ArrayBuffer.empty[String]
+  while it.hasNext do
+    it.next() match
+      case "--role"    if it.hasNext => roleFlag    = Some(it.next())
+      case "--node-id" if it.hasNext => nodeIdFlag  = Some(it.next())
+      case "--bind"    if it.hasNext => bindFlag    = Some(it.next())
+      case "--join"    if it.hasNext => joinFlag    = Some(it.next())
+      case "--token"   if it.hasNext => tokenFlag   = Some(it.next())
+      case flag if flag.startsWith("--role=")    => roleFlag    = Some(flag.drop(7))
+      case flag if flag.startsWith("--node-id=") => nodeIdFlag  = Some(flag.drop(10))
+      case flag if flag.startsWith("--bind=")    => bindFlag    = Some(flag.drop(7))
+      case flag if flag.startsWith("--join=")    => joinFlag    = Some(flag.drop(7))
+      case flag if flag.startsWith("--token=")   => tokenFlag   = Some(flag.drop(8))
+      case other if !other.startsWith("--") && fileArg.isEmpty => fileArg = Some(other)
+      case other => extra += other
+  if fileArg.isEmpty then
+    System.err.println("ssc cluster run: no .ssc file specified")
+    System.exit(2)
+  val envVars = scala.collection.mutable.Map.empty[String, String]
+  roleFlag.foreach   { r => envVars("SSC_CLUSTER_ROLE")  = r }
+  nodeIdFlag.foreach { n => envVars("SSC_NODE_ID")       = n }
+  bindFlag.foreach   { b => envVars("SSC_BIND")          = b }
+  joinFlag.foreach   { j => envVars("SSC_JOIN_SEEDS")    = j }
+  tokenFlag.foreach  { t => envVars("SSC_CLUSTER_TOKEN") = t }
+  // Delegate to the regular runCommand path with cluster env vars injected.
+  val result = os.proc("ssc", "run", fileArg.get)
+    .call(stdout = os.Inherit, stderr = os.Inherit, env = envVars.toMap, check = false)
+  System.exit(result.exitCode)
+
+/** `ssc cluster package <file.ssc> --out <dist.zip> [--target worker]` —
+ *  package a .ssc source file into a worker bundle zip with code identity
+ *  and registry metadata. */
+private def clusterPackageCommand(args: List[String]): Unit =
+  val it = args.iterator
+  var fileArg: Option[String] = None
+  var outFlag:    Option[String] = None
+  var targetFlag: Option[String] = Some("worker")
+  while it.hasNext do
+    it.next() match
+      case "--out"    if it.hasNext => outFlag    = Some(it.next())
+      case "--target" if it.hasNext => targetFlag = Some(it.next())
+      case flag if flag.startsWith("--out=")    => outFlag    = Some(flag.drop(6))
+      case flag if flag.startsWith("--target=") => targetFlag = Some(flag.drop(9))
+      case other if !other.startsWith("--") && fileArg.isEmpty => fileArg = Some(other)
+      case _ => ()
+  if fileArg.isEmpty || outFlag.isEmpty then
+    System.err.println("Usage: ssc cluster package <file.ssc> --out <dist.zip> [--target worker]")
+    System.exit(2)
+  val srcPath = os.Path(fileArg.get, os.pwd)
+  if !os.exists(srcPath) then
+    System.err.println(s"ssc cluster package: file not found: $srcPath")
+    System.exit(1)
+  val outPath = os.Path(outFlag.get, os.pwd)
+  os.makeDir.all(outPath / os.up)
+  // Compute a simple SHA-256 code identity hash over the source bytes.
+  val srcBytes = os.read.bytes(srcPath)
+  val digest   = java.security.MessageDigest.getInstance("SHA-256")
+  val hashHex  = digest.digest(srcBytes).map(b => "%02x".format(b)).mkString
+  val target   = targetFlag.getOrElse("worker")
+  // Build the worker bundle metadata JSON.
+  val metaJson =
+    s"""{
+       |  "bundleVersion": "1",
+       |  "target": "$target",
+       |  "sourceFile": "${srcPath.last}",
+       |  "codeIdentity": {
+       |    "algorithmId": "sha256",
+       |    "hash": "$hashHex"
+       |  },
+       |  "registryMetadata": {
+       |    "remoteHandlers": [],
+       |    "exportedBehaviors": [],
+       |    "exportedSources": []
+       |  },
+       |  "runtimeVersion": "1.63.5"
+       |}""".stripMargin
+  // Write the zip: source file + manifest.json.
+  val zos = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
+  try
+    zos.putNextEntry(new java.util.zip.ZipEntry(srcPath.last))
+    zos.write(srcBytes)
+    zos.closeEntry()
+    zos.putNextEntry(new java.util.zip.ZipEntry("manifest.json"))
+    zos.write(metaJson.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    zos.closeEntry()
+  finally
+    zos.close()
+  println(s"[ssc] cluster package: wrote ${outPath}")
+  println(s"[ssc]   source:       ${srcPath.last}")
+  println(s"[ssc]   codeIdentity: sha256:${hashHex.take(16)}...")
+  println(s"[ssc]   target:       $target")
+
+/** `ssc cluster stop --seed <url> [--token <t>]` — drain the target node
+ *  and request a graceful leader step-down. */
+private def clusterStopCommand(args: List[String]): Unit =
+  val (flags, positional) = args.partition(_.startsWith("--"))
+  val seedOpt = flags.collectFirst { case s if s.startsWith("--seed=") => s.drop(7) }
+    .orElse(positional.headOption)
+  if seedOpt.isEmpty then
+    System.err.println("Usage: ssc cluster stop --seed <url> [--token=<t>]")
+    System.exit(2)
+  else
+    val seed  = seedOpt.get.stripSuffix("/")
+    val token = clusterAuthTokenFor(flags)
+    val client = java.net.http.HttpClient.newBuilder()
+      .connectTimeout(java.time.Duration.ofSeconds(5)).build()
+    def post(path: String, body: String): Int =
+      val req = applyClusterAuth(
+        java.net.http.HttpRequest.newBuilder()
+          .uri(java.net.URI.create(seed + path))
+          .timeout(java.time.Duration.ofSeconds(10))
+          .header("Content-Type", "application/json"),
+        token
+      ).POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build()
+      try client.send(req, java.net.http.HttpResponse.BodyHandlers.discarding()).statusCode()
+      catch case e: Throwable =>
+        System.err.println(s"request to $seed$path failed: ${e.getMessage}")
+        -1
+    System.err.println(s"[ssc] draining $seed ...")
+    val drainStatus = post("/_ssc-cluster/drain", """{"enabled":true}""")
+    if drainStatus >= 0 && drainStatus < 300 then
+      System.err.println(s"[ssc] stepping down leader ...")
+      post("/_ssc-cluster/step-down", "")
+    System.err.println(s"[ssc] stop signal sent to $seed")

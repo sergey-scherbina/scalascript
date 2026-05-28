@@ -7708,6 +7708,34 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |            Map("Content-Type" -> "text/plain; version=0.0.4; charset=utf-8"),
        |            sb.toString)
        |    }
+       |  // v1.63.5 — `GET /_ssc-cluster/handlers` returns the remote handler
+       |  // registry as a JSON array so `ssc cluster handlers` can list
+       |  // exported operations from a running node.
+       |  def _registerClusterHandlersRoute(): Unit =
+       |    val path = "/_ssc-cluster/handlers"
+       |    if _routes.exists(r => r.method == "GET" && r.path == path) then return
+       |    route("GET", path) { req =>
+       |      _clusterAuthReject(req) match
+       |        case Some(r) => r
+       |        case None =>
+       |          val sb = new StringBuilder("[")
+       |          var first = true
+       |          _remoteHandlers.forEach { (name, info) =>
+       |            if !first then sb.append(',')
+       |            first = false
+       |            sb.append('{')
+       |            sb.append("\"name\":").append(_jstr(name))
+       |            sb.append(",\"function\":").append(_jstr(info.function))
+       |            info.path.foreach { p => sb.append(",\"path\":").append(_jstr(p)) }
+       |            info.requestType.foreach { t => sb.append(",\"requestType\":").append(_jstr(t)) }
+       |            info.responseType.foreach { t => sb.append(",\"responseType\":").append(_jstr(t)) }
+       |            val transports = info.transports.map(t => "\"" + t + "\"").mkString(",")
+       |            sb.append(s",\"transports\":[$transports]")
+       |            sb.append('}')
+       |          }
+       |          sb.append(']')
+       |          Response(200, Map("Content-Type" -> "application/json"), sb.toString)
+       |    }
        |""".stripMargin +
     """|  def _broadcastCoordinator(): Unit =
        |    val payload = "{\"t\":\"coordinator\",\"from\":" + _jstr(_localNodeId) + "}"
@@ -8515,6 +8543,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |      _registerClusterEventsRoute()
        |      _registerClusterStepDownRoute()
        |      _registerClusterMetricsPromRoute()
+       |      _registerClusterHandlersRoute()
        |      Right(k(()))
        |    case "connectNode" =>
        |      val url = args(0).toString

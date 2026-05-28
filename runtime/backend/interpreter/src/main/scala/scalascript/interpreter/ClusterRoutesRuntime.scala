@@ -262,3 +262,39 @@ private[interpreter] object ClusterRoutesRuntime:
       }
     })
     interp.routeRegistry.register("GET", path, handler, interp)
+
+  def registerClusterHandlersRoute(interp: Interpreter): Unit =
+    val path = "/_ssc-cluster/handlers"
+    val already = interp.routeRegistry.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    def jstr(s: String): String = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    val handler = Value.NativeFnV("_clusterHandlers", Computation.pureFn { args =>
+      clusterAuthReject(args, interp).getOrElse {
+        val handlers = interp.remoteHandlerInfos
+        val sb = new StringBuilder("[")
+        var first = true
+        handlers.foreach { h =>
+          if !first then sb.append(',')
+          first = false
+          sb.append('{')
+          sb.append(s""""name":${jstr(h.name)}""")
+          sb.append(s""","function":${jstr(h.function)}""")
+          h.path.foreach { p => sb.append(s""","path":${jstr(p)}""") }
+          h.requestType.foreach { t => sb.append(s""","requestType":${jstr(t)}""") }
+          h.responseType.foreach { t => sb.append(s""","responseType":${jstr(t)}""") }
+          val transports = h.transports.map(t => s""""$t"""").mkString(",")
+          sb.append(s""","transports":[$transports]""")
+          sb.append('}')
+        }
+        sb.append(']')
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.intV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
+      }
+    })
+    interp.routeRegistry.register("GET", path, handler, interp)

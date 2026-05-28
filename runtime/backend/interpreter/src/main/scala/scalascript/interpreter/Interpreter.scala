@@ -972,6 +972,9 @@ class Interpreter(
   private[interpreter] def registerClusterStatusRoute(): Unit =
     ClusterRoutesRuntime.registerClusterStatusRoute(this)
 
+  private[interpreter] def registerClusterHandlersRoute(): Unit =
+    ClusterRoutesRuntime.registerClusterHandlersRoute(this)
+
   // ─── Built-ins — see BuiltinsRuntime.scala ────────────────────────────
 
   def invoke(fn: Value, args: List[Value]): Value =

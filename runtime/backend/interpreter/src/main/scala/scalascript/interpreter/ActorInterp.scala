@@ -1801,6 +1801,8 @@ private[interpreter] trait ActorInterp:
       // step-down for rolling restarts; cluster auto-re-elects
       // (assuming setAutoReelect(true) on survivors).
       registerClusterStepDownRoute()
+      // v1.63.5 — GET /_ssc-cluster/handlers — list remote handler registry.
+      registerClusterHandlersRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
