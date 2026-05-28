@@ -66,6 +66,7 @@ object Parser:
     val raw      =
       if pkg.isEmpty then Module(manifest, sections, sourceText = Some(source))
       else Module(manifest, sections.map(wrapSectionInPackage(_, pkg)), sourceText = Some(source))
+    validateRemoteRegistries(raw)
     MarkupLiteralLower.lower(RouteDeriver.derive(raw))
 
   /** Wrap every scalascript-block's contents in nested `object`s matching
@@ -476,6 +477,38 @@ object Parser:
       case m: java.util.Map[?, ?] =>
         m.asScala.iterator.collect { case (k: String, v) => k -> v.toString }.toMap
     }.getOrElse(Map.empty)
+
+  private def validateRemoteRegistries(module: Module): Unit =
+    module.manifest.foreach { m =>
+      val required =
+        m.remoteHandlers.map(h => h.function -> s"remoteHandlers.${h.name}") ++
+        m.remoteSources.map(s => s.source -> s"remoteSources.${s.name}") ++
+        m.remoteBehaviors.map(b => b.behavior -> s"remoteBehaviors.${b.name}")
+      if required.nonEmpty then
+        val available = collectTopLevelValueNames(module.sections)
+        required.collectFirst {
+          case (fn, origin) if !available.contains(fn) =>
+            throw new RuntimeException(s"$origin references missing local definition '$fn'")
+        }
+    }
+
+  private def collectTopLevelValueNames(sections: List[Section]): Set[String] =
+    def fromTree(tree: scala.meta.Tree): Set[String] =
+      import scala.meta.*
+      tree.collect {
+        case d: Defn.Def => d.name.value
+        case v: Defn.Val => v.pats.collect { case Pat.Var(name) => name.value }
+        case v: Defn.Var => v.pats.collect { case Pat.Var(name) => name.value }
+      }.flatMap {
+        case s: String => List(s)
+        case xs: List[?] => xs.collect { case s: String => s }
+      }.toSet
+    def loop(section: Section): Set[String] =
+      section.content.collect {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.map(node => ScalaNode.fold(node)(fromTree)).getOrElse(Set.empty)
+      }.foldLeft(Set.empty[String])(_ ++ _) ++ section.subsections.flatMap(loop)
+    sections.flatMap(loop).toSet
 
   private def parseSchemaDefault(value: Any): SchemaDefault = value match
     case null => SchemaDefault.NullValue

@@ -6,13 +6,14 @@ import scalascript.transform.{Denormalize, Normalize}
 
 class ClusterFrontmatterTest extends AnyFunSuite:
 
-  private def withFrontmatter(yaml: String) =
+  private def withFrontmatter(yaml: String, body: String = "") =
     Parser.parse(
       s"""|---
           |$yaml
           |---
           |
           |# Test
+          |$body
           |""".stripMargin
     )
 
@@ -62,7 +63,14 @@ class ClusterFrontmatterTest extends AnyFunSuite:
         |remoteBehaviors:
         |  workers.thumbnail:
         |    behavior: thumbnailWorker
-        |    args: ThumbnailWorkerArgs""".stripMargin
+        |    args: ThumbnailWorkerArgs""".stripMargin,
+      """
+        |```scala
+        |def getUser(id: UserId): User = ???
+        |def orderEvents(filter: OrderFilter): List[OrderEvent] = List()
+        |def thumbnailWorker(args: ThumbnailWorkerArgs): Unit = ()
+        |```
+        |""".stripMargin
     )
 
     val mf = mod.manifest.get
@@ -82,7 +90,12 @@ class ClusterFrontmatterTest extends AnyFunSuite:
         |  users.get:
         |    function: getUser
         |    request: UserId
-        |    response: User""".stripMargin
+        |    response: User""".stripMargin,
+      """
+        |```scala
+        |def getUser(id: UserId): User = ???
+        |```
+        |""".stripMargin
     )
 
     val roundTripped = Denormalize(Normalize(mod))
@@ -92,3 +105,15 @@ class ClusterFrontmatterTest extends AnyFunSuite:
     val sscc = SsccFormat.read(SsccFormat.write(mod)).toOption.get
     assert(sscc.manifest.flatMap(_.cluster).flatMap(_.name).contains("demo"))
     assert(sscc.manifest.get.remoteHandlers.head.function == "getUser")
+
+  test("registry front matter rejects missing local definitions"):
+    val err = intercept[RuntimeException] {
+      withFrontmatter(
+        """remoteHandlers:
+          |  users.get:
+          |    function: missingGetUser
+          |    request: UserId
+          |    response: User""".stripMargin
+      )
+    }
+    assert(err.getMessage.contains("remoteHandlers.users.get references missing local definition 'missingGetUser'"))

@@ -6,7 +6,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-28 — v1.63.3 Cluster capability base
 
-- **v1.63.3-cluster-capability-seed-code-identity partial** — Added backend SPI `Cluster`, `SeedResolver`, and `CodeIdentity`; exposed ScalaScript `ClusterCapability`, `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`, and `assertCodeIdentity`; interpreter now returns cluster snapshots, resolves static/DNS/K8s seed descriptors, computes deterministic SHA-256 code identity, and reports explicit diagnostics for the still-planned Consul resolver. Added typed `cluster:` / `remoteHandlers:` / `remoteSources:` / `remoteBehaviors:` front-matter metadata in AST/IR/`.sscc`. Remaining v1.63.3 work covers `cluster Demo:` lowering and handler/codec validation.
+- **v1.63.3-cluster-capability-seed-code-identity partial** — Added backend SPI `Cluster`, `SeedResolver`, and `CodeIdentity`; exposed ScalaScript `ClusterCapability`, `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`, and `assertCodeIdentity`; interpreter now returns cluster snapshots, resolves static/DNS/K8s seed descriptors, computes deterministic SHA-256 code identity, and reports explicit diagnostics for the still-planned Consul resolver. Added typed `cluster:` / `remoteHandlers:` / `remoteSources:` / `remoteBehaviors:` front-matter metadata in AST/IR/`.sscc`, plus parser validation for missing registry target definitions. Remaining v1.63.3 work covers `cluster Demo:` lowering and codec validation.
 
 ## 2026-05-28 — v1.63.2 Typed actors and remote spawn
 

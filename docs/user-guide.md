@@ -3147,7 +3147,9 @@ remoteHandlers:
 ```
 
 This metadata is parsed and preserved in AST/IR/`.sscc` today. Runtime lowering
-from front matter into handler/behavior registration is still planned.
+from front matter into handler/behavior registration is still planned. The
+parser rejects registry entries whose `function`, `source`, or `behavior`
+target is not defined in the same module.
 
 Specs: [`docs/cluster-management.md`](cluster-management.md),
 [`docs/cluster-raft.md`](cluster-raft.md),
