@@ -19,6 +19,31 @@ private[interpreter] object CallRuntime:
     case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
     case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 
+  /** Single-argument fast path: avoids allocating List(arg) on every map/filter/forEach call.
+   *  For simple 1-param FunV (no varargs, no using, no defaults, no TCO) builds
+   *  the call env directly.  Falls back to callValue(fn, List(arg), env, interp) otherwise. */
+  def callValue1(fn: Value, arg: Value, env: Env, interp: Interpreter): Computation = fn match
+    case f: Value.FunV if
+        f.params.length == 1 &&
+        f.usingParams.isEmpty &&
+        !f.returnsThrows &&
+        f.defaults.headOption.flatten.isEmpty &&
+        f.paramTypes.headOption.forall(!_.endsWith("*")) =>
+      val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
+      val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
+      val frameName = if f.name.nonEmpty then f.name else "<anon>"
+      val relLine   = interp.currentSpan.map(_._1 + 1).getOrElse(0)
+      interp.callStack += ((frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine))
+      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
+      val result =
+        try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+      if interp.callStack.nonEmpty then interp.callStack.remove(interp.callStack.length - 1)
+      result
+    case f: Value.NativeFnV => f.f(List(arg))
+    case _ => callValue(fn, List(arg), env, interp)
+
   def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env, interp: Interpreter): Computation =
     fn match
       case f: Value.FunV =>

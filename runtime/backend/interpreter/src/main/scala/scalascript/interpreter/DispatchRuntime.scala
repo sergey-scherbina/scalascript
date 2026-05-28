@@ -260,11 +260,11 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.StringV(ls.map(Value.show).mkString(s, sep, e)))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "map"          => args match
-        case List(f) => Computation.sequence(ls.map(item => interp.callValue(f, List(item), env)))
+        case List(f) => Computation.sequence(ls.map(item => interp.callValue1(f, item, env)))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"      => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
             case Value.ListV(results) => Value.ListV(results.flatMap {
               case Value.ListV(inner) => inner
               case v                  => List(v)
@@ -274,7 +274,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"       => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
             case Value.ListV(flags) =>
               Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(true)) => v })
             case other => other
@@ -282,7 +282,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filterNot"    => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
             case Value.ListV(flags) =>
               Value.ListV(ls.zip(flags).collect { case (v, Value.BoolV(false)) => v })
             case other => other
@@ -290,11 +290,11 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).flatMap(Computation.discardToUnit)
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
             case Value.ListV(flags) =>
               Value.intV(flags.count { case Value.BoolV(true) => true; case _ => false }.toLong)
             case _ => Value.intV(0)
@@ -305,7 +305,7 @@ private[interpreter] object DispatchRuntime:
           def loop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureNone
             case h :: rest =>
-              interp.callValue(f, List(h), env).flatMap {
+              interp.callValue1(f, h, env).flatMap {
                 case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
                 case _                 => loop(rest)
               }
@@ -316,7 +316,7 @@ private[interpreter] object DispatchRuntime:
           def loop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureFalse
             case h :: rest =>
-              interp.callValue(f, List(h), env).flatMap {
+              interp.callValue1(f, h, env).flatMap {
                 case Value.BoolV(true) => Computation.PureTrue
                 case _                 => loop(rest)
               }
@@ -327,7 +327,7 @@ private[interpreter] object DispatchRuntime:
           def loop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureTrue
             case h :: rest =>
-              interp.callValue(f, List(h), env).flatMap {
+              interp.callValue1(f, h, env).flatMap {
                 case Value.BoolV(false) => Computation.PureFalse
                 case _                  => loop(rest)
               }
@@ -335,7 +335,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "sortBy"       => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map {
+          Computation.sequence(ls.map(item => interp.callValue1(f, item, env))).map {
             case Value.ListV(keys) =>
               Value.ListV(ls.zip(keys).sortBy(p => Value.show(p._2)).map(_._1))
             case _ => recv
@@ -677,14 +677,15 @@ private[interpreter] object DispatchRuntime:
     // No-arg / native field access (must precede enum-companion check so plain
     // field values like IntV(3) are returned directly instead of being "called")
     else if args.isEmpty then
-      fields.get(name) match
-        case Some(f: Value.FunV)      if f.params.isEmpty => interp.callFun(f, Nil)
-        case Some(f: Value.NativeFnV)                     => f.f(Nil)
-        case Some(v)                                      => Pure(v)
-        case None if name == "toString"                   => Pure(Value.StringV(Value.show(recv)))
-        case None =>
-          extensionDispatch(recv, name, Nil, env, interp)
+      val fieldV = fields.getOrElse(name, null)
+      fieldV match
+        case null =>
+          if name == "toString" then Pure(Value.StringV(Value.show(recv)))
+          else extensionDispatch(recv, name, Nil, env, interp)
             .getOrElse(interp.located(s"No field '$name'"))
+        case f: Value.FunV      if f.params.isEmpty => interp.callFun(f, Nil)
+        case f: Value.NativeFnV                     => f.f(Nil)
+        case v                                      => Pure(v)
     // Enum companion call (Color.RGB(1,2,3)) — only when args are present
     else if fields.contains(name) then
       interp.callValue(fields(name), args, env)

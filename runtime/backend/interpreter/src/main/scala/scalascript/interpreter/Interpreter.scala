@@ -1193,6 +1193,10 @@ class Interpreter(
   private[interpreter] def callValue(fn: Value, args: List[Value], env: Env): Computation =
     CallRuntime.callValue(fn, args, env, this)
 
+  /** Single-arg fast path — avoids List(item) allocation in map/filter/forEach hot loops. */
+  private[interpreter] def callValue1(fn: Value, arg: Value, env: Env): Computation =
+    CallRuntime.callValue1(fn, arg, env, this)
+
   // ─── Call helpers — see CallRuntime.scala ────────────────────────────────
 
   private[interpreter] def callFun(f: Value.FunV, args: List[Value]): Computation =
