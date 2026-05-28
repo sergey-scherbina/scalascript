@@ -906,14 +906,35 @@ def incrementalBuildCommand(args: List[String]): Unit =
   var skipped  = 0
   var failed   = 0
 
+  // ── Parallel stale-check + parse ─────────────────────────────────────────
+  // Staleness checks (SHA-256 artifact reads) and Parser.parse are pure with
+  // no shared mutable state.  Run them in parallel via CompletableFuture so
+  // the IO-bound stale checks and CPU-bound parses overlap.
+  // Result type per node: (coreStale, jvmStale, jsStale, srcBytes?, module?)
+  type PreScan = (Boolean, Boolean, Boolean, Option[Array[Byte]], Option[scalascript.ast.Module])
+  val preParsed: Map[os.Path, PreScan] =
+    val futures = nodes.map { node =>
+      val f = java.util.concurrent.CompletableFuture.supplyAsync[PreScan](() =>
+        val cs    = ModuleGraph.isStale(node.path, artDir)
+        val vs    = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
+        val es    = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+        val stale = cs || vs || es
+        if !stale then (cs, vs, es, None, None)
+        else
+          val bytes = scala.util.Try(os.read.bytes(node.path)).getOrElse(Array.emptyByteArray)
+          val src   = new String(bytes, "UTF-8")
+          val m     = scala.util.Try(CompileStats.time("parse") { Parser.parse(src) }).toOption
+          (cs, vs, es, Some(bytes), m)
+      )
+      node.path -> f
+    }
+    futures.map((p, f) => p -> f.join()).toMap
+
   for node <- nodes do
     val relPath  = node.relPath(srcDir)
     val baseName = node.path.last.stripSuffix(".ssc")
-    // Staleness: any of .scim, .scir, or (if backend-specific) cached
-    // artifact out of date.
-    val coreStale = ModuleGraph.isStale(node.path, artDir)
-    val jvmStale  = emitJvm && ModuleGraph.isJvmStale(node.path, artDir)
-    val jsStale   = emitJs  && ModuleGraph.isJsStale(node.path, artDir)
+    // Use pre-computed stale flags from the parallel phase.
+    val (coreStale, jvmStale, jsStale, preSrcBytes, preModule) = preParsed(node.path)
     val stale     = coreStale || jvmStale || jsStale
 
     if !stale then
@@ -936,10 +957,8 @@ def incrementalBuildCommand(args: List[String]): Unit =
             if sectionCacheMode == "interface"
             then ModuleGraph.staleSectionsInterfaceBased(node.path, artDir)
             else ModuleGraph.staleSections(node.path, artDir)
-          val srcBytes   = scala.util.Try(os.read.bytes(node.path)).getOrElse(Array.emptyByteArray)
           val parsed     =
-            scala.util.Try(Parser.parse(new String(srcBytes, "UTF-8")))
-              .getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
+            preModule.getOrElse(scalascript.ast.Module(manifest = None, sections = Nil))
           val total = parsed.sections.length
           val modeTag = if sectionCacheMode == "interface" then " iface" else ""
           if total == 0 then ""
@@ -963,9 +982,9 @@ def incrementalBuildCommand(args: List[String]): Unit =
       System.setErr(capturedPs)
       val ok =
         try scala.util.Try {
-          val sourceBytes = os.read.bytes(node.path)
+          val sourceBytes = preSrcBytes.getOrElse(os.read.bytes(node.path))
           val src         = new String(sourceBytes, "UTF-8")
-          val module      = CompileStats.time("parse") { Parser.parse(src) }
+          val module      = preModule.getOrElse(CompileStats.time("parse") { Parser.parse(src) })
           // Structured parse-error diagnostic: bail BEFORE Normalize / Typer
           // emit their own opaque secondary messages.  Returning a recognisable
           // exception keeps the `[compile] ... FAIL` line + the structured
