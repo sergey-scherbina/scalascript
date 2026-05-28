@@ -920,7 +920,7 @@ class Interpreter(
           case None =>
             Left(scalascript.backend.spi.RemoteCallError.HandlerNotFound(name))
           case Some(handler) =>
-            try Right(Computation.run(callValue(handler, List(payload), Map.empty)))
+            try Right(Computation.run(callValue1(handler, payload, Map.empty)))
             catch
               case e: InterpretError =>
                 Left(scalascript.backend.spi.RemoteCallError.RemoteFailed("handler_failed", e.getMessage))

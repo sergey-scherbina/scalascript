@@ -204,7 +204,7 @@ private[interpreter] object BuiltinsRuntime:
                 case Value.InstanceV(_, fields) => fields.get("close")
                 case Value.MapV(m)              => m.get(Value.StringV("close"))
                 case _                          => None
-              try Computation.run(interp.callValue(block, List(res), Map.empty))
+              try Computation.run(interp.callValue1(block, res, Map.empty))
               finally
                 closeOpt.foreach { closeFn =>
                   try { Computation.run(interp.callValue(closeFn, Nil, Map.empty)); () }

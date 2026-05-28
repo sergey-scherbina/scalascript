@@ -73,7 +73,7 @@ private[interpreter] object DerivesRuntime:
                   "label"  -> Value.StringV(typeName),
                   "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
                 ))
-                Computation.run(interp.callValue(fn, List(mirror), Map.empty))
+                Computation.run(interp.callValue1(fn, mirror, Map.empty))
               case None => Value.UnitV
           case _ => Value.UnitV
 
