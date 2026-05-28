@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Architecture roadmap queue
+
+- **queue-architecture-themes** — Added Architecture & Extensibility roadmap items to `WORK_QUEUE.md` so agents can claim them directly. Official centralized publishing to Maven Central / sbt Plugin Portal remains deferred in `BACKLOG.md`; ScalaScript's own package registry tasks are queued.
+
 ## 2026-05-28 — v1.61.2 Computation pure-path elimination
 
 - **v1.61.2-pure-path** — Smart `Computation.map` constructor (skips FlatMap allocation when sub is Pure); all-Pure fast path in `Computation.sequence` (skips N-deep FlatMap chain for pure list operations); `Term.Select` pure-path in `EvalRuntime` (skips FlatMap for field access when receiver is Pure); `Term.Assign` pure-path (skips FlatMap for global-var assignment with pure RHS); `BlockRuntime.evalBlock` pure-paths for local-var assignment and compound assignment. Reduces FlatMap allocations on hot interpreter paths. No behavior change.

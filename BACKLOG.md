@@ -132,10 +132,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   thin Coursier repo wrapper; tests with embedded local Maven fixture.
   Spec: `docs/arch-distribution.md §5 Phase 2`.
 
-- [ ] **arch-distribution-p3** — First-party Maven Central publication:
+- [ ] **arch-distribution-p3** — First-party Maven Central publication
+  (deferred; not queued):
   `project/Publishing.scala`; `io.scalascript` group ID unified; publish
   `scalascript-core`, `scalascript-runtime`, `sbt-scalascript` on tag push;
-  sbt Plugin Portal registration.  Spec: `docs/arch-distribution.md §5 Phase 3`.
+  sbt Plugin Portal registration. Deferred until Sergiy explicitly asks to
+  publish to Maven Central, sbt Plugin Portal, or other official centralized
+  repositories.  Spec: `docs/arch-distribution.md §5 Phase 3`.
 
 - [ ] **arch-distribution-p4** — Community plugin starter template:
   `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`;

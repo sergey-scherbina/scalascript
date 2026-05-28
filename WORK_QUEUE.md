@@ -48,6 +48,105 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [ ] **v1.62.8-wire-compatibility** — Binary compatibility before first stable release: schema-id hashing, additive evolution rules, default/unknown-field policy, old/new test vectors, and explicit mixed-version opt-in. Spec: `docs/distributed-wire-protocol.md §Phase 8`.
 
+## Architecture & Extensibility — queued
+
+Queued from `BACKLOG.md §Architecture & Extensibility Roadmap`. Official
+centralized publication targets such as Maven Central and sbt Plugin Portal are
+intentionally omitted from this queue and remain deferred in `BACKLOG.md`.
+ScalaScript's own registry work stays queued.
+
+### Theme C — Distribution ecosystem
+
+- [ ] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`: refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag` scheme; `DepCache` with sha256 pin; tests against mock GitHub API. Spec: `docs/arch-distribution.md §5 Phase 1`.
+
+- [ ] **arch-distribution-p2** — Coursier wiring + JitPack: `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as thin Coursier repo wrapper; tests with embedded local Maven fixture. Spec: `docs/arch-distribution.md §5 Phase 2`.
+
+- [ ] **arch-distribution-p4** — Community plugin starter template: `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`; new `docs/community-plugins.md`. Spec: `docs/arch-distribution.md §5 Phase 4`.
+
+### Theme D — sbt-scalascript plugin completion
+
+- [ ] **arch-sbt-plugin-p1** — Source convention + `sscCompile`: `sscSourceDirectories` setting; `sscCompile` task forks `ssc build`; wire into `Compile / compile`; scripted test: `sbt compile` compiles `.ssc` files. Spec: `docs/arch-sbt-plugin.md §5 Phase 1`.
+
+- [ ] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`: `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted test: `sbt package` produces runnable JAR. Spec: `docs/arch-sbt-plugin.md §5 Phase 2`.
+
+- [ ] **arch-sbt-plugin-p3** — Test integration: `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`; JUnit XML parsing to sbt `TestResult`; scripted test: `sbt test` discovers and runs `.ssc` tests. Spec: `docs/arch-sbt-plugin.md §5 Phase 3`.
+
+- [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring: `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits `.bsp/scalascript.json` for Metals/IntelliJ. Spec: `docs/arch-sbt-plugin.md §5 Phase 4`.
+
+### Theme E — `ssc new` + standalone installation
+
+- [ ] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel: `NewProject.scala` in CLI; `app`, `lib` templates bundled in `ssc.jar`; Coursier channel JSON at `releases.scalascript.io`; `sbt cli/assembly` fat JAR. Spec: `docs/arch-ssc-new.md §5 Phase 1`.
+
+- [ ] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer: `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula; `curl | sh` installer; `README.md` Getting Started updated. Spec: `docs/arch-ssc-new.md §5 Phase 2`.
+
+- [ ] **arch-ssc-new-p3** — Standalone docs update: `docs/getting-started-standalone.md`; `docs/community-plugins.md`; `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag. Spec: `docs/arch-ssc-new.md §5 Phase 3`.
+
+### Theme B — Build-time registry consolidation
+
+- [ ] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`: introduce `PluginSpec` case class; migrate all plugins; compute CLI deps, installBin, pluginPkgs, aggregate, and pluginTests from it. Spec: `docs/arch-build-registry.md §5 Phase 1`.
+
+- [ ] **arch-build-registry-p2** — Runtime `PluginRegistry` unification: new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it; `PluginManifest`/`SubprocessBackend` to `SubprocessPlugin`; `LocalRegistry` absorbed into `RemotePluginInstaller`. Spec: `docs/arch-build-registry.md §5 Phase 2`.
+
+### Theme A — Stable Plugin SPI
+
+- [ ] **arch-stable-spi-p1** — `scalascript-plugin-api` module: new sbt subproject; `PluginValue`, `PluginError`, `PluginComputation`, `JsonCodec`, and `PluginContext` capability re-export; existing plugins add dependency. Spec: `docs/arch-stable-spi.md §5 Phase 1`.
+
+- [ ] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins: `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`; typed `NativeImpl.eval`; `LegacyNativeContext` shim; migrate `json-plugin`, `http-plugin`, `auth-plugin`. Spec: `docs/arch-stable-spi.md §5 Phase 2`.
+
+- [ ] **arch-stable-spi-p3** — Full migration of all `*Intrinsics.scala`: remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter; CI classpath check rejects `scalascript/interpreter/` in plugin subprojects. Spec: `docs/arch-stable-spi.md §5 Phase 3`.
+
+### Theme F — DSL platform hooks
+
+- [ ] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration: `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime / JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"..."` and `html"..."`. Spec: `docs/arch-dsl-hooks.md §6 Phase 1`.
+
+- [ ] **arch-dsl-hooks-p2** — `PreprocessorRegistry`: `Preprocessor` trait; `PreprocessorRegistry`; five existing preprocessors converted to registered instances; `Parser.parseScalaWithDiagnostic` uses it. Spec: `docs/arch-dsl-hooks.md §6 Phase 2`.
+
+- [ ] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration: `html`, `css`, `sql`, `xml`, `javascript` fenced tags become `SourceLanguagePlugin` implementations; `Lang.scala` routing removed. Spec: `docs/arch-dsl-hooks.md §6 Phase 3`.
+
+- [ ] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`: `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin `xml-plugin` registers compile-time check. Spec: `docs/arch-dsl-hooks.md §6 Phase 4`.
+
+### Theme H — Library Modularity
+
+- [ ] **arch-lib-p1** — `@deprecated` + `@experimental` annotations: new annotations in `Annotation.scala`; typer emits warnings at call sites; `--fatal-warnings` flag; tests. Spec: `docs/arch-library-modularity.md §6 Phase 1`.
+
+- [ ] **arch-lib-p2** — `@internal` access control: parsed and stored annotations; cross-package check in Typer; source-package diagnostics; per-definition and per-heading granularity. Spec: `docs/arch-library-modularity.md §6 Phase 2`.
+
+- [ ] **arch-lib-p3** — Namespace collision detection: `ImportResolver` tracks name contributions per import; warning on collision; `--strict-namespaces`; qualified import syntax `[Name from alias](dep:...)`. Spec: `docs/arch-library-modularity.md §6 Phase 3`.
+
+- [ ] **arch-lib-p4** — `ssclib` format + `ssc package --lib`: `SsclibManifest` YAML schema; `.ssclib` ZIP format; `ssc package --lib`; `ImportResolver` unpacks archives. Spec: `docs/arch-library-modularity.md §6 Phase 4`.
+
+- [ ] **arch-lib-p5** — Transitive deps + lockfile: BFS dependency resolution from `ssclib-manifest.yaml`; conflict resolution; `ssc-lock.yaml`; `ssc update`; `--strict-deps`; cycle detection. Spec: `docs/arch-library-modularity.md §6 Phase 5`.
+
+- [ ] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check: `ssc package --lib --precompile`; `.scim` in `ir/`; resolver prefers pre-compiled IR; `ssc check-compat old.ssclib new.ssclib`. Spec: `docs/arch-library-modularity.md §6 Phase 6`.
+
+### Theme I — Package Registry
+
+- [ ] **arch-registry-p1** — Registry repository + `packages.yaml` schema: create first-party registry repo; define schema; seed with first-party packages; validation CI. Spec: `docs/arch-registry.md §5 Phase 1`.
+
+- [ ] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI: cached `RegistryClient`; local ranked search; manifest update; mock-HTTP tests. Spec: `docs/arch-registry.md §5 Phase 2`.
+
+- [ ] **arch-registry-p3** — GitHub Pages HTML index: generation script, publish workflow, client-side search, per-package JSON, and `registry.scalascript.io` CNAME. Spec: `docs/arch-registry.md §5 Phase 3`.
+
+- [ ] **arch-registry-p4** — Private registry support: `registry.url` config; `--registry <url>` CLI flag; enterprise internal mirror documentation. Spec: `docs/arch-registry.md §5 Phase 4`.
+
+### Theme J — Lightweight FFI
+
+- [ ] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen: inline JVM expression bodies, argument substitution, capability checks, example, and tests. Spec: `docs/arch-ffi.md §6 Phase 1`.
+
+- [ ] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour: JS inline bodies; `@interpreterUnsupported`; cross-backend parity tests. Spec: `docs/arch-ffi.md §6 Phase 2`.
+
+- [ ] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`: manifest glue fields, JVM classpath injection, package CLI flag, and glue fixture integration test. Spec: `docs/arch-ffi.md §6 Phase 3`. Prerequisite: `arch-lib-p4`.
+
+- [ ] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar: JS glue injection, service loading into `BackendRegistry`, and end-to-end JS glue test. Spec: `docs/arch-ffi.md §6 Phase 4`.
+
+### Theme G — Metaprogramming v2.x
+
+- [ ] **arch-meta-v2-p3** — Cross-module `inline` expansion: IR-level inlining in `ssc link`; requires plugin-author demand and stable SPI/distribution foundations. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
+
+- [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
+- [ ] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: `scalascript.reflect.Mirror`; inline match on `Mirror.Product/Sum` for arbitrary user typeclasses. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`.
+
 ## Government Interaction — v1.59 Bureau
 
 - [x] **v1.59.1-bureau-core** — `gov/bureau-core/` module: all SPI types (`CountryCode` opaque type + constants, `LegalForm` enum, `TaxIdentifier`/`TaxIdType`, `BusinessEntity`, `GovDomain`, `SubmissionResult`/`SubmissionStatus`/`GovError`); domain provider traits (`CountryProvider`, `FiscalProvider`, `SocialProvider`, `RegistryProvider`, `CustomsProvider`, `StatisticsProvider`, `EnvProvider`); shared fiscal/social/registry types (`FiscalInvoice`+`Currency`+`ExchangeRate`, `TaxDeclaration`, `AuditFile`, `ContributionDeclaration`, `EmployeeRecord`, `PaymentReference`, `BusinessRecord`, `VatPayerStatus`); `BureauError` sealed hierarchy (7 cases). `BureauCoreTest`: type construction, `BusinessEntity.requireTaxId`, `SubmissionStatus`, `BureauError` hierarchy. Spec: `docs/bureau.md §3–§7`.
