@@ -8,14 +8,14 @@ private[interpreter] object PatternRuntime:
 
   def matchPat(pat: Pat, scrutinee: Value, env: Env, interp: Interpreter): Option[Env] = pat match
     case Pat.Wildcard()  => Some(env)
-    case Pat.Var(name)   => Some(env + (name.value -> scrutinee))
+    case Pat.Var(name)   => Some(FrameMap.one(name.value, scrutinee, env))
     case lit: Lit =>
       val litV: Value = lit match
-        case Lit.Int(v)     => Value.IntV(v.toLong)
-        case Lit.Long(v)    => Value.IntV(v)
+        case Lit.Int(v)     => Value.intV(v.toLong)
+        case Lit.Long(v)    => Value.intV(v)
         case Lit.String(v)  => Value.StringV(v)
-        case Lit.Boolean(v) => Value.BoolV(v)
-        case Lit.Double(v)  => Value.DoubleV(v.toString.toDouble)
+        case Lit.Boolean(v) => Value.boolV(v)
+        case Lit.Double(v)  => Value.doubleV(v.toString.toDouble)
         case Lit.Null()     => Value.NullV
         case _              => Value.NullV
       Option.when(litV == scrutinee)(env)
