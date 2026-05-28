@@ -117,23 +117,48 @@ before settling.
 ### 3.3 Off-chain (`x402-facilitator-cardano-scalus`)
 
 ```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  CardanoScalusFacilitator (entry point — this module)                     │
+│    .preprod(receiverAddress, config, builder?)  ─┐                        │
+│    .mainnet(receiverAddress, config, builder?)  ─┤→ wires ScalusSettler   │
+└──────────────────────────────────────────────────┘  into CardanoFacilitator│
+                                                       ──────────────────────┘
+                            │
+                            ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  CardanoFacilitator (existing)                                  │
+│  CardanoFacilitator (x402-facilitator-cardano)                  │
 │    provider match                                               │
 │      Blockfrost(...) → optimistic Ok                            │
-│      Scalus(...)     → settler.submit(payload, req)             │
+│      Scalus(...)     → config.scalusSettle match                │
+│                          Some(fn) → fn(payload, req)            │
+│                          None     → Fail (use factory above)    │
 └────────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  ScalusSettler trait (new — this module)                        │
+│  ScalusSettler trait (this module)                              │
 │    def submit(p: PaymentPayload, r: PaymentRequirements)        │
 │        : Future[SettleResult]                                   │
 └────────────────────────────────────────────────────────────────┘
         │
-        ├─ ScalusSettler.unimplemented   ← Phase 1 stub
-        ├─ ScalusSettler.preprod(cfg)    ← Phase 4 — bloxbean impl
-        └─ ScalusSettler.mainnet(cfg)    ← Phase 4 — bloxbean impl
+        ├─ ScalusSettler.unimplemented   ← fallback / test stub
+        ├─ ScalusSettler.preprod(cfg)    ← bloxbean impl (Preprod)
+        └─ ScalusSettler.mainnet(cfg)    ← bloxbean impl (Mainnet)
+```
+
+**Quickstart wiring** (Preprod):
+
+```scala
+import scalascript.x402.facilitator.plutus.{CardanoScalusFacilitator, ScalusSettlerConfig}
+
+val facilitator = CardanoScalusFacilitator.preprod(
+  receiverAddress = "addr_test1...",
+  config = ScalusSettlerConfig(
+    network              = Network.CardanoPreprod,
+    blockfrost           = blockfrostClient,
+    relayerSigningKeyHex = sys.env("X402_SCALUS_RELAYER_SKEY_HEX"),
+  ),
+)
 ```
 
 Module: `x402-facilitator-cardano-scalus`.
