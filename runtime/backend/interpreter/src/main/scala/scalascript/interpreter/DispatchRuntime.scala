@@ -420,7 +420,9 @@ private[interpreter] object DispatchRuntime:
       case "keys"     => Pure(Value.ListV(m.keys.toList))
       case "values"   => Pure(Value.ListV(m.values.toList))
       case "toList"   =>
-        Pure(Value.ListV(m.toList.map { (k, v) => Value.TupleV(List(k, v)) }))
+        val tlBuf = new scala.collection.mutable.ArrayBuffer[Value](m.size)
+        m.foreach { (k, v) => tlBuf += Value.TupleV(List(k, v)) }
+        Pure(Value.ListV(tlBuf.toList))
       case "mkString" => Pure(Value.StringV(Value.show(recv)))
       case "contains" => args match
         case List(k)       => Computation.pureBool(m.contains(k))
@@ -451,27 +453,33 @@ private[interpreter] object DispatchRuntime:
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "map"      => args match
         case List(f) =>
-          val pairs = m.toList
-          Computation.mapSequence(pairs.map((k, v) => Value.TupleV(List(k, v))), t => interp.callValue1(f, t, env)).map {
-            case Value.ListV(entries) =>
-              Value.MapV(entries.collect { case Value.TupleV(List(nk, nv)) => nk -> nv }.toMap)
-            case _ => Value.EmptyMap
-          }
+          // Direct iterator loop: avoids m.toList, intermediate TupleV list, mapSequence ListV, collect.
+          val mapIt  = m.iterator
+          val mapBuf = scala.collection.mutable.Map.empty[Value, Value]
+          def mapLoop(): Computation =
+            if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
+            else
+              val (k, v) = mapIt.next()
+              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
+                case Value.TupleV(nk :: nv :: Nil) => mapBuf += (nk -> nv); mapLoop()
+                case _                             => mapLoop()
+              }
+          mapLoop()
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"   => args match
         case List(f) =>
-          val items = m.toList
-          val tuples = items.map((k, v) => Value.TupleV(List(k, v)))
-          Computation.mapSequence(tuples, t => interp.callValue1(f, t, env)).map {
-            case Value.ListV(flags) =>
-              val buf = scala.collection.mutable.Map.empty[Value, Value]
-              var is = items; var fs = flags
-              while is.nonEmpty && fs.nonEmpty do
-                if fs.head == Value.True then buf += is.head
-                is = is.tail; fs = fs.tail
-              Value.MapV(buf.toMap)
-            case _ => Value.EmptyMap
-          }
+          // Direct iterator loop: avoids m.toList, tuples list, mapSequence ListV[BoolV].
+          val filtIt  = m.iterator
+          val filtBuf = scala.collection.mutable.Map.empty[Value, Value]
+          def filtLoop(): Computation =
+            if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
+            else
+              val (k, v) = filtIt.next()
+              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
+                case Value.BoolV(true) => filtBuf += (k -> v); filtLoop()
+                case _                 => filtLoop()
+              }
+          filtLoop()
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"  => args match
         case List(f) =>
