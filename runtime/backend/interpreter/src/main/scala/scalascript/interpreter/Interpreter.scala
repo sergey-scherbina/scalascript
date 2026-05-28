@@ -609,15 +609,15 @@ class Interpreter(
         case _ => throw InterpretError("config.getString(path: String)")
       }),
       "getInt" -> Value.NativeFnV("config.getInt", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getInt(path).map(n => Value.IntV(n.toLong)))
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getInt(path).map(n => Value.intV(n.toLong)))
         case _ => throw InterpretError("config.getInt(path: String)")
       }),
       "getDouble" -> Value.NativeFnV("config.getDouble", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getDouble(path).map(Value.DoubleV(_)))
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getDouble(path).map(Value.doubleV(_)))
         case _ => throw InterpretError("config.getDouble(path: String)")
       }),
       "getBool" -> Value.NativeFnV("config.getBool", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getBool(path).map(Value.BoolV(_)))
+        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getBool(path).map(Value.boolV(_)))
         case _ => throw InterpretError("config.getBool(path: String)")
       }),
       "requireString" -> Value.NativeFnV("config.requireString", Computation.pureFn {
@@ -625,11 +625,11 @@ class Interpreter(
         case _ => throw InterpretError("config.requireString(path: String)")
       }),
       "requireInt" -> Value.NativeFnV("config.requireInt", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.IntV(cfgAccessor.requireInt(path).toLong)
+        case List(Value.StringV(path)) => Value.intV(cfgAccessor.requireInt(path).toLong)
         case _ => throw InterpretError("config.requireInt(path: String)")
       }),
       "requireBool" -> Value.NativeFnV("config.requireBool", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.BoolV(cfgAccessor.requireBool(path))
+        case List(Value.StringV(path)) => Value.boolV(cfgAccessor.requireBool(path))
         case _ => throw InterpretError("config.requireBool(path: String)")
       }),
     ))
@@ -935,9 +935,9 @@ class Interpreter(
         val ctx: Map[String, Value] = mountCtx.map {
           case (k, v: Value) => k -> v
           case (k, s: String) => k -> Value.StringV(s)
-          case (k, n: Long)   => k -> Value.IntV(n)
-          case (k, d: Double) => k -> Value.DoubleV(d)
-          case (k, b: Boolean) => k -> Value.BoolV(b)
+          case (k, n: Long)   => k -> Value.intV(n)
+          case (k, d: Double) => k -> Value.doubleV(d)
+          case (k, b: Boolean) => k -> Value.boolV(b)
           case (k, _)          => k -> Value.UnitV
         }
         Interpreter.this.routeRegistry.register(
@@ -962,11 +962,11 @@ class Interpreter(
     case other            => other  // pass complex Values through unchanged
 
   private def wrapAnyAsValue(a: Any): Value = a match
-    case n: Long    => Value.IntV(n)
-    case i: Int     => Value.IntV(i.toLong)
-    case d: Double  => Value.DoubleV(d)
+    case n: Long    => Value.intV(n)
+    case i: Int     => Value.intV(i.toLong)
+    case d: Double  => Value.doubleV(d)
     case s: String  => Value.StringV(s)
-    case b: Boolean => Value.BoolV(b)
+    case b: Boolean => Value.boolV(b)
     case ()         => Value.UnitV
     case v: Value   => v
     // Allow plugins to return native Scala List/Map without importing Value.
