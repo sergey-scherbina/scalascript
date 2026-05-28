@@ -1415,7 +1415,7 @@ private[interpreter] trait ActorInterp:
     case "actorRefIsLocal" => args match
       case List(Value.InstanceV("Pid", fields)) =>
         val nid = pidNodeId(fields)
-        Right(k(Value.BoolV(nid.isEmpty || nid == localNodeId)))
+        Right(k(Value.boolV(nid.isEmpty || nid == localNodeId)))
       case _ => throw InterpretError("actorRefIsLocal(ref)")
 
     case "actorRefTryLocal" => args match
