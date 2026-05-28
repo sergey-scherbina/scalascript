@@ -55,7 +55,7 @@ private[interpreter] object DatasetRuntime:
       }),
       "filter" -> Value.NativeFnV("Dataset.filter", {
         case List(pred) => Pure(makeDatasetV(() =>
-          run().filter(item => Computation.run(interp.callValue(pred, List(item), Map.empty)) == Value.BoolV(true))
+          run().filter(item => Computation.run(interp.callValue(pred, List(item), Map.empty)) == Value.True)
         , interp))
         case _ => throw InterpretError("Dataset.filter(p: T => Boolean): Dataset[T]")
       }),
@@ -145,7 +145,7 @@ private[interpreter] object DatasetRuntime:
           throw ScriptException(Value.InstanceV("RuntimeException",
             Map("message" -> Value.StringV("Dataset.avg: empty dataset"))))
         else
-          val total = xs.foldLeft(Value.DoubleV(0.0): Value) { (acc, v) =>
+          val total = xs.foldLeft(Value.DoubleZero: Value) { (acc, v) =>
             Computation.run(interp.infix(acc, "+", List(v), Map.empty))
           }
           Computation.run(interp.infix(total, "/", List(Value.DoubleV(xs.length.toDouble)), Map.empty))

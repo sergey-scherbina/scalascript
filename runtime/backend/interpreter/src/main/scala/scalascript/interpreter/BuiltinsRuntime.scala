@@ -165,7 +165,7 @@ private[interpreter] object BuiltinsRuntime:
         .map { case (fn, file, line) =>
           Value.InstanceV("Frame", Map(
             "file" -> Value.StringV(file),
-            "line" -> Value.IntV(line),
+            "line" -> Value.intV(line),
             "fn"   -> Value.StringV(fn)
           ))
         }))
