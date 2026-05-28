@@ -124,6 +124,46 @@ by impact and risk.
   `xml-plugin` registers compile-time check.
   Spec: `docs/arch-dsl-hooks.md §6 Phase 4`.
 
+### Theme H — Library Modularity
+
+Identified 2026-05-28. Six concrete gaps in the library system: no multi-file
+pure-ScalaScript package format, no transitive dep propagation, no access
+control, namespace collision risk, no API lifecycle annotations, no versioning
+enforcement.  Full analysis in `docs/arch-library-modularity.md`.
+
+- [ ] **arch-lib-p1** — `@deprecated` + `@experimental` annotations:
+  new annotations in `Annotation.scala`; typer emits warnings at call sites;
+  `--fatal-warnings` flag; 6+ tests.
+  Spec: `docs/arch-library-modularity.md §6 Phase 1`.
+
+- [ ] **arch-lib-p2** — `@internal` access control:
+  `@internal` parsed + stored on definitions; cross-package check in Typer;
+  error with clear message including source package name; per-definition and
+  per-heading granularity; 8+ tests.
+  Spec: `docs/arch-library-modularity.md §6 Phase 2`.
+
+- [ ] **arch-lib-p3** — Namespace collision detection:
+  `ImportResolver` tracks name contributions per import; warning on collision;
+  `--strict-namespaces` flag for error; qualified import syntax
+  `[Name from alias](dep:...)`; 6+ tests.
+  Spec: `docs/arch-library-modularity.md §6 Phase 3`.
+
+- [ ] **arch-lib-p4** — `ssclib` format + `ssc package --lib`:
+  `SsclibManifest` YAML schema; `.ssclib` ZIP format (`src/` + optional `ir/`);
+  `ssc package --lib` CLI command; `ImportResolver` unpacks archives; 8+ tests.
+  Spec: `docs/arch-library-modularity.md §6 Phase 4`.
+
+- [ ] **arch-lib-p5** — Transitive deps + lockfile:
+  BFS dep resolution from `ssclib-manifest.yaml`; conflict resolution
+  (latest-wins default); `ssc-lock.yaml` generation; `ssc update`; `--strict-deps`
+  flag; cycle detection; 10+ tests.
+  Spec: `docs/arch-library-modularity.md §6 Phase 5`.
+
+- [ ] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check (v2.x):
+  `ssc package --lib --precompile` → `.scim` in `ir/`; `ImportResolver` prefers
+  pre-compiled; `ssc check-compat old.ssclib new.ssclib` reports API breakage.
+  Spec: `docs/arch-library-modularity.md §6 Phase 6`.
+
 ### Theme G — Metaprogramming v2.x (deferred)
 
 - [ ] **arch-meta-v2-p3** — Cross-module `inline` expansion:
