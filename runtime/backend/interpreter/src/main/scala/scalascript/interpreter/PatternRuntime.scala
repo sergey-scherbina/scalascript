@@ -298,6 +298,14 @@ private[interpreter] object PatternRuntime:
   def evalForYield(enums: List[Enumerator], body: Term, env: Env, interp: Interpreter): Computation =
     enums match
       case Nil => interp.eval(body, env)
+      // Fast path: `for x <- items yield expr` — avoids N Option/Some allocations and
+      // intermediate List[Computation] from the general branches+sequence approach.
+      case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
+        val varName = vn.value
+        interp.eval(rhs, env).flatMap { rhsV =>
+          Computation.mapSequence(evalCollection(rhsV, interp),
+            item => interp.eval(body, FrameMap.one(varName, item, env)))
+        }
       case Enumerator.Generator(pat, rhs) :: rest =>
         interp.eval(rhs, env).flatMap { rhsV =>
           val items = evalCollection(rhsV, interp)

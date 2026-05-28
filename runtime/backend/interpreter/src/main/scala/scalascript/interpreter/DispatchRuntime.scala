@@ -372,7 +372,10 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(keys) =>
-              Value.ListV(ls.zip(keys).sortBy(p => Value.show(p._2)).map(_._1))
+              // Pre-compute sort keys once (O(n)) to avoid O(n log n) Value.show calls
+              // during comparison. ls.zip(keys) also creates only one intermediate list.
+              val keyed = ls.zip(keys).map { (v, k) => (v, Value.show(k)) }
+              Value.ListV(keyed.sortBy(_._2).map(_._1))
             case _ => recv
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
