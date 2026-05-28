@@ -55,8 +55,8 @@ private[interpreter] object DispatchRuntime:
       case "reverse"     => Pure(Value.StringV(s.reverse))
       case "toInt"       => Computation.pureIntV(s.toLong)
       case "toDouble"    => Pure(Value.doubleV(s.toDouble))
-      case "toString"    => Pure(Value.StringV(s))
-      case "mkString"    => Pure(Value.StringV(s))
+      case "toString"    => Pure(recv)
+      case "mkString"    => Pure(recv)
       case "contains"    => args match
         case List(Value.StringV(t)) => Computation.pureBool(s.contains(t))
         case _                      => dispatchFallback(recv, name, args, env, interp)
@@ -453,7 +453,9 @@ private[interpreter] object DispatchRuntime:
       case "isDefined" => Computation.pureBool(opt.isDefined)
       case "isEmpty"   => Computation.pureBool(opt.isEmpty)
       case "nonEmpty"  => Computation.pureBool(opt.nonEmpty)
-      case "toList"    => Pure(Value.ListV(opt.toList))
+      case "toList"    => opt match
+        case None    => Computation.PureEmptyList
+        case Some(v) => Pure(Value.ListV(List(v)))
       case "get"       => opt match
         case Some(v) => Pure(v)
         case None    => interp.located("Option.get on None")
