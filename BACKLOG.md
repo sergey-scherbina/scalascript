@@ -4,6 +4,143 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Architecture & Extensibility Roadmap (v1.x–v2.x)
+
+Cross-cutting improvements to make ScalaScript easier to extend, consume, and
+distribute — identified in the 2026-05-28 architectural review.  Full analysis
+in the plan file and the seven spec docs below.  Seven themes, roughly ordered
+by impact and risk.
+
+### Theme C — Distribution ecosystem (multi-channel, not Maven-only)
+
+- [ ] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`:
+  refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag`
+  scheme; `DepCache` with sha256 pin; tests against mock GitHub API.
+  Spec: `docs/arch-distribution.md §5 Phase 1`.
+
+- [ ] **arch-distribution-p2** — Coursier wiring + JitPack:
+  `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as
+  thin Coursier repo wrapper; tests with embedded local Maven fixture.
+  Spec: `docs/arch-distribution.md §5 Phase 2`.
+
+- [ ] **arch-distribution-p3** — First-party Maven Central publication:
+  `project/Publishing.scala`; `io.scalascript` group ID unified; publish
+  `scalascript-core`, `scalascript-runtime`, `sbt-scalascript` on tag push;
+  sbt Plugin Portal registration.  Spec: `docs/arch-distribution.md §5 Phase 3`.
+
+- [ ] **arch-distribution-p4** — Community plugin starter template:
+  `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`;
+  new `docs/community-plugins.md`.  Spec: `docs/arch-distribution.md §5 Phase 4`.
+
+### Theme D — sbt-scalascript plugin completion
+
+- [ ] **arch-sbt-plugin-p1** — Source convention + `sscCompile`:
+  `sscSourceDirectories` setting; `sscCompile` task forks `ssc build`; wire
+  into `Compile / compile`; scripted test: `sbt compile` compiles `.ssc` files.
+  Spec: `docs/arch-sbt-plugin.md §5 Phase 1`.
+
+- [ ] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`:
+  `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted
+  test: `sbt package` produces runnable JAR.
+  Spec: `docs/arch-sbt-plugin.md §5 Phase 2`.
+
+- [ ] **arch-sbt-plugin-p3** — Test integration:
+  `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`;
+  JUnit XML parsing → sbt `TestResult`; scripted test: `sbt test` discovers
+  and runs `.ssc` tests.  Spec: `docs/arch-sbt-plugin.md §5 Phase 3`.
+
+- [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring:
+  `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits
+  `.bsp/scalascript.json` for Metals/IntelliJ.
+  Spec: `docs/arch-sbt-plugin.md §5 Phase 4`.
+
+### Theme E — `ssc new` + standalone installation
+
+- [ ] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel:
+  `NewProject.scala` in CLI; `app`, `lib` templates bundled in `ssc.jar`;
+  Coursier channel JSON at `releases.scalascript.io`; `sbt cli/assembly` fat JAR.
+  Spec: `docs/arch-ssc-new.md §5 Phase 1`.
+
+- [ ] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer:
+  `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula;
+  `curl | sh` installer; `README.md` Getting Started updated.
+  Spec: `docs/arch-ssc-new.md §5 Phase 2`.
+
+- [ ] **arch-ssc-new-p3** — Standalone docs update:
+  `docs/getting-started-standalone.md`; `docs/community-plugins.md`;
+  `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag.
+  Spec: `docs/arch-ssc-new.md §5 Phase 3`.
+
+### Theme B — Build-time registry consolidation
+
+- [ ] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`:
+  introduce `PluginSpec` case class; migrate all ~20 plugins; all five derived
+  lists (cli deps, installBin, pluginPkgs, aggregate, pluginTests) computed from it;
+  `build.sbt` shrinks ~200 lines.  Spec: `docs/arch-build-registry.md §5 Phase 1`.
+
+- [ ] **arch-build-registry-p2** — Runtime `PluginRegistry` unification:
+  new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it;
+  `PluginManifest`/`SubprocessBackend` → `SubprocessPlugin` strategy;
+  `LocalRegistry` absorbed into `RemotePluginInstaller`.
+  Spec: `docs/arch-build-registry.md §5 Phase 2`.
+
+### Theme A — Stable Plugin SPI
+
+- [ ] **arch-stable-spi-p1** — `scalascript-plugin-api` module:
+  new `runtime/scalascript-plugin-api/` sbt subproject; `PluginValue`,
+  `PluginError`, `PluginComputation` opaque aliases; `JsonCodec`; `PluginContext`
+  as full capability re-export; all existing plugins add dep (no code changes yet).
+  Spec: `docs/arch-stable-spi.md §5 Phase 1`.
+
+- [ ] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins:
+  `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`;
+  `NativeImpl.eval` typed; `LegacyNativeContext` shim; migrate `json-plugin`,
+  `http-plugin`, `auth-plugin`.  Spec: `docs/arch-stable-spi.md §5 Phase 2`.
+
+- [ ] **arch-stable-spi-p3** — Full migration of all 16 `*Intrinsics.scala`:
+  remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter;
+  CI classpath check rejects `scalascript/interpreter/` in plugin subprojects.
+  Spec: `docs/arch-stable-spi.md §5 Phase 3`.
+
+### Theme F — DSL platform hooks
+
+- [ ] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration:
+  `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime /
+  JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"…"` and
+  `html"…"`.  Spec: `docs/arch-dsl-hooks.md §6 Phase 1`.
+
+- [ ] **arch-dsl-hooks-p2** — `PreprocessorRegistry`:
+  `Preprocessor` trait; `PreprocessorRegistry`; 5 existing preprocessors
+  converted to registered instances; `Parser.parseScalaWithDiagnostic` uses it.
+  Spec: `docs/arch-dsl-hooks.md §6 Phase 2`.
+
+- [ ] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration:
+  `html`, `css`, `sql`, `xml`, `javascript` fenced tags become
+  `SourceLanguagePlugin` implementations; `Lang.scala` routing removed.
+  Spec: `docs/arch-dsl-hooks.md §6 Phase 3`.
+
+- [ ] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`:
+  `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin
+  `xml-plugin` registers compile-time check.
+  Spec: `docs/arch-dsl-hooks.md §6 Phase 4`.
+
+### Theme G — Metaprogramming v2.x (deferred)
+
+- [ ] **arch-meta-v2-p3** — Cross-module `inline` expansion:
+  IR-level inlining in `ssc link`; prerequisite: demand from ≥3 plugin authors
+  AND arch-stable-spi + arch-distribution landed.
+  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
+
+- [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface:
+  `Expr[A].asValue`, `Expr[A].asTerm`, `'{...}` quoting; `MacroImpl` IR node;
+  expansion at link time.  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
+- [ ] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation:
+  `scalascript.reflect.Mirror`; `inline match` on `Mirror.Product/Sum` for
+  arbitrary user typeclasses.  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`.
+
+---
+
 ## Compiler extensibility roadmap
 
 A cross-cutting note tying together the SPI followups
