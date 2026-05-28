@@ -476,6 +476,12 @@ class Interpreter(
   private[interpreter] val receiveSpecs    = mutable.LongMap.empty[(List[Case], Env)]
   private[interpreter] var receiveSpecNext = 0L
 
+  /** Cache of compiled `Term.Match` handlers, keyed by AST node identity.
+   *  Populated lazily on the first evaluation of each match expression.
+   *  Avoids per-call Option/List allocations in the matchPat hot path. */
+  private[interpreter] val matchCache: java.util.IdentityHashMap[scala.meta.Term.Match, PatternRuntime.CompiledMatch] =
+    java.util.IdentityHashMap()
+
   /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
    *  is identical on every invocation of the same closure, so we save
    *  one HashMap.updated allocation per call. */

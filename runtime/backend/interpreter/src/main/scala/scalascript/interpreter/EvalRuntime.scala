@@ -658,20 +658,15 @@ private[interpreter] object EvalRuntime:
           .getOrElse(interp.located(s"Partial function match failure: ${Value.show(arg)}"))
       }))
 
-    // Match / pattern match
+    // Match / pattern match — compiled and cached per AST identity to avoid
+    // per-call Option/List allocations in the matchPat hot path.
     case t: Term.Match =>
       eval(t.expr, env, interp).flatMap { scrutV =>
-        t.casesBlock.cases.iterator
-          .flatMap { c =>
-            PatternRuntime.matchPat(c.pat, scrutV, env, interp).flatMap { patEnv =>
-              val guardOk = c.cond.forall(g => Computation.run(eval(g, patEnv, interp)) match
-                case Value.BoolV(b) => b
-                case _              => false)
-              if guardOk then Some(eval(c.body, patEnv, interp)) else None
-            }
-          }
-          .nextOption()
-          .getOrElse(interp.located(s"Match failure: ${Value.show(scrutV)}"))
+        var compiled = interp.matchCache.get(t)
+        if compiled == null then
+          compiled = PatternRuntime.compileMatch(t, interp)
+          interp.matchCache.put(t, compiled)
+        compiled.run(scrutV, env, interp)
       }
 
     // Tuple  (a, b, ...)

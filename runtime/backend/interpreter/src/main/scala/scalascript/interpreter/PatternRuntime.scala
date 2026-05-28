@@ -6,6 +6,173 @@ import Computation.Pure
 /** Pattern matching, for-comprehension evaluation, and collection iteration helpers. */
 private[interpreter] object PatternRuntime:
 
+  /** Compiled form of a single `Term.Match` case list.
+   *  Each handler returns a `Computation` on success or `null` on no-match.
+   *  The while-loop avoids `Option` allocations in the hot dispatch path. */
+  final class CompiledMatch(
+    private val handlers: Array[(Value, Env) => Computation | Null]
+  ):
+    def run(scrutV: Value, env: Env, interp: Interpreter): Computation =
+      var i = 0
+      while i < handlers.length do
+        val r = handlers(i)(scrutV, env)
+        if r != null then return r.asInstanceOf[Computation]
+        i += 1
+      interp.located(s"Match failure: ${Value.show(scrutV)}")
+
+  /** Compile a Term.Match into a cached handler array.
+   *  Called once per match expression (keyed by AST node identity).
+   *  Falls back to the generic matchPat for complex patterns. */
+  def compileMatch(t: scala.meta.Term.Match, interp: Interpreter): CompiledMatch =
+    val handlers = t.casesBlock.cases.map(compileCase(_, interp)).toArray
+    new CompiledMatch(handlers)
+
+  private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
+    cond.forall { g =>
+      Computation.run(interp.eval(g, env)) match
+        case Value.BoolV(b) => b
+        case _              => false
+    }
+
+  private def compileLit(lit: Lit): Value = lit match
+    case Lit.Int(v)     => Value.intV(v.toLong)
+    case Lit.Long(v)    => Value.intV(v)
+    case Lit.String(v)  => Value.StringV(v)
+    case Lit.Boolean(v) => Value.boolV(v)
+    case Lit.Double(v)  => Value.doubleV(v.toString.toDouble)
+    case Lit.Null()     => Value.NullV
+    case _              => Value.NullV
+
+  /** Build the pattern env from precomputed field order and binding names.
+   *  Returns null if any required field is missing from `fields`. */
+  private def buildPatEnv(
+    fo:        Array[String],
+    bindNames: Array[String | Null],
+    fields:    Map[String, Value],
+    env:       Env
+  ): Env | Null =
+    val n = fo.length
+    n match
+      case 0 => env
+      case 1 =>
+        val bname = bindNames(0)
+        if bname == null then env
+        else
+          val v = fields.getOrElse(fo(0), null)
+          if v == null then null else FrameMap.one(bname, v, env)
+      case 2 =>
+        val v0 = fields.getOrElse(fo(0), null)
+        val v1 = fields.getOrElse(fo(1), null)
+        if v0 == null || v1 == null then null
+        else
+          val b0 = bindNames(0)
+          val b1 = bindNames(1)
+          if b0 == null && b1 == null then env
+          else if b0 == null then FrameMap.one(b1, v1, env)
+          else if b1 == null then FrameMap.one(b0, v0, env)
+          else FrameMap.two(b0, v0, b1, v1, env)
+      case _ =>
+        // General case: collect only non-wildcard bindings
+        var bindCount = 0
+        var i = 0
+        while i < n do
+          if bindNames(i) != null then bindCount += 1
+          i += 1
+        if bindCount == 0 then env
+        else
+          val names = new Array[String](bindCount)
+          val vals  = new Array[Value](bindCount)
+          var j = 0
+          i = 0
+          while i < n do
+            val bname = bindNames(i)
+            if bname != null then
+              val v = fields.getOrElse(fo(i), null)
+              if v == null then return null
+              names(j) = bname
+              vals(j)  = v
+              j += 1
+            i += 1
+          FrameMap.of(names, vals, env)
+
+  /** Compile a single Case into a fast handler.
+   *  Simple patterns (Extract with Var/Wildcard args, Wildcard, Var, Lit) get
+   *  fast-path compilation.  Complex patterns fall back to `matchPat`. */
+  private def compileCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
+    c.pat match
+
+      case Pat.Wildcard() =>
+        (_, env) =>
+          if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+          else null
+
+      case Pat.Var(n) =>
+        val name = n.value
+        (scrutV, env) =>
+          val patEnv = FrameMap.one(name, scrutV, env)
+          if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+          else null
+
+      case lit: Lit =>
+        val litV = compileLit(lit)
+        (scrutV, env) =>
+          if scrutV == litV && evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+          else null
+
+      case Pat.Extract.After_4_6_0(fn, argClause) =>
+        val typeName: String | Null = fn match
+          case Term.Name(n)                 => n
+          case Term.Select(_, Term.Name(n)) => n
+          case _                            => null
+        val argPats = argClause.values.toArray
+        val allSimple = argPats.forall(p => p.isInstanceOf[Pat.Var] || p.isInstanceOf[Pat.Wildcard])
+        if typeName != null && allSimple then
+          // Precompute binding names (null = wildcard, skip binding)
+          val bindNames: Array[String | Null] = argPats.map {
+            case Pat.Var(nn) => nn.value
+            case _           => null
+          }
+          // Lazily populated field order on first successful match
+          var fieldOrderCache: Array[String] = null
+          val tn = typeName  // capture for closure
+          (scrutV, env) =>
+            scrutV match
+              case Value.InstanceV(t, fields) if t == tn =>
+                if fieldOrderCache == null then
+                  fieldOrderCache = interp.typeFieldOrder
+                    .getOrElse(tn, fields.keys.toList)
+                    .toArray
+                val fo = fieldOrderCache
+                if bindNames.length != fo.length then null
+                else
+                  val patEnv = buildPatEnv(fo, bindNames, fields, env)
+                  if patEnv == null then null
+                  else if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                  else null
+              case _ => null
+        else
+          fallbackCase(c, interp)
+
+      case Pat.Alternative(lhs, rhs) =>
+        // Compile each alternative; return first match
+        val lhsH = compileCase(c.copy(pat = lhs), interp)
+        val rhsH = compileCase(c.copy(pat = rhs), interp)
+        (scrutV, env) =>
+          val r = lhsH(scrutV, env)
+          if r != null then r else rhsH(scrutV, env)
+
+      case _ => fallbackCase(c, interp)
+
+  private def fallbackCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
+    (scrutV, env) =>
+      matchPat(c.pat, scrutV, env, interp) match
+        case None => null
+        case Some(patEnv) =>
+          val guardOk = c.cond.forall(g => Computation.run(interp.eval(g, patEnv)) match
+            case Value.BoolV(b) => b
+            case _              => false)
+          if guardOk then interp.eval(c.body, patEnv) else null
+
   def matchPat(pat: Pat, scrutinee: Value, env: Env, interp: Interpreter): Option[Env] = pat match
     case Pat.Wildcard()  => Some(env)
     case Pat.Var(name)   => Some(FrameMap.one(name.value, scrutinee, env))
