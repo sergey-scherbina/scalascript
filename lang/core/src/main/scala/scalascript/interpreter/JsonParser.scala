@@ -90,18 +90,18 @@ object JsonParser:
         if pos < len && (src.charAt(pos) == '+' || src.charAt(pos) == '-') then pos += 1
         while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
       val s = src.substring(start, pos)
-      if isDouble then Value.DoubleV(s.toDouble)
+      if isDouble then Value.doubleV(s.toDouble)
       else
-        try Value.IntV(s.toLong)
-        catch case _: NumberFormatException => Value.DoubleV(s.toDouble)
+        try Value.intV(s.toLong)
+        catch case _: NumberFormatException => Value.doubleV(s.toDouble)
 
     private def parseValue(): Value =
       skipWs()
       if pos >= len then err("unexpected end of input")
       src.charAt(pos) match
         case '"' => Value.StringV(parseString())
-        case 't' => expect("true");  Value.BoolV(true)
-        case 'f' => expect("false"); Value.BoolV(false)
+        case 't' => expect("true");  Value.True
+        case 'f' => expect("false"); Value.False
         case 'n' => expect("null");  Value.OptionV(None)
         case '[' =>
           pos += 1; skipWs()

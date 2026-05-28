@@ -76,15 +76,15 @@ def wrapJson(inner: Value): Value =
     case Value.StringV(s) => Value.StringV(s)
     case other            => typedFail("asString", other)))
   val asIntFn = Value.NativeFnV("JsonValue.asInt", Computation.pureFn(_ => inner match
-    case Value.IntV(n)    => Value.IntV(n)
-    case Value.DoubleV(d) => Value.IntV(d.toLong)
+    case n: Value.IntV    => n
+    case Value.DoubleV(d) => Value.intV(d.toLong)
     case other            => typedFail("asInt", other)))
   val asDoubleFn = Value.NativeFnV("JsonValue.asDouble", Computation.pureFn(_ => inner match
-    case Value.DoubleV(d) => Value.DoubleV(d)
-    case Value.IntV(n)    => Value.DoubleV(n.toDouble)
+    case d: Value.DoubleV => d
+    case Value.IntV(n)    => Value.doubleV(n.toDouble)
     case other            => typedFail("asDouble", other)))
   val asBoolFn = Value.NativeFnV("JsonValue.asBool", Computation.pureFn(_ => inner match
-    case Value.BoolV(b) => Value.BoolV(b)
+    case b: Value.BoolV => b
     case other          => typedFail("asBool", other)))
   val asListFn = Value.NativeFnV("JsonValue.asList", Computation.pureFn(_ => inner match
     case Value.ListV(items) => Value.ListV(items.map(wrapJson))
@@ -94,16 +94,16 @@ def wrapJson(inner: Value): Value =
     case other         => typedFail("asMap", other)))
   val rawFn    = Value.NativeFnV("JsonValue.raw",    Computation.pureFn(_ => inner))
   val isNullFn = Value.NativeFnV("JsonValue.isNull", Computation.pureFn(_ => inner match
-    case Value.UnitV | Value.OptionV(None) => Value.BoolV(true)
-    case _                                  => Value.BoolV(false)))
+    case Value.UnitV | Value.OptionV(None) => Value.True
+    case _                                  => Value.False))
   val keysFn = Value.NativeFnV("JsonValue.keys", Computation.pureFn(_ => inner match
     case Value.MapV(m) => Value.ListV(m.keys.toList)
     case _             => Value.ListV(Nil)))
   val sizeFn = Value.NativeFnV("JsonValue.size", Computation.pureFn(_ => inner match
-    case Value.ListV(items) => Value.IntV(items.length.toLong)
-    case Value.MapV(m)      => Value.IntV(m.size.toLong)
-    case Value.StringV(s)   => Value.IntV(s.length.toLong)
-    case _                  => Value.IntV(0L)))
+    case Value.ListV(items) => Value.intV(items.length.toLong)
+    case Value.MapV(m)      => Value.intV(m.size.toLong)
+    case Value.StringV(s)   => Value.intV(s.length.toLong)
+    case _                  => Value.intV(0L)))
   Value.InstanceV("JsonValue", Map(
     "_inner"   -> inner,
     "apply"    -> applyFn,
@@ -136,11 +136,11 @@ def lookupKey(v: Value, k: Value): Option[Value] = v match
   case _ => None
 
 def jsonAnyToValue(a: Any): Value = a match
-  case n: Long    => Value.IntV(n)
-  case i: Int     => Value.IntV(i.toLong)
-  case d: Double  => Value.DoubleV(d)
+  case n: Long    => Value.intV(n)
+  case i: Int     => Value.intV(i.toLong)
+  case d: Double  => Value.doubleV(d)
   case s: String  => Value.StringV(s)
-  case b: Boolean => Value.BoolV(b)
+  case b: Boolean => Value.boolV(b)
   case ()         => Value.UnitV
   case v: Value   => v
   case other      => Value.StringV(other.toString)
