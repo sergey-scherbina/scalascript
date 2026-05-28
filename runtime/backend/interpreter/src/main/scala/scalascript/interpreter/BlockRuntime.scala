@@ -59,26 +59,31 @@ private[interpreter] object BlockRuntime:
           // Local var mutation: write to local AND globals so that both the
           // current evalBlock and any enclosing while loop (via freshEnv) see it.
           case Term.Assign(Term.Name(x), rhs) if localOverrides.contains(x) =>
-            interp.eval(rhs, localView).flatMap { v =>
-              local(x)           = v
-              interp.globals(x)  = v
-              step(rest, Value.UnitV)
-            }
+            interp.eval(rhs, localView) match
+              case Pure(v) => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV)
+              case c       => c.flatMap { v => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV) }
           // Compound assignment inside a block where the var is declared locally.
           case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
               if op.value.lengthIs > 1 && op.value.last == '=' &&
                  !Set(">=", "<=", "!=", "==").contains(op.value) && localOverrides.contains(lhs.value) =>
             val baseOp = op.value.init
-            interp.eval(lhs, localView).flatMap { lhsV =>
-              val argComps = argClause.values.map(interp.eval(_, localView))
-              interp.threadValues(argComps) { argVs =>
-                interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
-                  local(lhs.value)          = newV
-                  interp.globals(lhs.value) = newV
-                  step(rest, Value.UnitV)
+            val argComps = argClause.values.map(interp.eval(_, localView))
+            interp.eval(lhs, localView) match
+              case Pure(lhsV) if argComps.forall(_.isInstanceOf[Pure]) =>
+                val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
+                interp.infix(lhsV, baseOp, argVs, localView) match
+                  case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
+                  case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
+              case lhsC =>
+                lhsC.flatMap { lhsV =>
+                  interp.threadValues(argComps) { argVs =>
+                    interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
+                      local(lhs.value)          = newV
+                      interp.globals(lhs.value) = newV
+                      step(rest, Value.UnitV)
+                    }
+                  }
                 }
-              }
-            }
           case t: Term =>
             interp.eval(t, localView).flatMap(v => step(rest, v))
           case stat =>

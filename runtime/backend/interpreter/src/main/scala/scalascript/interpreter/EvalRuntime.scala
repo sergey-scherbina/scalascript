@@ -529,8 +529,9 @@ private[interpreter] object EvalRuntime:
 
     // Field / method selection: a.b  (no-arg call)
     case Term.Select(qual, name) =>
-      val qualC = eval(qual, env, interp)
-      FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, name.value, Nil, env, interp))
+      eval(qual, env, interp) match
+        case Pure(qualV) => DispatchRuntime.dispatch(qualV, name.value, Nil, env, interp)
+        case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, name.value, Nil, env, interp))
 
     // Block { stmts; expr }
     case Term.Block(stats) =>
@@ -731,7 +732,9 @@ private[interpreter] object EvalRuntime:
 
     // var/field assignment
     case Term.Assign(Term.Name(name), rhs) =>
-      eval(rhs, env, interp).flatMap { v => interp.globals(name) = v; Pure(Value.UnitV) }
+      eval(rhs, env, interp) match
+        case Pure(v) => interp.globals(name) = v; Pure(Value.UnitV)
+        case c       => c.flatMap { v => interp.globals(name) = v; Pure(Value.UnitV) }
 
     // summon[TC[T]] — retrieve a given instance from the table
     case t: Term.ApplyType =>

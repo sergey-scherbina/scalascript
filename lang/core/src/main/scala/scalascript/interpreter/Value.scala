@@ -300,16 +300,26 @@ object Computation:
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)
 
-  def map(c: Computation, f: Value => Value): Computation =
-    FlatMap(c, v => Pure(f(v)))
+  def map(c: Computation, f: Value => Value): Computation = c match
+    case Pure(v) => Pure(f(v))
+    case _       => FlatMap(c, v => Pure(f(v)))
 
   /** Evaluate a list of computations in order, collecting their results in a ListV.
-   *  The resulting Computation is a right-associated chain of FlatMaps. */
+   *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =
-    def loop(remaining: List[Computation], acc: List[Value]): Computation = remaining match
-      case Nil       => Pure(Value.ListV(acc.reverse))
-      case c :: rest => FlatMap(c, v => loop(rest, v :: acc))
-    loop(cs, Nil)
+    var allPure = true
+    var rest    = cs
+    val buf     = new scala.collection.mutable.ArrayBuffer[Value](cs.length)
+    while allPure && rest.nonEmpty do
+      rest.head match
+        case Pure(v) => buf += v; rest = rest.tail
+        case _       => allPure = false
+    if allPure then Pure(Value.ListV(buf.toList))
+    else
+      def loop(remaining: List[Computation], acc: List[Value]): Computation = remaining match
+        case Nil       => Pure(Value.ListV(acc.reverse))
+        case c :: rest => FlatMap(c, v => loop(rest, v :: acc))
+      loop(cs, Nil)
 
   /** Run a computation to a Value, erroring on any unhandled Perform.
    *  Uses a while-loop with FlatMap re-association — stack-safe regardless of
