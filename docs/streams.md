@@ -882,6 +882,13 @@ Out(Stream[A]) ++ (R,)   = (Source[A], R)
 See `docs/tuple-monoid.md` for the full algebraic specification and the
 `Out(E)` table covering all built-in effects.
 
+**v1.60.4 — bare-value concat.** `++` accepts bare (non-tuple) operands:
+`(Source[A],) ++ R = (Source[A], R)` where `R` is any type, not just a tuple.
+The identity holds for bare values too: `() ++ v = v` (not `(v,)`).
+This is automatically correct in the `Out(E) ++ (R,)` formula since `(R,)` is
+already a 1-tuple, but it also means that `Out(State[S]) ++ R` works even when
+`R` is a bare type like `Int`.
+
 #### Known open
 
 Consumer-side `handle[Stream[A]] { case Stream.emit(x, resume) => … }` multi-shot

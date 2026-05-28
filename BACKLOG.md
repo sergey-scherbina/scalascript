@@ -1021,6 +1021,7 @@ Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/tuple-monoid.m
 **v1.60.1** ✓ — `SType.Unit = Tuple(Nil)`, `tupleConcat`, `++` type operator, `(A,)` 1-tuple syntax, 49 tests.
 **v1.60.2** ✓ — `TupleV.++` in DispatchRuntime, `_tupleConcat` JS/JVM, 4+3 tests.
 **v1.60.3** ✓ — `algebraic-effects.md` §8.3 unified runner table, `streams.ssc` tuple section, docs complete.
+**v1.60.4** ✓ — 1-tuple ≅ element: bare-value `++` (`(A,B) ++ C`, `C ++ (A,B)`, `bare ++ bare`, `() ++ v = v`); 5+2 tests; full doc update.
 
 ## v1.55 — First-class XML / Generic Markup
 

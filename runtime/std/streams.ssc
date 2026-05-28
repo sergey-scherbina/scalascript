@@ -227,7 +227,8 @@ The `++` operator concatenates tuples; `()` is the identity (equivalent to
 so `() ++ (A,) = (A,)` which collapses to `A`.  `runStream` with `R = Unit`
 gives `(Source[A], Unit)` — destructure as `val (src, _) = runStream { … }`.
 
-Tuple `++` is available on all tuple values:
+Tuple `++` is available on all tuple values, including bare (non-tuple) operands
+which are implicitly treated as 1-tuples:
 
 ```scalascript
 val a = (1, "hello")
@@ -235,6 +236,12 @@ val b = (true, 3.14)
 val r = a ++ b     // (1, "hello", true, 3.14) — 4-tuple
 val u = () ++ a    // (1, "hello") — left identity
 val v = a ++ ()    // (1, "hello") — right identity
+
+// bare value on either side (v1.60.4)
+a ++ 42            // (1, "hello", 42)   — appends bare element
+"z" ++ a           // ("z", 1, "hello")  — prepends bare element
+1 ++ "x"           // (1, "x")           — bare ++ bare → 2-tuple
+() ++ 42           // 42                 — identity, not (42,)
 ```
 
 See `docs/tuple-monoid.md` for the full algebraic specification.

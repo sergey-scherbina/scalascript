@@ -47,6 +47,29 @@ parsing.  The string `"Unit"` in `.scim` artifacts and the surface syntax
 
 ## 2. Concatenation `++`
 
+### 1-tuple equivalence
+
+A 1-element tuple is equivalent to the element itself:
+
+```
+(A,)  ≅  A
+```
+
+This means `(Int,)` and `Int` are interchangeable as types and values.
+The `++` operator exploits this to accept bare types or values on either side —
+a bare `A` is implicitly treated as a 1-tuple `(A,)`:
+
+```scalascript
+// type-level — all equivalent
+type T1 = (Int, String) ++ Boolean          // (Int, String, Boolean)
+type T2 = (Int, String) ++ (Boolean,)       // same
+type T3 = Int ++ String                     // (Int, String)
+
+// value-level
+(1, "hello") ++ true    // (1, "hello", true)
+1 ++ "x"                // (1, "x")
+```
+
 ### Type level
 
 ```scalascript
@@ -54,15 +77,17 @@ type (A₁, ..., Aₙ) ++ (B₁, ..., Bₘ) = (A₁, ..., Aₙ, B₁, ..., Bₘ)
 ```
 
 `++` is a **right-associative** infix type operator that flattens eagerly:
-the result is always a flat `Tuple`, never nested.
+the result is always a flat `Tuple`, never nested.  Bare types on either
+side are treated as 1-tuples.
 
 ```scalascript
 // type-level examples
 type AB   = (Int, String)
 type CD   = (Boolean, Double)
-type ABCD = AB ++ CD          // (Int, String, Boolean, Double)
-type T    = (Int,) ++ ()      // (Int,)  — right identity
-type U    = () ++ (Int,)      // (Int,)  — left identity
+type ABCD = AB ++ CD            // (Int, String, Boolean, Double)
+type T    = (Int, String) ++ Boolean  // (Int, String, Boolean)  — bare rhs
+type U    = () ++ Int           // Int  — left identity absorbs 1-elem
+type V    = Int ++ ()           // Int  — right identity
 ```
 
 ### Value level
@@ -70,11 +95,20 @@ type U    = () ++ (Int,)      // (Int,)  — left identity
 ```scalascript
 val ab = (1, "hello")
 val cd = (true, 3.14)
-val r  = ab ++ cd             // (1, "hello", true, 3.14)
+val r  = ab ++ cd               // (1, "hello", true, 3.14)
+
+// bare values on either side
+ab ++ 42                        // (1, "hello", 42)
+"z" ++ ab                       // ("z", 1, "hello")
+1 ++ "x"                        // (1, "x")
+
+// identity with bare
+() ++ 42                        // 42   (not (42,) — identity collapses)
+42 ++ ()                        // 42
 ```
 
-The `++` method is defined on every tuple value:
-`(a₁, ..., aₙ).++(b₁, ..., bₘ) = (a₁, ..., aₙ, b₁, ..., bₘ)`.
+`++` is defined on any value.  A non-tuple, non-list, non-map value is
+treated as a 1-tuple for the purpose of concatenation.
 
 ### Monoid laws
 
@@ -83,6 +117,8 @@ The `++` method is defined on every tuple value:
 T   ++ ()      = T            right identity
 (S ++ T) ++ U  = S ++ (T ++ U)  associativity
 ```
+
+The laws hold with `T` being any value — tuple, bare, or mixed.
 
 ---
 

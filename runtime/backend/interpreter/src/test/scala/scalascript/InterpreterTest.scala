@@ -450,6 +450,40 @@ def main(): Unit =
     """) shouldBe "(1, 10, 2, 20, 3, 30)\n(1, 10, 2, 20, 3, 30)"
   }
 
+  // ── Bare-value tuple append (v1.60.4) ───────────────────────────
+
+  test("tuple ++ bare value appends element") {
+    captured("""
+      val t = (1, "hello")
+      println(t ++ true)
+    """) shouldBe "(1, hello, true)"
+  }
+
+  test("bare value ++ tuple prepends element") {
+    captured("""
+      val t = ("b", "c")
+      println("a" ++ t)
+    """) shouldBe "(a, b, c)"
+  }
+
+  test("bare ++ bare creates 2-tuple") {
+    captured("""
+      println(1 ++ "x")
+    """) shouldBe "(1, x)"
+  }
+
+  test("() ++ bare = bare (identity law with bare)") {
+    captured("""
+      println(() ++ 42)
+    """) shouldBe "42"
+  }
+
+  test("bare ++ () = bare (identity law with bare)") {
+    captured("""
+      println(42 ++ ())
+    """) shouldBe "42"
+  }
+
   // ── While loop ───────────────────────────────────────────────────
 
   test("while loop") {

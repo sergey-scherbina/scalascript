@@ -415,6 +415,11 @@ The `()` identity and `++` flatten operator live in the type system
 (`DispatchRuntime` `TupleV.++`), and both backends
 (`_tupleConcat` in JS/JVM).
 
+**v1.60.4 — bare-value concat.** A bare (non-tuple) value is implicitly treated
+as a 1-tuple for `++`, so `(A, B) ++ C = (A, B, C)` and `C ++ (A, B) = (C, A, B)`.
+The identity law `() ++ v = v` holds for bare values too — `() ++ 42 = 42`, not
+`(42,)`.  This mirrors the type-level rule `tupleConcat` applies everywhere.
+
 ### 8.4 `Computation` ADT remains
 
 The `Computation = Pure | Perform | FlatMap` Free monad

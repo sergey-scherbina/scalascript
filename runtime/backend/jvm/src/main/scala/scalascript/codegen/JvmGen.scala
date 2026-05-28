@@ -5580,13 +5580,17 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |def _tupleConcat(a: Any, b: Any): Any = (a, b) match
        |  case (at: scala.Tuple, bt: scala.Tuple) =>
        |    scala.Tuple.fromArray(at.productIterator.toArray ++ bt.productIterator.toArray)
-       |  case (at: scala.Tuple, _) if b == () =>
-       |    at
-       |  case (_, bt: scala.Tuple) if a == () =>
-       |    bt
-       |  case (_ , _) if a == () && b == () => ()
+       |  case (at: scala.Tuple, _) if b == () => at
+       |  case (_, bt: scala.Tuple) if a == () => bt
+       |  case (_, _) if a == () && b == () => ()
+       |  case (at: scala.Tuple, _) =>
+       |    scala.Tuple.fromArray(at.productIterator.toArray :+ b)
+       |  case (_, bt: scala.Tuple) =>
+       |    scala.Tuple.fromArray(Array(a) ++ bt.productIterator.toArray)
+       |  case _ if a == () => b
+       |  case _ if b == () => a
        |  case (al: List[?], bl: List[?]) => al.asInstanceOf[List[Any]] ++ bl.asInstanceOf[List[Any]]
-       |  case _ => List(a, b)
+       |  case _ => scala.Tuple.fromArray(Array(a, b))
        |
        |def println(v: Any): Unit = scala.Predef.println(_show(v))
        |def print(v: Any): Unit   = scala.Predef.print(_show(v))

@@ -506,23 +506,31 @@ println(s"x=$x y=$y")          // x=10 y=20
 
 #### Tuple monoid `++` (v1.60)
 
-Tuples concatenate with `++`.  The result is always flat:
+Tuples concatenate with `++`.  The result is always flat.
+A bare value (non-tuple) is treated as a 1-element tuple on either side:
 
 ```scalascript
 val a = (1, "hello")
 val b = (true, 3.14)
-val r = a ++ b                  // (1, "hello", true, 3.14)
+a ++ b                          // (1, "hello", true, 3.14)
 
-// () is the identity
+// bare value on the right — appends as element
+a ++ 42                         // (1, "hello", 42)
+
+// bare value on the left — prepends as element
+"z" ++ a                        // ("z", 1, "hello")
+
+// bare ++ bare — creates a 2-tuple
+1 ++ "x"                        // (1, "x")
+
+// () is the identity — collapses to the other operand
 () ++ (1, 2)                    // (1, 2)
 (1, 2) ++ ()                    // (1, 2)
-
-// associativity
-(a ++ b) ++ (42,) == a ++ (b ++ (42,))   // always true
+() ++ 42                        // 42   (not (42,))
 ```
 
 Effect runners use `Out(E) ++ (R,)` — `runStream` returns `(Source[A], R)`,
-`runLogger` returns `R` (because `Out(Logger) = ()` and `() ++ (R,) = R`).
+`runLogger` returns `R` (because `Out(Logger) = ()` and `() ++ R = R`).
 See `docs/tuple-monoid.md` for the full algebraic specification.
 
 ### Optics

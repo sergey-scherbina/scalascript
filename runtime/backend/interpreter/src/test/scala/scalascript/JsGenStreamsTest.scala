@@ -191,3 +191,13 @@ class JsGenStreamsTest extends AnyFunSuite:
     val out = js("val r = List(1, 2) ++ List(3, 4)")
     assert(out.contains("_tupleConcat"),
       s"expected _tupleConcat call in JS output: ${out.take(500)}")
+
+  test("_tupleConcat handles non-array values (bare ++ bare)"):
+    val rt = JsGen.generateRuntime(Set(JsGen.Capability.Core))
+    assert(rt.contains("Array.isArray(a)") || rt.contains("aArr"),
+      s"_tupleConcat must handle non-array operands: ${rt.take(500)}")
+
+  test("tuple ++ bare value uses _tupleConcat"):
+    val out = js("val r = (1, 2) ++ 3")
+    assert(out.contains("_tupleConcat"),
+      s"expected _tupleConcat for tuple ++ bare: ${out.take(500)}")

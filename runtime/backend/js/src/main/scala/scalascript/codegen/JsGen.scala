@@ -2804,8 +2804,12 @@ function _makePrism(variant) {
 }
 
 function _tupleConcat(a, b) {
-  const r = [...a, ...b];
-  if (a._isTuple && b._isTuple) r._isTuple = true;
+  const aArr = Array.isArray(a) ? a : [a];
+  const bArr = Array.isArray(b) ? b : [b];
+  const r = [...aArr, ...bArr];
+  const aIsTuple = !Array.isArray(a) || a._isTuple;
+  const bIsTuple = !Array.isArray(b) || b._isTuple;
+  if (aIsTuple && bIsTuple) r._isTuple = true;
   return r;
 }
 

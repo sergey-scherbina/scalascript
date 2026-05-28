@@ -311,6 +311,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **v1.60.1-tuple-monoid-types** — `SType.Unit = Tuple(Nil)`; `tupleConcat` smart constructor; `++` in type parser; 1-tuple `(A,)` surface syntax; 49 tests. ✓ Landed 2026-05-28.
 - [x] **v1.60.2-tuple-monoid-values** — `TupleV ++ TupleV` in `DispatchRuntime`; `_tupleConcat` JS helper (sets `_isTuple`); JVM `_tupleConcat` with `scala.Tuple.fromArray`; 4 interpreter + 3 JsGen tests. ✓ Landed 2026-05-28.
 - [x] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` §8.3 "Unified runner signature" with `Out(E) ++ (R,)` table; `streams.ssc` tuple monoid section; `BACKLOG.md`/`CHANGELOG.md` v1.60 closed. ✓ Landed 2026-05-28.
+- [x] **v1.60.4-tuple-bareconcat** — 1-tuple ≅ element equivalence + bare-value `++`: `(A,B) ++ C = (A,B,C)`, `C ++ (A,B) = (C,A,B)`, `bare ++ bare = 2-tuple`, `() ++ v = v`. `DispatchRuntime` (5 new cases), `_tupleConcat` JS/JVM (Array.isArray guard), 5 InterpreterTest + 2 JsGenStreamsTest. Docs: `tuple-monoid.md` §2, `user-guide.md`, `algebraic-effects.md` §8.3, `streams.ssc`, `streams.md`. ✓ Landed 2026-05-28.
 
 ## x402 — Cardano Scalus thin-glue wiring
 
