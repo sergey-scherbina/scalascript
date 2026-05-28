@@ -8,6 +8,26 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Placement and Remoting — v1.63
+
+- [x] **v1.63.0-placement-remoting-spec** — Spec and backlog for unified placement/remoting across local streams, remote streams, distributed streams, actors, typed async functions/RPC, Dataset workers, and cluster deployment. Covers `local` / `remote` / `distributed` vocabulary, operation names like `users.get`, code identity, handler registry, pre-deployed app MVP, worker bundles, cluster CLI/front matter, failure semantics, and phases v1.63.1-v1.63.8. Spec: `docs/placement-and-remoting.md`. ✓ Landed 2026-05-28.
+
+- [ ] **v1.63.1-placement-core-code-identity** — Placement core and code identity: add placement policy types, `RemoteError`, code identity hashes for `.ssc`/`.sscc`, same-code checks, `cluster:` + `remoteHandlers:` front-matter metadata, and diagnostics for missing handlers/codecs/code mismatch. Spec: `docs/placement-and-remoting.md §Phase 1`.
+
+- [ ] **v1.63.2-remote-handler-registry-rpc** — Remote handler registry and typed function RPC: compile `remote def` / manifest handlers into a registry, add `Remote.function[A, B](name)`, support in-process/HTTP/WS transports, and add timeout/cancel/retry/idempotency controls. Spec: `docs/placement-and-remoting.md §Phase 2`.
+
+- [ ] **v1.63.3-cluster-runner-worker-bundle** — Cluster runner and worker bundles: `ssc cluster run/package/status/handlers`, worker bundle packaging with code identity, seed-node join, role labels, advertised URLs, auth token wiring, and deploy-target integration. Spec: `docs/placement-and-remoting.md §Phase 3`.
+
+- [ ] **v1.63.4-stream-placement-adapters** — Stream placement adapters: `Source[A].remote`, `RemoteSource[A].local`, `Source[A].distributed`, `RemoteSource[A].distributed`, `DStream[A].local`, WS remote stream transport, SSE fallback constraints, and backpressure/overflow tests. Spec: `docs/placement-and-remoting.md §Phase 4`.
+
+- [ ] **v1.63.5-actor-placement-adapters** — Actor placement adapters: named actor behaviors, `spawnRemote`, local proxy actors, router/sharded actor groups, role compatibility, and code-identity checks. Spec: `docs/placement-and-remoting.md §Phase 5`.
+
+- [ ] **v1.63.6-distributed-function-helpers** — Distributed function helpers: `f.distributed(policy)` for handler-backed functions, routing/partition helpers for batch inputs, and Dataset/DStream runner placement integration. Spec: `docs/placement-and-remoting.md §Phase 6`.
+
+- [ ] **v1.63.7-dynamic-code-shipping** — Dynamic code shipping: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload, and rollback semantics. Spec: `docs/placement-and-remoting.md §Phase 7`.
+
+- [ ] **v1.63.8-placement-ops-hardening** — Placement compatibility and operations: mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production deployment cookbook. Spec: `docs/placement-and-remoting.md §Phase 8`.
+
 ## Distributed Wire Protocol — v1.62
 
 - [x] **v1.62.0-distributed-wire-spec** — Spec and backlog for an opt-in internal distributed wire layer across actors, cluster control plane, Dataset/MapReduce, native DStream runner, typed route clients/RPC, WebSocket subscriptions, and object sync. Covers JSON fallback plus MsgPack and CBOR profiles, JS/browser support, same-version-only initial binary compatibility, negotiation, security, compression, resource limits, observability, and phases v1.62.1–v1.62.8. Spec: `docs/distributed-wire-protocol.md`. ✓ Landed 2026-05-28.

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Placement and remoting spec
+
+- **v1.63.0-placement-remoting-spec** — New `docs/placement-and-remoting.md` planning a unified placement/remoting model across local streams, remote streams, distributed streams, actors, typed async functions/RPC, Dataset workers, and cluster deployment. Defines operation names such as `users.get`, code identity, remote handler registries, pre-deployed same-app MVP, worker bundles, `ssc cluster` UX, stream adapters, actor remote spawn/proxies/groups, function RPC adapters, failure semantics, and backlog phases v1.63.1-v1.63.8.
+
 ## 2026-05-28 — Distributed wire protocol spec
 
 - **v1.62.0-distributed-wire-spec** — New `docs/distributed-wire-protocol.md` planning an opt-in internal wire layer for distributed actors, cluster control, Dataset/MapReduce, native DStream, typed route clients/RPC, WebSocket subscriptions, and object sync. The spec includes JSON fallback, MsgPack and CBOR binary profiles, JS/browser support, same-version-only initial compatibility, negotiation, security, compression, limits, observability, and backlog phases v1.62.1-v1.62.8.
