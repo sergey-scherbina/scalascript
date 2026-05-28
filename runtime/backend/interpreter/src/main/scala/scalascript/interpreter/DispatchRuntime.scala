@@ -79,13 +79,13 @@ private[interpreter] object DispatchRuntime:
       case "take"        => args match
         case List(Value.IntV(n)) =>
           if n >= s.length then Pure(recv)
-          else if n <= 0 then Pure(Value.StringV(""))
+          else if n <= 0 then Pure(Value.EmptyStr)
           else Pure(Value.StringV(s.take(n.toInt)))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "drop"        => args match
         case List(Value.IntV(n)) =>
           if n <= 0 then Pure(recv)
-          else if n >= s.length then Pure(Value.StringV(""))
+          else if n >= s.length then Pure(Value.EmptyStr)
           else Pure(Value.StringV(s.drop(n.toInt)))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "substring"   => args match
@@ -137,7 +137,7 @@ private[interpreter] object DispatchRuntime:
       case "dropWhile"   => args match
         case List(f) =>
           def loop(i: Int): Computation =
-            if i >= s.length then Pure(Value.StringV(""))
+            if i >= s.length then Pure(Value.EmptyStr)
             else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
               case Value.BoolV(true) => loop(i + 1)
               case _                 => Pure(Value.StringV(s.substring(i)))
@@ -667,7 +667,7 @@ private[interpreter] object DispatchRuntime:
         case _ => dispatchFallback(recv, name, args, env, interp)
     // Exception .getMessage alias
     else if name == "getMessage" && args.isEmpty then
-      Pure(fields.getOrElse("message", Value.StringV("")))
+      Pure(fields.getOrElse("message", Value.EmptyStr))
     // Class methods (declared inside `class`/`case class` body)
     else if interp.typeMethods.get(typeName).exists(_.contains(name)) then
       val fn = interp.typeMethods(typeName)(name)

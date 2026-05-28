@@ -124,7 +124,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
     call(ctx.routes(("POST", "/revoke")), req) match
       case Value.InstanceV("Response", fs) =>
         fs("status") shouldBe Value.IntV(200L)
-        fs("body")   shouldBe Value.StringV("")
+        fs("body")   shouldBe Value.EmptyStr
       case other => fail(s"got $other")
     as.introspect(token).active shouldBe false
 
@@ -212,5 +212,5 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
     OAuthHttp.routeOutcomeToValue(o) match
       case Value.InstanceV("Response", fs) =>
         fs("status") shouldBe Value.IntV(204L)
-        fs("body")   shouldBe Value.StringV("")
+        fs("body")   shouldBe Value.EmptyStr
       case other => fail(s"got $other")

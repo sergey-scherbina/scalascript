@@ -898,7 +898,7 @@ object StreamsIntrinsics:
                       case other            => Value.show(other)
                     sb.append(s"data: $s\n\n")
                   Value.StringV(sb.toString)
-                case _ => Value.StringV("")
+                case _ => Value.EmptyStr
             case None => throw InterpretError("Sink.toSseStream: not a Source")
         case _ => Value.UnitV
       })

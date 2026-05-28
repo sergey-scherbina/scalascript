@@ -167,7 +167,7 @@ class ActorDistributedTest extends AnyFunSuite with Matchers:
     import scalascript.interpreter.{Value, ValueSerializer}
     val v = Value.InstanceV("Down", Map(
       "ref"    -> Value.IntV(1L),
-      "from"   -> Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(""), "localId" -> Value.IntV(3L))),
+      "from"   -> Value.InstanceV("Pid", Map("nodeId" -> Value.EmptyStr, "localId" -> Value.IntV(3L))),
       "reason" -> Value.StringV("oops")
     ))
     val json = ValueSerializer.serialize(v)

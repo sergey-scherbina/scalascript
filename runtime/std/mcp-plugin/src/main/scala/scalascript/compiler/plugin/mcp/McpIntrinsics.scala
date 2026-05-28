@@ -216,7 +216,7 @@ private object Mcp:
           case None => Value.InstanceV("Response", Map(
             "status"  -> Value.intV(404L),
             "headers" -> Value.EmptyMap,
-            "body"    -> Value.StringV("")
+            "body"    -> Value.EmptyStr
           ))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
@@ -1373,7 +1373,7 @@ private object Mcp:
       case "system"    => Value.InstanceV("System",    Map.empty)
       case _           => Value.InstanceV("User",      Map.empty)
     val content = v.objOpt.flatMap(_.get("content")).map(contentJsonToValue).getOrElse(
-      Value.InstanceV("Text", Map("text" -> Value.StringV("")))
+      Value.InstanceV("Text", Map("text" -> Value.EmptyStr))
     )
     Value.InstanceV("Message", Map("role" -> roleVal, "content" -> content))
 

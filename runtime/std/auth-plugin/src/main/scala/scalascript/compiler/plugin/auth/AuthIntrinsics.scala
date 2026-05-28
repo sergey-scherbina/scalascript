@@ -68,7 +68,7 @@ object AuthIntrinsics:
       args match
         case List(s: String) =>
           try Value.StringV(String(java.util.Base64.getUrlDecoder.decode(s), "UTF-8"))
-          catch case _: Throwable => Value.StringV("")
+          catch case _: Throwable => Value.EmptyStr
         case _ => throw InterpretError("base64UrlDecode(s: String)")
     ),
 

@@ -593,7 +593,7 @@ object HttpIntrinsics:
     resp.body().forEach { line => ctx.invokeCallback(handler, List(Value.StringV(line))) }
     Value.InstanceV("Response", Map(
       "status"  -> Value.intV(resp.statusCode().toLong),
-      "body"    -> Value.StringV(""),
+      "body"    -> Value.EmptyStr,
       "headers" -> Value.MapV(hdrs)
     ))
 

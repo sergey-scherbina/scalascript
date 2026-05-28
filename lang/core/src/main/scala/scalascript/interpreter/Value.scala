@@ -209,9 +209,10 @@ object Value:
   // Pre-cached constants used by the Computation monad's run loop.
   val True:      BoolV   = BoolV(true)
   val False:     BoolV   = BoolV(false)
-  val NoneV:     OptionV = OptionV(None)
-  val EmptyList: ListV   = ListV(Nil)
-  val EmptyMap:  MapV    = MapV(Map.empty)
+  val NoneV:     OptionV  = OptionV(None)
+  val EmptyList: ListV    = ListV(Nil)
+  val EmptyMap:  MapV     = MapV(Map.empty)
+  val EmptyStr:  StringV  = StringV("")
 
   def boolV(b: Boolean): BoolV = if b then True else False
 

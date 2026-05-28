@@ -737,7 +737,7 @@ private def syntheticRequest(
     "params"      -> Value.MapV(params.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
     "query"       -> Value.EmptyMap,
     "headers"     -> Value.EmptyMap,
-    "body"        -> Value.StringV(""),
+    "body"        -> Value.EmptyStr,
     "form"        -> Value.EmptyMap,
     "files"       -> Value.EmptyMap,
     "session"     -> Value.EmptyMap,
@@ -4275,7 +4275,7 @@ def replHandleCall(cmd: String, @annotation.unused interp: Interpreter): Unit =
     if eq > 0 then
       Some((Value.StringV(kv.take(eq)): Value) -> (Value.StringV(kv.drop(eq + 1)): Value))
     else if kv.nonEmpty then
-      Some((Value.StringV(kv): Value) -> (Value.StringV(""): Value))
+      Some((Value.StringV(kv): Value) -> (Value.EmptyStr: Value))
     else None
   }.toMap
   Routes.matchRequest(method, pathOnly) match
@@ -8237,7 +8237,7 @@ def previewCommand(args: List[String]): Unit =
         renderFn match
           case Some(fn) =>
             val argVals = comp.params.map { p =>
-              variant.args.get(p).map(Value.StringV.apply).getOrElse(Value.StringV(""))
+              variant.args.get(p).map(Value.StringV.apply).getOrElse(Value.EmptyStr)
             }
             try Value.show(interp.invoke(fn, argVals))
             catch case e: Exception => s"<em>render error: ${e.getMessage}</em>"

@@ -231,7 +231,7 @@ private[interpreter] object EffectHandlers:
               Value.InstanceV("Response", Map(
                 "status"  -> Value.intV(404),
                 "headers" -> Value.EmptyMap,
-                "body"    -> Value.StringV("")
+                "body"    -> Value.EmptyStr
               ))
         case _ => throw InterpretError("httpRun: stub routes must be a Map[String, String]")
     def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =

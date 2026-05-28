@@ -113,7 +113,7 @@ private[interpreter] object ActorGlobals:
       case _ => throw InterpretError("whereis(name: String): Option[Pid]")
     })
     g("joinCluster") = Value.NativeFnV("joinCluster", {
-      case List(seeds) => Perform("Actor", "joinCluster", List(seeds, Value.StringV("")))
+      case List(seeds) => Perform("Actor", "joinCluster", List(seeds, Value.EmptyStr))
       case List(seeds, Value.StringV(tok)) => Perform("Actor", "joinCluster", List(seeds, Value.StringV(tok)))
       case _ => throw InterpretError("joinCluster(seeds: List[String], token: String = \"\"): Unit")
     })
@@ -260,7 +260,7 @@ private[interpreter] object ActorGlobals:
       case Nil => Perform("Actor", "clusterOf", List(Value.InstanceV("SeedResolver", Map(
         "kind" -> Value.StringV("static"),
         "urls" -> Value.EmptyList,
-        "serviceName" -> Value.StringV(""),
+        "serviceName" -> Value.EmptyStr,
         "namespace" -> Value.StringV("default"),
         "port" -> Value.intV(9100),
         "scheme" -> Value.StringV("ws")

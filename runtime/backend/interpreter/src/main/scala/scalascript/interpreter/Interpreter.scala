@@ -141,7 +141,7 @@ class Interpreter(
   private[interpreter] var currentCodeIdentity: Value =
     Value.InstanceV("CodeIdentity", Map(
       "algorithm" -> Value.StringV("sha256"),
-      "digest"    -> Value.StringV(""),
+      "digest"    -> Value.EmptyStr,
       "format"    -> Value.StringV("unknown"),
       "module"    -> Value.NoneV
     ))

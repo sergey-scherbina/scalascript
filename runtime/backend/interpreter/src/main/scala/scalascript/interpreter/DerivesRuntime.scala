@@ -37,7 +37,7 @@ private[interpreter] object DerivesRuntime:
         Value.InstanceV("Show", Map(
           "show" -> Value.NativeFnV("Show.show", {
             case List(v) => Pure(Value.StringV(structuralShow(v, interp)))
-            case _       => Pure(Value.StringV(""))
+            case _       => Pure(Value.EmptyStr)
           })
         ))
 

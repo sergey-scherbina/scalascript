@@ -62,7 +62,7 @@ class TypedHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
       "params"  -> strMap(pathParams),
       "query"   -> strMap(queryParams),
       "headers" -> strMap(headers),
-      "body"    -> body.fold[Value](Value.StringV(""))(Value.StringV(_)),
+      "body"    -> body.fold[Value](Value.EmptyStr)(Value.StringV(_)),
     ))
 
   /** Mount `file` at `method path` and invoke the handler with `req`.

@@ -81,13 +81,13 @@ object OAuthHttp:
         "headers" -> Value.MapV(Map(
           (Value.StringV("Location"): Value) -> (Value.StringV(location): Value)
         )),
-        "body"    -> Value.StringV("")
+        "body"    -> Value.EmptyStr
       ))
     case OAuthRoutes.RouteOutcome.Empty(status) =>
       Value.InstanceV("Response", Map(
         "status"  -> Value.intV(status.toLong),
         "headers" -> Value.EmptyMap,
-        "body"    -> Value.StringV("")
+        "body"    -> Value.EmptyStr
       ))
 
   private def ujsonHeaders(pairs: (String, String)*): Map[Value, Value] =
