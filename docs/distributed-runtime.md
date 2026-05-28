@@ -848,12 +848,14 @@ work queue links. No runtime changes.
 - Add `Remote.function[A, B](name)` returning `B ! Async | RemoteCallError`.
   ✓ Landed 2026-05-28 as `std.remote` `Remote.function`, `remoteCall`,
   `remoteTryCall`, and `remoteHandlers()` over the in-process interpreter
-  registry. The current runtime call is synchronous; effect-row async lowering
-  remains planned.
+  registry. ✓ Landed 2026-05-28 follow-up for `Remote.http[A, B](url)` /
+  `remoteHttpFunction` over POST HTTP JSON fallback. The current runtime call
+  is synchronous; effect-row async lowering remains planned.
 - Add `remoteStub[Api]`. Planned follow-up.
 - Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
   2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
-  handler declares `path:`. WebSocket/internal-wire transport remains planned.
+  handler declares `path:` and explicit HTTP JSON client calls to those routes.
+  WebSocket/internal-wire transport remains planned.
 - Gate binary payloads on v1.62.1 `WireCodec[A]`; keep JSON fallback. JSON
   fallback currently uses the interpreter `ValueSerializer`; `WireCodec[A]`
   binary negotiation remains planned.

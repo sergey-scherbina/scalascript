@@ -10,10 +10,14 @@ exports:
   - RemoteCallError
   - RemoteHandlerInfo
   - RemoteFunction
+  - RemoteHttpFunction
   - Remote
   - remoteFunction
+  - remoteHttpFunction
   - remoteCall
   - remoteTryCall
+  - remoteHttpCall
+  - remoteHttpTryCall
   - remoteHandlers
 ---
 
@@ -51,14 +55,24 @@ case class RemoteFunction[A, B](name: String):
   def call(value: A): B = remoteCall[A, B](name, value)
   def tryCall(value: A): Either[RemoteCallError, B] = remoteTryCall[A, B](name, value)
 
+case class RemoteHttpFunction[A, B](url: String):
+  def call(value: A): B = remoteHttpCall[A, B](url, value)
+  def tryCall(value: A): Either[RemoteCallError, B] = remoteHttpTryCall[A, B](url, value)
+
 extern def remoteFunction[A, B](name: String): RemoteFunction[A, B]
+extern def remoteHttpFunction[A, B](url: String): RemoteHttpFunction[A, B]
 extern def remoteCall[A, B](name: String, value: A): B
 extern def remoteTryCall[A, B](name: String, value: A): Either[RemoteCallError, B]
+extern def remoteHttpCall[A, B](url: String, value: A): B
+extern def remoteHttpTryCall[A, B](url: String, value: A): Either[RemoteCallError, B]
 extern def remoteHandlers(): List[RemoteHandlerInfo]
 
 object Remote:
   def function[A, B](name: String): RemoteFunction[A, B] =
     remoteFunction[A, B](name)
+
+  def http[A, B](url: String): RemoteHttpFunction[A, B] =
+    remoteHttpFunction[A, B](url)
 
   def handlers(): List[RemoteHandlerInfo] =
     remoteHandlers()

@@ -2,7 +2,11 @@ package scalascript.compiler.plugin.remote
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.interpreter.{InterpretError, Value}
+import scalascript.interpreter.{InterpretError, JsonParser, Value}
+
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.time.Duration
 
 object RemoteIntrinsics:
 
@@ -11,6 +15,12 @@ object RemoteIntrinsics:
       args match
         case List(name: String) => remoteFunctionValue(ctx, name)
         case _ => throw InterpretError("remoteFunction[A, B](name: String)")
+    ),
+
+    QualifiedName("remoteHttpFunction") -> NativeImpl((_, args) =>
+      args match
+        case List(url: String) => remoteHttpFunctionValue(url)
+        case _ => throw InterpretError("remoteHttpFunction[A, B](url: String)")
     ),
 
     QualifiedName("remoteCall") -> NativeImpl((ctx, args) =>
@@ -29,6 +39,24 @@ object RemoteIntrinsics:
             case Right(value) => Value.InstanceV("Right", Map("value" -> value.asInstanceOf[Value]))
             case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
         case _ => throw InterpretError("remoteTryCall[A, B](name: String, value: A)")
+    ),
+
+    QualifiedName("remoteHttpCall") -> NativeImpl((_, args) =>
+      args match
+        case List(url: String, payload: Value) =>
+          remoteHttpInvoke(url, payload) match
+            case Right(value) => value
+            case Left(err)    => throw InterpretError(remoteErrorMessage(err))
+        case _ => throw InterpretError("remoteHttpCall[A, B](url: String, value: A)")
+    ),
+
+    QualifiedName("remoteHttpTryCall") -> NativeImpl((_, args) =>
+      args match
+        case List(url: String, payload: Value) =>
+          remoteHttpInvoke(url, payload) match
+            case Right(value) => Value.InstanceV("Right", Map("value" -> value))
+            case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+        case _ => throw InterpretError("remoteHttpTryCall[A, B](url: String, value: A)")
     ),
 
     QualifiedName("remoteHandlers") -> NativeImpl((ctx, args) =>
@@ -60,6 +88,91 @@ object RemoteIntrinsics:
         case _ => throw InterpretError("RemoteFunction.tryCall(value)")
       })
     ))
+
+  private def remoteHttpFunctionValue(url: String): Value =
+    Value.InstanceV("RemoteHttpFunction", Map(
+      "url" -> Value.StringV(url),
+      "call" -> Value.NativeFnV(s"Remote.http($url).call", {
+        case List(payload) =>
+          scalascript.interpreter.Computation.Pure(
+            remoteHttpInvoke(url, payload) match
+              case Right(value) => value
+              case Left(err)    => throw InterpretError(remoteErrorMessage(err))
+          )
+        case _ => throw InterpretError("RemoteHttpFunction.call(value)")
+      }),
+      "tryCall" -> Value.NativeFnV(s"Remote.http($url).tryCall", {
+        case List(payload) =>
+          scalascript.interpreter.Computation.Pure(
+            remoteHttpInvoke(url, payload) match
+              case Right(value) => Value.InstanceV("Right", Map("value" -> value))
+              case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+          )
+        case _ => throw InterpretError("RemoteHttpFunction.tryCall(value)")
+      })
+    ))
+
+  private def remoteHttpInvoke(url: String, payload: Value): Either[RemoteCallError, Value] =
+    try
+      val request = HttpRequest.newBuilder(URI.create(url))
+        .timeout(Duration.ofSeconds(30))
+        .header("Content-Type", "application/scalascript-value+json")
+        .header("Accept", "application/scalascript-value+json")
+        .POST(HttpRequest.BodyPublishers.ofString(wireSerialize(payload)))
+        .build()
+      val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+      response.statusCode() match
+        case code if code >= 200 && code < 300 =>
+          try Right(wireDeserialize(response.body()))
+          catch case e: Throwable => Left(RemoteCallError.Decode(e.getMessage))
+        case 401 | 403 => Left(RemoteCallError.Unauthorized)
+        case 404       => Left(RemoteCallError.HandlerNotFound(url))
+        case 408 | 504 => Left(RemoteCallError.Timeout(url, 30000L))
+        case code      => Left(RemoteCallError.RemoteFailed(code.toString, response.body()))
+    catch
+      case _: java.net.http.HttpTimeoutException => Left(RemoteCallError.Timeout(url, 30000L))
+      case e: IllegalArgumentException           => Left(RemoteCallError.Decode(e.getMessage))
+      case e: Throwable                          => Left(RemoteCallError.NetworkError(e.getMessage))
+
+  private def wireSerialize(value: Value): String = value match
+    case Value.IntV(n)    => s"{\"$$t\":\"i\",\"v\":$n}"
+    case Value.StringV(s) => s"{\"$$t\":\"s\",\"v\":${jsonString(s)}}"
+    case Value.BoolV(b)   => s"{\"$$t\":\"b\",\"v\":$b}"
+    case Value.UnitV      => "{\"$t\":\"u\"}"
+    case other            => throw InterpretError(s"remote HTTP JSON fallback cannot encode ${Value.show(other)} yet")
+
+  private def wireDeserialize(json: String): Value =
+    JsonParser.parse(json) match
+      case Value.MapV(fields) =>
+        def field(name: String): Option[Value] = fields.get(Value.StringV(name))
+        field("$t") match
+          case Some(Value.StringV("i")) => field("v") match
+            case Some(Value.IntV(n))    => Value.intV(n)
+            case Some(Value.DoubleV(d)) => Value.intV(d.toLong)
+            case _                      => throw InterpretError("remote HTTP decode: invalid int payload")
+          case Some(Value.StringV("s")) => field("v") match
+            case Some(Value.StringV(s)) => Value.StringV(s)
+            case _                      => throw InterpretError("remote HTTP decode: invalid string payload")
+          case Some(Value.StringV("b")) => field("v") match
+            case Some(Value.BoolV(b)) => Value.boolV(b)
+            case _                    => throw InterpretError("remote HTTP decode: invalid boolean payload")
+          case Some(Value.StringV("u")) => Value.UnitV
+          case Some(Value.StringV(other)) => throw InterpretError(s"remote HTTP decode: unsupported tag '$other'")
+          case _ => throw InterpretError("remote HTTP decode: missing $t tag")
+      case _ => throw InterpretError("remote HTTP decode: expected object")
+
+  private def jsonString(value: String): String =
+    val sb = StringBuilder("\"")
+    value.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c if c < ' ' => sb.append(f"\\u${c.toInt}%04x")
+      case c => sb.append(c)
+    }
+    sb.append('"').result()
 
   private def handlerInfoValue(info: RemoteHandlerInfo): Value =
     Value.InstanceV("RemoteHandlerInfo", Map(

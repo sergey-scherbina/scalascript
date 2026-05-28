@@ -232,7 +232,7 @@ compiles them via Scala.js.
 | Distributed actors | actor cluster over WS, bully leader election, Phi-accrual FD, gossip, membership events |
 | Typed actor refs + named remote spawn | `ActorRef[M]`, `ref.tell(msg)`, `ref.address`, `ref.isLocal`, `registerBehavior`, `spawnRemote` over the current JSON actor WS control channel |
 | Cluster capability + code identity | `clusterOf`, `SeedResolver.staticList`, `codeIdentity`, `assertCodeIdentity` for typed cluster snapshots and deterministic SHA-256 code checks |
-| Remote handler registry | `remoteHandlers:`, `@remote(...) def`, and simple `remote def` declarations lower to an interpreter `RemoteHandlerRegistry`; `Remote.function[A, B](name).call(value)` uses the in-process path and `path:` entries expose POST HTTP JSON fallback routes. `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire transport, and binary `WireCodec[A]` negotiation are planned |
+| Remote handler registry | `remoteHandlers:`, `@remote(...) def`, and simple `remote def` declarations lower to an interpreter `RemoteHandlerRegistry`; `Remote.function[A, B](name).call(value)` uses the in-process path, `path:` entries expose POST HTTP JSON fallback routes, and `Remote.http[A, B](url)` calls those routes explicitly. `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire transport, and binary `WireCodec[A]` negotiation are planned |
 
 ### Web and HTTP
 

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.63.4c Remote HTTP JSON client
+
+- **v1.63.4c-remote-stubs-async-wire** — Added explicit `Remote.http[A, B](url)` / `remoteHttpFunction` client calls for remote handler POST HTTP JSON fallback routes. The client posts ScalaScript value JSON, decodes the response, and maps non-2xx/network/decode failures into typed `RemoteCallError` values through `tryCall`. Added embedded JDK HTTP server coverage in `RemotePluginInterpreterTest`; typed `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` are tracked in `v1.63.4d`.
+
 ## 2026-05-28 — v1.63.4b Remote source sugar
 
 - **v1.63.4b-remote-sugar-stubs-wire** — Parser now lowers source `@remote(name = ..., path = ...) def` and simple `remote def echo(...)` declarations into `remoteHandlers:` metadata, so annotated/sugared handlers reuse the same interpreter `RemoteHandlerRegistry`, validation, and HTTP JSON fallback from v1.63.4. Updated `examples/remote-registry-rpc.ssc`, docs, and parser coverage. Remaining RPC pieces are tracked as `v1.63.4c-remote-stubs-async-wire`.

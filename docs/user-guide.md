@@ -3154,7 +3154,9 @@ Import `std.remote` and call named operations through
 `Remote.function[A, B]("users.get")`; `remoteTryCall` returns a typed
 `RemoteCallError` in `Left(...)` when the handler is unavailable. If a handler
 declares `path`, the interpreter also exposes a POST HTTP JSON fallback route
-using the current ScalaScript value JSON shape. `remoteSources:`,
+using the current ScalaScript value JSON shape. A client can call that route
+explicitly with `Remote.http[A, B]("http://host:port/api/v1/users/42")`, which
+posts the same value JSON and decodes the response. `remoteSources:`,
 `remoteBehaviors:`, `remoteStub[Api]`, async effect-row lowering, and
 WebSocket/internal-wire transports are still planned.
 

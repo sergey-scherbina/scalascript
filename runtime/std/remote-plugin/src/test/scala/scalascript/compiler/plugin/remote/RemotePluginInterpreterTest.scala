@@ -4,6 +4,9 @@ import org.scalatest.funsuite.AnyFunSuite
 import scalascript.interpreter.{Interpreter, Value, ValueSerializer}
 import scalascript.parser.Parser
 
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+
 class RemotePluginInterpreterTest extends AnyFunSuite:
 
   private def runModule(source: String): Interpreter =
@@ -106,3 +109,31 @@ class RemotePluginInterpreterTest extends AnyFunSuite:
 
     assert(interp.exportedGlobals("upperResult") == Value.StringV("HELLO"))
     assert(interp.exportedGlobals("localResult") == Value.StringV("local:hello"))
+
+  test("Remote.http posts ValueSerializer JSON and decodes the response"):
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/rpc/echo", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV("echo:" + s)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val interp = runModule(
+        s"""|# Remote
+            |
+            |```scala
+            |val result = remoteHttpFunction("http://127.0.0.1:$port/rpc/echo").call("wire")
+            |```
+            |""".stripMargin
+      )
+      assert(interp.exportedGlobals("result") == Value.StringV("echo:wire"))
+    finally server.stop(0)

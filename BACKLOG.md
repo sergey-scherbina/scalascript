@@ -72,8 +72,17 @@ network semantics or deployment constraints.
       simple `remote def echo(...)` lowering into `remoteHandlers:` metadata,
       parser validation, and example coverage. Remaining pieces split into
       `v1.63.4c`.
-- [ ] **v1.63.4c-remote-stubs-async-wire** - Remote RPC stubs and transports:
+- [x] **v1.63.4c-remote-stubs-async-wire** - Remote RPC stubs and transports:
       add `remoteStub[Api]`, make generated calls return
+      `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
+      and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
+      Landed 2026-05-28 for explicit `Remote.http[A, B](url)` /
+      `remoteHttpFunction` POST HTTP JSON fallback client calls with typed
+      `RemoteCallError` results. Remaining typed stubs, async lowering,
+      WebSocket/internal-wire, and binary `WireCodec[A]` split into
+      `v1.63.4d`.
+- [ ] **v1.63.4d-remote-stubs-async-wire** - Typed remote RPC stubs and binary
+      transports: add `remoteStub[Api]`, make generated calls return
       `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
       and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
 - [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
