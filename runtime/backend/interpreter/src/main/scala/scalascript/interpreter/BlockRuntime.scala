@@ -23,12 +23,16 @@ private[interpreter] object BlockRuntime:
   /** Evaluate a block of statements; effects propagate through statements via flatMap.
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   def evalBlock(stats: List[Stat], env: Env, interp: Interpreter): Computation =
-    val local = mutable.Map.from(env)
+    // Only copy env entries that are absent from (or differ from) interp.globals.
+    // These are params and shadowed vals; everything else is already visible via
+    // interp.globals and the Term.Name fallback, so we skip copying it.
+    // Shrinks the frame from O(N_env) to O(N_params + N_stale_closure) — typically 1–5 entries.
+    val local = mutable.HashMap.from(env.iterator.filter { case (k, v) =>
+      !interp.globals.get(k).contains(v)
+    })
     val localView = new MutableEnvView(local)
-    val localOverrides: mutable.Set[String] =
-      mutable.Set.from(local.iterator.collect {
-        case (k, v) if !interp.globals.get(k).contains(v) => k
-      })
+    // All initial entries differ from globals by construction — pre-add them all.
+    val localOverrides: mutable.Set[String] = mutable.Set.from(local.keysIterator)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
