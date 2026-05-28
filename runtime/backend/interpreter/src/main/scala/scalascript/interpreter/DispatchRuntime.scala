@@ -159,7 +159,7 @@ private[interpreter] object DispatchRuntime:
   // ── List ────────────────────────────────────────────────────────────────────
 
   private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val recv = Value.ListV(ls)
+    lazy val recv = Value.ListV(ls)
     name match
       case "length"       => Pure(Value.intV(ls.length.toLong))
       case "size"         => Pure(Value.intV(ls.size.toLong))
@@ -359,7 +359,7 @@ private[interpreter] object DispatchRuntime:
   // ── Map ─────────────────────────────────────────────────────────────────────
 
   private def dispatchMap(m: Map[Value, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val recv = Value.MapV(m)
+    lazy val recv = Value.MapV(m)
     name match
       case "size"     => Pure(Value.intV(m.size.toLong))
       case "isEmpty"  => Pure(Value.boolV(m.isEmpty))
@@ -515,7 +515,7 @@ private[interpreter] object DispatchRuntime:
   // ── Tuple ───────────────────────────────────────────────────────────────────
 
   private def dispatchTuple(es: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val recv = Value.TupleV(es)
+    lazy val recv = Value.TupleV(es)
     name match
       case "++"  => args match
         case List(Value.TupleV(bs)) => Pure(Value.TupleV(es ++ bs))
