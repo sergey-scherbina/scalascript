@@ -3,11 +3,6 @@
 Status: planned. This is the canonical specification for ScalaScript
 local/remote/distributed execution, cluster lifecycle, and code deployment.
 
-This document supersedes:
-
-- [`docs/placement-and-remoting.md`](placement-and-remoting.md)
-- [`docs/arch-local-distributed-cluster.md`](arch-local-distributed-cluster.md)
-
 The low-level wire format remains in
 [`docs/distributed-wire-protocol.md`](distributed-wire-protocol.md). This spec
 defines the user-facing and runtime architecture that uses that wire layer.
