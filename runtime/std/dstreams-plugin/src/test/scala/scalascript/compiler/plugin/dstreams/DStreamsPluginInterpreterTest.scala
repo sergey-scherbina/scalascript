@@ -3,6 +3,7 @@ package scalascript.compiler.plugin.dstreams
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.testkit.TestInterpreter
 import scalascript.interpreter.Value
+import scalascript.compiler.plugin.streams.StreamsInterpreterPlugin
 
 class DStreamsPluginInterpreterTest extends AnyFunSuite:
 
@@ -631,3 +632,110 @@ class DStreamsPluginInterpreterTest extends AnyFunSuite:
     )
     assert(result == 1L || result == Value.IntV(1L),
       s"Expected 1 inner-joined element (p1 matches), got: $result")
+
+  // ── Stream bridge tests (v1.63.1) ─────────────────────────────────────────
+
+  private def bridgeInterp: TestInterpreter =
+    TestInterpreter(List(StreamsInterpreterPlugin(), DStreamsInterpreterPlugin()))
+
+  test("Source.distributed wraps local Source into DStream"):
+    val result = bridgeInterp.eval(
+      """
+      val src = Source.from(List(1, 2, 3))
+      val ds  = src.distributed
+      InMemory.runAndCollect(ds)
+      """
+    )
+    assert(result == List(1L, 2L, 3L), s"Got: $result")
+
+  test("Source.distributed → DStream.map → DStream.runToList"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3))
+        .distributed
+        .map(x => x * 2)
+        .runToList
+      """
+    )
+    assert(result == List(2L, 4L, 6L), s"Got: $result")
+
+  test("full bridge round-trip: Source → DStream.map → DStream.local → Source.runToList"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3))
+        .distributed
+        .map(x => x * 2)
+        .local
+        .runToList
+      """
+    )
+    assert(result == List(2L, 4L, 6L), s"Got: $result")
+
+  test("DStream.local returns a runnable Source"):
+    val result = bridgeInterp.eval(
+      """
+      val local = Source.from(List(10, 20, 30)).distributed.local
+      var sum   = 0
+      local.runForeach(x => sum = sum + x)
+      sum
+      """
+    )
+    assert(result == 60L || result == Value.IntV(60L), s"Got: $result")
+
+  test("DStream.local Source supports map"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3))
+        .distributed
+        .local
+        .map(x => x + 10)
+        .runToList
+      """
+    )
+    assert(result == List(11L, 12L, 13L), s"Got: $result")
+
+  test("DStream.local Source supports filter"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3, 4, 5))
+        .distributed
+        .local
+        .filter(x => x % 2 == 0)
+        .runToList
+      """
+    )
+    assert(result == List(2L, 4L), s"Got: $result")
+
+  test("DStream.local Source supports runFold"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3, 4))
+        .distributed
+        .local
+        .runFold(0)((acc, x) => acc + x)
+      """
+    )
+    assert(result == 10L || result == Value.IntV(10L), s"Got: $result")
+
+  test("DStream.localBounded succeeds when under limit"):
+    val result = bridgeInterp.eval(
+      """
+      Source.from(List(1, 2, 3))
+        .distributed
+        .localBounded(1000000)
+        .runToList
+      """
+    )
+    assert(result == List(1L, 2L, 3L), s"Got: $result")
+
+  test("DStream.localBounded fails with InterpretError when over limit"):
+    intercept[Exception] {
+      bridgeInterp.eval(
+        """
+        Source.from(List("a very long string that exceeds the limit"))
+          .distributed
+          .localBounded(1)
+          .runToList
+        """
+      )
+    }

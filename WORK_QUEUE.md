@@ -12,7 +12,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.63.0-distributed-runtime-spec** — Canonical spec and backlog for local/remote/distributed runtime support. Merges `docs/placement-and-remoting.md` and `docs/arch-local-distributed-cluster.md` into `docs/distributed-runtime.md`; keeps operation names like `users.get`, code identity, handler/source/behavior registries, worker bundles, cluster CLI/front matter, and dynamic-code roadmap, while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy phases. Updated with `docs/cluster-operations.md` details for token rotation, persistent cluster config, rolling upgrades, multi-region lowering, and HPA/autoscale. ✓ Landed 2026-05-28.
 
-- [ ] **v1.63.1-stream-bridge-basic-ops** — Stream bridge and shared safe operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`, `_dag_sink_local`, and bounded/materialization tests. Spec: `docs/distributed-runtime.md §v1.63.1`.
+- [x] **v1.63.1-stream-bridge-basic-ops** — Stream bridge and shared safe operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`, `_dag_sink_local`, and bounded/materialization tests. Spec: `docs/distributed-runtime.md §v1.63.1`. ✓ Landed 2026-05-28.
 
 - [ ] **v1.63.2-typed-actors-remote-spawn** — Typed actors and remote spawn: complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`, `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for `setClusterAuthToken`, and two-node actor tests. Spec: `docs/distributed-runtime.md §v1.63.2`.
 

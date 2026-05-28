@@ -611,8 +611,13 @@ private[interpreter] object DispatchRuntime:
       case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
   private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // Source.distributed bridge — dispatches to DStreams plugin when loaded (v1.63.1)
+    if typeName == "Source" && name == "distributed" then
+      interp.globals.get("Source.distributed") match
+        case Some(fn) => interp.callValue(fn, recv :: args, env)
+        case None     => interp.located("Source.distributed requires the DStreams plugin")
     // ReactiveSignal bridge (no hard-coding streams into core)
-    if typeName == "ReactiveSignal" && name == "bind" then
+    else if typeName == "ReactiveSignal" && name == "bind" then
       args match
         case List(source) =>
           interp.globals.get("ReactiveSignal.bind") match

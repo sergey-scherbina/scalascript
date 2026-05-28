@@ -16,7 +16,7 @@ private[interpreter] object ActorGlobals:
       case _           => throw InterpretError("spawn(behavior: () => Unit)")
     })
     g("spawnBounded") = Value.NativeFnV("spawnBounded", {
-      case List(Value.intV(cap), overflow, thunk) =>
+      case List(Value.IntV(cap), overflow, thunk) =>
         val strategy = overflow match
           case Value.InstanceV(name, _) => name
           case _                        => "DropNewest"
@@ -114,7 +114,7 @@ private[interpreter] object ActorGlobals:
     g("isSuspect") = Value.NativeFnV("isSuspect", {
       case List(Value.StringV(nid)) =>
         Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.doubleV(8.0)))
-      case List(Value.StringV(nid), Value.doubleV(thr)) =>
+      case List(Value.StringV(nid), Value.DoubleV(thr)) =>
         Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.doubleV(thr)))
       case List(Value.StringV(nid), Value.IntV(thr)) =>
         Perform("Actor", "isSuspect", List(Value.StringV(nid), Value.doubleV(thr.toDouble)))
@@ -135,7 +135,7 @@ private[interpreter] object ActorGlobals:
     g("clusterIsDown") = Value.NativeFnV("clusterIsDown", {
       case List(Value.StringV(nid)) =>
         Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.doubleV(8.0)))
-      case List(Value.StringV(nid), Value.doubleV(thr)) =>
+      case List(Value.StringV(nid), Value.DoubleV(thr)) =>
         Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.doubleV(thr)))
       case List(Value.StringV(nid), Value.IntV(thr)) =>
         Perform("Actor", "clusterIsDown", List(Value.StringV(nid), Value.doubleV(thr.toDouble)))
@@ -190,17 +190,17 @@ private[interpreter] object ActorGlobals:
       case _ => throw InterpretError("clusterAtomicGet(name: String): Long")
     })
     g("clusterAtomicSet") = Value.NativeFnV("clusterAtomicSet", {
-      case List(Value.StringV(name), Value.intV(v)) =>
+      case List(Value.StringV(name), Value.IntV(v)) =>
         Perform("Actor", "clusterAtomicSet", List(Value.StringV(name), Value.intV(v)))
       case _ => throw InterpretError("clusterAtomicSet(name: String, value: Long): Long")
     })
     g("clusterAtomicAdd") = Value.NativeFnV("clusterAtomicAdd", {
-      case List(Value.StringV(name), Value.intV(d)) =>
+      case List(Value.StringV(name), Value.IntV(d)) =>
         Perform("Actor", "clusterAtomicAdd", List(Value.StringV(name), Value.intV(d)))
       case _ => throw InterpretError("clusterAtomicAdd(name: String, delta: Long): Long")
     })
     g("clusterAtomicCompareAndSet") = Value.NativeFnV("clusterAtomicCompareAndSet", {
-      case List(Value.StringV(name), Value.intV(expect), Value.intV(update)) =>
+      case List(Value.StringV(name), Value.IntV(expect), Value.IntV(update)) =>
         Perform("Actor", "clusterAtomicCompareAndSet",
           List(Value.StringV(name), Value.intV(expect), Value.intV(update)))
       case _ => throw InterpretError(
@@ -224,22 +224,22 @@ private[interpreter] object ActorGlobals:
       case _ => throw InterpretError("unsubscribePublish(topic: String): Unit")
     })
     g("setQuorumSize") = Value.NativeFnV("setQuorumSize", {
-      case List(Value.intV(n)) =>
+      case List(Value.IntV(n)) =>
         Perform("Actor", "setQuorumSize", List(Value.intV(n)))
       case _ => throw InterpretError("setQuorumSize(n: Long): Unit")
     })
     g("setHeartbeatTimeout") = Value.NativeFnV("setHeartbeatTimeout", {
-      case List(Value.intV(iv), Value.intV(dead)) =>
+      case List(Value.IntV(iv), Value.IntV(dead)) =>
         Perform("Actor", "setHeartbeatTimeout",
           List(Value.intV(iv), Value.intV(dead)))
       case _ => throw InterpretError(
         "setHeartbeatTimeout(intervalMs: Long, deadAfterMs: Long): Unit")
     })
     g("setReconnectPolicy") = Value.NativeFnV("setReconnectPolicy", {
-      case List(Value.intV(ini), Value.intV(mx)) =>
+      case List(Value.IntV(ini), Value.IntV(mx)) =>
         Perform("Actor", "setReconnectPolicy",
           List(Value.intV(ini), Value.intV(mx), Value.intV(0L)))
-      case List(Value.intV(ini), Value.intV(mx), Value.intV(giveUp)) =>
+      case List(Value.IntV(ini), Value.IntV(mx), Value.IntV(giveUp)) =>
         Perform("Actor", "setReconnectPolicy",
           List(Value.intV(ini), Value.intV(mx), Value.intV(giveUp)))
       case _ => throw InterpretError(
@@ -290,9 +290,9 @@ private[interpreter] object ActorGlobals:
 
     // ── v1.23 — cluster metrics aggregation ───────────────────────────────
     g("clusterMetricSet") = Value.NativeFnV("clusterMetricSet", {
-      case List(Value.StringV(n), Value.doubleV(v)) =>
+      case List(Value.StringV(n), Value.DoubleV(v)) =>
         Perform("Actor", "clusterMetricSet", List(Value.StringV(n), Value.doubleV(v)))
-      case List(Value.StringV(n), Value.intV(v)) =>
+      case List(Value.StringV(n), Value.IntV(v)) =>
         Perform("Actor", "clusterMetricSet", List(Value.StringV(n), Value.doubleV(v.toDouble)))
       case _ => throw InterpretError("clusterMetricSet(name: String, value: Double): Unit")
     })
@@ -317,16 +317,16 @@ private[interpreter] object ActorGlobals:
 
     // ── v1.6.x — scheduled sends ──────────────────────────────────────────
     g("sendAfter") = Value.NativeFnV("sendAfter", {
-      case List(Value.intV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>
+      case List(Value.IntV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>
         Perform("Actor", "sendAfter", List(Value.intV(delayMs), pid, msg))
       case _ => throw InterpretError("sendAfter(delayMs: Int, pid: Pid, msg: Any): TimerRef")
     })
     g("sendInterval") = Value.NativeFnV("sendInterval", {
-      case List(Value.intV(periodMs), pid @ Value.InstanceV("Pid", _), msg) =>
+      case List(Value.IntV(periodMs), pid @ Value.InstanceV("Pid", _), msg) =>
         Perform("Actor", "sendInterval", List(Value.intV(periodMs), pid, msg))
       case _ => throw InterpretError("sendInterval(periodMs: Int, pid: Pid, msg: Any): TimerRef")
     })
     g("cancelTimer") = Value.NativeFnV("cancelTimer", {
-      case List(Value.intV(ref)) => Perform("Actor", "cancelTimer", List(Value.intV(ref)))
+      case List(Value.IntV(ref)) => Perform("Actor", "cancelTimer", List(Value.intV(ref)))
       case _ => throw InterpretError("cancelTimer(ref: TimerRef): Unit")
     })

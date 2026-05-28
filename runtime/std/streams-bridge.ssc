@@ -1,0 +1,79 @@
+---
+name: std-streams-bridge
+version: 1.63.1
+description: Bridge between local Source[A] and distributed DStream[A] — .distributed, .local, BasicStreamOps
+package: std.streams.bridge
+exports:
+  - BasicStreamOps
+  - StreamTooLargeError
+---
+
+# `std.streams.bridge` — Stream Bridge (v1.63.1)
+
+Bidirectional bridge between local `Source[A]` (`std.streams`) and distributed
+`DStream[A]` (`std.dstreams`), plus the `BasicStreamOps[F[_]]` shared-operator
+trait that both implement.
+
+Spec: [`docs/distributed-runtime.md §Streams`](../../docs/distributed-runtime.md)
+
+## `BasicStreamOps` — shared operators
+
+The operators that are semantically identical on both `Source` and `DStream`:
+`map`, `filter`, `merge`, `runForeach`, `runFold`, `runToList`.
+
+```scalascript
+trait BasicStreamOps[F[_]]:
+  extension [A](fa: F[A])
+    def map[B](f: A => B): F[B]
+    def filter(p: A => Boolean): F[A]
+    def merge(other: F[A]): F[A]
+    def runForeach(f: A => Unit): Unit
+    def runFold[B](z: B)(f: (B, A) => B): B
+    def runToList: List[A]
+```
+
+`flatMap` is deliberately excluded: `Source.flatMap` has shape `A => Source[B]`
+while `DStream.flatMap` has shape `A => Iterable[B]`.
+
+## Bridge adapters
+
+```scalascript
+// Lift a local Source into a bounded DStream for the DirectRunner or NativeRunner.
+// Partitions parameter is advisory (DirectRunner always uses 1).
+extern def Source[A].distributed(partitions: Int = 1): DStream[A]
+
+// Materialize a DStream back to a local Source by collecting all elements on the
+// driver.  The Cluster context is required so the boundary is visible in types.
+// WARNING: buffers the entire stream in memory — use only on bounded DStreams.
+extern def DStream[A].local(): Source[A]
+
+// Like .local but fails with StreamTooLargeError if the collected byte estimate
+// exceeds maxBytes (default 256 MiB).  Byte size is approximated by the runtime.
+extern def DStream[A].localBounded(maxBytes: Long = 268435456L): Source[A]
+```
+
+### Semantics
+
+| Direction | Method | Notes |
+|---|---|---|
+| `Source → DStream` | `.distributed` | Drains the Source into a `_dag_source_local` node; runs eagerly on the DirectRunner and NativeRunner in the calling thread. |
+| `DStream → Source` | `.local` | Executes the full DAG through the DirectRunner; collects results; wraps in a local in-memory Source. |
+| `DStream → Source` | `.localBounded(n)` | Same as `.local` but raises `StreamTooLargeError` when the approximate byte count exceeds `n`. |
+
+### Error
+
+```scalascript
+case class StreamTooLargeError(approxBytes: Long, limitBytes: Long)
+  extends RuntimeException(s"DStream.localBounded: stream ~$approxBytes bytes > limit $limitBytes bytes")
+```
+
+### Example
+
+```scalascript
+val result =
+  Source.from(List(1, 2, 3))   // local Source[Int]
+    .distributed                // DStream[Int] — wrapped in _dag_source_local node
+    .map(_ * 2)                 // DStream[Int] — DAG .map node
+    .local()                    // Source[Int]  — runs DAG, wraps collected list
+    .runToList                  // List[Int] = List(2, 4, 6)
+```

@@ -2444,7 +2444,7 @@ lazy val streamsPlugin = project
 // ── DStreams — interpreter plugin ─────────────────────────────────────────
 lazy val dstreamsPlugin = project
   .in(file("runtime/std/dstreams-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, ir, core, testUtils % Test, streamsPlugin % Test)
   .settings(
     name := "scalascript-dstreams-plugin",
     libraryDependencies ++= Seq(scalatestTest),

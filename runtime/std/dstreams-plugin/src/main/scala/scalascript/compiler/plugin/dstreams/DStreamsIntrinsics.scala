@@ -406,6 +406,48 @@ object DStreamsIntrinsics:
   private def runToList(dag: Value, ctx: NativeContext): List[Value] =
     evalDag(dag, ctx).toList
 
+  // ── DStream → Source bridge helper ────────────────────────────────────────
+
+  private def mkCollectedSourceV(elems: List[Value], ctx: NativeContext): Value =
+    val arr = elems.toArray
+    Value.InstanceV("Source", Map(
+      "runForeach" -> Value.NativeFnV("Source.runForeach", Computation.pureFn {
+        case List(f) => arr.foreach(v => call(ctx, f, List(v))); Value.UnitV
+        case _       => throw InterpretError("Source.runForeach(f)")
+      }),
+      "runToList" -> Value.NativeFnV("Source.runToList", Computation.pureFn { _ =>
+        Value.ListV(arr.toList)
+      }),
+      "runFold" -> Value.NativeFnV("Source.runFold", Computation.pureFn {
+        case List(z) => Value.NativeFnV("Source.runFold$1", Computation.pureFn {
+          case List(f) => arr.foldLeft(z)((acc, v) => call(ctx, f, List(acc, v)))
+          case _       => throw InterpretError("Source.runFold(z)(f) — inner")
+        })
+        case _ => throw InterpretError("Source.runFold(z)(f) — outer")
+      }),
+      "map" -> Value.NativeFnV("Source.map", Computation.pureFn {
+        case List(f) => mkCollectedSourceV(arr.toList.map(v => call(ctx, f, List(v))), ctx)
+        case _       => throw InterpretError("Source.map(f)")
+      }),
+      "filter" -> Value.NativeFnV("Source.filter", Computation.pureFn {
+        case List(p) => mkCollectedSourceV(arr.toList.filter(v => call(ctx, p, List(v)) == Value.BoolV(true)), ctx)
+        case _       => throw InterpretError("Source.filter(p)")
+      }),
+      "merge" -> Value.NativeFnV("Source.merge", Computation.pureFn {
+        case List(other) =>
+          val otherElems = other match
+            case Value.InstanceV("Source", fields) =>
+              fields.get("runToList") match
+                case Some(fn) => call(ctx, fn, Nil) match
+                  case Value.ListV(xs) => xs
+                  case _               => Nil
+                case None => Nil
+            case _ => Nil
+          mkCollectedSourceV(arr.toList ++ otherElems, ctx)
+        case _ => throw InterpretError("Source.merge(other)")
+      }),
+    ))
+
   // ── Capability negotiation ─────────────────────────────────────────────────
 
   private def collectRequiredCaps(dag: Value): Set[String] =
@@ -707,6 +749,35 @@ object DStreamsIntrinsics:
     "runCount" -> Value.NativeFnV("DStream.runCount", Computation.pureFn { _ =>
       Value.intV(evalDag(dag, ctx).size.toLong)
     }),
+
+    // Bridge operators — DStream.local / DStream.localBounded (v1.63.1)
+    "local" -> Value.NativeFnV("DStream.local", Computation.pureFn { _ =>
+      mkCollectedSourceV(runToList(dag, ctx), ctx)
+    }),
+
+    "localBounded" -> Value.NativeFnV("DStream.localBounded", Computation.pureFn {
+      case Nil =>
+        mkCollectedSourceV(runToList(dag, ctx), ctx)
+      case List(maxBytesV) =>
+        val maxBytes = maxBytesV match
+          case Value.IntV(n) => n
+          case _             => 268435456L
+        val elems = runToList(dag, ctx)
+        val approxBytes = elems.map {
+          case Value.StringV(s) => s.length.toLong * 2
+          case Value.IntV(_)    => 8L
+          case Value.DoubleV(_) => 8L
+          case Value.BoolV(_)   => 1L
+          case Value.UnitV      => 0L
+          case _                => 64L
+        }.sum
+        if approxBytes > maxBytes then
+          throw InterpretError(
+            s"DStream.localBounded: stream ~$approxBytes bytes > limit $maxBytes bytes"
+          )
+        else mkCollectedSourceV(elems, ctx)
+      case _ => throw InterpretError("DStream.localBounded(maxBytes)")
+    }),
   )
 
   private def mkDStreamWithOps(dag: Value, ctx: NativeContext): Value =
@@ -994,5 +1065,16 @@ object DStreamsIntrinsics:
         case List(name, fn) =>
           Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> toValue(fn)))
         case _ => throw InterpretError("OutputTag.withFilter(name)(fn)")
+    ),
+
+    // Source.distributed — bridge from local Source[A] to DStream[A] (v1.63.1)
+    // Registered in globals so DispatchRuntime.dispatchInstanceFallback can find it.
+    // First arg is always the Source receiver; optional partitions arg is ignored on DirectRunner.
+    QualifiedName("Source.distributed") -> NativeImpl((ctx, args) =>
+      args match
+        case src :: _ =>
+          val dag = dagNode("source_local", Map("source" -> toValue(src)))
+          mkDStreamWithOps(dag, ctx)
+        case Nil => throw InterpretError("Source.distributed: missing receiver")
     ),
   )
