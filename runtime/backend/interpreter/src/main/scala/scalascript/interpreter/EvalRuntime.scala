@@ -785,7 +785,7 @@ private[interpreter] object EvalRuntime:
         (t.op.value, v) match
           case ("!", Value.BoolV(b))   => Pure(Value.boolV(!b))
           case ("-", Value.IntV(n))    => Pure(Value.intV(-n))
-          case ("-", Value.DoubleV(d)) => Pure(Value.DoubleV(-d))
+          case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
           case ("+", n: Value.IntV)    => Pure(n)
           case ("+", d: Value.DoubleV) => Pure(d)
           case ("~", Value.IntV(n))    => Pure(Value.intV(~n))
