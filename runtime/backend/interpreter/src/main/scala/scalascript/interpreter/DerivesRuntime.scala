@@ -24,11 +24,11 @@ private[interpreter] object DerivesRuntime:
       case "Eq" =>
         Value.InstanceV("Eq", Map(
           "eqv"  -> Value.NativeFnV("Eq.eqv",  {
-            case List(a, b) => Pure(Value.boolV(structuralEq(a, b)))
+            case List(a, b) => Computation.pureBool(structuralEq(a, b))
             case _          => Computation.PureFalse
           }),
           "neqv" -> Value.NativeFnV("Eq.neqv", {
-            case List(a, b) => Pure(Value.boolV(!structuralEq(a, b)))
+            case List(a, b) => Computation.pureBool(!structuralEq(a, b))
             case _          => Computation.PureTrue
           })
         ))
@@ -55,10 +55,10 @@ private[interpreter] object DerivesRuntime:
             case List(a, b) => Pure(Value.intV(structuralCompare(a, b, interp).toLong))
             case _          => Pure(Value.intV(0))
           }),
-          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) < 0));  case _ => Computation.PureFalse }),
-          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) > 0));  case _ => Computation.PureFalse }),
-          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) <= 0)); case _ => Computation.PureFalse }),
-          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) >= 0)); case _ => Computation.PureFalse }),
+          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) < 0);  case _ => Computation.PureFalse }),
+          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) > 0);  case _ => Computation.PureFalse }),
+          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) <= 0); case _ => Computation.PureFalse }),
+          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Computation.pureBool(structuralCompare(a, b, interp) >= 0); case _ => Computation.PureFalse }),
           "min" -> Value.NativeFnV("Order.min", { case List(a, b) => Pure(if structuralCompare(a, b, interp) <= 0 then a else b); case _ => Computation.PureUnit }),
           "max" -> Value.NativeFnV("Order.max", { case List(a, b) => Pure(if structuralCompare(a, b, interp) >= 0 then a else b); case _ => Computation.PureUnit })
         ))

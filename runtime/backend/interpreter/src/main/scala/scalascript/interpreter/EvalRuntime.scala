@@ -41,11 +41,11 @@ private[interpreter] object EvalRuntime:
           case Lit.Double(v)  => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.String(v)  => Pure(Value.StringV(v))
-          case Lit.Boolean(v) => Pure(Value.boolV(v))
+          case Lit.Boolean(v) => Computation.pureBool(v)
           case Lit.Char(v)    => Pure(Value.CharV(v))
           case Lit.Unit()     => Computation.PureUnit
-          case Lit.Null()     => Pure(Value.NullV)
-          case _              => Pure(Value.NullV)
+          case Lit.Null()     => Computation.PureNull
+          case _              => Computation.PureNull
         interp.litCache.put(lit, c)
         c
 
@@ -789,7 +789,7 @@ private[interpreter] object EvalRuntime:
     case t: Term.ApplyUnary =>
       eval(t.arg, env, interp).flatMap { v =>
         (t.op.value, v) match
-          case ("!", Value.BoolV(b))   => Pure(Value.boolV(!b))
+          case ("!", Value.BoolV(b))   => Computation.pureBool(!b)
           case ("-", Value.IntV(n))    => Pure(Value.intV(-n))
           case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
           case ("+", n: Value.IntV)    => Pure(n)

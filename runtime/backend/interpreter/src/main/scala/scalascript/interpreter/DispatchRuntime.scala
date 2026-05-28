@@ -47,8 +47,8 @@ private[interpreter] object DispatchRuntime:
     name match
       case "length"      => Pure(Value.intV(s.length.toLong))
       case "size"        => Pure(Value.intV(s.length.toLong))
-      case "isEmpty"     => Pure(Value.boolV(s.isEmpty))
-      case "nonEmpty"    => Pure(Value.boolV(s.nonEmpty))
+      case "isEmpty"     => Computation.pureBool(s.isEmpty)
+      case "nonEmpty"    => Computation.pureBool(s.nonEmpty)
       case "trim"        => Pure(Value.StringV(s.trim))
       case "toUpperCase" => Pure(Value.StringV(s.toUpperCase))
       case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
@@ -58,13 +58,13 @@ private[interpreter] object DispatchRuntime:
       case "toString"    => Pure(Value.StringV(s))
       case "mkString"    => Pure(Value.StringV(s))
       case "contains"    => args match
-        case List(Value.StringV(t)) => Pure(Value.boolV(s.contains(t)))
+        case List(Value.StringV(t)) => Computation.pureBool(s.contains(t))
         case _                      => dispatchFallback(recv, name, args, env, interp)
       case "startsWith"  => args match
-        case List(Value.StringV(t)) => Pure(Value.boolV(s.startsWith(t)))
+        case List(Value.StringV(t)) => Computation.pureBool(s.startsWith(t))
         case _                      => dispatchFallback(recv, name, args, env, interp)
       case "endsWith"    => args match
-        case List(Value.StringV(t)) => Pure(Value.boolV(s.endsWith(t)))
+        case List(Value.StringV(t)) => Computation.pureBool(s.endsWith(t))
         case _                      => dispatchFallback(recv, name, args, env, interp)
       case "matchPrefix" => args match
         case List(Value.StringV(pat)) =>
@@ -151,8 +151,8 @@ private[interpreter] object DispatchRuntime:
       case "toInt"    => Pure(Value.intV(c.toInt.toLong))
       case "toLong"   => Pure(Value.intV(c.toLong))
       case "toString" => Pure(Value.StringV(c.toString))
-      case "isDigit"  => Pure(Value.boolV(c.isDigit))
-      case "isLetter" => Pure(Value.boolV(c.isLetter))
+      case "isDigit"  => Computation.pureBool(c.isDigit)
+      case "isLetter" => Computation.pureBool(c.isLetter)
       case _ => extensionDispatch(Value.CharV(c), name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Char"))
 
@@ -163,8 +163,8 @@ private[interpreter] object DispatchRuntime:
     name match
       case "length"       => Pure(Value.intV(ls.length.toLong))
       case "size"         => Pure(Value.intV(ls.size.toLong))
-      case "isEmpty"      => Pure(Value.boolV(ls.isEmpty))
-      case "nonEmpty"     => Pure(Value.boolV(ls.nonEmpty))
+      case "isEmpty"      => Computation.pureBool(ls.isEmpty)
+      case "nonEmpty"     => Computation.pureBool(ls.nonEmpty)
       case "head"         => Pure(ls.headOption.getOrElse(interp.located("head on Nil")))
       case "tail"         => Pure(Value.ListV(ls.tail))
       case "last"         => Pure(ls.lastOption.getOrElse(interp.located("last on Nil")))
@@ -192,7 +192,7 @@ private[interpreter] object DispatchRuntime:
       case "indices"      =>
         Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
       case "contains"     => args match
-        case List(v)                  => Pure(Value.boolV(ls.contains(v)))
+        case List(v)                  => Computation.pureBool(ls.contains(v))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "indexOf"      => args match
         case List(v)                  => Pure(Value.intV(ls.indexOf(v).toLong))
@@ -362,15 +362,15 @@ private[interpreter] object DispatchRuntime:
     lazy val recv = Value.MapV(m)
     name match
       case "size"     => Pure(Value.intV(m.size.toLong))
-      case "isEmpty"  => Pure(Value.boolV(m.isEmpty))
-      case "nonEmpty" => Pure(Value.boolV(m.nonEmpty))
+      case "isEmpty"  => Computation.pureBool(m.isEmpty)
+      case "nonEmpty" => Computation.pureBool(m.nonEmpty)
       case "keys"     => Pure(Value.ListV(m.keys.toList))
       case "values"   => Pure(Value.ListV(m.values.toList))
       case "toList"   =>
         Pure(Value.ListV(m.toList.map { (k, v) => Value.TupleV(List(k, v)) }))
       case "mkString" => Pure(Value.StringV(Value.show(recv)))
       case "contains" => args match
-        case List(k)       => Pure(Value.boolV(m.contains(k)))
+        case List(k)       => Computation.pureBool(m.contains(k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "get"      => args match
         case List(k)       => Pure(Value.OptionV(m.get(k)))
@@ -432,15 +432,15 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchOption(recv: Value, opt: Option[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
-      case "isDefined" => Pure(Value.boolV(opt.isDefined))
-      case "isEmpty"   => Pure(Value.boolV(opt.isEmpty))
-      case "nonEmpty"  => Pure(Value.boolV(opt.nonEmpty))
+      case "isDefined" => Computation.pureBool(opt.isDefined)
+      case "isEmpty"   => Computation.pureBool(opt.isEmpty)
+      case "nonEmpty"  => Computation.pureBool(opt.nonEmpty)
       case "toList"    => Pure(Value.ListV(opt.toList))
       case "get"       => opt match
         case Some(v) => Pure(v)
         case None    => interp.located("Option.get on None")
       case "contains"  => args match
-        case List(v)    => Pure(Value.boolV(opt.contains(v)))
+        case List(v)    => Computation.pureBool(opt.contains(v))
         case _          => dispatchFallback(recv, name, args, env, interp)
       case "getOrElse" => args match
         case List(d)    => opt match
@@ -732,29 +732,29 @@ private[interpreter] object DispatchRuntime:
       case "%" => (lhs, rhs) match
         case (Value.IntV(a), Value.IntV(b)) => Pure(Value.intV(a % b))
         case _                              => dispatch(lhs, op, args, env, interp)
-      case "==" => Pure(Value.boolV(lhs == rhs))
-      case "!=" => Pure(Value.boolV(lhs != rhs))
+      case "==" => Computation.pureBool(lhs == rhs)
+      case "!=" => Computation.pureBool(lhs != rhs)
       case "<" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a < b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a < b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a > b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a > b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a > b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a > b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "<=" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a <= b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a <= b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a <= b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a <= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">=" => (lhs, rhs) match
-        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a >= b))
-        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a >= b))
+        case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a >= b)
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a >= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "&&" => (lhs, rhs) match
-        case (Value.BoolV(a), Value.BoolV(b)) => Pure(Value.boolV(a && b))
+        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)
         case _                                => dispatch(lhs, op, args, env, interp)
       case "||" => (lhs, rhs) match
-        case (Value.BoolV(a), Value.BoolV(b)) => Pure(Value.boolV(a || b))
+        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a || b)
         case _                                => dispatch(lhs, op, args, env, interp)
       case "::" => rhs match
         case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))

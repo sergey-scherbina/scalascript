@@ -309,6 +309,8 @@ object Computation:
   val PureNone:      Pure = Pure(Value.NoneV)
   val PureEmptyList: Pure = Pure(Value.EmptyList)
 
+  inline def pureBool(b: Boolean): Pure = if b then PureTrue else PureFalse
+
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)
 
