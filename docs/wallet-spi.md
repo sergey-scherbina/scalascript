@@ -442,6 +442,11 @@ EIP-712 digest + address derivation).
 
 ### Phase 3 — DappConnector EIP-1193 (Scala.js)
 
+Browser x402 can now consume an injected EIP-1193 wallet through
+`x402ClientJs` `Wallets.metaMask(network)` (landed 2026-05-28). That
+helper is consumer-side: it calls an existing `window.ethereum`,
+validates `eth_chainId`, and signs via `eth_signTypedData_v4`.
+
 - [ ] `wallet-connector-eip1193-js` — `window.ethereum` injection
 - [ ] EIP-6963 multi-injected-provider discovery
 - [ ] Translates `eth_*` JSON-RPC → `AccountManager.request`

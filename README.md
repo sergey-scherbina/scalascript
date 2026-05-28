@@ -333,6 +333,7 @@ Planned, not implemented yet:
 | x402 micropayments | HTTP 402 → typed payment challenge / settlement via `Payment[T]`, `x402Server { … }`, `x402Client(...)` — Ethereum + Cardano payment families |
 | Blockchain SPI (draft / planned, not fully implemented) | `BlockchainBackend` trait — EVM (mainnet, L2s), Bitcoin, Solana, Cardano via pluggable backends. See [`docs/blockchain-spi.md`](docs/blockchain-spi.md) |
 | Wallet Connect (WC v2) | Relay-transport cryptographic primitives — pairing, session, JSON-RPC, X25519 / HKDF / ChaCha20-Poly1305 |
+| Browser MetaMask wallet | `x402ClientJs` helper — `Wallets.metaMask(Network.Base)` over `window.ethereum` + EIP-712 signing |
 | Ledger hardware wallets | JVM HID and browser WebHID vaults — Ledger HID APDU framing, Ethereum app signing, Cardano CIP-8 helpers |
 | Solana Wallet Standard | `solana-wallet-std` translator — Wallet Standard ↔ unified Wallet SPI |
 | ERC-4337 account abstraction | `EntryPoint v0.7 PackedUserOperation` — bundlerless and bundler-driven flows |
@@ -423,6 +424,7 @@ Planned, not implemented yet:
 | [algebraic-effects.ssc](examples/algebraic-effects.ssc) | Typed effects end-to-end — discharge signatures, `Reader[R]`, `NonDet`, `multi effect` |
 | [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) and covered by an Electron Add-flow smoke test |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
+| [x402-metamask.ssc](examples/x402-metamask.ssc) | Browser x402 wallet helper — connect MetaMask and sign EIP-712 via `window.ethereum` |
 | [x402-cardano.ssc](examples/x402-cardano.ssc) | x402 on Cardano — CIP-8 wallet, Scalus escrow validator, end-to-end client + server |
 | [wallet-ledger-js.ssc](examples/wallet-ledger-js.ssc) | Browser Ledger/WebHID vault sketch — connect lifecycle, Ethereum signer, Cardano CIP-8 helper |
 | [spark-sql-demo.ssc](examples/spark-sql-demo.ssc) | Spark SQL via `sql` fenced blocks + `${expr}` bind parameters + section aliases |

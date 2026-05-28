@@ -3065,13 +3065,24 @@ x402Client(wallet) {
 }
 ```
 
+Browser EVM wallets can use the Scala.js helper:
+
+```scalascript
+val wallet = await(Wallets.metaMask(Network.Base))
+```
+
+`Wallets.metaMask` connects through `window.ethereum`, validates the
+active EIP-155 chain, and signs x402 EIP-712 authorizations with
+`eth_signTypedData_v4`.
+
 Specs:
 - [`docs/x402.md`](x402.md) — protocol + flows
 - [`docs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
 - [`docs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
 - [`docs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
 
-Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-cardano.ssc` (end-to-end
+Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-metamask.ssc`,
+`x402-cardano.ssc` (end-to-end
 Cardano flow with CIP-8 wallet + Scalus escrow validator).
 
 Cardano Scalus escrow support is still incomplete: the compiled Plutus validator

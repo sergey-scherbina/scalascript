@@ -1,0 +1,53 @@
+#!/usr/bin/env ssc
+---
+name: x402-metamask
+version: 1.0.0
+description: Browser x402 wallet helper using MetaMask / window.ethereum for EIP-712 signing.
+target: js
+frontend:
+  openBrowser: false
+---
+
+# x402-metamask
+
+Browser-side x402 EVM wallet helper:
+
+```scalascript
+import scala.concurrent.ExecutionContext.Implicits.global
+import scalascript.x402.client.{Eip712Domain, Network, Wallets}
+
+val walletF = Wallets.metaMask(Network.Base)
+
+val signatureF = walletF.flatMap { wallet =>
+  wallet.signEip712(
+    domain = Eip712Domain(
+      name              = "USD Coin",
+      version           = "2",
+      chainId           = Network.Base.chainId,
+      verifyingContract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    ),
+    types = Map(
+      "TransferWithAuthorization" -> Seq(
+        "address" -> "from",
+        "address" -> "to",
+        "uint256" -> "value",
+        "uint256" -> "validAfter",
+        "uint256" -> "validBefore",
+        "bytes32" -> "nonce",
+      )
+    ),
+    value = Map(
+      "from"        -> wallet.address,
+      "to"          -> "0x0000000000000000000000000000000000000000",
+      "value"       -> "1000",
+      "validAfter"  -> "0",
+      "validBefore" -> "4102444800",
+      "nonce"       -> "0x0000000000000000000000000000000000000000000000000000000000000000",
+    ),
+  )
+}
+```
+
+`Wallets.metaMask` uses `window.ethereum.request`, prompts with
+`eth_requestAccounts`, checks `eth_chainId`, and signs with
+`eth_signTypedData_v4`.

@@ -36,7 +36,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Frontend & Clients
 
-_(all done — see Done section below)_
+- [x] **wallets-metamask-js** — Browser x402 MetaMask helper: `x402ClientJs` Scala.js artifact in package `scalascript.x402.client`; `Wallets.metaMask(network): Future[Wallet]` connects through `window.ethereum`, validates `eth_chainId`, signs EIP-712 via `eth_signTypedData_v4`, exposes `Wallets.metaMask(address, network)` for already-connected accounts, rejects CIP-8 on EVM wallets; 7 Node-backed Scala.js tests with stubbed `window.ethereum`. Spec: `BACKLOG.md §x402 — HTTP payment protocol`. ✓ Landed 2026-05-28.
 
 
 ## Language & Compiler — Secret Resolvers (cloud)

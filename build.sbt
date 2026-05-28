@@ -1244,6 +1244,21 @@ lazy val x402Client = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val x402ClientJs = project
+  .in(file("payments/x402/client-js"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    name := "scalascript-x402-client-js",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %%% "upickle" % "4.4.2",
+      "org.scalatest" %%% "scalatest" % "3.2.18" % Test,
+    ),
+    scalaJSLinkerConfig ~= { _.withModuleKind(org.scalajs.linker.interface.ModuleKind.CommonJSModule) },
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+    Test / fork := false,
+  )
+
 lazy val x402FacilitatorCoinbase = project
   .in(file("payments/x402/facilitator-coinbase"))
   .dependsOn(x402Core, clientCoinbase)
@@ -2894,7 +2909,7 @@ lazy val root = project
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
-    x402Core, x402Server, x402Client,
+    x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
     cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,

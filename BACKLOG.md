@@ -3781,7 +3781,12 @@ Spec in `docs/x402.md`.
 ### Phase 3 — Client interceptor (`x402-client`) ✓ Landed
 
 - [x] `Wallet` trait + `Eip712Domain`
-- [ ] `Wallets.metaMask()` (browser / window.ethereum) — deferred to JS backend
+- [x] `Wallets.metaMask()` (browser / window.ethereum) — landed in
+      `x402ClientJs` (2026-05-28): connects with
+      `eth_requestAccounts`, validates `eth_chainId`, and signs
+      EIP-712 payloads via `eth_signTypedData_v4`. The current JS
+      slice is a browser wallet helper; full browser `X402Client`
+      retry/interceptor parity remains a future follow-up.
 - [x] `Wallets.privateKey(hex, network)` + `Wallets.envKey(envVar, network)`
 - [x] `X402Client(wallet, maxAmount, backend)` interceptor
 - [x] Auto-retry on 402: parse requirements, sign, add `X-Payment`, retry
