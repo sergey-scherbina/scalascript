@@ -42,7 +42,7 @@ private[interpreter] object StorageRuntime:
             state.remove(k); flush(); resume(Value.UnitV)
           case _ => throw InterpretError("Storage.remove(key: String)")
         case "has" => args match
-          case List(Value.StringV(k)) => resume(Value.BoolV(state.contains(k)))
+          case List(Value.StringV(k)) => resume(Value.boolV(state.contains(k)))
           case _ => throw InterpretError("Storage.has(key: String)")
         case "keys" => args match
           case Nil => resume(Value.ListV(state.keys.toList.map(Value.StringV.apply)))

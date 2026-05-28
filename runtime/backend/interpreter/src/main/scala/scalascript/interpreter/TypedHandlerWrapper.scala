@@ -158,9 +158,9 @@ object TypedHandlerWrapper:
         case _ => Left(s"unknown type: $typeName")
 
   private def coercePrimitive(s: String, typeName: String): Value = typeName match
-    case "Int" | "Long"     => Value.IntV(s.toLongOption.getOrElse(0L))
-    case "Double" | "Float" => Value.DoubleV(s.toDoubleOption.getOrElse(0.0))
-    case "Boolean"          => Value.BoolV(s == "true" || s == "1")
+    case "Int" | "Long"     => Value.intV(s.toLongOption.getOrElse(0L))
+    case "Double" | "Float" => Value.doubleV(s.toDoubleOption.getOrElse(0.0))
+    case "Boolean"          => Value.boolV(s == "true" || s == "1")
     case _                  => Value.StringV(s)
 
   private def valueToString(v: Value): String = v match
@@ -213,8 +213,8 @@ object TypedHandlerWrapper:
         parseJsonObjectFrom(s, i)
       case '[' =>
         parseJsonArrayFrom(s, i)
-      case 't' if s.startsWith("true", i)  => (Value.BoolV(true),  i + 4)
-      case 'f' if s.startsWith("false", i) => (Value.BoolV(false), i + 5)
+      case 't' if s.startsWith("true", i)  => (Value.True,  i + 4)
+      case 'f' if s.startsWith("false", i) => (Value.False, i + 5)
       case 'n' if s.startsWith("null", i)  => (Value.NullV,        i + 4)
       case c if c == '-' || c.isDigit =>
         var j = i
@@ -228,9 +228,9 @@ object TypedHandlerWrapper:
             j += 1
             if j < s.length && (s.charAt(j) == '+' || s.charAt(j) == '-') then j += 1
             while j < s.length && s.charAt(j).isDigit do j += 1
-          (Value.DoubleV(s.substring(i, j).toDouble), j)
+          (Value.doubleV(s.substring(i, j).toDouble), j)
         else
-          (Value.IntV(s.substring(i, j).toLong), j)
+          (Value.intV(s.substring(i, j).toLong), j)
       case _ => (Value.NullV, i + 1)
 
   private def parseJsonString(s: String, start: Int): (String, Int) =
@@ -310,14 +310,14 @@ object TypedHandlerWrapper:
 
   private def httpErrorResponse(status: Int, body: String): Value =
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status),
+      "status"  -> Value.intV(status),
       "body"    -> Value.StringV(body),
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("application/json"))),
     ))
 
   private def httpJsonResponse(status: Int, body: String): Value =
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status),
+      "status"  -> Value.intV(status),
       "body"    -> Value.StringV(body),
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("application/json"))),
     ))

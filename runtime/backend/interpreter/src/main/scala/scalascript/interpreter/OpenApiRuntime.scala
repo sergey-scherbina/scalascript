@@ -38,7 +38,7 @@ private[interpreter] object OpenApiRuntime:
       "_swagger",
       Computation.pureFn { _ =>
         Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
+          "status"  -> Value.intV(200),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8")
           )),
@@ -190,7 +190,7 @@ private[interpreter] object OpenApiRuntime:
 
   private def jsonResponse(body: String): Value =
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200),
+      "status"  -> Value.intV(200),
       "headers" -> Value.MapV(Map(
         Value.StringV("Content-Type")                -> Value.StringV("application/json"),
         Value.StringV("Access-Control-Allow-Origin") -> Value.StringV("*")

@@ -53,7 +53,7 @@ private[interpreter] object CoroutineRuntime:
         case List(pred) => startChained { ownQ =>
           var item = queue.take()
           while item.isDefined do
-            if Computation.run(interp.callValue(pred, List(item.get), Map.empty)) == Value.BoolV(true) then
+            if Computation.run(interp.callValue(pred, List(item.get), Map.empty)) == Value.True then
               ownQ.put(Some(item.get))
             item = queue.take()
         }
@@ -120,7 +120,7 @@ private[interpreter] object CoroutineRuntime:
           var idx = 0
           var item = queue.take()
           while item.isDefined do
-            ownQ.put(Some(Value.TupleV(List(item.get, Value.IntV(idx)))))
+            ownQ.put(Some(Value.TupleV(List(item.get, Value.intV(idx)))))
             idx += 1
             item = queue.take()
         }
@@ -179,7 +179,7 @@ private[interpreter] object CoroutineRuntime:
             // reads fromBody, so we must not block the virtual thread forever.
             fromBody.offer(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
         }
-        Pure(Value.InstanceV("Coroutine", Map("_id" -> Value.IntV(id))))
+        Pure(Value.InstanceV("Coroutine", Map("_id" -> Value.intV(id))))
       case _ => throw InterpretError("coroutineCreate(body: () => T)")
     })
 

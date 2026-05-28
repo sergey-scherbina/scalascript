@@ -23,11 +23,11 @@ private[interpreter] object OpticsRuntime:
 
   def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[PathStep]] =
     def litToValue(lit: Lit): Option[Value] = lit match
-      case Lit.Int(v)     => Some(Value.IntV(v.toLong))
-      case Lit.Long(v)    => Some(Value.IntV(v))
+      case Lit.Int(v)     => Some(Value.intV(v.toLong))
+      case Lit.Long(v)    => Some(Value.intV(v))
       case Lit.String(v)  => Some(Value.StringV(v))
-      case Lit.Boolean(v) => Some(Value.BoolV(v))
-      case Lit.Double(v)  => Some(Value.DoubleV(v.toDouble))
+      case Lit.Boolean(v) => Some(Value.boolV(v))
+      case Lit.Double(v)  => Some(Value.doubleV(v.toDouble))
       case _              => None
     def loop(t: Term, acc: List[PathStep]): Option[List[PathStep]] = t match
       case Term.Select(qual, Term.Name("some")) =>
@@ -382,7 +382,7 @@ private[interpreter] object OpticsRuntime:
       case PathStep.FieldStep(n) => Value.StringV(n)
       case PathStep.SomeStep     => Value.StringV("__some__")
       case PathStep.EachStep     => Value.StringV("__each__")
-      case PathStep.IndexStep(i) => Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i.toLong)))
+      case PathStep.IndexStep(i) => Value.TupleV(List(Value.StringV("__index__"), Value.intV(i.toLong)))
       case PathStep.AtKey(k)     => Value.TupleV(List(Value.StringV("__at__"), k))
     })
 
