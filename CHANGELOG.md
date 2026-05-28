@@ -20,6 +20,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **queue-architecture-themes** — Added Architecture & Extensibility roadmap items to `WORK_QUEUE.md` so agents can claim them directly. Official centralized publishing to Maven Central / sbt Plugin Portal remains deferred in `BACKLOG.md`; ScalaScript's own package registry tasks are queued.
 
+## 2026-05-28 — v1.61.4 Pattern-match compilation
+
+- **v1.61.4-pattern-compile** — Compile each `Term.Match` into a `CompiledMatch` handler array cached by AST identity (`IdentityHashMap`). Each handler is `(Value, Env) => Computation | Null`, avoiding `Option` allocation in the hot dispatch path. Fast-path cases: `Pat.Wildcard`, `Pat.Var`, `Lit`, `Pat.Extract` with simple `Var`/`Wildcard` subpatterns (field order lazily cached per type on first match; `FrameMap.one/two/of` for 0–N bindings), `Pat.Alternative`. Complex patterns fall back to `matchPat`. Guard evaluation extracted to `evalGuard` helper. **Benchmarks (median 3 runs):** pattern-match-heavy 6069ms (baseline) → 3960ms (**1.53× vs baseline**, 8% over v1.61.3); arith-loop unchanged at ~4500ms. No behavior change; 115/116 tests pass (pre-existing Choose multi-shot failure).
+
 ## 2026-05-28 — v1.61.3 Env overhaul
 
 - **v1.61.3-env-overhaul** — Two targeted hot-path fixes eliminating O(N_globals) overhead per while-loop iteration: (1) While-loop frame now only copies env entries that differ from `interp.globals` (locally-declared vars), shrinking from O(N_globals) to O(N_local_vars) — 2-5 entries instead of 300+; (2) `evalBlock` intercepts ALL `Term.Assign(Name)` to write both `local` and `interp.globals` simultaneously, making the per-statement global refresh a cheap no-op for direct-assignment blocks. **Benchmarks (median 3 runs):** arith-loop 15600ms → 4480ms (**3.5×**); pattern-match-heavy 6070ms → 4300ms (**1.4×**); recursion-tco/fib/tuple-monoid unchanged. No behavior change; 115/116 tests pass (pre-existing Choose multi-shot failure).
