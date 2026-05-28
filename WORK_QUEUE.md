@@ -356,7 +356,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 ## v1.61 — Performance & Memory Optimization
 
 - [x] **v1.61.0-bench** — Benchmark infrastructure: 8-workload corpus (`bench/corpus/`), `bench/run.sc` (scala-cli timing harness), `bench/BASELINE.md`, `runtime/backend/interpreter-bench` (sbt-jmh module), `scripts/bundle-size.sh`. ✓ Landed 2026-05-28.
-- [ ] **v1.61.1-dispatch-table** — Precomputed `HashMap[(ReceiverTag, InternedName), Handler]` in `DispatchRuntime`; intern method names at parse. Target: ≥3× on pattern-match-heavy, ≥2× on arith-loop.
+- [x] **v1.61.1-dispatch-table** — Two-level dispatch in `DispatchRuntime` (`recv match` → per-type `name match` hashCode switch); extensions early-exit when no user extensions registered. ✓ Landed 2026-05-28.
 - [ ] **v1.61.2-pure-path** — Extend pure-path fast path; skip `Computation` wrapping for known-pure sub-trees via AST purity cache. Target: ≥4× on effect-pure.
 - [ ] **v1.61.3-env-overhaul** — Thread `FrameMap` through `BlockRuntime.evalBlock`; eliminate `local.toMap`/per-stmt refresh; reuse env across `while` iterations. Target: ≥2× on arith-loop.
 - [ ] **v1.61.4-pattern-compile** — Compile `Term.Match` to decision-tree closure cached by AST identity. Target: ≥4× on pattern-match-heavy.

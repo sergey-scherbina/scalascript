@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.61.1 Interpreter dispatch table
+
+- **v1.61.1-dispatch-table** — Replace flat 300-case `(recv, name, args)` triple-match in `DispatchRuntime` with two-level dispatch: `recv match` selects the per-type handler (one `instanceof` check, O(1)); each handler uses `name match` which Scala 3 compiles as a hashCode-based switch (O(1) average). Extensions early-exit: when `interp.extensions` is empty (the common case), the 7-way `HashMap` probe is skipped on every `dispatch` call. Also fixes `dispatchInstanceFallback` field-access ordering: no-arg field access checked before enum-companion call. No behavior change.
+
 ## 2026-05-28 — v1.61.0 Benchmark infrastructure
 
 - **v1.61.0-bench** — Performance measurement framework for v1.61 optimization pass. 8-workload corpus in `bench/corpus/` covering interpreter hot paths (arith-loop, recursion-fib, recursion-tco, pattern-match-heavy, effect-pure, effect-stream, tuple-monoid, hello-world). `bench/run.sc` scala-cli timing harness (median of 7 runs, 2 warmup; invokes `ssc` CLI; `--baseline` flag writes `bench/BASELINE.md`). `runtime/backend/interpreter-bench` sbt submodule with `sbt-jmh` for microbenchmarks (`InterpreterBench.scala`: 6 JMH benchmarks covering all hot-path workloads). `scripts/bundle-size.sh` for tracking JS+JVM generated bundle sizes (gzip-aware; appends date-stamped rows to `bench/BUNDLE_SIZES.md`). `bench/BASELINE.md` placeholder with capture instructions. `bench/BUNDLE_SIZES.md` log. `WORK_QUEUE.md` / `BACKLOG.md` updated with v1.61.0–7 roadmap.
