@@ -56,12 +56,14 @@ class Typer(
   def diagnostics: List[TypeError] = errors.toList
 
   def typeCheck(module: Module): TypedModule =
-    val prelude  = createPrelude()
+    val prelude  = if extraBuiltins.isEmpty then Typer.sharedPrelude else createPrelude()
     // v2.0: if we have pre-compiled interfaces, build an InterfaceScope layer
     // between the prelude and the module's own top-level scope so that names
     // from imported modules resolve without re-parsing their source.
+    // Always use a child scope so predeclareModuleNames never writes into the
+    // shared prelude (which would corrupt it for concurrent/subsequent modules).
     val baseScope =
-      if importedInterfaces.isEmpty then prelude
+      if importedInterfaces.isEmpty then prelude.child("<module>")
       else
         import scalascript.artifact.InterfaceScope
         InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
@@ -94,9 +96,9 @@ class Typer(
       module: Module,
       prevSnapshots: List[SectionSnapshot]
   ): (TypedModule, List[SectionSnapshot]) =
-    val prelude = createPrelude()
+    val prelude = if extraBuiltins.isEmpty then Typer.sharedPrelude else createPrelude()
     val baseScope =
-      if importedInterfaces.isEmpty then prelude
+      if importedInterfaces.isEmpty then prelude.child("<module>")
       else
         import scalascript.artifact.InterfaceScope
         InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
@@ -1339,6 +1341,11 @@ object SectionSnapshot:
     String(out)
 
 object Typer:
+  // Built once per JVM; immutable after construction.  typeCheck and
+  // typeCheckIncremental always write module names into a child scope so
+  // the shared prelude is never mutated.
+  private[Typer] val sharedPrelude: Scope = new Typer().createPrelude()
+
   def typeCheck(module: Module): TypedModule = Typer().typeCheck(module)
 
   /** Type-check a module with pre-compiled interface scopes for its imports.
