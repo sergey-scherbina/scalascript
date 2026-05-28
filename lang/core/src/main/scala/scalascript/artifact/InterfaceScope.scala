@@ -442,9 +442,9 @@ object InterfaceScope:
         if consumeBang() then
           parseEffectSet() match
             case Some(effs) => (resultType, effs)
-            case None       => (resultType, SType.EffectRow(None, Set.empty))
+            case None       => (resultType, SType.EffectRow(-1, Set.empty))
         else
-          (resultType, SType.EffectRow(None, Set.empty))
+          (resultType, SType.EffectRow(-1, Set.empty))
       }
 
     /** Consume `++` preceded by optional ws. */
@@ -482,9 +482,9 @@ object InterfaceScope:
             case Some(op) => ops += op
             case None     => ok = false
         if !ok || !consume(')') then None
-        else Some(SType.EffectRow(None, ops.toSet))
+        else Some(SType.EffectRow(-1, ops.toSet))
       else
-        parseEffectOp().map(op => SType.EffectRow(None, Set(op)))
+        parseEffectOp().map(op => SType.EffectRow(-1, Set(op)))
 
     private def parseParen(): Option[Primary] =
       // Caller has verified that we sit on '('.

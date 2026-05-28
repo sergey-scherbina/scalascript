@@ -202,9 +202,9 @@ class Typer(
     // Typed discharge signatures for standard effect runners (v1.12.3).
     // Each runner takes a body thunk that carries the named effect in its row,
     // and returns the body's result with that effect discharged.
-    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(None, Set(EffectOp(eff)))))
+    // Body type: () => A ! EffName  (represented as Function(Nil, Any, EffectRow(-1, Set(EffectOp(eff)))))
     val bodyWithEff: String => SType = eff =>
-      SType.Function(Nil, SType.Any, SType.EffectRow(None, Set(EffectOp(eff))))
+      SType.Function(Nil, SType.Any, SType.EffectRow(-1, Set(EffectOp(eff))))
     val runnerType: String => SType = eff =>
       SType.Function(List(bodyWithEff(eff)), SType.Any)
     val runnerType2: String => SType = eff =>
@@ -925,18 +925,18 @@ class Typer(
         val ret  = typeAnnotToSType(retTyp)
         val effs: SType.EffectRow = effTyp match
           case Type.Name(n) =>
-            SType.EffectRow(None, Set(EffectOp(n)))
+            SType.EffectRow(-1, Set(EffectOp(n)))
           case Type.Apply.After_4_6_0(Type.Name(n), argClause) =>
-            SType.EffectRow(None, Set(EffectOp(n, argClause.values.map(typeAnnotToSType).toList)))
+            SType.EffectRow(-1, Set(EffectOp(n, argClause.values.map(typeAnnotToSType).toList)))
           case Type.Tuple(es) =>
-            SType.EffectRow(None, es.collect {
+            SType.EffectRow(-1, es.collect {
               case Type.Name(n) => EffectOp(n)
               case Type.Apply.After_4_6_0(Type.Name(n), argClause) =>
                 EffectOp(n, argClause.values.map(typeAnnotToSType).toList)
             }.toSet)
-          case _ => SType.EffectRow(None, Set.empty[EffectOp])
+          case _ => SType.EffectRow(-1, Set.empty[EffectOp])
         (Some(ret), effs)
-      case other => (other.map(typeAnnotToSType), SType.EffectRow(None, Set.empty))
+      case other => (other.map(typeAnnotToSType), SType.EffectRow(-1, Set.empty))
 
   /** v1.12.1 — Remove `effName` from a body type's effect row.
    *  Works when `bodyType` is a zero-arity thunk `() => A ! (Eff ∪ E)`,

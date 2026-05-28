@@ -28,7 +28,7 @@ case class EffectOp(name: String, args: List[SType] = Nil):
 enum SType:
   case Named(name: String, args: List[SType])
   case Var(id: Int)
-  case Function(params: List[SType], result: SType, effects: EffectRow = EffectRow(None, Set.empty[EffectOp]))
+  case Function(params: List[SType], result: SType, effects: EffectRow = EffectRow(-1, Set.empty[EffectOp]))
   case Tuple(elems: List[SType])
   case Union(types: List[SType])
   case Intersection(types: List[SType])
@@ -50,7 +50,7 @@ enum SType:
   /** An effect row `{ Eff1, Eff2[T], … }` with an optional open tail variable.
    *  Ops may be non-parameterized (`Logger`) or parameterized (`Stream[A]`, `State[S, A]`).
    *  Only appears as the `effects` field of `SType.Function`; never stands alone as a value type. */
-  case EffectRow(tail: Option[Int], ops: Set[EffectOp])
+  case EffectRow(tail: Int, ops: Set[EffectOp])
   case Error(msg: String)
 
   def show: String = this match
@@ -146,8 +146,12 @@ enum SType:
         val newArgs = SType.substList(args, m)
         if newArgs eq args then this else Named(n, newArgs)
       case Function(params, result, effs) =>
-        val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
-                                .orElse(effs.tail.filterNot(id => m.contains(id)))
+        val newTail: Int =
+          if effs.tail < 0 then -1
+          else m.get(effs.tail) match
+            case Some(SType.Var(newId)) => newId
+            case Some(_)                => -1
+            case None                   => effs.tail
         val newOps    = effs.ops.map(op => EffectOp(op.name, SType.substList(op.args, m)))
         val newParams = SType.substList(params, m)
         val newResult = result.subst(m)
@@ -178,7 +182,7 @@ enum SType:
     case Named(_, args)                => args.exists(_.containsFreeVar(id))
     case Function(params, result, effs) =>
       params.exists(_.containsFreeVar(id)) || result.containsFreeVar(id) ||
-      effs.tail.contains(id) ||
+      effs.tail == id ||
       effs.ops.exists(op => op.args.exists(_.containsFreeVar(id)))
     case Tuple(elems)                  => elems.exists(_.containsFreeVar(id))
     case Union(types)                  => types.exists(_.containsFreeVar(id))
@@ -199,7 +203,7 @@ enum SType:
     case Function(params, result, effs) =>
       params.foreach(_.collectFreeVars(into))
       result.collectFreeVars(into)
-      effs.tail.foreach(into += _)
+      if effs.tail >= 0 then into += effs.tail
       effs.ops.foreach(op => op.args.foreach(_.collectFreeVars(into)))
     case Tuple(elems)                   => elems.foreach(_.collectFreeVars(into))
     case Union(types)                   => types.foreach(_.collectFreeVars(into))
@@ -370,25 +374,27 @@ object Unifier:
           larger.find(_.name == op.name) match
             case Some(other) => unifyOp(op, other)
             case None => error = Some(s"Effect '${op.name}' not in row {${larger.map(_.show).mkString(", ")}}")
-      (e1.tail, e2.tail) match
-        case (None, None) =>
+      val t1Open = e1.tail >= 0
+      val t2Open = e2.tail >= 0
+      (t1Open, t2Open) match
+        case (false, false) =>
           val names1 = e1.ops.map(_.name)
           val names2 = e2.ops.map(_.name)
           if names1 != names2 then
             error = Some(s"Effect row mismatch: {${e1.ops.map(_.show).mkString(", ")}} ≠ {${e2.ops.map(_.show).mkString(", ")}}")
           else
             matchByName(e1.ops, e2.ops)
-        case (Some(_), None) =>
+        case (true, false) =>
           if !(e2.ops.map(_.name) subsetOf e1.ops.map(_.name)) then
             error = Some(s"Effect row mismatch: open {${e1.ops.map(_.show).mkString(", ")}} vs closed {${e2.ops.map(_.show).mkString(", ")}}")
           else
             matchByName(e2.ops, e1.ops)
-        case (None, Some(_)) =>
+        case (false, true) =>
           if !(e1.ops.map(_.name) subsetOf e2.ops.map(_.name)) then
             error = Some(s"Effect row mismatch: closed {${e1.ops.map(_.show).mkString(", ")}} vs open {${e2.ops.map(_.show).mkString(", ")}}")
           else
             matchByName(e1.ops, e2.ops)
-        case (Some(_), Some(_)) =>
+        case (true, true) =>
           ()
 
     constraints.foreach {
