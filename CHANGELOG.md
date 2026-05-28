@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Ledger WebBLE transport (Scala.js)
+
+- **wallet-vault-ledger-bluetooth-js** — `WebBleTransport` implementing `LedgerTransport` for Ledger Nano X / Stax via Web Bluetooth GATT; `BleFraming` with configurable MTU (default 23 bytes); `BrowserBluetoothDevice` live impl; `MockBluetoothDevice` for tests; 12 tests; `docs/wallet-vault-ledger.md §bluetooth-transport` created.
+
 ## 2026-05-28 — x402 Cardano Scalus thin-glue wiring
 
 - **x402-cardano-scalus-wire** — `CardanoScalusFacilitator.preprod/mainnet` factory in `x402-facilitator-cardano-scalus` wires `ScalusSettler.asConfigHook` into `CardanoFacilitatorConfig.scalusSettle`; removes the "not yet implemented" stub; 8 new tests total (5 in `CardanoScalusFacilitatorTest` + 3 in `CardanoFacilitatorTest`). Closes last open backlog checkbox in x402 Phase 6.
