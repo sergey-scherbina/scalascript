@@ -850,28 +850,16 @@ Design decisions locked:
 - Capability passing: `?=>` context functions (Scala 3 native, zero emitter work).
 - Handler discharge: `handle[Foo](body : A ! (Foo, E)) : A ! E` — only named effect removed; tail propagates.
 
-### Implementation milestones (open)
+### Implementation milestones — ✓ All landed (2026-05-26)
 
-**v1.12.1 — Type system + parser:**
-- Add `EffectRow(tail, ops)` case to `SType` (`Types.scala:22`)
-- Extend `Unifier` with Rémy-style row unification (`Types.scala:174-209`)
-- Add `!` operator to `InterfaceScope.TypeParser` in effect-set mode (`InterfaceScope.scala:107-209`)
-- Extend `Parser.preprocessEffects` for `multi effect` keyword (`Parser.scala:928-958`)
-- Special-case `handle[Foo]` in typer for discharge (`Typer.scala:195-233`)
-- `EffectAnalysis` → verifier mode (warn); diagnostics from §9 of spec
+**v1.12.1 — Type system + parser: ✓ Landed (2026-05-26)**
+- `SType.EffectRow` + Rémy-style row unification in `Unifier`; `!` operator in `TypeParser`; `multi effect` keyword in `Parser.preprocessEffects`; `handle[Foo]` discharge in typer; `EffectAnalysis` verifier with diagnostics. 14 new tests.
 
-**v1.12.2 — Runtime fast paths:**
-- JS: emit `function*`/`yield`/`iter.next(v)` for one-shot effect bodies in `JsGen.scala`
-- JVM/Interpreter: wire coroutine VT as one-shot handler runtime
-- Dynamic one-shot-violation check in `resume` closure
-- Cross-backend parity tests
+**v1.12.2 — Runtime fast paths: ✓ Landed (2026-05-26)**
+- JS: `function*`/`yield`/`iter.next(v)` for one-shot effect bodies; `_handleOneShot` preamble + `_resumed` flag. JVM/Interpreter: coroutine VT + dynamic one-shot-violation check. 3 new tests.
 
-**v1.12.3 — Stdlib + capabilities:**
-- Re-type `runLogger`, `runRandomSeeded`, etc. with discharge signatures
-- Add `Reader[R]` capability exemplar
-- Add `NonDet` multi-shot exemplar
-- `examples/algebraic-effects.ssc` showcase
-- Promote `EffectAnalysis` warnings to errors
+**v1.12.3 — Stdlib + capabilities: ✓ Landed (2026-05-26)**
+- Typed discharge signatures for `runLogger`/`runRandomSeeded`/`runClockAt`/`runEnvWith`/`runState`/`runHttp`; `Reader[R]` + `NonDet` exemplars; `examples/algebraic-effects.ssc`; `EffectAnalysis` warnings promoted to errors. 42 total tests.
 
 ## v1.51 — Streams with Backpressure
 
@@ -887,27 +875,16 @@ Design decisions locked:
 - UI signal adapter (`Source.signal`, `signal.bind`) scoped to v1.51.5.
 - Effect-row integration (`A ! Stream`) deferred to v1.51.6+.
 
-### Implementation milestones (open)
+### Implementation milestones
 
-**v1.51.1 — Plugin scaffolding + `Source` core (interpreter + JVM only):**
-- Create `runtime/std/streams-plugin/` (four-file layout mirroring `http-plugin`/`ws-plugin`)
-- Create `runtime/std/streams.ssc` with `Source[A]`, `Sink[A]`, `Flow[A, B]`, `stream { emit }` extern, `map`/`filter`/`runForeach`/`runFold`/`runToList`
-- Extend `CoroutineRuntime.scala:8` with `ArrayBlockingQueue(16)` for stream sources
-- Add `Feature.Streams` to `Feature.scala:37`; advertise in interpreter and JVM capabilities
-- `examples/streams.ssc` with six examples from spec §13
+**v1.51.1 — Plugin scaffolding + `Source` core: ✓ Landed (2026-05-28)**
+- `runtime/std/streams-plugin/` + `streams.ssc`; `scan`, `onError`, `cancellable`, `tick`, `unfold`, `fromCallback`; `Feature.Streams` in interpreter + JVM capabilities. 12 new tests, 68 total.
 
-**v1.51.2 — JS backend (`async function*` emit path):**
-- Add `_makeAsyncStream(asyncGenFn)` runtime helper to JS preamble alongside `_makeGenerator` (`JsGen.scala:6579-6602`)
-- Compile `stream { body }` → `_makeAsyncStream(async function*() { body })`; `emit(x)` → `yield x`
-- Consumer iteration → `for await (const x of asyncStream)`
-- Add `Feature.Streams` to `JsCapabilities.scala`
-- Cross-backend parity tests
+**v1.51.2 — JS backend (`async function*` emit path): ✓ Landed (2026-05-28)**
+- `_makeAsyncStream` in `JsRuntimeAsyncB` with 17 methods; `genExpr` cases for `tick`/`unfold`/`fromCallback`/`Sink.*`/`Flow.*`; `detectCapabilities` adds `Async` for stream modules. 20 `JsGenStreamsTest` code-shape tests.
 
-**v1.51.3 — Flow + Sink + combining operators:**
-- `Flow[A, B]` + `Sink[A]` types + `.to(sink)` connection
-- `zip`, `merge`, `concat`, `broadcast(n)`, `balance(n)`, `groupBy(key)`, `mergeSubstreams`
-- `broadcast(n)` → queue-per-subscriber; slowest controls demand
-- Promote "emit on cancelled stream" to configurable error
+**v1.51.3 — Flow + Sink + combining operators: ✓ Landed (2026-05-28)**
+- 10 new `Flow` companion constructors with interpreter intrinsics + JsGen codegen; full `Sink` + `Flow` companion API in `streams.ssc`. 11 new Flow tests; 564/564 total pass.
 
 **v1.51.4 — SSE/WS adapters, `mapAsync`, error recovery:** ✓ Landed (2026-05-27)
 
@@ -924,10 +901,8 @@ Design decisions locked:
   README, user guide, and spec updated.
 - Follow-up: platform-native SwiftUI stream/signal bridge.
 
-**v1.51.6 — Effect-row integration (open / deferred):**
-- `Source[A] ! Stream` via `Perform("Stream", …)` through `Computation` ADT
-- `runStream { … }` discharge runner analogous to `runLogger`
-- Re-evaluate after v1.51.5
+**v1.51.6 — Effect-row integration: 🚧 In progress (claimed 2026-05-28)**
+- `Stream.emit` / `runStream[A] { body }` in interpreter (`EffectHandlers.scala`, `StdEffectsRuntime.scala`), JS codegen (`JsGen.scala:7299`), and `streams.ssc` extern declarations. 9 tests in `StreamsPluginInterpreterTest`. CHANGELOG + claim file pending.
 
 ### Streams v1.51.5 follow-ups
 
@@ -1033,33 +1008,21 @@ Implementation phases ship independently below.
 - `runtime/std/payments-braintree/` — Braintree (GraphQL, HMAC-SHA1 webhook).
 - Spec: `docs/traditional-payments.md §11.2`.
 
-**v1.53.3 — Adyen + Checkout.com adapters:**
-- `runtime/std/payments-adyen/` — Adyen (X-API-Key, Drop-in, HMAC over notification fields, `additionalData`).
-- `runtime/std/payments-checkout/` — Checkout.com (sk_xxx, Frames, HMAC-SHA256 over raw body).
-- Spec: `docs/traditional-payments.md §11.3`.
+**v1.53.3 — Adyen + Checkout.com adapters: ✓ Landed (2026-05-27)**
+- `runtime/std/payments-adyen/` — X-API-Key, Checkout API v71, HMAC-SHA256 webhook over 8 sorted notification fields, Drop-in/Web Components nonce support.
+- `runtime/std/payments-checkout/` — Bearer sk_xxx auth, Unified Payments API v3, HMAC-SHA256 hex over raw body, `Cko-Signature`. Both adapters: all 14 SPI methods. 25 new tests.
 
-**v1.53.4 — Square adapter:**
-- `runtime/std/payments-square/` — Square (Bearer token, Web Payments SDK nonce, HMAC-SHA1 webhook).
-- Spec: `docs/traditional-payments.md §11.4`.
+**v1.53.4 — Square adapter: ✓ Landed (2026-05-27)**
+- `runtime/std/payments-square/` — Bearer access_token, Square Payments API v2, Web Payments SDK nonce (`source_id`), HMAC-SHA1 webhook. All 14 SPI methods. 14 new tests.
 
-**v1.53.5 — Vault + Mandates + SCA polish:**
-- Cross-PSP mandate model (`Mandate`, `MandateStatus`).
-- PSD2 `setup_future_usage` / mandate flags in `CreateIntentRequest`.
-- Network Token metadata exposed in `StoredMethod`.
-- SCA exemption flags in `CreateIntentRequest.scaExemptions`.
-- Spec: `docs/traditional-payments.md §10.4, §7`.
+**v1.53.5 — Vault + Mandates + SCA polish: ✓ Landed (2026-05-27)**
+- `ScaExemption` enum; `scaExemptions` + `mandateId` in `CreateIntentRequest`; `networkToken` + `mandateId` in `StoredMethod`; `createMandate`/`getMandate` on SPI; all 5 adapters updated. 87 total tests.
 
-**v1.53.6 — Effect-row decomposition + MockProvider:**
-- `Payment` split into `Charging | Refunding | Subscribing | Vaulting | Webhooking`.
-- `MockProvider` (fully in-memory, configurable success/failure, no network).
-- Spec: `docs/traditional-payments.md §16.6`.
+**v1.53.6 — Effect-row decomposition + MockProvider: ✓ Landed (2026-05-27)**
+- `PaymentEffect` enum (Charging/Refunding/Disputing/Subscribing/Vaulting/Webhooking); `MockProvider` in-memory with `MockMode`; `MockWebhookReceiver`; `recorded*` + `reset()`. 41 new tests.
 
-**v1.53.7 — Cluster-aware webhook idempotency:**
-- `RedisSeenKeyStore` (reuses `backend/redis/`).
-- `PostgresSeenKeyStore` (reuses `backend/postgres/`).
-- Distributed advisory lock for double-processing prevention.
-- Configurable replay-protection window (default 30 days).
-- Spec: `docs/traditional-payments.md §5, §16.7`.
+**v1.53.7 — Cluster-aware webhook idempotency: ✓ Landed (2026-05-27)**
+- `RedisSeenKeyStore` (Lettuce `SET NX EX`); `PostgresSeenKeyStore` (`INSERT … ON CONFLICT DO NOTHING`); both in `payments/webhook-redis/` + `payments/webhook-postgres/`. 17 tests.
 
 ## v1.55 — First-class XML / Generic Markup
 
@@ -1099,22 +1062,14 @@ XSLT deferred to v1.56.
 - 10 tests in `MarkupInterpolatorCheckTest` (valid self-closing, open/close, interpolation, nested,
   attributes, namespace, unclosed tag, mismatched tags, bad attribute, two-errors-in-one-file).
 
-**v1.55.5 — Element-literal AST (`<foo bar={expr}/>` syntax):**
-- `lang/core/.../transform/MarkupLiteralLower.scala`: opt-in via `import scalascript.markup.*`;
-  `<name attrs>{children}</name>` → `Markup.Element(...)` constructors.
-- `{expr}` in text splices `Markup.Node` children or stringifies + escapes other values.
+**v1.55.5 — Element-literal AST (`<foo bar={expr}/>` syntax): ✓ Landed (2026-05-27)**
+- `MarkupLiteralLower` AST transform in `lang/core/transform/`; opt-in via `import scalascript.markup.*`; namespaced tags, nested elements, text children, string + expression attributes. 16 tests.
 
-**v1.55.6 — XSD validation + refactor `SepaPainXml`/`Iso20022Xml` onto `xml"..."`:**
-- `JvmMarkupCodec.validate(doc, xsd)` via `javax.xml.validation`.
-- Rewrite SEPA PAIN.001/008 and FedNow pacs.008/002 templates from string concatenation to `xml"..."`.
-- Golden-file regression suite (byte-for-byte output parity, 12 PAIN.001 fixtures).
+**v1.55.6 — XSD validation + refactor `SepaPainXml`/`Iso20022Xml` onto `xml"..."`: ✓ Landed (2026-05-27)**
+- `ValidationError(message, line, column)` in `MarkupCodec`; `SepaPainXml` (PAIN.001/008 + SCT Inst pacs.008) and `Iso20022Xml` (FedNow pacs.008) refactored from string concat to `xml"..."`; `SepaPainXmlGoldenTest` (22 tests) + `Iso20022XmlGoldenTest` (11 tests); 105 total tests pass.
 
-**v1.55.7 — `.xml` ConfigParser ingest + `markup-js`/`markup-node` codecs + ServiceLoader:**
-- `backend/config/ConfigParser.scala`: `Format.Xml`, `detectFormat`.
-- `backend/config/.../XmlConfigParser.scala`: XML → `ConfigValue.Object` (Jackson-XML convention).
-- `runtime/std/markup-js/`: JS `DOMParser`/`XMLSerializer` codec.
-- `runtime/std/markup-node/`: Node `@xmldom/xmldom` codec.
-- ServiceLoader `META-INF/services/scalascript.markup.MarkupCodec` wiring.
+**v1.55.7 — `.xml` ConfigParser ingest + `markup-js`/`markup-node` codecs + ServiceLoader: ✓ Landed (2026-05-27)**
+- `ConfigParser.Format.Xml` + `detectFormat` (.xml extension); `XmlConfigParser` (element → `ConfigValue.Map`, CDATA, repeated tags → `Lst`); `runtime/std/markup-js/` (browser DOMParser/XMLSerializer Scala.js codec); `runtime/std/markup-node/` (`@xmldom/xmldom` Node.js codec); `markupCore` cross-compiled JVM+JS. 41 tests.
 
 ## v2.1 — Distributed Streams (Beam-style)
 
@@ -2142,18 +2097,18 @@ it hits a breakpoint or step stop it blocks and the REPL main thread enters a
       `:out`, `:locals`/`:l`, `:stack`/`:bt`, `:print <expr>`, `:help`
 - [x] 7 tests in `ReplDebugTest`
 
-### New tool — REPL web-aware mode
+### New tool — REPL web-aware mode ✓ Landed (v1.30)
 
-**Status: spec (v1.30). Effort: ~5 days, 8 phases.**
+**Status: complete.** All 8 phases implemented in `tools/cli/src/main/scala/scalascript/cli/Main.scala:replCommand`.
 
-- `:serve`/`:stop --keep-routes`/`:clear` — background server lifecycle
-- `:mount GET /hello { req => ... }` / `file.ssc` / `fnName` — live route registration
-- `:load`/`:reload`/`:unmount` — file-based route management
+- `:serve [port]` / `:stop [--keep-routes]` / `:clear` — background VT HTTP server lifecycle
+- `:mount METHOD /path { expr | name | file.ssc [k=v] }` — live route registration
+- `:load` / `:reload` / `:unmount METHOD /path` — file-based route management
 - `:routes` — tabular live route table
-- `:http GET /hello` — real HTTP request to localhost
-- `:call GET /hello` — in-process dispatch, no network
-- `mount()` as language intrinsic — usable in any `.ssc` program
-- Typed handlers: `CaseClass1 => CaseClass2` with auto-deser/ser, 4-level `errorDetails` config
+- `:http METHOD /path [body] [-H "K: V"]` — real HTTP request to localhost
+- `:call METHOD /path [body] [-H "K: V"]` — in-process dispatch, no server needed
+- Typed handlers: `CaseClass1 => CaseClass2` with auto-deser/ser, `errorDetails` 4-level config
+- `:set errorDetails <true|false>` — verbose deser errors toggle
 
 ---
 
@@ -2360,14 +2315,14 @@ Sorted by priority.  Run one agent per track simultaneously.
 | 5 | ~~Library modularity~~ ✓ landed (2026-05-21) — `frontendPlugin % Test` dep fix + `scalascriptCore` / `scalascriptInterpreterAgg` aggregates | D | 3 days | Interpreter split |
 | 6 | ~~`ssc debug` (DAP debugger) Phases 1–5~~ ✓ all landed (2026-05-21) — TCP skeleton, framing, breakpoints, step execution, variable inspection, stack frames; 16 integration tests | C | 2 weeks | Interpreter split |
 | 7 | ~~Numeric value specialization~~ ✓ landed (2026-05-21) — `Value.intV()` pool (−128..1024) + `Value.True`/`Value.False` pre-cached; arithmetic hot-paths in DispatchRuntime/EvalRuntime use pooled values | E | 1 week | Interpreter split |
-| 8 | WASM backend | F | 3 weeks | — | ✅ skeleton landed (backend-wasm, emit-wasm CLI command, Scala.js --js-wasm) |
+| 8 | ~~WASM backend~~ ✓ landed — `WasmGen` + `WasmBackend` SPI + `WasmCapabilities`; `ssc emit-wasm` CLI; `scala`/`scalascript`/`ssc` blocks → `scala-cli --js-emit-wasm`; v1.27 sql block support via JS shim; 31 tests | F | 3 weeks | — |
 | 9 | ~~**Package registry**~~ ✓ landed (2026-05-21) — `pkg:` URI in ImportResolver + `ssc install` shortcut; `BackendRegistry.findInstalledPkg` + `loadAndExtract`; auto-download via LocalRegistry | G | 2 weeks | — |
 | 10 | ~~Scala ↔ ScalaScript interop (Tier 1)~~ ✓ landed | H | ½ day | — |
 | 11 | ~~Scala ↔ ScalaScript interop (Tier 2)~~ ✓ landed | H | 1 week | Tier 1 ✓ |
 | 12 | ~~Scala interop (Tier 3 sbt plugin)~~ — deferred, no demand | H | 1 week | Tier 2 ✓ |
 | 13 | ~~Scala interop (Tier 4 metadata + flag)~~ ✓ landed | H | 2 days | Tier 2 ✓ |
 | 14 | ~~Scala interop Tier 5 — JvmGen package-clause emit~~ ✓ landed | H | 2-3 days | — |
-| 15 | **REPL web-aware mode** (v1.30) — `:serve`/`:stop --keep-routes`/`:clear`/`:mount`/`:load`/`:reload`/`:routes`/`:http`/`:call`; Routes → LinkedHashMap; `mount()` intrinsic; typed handlers (`Input => Output`, auto-deser/ser, `errorDetails` 4-level config); 8 phases; spec done | I | ~5 days | — |
+| 15 | ~~**REPL web-aware mode**~~ ✓ landed (v1.30) — `:serve`/`:stop --keep-routes`/`:clear`/`:mount`/`:load`/`:reload`/`:routes`/`:http`/`:call`; typed handlers (`Input => Output`, auto-deser/ser, `errorDetails` 4-level config); all 8 phases complete | I | ~5 days | — |
 
 Track D is serial.  All other tracks can run in parallel.
 

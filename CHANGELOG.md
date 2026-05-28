@@ -287,6 +287,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-21
 
+- **v1.26** — `sql` fenced code blocks (JDBC): all 7 phases complete. `Lang.Sql` + `isSql`; dedicated `ir.Content.SqlBlock` IR node with bind-list; `backend-sql-runtime` module (H2 + SQLite bundled; Postgres/MySQL via `dep:`); `SectionRuntime.runSqlBlock` + interpreter + JvmGen codegen; `given Connection` override; `${expr}` → `?` bind parameters (safe-by-default, no SQL injection possible). `ssc check` rejects sql blocks on non-JVM backends with `UnsupportedJdbcUrl` diagnostic. 7 phases, conformance suite included.
 - **v1.37** — Typer: `ssc check` 33→94 examples — typer fixes raising passing conformance suite from 33 to 94 examples.
 - **v1.36** — Parser bugfix: `preprocessInlineImports` ordering — fixed parse-order regression in inline import preprocessing.
 - **v1.35** — `run-jvm` artifact caching — incremental rebuild avoidance for JVM-target `.ssc` scripts.
@@ -300,7 +301,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ## 2026-05-20
 
+- **v1.27** — Browser-side SQL (sql.js / DuckDB-Wasm): all 7 phases complete. `backend-sql-runtime-js` module; `SqlRuntimeJsEmit` preamble + registry-init; JsGen `sql` block codegen (→ async `sqlQuery` / `sqlExecute` calls); NodeBackend + WasmBackend wiring with `package.json` dep emit (sql.js / `@duckdb/duckdb-wasm`); `UnsupportedJdbcUrl` diagnostic for `jdbc:` URLs on browser targets; examples + conformance.
 - **v1.25** — JavaScript / Node.js fenced code blocks — `js` and `node` fenced blocks executed natively in JS target; seamless JS interop from `.ssc`.
+- **Spark backend** — v1.25 § 9.5 complete end-to-end: Phase A (SPI + local session), B.1 (`--spark-master`), B.2 (`ssc submit` fat JAR via `spark-submit`), C.1-C.3 (Spark SQL + DataFrames + typed readers + schema bridge), D (`@SqlFn` UDF bridge), E (Scala 3 native `Encoder` derivation via `Mirror`, Option/nested/collection fields), F (Kafka Streams backend + Streaming DSL), G (Hive metastore + `@TempView` + `Dataset.fromTable`), MLlib M.1-M.5 (dep auto-emit, Vector encoder, Pipeline, model save/load), Lakehouse L.1-L.2 (Delta Lake auto-detect + config). L.3 (Iceberg) + L.4 (Hudi) deferred — blocked on upstream Spark 4 artifacts not yet published. 204+ `SparkGenTest` cases.
 - **Wallet SPI** — Scala.js cross-compile sprint: wallet interface + Scala.js cross-compiled runtime; browser + JVM wallet stubs.
 
 ## 2026-05-19
