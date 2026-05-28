@@ -321,7 +321,7 @@ private[interpreter] object PatternRuntime:
   def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env, interp: Interpreter): Computation =
     val env = if loopVars.isEmpty then outerEnv else outerEnv ++ loopVars
     enums match
-      case Nil => interp.eval(body, env).map(_ => Value.UnitV)
+      case Nil => interp.eval(body, env).flatMap(Computation.discardToUnit)
       case Enumerator.Generator(pat, rhs) :: rest =>
         interp.eval(rhs, env).flatMap { rhsV =>
           val items = evalCollection(rhsV, interp)

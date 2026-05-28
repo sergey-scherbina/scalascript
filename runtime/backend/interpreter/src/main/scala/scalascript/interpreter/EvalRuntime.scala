@@ -691,7 +691,7 @@ private[interpreter] object EvalRuntime:
 
     // for x <- xs do f(x)
     case t: Term.For =>
-      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp).map(_ => Value.UnitV)
+      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp).flatMap(Computation.discardToUnit)
 
     // while cond do body  — refresh env from interp.globals each iteration so mutations are visible.
     // Snapshot interp.globals at loop entry: only update a key on subsequent iterations if its

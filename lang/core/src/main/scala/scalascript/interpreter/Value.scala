@@ -330,6 +330,16 @@ object Computation:
     case Pure(v) => Pure(f(v))
     case _       => FlatMap(c, v => Pure(f(v)))
 
+  /** Cached continuation: discard result and return Unit.  Used by foreach-style callers
+   *  to avoid allocating a new `_ => PureUnit` lambda on every call. */
+  val discardToUnit: Value => Computation = _ => PureUnit
+
+  /** Run computation c and discard its result (return Unit).  Avoids one lambda allocation
+   *  vs `.map(_ => Value.UnitV)` or `.flatMap(_ => PureUnit)`. */
+  def mapUnit(c: Computation): Computation = c match
+    case Pure(_) => PureUnit
+    case _       => FlatMap(c, discardToUnit)
+
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =

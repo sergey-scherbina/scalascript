@@ -146,7 +146,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"     => args match
         case List(f) =>
-          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map(_ => Value.UnitV)
+          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -290,7 +290,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
         case List(f) =>
-          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).map(_ => Value.UnitV)
+          Computation.sequence(ls.map(item => interp.callValue(f, List(item), env))).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
@@ -439,7 +439,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           Computation.sequence(m.toList.map { (k, v) =>
             interp.callValue(f, List(Value.TupleV(List(k, v))), env)
-          }).map(_ => Value.UnitV)
+          }).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ =>
         // String-key access shorthand: map.key (no args, unknown method name = key lookup)
@@ -496,7 +496,7 @@ private[interpreter] object DispatchRuntime:
       case "foreach"   => args match
         case List(f) => opt match
           case None    => Computation.PureUnit
-          case Some(v) => interp.callValue(f, List(v), env).map(_ => Value.UnitV)
+          case Some(v) => interp.callValue(f, List(v), env).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
