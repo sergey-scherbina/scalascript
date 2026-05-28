@@ -104,6 +104,33 @@ class ActorDistributedTest extends AnyFunSuite with Matchers:
       }
     """) shouldBe "spawnRemote local"
 
+  test("cluster capability exposes seed resolver and code identity"):
+    captured("""
+      runActors {
+        startNode("cap-node")
+        setClusterAuthToken("secret")
+        val seeds = SeedResolver.staticList(List("ws://seed:9100/_ssc-actors"))
+        val cluster = clusterOf(seeds)
+        println(cluster.localNodeId)
+        println(cluster.authToken == Some("secret"))
+        println(cluster.resolveSeeds().head)
+        val id = codeIdentity()
+        println(id.algorithm)
+        println(id.digest.length)
+        assertCodeIdentity(id)
+      }
+    """) shouldBe "cap-node\ntrue\nws://seed:9100/_ssc-actors\nsha256\n64"
+
+  test("unsupported seed resolver fails clearly"):
+    val err = intercept[scalascript.interpreter.InterpretError] {
+      captured("""
+        runActors {
+          resolveSeeds(SeedResolver.k8sHeadlessService("demo"))
+        }
+      """)
+    }
+    err.getMessage should include ("k8sHeadlessService resolver is declared but not implemented")
+
   test("ValueSerializer round-trips IntV"):
     import scalascript.interpreter.{Value, ValueSerializer}
     val v = Value.IntV(42L)

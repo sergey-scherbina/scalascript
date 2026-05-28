@@ -82,6 +82,7 @@ shape `A => Source[B]`, while distributed `flatMap` has shape
 | Typed ScalaScript wrapper `ActorRef[M]` | `runtime/std/actors.ssc`, interpreter dispatch | Implemented as a typed surface over `Pid` |
 | Typed Scala wrapper `ActorRef[M]` | `lang/interop/src/main/scala/scalascript/interop/runtime/Actors.scala` | v0.1 stub |
 | `spawnRemote` / `cluster_spawn` | `runtime/std/actors.ssc`, `ActorInterp.scala` | Implemented over JSON `ssc-actors-v1`; binary wire integration remains v1.62 |
+| `ClusterCapability`, `SeedResolver.staticList`, `codeIdentity` | `runtime/std/cluster/types.ssc`, backend SPI, interpreter dispatch | Implemented; DNS/K8s/Consul descriptors exist, runtime resolution remains planned |
 | Operational routes | `/_ssc-cluster/status`, `drain`, `events`, `step-down`, `metrics-prom` | Implemented |
 
 ### Async Calls
@@ -415,6 +416,15 @@ object SeedResolver:
   def k8sHeadlessService(serviceName: String, namespace: String = "default", port: Int = 9100, scheme: String = "ws"): SeedResolver
   def consulCatalog(serviceName: String, consulAddr: String = "localhost:8500"): SeedResolver
 ```
+
+Current implementation status: `runtime/backend/spi` provides `Cluster`,
+`SeedResolver`, and `CodeIdentity` types. The ScalaScript standard surface
+exports `ClusterCapability`, `SeedResolver`, `clusterOf`, `resolveSeeds`,
+`codeIdentity`, and `assertCodeIdentity`; the interpreter supports static seed
+lists and deterministic SHA-256 identity for `.ssc` source modules and `.sscc`
+artifacts. DNS/Kubernetes/Consul resolver values are represented in the public
+API, but interpreter runtime resolution for those non-static resolvers is still
+planned and fails with an explicit diagnostic.
 
 The source-level typed declaration is primary:
 
@@ -801,9 +811,13 @@ work queue links. No runtime changes.
 
 ### v1.63.3 - Cluster Capability, Seed Discovery, and Code Identity
 
-- Add `Cluster` capability.
-- Add `SeedResolver` SPI.
-- Add code identity generation/checks for `.ssc` / `.sscc` artifacts.
+- Add `Cluster` capability. ✓ Landed 2026-05-28 as backend SPI `Cluster` and
+  ScalaScript `ClusterCapability`.
+- Add `SeedResolver` SPI. ✓ Landed 2026-05-28 with static, DNS, Kubernetes
+  headless-Service, and unsupported resolver descriptors; interpreter resolves
+  static lists and gives clear diagnostics for non-static descriptors.
+- Add code identity generation/checks for `.ssc` / `.sscc` artifacts. ✓ Landed
+  2026-05-28 for interpreter `codeIdentity()` / `assertCodeIdentity(...)`.
 - Parse `cluster:` and registry front matter.
 - Add source `cluster Demo:` lowering.
 - Add diagnostics for missing handlers/codecs/code mismatch.
@@ -866,7 +880,7 @@ work queue links. No runtime changes.
 |---|---|
 | v1.63.1 | `Source(1,2,3).distributed.map(_*2).local.runToList == List(2,4,6)` through DirectRunner; bounded variant fails on a tiny byte limit; `BasicStreamOps` compiles against both `Source` and `DStream` |
 | v1.63.2 | Local spawn still works; `spawnRemote` delivers through the local interpreter path and jar-gated two-node CLI smoke; `ref.isLocal` / `ref.address` / `ref.tryLocal` correct; JVM `setClusterAuthToken` test |
-| v1.63.3 | Mock DNS/K8s seed discovery; `cluster Demo:` lowering; `clusterOf()` fails clearly before `startNode`; code identity stable and mismatch diagnostics clear |
+| v1.63.3 | `clusterOf()` exposes local node, peers, auth token, seed resolver, and code identity; static seeds resolve; non-static seed descriptors fail clearly until resolver backends land; `assertCodeIdentity` reports expected/actual digest mismatch. Remaining: mock DNS/K8s seed discovery, `cluster Demo:` lowering, front-matter registry validation |
 | v1.63.4 | `@remote def echo` plus generated client round-trip; timeout/decode/auth errors surface as typed `RemoteCallError`; JSON fallback works without binary wire |
 | v1.63.5 | `ssc cluster run` two local processes; `handlers` lists exported operations; worker bundle contains code identity and registry metadata |
 | v1.63.6 | Remote stream subscribe/order/cancel/reconnect; SSE overflow policy; proxy actor failure translation; actor group routing |

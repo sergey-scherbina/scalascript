@@ -3105,6 +3105,28 @@ not serialize arbitrary closures.  The current implementation uses the JSON
 binary MsgPack/CBOR transport is planned in the distributed wire milestone.
 See [`examples/actors-typed-remote-spawn.ssc`](../examples/actors-typed-remote-spawn.ssc).
 
+Cluster capability snapshots expose the local node view and code identity:
+
+```scalascript
+runActors {
+  startNode("node-a")
+  val seeds = SeedResolver.staticList(List("ws://node-b:9100/_ssc-actors"))
+  val cluster = clusterOf(seeds)
+  val identity = codeIdentity()
+
+  println(cluster.localNodeId)
+  println(cluster.resolveSeeds())
+  println(identity.digest)
+  assertCodeIdentity(identity)
+}
+```
+
+`SeedResolver.staticList` works today in the interpreter. DNS-SRV, Kubernetes
+headless Service, and Consul resolver descriptors are part of the public API
+but still planned for runtime resolution; using them with `resolveSeeds` now
+fails with an explicit diagnostic instead of silently joining no peers.
+See [`examples/cluster-capability.ssc`](../examples/cluster-capability.ssc).
+
 Specs: [`docs/cluster-management.md`](cluster-management.md),
 [`docs/cluster-raft.md`](cluster-raft.md),
 [`docs/cluster-federation.md`](cluster-federation.md),

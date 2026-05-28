@@ -558,6 +558,14 @@ private[interpreter] object DispatchRuntime:
           case _                      => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
+      case "ClusterCapability" => name match
+        case "resolveSeeds" if args.isEmpty =>
+          fields.get("seedResolver") match
+            case Some(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
+              Perform("Actor", "resolveSeeds", List(seedResolver))
+            case _ => interp.located("ClusterCapability missing seedResolver")
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
       case "Signal" => name match
         case "get" | "apply" =>
           fields.get("id") match

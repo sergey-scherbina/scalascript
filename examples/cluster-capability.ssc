@@ -1,0 +1,24 @@
+---
+name: cluster-capability
+version: 0.1.0
+description: Cluster capability snapshot, static seed discovery, and code identity
+---
+
+# Cluster Capability
+
+[ClusterCapability, SeedResolver, codeIdentity, clusterOf, assertCodeIdentity](../runtime/std/cluster/index.ssc)
+
+```scala
+runActors {
+  startNode("demo-node")
+  val seeds = SeedResolver.staticList(List("ws://seed:9100/_ssc-actors"))
+  val cluster = clusterOf(seeds)
+  val identity = codeIdentity()
+
+  println(cluster.localNodeId)
+  println(cluster.resolveSeeds().head)
+  println(identity.algorithm)
+  println(identity.digest.length)
+  assertCodeIdentity(identity)
+}
+```

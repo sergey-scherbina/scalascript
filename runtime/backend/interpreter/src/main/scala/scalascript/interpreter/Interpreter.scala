@@ -138,6 +138,13 @@ class Interpreter(
   // by parametric factory registrations.
   private[interpreter] val givenCandidateCount = mutable.Map.empty[String, Int]
   private[interpreter] var mainCalled   = false
+  private[interpreter] var currentCodeIdentity: Value =
+    Value.InstanceV("CodeIdentity", Map(
+      "algorithm" -> Value.StringV("sha256"),
+      "digest"    -> Value.StringV(""),
+      "format"    -> Value.StringV("unknown"),
+      "module"    -> Value.OptionV(None)
+    ))
   // Phase 2 lazy loading: set to true after ensurePluginsLoaded() has run.
   private[interpreter] var _pluginsLoaded = false
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
@@ -545,6 +552,7 @@ class Interpreter(
    *  Extracted so [[runWithCheckpoints]] can share it without duplicating code. */
   private def runInit(module: Module): Unit =
     BuiltinsRuntime.initBuiltins(this)
+    currentCodeIdentity = computeCodeIdentity(module)
     moduleDeps = module.manifest.map(_.dependencies).getOrElse(Map.empty)
     modulePkg  = module.manifest.flatMap(_.pkg).getOrElse(Nil)
     module.manifest.foreach(m => i18nTranslations = m.translations)
@@ -648,6 +656,21 @@ class Interpreter(
     }
     multiShotEffects = scalascript.transform.EffectAnalysis.analyze(allTrees).multiShotEffects
     registerFrontmatterRoutes(module)
+
+  private def computeCodeIdentity(module: Module): Value =
+    val (format, bytes) = module.sourceText match
+      case Some(src) => ("ssc", src.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      case None      => ("sscc", scalascript.ast.SsccFormat.write(module))
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+      .digest(bytes)
+      .map(b => f"${b & 0xff}%02x")
+      .mkString
+    Value.InstanceV("CodeIdentity", Map(
+      "algorithm" -> Value.StringV("sha256"),
+      "digest"    -> Value.StringV(digest),
+      "format"    -> Value.StringV(format),
+      "module"    -> module.manifest.flatMap(_.name).map(name => Value.OptionV(Some(Value.StringV(name)))).getOrElse(Value.OptionV(None))
+    ))
 
   private def autoCallMain(): Unit =
     if !mainCalled then

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — v1.63.3 Cluster capability base
+
+- **v1.63.3-cluster-capability-seed-code-identity partial** — Added backend SPI `Cluster`, `SeedResolver`, and `CodeIdentity`; exposed ScalaScript `ClusterCapability`, `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`, and `assertCodeIdentity`; interpreter now returns cluster snapshots, resolves static seed lists, computes deterministic SHA-256 code identity, and reports explicit diagnostics for non-static seed resolvers. Remaining v1.63.3 work covers typed `cluster:` / registry front matter, `cluster Demo:` lowering, DNS/K8s resolver runtime, and handler/codec validation.
+
 ## 2026-05-28 — v1.63.2 Typed actors and remote spawn
 
 - **v1.63.2-typed-actors-remote-spawn** — Added typed ScalaScript `ActorRef[M]` / `LocalActorRef[M]` aliases over `Pid`, `ref.tell`, `ref.address`, `ref.isLocal`, `ref.tryLocal`, `ref.publishAs`, `registerBehavior`, and `spawnRemote`. Interpreter actor runtime now handles named behavior spawn via JSON `cluster_spawn` / `cluster_spawn_ack`; JVM lowering now supports bare `setClusterAuthToken(...)`; JVM codegen always emits the effect runtime needed by the inlined Logger facade. Added interpreter coverage, jar-gated two-node CLI remote-spawn smoke, docs, and `examples/actors-typed-remote-spawn.ssc`.

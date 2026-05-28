@@ -4,6 +4,13 @@ version: 0.5.0
 description: "Cluster aggregator — re-exports std/cluster/types and std/cluster/membership"
 package: std.cluster
 exports:
+  - CodeIdentity
+  - SeedResolver
+  - ClusterCapability
+  - clusterOf
+  - resolveSeeds
+  - codeIdentity
+  - assertCodeIdentity
   - NodeJoined
   - NodeLeft
   - LeaderElected
@@ -19,7 +26,7 @@ exports:
 One-stop import for cluster-shaped applications.
 
 ```scalascript
-[NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](./types.ssc)
+[CodeIdentity, SeedResolver, ClusterCapability, clusterOf, resolveSeeds, codeIdentity, assertCodeIdentity, NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](./types.ssc)
 [Cluster](./membership.ssc)
 ```
 
@@ -32,6 +39,10 @@ that land in `std.actors`.
 
 | Piece | Status |
 |---|---|
+| Cluster capability snapshot (`clusterOf`) | ✓ v1.63.3 |
+| Static seed discovery (`SeedResolver.staticList`) | ✓ v1.63.3 |
+| DNS/K8s seed discovery descriptors | Planned runtime resolver beyond static list |
+| Code identity (`codeIdentity`, `assertCodeIdentity`) | ✓ v1.63.3 |
 | Static seed-list discovery | ✓ via `Cluster.join` |
 | Membership view (current peers) | ✓ via `Cluster.members()` |
 | Membership events (joined / left) | ✓ via `Cluster.subscribeEvents()` + receive |

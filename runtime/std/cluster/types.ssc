@@ -1,9 +1,16 @@
 ---
 name: std-cluster-types
 version: 0.5.0
-description: "Cluster primitives — re-exports NodeJoined / NodeLeft + LeaderElected / LeaderLost + ConfigChanged + DrainStateChanged + MetricChanged from std.actors"
+description: "Cluster primitives — cluster capability, seed discovery, code identity, and event re-exports"
 package: std.cluster
 exports:
+  - CodeIdentity
+  - SeedResolver
+  - ClusterCapability
+  - clusterOf
+  - resolveSeeds
+  - codeIdentity
+  - assertCodeIdentity
   - NodeJoined
   - NodeLeft
   - LeaderElected
@@ -15,7 +22,7 @@ exports:
 
 # `std.cluster.types`
 
-Thin re-export layer over the `NodeJoined` / `NodeLeft` /
+Cluster-level value types plus a thin re-export layer over the `NodeJoined` / `NodeLeft` /
 `LeaderElected` / `LeaderLost` / `ConfigChanged` events that
 `std.actors` exposes for cluster visibility, leader election, and
 config distribution (v1.23).  Lives in `std.cluster` so application
@@ -27,4 +34,32 @@ intrinsics that take plain strings.
 
 ```scalascript
 [NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](../actors.ssc)
+
+case class CodeIdentity(algorithm: String, digest: String, format: String, module: Option[String] = None):
+  def sameCodeAs(other: CodeIdentity): Boolean =
+    algorithm == other.algorithm && digest == other.digest && format == other.format
+
+case class SeedResolver(kind: String, urls: List[String], serviceName: String = "", namespace: String = "default", port: Int = 9100, scheme: String = "ws")
+
+object SeedResolver:
+  def staticList(urls: List[String]): SeedResolver =
+    SeedResolver("static", urls)
+
+  def dnsSrv(serviceName: String, port: Int = 9100, scheme: String = "ws"): SeedResolver =
+    SeedResolver("dnsSrv", List(), serviceName, "default", port, scheme)
+
+  def k8sHeadlessService(serviceName: String, namespace: String = "default", port: Int = 9100, scheme: String = "ws"): SeedResolver =
+    SeedResolver("k8sHeadlessService", List(), serviceName, namespace, port, scheme)
+
+  def consulCatalog(serviceName: String, consulAddr: String = "localhost:8500"): SeedResolver =
+    SeedResolver("consulCatalog", List(consulAddr), serviceName)
+
+case class ClusterCapability(localNodeId: String, peers: List[String], authToken: Option[String], seedResolver: SeedResolver, codeIdentity: CodeIdentity):
+  def resolveSeeds(): List[String] =
+    resolveSeeds(seedResolver)
+
+extern def clusterOf(seedResolver: SeedResolver = SeedResolver.staticList(List())): ClusterCapability
+extern def resolveSeeds(seedResolver: SeedResolver): List[String]
+extern def codeIdentity(): CodeIdentity
+extern def assertCodeIdentity(expected: CodeIdentity): Unit
 ```

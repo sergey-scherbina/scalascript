@@ -40,7 +40,13 @@ network semantics or deployment constraints.
       seed discovery, and code identity: add `Cluster`, `SeedResolver`,
       `.ssc` / `.sscc` code identity, `cluster:` and registry front matter,
       `cluster Demo:` lowering, and diagnostics for missing handlers/codecs
-      and code mismatch.
+      and code mismatch. Partial landed 2026-05-28: backend SPI `Cluster`,
+      `SeedResolver`, `CodeIdentity`; ScalaScript `ClusterCapability`,
+      `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`,
+      `assertCodeIdentity`; interpreter static seed resolution and clear
+      diagnostics for non-static resolver descriptors. Remaining: typed
+      `cluster:` / registry front matter, `cluster Demo:` lowering, DNS/K8s
+      resolver runtime, and missing handler/codec validation.
 - [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
       RPC: compile `@remote` / `remote def` / manifest handlers into
       `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning

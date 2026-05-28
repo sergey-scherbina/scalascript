@@ -149,7 +149,7 @@ bin/http.ssc
 | [Graph storage](docs/graph-storage.md) | Planned, partially implemented: `graphs:` front matter parses into AST/IR; JVM codegen exposes `Graph.*` over in-memory, embedded TinkerGraph property, and RDF4J memory RDF stores plus `Sparql.select` over RDF4J; the interpreter exposes `Graph.*` over in-memory property/RDF storage. Production adapters such as Neo4j, JanusGraph/TinkerPop providers, and RDF4J-compatible servers remain planned |
 | [Typed data mapping](docs/data-mapping.md) | Planned, partially implemented: `backend/typed-data` owns the shared emitted typed JSON facade for generated route clients plus `JsonValue` / `DecodeError` / `JsonCodec[A]`, explicit object helpers, `JsonFieldSpec` rename/default/key/unknown-field helpers, `derives JsonCodec` for case classes/sealed ADTs, schema annotations for derived JVM/interpreter product codecs, `schemas:` front-matter metadata for interpreter typed SQL, initial `RowValue` / `RowFieldSpec` / `RowCodec[A]` support for simple case-class rows and explicit JVM column metadata, initial `ObjectValue` / `ObjectFieldSpec[A]` / `ObjectCodec[A]` support for portable IndexedDB/ObjectStore document shapes, `VertexValue` / `EdgeValue` / `RdfValue` plus `VertexCodec[A]` / `EdgeCodec[A]` / `RdfCodec[A]` for graph/RDF mapping, `DatasetCodec[A]` for local/MapReduce Dataset element serialization and distributed worker partition payloads, `std/mapreduce runDistributedWire` and `runDistributedShuffleWire` for direct `DatasetWirePartition` actor/shuffle payloads, `DistributedDataset.encode/decode[A]` typed boundary helpers, `DistributedDataset.run/runShuffle[A, B]` actor-effect wrappers, and `SparkSchemaCodec[A]` for Spark-like schema metadata using the same field annotations; JS/browser/Electron `IndexedDb.store[A]` typed local object storage, and JVM/JDBC `ObjectStore` storage through `ObjectCodec[A]`; `SqlRuntime.query/insert/update[A]` use `RowCodec[A]`; interpreter and JVM codegen expose `Db.query/insert/update[A]` for typed SQL reads and writes; SparkGen typed readers use `SparkSchemaCodec[A]` metadata when present and alias external column names back to Scala field names before `.as[T]`; richer cross-store convergence remains planned |
 | [Distributed binary wire protocol](docs/distributed-wire-protocol.md) | Planned: opt-in `wire:` config with JSON fallback plus MsgPack/CBOR profiles for internal ScalaScript distributed actors, Dataset/DStream, typed route clients/RPC, WebSocket subscriptions, object sync, compression, integrity, and future schema evolution |
-| [Distributed runtime](docs/distributed-runtime.md) | Planned: `local` / `remote` / `distributed` placement vocabulary, named operation registry, code identity, stream bridges, typed actor remote spawn, `! Async` remote calls, cluster runner UX, token rotation, rolling upgrades, and cluster-aware deployment |
+| [Distributed runtime](docs/distributed-runtime.md) | Planned, partially implemented: `local` / `remote` / `distributed` placement vocabulary, named operation registry, code identity, stream bridges, typed actor remote spawn, `! Async` remote calls, cluster runner UX, token rotation, rolling upgrades, and cluster-aware deployment. Implemented pieces include stream bridge basics, typed actor refs/remote spawn, `ClusterCapability`, static `SeedResolver`, and interpreter code identity checks |
 
 ## What Works
 
@@ -231,6 +231,7 @@ compiles them via Scala.js.
 | Local actors | `spawn`, `self()`, `pid ! msg`, `receive { case ... }`, `link`, `exit`, supervision |
 | Distributed actors | actor cluster over WS, bully leader election, Phi-accrual FD, gossip, membership events |
 | Typed actor refs + named remote spawn | `ActorRef[M]`, `ref.tell(msg)`, `ref.address`, `ref.isLocal`, `registerBehavior`, `spawnRemote` over the current JSON actor WS control channel |
+| Cluster capability + code identity | `clusterOf`, `SeedResolver.staticList`, `codeIdentity`, `assertCodeIdentity` for typed cluster snapshots and deterministic SHA-256 code checks |
 
 ### Web and HTTP
 
@@ -387,6 +388,7 @@ Planned, not implemented yet:
 | [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — JSON-backed and ephemeral handlers |
 | [actors-demo.ssc](examples/actors-demo.ssc) | Actors — spawn, send, receive, supervision, cluster |
 | [actors-typed-remote-spawn.ssc](examples/actors-typed-remote-spawn.ssc) | Typed `ActorRef[M]` helpers plus named `registerBehavior` / `spawnRemote` |
+| [cluster-capability.ssc](examples/cluster-capability.ssc) | `ClusterCapability`, static seed discovery, and code identity checks |
 | [ws-recv-demo.ssc](examples/ws-recv-demo.ssc) | Sync-style `ws.recv()` loop alternative to `onMessage` callbacks |
 | [mcp-demo.ssc](examples/mcp-demo.ssc) | MCP server with tools and resources; MCP client usage |
 | [dataset-stats.ssc](examples/dataset-stats.ssc) | Dataset MapReduce — `runLocal`, `runParallel`, aggregations |

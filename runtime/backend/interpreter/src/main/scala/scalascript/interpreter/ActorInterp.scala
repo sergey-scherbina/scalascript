@@ -2003,6 +2003,56 @@ private[interpreter] trait ActorInterp:
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setClusterAuthToken(token: String)")
 
+    case "clusterOf" => args match
+      case List(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
+        val peers = scala.collection.mutable.ListBuffer.empty[Value]
+        peerChannels.keySet().forEach(nid => peers += Value.StringV(nid))
+        val token =
+          if clusterAuthToken.isEmpty then Value.OptionV(None)
+          else Value.OptionV(Some(Value.StringV(clusterAuthToken)))
+        Right(k(Value.InstanceV("ClusterCapability", Map(
+          "localNodeId" -> Value.StringV(localNodeId),
+          "peers" -> Value.ListV(peers.toList),
+          "authToken" -> token,
+          "seedResolver" -> seedResolver,
+          "codeIdentity" -> currentCodeIdentity
+        ))))
+      case _ => throw InterpretError("clusterOf(seedResolver)")
+
+    case "resolveSeeds" => args match
+      case List(Value.InstanceV("SeedResolver", fields)) =>
+        val kind = fields.get("kind").collect { case Value.StringV(s) => s }.getOrElse("")
+        val urls = fields.get("urls").collect {
+          case Value.ListV(items) => items.collect { case Value.StringV(s) => s }
+        }.getOrElse(Nil)
+        kind match
+          case "static" =>
+            Right(k(Value.ListV(urls.map(Value.StringV.apply))))
+          case "dnsSrv" | "k8sHeadlessService" | "consulCatalog" =>
+            throw InterpretError(s"resolveSeeds: $kind resolver is declared but not implemented in the interpreter runtime yet")
+          case other =>
+            throw InterpretError(s"resolveSeeds: unsupported seed resolver: $other")
+      case _ => throw InterpretError("resolveSeeds(seedResolver)")
+
+    case "codeIdentity" =>
+      Right(k(currentCodeIdentity))
+
+    case "assertCodeIdentity" => args match
+      case List(Value.InstanceV("CodeIdentity", expected)) =>
+        val actual = currentCodeIdentity match
+          case Value.InstanceV("CodeIdentity", fields) => fields
+          case _ => Map.empty[String, Value]
+        def str(m: Map[String, Value], key: String): String =
+          m.get(key).collect { case Value.StringV(s) => s }.getOrElse("")
+        val same =
+          str(expected, "algorithm") == str(actual, "algorithm") &&
+          str(expected, "digest") == str(actual, "digest") &&
+          str(expected, "format") == str(actual, "format")
+        if same then Right(k(Value.UnitV))
+        else throw InterpretError(
+          s"code identity mismatch: expected ${str(expected, "format")}:${str(expected, "digest")}, actual ${str(actual, "format")}:${str(actual, "digest")}")
+      case _ => throw InterpretError("assertCodeIdentity(expected)")
+
     // v1.23 — cluster-wide atomic counters (LWW gossip; locally atomic).
     case "clusterAtomicGet" => args match
       case List(Value.StringV(name)) =>

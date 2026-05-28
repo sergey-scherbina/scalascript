@@ -213,6 +213,76 @@ private[interpreter] object ActorGlobals:
         Perform("Actor", "setClusterAuthToken", List(Value.StringV(t)))
       case _ => throw InterpretError("setClusterAuthToken(token: String): Unit")
     })
+    def seedResolver(kind: String, urls: List[Value], serviceName: String, namespace: String, port: Long, scheme: String): Value =
+      Value.InstanceV("SeedResolver", Map(
+        "kind" -> Value.StringV(kind),
+        "urls" -> Value.ListV(urls),
+        "serviceName" -> Value.StringV(serviceName),
+        "namespace" -> Value.StringV(namespace),
+        "port" -> Value.intV(port),
+        "scheme" -> Value.StringV(scheme)
+      ))
+    g("SeedResolver") = Value.InstanceV("SeedResolver$", Map(
+      "staticList" -> Value.NativeFnV("SeedResolver.staticList", {
+        case List(Value.ListV(urls)) =>
+          Computation.Pure(seedResolver("static", urls, "", "default", 9100, "ws"))
+        case _ => throw InterpretError("SeedResolver.staticList(urls: List[String])")
+      }),
+      "dnsSrv" -> Value.NativeFnV("SeedResolver.dnsSrv", {
+        case List(Value.StringV(serviceName)) =>
+          Computation.Pure(seedResolver("dnsSrv", Nil, serviceName, "default", 9100, "ws"))
+        case List(Value.StringV(serviceName), Value.IntV(port)) =>
+          Computation.Pure(seedResolver("dnsSrv", Nil, serviceName, "default", port, "ws"))
+        case List(Value.StringV(serviceName), Value.IntV(port), Value.StringV(scheme)) =>
+          Computation.Pure(seedResolver("dnsSrv", Nil, serviceName, "default", port, scheme))
+        case _ => throw InterpretError("SeedResolver.dnsSrv(serviceName, port = 9100, scheme = \"ws\")")
+      }),
+      "k8sHeadlessService" -> Value.NativeFnV("SeedResolver.k8sHeadlessService", {
+        case List(Value.StringV(serviceName)) =>
+          Computation.Pure(seedResolver("k8sHeadlessService", Nil, serviceName, "default", 9100, "ws"))
+        case List(Value.StringV(serviceName), Value.StringV(namespace)) =>
+          Computation.Pure(seedResolver("k8sHeadlessService", Nil, serviceName, namespace, 9100, "ws"))
+        case List(Value.StringV(serviceName), Value.StringV(namespace), Value.IntV(port)) =>
+          Computation.Pure(seedResolver("k8sHeadlessService", Nil, serviceName, namespace, port, "ws"))
+        case List(Value.StringV(serviceName), Value.StringV(namespace), Value.IntV(port), Value.StringV(scheme)) =>
+          Computation.Pure(seedResolver("k8sHeadlessService", Nil, serviceName, namespace, port, scheme))
+        case _ => throw InterpretError("SeedResolver.k8sHeadlessService(serviceName, namespace = \"default\", port = 9100, scheme = \"ws\")")
+      }),
+      "consulCatalog" -> Value.NativeFnV("SeedResolver.consulCatalog", {
+        case List(Value.StringV(serviceName)) =>
+          Computation.Pure(seedResolver("consulCatalog", Nil, serviceName, "default", 8500, "http"))
+        case List(Value.StringV(serviceName), Value.StringV(consulAddr)) =>
+          Computation.Pure(seedResolver("consulCatalog", List(Value.StringV(consulAddr)), serviceName, "default", 8500, "http"))
+        case _ => throw InterpretError("SeedResolver.consulCatalog(serviceName, consulAddr = \"localhost:8500\")")
+      })
+    ))
+    g("clusterOf") = Value.NativeFnV("clusterOf", {
+      case Nil => Perform("Actor", "clusterOf", List(Value.InstanceV("SeedResolver", Map(
+        "kind" -> Value.StringV("static"),
+        "urls" -> Value.ListV(Nil),
+        "serviceName" -> Value.StringV(""),
+        "namespace" -> Value.StringV("default"),
+        "port" -> Value.intV(9100),
+        "scheme" -> Value.StringV("ws")
+      ))))
+      case List(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
+        Perform("Actor", "clusterOf", List(seedResolver))
+      case _ => throw InterpretError("clusterOf(seedResolver: SeedResolver = SeedResolver.staticList(List()))")
+    })
+    g("resolveSeeds") = Value.NativeFnV("resolveSeeds", {
+      case List(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
+        Perform("Actor", "resolveSeeds", List(seedResolver))
+      case _ => throw InterpretError("resolveSeeds(seedResolver: SeedResolver): List[String]")
+    })
+    g("codeIdentity") = Value.NativeFnV("codeIdentity", {
+      case Nil => Perform("Actor", "codeIdentity", Nil)
+      case _ => throw InterpretError("codeIdentity(): CodeIdentity")
+    })
+    g("assertCodeIdentity") = Value.NativeFnV("assertCodeIdentity", {
+      case List(expected @ Value.InstanceV("CodeIdentity", _)) =>
+        Perform("Actor", "assertCodeIdentity", List(expected))
+      case _ => throw InterpretError("assertCodeIdentity(expected: CodeIdentity): Unit")
+    })
 
     // ── v1.23 — cluster-wide atomic counters ──────────────────────────────
     g("clusterAtomicGet") = Value.NativeFnV("clusterAtomicGet", {
