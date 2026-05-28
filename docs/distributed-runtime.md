@@ -12,8 +12,8 @@ The low-level wire format remains in
 [`docs/distributed-wire-protocol.md`](distributed-wire-protocol.md). This spec
 defines the user-facing and runtime architecture that uses that wire layer.
 Detailed operational design for token rotation, persistent cluster state,
-rolling upgrades, multi-region deployment, and autoscaling is tracked in
-[`docs/cluster-operations.md`](cluster-operations.md) and is summarized here.
+rolling upgrades, multi-region deployment, and autoscaling is defined in
+the Operations section of this document.
 
 ## Goals
 
@@ -544,10 +544,6 @@ Additional targets:
 
 ## Operations
 
-The operational companion spec is
-[`docs/cluster-operations.md`](cluster-operations.md). The canonical runtime
-plan incorporates its concrete protocol and deploy decisions below.
-
 ### Auth Token Rotation
 
 Current state: `setClusterAuthToken(token)` loads a static token at startup,
@@ -652,6 +648,10 @@ If a node does not become healthy within `2 * waitDrainMs`, the orchestrator
 stops, reports `CodeMismatch` / health diagnostics, and leaves rollback to
 `ssc cluster rollback`.
 
+`rollingCluster` uses `DeployGroup(mode = ExecMode.Sequence, onFailure =
+FailurePolicy.AbortRemaining)` for per-node scheduling. No new orchestration
+primitives are needed.
+
 ### Multi-AZ / Multi-Region
 
 `FaultToleranceConfig` already carries:
@@ -701,7 +701,40 @@ k8s:
         value: 1000
 ```
 
-`K8sManifestGenerator` emits an HPA manifest when `autoscale:` is present.
+`K8sManifestGenerator` emits a `HorizontalPodAutoscaler` manifest alongside
+the workload manifest when `autoscale:` is present. For cluster members the
+`scaleTargetRef` points to the `StatefulSet`; for stateless workloads it
+points to the `Deployment`.
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ${name}-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment   # or StatefulSet for cluster members
+    name: ${name}
+  minReplicas: ${autoscale.min}
+  maxReplicas: ${autoscale.max}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: ${cpu.percent}
+    # Custom metrics require KEDA or a compatible metrics adapter.
+    - type: External
+      external:
+        metric:
+          name: ${custom.metric}
+        target:
+          type: AverageValue
+          averageValue: "${custom.value}"
+```
+
 Non-Kubernetes targets ignore `autoscale:` unless they add their own scaling
 adapter. Default: no HPA emitted.
 
