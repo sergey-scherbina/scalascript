@@ -486,6 +486,12 @@ class Interpreter(
   private[interpreter] val matchCache: java.util.IdentityHashMap[scala.meta.Term.Match, PatternRuntime.CompiledMatch] =
     java.util.IdentityHashMap()
 
+  /** Cache of compiled `Term.PartialFunction` handlers, keyed by AST node identity.
+   *  Reuses CompiledMatch machinery so partial function calls also skip matchPat Option
+   *  allocations and the iterator.flatMap chain. */
+  private[interpreter] val pfCache: java.util.IdentityHashMap[scala.meta.Term.PartialFunction, PatternRuntime.CompiledMatch] =
+    java.util.IdentityHashMap()
+
   /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
    *  is identical on every invocation of the same closure, so we save
    *  one HashMap.updated allocation per call. */

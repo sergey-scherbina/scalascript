@@ -26,6 +26,11 @@ private[interpreter] object PatternRuntime:
     val handlers = t.casesBlock.cases.map(compileCase(_, interp)).toArray
     new CompiledMatch(handlers)
 
+  /** Compile a Term.PartialFunction into a cached handler array (same machinery). */
+  def compilePF(t: scala.meta.Term.PartialFunction, interp: Interpreter): CompiledMatch =
+    val handlers = t.cases.map(compileCase(_, interp)).toArray
+    new CompiledMatch(handlers)
+
   private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
     cond.forall { g =>
       Computation.run(interp.eval(g, env)) match

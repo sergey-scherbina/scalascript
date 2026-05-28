@@ -664,22 +664,18 @@ private[interpreter] object EvalRuntime:
       Pure(Value.FunV(paramNames, body, closure, paramTypes = paramTypes))
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
-    case Term.PartialFunction(cases) =>
+    // Compiled and cached per AST node so matchPat/Option allocations happen once, not per call.
+    case t: Term.PartialFunction =>
+      var compiled = interp.pfCache.get(t)
+      if compiled == null then
+        compiled = PatternRuntime.compilePF(t, interp)
+        interp.pfCache.put(t, compiled)
+      val compiledPF = compiled
       Pure(Value.NativeFnV("partial", args => {
         val arg = args match
           case List(v) => v
           case vs      => Value.TupleV(vs)
-        cases.iterator
-          .flatMap { c =>
-            PatternRuntime.matchPat(c.pat, arg, env, interp).flatMap { patEnv =>
-              val guardOk = c.cond.forall(g => Computation.run(eval(g, patEnv, interp)) match
-                case Value.BoolV(b) => b
-                case _              => false)
-              if guardOk then Some(eval(c.body, patEnv, interp)) else None
-            }
-          }
-          .nextOption()
-          .getOrElse(interp.located(s"Partial function match failure: ${Value.show(arg)}"))
+        compiledPF.run(arg, env, interp)
       }))
 
     // Match / pattern match — compiled and cached per AST identity to avoid
