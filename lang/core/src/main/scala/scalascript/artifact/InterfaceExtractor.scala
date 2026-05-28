@@ -30,6 +30,35 @@ object InterfaceExtractor:
     val md = java.security.MessageDigest.getInstance("SHA-256")
     md.digest(bytes).map("%02x".format(_)).mkString
 
+  /** Normalize CRLF (`\r\n`) and bare CR (`\r`) to LF (`\n`).
+   *
+   *  Fast path: if no `\r` byte is present (the common case on Unix and in
+   *  all string payloads constructed in-process) the input is returned as-is
+   *  with no allocation.  On Windows a `.ssc` file is typically stored with
+   *  CRLF line endings; normalizing before hashing makes the `sourceHash`
+   *  identical to the Unix equivalent so artifacts are cross-platform-portable.
+   */
+  def normalizeLineEndings(bytes: Array[Byte]): Array[Byte] =
+    if !bytes.contains('\r'.toByte) then bytes
+    else
+      val out = new java.io.ByteArrayOutputStream(bytes.length)
+      var i   = 0
+      while i < bytes.length do
+        val b = bytes(i)
+        if b != '\r'.toByte then out.write(b.toInt)
+        i += 1
+      out.toByteArray
+
+  /** SHA-256 hex digest of source file bytes with CRLF-normalization.
+   *
+   *  Use this for all `.ssc` source-file hash computations so that the same
+   *  logical source produces the same hash regardless of whether the file was
+   *  checked out with CRLF (Windows) or LF (Unix) line endings.  Use the
+   *  lower-level [[sha256]] for already-normalized in-process string payloads
+   *  (section hashes, interface-shape payloads, etc.). */
+  def sourceFileHash(bytes: Array[Byte]): String =
+    sha256(normalizeLineEndings(bytes))
+
   /** Stable identifier for a section in `sectionHashes`.  Built from the
    *  heading text + 0-based index in `module.sections` so duplicate
    *  headings (`"# Examples"` appearing twice) still get distinct keys.
@@ -188,7 +217,7 @@ object InterfaceExtractor:
     val moduleName  = module.manifest.flatMap(_.name)
     val moduleVer   = module.manifest.flatMap(_.version)
     val deps        = module.manifest.map(_.dependencies).getOrElse(Map.empty)
-    val srcHash     = sha256(sourceBytes)
+    val srcHash     = sourceFileHash(sourceBytes)
 
     // Run the typer to collect definitions with best-effort types.
     val typed = Typer.typeCheck(module)

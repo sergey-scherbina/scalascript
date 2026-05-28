@@ -156,7 +156,7 @@ object ModuleGraph:
     ArtifactIO.readInterfaceFile(scimPath) match
       case Left(_) => true
       case Right(iface) =>
-        val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
+        val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
         iface.sourceHash != currentHash
 
   /** Return the list of section IDs that are stale relative to a `.scim`
@@ -289,7 +289,7 @@ object ModuleGraph:
     JvmArtifactIO.readJvmFile(scjvmPath) match
       case Left(_) => true
       case Right(art) =>
-        val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
+        val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
         art.sourceHash != currentHash
 
   /** Check whether a `.ssc` module's JS-backend cached `.scjs` artifact is
@@ -313,7 +313,7 @@ object ModuleGraph:
     JsArtifactIO.readJsFile(scjsPath) match
       case Left(_) => true
       case Right(art) =>
-        val currentHash = InterfaceExtractor.sha256(os.read.bytes(srcPath))
+        val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
         art.sourceHash != currentHash
 
   /** Collect raw import paths from a section recursively. */
