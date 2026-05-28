@@ -69,11 +69,11 @@ private[interpreter] object BlockRuntime:
               if op.value.lengthIs > 1 && op.value.last == '=' &&
                  !Set(">=", "<=", "!=", "==").contains(op.value) =>
             val baseOp = op.value.init
-            val argComps = argClause.values.map(interp.eval(_, localView))
+            val argComps   = argClause.values.map(interp.eval(_, localView))
+            val argVsBlock = EvalRuntime.extractPureValues(argComps)
             interp.eval(lhs, localView) match
-              case Pure(lhsV) if argComps.forall(_.isInstanceOf[Pure]) =>
-                val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-                interp.infix(lhsV, baseOp, argVs, localView) match
+              case Pure(lhsV) if argVsBlock != null =>
+                interp.infix(lhsV, baseOp, argVsBlock, localView) match
                   case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
                   case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
               case lhsC =>

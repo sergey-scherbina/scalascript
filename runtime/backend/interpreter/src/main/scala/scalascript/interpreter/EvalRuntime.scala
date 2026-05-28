@@ -412,10 +412,10 @@ private[interpreter] object EvalRuntime:
             case Term.Assign(_, rhs) => eval(rhs, env, interp)
             case other               => eval(other, env, interp)
           }
+          val argVsQ = extractPureValues(argComps)
           qualC match
-            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
-              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-              DispatchRuntime.dispatch(qualV, "query", argVs, env, interp).map(projectTypedRows(typeName, _, interp))
+            case Pure(qualV) if argVsQ != null =>
+              DispatchRuntime.dispatch(qualV, "query", argVsQ, env, interp).map(projectTypedRows(typeName, _, interp))
             case _ =>
               FlatMap(qualC, qualV =>
                 interp.threadValues(argComps)(argVals =>
@@ -431,10 +431,10 @@ private[interpreter] object EvalRuntime:
             case Term.Assign(_, rhs) => eval(rhs, env, interp)
             case other               => eval(other, env, interp)
           }
+          val argVsS = extractPureValues(argComps)
           qualC match
-            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
-              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-              DispatchRuntime.dispatch(qualV, method, argVs, env, interp)
+            case Pure(qualV) if argVsS != null =>
+              DispatchRuntime.dispatch(qualV, method, argVsS, env, interp)
             case _ =>
               FlatMap(qualC, qualV =>
                 interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
@@ -450,10 +450,10 @@ private[interpreter] object EvalRuntime:
             case Term.Assign(_, rhs) => eval(rhs, env, interp)
             case other               => eval(other, env, interp)
           }
+          val argVsT = extractPureValues(argComps)
           qualC match
-            case Pure(qualV) if argComps.forall(_.isInstanceOf[Pure]) =>
-              val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-              DispatchRuntime.dispatch(qualV, method, argVs, env, interp)
+            case Pure(qualV) if argVsT != null =>
+              DispatchRuntime.dispatch(qualV, method, argVsT, env, interp)
             case _ =>
               FlatMap(qualC, qualV =>
                 interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
@@ -484,10 +484,10 @@ private[interpreter] object EvalRuntime:
                     CallRuntime.callValueNamed(fv, namedComps.map(_._1).zip(argVals), env, interp)))
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
+            val argVsPos = extractPureValues(argComps)
             funC match
-              case Pure(fv) if argComps.forall(_.isInstanceOf[Pure]) =>
-                val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-                interp.callValue(fv, argVs, env)
+              case Pure(fv) if argVsPos != null =>
+                interp.callValue(fv, argVsPos, env)
               case _ =>
                 FlatMap(funC, fv =>
                   interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
@@ -515,10 +515,10 @@ private[interpreter] object EvalRuntime:
       // Fast path: both sides already pure (the typical case for hot
       // arithmetic like `n - 1`, `acc + n`, `n < 2`). Skip the FlatMap
       // chain and call infix directly.
+      val argVsInfix = extractPureValues(argComps)
       lhsC match
-        case Pure(lhsV) if argComps.forall(_.isInstanceOf[Pure]) =>
-          val argVs = argComps.map { case Pure(v) => v; case _ => Value.UnitV }
-          interp.infix(lhsV, op.value, argVs, env)
+        case Pure(lhsV) if argVsInfix != null =>
+          interp.infix(lhsV, op.value, argVsInfix, env)
         case _ =>
           FlatMap(lhsC, lhsV =>
             interp.threadValues(argComps)(argVs => interp.infix(lhsV, op.value, argVs, env)))
@@ -857,6 +857,18 @@ private[interpreter] object EvalRuntime:
   private def evalArgs(args: List[Term], env: Env, interp: Interpreter)(k: List[Value] => Computation): Computation =
     val argComps = args.map(eval(_, env, interp))
     interp.threadValues(argComps)(k)
+
+  /** Extract values from a list of Pure computations in one pass.
+   *  Returns null if any computation is non-Pure (caller falls back to threadValues). */
+  private[interpreter] def extractPureValues(comps: List[Computation]): List[Value] | Null =
+    if comps.isEmpty then return Nil
+    val buf  = new scala.collection.mutable.ArrayBuffer[Value](comps.length)
+    var rest = comps
+    while rest.nonEmpty do
+      rest.head match
+        case Pure(v) => buf += v; rest = rest.tail
+        case _       => return null
+    buf.toList
 
   private def projectTypedRows(typeName: String, value: Value, interp: Interpreter): Value = value match
     case Value.ListV(rows) =>
