@@ -1,0 +1,3 @@
+title: v1.61.4-pattern-compile
+started: 2026-05-28
+goal: Compile Term.Match to decision-tree closure cached by AST identity. Target: >=4x on pattern-match-heavy.
