@@ -623,6 +623,18 @@ lazy val interpreterBench = project
     Jmh / scalacOptions ++= sharedScalacOptions
   )
 
+// JMH microbenchmarks for the compiler hot paths (parser + typer + unifier).
+// Run: sbt "compilerBench/Jmh/run"
+// Run with GC profiler: sbt "compilerBench/Jmh/run -prof gc -wi 3 -i 5"
+lazy val compilerBench = project
+  .in(file("lang/core-bench"))
+  .dependsOn(core)
+  .enablePlugins(JmhPlugin)
+  .settings(
+    name := "scalascript-compiler-bench",
+    Jmh / scalacOptions ++= sharedScalacOptions
+  )
+
 // Interpreter-owned HTTP/WS server runtime.  The route registries
 // (`Routes` / `WsRoutes`) remain in backend-interpreter for now because
 // plugins and cluster helpers still register handlers directly, but socket
