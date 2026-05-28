@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.63.5 cluster runner, worker bundles, handlers route
+
+- **v1.63.5-cluster-runner-worker-bundles** — `ssc cluster run` delegates to `ssc run` with `SSC_CLUSTER_ROLE`/`SSC_NODE_ID`/`SSC_BIND`/`SSC_JOIN_SEEDS`/`SSC_CLUSTER_TOKEN` env vars; `ssc cluster package` creates a zip containing the source file plus `manifest.json` with SHA-256 code identity and registry metadata (remoteHandlers, exportedBehaviors, exportedSources); `ssc cluster handlers` GETs `/_ssc-cluster/handlers` and displays the operation list; `ssc cluster stop` POSTs to drain then step-down. `GET /_ssc-cluster/handlers` is registered automatically on `startNode` in both the interpreter and JVM codegen. Also fixes a pre-existing DAP exhaustivity warning (`Value.OptionV(None)` case).
+
 ## 2026-05-29 — v1.63.4f remoteStub API type syntax
 
 - **v1.63.4f-remote-trait-stubs-wire** — `remoteStub[Api](baseUrl)` and `Remote.stub[Api](baseUrl)` now accept a forward-compatible API type argument while returning the path-based `RemoteStub` facade. This lets source code move toward the planned trait-shaped call site without requiring runtime type-argument reflection in the interpreter. Generated trait methods, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` remain tracked in `v1.63.4g`.
