@@ -128,8 +128,8 @@ private class CardanoFacilitatorImpl(
         config.scalusSettle match
           case Some(settler) => settler(payload, req)
           case None          => Future.successful(SettleResult.Fail(
-            "Scalus settlement not yet implemented — wire " +
-              "CardanoFacilitatorConfig.scalusSettle (see x402-facilitator-cardano-scalus)"
+            "No Scalus settler configured — use CardanoScalusFacilitator.preprod/mainnet(config) " +
+              "or set CardanoFacilitatorConfig.scalusSettle manually"
           ))
 
   private def checkBalance(
