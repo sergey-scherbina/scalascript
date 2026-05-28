@@ -8588,7 +8588,16 @@ def checkCommand(args: List[String]): Unit =
   if fileList.isEmpty then
     if !quietMode then System.err.println("ssc check: no .ssc files found")
     System.exit(1)
-  val results = fileList.map { f => checkOneFile(f, interfaces, pluginBuiltins) }
+  // checkOneFile is stateless (new Typer per call, immutable inputs), so safe to parallelize.
+  val results: List[CheckResult] =
+    if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins))
+    else
+      val nCores = Runtime.getRuntime.availableProcessors().max(1)
+      val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(fileList.size))
+      try
+        val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins)))
+        tasks.map(_.get())
+      finally pool.shutdown()
   if !quietMode then
     if jsonMode then
       println(checkResultsToJson(results))
