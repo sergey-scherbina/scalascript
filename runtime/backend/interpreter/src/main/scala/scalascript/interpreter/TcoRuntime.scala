@@ -64,10 +64,17 @@ private[interpreter] object TcoRuntime:
             val mutualEntries: Map[String, Value] = targets.flatMap { name =>
               (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
                 case fn: Value.FunV =>
-                  name -> (Value.NativeFnV(name, a => throw new MutualTailCall(fn, a)): Value)
+                  name -> (Value.NativeFnV(name, a => {
+                    interp.mutualTailCallSig.f    = fn
+                    interp.mutualTailCallSig.args = a
+                    throw interp.mutualTailCallSig
+                  }): Value)
               }
             }.toMap
-            val selfTco = Value.NativeFnV(curFun.name, a => throw new TailCall(a))
+            val selfTco = Value.NativeFnV(curFun.name, a => {
+              interp.tailCallSig.args = a
+              throw interp.tailCallSig
+            })
             envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
             envStableFor  = curFun
           val callEnv: Env = curFun.params match

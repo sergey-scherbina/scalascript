@@ -397,6 +397,13 @@ class Interpreter(
   private[interpreter] val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
     java.util.IdentityHashMap()
 
+  /** Reusable tail-call sentinel objects: avoids allocating a new TailCall /
+   *  MutualTailCall on every tail-recursive iteration.  The trampoline sets
+   *  the mutable `args`/`f` fields before throwing and reads them in the
+   *  catch — single-threaded interpreter guarantees no data races. */
+  private[interpreter] val tailCallSig:       TailCall       = new TailCall(Nil)
+  private[interpreter] val mutualTailCallSig: MutualTailCall = new MutualTailCall(null, Nil)
+
   /** Intern table from `Lit` AST nodes to the `Computation` they evaluate
    *  to. The parsed AST is reused across all evaluations, so for hot
    *  loop literals (`0`, `1`, `2`, …) this saves a fresh `Pure(IntV(...))`

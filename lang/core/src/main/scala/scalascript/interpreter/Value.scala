@@ -414,5 +414,5 @@ class ScriptException(val value: Value) extends RuntimeException(Value.show(valu
 class ScriptExceptionNoTrace(value: Value) extends ScriptException(value):
   override def fillInStackTrace(): Throwable = this
 private[interpreter] class ReturnSignal(val value: Value) extends Exception
-private[interpreter] class TailCall(val args: List[Value]) extends Throwable(null, null, true, false)
-private[interpreter] class MutualTailCall(val f: Value.FunV, val args: List[Value]) extends Throwable(null, null, true, false)
+private[interpreter] class TailCall(var args: List[Value]) extends Throwable(null, null, true, false)
+private[interpreter] class MutualTailCall(var f: Value.FunV, var args: List[Value]) extends Throwable(null, null, true, false)
