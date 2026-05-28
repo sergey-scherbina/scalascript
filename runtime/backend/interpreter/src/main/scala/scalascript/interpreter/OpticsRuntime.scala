@@ -82,7 +82,7 @@ private[interpreter] object OpticsRuntime:
     val modifyFn = Value.NativeFnV("Lens.modify", {
       case List(s, f) =>
         val old = lensGet(s, path)
-        interp.callValue(f, List(old), Map.empty).map(newV => lensSet(s, path, newV))
+        interp.callValue1(f, old, Map.empty).map(newV => lensSet(s, path, newV))
       case _ => throw InterpretError("Lens.modify(s, f)")
     })
     val andThenFn = Value.NativeFnV("Lens.andThen", {
@@ -136,7 +136,7 @@ private[interpreter] object OpticsRuntime:
     })
     val modifyFn = Value.NativeFnV("Prism.modify", {
       case List(s, f) => s match
-        case Value.InstanceV(t, _) if t == variantName => interp.callValue(f, List(s), Map.empty)
+        case Value.InstanceV(t, _) if t == variantName => interp.callValue1(f, s, Map.empty)
         case _                                          => Pure(s)
       case _ => throw InterpretError("Prism.modify(s, f)")
     })
@@ -263,7 +263,7 @@ private[interpreter] object OpticsRuntime:
     val modifyFn = Value.NativeFnV("Optional.modify", {
       case List(s, f) => opticGetOption(s, steps) match
         case Some(old) =>
-          interp.callValue(f, List(old), Map.empty).map(newV => opticSet(s, steps, newV))
+          interp.callValue1(f, old, Map.empty).map(newV => opticSet(s, steps, newV))
         case None => Pure(s)
       case _ => throw InterpretError("Optional.modify(s, f)")
     })
@@ -311,7 +311,7 @@ private[interpreter] object OpticsRuntime:
 
   def opticModifyAll(target: Value, steps: List[PathStep], f: Value, interp: Interpreter): Computation =
     steps match
-    case Nil => interp.callValue(f, List(target), Map.empty)
+    case Nil => interp.callValue1(f, target, Map.empty)
     case PathStep.FieldStep(n) :: rest => target match
       case Value.InstanceV(typeName, fields) =>
         fields.get(n) match

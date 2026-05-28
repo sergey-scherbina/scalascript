@@ -379,7 +379,7 @@ private[interpreter] object EffectHandlers:
           case _       => throw InterpretError("State.set(s)")
         case "modify" => args match
           case List(f) =>
-            val newState = Computation.run(interp.callValue(f, List(state), Map.empty))
+            val newState = Computation.run(interp.callValue1(f, state, Map.empty))
             state = newState; resume(Value.UnitV)
           case _ => throw InterpretError("State.modify(f: S => S)")
         case _ => throw InterpretError(s"Unknown State operation: $op")

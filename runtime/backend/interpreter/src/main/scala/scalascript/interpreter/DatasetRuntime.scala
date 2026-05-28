@@ -49,20 +49,20 @@ private[interpreter] object DatasetRuntime:
     Value.InstanceV("Dataset", Map(
       "map" -> Value.NativeFnV("Dataset.map", {
         case List(f) => Pure(makeDatasetV(() =>
-          run().map(item => Computation.run(interp.callValue(f, List(item), Map.empty)))
+          run().map(item => Computation.run(interp.callValue1(f, item, Map.empty)))
         , interp))
         case _ => throw InterpretError("Dataset.map(f: T => U): Dataset[U]")
       }),
       "filter" -> Value.NativeFnV("Dataset.filter", {
         case List(pred) => Pure(makeDatasetV(() =>
-          run().filter(item => Computation.run(interp.callValue(pred, List(item), Map.empty)) == Value.True)
+          run().filter(item => Computation.run(interp.callValue1(pred, item, Map.empty)) == Value.True)
         , interp))
         case _ => throw InterpretError("Dataset.filter(p: T => Boolean): Dataset[T]")
       }),
       "flatMap" -> Value.NativeFnV("Dataset.flatMap", {
         case List(f) => Pure(makeDatasetV(() =>
           run().flatMap { item =>
-            Computation.run(interp.callValue(f, List(item), Map.empty)) match
+            Computation.run(interp.callValue1(f, item, Map.empty)) match
               case Value.ListV(items) => items
               case _ => throw InterpretError("Dataset.flatMap: function must return List[U]")
           }

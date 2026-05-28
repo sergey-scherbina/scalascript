@@ -119,7 +119,7 @@ private[interpreter] object DispatchRuntime:
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "map"         => args match
         case List(f) =>
-          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).map {
+          Computation.sequence(s.toList.map(c => interp.callValue1(f, Value.CharV(c), env))).map {
             case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
             case _                  => Value.StringV(s)
           }
@@ -128,7 +128,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           def loop(i: Int): Computation =
             if i >= s.length then Pure(Value.StringV(s))
-            else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
               case Value.BoolV(true) => loop(i + 1)
               case _                 => Pure(Value.StringV(s.substring(0, i)))
             }
@@ -138,7 +138,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           def loop(i: Int): Computation =
             if i >= s.length then Computation.PureEmptyStr
-            else interp.callValue(f, List(Value.CharV(s.charAt(i))), env).flatMap {
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
               case Value.BoolV(true) => loop(i + 1)
               case _                 => Pure(Value.StringV(s.substring(i)))
             }
@@ -146,7 +146,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"     => args match
         case List(f) =>
-          Computation.sequence(s.toList.map(c => interp.callValue(f, List(Value.CharV(c)), env))).flatMap(Computation.discardToUnit)
+          Computation.sequence(s.toList.map(c => interp.callValue1(f, Value.CharV(c), env))).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -475,12 +475,12 @@ private[interpreter] object DispatchRuntime:
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue(f, List(v), env).flatMap(Computation.wrapSomeC)
+          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.wrapSomeC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue(f, List(v), env).map {
+          case Some(v) => interp.callValue1(f, v, env).map {
             case o: Value.OptionV => o
             case other            => Value.OptionV(Some(other))
           }
@@ -488,7 +488,7 @@ private[interpreter] object DispatchRuntime:
       case "filter"    => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue(f, List(v), env).map {
+          case Some(v) => interp.callValue1(f, v, env).map {
             case Value.BoolV(true) => Value.OptionV(Some(v))
             case _                 => Value.NoneV
           }
@@ -496,7 +496,7 @@ private[interpreter] object DispatchRuntime:
       case "foreach"   => args match
         case List(f) => opt match
           case None    => Computation.PureUnit
-          case Some(v) => interp.callValue(f, List(v), env).flatMap(Computation.discardToUnit)
+          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.discardToUnit)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -624,14 +624,14 @@ private[interpreter] object DispatchRuntime:
         case "getOrElse" => Pure(fields.getOrElse("value", Value.UnitV))
         case "map"       => args match
           case List(f) =>
-            interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env).map(v =>
+            interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env).map(v =>
               Value.InstanceV("Right", Map("value" -> v)))
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "flatMap"   => args match
-          case List(f) => interp.callValue(f, List(fields.getOrElse("value", Value.UnitV)), env)
+          case List(f) => interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env)
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "fold"      => args match
-          case List(_, r) => interp.callValue(r, List(fields.getOrElse("value", Value.UnitV)), env)
+          case List(_, r) => interp.callValue1(r, fields.getOrElse("value", Value.UnitV), env)
           case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
@@ -647,7 +647,7 @@ private[interpreter] object DispatchRuntime:
         case "map"       => Pure(recv)
         case "flatMap"   => Pure(recv)
         case "fold"      => args match
-          case List(l, _) => interp.callValue(l, List(fields.getOrElse("value", Value.UnitV)), env)
+          case List(l, _) => interp.callValue1(l, fields.getOrElse("value", Value.UnitV), env)
           case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 

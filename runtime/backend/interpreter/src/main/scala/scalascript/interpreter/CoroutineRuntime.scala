@@ -26,7 +26,7 @@ private[interpreter] object CoroutineRuntime:
         case List(f) =>
           var item = queue.take()
           while item.isDefined do
-            Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            Computation.run(interp.callValue1(f, item.get, Map.empty))
             item = queue.take()
           Value.UnitV
         case _ => throw InterpretError("Generator.foreach(f)")
@@ -43,7 +43,7 @@ private[interpreter] object CoroutineRuntime:
         case List(f) => startChained { ownQ =>
           var item = queue.take()
           while item.isDefined do
-            val mapped = Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            val mapped = Computation.run(interp.callValue1(f, item.get, Map.empty))
             ownQ.put(Some(mapped))
             item = queue.take()
         }
@@ -53,7 +53,7 @@ private[interpreter] object CoroutineRuntime:
         case List(pred) => startChained { ownQ =>
           var item = queue.take()
           while item.isDefined do
-            if Computation.run(interp.callValue(pred, List(item.get), Map.empty)) == Value.True then
+            if Computation.run(interp.callValue1(pred, item.get, Map.empty)) == Value.True then
               ownQ.put(Some(item.get))
             item = queue.take()
         }
@@ -87,7 +87,7 @@ private[interpreter] object CoroutineRuntime:
         case List(f) => startChained { ownQ =>
           var item = queue.take()
           while item.isDefined do
-            val inner = Computation.run(interp.callValue(f, List(item.get), Map.empty))
+            val inner = Computation.run(interp.callValue1(f, item.get, Map.empty))
             inner match
               case Value.InstanceV("Generator", fields) =>
                 val innerNext = fields("next")
