@@ -3156,8 +3156,11 @@ Import `std.remote` and call named operations through
 declares `path`, the interpreter also exposes a POST HTTP JSON fallback route
 using the current ScalaScript value JSON shape. A client can call that route
 explicitly with `Remote.http[A, B]("http://host:port/api/v1/users/42")`, which
-posts the same value JSON and decodes the response. `remoteSources:`,
-`remoteBehaviors:`, `remoteStub[Api]`, async effect-row lowering, and
+posts the same value JSON and decodes the response. The parser also derives
+typed route client metadata for those handlers under the generated `RemoteRpc`
+client name, so JS/JVM typed-route client generation can call `path:` remote
+handlers through the existing HTTP client path. Trait-shaped `remoteStub[Api]`,
+async effect-row lowering, `remoteSources:`, `remoteBehaviors:`, and
 WebSocket/internal-wire transports are still planned.
 
 See [`examples/remote-registry-rpc.ssc`](../examples/remote-registry-rpc.ssc).

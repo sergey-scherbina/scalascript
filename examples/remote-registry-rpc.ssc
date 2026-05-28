@@ -11,6 +11,10 @@ remoteHandlers:
 
 # Remote Registry RPC
 
+Handlers with `path:` also derive generated typed route client metadata under
+`RemoteRpc` for JS/JVM frontend codegen. The interpreter example below uses the
+in-process `Remote.function` path so it remains self-contained.
+
 [Remote, RemoteFunction, RemoteCallError](../runtime/std/remote.ssc)
 
 ```scala

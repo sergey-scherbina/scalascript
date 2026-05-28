@@ -94,7 +94,7 @@ shape `A => Source[B]`, while distributed `flatMap` has shape
 | `BackendTransport` SPI | `runtime/backend/spi/.../BackendTransport.scala` | Implemented |
 | Typed route clients | `docs/typed-route-clients.md`, `JvmGen.scala` | Partial |
 | `WireCodec[A]` | `docs/distributed-wire-protocol.md`, `WORK_QUEUE.md` v1.62.1 | Planned |
-| `@remote def` / `remoteStub[Api]` | - | Planned |
+| `@remote def` / `remoteStub[Api]` | `Parser`, `RemoteClientDeriver`, `runtime/std/remote.ssc` | Partially implemented: source `@remote` / `remote def` lower to `remoteHandlers:`, `path:` handlers derive `RemoteRpc` typed HTTP client metadata, explicit `Remote.http[A, B](url)` exists; trait-shaped `remoteStub[Api]` remains planned |
 
 ### Cluster Create / Deploy
 
@@ -235,6 +235,13 @@ trait UsersApi:
 val users: UsersApi = remoteStub[UsersApi]("https://node.example")
 val user = users.get(UserId("42"))
 ```
+
+Current implementation note: until trait-shaped `remoteStub[Api]` lands,
+`remoteHandlers:` entries that declare `path:` derive a generated typed route
+client named `RemoteRpc`. For example `users.get` at `/api/v1/users/:id`
+becomes a POST endpoint method `RemoteRpc.usersGet(...)` in JS/JVM typed-route
+client codegen. Interpreter users can call the same route explicitly with
+`Remote.http[A, B](url)`.
 
 `Future[A]` may become sugar for `() => A ! Async` or an interop wrapper, but
 new specs and APIs should use effect rows directly.
@@ -851,7 +858,10 @@ work queue links. No runtime changes.
   registry. ✓ Landed 2026-05-28 follow-up for `Remote.http[A, B](url)` /
   `remoteHttpFunction` over POST HTTP JSON fallback. The current runtime call
   is synchronous; effect-row async lowering remains planned.
-- Add `remoteStub[Api]`. Planned follow-up.
+- Add `remoteStub[Api]`. ✓ Landed 2026-05-28 partial bridge: handlers with
+  `path:` now derive `RemoteRpc` typed HTTP client metadata for existing JS/JVM
+  typed route client codegen, and explicit `Remote.http[A, B](url)` can call
+  fallback routes. Trait-shaped `remoteStub[Api]` derivation remains planned.
 - Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
   2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
   handler declares `path:` and explicit HTTP JSON client calls to those routes.

@@ -81,8 +81,16 @@ network semantics or deployment constraints.
       `RemoteCallError` results. Remaining typed stubs, async lowering,
       WebSocket/internal-wire, and binary `WireCodec[A]` split into
       `v1.63.4d`.
-- [ ] **v1.63.4d-remote-stubs-async-wire** - Typed remote RPC stubs and binary
+- [x] **v1.63.4d-remote-stubs-async-wire** - Typed remote RPC stubs and binary
       transports: add `remoteStub[Api]`, make generated calls return
+      `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
+      and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
+      Landed 2026-05-28 partial bridge: `path:` remote handlers derive
+      generated `RemoteRpc` typed HTTP client metadata that reuses the existing
+      JS/JVM typed-route client codegen. Remaining pieces split into
+      `v1.63.4e`.
+- [ ] **v1.63.4e-remote-trait-stubs-wire** - Remote RPC remaining transports:
+      add trait-shaped `remoteStub[Api]`, make generated calls expose
       `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
       and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
 - [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker

@@ -1,7 +1,7 @@
 package scalascript.parser
 
 import scalascript.ast.*
-import scalascript.transform.{RouteDeriver, MarkupLiteralLower}
+import scalascript.transform.{MarkupLiteralLower, RemoteClientDeriver, RouteDeriver}
 import org.commonmark.node.{
   Node            as CmNode,
   Document        as CmDocument,
@@ -68,7 +68,7 @@ object Parser:
     val manifest = mergeSourceRemoteHandlers(manifest0, finalSections)
     val raw      = Module(manifest, finalSections, sourceText = Some(source))
     validateRemoteRegistries(raw)
-    MarkupLiteralLower.lower(RouteDeriver.derive(raw))
+    MarkupLiteralLower.lower(RouteDeriver.derive(RemoteClientDeriver.derive(raw)))
 
   /** Wrap every scalascript-block's contents in nested `object`s matching
    *  the front-matter `package:` segments.  `package: org.example.ui`

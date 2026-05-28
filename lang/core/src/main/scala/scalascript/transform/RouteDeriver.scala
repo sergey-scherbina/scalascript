@@ -47,7 +47,18 @@ object RouteDeriver:
           if endpoints.isEmpty then module
           else
             val derived = ApiClientDecl("Api", endpoints)
-            module.copy(manifest = Some(manifest.copy(apiClients = List(derived))))
+            val clients =
+              if manifest.apiClients.exists(_.name == derived.name) then
+                manifest.apiClients.map {
+                  case c if c.name == derived.name => c.copy(endpoints = mergeEndpoints(c.endpoints, derived.endpoints))
+                  case c => c
+                }
+              else manifest.apiClients :+ derived
+            module.copy(manifest = Some(manifest.copy(apiClients = clients)))
+
+  private def mergeEndpoints(existing: List[ApiEndpointDecl], fresh: List[ApiEndpointDecl]): List[ApiEndpointDecl] =
+    val seen = existing.map(e => e.method -> e.path).toSet
+    existing ++ fresh.filterNot(e => seen.contains(e.method -> e.path))
 
   private def collectEndpoints(
     module:  Module,

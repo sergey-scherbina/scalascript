@@ -188,6 +188,10 @@ class ClusterFrontmatterTest extends AnyFunSuite:
     assert((h.name, h.function, h.path, h.requestType, h.responseType) ==
       ("users.get", "getUser", Some("/api/v1/users/:id"), Some("UserId"), Some("User")))
 
+    val remoteClient = mod.manifest.get.apiClients.find(_.name == "RemoteRpc").get
+    assert(remoteClient.endpoints.map(e => (e.name, e.method, e.path, e.requestType, e.responseType)) ==
+      List(("usersGet", "POST", "/api/v1/users/:id", "UserId", "User")))
+
   test("remote def sugar lowers into remoteHandlers metadata"):
     val mod = Parser.parse(
       """# Remote
@@ -201,3 +205,27 @@ class ClusterFrontmatterTest extends AnyFunSuite:
     val h = mod.manifest.get.remoteHandlers.head
     assert((h.name, h.function, h.requestType, h.responseType) ==
       ("echo", "echo", Some("String"), Some("String")))
+
+  test("remoteHandlers with paths derive typed RemoteRpc client metadata"):
+    val mod = Parser.parse(
+      """---
+        |remoteHandlers:
+        |  demo.echo:
+        |    function: echo
+        |    path: /rpc/echo
+        |    request: String
+        |    response: String
+        |---
+        |
+        |# Remote
+        |
+        |```scala
+        |def echo(value: String): String = value
+        |```
+        |""".stripMargin
+    )
+
+    val clients = mod.manifest.get.apiClients
+    assert(clients.map(_.name) == List("RemoteRpc"))
+    assert(clients.head.endpoints.map(e => (e.name, e.method, e.path, e.requestType, e.responseType)) ==
+      List(("demoEcho", "POST", "/rpc/echo", "String", "String")))
