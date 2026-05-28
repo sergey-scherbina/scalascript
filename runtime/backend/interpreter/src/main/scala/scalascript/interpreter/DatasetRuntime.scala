@@ -168,7 +168,7 @@ private[interpreter] object DatasetRuntime:
       "partition" -> Value.NativeFnV("Dataset.partition", {
         case List(predFn) =>
           val (yes, no) = run().partition(item =>
-            Computation.run(interp.callValue(predFn, List(item), Map.empty)) match
+            Computation.run(interp.callValue1(predFn, item, Map.empty)) match
               case Value.BoolV(b) => b
               case _              => false
           )
@@ -205,7 +205,7 @@ private[interpreter] object DatasetRuntime:
       "groupBy" -> Value.NativeFnV("Dataset.groupBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()
-          val grouped = items.groupBy(item => Computation.run(interp.callValue(keyFn, List(item), Map.empty)))
+          val grouped = items.groupBy(item => Computation.run(interp.callValue1(keyFn, item, Map.empty)))
           grouped.toList.map { case (k, vs) => Value.TupleV(List(k, Value.ListV(vs))) }
         }, interp))
         case _ => throw InterpretError("Dataset.groupBy(key: T => K): Dataset[(K, List[T])]")
@@ -214,9 +214,9 @@ private[interpreter] object DatasetRuntime:
         case List(keyFn) => Pure(Value.NativeFnV("Dataset.reduceByKey$combine", {
           case List(combineFn) => Pure(makeDatasetV(() => {
             val items = run()
-            val grouped = items.groupBy(item => Computation.run(interp.callValue(keyFn, List(item), Map.empty)))
+            val grouped = items.groupBy(item => Computation.run(interp.callValue1(keyFn, item, Map.empty)))
             grouped.toList.map { case (k, vs) =>
-              val reduced = vs.reduce((a, b) => Computation.run(interp.callValue(combineFn, List(a, b), Map.empty)))
+              val reduced = vs.reduce((a, b) => Computation.run(interp.callValue2(combineFn, a, b, Map.empty)))
               Value.TupleV(List(k, reduced))
             }
           }, interp))
@@ -227,7 +227,7 @@ private[interpreter] object DatasetRuntime:
       "sortBy" -> Value.NativeFnV("Dataset.sortBy", {
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()
-          val keyed = items.map(item => item -> Computation.run(interp.callValue(keyFn, List(item), Map.empty)))
+          val keyed = items.map(item => item -> Computation.run(interp.callValue1(keyFn, item, Map.empty)))
           keyed.sortWith { (p1, p2) =>
             compareValues(p1._2, p2._2) < 0
           }.map(_._1)
@@ -245,7 +245,7 @@ private[interpreter] object DatasetRuntime:
             throw ScriptException(Value.InstanceV("RuntimeException",
               Map("message" -> Value.StringV("Dataset.reduce: empty dataset"))))
           val result = items.tail.foldLeft(items.head) { (acc, item) =>
-            Computation.run(interp.callValue(combineFn, List(acc, item), Map.empty))
+            Computation.run(interp.callValue2(combineFn, acc, item, Map.empty))
           }
           Pure(result)
         case _ => throw InterpretError("Dataset.reduce(combine: (T, T) => T): T")
@@ -255,7 +255,7 @@ private[interpreter] object DatasetRuntime:
           case List(combineFn) =>
             val items = run()
             val result = items.foldLeft(z) { (acc, item) =>
-              Computation.run(interp.callValue(combineFn, List(acc, item), Map.empty))
+              Computation.run(interp.callValue2(combineFn, acc, item, Map.empty))
             }
             Pure(result)
           case _ => throw InterpretError("Dataset.fold$combine")
@@ -264,7 +264,7 @@ private[interpreter] object DatasetRuntime:
       }),
       "foreach" -> Value.NativeFnV("Dataset.foreach", {
         case List(action) =>
-          run().foreach(item => Computation.run(interp.callValue(action, List(item), Map.empty)))
+          run().foreach(item => Computation.run(interp.callValue1(action, item, Map.empty)))
           Computation.PureUnit
         case _ => throw InterpretError("Dataset.foreach(action: T => Unit): Unit")
       }),

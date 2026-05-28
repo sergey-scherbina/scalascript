@@ -170,14 +170,14 @@ private[interpreter] object OpticsRuntime:
     val aMod = a.fields("modify"); val bMod = b.fields("modify")
     val getFn = Value.NativeFnV("Lens.get", {
       case List(s) =>
-        interp.callValue(aGet, List(s), Map.empty).flatMap(x => interp.callValue(bGet, List(x), Map.empty))
+        interp.callValue1(aGet, s, Map.empty).flatMap(x => interp.callValue1(bGet, x, Map.empty))
       case _ => throw InterpretError("Lens.get(s)")
     })
     val setFn = Value.NativeFnV("Lens.set", {
       case List(s, v) =>
-        interp.callValue(aGet, List(s), Map.empty).flatMap { x =>
-          interp.callValue(bSet, List(x, v), Map.empty).flatMap { x2 =>
-            interp.callValue(aSet, List(s, x2), Map.empty)
+        interp.callValue1(aGet, s, Map.empty).flatMap { x =>
+          interp.callValue2(bSet, x, v, Map.empty).flatMap { x2 =>
+            interp.callValue2(aSet, s, x2, Map.empty)
           }
         }
       case _ => throw InterpretError("Lens.set(s, v)")
@@ -185,10 +185,10 @@ private[interpreter] object OpticsRuntime:
     val modifyFn = Value.NativeFnV("Lens.modify", {
       case List(s, f) =>
         val inner = Value.NativeFnV("inner", {
-          case List(x) => interp.callValue(bMod, List(x, f), Map.empty)
+          case List(x) => interp.callValue2(bMod, x, f, Map.empty)
           case _       => throw InterpretError("modify inner")
         })
-        interp.callValue(aMod, List(s, inner), Map.empty)
+        interp.callValue2(aMod, s, inner, Map.empty)
       case _ => throw InterpretError("Lens.modify(s, f)")
     })
     val andThenFn = Value.NativeFnV("Lens.andThen", {
