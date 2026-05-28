@@ -1229,6 +1229,9 @@ class Interpreter(
   private[interpreter] def callValue1(fn: Value, arg: Value, env: Env): Computation =
     CallRuntime.callValue1(fn, arg, env, this)
 
+  private[interpreter] def callValue2(fn: Value, a: Value, b: Value, env: Env): Computation =
+    CallRuntime.callValue2(fn, a, b, env, this)
+
   // ─── Call helpers — see CallRuntime.scala ────────────────────────────────
 
   private[interpreter] def callFun(f: Value.FunV, args: List[Value]): Computation =

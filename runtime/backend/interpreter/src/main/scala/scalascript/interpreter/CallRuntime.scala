@@ -44,6 +44,31 @@ private[interpreter] object CallRuntime:
     case f: Value.NativeFnV => f.f(List(arg))
     case _ => callValue(fn, List(arg), env, interp)
 
+  /** Two-argument fast path: avoids allocating List(a, b) on foldLeft/foldRight/reduceLeft calls.
+   *  For simple 2-param FunV (no varargs, no using, no defaults, no TCO) builds the call env
+   *  with FrameMap.two directly.  Falls back to callValue(fn, List(a, b), env, interp) otherwise. */
+  def callValue2(fn: Value, a: Value, b: Value, env: Env, interp: Interpreter): Computation = fn match
+    case f: Value.FunV if
+        f.params.length == 2 &&
+        f.usingParams.isEmpty &&
+        !f.returnsThrows &&
+        f.defaults.headOption.flatten.isEmpty &&
+        f.paramTypes.lift(1).forall(!_.endsWith("*")) =>
+      val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
+      val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
+      val frameName = if f.name.nonEmpty then f.name else "<anon>"
+      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
+      val result =
+        try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+      if interp.callStackNonEmpty then interp.callStackPop()
+      result
+    case f: Value.NativeFnV => f.f(List(a, b))
+    case _ => callValue(fn, List(a, b), env, interp)
+
   def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env, interp: Interpreter): Computation =
     fn match
       case f: Value.FunV =>

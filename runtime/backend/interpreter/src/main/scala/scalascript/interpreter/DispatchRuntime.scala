@@ -347,7 +347,7 @@ private[interpreter] object DispatchRuntime:
             case List(f) =>
               def loop(remaining: List[Value], acc: Value): Computation = remaining match
                 case Nil       => Pure(acc)
-                case h :: rest => interp.callValue(f, List(acc, h), env).flatMap(v => loop(rest, v))
+                case h :: rest => interp.callValue2(f, acc, h, env).flatMap(v => loop(rest, v))
               loop(ls, init)
             case _ => throw InterpretError("foldLeft expects one function argument")
           }))
@@ -358,7 +358,7 @@ private[interpreter] object DispatchRuntime:
             case List(f) =>
               def loop(remaining: List[Value], acc: Value): Computation = remaining match
                 case Nil       => Pure(acc)
-                case h :: rest => interp.callValue(f, List(h, acc), env).flatMap(v => loop(rest, v))
+                case h :: rest => interp.callValue2(f, h, acc, env).flatMap(v => loop(rest, v))
               loop(ls.reverse, init)
             case _ => throw InterpretError("foldRight expects one function argument")
           }))
@@ -369,7 +369,7 @@ private[interpreter] object DispatchRuntime:
           case h :: t =>
             def loop(remaining: List[Value], acc: Value): Computation = remaining match
               case Nil       => Pure(acc)
-              case x :: rest => interp.callValue(f, List(acc, x), env).flatMap(v => loop(rest, v))
+              case x :: rest => interp.callValue2(f, acc, x, env).flatMap(v => loop(rest, v))
             loop(t, h)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
