@@ -114,37 +114,54 @@ object JsGen:
    *  helper blocks (effects, async, mcp, dataset) are emitted. */
   sealed trait Capability
   object Capability:
-    /** Core runtime: `_show`, `_println`, HTML DSL, given registry, signals,
-     *  storage, generators, routes/serve, JSON, ALL the unconditionally-emitted
-     *  helpers from `JsRuntime`.  Always present.  Listed as a capability so
-     *  the encode/decode round-trip is total. */
-    case object Core    extends Capability
-    case object Async   extends Capability  // `JsRuntimeAsync` — Async + Actor + Storage
-    case object Effects extends Capability  // `JsRuntimeV14Effects` — Logger/Random/Clock/Env/Auth
-    case object Mcp     extends Capability  // `JsRuntimeMcp` — MCP server / client
-    case object Dataset  extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
-    case object Payment  extends Capability  // `JsRuntimePayment` — Payment Request API
+    /** Core runtime: `_show`, `_println`, `_tupleConcat`, `_dispatch`, given
+     *  registry, JSON, Free Monad, fs helpers.  Always present. */
+    case object Core      extends Capability
+    case object Async     extends Capability  // `JsRuntimeAsync` — Async + Actor + Storage
+    case object Effects   extends Capability  // `JsRuntimeV14Effects` — Logger/Random/Clock/Env/Auth
+    case object Mcp       extends Capability  // `JsRuntimeMcp` — MCP server / client
+    case object Dataset   extends Capability  // `JsRuntimeDataset` — Dataset[T] lazy pipeline
+    case object Payment   extends Capability  // `JsRuntimePayment` — Payment Request API
+    case object HtmlDsl   extends Capability  // `JsRuntimePart1b` — HTTP serve/route/sessions/metrics
+    case object Jwt       extends Capability  // `JsRuntimePart1c` — JWT/OAuth2/CSRF
+    case object WsServer  extends Capability  // `JsRuntimePart1d` — WebSocket/SSE/CORS
+    case object Optics    extends Capability  // `JsRuntimeOptics` — Lens/Optional/Traversal/Prism
+    case object Signals   extends Capability  // `JsRuntimeSignals` — reactive signals
+    case object IndexedDb extends Capability  // `JsRuntimeIndexedDb` — client-side storage
 
-    val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset, Payment)
+    val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset, Payment,
+                                   HtmlDsl, Jwt, WsServer, Optics, Signals, IndexedDb)
 
     /** Encode a capability as a stable, persistence-safe string.
      *  These strings appear in `.scjs-runtime` envelopes — do not rename. */
     def encode(c: Capability): String = c match
-      case Core    => "core"
-      case Async   => "async"
-      case Effects => "effects"
-      case Mcp     => "mcp"
-      case Dataset  => "dataset"
-      case Payment  => "payment"
+      case Core      => "core"
+      case Async     => "async"
+      case Effects   => "effects"
+      case Mcp       => "mcp"
+      case Dataset   => "dataset"
+      case Payment   => "payment"
+      case HtmlDsl   => "htmldsl"
+      case Jwt       => "jwt"
+      case WsServer  => "wsserver"
+      case Optics    => "optics"
+      case Signals   => "signals"
+      case IndexedDb => "indexeddb"
 
     def decode(s: String): Option[Capability] = s match
-      case "core"    => Some(Core)
-      case "async"   => Some(Async)
-      case "effects" => Some(Effects)
-      case "mcp"     => Some(Mcp)
-      case "dataset" => Some(Dataset)
-      case "payment" => Some(Payment)
-      case _         => None
+      case "core"      => Some(Core)
+      case "async"     => Some(Async)
+      case "effects"   => Some(Effects)
+      case "mcp"       => Some(Mcp)
+      case "dataset"   => Some(Dataset)
+      case "payment"   => Some(Payment)
+      case "htmldsl"   => Some(HtmlDsl)
+      case "jwt"       => Some(Jwt)
+      case "wsserver"  => Some(WsServer)
+      case "optics"    => Some(Optics)
+      case "signals"   => Some(Signals)
+      case "indexeddb" => Some(IndexedDb)
+      case _           => None
 
   /** Inspect `module` and return the capability set its emitted JS would
    *  depend on.  `Core` is always included.  Other capabilities are
@@ -170,10 +187,35 @@ object JsGen:
     val caps = capabilities + Capability.Core
     val sb   = new StringBuilder
     sb.append("// ── scalascript JS runtime ──────────────────────────────────────────\n")
-    // Core is always first — every other block uses `_show`, `_perform`,
-    // `_handle`, etc., from the core preamble.
-    sb.append(JsRuntime)
-    if !JsRuntime.endsWith("\n") then sb.append('\n')
+    // v1.61.6: build from individual parts so unused sections are omitted.
+    // Part1a is always included (Core).
+    sb.append(JsRuntimePart1a)
+    if !JsRuntimePart1a.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.HtmlDsl) then
+      sb.append(JsRuntimePart1b)
+      if !JsRuntimePart1b.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Jwt) then
+      sb.append(JsRuntimePart1c)
+      if !JsRuntimePart1c.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.WsServer) then
+      sb.append(JsRuntimePart1d)
+      if !JsRuntimePart1d.endsWith("\n") then sb.append('\n')
+    // Part2a and Part2b are always included (Core dispatch, _show, _tupleConcat, Free Monad, fs).
+    sb.append(JsRuntimePart2a)
+    if !JsRuntimePart2a.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Optics) then
+      sb.append(JsRuntimeOptics)
+      if !JsRuntimeOptics.endsWith("\n") then sb.append('\n')
+    sb.append(JsRuntimePart2b)
+    if !JsRuntimePart2b.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.Signals) then
+      sb.append(JsRuntimeSignals)
+      if !JsRuntimeSignals.endsWith("\n") then sb.append('\n')
+    sb.append(TypedJsonCodecRuntime.jsFacade)
+    if !TypedJsonCodecRuntime.jsFacade.endsWith("\n") then sb.append('\n')
+    if caps.contains(Capability.IndexedDb) then
+      sb.append(JsRuntimeIndexedDb)
+      if !JsRuntimeIndexedDb.endsWith("\n") then sb.append('\n')
     if caps.contains(Capability.Async) then
       sb.append(JsRuntimeAsync)
       if !JsRuntimeAsync.endsWith("\n") then sb.append('\n')
@@ -2488,7 +2530,7 @@ function wsConnect(url, extraHeaders, protocols) {
 }
 """
 
-private val JsRuntimePart2: String = """
+private val JsRuntimePart2a: String = """
 function _show(v) {
   if (v === undefined) return '()';
   if (v === null) return 'null';
@@ -2596,7 +2638,9 @@ function _copy(obj, positional, named) {
   }
   return result;
 }
+"""
 
+private val JsRuntimeOptics: String = """
 // ── Lens runtime — get/set/modify/andThen over a static field path ────
 function _lensGet(path, s) {
   let v = s;
@@ -2802,7 +2846,9 @@ function _makePrism(variant) {
   };
   return { _type: 'Prism', _variant: variant, getOption, reverseGet, set, modify, andThen };
 }
+"""
 
+private val JsRuntimePart2b: String = """
 function _tupleConcat(a, b) {
   const aArr = Array.isArray(a) ? a : [a];
   const bArr = Array.isArray(b) ? b : [b];
@@ -3570,7 +3616,9 @@ function exists(path) {
   if (!_fsMod) return false;
   return _fsMod.existsSync(path);
 }
+"""
 
+private val JsRuntimeSignals: String = """
 // ── Reactive signals (fine-grained reactivity) ────────────────────────────
 //
 // Same push model as the interpreter and JvmGen: signals are mutable
@@ -4470,8 +4518,9 @@ const Sync = {
 """
 
 val JsRuntime: String =
-  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d + JsRuntimePart2 +
-    TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
+  JsRuntimePart1a + JsRuntimePart1b + JsRuntimePart1c + JsRuntimePart1d +
+  JsRuntimePart2a + JsRuntimeOptics + JsRuntimePart2b + JsRuntimeSignals +
+  TypedJsonCodecRuntime.jsFacade + JsRuntimeIndexedDb
 
 /** Built-in `Async` effect runtime — concatenated onto `JsRuntime`.
  *  Lives in its own val because together with the rest of the runtime
@@ -8010,6 +8059,32 @@ class JsGen(
     // Payment Request — `JsRuntimePayment`.
     val hasPayment = allText.contains("PaymentRequest") || allText.contains("PaymentMethod.")
     if hasPayment then caps += Payment
+    // v1.61.6 sub-capabilities
+    // HtmlDsl — Part1b: HTTP serve/route/sessions/metrics/password/TOTP
+    val hasHtmlDsl = allText.contains("serve(") || allText.contains("route(") ||
+                     allText.contains("WsRoom(") || allText.contains(".session") ||
+                     allText.contains("metrics.") || module.manifest.exists(_.routes.nonEmpty)
+    if hasHtmlDsl then caps += HtmlDsl
+    // Jwt — Part1c: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
+    val hasJwt = allText.contains("JwtSign(") || allText.contains("JwtVerify(") ||
+                 allText.contains("OAuth2.") || allText.contains("bearerToken") ||
+                 allText.contains("csrf")
+    if hasJwt then caps += Jwt
+    // WsServer — Part1d: WebSocket connections, SSE, CORS
+    val hasWsServer = allText.contains("WsConnection(") || allText.contains("WsRoom(") ||
+                      allText.contains("sse(") || allText.contains("cors(")
+    if hasWsServer then caps += WsServer
+    // Optics — Lens/Optional/Traversal/Prism
+    val hasOptics = allText.contains("Lens(") || allText.contains("Optional(") ||
+                    allText.contains("Prism(") || allText.contains("Traversal(") ||
+                    allText.contains(".focus")
+    if hasOptics then caps += Optics
+    // Signals — reactive signals
+    val hasSignals = allText.contains("signal(") || allText.contains("computed(")
+    if hasSignals then caps += Signals
+    // IndexedDb — client-side IndexedDB storage
+    val hasIndexedDb = allText.contains("IndexedDb.")
+    if hasIndexedDb then caps += IndexedDb
     caps.toSet
 
   /** Emit `route(method, path)(handler)` registrations for every
