@@ -226,11 +226,11 @@ private[interpreter] object CallRuntime:
     case _                               => "_"
 
   def constValueOfType(tp: scala.meta.Type): Value = tp match
-    case scala.meta.Lit.Int(n)      => Value.IntV(n.toLong)
+    case scala.meta.Lit.Int(n)      => Value.intV(n.toLong)
     case scala.meta.Lit.String(s)   => Value.StringV(s)
-    case scala.meta.Lit.Boolean(b)  => Value.BoolV(b)
-    case scala.meta.Lit.Double(d)   => Value.DoubleV(d.toDouble)
-    case scala.meta.Lit.Long(l)     => Value.IntV(l)
+    case scala.meta.Lit.Boolean(b)  => Value.boolV(b)
+    case scala.meta.Lit.Double(d)   => Value.doubleV(d.toDouble)
+    case scala.meta.Lit.Long(l)     => Value.intV(l)
     case scala.meta.Type.Name(n)    => Value.StringV(n)
     case _                          => Value.StringV(tp.syntax)
 
