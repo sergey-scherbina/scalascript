@@ -762,10 +762,11 @@ private[interpreter] trait ActorInterp:
       try
         if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) starting")
         val sess = InterpreterServerSupport.current.openWsClient(
-          this, url, hdrs, List("ssc-actors-v1"), out)
+          this, url, hdrs, ActorWireProtocol.clientProtocols, out)
         sess.connect()
-        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) connected")
-        // Send our handshake frame first
+        val proto = sess.negotiatedProtocol
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) connected proto=$proto")
+        // Handshake always uses JSON text regardless of negotiated protocol.
         sess.sendText(s"""{"nodeId":${jsonStr(localNodeId)}}""")
         // Recv handshake reply: peer sends {"nodeId":"..."}
         sess.recvText() match
@@ -777,6 +778,7 @@ private[interpreter] trait ActorInterp:
             if reconnectInitialMs > 0L && !peerUrls.containsValue(url) then
               scheduleReconnect(url, token)
           case Some(firstMsg) =>
+            // Handshake reply is always JSON text (even in v2 mode).
             val peerNodeId = JsonParser.parseOption(firstMsg) match
               case Some(Value.MapV(m)) =>
                 m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
@@ -784,7 +786,13 @@ private[interpreter] trait ActorInterp:
             if clusterDebug then out.println(s"[cluster:dbg] $localNodeId -> connectPeer($url) handshake peerNodeId='$peerNodeId'")
             if peerNodeId.nonEmpty then
               peerUrls.put(peerNodeId, url)
-              peerChannels.put(peerNodeId, { text => sess.sendText(text) })
+              // v1.62.2 — format-aware send function: v2 protocols use binary WireEnvelope frames.
+              val sendFn: String => Unit =
+                if ActorWireProtocol.isV2(proto) then
+                  json => sess.sendBinary(ActorWireProtocol.encodeV2(proto, json))
+                else
+                  json => sess.sendText(json)
+              peerChannels.put(peerNodeId, sendFn)
               peerLastPong.put(peerNodeId, System.currentTimeMillis())
               enqueueClusterEvent("NodeJoined", peerNodeId)
               // If joinCluster is active, request this peer's peer list.
@@ -792,10 +800,10 @@ private[interpreter] trait ActorInterp:
                 try peerChannels.get(peerNodeId)(s"""{"t":"peers_req","from":${jsonStr(localNodeId)}}""")
                 catch case _ => ()
               // v1.23 — snapshot the cluster config + drain state + metrics to the new peer.
-              sendConfigSnapshot(text => sess.sendText(text))
-              sendDrainState(text => sess.sendText(text))
-              sendMetricSnapshot(text => sess.sendText(text))
-              sendAtomicSnapshot(text => sess.sendText(text))
+              sendConfigSnapshot(sendFn)
+              sendDrainState(sendFn)
+              sendMetricSnapshot(sendFn)
+              sendAtomicSnapshot(sendFn)
               // Heartbeat: ping every `peerHeartbeatIntervalMs`, abort
               // if no pong for `peerHeartbeatDeadAfterMs`.  Defaults
               // 30 s / 40 s; tune via `setHeartbeatTimeout(...)`.
@@ -820,10 +828,16 @@ private[interpreter] trait ActorInterp:
                         try peerChannels.get(peerNodeId)("""{"t":"ping"}""") catch case _ => ()
                 catch case _: InterruptedException => ()
               }
-              // Recv loop — on virtual thread, blocking is fine
+              // Recv loop — on virtual thread, blocking is fine.
+              // v1.62.2: for v2 protocols, frames arrive as ISO-8859-1-encoded bytes.
+              def recvMsg(): Option[String] =
+                sess.recvText().flatMap { raw =>
+                  if ActorWireProtocol.isV2(proto) then ActorWireProtocol.decodeV2(proto, raw)
+                  else Some(raw)
+                }
               var running = true
               while running do
-                sess.recvText() match
+                recvMsg() match
                   case None      => running = false
                   case Some(msg) => dispatchPeerEnvelope(peerNodeId, msg)
               hbThread.interrupt()
@@ -1677,14 +1691,33 @@ private[interpreter] trait ActorInterp:
         val wsFields = ws match
           case Value.InstanceV(_, flds) => flds
           case _ => Map.empty[String, Value]
+        // v1.62.2 — resolve the negotiated subprotocol from the ws InstanceV fields.
+        val negotiatedProto = wsFields.get("subprotocol").collect {
+          case Value.StringV(s) if s.nonEmpty => s
+        }.getOrElse(ActorWireProtocol.V1)
         def wsRecv(): Option[String] = wsFields.get("recv").flatMap { f =>
           invoke(f, Nil) match
             case Value.OptionV(Some(Value.StringV(s))) => Some(s)
             case _ => None
         }
-        def wsSend(text: String): Unit = wsFields.get("send").foreach { f =>
+        def wsSendText(text: String): Unit = wsFields.get("send").foreach { f =>
           invoke(f, List(Value.StringV(text)))
         }
+        // v1.62.2 — binary send for v2 protocols: sendBytes takes an ISO-8859-1 string.
+        def wsSendBinary(bytes: Array[Byte]): Unit = wsFields.get("sendBytes").foreach { f =>
+          invoke(f, List(Value.StringV(new String(bytes, "ISO-8859-1"))))
+        }
+        val sendFn: String => Unit =
+          if ActorWireProtocol.isV2(negotiatedProto) then
+            json => wsSendBinary(ActorWireProtocol.encodeV2(negotiatedProto, json))
+          else
+            json => wsSendText(json)
+        // v1.62.2 — format-aware recv: binary frames arrive as ISO-8859-1 strings.
+        def recvMsg(): Option[String] =
+          wsRecv().flatMap { raw =>
+            if ActorWireProtocol.isV2(negotiatedProto) then ActorWireProtocol.decodeV2(negotiatedProto, raw)
+            else Some(raw)
+          }
         // v1.23 — WsProxy dispatches every upgraded WS handler onto a
         // single-thread `wsExecutor`.  If we ran the blocking handshake
         // + recv loop directly here, the FIRST inbound peer monopolises
@@ -1693,7 +1726,7 @@ private[interpreter] trait ActorInterp:
         // cluster.  Spawn a virtual thread so the executor returns
         // immediately and remains free to process the next upgrade.
         Thread.ofVirtual().start { () =>
-        // Receive handshake from peer: {"nodeId":"..."}
+        // Receive handshake from peer: {"nodeId":"..."} — always JSON text.
         val firstMsgOpt = wsRecv()
         if clusterDebug then out.println(s"[cluster:dbg] $localNodeId <- inbound handshake recv=${firstMsgOpt.map(s => if s.length > 80 then s.take(80) + "…" else s).getOrElse("<none>")}")
         val peerNodeId = firstMsgOpt.flatMap { first =>
@@ -1702,16 +1735,17 @@ private[interpreter] trait ActorInterp:
               m.get(Value.StringV("nodeId")).collect { case Value.StringV(n) => n }.getOrElse("")
           }.filter(_.nonEmpty)
         }
-        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId <- inbound peerNodeId=${peerNodeId.getOrElse("<none>")}")
+        if clusterDebug then out.println(s"[cluster:dbg] $localNodeId <- inbound peerNodeId=${peerNodeId.getOrElse("<none>")} proto=$negotiatedProto")
         peerNodeId.foreach { pnId =>
-          wsSend(s"""{"nodeId":${jsonStr(localNodeId)}}""")
-          peerChannels.put(pnId, wsSend)
+          // Handshake reply always uses JSON text.
+          wsSendText(s"""{"nodeId":${jsonStr(localNodeId)}}""")
+          peerChannels.put(pnId, sendFn)
           peerLastPong.put(pnId, System.currentTimeMillis())
           enqueueClusterEvent("NodeJoined", pnId)
-          sendConfigSnapshot(wsSend)
-          sendDrainState(wsSend)
-          sendMetricSnapshot(wsSend)
-          sendAtomicSnapshot(wsSend)
+          sendConfigSnapshot(sendFn)
+          sendDrainState(sendFn)
+          sendMetricSnapshot(sendFn)
+          sendAtomicSnapshot(sendFn)
           // Heartbeat: same configurable cadence as the outbound side
           // (`setHeartbeatTimeout`).  Defaults 30 s / 40 s.
           val hbThread = Thread.ofVirtual().start { () =>
@@ -1733,7 +1767,7 @@ private[interpreter] trait ActorInterp:
           }
           var running = true
           while running do
-            wsRecv() match
+            recvMsg() match
               case None      => running = false
               case Some(msg) => dispatchPeerEnvelope(pnId, msg)
           hbThread.interrupt()
@@ -1746,7 +1780,7 @@ private[interpreter] trait ActorInterp:
         path      = "/_ssc-actors",
         handler   = peersRoute,
         interp    = this,
-        protocols = List("ssc-actors-v1")
+        protocols = ActorWireProtocol.serverProtocols
       )
       // v1.23 — operational status endpoint.  Returns a JSON snapshot
       // of cluster state (this node's view of leader, members, drain,

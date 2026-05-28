@@ -43,8 +43,12 @@ final class WsClientSession(
    *  scheduler. */
   def sendText(text: String): Unit = client.send(text)
 
+  /** Send raw bytes as a binary WebSocket frame. */
+  def sendBinary(bytes: Array[Byte]): Unit = client.sendBinary(bytes)
+
   /** Blocking receive — returns None on close.  Safe to call on virtual
-   *  threads; blocks the carrier only while the OS is waiting for data. */
+   *  threads; blocks the carrier only while the OS is waiting for data.
+   *  Binary frames arrive as ISO-8859-1-encoded strings. */
   def recvText(): Option[String] = client.recv()
 
   /** Hard-close the underlying WebSocket (e.g. heartbeat timeout). */

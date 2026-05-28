@@ -38,7 +38,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.1-wire-core** — Shared wire runtime: add `WireValue`, `WireEnvelope`, `WireCodec[A]`, decode errors, resource limits, negotiation/config types, front-matter/CLI parsing for `wire:`, JSON/MsgPack/CBOR codec profiles on JVM/interpreter and JS/browser, and golden cross-format vectors. Spec: `docs/distributed-wire-protocol.md §Phase 1`. ✓ Landed 2026-05-28.
 
-- [ ] **v1.62.2-actors-binary-ws** — Actor cluster binary WebSocket: `ssc-actors-v2.<format>` subprotocols, binary WS frames for actor user messages and cluster control envelopes (registry, heartbeat, gossip, leader election, pub/sub, config, drain, metrics, phi vectors), preserving JSON `ssc-actors-v1` fallback. Spec: `docs/distributed-wire-protocol.md §Phase 2`.
+- [x] **v1.62.2-actors-binary-ws** — Actor cluster binary WebSocket: `ssc-actors-v2.<format>` subprotocols, binary WS frames for actor user messages and cluster control envelopes (registry, heartbeat, gossip, leader election, pub/sub, config, drain, metrics, phi vectors), preserving JSON `ssc-actors-v1` fallback. Spec: `docs/distributed-wire-protocol.md §Phase 2`. ✓ Landed 2026-05-28.
 
 - [ ] **v1.62.3-typed-rpc-binary** — Typed route clients/RPC binary negotiation: generated HTTP `Accept`/`Content-Type` for MsgPack/CBOR wire payloads, JSON fallback, 406/415 errors, binary WS subscription frames, and SSE text/base64 fallback. Spec: `docs/distributed-wire-protocol.md §Phase 3`.
 

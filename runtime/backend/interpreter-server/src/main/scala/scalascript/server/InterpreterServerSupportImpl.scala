@@ -59,7 +59,9 @@ final class InterpreterServerSupportImpl extends InterpreterServerSupport:
 private final class WsClientSessionAdapter(delegate: WsClientSession) extends InterpreterWsClientSession:
   def connect(): Unit = delegate.connect()
   def sendText(text: String): Unit = delegate.sendText(text)
+  override def sendBinary(bytes: Array[Byte]): Unit = delegate.sendBinary(bytes)
   def recvText(): Option[String] = delegate.recvText()
+  override def negotiatedProtocol: String = delegate.subprotocol
   def abort(): Unit = delegate.abort()
   def wsObj: Value = delegate.wsObj
   def awaitClose(): Unit = delegate.awaitClose()

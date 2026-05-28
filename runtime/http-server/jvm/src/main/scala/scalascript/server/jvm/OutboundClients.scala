@@ -207,6 +207,13 @@ class WsClient(
         ws.sendBinary(ByteBuffer.wrap(s.getBytes("ISO-8859-1")), true)
       case _ => ()
 
+  def sendBinary(bytes: Array[Byte]): Unit =
+    if !closingSent then _ws match
+      case ws if ws != null =>
+        Metrics.wsMessagesOut.incrementAndGet()
+        ws.sendBinary(ByteBuffer.wrap(bytes), true)
+      case _ => ()
+
   def close(code: Int = 1000, reason: String = ""): Unit =
     if !closingSent then
       closingSent = true

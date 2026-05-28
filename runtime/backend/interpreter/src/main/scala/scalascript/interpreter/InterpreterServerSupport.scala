@@ -50,7 +50,9 @@ trait InterpreterServerSupport:
 trait InterpreterWsClientSession:
   def connect(): Unit
   def sendText(text: String): Unit
+  def sendBinary(bytes: Array[Byte]): Unit = ()
   def recvText(): Option[String]
+  def negotiatedProtocol: String = ""
   def abort(): Unit
   def wsObj: Value
   def awaitClose(): Unit
