@@ -344,6 +344,20 @@ private[interpreter] object PatternRuntime:
     val env = if loopVars.isEmpty then outerEnv else outerEnv ++ loopVars
     enums match
       case Nil => interp.eval(body, env).flatMap(Computation.discardToUnit)
+      // Fast path: `for x <- items do body` (single Pat.Var generator, no guards).
+      // Avoids matchPat Option/Some, patVarNames Set, and loopVars Map per iteration.
+      case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
+        val varName = vn.value
+        interp.eval(rhs, env).flatMap { rhsV =>
+          val items = evalCollection(rhsV, interp)
+          def forDoLoop(remaining: List[Value]): Computation = remaining match
+            case Nil => Computation.PureUnit
+            case item :: tail =>
+              interp.eval(body, FrameMap.one(varName, item, env))
+                .flatMap(Computation.discardToUnit)
+                .flatMap(_ => forDoLoop(tail))
+          forDoLoop(items)
+        }
       case Enumerator.Generator(pat, rhs) :: rest =>
         interp.eval(rhs, env).flatMap { rhsV =>
           val items = evalCollection(rhsV, interp)
