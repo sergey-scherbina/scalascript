@@ -232,6 +232,7 @@ final class DapSession(conn: Socket):
       case IValue.OptionV(None)      => ("None", "Option")
       case IValue.OptionV(Some(i))   => (s"Some(${IValue.show(i)})", "Option")
       case IValue.DocV(_)            => ("<doc>", "Doc")
+      case IValue.MarkupV(_)         => ("<markup>", "Markup")
       case IValue.Foreign(t, _)      => (s"<foreign:$t>", t)
     Obj(
       "name"               -> Str(name),

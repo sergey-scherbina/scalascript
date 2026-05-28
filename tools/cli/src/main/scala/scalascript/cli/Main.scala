@@ -187,7 +187,8 @@ case class GlobalFlags(
     backend:             Option[String] = None,
     listBackends:        Boolean        = false,
     listSourceLanguages: Boolean        = false,
-    describeBackend:     Option[String] = None
+    describeBackend:     Option[String] = None,
+    yStats:              Boolean        = false,
 ):
   def applyToRegistry(): Unit =
     pluginJars.foreach(BackendRegistry.addPluginJar)
@@ -218,6 +219,8 @@ object GlobalFlags:
           flags = flags.copy(listSourceLanguages = true); i += 1
         case "--describe-backend" if i + 1 < arr.length =>
           flags = flags.copy(describeBackend = Some(arr(i + 1))); i += 2
+        case "--Ystats" =>
+          flags = flags.copy(yStats = true); i += 1
         case other =>
           rest += other; i += 1
     // Stash for handlers that consult the flag (via ActiveFlags).
@@ -647,6 +650,9 @@ def printUsage(): Unit =
     |  --force, -f            Overwrite existing output
     |  (any other scala-cli package flag is forwarded as-is)
     |
+    |Compiler diagnostic flags:
+    |  --Ystats               Print per-phase compiler timing table after each build
+    |
     |Logging flags:
     |  --quiet                                  Silence third-party library logs (sets SLF4J threshold to error)
     |  --logs.defaultLevel=<level>              ssc logger root level (warn|info|debug|error; default: warn)
@@ -868,8 +874,10 @@ def incrementalBuildCommand(args: List[String]): Unit =
 
   os.makeDir.all(artDir)
 
+  if ActiveFlags.current.yStats then CompileStats.enable()
+
   // Build dependency graph.
-  val graph = ModuleGraph.build(srcDir)
+  val graph = CompileStats.time("discover") { ModuleGraph.build(srcDir) }
 
   if graph.cycles.nonEmpty then
     System.err.println("build --incremental: circular dependencies detected:")
@@ -957,15 +965,15 @@ def incrementalBuildCommand(args: List[String]): Unit =
         try scala.util.Try {
           val sourceBytes = os.read.bytes(node.path)
           val src         = new String(sourceBytes, "UTF-8")
-          val module      = Parser.parse(src)
+          val module      = CompileStats.time("parse") { Parser.parse(src) }
           // Structured parse-error diagnostic: bail BEFORE Normalize / Typer
           // emit their own opaque secondary messages.  Returning a recognisable
           // exception keeps the `[compile] ... FAIL` line + the structured
           // diagnostic that `reportCodeBlockParseErrors` already wrote.
           if reportCodeBlockParseErrors(module, relPath) then
             throw new RuntimeException("parse error (see diagnostic above)")
-          val ir          = Normalize(module)
-          val iface       = InterfaceExtractor.extract(module, sourceBytes)
+          val ir          = CompileStats.time("normalize")  { Normalize(module) }
+          val iface       = CompileStats.time("interface")  { InterfaceExtractor.extract(module, sourceBytes) }
           val sourceHash  = iface.sourceHash
           // When --section-cache is on, propagate the section-hash map
           // into every artifact (.scim already carries it from the extract
@@ -987,8 +995,8 @@ def incrementalBuildCommand(args: List[String]): Unit =
             val ifaceToWrite =
               if sectionCache then iface
               else iface.copy(sectionHashes = Map.empty)
-            ArtifactIO.writeInterfaceFile(ifaceToWrite, scimPath)
-            ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath, sectionHashes)
+            CompileStats.time("write-scim") { ArtifactIO.writeInterfaceFile(ifaceToWrite, scimPath) }
+            CompileStats.time("write-scir") { ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath, sectionHashes) }
 
           if emitJvm then
             val scjvmPath = artDir / (baseName + ".scjvm")
@@ -998,7 +1006,7 @@ def incrementalBuildCommand(args: List[String]): Unit =
             // expensive codegen.
             if jvmStale || !os.exists(scjvmPath) then
               val baseDir     = Some(node.path / os.up)
-              val scalaSource = JvmGen.generate(module, baseDir)
+              val scalaSource = CompileStats.time("jvm-codegen") { JvmGen.generate(module, baseDir) }
               val rawImports  = collectImports(module.sections)
               val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
               val imports     = (rawImports ++ depAliases).distinct.toList
@@ -1016,7 +1024,7 @@ def incrementalBuildCommand(args: List[String]): Unit =
               val baseDir    = Some(node.path / os.up)
               // v2.0 Phase 2: user-code-only emit; shared runtime ships
               // separately as `_runtime.scjs-runtime` in the artifact dir.
-              val jsSource   = JsGen.generateUserOnly(module, baseDir)
+              val jsSource   = CompileStats.time("js-codegen") { JsGen.generateUserOnly(module, baseDir) }
               val rawImports = collectImports(module.sections)
               val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
               val imports    = (rawImports ++ depAliases).distinct.toList
@@ -1073,6 +1081,7 @@ def incrementalBuildCommand(args: List[String]): Unit =
   println()
   println(s"Done: $compiled compiled, $skipped up-to-date, $failed failed")
   println(s"Artifacts written to ${artDir.relativeTo(os.pwd)}")
+  CompileStats.printAndReset()
   if failed > 0 then System.exit(1)
 
 /** v2.0 Phase 5 — programmatic separate-compilation build helper.
@@ -1096,7 +1105,9 @@ private def buildArtifactsInto(
   val emitJs  = backend.contains("js")
   os.makeDir.all(artDir)
 
-  val graph = ModuleGraph.build(srcDir)
+  if ActiveFlags.current.yStats then CompileStats.enable()
+
+  val graph = CompileStats.time("discover") { ModuleGraph.build(srcDir) }
   if graph.cycles.nonEmpty then
     out.println("build (artifacts): circular dependencies detected:")
     graph.cycles.foreach { cycle =>
@@ -1128,22 +1139,22 @@ private def buildArtifactsInto(
       val ok = scala.util.Try {
         val sourceBytes = os.read.bytes(node.path)
         val src         = new String(sourceBytes, "UTF-8")
-        val module      = Parser.parse(src)
+        val module      = CompileStats.time("parse")     { Parser.parse(src) }
         if reportCodeBlockParseErrors(module, relPath) then
           throw new RuntimeException(s"parse error in $relPath")
-        val ir          = Normalize(module)
-        val iface       = InterfaceExtractor.extract(module, sourceBytes)
+        val ir          = CompileStats.time("normalize") { Normalize(module) }
+        val iface       = CompileStats.time("interface") { InterfaceExtractor.extract(module, sourceBytes) }
         val sourceHash  = iface.sourceHash
         val scimPath = artDir / (baseName + ".scim")
         val scirPath = artDir / (baseName + ".scir")
         if coreStale then
-          ArtifactIO.writeInterfaceFile(iface.copy(sectionHashes = Map.empty), scimPath)
-          ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath)
+          CompileStats.time("write-scim") { ArtifactIO.writeInterfaceFile(iface.copy(sectionHashes = Map.empty), scimPath) }
+          CompileStats.time("write-scir") { ArtifactIO.writeIrFile(ir, node.pkg, module.manifest.flatMap(_.name), sourceHash, scirPath) }
         if emitJvm then
           val scjvmPath = artDir / (baseName + ".scjvm")
           if jvmStale || !os.exists(scjvmPath) then
             val baseDir     = Some(node.path / os.up)
-            val scalaSource = JvmGen.generate(module, baseDir)
+            val scalaSource = CompileStats.time("jvm-codegen") { JvmGen.generate(module, baseDir) }
             val rawImports  = collectImports(module.sections)
             val depAliases  = module.manifest.toList.flatMap(_.dependencies.keys)
             val imports     = (rawImports ++ depAliases).distinct.toList
@@ -1156,7 +1167,7 @@ private def buildArtifactsInto(
           val scjsPath = artDir / (baseName + ".scjs")
           if jsStale || !os.exists(scjsPath) then
             val baseDir    = Some(node.path / os.up)
-            val jsSource   = JsGen.generateUserOnly(module, baseDir)
+            val jsSource   = CompileStats.time("js-codegen") { JsGen.generateUserOnly(module, baseDir) }
             val rawImports = collectImports(module.sections)
             val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
             val imports    = (rawImports ++ depAliases).distinct.toList
@@ -1183,6 +1194,7 @@ private def buildArtifactsInto(
       out.println(s"  [runtime error] ${e.getMessage}")
       failed += 1
 
+  CompileStats.printAndReset(out)
   (compiled, skipped, failed)
 
 // ─── Fat-JAR entry point ────────────────────────────────────────────────────
@@ -9804,6 +9816,48 @@ def fmtCommand(args: List[String]): Unit =
  *  Runs the interpreter with lightweight call-level instrumentation and
  *  prints a table of the top-N hotspots by total wall time after the run.
  */
+// ─── CompileStats — accumulates per-phase totals for --Ystats output ─────────
+
+/** Accumulates per-phase wall-clock totals across all modules in a build.
+ *
+ *  Enabled by the global `--Ystats` flag.  Call `CompileStats.enable()` once
+ *  per build, then wrap each phase with `CompileStats.time("phase") { ... }`.
+ *  Call `CompileStats.printAndReset()` at the end of the build to emit the
+ *  table to stderr.
+ *
+ *  Thread-safe via `synchronized` — phases must be short enough that
+ *  synchronisation overhead is negligible compared to parse/typecheck time. */
+object CompileStats:
+  private val acc     = scala.collection.mutable.LinkedHashMap.empty[String, Long]
+  @volatile private var on = false
+
+  def enable(): Unit  = { on = true; acc.clear() }
+  def isOn:    Boolean = on
+
+  def time[A](phase: String)(body: => A): A =
+    if !on then body
+    else
+      val t0 = System.nanoTime()
+      val r  = body
+      val ms = (System.nanoTime() - t0) / 1_000_000L
+      acc.synchronized { acc.update(phase, acc.getOrElse(phase, 0L) + ms) }
+      r
+
+  def printAndReset(out: java.io.PrintStream = System.err): Unit =
+    if !on || acc.isEmpty then return
+    val snap = acc.synchronized { acc.toList }
+    val total = snap.map(_._2).sum
+    val w = snap.map(_._1.length).maxOption.getOrElse(10)
+    out.println()
+    out.println("[Ystats] Compiler phase timings:")
+    snap.foreach { (name, ms) =>
+      val pct = if total > 0 then f"${ms * 100.0 / total}%5.1f%%" else "  n/a"
+      out.println(f"  ${name.padTo(w, ' ')}  $ms%6d ms  $pct")
+    }
+    out.println(f"  ${"TOTAL".padTo(w, ' ')}  $total%6d ms")
+    on = false
+    acc.clear()
+
 // ─── `ssc profile` — per-phase timing + allocation + flame-graph JSON ─────────
 
 /** Measure one compiler pipeline phase: wall-clock time and heap allocation
