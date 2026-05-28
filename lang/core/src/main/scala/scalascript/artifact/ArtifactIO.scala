@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import scalascript.ir.*
-import upickle.default.{read, write}
+import upickle.default.{read, write, writeBinary, readBinary}
 
 /** Serialise / deserialise `.scim` (interface) and `.scir` (IR) artifacts.
  *
@@ -16,7 +16,7 @@ object ArtifactIO:
   // ─── .scim — module interface ────────────────────────────────────────────
 
   /** Serialise a `ModuleInterface` to a pretty-printed JSON string.
-   *  The result is suitable for writing to a `.scim` file. */
+   *  Use `writeInterfaceFile` to write to disk — it uses the binary MessagePack format. */
   def writeInterface(iface: ModuleInterface): String =
     require(iface.magic == ArtifactVersion.magic,
       s"BUG: ModuleInterface.magic must be '${ArtifactVersion.magic}', got '${iface.magic}'")
@@ -24,37 +24,49 @@ object ArtifactIO:
       s"BUG: ModuleInterface.abiVersion must be '${ArtifactVersion.current}', got '${iface.abiVersion}'")
     write(iface, indent = 2)
 
-  /** Deserialise a `.scim` JSON string into a `ModuleInterface`.
+  /** Deserialise a `.scim` artifact from bytes (MessagePack) or String (legacy JSON).
    *
    *  Returns `Left(error message)` if:
-   *  - The JSON is malformed.
+   *  - The data is malformed.
    *  - The `magic` field does not equal `ArtifactVersion.magic`.
    *  - The `abiVersion` field does not equal `ArtifactVersion.current`.
    *
    *  Returns `Right(interface)` on success.
    */
+  def readInterface(data: Array[Byte]): Either[String, ModuleInterface] =
+    val tryParse: scala.util.Try[ModuleInterface] =
+      if data.nonEmpty && data(0) == '{'.toByte
+      then scala.util.Try(read[ModuleInterface](new String(data, "UTF-8")))
+      else scala.util.Try(readBinary[ModuleInterface](data))
+    tryParse.toEither.left.map { e =>
+      s"Failed to parse .scim artifact: ${e.getMessage}"
+    }.flatMap { iface =>
+      checkEnvelope(iface.magic, iface.abiVersion, ".scim").map(_ => iface)
+    }
+
+  /** Deserialise a `.scim` JSON string (legacy format — kept for backward compat). */
   def readInterface(json: String): Either[String, ModuleInterface] =
     scala.util.Try(read[ModuleInterface](json)).toEither.left.map { e =>
       s"Failed to parse .scim artifact: ${e.getMessage}"
     }.flatMap { iface =>
-      checkEnvelope(iface.magic, iface.abiVersion, ".scim")
-        .map(_ => iface)
+      checkEnvelope(iface.magic, iface.abiVersion, ".scim").map(_ => iface)
     }
 
   /** Read a `.scim` file from `path`.  Convenience wrapper over `readInterface`. */
   def readInterfaceFile(path: os.Path): Either[String, ModuleInterface] =
     if !os.exists(path) then Left(s"Interface artifact not found: $path")
-    else readInterface(os.read(path))
+    else readInterface(os.read.bytes(path))
 
-  /** Write a `.scim` file to `path` (creates parent directories). */
+  /** Write a `.scim` file to `path` in MessagePack binary format (creates parent directories). */
   def writeInterfaceFile(iface: ModuleInterface, path: os.Path): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeInterface(iface))
+    os.write.over(path, writeBinary(iface))
 
   // ─── .scir — module IR artifact ──────────────────────────────────────────
 
   /** Serialise a `(NormalizedModule, pkg, moduleName, sourceHash)` tuple
-   *  into a `ModuleIrArtifact` JSON string suitable for writing to a `.scir` file. */
+   *  to a pretty-printed JSON string.
+   *  Use `writeIrFile` to write to disk — it uses the binary MessagePack format. */
   def writeIr(
       nm:         scalascript.ir.NormalizedModule,
       pkg:        List[String],
@@ -74,13 +86,17 @@ object ArtifactIO:
     )
     write(artifact, indent = 2)
 
-  /** Deserialise a `.scir` JSON string.
+  /** Deserialise a `.scir` artifact from bytes (MessagePack) or String (legacy JSON).
    *
    *  Returns `Left(error)` on version mismatch or parse failure.
    *  Returns `Right((NormalizedModule, pkg, moduleName, sourceHash))` on success.
    */
-  def readIr(json: String): Either[String, (scalascript.ir.NormalizedModule, List[String], Option[String], String)] =
-    scala.util.Try(read[ModuleIrArtifact](json)).toEither.left.map { e =>
+  def readIr(data: Array[Byte]): Either[String, (scalascript.ir.NormalizedModule, List[String], Option[String], String)] =
+    val tryParse: scala.util.Try[ModuleIrArtifact] =
+      if data.nonEmpty && data(0) == '{'.toByte
+      then scala.util.Try(read[ModuleIrArtifact](new String(data, "UTF-8")))
+      else scala.util.Try(readBinary[ModuleIrArtifact](data))
+    tryParse.toEither.left.map { e =>
       s"Failed to parse .scir artifact: ${e.getMessage}"
     }.flatMap { artifact =>
       checkEnvelope(artifact.magic, artifact.abiVersion, ".scir").flatMap { _ =>
@@ -92,12 +108,16 @@ object ArtifactIO:
       }
     }
 
+  /** Deserialise a `.scir` JSON string (legacy format — kept for backward compat). */
+  def readIr(json: String): Either[String, (scalascript.ir.NormalizedModule, List[String], Option[String], String)] =
+    readIr(json.getBytes("UTF-8"))
+
   /** Read a `.scir` file from `path`. */
   def readIrFile(path: os.Path): Either[String, (scalascript.ir.NormalizedModule, List[String], Option[String], String)] =
     if !os.exists(path) then Left(s"IR artifact not found: $path")
-    else readIr(os.read(path))
+    else readIr(os.read.bytes(path))
 
-  /** Write a `.scir` file to `path` (creates parent directories). */
+  /** Write a `.scir` file to `path` in MessagePack binary format (creates parent directories). */
   def writeIrFile(
       nm:         scalascript.ir.NormalizedModule,
       pkg:        List[String],
@@ -106,8 +126,18 @@ object ArtifactIO:
       path:       os.Path,
       sectionHashes: Map[String, String] = Map.empty
   ): Unit =
+    val bodyJson = write(nm)
+    val artifact = ModuleIrArtifact(
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = pkg,
+      moduleName    = moduleName,
+      sourceHash    = sourceHash,
+      body          = bodyJson,
+      sectionHashes = sectionHashes
+    )
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeIr(nm, pkg, moduleName, sourceHash, sectionHashes))
+    os.write.over(path, writeBinary(artifact))
 
   // ─── Envelope validation ─────────────────────────────────────────────────
 

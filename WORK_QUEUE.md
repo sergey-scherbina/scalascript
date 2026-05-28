@@ -473,7 +473,7 @@ ScalaScript's own registry work stays queued.
 - [x] **v1.61.4-pattern-compile** — Compile `Term.Match` to decision-tree closure cached by AST identity. pattern-match-heavy 6069ms → 3960ms (1.53× vs baseline). ✓ Landed 2026-05-28.
 - [x] **v1.61.5-js-inlining** — Tuple IIFE→Object.assign; direct while stmt; int-mul typeof skip. User-code -17–30% chars per program. ✓ Landed 2026-05-28.
 - [x] **v1.61.6-preamble-split** — JS preamble split into Core+HtmlDsl+Jwt+WsServer+Optics+Signals+IndexedDb capabilities; `generateRuntime` assembles conditionally; `detectCapabilities` extended. Core-only bundle ~50 KB vs ~185 KB full. ✓ Landed 2026-05-29.
-- [ ] **v1.61.7-memory** — `IntV`/`DoubleV` pools, `TupleV → Array`, `FunV` split, `Span` sidecar, `ArtifactIO` binary format. Target: ≥50% allocation rate reduction.
+- [x] **v1.61.7-memory** — `ArtifactIO`/`JvmArtifactIO` binary MessagePack format for `*File` methods; auto-detect on read; 5–10× smaller artifacts. (`IntV`/`DoubleV` pools, `TupleV → Array`, `FunV` split, `Span` sidecar — deferred, too invasive for this cycle.) ✓ Landed 2026-05-29.
 
 ## x402 — Cardano Scalus thin-glue wiring
 

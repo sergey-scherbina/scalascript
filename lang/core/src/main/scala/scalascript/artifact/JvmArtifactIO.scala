@@ -1,7 +1,7 @@
 package scalascript.artifact
 
 import scalascript.ir.*
-import upickle.default.{read, write}
+import upickle.default.{read, write, writeBinary, readBinary}
 
 /** Serialise / deserialise `.scjvm` (JVM-backend cached source) artifacts.
  *
@@ -19,7 +19,7 @@ import upickle.default.{read, write}
 object JvmArtifactIO:
 
   /** Serialise a `ModuleJvmArtifact` to a pretty-printed JSON string.
-   *  The result is suitable for writing to a `.scjvm` file. */
+   *  Use `writeJvmFile` to write to disk — it uses the binary MessagePack format. */
   def writeJvm(art: ModuleJvmArtifact): String =
     require(art.magic == ArtifactVersion.magic,
       s"BUG: ModuleJvmArtifact.magic must be '${ArtifactVersion.magic}', got '${art.magic}'")
@@ -27,7 +27,7 @@ object JvmArtifactIO:
       s"BUG: ModuleJvmArtifact.abiVersion must be '${ArtifactVersion.current}', got '${art.abiVersion}'")
     write(art, indent = 2)
 
-  /** Build + serialise a `ModuleJvmArtifact` from its constituent fields. */
+  /** Build + serialise a `ModuleJvmArtifact` from its constituent fields to pretty-printed JSON. */
   def writeJvm(
       moduleId:     String,
       pkg:          List[String],
@@ -56,32 +56,40 @@ object JvmArtifactIO:
     )
     writeJvm(art)
 
-  /** Deserialise a `.scjvm` JSON string into a `ModuleJvmArtifact`.
+  /** Deserialise a `.scjvm` artifact from bytes (MessagePack) or String (legacy JSON).
    *
    *  Returns `Left(error message)` if:
-   *  - The JSON is malformed.
+   *  - The data is malformed.
    *  - The `magic` field does not equal `ArtifactVersion.magic`.
    *  - The `abiVersion` field does not equal `ArtifactVersion.current`.
    *
    *  Returns `Right(artifact)` on success. */
-  def readJvm(json: String): Either[String, ModuleJvmArtifact] =
-    scala.util.Try(read[ModuleJvmArtifact](json)).toEither.left.map { e =>
+  def readJvm(data: Array[Byte]): Either[String, ModuleJvmArtifact] =
+    val tryParse: scala.util.Try[ModuleJvmArtifact] =
+      if data.nonEmpty && data(0) == '{'.toByte
+      then scala.util.Try(read[ModuleJvmArtifact](new String(data, "UTF-8")))
+      else scala.util.Try(readBinary[ModuleJvmArtifact](data))
+    tryParse.toEither.left.map { e =>
       s"Failed to parse .scjvm artifact: ${e.getMessage}"
     }.flatMap { art =>
       checkEnvelope(art.magic, art.abiVersion, ".scjvm").map(_ => art)
     }
 
+  /** Deserialise a `.scjvm` JSON string (legacy format — kept for backward compat). */
+  def readJvm(json: String): Either[String, ModuleJvmArtifact] =
+    readJvm(json.getBytes("UTF-8"))
+
   /** Read a `.scjvm` file from `path`.  Convenience wrapper over `readJvm`. */
   def readJvmFile(path: os.Path): Either[String, ModuleJvmArtifact] =
     if !os.exists(path) then Left(s"JVM artifact not found: $path")
-    else readJvm(os.read(path))
+    else readJvm(os.read.bytes(path))
 
-  /** Write a `.scjvm` file to `path` (creates parent directories). */
+  /** Write a `.scjvm` file to `path` in MessagePack binary format (creates parent directories). */
   def writeJvmFile(art: ModuleJvmArtifact, path: os.Path): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(art))
+    os.write.over(path, writeBinary(art))
 
-  /** Write a `.scjvm` file to `path` from constituent fields. */
+  /** Write a `.scjvm` file to `path` from constituent fields in MessagePack binary format. */
   def writeJvmFile(
       moduleId:     String,
       pkg:          List[String],
@@ -95,12 +103,20 @@ object JvmArtifactIO:
       sectionHashes: Map[String, String] = Map.empty,
       lineMap:       Map[String, Int]    = Map.empty
   ): Unit =
+    val art = ModuleJvmArtifact(
+      magic = ArtifactVersion.magic, abiVersion = ArtifactVersion.current,
+      moduleId = moduleId, pkg = pkg, moduleName = moduleName,
+      sourceHash = sourceHash, scalaSource = scalaSource, imports = imports,
+      classBundle = classBundle, capabilities = capabilities.sorted,
+      sectionHashes = sectionHashes, lineMap = lineMap
+    )
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeJvm(moduleId, pkg, moduleName, sourceHash, scalaSource, imports, classBundle, capabilities, sectionHashes, lineMap))
+    os.write.over(path, writeBinary(art))
 
   // ─── Shared runtime artifact (.scjvm-runtime) ────────────────────────────
 
-  /** Serialise a `ModuleJvmRuntimeArtifact` to a pretty-printed JSON string. */
+  /** Serialise a `ModuleJvmRuntimeArtifact` to a pretty-printed JSON string.
+   *  Use `writeRuntimeFile` to write to disk — it uses binary MessagePack format. */
   def writeRuntime(art: ModuleJvmRuntimeArtifact): String =
     require(art.magic == ArtifactVersion.magic,
       s"BUG: ModuleJvmRuntimeArtifact.magic must be '${ArtifactVersion.magic}', got '${art.magic}'")
@@ -108,7 +124,7 @@ object JvmArtifactIO:
       s"BUG: ModuleJvmRuntimeArtifact.abiVersion must be '${ArtifactVersion.current}', got '${art.abiVersion}'")
     write(art, indent = 2)
 
-  /** Build + serialise a `ModuleJvmRuntimeArtifact` from its constituent fields. */
+  /** Build + serialise a `ModuleJvmRuntimeArtifact` from its constituent fields to pretty-printed JSON. */
   def writeRuntime(
       capabilities: List[String],
       sourceHash:   String,
@@ -123,33 +139,45 @@ object JvmArtifactIO:
     )
     writeRuntime(art)
 
-  /** Deserialise a `.scjvm-runtime` JSON string into a `ModuleJvmRuntimeArtifact`. */
-  def readRuntime(json: String): Either[String, ModuleJvmRuntimeArtifact] =
-    scala.util.Try(read[ModuleJvmRuntimeArtifact](json)).toEither.left.map { e =>
+  /** Deserialise a `.scjvm-runtime` artifact from bytes (MessagePack) or String (legacy JSON). */
+  def readRuntime(data: Array[Byte]): Either[String, ModuleJvmRuntimeArtifact] =
+    val tryParse: scala.util.Try[ModuleJvmRuntimeArtifact] =
+      if data.nonEmpty && data(0) == '{'.toByte
+      then scala.util.Try(read[ModuleJvmRuntimeArtifact](new String(data, "UTF-8")))
+      else scala.util.Try(readBinary[ModuleJvmRuntimeArtifact](data))
+    tryParse.toEither.left.map { e =>
       s"Failed to parse .scjvm-runtime artifact: ${e.getMessage}"
     }.flatMap { art =>
       checkEnvelope(art.magic, art.abiVersion, ".scjvm-runtime").map(_ => art)
     }
 
+  /** Deserialise a `.scjvm-runtime` JSON string (legacy format — kept for backward compat). */
+  def readRuntime(json: String): Either[String, ModuleJvmRuntimeArtifact] =
+    readRuntime(json.getBytes("UTF-8"))
+
   /** Read a `.scjvm-runtime` file from `path`. */
   def readRuntimeFile(path: os.Path): Either[String, ModuleJvmRuntimeArtifact] =
     if !os.exists(path) then Left(s"JVM runtime artifact not found: $path")
-    else readRuntime(os.read(path))
+    else readRuntime(os.read.bytes(path))
 
-  /** Write a `.scjvm-runtime` file to `path` (creates parent directories). */
+  /** Write a `.scjvm-runtime` file to `path` in MessagePack binary format (creates parent directories). */
   def writeRuntimeFile(art: ModuleJvmRuntimeArtifact, path: os.Path): Unit =
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeRuntime(art))
+    os.write.over(path, writeBinary(art))
 
-  /** Write a `.scjvm-runtime` file to `path` from constituent fields. */
+  /** Write a `.scjvm-runtime` file to `path` from constituent fields in MessagePack binary format. */
   def writeRuntimeFile(
       capabilities: List[String],
       sourceHash:   String,
       classBundle:  String,
       path:         os.Path
   ): Unit =
+    val art = ModuleJvmRuntimeArtifact(
+      magic = ArtifactVersion.magic, abiVersion = ArtifactVersion.current,
+      capabilities = capabilities.sorted, sourceHash = sourceHash, classBundle = classBundle
+    )
     os.makeDir.all(path / os.up)
-    os.write.over(path, writeRuntime(capabilities, sourceHash, classBundle))
+    os.write.over(path, writeBinary(art))
 
   // ─── Envelope validation ─────────────────────────────────────────────────
 
