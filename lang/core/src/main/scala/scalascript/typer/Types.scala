@@ -141,6 +141,7 @@ enum SType:
     if m.isEmpty then return this
     this match
       case Var(id)                  => m.getOrElse(id, this)
+      case Named(_, Nil)            => this  // no type args → no type vars → invariant
       case Named(n, args)           => Named(n, args.map(_.subst(m)))
       case Function(params, result, effs) =>
         val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
@@ -199,6 +200,16 @@ object SType:
   val Any: SType     = Named("Any", Nil)
   val Nothing: SType = Named("Nothing", Nil)
   val Null: SType    = Named("Null", Nil)
+
+  /** Intern cache for zero-arg Named types.  Returns the same object for every
+   *  call with the same name, so type annotations for e.g. `MyClass` produce
+   *  a single allocation per distinct class name rather than one per use-site. */
+  private val namedCache =
+    new java.util.concurrent.ConcurrentHashMap[String, SType.Named]()
+
+  /** Returns a canonical (interned) `Named(name, Nil)`. */
+  def named0(name: String): SType.Named =
+    namedCache.computeIfAbsent(name, n => Named(n, Nil))
 
   def list(elem: SType): SType        = Named("List", scala.List(elem))
   def option(elem: SType): SType      = Named("Option", scala.List(elem))

@@ -513,7 +513,7 @@ class Typer(
       val paramSTypes = params.map { p =>
         p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any)
       }.toList
-      val classType = SType.Named(d.name.value, Nil)
+      val classType = SType.named0(d.name.value)
       val ctorType  = SType.Function(paramSTypes, classType)
       scope.define(Symbol(d.name.value, ctorType, SymbolKind.Class))
       // Index constructor params by name → type so [[inferType]] on
@@ -531,13 +531,13 @@ class Typer(
 
     // object Name
     case d: Defn.Object =>
-      val objType = SType.Named(d.name.value, Nil)
+      val objType = SType.named0(d.name.value)
       scope.define(Symbol(d.name.value, objType, SymbolKind.Object))
       out += DefSummary(d.name.value, SymbolKind.Object, objType, Nil)
 
     // enum Name
     case d: Defn.Enum =>
-      val enumType = SType.Named(d.name.value, Nil)
+      val enumType = SType.named0(d.name.value)
       scope.define(Symbol(d.name.value, enumType, SymbolKind.Enum))
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
@@ -560,7 +560,7 @@ class Typer(
       if isOpaque then
         // Opaque types are nominal — NOT transparent to the underlying type
         // outside the defining scope (MVP: single-zone, no transparency inside).
-        val opaqueNominalType = SType.Named(typeName, Nil)
+        val opaqueNominalType = SType.named0(typeName)
         opaqueTypes += typeName
         scope.define(Symbol(typeName, opaqueNominalType, SymbolKind.Type))
         out += DefSummary(typeName, SymbolKind.Type, opaqueNominalType, Nil)
@@ -1054,7 +1054,7 @@ class Typer(
     case "Any"     => SType.Any
     case "Nothing" => SType.Nothing
     case "Null"    => SType.Null
-    case other     => SType.Named(other, Nil)
+    case other     => SType.named0(other)
 
   /** Render a `Type.Select` / `Type.Name` chain as a dotted path string. */
   private def showTypePath(t: scala.meta.Type): String = t match
