@@ -158,7 +158,7 @@ private[interpreter] object BuiltinsRuntime:
     // By default filters out anonymous (<anon>) and _-prefixed synthetic frames.
     // Call setTraceVerbose(true) to include all frames.
     interp.globals("currentStackTrace") = Value.NativeFnV("currentStackTrace", _ =>
-      Pure(Value.ListV(interp.callStack.toList.reverse
+      Pure(Value.ListV(interp.callStackToList.reverse
         .filter { case (fn, _, _) =>
           interp.traceVerbose || (fn != "<anon>" && !fn.startsWith("_"))
         }

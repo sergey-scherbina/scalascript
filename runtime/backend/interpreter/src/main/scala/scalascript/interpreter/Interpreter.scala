@@ -315,8 +315,21 @@ class Interpreter(
       mountCtx = ctx,
       style    = "mount")
 
-  // Phase 5 DAP: call stack — (frameName, sourceFile, absDocLine).
-  private[interpreter] val callStack = scala.collection.mutable.ArrayBuffer.empty[(String, String, Int)]
+  // Phase 5 DAP: call stack — three parallel ArrayBuffers to avoid Tuple3 allocation per push.
+  private[interpreter] val callStackNames = scala.collection.mutable.ArrayBuffer.empty[String]
+  private[interpreter] val callStackFiles = scala.collection.mutable.ArrayBuffer.empty[String]
+  private[interpreter] val callStackLines = scala.collection.mutable.ArrayBuffer.empty[Int]
+  private[interpreter] inline def callStackNonEmpty: Boolean = callStackNames.nonEmpty
+  private[interpreter] inline def callStackLength: Int = callStackNames.length
+  private[interpreter] inline def callStackPush(name: String, file: String, line: Int): Unit =
+    callStackNames += name; callStackFiles += file; callStackLines += line
+  private[interpreter] inline def callStackPop(): Unit =
+    val last = callStackNames.length - 1
+    callStackNames.remove(last); callStackFiles.remove(last); callStackLines.remove(last)
+  private[interpreter] def callStackToList: List[(String, String, Int)] =
+    callStackNames.indices.map(i => (callStackNames(i), callStackFiles(i), callStackLines(i))).toList
+  private[interpreter] def callStackToIndexedSeq: scala.collection.immutable.IndexedSeq[(String, String, Int)] =
+    callStackNames.indices.map(i => (callStackNames(i), callStackFiles(i), callStackLines(i))).toIndexedSeq
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
   private[interpreter] var traceVerbose: Boolean = false
   // Types declared with @noTrace — throw uses ScriptExceptionNoTrace to skip JVM fillInStackTrace.

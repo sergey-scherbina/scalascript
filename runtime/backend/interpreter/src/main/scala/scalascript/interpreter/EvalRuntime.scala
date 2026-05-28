@@ -20,10 +20,10 @@ private[interpreter] object EvalRuntime:
       if interp.currentSpanLine >= 0 then
         val blockLine  = interp.currentSpanLine
         val docLine    = interp.debugBlockDocLine + blockLine + 1
-        val callFrames = interp.callStack.toIndexedSeq.map { case (n, sf, l) =>
+        val callFrames = interp.callStackToIndexedSeq.map { case (n, sf, l) =>
           scalascript.interpreter.debug.CallFrameEntry(n, sf, l)
         }
-        val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStack.length, env, callFrames)
+        val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStackLength, env, callFrames)
         hooks.onStep(frame)
     }
     term match
