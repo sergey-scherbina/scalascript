@@ -125,11 +125,22 @@ class ActorDistributedTest extends AnyFunSuite with Matchers:
     val err = intercept[scalascript.interpreter.InterpretError] {
       captured("""
         runActors {
-          resolveSeeds(SeedResolver.k8sHeadlessService("demo"))
+          resolveSeeds(SeedResolver.consulCatalog("demo"))
         }
       """)
     }
-    err.getMessage should include ("k8sHeadlessService resolver is declared but not implemented")
+    err.getMessage should include ("consulCatalog resolver is declared but not implemented")
+
+  test("dns seed resolver maps host addresses to actor urls"):
+    val out = captured("""
+      runActors {
+        val seeds = resolveSeeds(SeedResolver.dnsSrv("localhost", 9100))
+        println(seeds.nonEmpty)
+        println(seeds.head.startsWith("ws://"))
+        println(seeds.head.endsWith(":9100/_ssc-actors"))
+      }
+    """)
+    out shouldBe "true\ntrue\ntrue"
 
   test("ValueSerializer round-trips IntV"):
     import scalascript.interpreter.{Value, ValueSerializer}

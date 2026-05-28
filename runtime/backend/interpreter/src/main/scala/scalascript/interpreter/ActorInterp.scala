@@ -2025,11 +2025,41 @@ private[interpreter] trait ActorInterp:
         val urls = fields.get("urls").collect {
           case Value.ListV(items) => items.collect { case Value.StringV(s) => s }
         }.getOrElse(Nil)
+        def fieldString(name: String, default: String): String =
+          fields.get(name).collect { case Value.StringV(s) => s }.getOrElse(default)
+        def fieldLong(name: String, default: Long): Long =
+          fields.get(name).collect { case Value.IntV(n) => n }.getOrElse(default)
+        def actorUrl(addr: java.net.InetAddress, port: Long, scheme: String): String =
+          val host = addr.getHostAddress
+          val bracketed = if host.contains(":") && !host.startsWith("[") then s"[$host]" else host
+          s"$scheme://$bracketed:$port/_ssc-actors"
         kind match
           case "static" =>
             Right(k(Value.ListV(urls.map(Value.StringV.apply))))
-          case "dnsSrv" | "k8sHeadlessService" | "consulCatalog" =>
-            throw InterpretError(s"resolveSeeds: $kind resolver is declared but not implemented in the interpreter runtime yet")
+          case "dnsSrv" =>
+            val serviceName = fieldString("serviceName", "")
+            val port = fieldLong("port", 9100L)
+            val scheme = fieldString("scheme", "ws")
+            if serviceName.isEmpty then throw InterpretError("resolveSeeds: dnsSrv serviceName is empty")
+            val resolved =
+              try java.net.InetAddress.getAllByName(serviceName).toList.map(addr => Value.StringV(actorUrl(addr, port, scheme)))
+              catch case e: java.net.UnknownHostException => throw InterpretError(s"resolveSeeds: DNS lookup failed for $serviceName: ${e.getMessage}")
+            Right(k(Value.ListV(resolved)))
+          case "k8sHeadlessService" =>
+            val serviceName = fieldString("serviceName", "")
+            val namespace = fieldString("namespace", "default")
+            val host =
+              if namespace.isEmpty || namespace == "." then serviceName
+              else s"$serviceName.$namespace.svc"
+            val port = fieldLong("port", 9100L)
+            val scheme = fieldString("scheme", "ws")
+            if serviceName.isEmpty then throw InterpretError("resolveSeeds: k8sHeadlessService serviceName is empty")
+            val resolved =
+              try java.net.InetAddress.getAllByName(host).toList.map(addr => Value.StringV(actorUrl(addr, port, scheme)))
+              catch case e: java.net.UnknownHostException => throw InterpretError(s"resolveSeeds: Kubernetes headless-service DNS lookup failed for $host: ${e.getMessage}")
+            Right(k(Value.ListV(resolved)))
+          case "consulCatalog" =>
+            throw InterpretError("resolveSeeds: consulCatalog resolver is declared but not implemented in the interpreter runtime yet")
           case other =>
             throw InterpretError(s"resolveSeeds: unsupported seed resolver: $other")
       case _ => throw InterpretError("resolveSeeds(seedResolver)")

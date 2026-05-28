@@ -3121,10 +3121,11 @@ runActors {
 }
 ```
 
-`SeedResolver.staticList` works today in the interpreter. DNS-SRV, Kubernetes
-headless Service, and Consul resolver descriptors are part of the public API
-but still planned for runtime resolution; using them with `resolveSeeds` now
-fails with an explicit diagnostic instead of silently joining no peers.
+`SeedResolver.staticList`, `SeedResolver.dnsSrv`, and
+`SeedResolver.k8sHeadlessService` work today in the interpreter. The Consul
+resolver descriptor is part of the public API but still planned for runtime
+resolution; using it with `resolveSeeds` now fails with an explicit diagnostic
+instead of silently joining no peers.
 See [`examples/cluster-capability.ssc`](../examples/cluster-capability.ssc).
 
 Cluster and remote registry metadata can also be declared in front matter:

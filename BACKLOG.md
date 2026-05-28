@@ -45,8 +45,9 @@ network semantics or deployment constraints.
       `SeedResolver.staticList`, `clusterOf`, `resolveSeeds`, `codeIdentity`,
       `assertCodeIdentity`; interpreter static seed resolution and clear
       diagnostics for non-static resolver descriptors; typed `cluster:` /
-      registry front matter in AST/IR/`.sscc`. Remaining: `cluster Demo:`
-      lowering, DNS/K8s resolver runtime, and missing handler/codec validation.
+      registry front matter in AST/IR/`.sscc`; DNS/K8s seed resolver runtime.
+      Remaining: `cluster Demo:` lowering, Consul resolver runtime, and missing
+      handler/codec validation.
 - [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
       RPC: compile `@remote` / `remote def` / manifest handlers into
       `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning
