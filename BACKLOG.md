@@ -47,8 +47,8 @@ network semantics or deployment constraints.
       diagnostics for non-static resolver descriptors; typed `cluster:` /
       registry front matter in AST/IR/`.sscc`; DNS/K8s seed resolver runtime.
       Missing registry function/source/behavior targets are rejected at parse
-      time. Remaining: `cluster Demo:` lowering, Consul resolver runtime, and
-      codec validation.
+      time; top-level `cluster Demo:` blocks lower into `ClusterDecl`
+      metadata. Remaining: Consul resolver runtime and codec validation.
 - [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
       RPC: compile `@remote` / `remote def` / manifest handlers into
       `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning

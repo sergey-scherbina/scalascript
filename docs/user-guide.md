@@ -3151,6 +3151,18 @@ from front matter into handler/behavior registration is still planned. The
 parser rejects registry entries whose `function`, `source`, or `behavior`
 target is not defined in the same module.
 
+The source-level cluster block lowers to the same metadata:
+
+```ssc
+cluster Demo:
+  nodes = 3
+  seedDiscovery = SeedResolver.k8sHeadlessService("ssc-demo")
+  leaderElection = Raft
+  authTokenFrom = K8sSecret("ssc-cluster-token", key = "token")
+  heartbeat(intervalMs = 5000, deadAfterMs = 40000)
+  quorum(2)
+```
+
 Specs: [`docs/cluster-management.md`](cluster-management.md),
 [`docs/cluster-raft.md`](cluster-raft.md),
 [`docs/cluster-federation.md`](cluster-federation.md),

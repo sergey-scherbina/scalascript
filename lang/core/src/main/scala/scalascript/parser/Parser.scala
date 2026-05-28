@@ -31,13 +31,14 @@ object Parser:
       if shebangLines == 1 then source.dropWhile(_ != '\n').drop(1)
       else source
     val (fmOpt, body, fmStripped) = splitFrontMatterCounting(noShebang)
-    val isWrapped = isPureScala(body)
+    val (sourceCluster, clusterStrippedBody) = extractSourceCluster(body)
+    val isWrapped = isPureScala(clusterStrippedBody)
     // Pure-Scala script (no Markdown headings or fences): wrap in a synthetic section
     val mdSrc =
-      if isWrapped then s"# Script\n\n```scala\n${body.trim}\n```\n"
-      else body
+      if isWrapped then s"# Script\n\n```scala\n${clusterStrippedBody.trim}\n```\n"
+      else clusterStrippedBody
     val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
-    val manifest = fmOpt.map(parseManifest)
+    val manifest = mergeSourceCluster(fmOpt.map(parseManifest), sourceCluster)
     // Map a CommonMark 0-indexed line in `mdSrc` back to a 0-indexed line in
     // the ORIGINAL `source` file.  For the standard path this is a simple
     // additive offset (shebang lines + front-matter lines that were stripped
@@ -51,7 +52,7 @@ object Parser:
         // Number of leading newline-terminated whitespace lines in `body`
         // that `.trim` collapsed.  Lines wholly consumed by `dropWhile(_ ==
         // '\n')` plus any whitespace-only prefix lines.
-        val leadingWs = body.takeWhile(c => c == '\n' || c == ' ' || c == '\t' || c == '\r')
+        val leadingWs = clusterStrippedBody.takeWhile(c => c == '\n' || c == ' ' || c == '\t' || c == '\r')
         val leadingWsLines = leadingWs.count(_ == '\n')
         val base = shebangLines + fmStripped + leadingWsLines
         (mdLine: Int) => base + math.max(0, mdLine - 3)
@@ -324,9 +325,80 @@ object Parser:
         seedNodes    = parseStringList(mm.get("seedNodes").orElse(mm.get("seed-nodes"))),
         authToken    = mm.get("authToken").orElse(mm.get("auth-token")).collect { case s: String => s },
         placement    = parseStringMap(mm.get("placement")),
-        wire         = parseStringMap(mm.get("wire"))
+        wire         = parseStringMap(mm.get("wire")),
+        nodes        = parseInt(mm.get("nodes")),
+        seedDiscovery = mm.get("seedDiscovery").orElse(mm.get("seed-discovery")).map(_.toString),
+        leaderElection = mm.get("leaderElection").orElse(mm.get("leader-election")).map(_.toString),
+        authTokenFrom = mm.get("authTokenFrom").orElse(mm.get("auth-token-from")).map(_.toString),
+        heartbeat    = parseStringMap(mm.get("heartbeat")),
+        quorum       = parseInt(mm.get("quorum"))
       )
     }
+
+  private def mergeSourceCluster(manifest: Option[Manifest], sourceCluster: Option[ClusterDecl]): Option[Manifest] =
+    (manifest, sourceCluster) match
+      case (Some(m), Some(c)) if m.cluster.isEmpty => Some(m.copy(cluster = Some(c)))
+      case (Some(m), _) => Some(m)
+      case (None, Some(c)) =>
+        Some(Manifest(
+          name = None,
+          version = None,
+          description = None,
+          dependencies = Map.empty,
+          exports = Nil,
+          targets = Nil,
+          routes = Nil,
+          pkg = None,
+          translations = Map.empty,
+          cluster = Some(c),
+          raw = Map.empty
+        ))
+      case (None, None) => None
+
+  private def extractSourceCluster(body: String): (Option[ClusterDecl], String) =
+    val lines = body.linesIterator.toVector
+    val start = lines.indexWhere(line => line.matches("""^cluster\s+[A-Za-z_][A-Za-z0-9_-]*:\s*$"""))
+    if start < 0 then return (None, body)
+    val name = lines(start).trim.stripPrefix("cluster").stripSuffix(":").trim
+    var end = start + 1
+    while end < lines.length && (lines(end).startsWith(" ") || lines(end).startsWith("\t") || lines(end).trim.isEmpty) do
+      end += 1
+    val block = lines.slice(start + 1, end).map(_.trim).filter(_.nonEmpty)
+    val keyVals = block.collect {
+      case line if line.contains("=") =>
+        val i = line.indexOf("=")
+        line.take(i).trim -> unquote(line.drop(i + 1).trim)
+    }.toMap
+    val heartbeatArgs = block.collectFirst {
+      case line if line.startsWith("heartbeat(") && line.endsWith(")") =>
+        parseCallArgs(line.stripPrefix("heartbeat(").stripSuffix(")"))
+    }.getOrElse(Map.empty)
+    val quorum = block.collectFirst {
+      case line if line.startsWith("quorum(") && line.endsWith(")") =>
+        line.stripPrefix("quorum(").stripSuffix(")").trim.toIntOption
+    }.flatten
+    val cluster = ClusterDecl(
+      name = Some(name),
+      nodes = keyVals.get("nodes").flatMap(_.toIntOption),
+      seedDiscovery = keyVals.get("seedDiscovery"),
+      leaderElection = keyVals.get("leaderElection"),
+      authTokenFrom = keyVals.get("authTokenFrom"),
+      heartbeat = heartbeatArgs,
+      quorum = quorum
+    )
+    val cleaned = (lines.take(start) ++ lines.slice(start, end).map(_ => "") ++ lines.drop(end)).mkString("\n")
+    (Some(cluster), cleaned)
+
+  private def parseCallArgs(args: String): Map[String, String] =
+    args.split(",").toList.flatMap { part =>
+      val i = part.indexOf("=")
+      if i < 0 then None else Some(part.take(i).trim -> unquote(part.drop(i + 1).trim))
+    }.toMap
+
+  private def unquote(value: String): String =
+    if value.length >= 2 && ((value.head == '"' && value.last == '"') || (value.head == '\'' && value.last == '\'')) then
+      value.substring(1, value.length - 1)
+    else value
 
   private def parseRemoteHandlers(raw: Map[String, Any]): List[RemoteHandlerDecl] =
     parseNamedRegistry(raw, "remoteHandlers", "remote-handlers").flatMap { (name, mm) =>
@@ -477,6 +549,16 @@ object Parser:
       case m: java.util.Map[?, ?] =>
         m.asScala.iterator.collect { case (k: String, v) => k -> v.toString }.toMap
     }.getOrElse(Map.empty)
+
+  private def parseInt(value: Option[Any]): Option[Int] =
+    value.flatMap {
+      case n: java.lang.Integer => Some(n.intValue)
+      case n: java.lang.Long    => Some(n.intValue)
+      case n: java.lang.Short   => Some(n.intValue)
+      case n: java.lang.Byte    => Some(n.intValue)
+      case s: String            => s.toIntOption
+      case other                => other.toString.toIntOption
+    }
 
   private def validateRemoteRegistries(module: Module): Unit =
     module.manifest.foreach { m =>

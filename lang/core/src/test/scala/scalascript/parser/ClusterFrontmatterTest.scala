@@ -117,3 +117,30 @@ class ClusterFrontmatterTest extends AnyFunSuite:
       )
     }
     assert(err.getMessage.contains("remoteHandlers.users.get references missing local definition 'missingGetUser'"))
+
+  test("source cluster block lowers into cluster metadata"):
+    val mod = Parser.parse(
+      """# Demo
+        |
+        |cluster Demo:
+        |  nodes = 3
+        |  seedDiscovery = SeedResolver.k8sHeadlessService("ssc-demo")
+        |  leaderElection = Raft
+        |  authTokenFrom = K8sSecret("ssc-cluster-token", key = "token")
+        |  heartbeat(intervalMs = 5000, deadAfterMs = 40000)
+        |  quorum(2)
+        |
+        |```scala
+        |val x = 1
+        |```
+        |""".stripMargin
+    )
+
+    val cluster = mod.manifest.flatMap(_.cluster).get
+    assert(cluster.name.contains("Demo"))
+    assert(cluster.nodes.contains(3))
+    assert(cluster.seedDiscovery.contains("""SeedResolver.k8sHeadlessService("ssc-demo")"""))
+    assert(cluster.leaderElection.contains("Raft"))
+    assert(cluster.authTokenFrom.contains("""K8sSecret("ssc-cluster-token", key = "token")"""))
+    assert(cluster.heartbeat == Map("intervalMs" -> "5000", "deadAfterMs" -> "40000"))
+    assert(cluster.quorum.contains(2))

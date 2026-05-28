@@ -73,7 +73,7 @@ object Denormalize:
     ast.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.stream, e.paginated, e.span.map(span))
 
   private def clusterDecl(c: ir.ClusterDecl): ast.ClusterDecl =
-    ast.ClusterDecl(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken, c.placement, c.wire, c.span.map(span))
+    ast.ClusterDecl(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken, c.placement, c.wire, c.nodes, c.seedDiscovery, c.leaderElection, c.authTokenFrom, c.heartbeat, c.quorum, c.span.map(span))
 
   private def remoteHandlerDecl(h: ir.RemoteHandlerDecl): ast.RemoteHandlerDecl =
     ast.RemoteHandlerDecl(h.name, h.function, h.path, h.requestType, h.responseType, h.span.map(span))

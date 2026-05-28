@@ -146,6 +146,12 @@ object SsccFormat:
     authToken:    Option[Array[Byte]] = None,
     placement:    Map[String, String] = Map.empty,
     wire:         Map[String, String] = Map.empty,
+    nodes:        Option[Int] = None,
+    seedDiscovery: Option[String] = None,
+    leaderElection: Option[String] = None,
+    authTokenFrom: Option[String] = None,
+    heartbeat:    Map[String, String] = Map.empty,
+    quorum:       Option[Int] = None,
     span:         Option[Span] = None
   )
 
@@ -310,7 +316,7 @@ object SsccFormat:
     )
 
   private def toPickle(c: ClusterDecl): ClusterDeclPickle =
-    ClusterDeclPickle(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken.map(compress), c.placement, c.wire, c.span)
+    ClusterDeclPickle(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken.map(compress), c.placement, c.wire, c.nodes, c.seedDiscovery, c.leaderElection, c.authTokenFrom, c.heartbeat, c.quorum, c.span)
 
   private def toPickle(h: RemoteHandlerDecl): RemoteHandlerDeclPickle =
     RemoteHandlerDeclPickle(h.name, h.function, h.path, h.requestType, h.responseType, h.span)
@@ -442,7 +448,7 @@ object SsccFormat:
     )
 
   private def fromPickle(pk: ClusterDeclPickle): ClusterDecl =
-    ClusterDecl(pk.name, pk.nodeId, pk.role, pk.bind, pk.advertiseUrl, pk.seedNodes, pk.authToken.map(decompress), pk.placement, pk.wire, pk.span)
+    ClusterDecl(pk.name, pk.nodeId, pk.role, pk.bind, pk.advertiseUrl, pk.seedNodes, pk.authToken.map(decompress), pk.placement, pk.wire, pk.nodes, pk.seedDiscovery, pk.leaderElection, pk.authTokenFrom, pk.heartbeat, pk.quorum, pk.span)
 
   private def fromPickle(pk: RemoteHandlerDeclPickle): RemoteHandlerDecl =
     RemoteHandlerDecl(pk.name, pk.function, pk.path, pk.requestType, pk.responseType, pk.span)

@@ -119,6 +119,12 @@ case class ClusterDecl(
   authToken:    Option[String] = None,
   placement:    Map[String, String] = Map.empty,
   wire:         Map[String, String] = Map.empty,
+  nodes:        Option[Int] = None,
+  seedDiscovery: Option[String] = None,
+  leaderElection: Option[String] = None,
+  authTokenFrom: Option[String] = None,
+  heartbeat:    Map[String, String] = Map.empty,
+  quorum:       Option[Int] = None,
   span:         Option[Span] = None
 )
 

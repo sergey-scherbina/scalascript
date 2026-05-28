@@ -430,6 +430,9 @@ diagnostic. `cluster:`, `remoteHandlers:`,
 AST/IR metadata and survive `.sscc` round-trip; lowering them into generated
 startup code remains planned. Parser-time validation rejects registry entries
 whose `function`, `source`, or `behavior` target is not defined locally.
+Top-level `cluster Name:` blocks lower into the same `ClusterDecl` metadata
+shape, preserving nodes, seed discovery, leader election, auth source,
+heartbeat, and quorum settings.
 
 The source-level typed declaration is primary:
 
@@ -826,7 +829,8 @@ work queue links. No runtime changes.
 - Parse `cluster:` and registry front matter. ✓ Landed 2026-05-28 as typed
   `ClusterDecl`, `RemoteHandlerDecl`, `RemoteSourceDecl`, and
   `RemoteBehaviorDecl` metadata in AST/IR/`.sscc`.
-- Add source `cluster Demo:` lowering.
+- Add source `cluster Demo:` lowering. ✓ Landed 2026-05-28 for top-level
+  source cluster blocks into `ClusterDecl` metadata.
 - Add diagnostics for missing handlers/codecs/code mismatch. Partial landed
   2026-05-28 for missing front-matter registry definitions and code identity
   mismatch; codec validation remains planned.
@@ -889,7 +893,7 @@ work queue links. No runtime changes.
 |---|---|
 | v1.63.1 | `Source(1,2,3).distributed.map(_*2).local.runToList == List(2,4,6)` through DirectRunner; bounded variant fails on a tiny byte limit; `BasicStreamOps` compiles against both `Source` and `DStream` |
 | v1.63.2 | Local spawn still works; `spawnRemote` delivers through the local interpreter path and jar-gated two-node CLI smoke; `ref.isLocal` / `ref.address` / `ref.tryLocal` correct; JVM `setClusterAuthToken` test |
-| v1.63.3 | `clusterOf()` exposes local node, peers, auth token, seed resolver, and code identity; static/DNS/K8s seeds resolve; Consul fails clearly until its resolver backend lands; `assertCodeIdentity` reports expected/actual digest mismatch; `cluster:` and registry front matter parse into typed metadata and survive Normalize/Denormalize + `.sscc`; missing registry function/source/behavior targets are rejected. Remaining: `cluster Demo:` lowering and codec validation |
+| v1.63.3 | `clusterOf()` exposes local node, peers, auth token, seed resolver, and code identity; static/DNS/K8s seeds resolve; Consul fails clearly until its resolver backend lands; `assertCodeIdentity` reports expected/actual digest mismatch; `cluster:` and registry front matter parse into typed metadata and survive Normalize/Denormalize + `.sscc`; missing registry function/source/behavior targets are rejected; top-level `cluster Demo:` lowers into `ClusterDecl`. Remaining: codec validation |
 | v1.63.4 | `@remote def echo` plus generated client round-trip; timeout/decode/auth errors surface as typed `RemoteCallError`; JSON fallback works without binary wire |
 | v1.63.5 | `ssc cluster run` two local processes; `handlers` lists exported operations; worker bundle contains code identity and registry metadata |
 | v1.63.6 | Remote stream subscribe/order/cancel/reconnect; SSE overflow policy; proxy actor failure translation; actor group routing |
