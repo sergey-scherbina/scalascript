@@ -131,11 +131,12 @@ ssc x402-cardano.ssc &           # server side of the example
 ssc x402-cardano.ssc             # the same script, client side
 ```
 
-## What's left as future work
+## Notes
 
 - **Base addresses with staking** — the wallet derives enterprise
   addresses (CIP-19 type 6/7). Stake-aware base addresses require a
   separate stake key and aren't auto-derived; pass them explicitly via
   `Wallets.cardano(hex, address, network)`.
-- **Scalus settlement** — `CardanoProvider.Scalus` is stubbed pending
-  server-side Tx building (see `MILESTONES.md` x402 Phase 6).
+- **Scalus escrow path** — for on-chain-enforced settlement (Plutus V3
+  escrow, facilitator builds + submits the claim Tx), see
+  `examples/x402-cardano-scalus.ssc` and `CardanoScalusFacilitator`.
