@@ -135,7 +135,7 @@ private[interpreter] object DatasetRuntime:
       }),
       "sum" -> Value.NativeFnV("Dataset.sum", Computation.pureFn { _ =>
         val xs = run()
-        xs.foldLeft(Value.IntV(0L): Value) { (acc, v) =>
+        xs.foldLeft(Value.intV(0L): Value) { (acc, v) =>
           Computation.run(interp.infix(acc, "+", List(v), Map.empty))
         }
       }),
@@ -237,7 +237,7 @@ private[interpreter] object DatasetRuntime:
       "runLocal"    -> Value.NativeFnV("Dataset.runLocal",    Computation.pureFn(_ => makeDatasetV(run, interp))),
       "runParallel" -> Value.NativeFnV("Dataset.runParallel", Computation.pureFn(_ => makeDatasetV(run, interp))),
       "collect"     -> Value.NativeFnV("Dataset.collect",     Computation.pureFn(_ => Value.ListV(run()))),
-      "count"       -> Value.NativeFnV("Dataset.count",       Computation.pureFn(_ => Value.IntV(run().length.toLong))),
+      "count"       -> Value.NativeFnV("Dataset.count",       Computation.pureFn(_ => Value.intV(run().length.toLong))),
       "reduce" -> Value.NativeFnV("Dataset.reduce", {
         case List(combineFn) =>
           val items = run()

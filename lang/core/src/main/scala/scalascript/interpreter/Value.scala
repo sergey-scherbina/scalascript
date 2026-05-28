@@ -162,17 +162,27 @@ enum Value:
   case Foreign(typeName: String, handle: Any)
 
 object Value:
-  // Pool for common small integer values (-128..1024). `intV(n)` returns a
+  // Pool for common small integer values (-2048..16383). `intV(n)` returns a
   // cached instance for in-range values, avoiding a heap allocation on every
-  // arithmetic result (fib/sum hot loops hit this on every iteration).
-  private val _poolMin = -128L
-  private val _poolMax = 1024L
+  // arithmetic result. Wider range covers typical loop counters beyond 1024
+  // and keeps HTTP status codes (200–500) pooled.
+  private val _poolMin = -2048L
+  private val _poolMax = 16383L
   private val _intVPool: Array[IntV] =
     Array.tabulate((_poolMax - _poolMin + 1).toInt)(i => IntV(_poolMin + i))
 
   def intV(n: Long): IntV =
     if n >= _poolMin && n <= _poolMax then _intVPool((n - _poolMin).toInt)
     else IntV(n)
+
+  // Pre-cached DoubleV constants for 0.0 and 1.0.
+  val DoubleZero: DoubleV = DoubleV(0.0)
+  val DoubleOne:  DoubleV = DoubleV(1.0)
+
+  def doubleV(d: Double): DoubleV =
+    if d == 0.0 then DoubleZero
+    else if d == 1.0 then DoubleOne
+    else DoubleV(d)
 
   // Pre-cached constants used by the Computation monad's run loop.
   val True:  BoolV = BoolV(true)

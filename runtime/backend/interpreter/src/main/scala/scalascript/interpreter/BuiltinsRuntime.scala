@@ -71,7 +71,7 @@ private[interpreter] object BuiltinsRuntime:
           case List(f) =>
             // f(i) may perform effects — sequence the computations
             Computation.sequence((0 until n.toInt).toList.map(i =>
-              interp.callValue(f, List(Value.IntV(i)), Map.empty)))
+              interp.callValue(f, List(Value.intV(i)), Map.empty)))
           case _ => throw InterpretError("List.tabulate(n)(f)")
         }))
       case _ => throw InterpretError("List.tabulate(n)(f)")

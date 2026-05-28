@@ -330,9 +330,9 @@ private[interpreter] object DispatchRuntime:
       case (Value.IntV(n),    "abs",       Nil) => Pure(Value.intV(math.abs(n)))
       case (Value.IntV(n),    "toString",  Nil) => Pure(Value.StringV(n.toString))
       case (Value.IntV(n),    "to",        List(Value.IntV(m))) =>
-        Pure(Value.ListV((n to m).map(Value.IntV(_)).toList))
+        Pure(Value.ListV((n to m).map(Value.intV(_)).toList))
       case (Value.IntV(n),    "until",     List(Value.IntV(m))) =>
-        Pure(Value.ListV((n until m).map(Value.IntV(_)).toList))
+        Pure(Value.ListV((n until m).map(Value.intV(_)).toList))
       case (Value.DoubleV(d), "toInt",     Nil) => Pure(Value.intV(d.toLong))
       case (Value.DoubleV(d), "toLong",    Nil) => Pure(Value.intV(d.toLong))
       case (Value.DoubleV(d), "abs",       Nil) => Pure(Value.DoubleV(math.abs(d)))

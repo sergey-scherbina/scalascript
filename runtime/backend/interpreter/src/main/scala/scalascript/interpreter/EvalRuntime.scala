@@ -36,10 +36,10 @@ private[interpreter] object EvalRuntime:
       if cached != null then cached
       else
         val c = lit match
-          case Lit.Int(v)     => Pure(Value.IntV(v.toLong))
-          case Lit.Long(v)    => Pure(Value.IntV(v))
-          case Lit.Double(v)  => Pure(Value.DoubleV(v.toString.toDouble))
-          case Lit.Float(v)   => Pure(Value.DoubleV(v.toString.toDouble))
+          case Lit.Int(v)     => Pure(Value.intV(v.toLong))
+          case Lit.Long(v)    => Pure(Value.intV(v))
+          case Lit.Double(v)  => Pure(Value.doubleV(v.toString.toDouble))
+          case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.String(v)  => Pure(Value.StringV(v))
           case Lit.Boolean(v) => Pure(Value.BoolV(v))
           case Lit.Char(v)    => Pure(Value.CharV(v))
