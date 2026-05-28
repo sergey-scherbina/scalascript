@@ -16,6 +16,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **queue-architecture-themes** — Added Architecture & Extensibility roadmap items to `WORK_QUEUE.md` so agents can claim them directly. Official centralized publishing to Maven Central / sbt Plugin Portal remains deferred in `BACKLOG.md`; ScalaScript's own package registry tasks are queued.
 
+## 2026-05-28 — v1.61.3 Env overhaul
+
+- **v1.61.3-env-overhaul** — Two targeted hot-path fixes eliminating O(N_globals) overhead per while-loop iteration: (1) While-loop frame now only copies env entries that differ from `interp.globals` (locally-declared vars), shrinking from O(N_globals) to O(N_local_vars) — 2-5 entries instead of 300+; (2) `evalBlock` intercepts ALL `Term.Assign(Name)` to write both `local` and `interp.globals` simultaneously, making the per-statement global refresh a cheap no-op for direct-assignment blocks. **Benchmarks (median 3 runs):** arith-loop 15600ms → 4480ms (**3.5×**); pattern-match-heavy 6070ms → 4300ms (**1.4×**); recursion-tco/fib/tuple-monoid unchanged. No behavior change; 115/116 tests pass (pre-existing Choose multi-shot failure).
+
 ## 2026-05-28 — v1.61.2 Computation pure-path elimination
 
 - **v1.61.2-pure-path** — Smart `Computation.map` constructor (skips FlatMap allocation when sub is Pure); all-Pure fast path in `Computation.sequence` (skips N-deep FlatMap chain for pure list operations); `Term.Select` pure-path in `EvalRuntime` (skips FlatMap for field access when receiver is Pure); `Term.Assign` pure-path (skips FlatMap for global-var assignment with pure RHS); `BlockRuntime.evalBlock` pure-paths for local-var assignment and compound assignment. Reduces FlatMap allocations on hot interpreter paths. No behavior change.

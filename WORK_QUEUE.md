@@ -457,7 +457,7 @@ ScalaScript's own registry work stays queued.
 - [x] **v1.61.0-bench** — Benchmark infrastructure: 8-workload corpus (`bench/corpus/`), `bench/run.sc` (scala-cli timing harness), `bench/BASELINE.md`, `runtime/backend/interpreter-bench` (sbt-jmh module), `scripts/bundle-size.sh`. ✓ Landed 2026-05-28.
 - [x] **v1.61.1-dispatch-table** — Two-level dispatch in `DispatchRuntime` (`recv match` → per-type `name match` hashCode switch); extensions early-exit when no user extensions registered. ✓ Landed 2026-05-28.
 - [x] **v1.61.2-pure-path** — Smart `Computation.map`; all-Pure fast path in `sequence`; pure-path in `Term.Select`/`Term.Assign`/`BlockRuntime.evalBlock`. ✓ Landed 2026-05-28.
-- [ ] **v1.61.3-env-overhaul** — Thread `FrameMap` through `BlockRuntime.evalBlock`; eliminate `local.toMap`/per-stmt refresh; reuse env across `while` iterations. Target: ≥2× on arith-loop.
+- [x] **v1.61.3-env-overhaul** — While-loop frame filtered to O(N_local_vars); ALL Term.Assign intercepts keep local in sync. arith-loop 15600ms → 4480ms (3.5×). ✓ Landed 2026-05-28.
 - [ ] **v1.61.4-pattern-compile** — Compile `Term.Match` to decision-tree closure cached by AST identity. Target: ≥4× on pattern-match-heavy.
 - [ ] **v1.61.5-js-inlining** — Drop IIFE wrappers in statement position; inline known accessors; type-aware `_dispatch` skip. Target: ≥30% JS speedup, ≥40% smaller output.
 - [ ] **v1.61.6-preamble-split** — Sub-capability split of JS `Core` and JVM `commonRuntime`; Hello World target <10 KB. Target: ≥80% bundle reduction for trivial programs.
