@@ -115,67 +115,63 @@ Usage: `ssc --Ystats build --incremental runtime/std/`
 This is the **prerequisite measurement layer** for all further compiler
 optimizations — run it before and after any change and attach the delta.
 
-### 3b. JMH benchmark suite for compiler hot paths
+### 3b. JMH benchmark suite for compiler hot paths ✓ Landed (2026-05-28)
 
-**Effort: ~2 days. Impact: measurement only (enables data-driven opt).**
+**Status: complete.**
 
-Without microbenchmarks, optimizing the typer is guesswork.  Add a
-`langCoreBench` sbt subproject using `sbt-jmh`:
+New `compilerBench` sbt subproject at `lang/core-bench` with three benchmarks:
 
-- `ParserBench` — parse `runtime/std/actors.ssc` (25 KB) end-to-end.
-- `TyperBench` — typecheck the parsed module.
-- `UnifyBench` — unify pairs of deeply nested `SType` (stress
-  `SType.subst` and `Unifier.solve`); use `-prof gc` to measure
-  allocation rate.
+- `ParserBench` — parse `runtime/std/actors.ssc` (547 lines) end-to-end.
+- `TyperBench` — type-check the parsed actors module via `Typer.typeCheck`.
+- `UnifyBench` — unify deeply-nested `Function/Tuple` constraints at
+  depths 3 and 8, stressing `SType.subst` and the occurs check.
 
-Baseline numbers establish the "before" for each optimization below.
+Run: `sbt "compilerBench/Jmh/run -prof gc -wi 3 -i 5"`
 
-Key files: `build.sbt` (new project), `lang/core/src/main/scala/…`
-hot paths at `Types.scala:140–169` (subst/freeVars) and
-`Typer.scala:594` (inferType).
+### 3c. Typer allocation hot path ✓ Landed (2026-05-28)
 
-### 3c. Typer allocation hot path
+**Status: complete.**
 
-**Effort: ~1 week. Impact: high for complex modules.**
+Four concrete fixes landed in this commit batch:
 
-`SType.subst` and `SType.freeVars` (`Types.scala:140–169`) rebuild the
-entire type tree on every `Unifier.solve` step (`Types.scala:243–244`).
+1. **Hash-cons `SType.Named(name, Nil)`** — `SType.named0(name)` uses a
+   `ConcurrentHashMap` intern cache; `primitiveOrNamed` and `checkStat`
+   (class/object/enum/opaque) now share a single object per distinct type
+   name rather than allocating per use-site.
 
-Three concrete fixes in priority order:
+2. **`IntMap` for unifier substitution** — `Unifier.unify` now uses
+   `scala.collection.immutable.IntMap` for the `subst` accumulator,
+   unboxing the `Int` key on every lookup.  Drop-in replacement.
 
-1. **Hash-cons primitive `SType.Named`** — intern `Named(name, Nil)` for
-   all arg-free types via a `concurrent.Map[String, Named]`.  The module-
-   level vals for `Int`, `Boolean`, etc. (`Types.scala:171–186`) are already
-   correct; extend the pattern.
+3. **`subst` empty-map guard** — `if m.isEmpty then return this` skips
+   all tree traversal when no type variables have been bound yet.
 
-2. **`IntMap` for unifier substitution** — replace `Map[Int, SType]` with
-   `scala.collection.immutable.IntMap`; unboxes the `Int` key on every
-   lookup.  Drop-in replacement in `subst` + `Unifier.solve`.
+4. **`Named(_, Nil) → this` in subst** — zero-arg types can never contain
+   type variables; skip recursion entirely.
 
-3. **`freeVars` accumulator** — replace per-node `Set.flatMap` with a
-   `mutable.BitSet` accumulator passed by reference.
+5. **`containsFreeVar` short-circuit occurs check** — replaces
+   `t.freeVars.contains(id)` (builds full `Set[Int]`) with
+   `t.containsFreeVar(id)` (returns as soon as the var is found).
 
-Structural fix (do after 1–3 are measured): switch to path-compressed
-union-find for type-var unification so substitutions are never applied
-eagerly.
+### 3d. Parser double-parse under `package:` ✓ Landed (2026-05-28)
 
-### 3d. Parser double-parse under `package:` (quick win)
+**Status: complete.**
 
-**Effort: ~1 day. Impact: any project that uses `package:` front-matter.**
+`extractSections` now takes a `skipInitialParse: Boolean` parameter.
+When `package:` is set, `wrapSectionInPackage` always discards the
+first parse; we now skip it entirely by deferring the scalameta call
+to the wrap step.
 
-`Parser.wrapSectionInPackage` (`Parser.scala:74–110`) passes every fenced
-code block through scalameta twice when `package:` is set: once raw, once
-wrapped.  Restructure preprocessing so scalameta sees the wrapped form once.
+### 3e. `Scope.lookup` iterative ✓ Landed (2026-05-28)
 
-### 3e. `Scope.lookup` and `Typer.createPrelude` (quick wins)
+**Status: complete.**
 
-**Effort: ~1 day. Impact: typer hot path.**
+`Scope.lookup` and `Scope.lookupType` replaced recursive `Option.orElse`
+chains with `while` loops, eliminating `Option` allocation per scope hop.
 
-- `Scope.lookup` (`Types.scala:218–226`) recurses via `Option.orElse`;
-  replace with a `while` loop.
-- `Typer.createPrelude()` is rebuilt on every `Typer.typeCheck` call
-  (`Typer.scala:59`); cache as a `lazy val` shared across modules in one
-  build.
+Note: `Typer.createPrelude` cache was deferred — the prelude `Scope` is
+mutated by `predeclareModuleNames` in the no-importedInterfaces path,
+preventing safe sharing.  Requires splitting module scope from prelude.
 
 ### 3f. Parallel compilation
 
@@ -297,11 +293,11 @@ standalone (without interface files) is straightforward.  Effort: ~1 day.
 | ✓ | Interpreter split (2c) | Done v1.33 |
 | ✓ | JvmGen artifact caching (3g) | Done v1.35 |
 | ✓ | Phase-timing `--Ystats` (3a) | Done 2026-05-28 — measurement foundation |
-| 1 | JMH benchmark suite (3b) | 2 days; prerequisite for data-driven typer opt |
-| 2 | `ssc check` (6c) | 1 day, high CI value |
-| 3 | Typer allocation — hash-cons + IntMap (3c) | Expected largest compiler speedup; validate with 3b first |
-| 4 | Parser double-parse fix (3d) | 1 day quick win for `package:` projects |
-| 5 | `Scope.lookup` + prelude cache (3e) | 1 day, safe wins |
+| ✓ | JMH benchmark suite (3b) | Done 2026-05-28 — ParserBench + TyperBench + UnifyBench |
+| ✓ | Typer allocation — hash-cons + IntMap (3c) | Done 2026-05-28 — 5 optimizations landed |
+| ✓ | Parser double-parse fix (3d) | Done 2026-05-28 — skipInitialParse flag |
+| ✓ | `Scope.lookup` iterative (3e) | Done 2026-05-28 — while loop replaces Option chain |
+| 1 | `ssc check` (6c) | 1 day, high CI value |
 | 6 | JS tree-shaking (4a) | Bundle size matters for browser |
 | 7 | Parallel compilation (3f) | Needs 3c done first (verify no shared state) |
 | 8 | Library modularity (5) | Enables embedding use cases |
