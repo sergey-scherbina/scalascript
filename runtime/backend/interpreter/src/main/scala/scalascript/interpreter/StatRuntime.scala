@@ -11,19 +11,20 @@ private[interpreter] object StatRuntime:
 
   def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false, interp: Interpreter): Unit =
     interp.trackPos(stat)
+    val envView = new MutableEnvView(env)
     stat match
     case Defn.Val(_, pats, _, rhs) =>
-      val rhsVal = Computation.run(interp.eval(rhs, env.toMap))
+      val rhsVal = Computation.run(interp.eval(rhs, envView))
       pats match
         case List(Pat.Var(n)) => env(n.value) = rhsVal
         case List(pat) =>
-          PatternRuntime.matchPat(pat, rhsVal, env.toMap, interp) match
+          PatternRuntime.matchPat(pat, rhsVal, envView, interp) match
             case Some(patEnv) => patEnv.foreach { (k, v) => env(k) = v }
             case None         => interp.located(s"Val pattern match failed")
         case _ => ()
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-      env(n.value) = Computation.run(interp.eval(rhs, env.toMap))
+      env(n.value) = Computation.run(interp.eval(rhs, envView))
 
     case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) =>
       // Stage 5+/A.6 (Б-1) — extern def stub is type-only; the
@@ -79,7 +80,7 @@ private[interpreter] object StatRuntime:
       // Also unfold any existing same-named object's fields so separate code
       // blocks all wrapped in `object std { object dsl { ... } }` can reference
       // symbols defined by earlier blocks during evaluation, not only after merge.
-      val outerSnap  = interp.globals.toMap ++ env.toMap
+      val outerSnap  = interp.globals.toMap ++ envView
       val existingFields = env.get(objectName) match
         case Some(Value.InstanceV(_, fs)) => fs
         case _                            => Map.empty[String, Value]
@@ -107,7 +108,7 @@ private[interpreter] object StatRuntime:
       val paramNames    = params.map(_.name.value)
       val paramDefaults = params.map(_.default)
       val typeName = d.name.value
-      val ctorEnv = env.toMap
+      val ctorEnv = envView
       interp.typeFieldOrder(typeName) = paramNames
       interp.typeFieldTypes(typeName) = params.map(p =>
         p.decltpe.fold("String")(interp.typeToString)
@@ -134,7 +135,7 @@ private[interpreter] object StatRuntime:
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
       // each method's closure with the instance's data fields so the body can
       // refer to them by name (`x`, `y` in `def distanceTo(other) = ...x...`).
-      val classEnv = env.toMap
+      val classEnv = envView
       val methodPairs: List[(String, Value.FunV)] = d.templ.body.stats.collect {
         case dd: Defn.Def =>
           val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
@@ -156,7 +157,7 @@ private[interpreter] object StatRuntime:
     case d: Defn.Enum =>
       val enumName = d.name.value
       val caseFields = mutable.Map.empty[String, Value]
-      val ctorEnv = env.toMap
+      val ctorEnv = envView
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
@@ -269,7 +270,7 @@ private[interpreter] object StatRuntime:
             // Receiver param has no default; method params keep theirs.
             val methodDefaults: List[Option[Term]] = None :: mparamVals.map(_.default)
             interp.extensions((recvTypeName, defn.name.value)) =
-              Value.FunV(recvName :: methodParams, defn.body, env.toMap, "", methodDefaults)
+              Value.FunV(recvName :: methodParams, defn.body, envView, "", methodDefaults)
           d.body match
             case defn: Defn.Def    => registerDef(defn)
             case Term.Block(stats) => stats.foreach { case defn: Defn.Def => registerDef(defn); case _ => () }
@@ -278,7 +279,7 @@ private[interpreter] object StatRuntime:
       }
 
     case t: Term =>
-      val result = Computation.run(interp.eval(t, env.toMap))
+      val result = Computation.run(interp.eval(t, envView))
       t match
         case Term.Apply.After_4_6_0(Term.Name("main"), _) => interp.mainCalled = true
         case _                                => ()
