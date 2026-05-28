@@ -6667,6 +6667,27 @@ function _makeAsyncStream(iter) {
     async runFold(z)    { return async (f) => { let acc = z; for await (const v of iter) acc = f(acc, v); return acc; }; },
     async runToList()   { const a = []; for await (const v of iter) a.push(v); return a; },
     async runDrain()    { for await (const _ of iter) {} },
+    // ── v1.51.1 scan / onError / cancellable ─────────────────────────────
+    scan(z)    { return (f) => _makeAsyncStream((async function*(it) { let acc=z; for await (const v of it) { acc=f(acc,v); yield acc; } })(iter)); },
+    onError(f) { return _makeAsyncStream((async function*(it) { try { for await (const v of it) yield v; } catch(e) { f(e&&e.message||String(e)); } })(iter)); },
+    cancellable() { let _c=false; const src=_makeAsyncStream((async function*(it) { try { for await (const v of it) { if(_c) break; yield v; } } catch(e){} })(iter)); const t=[src,()=>{_c=true;}]; t._isTuple=true; return t; },
+    // ── v1.51.2 combining operators ───────────────────────────────────────
+    merge(other)    { return _makeAsyncStream((async function*(it) { for await (const v of it) yield v; for await (const v of other) yield v; })(iter)); },
+    zipWith(other)  { return (f) => _makeAsyncStream((async function*(it) { const it2=other[Symbol.asyncIterator](); for await (const v of it) { const b=await it2.next(); if(b.done) break; yield f(v,b.value); } })(iter)); },
+    async broadcast(n) { const a=[]; for await (const v of iter) a.push(v); return Array.from({length:n},()=>_makeAsyncStream((async function*(xs){for(const v of xs)yield v;})(a))); },
+    async balance(n)   { const a=[]; for await (const v of iter) a.push(v); return Array.from({length:n},(_,i)=>_makeAsyncStream((async function*(xs){for(const v of xs)yield v;})(a.filter((_,j)=>j%n===i)))); },
+    async groupBy(kf)  { const a=[]; for await (const v of iter) a.push(v); const g=new Map(); for(const v of a){const k=kf(v);if(!g.has(k))g.set(k,[]);g.get(k).push(v);} const ps=[]; for(const [k,vs] of g){const t=[k,_makeAsyncStream((async function*(xs){for(const v of xs)yield v;})(vs))];t._isTuple=true;ps.push(t);} return _makeAsyncStream((async function*(arr){for(const v of arr)yield v;})(ps)); },
+    mergeSubstreams()  { return _makeAsyncStream((async function*(it) { for await (const v of it) { for await (const x of v) yield x; } })(iter)); },
+    // ── v1.51.2 advanced operators ────────────────────────────────────────
+    buffer(n,s)    { return this; },
+    throttle(rate) { return _makeAsyncStream((async function*(it) { let cnt=0,start=Date.now(); for await (const v of it) { cnt++; if(cnt>rate.elements){const e=Date.now()-start;if(e<rate.perMillis)await new Promise(r=>setTimeout(r,rate.perMillis-e));start=Date.now();cnt=1;} yield v; } })(iter)); },
+    debounce(ms)   { return _makeAsyncStream((async function*(it) { let last,has=false; for await (const v of it){last=v;has=true;} if(has){await new Promise(r=>setTimeout(r,ms));yield last;} })(iter)); },
+    mapAsync(n)    { return (f) => _makeAsyncStream((async function*(it) { const a=[]; for await (const v of it) a.push(v); const r=await Promise.all(a.map(f)); for(const v of r) yield v; })(iter)); },
+    recover(h)     { return _makeAsyncStream((async function*(it) { try { for await (const v of it) yield v; } catch(e) { yield h(e&&e.message||String(e)); } })(iter)); },
+    mapError(f)    { return _makeAsyncStream((async function*(it) { try { for await (const v of it) yield v; } catch(e) { f(e&&e.message||String(e)); } })(iter)); },
+    // ── v1.51.2 routing ───────────────────────────────────────────────────
+    async to(sink) { return sink.run(this); },
+    via(flow)      { return flow.apply(this); },
   };
   return self;
 }
@@ -7925,7 +7946,14 @@ class JsGen(
                    // them up before the Term-level lowering runs.
                    allText.contains("startNode") || allText.contains("connectNode") ||
                    allText.contains("joinCluster")
-    if hasAsync then caps += Async
+    // v1.51.2 streams — Source.* / stream {} / runToList / etc. require the async runtime
+    // (_makeAsyncStream uses async function*; terminal ops need await).
+    val hasStreams = allText.contains("Source.") || allText.contains("stream {") ||
+                    allText.contains("runToList") || allText.contains("runForeach") ||
+                    allText.contains("runDrain")  || allText.contains("runFold") ||
+                    allText.contains("runStream") || allText.contains("Sink.") ||
+                    allText.contains("Flow.")
+    if hasAsync || hasStreams then caps += Async
     // v1.4 effects: Logger / Random / Clock / Env / Auth — `JsRuntimeV14Effects`.
     val hasV14 = allText.contains("Logger.") || allText.contains("Random.") ||
                  allText.contains("Clock.")  || allText.contains("Env.")    ||
@@ -9799,9 +9827,13 @@ class JsGen(
           s"_makePrism('$variantName')"
         case _ => genExpr(t.fun)
 
-    // v1.51.2 Streams — Source.empty (field access, no args)
+    // v1.51.2 Streams — Source.empty / Sink.ignore / Sink.toList (field access, no args)
     case Term.Select(Term.Name("Source"), Term.Name("empty")) =>
       "_makeAsyncStream((async function*() {})(  ))"
+    case Term.Select(Term.Name("Sink"), Term.Name("ignore")) =>
+      "({ run: (src) => src.runDrain() })"
+    case Term.Select(Term.Name("Sink"), Term.Name("toList")) =>
+      "({ run: (src) => src.runToList() })"
     // Field/method selection without arguments
     case Term.Select(qual, name) =>
       val qualJs = genExpr(qual)
@@ -10176,6 +10208,52 @@ class JsGen(
         argClause) if argClause.values.size == 1 =>
       val gen = genExpr(argClause.values.head.asInstanceOf[Term])
       s"_makeAsyncStream((async function*(g) { for await (const v of { [Symbol.asyncIterator]() { return { async next() { const r = g.next(); return r === null ? { done: true } : { done: false, value: r._value }; } }; } }) yield v; })($gen))"
+    // v1.51.1 Source.tick / Source.unfold / Source.fromCallback
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("tick")),
+        argClause) if argClause.values.size == 1 =>
+      val ms = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*() { while(true) { if($ms>0) await new Promise(r=>setTimeout(r,$ms)); yield undefined; } })(  ))"
+    // Source.unfold(seed)(f) — curried application
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("unfold")),
+          seedClause),
+        fClause) if seedClause.values.size == 1 && fClause.values.size == 1 =>
+      val seed = genExpr(seedClause.values.head.asInstanceOf[Term])
+      val f    = genExpr(fClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*() { let _s=${seed}; while(true) { const _r=(${f})(_s); if(!_r||_r._type==='_None') break; const _t=_r.value; _s=_t[0]; yield _t[1]; } })(  ))"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("fromCallback")),
+        argClause) if argClause.values.size == 1 =>
+      val reg = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"_makeAsyncStream((async function*() { const _vs=[]; (${reg})(v=>_vs.push(v)); for(const v of _vs) yield v; })(  ))"
+    // Sink companion methods
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Sink"), _) | Term.Name("Sink"), Term.Name("foreach")),
+        argClause) if argClause.values.size == 1 =>
+      val f = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ run: (src) => src.runForeach(${f}) })"
+    // Sink.fold(z)(f) — curried
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Sink"), _) | Term.Name("Sink"), Term.Name("fold")),
+          zClause),
+        fClause) if zClause.values.size == 1 && fClause.values.size == 1 =>
+      val z = genExpr(zClause.values.head.asInstanceOf[Term])
+      val f = genExpr(fClause.values.head.asInstanceOf[Term])
+      s"({ run: async (src) => { let acc=${z}; for await (const v of src) acc=(${f})(acc,v); return acc; } })"
+    // Flow companion methods
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("map")),
+        argClause) if argClause.values.size == 1 =>
+      val f = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.map(${f}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("filter")),
+        argClause) if argClause.values.size == 1 =>
+      val p = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.filter(${p}) })"
     // v1.9 Coroutine — coroutineCreate { () => body } / coroutineResume(co, in)
     case Term.Apply.After_4_6_0(
         Term.ApplyType.After_4_6_0(Term.Name("coroutineCreate"), _) | Term.Name("coroutineCreate"),
