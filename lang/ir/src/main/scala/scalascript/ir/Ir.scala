@@ -47,6 +47,43 @@ case class ApiEndpointDecl(
   span:         Option[Span] = None
 ) derives ReadWriter
 
+case class ClusterDecl(
+  name:         Option[String] = None,
+  nodeId:       Option[String] = None,
+  role:         Option[String] = None,
+  bind:         Option[String] = None,
+  advertiseUrl: Option[String] = None,
+  seedNodes:    List[String] = Nil,
+  authToken:    Option[String] = None,
+  placement:    Map[String, String] = Map.empty,
+  wire:         Map[String, String] = Map.empty,
+  span:         Option[Span] = None
+) derives ReadWriter
+
+case class RemoteHandlerDecl(
+  name:         String,
+  function:     String,
+  path:         Option[String] = None,
+  requestType:  Option[String] = None,
+  responseType: Option[String] = None,
+  span:         Option[Span] = None
+) derives ReadWriter
+
+case class RemoteSourceDecl(
+  name:       String,
+  source:     String,
+  paramsType: Option[String] = None,
+  itemType:   Option[String] = None,
+  span:       Option[Span] = None
+) derives ReadWriter
+
+case class RemoteBehaviorDecl(
+  name:     String,
+  behavior: String,
+  argsType: Option[String] = None,
+  span:     Option[Span] = None
+) derives ReadWriter
+
 /** Named JDBC connection declaration carried over from the front-matter
  *  `databases:` map (SPEC § 3.3.1, v1.26).  Consumed by the JVM target's
  *  `ConnectionRegistry` to materialise a real `java.sql.Connection` on
@@ -124,6 +161,10 @@ case class Manifest(
   schemas:           List[TypeSchemaDecl] = Nil,
   frontendFramework: Option[String] = None,
   scripts:           Map[String, String] = Map.empty,
+  cluster:           Option[ClusterDecl] = None,
+  remoteHandlers:    List[RemoteHandlerDecl] = Nil,
+  remoteSources:     List[RemoteSourceDecl] = Nil,
+  remoteBehaviors:   List[RemoteBehaviorDecl] = Nil,
   span:              Option[Span] = None
 ) derives ReadWriter
 

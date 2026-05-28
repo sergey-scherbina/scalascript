@@ -56,6 +56,10 @@ object Denormalize:
       raw               = Map.empty,
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
+      cluster           = m.cluster.map(clusterDecl),
+      remoteHandlers    = m.remoteHandlers.map(remoteHandlerDecl),
+      remoteSources     = m.remoteSources.map(remoteSourceDecl),
+      remoteBehaviors   = m.remoteBehaviors.map(remoteBehaviorDecl),
       span              = m.span.map(span)
     )
 
@@ -67,6 +71,18 @@ object Denormalize:
 
   private def apiEndpointDecl(e: ir.ApiEndpointDecl): ast.ApiEndpointDecl =
     ast.ApiEndpointDecl(e.name, e.method, e.path, e.requestType, e.responseType, e.stream, e.paginated, e.span.map(span))
+
+  private def clusterDecl(c: ir.ClusterDecl): ast.ClusterDecl =
+    ast.ClusterDecl(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken, c.placement, c.wire, c.span.map(span))
+
+  private def remoteHandlerDecl(h: ir.RemoteHandlerDecl): ast.RemoteHandlerDecl =
+    ast.RemoteHandlerDecl(h.name, h.function, h.path, h.requestType, h.responseType, h.span.map(span))
+
+  private def remoteSourceDecl(s: ir.RemoteSourceDecl): ast.RemoteSourceDecl =
+    ast.RemoteSourceDecl(s.name, s.source, s.paramsType, s.itemType, s.span.map(span))
+
+  private def remoteBehaviorDecl(b: ir.RemoteBehaviorDecl): ast.RemoteBehaviorDecl =
+    ast.RemoteBehaviorDecl(b.name, b.behavior, b.argsType, b.span.map(span))
 
   private def databaseDecl(d: ir.DatabaseDecl): ast.DatabaseDecl =
     ast.DatabaseDecl(d.name, d.url, d.user, d.password, d.driver, d.span.map(span))

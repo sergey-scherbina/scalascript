@@ -3127,6 +3127,27 @@ but still planned for runtime resolution; using them with `resolveSeeds` now
 fails with an explicit diagnostic instead of silently joining no peers.
 See [`examples/cluster-capability.ssc`](../examples/cluster-capability.ssc).
 
+Cluster and remote registry metadata can also be declared in front matter:
+
+```yaml
+cluster:
+  name: demo
+  nodeId: api-1
+  role: server
+  seedNodes:
+    - ws://api-1:9100/_ssc-actors
+
+remoteHandlers:
+  users.get:
+    function: getUser
+    path: /api/v1/users/:id
+    request: UserId
+    response: User
+```
+
+This metadata is parsed and preserved in AST/IR/`.sscc` today. Runtime lowering
+from front matter into handler/behavior registration is still planned.
+
 Specs: [`docs/cluster-management.md`](cluster-management.md),
 [`docs/cluster-raft.md`](cluster-raft.md),
 [`docs/cluster-federation.md`](cluster-federation.md),

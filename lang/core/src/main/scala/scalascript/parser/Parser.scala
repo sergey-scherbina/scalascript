@@ -194,6 +194,10 @@ object Parser:
         case m: java.util.Map[?, ?] =>
           m.asScala.collect { case (k, v) => k.toString -> v.toString }.toMap
       }.getOrElse(Map.empty),
+      cluster = parseCluster(raw),
+      remoteHandlers = parseRemoteHandlers(raw),
+      remoteSources = parseRemoteSources(raw),
+      remoteBehaviors = parseRemoteBehaviors(raw),
       apiClients = parseApiClients(raw),
       deploy = parseRawMap(raw, "deploy"),
       groups = parseRawMap(raw, "groups"),
@@ -307,6 +311,66 @@ object Parser:
       m.asScala.iterator.collect { case (k: String, v) => k -> (v: Any) }.toMap
     }.getOrElse(Map.empty)
 
+  private def parseCluster(raw: Map[String, Any]): Option[ClusterDecl] =
+    raw.get("cluster").collect { case m: java.util.Map[?, ?] =>
+      val mm = stringMap(m)
+      ClusterDecl(
+        name         = mm.get("name").collect { case s: String => s },
+        nodeId       = mm.get("nodeId").orElse(mm.get("node-id")).collect { case s: String => s },
+        role         = mm.get("role").collect { case s: String => s },
+        bind         = mm.get("bind").collect { case s: String => s },
+        advertiseUrl = mm.get("advertiseUrl").orElse(mm.get("advertise-url")).collect { case s: String => s },
+        seedNodes    = parseStringList(mm.get("seedNodes").orElse(mm.get("seed-nodes"))),
+        authToken    = mm.get("authToken").orElse(mm.get("auth-token")).collect { case s: String => s },
+        placement    = parseStringMap(mm.get("placement")),
+        wire         = parseStringMap(mm.get("wire"))
+      )
+    }
+
+  private def parseRemoteHandlers(raw: Map[String, Any]): List[RemoteHandlerDecl] =
+    parseNamedRegistry(raw, "remoteHandlers", "remote-handlers").flatMap { (name, mm) =>
+      mm.get("function").orElse(mm.get("handler")).collect { case fn: String =>
+        RemoteHandlerDecl(
+          name         = name,
+          function     = fn,
+          path         = mm.get("path").collect { case s: String => s },
+          requestType  = mm.get("request").orElse(mm.get("requestType")).orElse(mm.get("request-type")).collect { case s: String => s },
+          responseType = mm.get("response").orElse(mm.get("responseType")).orElse(mm.get("response-type")).collect { case s: String => s }
+        )
+      }
+    }
+
+  private def parseRemoteSources(raw: Map[String, Any]): List[RemoteSourceDecl] =
+    parseNamedRegistry(raw, "remoteSources", "remote-sources").flatMap { (name, mm) =>
+      mm.get("source").orElse(mm.get("function")).collect { case src: String =>
+        RemoteSourceDecl(
+          name       = name,
+          source     = src,
+          paramsType = mm.get("params").orElse(mm.get("paramsType")).orElse(mm.get("params-type")).collect { case s: String => s },
+          itemType   = mm.get("item").orElse(mm.get("itemType")).orElse(mm.get("item-type")).orElse(mm.get("response")).collect { case s: String => s }
+        )
+      }
+    }
+
+  private def parseRemoteBehaviors(raw: Map[String, Any]): List[RemoteBehaviorDecl] =
+    parseNamedRegistry(raw, "remoteBehaviors", "remote-behaviors", "behaviors").flatMap { (name, mm) =>
+      mm.get("behavior").orElse(mm.get("function")).collect { case behavior: String =>
+        RemoteBehaviorDecl(
+          name     = name,
+          behavior = behavior,
+          argsType = mm.get("args").orElse(mm.get("argsType")).orElse(mm.get("args-type")).collect { case s: String => s }
+        )
+      }
+    }
+
+  private def parseNamedRegistry(raw: Map[String, Any], keys: String*): List[(String, Map[String, Any])] =
+    keys.iterator.flatMap(raw.get).collectFirst {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect {
+          case (name: String, v: java.util.Map[?, ?]) => name -> stringMap(v)
+        }.toList
+    }.getOrElse(Nil)
+
   private def parseDatabases(raw: Map[String, Any]): List[DatabaseDecl] =
     raw.get("databases").collect {
       case m: java.util.Map[?, ?] =>
@@ -406,6 +470,12 @@ object Parser:
       case xs: java.util.List[?] => xs.asScala.toList.map(_.toString)
       case s: String => List(s)
     }.getOrElse(Nil)
+
+  private def parseStringMap(value: Option[Any]): Map[String, String] =
+    value.collect {
+      case m: java.util.Map[?, ?] =>
+        m.asScala.iterator.collect { case (k: String, v) => k -> v.toString }.toMap
+    }.getOrElse(Map.empty)
 
   private def parseSchemaDefault(value: Any): SchemaDefault = value match
     case null => SchemaDefault.NullValue

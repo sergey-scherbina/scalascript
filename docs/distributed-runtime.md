@@ -424,7 +424,10 @@ exports `ClusterCapability`, `SeedResolver`, `clusterOf`, `resolveSeeds`,
 lists and deterministic SHA-256 identity for `.ssc` source modules and `.sscc`
 artifacts. DNS/Kubernetes/Consul resolver values are represented in the public
 API, but interpreter runtime resolution for those non-static resolvers is still
-planned and fails with an explicit diagnostic.
+planned and fails with an explicit diagnostic. `cluster:`, `remoteHandlers:`,
+`remoteSources:`, and `remoteBehaviors:` front matter now parse into typed
+AST/IR metadata and survive `.sscc` round-trip; lowering them into generated
+startup code remains planned.
 
 The source-level typed declaration is primary:
 
@@ -818,7 +821,9 @@ work queue links. No runtime changes.
   static lists and gives clear diagnostics for non-static descriptors.
 - Add code identity generation/checks for `.ssc` / `.sscc` artifacts. ✓ Landed
   2026-05-28 for interpreter `codeIdentity()` / `assertCodeIdentity(...)`.
-- Parse `cluster:` and registry front matter.
+- Parse `cluster:` and registry front matter. ✓ Landed 2026-05-28 as typed
+  `ClusterDecl`, `RemoteHandlerDecl`, `RemoteSourceDecl`, and
+  `RemoteBehaviorDecl` metadata in AST/IR/`.sscc`.
 - Add source `cluster Demo:` lowering.
 - Add diagnostics for missing handlers/codecs/code mismatch.
 
@@ -880,7 +885,7 @@ work queue links. No runtime changes.
 |---|---|
 | v1.63.1 | `Source(1,2,3).distributed.map(_*2).local.runToList == List(2,4,6)` through DirectRunner; bounded variant fails on a tiny byte limit; `BasicStreamOps` compiles against both `Source` and `DStream` |
 | v1.63.2 | Local spawn still works; `spawnRemote` delivers through the local interpreter path and jar-gated two-node CLI smoke; `ref.isLocal` / `ref.address` / `ref.tryLocal` correct; JVM `setClusterAuthToken` test |
-| v1.63.3 | `clusterOf()` exposes local node, peers, auth token, seed resolver, and code identity; static seeds resolve; non-static seed descriptors fail clearly until resolver backends land; `assertCodeIdentity` reports expected/actual digest mismatch. Remaining: mock DNS/K8s seed discovery, `cluster Demo:` lowering, front-matter registry validation |
+| v1.63.3 | `clusterOf()` exposes local node, peers, auth token, seed resolver, and code identity; static seeds resolve; non-static seed descriptors fail clearly until resolver backends land; `assertCodeIdentity` reports expected/actual digest mismatch; `cluster:` and registry front matter parse into typed metadata and survive Normalize/Denormalize + `.sscc`. Remaining: mock DNS/K8s seed discovery, `cluster Demo:` lowering, front-matter registry validation |
 | v1.63.4 | `@remote def echo` plus generated client round-trip; timeout/decode/auth errors surface as typed `RemoteCallError`; JSON fallback works without binary wire |
 | v1.63.5 | `ssc cluster run` two local processes; `handlers` lists exported operations; worker bundle contains code identity and registry metadata |
 | v1.63.6 | Remote stream subscribe/order/cancel/reconnect; SSE overflow policy; proxy actor failure translation; actor group routing |

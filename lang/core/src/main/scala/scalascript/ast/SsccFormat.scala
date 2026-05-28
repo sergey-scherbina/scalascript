@@ -136,6 +136,43 @@ object SsccFormat:
     span:          Option[Span] = None
   )
 
+  private case class ClusterDeclPickle(
+    name:         Option[String] = None,
+    nodeId:       Option[String] = None,
+    role:         Option[String] = None,
+    bind:         Option[String] = None,
+    advertiseUrl: Option[String] = None,
+    seedNodes:    List[String] = Nil,
+    authToken:    Option[Array[Byte]] = None,
+    placement:    Map[String, String] = Map.empty,
+    wire:         Map[String, String] = Map.empty,
+    span:         Option[Span] = None
+  )
+
+  private case class RemoteHandlerDeclPickle(
+    name:         String,
+    function:     String,
+    path:         Option[String] = None,
+    requestType:  Option[String] = None,
+    responseType: Option[String] = None,
+    span:         Option[Span] = None
+  )
+
+  private case class RemoteSourceDeclPickle(
+    name:       String,
+    source:     String,
+    paramsType: Option[String] = None,
+    itemType:   Option[String] = None,
+    span:       Option[Span] = None
+  )
+
+  private case class RemoteBehaviorDeclPickle(
+    name:     String,
+    behavior: String,
+    argsType: Option[String] = None,
+    span:     Option[Span] = None
+  )
+
   private case class ManifestPickle(
     name:              Option[String]                   = None,
     version:           Option[String]                   = None,
@@ -152,6 +189,10 @@ object SsccFormat:
     schemas:           List[TypeSchemaDeclPickle]       = Nil,
     frontendFramework: Option[String]                   = None,
     scripts:           Map[String, String]              = Map.empty,
+    cluster:           Option[ClusterDeclPickle]        = None,
+    remoteHandlers:    List[RemoteHandlerDeclPickle]    = Nil,
+    remoteSources:     List[RemoteSourceDeclPickle]     = Nil,
+    remoteBehaviors:   List[RemoteBehaviorDeclPickle]   = Nil,
     raw:               Map[String, Array[Byte]]         = Map.empty,
     apiClients:        List[ApiClientDecl]              = Nil,
     span:              Option[Span]                     = None
@@ -221,6 +262,10 @@ object SsccFormat:
   private given Codec[SchemaDefaultPickle] = deriveCodec[SchemaDefaultPickle]
   private given Codec[FieldSchemaDeclPickle] = deriveCodec[FieldSchemaDeclPickle]
   private given Codec[TypeSchemaDeclPickle] = deriveCodec[TypeSchemaDeclPickle]
+  private given Codec[ClusterDeclPickle] = deriveCodec[ClusterDeclPickle]
+  private given Codec[RemoteHandlerDeclPickle] = deriveCodec[RemoteHandlerDeclPickle]
+  private given Codec[RemoteSourceDeclPickle] = deriveCodec[RemoteSourceDeclPickle]
+  private given Codec[RemoteBehaviorDeclPickle] = deriveCodec[RemoteBehaviorDeclPickle]
   private given Codec[ManifestPickle]      = deriveCodec[ManifestPickle]
 
   private given Codec[ContentPickle.Prose]     = deriveCodec[ContentPickle.Prose]
@@ -255,10 +300,26 @@ object SsccFormat:
       schemas           = m.schemas.map(toPickle),
       frontendFramework = m.frontendFramework,
       scripts           = m.scripts,
+      cluster           = m.cluster.map(toPickle),
+      remoteHandlers    = m.remoteHandlers.map(toPickle),
+      remoteSources     = m.remoteSources.map(toPickle),
+      remoteBehaviors   = m.remoteBehaviors.map(toPickle),
       raw               = m.raw.collect { case (k, v: String) => k -> compress(v) },
       apiClients        = m.apiClients,
       span              = m.span
     )
+
+  private def toPickle(c: ClusterDecl): ClusterDeclPickle =
+    ClusterDeclPickle(c.name, c.nodeId, c.role, c.bind, c.advertiseUrl, c.seedNodes, c.authToken.map(compress), c.placement, c.wire, c.span)
+
+  private def toPickle(h: RemoteHandlerDecl): RemoteHandlerDeclPickle =
+    RemoteHandlerDeclPickle(h.name, h.function, h.path, h.requestType, h.responseType, h.span)
+
+  private def toPickle(s: RemoteSourceDecl): RemoteSourceDeclPickle =
+    RemoteSourceDeclPickle(s.name, s.source, s.paramsType, s.itemType, s.span)
+
+  private def toPickle(b: RemoteBehaviorDecl): RemoteBehaviorDeclPickle =
+    RemoteBehaviorDeclPickle(b.name, b.behavior, b.argsType, b.span)
 
   private def toPickle(db: DatabaseDecl): DatabaseDeclPickle =
     DatabaseDeclPickle(
@@ -371,10 +432,26 @@ object SsccFormat:
       schemas           = pk.schemas.map(fromPickle),
       frontendFramework = pk.frontendFramework,
       scripts           = pk.scripts,
+      cluster           = pk.cluster.map(fromPickle),
+      remoteHandlers    = pk.remoteHandlers.map(fromPickle),
+      remoteSources     = pk.remoteSources.map(fromPickle),
+      remoteBehaviors   = pk.remoteBehaviors.map(fromPickle),
       raw               = pk.raw.map { case (k, v) => k -> decompress(v) },
       apiClients        = pk.apiClients,
       span              = pk.span
     )
+
+  private def fromPickle(pk: ClusterDeclPickle): ClusterDecl =
+    ClusterDecl(pk.name, pk.nodeId, pk.role, pk.bind, pk.advertiseUrl, pk.seedNodes, pk.authToken.map(decompress), pk.placement, pk.wire, pk.span)
+
+  private def fromPickle(pk: RemoteHandlerDeclPickle): RemoteHandlerDecl =
+    RemoteHandlerDecl(pk.name, pk.function, pk.path, pk.requestType, pk.responseType, pk.span)
+
+  private def fromPickle(pk: RemoteSourceDeclPickle): RemoteSourceDecl =
+    RemoteSourceDecl(pk.name, pk.source, pk.paramsType, pk.itemType, pk.span)
+
+  private def fromPickle(pk: RemoteBehaviorDeclPickle): RemoteBehaviorDecl =
+    RemoteBehaviorDecl(pk.name, pk.behavior, pk.argsType, pk.span)
 
   private def fromPickle(pk: DatabaseDeclPickle): DatabaseDecl =
     DatabaseDecl(pk.name, decompress(pk.url), pk.user.map(decompress), pk.password.map(decompress), pk.driver, pk.span)

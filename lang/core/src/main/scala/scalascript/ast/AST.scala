@@ -61,6 +61,12 @@ case class Manifest(
    *  an `ssc` subcommand string (e.g. `"watch"`, `"build --target web"`).
    *  The source .ssc file is appended automatically when the script is run. */
   scripts: Map[String, String] = Map.empty,
+  /** Planned cluster runtime metadata from `cluster:` front matter.
+   *  v1.63.3 stores this as typed metadata for later runner/deploy lowering. */
+  cluster: Option[ClusterDecl] = None,
+  remoteHandlers: List[RemoteHandlerDecl] = Nil,
+  remoteSources: List[RemoteSourceDecl] = Nil,
+  remoteBehaviors: List[RemoteBehaviorDecl] = Nil,
   raw: Map[String, Any],
   /** Planned typed route clients declared in front matter.  Phase 1 keeps
    *  these as metadata so code generators can preserve endpoint method/path
@@ -102,6 +108,43 @@ case class ApiEndpointDecl(
 object ApiEndpointDecl:
   def isSse(e: ApiEndpointDecl): Boolean = e.stream.exists(s => s == "sse" || s == "true")
   def isWs(e: ApiEndpointDecl): Boolean  = e.stream.exists(s => s == "ws" || s == "websocket")
+
+case class ClusterDecl(
+  name:         Option[String] = None,
+  nodeId:       Option[String] = None,
+  role:         Option[String] = None,
+  bind:         Option[String] = None,
+  advertiseUrl: Option[String] = None,
+  seedNodes:    List[String] = Nil,
+  authToken:    Option[String] = None,
+  placement:    Map[String, String] = Map.empty,
+  wire:         Map[String, String] = Map.empty,
+  span:         Option[Span] = None
+)
+
+case class RemoteHandlerDecl(
+  name:         String,
+  function:     String,
+  path:         Option[String] = None,
+  requestType:  Option[String] = None,
+  responseType: Option[String] = None,
+  span:         Option[Span] = None
+)
+
+case class RemoteSourceDecl(
+  name:       String,
+  source:     String,
+  paramsType: Option[String] = None,
+  itemType:   Option[String] = None,
+  span:       Option[Span] = None
+)
+
+case class RemoteBehaviorDecl(
+  name:     String,
+  behavior: String,
+  argsType: Option[String] = None,
+  span:     Option[Span] = None
+)
 
 /** A `databases:` entry in front-matter declares a named JDBC
  *  connection consumed by `sql` blocks.  `url` is mandatory;
