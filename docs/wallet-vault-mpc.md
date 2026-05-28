@@ -31,7 +31,7 @@ McpVault
   -> RemoteSigningClient
        -> HttpRemoteSigningClient        (generic JSON-over-HTTP reference)
        -> FireblocksRemoteSigningClient  (provider adapter)
-       -> CoinbaseRemoteSigningClient    (planned)
+       -> CoinbaseRemoteSigningClient    (provider adapter)
 ```
 
 The shared module is `payments/wallet/vault-mpc/`.
@@ -49,7 +49,7 @@ Provider modules live beside the shared module:
 | Module | Status | Provider |
 |--------|--------|----------|
 | `wallet-vault-mpc-fireblocks` | Implemented | Fireblocks RAW transaction signing |
-| `wallet-vault-mpc-coinbase` | Planned | Coinbase Prime MPC signing requests |
+| `wallet-vault-mpc-coinbase` | Implemented | Coinbase Prime MPC signing requests |
 
 ## Fireblocks
 
@@ -88,20 +88,102 @@ Fireblocks curve mapping:
 
 Unsupported curves fail before making an HTTP request.
 
+## Coinbase
+
+Module: `payments/wallet/wallet-vault-mpc-coinbase/`  
+sbt: `walletVaultMpcCoinbase`
+
+Wraps the [Coinbase Prime](https://docs.cdp.coinbase.com/prime/reference) signing API behind `RemoteSigningClient`.
+Authentication uses EC P-256 request signing: each HTTP request carries three headers computed from a PKCS#8 EC private key.
+
+### Authentication headers
+
+| Header | Value |
+|---|---|
+| `X-CB-ACCESS-KEY` | API key (the opaque key ID from Coinbase Prime portal) |
+| `X-CB-ACCESS-TIMESTAMP` | Unix timestamp in seconds |
+| `X-CB-ACCESS-SIGNATURE` | `base64(SHA256withECDSA(timestamp + METHOD + path + body, privateKey))` |
+
+### Endpoints
+
+| Operation | Method | Path |
+|---|---|---|
+| Health | `GET` | `/v1/portfolios/{portfolio_id}` |
+| List wallets | `GET` | `/v1/portfolios/{portfolio_id}/wallets` |
+| Create signing request | `POST` | `/v1/portfolios/{portfolio_id}/signing_requests` |
+| Poll signing request | `GET` | `/v1/portfolios/{portfolio_id}/signing_requests/{id}` |
+
+### Usage
+
+```scala
+import scalascript.wallet.vault.mpc.coinbase.*
+
+given ExecutionContext = scala.concurrent.ExecutionContext.global
+
+val vault = CoinbaseVault(
+  apiKey        = "your-api-key",
+  privateKeyPem = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+  baseUrl       = "https://api.prime.coinbase.com",
+  options       = CoinbaseOptions(
+    portfolioId = "your-portfolio-id",
+    assetId     = "ETH",
+    networkId   = "ethereum-mainnet",
+  ),
+)
+```
+
+`CoinbaseOptions` defaults:
+
+| Field | Default |
+|---|---|
+| `portfolioId` | `"default"` |
+| `assetId` | `"ETH"` |
+| `networkId` | `"ethereum-mainnet"` |
+| `pollIntervalMs` | `500` |
+| `pollMaxAttempts` | `60` (~30 s total) |
+| `timeoutMs` | `10000` |
+
+### Wire format
+
+Signing request body:
+
+```json
+{
+  "wallet_id": "<accountId>",
+  "asset_id":  "ETH",
+  "network_id": "ethereum-mainnet",
+  "signing_target": {
+    "payload":         "<hex-encoded bytes>",
+    "derivation_path": "m/44'/60'/0'/0/0",
+    "algorithm":       "SECP256K1",
+    "hash_algorithm":  "keccak256"
+  }
+}
+```
+
+Supported algorithms: `SECP256K1`, `ED25519`, `P256`.
+
+Polling response — completed:
+
+```json
+{
+  "status":    "SIGNED",
+  "signature": { "value": "<hex-encoded DER signature>" }
+}
+```
+
 ## Migration
 
 Existing users of `wallet-vault-mpc` do not need changes. The generic
 `HttpRemoteSigningClient` remains available for custom/internal providers.
-Applications that want Fireblocks support add the new
-`wallet-vault-mpc-fireblocks` module and construct `FireblocksVault`.
+Applications that want provider-specific support add the relevant module
+and construct the named vault (`FireblocksVault`, `CoinbaseVault`).
 
 ## Phases
 
 - Phase 1: shared MPC vault core. Landed in `wallet-vault-mpc`.
-- Phase 2: Fireblocks adapter. Landed 2026-05-28 with a dedicated sbt
-  subproject, JWT auth, RAW signing request generation, polling, ServiceLoader
-  plugin, and mock-HTTP tests.
-- Phase 3: Coinbase Prime MPC adapter. Planned in `WORK_QUEUE.md`.
+- Phase 2: Fireblocks adapter. Landed 2026-05-28.
+- Phase 3: Coinbase Prime MPC adapter. Landed 2026-05-28.
 - Phase 4: production credential examples and env-gated provider integration
   tests. Planned; CI will not require live vendor accounts.
 
@@ -112,6 +194,8 @@ Applications that want Fireblocks support add the new
 - Fireblocks: local `HttpServer` tests for auth headers/JWT payloads, account
   mapping, request body shape, success polling, failed statuses, poll timeout,
   HTTP errors, PEM parsing, and ServiceLoader discovery.
+- Coinbase: local `HttpServer` tests for ECDSA header verification, wallet
+  list decoding, request body shape, polling, failure modes, ServiceLoader.
 - Live integration: env-gated only, using vendor sandbox/preprod credentials
   supplied by the developer or CI secret store.
 
@@ -123,4 +207,3 @@ Applications that want Fireblocks support add the new
   two or more adapters have landed.
 - How much of provider account/public-key discovery can be normalized across
   vendors without losing important policy semantics.
-
