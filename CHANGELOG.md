@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — Wallet Trezor vault adapter
+
+- **wallet-vault-trezor** — `payments/wallet/vault-trezor/` sbt subproject: `TrezorEthVault` (implements `Vault` SPI; `unlock/lock/getSigner`; `ButtonRequest` auto-ack loop up to 10 retries); `TrezorBridge` trait + `HttpTrezorBridge` (java.net.http, `Origin: https://bridge.trezor.io`); `TrezorSession` (acquire/release with guaranteed release via `transformWith`); `TrezorMessages` (`TrezorDeviceInfo`, `TrezorResponse`, `Bip32.parse`, `TrezorMessageType` constants, `TrezorDeviceFailure`); `MockTrezorBridge` (per-messageType response queues, recorded calls); `enqueueFeatures/PublicKey/EthSignature/Failure` helpers. 29 tests (TrezorBridgeTest 11, TrezorSessionTest 4, TrezorEthVaultTest 14).
+
 ## 2026-05-28 — Ledger WebBLE transport (Scala.js)
 
 - **wallet-vault-ledger-bluetooth-js** — `WebBleTransport` implementing `LedgerTransport` for Ledger Nano X / Stax via Web Bluetooth GATT; `BleFraming` with configurable MTU (default 23 bytes); `BrowserBluetoothDevice` live impl; `MockBluetoothDevice` for tests; 12 tests; `docs/wallet-vault-ledger.md §bluetooth-transport` created.

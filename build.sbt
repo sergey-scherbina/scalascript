@@ -1675,6 +1675,19 @@ lazy val walletVaultMpc = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+lazy val walletVaultTrezor = project
+  .in(file("payments/wallet/vault-trezor"))
+  .dependsOn(walletSpi, cryptoSpi)
+  .settings(
+    name := "scalascript-wallet-vault-trezor",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Cross-compiled (JVM + Scala.js) — docs/wallet-spi-scalajs.md § Stage 4.
 //
 // `shared/` holds the pure-data + crypto-driven types: UserOperation,
@@ -3017,7 +3030,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainBitcoin, blockchainCosmos, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentChannelEvm, micropaymentHydra,
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI,
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
