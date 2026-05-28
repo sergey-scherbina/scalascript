@@ -13,7 +13,9 @@ remoteHandlers:
 
 Handlers with `path:` also derive generated typed route client metadata under
 `RemoteRpc` for JS/JVM frontend codegen. The interpreter example below uses the
-in-process `Remote.function` path so it remains self-contained.
+in-process `Remote.function` path so it remains self-contained. Split-process
+clients can call the HTTP JSON fallback with `Remote.http[A, B](url)` or reuse a
+base URL with `Remote.stub(baseUrl).call[A, B](path, value)`.
 
 [Remote, RemoteFunction, RemoteCallError](../runtime/std/remote.ssc)
 

@@ -23,6 +23,18 @@ object RemoteIntrinsics:
         case _ => throw InterpretError("remoteHttpFunction[A, B](url: String)")
     ),
 
+    QualifiedName("remoteStub") -> NativeImpl((_, args) =>
+      args match
+        case List(baseUrl: String) => remoteStubValue(baseUrl)
+        case _ => throw InterpretError("remoteStub(baseUrl: String)")
+    ),
+
+    QualifiedName("remoteStubFunction") -> NativeImpl((_, args) =>
+      args match
+        case List(baseUrl: String, path: String) => remoteHttpFunctionValue(joinRemoteUrl(baseUrl, path))
+        case _ => throw InterpretError("remoteStubFunction[A, B](baseUrl: String, path: String)")
+    ),
+
     QualifiedName("remoteCall") -> NativeImpl((ctx, args) =>
       args match
         case List(name: String, payload) =>
@@ -57,6 +69,24 @@ object RemoteIntrinsics:
             case Right(value) => Value.InstanceV("Right", Map("value" -> value))
             case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
         case _ => throw InterpretError("remoteHttpTryCall[A, B](url: String, value: A)")
+    ),
+
+    QualifiedName("remoteStubCall") -> NativeImpl((_, args) =>
+      args match
+        case List(baseUrl: String, path: String, payload: Value) =>
+          remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
+            case Right(value) => value
+            case Left(err)    => throw InterpretError(remoteErrorMessage(err))
+        case _ => throw InterpretError("remoteStubCall[A, B](baseUrl: String, path: String, value: A)")
+    ),
+
+    QualifiedName("remoteStubTryCall") -> NativeImpl((_, args) =>
+      args match
+        case List(baseUrl: String, path: String, payload: Value) =>
+          remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
+            case Right(value) => Value.InstanceV("Right", Map("value" -> value))
+            case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+        case _ => throw InterpretError("remoteStubTryCall[A, B](baseUrl: String, path: String, value: A)")
     ),
 
     QualifiedName("remoteHandlers") -> NativeImpl((ctx, args) =>
@@ -111,6 +141,39 @@ object RemoteIntrinsics:
         case _ => throw InterpretError("RemoteHttpFunction.tryCall(value)")
       })
     ))
+
+  private def remoteStubValue(baseUrl: String): Value =
+    Value.InstanceV("RemoteStub", Map(
+      "baseUrl" -> Value.StringV(baseUrl),
+      "function" -> Value.NativeFnV(s"Remote.stub($baseUrl).function", {
+        case List(Value.StringV(path)) =>
+          scalascript.interpreter.Computation.Pure(remoteHttpFunctionValue(joinRemoteUrl(baseUrl, path)))
+        case _ => throw InterpretError("RemoteStub.function(path)")
+      }),
+      "call" -> Value.NativeFnV(s"Remote.stub($baseUrl).call", {
+        case List(Value.StringV(path), payload) =>
+          scalascript.interpreter.Computation.Pure(
+            remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
+              case Right(value) => value
+              case Left(err)    => throw InterpretError(remoteErrorMessage(err))
+          )
+        case _ => throw InterpretError("RemoteStub.call(path, value)")
+      }),
+      "tryCall" -> Value.NativeFnV(s"Remote.stub($baseUrl).tryCall", {
+        case List(Value.StringV(path), payload) =>
+          scalascript.interpreter.Computation.Pure(
+            remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
+              case Right(value) => Value.InstanceV("Right", Map("value" -> value))
+              case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+          )
+        case _ => throw InterpretError("RemoteStub.tryCall(path, value)")
+      })
+    ))
+
+  private def joinRemoteUrl(baseUrl: String, path: String): String =
+    if baseUrl.endsWith("/") && path.startsWith("/") then baseUrl.dropRight(1) + path
+    else if !baseUrl.endsWith("/") && !path.startsWith("/") then baseUrl + "/" + path
+    else baseUrl + path
 
   private def remoteHttpInvoke(url: String, payload: Value): Either[RemoteCallError, Value] =
     try

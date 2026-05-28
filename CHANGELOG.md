@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.63.4e RemoteStub HTTP facade
+
+- **v1.63.4e-remote-trait-stubs-wire** — Added `Remote.stub(baseUrl)` / `RemoteStub` as a lightweight path-based HTTP JSON fallback facade with `function`, `call`, and `tryCall`, all reusing the existing `Remote.http` transport and typed `RemoteCallError` mapping. Added interpreter plugin coverage with an embedded JDK HTTP server and updated docs. Trait-shaped compile-time `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` remain tracked in `v1.63.4f`.
+
 ## 2026-05-29 — v1.61.5 JS codegen inlining
 
 - **v1.61.5-js-inlining** — Three targeted JS codegen quality improvements: (1) Tuple literals now emit `Object.assign([...], {_isTuple: true})` instead of a three-step IIFE — saves ~20 chars per tuple, one fewer closure allocation per creation (4 emission sites); (2) `Term.While` in statement context emits a direct `while (cond) { body; }` statement without IIFE wrapper — saves ~28 chars per while loop in statement position; (3) Integer `*` skips the `typeof === 'string'` guard when both operands are known integers via `isIntExpr` — saves ~52 chars and one typeof check per int multiply. `PatternRuntime.scala`: remove stale `import Computation.Pure`. No behavior change; 183/184 tests pass (1 pre-existing Choose failure).

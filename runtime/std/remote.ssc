@@ -11,13 +11,18 @@ exports:
   - RemoteHandlerInfo
   - RemoteFunction
   - RemoteHttpFunction
+  - RemoteStub
   - Remote
   - remoteFunction
   - remoteHttpFunction
+  - remoteStub
+  - remoteStubFunction
   - remoteCall
   - remoteTryCall
   - remoteHttpCall
   - remoteHttpTryCall
+  - remoteStubCall
+  - remoteStubTryCall
   - remoteHandlers
 ---
 
@@ -59,12 +64,24 @@ case class RemoteHttpFunction[A, B](url: String):
   def call(value: A): B = remoteHttpCall[A, B](url, value)
   def tryCall(value: A): Either[RemoteCallError, B] = remoteHttpTryCall[A, B](url, value)
 
+case class RemoteStub(baseUrl: String):
+  def function[A, B](path: String): RemoteHttpFunction[A, B] =
+    remoteStubFunction[A, B](baseUrl, path)
+  def call[A, B](path: String, value: A): B =
+    remoteStubCall[A, B](baseUrl, path, value)
+  def tryCall[A, B](path: String, value: A): Either[RemoteCallError, B] =
+    remoteStubTryCall[A, B](baseUrl, path, value)
+
 extern def remoteFunction[A, B](name: String): RemoteFunction[A, B]
 extern def remoteHttpFunction[A, B](url: String): RemoteHttpFunction[A, B]
+extern def remoteStub(baseUrl: String): RemoteStub
+extern def remoteStubFunction[A, B](baseUrl: String, path: String): RemoteHttpFunction[A, B]
 extern def remoteCall[A, B](name: String, value: A): B
 extern def remoteTryCall[A, B](name: String, value: A): Either[RemoteCallError, B]
 extern def remoteHttpCall[A, B](url: String, value: A): B
 extern def remoteHttpTryCall[A, B](url: String, value: A): Either[RemoteCallError, B]
+extern def remoteStubCall[A, B](baseUrl: String, path: String, value: A): B
+extern def remoteStubTryCall[A, B](baseUrl: String, path: String, value: A): Either[RemoteCallError, B]
 extern def remoteHandlers(): List[RemoteHandlerInfo]
 
 object Remote:
@@ -73,6 +90,9 @@ object Remote:
 
   def http[A, B](url: String): RemoteHttpFunction[A, B] =
     remoteHttpFunction[A, B](url)
+
+  def stub(baseUrl: String): RemoteStub =
+    remoteStub(baseUrl)
 
   def handlers(): List[RemoteHandlerInfo] =
     remoteHandlers()

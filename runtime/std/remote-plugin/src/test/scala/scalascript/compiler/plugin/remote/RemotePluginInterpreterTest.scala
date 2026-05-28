@@ -137,3 +137,34 @@ class RemotePluginInterpreterTest extends AnyFunSuite:
       )
       assert(interp.exportedGlobals("result") == Value.StringV("echo:wire"))
     finally server.stop(0)
+
+  test("Remote.stub joins base URL and path for HTTP JSON fallback calls"):
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/api/rpc/echo", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV("stub:" + s)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val interp = runModule(
+        s"""|# Remote
+            |
+            |```scala
+            |val stub = remoteStub("http://127.0.0.1:$port/api/")
+            |val direct = stub.call("/rpc/echo", "wire")
+            |val viaFunction = stub.function("rpc/echo").call("fn")
+            |```
+            |""".stripMargin
+      )
+      assert(interp.exportedGlobals("direct") == Value.StringV("stub:wire"))
+      assert(interp.exportedGlobals("viaFunction") == Value.StringV("stub:fn"))
+    finally server.stop(0)

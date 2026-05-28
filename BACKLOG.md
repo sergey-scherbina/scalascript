@@ -89,10 +89,20 @@ network semantics or deployment constraints.
       generated `RemoteRpc` typed HTTP client metadata that reuses the existing
       JS/JVM typed-route client codegen. Remaining pieces split into
       `v1.63.4e`.
-- [ ] **v1.63.4e-remote-trait-stubs-wire** - Remote RPC remaining transports:
+- [x] **v1.63.4e-remote-trait-stubs-wire** - Remote RPC remaining transports:
       add trait-shaped `remoteStub[Api]`, make generated calls expose
       `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
       and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
+      Landed 2026-05-29 partial runtime stub: `Remote.stub(baseUrl)` /
+      `RemoteStub` provide path-based HTTP JSON fallback `function`, `call`,
+      and `tryCall` helpers over the same remote HTTP transport. Remaining
+      compile-time trait-shaped stub, async, WebSocket/internal-wire, and
+      binary codec pieces split into `v1.63.4f`.
+- [ ] **v1.63.4f-remote-trait-stubs-wire** - Remote RPC compile-time stubs and
+      binary transports: add trait-shaped `remoteStub[Api]`, make generated
+      calls expose `B ! Async | RemoteCallError`, add WebSocket/internal-wire
+      transport, and negotiate binary `WireCodec[A]` while keeping HTTP JSON
+      fallback.
 - [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
       bundles: `ssc cluster run/package/status/handlers/stop`, worker bundle
       packaging with code identity and registry metadata, roles, advertised

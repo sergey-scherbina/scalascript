@@ -241,7 +241,8 @@ Current implementation note: until trait-shaped `remoteStub[Api]` lands,
 client named `RemoteRpc`. For example `users.get` at `/api/v1/users/:id`
 becomes a POST endpoint method `RemoteRpc.usersGet(...)` in JS/JVM typed-route
 client codegen. Interpreter users can call the same route explicitly with
-`Remote.http[A, B](url)`.
+`Remote.http[A, B](url)` or create a lightweight path-based stub with
+`Remote.stub(baseUrl).call[A, B](path, value)`.
 
 `Future[A]` may become sugar for `() => A ! Async` or an interop wrapper, but
 new specs and APIs should use effect rows directly.
@@ -861,7 +862,10 @@ work queue links. No runtime changes.
 - Add `remoteStub[Api]`. ✓ Landed 2026-05-28 partial bridge: handlers with
   `path:` now derive `RemoteRpc` typed HTTP client metadata for existing JS/JVM
   typed route client codegen, and explicit `Remote.http[A, B](url)` can call
-  fallback routes. Trait-shaped `remoteStub[Api]` derivation remains planned.
+  fallback routes. ✓ Landed 2026-05-28 follow-up: `Remote.stub(baseUrl)` /
+  `RemoteStub` provide a path-based HTTP JSON fallback facade with `function`,
+  `call`, and `tryCall`. Trait-shaped `remoteStub[Api]` derivation remains
+  planned.
 - Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
   2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
   handler declares `path:` and explicit HTTP JSON client calls to those routes.
