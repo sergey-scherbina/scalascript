@@ -41,7 +41,7 @@ object RequestIntrinsics:
       args match
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
-            try Some(Value.IntV(s.toLong))
+            try Some(Value.intV(s.toLong))
             catch case _: NumberFormatException => None
           }
           Value.OptionV(parsed)
@@ -65,7 +65,7 @@ object RequestIntrinsics:
       args match
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
-            try Some(Value.DoubleV(s.toDouble))
+            try Some(Value.doubleV(s.toDouble))
             catch case _: NumberFormatException => None
           }
           Value.OptionV(parsed)

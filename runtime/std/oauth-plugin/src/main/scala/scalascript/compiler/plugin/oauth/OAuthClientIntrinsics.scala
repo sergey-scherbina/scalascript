@@ -38,7 +38,7 @@ object OAuthClientIntrinsics:
     QualifiedName("oauth.client.verifyState") -> NativeImpl((_, args) =>
       args match
         case List(a: String, b: String) =>
-          Value.BoolV(OAuthClient.verifyState(a, b))
+          Value.boolV(OAuthClient.verifyState(a, b))
         case _ => throw InterpretError("oauth.client.verifyState(expected, presented)")
     ),
 
@@ -121,10 +121,10 @@ object OAuthClientIntrinsicHelpers:
   def tokenResultToValue(r: OAuthClient.TokenResult): Value = r match
     case OAuthClient.TokenResult.Issued(t, raw) =>
       Value.MapV(Map(
-        (Value.StringV("ok"):           Value) -> (Value.BoolV(true):                  Value),
+        (Value.StringV("ok"):           Value) -> (Value.True:                  Value),
         (Value.StringV("accessToken"):  Value) -> (Value.StringV(t.accessToken):       Value),
         (Value.StringV("tokenType"):    Value) -> (Value.StringV(t.tokenType):         Value),
-        (Value.StringV("expiresIn"):    Value) -> (Value.IntV(t.expiresIn):            Value),
+        (Value.StringV("expiresIn"):    Value) -> (Value.intV(t.expiresIn):            Value),
         (Value.StringV("refreshToken"): Value) -> Value.OptionV(t.refreshToken.map(Value.StringV(_))),
         (Value.StringV("idToken"):      Value) -> Value.OptionV(t.idToken.map(Value.StringV(_))),
         (Value.StringV("scope"):        Value) -> Value.ListV(t.scope.toList.sorted.map(Value.StringV(_))),
@@ -132,7 +132,7 @@ object OAuthClientIntrinsicHelpers:
       ))
     case OAuthClient.TokenResult.Error(err, descr, raw) =>
       Value.MapV(Map(
-        (Value.StringV("ok"):          Value) -> (Value.BoolV(false):           Value),
+        (Value.StringV("ok"):          Value) -> (Value.False:           Value),
         (Value.StringV("error"):       Value) -> (Value.StringV(err):           Value),
         (Value.StringV("description"): Value) -> (Value.StringV(descr):         Value),
         (Value.StringV("raw"):         Value) -> ujsonToValue(raw)

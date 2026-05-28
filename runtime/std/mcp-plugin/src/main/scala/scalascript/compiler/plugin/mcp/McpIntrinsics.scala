@@ -192,7 +192,7 @@ private object Mcp:
           case McpServerCore.AuthOutcome.Allowed(claims) =>
             Mcp.dispatchAuthorized(builder, body, fields, claims, ctx)
       case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(400L),
+        "status"  -> Value.intV(400L),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("expected Request")
       ))
@@ -207,19 +207,19 @@ private object Mcp:
       case List(Value.InstanceV("Request", _)) =>
         builder.protectedResourceMetadata match
           case Some(m) => Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(200L),
+            "status"  -> Value.intV(200L),
             "headers" -> Value.MapV(Map(
               Value.StringV("Content-Type") -> Value.StringV("application/json")
             )),
             "body"    -> Value.StringV(m.toJson.render())
           ))
           case None => Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(404L),
+            "status"  -> Value.intV(404L),
             "headers" -> Value.MapV(Map.empty),
             "body"    -> Value.StringV("")
           ))
       case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(400L),
+        "status"  -> Value.intV(400L),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("expected Request")
       ))
@@ -243,7 +243,7 @@ private object Mcp:
     val www = McpAuth.wwwAuthenticate(builder.authRealm, code, Some(descr))
     val body = ujson.Obj("error" -> code, "error_description" -> descr).render()
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(401L),
+      "status"  -> Value.intV(401L),
       "headers" -> Value.MapV(Map(
         (Value.StringV("WWW-Authenticate"): Value) -> (Value.StringV(www):                  Value),
         (Value.StringV("Content-Type"):    Value) -> (Value.StringV("application/json"):    Value)
@@ -296,7 +296,7 @@ private object Mcp:
         case _ => Value.UnitV
       })
       Value.InstanceV("StreamResponse", Map(
-        "status"   -> Value.IntV(200L),
+        "status"   -> Value.intV(200L),
         "headers"  -> sseHeaders,
         "callback" -> callback
       ))
@@ -306,7 +306,7 @@ private object Mcp:
         if reply.isEmpty then (204, "")
         else (200, reply)
       Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(status.toLong),
+        "status"  -> Value.intV(status.toLong),
         "headers" -> Value.MapV(Map(
           Value.StringV("Content-Type") -> Value.StringV("application/json")
         )),
@@ -351,12 +351,12 @@ private object Mcp:
               case _ => Value.UnitV
             })
             Value.InstanceV("StreamResponse", Map(
-              "status"   -> Value.IntV(200L),
+              "status"   -> Value.intV(200L),
               "headers"  -> sseHeaders,
               "callback" -> callback
             ))
       case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(400L),
+        "status"  -> Value.intV(400L),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("expected Request")
       ))

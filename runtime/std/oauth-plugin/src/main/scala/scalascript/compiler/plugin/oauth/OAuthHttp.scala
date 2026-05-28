@@ -58,7 +58,7 @@ object OAuthHttp:
       case List(Value.InstanceV("Request", fields)) =>
         routeOutcomeToValue(run(fields))
       case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(400L),
+        "status"  -> Value.intV(400L),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("expected Request")
       ))
@@ -71,13 +71,13 @@ object OAuthHttp:
         (k, v) => (Value.StringV(k): Value) -> (Value.StringV(v): Value)
       }
       Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(status.toLong),
+        "status"  -> Value.intV(status.toLong),
         "headers" -> Value.MapV(hdrs.toMap),
         "body"    -> Value.StringV(body.render())
       ))
     case OAuthRoutes.RouteOutcome.Redirect(status, location) =>
       Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(status.toLong),
+        "status"  -> Value.intV(status.toLong),
         "headers" -> Value.MapV(Map(
           (Value.StringV("Location"): Value) -> (Value.StringV(location): Value)
         )),
@@ -85,7 +85,7 @@ object OAuthHttp:
       ))
     case OAuthRoutes.RouteOutcome.Empty(status) =>
       Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(status.toLong),
+        "status"  -> Value.intV(status.toLong),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("")
       ))

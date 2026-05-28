@@ -61,7 +61,7 @@ object OidcHttp:
         val query   = extractQueryMap(fields)
         OAuthHttp.routeOutcomeToValue(run(body, headers, query))
       case _ => Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(400L),
+        "status"  -> Value.intV(400L),
         "headers" -> Value.MapV(Map.empty),
         "body"    -> Value.StringV("expected Request")
       ))

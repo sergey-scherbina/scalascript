@@ -101,7 +101,7 @@ object DStreamsIntrinsics:
       case Value.InstanceV("_dag_filter", fields) =>
         val upstream = evalDag(fields("upstream"), ctx)
         val pred     = fields("pred")
-        upstream.filter(v => call(ctx, pred, List(v)) == Value.BoolV(true))
+        upstream.filter(v => call(ctx, pred, List(v)) == Value.True)
 
       case Value.InstanceV("_dag_flatMap", fields) =>
         val upstream = evalDag(fields("upstream"), ctx)
@@ -162,7 +162,7 @@ object DStreamsIntrinsics:
         val upstream = evalDag(fields("upstream"), ctx)
         val f        = fields("f")
         upstream.map { v =>
-          val ts = Value.IntV(System.currentTimeMillis())
+          val ts = Value.intV(System.currentTimeMillis())
           call(ctx, f, List(v, ts))
         }
 
@@ -705,7 +705,7 @@ object DStreamsIntrinsics:
     }),
 
     "runCount" -> Value.NativeFnV("DStream.runCount", Computation.pureFn { _ =>
-      Value.IntV(evalDag(dag, ctx).size.toLong)
+      Value.intV(evalDag(dag, ctx).size.toLong)
     }),
   )
 
@@ -842,11 +842,11 @@ object DStreamsIntrinsics:
     QualifiedName("Trigger.afterWatermark")       -> NativeImpl((_, _) => Value.StringV("Trigger.AfterWatermark")),
     QualifiedName("Trigger.afterProcessingTime")  -> NativeImpl((_, args) =>
       Value.InstanceV("Trigger.AfterProcessingTime",
-        Map("ms" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+        Map("ms" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
     ),
     QualifiedName("Trigger.afterCount")           -> NativeImpl((_, args) =>
       Value.InstanceV("Trigger.AfterCount",
-        Map("n" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+        Map("n" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
     ),
     QualifiedName("Trigger.repeatedly")           -> NativeImpl((_, args) =>
       Value.InstanceV("Trigger.Repeatedly",
@@ -862,7 +862,7 @@ object DStreamsIntrinsics:
     ),
     QualifiedName("WatermarkStrategy.boundedOutOfOrder") -> NativeImpl((_, args) =>
       Value.InstanceV("WatermarkStrategy.BoundedOutOfOrder",
-        Map("lagMs" -> args.headOption.map(toValue).getOrElse(Value.IntV(0))))
+        Map("lagMs" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
     ),
 
     // AccumulationMode
@@ -907,7 +907,7 @@ object DStreamsIntrinsics:
     QualifiedName("FileFormat.Parquet")    -> NativeImpl((_, _) => Value.StringV("Parquet")),
     QualifiedName("FileFormat.Avro")       -> NativeImpl((_, _) => Value.StringV("Avro")),
     QualifiedName("FileFormat.Csv")        -> NativeImpl((_, args) =>
-      Value.InstanceV("FileFormat.Csv", Map("header" -> args.headOption.map(toValue).getOrElse(Value.BoolV(true))))
+      Value.InstanceV("FileFormat.Csv", Map("header" -> args.headOption.map(toValue).getOrElse(Value.True)))
     ),
 
     // JDBC connector — stub DSource

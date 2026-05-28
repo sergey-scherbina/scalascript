@@ -18,7 +18,7 @@ object WsIntrinsics:
       args match
         case Nil =>
           val snap = scalascript.server.Metrics.snapshot()
-          Value.MapV(snap.map((k, v) => Value.StringV(k) -> Value.IntV(v)))
+          Value.MapV(snap.map((k, v) => Value.StringV(k) -> Value.intV(v)))
         case _ => throw InterpretError("metrics() — no arguments")
     ),
 

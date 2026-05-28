@@ -37,7 +37,7 @@ object PwaIntrinsics:
 
   private def mkResponse(contentType: String, body: String): Value =
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200),
+      "status"  -> Value.intV(200),
       "headers" -> Value.MapV(Map(
         (Value.StringV("Content-Type"): Value) -> (Value.StringV(contentType): Value)
       )),

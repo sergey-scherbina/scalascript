@@ -226,18 +226,18 @@ object HttpIntrinsics:
         case List(n: Long) =>
           Value.NativeFnV("streamResponse.block", Computation.pureFn {
             case List(block) => Value.InstanceV("StreamResponse", Map(
-              "status" -> Value.IntV(n), "headers" -> Value.MapV(Map.empty), "callback" -> block))
+              "status" -> Value.intV(n), "headers" -> Value.MapV(Map.empty), "callback" -> block))
             case _ => throw InterpretError("streamResponse(status)(block)")
           })
         case List(n: Long, Value.MapV(hdrs)) =>
           Value.NativeFnV("streamResponse.block", Computation.pureFn {
             case List(block) => Value.InstanceV("StreamResponse", Map(
-              "status" -> Value.IntV(n), "headers" -> Value.MapV(hdrs), "callback" -> block))
+              "status" -> Value.intV(n), "headers" -> Value.MapV(hdrs), "callback" -> block))
             case _ => throw InterpretError("streamResponse(status, headers)(block)")
           })
         case List(block) =>
           Value.InstanceV("StreamResponse", Map(
-            "status" -> Value.IntV(200), "headers" -> Value.MapV(Map.empty), "callback" -> block.asInstanceOf[Value]))
+            "status" -> Value.intV(200), "headers" -> Value.MapV(Map.empty), "callback" -> block.asInstanceOf[Value]))
         case _ => throw InterpretError("streamResponse(block)")
     ),
 
@@ -274,7 +274,7 @@ object HttpIntrinsics:
                 case _ => throw InterpretError("sse internal writer error")
               })
               Value.InstanceV("StreamResponse", Map(
-                "status"   -> Value.IntV(200),
+                "status"   -> Value.intV(200),
                 "headers"  -> headerMap,
                 "callback" -> callback
               ))
@@ -403,7 +403,7 @@ object HttpIntrinsics:
       args match
         case List(v) =>
           Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(200),
+            "status"  -> Value.intV(200),
             "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("text/html; charset=utf-8"))),
             "body"    -> Value.StringV(httpBodyOf(v))
           ))
@@ -560,7 +560,7 @@ object HttpIntrinsics:
       else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
     }.toMap
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(resp.statusCode().toLong),
+      "status"  -> Value.intV(resp.statusCode().toLong),
       "body"    -> Value.StringV(resp.body()),
       "headers" -> Value.MapV(hdrs)
     ))
@@ -592,14 +592,14 @@ object HttpIntrinsics:
     }.toMap
     resp.body().forEach { line => ctx.invokeCallback(handler, List(Value.StringV(line))) }
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(resp.statusCode().toLong),
+      "status"  -> Value.intV(resp.statusCode().toLong),
       "body"    -> Value.StringV(""),
       "headers" -> Value.MapV(hdrs)
     ))
 
   private def httpMkResponse(status: Int, headers: Map[Value, Value] = Map.empty, body: String = ""): Value =
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status),
+      "status"  -> Value.intV(status),
       "headers" -> Value.MapV(headers),
       "body"    -> Value.StringV(body)
     ))

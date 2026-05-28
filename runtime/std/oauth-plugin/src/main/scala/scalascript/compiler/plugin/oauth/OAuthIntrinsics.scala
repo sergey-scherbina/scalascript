@@ -261,7 +261,7 @@ object OAuthIntrinsicHelpers:
             case OAuthGuard.GuardDecision.Deny(rout) =>
               OAuthHttp.routeOutcomeToValue(rout)
         case _ => Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(400L),
+          "status"  -> Value.intV(400L),
           "headers" -> Value.MapV(Map.empty),
           "body"    -> Value.StringV("expected Request")))
       })
