@@ -707,11 +707,17 @@ private[interpreter] object EvalRuntime:
     // Hot path: instead of creating a new Map each iteration, maintain a mutable frame
     // that is updated in-place and exposed via MutableEnvView.  O(K) lookup per iteration
     // where K = keys that changed in globals (typically 0 or 1); no Map allocation.
+    //
+    // Frame size optimization: only copy env entries that are absent from (or differ from)
+    // interp.globals.  These are the locally-declared vars that the loop can mutate.
+    // All other entries (builtins, global defs) are already in interp.globals and
+    // EvalRuntime.Term.Name's globals fallback makes them visible without copying.
+    // This shrinks frame from O(N_globals) to O(N_local_vars) — typically 2-5 entries.
     case t: Term.While =>
-      val frame    = scala.collection.mutable.HashMap.from(env)
-      val entrySnap: Map[String, Value] = env.iterator.flatMap { (k, _) =>
-        interp.globals.get(k).map(k -> _)
-      }.toMap
+      val frame = scala.collection.mutable.HashMap.from(env.iterator.filter { case (k, v) =>
+        !interp.globals.get(k).contains(v)
+      })
+      val entrySnap: Map[String, Value] = frame.toMap
       val frameView = new MutableEnvView(frame)
       def loop: Computation =
         // Refresh mutable frame: only overwrite a key if globals changed since entry.
