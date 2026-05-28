@@ -201,9 +201,13 @@ private[interpreter] object PatternRuntime:
     case Pat.Tuple(pats) =>
       scrutinee match
         case Value.TupleV(elems) if elems.length == pats.length =>
-          pats.zip(elems).foldLeft(Option(env)) { (acc, pe) =>
-            acc.flatMap(e => matchPat(pe._1, pe._2, e, interp))
-          }
+          var curEnv = env; var ps = pats; var es = elems; var ok = true
+          while ok && ps.nonEmpty do
+            matchPat(ps.head, es.head, curEnv, interp) match
+              case Some(e) => curEnv = e
+              case None    => ok = false
+            ps = ps.tail; es = es.tail
+          if ok then Some(curEnv) else None
         case _ => None
     case Pat.Extract.After_4_6_0(fn, argClause) =>
       val typeNameOpt = fn match
@@ -217,9 +221,14 @@ private[interpreter] object PatternRuntime:
             val order     = interp.typeFieldOrder.getOrElse(t, fields.keys.toList)
             val fieldVals = order.flatMap(fields.get)
             if args.length != fieldVals.length then None
-            else args.zip(fieldVals).foldLeft(Option(env)) { (acc, pe) =>
-              acc.flatMap(e => matchPat(pe._1, pe._2, e, interp))
-            }
+            else
+              var curEnv = env; var as = args; var fvs = fieldVals; var ok = true
+              while ok && as.nonEmpty do
+                matchPat(as.head, fvs.head, curEnv, interp) match
+                  case Some(e) => curEnv = e
+                  case None    => ok = false
+                as = as.tail; fvs = fvs.tail
+              if ok then Some(curEnv) else None
           case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
             matchPat(args.head, v, env, interp)
           case Value.NoneV if typeName == "None" && args.isEmpty =>
@@ -259,7 +268,7 @@ private[interpreter] object PatternRuntime:
           case _                => false
         if matches then matchPat(inner, scrutinee, env, interp) else None
     case Pat.Alternative(lhs, rhs) =>
-      List(lhs, rhs).iterator.flatMap(p => matchPat(p, scrutinee, env, interp)).nextOption()
+      matchPat(lhs, scrutinee, env, interp).orElse(matchPat(rhs, scrutinee, env, interp))
     // @ binder: `xs @ pattern` — bind `xs` to the whole scrutinee, then match `pattern`
     case Pat.Bind(lhs: Pat.Var, rhs) =>
       matchPat(rhs, scrutinee, env, interp).map(e => e + (lhs.name.value -> scrutinee))
