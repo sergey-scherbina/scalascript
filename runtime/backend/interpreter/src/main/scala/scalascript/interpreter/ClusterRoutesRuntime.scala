@@ -9,7 +9,7 @@ private[interpreter] object ClusterRoutesRuntime:
     def isRegistered(path: String): Boolean =
       interp.routeRegistry.all.exists(e => e.method == "GET" && e.path == path)
     val okResponse = Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200),
+      "status"  -> Value.intV(200),
       "headers" -> Value.MapV(Map(
         Value.StringV("Content-Type") -> Value.StringV("application/json")
       )),
@@ -40,7 +40,7 @@ private[interpreter] object ClusterRoutesRuntime:
       if hdr == expected then None
       else
         Some(Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(401),
+          "status"  -> Value.intV(401),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") -> Value.StringV("application/json")
           )),
@@ -78,7 +78,7 @@ private[interpreter] object ClusterRoutesRuntime:
           interp.enqueueDrainEvent(interp.localNodeId, enabled)
           if enabled then interp.stepDownIfLeader()
         Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
+          "status"  -> Value.intV(200),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") -> Value.StringV("application/json")
           )),
@@ -103,7 +103,7 @@ private[interpreter] object ClusterRoutesRuntime:
             case _       => interp.currentLeader.get() == interp.localNodeId
         if !wasLeader then
           Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(409),
+            "status"  -> Value.intV(409),
             "headers" -> Value.MapV(Map(
               Value.StringV("Content-Type") -> Value.StringV("application/json")
             )),
@@ -113,7 +113,7 @@ private[interpreter] object ClusterRoutesRuntime:
         else
           interp.stepDownIfLeader()
           Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(200),
+            "status"  -> Value.intV(200),
             "headers" -> Value.MapV(Map(
               Value.StringV("Content-Type") -> Value.StringV("application/json")
             )),
@@ -158,7 +158,7 @@ private[interpreter] object ClusterRoutesRuntime:
           }
         }
         Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
+          "status"  -> Value.intV(200),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") ->
               Value.StringV("text/plain; version=0.0.4; charset=utf-8")
@@ -208,7 +208,7 @@ private[interpreter] object ClusterRoutesRuntime:
             first = false
         sb.append(']')
         Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
+          "status"  -> Value.intV(200),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") -> Value.StringV("application/json")
           )),
@@ -253,7 +253,7 @@ private[interpreter] object ClusterRoutesRuntime:
         kv("raftState", jsonStrLit(interp.raftStateName))
         sb.append('}')
         Value.InstanceV("Response", Map(
-          "status"  -> Value.IntV(200),
+          "status"  -> Value.intV(200),
           "headers" -> Value.MapV(Map(
             Value.StringV("Content-Type") -> Value.StringV("application/json")
           )),

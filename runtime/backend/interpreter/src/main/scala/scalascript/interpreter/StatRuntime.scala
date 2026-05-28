@@ -238,7 +238,7 @@ private[interpreter] object StatRuntime:
             if explicitName.nonEmpty then
               // Build a partially-applied marker so the name resolves to something.
               // Callers that say `using listOrd` supply a concrete type context.
-              val partialInst = Value.InstanceV(typeKey, Map("__factory__" -> Value.BoolV(true)))
+              val partialInst = Value.InstanceV(typeKey, Map("__factory__" -> Value.True))
               env(explicitName) = partialInst
           else
             // Concrete (non-parametric) given: evaluate immediately and store.

@@ -127,7 +127,7 @@ private[interpreter] object AsyncRuntime:
         val fid = interp.freshFutureId()
         interp.parallelFutures.put(fid, fut)
         resume(Value.InstanceV("Future", Map(
-          "_parId" -> Value.IntV(fid),
+          "_parId" -> Value.intV(fid),
           "value"  -> carrier
         )))
       case _ => throw InterpretError("Async.async(thunk)")

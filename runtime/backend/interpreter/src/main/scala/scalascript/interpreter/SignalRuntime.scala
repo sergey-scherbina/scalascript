@@ -23,7 +23,7 @@ private[interpreter] object SignalRuntime:
     interp.reactiveCounter += 1; interp.reactiveCounter
 
   private def signalInstance(id: Long): Value.InstanceV =
-    Value.InstanceV("Signal", Map("id" -> Value.IntV(id)))
+    Value.InstanceV("Signal", Map("id" -> Value.intV(id)))
 
   private def makeSignal(interp: Interpreter, init: Value): Value.InstanceV =
     val id = freshReactiveId(interp)

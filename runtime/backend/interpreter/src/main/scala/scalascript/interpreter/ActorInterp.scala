@@ -249,7 +249,7 @@ private[interpreter] trait ActorInterp:
           try
             if !coordIsLeader then
               val ret = callCoordFn(coordAcquireFn,
-                List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs)))
+                List(Value.StringV(localNodeId), Value.intV(CoordLeaseTimeoutMs)))
               ret match
                 case Value.BoolV(true) =>
                   coordIsLeader = true
@@ -433,7 +433,7 @@ private[interpreter] trait ActorInterp:
     recordEventLog(s"""{"ts":$ts,"type":"DrainStateChanged","nodeId":${jsonStr(nodeId)},"draining":$draining}""")
     if !drainEventSubs.isEmpty then
       val ev = Value.InstanceV("DrainStateChanged",
-        Map("nodeId" -> Value.StringV(nodeId), "draining" -> Value.BoolV(draining)))
+        Map("nodeId" -> Value.StringV(nodeId), "draining" -> Value.boolV(draining)))
       drainEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def sendDrainState(target: String => Unit): Unit =
@@ -455,7 +455,7 @@ private[interpreter] trait ActorInterp:
       val ev = Value.InstanceV("MetricChanged", Map(
         "name"   -> Value.StringV(name),
         "nodeId" -> Value.StringV(nodeId),
-        "value"  -> Value.DoubleV(value)))
+        "value"  -> Value.doubleV(value)))
       metricEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
@@ -658,7 +658,7 @@ private[interpreter] trait ActorInterp:
     Option(remoteMonitors.remove(nodeId)).foreach { list =>
       list.forEach { (actorId, monRef, rPidLocalId) =>
         val downMsg = Value.InstanceV("Down", Map(
-          "ref"    -> Value.IntV(monRef),
+          "ref"    -> Value.intV(monRef),
           "from"   -> mkPid(nodeId, rPidLocalId),
           "reason" -> noconn))
         rt.mailboxes.get(actorId).foreach(_.offer(downMsg))
@@ -678,7 +678,7 @@ private[interpreter] trait ActorInterp:
     }
 
   private def mkPid(nodeId: String, localId: Long): Value =
-    Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.IntV(localId)))
+    Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.intV(localId)))
 
   /** v1.23 — shared peer-loss cleanup.  Runs from three sites that
    *  notice a peer is gone: outbound recv-loop exit, inbound recv-loop
@@ -1340,7 +1340,7 @@ private[interpreter] trait ActorInterp:
             .getOrElse(Nil)
           val status = if rt.blocked.contains(targetId) then "blocked" else "running"
           val info = Value.InstanceV("ProcessInfo", Map(
-            "mailboxSize" -> Value.IntV(mailboxSize),
+            "mailboxSize" -> Value.intV(mailboxSize),
             "links"       -> Value.ListV(links),
             "status"      -> Value.StringV(status)
           ))
@@ -1479,25 +1479,25 @@ private[interpreter] trait ActorInterp:
                   new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
               else
                 val downMsg = Value.InstanceV("Down", Map(
-                  "ref"    -> Value.IntV(monRef),
+                  "ref"    -> Value.intV(monRef),
                   "from"   -> mkPid(nid, targetId),
                   "reason" -> Value.InstanceV("noconnection", Map.empty)))
                 rt.mailboxes.get(id).foreach(_.offer(downMsg))
                 wakeBlocked(rt, id)
-              Right(k(Value.IntV(monRef)))
+              Right(k(Value.intV(monRef)))
             else if rt.mailboxes.contains(targetId) then
               rt.monitors.getOrElseUpdate(targetId, mutable.Map.empty)(monRef) = id
-              Right(k(Value.IntV(monRef)))
+              Right(k(Value.intV(monRef)))
             else
               // Already dead — immediately deliver Down
               val downMsg = Value.InstanceV("Down", Map(
-                "ref"    -> Value.IntV(monRef),
+                "ref"    -> Value.intV(monRef),
                 "from"   -> mkPid("", targetId),
                 "reason" -> Value.InstanceV("noproc", Map.empty)))
               rt.mailboxes.get(id).foreach(_.offer(downMsg))
               wakeBlocked(rt, id)
-              Right(k(Value.IntV(monRef)))
-          case _ => Right(k(Value.IntV(-1L)))
+              Right(k(Value.intV(monRef)))
+          case _ => Right(k(Value.intV(-1L)))
       case _ => throw InterpretError("monitor(pid)")
 
     case "demonitor" => args match
@@ -1699,12 +1699,12 @@ private[interpreter] trait ActorInterp:
     // v1.23 — phi-accrual failure detector
     case "phiOf" => args match
       case List(Value.StringV(nid)) =>
-        Right(k(Value.DoubleV(computePhi(nid))))
+        Right(k(Value.doubleV(computePhi(nid))))
       case _ => throw InterpretError("phiOf(nodeId)")
 
     case "isSuspect" => args match
       case List(Value.StringV(nid), Value.DoubleV(thr)) =>
-        Right(k(Value.BoolV(computePhi(nid) >= thr)))
+        Right(k(Value.boolV(computePhi(nid) >= thr)))
       case _ => throw InterpretError("isSuspect(nodeId, threshold)")
 
     // v1.23 — local node identity
@@ -1717,7 +1717,7 @@ private[interpreter] trait ActorInterp:
       val it = peerChannels.keySet().iterator
       while it.hasNext do
         val nid = it.next()
-        m += (Value.StringV(nid) -> Value.DoubleV(computePhi(nid)))
+        m += (Value.StringV(nid) -> Value.doubleV(computePhi(nid)))
       Right(k(Value.MapV(m.toMap)))
 
     // v1.23 — cluster-wide failure detector
@@ -1758,7 +1758,7 @@ private[interpreter] trait ActorInterp:
         }
         // Majority of available votes.
         val majority = (total + 1) / 2
-        Right(k(Value.BoolV(total > 0 && votes >= majority)))
+        Right(k(Value.boolV(total > 0 && votes >= majority)))
       case _ => throw InterpretError("clusterIsDown(nodeId, threshold)")
 
     // v1.23 — leader election (Bully or Raft, picked by leaderProtocolRef)
@@ -1813,7 +1813,7 @@ private[interpreter] trait ActorInterp:
         acquire match
           case Value.NativeFnV(_, _) | _: Value.FunV =>
             callCoordFn(acquire,
-              List(Value.StringV(localNodeId), Value.IntV(CoordLeaseTimeoutMs))) match
+              List(Value.StringV(localNodeId), Value.intV(CoordLeaseTimeoutMs))) match
               case Value.BoolV(true) =>
                 coordIsLeader = true
                 val prev = currentLeader.getAndSet(localNodeId)
@@ -1839,9 +1839,9 @@ private[interpreter] trait ActorInterp:
       leaderHist.iterator().forEachRemaining { case (term, lid, ms) =>
         // Tuple-as-list keeps the wire shape uniform with the JVM/JS halves.
         val t = scala.collection.mutable.ListBuffer.empty[Value]
-        t += Value.IntV(term)
+        t += Value.intV(term)
         t += Value.StringV(lid)
-        t += Value.IntV(ms)
+        t += Value.intV(ms)
         buf += Value.ListV(t.toList)
       }
       Right(k(Value.ListV(buf.toList)))
@@ -1858,7 +1858,7 @@ private[interpreter] trait ActorInterp:
       case List(Value.StringV(name)) =>
         val entry = clusterAtomics.get(name)
         val v = if entry == null then 0L else entry._1.get()
-        Right(k(Value.IntV(v)))
+        Right(k(Value.intV(v)))
       case _ => throw InterpretError("clusterAtomicGet(name)")
 
     case "clusterAtomicSet" => args match
@@ -1871,7 +1871,7 @@ private[interpreter] trait ActorInterp:
         peerChannels.forEach { (_, send) =>
           try send(payload) catch case _: Throwable => ()
         }
-        Right(k(Value.IntV(v)))
+        Right(k(Value.intV(v)))
       case _ => throw InterpretError("clusterAtomicSet(name, value)")
 
     case "clusterAtomicAdd" => args match
@@ -1893,7 +1893,7 @@ private[interpreter] trait ActorInterp:
         peerChannels.forEach { (_, send) =>
           try send(payload) catch case _: Throwable => ()
         }
-        Right(k(Value.IntV(newVal)))
+        Right(k(Value.intV(newVal)))
       case _ => throw InterpretError("clusterAtomicAdd(name, delta)")
 
     case "clusterAtomicCompareAndSet" => args match
@@ -1913,7 +1913,7 @@ private[interpreter] trait ActorInterp:
           peerChannels.forEach { (_, send) =>
             try send(payload) catch case _: Throwable => ()
           }
-        Right(k(Value.BoolV(swapped)))
+        Right(k(Value.boolV(swapped)))
       case _ => throw InterpretError("clusterAtomicCompareAndSet(name, expect, update)")
 
     // v1.23 — cluster-wide pub/sub
@@ -2030,7 +2030,7 @@ private[interpreter] trait ActorInterp:
       case _ => throw InterpretError("setDraining(enabled: Boolean)")
 
     case "isDraining" =>
-      Right(k(Value.BoolV(isDrainingSelf.get())))
+      Right(k(Value.boolV(isDrainingSelf.get())))
 
     case "drainingPeers" =>
       val buf = scala.collection.mutable.ListBuffer.empty[Value]
@@ -2066,7 +2066,7 @@ private[interpreter] trait ActorInterp:
         val inner = clusterMetrics.get(name)
         val m = scala.collection.mutable.Map[Value, Value]()
         if inner != null then
-          inner.forEach { (nid, v) => m += (Value.StringV(nid) -> Value.DoubleV(v.doubleValue())) }
+          inner.forEach { (nid, v) => m += (Value.StringV(nid) -> Value.doubleV(v.doubleValue())) }
         Right(k(Value.MapV(m.toMap)))
       case _ => throw InterpretError("clusterMetricGet(name: String): Map[String, Double]")
 
@@ -2076,7 +2076,7 @@ private[interpreter] trait ActorInterp:
         var sum = 0.0
         if inner != null then
           inner.forEach { (_, v) => sum += v.doubleValue() }
-        Right(k(Value.DoubleV(sum)))
+        Right(k(Value.doubleV(sum)))
       case _ => throw InterpretError("clusterMetricSum(name: String): Double")
 
     case "clusterMetricNames" =>
@@ -2096,7 +2096,7 @@ private[interpreter] trait ActorInterp:
         val fireAt   = System.currentTimeMillis() + delayMs
         val ref      = rt.nextTimerId; rt.nextTimerId += 1
         rt.timers(ref) = (fireAt, None, targetId, msg)
-        Right(k(Value.IntV(ref)))
+        Right(k(Value.intV(ref)))
       case _ => throw InterpretError("sendAfter(delayMs, pid, msg)")
 
     case "sendInterval" => args match
@@ -2105,7 +2105,7 @@ private[interpreter] trait ActorInterp:
         val fireAt   = System.currentTimeMillis() + periodMs
         val ref      = rt.nextTimerId; rt.nextTimerId += 1
         rt.timers(ref) = (fireAt, Some(periodMs), targetId, msg)
-        Right(k(Value.IntV(ref)))
+        Right(k(Value.intV(ref)))
       case _ => throw InterpretError("sendInterval(periodMs, pid, msg)")
 
     case "cancelTimer" => args match
@@ -2226,7 +2226,7 @@ private[interpreter] trait ActorInterp:
     rt.monitors.remove(targetId).foreach { monMap =>
       monMap.foreach { (monRef, observerId) =>
         val downMsg = Value.InstanceV("Down", Map(
-          "ref"    -> Value.IntV(monRef),
+          "ref"    -> Value.intV(monRef),
           "from"   -> deadPid,
           "reason" -> reason))
         rt.mailboxes.get(observerId).foreach(_.offer(downMsg))

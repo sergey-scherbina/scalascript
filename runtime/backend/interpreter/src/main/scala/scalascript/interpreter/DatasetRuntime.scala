@@ -148,7 +148,7 @@ private[interpreter] object DatasetRuntime:
           val total = xs.foldLeft(Value.DoubleZero: Value) { (acc, v) =>
             Computation.run(interp.infix(acc, "+", List(v), Map.empty))
           }
-          Computation.run(interp.infix(total, "/", List(Value.DoubleV(xs.length.toDouble)), Map.empty))
+          Computation.run(interp.infix(total, "/", List(Value.doubleV(xs.length.toDouble)), Map.empty))
       }),
       "top" -> Value.NativeFnV("Dataset.top", {
         case List(Value.IntV(n)) =>
