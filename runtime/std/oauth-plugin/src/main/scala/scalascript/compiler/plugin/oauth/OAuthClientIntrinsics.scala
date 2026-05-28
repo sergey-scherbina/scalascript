@@ -198,11 +198,11 @@ object OAuthClientIntrinsicHelpers:
 
   def ujsonToValue(v: ujson.Value): Value = v match
     case ujson.Null    => Value.OptionV(None)
-    case ujson.True    => Value.BoolV(true)
-    case ujson.False   => Value.BoolV(false)
+    case ujson.True    => Value.True
+    case ujson.False   => Value.False
     case ujson.Str(s)  => Value.StringV(s)
-    case ujson.Num(n)  if n == n.toLong.toDouble => Value.IntV(n.toLong)
-    case ujson.Num(n)  => Value.DoubleV(n)
+    case ujson.Num(n)  if n == n.toLong.toDouble => Value.intV(n.toLong)
+    case ujson.Num(n)  => Value.doubleV(n)
     case ujson.Arr(xs) => Value.ListV(xs.iterator.map(ujsonToValue).toList)
     case ujson.Obj(kv) => Value.MapV(kv.iterator.map((k, v) =>
                             (Value.StringV(k): Value) -> ujsonToValue(v)).toMap)

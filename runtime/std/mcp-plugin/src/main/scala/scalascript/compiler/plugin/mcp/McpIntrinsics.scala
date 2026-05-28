@@ -1008,11 +1008,11 @@ private object Mcp:
 
   def anyToValue(a: Any): Value = a match
     case null            => Value.OptionV(None)
-    case b: Boolean      => Value.BoolV(b)
+    case b: Boolean      => Value.boolV(b)
     case s: String       => Value.StringV(s)
-    case d: Double       => Value.DoubleV(d)
-    case i: Int          => Value.IntV(i.toLong)
-    case l: Long         => Value.IntV(l)
+    case d: Double       => Value.doubleV(d)
+    case i: Int          => Value.intV(i.toLong)
+    case l: Long         => Value.intV(l)
     case xs: List[?]     => Value.ListV(xs.map(anyToValue))
     case m: Map[?, ?]    => Value.MapV(m.iterator.map((k, v) => Value.StringV(k.toString) -> anyToValue(v)).toMap)
     case other           => Value.StringV(other.toString)
@@ -1473,11 +1473,11 @@ private object Mcp:
 
   def jsonToValue(v: ujson.Value): Value = v match
     case ujson.Null    => Value.OptionV(None)
-    case ujson.True    => Value.BoolV(true)
-    case ujson.False   => Value.BoolV(false)
+    case ujson.True    => Value.True
+    case ujson.False   => Value.False
     case ujson.Str(s)  => Value.StringV(s)
-    case ujson.Num(n)  if n == n.toLong.toDouble => Value.IntV(n.toLong)
-    case ujson.Num(n)  => Value.DoubleV(n)
+    case ujson.Num(n)  if n == n.toLong.toDouble => Value.intV(n.toLong)
+    case ujson.Num(n)  => Value.doubleV(n)
     case ujson.Arr(xs) => Value.ListV(xs.iterator.map(jsonToValue).toList)
     case ujson.Obj(kv) => Value.MapV(kv.iterator.map((k, v) => Value.StringV(k) -> jsonToValue(v)).toMap)
 

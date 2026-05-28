@@ -611,11 +611,11 @@ object HttpIntrinsics:
     case other                               => other.toString
 
   private def httpAnyToValue(a: Any): Value = a match
-    case n: Long    => Value.IntV(n)
-    case i: Int     => Value.IntV(i.toLong)
-    case d: Double  => Value.DoubleV(d)
+    case n: Long    => Value.intV(n)
+    case i: Int     => Value.intV(i.toLong)
+    case d: Double  => Value.doubleV(d)
     case s: String  => Value.StringV(s)
-    case b: Boolean => Value.BoolV(b)
+    case b: Boolean => Value.boolV(b)
     case ()         => Value.UnitV
     case v: Value   => v
     case other      => Value.StringV(other.toString)

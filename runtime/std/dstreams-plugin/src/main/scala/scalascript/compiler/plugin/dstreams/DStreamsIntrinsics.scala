@@ -23,11 +23,11 @@ object DStreamsIntrinsics:
   // NativeImpl receives unwrapped primitives from the interpreter bridge.
   // Wrap them back to Value so they can be stored in DAG nodes / returned.
   private def toValue(a: Any): Value = a match
-    case n: Long    => Value.IntV(n)
-    case i: Int     => Value.IntV(i.toLong)
-    case d: Double  => Value.DoubleV(d)
+    case n: Long    => Value.intV(n)
+    case i: Int     => Value.intV(i.toLong)
+    case d: Double  => Value.doubleV(d)
     case s: String  => Value.StringV(s)
-    case b: Boolean => Value.BoolV(b)
+    case b: Boolean => Value.boolV(b)
     case ()         => Value.UnitV
     case v: Value   => v
     case _          => Value.StringV(a.toString)
@@ -430,7 +430,7 @@ object DStreamsIntrinsics:
         case _       => throw InterpretError("Source.map(f)")
       }),
       "filter" -> Value.NativeFnV("Source.filter", Computation.pureFn {
-        case List(p) => mkCollectedSourceV(arr.toList.filter(v => call(ctx, p, List(v)) == Value.BoolV(true)), ctx)
+        case List(p) => mkCollectedSourceV(arr.toList.filter(v => call(ctx, p, List(v)) == Value.True), ctx)
         case _       => throw InterpretError("Source.filter(p)")
       }),
       "merge" -> Value.NativeFnV("Source.merge", Computation.pureFn {

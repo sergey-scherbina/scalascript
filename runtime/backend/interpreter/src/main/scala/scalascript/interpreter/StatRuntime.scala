@@ -321,9 +321,9 @@ private[interpreter] object StatRuntime:
 
   private def schemaDefaultValue(default: scalascript.ast.SchemaDefault): Value = default match
     case scalascript.ast.SchemaDefault.NullValue => Value.NullV
-    case scalascript.ast.SchemaDefault.Bool(value) => Value.BoolV(value)
-    case scalascript.ast.SchemaDefault.IntValue(value) => Value.IntV(value)
-    case scalascript.ast.SchemaDefault.DoubleValue(value) => Value.DoubleV(value)
+    case scalascript.ast.SchemaDefault.Bool(value) => Value.boolV(value)
+    case scalascript.ast.SchemaDefault.IntValue(value) => Value.intV(value)
+    case scalascript.ast.SchemaDefault.DoubleValue(value) => Value.doubleV(value)
     case scalascript.ast.SchemaDefault.StringValue(value) => Value.StringV(value)
 
   private def hasAnnot(mods: List[Mod], name: String): Boolean =

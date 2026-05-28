@@ -90,8 +90,8 @@ object RequestIntrinsics:
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
             s.toLowerCase match
-              case "true"  | "1" | "yes" | "on"  => Some(Value.BoolV(true))
-              case "false" | "0" | "no"  | "off" => Some(Value.BoolV(false))
+              case "true"  | "1" | "yes" | "on"  => Some(Value.True)
+              case "false" | "0" | "no"  | "off" => Some(Value.False)
               case _ => None
           }
           Value.OptionV(parsed)
@@ -161,11 +161,11 @@ object RequestIntrinsics:
     lookup("form").orElse(lookup("query"))
 
   private def reqAnyToValue(a: Any): Value = a match
-    case n: Long    => Value.IntV(n)
-    case i: Int     => Value.IntV(i.toLong)
-    case d: Double  => Value.DoubleV(d)
+    case n: Long    => Value.intV(n)
+    case i: Int     => Value.intV(i.toLong)
+    case d: Double  => Value.doubleV(d)
     case s: String  => Value.StringV(s)
-    case b: Boolean => Value.BoolV(b)
+    case b: Boolean => Value.boolV(b)
     case ()         => Value.UnitV
     case v: Value   => v
     case other      => Value.StringV(other.toString)

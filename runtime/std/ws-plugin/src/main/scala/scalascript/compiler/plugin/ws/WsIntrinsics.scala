@@ -74,7 +74,7 @@ object WsIntrinsics:
             case _ => throw InterpretError("room.broadcast(msg)")
           })
           val size = Value.NativeFnV("WsRoom.size", Computation.pureFn {
-            case Nil => Value.IntV(members.size.toLong)
+            case Nil => Value.intV(members.size.toLong)
             case _   => throw InterpretError("room.size()")
           })
           Value.InstanceV("WsRoom", Map(

@@ -114,13 +114,13 @@ object SqlIntrinsics:
   private def wrapJdbc(v: Any): Value = v match
     case null        => Value.NullV
     case s: String   => Value.StringV(s)
-    case b: Boolean  => Value.BoolV(b)
+    case b: Boolean  => Value.boolV(b)
     case n: Int      => Value.intV(n.toLong)
-    case n: Long     => Value.IntV(n)
+    case n: Long     => Value.intV(n)
     case n: Short    => Value.intV(n.toLong)
     case n: Byte     => Value.intV(n.toLong)
-    case d: Double   => Value.DoubleV(d)
-    case f: Float    => Value.DoubleV(f.toDouble)
+    case d: Double   => Value.doubleV(d)
+    case f: Float    => Value.doubleV(f.toDouble)
     case other       => Value.StringV(other.toString)
 
 object SqlBlockRunnerImpl extends SqlBlockRunner:
@@ -179,13 +179,13 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
   private def wrapJdbcValue(v: Any): Value = v match
     case null        => Value.NullV
     case s: String   => Value.StringV(s)
-    case b: Boolean  => Value.BoolV(b)
+    case b: Boolean  => Value.boolV(b)
     case n: Int      => Value.intV(n.toLong)
-    case n: Long     => Value.IntV(n)
+    case n: Long     => Value.intV(n)
     case n: Short    => Value.intV(n.toLong)
     case n: Byte     => Value.intV(n.toLong)
-    case d: Double   => Value.DoubleV(d)
-    case f: Float    => Value.DoubleV(f.toDouble)
-    case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)
-    case bd: java.math.BigDecimal => Value.DoubleV(bd.doubleValue)
+    case d: Double   => Value.doubleV(d)
+    case f: Float    => Value.doubleV(f.toDouble)
+    case bi: java.math.BigInteger => Value.intV(bi.longValueExact)
+    case bd: java.math.BigDecimal => Value.doubleV(bd.doubleValue)
     case other       => Value.Foreign(Option(other).map(_.getClass.getSimpleName).getOrElse("?"), other)
