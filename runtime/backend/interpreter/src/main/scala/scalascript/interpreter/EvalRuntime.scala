@@ -438,6 +438,29 @@ private[interpreter] object EvalRuntime:
             case _ =>
               FlatMap(qualC, qualV =>
                 interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+        // ── remoteStub[Api](baseUrl) / Remote.stub[Api](baseUrl) ─────────────
+        // Pass the erased type-name as a second argument so RemoteIntrinsics
+        // can look up the stored abstract method list and build per-method
+        // NativeFnV entries that POST to {baseUrl}/{methodName}.
+        case Term.ApplyType.After_4_6_0(Term.Name("remoteStub"), typeArgClause)
+            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val baseUrlC = eval(app.argClause.values.head, env, interp)
+          baseUrlC.flatMap { baseUrlV =>
+            interp.callValue(
+              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
+              List(baseUrlV, Value.StringV(typeName)), env)
+          }
+        case Term.ApplyType.After_4_6_0(
+              Term.Select(Term.Name("Remote"), Term.Name("stub")), typeArgClause)
+            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val baseUrlC = eval(app.argClause.values.head, env, interp)
+          baseUrlC.flatMap { baseUrlV =>
+            interp.callValue(
+              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
+              List(baseUrlV, Value.StringV(typeName)), env)
+          }
         // ── obj.method[T](args) — type args erased, dispatch with actual args
         // Mirrors the bare Term.Select(qual, method) path above so that
         // type-parameterised method calls like `Dataset.of[Int]()` reach

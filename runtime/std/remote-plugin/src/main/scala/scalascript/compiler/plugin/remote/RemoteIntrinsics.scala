@@ -23,9 +23,10 @@ object RemoteIntrinsics:
         case _ => throw InterpretError("remoteHttpFunction[A, B](url: String)")
     ),
 
-    QualifiedName("remoteStub") -> NativeImpl((_, args) =>
+    QualifiedName("remoteStub") -> NativeImpl((ctx, args) =>
       args match
-        case List(baseUrl: String) => remoteStubValue(baseUrl)
+        case List(baseUrl: String, typeName: String) => remoteTraitStubValue(ctx, baseUrl, typeName)
+        case List(baseUrl: String)                   => remoteStubValue(baseUrl)
         case _ => throw InterpretError("remoteStub(baseUrl: String)")
     ),
 
@@ -169,6 +170,35 @@ object RemoteIntrinsics:
         case _ => throw InterpretError("RemoteStub.tryCall(path, value)")
       })
     ))
+
+  private def remoteTraitStubValue(ctx: NativeContext, baseUrl: String, typeName: String): Value =
+    val methodNames: List[String] = ctx.featureGet(s"$$traitMethods$$${typeName}") match
+      case Some(names: List[?]) => names.collect { case s: String => s }
+      case _                    => Nil
+    if methodNames.isEmpty then
+      // No trait definition found — fall back to the path-based RemoteStub facade.
+      remoteStubValue(baseUrl)
+    else
+      val methodFields: Map[String, Value] = methodNames.map { methodName =>
+        val url = joinRemoteUrl(baseUrl, methodName)
+        methodName -> Value.NativeFnV(s"$typeName.$methodName@$baseUrl", {
+          case List(payload) =>
+            scalascript.interpreter.Computation.Pure(
+              remoteHttpInvoke(url, payload) match
+                case Right(value) => value
+                case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+            )
+          case Nil =>
+            // Zero-arg trait methods: call with Unit payload.
+            scalascript.interpreter.Computation.Pure(
+              remoteHttpInvoke(url, Value.UnitV) match
+                case Right(value) => value
+                case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
+            )
+          case _ => throw InterpretError(s"$typeName.$methodName(value)")
+        })
+      }.toMap
+      Value.InstanceV(typeName, methodFields + ("_remoteBaseUrl" -> Value.StringV(baseUrl)))
 
   private def joinRemoteUrl(baseUrl: String, path: String): String =
     if baseUrl.endsWith("/") && path.startsWith("/") then baseUrl.dropRight(1) + path

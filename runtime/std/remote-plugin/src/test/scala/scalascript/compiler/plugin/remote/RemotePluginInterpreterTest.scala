@@ -168,3 +168,126 @@ class RemotePluginInterpreterTest extends AnyFunSuite:
       assert(interp.exportedGlobals("direct") == Value.StringV("stub:wire"))
       assert(interp.exportedGlobals("viaFunction") == Value.StringV("stub:fn"))
     finally server.stop(0)
+
+  test("remoteStub[Api] derives trait-shaped stub with per-method HTTP dispatch"):
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/echo", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV("echo:" + s)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val interp = runModule(
+        s"""|# Remote
+            |
+            |```scala
+            |trait EchoApi:
+            |  def echo(s: String): String
+            |
+            |val client = remoteStub[EchoApi]("http://127.0.0.1:$port/")
+            |val result = client.echo("hello")
+            |```
+            |""".stripMargin
+      )
+      assert(interp.exportedGlobals("result") == Value.StringV("echo:hello"))
+    finally server.stop(0)
+
+  test("remoteStub[Api] without matching trait falls back to path-based RemoteStub"):
+    val interp = runModule(
+      """|# Remote
+         |
+         |```scala
+         |val client = remoteStub[UnknownApi]("http://localhost:9999/")
+         |val hasFunction = client != null
+         |```
+         |""".stripMargin
+    )
+    assert(interp.exportedGlobals("hasFunction") == Value.boolV(true))
+
+  test("remoteStub[Api] with multiple methods registers each as a NativeFn"):
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/greet", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV("hi:" + s)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.createContext("/upper", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV(s.toUpperCase)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val interp = runModule(
+        s"""|# Remote
+            |
+            |```scala
+            |trait GreetApi:
+            |  def greet(name: String): String
+            |  def upper(s: String): String
+            |
+            |val client = remoteStub[GreetApi]("http://127.0.0.1:$port")
+            |val hi = client.greet("World")
+            |val up = client.upper("hello")
+            |```
+            |""".stripMargin
+      )
+      assert(interp.exportedGlobals("hi") == Value.StringV("hi:World"))
+      assert(interp.exportedGlobals("up") == Value.StringV("HELLO"))
+    finally server.stop(0)
+
+  test("Remote.stub[Api](baseUrl) derives trait-shaped stub same as remoteStub[Api]"):
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/ping", exchange =>
+      val body = String(exchange.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      val in = ValueSerializer.deserialize(body)
+      val out = in match
+        case Value.StringV(s) => Value.StringV("pong:" + s)
+        case other            => other
+      val bytes = ValueSerializer.serialize(out).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      exchange.getResponseHeaders.add("Content-Type", "application/scalascript-value+json")
+      exchange.sendResponseHeaders(200, bytes.length.toLong)
+      exchange.getResponseBody.write(bytes)
+      exchange.close()
+    )
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val interp = runModule(
+        s"""|# Remote
+            |
+            |```scala
+            |trait PingApi:
+            |  def ping(s: String): String
+            |
+            |val client = Remote.stub[PingApi]("http://127.0.0.1:$port/")
+            |val result = client.ping("test")
+            |```
+            |""".stripMargin
+      )
+      assert(interp.exportedGlobals("result") == Value.StringV("pong:test"))
+    finally server.stop(0)

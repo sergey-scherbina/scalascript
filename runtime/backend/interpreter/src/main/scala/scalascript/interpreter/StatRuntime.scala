@@ -187,6 +187,10 @@ private[interpreter] object StatRuntime:
       val traitName = d.name.value
       if !env.contains(traitName) then
         env(traitName) = Value.InstanceV(traitName, Map.empty)
+      // Store abstract method names for remoteStub[Api] trait-method derivation.
+      val abstractMethods = d.templ.body.stats.collect { case m: Decl.Def => m.name.value }
+      if abstractMethods.nonEmpty then
+        interp.nativeFeatureSet(s"$$traitMethods$$${traitName}", abstractMethods)
       // If the trait has `derives` clauses, synthesize those instances.
       if d.templ.derives.nonEmpty then
         d.templ.derives.foreach { derivedType =>
