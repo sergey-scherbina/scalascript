@@ -2898,6 +2898,17 @@ lazy val paymentsTaxJar = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Government Interaction — bureau-core SPI ──────────────────────────────
+lazy val bureauCore = project
+  .in(file("gov/bureau-core"))
+  .dependsOn(paymentsMoney, testUtils % Test)
+  .settings(
+    name := "scalascript-bureau-core",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2928,6 +2939,7 @@ lazy val root = project
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
     paymentsCompliance, paymentsComplianceComplyAdvantage, paymentsComplianceChainalysis, paymentsComplianceMock,
     markupCore, markupCoreJs, markupJs, markupNode,
+    bureauCore,
   )
   .settings(
     publish / skip := true
