@@ -1013,6 +1013,30 @@ Implementation phases ship independently below.
 **v1.53.7 — Cluster-aware webhook idempotency: ✓ Landed (2026-05-27)**
 - `RedisSeenKeyStore` (Lettuce `SET NX EX`); `PostgresSeenKeyStore` (`INSERT … ON CONFLICT DO NOTHING`); both in `payments/webhook-redis/` + `payments/webhook-postgres/`. 17 tests.
 
+## v1.60 — Tuple Monoid
+
+**Status: spec landed 2026-05-28.** See `docs/tuple-monoid.md`.
+
+`Unit = ()` (0-tuple), `++` concatenation on tuples with monoid laws.
+Effect runners described uniformly as `Out(E) ++ (R,)`.
+
+### v1.60.1 — Core type system
+- `SType.Unit` → `SType.Tuple(Nil)` — 0-tuple as canonical unit type
+- `SType.tupleConcat(t1, t2)` smart constructor — eager flattening
+- `++` in type parser (`Typer.scala`) — right-associative, low precedence
+- `parseSType` normalizes `Named("Unit", Nil)` → `Tuple(Nil)` for `.scim` compat
+
+### v1.60.2 — Value level and backends
+- `Value.UnitV` unified with `Value.TupleV(Nil)` — structural equality
+- `++` on tuple values in `DispatchRuntime.scala` — concat via `TupleV(as ++ bs)`
+- JS lowering: `[...a, ...b]` with `_isTuple = true`
+- JVM lowering: `_TupleConcat` helper or inline expansion
+
+### v1.60.3 — Docs and spec integration
+- `algebraic-effects.md` §"Unified runner signature" — `Out(E) ++ (R,)` table
+- `streams.ssc` extern API update — tuple `++` section
+- Confirm all existing tests pass under `Unit = Tuple(Nil)`
+
 ## v1.55 — First-class XML / Generic Markup
 
 **Status: spec landed 2026-05-27.**  See `/Users/sergiy/.claude/plans/majestic-napping-moonbeam.md`.
