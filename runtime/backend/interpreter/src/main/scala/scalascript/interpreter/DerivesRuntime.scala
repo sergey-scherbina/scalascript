@@ -24,12 +24,12 @@ private[interpreter] object DerivesRuntime:
       case "Eq" =>
         Value.InstanceV("Eq", Map(
           "eqv"  -> Value.NativeFnV("Eq.eqv",  {
-            case List(a, b) => Pure(Value.BoolV(structuralEq(a, b)))
-            case _          => Pure(Value.BoolV(false))
+            case List(a, b) => Pure(Value.boolV(structuralEq(a, b)))
+            case _          => Pure(Value.False)
           }),
           "neqv" -> Value.NativeFnV("Eq.neqv", {
-            case List(a, b) => Pure(Value.BoolV(!structuralEq(a, b)))
-            case _          => Pure(Value.BoolV(true))
+            case List(a, b) => Pure(Value.boolV(!structuralEq(a, b)))
+            case _          => Pure(Value.True)
           })
         ))
 
@@ -44,21 +44,21 @@ private[interpreter] object DerivesRuntime:
       case "Hash" =>
         Value.InstanceV("Hash", Map(
           "hash" -> Value.NativeFnV("Hash.hash", {
-            case List(v) => Pure(Value.IntV(structuralHash(v, interp).toLong))
-            case _       => Pure(Value.IntV(0))
+            case List(v) => Pure(Value.intV(structuralHash(v, interp).toLong))
+            case _       => Pure(Value.intV(0))
           })
         ))
 
       case "Order" =>
         Value.InstanceV("Order", Map(
           "compare" -> Value.NativeFnV("Order.compare", {
-            case List(a, b) => Pure(Value.IntV(structuralCompare(a, b, interp).toLong))
-            case _          => Pure(Value.IntV(0))
+            case List(a, b) => Pure(Value.intV(structuralCompare(a, b, interp).toLong))
+            case _          => Pure(Value.intV(0))
           }),
-          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b, interp) < 0));  case _ => Pure(Value.BoolV(false)) }),
-          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b, interp) > 0));  case _ => Pure(Value.BoolV(false)) }),
-          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b, interp) <= 0)); case _ => Pure(Value.BoolV(false)) }),
-          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Pure(Value.BoolV(structuralCompare(a, b, interp) >= 0)); case _ => Pure(Value.BoolV(false)) }),
+          "lt"  -> Value.NativeFnV("Order.lt",  { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) < 0));  case _ => Pure(Value.False) }),
+          "gt"  -> Value.NativeFnV("Order.gt",  { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) > 0));  case _ => Pure(Value.False) }),
+          "lte" -> Value.NativeFnV("Order.lte", { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) <= 0)); case _ => Pure(Value.False) }),
+          "gte" -> Value.NativeFnV("Order.gte", { case List(a, b) => Pure(Value.boolV(structuralCompare(a, b, interp) >= 0)); case _ => Pure(Value.False) }),
           "min" -> Value.NativeFnV("Order.min", { case List(a, b) => Pure(if structuralCompare(a, b, interp) <= 0 then a else b); case _ => Pure(Value.UnitV) }),
           "max" -> Value.NativeFnV("Order.max", { case List(a, b) => Pure(if structuralCompare(a, b, interp) >= 0 then a else b); case _ => Pure(Value.UnitV) })
         ))

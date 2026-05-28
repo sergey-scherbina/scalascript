@@ -264,8 +264,8 @@ private[interpreter] object BuiltinsRuntime:
       "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Pure(Value.UnitV))
     ))
 
-    interp.globals("math.Pi")   = Value.DoubleV(math.Pi)
-    interp.globals("math.E")    = Value.DoubleV(math.E)
+    interp.globals("math.Pi")   = Value.doubleV(math.Pi)
+    interp.globals("math.E")    = Value.doubleV(math.E)
     // math as an object so `math.sqrt(x)` works via field dispatch
     interp.globals("math") = Value.InstanceV("math", Map(
       "sqrt"  -> interp.globals("math.sqrt"),

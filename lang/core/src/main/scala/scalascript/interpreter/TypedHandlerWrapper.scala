@@ -211,9 +211,9 @@ object TypedHandlerWrapper:
     rawOpt.map(raw => coercePrimitive(tpe, raw))
 
   private def coercePrimitive(tpe: String, raw: String): Value = tpe match
-    case "Int" | "Long"     => Value.IntV(raw.trim.toLong)
-    case "Double" | "Float" => Value.DoubleV(raw.trim.toDouble)
-    case "Boolean"          => Value.BoolV(raw.trim.toLowerCase == "true")
+    case "Int" | "Long"     => Value.intV(raw.trim.toLong)
+    case "Double" | "Float" => Value.doubleV(raw.trim.toDouble)
+    case "Boolean"          => Value.boolV(raw.trim.toLowerCase == "true")
     case _                  => Value.StringV(raw)
 
   private def deserializeCaseClass(

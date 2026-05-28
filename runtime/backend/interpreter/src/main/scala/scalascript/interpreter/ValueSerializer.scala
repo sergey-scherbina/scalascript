@@ -103,15 +103,15 @@ object ValueSerializer:
         case None    => v  // not a wire-encoded value — return as-is
         case Some(t) => t match
           case "i"  => any("v") match
-            case Some(Value.IntV(n))    => Value.IntV(n)
-            case Some(Value.DoubleV(d)) => Value.IntV(d.toLong)
-            case _                      => Value.IntV(0)
+            case Some(n: Value.IntV)    => n
+            case Some(Value.DoubleV(d)) => Value.intV(d.toLong)
+            case _                      => Value.intV(0)
           case "d"  => any("v") match
-            case Some(Value.DoubleV(d)) => Value.DoubleV(d)
-            case Some(Value.IntV(n))    => Value.DoubleV(n.toDouble)
-            case _                      => Value.DoubleV(0.0)
+            case Some(d: Value.DoubleV) => d
+            case Some(Value.IntV(n))    => Value.doubleV(n.toDouble)
+            case _                      => Value.doubleV(0.0)
           case "s"  => Value.StringV(str("v").getOrElse(""))
-          case "b"  => Value.BoolV(any("v").collect { case Value.BoolV(b) => b }.getOrElse(false))
+          case "b"  => Value.boolV(any("v").collect { case Value.BoolV(b) => b }.getOrElse(false))
           case "u"  => Value.UnitV
           case "l"  =>
             val items = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }

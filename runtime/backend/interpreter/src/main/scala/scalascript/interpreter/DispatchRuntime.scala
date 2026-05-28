@@ -509,7 +509,7 @@ private[interpreter] object DispatchRuntime:
       case "round"    => Pure(Value.intV(math.round(d)))
       case "floor"    => Pure(Value.doubleV(math.floor(d)))
       case "ceil"     => Pure(Value.doubleV(math.ceil(d)))
-      case _ => extensionDispatch(Value.DoubleV(d), name, args, env, interp)
+      case _ => extensionDispatch(Value.doubleV(d), name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Double"))
 
   // ── Tuple ───────────────────────────────────────────────────────────────────

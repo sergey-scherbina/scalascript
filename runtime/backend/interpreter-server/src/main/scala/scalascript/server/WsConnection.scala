@@ -112,7 +112,7 @@ object WsConnection:
       case _ => throw InterpretError("ws.recv()")
     })
     val isClosed = Value.NativeFnV("WebSocket.isClosed", Computation.pureFn {
-      case Nil => Value.BoolV(ws.isClosed)
+      case Nil => Value.boolV(ws.isClosed)
       case _   => throw InterpretError("ws.isClosed")
     })
     val userValue: Value = ws.user match

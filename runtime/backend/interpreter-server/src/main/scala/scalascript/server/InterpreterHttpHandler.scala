@@ -387,7 +387,7 @@ private final class InterpreterWsListener(
       case _ => throw scalascript.interpreter.InterpretError("ws.onPong { payload => … }")
     })
     val isClosed = Value.NativeFnV("WebSocket.isClosed", Computation.pureFn {
-      case Nil => Value.BoolV(controls.isClosed)
+      case Nil => Value.boolV(controls.isClosed)
       case _   => throw scalascript.interpreter.InterpretError("ws.isClosed")
     })
     // Blocking-recv exposure — handshake-driven server flows (e.g.
