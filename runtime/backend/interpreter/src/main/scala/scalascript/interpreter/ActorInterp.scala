@@ -1492,6 +1492,148 @@ private[interpreter] trait ActorInterp:
         Right(k(spawned))
       case _ => throw InterpretError("spawnRemote(nodeId, behavior, args)")
 
+    // ── Actor Groups (v1.63.6) ────────────────────────────────────────────────
+
+    case "actorGroupRouter" => args match
+      case List(nameV, policyV) =>
+        val name = nameV match { case Value.StringV(s) => s; case _ => "" }
+        val group = Value.InstanceV("ActorGroup", Map(
+          "kind"    -> Value.StringV("router"),
+          "name"    -> Value.StringV(name),
+          "policy"  -> policyV,
+          "members" -> Value.ListV(Nil)
+        ))
+        this.nativeFeatureSet(s"actorGroup.$name", group)
+        Right(k(group))
+      case _ => throw InterpretError("actorGroupRouter(name, policy)")
+
+    case "actorGroupSharded" => args match
+      case List(nameV, _) =>
+        val name = nameV match { case Value.StringV(s) => s; case _ => "" }
+        val group = Value.InstanceV("ActorGroup", Map(
+          "kind"    -> Value.StringV("sharded"),
+          "name"    -> Value.StringV(name),
+          "members" -> Value.ListV(Nil)
+        ))
+        this.nativeFeatureSet(s"actorGroup.$name", group)
+        Right(k(group))
+      case _ => throw InterpretError("actorGroupSharded(name, keyFn)")
+
+    case "actorGroupRole" => args match
+      case List(roleV) =>
+        val role = roleV match { case Value.StringV(s) => s; case _ => "" }
+        val group = Value.InstanceV("ActorGroup", Map(
+          "kind"     -> Value.StringV("role"),
+          "roleName" -> Value.StringV(role),
+          "members"  -> Value.ListV(Nil)
+        ))
+        Right(k(group))
+      case _ => throw InterpretError("actorGroupRole(roleName)")
+
+    case "actorGroupTell" => args match
+      case List(Value.InstanceV("ActorGroup", fields), msg) =>
+        // Look up current group state by name (members may have been added after creation)
+        val currentFields = fields.get("name").collect { case Value.StringV(n) => n }
+          .flatMap { n =>
+            this.nativeFeatureGet(s"actorGroup.$n").collect { case g: Value.InstanceV => g.fields }
+          }.getOrElse(fields)
+        val members = currentFields.get("members").collect { case Value.ListV(xs) => xs }.getOrElse(Nil)
+        if members.nonEmpty then
+          val kind = currentFields.get("kind").collect { case Value.StringV(s) => s }.getOrElse("router")
+          val target = kind match
+            case "sharded" =>
+              val idx = math.abs(Value.show(msg).hashCode) % members.size
+              members(idx)
+            case _ =>
+              val idx = math.abs(members.hashCode ^ msg.hashCode) % members.size
+              members(idx)
+          // Deliver to target using send semantics
+          target match
+            case Value.InstanceV("Pid", tFields) =>
+              val pidNode = tFields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+              if pidNode.nonEmpty && pidNode != localNodeId then
+                remoteDeliverOrQueue(pidNode, tFields, msg)
+              else tFields.get("localId").collect { case Value.IntV(tid) =>
+                rt.mailboxes.get(tid).foreach(_.offer(msg))
+                wakeBlocked(rt, tid)
+              }
+            case _ => ()
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("actorGroupTell(group, msg)")
+
+    case "actorGroupAdd" => args match
+      case List(Value.InstanceV("ActorGroup", fields), ref) =>
+        fields.get("name").collect { case Value.StringV(n) => n }.foreach { n =>
+          val currentFields = this.nativeFeatureGet(s"actorGroup.$n")
+            .collect { case g: Value.InstanceV => g.fields }.getOrElse(fields)
+          val updated = Value.InstanceV("ActorGroup", currentFields.updated(
+            "members",
+            currentFields.get("members").collect { case Value.ListV(xs) => Value.ListV(xs :+ ref) }
+              .getOrElse(Value.ListV(List(ref)))
+          ))
+          this.nativeFeatureSet(s"actorGroup.$n", updated)
+        }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("actorGroupAdd(group, ref)")
+
+    case "actorGroupRemove" => args match
+      case List(Value.InstanceV("ActorGroup", fields), ref) =>
+        fields.get("name").collect { case Value.StringV(n) => n }.foreach { n =>
+          val currentFields = this.nativeFeatureGet(s"actorGroup.$n")
+            .collect { case g: Value.InstanceV => g.fields }.getOrElse(fields)
+          val updated = Value.InstanceV("ActorGroup", currentFields.updated(
+            "members",
+            currentFields.get("members").collect { case Value.ListV(xs) => Value.ListV(xs.filterNot(_ == ref)) }
+              .getOrElse(Value.ListV(Nil))
+          ))
+          this.nativeFeatureSet(s"actorGroup.$n", updated)
+        }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("actorGroupRemove(group, ref)")
+
+    case "actorGroupMembers" => args match
+      case List(Value.InstanceV("ActorGroup", fields)) =>
+        // Look up current group state by name (members may have been added after creation)
+        val currentFields = fields.get("name").collect { case Value.StringV(n) => n }
+          .flatMap { n =>
+            this.nativeFeatureGet(s"actorGroup.$n").collect { case g: Value.InstanceV => g.fields }
+          }.getOrElse(fields)
+        val members = currentFields.get("members").collect { case Value.ListV(xs) => xs }.getOrElse(Nil)
+        Right(k(Value.ListV(members)))
+      case _ => throw InterpretError("actorGroupMembers(group)")
+
+    // proxyActor(ref) — spawn a local actor that drains its mailbox and forwards to ref (v1.63.6).
+    // Uses a proxyFlush step: runs synchronously in the scheduler after the sender completes.
+    case "proxyActor" => args match
+      case List(targetRef) =>
+        val proxyId = rt.nextId
+        rt.nextId += 1
+        rt.mailboxes(proxyId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
+        rt.pending(proxyId) = Computation.Perform("Actor", "proxyFlush", List(targetRef))
+        rt.ready.enqueue(proxyId)
+        Right(k(mkPid("", proxyId)))
+      case _ => throw InterpretError("proxyActor(ref)")
+
+    // proxyFlush — drain the proxy actor's mailbox and forward to target (internal op).
+    case "proxyFlush" => args match
+      case List(targetRef) =>
+        val mbox = rt.mailboxes.getOrElse(id, null)
+        if mbox != null then
+          var msg = mbox.poll()
+          while msg != null do
+            targetRef match
+              case Value.InstanceV("Pid", tFields) =>
+                val pidNode = tFields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+                if pidNode.nonEmpty && pidNode != localNodeId then
+                  remoteDeliverOrQueue(pidNode, tFields, msg)
+                else tFields.get("localId").collect { case Value.IntV(tid) =>
+                  rt.mailboxes.get(tid).foreach { mb => mb.offer(msg); wakeBlocked(rt, tid) }
+                }
+              case _ => ()
+            msg = mbox.poll()
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("proxyFlush internal arg error")
+
     case "processInfo" => args match
       case List(Value.InstanceV("Pid", fields)) =>
         val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(-1L)

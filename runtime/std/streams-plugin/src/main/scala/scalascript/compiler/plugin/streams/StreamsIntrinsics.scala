@@ -1243,4 +1243,99 @@ object StreamsIntrinsics:
           makeSourceV(q, ctx)
         case _ => throw InterpretError("Source.fromCallback(register)")
     ),
+
+    // ── v1.63.6 RemoteSource adapters ────────────────────────────────────────
+
+    // Source[A].remote(name, policy) — register a named remote stream.
+    // Stores the source factory in nativeFeatureState under "remoteSource.<name>"
+    // and registers a GET /streams/<name> SSE endpoint via ctx.registerRoute.
+    QualifiedName("Source.remote") -> NativeImpl((ctx, args) =>
+      args match
+        case List(src, name: String, policy) =>
+          remoteSourceRegister(ctx, src, name, policy)
+        case List(src, name: Value.StringV, policy) =>
+          remoteSourceRegister(ctx, src, name.v, policy)
+        case _ => throw InterpretError("Source.remote(name, policy)")
+    ),
+
+    // remoteSourceLocal(rs, buffer) — subscribe to a RemoteSource locally.
+    // In-process: looks up the source from nativeFeatureState.
+    // HTTP: connects via SSE using Source.fromSse pattern.
+    QualifiedName("remoteSourceLocal") -> NativeImpl((ctx, args) =>
+      args match
+        case List(Value.InstanceV("RemoteSource", fields), bufferV) =>
+          val name = fields.get("name").collect { case Value.StringV(s) => s }.getOrElse("")
+          val buffer = bufferV match
+            case Value.IntV(n) => n.toInt
+            case _             => 1024
+          ctx.featureGet(s"remoteSource.$name") match
+            case Some(src) => src.asInstanceOf[Value]
+            case None =>
+              // HTTP SSE fallback — requires a url field set by the connecting party
+              fields.get("url").collect { case Value.StringV(u) => u } match
+                case Some(url) => remoteSourceFromSse(url, buffer, ctx)
+                case None      => throw InterpretError(s"remoteSourceLocal: no source registered for '$name' and no url")
+        case _ => throw InterpretError("remoteSourceLocal(rs, buffer)")
+    ),
   )
+
+  private def remoteSourceRegister(ctx: NativeContext, src: Any, name: String, policy: Any): Value =
+    ctx.featureSet(s"remoteSource.$name", src)
+    // Register SSE route GET /streams/<name>
+    val sseHandler = Value.NativeFnV(s"stream.$name.sse", Computation.pureFn { _ =>
+      ctx.featureGet(s"remoteSource.$name") match
+        case Some(srcV: Value.InstanceV) if srcV.typeName == "Source" =>
+          val sb = new StringBuilder
+          srcV.fields.get("runForeach") match
+            case Some(rf) =>
+              val emitFn = Value.NativeFnV("_sseEmit", Computation.pureFn {
+                case List(v) =>
+                  val s = v match
+                    case Value.StringV(x) => x
+                    case other            => Value.show(other)
+                  sb.append(s"data: $s\n\n")
+                  Value.UnitV
+                case _ => Value.UnitV
+              })
+              ctx.synchronized { ctx.invokeCallback(rf, List(emitFn)) }
+            case _ => ()
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.intV(200),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("text/event-stream"),
+              Value.StringV("Cache-Control") -> Value.StringV("no-cache"),
+            )),
+            "body"    -> Value.StringV(sb.toString)
+          ))
+        case _ =>
+          Value.InstanceV("Response", Map(
+            "status"  -> Value.intV(404),
+            "body"    -> Value.StringV(s"stream '$name' not found")
+          ))
+    })
+    ctx.registerRoute("GET", s"/streams/$name", sseHandler)
+    Value.InstanceV("RemoteSource", Map(
+      "name"   -> Value.StringV(name),
+      "policy" -> toValue(policy)
+    ))
+
+  private def remoteSourceFromSse(url: String, buffer: Int, ctx: NativeContext): Value =
+    val q = new java.util.concurrent.ArrayBlockingQueue[Option[Value]](buffer.max(1))
+    Thread.ofVirtual().start { () =>
+      try
+        val client = java.net.http.HttpClient.newHttpClient()
+        val req    = java.net.http.HttpRequest.newBuilder()
+          .uri(java.net.URI.create(url))
+          .header("Accept", "text/event-stream")
+          .build()
+        val resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofLines())
+        val it   = resp.body().iterator()
+        while it.hasNext do
+          val line = it.next()
+          if line.startsWith("data:") then
+            val item = Value.StringV(line.drop(5).trim)
+            if q.remainingCapacity() > 0 then q.put(Some(item))
+      catch case _: Throwable => ()
+      finally try q.put(None) catch case _ => ()
+    }
+    makeSourceV(q, ctx)

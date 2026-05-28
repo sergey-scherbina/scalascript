@@ -431,3 +431,42 @@ private[interpreter] object ActorGlobals:
       case List(Value.IntV(ref)) => Perform("Actor", "cancelTimer", List(Value.intV(ref)))
       case _ => throw InterpretError("cancelTimer(ref: TimerRef): Unit")
     })
+
+    // ── v1.63.6 — actor groups + proxy ───────────────────────────────────
+    g("actorGroupRouter") = Value.NativeFnV("actorGroupRouter", {
+      case List(name, policy) => Perform("Actor", "actorGroupRouter", List(name, policy))
+      case _ => throw InterpretError("actorGroupRouter(name: String, policy: RoutingPolicy): ActorGroup[M]")
+    })
+    g("actorGroupSharded") = Value.NativeFnV("actorGroupSharded", {
+      case List(name, keyFn) => Perform("Actor", "actorGroupSharded", List(name, keyFn))
+      case _ => throw InterpretError("actorGroupSharded(name: String, key: Any => String): ActorGroup[M]")
+    })
+    g("actorGroupRole") = Value.NativeFnV("actorGroupRole", {
+      case List(roleName) => Perform("Actor", "actorGroupRole", List(roleName))
+      case _ => throw InterpretError("actorGroupRole(roleName: String): ActorGroup[M]")
+    })
+    g("actorGroupTell") = Value.NativeFnV("actorGroupTell", {
+      case List(group, msg) => Perform("Actor", "actorGroupTell", List(group, msg))
+      case _ => throw InterpretError("actorGroupTell(group: ActorGroup[M], msg: M): Unit")
+    })
+    g("actorGroupAdd") = Value.NativeFnV("actorGroupAdd", {
+      case List(group, ref) => Perform("Actor", "actorGroupAdd", List(group, ref))
+      case _ => throw InterpretError("actorGroupAdd(group: ActorGroup[M], ref: ActorRef[M]): Unit")
+    })
+    g("actorGroupRemove") = Value.NativeFnV("actorGroupRemove", {
+      case List(group, ref) => Perform("Actor", "actorGroupRemove", List(group, ref))
+      case _ => throw InterpretError("actorGroupRemove(group: ActorGroup[M], ref: ActorRef[M]): Unit")
+    })
+    g("actorGroupMembers") = Value.NativeFnV("actorGroupMembers", {
+      case List(group) => Perform("Actor", "actorGroupMembers", List(group))
+      case _ => throw InterpretError("actorGroupMembers(group: ActorGroup[M]): List[ActorRef[M]]")
+    })
+    g("proxyActor") = Value.NativeFnV("proxyActor", {
+      case List(ref) => Perform("Actor", "proxyActor", List(ref))
+      case _ => throw InterpretError("proxyActor(ref: ActorRef[M]): ActorRef[M]")
+    })
+    g("ActorGroup") = Value.InstanceV("ActorGroup$", Map(
+      "router"  -> g("actorGroupRouter"),
+      "sharded" -> g("actorGroupSharded"),
+      "role"    -> g("actorGroupRole"),
+    ))

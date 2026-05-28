@@ -72,6 +72,16 @@ exports:
   - actorRefPublish
   - registerBehavior
   - spawnRemote
+  - ActorGroup
+  - RoutingPolicy
+  - actorGroupRouter
+  - actorGroupSharded
+  - actorGroupRole
+  - actorGroupTell
+  - actorGroupAdd
+  - actorGroupRemove
+  - actorGroupMembers
+  - proxyActor
 ---
 
 # std.actors — Actor supervision
@@ -590,4 +600,55 @@ object Supervisor:
 
       loop(initEntries(specs), Nil)
     }
+```
+
+## Actor Groups and Proxy Actors (v1.63.6)
+
+```scalascript
+// ─── Actor groups (v1.63.6) ──────────────────────────────────────────────────
+
+// Message-routing policy for router groups.
+enum RoutingPolicy:
+  case RoundRobin    // cycle through members in order
+  case LeastMailbox  // choose member with smallest mailbox queue
+  case Random        // choose a random member
+  case Broadcast     // send to all members simultaneously
+
+// Opaque handle to a named actor group.
+type ActorGroup[M] = Any
+
+// Create a router group: distributes messages to registered member actors.
+extern def actorGroupRouter[M](name: String, policy: RoutingPolicy): ActorGroup[M]
+
+// Create a sharded group: routes each message to a shard actor determined by key.
+// `key` extracts a string shard key from the message.
+extern def actorGroupSharded[M](name: String, key: Any => String): ActorGroup[M]
+
+// Select all actors with the given cluster role label as a virtual group.
+// Messages are round-robin distributed among actors on nodes with `roleName`.
+extern def actorGroupRole[M](roleName: String): ActorGroup[M]
+
+extern def actorGroupTell[M](group: ActorGroup[M], msg: M): Unit
+extern def actorGroupAdd[M](group: ActorGroup[M], ref: ActorRef[M]): Unit
+extern def actorGroupRemove[M](group: ActorGroup[M], ref: ActorRef[M]): Unit
+extern def actorGroupMembers[M](group: ActorGroup[M]): List[ActorRef[M]]
+
+extension [M](group: ActorGroup[M])
+  def !(msg: M): Unit = actorGroupTell(group, msg)
+  def add(ref: ActorRef[M]): Unit = actorGroupAdd(group, ref)
+  def remove(ref: ActorRef[M]): Unit = actorGroupRemove(group, ref)
+  def members: List[ActorRef[M]] = actorGroupMembers(group)
+
+// Create a local proxy actor that forwards all received messages to `ref`.
+// The proxy is a local ActorRef[M]; remote failure of `ref` surfaces as
+// a dead-letter (the proxy keeps running).
+extern def proxyActor[M](ref: ActorRef[M]): ActorRef[M]
+
+object ActorGroup:
+  def router[M](name: String, policy: RoutingPolicy = RoutingPolicy.RoundRobin): ActorGroup[M] =
+    actorGroupRouter[M](name, policy)
+  def sharded[M](name: String, key: Any => String): ActorGroup[M] =
+    actorGroupSharded[M](name, key)
+  def role[M](roleName: String): ActorGroup[M] =
+    actorGroupRole[M](roleName)
 ```

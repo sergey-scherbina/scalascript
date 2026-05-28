@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.63.6 stream/actor placement adapters
+
+- **v1.63.6-stream-actor-placement-adapters** — `Source[A].remote(name, policy)` registers a named remote source and SSE route, returns a `RemoteSource[A]`; `remoteSourceLocal(rs, buffer)` retrieves in-process source; `RemoteSource.local(buffer)` / `RemoteSource.distributed` extension methods via `DispatchRuntime` bridges. `DStream[A].remote(name)` runs the dag, collects to local source, and registers SSE route. `ActorGroup.router/sharded/role`, `actorGroupAdd/Remove/Members/Tell`, `proxyActor` — actor groups use `nativeFeatureSet` for mutable member state so successive `actorGroupAdd` calls are cumulative; `proxyActor` implements drain-on-step semantics (proxyFlush) instead of a virtual thread, staying within the cooperative scheduler. `RemoteStreamPolicy`, `SseOverflowPolicy`, `RoutingPolicy` companion constants assembled in `BuiltinsRuntime`; actor group globals wired in `ActorGlobals`. 10 tests: 5 stream (RemoteSourceTest) + 5 actor (ActorGroupTest).
+
 ## 2026-05-29 — v1.63.5 cluster runner, worker bundles, handlers route
 
 - **v1.63.5-cluster-runner-worker-bundles** — `ssc cluster run` delegates to `ssc run` with `SSC_CLUSTER_ROLE`/`SSC_NODE_ID`/`SSC_BIND`/`SSC_JOIN_SEEDS`/`SSC_CLUSTER_TOKEN` env vars; `ssc cluster package` creates a zip containing the source file plus `manifest.json` with SHA-256 code identity and registry metadata (remoteHandlers, exportedBehaviors, exportedSources); `ssc cluster handlers` GETs `/_ssc-cluster/handlers` and displays the operation list; `ssc cluster stop` POSTs to drain then step-down. `GET /_ssc-cluster/handlers` is registered automatically on `startNode` in both the interpreter and JVM codegen. Also fixes a pre-existing DAP exhaustivity warning (`Value.OptionV(None)` case).

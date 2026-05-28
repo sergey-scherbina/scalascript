@@ -1,11 +1,14 @@
 ---
 name: std-streams-bridge
-version: 1.63.1
-description: Bridge between local Source[A] and distributed DStream[A] — .distributed, .local, BasicStreamOps
+version: 1.63.6
+description: Bridge between local Source[A], RemoteSource[A], and distributed DStream[A]
 package: std.streams.bridge
 exports:
   - BasicStreamOps
   - StreamTooLargeError
+  - RemoteSource
+  - RemoteStreamPolicy
+  - SseOverflowPolicy
 ---
 
 # `std.streams.bridge` — Stream Bridge (v1.63.1)
@@ -77,3 +80,61 @@ val result =
     .local()                    // Source[Int]  — runs DAG, wraps collected list
     .runToList                  // List[Int] = List(2, 4, 6)
 ```
+
+## Remote stream adapters (v1.63.6)
+
+`RemoteSource[A]` is a handle to a named stream registered on this or a remote
+node. Subscription transports: WebSocket (demand-pull), SSE (push-only with
+bounded overflow policy), or in-process (same JVM, zero copy).
+
+```scalascript
+// Opaque handle to a named remote stream.
+type RemoteSource[A] = Any
+
+// Transport/overflow policy for a remote stream.
+enum RemoteStreamPolicy:
+  case Default                         // WS with SSE fallback
+  case WsOnly                          // WebSocket only
+  case SseOnly(overflow: SseOverflowPolicy)  // SSE only
+  case InProcess                       // in-process only
+
+// Overflow policy for SSE (push-only) subscriptions.
+enum SseOverflowPolicy:
+  case DropOldest  // drop oldest buffered elements
+  case DropNewest  // discard incoming elements
+  case Fail        // raise error on full buffer
+  case Block       // backpressure sender
+
+// Register a local Source[A] as a named remote stream.
+// Registers GET /streams/{name} as an SSE endpoint.
+extern def Source[A].remote(name: String, policy: RemoteStreamPolicy = RemoteStreamPolicy.Default): RemoteSource[A]
+
+// Subscribe to a RemoteSource and materialise locally.
+// In-process lookup is attempted first; HTTP SSE is used otherwise.
+extern def remoteSourceLocal[A](rs: RemoteSource[A], buffer: Int): Source[A]
+
+// Register a DStream output as a named remote stream.
+extern def DStream[A].remote(name: String): RemoteSource[A]
+
+// Create a local proxy actor that forwards all messages to a remote ref.
+extern def proxyActor[M](ref: Any): Any
+
+extension [A](rs: RemoteSource[A])
+  def local(buffer: Int = 1024): Source[A] = remoteSourceLocal[A](rs, buffer)
+  def distributed(partitions: Int = 1): DStream[A] = remoteSourceLocal[A](rs, 1024).distributed(partitions)
+```
+
+### Semantics
+
+| API | Notes |
+|---|---|
+| `src.remote(name)` | Registers the source under `name`; exposes `GET /streams/{name}` as SSE. |
+| `rs.local(buffer)` | In-process: direct lookup + subscribe. HTTP: SSE client with `buffer`-element bound. |
+| `rs.distributed(p)` | Calls `.local(1024)` then `.distributed(p)`. |
+| `ds.remote(name)` | Materialises the DStream to a local source and registers it under `name`. |
+
+### SSE overflow
+SSE is push-only. When the subscriber is slower than the producer the bounded
+buffer overflows. The `SseOverflowPolicy` in `RemoteStreamPolicy.SseOnly(policy)`
+controls what happens: `DropOldest`, `DropNewest`, `Fail`, or `Block`.
+The `Default` policy applies `DropOldest` as the SSE fallback strategy.

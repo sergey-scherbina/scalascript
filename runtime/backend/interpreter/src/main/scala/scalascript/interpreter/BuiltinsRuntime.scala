@@ -801,6 +801,24 @@ private[interpreter] object BuiltinsRuntime:
         "withFilter" -> interp.globals.getOrElse("OutputTag.withFilter", Value.UnitV),
       ))
     }
+    // v1.63.6 — RemoteStreamPolicy / SseOverflowPolicy constant objects
+    interp.globals("RemoteStreamPolicy") = Value.InstanceV("RemoteStreamPolicy", Map(
+      "Default"   -> Value.InstanceV("RemoteStreamPolicy.Default", Map.empty),
+      "WsOnly"    -> Value.InstanceV("RemoteStreamPolicy.WsOnly", Map.empty),
+      "InProcess" -> Value.InstanceV("RemoteStreamPolicy.InProcess", Map.empty),
+    ))
+    interp.globals("SseOverflowPolicy") = Value.InstanceV("SseOverflowPolicy", Map(
+      "DropOldest" -> Value.InstanceV("SseOverflowPolicy.DropOldest", Map.empty),
+      "DropNewest" -> Value.InstanceV("SseOverflowPolicy.DropNewest", Map.empty),
+      "Fail"       -> Value.InstanceV("SseOverflowPolicy.Fail", Map.empty),
+      "Block"      -> Value.InstanceV("SseOverflowPolicy.Block", Map.empty),
+    ))
+    interp.globals("RoutingPolicy") = Value.InstanceV("RoutingPolicy", Map(
+      "RoundRobin"   -> Value.InstanceV("RoutingPolicy.RoundRobin", Map.empty),
+      "LeastMailbox" -> Value.InstanceV("RoutingPolicy.LeastMailbox", Map.empty),
+      "Random"       -> Value.InstanceV("RoutingPolicy.Random", Map.empty),
+      "Broadcast"    -> Value.InstanceV("RoutingPolicy.Broadcast", Map.empty),
+    ))
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */

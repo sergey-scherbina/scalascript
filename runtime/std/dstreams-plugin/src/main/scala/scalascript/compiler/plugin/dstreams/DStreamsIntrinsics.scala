@@ -778,6 +778,54 @@ object DStreamsIntrinsics:
         else mkCollectedSourceV(elems, ctx)
       case _ => throw InterpretError("DStream.localBounded(maxBytes)")
     }),
+
+    // DStream.remote(name) — materialise and register as a named remote stream (v1.63.6).
+    // Collects the DStream elements into a local Source, then delegates to Source.remote.
+    "remote" -> Value.NativeFnV("DStream.remote", Computation.pureFn {
+      case List(nameV) =>
+        val name = nameV match
+          case Value.StringV(s) => s
+          case _                => throw InterpretError("DStream.remote(name: String)")
+        val elems   = runToList(dag, ctx)
+        val localSrc = mkCollectedSourceV(elems, ctx)
+        ctx.featureSet(s"remoteSource.$name", localSrc)
+        val sseHandler = Value.NativeFnV(s"stream.$name.sse", Computation.pureFn { _ =>
+          ctx.featureGet(s"remoteSource.$name") match
+            case Some(srcV: Value.InstanceV) if srcV.typeName == "Source" =>
+              val sb = new StringBuilder
+              srcV.fields.get("runForeach") match
+                case Some(rf) =>
+                  val emitFn = Value.NativeFnV("_sseEmit", Computation.pureFn {
+                    case List(v) =>
+                      val s = v match
+                        case Value.StringV(x) => x
+                        case other            => Value.show(other)
+                      sb.append(s"data: $s\n\n")
+                      Value.UnitV
+                    case _ => Value.UnitV
+                  })
+                  ctx.synchronized { ctx.invokeCallback(rf, List(emitFn)) }
+                case _ => ()
+              Value.InstanceV("Response", Map(
+                "status"  -> Value.intV(200),
+                "headers" -> Value.MapV(Map(
+                  Value.StringV("Content-Type") -> Value.StringV("text/event-stream"),
+                )),
+                "body"    -> Value.StringV(sb.toString)
+              ))
+            case _ =>
+              Value.InstanceV("Response", Map(
+                "status" -> Value.intV(404),
+                "body"   -> Value.StringV(s"stream '$name' not found")
+              ))
+        })
+        ctx.registerRoute("GET", s"/streams/$name", sseHandler)
+        Value.InstanceV("RemoteSource", Map(
+          "name"   -> Value.StringV(name),
+          "policy" -> Value.StringV("Default")
+        ))
+      case _ => throw InterpretError("DStream.remote(name)")
+    }),
   )
 
   private def mkDStreamWithOps(dag: Value, ctx: NativeContext): Value =

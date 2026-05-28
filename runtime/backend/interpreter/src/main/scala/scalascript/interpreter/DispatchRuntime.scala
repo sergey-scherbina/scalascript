@@ -684,6 +684,28 @@ private[interpreter] object DispatchRuntime:
       interp.globals.get("Source.distributed") match
         case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
         case None     => interp.located("Source.distributed requires the DStreams plugin")
+    // Source.remote bridge — dispatches to streams-bridge plugin when loaded (v1.63.6)
+    else if typeName == "Source" && name == "remote" then
+      interp.globals.get("Source.remote") match
+        case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
+        case None     => interp.located("Source.remote requires the streams-bridge plugin")
+    // RemoteSource.local bridge (v1.63.6)
+    else if typeName == "RemoteSource" && name == "local" then
+      interp.globals.get("remoteSourceLocal") match
+        case Some(fn) =>
+          val buffer = args.headOption.getOrElse(Value.intV(1024))
+          interp.callValue2(fn, recv, buffer, env)
+        case None => interp.located("remoteSourceLocal requires the streams-bridge plugin")
+    // RemoteSource.distributed bridge (v1.63.6)
+    else if typeName == "RemoteSource" && name == "distributed" then
+      interp.globals.get("remoteSourceLocal") match
+        case Some(localFn) =>
+          interp.callValue2(localFn, recv, Value.intV(1024), env).flatMap { localSrc =>
+            interp.globals.get("Source.distributed") match
+              case Some(df) => interp.callValuePrepend(df, localSrc, args, env)
+              case None     => interp.located("RemoteSource.distributed requires the DStreams plugin")
+          }
+        case None => interp.located("remoteSourceLocal requires the streams-bridge plugin")
     // ReactiveSignal bridge (no hard-coding streams into core)
     else if typeName == "ReactiveSignal" && name == "bind" then
       args match
