@@ -935,10 +935,29 @@ private[interpreter] object EvalRuntime:
   /** Thread a list of already-built Computations: bind each in order and feed
    *  the resulting values to `k`. */
   def threadValues(comps: List[Computation])(k: List[Value] => Computation): Computation =
-    def chain(remaining: List[Computation], acc: List[Value]): Computation = remaining match
-      case Nil       => k(acc.reverse)
-      case c :: rest => FlatMap(c, v => chain(rest, v :: acc))
-    chain(comps, Nil)
+    // Specialised fast paths for the most common small-arity cases (0–3 args).
+    // Each pattern match avoids ArrayBuffer + toList + FlatMap chain overhead
+    // when all arg evaluations are Pure — the common case for literal arguments.
+    comps match
+      case Nil => k(Nil)
+      case List(Pure(v1)) => k(List(v1))
+      case List(Pure(v1), Pure(v2)) => k(List(v1, v2))
+      case List(Pure(v1), Pure(v2), Pure(v3)) => k(List(v1, v2, v3))
+      case _ =>
+        // General case: all-Pure check then FlatMap chain.
+        var allPure = true
+        var rest    = comps
+        val buf     = new scala.collection.mutable.ArrayBuffer[Value](comps.length)
+        while allPure && rest.nonEmpty do
+          rest.head match
+            case Pure(v) => buf += v; rest = rest.tail
+            case _       => allPure = false
+        if allPure then k(buf.toList)
+        else
+          def chain(remaining: List[Computation], acc: List[Value]): Computation = remaining match
+            case Nil       => k(acc.reverse)
+            case c :: rest => FlatMap(c, v => chain(rest, v :: acc))
+          chain(comps, Nil)
 
   // ─── Block eval + direct[M] — see BlockRuntime.scala ─────────────────
 
