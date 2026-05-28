@@ -93,7 +93,7 @@ private[interpreter] object EffectHandlers:
       op match
         case "nextInt" => args match
           case List(Value.IntV(n)) =>
-            resume(Value.IntV(rng.nextInt(n.toInt).toLong))
+            resume(Value.intV(rng.nextInt(n.toInt).toLong))
           case _ => throw InterpretError("Random.nextInt(n: Int)")
         case "nextDouble" =>
           resume(Value.doubleV(rng.nextDouble()))

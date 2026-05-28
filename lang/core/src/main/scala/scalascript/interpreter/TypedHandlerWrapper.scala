@@ -272,7 +272,7 @@ object TypedHandlerWrapper:
         Map((Value.StringV("Content-Type"): Value) -> (Value.StringV(ct): Value))
       else Map.empty
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(status),
+      "status"  -> Value.intV(status),
       "headers" -> Value.MapV(hdrs),
       "body"    -> Value.StringV(body),
     ))

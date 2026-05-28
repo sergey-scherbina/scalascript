@@ -176,7 +176,7 @@ final class InterpreterHttpHandler(
           "name"        -> Value.StringV(f.name),
           "filename"    -> Value.StringV(f.filename),
           "contentType" -> Value.StringV(f.contentType),
-          "size"        -> Value.IntV(f.size),
+          "size"        -> Value.intV(f.size),
           "bytes"       -> Value.StringV(f.bytes),
           "path"        -> Value.StringV(f.path)
         ))
@@ -256,11 +256,11 @@ final class InterpreterHttpHandler(
   private def reliftAnyToValue(any: Any): Value = any match
     case sr: StreamResponse =>
       Value.InstanceV("StreamResponse", Map(
-        "status"  -> Value.IntV(sr.status),
+        "status"  -> Value.intV(sr.status),
         "headers" -> Value.MapV(sr.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
     case r: Response =>
       Value.InstanceV("Response", Map(
-        "status"  -> Value.IntV(r.status),
+        "status"  -> Value.intV(r.status),
         "headers" -> Value.MapV(r.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
         "body"    -> Value.StringV(r.body)))
     case other => Value.StringV(String.valueOf(other))
