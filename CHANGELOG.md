@@ -4,7 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
-## 2026-05-28
+## 2026-05-28 — v1.59 Bureau (Government Interaction Framework)
+
+- **v1.59.9-bureau-mock** — `gov/bureau-mock/` module: `MockFiscalProvider`/`MockSocialProvider`/`MockRegistryProvider` (in-memory, `succeed` flag, `recorded*` call inspection, `reset()`); `MockBureauProvider` named constructors — `poland()` (PL + all 3 domains), `vat()` (EU/VIES fiscal+registry), `all()` (all domains); `examples/bureau-demo.ssc`. 32 tests.
+
+- **v1.59.8-bureau-scheduler** — `gov/bureau-scheduler/` module: `BureauCalendar` (Polish business day calendar, Meeus/Jones/Butcher Easter algorithm, Corpus Christi, Epiphany); `JobSpec` ADT (OneTime/Recurring/PeriodJob); `SimpleScheduler` (ScheduledExecutorService-backed; runNow/disable/enable; onJobComplete/onJobFailed callbacks). 28 tests.
+
+- **v1.59.7-bureau-eu** — `gov/bureau-eu/` module: `EuViesAdapter` (SOAP checkVat call to EC VIES service; injectable `postSoap`; SOAP fault + HTTP 503/429 handling); `EuRegistryProvider` (RegistryProvider for EU-level VatEU lookups; UnsupportedOperation for non-VatEU ids). 25 tests.
+
+- **v1.59.6-bureau-pl-social** — `gov/bureau-pl-social/` module: `ZusNrbGenerator` (ISO 7064 MOD-97 NRB/IBAN generation; `98 - (BigInt(bban+"252100") % 97)` check digit formula); `ZusContributionCalculator` (2024 ZUS rates; HALF_UP rounding); `PlZusAdapter` (SocialProvider for ZUS PUE REST; KEDU XML ZUA/ZWUA/ZIUA/DRA). 37 tests.
+
+- **v1.59.5-bureau-pl-fiscal-declarations** — `PlDeclarationAdapter` (e-Deklaracje SOAP; JPK_VAT7M/JPK_FA/CIT-8/PIT-36). 19 tests.
+
+- **v1.59.4-bureau-pl-fiscal-ksef** — `PlKsefAdapter` (QES session auth; FA_VAT invoke/poll/fetch/query); `KsefXmlBuilder`; `KsefSessionStore`. 32 tests.
+
+- **v1.59.3-bureau-pl-registry** — 4 adapters (CEIDG/REGON/Biała Lista/KRS); `PlRegistryProvider` orchestrator; injectable HTTP. 58 tests.
 
 - **v1.59.2-bureau-signing** — `gov/bureau-signing/` module: `SigningProvider` SPI (`sign/verify/certificateInfo`); `SignatureFormat` enum (XAdES, PAdES, CAdES, JWS); `SignedDocument`/`VerificationResult`/`CertificateInfo`; `SigningError` sealed hierarchy (KeystoreError, CertificateExpired, UnsupportedFormat, VerificationFailed); `PfxSigningProvider` (PKCS#12 via `java.security.KeyStore`; SHA256withRSA; password-copy-then-zero pattern); `MockSigningProvider` (SHA-256 digest as fake signature, configurable cert info); `SelfSignedCertHelper` (keytool subprocess for test cert generation). `sbt bureauSigning`. 12 tests across PfxSigningProviderTest + MockSigningProviderTest.
 

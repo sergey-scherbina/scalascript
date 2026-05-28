@@ -1,0 +1,118 @@
+---
+description: Bureau (gov interaction) demo — mock providers for ZUS, KSeF, registry, VIES
+---
+
+# Bureau Demo
+
+This example demonstrates the Bureau government-interaction framework using mock providers.
+All calls use in-memory mocks — no real government API calls are made.
+
+## Setup
+
+```scala
+import scalascript.gov.*
+import scalascript.gov.mock.*
+import scalascript.gov.fiscal.*
+import scalascript.gov.social.*
+import scalascript.gov.registry.*
+import scalascript.payments.money.{Currency, Money}
+import java.time.{LocalDate, YearMonth}
+import scala.concurrent.ExecutionContext.global
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
+
+val pl = MockBureauProvider.poland()
+println(s"Country: ${pl.country} — ${pl.displayName}")
+println(s"Capabilities: ${pl.capabilities.mkString(", ")}")
+```
+
+## Fiscal (KSeF mock)
+
+```scala
+val fiscal = pl.fiscal.get
+
+// Check VAT number validity
+val vatId  = TaxIdentifier(TaxIdType.VatEU, TaxId("PL5252344078"), CountryCode.PL)
+val vatRes = Await.result(fiscal.verifyVatNumber(vatId)(using global), Duration.Inf)
+println(s"VAT valid: ${vatRes.valid}")
+
+// Submit a tax declaration (e-Deklaracje mock)
+val employer = BusinessEntity(
+  name      = "DEMO SP Z O O",
+  legalForm = LegalForm.LimitedLiabilityCompany,
+  country   = CountryCode.PL,
+  taxIds    = List(TaxIdentifier(TaxIdType.NIP, TaxId("5252344078"), CountryCode.PL)),
+  address   = Address(line1 = "ul. Marszałkowska 1", postalCode = "00-001", city = "Warszawa", country = CountryCode.PL),
+)
+val decl = TaxDeclaration("CIT-8", YearMonth.of(2024, 1), employer, "<CIT-8/>", "1-21")
+val res  = Await.result(fiscal.submitDeclaration(decl)(using global), Duration.Inf)
+println(s"Declaration submitted: ${res.submissionId}")
+```
+
+## Social (ZUS mock)
+
+```scala
+val social = pl.social.get
+
+// Calculate ZUS contributions
+val base   = Money(500000L, Currency("PLN")) // 5000 PLN gross
+val params = ContributionParams(employer, YearMonth.of(2024, 1), base, ContributionBase.SelfEmployed)
+val calc   = Await.result(social.calculateContributions(params)(using global), Duration.Inf)
+println(s"Total ZUS contributions: ${calc.total}")
+
+// Get payment reference
+val ref = Await.result(social.getPaymentReference(employer, YearMonth.of(2024, 1))(using global), Duration.Inf)
+println(s"ZUS payment account: ${ref.accountNumber}")
+println(s"Due date: ${ref.dueDate}")
+
+// Register an employee
+val employee = EmployeeRecord(
+  firstName    = "Anna",
+  lastName     = "Nowak",
+  pesel        = Some(TaxId("90010112345")),
+  birthDate    = LocalDate.of(1990, 1, 1),
+  address      = Address(line1 = "ul. Prosta 5", postalCode = "00-950", city = "Warszawa", country = CountryCode.PL),
+  contractType = ContractType.Employment,
+  startDate    = LocalDate.of(2024, 1, 15),
+  employer     = employer,
+)
+val regResult = Await.result(social.registerEmployee(employee)(using global), Duration.Inf)
+println(s"Employee registered: ${regResult.submissionId}")
+```
+
+## Registry (mock lookup)
+
+```scala
+val registry = pl.registry.get
+
+// Look up a company by NIP
+val nip    = TaxIdentifier(TaxIdType.NIP, TaxId("5252344078"), CountryCode.PL)
+val record = Await.result(registry.lookup(nip)(using global), Duration.Inf)
+record match
+  case Some(r) => println(s"Found: ${r.name} (${r.status})")
+  case None    => println("Company not found")
+
+// Check VAT payer status
+val vatStatus = Await.result(registry.checkVatStatus(nip)(using global), Duration.Inf)
+println(s"VAT active: ${vatStatus.active}, checked: ${vatStatus.checkedAt}")
+```
+
+## EU VIES (mock)
+
+```scala
+val eu = MockBureauProvider.vat()
+
+val euVatId  = TaxIdentifier(TaxIdType.VatEU, TaxId("DE123456789"), CountryCode("DE"))
+val euStatus = Await.result(eu.registry.get.checkVatStatus(euVatId)(using global), Duration.Inf)
+println(s"DE VAT active: ${euStatus.active}")
+```
+
+## Failure mode
+
+```scala
+val failing = MockBureauProvider.poland(succeed = false)
+try
+  Await.result(failing.fiscal.get.submitDeclaration(decl)(using global), Duration.Inf)
+catch
+  case e: BureauError.ApiError => println(s"Expected error: ${e.message}")
+```

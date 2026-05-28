@@ -2964,6 +2964,17 @@ lazy val bureauEu = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Government Interaction — bureau-mock ──────────────────────────────────
+lazy val bureauMock = project
+  .in(file("gov/bureau-mock"))
+  .dependsOn(bureauCore, testUtils % Test)
+  .settings(
+    name := "scalascript-bureau-mock",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── Government Interaction — bureau-scheduler ─────────────────────────────
 lazy val bureauScheduler = project
   .in(file("gov/bureau-scheduler"))
@@ -3005,7 +3016,7 @@ lazy val root = project
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
     paymentsCompliance, paymentsComplianceComplyAdvantage, paymentsComplianceChainalysis, paymentsComplianceMock,
     markupCore, markupCoreJs, markupJs, markupNode,
-    bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial, bureauEu, bureauScheduler,
+    bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial, bureauEu, bureauScheduler, bureauMock,
   )
   .settings(
     publish / skip := true
