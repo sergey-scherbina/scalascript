@@ -57,19 +57,21 @@ Remaining `newSingleThreadExecutor` calls are intentional (serial
 interpreter handler dispatch; JDK HttpServer accept loop; heartbeat
 scheduler) and must stay as platform threads.
 
-### 2b. Value boxing — numeric specialization
+### 2b. Value boxing — numeric specialization ✓ Partially landed (2026-05-28)
 
-**Effort: ~1 week. Impact: medium (hot loops).**
+**Tactical pooling landed.** Full specialization deferred.
 
-`IntV(n)`, `DoubleV(d)`, `BoolV(b)` are all heap-allocated.  In tight
-loops (Dataset parallel, Async.parallel, tail-recursive sum) this
-creates GC pressure.
+**Landed:**
+- `IntV` pool widened to `[-2048..16383]` (18 432 entries) via `Value.intV(n)` smart
+  constructor — covers HTTP status codes 200–500 and loop counters up to 16 K.
+- `DoubleV` singletons for `0.0` and `1.0` via `Value.doubleV(d)`.
+- All hot-path call sites updated: `EvalRuntime` literal evaluation,
+  `DispatchRuntime` range generation, `DatasetRuntime` sum/count,
+  `BuiltinsRuntime` tabulate index.
 
-Options:
-- Specialize `Computation[A]` for `Int` and `Double` paths (avoids
-  most allocations in arithmetic-heavy code).
-- Pool common small `IntV` instances (like Java's `Integer.valueOf`
-  cache for −128..127).
+**Still open (deeper specialization):**
+- Specialize `Computation[A]` for `Int` and `Double` paths to avoid
+  most allocations in arithmetic-heavy code.
 - Annotate hot dispatch paths with `@specialized`.
 
 Benchmark target: fib(28) and sum(1e6) should improve ≥ 20 % over
@@ -173,20 +175,27 @@ Note: `Typer.createPrelude` cache was deferred — the prelude `Scope` is
 mutated by `predeclareModuleNames` in the no-importedInterfaces path,
 preventing safe sharing.  Requires splitting module scope from prelude.
 
-### 3f. Parallel compilation
+### 3f. Parallel compilation ✓ Phase 1 landed (2026-05-28)
 
-**Effort: ~1 week. Impact: cold build time (multi-core machines).**
+**Phase 1 (parallel stale-check + parse) landed.**
 
-The pipeline is single-threaded.  The module graph already has a
-topological sort — modules in the same rank are independent.
+`incrementalBuildCommand` now fires a `CompletableFuture` per module node
+before the sequential build loop.  Each future computes:
+- staleness flags (`isStale`, `isJvmStale`, `isJsStale`) — pure I/O
+- for stale modules: reads source bytes and parses via `Parser.parse`
 
-1. Parallel file reads and parse (`Main.buildArtifactsInto`) — wrap in
-   `Future.traverse` over a bounded `ForkJoinPool`.  Guard `ParseCache`
-   with `ConcurrentHashMap`.
+The sequential loop consumes pre-computed results, eliminating parse
+latency from the critical path on multi-core machines.  `Parser.parse`
+is pure (no global state) so the parallel phase is safe.
 
-2. Parallel typing of modules in the same topological rank
-   (`ModuleGraph`).  `Typer` instances are per-module; the only shared
-   state is the cross-module symbol table built by `Linker` after typing.
+**Blocked (not yet landed):**
+- Full parallel typing within topological rank — blocked by
+  `System.setErr` global mutation inside the per-module build loop;
+  each module redirects stderr during compilation, making parallel
+  execution unsafe.  Requires extracting per-module output capture.
+- Parallel modules in the same topological rank (`ModuleGraph`).
+  `Typer` instances are per-module; the only shared state is the
+  cross-module symbol table built by `Linker` after typing.
 
 ### 3g. JvmGen artifact caching at `ssc run-jvm` ✓ Landed (v1.35, 2026-05-21)
 
@@ -297,10 +306,12 @@ standalone (without interface files) is straightforward.  Effort: ~1 day.
 | ✓ | Typer allocation — hash-cons + IntMap (3c) | Done 2026-05-28 — 5 optimizations landed |
 | ✓ | Parser double-parse fix (3d) | Done 2026-05-28 — skipInitialParse flag |
 | ✓ | `Scope.lookup` iterative (3e) | Done 2026-05-28 — while loop replaces Option chain |
+| ✓ | Parallel stale-check + parse (3f phase 1) | Done 2026-05-28 — CompletableFuture pre-parse |
+| ✓ | IntV/DoubleV pool + smart constructors (2b partial) | Done 2026-05-28 — pool [-2048..16383], DoubleV singletons |
 | 1 | `ssc check` (6c) | 1 day, high CI value |
 | 6 | JS tree-shaking (4a) | Bundle size matters for browser |
-| 7 | Parallel compilation (3f) | Needs 3c done first (verify no shared state) |
+| 7 | Parallel typing within topological rank (3f phase 2) | Blocked by System.setErr global mutation |
 | 8 | Library modularity (5) | Enables embedding use cases |
 | 9 | v1.16 Restartable errors | Language feature, unblocked |
-| 10 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
+| 10 | Numeric specialization full (2b) | Specialize Computation[A], @specialized |
 | 11 | Incremental type-checking (3h) | Depends on typer allocation (3c) |
