@@ -1350,6 +1350,19 @@ Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/tuple-monoid.m
 **v1.60.3** ✓ — `algebraic-effects.md` §8.3 unified runner table, `streams.ssc` tuple section, docs complete.
 **v1.60.4** ✓ — 1-tuple ≅ element: bare-value `++` (`(A,B) ++ C`, `C ++ (A,B)`, `bare ++ bare`, `() ++ v = v`); 5+2 tests; full doc update.
 
+## v1.61 — Performance & Memory Optimization
+
+**Status: spec landed 2026-05-28.** See `docs/performance.md`. 8-phase roadmap; all phases gated on before/after benchmark numbers.
+
+**v1.61.0** ✓ — Benchmark infrastructure: 8-workload corpus (`bench/corpus/`), `bench/run.sc` timing harness, `sbt-jmh` `interpreterBench` module, `scripts/bundle-size.sh`, `bench/BASELINE.md`. Landed 2026-05-28.
+**v1.61.1** — Interpreter dispatch table: `HashMap[(ReceiverTag, InternedName), Handler]` + name interning. Target: ≥3× pattern-match-heavy, ≥2× arith-loop.
+**v1.61.2** — Computation pure-path elimination: skip `FlatMap` wrapping for known-pure sub-trees. Target: ≥4× effect-pure.
+**v1.61.3** — Env overhaul: `FrameMap` through `BlockRuntime`; eliminate per-stmt `local.toMap`; while-loop env reuse. Target: ≥2× arith-loop.
+**v1.61.4** — Pattern-match compilation: per-`Term.Match` decision-tree closure cached by AST identity. Target: ≥4× pattern-match-heavy.
+**v1.61.5** — JS codegen inlining: drop IIFE wrappers in statement pos; inline accessors; type-aware dispatch skip. Target: ≥30% JS speed, ≥40% smaller JS.
+**v1.61.6** — Preamble sub-capabilities: Core → Console/HtmlDsl/Optics/IndexedDb/Jwt/Json. Target: ≥80% bundle reduction for Hello World.
+**v1.61.7** — Memory: `IntV/DoubleV` pools, `TupleV → Array[Value]`, `FunV` split, `Span` sidecar, binary `.scim`/`.scjvm`. Target: ≥50% allocation rate reduction.
+
 ## v1.55 — First-class XML / Generic Markup
 
 **Status: spec landed 2026-05-27.**  See `/Users/sergiy/.claude/plans/majestic-napping-moonbeam.md`.

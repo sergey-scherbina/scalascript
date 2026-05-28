@@ -1,0 +1,11 @@
+# recursion-fib
+
+Call overhead, FrameMap construction — naive fib(30).
+
+```scalascript
+def fib(n: Int): Int =
+  if n <= 1 then n
+  else fib(n - 1) + fib(n - 2)
+
+println(fib(30))
+```

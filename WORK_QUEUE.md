@@ -353,6 +353,17 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [x] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` §8.3 "Unified runner signature" with `Out(E) ++ (R,)` table; `streams.ssc` tuple monoid section; `BACKLOG.md`/`CHANGELOG.md` v1.60 closed. ✓ Landed 2026-05-28.
 - [x] **v1.60.4-tuple-bareconcat** — 1-tuple ≅ element equivalence + bare-value `++`: `(A,B) ++ C = (A,B,C)`, `C ++ (A,B) = (C,A,B)`, `bare ++ bare = 2-tuple`, `() ++ v = v`. `DispatchRuntime` (5 new cases), `_tupleConcat` JS/JVM (Array.isArray guard), 5 InterpreterTest + 2 JsGenStreamsTest. Docs: `tuple-monoid.md` §2, `user-guide.md`, `algebraic-effects.md` §8.3, `streams.ssc`, `streams.md`. ✓ Landed 2026-05-28.
 
+## v1.61 — Performance & Memory Optimization
+
+- [x] **v1.61.0-bench** — Benchmark infrastructure: 8-workload corpus (`bench/corpus/`), `bench/run.sc` (scala-cli timing harness), `bench/BASELINE.md`, `runtime/backend/interpreter-bench` (sbt-jmh module), `scripts/bundle-size.sh`. ✓ Landed 2026-05-28.
+- [ ] **v1.61.1-dispatch-table** — Precomputed `HashMap[(ReceiverTag, InternedName), Handler]` in `DispatchRuntime`; intern method names at parse. Target: ≥3× on pattern-match-heavy, ≥2× on arith-loop.
+- [ ] **v1.61.2-pure-path** — Extend pure-path fast path; skip `Computation` wrapping for known-pure sub-trees via AST purity cache. Target: ≥4× on effect-pure.
+- [ ] **v1.61.3-env-overhaul** — Thread `FrameMap` through `BlockRuntime.evalBlock`; eliminate `local.toMap`/per-stmt refresh; reuse env across `while` iterations. Target: ≥2× on arith-loop.
+- [ ] **v1.61.4-pattern-compile** — Compile `Term.Match` to decision-tree closure cached by AST identity. Target: ≥4× on pattern-match-heavy.
+- [ ] **v1.61.5-js-inlining** — Drop IIFE wrappers in statement position; inline known accessors; type-aware `_dispatch` skip. Target: ≥30% JS speedup, ≥40% smaller output.
+- [ ] **v1.61.6-preamble-split** — Sub-capability split of JS `Core` and JVM `commonRuntime`; Hello World target <10 KB. Target: ≥80% bundle reduction for trivial programs.
+- [ ] **v1.61.7-memory** — `IntV`/`DoubleV` pools, `TupleV → Array`, `FunV` split, `Span` sidecar, `ArtifactIO` binary format. Target: ≥50% allocation rate reduction.
+
 ## x402 — Cardano Scalus thin-glue wiring
 
 - [x] **x402-cardano-scalus-wire** — Wire `CardanoFacilitatorConfig.scalusSettle` to `BloxbeanScalusSettler`: add `CardanoScalusFacilitator.preprod/mainnet` factory in `x402-facilitator-cardano-scalus` (injects `ScalusSettler.asConfigHook`); remove "not yet implemented" error branch; 5 new tests in `CardanoScalusFacilitatorTest` + 3 new tests in `CardanoFacilitatorTest`; close stale BACKLOG checkbox. ✓ Landed 2026-05-28.

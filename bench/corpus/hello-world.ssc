@@ -1,0 +1,7 @@
+# hello-world
+
+Cold-start and bundle-size baseline — minimal program.
+
+```scalascript
+println("hello")
+```

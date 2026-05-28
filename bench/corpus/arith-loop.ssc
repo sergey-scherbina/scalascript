@@ -1,0 +1,12 @@
+# arith-loop
+
+Hot path: IntV boxing, env lookup, while-loop overhead.
+
+```scalascript
+var i = 0
+var sum = 0
+while i < 1000000 do
+  sum = sum + i
+  i = i + 1
+println(sum)
+```

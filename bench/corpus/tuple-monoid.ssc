@@ -1,0 +1,12 @@
+# tuple-monoid
+
+_tupleConcat hot path — 100k iterations of (1,2) ++ (3,4).
+
+```scalascript
+var i = 0
+var last = (0, 0, 0, 0)
+while i < 100000 do
+  last = (1, 2) ++ (3, 4)
+  i = i + 1
+println(last)
+```

@@ -1,0 +1,11 @@
+# recursion-tco
+
+Tail-call path — accumulator-style sum to 100_000.
+
+```scalascript
+def sumTco(n: Int, acc: Int): Int =
+  if n <= 0 then acc
+  else sumTco(n - 1, acc + n)
+
+println(sumTco(100000, 0))
+```

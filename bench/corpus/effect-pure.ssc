@@ -1,0 +1,16 @@
+# effect-pure
+
+Computation/FlatMap allocation baseline — effectful-typed body with no actual performs.
+
+```scalascript
+def compute(n: Int): Int ! Logger =
+  var acc = 0
+  var i = 0
+  while i < n do
+    acc = acc + i
+    i = i + 1
+  acc
+
+val result = runLogger { compute(10000) }
+println(result)
+```

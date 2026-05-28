@@ -1,4 +1,8 @@
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.0")
+
+// JMH microbenchmarks (runtime/backend/interpreter-bench).
+// Run: sbt "interpreterBench/Jmh/run"
+addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.7")
 addSbtPlugin("com.github.sbt" % "sbt-proguard" % "0.5.0")
 
 // GraalVM native-image build (v1.50-native-p2).  Run:

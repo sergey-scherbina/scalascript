@@ -611,6 +611,18 @@ lazy val backendInterpreter = project
     }.taskValue
   )
 
+// JMH microbenchmarks for the interpreter.
+// Run: sbt "interpreterBench/Jmh/run"
+// Save JSON: sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json"
+lazy val interpreterBench = project
+  .in(file("runtime/backend/interpreter-bench"))
+  .dependsOn(backendInterpreter)
+  .enablePlugins(JmhPlugin)
+  .settings(
+    name := "scalascript-interpreter-bench",
+    Jmh / scalacOptions ++= sharedScalacOptions
+  )
+
 // Interpreter-owned HTTP/WS server runtime.  The route registries
 // (`Routes` / `WsRoutes`) remain in backend-interpreter for now because
 // plugins and cluster helpers still register handlers directly, but socket

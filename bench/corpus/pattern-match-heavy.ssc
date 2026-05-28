@@ -1,0 +1,31 @@
+# pattern-match-heavy
+
+matchPat allocation — sealed ADT with 5 cases, matched 500k times.
+
+```scalascript
+sealed trait Shape
+case class Circle(r: Double) extends Shape
+case class Rect(w: Double, h: Double) extends Shape
+case class Triangle(b: Double, h: Double) extends Shape
+case class Point(x: Double, y: Double) extends Shape
+case class Line(len: Double) extends Shape
+
+def area(s: Shape): Double = s match
+  case Circle(r)       => 3.14159 * r * r
+  case Rect(w, h)      => w * h
+  case Triangle(b, h)  => 0.5 * b * h
+  case Point(_, _)     => 0.0
+  case Line(_)         => 0.0
+
+val shapes: List[Shape] = List(
+  Circle(1.0), Rect(2.0, 3.0), Triangle(4.0, 5.0), Point(0.0, 0.0), Line(7.0)
+)
+
+var total = 0.0
+var i = 0
+while i < 100000 do
+  shapes.foreach(s => { total = total + area(s) })
+  i = i + 1
+
+println(total)
+```
