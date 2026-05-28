@@ -312,6 +312,24 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [ ] **v1.60.2-tuple-monoid-values** — `Value.UnitV` unified with `TupleV(Nil)`; `++` in `DispatchRuntime`; JS and JVM lowering. Spec: `docs/tuple-monoid.md §6 Track 2`.
 - [ ] **v1.60.3-tuple-monoid-docs** — `algebraic-effects.md` unified runner table; `streams.ssc` update; confirm all tests green. Spec: `docs/tuple-monoid.md §6 Track 3`.
 
+## x402 — Cardano Scalus thin-glue wiring
+
+- [x] **x402-cardano-scalus-wire** — Wire `CardanoFacilitatorConfig.scalusSettle` to `BloxbeanScalusSettler`: add `CardanoScalusFacilitator.preprod/mainnet` factory in `x402-facilitator-cardano-scalus` (injects `ScalusSettler.asConfigHook`); remove "not yet implemented" error branch; 5 new tests in `CardanoScalusFacilitatorTest` + 3 new tests in `CardanoFacilitatorTest`; close stale BACKLOG checkbox. ✓ Landed 2026-05-28.
+
+## Wallet — Trezor vault adapter
+
+- [ ] **wallet-vault-trezor** — Trezor hardware wallet vault adapter: `payments/wallet/wallet-vault-trezor/` sbt subproject; `TrezorVault` implementing `Vault` SPI; `TrezorBridge` HTTP client for Trezor Bridge local daemon (`http://127.0.0.1:21325`); JSON wire protocol: `GET /` (version), `POST /enumerate` (list devices), `POST /{session}/call` (send APDU-like messages); `TrezorMessageCodec` (protobuf-shaped JSON for Initialize / GetPublicKey / SignTx / EthereumSignTx); supports EVM (secp256k1 `m/44'/60'/0'/0/n`) + Cardano (ed25519 `m/1852'/1815'/0'/0/0` HD derivation, CIP-8 COSE_Sign1 framing); `TrezorSession` lifecycle (acquire → call → release); `TrezorVaultPlugin` ServiceLoader registration; `MockTrezorBridge` for tests; 20+ tests. Spec: new `docs/wallet-vault-trezor.md`.
+
+## Wallet — Ledger WebBLE (Scala.js)
+
+- [ ] **wallet-vault-ledger-bluetooth-js** — Scala.js WebBLE transport for Ledger Nano X / Stax: `payments/wallet/wallet-vault-ledger-bluetooth-js/` cross-compiled sbt subproject (JS-only); `WebBleTransport` implementing `LedgerTransport`; wraps `navigator.bluetooth.requestDevice` → `connectGATT` → service UUID `13d63400-2c97-0004-0000-4c6564676572` (Ledger BLE service); `notify` characteristic for device→host; `write` characteristic for host→device; frame splitting for BLE MTU (default 23 bytes); same APDU framing as existing `LedgerHidTransport`; `MockBluetoothDevice` for tests (mirrors existing `MockHidDevice` pattern); 10+ tests. No new vault implementations needed — existing `LedgerEthVault`/`LedgerBitcoinVault`/etc. transparently use any `LedgerTransport`. Spec: `docs/wallet-vault-ledger.md §bluetooth-transport` (amend existing doc).
+
+## Wallet — MPC vendor adapters
+
+- [ ] **wallet-vault-mpc-fireblocks** — Fireblocks MPC adapter: `payments/wallet/wallet-vault-mpc-fireblocks/` sbt subproject; `FireblocksRemoteSigningClient` extending `HttpRemoteSigningClient`; Fireblocks JWT auth (`RS256`, `iat`+`nonce`+`bodyHash` claims, API-key header `X-API-Key`); endpoint: `POST /v1/transactions` (create tx) → `GET /v1/transactions/{id}` (poll); `FireblocksVault` named constructor (`FireblocksVault(apiKey, privateKeyPem, baseUrl)`); `FireblocksPlugin` ServiceLoader; 15+ tests (mock HTTP, JWT signing, poll loop, timeout). Spec: `docs/wallet-vault-mpc.md §fireblocks` (amend existing doc).
+
+- [ ] **wallet-vault-mpc-coinbase** — Coinbase MPC adapter: `payments/wallet/wallet-vault-mpc-coinbase/` sbt subproject; `CoinbaseRemoteSigningClient` extending `HttpRemoteSigningClient`; Coinbase Prime API auth (`EC P-256` request signing, `X-CB-ACCESS-KEY` + `X-CB-ACCESS-SIGNATURE` + `X-CB-ACCESS-TIMESTAMP` headers); endpoint: `POST /v1/portfolios/{portfolio_id}/signing_requests` → `GET /v1/portfolios/{portfolio_id}/signing_requests/{id}`; `CoinbaseVault` named constructor; `CoinbasePlugin` ServiceLoader; 12+ tests. Spec: `docs/wallet-vault-mpc.md §coinbase` (amend existing doc).
+
 ---
 
 > Finish a task: remove `.work/active/<slug>.claim`, mark `[x]` here — same push.

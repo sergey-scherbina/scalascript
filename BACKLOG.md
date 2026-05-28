@@ -4229,7 +4229,7 @@ regression test green.
 - [x] `BlockfrostClient` extended with `getUtxos()` and `submitTx()` (`BlockfrostUtxo` type)
 - [x] `ChainId.CardanoMainnet` / `ChainId.CardanoPreprod` added to `blockchain-spi`
 - [x] 19 tests — address derivation, balances, tx building, signing, CBOR round-trips, Bech32
-- [ ] `x402-facilitator-cardano` thin-glue refactor (deferred — existing impl works)
+- [x] `x402-facilitator-cardano` thin-glue refactor ✓ Landed (2026-05-28) — `CardanoScalusFacilitator.preprod/mainnet` factory wires `ScalusSettler.asConfigHook` into `CardanoFacilitatorConfig.scalusSettle`; 5 new tests in `CardanoScalusFacilitatorTest` + 3 new tests in `CardanoFacilitatorTest` for the delegating settle path.
 - [x] `examples/x402-cardano.ssc` — Cardano payment flow example (2026-05-20; wiring + Scalus note updated 2026-05-28)
 
 ### Phase 7 — blockchain-cosmos ✓ Landed (2026-05-27)

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-28 — x402 Cardano Scalus thin-glue wiring
+
+- **x402-cardano-scalus-wire** — `CardanoScalusFacilitator.preprod/mainnet` factory in `x402-facilitator-cardano-scalus` wires `ScalusSettler.asConfigHook` into `CardanoFacilitatorConfig.scalusSettle`; removes the "not yet implemented" stub; 8 new tests total (5 in `CardanoScalusFacilitatorTest` + 3 in `CardanoFacilitatorTest`). Closes last open backlog checkbox in x402 Phase 6.
+
 ## 2026-05-28 — v1.59 Bureau (Government Interaction Framework)
 
 - **v1.59.9-bureau-mock** — `gov/bureau-mock/` module: `MockFiscalProvider`/`MockSocialProvider`/`MockRegistryProvider` (in-memory, `succeed` flag, `recorded*` call inspection, `reset()`); `MockBureauProvider` named constructors — `poland()` (PL + all 3 domains), `vat()` (EU/VIES fiscal+registry), `all()` (all domains); `examples/bureau-demo.ssc`. 32 tests.

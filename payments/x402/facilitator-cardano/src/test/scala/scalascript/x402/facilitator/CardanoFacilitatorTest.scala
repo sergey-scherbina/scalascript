@@ -355,7 +355,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
       case SettleResult.Fail(m) => fail(s"expected Ok, got Fail: $m")
   }
 
-  test("settle: Scalus provider → Fail (not implemented)") {
+  test("settle: Scalus provider with no settler wired (scalusSettle=None) → Fail") {
     val mockClient = new MockBlockfrostBase:
       def getAddressInfo(a: String) = Future.successful(AddressInfo(a, BigInt(0), Map.empty))
       def isTxConfirmed(h: String)  = Future.successful(false)
@@ -364,6 +364,7 @@ class CardanoFacilitatorTest extends AnyFunSuite:
       CardanoNetwork.Mainnet,
       CardanoProvider.Scalus("/tmp/node.socket"),
       "addr1receiver",
+      scalusSettle = None,
     )
     val fac     = CardanoFacilitator(cfg, mockClient)
     val payload = PaymentPayload(
@@ -376,6 +377,61 @@ class CardanoFacilitatorTest extends AnyFunSuite:
     result match
       case SettleResult.Fail(msg) => assert(msg.contains("Scalus"))
       case _                       => fail("expected Fail")
+  }
+
+  test("settle: Scalus provider with wired settler → delegates to settler") {
+    val mockClient = new MockBlockfrostBase:
+      def getAddressInfo(a: String) = Future.successful(AddressInfo(a, BigInt(0), Map.empty))
+      def isTxConfirmed(h: String)  = Future.successful(true)
+
+    val mockTxHash = "a" * 64
+    val mockSettle: (PaymentPayload, PaymentRequirements) => Future[SettleResult] =
+      (_, _) => Future.successful(SettleResult.Ok(mockTxHash))
+
+    val cfg = CardanoFacilitatorConfig(
+      CardanoNetwork.Preprod,
+      CardanoProvider.Scalus("/tmp/node.socket"),
+      "addr1receiver",
+      scalusSettle = Some(mockSettle),
+    )
+    val fac     = CardanoFacilitator(cfg, mockClient)
+    val payload = PaymentPayload(
+      scheme = PaymentScheme.CardanoExact(BigInt(2_000_000), None),
+      network = Network.CardanoPreprod,
+      authorization = testAuth,
+      signature = "",
+    )
+    val result = Await.result(fac.settle(payload, testReq), 5.seconds)
+    result match
+      case SettleResult.Ok(txHash) => assert(txHash == mockTxHash)
+      case SettleResult.Fail(msg)  => fail(s"expected Ok, got Fail: $msg")
+  }
+
+  test("settle: Scalus provider with failing settler → Fail propagated") {
+    val mockClient = new MockBlockfrostBase:
+      def getAddressInfo(a: String) = Future.successful(AddressInfo(a, BigInt(0), Map.empty))
+      def isTxConfirmed(h: String)  = Future.successful(false)
+
+    val mockSettle: (PaymentPayload, PaymentRequirements) => Future[SettleResult] =
+      (_, _) => Future.successful(SettleResult.Fail("Node offline"))
+
+    val cfg = CardanoFacilitatorConfig(
+      CardanoNetwork.Preprod,
+      CardanoProvider.Scalus("/tmp/node.socket"),
+      "addr1receiver",
+      scalusSettle = Some(mockSettle),
+    )
+    val fac     = CardanoFacilitator(cfg, mockClient)
+    val payload = PaymentPayload(
+      scheme = PaymentScheme.CardanoExact(BigInt(2_000_000), None),
+      network = Network.CardanoPreprod,
+      authorization = testAuth,
+      signature = "",
+    )
+    val result = Await.result(fac.settle(payload, testReq), 5.seconds)
+    result match
+      case SettleResult.Fail(msg) => assert(msg == "Node offline")
+      case SettleResult.Ok(_)     => fail("expected Fail")
   }
 
   // ── native asset balance ──────────────────────────────────────────────────────
