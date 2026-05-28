@@ -869,6 +869,19 @@ All three backends return the `(Source[A], R)` tuple from `runStream`:
 - **JVM**: `(emitted.toList, bodyResult)` — a plain Scala tuple; error path
   throws `RuntimeException(msg)` immediately
 
+#### Unified runner signature
+
+`runStream` return type `(Source[A], R)` is an instance of the general
+`Out(E) ++ (R,)` pattern from the v1.60 tuple monoid:
+
+```
+Out(Stream[A])           = (Source[A],)
+Out(Stream[A]) ++ (R,)   = (Source[A], R)
+```
+
+See `docs/tuple-monoid.md` for the full algebraic specification and the
+`Out(E)` table covering all built-in effects.
+
 #### Known open
 
 Consumer-side `handle[Stream[A]] { case Stream.emit(x, resume) => … }` multi-shot

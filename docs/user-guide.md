@@ -489,6 +489,42 @@ route("POST", "/api/todos") { req =>
 
 Type-parameter brackets are never affected — `def f[A](x: A)` is unchanged.
 
+### Tuples
+
+Tuples are immutable heterogeneous sequences.  Access via `._1`, `._2`, …
+
+```scalascript
+val pair  = (1, "hello")
+pair._1                         // 1
+pair._2                         // "hello"
+
+val (x, y) = (10, 20)          // destructuring
+println(s"x=$x y=$y")          // x=10 y=20
+```
+
+`Unit` is the 0-tuple `()`.  `def f(): Unit` and `def f(): ()` are identical.
+
+#### Tuple monoid `++` (v1.60)
+
+Tuples concatenate with `++`.  The result is always flat:
+
+```scalascript
+val a = (1, "hello")
+val b = (true, 3.14)
+val r = a ++ b                  // (1, "hello", true, 3.14)
+
+// () is the identity
+() ++ (1, 2)                    // (1, 2)
+(1, 2) ++ ()                    // (1, 2)
+
+// associativity
+(a ++ b) ++ (42,) == a ++ (b ++ (42,))   // always true
+```
+
+Effect runners use `Out(E) ++ (R,)` — `runStream` returns `(Source[A], R)`,
+`runLogger` returns `R` (because `Out(Logger) = ()` and `() ++ (R,) = R`).
+See `docs/tuple-monoid.md` for the full algebraic specification.
+
 ### Optics
 
 ```scalascript
