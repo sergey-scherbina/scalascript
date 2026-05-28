@@ -680,3 +680,108 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == List(1L, 2L, 3L))
+
+  // ── v1.51.3 Flow constructors ─────────────────────────────────────────────
+
+  test("Flow.fromFunction transforms elements via .via"):
+    val result = interp.eval(
+      """
+      val flow = Flow.fromFunction(x => x * 3)
+      Source.from(List(1, 2, 3)).via(flow).runToList()
+      """
+    )
+    assert(result == List(3L, 6L, 9L))
+
+  test("Flow.take keeps first n elements"):
+    val result = interp.eval(
+      """
+      val flow = Flow.take(2)
+      Source.from(List(10, 20, 30, 40)).via(flow).runToList()
+      """
+    )
+    assert(result == List(10L, 20L))
+
+  test("Flow.drop skips first n elements"):
+    val result = interp.eval(
+      """
+      val flow = Flow.drop(2)
+      Source.from(List(10, 20, 30, 40)).via(flow).runToList()
+      """
+    )
+    assert(result == List(30L, 40L))
+
+  test("Flow.flatMap expands each element into a sub-source"):
+    val result = interp.eval(
+      """
+      val flow = Flow.flatMap(x => Source.from(List(x, x * 10)))
+      Source.from(List(1, 2)).via(flow).runToList()
+      """
+    )
+    assert(result == List(1L, 10L, 2L, 20L))
+
+  test("Flow.scan produces running aggregate"):
+    val result = interp.eval(
+      """
+      val flow = Flow.scan(0)((acc, x) => acc + x)
+      Source.from(List(1, 2, 3)).via(flow).runToList()
+      """
+    )
+    assert(result == List(1L, 3L, 6L))
+
+  test("Flow.scan with string concatenation"):
+    val result = interp.eval(
+      """
+      val flow = Flow.scan("")((acc, x) => acc + x)
+      Source.from(List("a", "b", "c")).via(flow).runToList()
+      """
+    )
+    assert(result == List("a", "ab", "abc"))
+
+  test("Flow.mapAsync maps with parallelism"):
+    val result = interp.eval(
+      """
+      val flow = Flow.mapAsync(2)(x => x * 2)
+      Source.from(List(1, 2, 3)).via(flow).runToList()
+      """
+    )
+    assert(result == List(2L, 4L, 6L))
+
+  test("Flow.recover emits fallback on error"):
+    val result = interp.eval(
+      """
+      val flow = Flow.recover(msg => -1)
+      Source.from(List(1, 2, 3)).via(flow).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("Flow composition — take then map"):
+    val result = interp.eval(
+      """
+      Source.from(List(1, 2, 3, 4, 5))
+        .via(Flow.take(3))
+        .via(Flow.map(x => x * 10))
+        .runToList()
+      """
+    )
+    assert(result == List(10L, 20L, 30L))
+
+  test("Flow composition — filter then drop"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 10)
+        .via(Flow.filter(x => x % 2 == 0))
+        .via(Flow.drop(1))
+        .runToList()
+      """
+    )
+    assert(result == List(4L, 6L, 8L, 10L))
+
+  test("Flow.debounce passes single element through"):
+    val result = interp.eval(
+      """
+      val flow = Flow.debounce(0)
+      Source.from(List(42)).via(flow).runToList()
+      """
+    )
+    assert(result == List(42L))

@@ -10254,6 +10254,57 @@ class JsGen(
         argClause) if argClause.values.size == 1 =>
       val p = genExpr(argClause.values.head.asInstanceOf[Term])
       s"({ apply: (src) => src.filter(${p}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("fromFunction")),
+        argClause) if argClause.values.size == 1 =>
+      val f = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.map(${f}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("take")),
+        argClause) if argClause.values.size == 1 =>
+      val n = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.take(${n}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("drop")),
+        argClause) if argClause.values.size == 1 =>
+      val n = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.drop(${n}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("flatMap")),
+        argClause) if argClause.values.size == 1 =>
+      val f = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.flatMap(${f}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("scan")),
+          zClause),
+        fClause) if zClause.values.size == 1 && fClause.values.size == 1 =>
+      val z = genExpr(zClause.values.head.asInstanceOf[Term])
+      val f = genExpr(fClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.scan(${z})(${f}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(
+          Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("mapAsync")),
+          nClause),
+        fClause) if nClause.values.size == 1 && fClause.values.size == 1 =>
+      val n = genExpr(nClause.values.head.asInstanceOf[Term])
+      val f = genExpr(fClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.mapAsync(${n})(${f}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("recover")),
+        argClause) if argClause.values.size == 1 =>
+      val h = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.recover(${h}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("throttle")),
+        argClause) if argClause.values.size == 1 =>
+      val r = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.throttle(${r}) })"
+    case Term.Apply.After_4_6_0(
+        Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Flow"), _) | Term.Name("Flow"), Term.Name("debounce")),
+        argClause) if argClause.values.size == 1 =>
+      val ms = genExpr(argClause.values.head.asInstanceOf[Term])
+      s"({ apply: (src) => src.debounce(${ms}) })"
     // v1.9 Coroutine — coroutineCreate { () => body } / coroutineResume(co, in)
     case Term.Apply.After_4_6_0(
         Term.ApplyType.After_4_6_0(Term.Name("coroutineCreate"), _) | Term.Name("coroutineCreate"),

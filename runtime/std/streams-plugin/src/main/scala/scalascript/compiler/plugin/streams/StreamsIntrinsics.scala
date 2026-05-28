@@ -1026,6 +1026,161 @@ object StreamsIntrinsics:
         case _ => throw InterpretError("Flow.filter(pred)")
     ),
 
+    QualifiedName("Flow.fromFunction") -> NativeImpl((ctx, args) =>
+      args match
+        case List(f) =>
+          val fv = toValue(f)
+          val applyFn = Value.NativeFnV("Flow.fromFunction.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("map") match
+                case Some(mapFn) => ctx.synchronized { ctx.invokeCallback(mapFn, List(fv)).asInstanceOf[Value] }
+                case None        => throw InterpretError("Flow.fromFunction: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.fromFunction(f)")
+    ),
+
+    QualifiedName("Flow.take") -> NativeImpl((ctx, args) =>
+      args match
+        case List(n) =>
+          val nv = toValue(n)
+          val applyFn = Value.NativeFnV("Flow.take.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("take") match
+                case Some(takeFn) => ctx.synchronized { ctx.invokeCallback(takeFn, List(nv)).asInstanceOf[Value] }
+                case None         => throw InterpretError("Flow.take: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.take(n)")
+    ),
+
+    QualifiedName("Flow.drop") -> NativeImpl((ctx, args) =>
+      args match
+        case List(n) =>
+          val nv = toValue(n)
+          val applyFn = Value.NativeFnV("Flow.drop.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("drop") match
+                case Some(dropFn) => ctx.synchronized { ctx.invokeCallback(dropFn, List(nv)).asInstanceOf[Value] }
+                case None         => throw InterpretError("Flow.drop: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.drop(n)")
+    ),
+
+    QualifiedName("Flow.flatMap") -> NativeImpl((ctx, args) =>
+      args match
+        case List(f) =>
+          val fv = toValue(f)
+          val applyFn = Value.NativeFnV("Flow.flatMap.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("flatMap") match
+                case Some(flatMapFn) => ctx.synchronized { ctx.invokeCallback(flatMapFn, List(fv)).asInstanceOf[Value] }
+                case None            => throw InterpretError("Flow.flatMap: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.flatMap(f)")
+    ),
+
+    QualifiedName("Flow.scan") -> NativeImpl((ctx, args) =>
+      args match
+        case List(z) =>
+          val zv = toValue(z)
+          Value.NativeFnV("Flow.scan$1", Computation.pureFn {
+            case List(f) =>
+              val fv = toValue(f)
+              val applyFn = Value.NativeFnV("Flow.scan.apply", Computation.pureFn {
+                case List(src: Value.InstanceV) =>
+                  src.fields.get("scan") match
+                    case Some(scanFn) =>
+                      val inner = ctx.synchronized { ctx.invokeCallback(scanFn, List(zv)).asInstanceOf[Value] }
+                      inner match
+                        case fnv: Value.NativeFnV =>
+                          ctx.synchronized { ctx.invokeCallback(fnv, List(fv)).asInstanceOf[Value] }
+                        case _ => throw InterpretError("Flow.scan: scan not curried")
+                    case None => throw InterpretError("Flow.scan: not a Source")
+                case _ => Value.UnitV
+              })
+              Value.InstanceV("Flow", Map("apply" -> applyFn))
+            case _ => throw InterpretError("Flow.scan(z)(f) — inner")
+          })
+        case _ => throw InterpretError("Flow.scan(z)(f) — outer")
+    ),
+
+    QualifiedName("Flow.mapAsync") -> NativeImpl((ctx, args) =>
+      args match
+        case List(n) =>
+          val nv = toValue(n)
+          Value.NativeFnV("Flow.mapAsync$1", Computation.pureFn {
+            case List(f) =>
+              val fv = toValue(f)
+              val applyFn = Value.NativeFnV("Flow.mapAsync.apply", Computation.pureFn {
+                case List(src: Value.InstanceV) =>
+                  src.fields.get("mapAsync") match
+                    case Some(mapAsyncFn) =>
+                      val inner = ctx.synchronized { ctx.invokeCallback(mapAsyncFn, List(nv)).asInstanceOf[Value] }
+                      inner match
+                        case fnv: Value.NativeFnV =>
+                          ctx.synchronized { ctx.invokeCallback(fnv, List(fv)).asInstanceOf[Value] }
+                        case _ => throw InterpretError("Flow.mapAsync: mapAsync not curried")
+                    case None => throw InterpretError("Flow.mapAsync: not a Source")
+                case _ => Value.UnitV
+              })
+              Value.InstanceV("Flow", Map("apply" -> applyFn))
+            case _ => throw InterpretError("Flow.mapAsync(n)(f) — inner")
+          })
+        case _ => throw InterpretError("Flow.mapAsync(n)(f) — outer")
+    ),
+
+    QualifiedName("Flow.recover") -> NativeImpl((ctx, args) =>
+      args match
+        case List(h) =>
+          val hv = toValue(h)
+          val applyFn = Value.NativeFnV("Flow.recover.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("recover") match
+                case Some(recoverFn) => ctx.synchronized { ctx.invokeCallback(recoverFn, List(hv)).asInstanceOf[Value] }
+                case None            => throw InterpretError("Flow.recover: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.recover(h)")
+    ),
+
+    QualifiedName("Flow.throttle") -> NativeImpl((ctx, args) =>
+      args match
+        case List(rate) =>
+          val rv = toValue(rate)
+          val applyFn = Value.NativeFnV("Flow.throttle.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("throttle") match
+                case Some(throttleFn) => ctx.synchronized { ctx.invokeCallback(throttleFn, List(rv)).asInstanceOf[Value] }
+                case None             => throw InterpretError("Flow.throttle: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.throttle(rate)")
+    ),
+
+    QualifiedName("Flow.debounce") -> NativeImpl((ctx, args) =>
+      args match
+        case List(ms) =>
+          val msv = toValue(ms)
+          val applyFn = Value.NativeFnV("Flow.debounce.apply", Computation.pureFn {
+            case List(src: Value.InstanceV) =>
+              src.fields.get("debounce") match
+                case Some(debounceFn) => ctx.synchronized { ctx.invokeCallback(debounceFn, List(msv)).asInstanceOf[Value] }
+                case None             => throw InterpretError("Flow.debounce: not a Source")
+            case _ => Value.UnitV
+          })
+          Value.InstanceV("Flow", Map("apply" -> applyFn))
+        case _ => throw InterpretError("Flow.debounce(ms)")
+    ),
+
     // ── v1.51.1 factory intrinsics ────────────────────────────────────────
 
     QualifiedName("Source.tick") -> NativeImpl((ctx, args) =>

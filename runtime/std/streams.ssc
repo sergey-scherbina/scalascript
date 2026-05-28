@@ -69,6 +69,81 @@ case class Rate(elements: Int, perMillis: Int = 1000)
 extern def Source.buffer[A](n: Int, strategy: OverflowStrategy): Source[A]
 extern def Source.throttle[A](rate: Rate): Source[A]
 extern def Source.debounce[A](durationMillis: Int): Source[A]
+
+// Emit a unit on every tick (period in milliseconds).
+extern def Source.tick(durationMillis: Int): Source[Unit]
+
+// Stateful generator: f maps current state → None (stop) | Some((nextState, emit)).
+extern def Source.unfold[S, A](seed: S)(f: S => Option[(S, A)]): Source[A]
+
+// Push-based source: call cb(value) to push elements; source completes when register returns.
+extern def Source.fromCallback[A](register: (A => Unit) => Unit): Source[A]
+```
+
+## `Source` instance methods (v1.51.1)
+
+```scalascript
+// Running aggregate — emits updated accumulator after each element.
+extern def Source[A].scan[B](z: B)(f: (B, A) => B): Source[B]
+
+// Side-effect on upstream error; elements pass through unchanged on success.
+extern def Source[A].onError(f: String => Unit): Source[A]
+
+// Returns a (source, cancelFn) pair; calling cancelFn stops the source.
+extern def Source[A].cancellable(): (Source[A], () => Unit)
+```
+
+## `Sink` companion (v1.51.3)
+
+```scalascript
+// Run side effects for each element.
+extern def Sink.foreach[A](f: A => Unit): Sink[A]
+
+// Accumulate into a single value.
+extern def Sink.fold[A, B](z: B)(f: (B, A) => B): Sink[A]
+
+// Discard all elements.
+extern def Sink.ignore[A]: Sink[A]
+
+// Collect all elements into a List.
+extern def Sink.toList[A]: Sink[A]
+```
+
+## `Flow` companion (v1.51.3)
+
+```scalascript
+// Apply a pure function to every element (alias for Flow.map).
+extern def Flow.fromFunction[A, B](f: A => B): Flow[A, B]
+
+// Keep only elements matching the predicate.
+extern def Flow.filter[A](p: A => Boolean): Flow[A, A]
+
+// Transform each element.
+extern def Flow.map[A, B](f: A => B): Flow[A, B]
+
+// Take the first n elements.
+extern def Flow.take[A](n: Int): Flow[A, A]
+
+// Drop the first n elements.
+extern def Flow.drop[A](n: Int): Flow[A, A]
+
+// FlatMap — for each element produce a sub-source and flatten.
+extern def Flow.flatMap[A, B](f: A => Source[B]): Flow[A, B]
+
+// Running aggregate.
+extern def Flow.scan[A, B](z: B)(f: (B, A) => B): Flow[A, B]
+
+// Parallel async map (preserves order).
+extern def Flow.mapAsync[A, B](parallelism: Int)(f: A => B): Flow[A, B]
+
+// Recover from an upstream error by emitting a fallback value.
+extern def Flow.recover[A](h: String => A): Flow[A, A]
+
+// Throttle throughput to at most rate.elements per rate.perMillis window.
+extern def Flow.throttle[A](rate: Rate): Flow[A, A]
+
+// Suppress rapid bursts — emit the last element after a quiet period.
+extern def Flow.debounce[A](durationMillis: Int): Flow[A, A]
 ```
 
 ## `Stream` algebraic effect (v1.51.6)

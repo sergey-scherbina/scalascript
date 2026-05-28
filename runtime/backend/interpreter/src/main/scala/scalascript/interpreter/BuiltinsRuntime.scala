@@ -661,8 +661,17 @@ private[interpreter] object BuiltinsRuntime:
     }
     interp.globals.get("Flow.map").foreach { fm =>
       interp.globals("Flow") = Value.InstanceV("Flow", Map(
-        "map"    -> fm,
-        "filter" -> interp.globals.getOrElse("Flow.filter", Value.UnitV),
+        "map"          -> fm,
+        "filter"       -> interp.globals.getOrElse("Flow.filter",       Value.UnitV),
+        "fromFunction" -> interp.globals.getOrElse("Flow.fromFunction", Value.UnitV),
+        "take"         -> interp.globals.getOrElse("Flow.take",         Value.UnitV),
+        "drop"         -> interp.globals.getOrElse("Flow.drop",         Value.UnitV),
+        "flatMap"      -> interp.globals.getOrElse("Flow.flatMap",      Value.UnitV),
+        "scan"         -> interp.globals.getOrElse("Flow.scan",         Value.UnitV),
+        "mapAsync"     -> interp.globals.getOrElse("Flow.mapAsync",     Value.UnitV),
+        "recover"      -> interp.globals.getOrElse("Flow.recover",      Value.UnitV),
+        "throttle"     -> interp.globals.getOrElse("Flow.throttle",     Value.UnitV),
+        "debounce"     -> interp.globals.getOrElse("Flow.debounce",     Value.UnitV),
       ))
     }
     // v2.1.1 DStreams — assemble companions from individual DStream.* intrinsics
