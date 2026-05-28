@@ -118,7 +118,7 @@ object TypedHandlerWrapper:
 
   private def trailingArgs(reqV: Value.InstanceV, trailingReq: Boolean, trailingCtx: Boolean): List[Value] =
     (if trailingReq then List(reqV) else Nil) ++
-    (if trailingCtx then List(Value.MapV(Map.empty)) else Nil)
+    (if trailingCtx then List(Value.EmptyMap) else Nil)
 
   // ── deserialization ───────────────────────────────────────────────────────
 

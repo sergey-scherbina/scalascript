@@ -193,7 +193,7 @@ private object Mcp:
             Mcp.dispatchAuthorized(builder, body, fields, claims, ctx)
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("expected Request")
       ))
     })
@@ -215,12 +215,12 @@ private object Mcp:
           ))
           case None => Value.InstanceV("Response", Map(
             "status"  -> Value.intV(404L),
-            "headers" -> Value.MapV(Map.empty),
+            "headers" -> Value.EmptyMap,
             "body"    -> Value.StringV("")
           ))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("expected Request")
       ))
     })
@@ -357,7 +357,7 @@ private object Mcp:
             ))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("expected Request")
       ))
     })

@@ -238,7 +238,7 @@ private[interpreter] object BuiltinsRuntime:
             case Some(Value.ListV(xs)) => xs.collect { case Value.StringV(s) => s }
             case _                     => Nil
           val properties = Value.MapV(fieldNames.map(n =>
-            (Value.StringV(n): Value) -> (Value.MapV(Map.empty): Value)
+            (Value.StringV(n): Value) -> (Value.EmptyMap: Value)
           ).toMap)
           val required = Value.ListV(fieldNames.map(Value.StringV.apply))
           val schemaV = Value.MapV(Map(
@@ -247,7 +247,7 @@ private[interpreter] object BuiltinsRuntime:
             (Value.StringV("required"):   Value) -> (required:                Value)
           ))
           Pure(Value.InstanceV("McpSchema", Map("schema" -> schemaV)))
-        case _ => Pure(Value.InstanceV("McpSchema", Map("schema" -> Value.MapV(Map.empty))))
+        case _ => Pure(Value.InstanceV("McpSchema", Map("schema" -> Value.EmptyMap)))
       })
     ))
 

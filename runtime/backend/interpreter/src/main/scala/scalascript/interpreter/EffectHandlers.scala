@@ -224,13 +224,13 @@ private[interpreter] object EffectHandlers:
             case Some(v) =>
               Value.InstanceV("Response", Map(
                 "status"  -> Value.intV(200),
-                "headers" -> Value.MapV(Map.empty),
+                "headers" -> Value.EmptyMap,
                 "body"    -> Value.StringV(Value.show(v))
               ))
             case None =>
               Value.InstanceV("Response", Map(
                 "status"  -> Value.intV(404),
-                "headers" -> Value.MapV(Map.empty),
+                "headers" -> Value.EmptyMap,
                 "body"    -> Value.StringV("")
               ))
         case _ => throw InterpretError("httpRun: stub routes must be a Map[String, String]")

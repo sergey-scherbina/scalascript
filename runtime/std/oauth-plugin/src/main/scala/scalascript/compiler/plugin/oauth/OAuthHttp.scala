@@ -59,7 +59,7 @@ object OAuthHttp:
         routeOutcomeToValue(run(fields))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("expected Request")
       ))
     })
@@ -86,7 +86,7 @@ object OAuthHttp:
     case OAuthRoutes.RouteOutcome.Empty(status) =>
       Value.InstanceV("Response", Map(
         "status"  -> Value.intV(status.toLong),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("")
       ))
 

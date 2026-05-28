@@ -62,7 +62,7 @@ object OidcHttp:
         OAuthHttp.routeOutcomeToValue(run(body, headers, query))
       case _ => Value.InstanceV("Response", Map(
         "status"  -> Value.intV(400L),
-        "headers" -> Value.MapV(Map.empty),
+        "headers" -> Value.EmptyMap,
         "body"    -> Value.StringV("expected Request")
       ))
     })

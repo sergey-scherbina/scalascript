@@ -57,8 +57,8 @@ class MountHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
       "path"    -> Value.StringV(path),
       "params"  -> Value.MapV(allParams.map { (k, v) =>
                       (Value.StringV(k): Value) -> (Value.StringV(v): Value) }),
-      "query"   -> Value.MapV(Map.empty),
-      "headers" -> Value.MapV(Map.empty),
+      "query"   -> Value.EmptyMap,
+      "headers" -> Value.EmptyMap,
       "body"    -> Value.InstanceV("None", Map.empty)
     )
     val req = Value.InstanceV("Request", reqFields)

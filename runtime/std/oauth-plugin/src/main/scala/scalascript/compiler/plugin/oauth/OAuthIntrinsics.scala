@@ -262,7 +262,7 @@ object OAuthIntrinsicHelpers:
               OAuthHttp.routeOutcomeToValue(rout)
         case _ => Value.InstanceV("Response", Map(
           "status"  -> Value.intV(400L),
-          "headers" -> Value.MapV(Map.empty),
+          "headers" -> Value.EmptyMap,
           "body"    -> Value.StringV("expected Request")))
       })
     case _ => throw InterpretError("guard(handler) — handler must be (req, claims) => Response")

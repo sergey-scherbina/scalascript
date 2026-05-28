@@ -226,7 +226,7 @@ object HttpIntrinsics:
         case List(n: Long) =>
           Value.NativeFnV("streamResponse.block", Computation.pureFn {
             case List(block) => Value.InstanceV("StreamResponse", Map(
-              "status" -> Value.intV(n), "headers" -> Value.MapV(Map.empty), "callback" -> block))
+              "status" -> Value.intV(n), "headers" -> Value.EmptyMap, "callback" -> block))
             case _ => throw InterpretError("streamResponse(status)(block)")
           })
         case List(n: Long, Value.MapV(hdrs)) =>
@@ -237,7 +237,7 @@ object HttpIntrinsics:
           })
         case List(block) =>
           Value.InstanceV("StreamResponse", Map(
-            "status" -> Value.intV(200), "headers" -> Value.MapV(Map.empty), "callback" -> block.asInstanceOf[Value]))
+            "status" -> Value.intV(200), "headers" -> Value.EmptyMap, "callback" -> block.asInstanceOf[Value]))
         case _ => throw InterpretError("streamResponse(block)")
     ),
 

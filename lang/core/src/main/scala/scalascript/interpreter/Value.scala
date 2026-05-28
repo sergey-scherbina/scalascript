@@ -205,6 +205,7 @@ object Value:
   val False:     BoolV   = BoolV(false)
   val NoneV:     OptionV = OptionV(None)
   val EmptyList: ListV   = ListV(Nil)
+  val EmptyMap:  MapV    = MapV(Map.empty)
 
   def boolV(b: Boolean): BoolV = if b then True else False
 

@@ -403,7 +403,7 @@ private[interpreter] object DispatchRuntime:
           }).map {
             case Value.ListV(entries) =>
               Value.MapV(entries.collect { case Value.TupleV(List(nk, nv)) => nk -> nv }.toMap)
-            case _ => Value.MapV(Map.empty)
+            case _ => Value.EmptyMap
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"   => args match
@@ -414,7 +414,7 @@ private[interpreter] object DispatchRuntime:
           }).map {
             case Value.ListV(flags) =>
               Value.MapV(items.zip(flags).collect { case ((k, v), Value.BoolV(true)) => k -> v }.toMap)
-            case _ => Value.MapV(Map.empty)
+            case _ => Value.EmptyMap
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"  => args match
@@ -584,7 +584,7 @@ private[interpreter] object DispatchRuntime:
             Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(m))))
           case _                   => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "clearSession" =>
-          Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.MapV(Map.empty))))
+          Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.EmptyMap)))
         case "withHeader" => args match
           case List(Value.StringV(hname), Value.StringV(value)) =>
             val existing = fields.get("headers") match

@@ -141,7 +141,7 @@ class ReplRoutesTest extends AnyFunSuite:
             case _ => "?"
           Value.InstanceV("Response", Map(
             "status"  -> Value.IntV(200),
-            "headers" -> Value.MapV(Map.empty),
+            "headers" -> Value.EmptyMap,
             "body"    -> Value.StringV(s"id=$id")
           ))
         case _ => Value.StringV("bad")
@@ -165,7 +165,7 @@ class ReplRoutesTest extends AnyFunSuite:
             case _ => "nobody"
           Value.InstanceV("Response", Map(
             "status"  -> Value.IntV(200),
-            "headers" -> Value.MapV(Map.empty),
+            "headers" -> Value.EmptyMap,
             "body"    -> Value.StringV(s"Hello, $name!")
           ))
         case _ => Value.StringV("bad")
@@ -189,7 +189,7 @@ class ReplRoutesTest extends AnyFunSuite:
             case _ => "none"
           Value.InstanceV("Response", Map(
             "status"  -> Value.IntV(200),
-            "headers" -> Value.MapV(Map.empty),
+            "headers" -> Value.EmptyMap,
             "body"    -> Value.StringV(s"auth=$auth")
           ))
         case _ => Value.StringV("bad")
@@ -212,7 +212,7 @@ class ReplRoutesTest extends AnyFunSuite:
             case _                      => ""
           Value.InstanceV("Response", Map(
             "status"  -> Value.IntV(200),
-            "headers" -> Value.MapV(Map.empty),
+            "headers" -> Value.EmptyMap,
             "body"    -> Value.StringV(s"got:$body")
           ))
         case _ => Value.StringV("bad")

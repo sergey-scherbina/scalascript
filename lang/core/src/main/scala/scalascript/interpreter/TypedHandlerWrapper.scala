@@ -181,7 +181,7 @@ object TypedHandlerWrapper:
       val body0 = if failMsg.isEmpty then "{}" else s"""{"error":"${failMsg.nn}"}"""
       mkResponse(400, body0, "application/json")
     else
-      val ctxMap = Value.MapV(Map.empty)
+      val ctxMap = Value.EmptyMap
       val trailingArgs =
         (if trailingRequest then List(reqValue) else Nil) ++
         (if trailingCtx     then List(ctxMap)   else Nil)
