@@ -303,10 +303,12 @@ object Unifier:
         case (t, SType.Var(id)) if !t.containsFreeVar(id) => subst = subst.updated(id, t)
         case (SType.Var(id), _) => error = Some(s"Occurs check failed: ${s1.show}")
         case (SType.Named(n1, a1), SType.Named(n2, a2)) if n1 == n2 && a1.length == a2.length =>
-          a1.zip(a2).foreach { case (x, y) => solve(x, y) }
+          val it1 = a1.iterator; val it2 = a2.iterator
+          while it1.hasNext do solve(it1.next(), it2.next())
         case (SType.Function(p1, r1, e1), SType.Function(p2, r2, e2))
             if p1.length == p2.length =>
-          p1.zip(p2).foreach { case (x, y) => solve(x, y) }
+          val it1 = p1.iterator; val it2 = p2.iterator
+          while it1.hasNext do solve(it1.next(), it2.next())
           solve(r1, r2)
           solveEffectRow(e1, e2)
         // Unit (0-tuple) is the identity — unifies with anything via the monoid laws.
@@ -315,7 +317,8 @@ object Unifier:
         case (SType.Tuple(scala.List(t)), other) => solve(t, other)
         case (other, SType.Tuple(scala.List(t))) => solve(other, t)
         case (SType.Tuple(e1), SType.Tuple(e2)) if e1.length == e2.length =>
-          e1.zip(e2).foreach { case (x, y) => solve(x, y) }
+          val it1 = e1.iterator; val it2 = e2.iterator
+          while it1.hasNext do solve(it1.next(), it2.next())
         case (SType.Nothing, _) | (_, SType.Any) => ()
         case _ => error = Some(s"Cannot unify ${s1.show} with ${s2.show}")
 
@@ -327,7 +330,8 @@ object Unifier:
         else if op1.args.length != op2.args.length then
           error = Some(s"Effect op '${op1.name}' arity mismatch: ${op1.args.length} vs ${op2.args.length}")
         else
-          op1.args.zip(op2.args).foreach { case (a, b) => solve(a, b) }
+          val ia = op1.args.iterator; val ib = op2.args.iterator
+          while ia.hasNext do solve(ia.next(), ib.next())
       def matchByName(smaller: Set[EffectOp], larger: Set[EffectOp]): Unit =
         for op <- smaller do
           larger.find(_.name == op.name) match
