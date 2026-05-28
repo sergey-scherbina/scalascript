@@ -14,7 +14,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.51.2-streams-js** — Complete JS `_makeAsyncStream` helper in `JsGen.scala` with terminal ops (`runForeach/runFold/runToList/runDrain`), combining (`merge/zipWith/broadcast/balance/groupBy/mergeSubstreams`), advanced (`scan/buffer/throttle/debounce/mapAsync/recover/mapError`), routing (`to/via`); JS codegen cases for `Source.tick`, `Source.unfold`, `Source.fromCallback`, `Sink.*`, `Flow.*`; 10+ JS codegen tests. Spec: `docs/streams.md §9.2, §9.3`.
 
-- [ ] **v1.51.3-streams-flow-sink** — Extended `Flow` constructors: `Flow.fromFunction/filter/concat/take/drop/flatMap/scan/mapAsync/recover/buffer/throttle/debounce`; complete `streams.ssc` extern declarations; 10+ Flow tests. Spec: `docs/streams.md §5.3`.
+- [x] **v1.51.3-streams-flow-sink** — Extended `Flow` constructors: `Flow.fromFunction/filter/concat/take/drop/flatMap/scan/mapAsync/recover/buffer/throttle/debounce`; complete `streams.ssc` extern declarations; 10+ Flow tests. Spec: `docs/streams.md §5.3`.
 
 ## Language & Compiler — Spark extensions (new)
 
