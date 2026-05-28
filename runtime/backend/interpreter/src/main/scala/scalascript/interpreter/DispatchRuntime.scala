@@ -54,7 +54,7 @@ private[interpreter] object DispatchRuntime:
       case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
       case "reverse"     => Pure(Value.StringV(s.reverse))
       case "toInt"       => Pure(Value.intV(s.toLong))
-      case "toDouble"    => Pure(Value.DoubleV(s.toDouble))
+      case "toDouble"    => Pure(Value.doubleV(s.toDouble))
       case "toString"    => Pure(Value.StringV(s))
       case "mkString"    => Pure(Value.StringV(s))
       case "contains"    => args match
@@ -483,18 +483,18 @@ private[interpreter] object DispatchRuntime:
   // ── Int ─────────────────────────────────────────────────────────────────────
 
   private def dispatchInt(n: Long, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val recv = Value.IntV(n)
+    val recv = Value.intV(n)
     name match
-      case "toDouble"  => Pure(Value.DoubleV(n.toDouble))
+      case "toDouble"  => Pure(Value.doubleV(n.toDouble))
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)
       case "abs"       => Pure(Value.intV(math.abs(n)))
       case "toString"  => Pure(Value.StringV(n.toString))
       case "to"        => args match
-        case List(Value.IntV(m)) => Pure(Value.ListV((n to m).map(Value.IntV(_)).toList))
+        case List(Value.IntV(m)) => Pure(Value.ListV((n to m).map(Value.intV(_)).toList))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "until"     => args match
-        case List(Value.IntV(m)) => Pure(Value.ListV((n until m).map(Value.IntV(_)).toList))
+        case List(Value.IntV(m)) => Pure(Value.ListV((n until m).map(Value.intV(_)).toList))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -504,11 +504,11 @@ private[interpreter] object DispatchRuntime:
     name match
       case "toInt"    => Pure(Value.intV(d.toLong))
       case "toLong"   => Pure(Value.intV(d.toLong))
-      case "abs"      => Pure(Value.DoubleV(math.abs(d)))
+      case "abs"      => Pure(Value.doubleV(math.abs(d)))
       case "toString" => Pure(Value.StringV(d.toString))
       case "round"    => Pure(Value.intV(math.round(d)))
-      case "floor"    => Pure(Value.DoubleV(math.floor(d)))
-      case "ceil"     => Pure(Value.DoubleV(math.ceil(d)))
+      case "floor"    => Pure(Value.doubleV(math.floor(d)))
+      case "ceil"     => Pure(Value.doubleV(math.ceil(d)))
       case _ => extensionDispatch(Value.DoubleV(d), name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Double"))
 
