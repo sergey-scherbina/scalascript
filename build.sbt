@@ -2920,6 +2920,17 @@ lazy val bureauSigning = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── Government Interaction — Poland registry (CEIDG/REGON/BiałaLista/KRS) ─
+lazy val bureauPlRegistry = project
+  .in(file("gov/bureau-pl-registry"))
+  .dependsOn(bureauCore, testUtils % Test)
+  .settings(
+    name := "scalascript-bureau-pl-registry",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -2950,7 +2961,7 @@ lazy val root = project
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
     paymentsCompliance, paymentsComplianceComplyAdvantage, paymentsComplianceChainalysis, paymentsComplianceMock,
     markupCore, markupCoreJs, markupJs, markupNode,
-    bureauCore, bureauSigning,
+    bureauCore, bureauSigning, bureauPlRegistry,
   )
   .settings(
     publish / skip := true
