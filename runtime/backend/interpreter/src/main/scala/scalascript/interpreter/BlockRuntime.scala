@@ -69,23 +69,42 @@ private[interpreter] object BlockRuntime:
               if op.value.lengthIs > 1 && op.value.last == '=' &&
                  !Set(">=", "<=", "!=", "==").contains(op.value) =>
             val baseOp = op.value.init
-            val argComps   = argClause.values.map(interp.eval(_, localView))
-            val argVsBlock = EvalRuntime.extractPureValues(argComps)
-            interp.eval(lhs, localView) match
-              case Pure(lhsV) if argVsBlock != null =>
-                interp.infix(lhsV, baseOp, argVsBlock, localView) match
-                  case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
-                  case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
-              case lhsC =>
-                lhsC.flatMap { lhsV =>
-                  interp.threadValues(argComps) { argVs =>
-                    interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
-                      local(lhs.value)          = newV
-                      interp.globals(lhs.value) = newV
-                      step(rest, Value.UnitV)
+            if argClause.values.lengthCompare(1) == 0 then
+              val rhsC = interp.eval(argClause.values.head, localView)
+              interp.eval(lhs, localView) match
+                case Pure(lhsV) =>
+                  rhsC match
+                    case Pure(rv) =>
+                      interp.infix2(lhsV, baseOp, rv, localView) match
+                        case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
+                        case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
+                    case _ =>
+                      rhsC.flatMap { rv =>
+                        interp.infix2(lhsV, baseOp, rv, localView).flatMap { newV =>
+                          local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) } }
+                case lhsC =>
+                  lhsC.flatMap { lhsV =>
+                    rhsC.flatMap { rv =>
+                      interp.infix2(lhsV, baseOp, rv, localView).flatMap { newV =>
+                        local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) } } }
+            else
+              val argComps   = argClause.values.map(interp.eval(_, localView))
+              val argVsBlock = EvalRuntime.extractPureValues(argComps)
+              interp.eval(lhs, localView) match
+                case Pure(lhsV) if argVsBlock != null =>
+                  interp.infix(lhsV, baseOp, argVsBlock, localView) match
+                    case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
+                    case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
+                case lhsC =>
+                  lhsC.flatMap { lhsV =>
+                    interp.threadValues(argComps) { argVs =>
+                      interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
+                        local(lhs.value)          = newV
+                        interp.globals(lhs.value) = newV
+                        step(rest, Value.UnitV)
+                      }
                     }
                   }
-                }
           case t: Term =>
             interp.eval(t, localView).flatMap(v => step(rest, v))
           case stat =>

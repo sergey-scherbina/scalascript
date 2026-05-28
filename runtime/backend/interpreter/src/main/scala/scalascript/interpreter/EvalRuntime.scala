@@ -482,6 +482,15 @@ private[interpreter] object EvalRuntime:
                 FlatMap(funC, fv =>
                   interp.threadValues(comps)(argVals =>
                     CallRuntime.callValueNamed(fv, namedComps.map(_._1).zip(argVals), env, interp)))
+          else if allArgTerms.lengthCompare(1) == 0 then
+            // Single-arg fast path: avoid extractPureValues ArrayBuffer+toList for the
+            // most common call shape: f(x) with one pure arg.
+            val arg1C = eval(allArgTerms.head, env, interp)
+            (funC, arg1C) match
+              case (Pure(fv), Pure(av)) => interp.callValue1(fv, av, env)
+              case (Pure(fv), _)        => FlatMap(arg1C, av => interp.callValue1(fv, av, env))
+              case (_, Pure(av))        => FlatMap(funC, fv => interp.callValue1(fv, av, env))
+              case _                    => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
             val argVsPos = extractPureValues(argComps)
@@ -498,30 +507,45 @@ private[interpreter] object EvalRuntime:
         if op.value.lengthIs > 1 && op.value.last == '=' &&
            !Set(">=", "<=", "!=", "==").contains(op.value) =>
       val baseOp = op.value.init
-      eval(lhs, env, interp).flatMap { lhsV =>
-        val argComps = argClause.values.map(eval(_, env, interp))
-        interp.threadValues(argComps) { argVs =>
-          interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
-            interp.globals(lhs.value) = newV
-            Computation.PureUnit
+      if argClause.values.lengthCompare(1) == 0 then
+        val rhsC = eval(argClause.values.head, env, interp)
+        eval(lhs, env, interp).flatMap { lhsV =>
+          rhsC.flatMap { rv =>
+            interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
+              interp.globals(lhs.value) = newV; Computation.PureUnit } } }
+      else
+        eval(lhs, env, interp).flatMap { lhsV =>
+          val argComps = argClause.values.map(eval(_, env, interp))
+          interp.threadValues(argComps) { argVs =>
+            interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
+              interp.globals(lhs.value) = newV
+              Computation.PureUnit
+            }
           }
         }
-      }
 
     // Infix operators: a op b
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val lhsC     = eval(lhs, env, interp)
-      val argComps = argClause.values.map(eval(_, env, interp))
-      // Fast path: both sides already pure (the typical case for hot
-      // arithmetic like `n - 1`, `acc + n`, `n < 2`). Skip the FlatMap
-      // chain and call infix directly.
-      val argVsInfix = extractPureValues(argComps)
-      lhsC match
-        case Pure(lhsV) if argVsInfix != null =>
-          interp.infix(lhsV, op.value, argVsInfix, env)
-        case _ =>
-          FlatMap(lhsC, lhsV =>
-            interp.threadValues(argComps)(argVs => interp.infix(lhsV, op.value, argVs, env)))
+      // Binary fast path: single rhs arg (covers all arithmetic/comparison).
+      // Avoids argComps list, extractPureValues ArrayBuffer, and infix List wrap.
+      if argClause.values.lengthCompare(1) == 0 then
+        val lhsC = eval(lhs, env, interp)
+        val rhsC = eval(argClause.values.head, env, interp)
+        (lhsC, rhsC) match
+          case (Pure(lv), Pure(rv)) => interp.infix2(lv, op.value, rv, env)
+          case (Pure(lv), _)        => FlatMap(rhsC, rv => interp.infix2(lv, op.value, rv, env))
+          case (_, Pure(rv))        => FlatMap(lhsC, lv => interp.infix2(lv, op.value, rv, env))
+          case _                    => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, op.value, rv, env)))
+      else
+        val lhsC     = eval(lhs, env, interp)
+        val argComps = argClause.values.map(eval(_, env, interp))
+        val argVsInfix = extractPureValues(argComps)
+        lhsC match
+          case Pure(lhsV) if argVsInfix != null =>
+            interp.infix(lhsV, op.value, argVsInfix, env)
+          case _ =>
+            FlatMap(lhsC, lhsV =>
+              interp.threadValues(argComps)(argVs => interp.infix(lhsV, op.value, argVs, env)))
 
     // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
     case Term.Select(_, Term.Name("!")) =>

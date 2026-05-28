@@ -1242,6 +1242,8 @@ class Interpreter(
   private[interpreter] def infix(lhs: Value, op: String, args: List[Value], env: Env): Computation =
     DispatchRuntime.infix(lhs, op, args, env, this)
 
+  private[interpreter] def infix2(lhs: Value, op: String, rhs: Value, env: Env): Computation =
+    DispatchRuntime.infix2(lhs, op, rhs, Nil, env, this)
 
   // ─── Dispatch — see DispatchRuntime.scala ────────────────────────────────
 

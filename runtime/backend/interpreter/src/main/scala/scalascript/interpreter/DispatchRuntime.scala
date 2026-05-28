@@ -720,7 +720,10 @@ private[interpreter] object DispatchRuntime:
         .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
 
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val rhs = if args.nonEmpty then args.head else Value.UnitV
+    infix2(lhs, op, if args.nonEmpty then args.head else Value.UnitV, args, env, interp)
+
+  /** Infix fast path: rhs already extracted; args is the original list (used only in fallback). */
+  def infix2(lhs: Value, op: String, rhs: Value, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Dispatch on op first — Scala 3 compiles this to a hashCode-based O(1) switch
     // rather than the previous O(N) linear scan through 40 tuple-match cases.
     op match
