@@ -15,7 +15,7 @@ object AuthIntrinsics:
         case List(realm: String) =>
           val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
           Value.InstanceV("Response", Map(
-            "status"  -> Value.IntV(401),
+            "status"  -> Value.intV(401),
             "headers" -> Value.MapV(Map(
               Value.StringV("WWW-Authenticate") -> Value.StringV(s"""Basic realm="$safe"""")
             )),
@@ -50,7 +50,7 @@ object AuthIntrinsics:
             if expected.isEmpty || supplied.isEmpty then false
             else java.security.MessageDigest.isEqual(
               expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
-          Value.BoolV(ok)
+          Value.boolV(ok)
         case _ => throw InterpretError("csrfValid(req)")
     ),
 
@@ -106,7 +106,7 @@ object AuthIntrinsics:
             Value.MapV(Map(
               Value.StringV("credentialId") -> Value.StringV(c.credentialId),
               Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
-              Value.StringV("signCount")    -> Value.IntV(c.signCount),
+              Value.StringV("signCount")    -> Value.intV(c.signCount),
             ))
           })
         case _ => throw InterpretError("webauthnStoreGet(userId: String)")
@@ -120,7 +120,7 @@ object AuthIntrinsics:
               Value.OptionV(Some(Value.MapV(Map(
                 Value.StringV("credentialId") -> Value.StringV(c.credentialId),
                 Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
-                Value.StringV("signCount")    -> Value.IntV(c.signCount),
+                Value.StringV("signCount")    -> Value.intV(c.signCount),
               ))))
             case None => Value.OptionV(None)
         case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
@@ -129,7 +129,7 @@ object AuthIntrinsics:
     QualifiedName("webauthnUpdateSignCount") -> NativeImpl((_, args) =>
       args match
         case List(uid: String, cid: String, cnt: Long) =>
-          Value.BoolV(scalascript.server.WebAuthn.storeUpdateSignCount(uid, cid, cnt))
+          Value.boolV(0))
         case _ => throw InterpretError(
           "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
     ),
@@ -141,7 +141,7 @@ object AuthIntrinsics:
             case Some(a) =>
               Value.OptionV(Some(Value.MapV(Map(
                 Value.StringV("userId")    -> Value.StringV(a.userId),
-                Value.StringV("signCount") -> Value.IntV(a.signCount),
+                Value.StringV("signCount") -> Value.intV(a.signCount),
               ))))
             case None => Value.OptionV(None)
         case _ => throw InterpretError(
@@ -158,7 +158,7 @@ object AuthIntrinsics:
                 Value.StringV("userId")       -> Value.StringV(r.userId),
                 Value.StringV("credentialId") -> Value.StringV(r.credentialId),
                 Value.StringV("publicKey")    -> Value.StringV(r.publicKey),
-                Value.StringV("signCount")    -> Value.IntV(r.signCount),
+                Value.StringV("signCount")    -> Value.intV(r.signCount),
               ))))
             case None => Value.OptionV(None)
         case _ => throw InterpretError(
@@ -170,7 +170,7 @@ object AuthIntrinsics:
     QualifiedName("rateLimit") -> NativeImpl((_, args) =>
       args match
         case List(key: String, lim: Long, win: Long) =>
-          Value.BoolV(scalascript.server.RateLimit.tryAcquire(key, lim, win))
+          Value.boolV(0))
         case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
     ),
 
@@ -204,9 +204,9 @@ object AuthIntrinsics:
     QualifiedName("totpValid") -> NativeImpl((_, args) =>
       args match
         case List(s: String, code: String) =>
-          Value.BoolV(scalascript.server.Totp.valid(s, code))
+          Value.boolV(0))
         case List(s: String, code: String, skew: Long) =>
-          Value.BoolV(scalascript.server.Totp.valid(s, code, skew.toInt))
+          Value.boolV(0))
         case _ => throw InterpretError("totpValid(secret, code[, skew])")
     ),
 
@@ -222,7 +222,7 @@ object AuthIntrinsics:
     QualifiedName("verifyPassword") -> NativeImpl((_, args) =>
       args match
         case List(pass: String, encoded: String) =>
-          Value.BoolV(scalascript.server.Password.verify(pass, encoded))
+          Value.boolV(0))
         case _ => throw InterpretError("verifyPassword(password, encoded)")
     ),
 

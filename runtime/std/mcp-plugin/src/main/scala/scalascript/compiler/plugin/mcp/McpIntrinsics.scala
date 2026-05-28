@@ -627,7 +627,7 @@ private object Mcp:
     // notifications/cancelled for the current request.  MCP cancellation
     // is cooperative — honoring it is up to the handler.
     def isCancelledFn = Value.NativeFnV("McpServer.isCancelled",
-      Computation.pureFn { _ => Value.BoolV(builder.isCancelled) })
+      Computation.pureFn { _ => Value.boolV(builder.isCancelled) })
     // v1.17.x — progress notifications.  Inside a tool/resource/prompt
     // handler, `srv.notifyProgress(progress[, total])` emits a
     // `notifications/progress` frame with the current handler's
@@ -714,7 +714,7 @@ private object Mcp:
       case _ => throw InterpretError("srv.onRootsListChanged(() => ...)")
     })
     def clientSupportsRootsFn = Value.NativeFnV("McpServer.clientSupportsRoots",
-      Computation.pureFn { _ => Value.BoolV(builder.clientSupportsRoots) })
+      Computation.pureFn { _ => Value.boolV(builder.clientSupportsRoots) })
     // v1.17.x — elicitation.  `srv.elicit(message, schema[, timeoutMs])`
     // pops a prompt on the client side asking for user input matching
     // the supplied JSON Schema.  Returns an ElicitationResult instance:
@@ -735,7 +735,7 @@ private object Mcp:
     })
     def clientSupportsElicitationFn =
       Value.NativeFnV("McpServer.clientSupportsElicitation",
-        Computation.pureFn { _ => Value.BoolV(builder.clientSupportsElicitation) })
+        Computation.pureFn { _ => Value.boolV(builder.clientSupportsElicitation) })
     // v1.17.x — completion handlers.  The handler is a function
     // `String => List[String]` (current partial value → suggestions).
     // Two registration entry points for the two ref shapes the spec
@@ -810,7 +810,7 @@ private object Mcp:
     def currentAuthFn = Value.NativeFnV("McpServer.currentAuth",
       Computation.pureFn { _ => Mcp.authClaimsToValueOpt(builder.currentAuth) })
     def authEnabledFn = Value.NativeFnV("McpServer.authEnabled",
-      Computation.pureFn { _ => Value.BoolV(builder.authEnabled) })
+      Computation.pureFn { _ => Value.boolV(builder.authEnabled) })
     def setPrmFn = Value.NativeFnV("McpServer.setProtectedResourceMetadata",
       Computation.pureFn {
         case List(metadataV) =>
@@ -831,7 +831,7 @@ private object Mcp:
         case _ => throw InterpretError("srv.setPageSize(n)")
       })
     def currentPageSizeFn = Value.NativeFnV("McpServer.currentPageSize",
-      Computation.pureFn { _ => Value.IntV(builder.currentPageSize) })
+      Computation.pureFn { _ => Value.intV(builder.currentPageSize) })
     def completionForResourceFn = Value.NativeFnV("McpServer.completionForResource",
       Computation.pureFn {
         case List(Value.StringV(uriTemplate), Value.StringV(argName), handler) =>
@@ -1112,7 +1112,7 @@ private object Mcp:
       Value.UnitV
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.BoolV(client.isClosed)
+      Value.boolV(client.isClosed)
     })
     // v1.17.x — server→client notification subscription.  Handler receives
     // (method: String, params: Value).  Replaces any previously-registered
@@ -1191,7 +1191,7 @@ private object Mcp:
       client.close(); Value.UnitV
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.BoolV(client.isClosed)
+      Value.boolV(client.isClosed)
     })
     // HTTP push via SSE GET `/events` — the client opens a daemon reader
     // thread that parses `data: <json>\n\n` frames and dispatches them
@@ -1273,7 +1273,7 @@ private object Mcp:
       client.close(); Value.UnitV
     })
     fields("isClosed") = Value.NativeFnV("McpClient.isClosed", Computation.pureFn { _ =>
-      Value.BoolV(client.isClosed)
+      Value.boolV(client.isClosed)
     })
     // Same notification-subscription mechanism as the Spawn/Stdio path:
     // WS is a persistent bidirectional channel, server-initiated frames
@@ -1338,7 +1338,7 @@ private object Mcp:
     val isErr = v.objOpt.flatMap(_.get("isError")).flatMap(_.boolOpt).getOrElse(false)
     Value.InstanceV("ToolResult", Map(
       "content" -> Value.ListV(items.map(contentJsonToValue)),
-      "isError" -> Value.BoolV(isErr)
+      "isError" -> Value.boolV(isErr)
     ))
 
   def resourceResultFromJson(v: ujson.Value, uri: String): Value =

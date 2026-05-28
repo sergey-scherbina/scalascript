@@ -115,10 +115,10 @@ object SqlIntrinsics:
     case null        => Value.NullV
     case s: String   => Value.StringV(s)
     case b: Boolean  => Value.BoolV(b)
-    case n: Int      => Value.IntV(n.toLong)
+    case n: Int      => Value.intV(n.toLong)
     case n: Long     => Value.IntV(n)
-    case n: Short    => Value.IntV(n.toLong)
-    case n: Byte     => Value.IntV(n.toLong)
+    case n: Short    => Value.intV(n.toLong)
+    case n: Byte     => Value.intV(n.toLong)
     case d: Double   => Value.DoubleV(d)
     case f: Float    => Value.DoubleV(f.toDouble)
     case other       => Value.StringV(other.toString)
@@ -133,7 +133,7 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
       case scalascript.sql.SqlResult.Rows(rows) =>
         Value.ListV(rows.map(rowToValue).toList)
       case scalascript.sql.SqlResult.UpdateCount(n) =>
-        Value.IntV(n.toLong)
+        Value.intV(n.toLong)
 
   override def runTransaction(source: String, attrs: Map[String, String], ctx: SqlBlockContext): Any =
     val dbName = attrs.getOrElse("db", "default")
@@ -146,7 +146,7 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
     }
     results.lastOption match
       case Some(scalascript.sql.SqlResult.Rows(rows))      => Value.ListV(rows.map(rowToValue).toList)
-      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.IntV(n.toLong)
+      case Some(scalascript.sql.SqlResult.UpdateCount(n))  => Value.intV(n.toLong)
       case None                                            => Value.UnitV
 
   private def resolveSqlConnection(attrs: Map[String, String], ctx: SqlBlockContext): java.sql.Connection =
@@ -180,10 +180,10 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
     case null        => Value.NullV
     case s: String   => Value.StringV(s)
     case b: Boolean  => Value.BoolV(b)
-    case n: Int      => Value.IntV(n.toLong)
+    case n: Int      => Value.intV(n.toLong)
     case n: Long     => Value.IntV(n)
-    case n: Short    => Value.IntV(n.toLong)
-    case n: Byte     => Value.IntV(n.toLong)
+    case n: Short    => Value.intV(n.toLong)
+    case n: Byte     => Value.intV(n.toLong)
     case d: Double   => Value.DoubleV(d)
     case f: Float    => Value.DoubleV(f.toDouble)
     case bi: java.math.BigInteger => Value.IntV(bi.longValueExact)

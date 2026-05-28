@@ -35,7 +35,7 @@ object PaymentRequestIntrinsics:
     // ── canMakePayment ────────────────────────────────────────────────────
 
     QualifiedName("PaymentRequest.canMakePayment") -> NativeImpl((_, _) =>
-      Value.InstanceV("Future", Map("value" -> Value.BoolV(true)))
+      Value.InstanceV("Future", Map("value" -> Value.True))
     ),
 
     // ── show — returns a mock PaymentResponse ─────────────────────────────
@@ -86,7 +86,7 @@ object PaymentRequestIntrinsics:
         "applicationPrimaryAccountNumber" -> Value.StringV("4111111111111111"),
         "expirationDate"                  -> Value.StringV("2512"),
         "currencyCode"                    -> Value.InstanceV("Some", Map("value" -> Value.StringV("USD"))),
-        "transactionAmount"               -> Value.InstanceV("Some", Map("value" -> Value.IntV(4999L))),
+        "transactionAmount"               -> Value.InstanceV("Some", Map("value" -> Value.intV(4999L))),
         "cardholderName"                  -> Value.InstanceV("Some", Map("value" -> Value.StringV("Test User"))),
         "onlinePaymentCryptogram"         -> Value.InstanceV("Some", Map("value" -> Value.StringV("MOCK_CRYPTOGRAM")))
       ))
@@ -154,10 +154,10 @@ object PaymentRequestIntrinsics:
       args match
         case List(Value.StringV(label), amount) =>
           Value.InstanceV("PaymentItem", Map("label" -> Value.StringV(label), "amount" -> amount.asInstanceOf[Value],
-                                             "pending" -> Value.BoolV(false)))
+                                             "pending" -> Value.False))
         case List(Value.StringV(label), amount, Value.BoolV(pending)) =>
           Value.InstanceV("PaymentItem", Map("label" -> Value.StringV(label), "amount" -> amount.asInstanceOf[Value],
-                                             "pending" -> Value.BoolV(pending)))
+                                             "pending" -> Value.boolV(pending)))
         case _ => throw InterpretError("PaymentItem(label, amount[, pending])")
     ),
   )

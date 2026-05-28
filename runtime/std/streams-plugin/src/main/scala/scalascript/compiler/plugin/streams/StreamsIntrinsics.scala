@@ -165,7 +165,7 @@ object StreamsIntrinsics:
         case List(pred) => startChained { ownQ =>
           var item = queue.take()
           while item.isDefined do
-            if call(pred, List(item.get)) == Value.BoolV(true) then ownQ.put(Some(item.get))
+            if call(pred, List(item.get)) == Value.True then ownQ.put(Some(item.get))
             item = queue.take()
         }
         case _ => throw InterpretError("Source.filter(pred)")
@@ -725,11 +725,11 @@ object StreamsIntrinsics:
       args match
         case List(elements, perMillis) if intArg(elements).isDefined && intArg(perMillis).isDefined =>
           Value.InstanceV("Rate", Map(
-            "elements"  -> Value.IntV(intArg(elements).get.toLong),
-            "perMillis" -> Value.IntV(intArg(perMillis).get.toLong),
+            "elements"  -> Value.intV(intArg(elements).get.toLong),
+            "perMillis" -> Value.intV(intArg(perMillis).get.toLong),
           ))
         case List(elements) if intArg(elements).isDefined =>
-          Value.InstanceV("Rate", Map("elements" -> Value.IntV(intArg(elements).get.toLong), "perMillis" -> Value.IntV(1000L)))
+          Value.InstanceV("Rate", Map("elements" -> Value.intV(intArg(elements).get.toLong), "perMillis" -> Value.intV(1000L)))
         case _ => throw InterpretError("Rate(elements, perMillis)")
     ),
 
