@@ -315,6 +315,7 @@ object Computation:
   val PureFalse:     Pure = Pure(Value.False)
   val PureNone:      Pure = Pure(Value.NoneV)
   val PureEmptyList: Pure = Pure(Value.EmptyList)
+  val PureEmptyStr:  Pure = Pure(Value.EmptyStr)
 
   inline def pureBool(b: Boolean): Pure = if b then PureTrue else PureFalse
 

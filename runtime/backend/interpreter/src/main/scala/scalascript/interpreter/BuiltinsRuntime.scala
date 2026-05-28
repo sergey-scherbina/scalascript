@@ -323,7 +323,7 @@ private[interpreter] object BuiltinsRuntime:
       case List(Value.StringV(key)) =>
         val v = interp.i18nTranslations.get(interp.i18nLocale).flatMap(_.get(key)).getOrElse(key)
         Pure(Value.StringV(v))
-      case _ => Pure(Value.EmptyStr)
+      case _ => Computation.PureEmptyStr
     })
     interp.globals("setLocale") = Value.NativeFnV("setLocale", {
       case List(Value.StringV(code)) => interp.i18nLocale = code; Computation.PureUnit
