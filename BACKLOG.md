@@ -20,7 +20,10 @@ network semantics or deployment constraints.
       such as `users.get`, code identity, registries, code deployment, and
       worker bundles, while adopting `! Async`, `BasicStreamOps`, typed
       `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy
-      phases. Landed 2026-05-28.
+      phases. Updated 2026-05-28 with the operational details from
+      `docs/cluster-operations.md`: token rotation, persistent cluster config,
+      rolling upgrades, multi-region lowering, and HPA/autoscale. Landed
+      2026-05-28.
 - [ ] **v1.63.1-stream-bridge-basic-ops** - Stream bridge and shared safe
       operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`,
       `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`,
@@ -51,9 +54,11 @@ network semantics or deployment constraints.
       router/sharded/role actor groups.
 - [ ] **v1.63.7-cluster-aware-deploy-ops** - Cluster-aware deployment and
       operations: `ClusterTarget`, K8s StatefulSet/headless Service/token
-      Secret, rolling cluster upgrade, token rotation, persistent cluster
-      state through `StateBackend`, K8s HPA/autoscale emission, and Docker
-      Compose target.
+      Secret, `rotateClusterToken` with `token_rotate` / `token_rotate_ack`
+      and quorum overlap, `clusterConfigSet/Get` persistence through
+      `StateBackend`, `Deploy.rollingCluster`, `FaultToleranceConfig`
+      multi-region lowering, K8s HPA/autoscale emission through `HpaConfig`,
+      and Docker Compose target.
 - [ ] **v1.63.8-dynamic-code-ops-hardening** - Dynamic code shipping and ops
       hardening: signed worker bundles, remote artifact cache, dependency
       verification, sandbox/resource policy, audit log, unload/rollback,

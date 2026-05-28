@@ -503,7 +503,25 @@ trait ClusterTarget extends DeployTarget:
   def injectAuthToken(env: DeployEnvironment, secretRef: String): Unit
   def emitWorkloadManifest(mode: WorkloadMode): String
   def emitHeadlessService(): String
-  def emitHpa(policy: ScalePolicy): Option[String]
+  def emitAutoscaler(policy: ScalePolicy): Option[String]
+
+enum WorkloadMode:
+  case Deployment
+  case StatefulSet
+  case DaemonSet
+
+enum ScalePolicy:
+  case Cpu(targetPercent: Int)
+  case Custom(metricName: String, targetValue: Long)
+  case None
+
+case class CpuTarget(percent: Int)
+case class CustomTarget(metric: String, value: Int)
+enum AutoscaleTarget:
+  case Cpu(t: CpuTarget)
+  case Custom(t: CustomTarget)
+
+case class HpaConfig(min: Int, max: Int, targets: List[AutoscaleTarget])
 ```
 
 When cluster mode is present, `K8sTarget` emits a `StatefulSet`, headless
@@ -512,6 +530,8 @@ injection, optional `ssc cluster wait-for-peers` init container, and rolling
 upgrade orchestration using `/_ssc-cluster/drain`.
 When `autoscale:` is present, it also emits a `HorizontalPodAutoscaler` with
 CPU and custom metric targets as defined in `docs/cluster-operations.md`.
+The HPA `scaleTargetRef` points to a `StatefulSet` for cluster members and to a
+`Deployment` for stateless workloads.
 
 Additional targets:
 
@@ -524,11 +544,166 @@ Additional targets:
 
 ## Operations
 
-Cluster config and operational state should use the existing `StateBackend`
-SPI. Token rotation uses an overlap window where peers accept old and new
-tokens before dropping the old one. Rolling upgrade drains one node, waits for
-in-flight work or timeout, restarts/replaces the node, waits healthy, and moves
-to the next node.
+The operational companion spec is
+[`docs/cluster-operations.md`](cluster-operations.md). The canonical runtime
+plan incorporates its concrete protocol and deploy decisions below.
+
+### Auth Token Rotation
+
+Current state: `setClusterAuthToken(token)` loads a static token at startup,
+usually from `SSC_CLUSTER_TOKEN`; changing it requires a full restart.
+
+Planned API:
+
+```scala
+extern def rotateClusterToken(
+  newToken: String,
+  overlapMs: Int = 30_000,
+): Unit
+```
+
+Protocol:
+
+1. The initiating node broadcasts `token_rotate` to connected peers:
+
+   ```json
+   { "$t": "token_rotate", "new": "<sha256-of-new-token>", "valid_from": <epoch-ms> }
+   ```
+
+2. Receivers add the new token to the accept set while keeping the old token.
+3. Receivers schedule `valid_from - now()`; when the timer fires, they drop the
+   old token.
+4. Receivers acknowledge with:
+
+   ```json
+   { "$t": "token_rotate_ack", "nodeId": "..." }
+   ```
+
+5. The initiator considers the rotation safe after quorum acks. If quorum is
+   not reached within `overlapMs / 2`, the rotation aborts and the old token
+   remains the sole valid token.
+
+Recommendation for v1.63.7: use broadcast-with-quorum first because it works
+without a current Raft leader. Raft-committed rotation remains a future
+hardening option.
+
+When `StateBackend` is configured, the accepted token hash is persisted under a
+cluster-internal key so restarted nodes pick up the rotated token before
+falling back to `SSC_CLUSTER_TOKEN`.
+
+### Persistent Cluster State
+
+Current state: cluster gossip is in-memory LWW state. The per-node Raft vote
+file is durable, but `clusterConfigSet` / `clusterConfigGet` only update
+in-memory gossip.
+
+Planned API:
+
+```scala
+extern def clusterConfigSet(key: String, value: String): Unit
+extern def clusterConfigGet(key: String): Option[String]
+```
+
+When `state:` front matter selects a real backend, cluster config writes go to
+the existing deploy `StateBackend` SPI:
+
+```scala
+val cfgKey = StateKey(env = "_cluster", target = nodeId, slot = Some(key))
+backend.write(cfgKey, StateRecord(revision = ..., outputs = Map("value" -> value), ...))
+```
+
+Reads are backend-first, then gossip. `NoopStateBackend` preserves current
+behavior: LWW gossip only, lost on restart.
+
+This is not Raft log replication. It is persistence for cluster configuration
+values such as quorum settings, advertised URLs, handler metadata, and rotated
+token metadata.
+
+### Rolling Cluster Upgrade
+
+Planned API:
+
+```scala
+enum RollingStrategy:
+  case Rolling(maxUnavailable: Int = 1, waitDrainMs: Int = 30_000)
+  case BlueGreen(observeMs: Int = 60_000)
+  case Canary(percent: Int, observeMs: Int = 120_000)
+
+def Deploy.rollingCluster(
+  env: DeployEnvironment,
+  target: DeployTarget,
+  strategy: RollingStrategy = RollingStrategy.Rolling(),
+): Unit
+```
+
+Per-node `Rolling` sequence:
+
+1. Assert the node is not already draining.
+2. `POST /_ssc-cluster/drain`, then wait for `drainDone` or
+   `waitDrainMs`.
+3. Deploy the new artifact to that node through the existing `DeployTarget`.
+4. Re-activate the node by clearing drain mode.
+5. Wait until peer heartbeats show the node healthy.
+6. Continue to the next node, respecting `maxUnavailable`.
+
+`BlueGreen` and `Canary` reuse existing deploy-plugin blue-green/slot
+infrastructure; `rollingCluster` adds cluster drain as the pre-cutover gate.
+If a node does not become healthy within `2 * waitDrainMs`, the orchestrator
+stops, reports `CodeMismatch` / health diagnostics, and leaves rollback to
+`ssc cluster rollback`.
+
+### Multi-AZ / Multi-Region
+
+`FaultToleranceConfig` already carries:
+
+```scala
+case class FaultToleranceConfig(
+  multiRegion: List[String],
+  quorum: Int,
+  failoverStrategy: FailoverStrategy,
+)
+```
+
+Planned lowering:
+
+```yaml
+fault_tolerance:
+  multi_region: [us-east-1, eu-west-1]
+  quorum: 2
+  failover_strategy: active-passive
+```
+
+When `multi_region` is non-empty, deploy emits one `DeployGroup` per region and
+runs the regional groups independently. `quorum` constrains
+`Deploy.rollingCluster`: a region is not upgraded if doing so would leave fewer
+than the configured quorum of healthy regions.
+
+Named actors published through `pid.publish(name)` continue to use cluster
+gossip for cross-region rendezvous. External traffic routing remains the
+operator's responsibility; deploy outputs expose per-region load balancer URLs
+for Route 53 / GCP LB / Azure Traffic Manager or similar tools.
+
+### Autoscaling
+
+Autoscaling is target-specific. Kubernetes supports:
+
+```yaml
+k8s:
+  replicas: 2
+  autoscale:
+    min: 2
+    max: 10
+    target:
+      - kind: cpu
+        percent: 70
+      - kind: custom
+        metric: requests_per_second
+        value: 1000
+```
+
+`K8sManifestGenerator` emits an HPA manifest when `autoscale:` is present.
+Non-Kubernetes targets ignore `autoscale:` unless they add their own scaling
+adapter. Default: no HPA emitted.
 
 ## Architecture
 
@@ -627,10 +802,16 @@ work queue links. No runtime changes.
 
 - Add `ClusterTarget`.
 - Extend `K8sTarget` for StatefulSet/headless Service/token Secret.
-- Add rolling cluster upgrade.
-- Add token rotation.
-- Persist cluster state through `StateBackend`.
-- Add K8s HPA/autoscale emission.
+- Add token rotation: `rotateClusterToken`, `token_rotate`,
+  `token_rotate_ack`, dual-accept overlap, quorum ack, persisted token hash.
+- Persist cluster state through `StateBackend`: `clusterConfigSet`,
+  `clusterConfigGet`, backend-first reads, gossip fallback.
+- Add `Deploy.rollingCluster` with `Rolling`, `BlueGreen`, and `Canary`
+  strategies over the existing drain protocol and `DeployGroup`.
+- Lower `FaultToleranceConfig.multiRegion` to regional `DeployGroup`s and
+  constrain rolling upgrades by quorum.
+- Add K8s HPA/autoscale emission through `HpaConfig` and
+  `K8sManifestGenerator.hpa`.
 - Add Docker Compose target; Nomad/ECS may follow in the same or next slice.
 
 ### v1.63.8 - Dynamic Code Shipping and Ops Hardening
@@ -653,7 +834,7 @@ work queue links. No runtime changes.
 | v1.63.4 | `@remote def echo` plus generated client round-trip; timeout/decode/auth errors surface as typed `RemoteCallError`; JSON fallback works without binary wire |
 | v1.63.5 | `ssc cluster run` two local processes; `handlers` lists exported operations; worker bundle contains code identity and registry metadata |
 | v1.63.6 | Remote stream subscribe/order/cancel/reconnect; SSE overflow policy; proxy actor failure translation; actor group routing |
-| v1.63.7 | K8s manifest emits StatefulSet/headless Service/Secret/env; rolling upgrade drains before restart; token rotation overlap works; state persists through restart |
+| v1.63.7 | K8s manifest emits StatefulSet/headless Service/Secret/env/HPA; token rotation reaches quorum and rejects the old token after overlap; `clusterConfigSet/Get` persists through restart with `StateBackend`; `Deploy.rollingCluster` drains before restart and aborts on unhealthy node; multi-region lowering emits regional `DeployGroup`s and respects quorum |
 | v1.63.8 | Signed bundle verification; artifact-cache mismatch rejection; sandbox/resource limit diagnostics; mixed-version opt-in vectors |
 
 ## Critical Files Index
@@ -672,6 +853,10 @@ work queue links. No runtime changes.
 - `lang/core/src/main/scala/scalascript/parser/Parser.scala`
 - `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/K8sTarget.scala`
 - `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/K8sManifestGenerator.scala`
+- `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/DeployGroup.scala`
+- `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/DeployEnvironment.scala`
+- `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/StateBackend.scala`
+- `runtime/std/deploy-plugin/src/main/scala/scalascript/compiler/plugin/deploy/HpaConfig.scala`
 - `runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala`
 - `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/AsyncRuntime.scala`
 - `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala`
@@ -692,3 +877,15 @@ work queue links. No runtime changes.
    registry built at startup; persist only cluster config and deploy state.
 5. Which dynamic artifact formats should be supported first? Recommendation:
    signed worker package only.
+6. Should token rotation be Raft-committed or broadcast-with-quorum?
+   Recommendation: broadcast-with-quorum for v1.63.7; Raft commit can harden
+   it after cluster leadership semantics are stable.
+7. Should multi-region quorum count regions or nodes? Recommendation: count
+   regions in the deploy/runtime UX; allow lower-level node quorum later for
+   advanced deployments.
+8. Should `ActiveStandby` differ from `ActivePassive`? Recommendation: treat
+   `ActiveStandby` as passive replicas with no inbound traffic; `ActivePassive`
+   may accept reads or warm traffic depending on target adapter.
+9. Should HPA codegen live in `K8sTarget` or a helper? Recommendation:
+   introduce `HpaConfig` plus `K8sManifestGenerator.hpa`; keep policy parsing
+   in `K8sTarget`.

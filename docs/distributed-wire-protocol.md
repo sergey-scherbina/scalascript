@@ -46,7 +46,7 @@ adapters and by cluster code deployment.
 | Surface | Current shape | Binary plan |
 |---------|---------------|-------------|
 | Actor data plane | JSON text WebSocket frames in `docs/actors-dist.md` | Binary WS frames for `msg`, `link`, `monitor`, registry replies, pub/sub, and user messages |
-| Actor cluster control plane | JSON envelopes for membership, gossip, heartbeat, phi vectors, leader election, config, drain, metrics | Same envelope model over negotiated binary frames |
+| Actor cluster control plane | JSON envelopes for membership, gossip, heartbeat, phi vectors, leader election, config, drain, token rotation, metrics | Same envelope model over negotiated binary frames |
 | Distributed Dataset / MapReduce | Actor messages with `DatasetWirePartition` payload helpers | Binary partitions and shuffle payloads through `WireCodec[A]` / `DatasetCodec[A]` |
 | Native DStream runner | Actor-backed pipeline execution | Binary element batches, watermark/control messages, checkpoint metadata |
 | Typed route clients / RPC | JSON HTTP request/response via generated clients | Generated binary HTTP body with content negotiation and JSON fallback |
@@ -370,7 +370,8 @@ Land this document, link it from README, and add implementation phases to
 - Add `ssc-actors-v2.<format>` subprotocols.
 - Send actor envelopes as binary WS frames when negotiated.
 - Cover user messages, registry, heartbeat, gossip, leader election, pub/sub,
-  config, drain, metrics, and phi vectors.
+  config, drain, token rotation (`token_rotate` / `token_rotate_ack`),
+  metrics, and phi vectors.
 - Preserve JSON `ssc-actors-v1` for fallback.
 
 ### Phase 3 - Typed Route Clients and RPC

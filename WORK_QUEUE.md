@@ -10,7 +10,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Distributed Runtime — v1.63
 
-- [x] **v1.63.0-distributed-runtime-spec** — Canonical spec and backlog for local/remote/distributed runtime support. Merges `docs/placement-and-remoting.md` and `docs/arch-local-distributed-cluster.md` into `docs/distributed-runtime.md`; keeps operation names like `users.get`, code identity, handler/source/behavior registries, worker bundles, cluster CLI/front matter, and dynamic-code roadmap, while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy phases. ✓ Landed 2026-05-28.
+- [x] **v1.63.0-distributed-runtime-spec** — Canonical spec and backlog for local/remote/distributed runtime support. Merges `docs/placement-and-remoting.md` and `docs/arch-local-distributed-cluster.md` into `docs/distributed-runtime.md`; keeps operation names like `users.get`, code identity, handler/source/behavior registries, worker bundles, cluster CLI/front matter, and dynamic-code roadmap, while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy phases. Updated with `docs/cluster-operations.md` details for token rotation, persistent cluster config, rolling upgrades, multi-region lowering, and HPA/autoscale. ✓ Landed 2026-05-28.
 
 - [ ] **v1.63.1-stream-bridge-basic-ops** — Stream bridge and shared safe operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`, `_dag_sink_local`, and bounded/materialization tests. Spec: `docs/distributed-runtime.md §v1.63.1`.
 
@@ -24,7 +24,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [ ] **v1.63.6-stream-actor-placement-adapters** — Stream and actor placement adapters: `Source[A].remote`, `RemoteSource[A].local`, `RemoteSource[A].distributed`, `DStream[A].remote`, WebSocket remote streams with JSON fallback, SSE constraints, local proxy actors, and router/sharded/role actor groups. Spec: `docs/distributed-runtime.md §v1.63.6`.
 
-- [ ] **v1.63.7-cluster-aware-deploy-ops** — Cluster-aware deployment and operations: `ClusterTarget`, K8s StatefulSet/headless Service/token Secret, rolling cluster upgrade, token rotation, persistent cluster state through `StateBackend`, K8s HPA/autoscale emission, and Docker Compose target. Spec: `docs/distributed-runtime.md §v1.63.7`.
+- [ ] **v1.63.7-cluster-aware-deploy-ops** — Cluster-aware deployment and operations: `ClusterTarget`, K8s StatefulSet/headless Service/token Secret, `rotateClusterToken` with `token_rotate` / `token_rotate_ack` and quorum overlap, `clusterConfigSet/Get` persistence through `StateBackend`, `Deploy.rollingCluster`, `FaultToleranceConfig` multi-region lowering, K8s HPA/autoscale emission through `HpaConfig`, and Docker Compose target. Spec: `docs/distributed-runtime.md §v1.63.7`.
 
 - [ ] **v1.63.8-dynamic-code-ops-hardening** — Dynamic code shipping and ops hardening: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload/rollback, mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production cookbook. Spec: `docs/distributed-runtime.md §v1.63.8`.
 
