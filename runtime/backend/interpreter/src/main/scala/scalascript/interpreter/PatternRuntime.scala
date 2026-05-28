@@ -141,9 +141,11 @@ private[interpreter] object PatternRuntime:
         }
       case _ :: rest => evalForYield(rest, body, env, interp)
 
-  // evalForDo keeps loop vars separate from globals so assignments to outer vars are visible.
+  // evalForDo keeps loop vars separate so assignments to outer vars are visible.
+  // `interp.eval` already checks interp.globals as fallback for Term.Name lookups,
+  // so we do not need to merge globals into env here.
   def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env, interp: Interpreter): Computation =
-    val env = outerEnv ++ interp.globals.toMap ++ loopVars
+    val env = if loopVars.isEmpty then outerEnv else outerEnv ++ loopVars
     enums match
       case Nil => interp.eval(body, env).map(_ => Value.UnitV)
       case Enumerator.Generator(pat, rhs) :: rest =>
