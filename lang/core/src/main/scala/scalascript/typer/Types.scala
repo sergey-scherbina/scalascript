@@ -140,22 +140,36 @@ enum SType:
   def subst(m: scala.collection.immutable.IntMap[SType]): SType =
     if m.isEmpty then return this
     this match
-      case Var(id)                  => m.getOrElse(id, this)
-      case Named(_, Nil)            => this  // no type args → no type vars → invariant
-      case Named(n, args)           => Named(n, args.map(_.subst(m)))
+      case Var(id)       => m.getOrElse(id, this)
+      case Named(_, Nil) => this  // no type args → no type vars → invariant
+      case Named(n, args) =>
+        val newArgs = SType.substList(args, m)
+        if newArgs eq args then this else Named(n, newArgs)
       case Function(params, result, effs) =>
         val newTail = effs.tail.flatMap(id => m.get(id).collect { case SType.Var(newId) => newId })
                                 .orElse(effs.tail.filterNot(id => m.contains(id)))
-        val newOps = effs.ops.map(op => EffectOp(op.name, op.args.map(_.subst(m))))
-        Function(params.map(_.subst(m)), result.subst(m), EffectRow(newTail, newOps))
-      case Tuple(elems)             => Tuple(elems.map(_.subst(m)))
-      case Union(types)             => Union(types.map(_.subst(m)))
-      case Intersection(types)      => Intersection(types.map(_.subst(m)))
-      case Refinement(base, mem)    =>
-        Refinement(base.subst(m), mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.subst(m))))
-      case Match(scrut, cs)         =>
+        val newOps    = effs.ops.map(op => EffectOp(op.name, SType.substList(op.args, m)))
+        val newParams = SType.substList(params, m)
+        val newResult = result.subst(m)
+        val sameRow   = newTail == effs.tail && newOps == effs.ops
+        if (newParams eq params) && (newResult eq result) && sameRow then this
+        else Function(newParams, newResult, EffectRow(newTail, newOps))
+      case Tuple(elems) =>
+        val newElems = SType.substList(elems, m)
+        if newElems eq elems then this else Tuple(newElems)
+      case Union(types) =>
+        val newTypes = SType.substList(types, m)
+        if newTypes eq types then this else Union(newTypes)
+      case Intersection(types) =>
+        val newTypes = SType.substList(types, m)
+        if newTypes eq types then this else Intersection(newTypes)
+      case Refinement(base, mem) =>
+        val newBase = base.subst(m)
+        val newMem  = mem.map(rm => RefMember(rm.kind, rm.name, rm.sig.subst(m)))
+        if (newBase eq base) && newMem == mem then this else Refinement(newBase, newMem)
+      case Match(scrut, cs) =>
         Match(scrut.subst(m), cs.map(c => MatchCase(c.pattern.subst(m), c.rhs.subst(m))))
-      case _                        => this
+      case _ => this
 
   /** Short-circuit occurs check: true if unification variable `id` appears in this type.
    *  Avoids building a Set[Int] — returns as soon as the variable is found. */
@@ -199,6 +213,25 @@ enum SType:
     case _                              => ()
 
 object SType:
+
+  /** Substitute `m` into each element of `types`.
+   *  Returns the original list object (no allocation) if every element is unchanged. */
+  private[typer] def substList(
+    types: List[SType],
+    m: scala.collection.immutable.IntMap[SType]
+  ): List[SType] =
+    if types.isEmpty then return types
+    var changed = false
+    val buf = new scala.collection.mutable.ArrayBuffer[SType](types.length)
+    var head = types
+    while head.nonEmpty do
+      val orig = head.head
+      val sub  = orig.subst(m)
+      if sub ne orig then changed = true
+      buf += sub
+      head  = head.tail
+    if changed then buf.toList else types
+
   /** Unit is the 0-tuple — the monoid identity for tuple concatenation. */
   val Unit: SType    = Tuple(Nil)
   val Boolean: SType = Named("Boolean", Nil)
