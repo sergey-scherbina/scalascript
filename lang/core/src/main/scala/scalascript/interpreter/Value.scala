@@ -331,6 +331,7 @@ object Computation:
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =
+    if cs.isEmpty then return PureEmptyList
     var allPure = true
     var rest    = cs
     val buf     = new scala.collection.mutable.ArrayBuffer[Value](cs.length)
@@ -338,7 +339,9 @@ object Computation:
       rest.head match
         case Pure(v) => buf += v; rest = rest.tail
         case _       => allPure = false
-    if allPure then Pure(Value.ListV(buf.toList))
+    if allPure then
+      val items = buf.toList
+      if items.isEmpty then PureEmptyList else Pure(Value.ListV(items))
     else
       def loop(remaining: List[Computation], acc: List[Value]): Computation = remaining match
         case Nil       => Pure(Value.ListV(acc.reverse))
