@@ -8894,6 +8894,8 @@ class JsGen(
       if !isReachableStat(s, topLevel) then ()
       else
       s match
+        case tw: Term.While =>
+          line(s"while (${genExpr(tw.expr)}) { ${genExpr(tw.body)}; }")
         case t: Term if isLast && topLevel =>
           // Track main() calls; auto-output non-unit last expression
           t match
@@ -9547,6 +9549,10 @@ class JsGen(
         val isLast = i == stats.length - 1
         val pad = "  "
         s match
+          case tw: Term.While =>
+            val body = s"while (${genExpr(tw.expr)}) { ${genExpr(tw.body)}; }"
+            if isLast then inner.append(pad).append(body).append(" return undefined;\n")
+            else inner.append(pad).append(body).append("\n")
           case t: Term if isLast =>
             inner.append(pad).append("return ").append(genExpr(t)).append(";\n")
           case t: Term =>
@@ -9815,8 +9821,7 @@ class JsGen(
     // Tuple
     case Term.Tuple(elems) =>
       val elemsJs = elems.map(genExpr).mkString(", ")
-      val tmp = freshTmp()
-      s"(() => { const $tmp = [$elemsJs]; $tmp._isTuple = true; return $tmp; })()"
+      s"Object.assign([$elemsJs], {_isTuple: true})"
 
     // Assignment
     case Term.Assign(lhs, rhs) =>
@@ -10389,13 +10394,10 @@ class JsGen(
         // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
         case "!" => s"Actor.send($lhsJs, $rhsJs)"
         case "->" =>
-          val tmp = freshTmp()
-          s"(() => { const $tmp = [$lhsJs, $rhsJs]; $tmp._isTuple = true; return $tmp; })()"
+          s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
         case "*" =>
-          // Could be string * n or numeric.  Wrap `lhsJs` in parens so a
-          // bare number literal (`1 * 1`) doesn't trip JS's number-then-`.`
-          // parse rule on the string-repeat fallback branch.
-          s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
+          if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
+          else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
         case "==" => s"($lhsJs === $rhsJs)"
         case "!=" => s"($lhsJs !== $rhsJs)"
         case "&&" => s"($lhsJs && $rhsJs)"
@@ -10744,8 +10746,7 @@ class JsGen(
     // Tuple
     case Term.Tuple(elems) =>
       bindArgsCps(elems) { vs =>
-        val tmp = freshTmp()
-        s"(() => { const $tmp = [${vs.mkString(", ")}]; $tmp._isTuple = true; return $tmp; })()"
+        s"Object.assign([${vs.mkString(", ")}], {_isTuple: true})"
       }
 
     // Lambda — CPS body
@@ -11061,10 +11062,10 @@ class JsGen(
           case "+:"           => s"[$vl, ...$vr]"
           case "++" | ":::"   => s"_tupleConcat($vl, $vr)"
           case "!"            => s"Actor.send($vl, $vr)"
-          case "->"           =>
-            val tmp = freshTmp()
-            s"(() => { const $tmp = [$vl, $vr]; $tmp._isTuple = true; return $tmp; })()"
-          case "*"            => s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
+          case "->"           => s"Object.assign([$vl, $vr], {_isTuple: true})"
+          case "*"            =>
+            if isIntExpr(lhs) && isIntExpr(rhs) then s"($vl * $vr)"
+            else s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
           case "=="           => s"($vl === $vr)"
           case "!="           => s"($vl !== $vr)"
           case "&&"           => s"($vl && $vr)"
