@@ -462,9 +462,9 @@ private[interpreter] object EvalRuntime:
           val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
           val baseUrlC = eval(app.argClause.values.head, env, interp)
           baseUrlC.flatMap { baseUrlV =>
-            interp.callValue(
+            interp.callValue2(
               interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
-              List(baseUrlV, Value.StringV(typeName)), env)
+              baseUrlV, Value.StringV(typeName), env)
           }
         case Term.ApplyType.After_4_6_0(
               Term.Select(Term.Name("Remote"), Term.Name("stub")), typeArgClause)
@@ -472,9 +472,9 @@ private[interpreter] object EvalRuntime:
           val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
           val baseUrlC = eval(app.argClause.values.head, env, interp)
           baseUrlC.flatMap { baseUrlV =>
-            interp.callValue(
+            interp.callValue2(
               interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
-              List(baseUrlV, Value.StringV(typeName)), env)
+              baseUrlV, Value.StringV(typeName), env)
           }
         // ── obj.method[T](args) — type args erased, dispatch with actual args
         // Mirrors the bare Term.Select(qual, method) path above so that
@@ -531,15 +531,16 @@ private[interpreter] object EvalRuntime:
               case _                    => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
           else if allArgTerms.lengthCompare(2) == 0 then
             // Two-arg fast path: f(a, b) — second most common shape.
+            // Uses callValue (not callValue2) to preserve TCO for recursive named functions.
             val arg1C = eval(allArgTerms.head, env, interp)
             val arg2C = eval(allArgTerms(1),   env, interp)
             (funC, arg1C, arg2C) match
-              case (Pure(fv), Pure(av1), Pure(av2)) => interp.callValue2(fv, av1, av2, env)
-              case (Pure(fv), Pure(av1), _)         => FlatMap(arg2C, av2 => interp.callValue2(fv, av1, av2, env))
-              case (Pure(fv), _, Pure(av2))         => FlatMap(arg1C, av1 => interp.callValue2(fv, av1, av2, env))
-              case (Pure(fv), _, _)                 => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue2(fv, av1, av2, env)))
-              case (_, Pure(av1), Pure(av2))        => FlatMap(funC, fv => interp.callValue2(fv, av1, av2, env))
-              case _                                => FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue2(fv, av1, av2, env))))
+              case (Pure(fv), Pure(av1), Pure(av2)) => interp.callValue(fv, List(av1, av2), env)
+              case (Pure(fv), Pure(av1), _)         => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env))
+              case (Pure(fv), _, Pure(av2))         => FlatMap(arg1C, av1 => interp.callValue(fv, List(av1, av2), env))
+              case (Pure(fv), _, _)                 => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env)))
+              case (_, Pure(av1), Pure(av2))        => FlatMap(funC, fv => interp.callValue(fv, List(av1, av2), env))
+              case _                                => FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env))))
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
             val argVsPos = extractPureValues(argComps)
@@ -676,7 +677,7 @@ private[interpreter] object EvalRuntime:
           .orElse(env.get(prefix))
           .orElse(interp.globals.get(prefix))
           .getOrElse(interp.located(s"Unknown interpolator '$prefix': not in scope"))
-        interp.callValue(fn, List(sc, Value.ListV(argVs)), env)
+        interp.callValue2(fn, sc, Value.ListV(argVs), env)
       }
 
     // Anonymous function with _ placeholders: _.field, _ + 1, _ + _, etc.

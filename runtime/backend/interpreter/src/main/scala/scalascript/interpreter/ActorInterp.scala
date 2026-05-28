@@ -700,7 +700,7 @@ private[interpreter] trait ActorInterp:
         val savedCurrent = rt.currentId
         rt.currentId = childId
         val childBody =
-          try callValue(behavior, List(arg), Map.empty)
+          try callValue1(behavior, arg, Map.empty)
           finally rt.currentId = savedCurrent
         rt.pending(childId) = childBody
         rt.ready.enqueue(childId)
