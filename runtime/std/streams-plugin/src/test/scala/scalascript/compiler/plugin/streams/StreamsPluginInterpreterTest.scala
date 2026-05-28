@@ -576,3 +576,107 @@ class StreamsPluginInterpreterTest extends AnyFunSuite:
       """
     )
     assert(result == Nil)
+
+  // ─── v1.51.1 new operators ──────────────────────────────────────────────
+
+  test("scan produces running aggregate"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 4).scan(0)((acc, x) => acc + x).runToList()
+      """
+    )
+    assert(result == List(1L, 3L, 6L, 10L))
+
+  test("scan with multiplication"):
+    val result = interp.eval(
+      """
+      Source.from(1 to 5).scan(1)((acc, x) => acc * x).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 6L, 24L, 120L))
+
+  test("onError runs side-effect but passes elements through on success"):
+    val result = interp.eval(
+      """
+      var errored = false
+      val xs = Source.from(List(1, 2, 3)).onError(_ => { errored = true }).runToList()
+      List(xs, errored)
+      """
+    )
+    assert(result == List(List(1L, 2L, 3L), false))
+
+  test("cancellable returns (Source, cancelFn) tuple"):
+    val result = interp.eval(
+      """
+      val pair = Source.from(1 to 100).cancellable()
+      val src = pair._1
+      src.take(3).runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))
+
+  test("Source.unfold generates fibonacci sequence"):
+    val result = interp.eval(
+      """
+      Source.unfold((0, 1))(s => if s._1 > 50 then None else Some(((s._2, s._1 + s._2), s._1)))
+        .take(7).runToList()
+      """
+    )
+    // unfold state = (a, b), emit a, next = (b, a+b): 0,1,1,2,3,5,8
+    assert(result.asInstanceOf[List[?]].length == 7)
+
+  test("Source.unfold with simple counter"):
+    val result = interp.eval(
+      """
+      Source.unfold(0)(s => if s >= 5 then None else Some((s + 1, s))).runToList()
+      """
+    )
+    assert(result == List(0L, 1L, 2L, 3L, 4L))
+
+  test("Source.tick emits units (take 3)"):
+    val result = interp.eval(
+      """
+      Source.tick(0).take(3).runToList()
+      """
+    )
+    // tick with 0ms delay emits () units
+    assert(result.asInstanceOf[List[?]].length == 3)
+
+  test("Source.fromCallback receives pushed elements"):
+    val result = interp.eval(
+      """
+      Source.fromCallback(cb => {
+        cb(10)
+        cb(20)
+        cb(30)
+      }).runToList()
+      """
+    )
+    assert(result == List(10L, 20L, 30L))
+
+  test("Source.fromCallback — pushed elements map correctly"):
+    val result = interp.eval(
+      """
+      Source.fromCallback(cb => {
+        for i <- 1 to 5 do cb(i)
+      }).map(x => x * 2).runToList()
+      """
+    )
+    assert(result == List(2L, 4L, 6L, 8L, 10L))
+
+  test("scan on empty source produces empty result"):
+    val result = interp.eval(
+      """
+      Source.from(List()).scan(0)((acc, x) => acc + x).runToList()
+      """
+    )
+    assert(result == Nil)
+
+  test("cancellable — source still works after obtaining pair"):
+    val result = interp.eval(
+      """
+      val pair = Source.from(List(1, 2, 3)).cancellable()
+      pair._1.runToList()
+      """
+    )
+    assert(result == List(1L, 2L, 3L))

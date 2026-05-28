@@ -626,13 +626,16 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals.get("Source.from").foreach { fromFn =>
       interp.globals("Source") = Value.InstanceV("Source", Map(
         "from"          -> fromFn,
-        "single"        -> interp.globals.getOrElse("Source.single", Value.UnitV),
-        "empty"         -> interp.globals.getOrElse("Source.empty", Value.UnitV),
+        "single"        -> interp.globals.getOrElse("Source.single",        Value.UnitV),
+        "empty"         -> interp.globals.getOrElse("Source.empty",         Value.UnitV),
         "fromGenerator" -> interp.globals.getOrElse("Source.fromGenerator", Value.UnitV),
         "signal"        -> interp.globals.getOrElse("Source.signal",        Value.UnitV),
         "bracket"       -> interp.globals.getOrElse("Source.bracket",       Value.UnitV),
         "fromSse"       -> interp.globals.getOrElse("Source.fromSse",       Value.UnitV),
         "fromWebSocket" -> interp.globals.getOrElse("Source.fromWebSocket", Value.UnitV),
+        "tick"          -> interp.globals.getOrElse("Source.tick",          Value.UnitV),
+        "unfold"        -> interp.globals.getOrElse("Source.unfold",        Value.UnitV),
+        "fromCallback"  -> interp.globals.getOrElse("Source.fromCallback",  Value.UnitV),
       ))
     }
     interp.globals.get("OverflowStrategy.Backpressure").foreach { bp =>

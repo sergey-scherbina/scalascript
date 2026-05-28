@@ -558,6 +558,62 @@ object StreamsIntrinsics:
           makeSourceV(q2, ctx)
         case _ => throw InterpretError("Source.mapError(f)")
       }),
+
+      // ── v1.51.1 scan / onError / cancellable ─────────────────────────────
+
+      "scan" -> Value.NativeFnV("Source.scan", Computation.pureFn {
+        case List(z) => Value.NativeFnV("Source.scan$1", Computation.pureFn {
+          case List(f) => startChained { ownQ =>
+            var acc: Value = toValue(z)
+            var item = queue.take()
+            while item.isDefined do
+              acc = call(f, List(acc, item.get))
+              ownQ.put(Some(acc))
+              item = queue.take()
+          }
+          case _ => throw InterpretError("Source.scan(z)(f) — inner")
+        })
+        case _ => throw InterpretError("Source.scan(z)(f) — outer")
+      }),
+
+      "onError" -> Value.NativeFnV("Source.onError", Computation.pureFn {
+        case List(handler) =>
+          val q2 = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              var item = queue.take()
+              while item.isDefined do
+                q2.put(Some(item.get))
+                item = queue.take()
+            catch case e: Throwable =>
+              try
+                val msg = Option(e.getMessage).getOrElse(e.getClass.getName)
+                call(handler, List(Value.StringV(msg)))
+              catch case _ => ()
+            finally try q2.put(None) catch case _ => ()
+          }
+          makeSourceV(q2, ctx)
+        case _ => throw InterpretError("Source.onError(handler)")
+      }),
+
+      "cancellable" -> Value.NativeFnV("Source.cancellable", Computation.pureFn { _ =>
+        val cancelled = new java.util.concurrent.atomic.AtomicBoolean(false)
+        val q2 = newQ()
+        Thread.ofVirtual().start { () =>
+          try
+            var item = queue.take()
+            while item.isDefined && !cancelled.get() do
+              q2.put(Some(item.get))
+              item = if !cancelled.get() then queue.take() else None
+          catch case _: Throwable => ()
+          finally try q2.put(None) catch case _ => ()
+        }
+        val cancelFn = Value.NativeFnV("Source.cancel", Computation.pureFn { _ =>
+          cancelled.set(true)
+          Value.UnitV
+        })
+        Value.TupleV(List(makeSourceV(q2, ctx), cancelFn))
+      }),
     ))
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
@@ -968,5 +1024,68 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.filter(pred)")
+    ),
+
+    // ── v1.51.1 factory intrinsics ────────────────────────────────────────
+
+    QualifiedName("Source.tick") -> NativeImpl((ctx, args) =>
+      args match
+        case List(duration) =>
+          val ms = positiveMillis(toValue(duration), "tick")
+          val q = newQ()
+          Thread.ofVirtual().start { () =>
+            try
+              while true do
+                if ms > 0 then Thread.sleep(ms)
+                q.put(Some(Value.UnitV))
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case _ => throw InterpretError("Source.tick(durationMillis)")
+    ),
+
+    QualifiedName("Source.unfold") -> NativeImpl((ctx, args) =>
+      args match
+        case List(seed) =>
+          Value.NativeFnV("Source.unfold$1", Computation.pureFn {
+            case List(f) =>
+              val q = newQ()
+              Thread.ofVirtual().start { () =>
+                try
+                  var state: Value = toValue(seed)
+                  var running = true
+                  while running do
+                    val result = ctx.synchronized { ctx.invokeCallback(f, List(state)).asInstanceOf[Value] }
+                    result match
+                      case Value.OptionV(None) => running = false
+                      case Value.OptionV(Some(Value.TupleV(xs))) if xs.length == 2 =>
+                        q.put(Some(xs(1)))
+                        state = xs(0)
+                      case _ => running = false
+                catch case _: Throwable => ()
+                finally try q.put(None) catch case _ => ()
+              }
+              makeSourceV(q, ctx)
+            case _ => throw InterpretError("Source.unfold(seed)(f) — inner")
+          })
+        case _ => throw InterpretError("Source.unfold(seed)(f) — outer")
+    ),
+
+    QualifiedName("Source.fromCallback") -> NativeImpl((ctx, args) =>
+      args match
+        case List(register) =>
+          val q = newQ()
+          val cb = Value.NativeFnV("Source.fromCallback.cb", Computation.pureFn {
+            case List(v) => q.put(Some(toValue(v))); Value.UnitV
+            case _       => Value.UnitV
+          })
+          Thread.ofVirtual().start { () =>
+            try ctx.synchronized { ctx.invokeCallback(register, List(cb)) }
+            catch case _: Throwable => ()
+            finally try q.put(None) catch case _ => ()
+          }
+          makeSourceV(q, ctx)
+        case _ => throw InterpretError("Source.fromCallback(register)")
     ),
   )
