@@ -507,10 +507,16 @@ private[interpreter] object DispatchRuntime:
       case "abs"       => Computation.pureIntV(math.abs(n))
       case "toString"  => Pure(Value.StringV(n.toString))
       case "to"        => args match
-        case List(Value.IntV(m)) => Pure(Value.ListV((n to m).map(Value.intV(_)).toList))
+        case List(Value.IntV(m)) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n + 1).toInt))
+          var i = n; while i <= m do { buf += Value.intV(i); i += 1 }
+          Pure(Value.ListV(buf.toList))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "until"     => args match
-        case List(Value.IntV(m)) => Pure(Value.ListV((n until m).map(Value.intV(_)).toList))
+        case List(Value.IntV(m)) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n).toInt))
+          var i = n; while i < m do { buf += Value.intV(i); i += 1 }
+          Pure(Value.ListV(buf.toList))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
