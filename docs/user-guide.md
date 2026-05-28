@@ -3162,10 +3162,12 @@ client name, so JS/JVM typed-route client generation can call `path:` remote
 handlers through the existing HTTP client path. Trait-shaped `remoteStub[Api]`,
 async effect-row lowering, `remoteSources:`, `remoteBehaviors:`, and
 WebSocket/internal-wire transports are still planned. For split-process code
-that already knows the base server URL, `Remote.stub(baseUrl)` returns a
-lightweight path-based `RemoteStub`; use `stub.call[A, B](path, value)`,
-`stub.tryCall[A, B](path, value)`, or `stub.function[A, B](path)` to call the
-same HTTP JSON fallback routes without repeating the base URL.
+that already knows the base server URL, `remoteStub[Api](baseUrl)` or
+`Remote.stub[Api](baseUrl)` returns a lightweight path-based `RemoteStub`; use
+`stub.call[A, B](path, value)`, `stub.tryCall[A, B](path, value)`, or
+`stub.function[A, B](path)` to call the same HTTP JSON fallback routes without
+repeating the base URL. The `Api` type argument is accepted now as
+forward-compatible syntax; generated trait methods are still planned.
 
 See [`examples/remote-registry-rpc.ssc`](../examples/remote-registry-rpc.ssc).
 The parser rejects registry entries whose `function`, `source`, or `behavior`

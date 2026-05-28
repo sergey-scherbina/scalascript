@@ -159,7 +159,7 @@ class RemotePluginInterpreterTest extends AnyFunSuite:
         s"""|# Remote
             |
             |```scala
-            |val stub = remoteStub("http://127.0.0.1:$port/api/")
+            |val stub = remoteStub[Any]("http://127.0.0.1:$port/api/")
             |val direct = stub.call("/rpc/echo", "wire")
             |val viaFunction = stub.function("rpc/echo").call("fn")
             |```

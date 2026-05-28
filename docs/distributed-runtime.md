@@ -242,7 +242,10 @@ client named `RemoteRpc`. For example `users.get` at `/api/v1/users/:id`
 becomes a POST endpoint method `RemoteRpc.usersGet(...)` in JS/JVM typed-route
 client codegen. Interpreter users can call the same route explicitly with
 `Remote.http[A, B](url)` or create a lightweight path-based stub with
-`Remote.stub(baseUrl).call[A, B](path, value)`.
+`remoteStub[Api](baseUrl)` / `Remote.stub[Api](baseUrl)`. The `Api` type
+argument is accepted as forward-compatible surface syntax today; the returned
+runtime value is still the path-based `RemoteStub` facade until trait method
+derivation lands.
 
 `Future[A]` may become sugar for `() => A ! Async` or an interop wrapper, but
 new specs and APIs should use effect rows directly.
@@ -864,8 +867,10 @@ work queue links. No runtime changes.
   typed route client codegen, and explicit `Remote.http[A, B](url)` can call
   fallback routes. ✓ Landed 2026-05-28 follow-up: `Remote.stub(baseUrl)` /
   `RemoteStub` provide a path-based HTTP JSON fallback facade with `function`,
-  `call`, and `tryCall`. Trait-shaped `remoteStub[Api]` derivation remains
-  planned.
+  `call`, and `tryCall`. ✓ Landed 2026-05-29 follow-up: `remoteStub[Api]` and
+  `Remote.stub[Api]` accept a type argument as forward-compatible surface
+  syntax while returning the same `RemoteStub` facade. Trait method derivation
+  remains planned.
 - Support in-process, HTTP, and WebSocket/internal-wire transports. ✓ Landed
   2026-05-28 for in-process calls plus POST HTTP JSON fallback routes when a
   handler declares `path:` and explicit HTTP JSON client calls to those routes.

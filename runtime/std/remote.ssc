@@ -74,7 +74,7 @@ case class RemoteStub(baseUrl: String):
 
 extern def remoteFunction[A, B](name: String): RemoteFunction[A, B]
 extern def remoteHttpFunction[A, B](url: String): RemoteHttpFunction[A, B]
-extern def remoteStub(baseUrl: String): RemoteStub
+extern def remoteStub[Api](baseUrl: String): RemoteStub
 extern def remoteStubFunction[A, B](baseUrl: String, path: String): RemoteHttpFunction[A, B]
 extern def remoteCall[A, B](name: String, value: A): B
 extern def remoteTryCall[A, B](name: String, value: A): Either[RemoteCallError, B]
@@ -91,8 +91,8 @@ object Remote:
   def http[A, B](url: String): RemoteHttpFunction[A, B] =
     remoteHttpFunction[A, B](url)
 
-  def stub(baseUrl: String): RemoteStub =
-    remoteStub(baseUrl)
+  def stub[Api](baseUrl: String): RemoteStub =
+    remoteStub[Api](baseUrl)
 
   def handlers(): List[RemoteHandlerInfo] =
     remoteHandlers()

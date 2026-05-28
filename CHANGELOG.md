@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.63.4f remoteStub API type syntax
+
+- **v1.63.4f-remote-trait-stubs-wire** — `remoteStub[Api](baseUrl)` and `Remote.stub[Api](baseUrl)` now accept a forward-compatible API type argument while returning the path-based `RemoteStub` facade. This lets source code move toward the planned trait-shaped call site without requiring runtime type-argument reflection in the interpreter. Generated trait methods, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` remain tracked in `v1.63.4g`.
+
 ## 2026-05-29 — v1.63.4e RemoteStub HTTP facade
 
 - **v1.63.4e-remote-trait-stubs-wire** — Added `Remote.stub(baseUrl)` / `RemoteStub` as a lightweight path-based HTTP JSON fallback facade with `function`, `call`, and `tryCall`, all reusing the existing `Remote.http` transport and typed `RemoteCallError` mapping. Added interpreter plugin coverage with an embedded JDK HTTP server and updated docs. Trait-shaped compile-time `remoteStub[Api]`, async effect-row lowering, WebSocket/internal-wire, and binary `WireCodec[A]` remain tracked in `v1.63.4f`.
