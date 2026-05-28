@@ -1,7 +1,7 @@
 # ScalaScript — Optimization and Modularity Roadmap
 
 > Planning document. Items progress to MILESTONES.md when scheduled.
-> Last updated: 2026-05-21.
+> Last updated: 2026-05-28.
 
 ---
 
@@ -97,32 +97,102 @@ becomes a target.
 
 ## 3. Compiler optimizations
 
-### 3a. AST cache between watch cycles
+### 3a. Phase-timing instrumentation (`--Ystats`) ✓ Landed (2026-05-28)
 
-**Effort: ~3 days. Impact: watch/REPL latency.**
+**Status: complete.**
 
-`ssc watch` re-parses the entire file on every change.  The parser
-(scalameta) dominates startup time for large `.ssc` files.
+`CompileStats` accumulator wraps each build phase with a nanosecond
+wall-clock timer.  Activated by the global `--Ystats` flag; prints a
+table (ms + %) to stderr at the end of each build.
 
-Proposed: cache `(path, mtime, content-hash) → ParsedModule`.  On
-file change, check if only code-block N changed (AST diff at section
-granularity); if only one section changed, re-evaluate that section
-and its dependents instead of the full module.
+Phases instrumented in `incrementalBuildCommand` and `buildArtifactsInto`:
+`discover`, `parse`, `normalize`, `interface`, `write-scim`, `write-scir`,
+`jvm-codegen`, `js-codegen`.  `CompileStats` is zero-overhead when the
+flag is off.
 
-Works naturally with the section-based evaluation order already in
-the interpreter.
+Usage: `ssc --Ystats build --incremental runtime/std/`
 
-### 3b. Incremental type-checking
+This is the **prerequisite measurement layer** for all further compiler
+optimizations — run it before and after any change and attach the delta.
 
-**Effort: ~1 week. Impact: REPL and large files.**
+### 3b. JMH benchmark suite for compiler hot paths
 
-When only one code block changes, the typer should re-check only that
-block and its transitive dependents (functions it calls, values it
-uses).  The existing `Typer` already has an `errors` list and a strict
-mode; an incremental mode would reuse the existing typed environment
-for unchanged blocks.
+**Effort: ~2 days. Impact: measurement only (enables data-driven opt).**
 
-### 3c. JvmGen artifact caching at `ssc run-jvm` ✓ Landed (v1.35, 2026-05-21)
+Without microbenchmarks, optimizing the typer is guesswork.  Add a
+`langCoreBench` sbt subproject using `sbt-jmh`:
+
+- `ParserBench` — parse `runtime/std/actors.ssc` (25 KB) end-to-end.
+- `TyperBench` — typecheck the parsed module.
+- `UnifyBench` — unify pairs of deeply nested `SType` (stress
+  `SType.subst` and `Unifier.solve`); use `-prof gc` to measure
+  allocation rate.
+
+Baseline numbers establish the "before" for each optimization below.
+
+Key files: `build.sbt` (new project), `lang/core/src/main/scala/…`
+hot paths at `Types.scala:140–169` (subst/freeVars) and
+`Typer.scala:594` (inferType).
+
+### 3c. Typer allocation hot path
+
+**Effort: ~1 week. Impact: high for complex modules.**
+
+`SType.subst` and `SType.freeVars` (`Types.scala:140–169`) rebuild the
+entire type tree on every `Unifier.solve` step (`Types.scala:243–244`).
+
+Three concrete fixes in priority order:
+
+1. **Hash-cons primitive `SType.Named`** — intern `Named(name, Nil)` for
+   all arg-free types via a `concurrent.Map[String, Named]`.  The module-
+   level vals for `Int`, `Boolean`, etc. (`Types.scala:171–186`) are already
+   correct; extend the pattern.
+
+2. **`IntMap` for unifier substitution** — replace `Map[Int, SType]` with
+   `scala.collection.immutable.IntMap`; unboxes the `Int` key on every
+   lookup.  Drop-in replacement in `subst` + `Unifier.solve`.
+
+3. **`freeVars` accumulator** — replace per-node `Set.flatMap` with a
+   `mutable.BitSet` accumulator passed by reference.
+
+Structural fix (do after 1–3 are measured): switch to path-compressed
+union-find for type-var unification so substitutions are never applied
+eagerly.
+
+### 3d. Parser double-parse under `package:` (quick win)
+
+**Effort: ~1 day. Impact: any project that uses `package:` front-matter.**
+
+`Parser.wrapSectionInPackage` (`Parser.scala:74–110`) passes every fenced
+code block through scalameta twice when `package:` is set: once raw, once
+wrapped.  Restructure preprocessing so scalameta sees the wrapped form once.
+
+### 3e. `Scope.lookup` and `Typer.createPrelude` (quick wins)
+
+**Effort: ~1 day. Impact: typer hot path.**
+
+- `Scope.lookup` (`Types.scala:218–226`) recurses via `Option.orElse`;
+  replace with a `while` loop.
+- `Typer.createPrelude()` is rebuilt on every `Typer.typeCheck` call
+  (`Typer.scala:59`); cache as a `lazy val` shared across modules in one
+  build.
+
+### 3f. Parallel compilation
+
+**Effort: ~1 week. Impact: cold build time (multi-core machines).**
+
+The pipeline is single-threaded.  The module graph already has a
+topological sort — modules in the same rank are independent.
+
+1. Parallel file reads and parse (`Main.buildArtifactsInto`) — wrap in
+   `Future.traverse` over a bounded `ForkJoinPool`.  Guard `ParseCache`
+   with `ConcurrentHashMap`.
+
+2. Parallel typing of modules in the same topological rank
+   (`ModuleGraph`).  `Typer` instances are per-module; the only shared
+   state is the cross-module symbol table built by `Linker` after typing.
+
+### 3g. JvmGen artifact caching at `ssc run-jvm` ✓ Landed (v1.35, 2026-05-21)
 
 **Status: complete.** `ssc run-jvm` now writes a `.scjvm` artifact to
 `.ssc-artifacts/` after each compile and reads it on the next run when
@@ -225,11 +295,16 @@ standalone (without interface files) is straightforward.  Effort: ~1 day.
 |----------|------|-----|
 | ✓ | Project Loom (2a) | Done pre-v1.33 |
 | ✓ | Interpreter split (2c) | Done v1.33 |
-| ✓ | JvmGen artifact caching (3c) | Done v1.35 |
-| 1 | `ssc check` (6c) | 1 day, high CI value |
-| 2 | AST cache / watch latency (3a) | Biggest developer-experience win |
-| 3 | JS tree-shaking (4a) | Bundle size matters for browser |
-| 4 | Library modularity (5) | Enables embedding use cases |
-| 5 | v1.16 Restartable errors | Language feature, unblocked |
-| 6 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
-| 7 | Incremental type-checking (3b) | Depends on AST cache (3a) |
+| ✓ | JvmGen artifact caching (3g) | Done v1.35 |
+| ✓ | Phase-timing `--Ystats` (3a) | Done 2026-05-28 — measurement foundation |
+| 1 | JMH benchmark suite (3b) | 2 days; prerequisite for data-driven typer opt |
+| 2 | `ssc check` (6c) | 1 day, high CI value |
+| 3 | Typer allocation — hash-cons + IntMap (3c) | Expected largest compiler speedup; validate with 3b first |
+| 4 | Parser double-parse fix (3d) | 1 day quick win for `package:` projects |
+| 5 | `Scope.lookup` + prelude cache (3e) | 1 day, safe wins |
+| 6 | JS tree-shaking (4a) | Bundle size matters for browser |
+| 7 | Parallel compilation (3f) | Needs 3c done first (verify no shared state) |
+| 8 | Library modularity (5) | Enables embedding use cases |
+| 9 | v1.16 Restartable errors | Language feature, unblocked |
+| 10 | Numeric specialization (2b) | Benchmark-driven, do after profiling |
+| 11 | Incremental type-checking (3h) | Depends on typer allocation (3c) |
