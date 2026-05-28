@@ -182,19 +182,32 @@ private[interpreter] object DispatchRuntime:
       case "toSet"        => Pure(Value.ListV(ls.distinct))
       case "flatten"      => Pure(Value.ListV(ls.flatMap { case Value.ListV(inner) => inner; case v => List(v) }))
       case "sum"          =>
-        Pure(ls.foldLeft[Value](Value.intV(0)) {
-          case (Value.IntV(a),    Value.IntV(b))    => Value.intV(a + b)
-          case (Value.DoubleV(a), Value.DoubleV(b)) => Value.DoubleV(a + b)
-          case (Value.IntV(a),    Value.DoubleV(b)) => Value.DoubleV(a + b)
-          case (Value.DoubleV(a), Value.IntV(b))    => Value.DoubleV(a + b)
-          case (a, b) => interp.located(s"Cannot sum $a and $b")
-        })
+        // Direct accumulator: avoids N intermediate IntV/DoubleV allocations from foldLeft.
+        var intAcc   = 0L
+        var dblAcc   = 0.0
+        var isDouble = false
+        var sumErr: Computation = null
+        var sumRem = ls
+        while sumRem.nonEmpty && sumErr == null do
+          sumRem.head match
+            case Value.IntV(n)    => intAcc += n
+            case Value.DoubleV(d) => dblAcc += d; isDouble = true
+            case v                => sumErr = interp.located(s"Cannot sum $v")
+          sumRem = sumRem.tail
+        if sumErr != null then sumErr
+        else if isDouble then Pure(Value.doubleV(intAcc.toDouble + dblAcc))
+        else Computation.pureIntV(intAcc)
       case "min"          =>
         Pure(ls.minBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
       case "max"          =>
         Pure(ls.maxBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
       case "zipWithIndex" =>
-        Pure(Value.ListV(ls.zipWithIndex.map { case (a, i) => Value.TupleV(List(a, Value.intV(i.toLong))) }))
+        val ziBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var ziRem = ls; var ziIdx = 0
+        while ziRem.nonEmpty do
+          ziBuf += Value.TupleV(List(ziRem.head, Value.intV(ziIdx.toLong)))
+          ziRem = ziRem.tail; ziIdx += 1
+        Pure(Value.ListV(ziBuf.toList))
       case "indices"      =>
         Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
       case "contains"     => args match
@@ -251,7 +264,12 @@ private[interpreter] object DispatchRuntime:
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "zip"          => args match
         case List(Value.ListV(other)) =>
-          Pure(Value.ListV(ls.zip(other).map { case (a, b) => Value.TupleV(List(a, b)) }))
+          val zipBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
+          var zipAs = ls; var zipBs = other
+          while zipAs.nonEmpty && zipBs.nonEmpty do
+            zipBuf += Value.TupleV(List(zipAs.head, zipBs.head))
+            zipAs = zipAs.tail; zipBs = zipBs.tail
+          Pure(Value.ListV(zipBuf.toList))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "mkString"     => args match
         case Nil                      => Pure(Value.StringV(ls.map(Value.show).mkString))
@@ -276,29 +294,28 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"       => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
-            case Value.ListV(flags) =>
-              val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-              var items = ls; var fs = flags
-              while items.nonEmpty && fs.nonEmpty do
-                if fs.head == Value.True then buf += items.head
-                items = items.tail; fs = fs.tail
-              Value.ListV(buf.toList)
-            case other => other
-          }
+          // Direct loop: avoids intermediate ListV[BoolV] from mapSequence+map.
+          val filtBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def filterLoop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(filtBuf.toList))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.BoolV(true) => filtBuf += h; filterLoop(rest)
+                case _                 => filterLoop(rest)
+              }
+          filterLoop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filterNot"    => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
-            case Value.ListV(flags) =>
-              val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-              var items = ls; var fs = flags
-              while items.nonEmpty && fs.nonEmpty do
-                if fs.head != Value.True then buf += items.head
-                items = items.tail; fs = fs.tail
-              Value.ListV(buf.toList)
-            case other => other
-          }
+          val fnBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def filterNotLoop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(fnBuf.toList))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.BoolV(true) => filterNotLoop(rest)
+                case _                 => fnBuf += h; filterNotLoop(rest)
+              }
+          filterNotLoop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
         case List(f) =>
