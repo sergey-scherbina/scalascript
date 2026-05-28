@@ -671,53 +671,90 @@ private[interpreter] object DispatchRuntime:
         .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
 
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    val rhs = args.headOption.getOrElse(Value.UnitV)
-    (lhs, op, rhs) match
-      case (Value.InstanceV("AttrKey", fields), ":=", v) =>
-        val name = fields.get("name").map(Value.show).getOrElse("")
-        Pure(Value.InstanceV("Attr", Map(
-          "name"  -> Value.StringV(name),
-          "value" -> Value.StringV(Value.show(v))
-        )))
-      case (pid @ Value.InstanceV("Pid", _), "!", msg) =>
-        Perform("Actor", "send", List(pid, msg))
-      case (Value.IntV(a),    "+",  Value.IntV(b))    => Pure(Value.intV(a + b))
-      case (Value.IntV(a),    "-",  Value.IntV(b))    => Pure(Value.intV(a - b))
-      case (Value.IntV(a),    "*",  Value.IntV(b))    => Pure(Value.intV(a * b))
-      case (Value.IntV(a),    "/",  Value.IntV(b))    => Pure(Value.intV(a / b))
-      case (Value.IntV(a),    "%",  Value.IntV(b))    => Pure(Value.intV(a % b))
-      case (Value.DoubleV(a), "+",  Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-      case (Value.DoubleV(a), "-",  Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-      case (Value.DoubleV(a), "*",  Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-      case (Value.DoubleV(a), "/",  Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-      case (Value.IntV(a),    "+",  Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
-      case (Value.DoubleV(a), "+",  Value.IntV(b))    => Pure(Value.DoubleV(a + b))
-      case (Value.IntV(a),    "*",  Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
-      case (Value.DoubleV(a), "*",  Value.IntV(b))    => Pure(Value.DoubleV(a * b))
-      case (Value.IntV(a),    "-",  Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
-      case (Value.DoubleV(a), "-",  Value.IntV(b))    => Pure(Value.DoubleV(a - b))
-      case (Value.IntV(a),    "/",  Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
-      case (Value.DoubleV(a), "/",  Value.IntV(b))    => Pure(Value.DoubleV(a / b))
-      case (Value.StringV(a), "+",  b)                => Pure(Value.StringV(a + Value.show(b)))
-      case (Value.StringV(a), "*",  Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
-      case (a, "==",  b) => Pure(Value.boolV(a == b))
-      case (a, "!=",  b) => Pure(Value.boolV(a != b))
-      case (Value.IntV(a),    "<",  Value.IntV(b))    => Pure(Value.boolV(a < b))
-      case (Value.IntV(a),    ">",  Value.IntV(b))    => Pure(Value.boolV(a > b))
-      case (Value.IntV(a),    "<=", Value.IntV(b))    => Pure(Value.boolV(a <= b))
-      case (Value.IntV(a),    ">=", Value.IntV(b))    => Pure(Value.boolV(a >= b))
-      case (Value.DoubleV(a), "<",  Value.DoubleV(b)) => Pure(Value.boolV(a < b))
-      case (Value.DoubleV(a), ">",  Value.DoubleV(b)) => Pure(Value.boolV(a > b))
-      case (Value.DoubleV(a), "<=", Value.DoubleV(b)) => Pure(Value.boolV(a <= b))
-      case (Value.DoubleV(a), ">=", Value.DoubleV(b)) => Pure(Value.boolV(a >= b))
-      case (Value.BoolV(a),   "&&", Value.BoolV(b))   => Pure(Value.boolV(a && b))
-      case (Value.BoolV(a),   "||", Value.BoolV(b))   => Pure(Value.boolV(a || b))
-      case (v, "::",  Value.ListV(ls))                => Pure(Value.ListV(v :: ls))
-      case (Value.ListV(a), "++", Value.ListV(b))     => Pure(Value.ListV(a ++ b))
-      case (Value.ListV(a), ":::", Value.ListV(b))    => Pure(Value.ListV(a ++ b))
-      case (Value.ListV(ls), ":+", v)                 => Pure(Value.ListV(ls :+ v))
-      case (v, "+:",  Value.ListV(ls))                => Pure(Value.ListV(v +: ls))
-      case (k, "->", v)                               => Pure(Value.TupleV(List(k, v)))
+    val rhs = if args.nonEmpty then args.head else Value.UnitV
+    // Dispatch on op first — Scala 3 compiles this to a hashCode-based O(1) switch
+    // rather than the previous O(N) linear scan through 40 tuple-match cases.
+    op match
+      case "+" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a + b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a + b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a + b))
+        case (Value.StringV(a), b)                => Pure(Value.StringV(a + Value.show(b)))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "-" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a - b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a - b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a - b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "*" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a * b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a * b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a * b))
+        case (Value.StringV(a), Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "/" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.intV(a / b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
+        case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.DoubleV(a / b))
+        case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.DoubleV(a / b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "%" => (lhs, rhs) match
+        case (Value.IntV(a), Value.IntV(b)) => Pure(Value.intV(a % b))
+        case _                              => dispatch(lhs, op, args, env, interp)
+      case "==" => Pure(Value.boolV(lhs == rhs))
+      case "!=" => Pure(Value.boolV(lhs != rhs))
+      case "<" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a < b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a < b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case ">" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a > b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a > b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "<=" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a <= b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a <= b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case ">=" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.IntV(b))    => Pure(Value.boolV(a >= b))
+        case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.boolV(a >= b))
+        case _                                    => dispatch(lhs, op, args, env, interp)
+      case "&&" => (lhs, rhs) match
+        case (Value.BoolV(a), Value.BoolV(b)) => Pure(Value.boolV(a && b))
+        case _                                => dispatch(lhs, op, args, env, interp)
+      case "||" => (lhs, rhs) match
+        case (Value.BoolV(a), Value.BoolV(b)) => Pure(Value.boolV(a || b))
+        case _                                => dispatch(lhs, op, args, env, interp)
+      case "::" => rhs match
+        case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))
+        case _               => dispatch(lhs, op, args, env, interp)
+      case "++" => (lhs, rhs) match
+        case (Value.ListV(a), Value.ListV(b)) => Pure(Value.ListV(a ++ b))
+        case _                                => dispatch(lhs, op, args, env, interp)
+      case ":::" => (lhs, rhs) match
+        case (Value.ListV(a), Value.ListV(b)) => Pure(Value.ListV(a ++ b))
+        case _                                => dispatch(lhs, op, args, env, interp)
+      case ":+" => lhs match
+        case Value.ListV(ls) => Pure(Value.ListV(ls :+ rhs))
+        case _               => dispatch(lhs, op, args, env, interp)
+      case "+:" => rhs match
+        case Value.ListV(ls) => Pure(Value.ListV(lhs +: ls))
+        case _               => dispatch(lhs, op, args, env, interp)
+      case "->" => Pure(Value.TupleV(List(lhs, rhs)))
+      case "!" => lhs match
+        case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", List(pid, rhs))
+        case _                               => dispatch(lhs, op, args, env, interp)
+      case ":=" => lhs match
+        case Value.InstanceV("AttrKey", fields) =>
+          val name = fields.get("name").map(Value.show).getOrElse("")
+          Pure(Value.InstanceV("Attr", Map(
+            "name"  -> Value.StringV(name),
+            "value" -> Value.StringV(Value.show(rhs))
+          )))
+        case _ => dispatch(lhs, op, args, env, interp)
       case _ => dispatch(lhs, op, args, env, interp)
 
   private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Option[Computation] =
