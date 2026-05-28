@@ -67,23 +67,15 @@ object ModuleGraph:
       .toList
       .sorted
 
-    // Parse each file to extract its package and import edges.
-    val nodes: List[Node] = files.map { path =>
-      val src    = scala.util.Try(os.read(path)).getOrElse("")
-      val module = scala.util.Try(Parser.parse(src)).getOrElse(
-        scalascript.ast.Module(manifest = None, sections = Nil)
-      )
-      val pkg = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-      val importPaths = module.sections.flatMap { s =>
-        collectImports(s).flatMap { rawPath =>
-          if isLocalPath(rawPath) then
-            val resolved = path / os.up / os.RelPath(rawPath)
-            if os.exists(resolved) then List(resolved) else Nil
-          else Nil
-        }
-      }
-      Node(path, pkg, importPaths)
-    }
+    // Parse each file in parallel to extract package and import edges.
+    // Parser.parse is stateless and thread-safe; reads are independent.
+    val nodes: List[Node] =
+      if files.sizeIs <= 1 then files.map(buildNode)
+      else
+        val nCores = Runtime.getRuntime.availableProcessors().max(1)
+        val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(files.size))
+        try files.map(p => pool.submit[Node](() => buildNode(p))).map(_.get())
+        finally pool.shutdown()
 
     // Build an index: path → Node
     val byPath: Map[os.Path, Node] = nodes.map(n => n.path -> n).toMap
@@ -315,6 +307,22 @@ object ModuleGraph:
       case Right(art) =>
         val currentHash = InterfaceExtractor.sourceFileHash(os.read.bytes(srcPath))
         art.sourceHash != currentHash
+
+  private def buildNode(path: os.Path): Node =
+    val src    = scala.util.Try(os.read(path)).getOrElse("")
+    val module = scala.util.Try(Parser.parse(src)).getOrElse(
+      scalascript.ast.Module(manifest = None, sections = Nil)
+    )
+    val pkg = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+    val importPaths = module.sections.flatMap { s =>
+      collectImports(s).flatMap { rawPath =>
+        if isLocalPath(rawPath) then
+          val resolved = path / os.up / os.RelPath(rawPath)
+          if os.exists(resolved) then List(resolved) else Nil
+        else Nil
+      }
+    }
+    Node(path, pkg, importPaths)
 
   /** Collect raw import paths from a section recursively. */
   private def collectImports(s: scalascript.ast.Section): List[String] =
