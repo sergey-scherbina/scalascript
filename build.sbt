@@ -79,6 +79,21 @@ lazy val backendSpi = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// ── Wire protocol shared module (v1.62.1) ─────────────────────────────────
+// WireValue, WireEnvelope, WireCodec[A], JSON/MsgPack/CBOR profiles.
+// No dependency on backendSpi — usable from any module.
+lazy val wireCore = project
+  .in(file("backend/wire"))
+  .settings(
+    name := "scalascript-wire-core",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle"   % "4.4.2",    // JSON (ujson) + MsgPack (upack)
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // Self-contained logger SPI — no external dependencies.
 // Logger.scala is also packaged as a JAR resource so JvmGen can inline
 // it verbatim into generated scala-cli scripts, making the same
@@ -3069,7 +3084,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, logger, yaml, core, interop, testUtils, pluginHost,
+    backendSpi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,

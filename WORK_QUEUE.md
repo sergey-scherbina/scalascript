@@ -32,7 +32,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.0-distributed-wire-spec** — Spec and backlog for an opt-in internal distributed wire layer across actors, cluster control plane, Dataset/MapReduce, native DStream runner, typed route clients/RPC, WebSocket subscriptions, and object sync. Covers JSON fallback plus MsgPack and CBOR profiles, JS/browser support, same-version-only initial binary compatibility, negotiation, security, compression, resource limits, observability, and phases v1.62.1–v1.62.8. Spec: `docs/distributed-wire-protocol.md`. ✓ Landed 2026-05-28.
 
-- [ ] **v1.62.1-wire-core** — Shared wire runtime: add `WireValue`, `WireEnvelope`, `WireCodec[A]`, decode errors, resource limits, negotiation/config types, front-matter/CLI parsing for `wire:`, JSON/MsgPack/CBOR codec profiles on JVM/interpreter and JS/browser, and golden cross-format vectors. Spec: `docs/distributed-wire-protocol.md §Phase 1`.
+- [x] **v1.62.1-wire-core** — Shared wire runtime: add `WireValue`, `WireEnvelope`, `WireCodec[A]`, decode errors, resource limits, negotiation/config types, front-matter/CLI parsing for `wire:`, JSON/MsgPack/CBOR codec profiles on JVM/interpreter and JS/browser, and golden cross-format vectors. Spec: `docs/distributed-wire-protocol.md §Phase 1`. ✓ Landed 2026-05-28.
 
 - [ ] **v1.62.2-actors-binary-ws** — Actor cluster binary WebSocket: `ssc-actors-v2.<format>` subprotocols, binary WS frames for actor user messages and cluster control envelopes (registry, heartbeat, gossip, leader election, pub/sub, config, drain, metrics, phi vectors), preserving JSON `ssc-actors-v1` fallback. Spec: `docs/distributed-wire-protocol.md §Phase 2`.
 
