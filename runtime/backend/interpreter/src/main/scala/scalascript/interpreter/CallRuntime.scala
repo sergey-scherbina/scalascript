@@ -69,6 +69,14 @@ private[interpreter] object CallRuntime:
     case f: Value.NativeFnV => f.f(List(a, b))
     case _ => callValue(fn, List(a, b), env, interp)
 
+  /** Fast path for `fn(recv, args*)`: avoids allocating `recv :: args` list.
+   *  Dispatches to callValue1/callValue2 for the 0/1-arg cases; falls back otherwise. */
+  inline def callValuePrepend(fn: Value, recv: Value, args: List[Value], env: Env, interp: Interpreter): Computation =
+    args match
+      case Nil      => callValue1(fn, recv, env, interp)
+      case a :: Nil => callValue2(fn, recv, a, env, interp)
+      case _        => callValue(fn, recv :: args, env, interp)
+
   def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env, interp: Interpreter): Computation =
     fn match
       case f: Value.FunV =>

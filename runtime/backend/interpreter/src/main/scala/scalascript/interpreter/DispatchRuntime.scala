@@ -19,13 +19,13 @@ private[interpreter] object DispatchRuntime:
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
     if interp.extensions.nonEmpty then
       val userExt = recv match
-        case _: Value.OptionV => interp.extensions.get(("Option",  name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.ListV   => interp.extensions.get(("List",    name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.IntV    => interp.extensions.get(("Int",     name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.DoubleV => interp.extensions.get(("Double",  name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.StringV => interp.extensions.get(("String",  name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.BoolV   => interp.extensions.get(("Boolean", name)).map(interp.callValue(_, recv :: args, env))
-        case _: Value.MapV    => interp.extensions.get(("Map",     name)).map(interp.callValue(_, recv :: args, env))
+        case _: Value.OptionV => interp.extensions.get(("Option",  name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.ListV   => interp.extensions.get(("List",    name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.IntV    => interp.extensions.get(("Int",     name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.DoubleV => interp.extensions.get(("Double",  name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.StringV => interp.extensions.get(("String",  name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.BoolV   => interp.extensions.get(("Boolean", name)).map(interp.callValuePrepend(_, recv, args, env))
+        case _: Value.MapV    => interp.extensions.get(("Map",     name)).map(interp.callValuePrepend(_, recv, args, env))
         case _                => None
       if userExt.isDefined then return userExt.get
     recv match
@@ -653,14 +653,14 @@ private[interpreter] object DispatchRuntime:
     // Source.distributed bridge — dispatches to DStreams plugin when loaded (v1.63.1)
     if typeName == "Source" && name == "distributed" then
       interp.globals.get("Source.distributed") match
-        case Some(fn) => interp.callValue(fn, recv :: args, env)
+        case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
         case None     => interp.located("Source.distributed requires the DStreams plugin")
     // ReactiveSignal bridge (no hard-coding streams into core)
     else if typeName == "ReactiveSignal" && name == "bind" then
       args match
         case List(source) =>
           interp.globals.get("ReactiveSignal.bind") match
-            case Some(fn) => interp.callValue(fn, List(recv, source), env)
+            case Some(fn) => interp.callValue2(fn, recv, source, env)
             case None     => interp.located("No method 'bind' on ReactiveSignal")
         case _ => dispatchFallback(recv, name, args, env, interp)
     // Exception .getMessage alias
@@ -824,18 +824,18 @@ private[interpreter] object DispatchRuntime:
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
     interp.extensions.get((typeName, method)).map { fn =>
-      interp.callValue(fn, recv :: args, env)
+      interp.callValuePrepend(fn, recv, args, env)
     }.orElse {
       var parent: Option[String] = interp.parentTypes.get(typeName)
       var found: Option[Computation] = None
       while parent.isDefined && found.isEmpty do
-        found = interp.extensions.get((parent.get, method)).map(fn => interp.callValue(fn, recv :: args, env))
+        found = interp.extensions.get((parent.get, method)).map(fn => interp.callValuePrepend(fn, recv, args, env))
         parent = interp.parentTypes.get(parent.get)
       found
     }.orElse {
       interp.globals.values.collectFirst {
         case Value.InstanceV(name, fields)
           if name.endsWith(s"[$typeName]") && fields.contains(method) =>
-          interp.callValue(fields(method), recv :: args, env)
+          interp.callValuePrepend(fields(method), recv, args, env)
       }
     }

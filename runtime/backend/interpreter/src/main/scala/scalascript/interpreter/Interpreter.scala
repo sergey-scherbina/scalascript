@@ -1232,6 +1232,9 @@ class Interpreter(
   private[interpreter] def callValue2(fn: Value, a: Value, b: Value, env: Env): Computation =
     CallRuntime.callValue2(fn, a, b, env, this)
 
+  private[interpreter] inline def callValuePrepend(fn: Value, recv: Value, args: List[Value], env: Env): Computation =
+    CallRuntime.callValuePrepend(fn, recv, args, env, this)
+
   // ─── Call helpers — see CallRuntime.scala ────────────────────────────────
 
   private[interpreter] def callFun(f: Value.FunV, args: List[Value]): Computation =
