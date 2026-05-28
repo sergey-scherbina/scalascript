@@ -4,51 +4,61 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
-## Placement and Remoting (v1.63 planned)
+## Distributed Runtime (v1.63 planned)
 
-Spec: [`docs/placement-and-remoting.md`](docs/placement-and-remoting.md).
+Spec: [`docs/distributed-runtime.md`](docs/distributed-runtime.md).
 
 ScalaScript has local streams, distributed streams, local/cluster actors,
-typed route clients, Dataset workers, and object sync routes. v1.63 adds a
-shared placement vocabulary and deployment model so users can move between
-local, remote, and distributed views without hiding network semantics.
+typed route clients, Dataset workers, object sync routes, and deployment
+targets. v1.63 adds one canonical local/remote/distributed runtime model so
+users can move between local, remote, and distributed views without hiding
+network semantics or deployment constraints.
 
-- [x] **v1.63.0-placement-remoting-spec** - Spec and backlog.
-      Defines placement concepts, operation names such as `users.get`, code
-      identity, remote handler registries, code deployment modes, cluster
-      creation UX, stream adapters, actor placement, typed async function/RPC
-      adapters, failure semantics, architecture, and phases. Landed
-      2026-05-28.
-- [ ] **v1.63.1-placement-core-code-identity** - Placement core:
-      placement policy types, `RemoteError`, code identity hashing for `.ssc`
-      / `.sscc` artifacts, same-code checks, `cluster:` and `remoteHandlers:`
-      front-matter metadata, and diagnostics for missing handlers/codecs.
-- [ ] **v1.63.2-remote-handler-registry-rpc** - Remote handler registry and
-      function RPC: compile `remote def` / manifest handlers into a registry,
-      add `Remote.function[A, B](name)`, support in-process/HTTP/WS transports,
-      and expose timeout/cancel/retry/idempotency controls.
-- [ ] **v1.63.3-cluster-runner-worker-bundle** - Cluster runner UX:
-      `ssc cluster run/package/status/handlers`, worker bundle packaging,
-      seed-node join, role labels, advertised URLs, auth token wiring, and
-      deploy-target integration.
-- [ ] **v1.63.4-stream-placement-adapters** - Stream placement adapters:
-      `Source[A].remote`, `RemoteSource[A].local`, `Source[A].distributed`,
-      `RemoteSource[A].distributed`, `DStream[A].local`, WS remote stream
-      transport, SSE fallback constraints, and backpressure/overflow tests.
-- [ ] **v1.63.5-actor-placement-adapters** - Actor placement adapters:
-      named actor behaviors, `spawnRemote`, local proxy actors,
-      router/sharded actor groups, role checks, and code-identity checks.
-- [ ] **v1.63.6-distributed-function-helpers** - Distributed function helpers:
-      `f.distributed(policy)` for handler-backed functions, routing/partition
-      helpers for batch inputs, and Dataset/DStream runner placement policy
-      integration.
-- [ ] **v1.63.7-dynamic-code-shipping** - Dynamic code shipping:
-      signed worker bundles, remote artifact cache, dependency verification,
-      sandbox/resource policy, audit log, unload, and rollback semantics.
-- [ ] **v1.63.8-placement-ops-hardening** - Compatibility and operations:
-      mixed-version placement after wire/schema compatibility, metrics/tracing
-      for placement decisions, circuit breakers, load shedding, and production
-      deployment cookbook.
+- [x] **v1.63.0-distributed-runtime-spec** - Canonical spec and backlog.
+      Merges the older placement/remoting plan and local/distributed cluster
+      architecture into `docs/distributed-runtime.md`. Keeps operation names
+      such as `users.get`, code identity, registries, code deployment, and
+      worker bundles, while adopting `! Async`, `BasicStreamOps`, typed
+      `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy
+      phases. Landed 2026-05-28.
+- [ ] **v1.63.1-stream-bridge-basic-ops** - Stream bridge and shared safe
+      operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`,
+      `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`,
+      `_dag_sink_local`, and bounded/materialization tests.
+- [ ] **v1.63.2-typed-actors-remote-spawn** - Typed actors and remote spawn:
+      complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`,
+      `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for
+      `setClusterAuthToken`, and two-node actor tests.
+- [ ] **v1.63.3-cluster-capability-seed-code-identity** - Cluster capability,
+      seed discovery, and code identity: add `Cluster`, `SeedResolver`,
+      `.ssc` / `.sscc` code identity, `cluster:` and registry front matter,
+      `cluster Demo:` lowering, and diagnostics for missing handlers/codecs
+      and code mismatch.
+- [ ] **v1.63.4-remote-registries-async-rpc** - Remote registries and async
+      RPC: compile `@remote` / `remote def` / manifest handlers into
+      `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning
+      `B ! Async | RemoteCallError`, add `remoteStub[Api]`, and support
+      in-process/HTTP/WS transports with JSON fallback and future `WireCodec`.
+- [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
+      bundles: `ssc cluster run/package/status/handlers/stop`, worker bundle
+      packaging with code identity and registry metadata, roles, advertised
+      URLs, auth-token wiring, deploy-target integration, and two-local-process
+      smoke tests.
+- [ ] **v1.63.6-stream-actor-placement-adapters** - Stream and actor placement
+      adapters: `Source[A].remote`, `RemoteSource[A].local`,
+      `RemoteSource[A].distributed`, `DStream[A].remote`, WebSocket remote
+      streams with JSON fallback, SSE constraints, local proxy actors, and
+      router/sharded/role actor groups.
+- [ ] **v1.63.7-cluster-aware-deploy-ops** - Cluster-aware deployment and
+      operations: `ClusterTarget`, K8s StatefulSet/headless Service/token
+      Secret, rolling cluster upgrade, token rotation, persistent cluster
+      state through `StateBackend`, K8s HPA/autoscale emission, and Docker
+      Compose target.
+- [ ] **v1.63.8-dynamic-code-ops-hardening** - Dynamic code shipping and ops
+      hardening: signed worker bundles, remote artifact cache, dependency
+      verification, sandbox/resource policy, audit log, unload/rollback,
+      mixed-version placement after wire/schema compatibility, metrics/tracing,
+      circuit breakers, load shedding, and production cookbook.
 
 ## Distributed Wire Protocol (v1.62 planned)
 

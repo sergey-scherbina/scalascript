@@ -1,14 +1,14 @@
 # Cluster Operations
 
-Status: planned. Companion to [`docs/placement-and-remoting.md`](placement-and-remoting.md),
-which defines the API surface for local↔remote↔distributed execution. This document
+Status: planned. Companion to [`docs/distributed-runtime.md`](distributed-runtime.md),
+which defines the API surface for local/remote/distributed execution. This document
 covers the operational concerns of running a ScalaScript cluster in production:
 auth-token rotation, persistent cluster state, rolling upgrades, multi-AZ/multi-region
 deployment, and autoscaling.
 
 Cross-references:
 
-- [`docs/placement-and-remoting.md`](placement-and-remoting.md) — placement API, handler
+- [`docs/distributed-runtime.md`](distributed-runtime.md) — placement API, handler
   registry, code identity, cluster front matter.
 - [`docs/actors-dist.md`](actors-dist.md) — Pid model, gossip, phi-accrual, leader election.
 - [`docs/cluster-management.md`](cluster-management.md) — `startNode`, `joinCluster`, drain
@@ -86,7 +86,7 @@ Wire cluster-wide configuration to the existing `StateBackend` SPI
 (`runtime/std/deploy-plugin/.../StateBackend.scala`):
 
 ```scala
-// User-visible API (placement-and-remoting.md §Cluster front matter drives these).
+// User-visible API (distributed-runtime.md §Cluster Lifecycle drives these).
 extern def clusterConfigSet(key: String, value: String): Unit   // persists when backend != Noop
 extern def clusterConfigGet(key: String): Option[String]        // reads backend-first, then gossip
 ```
@@ -216,7 +216,7 @@ outputs:
 ```
 
 This keeps the deploy plugin target-agnostic for external traffic routing, consistent
-with the non-goal in `placement-and-remoting.md`: "Do not make cluster deployment
+with the non-goal in `distributed-runtime.md`: "Do not make cluster deployment
 depend on Kubernetes."
 
 ### Open questions

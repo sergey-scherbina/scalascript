@@ -8,8 +8,8 @@ JSON-over-WebSocket behavior remains the default until the binary path is
 covered by conformance tests across JVM, interpreter, JS/browser, and Electron
 clients.
 
-Companion document: [`docs/placement-and-remoting.md`](placement-and-remoting.md)
-defines how this wire layer is used by local/remote/distributed placement
+Companion document: [`docs/distributed-runtime.md`](distributed-runtime.md)
+defines how this wire layer is used by local/remote/distributed runtime
 adapters and by cluster code deployment.
 
 ## Goals

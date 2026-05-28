@@ -8,25 +8,25 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
-## Placement and Remoting — v1.63
+## Distributed Runtime — v1.63
 
-- [x] **v1.63.0-placement-remoting-spec** — Spec and backlog for unified placement/remoting across local streams, remote streams, distributed streams, actors, typed async functions/RPC, Dataset workers, and cluster deployment. Covers `local` / `remote` / `distributed` vocabulary, operation names like `users.get`, code identity, handler registry, pre-deployed app MVP, worker bundles, cluster CLI/front matter, failure semantics, and phases v1.63.1-v1.63.8. Spec: `docs/placement-and-remoting.md`. ✓ Landed 2026-05-28.
+- [x] **v1.63.0-distributed-runtime-spec** — Canonical spec and backlog for local/remote/distributed runtime support. Merges `docs/placement-and-remoting.md` and `docs/arch-local-distributed-cluster.md` into `docs/distributed-runtime.md`; keeps operation names like `users.get`, code identity, handler/source/behavior registries, worker bundles, cluster CLI/front matter, and dynamic-code roadmap, while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy phases. ✓ Landed 2026-05-28.
 
-- [ ] **v1.63.1-placement-core-code-identity** — Placement core and code identity: add placement policy types, `RemoteError`, code identity hashes for `.ssc`/`.sscc`, same-code checks, `cluster:` + `remoteHandlers:` front-matter metadata, and diagnostics for missing handlers/codecs/code mismatch. Spec: `docs/placement-and-remoting.md §Phase 1`.
+- [ ] **v1.63.1-stream-bridge-basic-ops** — Stream bridge and shared safe operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`, `_dag_sink_local`, and bounded/materialization tests. Spec: `docs/distributed-runtime.md §v1.63.1`.
 
-- [ ] **v1.63.2-remote-handler-registry-rpc** — Remote handler registry and typed function RPC: compile `remote def` / manifest handlers into a registry, add `Remote.function[A, B](name)`, support in-process/HTTP/WS transports, and add timeout/cancel/retry/idempotency controls. Spec: `docs/placement-and-remoting.md §Phase 2`.
+- [ ] **v1.63.2-typed-actors-remote-spawn** — Typed actors and remote spawn: complete `ActorRef[M]`, add `spawnRemote`, `BehaviorRegistry`, `cluster_spawn` / `cluster_spawn_ack`, JVM lowering for `setClusterAuthToken`, and two-node actor tests. Spec: `docs/distributed-runtime.md §v1.63.2`.
 
-- [ ] **v1.63.3-cluster-runner-worker-bundle** — Cluster runner and worker bundles: `ssc cluster run/package/status/handlers`, worker bundle packaging with code identity, seed-node join, role labels, advertised URLs, auth token wiring, and deploy-target integration. Spec: `docs/placement-and-remoting.md §Phase 3`.
+- [ ] **v1.63.3-cluster-capability-seed-code-identity** — Cluster capability, seed discovery, and code identity: add `Cluster`, `SeedResolver`, `.ssc` / `.sscc` code identity, `cluster:` and registry front matter, `cluster Demo:` lowering, and diagnostics for missing handlers/codecs and code mismatch. Spec: `docs/distributed-runtime.md §v1.63.3`.
 
-- [ ] **v1.63.4-stream-placement-adapters** — Stream placement adapters: `Source[A].remote`, `RemoteSource[A].local`, `Source[A].distributed`, `RemoteSource[A].distributed`, `DStream[A].local`, WS remote stream transport, SSE fallback constraints, and backpressure/overflow tests. Spec: `docs/placement-and-remoting.md §Phase 4`.
+- [ ] **v1.63.4-remote-registries-async-rpc** — Remote registries and async RPC: compile `@remote` / `remote def` / manifest handlers into `RemoteHandlerRegistry`, add `Remote.function[A, B](name)` returning `B ! Async | RemoteCallError`, add `remoteStub[Api]`, and support in-process/HTTP/WS transports with JSON fallback and future `WireCodec`. Spec: `docs/distributed-runtime.md §v1.63.4`.
 
-- [ ] **v1.63.5-actor-placement-adapters** — Actor placement adapters: named actor behaviors, `spawnRemote`, local proxy actors, router/sharded actor groups, role compatibility, and code-identity checks. Spec: `docs/placement-and-remoting.md §Phase 5`.
+- [ ] **v1.63.5-cluster-runner-worker-bundles** — Cluster runner and worker bundles: `ssc cluster run/package/status/handlers/stop`, worker bundle packaging with code identity and registry metadata, roles, advertised URLs, auth-token wiring, deploy-target integration, and two-local-process smoke tests. Spec: `docs/distributed-runtime.md §v1.63.5`.
 
-- [ ] **v1.63.6-distributed-function-helpers** — Distributed function helpers: `f.distributed(policy)` for handler-backed functions, routing/partition helpers for batch inputs, and Dataset/DStream runner placement integration. Spec: `docs/placement-and-remoting.md §Phase 6`.
+- [ ] **v1.63.6-stream-actor-placement-adapters** — Stream and actor placement adapters: `Source[A].remote`, `RemoteSource[A].local`, `RemoteSource[A].distributed`, `DStream[A].remote`, WebSocket remote streams with JSON fallback, SSE constraints, local proxy actors, and router/sharded/role actor groups. Spec: `docs/distributed-runtime.md §v1.63.6`.
 
-- [ ] **v1.63.7-dynamic-code-shipping** — Dynamic code shipping: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload, and rollback semantics. Spec: `docs/placement-and-remoting.md §Phase 7`.
+- [ ] **v1.63.7-cluster-aware-deploy-ops** — Cluster-aware deployment and operations: `ClusterTarget`, K8s StatefulSet/headless Service/token Secret, rolling cluster upgrade, token rotation, persistent cluster state through `StateBackend`, K8s HPA/autoscale emission, and Docker Compose target. Spec: `docs/distributed-runtime.md §v1.63.7`.
 
-- [ ] **v1.63.8-placement-ops-hardening** — Placement compatibility and operations: mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production deployment cookbook. Spec: `docs/placement-and-remoting.md §Phase 8`.
+- [ ] **v1.63.8-dynamic-code-ops-hardening** — Dynamic code shipping and ops hardening: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload/rollback, mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production cookbook. Spec: `docs/distributed-runtime.md §v1.63.8`.
 
 ## Distributed Wire Protocol — v1.62
 

@@ -8,9 +8,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **v1.61.0-bench** — Performance measurement framework for v1.61 optimization pass. 8-workload corpus in `bench/corpus/` covering interpreter hot paths (arith-loop, recursion-fib, recursion-tco, pattern-match-heavy, effect-pure, effect-stream, tuple-monoid, hello-world). `bench/run.sc` scala-cli timing harness (median of 7 runs, 2 warmup; invokes `ssc` CLI; `--baseline` flag writes `bench/BASELINE.md`). `runtime/backend/interpreter-bench` sbt submodule with `sbt-jmh` for microbenchmarks (`InterpreterBench.scala`: 6 JMH benchmarks covering all hot-path workloads). `scripts/bundle-size.sh` for tracking JS+JVM generated bundle sizes (gzip-aware; appends date-stamped rows to `bench/BUNDLE_SIZES.md`). `bench/BASELINE.md` placeholder with capture instructions. `bench/BUNDLE_SIZES.md` log. `WORK_QUEUE.md` / `BACKLOG.md` updated with v1.61.0–7 roadmap.
 
-## 2026-05-28 — Placement and remoting spec
+## 2026-05-28 — Distributed runtime spec
 
-- **v1.63.0-placement-remoting-spec** — New `docs/placement-and-remoting.md` planning a unified placement/remoting model across local streams, remote streams, distributed streams, actors, typed async functions/RPC, Dataset workers, and cluster deployment. Defines operation names such as `users.get`, code identity, remote handler registries, pre-deployed same-app MVP, worker bundles, `ssc cluster` UX, stream adapters, actor remote spawn/proxies/groups, function RPC adapters, failure semantics, and backlog phases v1.63.1-v1.63.8.
+- **v1.63.0-distributed-runtime-spec** — New canonical `docs/distributed-runtime.md` merges the placement/remoting plan with the local/distributed cluster lifecycle architecture. Keeps operation names such as `users.get`, code identity, handler/source/behavior registries, worker bundles, `ssc cluster` UX, remote streams, actor remote spawn/proxies/groups, dynamic-code-shipping roadmap, and cluster operations (token rotation, persistent state, rolling upgrades, multi-region, autoscaling), while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, cluster-aware deployment, and backlog phases v1.63.1-v1.63.8. The older specs now redirect to the canonical document.
 
 ## 2026-05-28 — Distributed wire protocol spec
 

@@ -20,7 +20,7 @@
 - graph-storage-fullstack — Phase 6: graph query REST routes + client-side cache example
 
 ### Recently completed
-- v1.63.0-placement-remoting-spec — placement/remoting spec for streams, actors, typed async functions/RPC, cluster deployment, and code identity ✓ (2026-05-28)
+- v1.63.0-distributed-runtime-spec — canonical distributed runtime spec merging placement/remoting with local/distributed cluster lifecycle and deployment ✓ (2026-05-28)
 - v1.62.0-distributed-wire-spec — opt-in JSON/MsgPack/CBOR internal distributed wire protocol spec + backlog ✓ (2026-05-28)
 - v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE, 44 tests ✓ (2026-05-27)
 - graph-storage-fullstack — Phase 6 full-stack examples ✓ (2026-05-27)
@@ -86,7 +86,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 | **Payments & Blockchain** | v1.57-payment-rails-apac | `docs/international-bank-rails.md` (new v1.57 spec) |
 | **Native Platform** | _(queue empty)_ | — |
 | **Distribution & Tooling** | v1.57-fx-provider | `docs/traditional-payments.md §FxProvider` |
-| **Runtime & Distributed Placement** | v1.63.1-placement-core-code-identity | `docs/placement-and-remoting.md §Phase 1` |
+| **Runtime & Distributed Placement** | v1.63.1-stream-bridge-basic-ops | `docs/distributed-runtime.md §v1.63.1` |
 | **Runtime & Distributed** | v1.62.1-wire-core | `docs/distributed-wire-protocol.md §Phase 1` |
 
 Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
