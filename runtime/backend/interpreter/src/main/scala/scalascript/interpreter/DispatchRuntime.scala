@@ -356,9 +356,9 @@ private[interpreter] object DispatchRuntime:
         case Some(v) => interp.callValue1(arg, v, env).flatMap(Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).map {
-          case Value.BoolV(true) => recv
-          case _                 => Value.NoneV
+        case Some(v) => interp.callValue1(arg, v, env).flatMap {
+          case Value.BoolV(true) => Pure(recv)
+          case _                 => Computation.PureNone
         }
       case "foreach"   => opt match
         case None    => Computation.PureUnit
@@ -508,9 +508,9 @@ private[interpreter] object DispatchRuntime:
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "map"         => args match
         case List(f) =>
-          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).map {
-            case Value.ListV(items) => Value.StringV(items.iterator.map(Value.show).mkString)
-            case _                  => Value.StringV(s)
+          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).flatMap {
+            case Value.ListV(items) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
+            case _                  => Pure(Value.StringV(s))
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "takeWhile"   => args match
@@ -855,7 +855,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           if ls.isEmpty then interp.located("maxBy on empty list")
           else
-            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
+            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
               case Value.ListV(keys) =>
                 var bestVal  = ls.head
                 var bestKey  = Value.show(keys.head)
@@ -864,15 +864,15 @@ private[interpreter] object DispatchRuntime:
                   val k = Value.show(kRem.head)
                   if k > bestKey then { bestVal = lRem.head; bestKey = k }
                   lRem = lRem.tail; kRem = kRem.tail
-                bestVal
-              case _ => ls.head
+                Pure(bestVal)
+              case _ => Pure(ls.head)
             }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "minBy"        => args match
         case List(f) =>
           if ls.isEmpty then interp.located("minBy on empty list")
           else
-            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
+            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
               case Value.ListV(keys) =>
                 var bestVal  = ls.head
                 var bestKey  = Value.show(keys.head)
@@ -881,8 +881,8 @@ private[interpreter] object DispatchRuntime:
                   val k = Value.show(kRem.head)
                   if k < bestKey then { bestVal = lRem.head; bestKey = k }
                   lRem = lRem.tail; kRem = kRem.tail
-                bestVal
-              case _ => ls.head
+                Pure(bestVal)
+              case _ => Pure(ls.head)
             }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "product"      =>
@@ -1176,7 +1176,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "sortBy"       => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
+          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
             case Value.ListV(keys) =>
               val n = ls.length
               // Fast path: all keys are Int — sort numerically, not lexicographically.
@@ -1193,7 +1193,7 @@ private[interpreter] object DispatchRuntime:
                 java.util.Arrays.sort(arr2, java.util.Comparator.comparingLong[(Value, Long)](_._2))
                 var result2: List[Value] = Nil; i = n - 1
                 while i >= 0 do result2 = arr2(i)._1 :: result2; i -= 1
-                Value.ListV(result2)
+                Pure(Value.ListV(result2))
               else
                 // Build (value, strKey) array in one pass — avoids zip + map double-list.
                 val arr = new Array[(Value, String)](n)
@@ -1204,8 +1204,8 @@ private[interpreter] object DispatchRuntime:
                 java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
                 var result: List[Value] = Nil; i = n - 1
                 while i >= 0 do result = arr(i)._1 :: result; i -= 1
-                Value.ListV(result)
-            case _ => recv
+                Pure(Value.ListV(result))
+            case _ => Pure(recv)
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foldLeft"     => args match
@@ -1594,9 +1594,9 @@ private[interpreter] object DispatchRuntime:
       case "filter"    => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).map {
-            case Value.BoolV(true) => recv
-            case _                 => Value.NoneV
+          case Some(v) => interp.callValue1(f, v, env).flatMap {
+            case Value.BoolV(true) => Pure(recv)
+            case _                 => Computation.PureNone
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
