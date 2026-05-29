@@ -56,7 +56,7 @@ private[interpreter] object EffectsRuntime:
             else
               val argEnv = matchEnv.asInstanceOf[Env]
               val finalEnv = resumePat match
-                case Some(pv: Pat.Var) => argEnv + (pv.name.value -> resume)
+                case Some(pv: Pat.Var) => FrameMap.one(pv.name.value, resume, argEnv)
                 case _                 => argEnv
               val guardOk = c.cond.forall { g =>
                 Computation.run(interp.eval(g, finalEnv)) match

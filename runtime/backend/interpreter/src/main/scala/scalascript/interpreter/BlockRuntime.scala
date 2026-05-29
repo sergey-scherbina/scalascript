@@ -209,11 +209,11 @@ private[interpreter] object BlockRuntime:
         interp.eval(last, cur)
 
       case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
-        FlatMap(interp.eval(rhs, cur), { v => step(rest, cur + (x -> v)) })
+        FlatMap(interp.eval(rhs, cur), { v => step(rest, FrameMap.one(x, v, cur)) })
 
       case Term.Assign(Term.Name(x), rhs) :: rest =>
         FlatMap(interp.eval(rhs, cur), { monadValue =>
-          liftBindValue(monadValue, tag, innerVal => step(rest, cur + (x -> innerVal)), cur, interp)
+          liftBindValue(monadValue, tag, innerVal => step(rest, FrameMap.one(x, innerVal, cur)), cur, interp)
         })
 
       case Defn.Val(_, List(_: Pat.Wildcard), _, rhs) :: rest =>
@@ -224,7 +224,7 @@ private[interpreter] object BlockRuntime:
       case Defn.Val(_, pats, _, rhs) :: rest =>
         FlatMap(interp.eval(rhs, cur), { v =>
           pats match
-            case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
+            case List(Pat.Var(n)) => step(rest, FrameMap.one(n.value, v, cur))
             case List(pat) =>
               val patEnv = PatternRuntime.matchPat(pat, v, cur, interp)
               if patEnv == null then interp.located("direct block: val pattern match failed")
@@ -233,7 +233,7 @@ private[interpreter] object BlockRuntime:
         })
 
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
-        FlatMap(interp.eval(rhs, cur), { v => step(rest, cur + (n.value -> v)) })
+        FlatMap(interp.eval(rhs, cur), { v => step(rest, FrameMap.one(n.value, v, cur)) })
 
       case (t: Term.Throw) :: _ =>
         interp.eval(t.expr, cur).flatMap { v =>
@@ -278,7 +278,7 @@ private[interpreter] object BlockRuntime:
             cur.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
         val rThrows2 = d.decltpe.exists(interp.isThrowsType)
         val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
-        step(rest, cur + (d.name.value -> fn))
+        step(rest, FrameMap.one(d.name.value, fn, cur))
 
       case _ :: rest =>
         step(rest, cur)
