@@ -1025,8 +1025,8 @@ private[interpreter] object DispatchRuntime:
                   if !it.hasNext then Computation.PureUnit
                   else
                     val (k2, v2) = it.next()
-                    interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap(_ => restLoop())
-                return c.flatMap(_ => restLoop())
+                    FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), _ => restLoop())
+                return FlatMap(c, _ => restLoop())
           Computation.PureUnit
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "mapValues" => args match
@@ -1042,8 +1042,8 @@ private[interpreter] object DispatchRuntime:
                   if !it.hasNext then Pure(Value.MapV(buf.toMap))
                   else
                     val (k2, v2) = it.next()
-                    interp.callValue1(f, v2, env).flatMap { nv2 => buf += (k2 -> nv2); restLoop() }
-                return c.flatMap { nv => buf += (k -> nv); restLoop() }
+                    FlatMap(interp.callValue1(f, v2, env), { nv2 => buf += (k2 -> nv2); restLoop() })
+                return FlatMap(c, { nv => buf += (k -> nv); restLoop() })
           Pure(Value.MapV(buf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foldLeft"  => args match

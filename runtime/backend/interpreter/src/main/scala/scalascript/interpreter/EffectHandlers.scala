@@ -481,42 +481,48 @@ private[interpreter] object EffectHandlers:
     def finish(bodyResult: Value): Computation =
       Pure(Value.TupleV(List(makeSource(), bodyResult)))
 
-    def loop(current: Computation): Computation =
-      if terminated || errorMsg.isDefined then return finish(Value.UnitV)
-      current match
-        case Pure(v) => finish(v)
-        case Perform("Stream", "emit", args) =>
-          buf += args.headOption.getOrElse(Value.UnitV)
-          loop(Computation.PureUnit)
-        case Perform("Stream", "complete", _) =>
-          terminated = true
-          finish(Value.UnitV)
-        case Perform("Stream", "error", args) =>
-          errorMsg = Some(args.headOption match
-            case Some(Value.StringV(m)) => m
-            case Some(v)                => v.toString
-            case None                   => "Stream error")
-          finish(Value.UnitV)
-        case Perform("Stream", "request", _) =>
-          loop(Computation.PureUnit)  // advisory no-op in v1.51.6
-        case Perform(_, _, _) => current
-        case FlatMap(sub, f) => sub match
-          case Pure(v)                          => loop(f(v))
-          case FlatMap(s2, g)                   => loop(FlatMap(s2, x => FlatMap(g(x), f)))
-          case Perform("Stream", "emit", args)  =>
+    def go(c0: Computation): Computation =
+      var cur  = c0
+      var done = false
+      var result: Computation = Computation.PureUnit
+      while !done do
+        if terminated || errorMsg.isDefined then
+          result = finish(Value.UnitV); done = true
+        else cur match
+          case Pure(v) =>
+            result = finish(v); done = true
+          case Perform("Stream", "emit", args) =>
             buf += args.headOption.getOrElse(Value.UnitV)
-            loop(f(Value.UnitV))
+            cur = Computation.PureUnit
           case Perform("Stream", "complete", _) =>
-            terminated = true
-            finish(Value.UnitV)
+            terminated = true; result = finish(Value.UnitV); done = true
           case Perform("Stream", "error", args) =>
             errorMsg = Some(args.headOption match
               case Some(Value.StringV(m)) => m
               case Some(v)                => v.toString
               case None                   => "Stream error")
-            finish(Value.UnitV)
-          case Perform("Stream", "request", _)  =>
-            loop(f(Value.UnitV))
-          case Perform(_, _, _)                 =>
-            FlatMap(sub, v => loop(f(v)))
-    loop(initial)
+            result = finish(Value.UnitV); done = true
+          case Perform("Stream", "request", _) =>
+            cur = Computation.PureUnit  // advisory no-op in v1.51.6
+          case Perform(_, _, _) =>
+            result = cur; done = true
+          case FlatMap(sub, f) => sub match
+            case Pure(v)                          => cur = f(v)
+            case FlatMap(s2, g)                   => cur = FlatMap(s2, x => FlatMap(g(x), f))
+            case Perform("Stream", "emit", args)  =>
+              buf += args.headOption.getOrElse(Value.UnitV)
+              cur = f(Value.UnitV)
+            case Perform("Stream", "complete", _) =>
+              terminated = true; result = finish(Value.UnitV); done = true
+            case Perform("Stream", "error", args) =>
+              errorMsg = Some(args.headOption match
+                case Some(Value.StringV(m)) => m
+                case Some(v)                => v.toString
+                case None                   => "Stream error")
+              result = finish(Value.UnitV); done = true
+            case Perform("Stream", "request", _)  =>
+              cur = f(Value.UnitV)
+            case Perform(_, _, _)                 =>
+              result = FlatMap(sub, v => go(f(v))); done = true
+      result
+    go(initial)
