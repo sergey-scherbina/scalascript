@@ -153,6 +153,52 @@ private[interpreter] object DispatchRuntime:
             else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap(_ => loop(i + 1))
           loop(0)
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case "filter"      => args match
+        case List(f) =>
+          val sb = new java.lang.StringBuilder(s.length)
+          def loop(i: Int): Computation =
+            if i >= s.length then Pure(if sb.length == s.length then recv else Value.StringV(sb.toString))
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
+              case Value.BoolV(true) => sb.append(s.charAt(i)); loop(i + 1)
+              case _                 => loop(i + 1)
+            }
+          loop(0)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "count"       => args match
+        case List(f) =>
+          def loop(i: Int, acc: Long): Computation =
+            if i >= s.length then Computation.pureIntV(acc)
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
+              case Value.BoolV(true) => loop(i + 1, acc + 1L)
+              case _                 => loop(i + 1, acc)
+            }
+          loop(0, 0L)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "exists"      => args match
+        case List(f) =>
+          def loop(i: Int): Computation =
+            if i >= s.length then Computation.PureFalse
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
+              case Value.BoolV(true) => Computation.PureTrue
+              case _                 => loop(i + 1)
+            }
+          loop(0)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "forall"      => args match
+        case List(f) =>
+          def loop(i: Int): Computation =
+            if i >= s.length then Computation.PureTrue
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap {
+              case Value.BoolV(false) => Computation.PureFalse
+              case _                  => loop(i + 1)
+            }
+          loop(0)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "toList"      =>
+        val buf = new scala.collection.mutable.ArrayBuffer[Value](s.length)
+        var i = 0
+        while i < s.length do { buf += Value.CharV(s.charAt(i)); i += 1 }
+        Pure(Value.ListV(buf.toList))
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Char ────────────────────────────────────────────────────────────────────
