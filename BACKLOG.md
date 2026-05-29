@@ -332,16 +332,19 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme A — Stable Plugin SPI
 
-- [ ] **arch-stable-spi-p1** — `scalascript-plugin-api` module:
+- [x] **arch-stable-spi-p1** — `scalascript-plugin-api` module:
   new `runtime/scalascript-plugin-api/` sbt subproject; `PluginValue`,
   `PluginError`, `PluginComputation` opaque aliases; `JsonCodec`; `PluginContext`
   as full capability re-export; all existing plugins add dep (no code changes yet).
-  Spec: `docs/arch-stable-spi.md §5 Phase 1`.
+  Spec: `docs/arch-stable-spi.md §5 Phase 1`. ✓ Landed 2026-05-29.
 
-- [ ] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins:
+- [x] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins:
   `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`;
   `NativeImpl.eval` typed; `LegacyNativeContext` shim; migrate `json-plugin`,
   `http-plugin`, `auth-plugin`.  Spec: `docs/arch-stable-spi.md §5 Phase 2`.
+  ✓ Landed 2026-05-29: added capability traits, `LegacyNativeContext`,
+  `PluginNative.eval`, representative typed-bridge intrinsics in json/http/auth
+  plugins, and fixed auth `verifyPassword`.
 
 - [ ] **arch-stable-spi-p3** — Full migration of all 16 `*Intrinsics.scala`:
   remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter;

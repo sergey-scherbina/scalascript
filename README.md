@@ -728,7 +728,8 @@ bin/
   ssc-js       # JS transpiler: emit JS to stdout, or --run to execute
   http.ssc     # HTTP server for examples browser
 
-runtime/backend/spi/                # SPI traits (Backend, SourceLanguage, Capabilities, …)
+runtime/backend/spi/        # SPI traits (Backend, SourceLanguage, PluginRegistry, Capabilities, …)
+runtime/scalascript-plugin-api/ # Stable plugin author API (PluginValue, PluginNative, capability traits)
 ir/                         # IR types + JSON/MsgPack codecs
 core/
   src/main/scala/scalascript/

@@ -3,6 +3,7 @@ package scalascript.compiler.plugin.http
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation, jsonToJson}
+import scalascript.plugin.api.{HttpCap, PluginComputation, PluginNative, PluginValue}
 
 /** HTTP server + client intrinsics for the tree-walking interpreter.
  *
@@ -69,9 +70,10 @@ object HttpIntrinsics:
 
     // serve is handled by UiPrimitives (covers both frontend + REST variants)
 
-    QualifiedName("stop") -> NativeImpl((ctx, _) =>
+    QualifiedName("stop") -> PluginNative.eval((ctx: HttpCap) => ctx) { (ctx, _) =>
       ctx.stopServer()
-    ),
+      PluginComputation.pure(PluginValue.wrap(()))
+    },
 
     // ── Outbound HTTP client ───────────────────────────────────────────
 

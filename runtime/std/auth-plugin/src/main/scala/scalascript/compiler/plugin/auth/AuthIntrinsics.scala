@@ -3,6 +3,7 @@ package scalascript.compiler.plugin.auth
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError}
+import scalascript.plugin.api.{PluginComputation, PluginNative, PluginValue}
 
 object AuthIntrinsics:
 
@@ -26,11 +27,13 @@ object AuthIntrinsics:
 
     // ── CSRF ─────────────────────────────────────────────────────────────
 
-    QualifiedName("csrfToken") -> NativeImpl((_, _) =>
+    QualifiedName("csrfToken") -> PluginNative.eval { (_, _) =>
       val bytes = new Array[Byte](24)
       java.security.SecureRandom().nextBytes(bytes)
-      Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes))
-    ),
+      PluginComputation.pure(
+        PluginValue.wrap(Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding.encodeToString(bytes)))
+      )
+    },
 
     QualifiedName("csrfValid") -> NativeImpl((_, args) =>
       args match
@@ -221,8 +224,8 @@ object AuthIntrinsics:
 
     QualifiedName("verifyPassword") -> NativeImpl((_, args) =>
       args match
-        case List(_: String, _: String) =>
-          Value.boolV(false)
+        case List(pass: String, encoded: String) =>
+          Value.boolV(scalascript.server.Password.verify(pass, encoded))
         case _ => throw InterpretError("verifyPassword(password, encoded)")
     ),
 

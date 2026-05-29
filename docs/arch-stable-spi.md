@@ -1,6 +1,8 @@
 # Stable Plugin SPI — Specification
 
-Status: **planned**.  Tracked as `arch-stable-spi` milestone in `BACKLOG.md`.
+Status: **partially implemented**.  Phase 1 landed 2026-05-29; Phase 2
+landed 2026-05-29 as a source-compatible capability bridge.  Tracked as
+`arch-stable-spi` milestone in `BACKLOG.md`.
 Companion specs: [`docs/plugin-architecture.md`](plugin-architecture.md),
 [`docs/spi-intrinsics-design.md`](spi-intrinsics-design.md).
 
@@ -52,7 +54,7 @@ methods never see `scalascript.interpreter.*` directly.
 
 ### 3b. Capability-based `NativeContext` replacement
 
-Replace `NativeContext` with `PluginContext` composed of capability traits:
+Expose `PluginContext` composed of capability traits:
 
 ```scala
 trait HttpCap { def httpGet(url: String, headers: Map[String, String]): Future[HttpResponse] }
@@ -77,14 +79,19 @@ NativeImpl("jsonParse") { (ctx: StorageCap, args: List[PluginValue]) =>
 }
 ```
 
-`NativeImpl.eval` signature changes from `(NativeContext, List[Any]) => Any`
-to `(C <: Caps, List[PluginValue]) => PluginComputation`.
+For source compatibility, Phase 2 keeps the existing
+`NativeImpl.eval: (NativeContext, List[Any]) => Any` signature and adds
+`PluginNative.eval`, a typed bridge that adapts `NativeContext` into
+`PluginContext`, wraps arguments as `PluginValue`, and unwraps
+`PluginComputation`.  A future breaking SPI revision may move the typed
+signature directly into `NativeImpl`.
 
 ### 3c. Existing `NativeContext` compatibility shim
 
-For the migration period a `LegacyNativeContext` adapter wraps `PluginContext`
-and satisfies the old `NativeContext` interface.  Existing plugins continue to
-compile unmodified; new plugins use `PluginContext` directly.
+For the migration period a `LegacyNativeContext` adapter wraps the old
+`NativeContext` and exposes the new capability traits.  Existing plugins
+continue to compile unmodified; new or ported intrinsics use
+`PluginNative.eval` and capability-specific context types.
 
 ### 3d. Test gating cleanup
 
@@ -116,12 +123,18 @@ Callers of existing plugin APIs are not affected (API is additive).
 
 ### Phase 2 — Capability decomposition
 
-- Split `PluginContext` into `HttpCap`, `WsCap`, `DbCap`, `StorageCap`,
-  `ValidateCap`, `MountCap`.
-- Change `NativeImpl.eval` signature to typed capabilities.
-- Add `LegacyNativeContext` shim for unported plugins.
-- Migrate 3 showcase plugins: `json-plugin`, `http-plugin`, `auth-plugin`.
-- Tests: each migrated plugin compiles without `scalascript.interpreter` on classpath.
+- ✓ Landed 2026-05-29: split `PluginContext` into `HttpCap`, `WsCap`,
+  `DbCap`, `StorageCap`, `ValidateCap`, and `MountCap`.
+- ✓ Landed 2026-05-29: added `LegacyNativeContext` and `PluginContext.fromNative`
+  as the compatibility shim over existing `NativeContext`.
+- ✓ Landed 2026-05-29: added `PluginNative.eval`, the typed bridge for
+  capability-specific native intrinsics without changing the legacy
+  `NativeImpl` constructor.
+- ✓ Landed 2026-05-29: migrated representative intrinsics in `json-plugin`,
+  `http-plugin`, and `auth-plugin` to the typed bridge; full removal of direct
+  `scalascript.interpreter.*` imports remains Phase 3.
+- ✓ Landed 2026-05-29: fixed `auth-plugin` interpreter `verifyPassword` to call
+  `scalascript.server.Password.verify` instead of returning false.
 
 ### Phase 3 — Full migration
 
@@ -134,9 +147,12 @@ Callers of existing plugin APIs are not affected (API is additive).
 ## 6. Testing strategy
 
 - Phase 1: add `scalascript-plugin-api` compilation test in `runtime/backend/spi/src/test`.
-- Phase 2: per-plugin unit tests already exist; the new constraint is
-  "compile with only `plugin-api` and `sbt-scalascript-spi` on classpath."
-  Add a dedicated `pluginBoundaryTest` sbt configuration that enforces this.
+- Phase 2: `PluginApiTest` covers the capability adapter and typed bridge;
+  `JsonPluginInterpreterTest`, `HttpPluginInterpreterTest`, and
+  `AuthPluginInterpreterTest` cover migrated showcase intrinsics.
+- Phase 3: add a dedicated `pluginBoundaryTest` sbt configuration that enforces
+  "compile with only `plugin-api` and backend SPI on classpath" after direct
+  interpreter imports are removed.
 - Phase 3: regression — all existing plugin tests must stay green.
 
 ## 7. Open questions

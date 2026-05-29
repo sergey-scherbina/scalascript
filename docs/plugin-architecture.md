@@ -47,7 +47,8 @@ interpreter.
 | `dep:` URI for library imports | `core/src/…/imports/ImportResolver.scala:39` | ✅ |
 | **Missing**: interpreter merges plugin intrinsics | `BuiltinsRuntime.scala:17` (only installs `InterpreterIntrinsics`) | ❌ |
 | **Missing**: `pkg:` URI (plugin imports with version pinning) | `ImportResolver.scala:56` (no `pkg:` branch) | ❌ |
-| **Missing**: `NativeContext` generic state bag | `backend-spi/src/…/IntrinsicImpl.scala:50` | ❌ |
+| `NativeContext` generic state bag | `backend-spi/src/…/IntrinsicImpl.scala:50` | ✅ |
+| Stable plugin capability bridge | `scalascript-plugin-api/src/…/PluginApi.scala` | ✅ |
 
 **Bottom line**: adding a single line to `BuiltinsRuntime.initBuiltins`
 lights up the full `.sscpkg` plugin path for the interpreter.

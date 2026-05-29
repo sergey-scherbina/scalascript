@@ -107,7 +107,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-stable-spi-p1** — `scalascript-plugin-api` module: new sbt subproject; `PluginValue`, `PluginError`, `PluginComputation`, `JsonCodec`, and `PluginContext` capability re-export; existing plugins add dependency. Spec: `docs/arch-stable-spi.md §5 Phase 1`.
 
-- [ ] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins: `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`; typed `NativeImpl.eval`; `LegacyNativeContext` shim; migrate `json-plugin`, `http-plugin`, `auth-plugin`. Spec: `docs/arch-stable-spi.md §5 Phase 2`.
+- [x] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins: `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`; typed `NativeImpl.eval`; `LegacyNativeContext` shim; migrate `json-plugin`, `http-plugin`, `auth-plugin`. Spec: `docs/arch-stable-spi.md §5 Phase 2`. ✓ Landed 2026-05-29: added capability traits, `LegacyNativeContext`, `PluginNative.eval`, representative typed-bridge intrinsics in json/http/auth plugins, and fixed auth `verifyPassword`.
 
 - [ ] **arch-stable-spi-p3** — Full migration of all `*Intrinsics.scala`: remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter; CI classpath check rejects `scalascript/interpreter/` in plugin subprojects. Spec: `docs/arch-stable-spi.md §5 Phase 3`.
 

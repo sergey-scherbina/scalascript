@@ -51,18 +51,34 @@ class PluginApiTest extends AnyFunSuite:
     assert(JsonCodec.True  == ujson.True)
     assert(JsonCodec.Null  == ujson.Null)
 
-  test("PluginContext is a stable type alias for NativeContext"):
-    // Verifies the type is accessible and compatible with NativeContext.
-    def acceptNativeContext(ctx: scalascript.backend.spi.NativeContext): Unit = ()
-    def usePluginContext(ctx: PluginContext): Unit = acceptNativeContext(ctx)
-    // If this compiles, the type alias is correctly defined.
-    assert(usePluginContext != null)
-    succeed
+  test("PluginContext exposes capability traits through LegacyNativeContext"):
+    val native = new TestNativeContext
+    val ctx = PluginContext.fromNative(native)
+    ctx.featureSet("x", "y")
+    ctx.setHttpTimeout(1234L)
+    assert(ctx.featureGet("x").contains("y"))
+    assert(ctx.httpTimeoutMs == 1234L)
 
-  test("NativeImpl accepts PluginContext"):
+  test("PluginNative.eval builds a NativeImpl from typed PluginContext"):
     import scalascript.backend.spi.{NativeImpl, IntrinsicImpl}
-    val impl: IntrinsicImpl = NativeImpl((ctx: PluginContext, args: List[Any]) =>
-      val _ = ctx
-      PluginValue.wrap(args.headOption.getOrElse(()))
-    )
-    assert(impl.isInstanceOf[NativeImpl])
+    val impl: IntrinsicImpl = PluginNative.eval((ctx: StorageCap) => ctx) { (storage, args) =>
+      storage.featureSet("seen", args.headOption.map(_.unwrap).getOrElse(()))
+      PluginComputation.pure(PluginValue.wrap(storage.featureGet("seen").getOrElse(())))
+    }
+    val native = new TestNativeContext
+    val result = impl.asInstanceOf[NativeImpl].eval(native, List("ok"))
+    assert(result == "ok")
+
+class TestNativeContext extends scalascript.backend.spi.NativeContext:
+  private val state = scala.collection.mutable.Map.empty[String, Any]
+  def out: java.io.PrintStream = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+  def err: java.io.PrintStream = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+  override def featureGet(key: String): Option[Any] = state.get(key)
+  override def featureSet(key: String, value: Any): Unit = state.update(key, value)
+  override def featureRemove(key: String): Option[Any] = state.remove(key)
+  override def setHttpTimeout(ms: Long): Unit =
+    featureSet(scalascript.backend.spi.NativeContextFeatureKeys.HttpTimeoutMs, ms)
+  override def httpTimeoutMs: Long =
+    featureGet(scalascript.backend.spi.NativeContextFeatureKeys.HttpTimeoutMs)
+      .collect { case n: Long => n }
+      .getOrElse(super.httpTimeoutMs)
