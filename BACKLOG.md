@@ -24,7 +24,7 @@ network semantics or deployment constraints.
       `docs/cluster-operations.md`: token rotation, persistent cluster config,
       rolling upgrades, multi-region lowering, and HPA/autoscale. Landed
       2026-05-28.
-- [ ] **v1.63.1-stream-bridge-basic-ops** - Stream bridge and shared safe
+- [x] **v1.63.1-stream-bridge-basic-ops** - Stream bridge and shared safe
       operators: add `runtime/std/streams-bridge.ssc`, `Source[A].distributed`,
       `DStream[A].local`, `DStream[A].localBounded`, `BasicStreamOps[F[_]]`,
       `_dag_sink_local`, and bounded/materialization tests.
@@ -108,29 +108,29 @@ network semantics or deployment constraints.
       while returning the path-based `RemoteStub` facade. Generated trait
       methods, async lowering, WS/internal-wire, and binary codec negotiation
       split into `v1.63.4g`.
-- [ ] **v1.63.4g-remote-trait-methods-wire** - Remote RPC generated trait
+- [x] **v1.63.4g-remote-trait-methods-wire** - Remote RPC generated trait
       methods and binary transports: derive callable methods for
       `remoteStub[Api]`, make generated calls expose
       `B ! Async | RemoteCallError`, add WebSocket/internal-wire transport,
       and negotiate binary `WireCodec[A]` while keeping HTTP JSON fallback.
-- [ ] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
+- [x] **v1.63.5-cluster-runner-worker-bundles** - Cluster runner and worker
       bundles: `ssc cluster run/package/status/handlers/stop`, worker bundle
       packaging with code identity and registry metadata, roles, advertised
       URLs, auth-token wiring, deploy-target integration, and two-local-process
       smoke tests.
-- [ ] **v1.63.6-stream-actor-placement-adapters** - Stream and actor placement
+- [x] **v1.63.6-stream-actor-placement-adapters** - Stream and actor placement
       adapters: `Source[A].remote`, `RemoteSource[A].local`,
       `RemoteSource[A].distributed`, `DStream[A].remote`, WebSocket remote
       streams with JSON fallback, SSE constraints, local proxy actors, and
       router/sharded/role actor groups.
-- [ ] **v1.63.7-cluster-aware-deploy-ops** - Cluster-aware deployment and
+- [x] **v1.63.7-cluster-aware-deploy-ops** - Cluster-aware deployment and
       operations: `ClusterTarget`, K8s StatefulSet/headless Service/token
       Secret, `rotateClusterToken` with `token_rotate` / `token_rotate_ack`
       and quorum overlap, `clusterConfigSet/Get` persistence through
       `StateBackend`, `Deploy.rollingCluster`, `FaultToleranceConfig`
       multi-region lowering, K8s HPA/autoscale emission through `HpaConfig`,
       and Docker Compose target.
-- [ ] **v1.63.8-dynamic-code-ops-hardening** - Dynamic code shipping and ops
+- [x] **v1.63.8-dynamic-code-ops-hardening** - Dynamic code shipping and ops
       hardening: signed worker bundles, remote artifact cache, dependency
       verification, sandbox/resource policy, audit log, unload/rollback,
       mixed-version placement after wire/schema compatibility, metrics/tracing,
@@ -153,16 +153,16 @@ conformance is green.
       implementation phase, same-version-only binary compatibility, security,
       compression, resource limits, observability, and staged implementation
       plan. Landed 2026-05-28.
-- [ ] **v1.62.1-wire-core** - Shared wire runtime:
+- [x] **v1.62.1-wire-core** - Shared wire runtime:
       `WireValue`, `WireEnvelope`, `WireCodec[A]`, errors, limits,
       negotiation types, front-matter/CLI parsing, JSON/MsgPack/CBOR codec
       profiles for JVM/interpreter and JS/browser, and cross-format golden
       vectors.
-- [ ] **v1.62.2-actors-binary-ws** - Actor cluster binary WebSocket:
+- [x] **v1.62.2-actors-binary-ws** - Actor cluster binary WebSocket:
       `ssc-actors-v2.<format>` subprotocols, binary WS frames for user
       messages plus registry, heartbeat, gossip, leader, pub/sub, config,
       drain, metrics, and phi-vector envelopes; JSON v1 fallback preserved.
-- [ ] **v1.62.3-typed-rpc-binary** - Typed route clients/RPC binary
+- [x] **v1.62.3-typed-rpc-binary** - Typed route clients/RPC binary
       negotiation: generated HTTP `Accept`/`Content-Type` support for
       `application/vnd.scalascript.wire+msgpack` and `+cbor`, JSON fallback,
       binary WS subscription frames, and text/base64 SSE fallback.
@@ -195,17 +195,17 @@ conformance is green.
       and `DistributedDataset.run/runShuffle` route non-JSON `wireFormat`
       through `DatasetWire` binary actor frames for partition, shuffle-bucket,
       and key-result messages while preserving JSON object fallback.
-- [ ] **v1.62.5-dstream-native-wire** - Native DStream runner wire
+- [x] **v1.62.5-dstream-native-wire** - Native DStream runner wire
       integration: binary element batches, watermarks, triggers, side inputs,
       side outputs, checkpoint metadata, and errors; external Spark/Kafka/
       Flink/Beam protocols remain unchanged.
-- [ ] **v1.62.6-object-sync-binary** - Client/server object-sync binary
+- [x] **v1.62.6-object-sync-binary** - Client/server object-sync binary
       payloads for generated ScalaScript clients and servers; public/debug
       JSON routes remain available.
-- [ ] **v1.62.7-wire-security-ops** - Security, compression, and operations:
+- [x] **v1.62.7-wire-security-ops** - Security, compression, and operations:
       HMAC frame signatures, session ids, sequence numbers, replay windows,
       gzip/zstd negotiation, mTLS hooks, limits enforcement, and metrics.
-- [ ] **v1.62.8-wire-compatibility** - Pre-stable compatibility/evolution:
+- [x] **v1.62.8-wire-compatibility** - Pre-stable compatibility/evolution:
       schema-id hashing, additive-change rules, default/unknown-field policy,
       old/new vector tests, and explicit mixed-version opt-in.
 
@@ -346,7 +346,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   `PluginNative.eval`, representative typed-bridge intrinsics in json/http/auth
   plugins, and fixed auth `verifyPassword`.
 
-- [ ] **arch-stable-spi-p3** — Full migration of all 16 `*Intrinsics.scala`:
+- [x] **arch-stable-spi-p3** — Full migration of all 16 `*Intrinsics.scala`:
   remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter;
   CI classpath check rejects `scalascript/interpreter/` in plugin subprojects.
   Spec: `docs/arch-stable-spi.md §5 Phase 3`.
@@ -375,7 +375,7 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   overload; Normalize routes through the registry with core-only
   SQL/transaction fallbacks.
 
-- [ ] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`:
+- [x] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`:
   `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin
   `xml-plugin` registers compile-time check.
   Spec: `docs/arch-dsl-hooks.md §6 Phase 4`.
@@ -387,18 +387,18 @@ pure-ScalaScript package format, no transitive dep propagation, no access
 control, namespace collision risk, no API lifecycle annotations, no versioning
 enforcement.  Full analysis in `docs/arch-library-modularity.md`.
 
-- [ ] **arch-lib-p1** — `@deprecated` + `@experimental` annotations:
+- [x] **arch-lib-p1** — `@deprecated` + `@experimental` annotations:
   new annotations in `Annotation.scala`; typer emits warnings at call sites;
   `--fatal-warnings` flag; 6+ tests.
   Spec: `docs/arch-library-modularity.md §6 Phase 1`.
 
-- [ ] **arch-lib-p2** — `@internal` access control:
+- [x] **arch-lib-p2** — `@internal` access control:
   `@internal` parsed + stored on definitions; cross-package check in Typer;
   error with clear message including source package name; per-definition and
   per-heading granularity; 8+ tests.
   Spec: `docs/arch-library-modularity.md §6 Phase 2`.
 
-- [ ] **arch-lib-p3** — Namespace collision detection:
+- [x] **arch-lib-p3** — Namespace collision detection:
   `ImportResolver` tracks name contributions per import; warning on collision;
   `--strict-namespaces` flag for error; qualified import syntax
   `[Name from alias](dep:...)`; 6+ tests.
@@ -429,22 +429,22 @@ cannot find libraries, authors cannot reach users.  Solution: GitHub repo +
 GitHub Pages static site, zero server infrastructure, PR-based publishing.
 Full spec: `docs/arch-registry.md`.
 
-- [ ] **arch-registry-p1** — Registry repository + `packages.yaml` schema:
+- [x] **arch-registry-p1** — Registry repository + `packages.yaml` schema:
   create `github.com/scalascript/registry`; define YAML schema; seed with
   3-5 first-party packages; `validate.yml` CI (schema check + `ssc check`).
   Spec: `docs/arch-registry.md §5 Phase 1`.
 
-- [ ] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI:
+- [x] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI:
   `RegistryClient` (fetch + cache `packages.yaml`, TTL 1h); `ssc search <query>`
   (local search with ranking); `ssc info <name>`; `ssc add <name>` writes to
   manifest; mock-HTTP tests.  Spec: `docs/arch-registry.md §5 Phase 2`.
 
-- [ ] **arch-registry-p3** — GitHub Pages HTML index:
+- [x] **arch-registry-p3** — GitHub Pages HTML index:
   `tools/registry-site/generate.sc` scala-cli script; `publish.yml` workflow;
   `site/index.html` (client-side lunr.js search); per-package JSON pages;
   `registry.scalascript.io` CNAME.  Spec: `docs/arch-registry.md §5 Phase 3`.
 
-- [ ] **arch-registry-p4** — Private registry support:
+- [x] **arch-registry-p4** — Private registry support:
   `registry.url` config in `~/.config/scalascript/config.yaml`; `--registry
   <url>` CLI flag; enterprise internal mirror documentation.
   Spec: `docs/arch-registry.md §5 Phase 4`.
@@ -455,24 +455,24 @@ Identified 2026-05-28. Community libraries cannot call Java or JS APIs today —
 only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
 `BackendRegistry` plugin.  Full spec: `docs/arch-ffi.md`.
 
-- [ ] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen:
+- [x] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen:
   `JvmInline` annotation AST node; annotation parser; `JvmGen` emits inline
   expression as method body; `$N` argument substitution; `CapabilityCheck`
   errors on `@jvm`-only def called from JS; `examples/ffi-inline.ssc`; 10+ tests.
   Spec: `docs/arch-ffi.md §6 Phase 1`.
 
-- [ ] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour:
+- [x] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour:
   `JsGen` emits `@js("...")` as function body; `@interpreterUnsupported`
   annotation + clear error; cross-backend parity tests (both `@jvm` + `@js`).
   Spec: `docs/arch-ffi.md §6 Phase 2`.
 
-- [ ] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`:
+- [x] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`:
   `ssclib-manifest.yaml` `glue.jvm`/`glue.js` fields; `ImportResolver` adds
   `glue.jar` to JVM classpath; `ssc package --lib --jvm-glue <jar>`; integration
   test with glue fixture.  Spec: `docs/arch-ffi.md §6 Phase 3`.
   _Prerequisite: arch-lib-p4 (`.ssclib` format)._
 
-- [ ] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar:
+- [x] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar:
   JS codegen injects `js/glue.js` before `.ssc` output; `glue.jar`
   `META-INF/services` loaded into `BackendRegistry` → interpreter support;
   end-to-end JS test with `glue.js`-using library.
