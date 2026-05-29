@@ -56,6 +56,29 @@ case class BlueGreenConfig(
   holdSeconds:    Int
 )
 
+// ── Autoscale policy ────────────────────────────────────────────────────────
+
+case class AutoscalePolicy(
+  minReplicas: Int,
+  maxReplicas: Int,
+  targets:     List[AutoscaleTarget]
+)
+
+object AutoscalePolicy:
+  def parse(raw: Map[String, Any]): AutoscalePolicy =
+    val min  = raw.get("min_replicas").collect { case n: Integer => n.toInt }.getOrElse(1)
+    val max  = raw.get("max_replicas").collect { case n: Integer => n.toInt }.getOrElse(min)
+    val cpuT = raw.get("cpu_percent").collect { case n: Integer => n.toInt }.map { p =>
+      AutoscaleTarget.Cpu(CpuTarget(p))
+    }
+    val custT = (
+      raw.get("custom_metric").collect { case s: String => s },
+      raw.get("custom_target").collect { case n: Integer => n.toInt }
+    ) match
+      case (Some(m), Some(v)) => Some(AutoscaleTarget.Custom(CustomTarget(m, v)))
+      case _                  => None
+    AutoscalePolicy(min, max, List(cpuT, custT).flatten)
+
 // ── Environment declaration ─────────────────────────────────────────────────
 
 case class DeployEnvironment(
@@ -65,7 +88,8 @@ case class DeployEnvironment(
   targetOverrides: Map[String, Map[String, Any]],
   activeGroups:    List[String],
   faultTolerance:  Option[FaultToleranceConfig],
-  blueGreen:       Option[BlueGreenConfig]
+  blueGreen:       Option[BlueGreenConfig],
+  autoscale:       Option[AutoscalePolicy] = None
 )
 
 // ── Parser ──────────────────────────────────────────────────────────────────
@@ -123,7 +147,11 @@ object DeployEnvironment:
         Some(BlueGreenConfig(enabled, slot, strategy, gate, smoke, hold))
       case _ => None
 
-    DeployEnvironment(name, purpose, base, overrides, activeGroups, ft, bg)
+    val asPol: Option[AutoscalePolicy] = raw.get("autoscale") match
+      case Some(m: java.util.Map[?, ?]) => Some(AutoscalePolicy.parse(jMapToScala(m)))
+      case _                            => None
+
+    DeployEnvironment(name, purpose, base, overrides, activeGroups, ft, bg, asPol)
 
   private def parseDurationSeconds(s: String): Int =
     val c = s.trim.toLowerCase

@@ -127,6 +127,9 @@ private[interpreter] trait ActorInterp:
   // endpoints are open (backwards compatible).
   @volatile private[interpreter] var clusterAuthToken: String =
     sys.env.getOrElse("SSC_CLUSTER_TOKEN", "")
+  // v1.63.7 — token rotation: during the overlap window, both old and new tokens are accepted.
+  @volatile private[interpreter] var pendingNewToken: String = ""
+  @volatile private[interpreter] var tokenValidFromMs: Long  = 0L
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
   // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
   // bounds the total wall-clock retry budget — 0 ⇒ no cap (retry forever).
@@ -162,7 +165,82 @@ private[interpreter] trait ActorInterp:
     if accept then
       clusterConfig.put(key, (value, ts, origin))
       enqueueConfigEvent(key, value)
+      clusterConfigPersist()
     accept
+
+  // v1.63.7 — persist cluster config to a local JSON file so restarts recover it
+  private def clusterConfigStatePath: java.nio.file.Path =
+    val key = if localNodeId.isEmpty then "default" else localNodeId.replaceAll("[^A-Za-z0-9._-]", "_")
+    java.nio.file.Paths.get(s".ssc-cluster-config-$key.json")
+
+  private def clusterConfigPersist(): Unit =
+    try
+      val sb = new java.lang.StringBuilder("{")
+      var first = true
+      clusterConfig.forEach { (k, triple) =>
+        if !first then sb.append(",")
+        first = false
+        sb.append(jsonStr(k)).append(":[")
+        sb.append(jsonStr(triple._1)).append(",")
+        sb.append(triple._2).append(",")
+        sb.append(jsonStr(triple._3)).append("]")
+      }
+      sb.append("}")
+      java.nio.file.Files.writeString(clusterConfigStatePath, sb.toString,
+        java.nio.charset.StandardCharsets.UTF_8,
+        java.nio.file.StandardOpenOption.CREATE,
+        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)
+    catch case _: Throwable => ()
+
+  private[interpreter] def clusterConfigLoad(): Unit =
+    try
+      val p = clusterConfigStatePath
+      if !java.nio.file.Files.exists(p) then ()
+      else
+        val s = java.nio.file.Files.readString(p).trim
+        // Minimal JSON object parser: {"key":[value,ts,origin],...}
+        var i = 1; val n = s.length
+        while i < n - 1 do
+          while i < n && s(i) <= ' ' do i += 1
+          if i < n && s(i) == '"' then
+            i += 1; val kb = new java.lang.StringBuilder
+            while i < n && s(i) != '"' do
+              if s(i) == '\\' then { i += 1; if i < n then kb.append(s(i)) }
+              else kb.append(s(i))
+              i += 1
+            val key = kb.toString
+            i += 1
+            while i < n && s(i) != '[' do i += 1
+            i += 1
+            while i < n && s(i) <= ' ' do i += 1
+            if i < n && s(i) == '"' then
+              i += 1; val vb = new java.lang.StringBuilder
+              while i < n && s(i) != '"' do
+                if s(i) == '\\' then { i += 1; if i < n then vb.append(s(i)) }
+                else vb.append(s(i))
+                i += 1
+              val value = vb.toString
+              i += 1
+              while i < n && s(i) != ',' do i += 1; i += 1
+              while i < n && s(i) <= ' ' do i += 1
+              val tsb = new java.lang.StringBuilder
+              while i < n && (s(i).isDigit || s(i) == '-') do { tsb.append(s(i)); i += 1 }
+              val ts = tsb.toString.toLongOption.getOrElse(0L)
+              while i < n && s(i) != ',' do i += 1; i += 1
+              while i < n && s(i) <= ' ' do i += 1
+              if i < n && s(i) == '"' then
+                i += 1; val ob = new java.lang.StringBuilder
+                while i < n && s(i) != '"' do
+                  if s(i) == '\\' then { i += 1; if i < n then ob.append(s(i)) }
+                  else ob.append(s(i))
+                  i += 1
+                val origin = ob.toString
+                i += 1
+                if key.nonEmpty then clusterConfig.put(key, (value, ts, origin))
+            while i < n && s(i) != ']' do i += 1
+            if i < n then i += 1
+          while i < n && (s(i) == ',' || s(i) <= ' ') do i += 1
+    catch case _: Throwable => ()
   // Snapshot every locally-known config entry to a single peer.  Called on
   // every successful handshake so late-joining nodes pick up entries set
   // before they joined (LWW on the receiver protects existing values).
@@ -1032,6 +1110,25 @@ private[interpreter] trait ActorInterp:
               val dr = m.get(Value.StringV("draining")).collect { case Value.BoolV(b) => b }.getOrElse(false)
               val prev = drainingPeers.put(from, java.lang.Boolean.valueOf(dr))
               if prev == null || prev.booleanValue() != dr then enqueueDrainEvent(from, dr)
+          // v1.63.7 — token rotation received from a peer
+          case "token_rotate" =>
+            val newTok    = m.get(Value.StringV("new")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val validFrom = m.get(Value.StringV("validFrom")) match
+              case Some(Value.IntV(n))    => n
+              case Some(Value.DoubleV(d)) => d.toLong
+              case _                      => 0L
+            if newTok.nonEmpty then
+              pendingNewToken  = newTok
+              tokenValidFromMs = validFrom
+              val delayMs = math.max(0L, validFrom - System.currentTimeMillis())
+              val _ = java.util.concurrent.Executors.newSingleThreadScheduledExecutor().schedule(
+                new Runnable { def run() =
+                  if pendingNewToken == newTok then
+                    clusterAuthToken = newTok
+                    pendingNewToken  = ""
+                },
+                delayMs, java.util.concurrent.TimeUnit.MILLISECONDS
+              )
           case "metric" =>
             val from  = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
             val name  = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
@@ -1827,6 +1924,7 @@ private[interpreter] trait ActorInterp:
         case _ => throw InterpretError("startNode(nodeId, url?)")
       localNodeId  = nodeId
       localNodeUrl = url
+      clusterConfigLoad()
       // Register /_ssc-actors WS route so inbound peer connections are accepted.
       val peersRoute = Value.NativeFnV("_ssc-actors.handler", args => {
         val ws = args.head
@@ -2180,6 +2278,26 @@ private[interpreter] trait ActorInterp:
         clusterAuthToken = t
         Right(k(Value.UnitV))
       case _ => throw InterpretError("setClusterAuthToken(token: String)")
+
+    // v1.63.7 — token rotation with overlap window
+    case "rotateClusterToken" => args match
+      case List(Value.StringV(newToken), Value.IntV(overlapMs)) =>
+        val validFrom = System.currentTimeMillis() + overlapMs
+        pendingNewToken  = newToken
+        tokenValidFromMs = validFrom
+        val payload = s"""{"t":"token_rotate","new":${jsonStr(newToken)},"validFrom":$validFrom,"from":${jsonStr(localNodeId)}}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        // Schedule local commit after overlap
+        val _ = java.util.concurrent.Executors.newSingleThreadScheduledExecutor().schedule(
+          new Runnable { def run() =
+            if pendingNewToken == newToken then
+              clusterAuthToken = newToken
+              pendingNewToken  = ""
+          },
+          overlapMs.toLong, java.util.concurrent.TimeUnit.MILLISECONDS
+        )
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("rotateClusterToken(newToken: String, overlapMs: Int)")
 
     case "clusterOf" => args match
       case List(seedResolver @ Value.InstanceV("SeedResolver", _)) =>

@@ -1,6 +1,7 @@
 package scalascript.compiler.plugin.deploy
 
 import scala.util.Try
+import scala.jdk.CollectionConverters.*
 
 /** Kubernetes deployment target.
  *
@@ -18,7 +19,7 @@ import scala.util.Try
  *    active_slot    — current active slot ("blue"|"green", default: "blue")
  *    resources_cpu_request / resources_cpu_limit / resources_memory_request / resources_memory_limit
  */
-class K8sTarget extends DeployTarget:
+class K8sTarget extends ClusterTarget:
 
   def kind:         String       = "k8s"
   def artifactKind: ArtifactKind = ArtifactKind.OciImage
@@ -38,7 +39,11 @@ class K8sTarget extends DeployTarget:
     val cfg  = k8sCfg(ctx, ref.ref)
     val host = ctx.config.get("host").collect { case s: String => s }
 
-    if blueGreenEnabled(ctx) then
+    if clusterModeEnabled(ctx) then
+      val manifest = K8sManifestGenerator.clusterBundle(name, cfg, host)
+      applyManifest(manifest, ctx)
+      DeployResult(ref.ref, host.map(h => s"https://$h"))
+    else if blueGreenEnabled(ctx) then
       deployBlueGreen(name, cfg, host, ctx)
     else
       val manifest = K8sManifestGenerator.bundle(name, cfg, host)
@@ -174,15 +179,30 @@ class K8sTarget extends DeployTarget:
       throw DeployError(s"[deploy/k8s/apply-failed] kubectl apply:\n$stderr")
 
   private def k8sCfg(ctx: DeployContext, image: String): K8sManifestGenerator.K8sConfig =
+    val hpaOpt = ctx.config.get("autoscale") match
+      case Some(m: java.util.Map[?, ?]) =>
+        val mm: Map[String, Any] = m.entrySet().asScala.collect {
+          case e if e.getKey.isInstanceOf[String] => e.getKey.asInstanceOf[String] -> (e.getValue: Any)
+        }.toMap
+        Some(HpaConfig.parse(mm))
+      case _ => None
+    val wm = ctx.config.get("workload_mode").collect { case s: String => s }.getOrElse("deployment") match
+      case "statefulset" | "StatefulSet" => WorkloadMode.StatefulSet
+      case "daemonset"   | "DaemonSet"   => WorkloadMode.DaemonSet
+      case _                             => WorkloadMode.Deployment
     K8sManifestGenerator.K8sConfig(
-      namespace    = namespaceOf(ctx),
-      replicas     = replicasOf(ctx),
-      appPort      = appPortOf(ctx),
-      image        = image,
-      ingressClass = ctx.config.get("ingress_class").collect { case s: String => s }.getOrElse("nginx"),
-      resources    = resourcesOf(ctx),
-      annotations  = annotationsOf(ctx),
-      nodeSelector = nodeSelectorOf(ctx),
+      namespace        = namespaceOf(ctx),
+      replicas         = replicasOf(ctx),
+      appPort          = appPortOf(ctx),
+      image            = image,
+      ingressClass     = ctx.config.get("ingress_class").collect { case s: String => s }.getOrElse("nginx"),
+      resources        = resourcesOf(ctx),
+      annotations      = annotationsOf(ctx),
+      nodeSelector     = nodeSelectorOf(ctx),
+      clusterMode      = clusterModeEnabled(ctx),
+      workloadMode     = wm,
+      authTokenSecret  = ctx.config.get("auth_token_secret").collect { case s: String => s },
+      hpa              = hpaOpt,
     )
 
   private def kubectl(ctx: DeployContext): List[String] =
@@ -214,6 +234,13 @@ class K8sTarget extends DeployTarget:
       case b: Boolean => b
     }.getOrElse(false)
 
+  private def clusterModeEnabled(ctx: DeployContext): Boolean =
+    _currentCtx = Some(ctx)
+    ctx.config.get("cluster_mode").collect {
+      case s: String  => s.toLowerCase == "true"
+      case b: Boolean => b
+    }.getOrElse(false)
+
   private def resourcesOf(ctx: DeployContext): K8sManifestGenerator.ResourceRequirements =
     K8sManifestGenerator.ResourceRequirements(
       cpuRequest    = ctx.config.get("resources_cpu_request").collect    { case s: String => s }.getOrElse("100m"),
@@ -231,6 +258,52 @@ class K8sTarget extends DeployTarget:
 
   private def nodeSelectorOf(ctx: DeployContext): Map[String,String] =
     ctx.config.get("node_selector").map(toStringMap).getOrElse(Map.empty)
+
+  // ── ClusterTarget SPI (v1.63.7) ───────────────────────────────────────────
+
+  private var _currentCtx: Option[DeployContext] = None
+
+  def seedUrlsFor(env: DeployEnvironment): List[String] =
+    _currentCtx.flatMap(ctx => ctx.config.get("seed_urls")).collect {
+      case xs: java.util.List[?] => xs.asScala.map(_.toString).toList
+      case s: String             => s.split(",").map(_.trim).toList
+    }.getOrElse(Nil)
+
+  def injectAuthToken(env: DeployEnvironment, secretRef: String): Unit =
+    if _currentCtx.isDefined && !_currentCtx.get.dryRun then
+      val ctx = _currentCtx.get
+      val ns  = namespaceOf(ctx)
+      val cmd = kubectl(ctx) ++ List("create", "secret", "generic", secretRef,
+        s"--namespace=$ns",
+        "--from-literal=SSC_CLUSTER_TOKEN=<token>",
+        "--dry-run=client", "-o=yaml")
+      run(cmd, ctx.workDir)
+      ()
+
+  def emitWorkloadManifest(mode: WorkloadMode): String =
+    _currentCtx.map { ctx =>
+      val cfg = k8sCfg(ctx, ctx.config.get("image").collect { case s: String => s }.getOrElse("app:latest"))
+      mode match
+        case WorkloadMode.StatefulSet | WorkloadMode.DaemonSet => K8sManifestGenerator.statefulSet(ctx.targetName, cfg)
+        case _                                                  => K8sManifestGenerator.deployment(ctx.targetName, cfg)
+    }.getOrElse("")
+
+  def emitHeadlessService(): String =
+    _currentCtx.map { ctx =>
+      K8sManifestGenerator.headlessService(ctx.targetName,
+        k8sCfg(ctx, ctx.config.get("image").collect { case s: String => s }.getOrElse("app:latest")))
+    }.getOrElse("")
+
+  def emitAutoscaler(policy: ScalePolicy): Option[String] =
+    _currentCtx.flatMap { ctx =>
+      val cfg = k8sCfg(ctx, ctx.config.get("image").collect { case s: String => s }.getOrElse("app:latest"))
+      policy match
+        case ScalePolicy.None                  => None
+        case ScalePolicy.Cpu(pct)              => Some(K8sManifestGenerator.hpa(ctx.targetName, cfg,
+          HpaConfig(1, 10, List(AutoscaleTarget.Cpu(CpuTarget(pct))))))
+        case ScalePolicy.Custom(metric, value) => Some(K8sManifestGenerator.hpa(ctx.targetName, cfg,
+          HpaConfig(1, 10, List(AutoscaleTarget.Custom(CustomTarget(metric, value.toInt))))))
+    }
 
   // ── Subprocess helper ──────────────────────────────────────────────────────
 

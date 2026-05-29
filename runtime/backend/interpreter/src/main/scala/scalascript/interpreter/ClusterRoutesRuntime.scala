@@ -36,8 +36,12 @@ private[interpreter] object ClusterRoutesRuntime:
             case _ => None
         case _ => None
       }.getOrElse("")
-      val expected = "Bearer " + token
-      if hdr == expected then None
+      // v1.63.7: accept pending new token during overlap window
+      val pending   = interp.pendingNewToken
+      val validFrom = interp.tokenValidFromMs
+      val now       = System.currentTimeMillis()
+      val allowNew  = pending.nonEmpty && now < validFrom
+      if hdr == "Bearer " + token || (allowNew && hdr == "Bearer " + pending) then None
       else
         Some(Value.InstanceV("Response", Map(
           "status"  -> Value.intV(401),

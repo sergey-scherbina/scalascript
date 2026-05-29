@@ -1016,3 +1016,193 @@ class DeployPluginTest extends AnyFunSuite:
     val result = StateMigrator.migrate(src, dst, List(key))
     assert(result.skipped == 1)
     assert(result.copied  == 0)
+
+  // ── v1.63.7: K8sManifestGenerator (cluster-aware) ─────────────────────────
+
+  test("K8sManifestGenerator: StatefulSet emits serviceName and replicas"):
+    val cfg = K8sManifestGenerator.K8sConfig(namespace = "prod", replicas = 3, clusterMode = true, workloadMode = WorkloadMode.StatefulSet)
+    val yaml = K8sManifestGenerator.statefulSet("myapp", cfg)
+    assert(yaml.contains("kind: StatefulSet"))
+    assert(yaml.contains("serviceName: myapp-headless"))
+    assert(yaml.contains("replicas: 3"))
+
+  test("K8sManifestGenerator: headlessService emits clusterIP None"):
+    val cfg  = K8sManifestGenerator.K8sConfig()
+    val yaml = K8sManifestGenerator.headlessService("myapp", cfg)
+    assert(yaml.contains("clusterIP: None"))
+    assert(yaml.contains("name: myapp-headless"))
+
+  test("K8sManifestGenerator: tokenSecret base64-encodes token"):
+    val yaml = K8sManifestGenerator.tokenSecret("myapp", "default", "secret123")
+    assert(yaml.contains("kind: Secret"))
+    val b64 = java.util.Base64.getEncoder.encodeToString("secret123".getBytes("UTF-8"))
+    assert(yaml.contains(b64))
+
+  test("K8sManifestGenerator: hpa emits cpu target"):
+    val cfg = K8sManifestGenerator.K8sConfig()
+    val hpaConfig = HpaConfig(min = 2, max = 10, targets = List(AutoscaleTarget.Cpu(CpuTarget(70))))
+    val yaml = K8sManifestGenerator.hpa("myapp", cfg, hpaConfig)
+    assert(yaml.contains("kind: HorizontalPodAutoscaler"))
+    assert(yaml.contains("minReplicas: 2"))
+    assert(yaml.contains("maxReplicas: 10"))
+    assert(yaml.contains("averageUtilization: 70"))
+
+  test("K8sManifestGenerator: hpa targets StatefulSet when workloadMode is StatefulSet"):
+    val cfg = K8sManifestGenerator.K8sConfig(workloadMode = WorkloadMode.StatefulSet)
+    val hpaConfig = HpaConfig(min = 1, max = 5, targets = List(AutoscaleTarget.Cpu(CpuTarget(80))))
+    val yaml = K8sManifestGenerator.hpa("myapp", cfg, hpaConfig)
+    assert(yaml.contains("kind: StatefulSet"))
+
+  test("K8sManifestGenerator: clusterBundle includes StatefulSet + headlessService"):
+    val cfg = K8sManifestGenerator.K8sConfig(clusterMode = true, workloadMode = WorkloadMode.StatefulSet, authTokenSecret = Some("ssc-token"))
+    val bundle = K8sManifestGenerator.clusterBundle("myapp", cfg)
+    assert(bundle.contains("kind: StatefulSet"))
+    assert(bundle.contains("clusterIP: None"))
+    assert(bundle.contains("myapp-cluster-token"))
+
+  // ── v1.63.7: HpaConfig parser ──────────────────────────────────────────────
+
+  test("HpaConfig.parse: defaults"):
+    val hpa = HpaConfig.parse(Map("min" -> Integer.valueOf(2), "max" -> Integer.valueOf(8)))
+    assert(hpa.min == 2)
+    assert(hpa.max == 8)
+    assert(hpa.targets.isEmpty)
+
+  test("HpaConfig.parse: cpu target from target list"):
+    val target = new java.util.LinkedHashMap[String, Any]()
+    target.put("kind", "cpu")
+    target.put("percent", Integer.valueOf(75))
+    val targets = new java.util.ArrayList[Any]()
+    targets.add(target)
+    val hpa = HpaConfig.parse(Map("min" -> Integer.valueOf(1), "max" -> Integer.valueOf(5), "target" -> targets))
+    assert(hpa.targets.size == 1)
+    assert(hpa.targets.head.isInstanceOf[AutoscaleTarget.Cpu])
+    assert(hpa.targets.head.asInstanceOf[AutoscaleTarget.Cpu].t.percent == 75)
+
+  // ── v1.63.7: Deploy.rollingCluster ────────────────────────────────────────
+
+  test("Deploy.rollingCluster: Rolling — all succeed"):
+    val result = Deploy.rollingCluster(
+      nodeUrls    = List("http://a", "http://b", "http://c"),
+      runNode     = _ => Right(()),
+      strategy    = RollingStrategy.Rolling(maxUnavailable = 1, waitDrainMs = 0),
+      healthCheck = _ => true,
+      dryRun      = true,
+    )
+    assert(result.upgraded == List("http://a", "http://b", "http://c"))
+    assert(result.failed.isEmpty)
+    assert(!result.aborted)
+
+  test("Deploy.rollingCluster: BlueGreen — dry-run"):
+    val result = Deploy.rollingCluster(
+      nodeUrls    = List("http://a", "http://b"),
+      runNode     = _ => Right(()),
+      strategy    = RollingStrategy.BlueGreen(observeMs = 0),
+      dryRun      = true,
+    )
+    assert(result.upgraded == List("http://a", "http://b"))
+    assert(!result.aborted)
+
+  test("Deploy.rollingCluster: Canary — dry-run deploys canary then rest"):
+    val deployed = scala.collection.mutable.ListBuffer.empty[String]
+    val result = Deploy.rollingCluster(
+      nodeUrls    = List("http://a", "http://b", "http://c", "http://d"),
+      runNode     = url => { deployed += url; Right(()) },
+      strategy    = RollingStrategy.Canary(percent = 25, observeMs = 0),
+      dryRun      = true,
+    )
+    assert(result.upgraded.size == 4)
+    assert(!result.aborted)
+
+  test("Deploy.rollingCluster: Rolling — aborts on second failure exceeding maxUnavailable"):
+    val result = Deploy.rollingCluster(
+      nodeUrls    = List("http://a", "http://b", "http://c"),
+      runNode     = url => if url == "http://b" then Left("deploy failed") else Right(()),
+      strategy    = RollingStrategy.Rolling(maxUnavailable = 1, waitDrainMs = 0),
+      healthCheck = _ => true,
+      dryRun      = true,
+    )
+    assert(result.failed.contains("http://b"))
+    assert(result.aborted)
+
+  // ── v1.63.7: Deploy.multiRegion ───────────────────────────────────────────
+
+  test("Deploy.multiRegion: dry-run returns all as succeeded"):
+    val result = Deploy.multiRegion(
+      regions   = List("us-east-1", "eu-west-1"),
+      runRegion = _ => Right(()),
+      quorum    = 1,
+      dryRun    = true,
+    )
+    assert(result.succeeded == List("us-east-1", "eu-west-1"))
+    assert(result.failed.isEmpty)
+
+  test("Deploy.multiRegion: one failure partial success"):
+    val result = Deploy.multiRegion(
+      regions   = List("us-east-1", "eu-west-1", "ap-southeast-1"),
+      runRegion = r => if r == "eu-west-1" then Left("net timeout") else Right(()),
+      quorum    = 2,
+    )
+    assert(result.succeeded.toSet == Set("us-east-1", "ap-southeast-1"))
+    assert(result.failed == List("eu-west-1"))
+
+  // ── v1.63.7: ComposeTarget ─────────────────────────────────────────────────
+
+  test("ComposeTarget: generateCompose includes port and image"):
+    val target = new ComposeTarget()
+    val ctx    = DeployContext(
+      targetName = "myapp",
+      config     = Map("image" -> "myapp:1.0", "app_port" -> Integer.valueOf(9090)),
+      workDir    = os.temp.dir(),
+      verbose    = false,
+      dryRun     = true,
+      env        = "local",
+      slot       = None,
+      outputsOf  = _ => Map.empty,
+    )
+    val compose = target.generateCompose("myapp", ctx, "myapp:1.0")
+    assert(compose.contains("image: myapp:1.0"))
+    assert(compose.contains("9090:9090"))
+
+  test("ComposeTarget: cluster_mode injects SSC_CLUSTER_TOKEN env"):
+    val target = new ComposeTarget()
+    val ctx    = DeployContext(
+      targetName = "myapp",
+      config     = Map("image" -> "myapp:1.0", "cluster_mode" -> "true"),
+      workDir    = os.temp.dir(),
+      verbose    = false,
+      dryRun     = true,
+      env        = "local",
+      slot       = None,
+      outputsOf  = _ => Map.empty,
+    )
+    val compose = target.generateCompose("myapp", ctx, "myapp:1.0")
+    assert(compose.contains("SSC_CLUSTER_TOKEN"))
+
+  // ── v1.63.7: TargetFactory compose ────────────────────────────────────────
+
+  test("TargetFactory: compose kind → ComposeTarget"):
+    val t = TargetFactory.make("compose", Map.empty)
+    assert(t.isInstanceOf[ComposeTarget])
+
+  test("TargetFactory: docker-compose kind → ComposeTarget"):
+    val t = TargetFactory.make("docker-compose", Map.empty)
+    assert(t.isInstanceOf[ComposeTarget])
+
+  // ── v1.63.7: DeployEnvironment autoscale ──────────────────────────────────
+
+  test("DeployEnvironment: parse autoscale block"):
+    val raw      = new java.util.LinkedHashMap[String, Any]()
+    val autoscale = new java.util.LinkedHashMap[String, Any]()
+    autoscale.put("min_replicas", Integer.valueOf(2))
+    autoscale.put("max_replicas", Integer.valueOf(10))
+    autoscale.put("cpu_percent", Integer.valueOf(80))
+    raw.put("purpose", "production")
+    raw.put("autoscale", autoscale)
+    import scala.jdk.CollectionConverters.*
+    val env = DeployEnvironment.parse("prod", raw.asScala.toMap.view.mapValues(v => v: Any).toMap)
+    assert(env.autoscale.isDefined)
+    val pol = env.autoscale.get
+    assert(pol.minReplicas == 2)
+    assert(pol.maxReplicas == 10)
+    assert(pol.targets.size == 1)

@@ -374,6 +374,13 @@ extern def setQuorumSize(n: Long): Unit
 // missing token returns 401.
 extern def setClusterAuthToken(token: String): Unit
 
+// Rotate the cluster auth token cluster-wide.  Broadcasts a
+// `{"t":"token_rotate","new":...,"validFrom":...}` wire message so every
+// peer begins accepting the new token after `overlapMs` milliseconds.
+// Both tokens are valid during the overlap window; the old token is
+// dropped after `validFrom`.  Updates the local token immediately.
+extern def rotateClusterToken(newToken: String, overlapMs: Int = 30_000): Unit
+
 // ─── Cluster-wide pub/sub (v1.23) ─────────────────────────────────────────
 
 // Publish `msg` on `topic`.  Delivers to every actor on every node that

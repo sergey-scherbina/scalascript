@@ -213,6 +213,11 @@ private[interpreter] object ActorGlobals:
         Perform("Actor", "setClusterAuthToken", List(Value.StringV(t)))
       case _ => throw InterpretError("setClusterAuthToken(token: String): Unit")
     })
+    g("rotateClusterToken") = Value.NativeFnV("rotateClusterToken", {
+      case List(Value.StringV(t))                      => Perform("Actor", "rotateClusterToken", List(Value.StringV(t), Value.intV(30_000)))
+      case List(Value.StringV(t), Value.IntV(ms))      => Perform("Actor", "rotateClusterToken", List(Value.StringV(t), Value.intV(ms)))
+      case _ => throw InterpretError("rotateClusterToken(newToken: String, overlapMs: Int = 30_000): Unit")
+    })
     def seedResolver(kind: String, urls: List[Value], serviceName: String, namespace: String, port: Long, scheme: String): Value =
       Value.InstanceV("SeedResolver", Map(
         "kind" -> Value.StringV(kind),

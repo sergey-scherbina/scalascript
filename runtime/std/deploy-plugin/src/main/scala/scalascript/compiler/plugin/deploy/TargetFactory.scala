@@ -27,5 +27,7 @@ object TargetFactory:
             new LocalSubprocessTarget(port)
       case "faas" | "lambda" | "serverless" =>
         new FaasTarget()
+      case "compose" | "docker-compose" =>
+        new ComposeTarget()
       case other =>
-        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: container, faas, k8s, static, traditional, rsync, sftp")
+        throw DeployError(s"[deploy/unknown-target-kind] Unknown target kind '$other'. Supported: compose, container, faas, k8s, static, traditional, rsync, sftp")
