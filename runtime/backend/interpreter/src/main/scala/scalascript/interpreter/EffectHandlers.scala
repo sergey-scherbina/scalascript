@@ -66,9 +66,9 @@ private[interpreter] object EffectHandlers:
       throw InterpretError("unreachable")
     run(initial).flatMap { v =>
       val entries = Value.ListV(log.toList.map { (lv, msg) =>
-        Value.TupleV(List(Value.StringV(lv), Value.StringV(msg)))
+        Value.TupleV(Value.StringV(lv) :: Value.StringV(msg) :: Nil)
       })
-      Pure(Value.TupleV(List(v, entries)))
+      Pure(Value.TupleV(v :: entries :: Nil))
     }
 
   def loggerJsonStr(s: String): String =
@@ -400,7 +400,7 @@ private[interpreter] object EffectHandlers:
               return FlatMap(sub, v => run(f(v)))
       throw InterpretError("unreachable")
     run(initial).flatMap { result =>
-      Pure(Value.TupleV(List(state, result)))
+      Pure(Value.TupleV(state :: result :: Nil))
     }
 
   // ── HTTP request helper (used by httpRun above) ─────────────────────
@@ -479,7 +479,7 @@ private[interpreter] object EffectHandlers:
           case None => emitted
 
     def finish(bodyResult: Value): Computation =
-      Pure(Value.TupleV(List(makeSource(), bodyResult)))
+      Pure(Value.TupleV(makeSource() :: bodyResult :: Nil))
 
     def go(c0: Computation): Computation =
       var cur  = c0

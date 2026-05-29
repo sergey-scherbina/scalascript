@@ -1175,7 +1175,7 @@ private[interpreter] object DispatchRuntime:
       case "nonEmpty"  => Computation.pureBool(opt.nonEmpty)
       case "toList"    => opt match
         case None    => Computation.PureEmptyList
-        case Some(v) => Pure(Value.ListV(List(v)))
+        case Some(v) => Pure(Value.ListV(v :: Nil))
       case "get"       => opt match
         case Some(v) => Pure(v)
         case None    => interp.located("Option.get on None")
@@ -1451,7 +1451,7 @@ private[interpreter] object DispatchRuntime:
         case "isLeft"    => Computation.PureFalse
         case "toOption"  => Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
         case "swap"      => Pure(Value.InstanceV("Left", fields))
-        case "toSeq"     => Pure(Value.ListV(List(fields.getOrElse("value", Value.UnitV))))
+        case "toSeq"     => Pure(Value.ListV(fields.getOrElse("value", Value.UnitV) :: Nil))
         case "getOrElse" => Pure(fields.getOrElse("value", Value.UnitV))
         case "map"       => args match
           case List(f) =>
@@ -1649,7 +1649,7 @@ private[interpreter] object DispatchRuntime:
         case (Value.UnitV,      _)                => Pure(rhs)
         case (_,                Value.TupleV(bs)) => Pure(Value.TupleV(lhs :: bs))
         case (_,                Value.UnitV)      => Pure(lhs)
-        case _                                    => Pure(Value.TupleV(List(lhs, rhs)))
+        case _                                    => Pure(Value.TupleV(lhs :: rhs :: Nil))
       case ":::" => (lhs, rhs) match
         case (Value.ListV(a), Value.ListV(b)) =>
           if b.isEmpty then Pure(lhs)
@@ -1662,7 +1662,7 @@ private[interpreter] object DispatchRuntime:
       case "+:" => rhs match
         case Value.ListV(ls) => Pure(Value.ListV(lhs +: ls))
         case _               => dispatch(lhs, op, args, env, interp)
-      case "->" => Pure(Value.TupleV(List(lhs, rhs)))
+      case "->" => Pure(Value.TupleV(lhs :: rhs :: Nil))
       case "!" => lhs match
         case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", List(pid, rhs))
         case _                               => dispatch(lhs, op, List(rhs), env, interp)

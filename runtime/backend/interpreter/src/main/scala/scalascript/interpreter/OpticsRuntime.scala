@@ -382,8 +382,8 @@ private[interpreter] object OpticsRuntime:
       case PathStep.FieldStep(n) => Value.StringV(n)
       case PathStep.SomeStep     => Value.StringV("__some__")
       case PathStep.EachStep     => Value.StringV("__each__")
-      case PathStep.IndexStep(i) => Value.TupleV(List(Value.StringV("__index__"), Value.intV(i.toLong)))
-      case PathStep.AtKey(k)     => Value.TupleV(List(Value.StringV("__at__"), k))
+      case PathStep.IndexStep(i) => Value.TupleV(Value.StringV("__index__") :: Value.intV(i.toLong) :: Nil)
+      case PathStep.AtKey(k)     => Value.TupleV(Value.StringV("__at__") :: k :: Nil)
     })
 
   def stepsFromFields(fields: Map[String, Value]): Option[List[PathStep]] =
