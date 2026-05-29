@@ -481,6 +481,23 @@ private[interpreter] object DispatchRuntime:
               rem = rem.tail
             Pure(Value.ListV(buf.toList))
         case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "takeRight"  => arg match
+        case Value.IntV(n) =>
+          if n >= ls.length then Pure(recv)
+          else if n <= 0 then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.takeRight(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "dropRight"  => arg match
+        case Value.IntV(n) =>
+          if n <= 0 then Pure(recv)
+          else if n >= ls.length then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.dropRight(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "splitAt"    => arg match
+        case Value.IntV(n) =>
+          val (a, b) = ls.splitAt(n.toInt)
+          Pure(Value.TupleV(Value.ListV(a) :: Value.ListV(b) :: Nil))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
       case _            => dispatchList(ls, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Map. */
