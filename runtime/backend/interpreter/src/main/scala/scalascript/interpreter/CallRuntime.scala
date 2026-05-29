@@ -129,14 +129,14 @@ private[interpreter] object CallRuntime:
           slots(i) match
             case Some(v) =>
               orderedArr(i) = v
-              baseEnv2 = baseEnv2 + (f.params(i) -> v)
+              baseEnv2 = FrameMap.one(f.params(i), v, baseEnv2)
             case None =>
               val defaultOpt = if i < f.defaults.length then f.defaults(i) else None
               defaultOpt match
                 case Some(defaultTerm) =>
                   val v = Computation.run(interp.eval(defaultTerm, baseEnv2))
                   orderedArr(i) = v
-                  baseEnv2 = baseEnv2 + (f.params(i) -> v)
+                  baseEnv2 = FrameMap.one(f.params(i), v, baseEnv2)
                 case None =>
                   if partialFrom < 0 then partialFrom = i
         if partialFrom >= 0 && namedArgs.nonEmpty then
@@ -206,7 +206,9 @@ private[interpreter] object CallRuntime:
     // like `f(a)(b, c)` work when the def is stored with all param lists flattened.
     if tupledArgs.nonEmpty && tupledArgs.length < f.params.length && f.usingParams.isEmpty then
       // Fill as many defaults as we can; stop at the first required (no-default) param.
-      var env2 = interp.closureWithSelfFor(f) ++ Map.from(f.params.take(tupledArgs.length).lazyZip(tupledArgs))
+      var env2: Map[String, Value] = interp.closureWithSelfFor(f)
+      val pIter = f.params.iterator; val aIter = tupledArgs.iterator
+      while pIter.hasNext && aIter.hasNext do env2 = FrameMap.one(pIter.next(), aIter.next(), env2)
       var partialStart = -1
       val filled = scala.collection.mutable.ListBuffer.empty[Value]
       for i <- (tupledArgs.length until f.params.length) do
@@ -215,7 +217,7 @@ private[interpreter] object CallRuntime:
             case Some(defaultTerm) =>
               val v = Computation.run(interp.eval(defaultTerm, env2))
               filled += v
-              env2 = env2 + (f.params(i) -> v)
+              env2 = FrameMap.one(f.params(i), v, env2)
             case None =>
               partialStart = i
       if partialStart >= 0 then
@@ -404,14 +406,16 @@ private[interpreter] object CallRuntime:
     if args.length >= params.length then args
     else
       val provided = args
-      var env = baseEnv ++ Map.from(params.lazyZip(provided))
+      var env: Map[String, Value] = baseEnv
+      val pi = params.iterator; val ai = provided.iterator
+      while pi.hasNext && ai.hasNext do env = FrameMap.one(pi.next(), ai.next(), env)
       val filled = (provided.length until params.length).map { i =>
         val pname      = params(i)
         val defaultOpt = if i < defaults.length then defaults(i) else None
         defaultOpt match
           case Some(defaultTerm) =>
             val v = Computation.run(interp.eval(defaultTerm, env))
-            env = env + (pname -> v)
+            env = FrameMap.one(pname, v, env)
             v
           case None =>
             interp.located(s"missing argument for parameter '$pname'")
