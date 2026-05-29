@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4, 5, 6 implemented on `main` (2026-05-29).
-58 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 4, 5, 6, 10 implemented on `main` (2026-05-29).
+70 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -881,21 +881,28 @@ Tasks:
 
 Effort: ~4 days.
 
-### Phase 10 - Security, Limits, And Observability
+### Phase 10 - Security, Limits, And Observability ✅ Landed (2026-05-29)
 
 **Goal:** GraphQL servers have production controls by default.
 
-Tasks:
+Implemented via `GraphQL.options(...)` intrinsic and `GraphQLOpts` data class:
 
-- Introspection policy.
-- Depth, complexity, alias, token, variable, and body-size limits.
-- Resolver timeout and cancellation.
-- Auth principal injection and field-level auth helpers.
-- Error redaction and `extensions.code`.
-- Structured metrics/tracing/logging.
-- Tests for each limit and redaction mode.
+- [x] `GraphQL.options(maxDepth, maxComplexity, maxQueryLength, disableIntrospection)` —
+  positional params, all optional.  Returns `Value.Foreign("GraphQLOptions", GraphQLOpts)`.
+- [x] `maxDepth: Int` — `MaxQueryDepthInstrumentation(n)` wired into graphql-java engine.
+- [x] `maxComplexity: Int` — `MaxQueryComplexityInstrumentation(n)` wired into graphql-java engine.
+- [x] `maxQueryLength: Int` — body-length check before parsing; returns error (400 under
+  `application/graphql-response+json`, 200 under `application/json`).
+- [x] `disableIntrospection: Boolean` — rejects queries containing `__schema` or `__type`.
+- [x] `graphqlHandler(schema, resolvers, opts)` — accepts optional 3rd arg.
+- [x] `graphqlMount(resolvers, opts)` and `serveGraphQL(port, resolvers, opts)` — likewise.
+- [x] `GraphQLSecurityTest` (12 tests): options intrinsic, limit enforcement, backwards compat.
+- [ ] Alias / token / variable count limits — deferred to Phase 10b.
+- [ ] Resolver timeout and cancellation — requires async runtime changes; deferred.
+- [ ] Auth principal injection, field-level auth helpers — deferred to Phase 10b.
+- [ ] Error redaction / structured tracing — deferred to Phase 10b.
 
-Effort: ~5 days.
+Effort: ~1 day (core instrumentation limits done; advanced security deferred).
 
 ### Phase 11 - Schema Export, Import, Diff, And Contract Tests
 
@@ -956,7 +963,7 @@ Effort: ~5 days.
 | 7 | Operation validation and typed client round-trips | Compiler + runtime |
 | 8 | Persisted operation manifest/hash tests | CLI + runtime |
 | 9 | DataLoader batch/cache/failure tests | Runtime |
-| 10 | Limits/auth/redaction/metrics tests | Runtime + security |
+| 10 | `GraphQLSecurityTest` (12) ✅; auth/redaction/tracing deferred | Runtime + security |
 | 11 | Schema export/import/diff/fixture tests | CLI + contract |
 | 12 | Federation plugin smoke tests | Plugin integration |
 | 13 | SSE/multipart lifecycle tests | Integration |

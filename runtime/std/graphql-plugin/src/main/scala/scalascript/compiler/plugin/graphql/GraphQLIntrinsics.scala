@@ -6,6 +6,8 @@ import scalascript.interpreter.{Value, InterpretError, Computation}
 import scalascript.plugin.api.{PluginContext, PluginNative}
 
 import graphql.GraphQL
+import graphql.analysis.{MaxQueryComplexityInstrumentation, MaxQueryDepthInstrumentation}
+import graphql.execution.instrumentation.ChainedInstrumentation
 import graphql.language.OperationDefinition
 import graphql.schema.{Coercing, DataFetchingEnvironment, GraphQLScalarType}
 import graphql.schema.idl.{RuntimeWiring, SchemaGenerator, SchemaParser, TypeRuntimeWiring}
@@ -59,44 +61,72 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("GraphQL.scalar(name: String, serialize: Value => Any, coerce: Any => Value)")
     },
 
-    // serveGraphQL(port, resolvers) — registers POST + GET /graphql, then starts server.
+    // GraphQL.options(...) — runtime limits and policy.
+    // Parameters (all optional, positional):
+    //   maxDepth: Int, maxComplexity: Int, maxQueryLength: Int, disableIntrospection: Boolean
+    QualifiedName("GraphQL.options") -> PluginNative.evalLegacy { (_, args) =>
+      val maxDepth     = args.headOption.collect { case Value.IntV(n) => n.toInt }
+      val maxComplexity = args.drop(1).headOption.collect { case Value.IntV(n) => n.toInt }
+      val maxQueryLen  = args.drop(2).headOption.collect { case Value.IntV(n) => n.toInt }
+      val noIntrospect = args.drop(3).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
+      Value.Foreign("GraphQLOptions",
+        GraphQLOpts(maxDepth, maxComplexity, maxQueryLen, noIntrospect))
+    },
+
+    // serveGraphQL(port, resolvers[, opts]) — registers POST + GET /graphql, then starts server.
     QualifiedName("serveGraphQL") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(port: Long, Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
-          mountGraphQL(ctx, res)
+          mountGraphQL(ctx, res, GraphQLOpts.default)
+          ctx.registerHealthDefaults()
+          ctx.startServer(port.toInt, ".")
+          Value.UnitV
+        case List(port: Long,
+                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+          mountGraphQL(ctx, res, opts)
           ctx.registerHealthDefaults()
           ctx.startServer(port.toInt, ".")
           Value.UnitV
         case List(port: Long,
                   Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
                   Value.InstanceV("TlsContext", tls)) =>
-          mountGraphQL(ctx, res)
+          mountGraphQL(ctx, res, GraphQLOpts.default)
           ctx.registerHealthDefaults()
           val cert = tls.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tls.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           ctx.startTlsServer(port.toInt, ".", cert, key)
           Value.UnitV
-        case _ => throw InterpretError("serveGraphQL(port: Int, resolvers: GraphQLResolvers)")
+        case _ => throw InterpretError("serveGraphQL(port: Int, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
-    // graphqlMount(resolvers) — registers POST + GET /graphql without calling serve().
+    // graphqlMount(resolvers[, opts]) — registers POST + GET /graphql without calling serve().
     QualifiedName("graphqlMount") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
-          mountGraphQL(ctx, res)
+          mountGraphQL(ctx, res, GraphQLOpts.default)
           Value.UnitV
-        case _ => throw InterpretError("graphqlMount(resolvers: GraphQLResolvers)")
+        case List(Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+          mountGraphQL(ctx, res, opts)
+          Value.UnitV
+        case _ => throw InterpretError("graphqlMount(resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
-    // graphqlHandler(schema, resolvers) — returns a Request => Response handler value.
+    // graphqlHandler(schema, resolvers[, opts]) — returns a Request => Response handler value.
     QualifiedName("graphqlHandler") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("GraphQLSchema", sdl: String),
                   Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
-          val engine = buildEngine(sdl, res, ctx)
-          handlerValue(engine)
+          val engine = buildEngine(sdl, res, ctx, GraphQLOpts.default)
+          handlerValue(engine, GraphQLOpts.default)
+        case List(Value.Foreign("GraphQLSchema", sdl: String),
+                  Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
+                  Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
+          val engine = buildEngine(sdl, res, ctx, opts)
+          handlerValue(engine, opts)
         case _ => throw InterpretError(
-          "graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers)")
+          "graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
 
     // graphqlQuery(url, query) or graphqlQuery(url, query, variables)
@@ -125,11 +155,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       }.toMap
     case _ => Map.empty
 
-  private def mountGraphQL(ctx: PluginContext, res: GraphQLResolvers): Unit =
+  private def mountGraphQL(ctx: PluginContext, res: GraphQLResolvers, opts: GraphQLOpts): Unit =
     val sdl = runner.registeredSdl.getOrElse(
       throw InterpretError("No graphql SDL registered — add a ```graphql block before serveGraphQL"))
-    val engine = buildEngine(sdl, res, ctx)
-    val h = handlerValue(engine)
+    val engine = buildEngine(sdl, res, ctx, opts)
+    val h = handlerValue(engine, opts)
     ctx.registerRoute("POST", "/graphql", h)
     ctx.registerRoute("GET",  "/graphql", h)
 
@@ -140,7 +170,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     val dot = key.indexOf('.')
     if dot < 0 then (defaultType, key) else (key.substring(0, dot), key.substring(dot + 1))
 
-  private def buildEngine(sdl: String, res: GraphQLResolvers, ctx: PluginContext): graphql.GraphQL =
+  private def buildEngine(sdl: String, res: GraphQLResolvers, ctx: PluginContext, opts: GraphQLOpts): graphql.GraphQL =
     val typeReg = new SchemaParser().parse(sdl)
     val wiring  = RuntimeWiring.newRuntimeWiring()
 
@@ -181,12 +211,22 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       wiring.`type`(tw)
     }
 
-    val schema = new SchemaGenerator().makeExecutableSchema(typeReg, wiring.build())
-    GraphQL.newGraphQL(schema).build()
+    val schema  = new SchemaGenerator().makeExecutableSchema(typeReg, wiring.build())
+    val builder = GraphQL.newGraphQL(schema)
 
-  private def handlerValue(engine: graphql.GraphQL): Value =
+    // Register limit instrumentations.
+    val instrumentations = scala.collection.mutable.ListBuffer[graphql.execution.instrumentation.Instrumentation]()
+    opts.maxDepth.foreach(d => instrumentations += MaxQueryDepthInstrumentation(d))
+    opts.maxComplexity.foreach(c => instrumentations += MaxQueryComplexityInstrumentation(c))
+    if instrumentations.size == 1 then builder.instrumentation(instrumentations.head)
+    else if instrumentations.size > 1 then
+      builder.instrumentation(ChainedInstrumentation(instrumentations.toList.asJava))
+
+    builder.build()
+
+  private def handlerValue(engine: graphql.GraphQL, opts: GraphQLOpts): Value =
     Value.NativeFnV("graphql.handler", Computation.pureFn {
-      case List(req) => handleRequest(engine, req)
+      case List(req) => handleRequest(engine, opts, req)
       case _         => throw InterpretError("GraphQL handler expects a Request argument")
     })
 
@@ -220,7 +260,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
     ))
 
-  private def handleRequest(engine: graphql.GraphQL, req: Any): Value =
+  private def handleRequest(engine: graphql.GraphQL, opts: GraphQLOpts, req: Any): Value =
     val (method, path, body, fields) = req match
       case Value.InstanceV("Request", f) =>
         val m = f.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
@@ -233,6 +273,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     // we respond with that type and may return 4xx/5xx status codes on errors.
     val useGqlCt = acceptsGqlResponseJson(fields)
     val ct       = if useGqlCt then GQL_RESPONSE_JSON else APP_JSON
+
+    // Apply body/query-length limit before parsing.
+    if opts.maxQueryLength.exists(body.length > _) then
+      return errorResponse(if useGqlCt then 400 else 200,
+        s"Request body exceeds maximum length of ${opts.maxQueryLength.get} bytes", ct)
 
     // Decode query parameters from path for GET requests.
     val qp: Map[String, String] =
@@ -262,6 +307,13 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     if query.isBlank then
       return if useGqlCt then errorResponse(400, "Missing query", ct)
              else errorResponse(200, "Missing query", ct)
+
+    // Block introspection queries when configured.
+    if opts.disableIntrospection then
+      val lower = query.trim.replace("\n", " ").replace("\t", " ")
+      val hasIntrospect = lower.contains("__schema") || lower.contains("__type")
+      if hasIntrospect then
+        return errorResponse(if useGqlCt then 400 else 200, "Introspection is disabled", ct)
 
     // GET requests must not execute mutations (GraphQL-over-HTTP §6.2.2).
     if method == "GET" then

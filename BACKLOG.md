@@ -5707,11 +5707,12 @@ optional federation/realtime adapters.
   behavior.
   Spec: `docs/graphql.md §7 Phase 9`. Effort: ~4 days.
 
-- [ ] **graphql-p10** — Security, limits, and observability:
-  introspection policy, depth/complexity/alias/token/body limits, resolver
-  timeout/cancellation, auth principal injection, field-level auth helpers,
-  error redaction, structured tracing/metrics/logging.
-  Spec: `docs/graphql.md §7 Phase 10`. Effort: ~5 days.
+- [x] **graphql-p10** — Security, limits, and observability:
+  `GraphQL.options(maxDepth, maxComplexity, maxQueryLength, disableIntrospection)`;
+  `MaxQueryDepthInstrumentation` + `MaxQueryComplexityInstrumentation` via graphql-java;
+  body-length guard; introspection block; optional 3rd arg to `graphqlHandler`,
+  `graphqlMount`, `serveGraphQL`; `GraphQLOpts` data class; `GraphQLSecurityTest` (12 tests).
+  Auth/redaction/tracing deferred to Phase 10b. ✓ Landed 2026-05-29.
 
 - [ ] **graphql-p11** — Schema export/import/diff and contract tests:
   `emit-graphql-schema`, `import-graphql-schema`, `diff-graphql`,
