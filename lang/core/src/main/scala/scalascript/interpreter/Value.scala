@@ -628,21 +628,23 @@ object Computation:
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =
     if cs.isEmpty then return PureEmptyList
-    var allPure = true
     var rest    = cs
     val buf     = new scala.collection.mutable.ArrayBuffer[Value](cs.length)
-    while allPure && rest.nonEmpty do
+    while rest.nonEmpty do
       rest.head match
         case Pure(v) => buf += v; rest = rest.tail
-        case _       => allPure = false
-    if allPure then
-      val items = buf.toList
-      if items.isEmpty then PureEmptyList else Pure(Value.ListV(items))
-    else
-      def loop(remaining: List[Computation], acc: List[Value]): Computation = remaining match
-        case Nil       => Pure(Value.ListV(acc.reverse))
-        case c :: rest => FlatMap(c, v => loop(rest, v :: acc))
-      loop(cs, Nil)
+        case _       =>
+          // Build initAcc from buf in reverse so that acc.reverse at the end
+          // restores the original order of the already-accumulated pure values.
+          var initAcc: List[Value] = Nil
+          var i = 0
+          while i < buf.length do { initAcc = buf(i) :: initAcc; i += 1 }
+          def loop(remaining: List[Computation], acc: List[Value]): Computation = remaining match
+            case Nil       => Pure(Value.ListV(acc.reverse))
+            case c :: tail => FlatMap(c, v => loop(tail, v :: acc))
+          return loop(rest, initAcc)
+    val items = buf.toList
+    if items.isEmpty then PureEmptyList else Pure(Value.ListV(items))
 
   /** Run a computation to a Value, erroring on any unhandled Perform.
    *  Uses a while-loop with FlatMap re-association — stack-safe regardless of
