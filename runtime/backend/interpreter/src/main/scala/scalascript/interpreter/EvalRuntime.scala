@@ -44,7 +44,7 @@ private[interpreter] object EvalRuntime:
           case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
           case Lit.String(v)  => Pure(Value.StringV(v))
           case Lit.Boolean(v) => Computation.pureBool(v)
-          case Lit.Char(v)    => Pure(Value.CharV(v))
+          case Lit.Char(v)    => Pure(Value.charV(v))
           case Lit.Unit()     => Computation.PureUnit
           case Lit.Null()     => Computation.PureNull
           case _              => Computation.PureNull

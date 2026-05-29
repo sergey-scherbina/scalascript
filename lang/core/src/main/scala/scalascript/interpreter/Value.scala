@@ -291,6 +291,14 @@ object Value:
     else if d == 1.0 then DoubleOne
     else DoubleV(d)
 
+  // Pool of CharV for the printable ASCII + control range (0–127).
+  // Covers the entire 7-bit ASCII range so string.charAt / string.map over
+  // ASCII text never allocates a fresh CharV.
+  private val _charVPool: Array[CharV] = Array.tabulate(128)(i => CharV(i.toChar))
+
+  def charV(c: Char): CharV =
+    if c.toInt < 128 then _charVPool(c.toInt) else CharV(c)
+
   // Pre-cached constants used by the Computation monad's run loop.
   val True:      BoolV   = BoolV(true)
   val False:     BoolV   = BoolV(false)
