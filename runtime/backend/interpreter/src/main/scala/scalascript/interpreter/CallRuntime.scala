@@ -117,7 +117,7 @@ private[interpreter] object CallRuntime:
               orderedArr(i) = v
               baseEnv2 = baseEnv2 + (f.params(i) -> v)
             case None =>
-              val defaultOpt = f.defaults.lift(i).flatten
+              val defaultOpt = if i < f.defaults.length then f.defaults(i) else None
               defaultOpt match
                 case Some(defaultTerm) =>
                   val v = Computation.run(interp.eval(defaultTerm, baseEnv2))
@@ -128,7 +128,7 @@ private[interpreter] object CallRuntime:
         if partialFrom >= 0 && namedArgs.nonEmpty then
           // Some required params are unsatisfied — return a partial closure so that
           // curried call sites like `f(a)(b, c)` work when `f` is stored flattened.
-          val partialEnv = f.closure ++ f.params.take(partialFrom).zip(orderedArr.take(partialFrom)).toMap
+          val partialEnv = f.closure ++ Map.from(f.params.take(partialFrom).lazyZip(orderedArr.take(partialFrom)))
           Pure(Value.FunV(
             f.params.drop(partialFrom),
             f.body,
@@ -192,12 +192,12 @@ private[interpreter] object CallRuntime:
     // like `f(a)(b, c)` work when the def is stored with all param lists flattened.
     if tupledArgs.nonEmpty && tupledArgs.length < f.params.length && f.usingParams.isEmpty then
       // Fill as many defaults as we can; stop at the first required (no-default) param.
-      var env2 = interp.closureWithSelfFor(f) ++ f.params.take(tupledArgs.length).zip(tupledArgs).toMap
+      var env2 = interp.closureWithSelfFor(f) ++ Map.from(f.params.take(tupledArgs.length).lazyZip(tupledArgs))
       var partialStart = -1
       val filled = scala.collection.mutable.ListBuffer.empty[Value]
       for i <- (tupledArgs.length until f.params.length) do
         if partialStart < 0 then
-          f.defaults.lift(i).flatten match
+          (if i < f.defaults.length then f.defaults(i) else None) match
             case Some(defaultTerm) =>
               val v = Computation.run(interp.eval(defaultTerm, env2))
               filled += v
@@ -386,10 +386,10 @@ private[interpreter] object CallRuntime:
     if args.length >= params.length then args
     else
       val provided = args
-      var env = baseEnv ++ params.zip(provided).toMap
+      var env = baseEnv ++ Map.from(params.lazyZip(provided))
       val filled = (provided.length until params.length).map { i =>
         val pname      = params(i)
-        val defaultOpt = defaults.lift(i).flatten
+        val defaultOpt = if i < defaults.length then defaults(i) else None
         defaultOpt match
           case Some(defaultTerm) =>
             val v = Computation.run(interp.eval(defaultTerm, env))

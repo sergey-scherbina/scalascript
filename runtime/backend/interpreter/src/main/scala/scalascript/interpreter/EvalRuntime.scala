@@ -998,14 +998,24 @@ private[interpreter] object EvalRuntime:
   /** Extract values from a list of Pure computations in one pass.
    *  Returns null if any computation is non-Pure (caller falls back to threadValues). */
   private[interpreter] def extractPureValues(comps: List[Computation]): List[Value] | Null =
-    if comps.isEmpty then return Nil
-    val buf  = new scala.collection.mutable.ArrayBuffer[Value](comps.length)
-    var rest = comps
-    while rest.nonEmpty do
-      rest.head match
-        case Pure(v) => buf += v; rest = rest.tail
-        case _       => return null
-    buf.toList
+    // Fast paths for 0–3 args avoid ArrayBuffer + toList entirely.
+    // Non-pure small-arity returns null immediately without allocating the buffer.
+    comps match
+      case Nil                                     => Nil
+      case List(Pure(v))                           => v :: Nil
+      case List(_)                                 => null
+      case List(Pure(v1), Pure(v2))                => v1 :: v2 :: Nil
+      case List(_, _)                              => null
+      case List(Pure(v1), Pure(v2), Pure(v3))      => v1 :: v2 :: v3 :: Nil
+      case List(_, _, _)                           => null
+      case _ =>
+        val buf  = new scala.collection.mutable.ArrayBuffer[Value](comps.length)
+        var rest = comps
+        while rest.nonEmpty do
+          rest.head match
+            case Pure(v) => buf += v; rest = rest.tail
+            case _       => return null
+        buf.toList
 
   private def projectTypedRows(typeName: String, value: Value, interp: Interpreter): Value = value match
     case Value.ListV(rows) =>
