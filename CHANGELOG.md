@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter CharV ASCII pool
+
+- **perf/interpreter-char-pool** — Ported the ASCII `CharV` pool from
+  `perf/interpreter-opt`. Character literals and string character-producing
+  paths now use `Value.charV`, so common ASCII string iteration and indexing
+  avoid fresh `CharV` allocation.
+
 ## 2026-05-29 — interpreter Int single-arg fast path
 
 - **perf/interpreter-int1** — Ported the `dispatchInt1` fast path from
