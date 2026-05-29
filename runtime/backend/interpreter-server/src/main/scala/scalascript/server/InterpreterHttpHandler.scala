@@ -122,9 +122,9 @@ final class InterpreterHttpHandler(
         var authRejected: Boolean      = false
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(requestValue)) match
-            case Value.OptionV(v) if v != null => userPayload = Some(v)
-            case Value.NoneV                   => authRejected = true
-            case other                         => userPayload = Some(other)
+            case ov: Value.OptionV if ov.inner != null => userPayload = Some(ov.inner)
+            case _: Value.OptionV                     => authRejected = true
+            case other                                => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"WS auth hook error: ${e.getMessage}")
             authRejected = true
@@ -166,9 +166,9 @@ final class InterpreterHttpHandler(
       "query"   -> Value.MapV(r.query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "headers" -> Value.MapV(r.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "body"    -> Value.StringV(r.body),
-      "json"    -> Value.optionV(
-        if r.body.isEmpty then None
-        else scalascript.interpreter.JsonParser.parseOption(r.body)
+      "json"    -> Value.OptionV(
+        if r.body.isEmpty then null
+        else scalascript.interpreter.JsonParser.parseOption(r.body).orNull
       ),
       "form"    -> Value.MapV(r.form.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "files"   -> Value.MapV(r.files.map { case (k, f) =>
@@ -394,7 +394,7 @@ private final class InterpreterWsListener(
     // the cluster's `/_ssc-actors` route) need a parked-on-VT
     // read primitive in addition to the onMessage callback path.
     val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
-      case Nil => Value.optionV(controls.recv().map(Value.StringV(_)))
+      case Nil => Value.OptionV(controls.recv().map(Value.StringV(_)).orNull)
       case _   => throw scalascript.interpreter.InterpretError("ws.recv()")
     })
     val userValue: Value = userPayload match

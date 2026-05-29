@@ -179,9 +179,9 @@ final class WsProxy(
         var authRejected: Boolean      = false
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(request)) match
-            case Value.OptionV(v) if v != null => userPayload = Some(v)
-            case Value.NoneV                   => authRejected = true
-            case other                         => userPayload = Some(other)
+            case ov: Value.OptionV if ov.inner != null => userPayload = Some(ov.inner)
+            case _: Value.OptionV                     => authRejected = true
+            case other                                => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"WS auth hook error: ${e.getMessage}")
             authRejected = true

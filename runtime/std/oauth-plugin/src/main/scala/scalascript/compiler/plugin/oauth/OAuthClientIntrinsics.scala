@@ -126,8 +126,8 @@ object OAuthClientIntrinsicHelpers:
         (Value.StringV("accessToken"):  Value) -> (Value.StringV(t.accessToken):       Value),
         (Value.StringV("tokenType"):    Value) -> (Value.StringV(t.tokenType):         Value),
         (Value.StringV("expiresIn"):    Value) -> (Value.intV(t.expiresIn):            Value),
-        (Value.StringV("refreshToken"): Value) -> Value.optionV(t.refreshToken.map(Value.StringV(_))),
-        (Value.StringV("idToken"):      Value) -> Value.optionV(t.idToken.map(Value.StringV(_))),
+        (Value.StringV("refreshToken"): Value) -> Value.OptionV(t.refreshToken.map(Value.StringV(_))),
+        (Value.StringV("idToken"):      Value) -> Value.OptionV(t.idToken.map(Value.StringV(_))),
         (Value.StringV("scope"):        Value) -> Value.ListV(t.scope.toList.sorted.map(Value.StringV(_))),
         (Value.StringV("raw"):          Value) -> ujsonToValue(raw)
       ))
@@ -183,11 +183,11 @@ object OAuthClientIntrinsicHelpers:
       case Value.DoubleV(d) => d.toLong
     }.getOrElse(3600L)
     val refresh = fs.get("refreshToken").collect {
-      case Value.OptionV(Value.StringV(s))       => s
+      case Value.OptionV(Value.StringV(s)) => s
       case Value.StringV(s)                       => s
     }
     val idTok = fs.get("idToken").collect {
-      case Value.OptionV(Value.StringV(s))       => s
+      case Value.OptionV(Value.StringV(s)) => s
       case Value.StringV(s)                       => s
     }
     val scopeSet = fs.get("scope").map {

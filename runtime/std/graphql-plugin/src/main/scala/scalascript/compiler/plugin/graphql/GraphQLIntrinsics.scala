@@ -634,8 +634,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     case Value.DoubleV(d)           => ujson.Num(d)
     case Value.BoolV(b)             => ujson.Bool(b)
     case Value.UnitV                => ujson.Null
-    case Value.OptionV(inner) if inner != null => valueToUJson(inner)
-    case Value.OptionV(null)                   => ujson.Null
+    case ov: Value.OptionV          => if ov.inner != null then valueToUJson(ov.inner) else ujson.Null
     case Value.ListV(items)         => ujson.Arr.from(items.map(valueToUJson))
     case Value.MapV(m)              =>
       ujson.Obj.from(m.map { (k, vv) => String.valueOf(valueToJava(k)) -> valueToUJson(vv) })
@@ -675,8 +674,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     case Value.DoubleV(d)           => d
     case Value.BoolV(b)             => b
     case Value.UnitV                => null
-    case Value.OptionV(inner) if inner != null => valueToJava(inner)
-    case Value.OptionV(null)                   => null
+    case ov: Value.OptionV          => if ov.inner != null then valueToJava(ov.inner) else null
     case Value.ListV(items)         => items.map(valueToJava).asJava
     case Value.MapV(m)              =>
       m.map { (k, vv) => valueToJava(k).toString -> valueToJava(vv) }.asJava

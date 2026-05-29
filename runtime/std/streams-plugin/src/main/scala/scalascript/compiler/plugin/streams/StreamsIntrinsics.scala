@@ -697,7 +697,7 @@ object StreamsIntrinsics:
               var step = ctx.invokeCallback(nextFn, Nil).asInstanceOf[Value]
               while step != Value.NoneV do
                 step match
-                  case Value.OptionV(v) if v != null => queue.put(Some(v))
+                  case ov: Value.OptionV if ov.inner != null => queue.put(Some(ov.inner))
                   case _ =>
                 step = ctx.invokeCallback(nextFn, Nil).asInstanceOf[Value]
             catch case _: Throwable => ()
@@ -1216,7 +1216,8 @@ object StreamsIntrinsics:
                     val result = ctx.synchronized { ctx.invokeCallback(f, List(state)).asInstanceOf[Value] }
                     result match
                       case Value.NoneV => running = false
-                      case Value.OptionV(Value.TupleV(xs)) if xs.length == 2 =>
+                      case ov: Value.OptionV if ov.inner.isInstanceOf[Value.TupleV] && ov.inner.asInstanceOf[Value.TupleV].elems.length == 2 =>
+                        val xs = ov.inner.asInstanceOf[Value.TupleV].elems
                         q.put(Some(xs(1)))
                         state = xs(0)
                       case _ => running = false

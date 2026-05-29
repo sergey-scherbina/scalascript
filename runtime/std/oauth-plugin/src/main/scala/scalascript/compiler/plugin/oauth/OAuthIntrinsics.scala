@@ -314,7 +314,7 @@ object OAuthIntrinsicHelpers:
 
   def valueToUjson(v: Value): ujson.Value = v match
     case Value.NoneV    => ujson.Null
-    case Value.OptionV(x) if x != null => valueToUjson(x)
+    case ov: Value.OptionV if ov.inner != null => valueToUjson(ov.inner)
     case Value.BoolV(b)         => if b then ujson.True else ujson.False
     case Value.StringV(s)       => ujson.Str(s)
     case Value.IntV(i)          => ujson.Num(i.toDouble)

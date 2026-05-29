@@ -273,9 +273,9 @@ object RemoteIntrinsics:
     Value.InstanceV("RemoteHandlerInfo", Map(
       "name"         -> Value.StringV(info.name),
       "function"     -> Value.StringV(info.function),
-      "path"         -> Value.optionV(info.path.map(s => Value.StringV(s))),
-      "requestType"  -> Value.optionV(info.requestType.map(s => Value.StringV(s))),
-      "responseType" -> Value.optionV(info.responseType.map(s => Value.StringV(s))),
+      "path"         -> info.path.map(s => Value.OptionV(Value.StringV(s))).getOrElse(Value.NoneV),
+      "requestType"  -> info.requestType.map(s => Value.OptionV(Value.StringV(s))).getOrElse(Value.NoneV),
+      "responseType" -> info.responseType.map(s => Value.OptionV(Value.StringV(s))).getOrElse(Value.NoneV),
       "transports"   -> Value.ListV(info.transports.toList.sorted.map(Value.StringV.apply))
     ))
 

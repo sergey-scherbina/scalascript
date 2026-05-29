@@ -99,7 +99,7 @@ object SqlIntrinsics:
     case Value.UnitV      => null
     case Value.NullV      => null
     case Value.NoneV => null
-    case Value.OptionV(inner) if inner != null => unwrapValue(inner)
+    case ov: Value.OptionV if ov.inner != null => unwrapValue(ov.inner)
     case _                => v.toString
 
   private def rowFields(ctx: PluginContext, value: Value): Vector[(String, Any)] = value match
@@ -174,7 +174,7 @@ object SqlBlockRunnerImpl extends SqlBlockRunner:
     case Value.UnitV                => null
     case Value.NullV                => null
     case Value.NoneV        => null
-    case Value.OptionV(inner) if inner != null => unwrapForJdbc(inner)
+    case ov: Value.OptionV if ov.inner != null => unwrapForJdbc(ov.inner)
     case Value.Foreign(_, h)        => h
     case other                      => other
 

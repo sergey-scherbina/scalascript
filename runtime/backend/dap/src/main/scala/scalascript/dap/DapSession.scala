@@ -203,8 +203,8 @@ final class DapSession(conn: Socket):
       allocRef(entries.toIndexedSeq.map { case (k, v) => (IValue.show(k), v) })
     case IValue.TupleV(elems) =>
       allocRef(elems.zipWithIndex.map { case (v, i) => (s"_${i + 1}", v) }.toIndexedSeq)
-    case IValue.OptionV(inner) if inner != null =>
-      allocRef(IndexedSeq(("value", inner)))
+    case ov: IValue.OptionV if ov.inner != null =>
+      allocRef(IndexedSeq(("value", ov.inner)))
     case _ => 0
 
   /** Convert one (name, Value) pair to a DAP Variable JSON object. */
@@ -230,8 +230,8 @@ final class DapSession(conn: Socket):
       case IValue.MapV(m)            => (s"Map(${m.size})", "Map")
       case IValue.TupleV(elems)      => (s"Tuple${elems.length}", s"Tuple${elems.length}")
       case IValue.NoneV              => ("None", "Option")
-      case IValue.OptionV(null)      => ("None", "Option")
-      case IValue.OptionV(i)         => (s"Some(${IValue.show(i)})", "Option")
+      case ov: IValue.OptionV        =>
+        if ov.inner != null then (s"Some(${IValue.show(ov.inner)})", "Option") else ("None", "Option")
       case IValue.DocV(_)            => ("<doc>", "Doc")
       case IValue.MarkupV(_)         => ("<markup>", "Markup")
       case IValue.Foreign(t, _)      => (s"<foreign:$t>", t)
