@@ -1,6 +1,6 @@
 # DSL Platform Hooks — Specification
 
-Status: **implemented through Phase 3**.  Tracked as `arch-dsl-hooks` milestone
+Status: **implemented through Phase 4**.  Tracked as `arch-dsl-hooks` milestone
 in `BACKLOG.md`.
 Companion: [`docs/dsl.md`](dsl.md), [`docs/plugin-architecture.md`](plugin-architecture.md),
 [`docs/arch-stable-spi.md`](arch-stable-spi.md).
@@ -163,12 +163,12 @@ Generalize:
 ```scala
 trait InterpolatorCheck {
   def interpolatorName: String  // which interpolator to check
-  def check(parts: List[String], span: Span): List[Diagnostic]
+  def check(parts: List[String]): List[Diagnostic]
 }
 
 object InterpolatorCheckRegistry {
   def register(c: InterpolatorCheck): Unit
-  def checkAll(name: String, parts: List[String], span: Span): List[Diagnostic]
+  def checkAll(name: String, parts: List[String]): List[Diagnostic]
 }
 ```
 
@@ -176,6 +176,9 @@ object InterpolatorCheckRegistry {
 The transform pass calls `InterpolatorCheckRegistry.checkAll` instead.
 Plugin `xml-plugin` (or future `graphql-plugin`) can register their own
 compile-time well-formedness checks without touching the transform pipeline.
+Backends expose checks through `Backend.interpolatorChecks`; `BackendRegistry`
+registers checks, interpolators, and preprocessors when ServiceLoader backends
+are discovered.
 
 ## 5. Migration
 
@@ -226,8 +229,9 @@ No user-facing `.ssc` syntax changes.  Existing examples continue to work.
 
 - `InterpolatorCheckRegistry` + `InterpolatorCheck` trait.
 - `MarkupInterpolatorCheck` migrated.
-- Phase 3 `graphql-plugin` example registers its own check.
-- Tests: compile-time error for malformed `xml"…"` still emitted.
+- `Backend.interpolatorChecks` and `BackendRegistry` registration wiring.
+- Tests: compile-time error for malformed `xml"…"` still emitted; custom
+  registry check runs through the shared interpolation traversal.
 
 ## 7. Testing strategy
 

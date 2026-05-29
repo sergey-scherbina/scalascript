@@ -119,7 +119,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration: `html`, `css`, `sql`, `xml`, `javascript` fenced tags become `SourceLanguagePlugin` implementations; `Lang.scala` routing removed. Spec: `docs/arch-dsl-hooks.md §6 Phase 3`. ✓ Landed 2026-05-29: bundled SourceLanguage registry now discovers `scala`, `html`, `css`, `javascript`/`js`, `xml`, bind-aware `sql`, and bind-aware `transaction`; `compileBlock` has an attrs-aware overload for fenced attrs; Normalize dispatches through registry with core-only SQL/transaction fallbacks.
 
-- [ ] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`: `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin `xml-plugin` registers compile-time check. Spec: `docs/arch-dsl-hooks.md §6 Phase 4`.
+- [x] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`: `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin `xml-plugin` registers compile-time check. Spec: `docs/arch-dsl-hooks.md §6 Phase 4`. ✓ Landed 2026-05-29: `InterpolatorCheck` SPI trait in `runtime/backend/spi`; `InterpolatorCheckRegistry` with `XmlInterpolatorCheck` pre-registered (uses `PureMarkupCodec` for xml"…" validation); `MarkupInterpolatorCheck` now dispatches all interpolation names through `InterpolatorCheckRegistry.checkAll`; `Backend.interpolatorChecks: List[InterpolatorCheck]` default `Nil`; `BackendRegistry.registerDslHooks` registers checks on backend load; 12 tests (10 MarkupInterpolatorCheck regression + 2 registry).
 
 ### Theme H — Library Modularity
 

@@ -3,7 +3,7 @@ package scalascript.transform
 import scala.meta.*
 import scalascript.ast
 import scalascript.backend.spi.Diagnostic
-import scalascript.markup.{PureMarkupCodec, Dialect}
+import scalascript.compiler.plugin.InterpolatorCheckRegistry
 
 /** Compile-time well-formedness checker for `xml"..."` string interpolators
  *  (v1.55.4).
@@ -40,10 +40,6 @@ import scalascript.markup.{PureMarkupCodec, Dialect}
  */
 object MarkupInterpolatorCheck:
 
-  /** Placeholder element used in place of every `${expr}` hole when
-   *  constructing the candidate XML string for parse validation. */
-  private val Placeholder = "<placeholder/>"
-
   /** Walk `module` and return one `Diagnostic.XmlParseError` per
    *  malformed `xml"..."` interpolation found in any scalascript block. */
   def check(module: ast.Module): List[Diagnostic] =
@@ -73,25 +69,16 @@ object MarkupInterpolatorCheck:
     diags: scala.collection.mutable.ListBuffer[Diagnostic]
   ): Unit =
     tree.traverse {
-      case Term.Interpolate(Term.Name("xml"), parts, _) =>
-        checkInterpolation(parts, diags)
+      case Term.Interpolate(Term.Name(name), parts, _) =>
+        checkInterpolation(name, parts, diags)
     }
 
   /** Build the candidate string from the string parts and validate it. */
   private def checkInterpolation(
+    name:  String,
     parts: List[scala.meta.Tree],
     diags: scala.collection.mutable.ListBuffer[Diagnostic]
   ): Unit =
-    // parts has length (args.length + 1): [part0, part1, …, partN]
-    // Between consecutive parts there is one arg placeholder.
-    val sb = StringBuilder()
-    parts.zipWithIndex.foreach { (part, i) =>
-      sb.append(part.asInstanceOf[Lit.String].value)
-      // After every part except the last, insert a placeholder for the hole.
-      if i < parts.length - 1 then sb.append(Placeholder)
-    }
-    val candidate = sb.toString
-    PureMarkupCodec.parse(candidate, Dialect.Xml1_0) match
-      case Right(_) => ()
-      case Left(err) =>
-        diags += Diagnostic.XmlParseError(err.message, err.line, err.column)
+    val stringParts = parts.collect { case Lit.String(value) => value }
+    if stringParts.length == parts.length then
+      diags ++= InterpolatorCheckRegistry.checkAll(name, stringParts)

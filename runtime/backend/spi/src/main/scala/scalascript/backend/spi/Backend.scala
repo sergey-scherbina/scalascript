@@ -38,6 +38,11 @@ trait Backend:
    *  Default empty — most backends contribute no custom preprocessors. */
   def preprocessors: List[Preprocessor] = Nil
 
+  /** Compile-time string-interpolator checks provided by this backend.
+   *  Registered in `InterpolatorCheckRegistry` when the backend is loaded.
+   *  Default empty — most backends contribute no custom checks. */
+  def interpolatorChecks: List[InterpolatorCheck] = Nil
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 

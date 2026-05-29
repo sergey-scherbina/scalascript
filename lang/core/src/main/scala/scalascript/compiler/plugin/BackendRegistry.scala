@@ -12,6 +12,7 @@ import scalascript.backend.spi.{
   SubprocessPlugin
 }
 import scalascript.logging.Logger
+import scalascript.parser.PreprocessorRegistry
 import java.util.ServiceLoader
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -211,7 +212,13 @@ object BackendRegistry extends PluginRegistry:
         .iterator
         .asScala
         .toList
+      inProcessCache.foreach(registerDslHooks)
     inProcessCache
+
+  private def registerDslHooks(backend: Backend): Unit =
+    InterpolatorRegistry.registerFrom(backend)
+    PreprocessorRegistry.registerFrom(backend)
+    InterpolatorCheckRegistry.registerFrom(backend)
 
   /** All directories where `.sscpkg` archives may be found (for dep resolution). */
   private def allPluginDirs(): List[os.Path] =
