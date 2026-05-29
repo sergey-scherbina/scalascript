@@ -65,16 +65,16 @@ private[interpreter] object DerivesRuntime:
 
       case _ =>
         // Unknown typeclass — try looking up TC.derived in globals
-        interp.globals.get(tcName) match
-          case Some(tcObj: Value.InstanceV) =>
-            tcObj.fields.get("derived") match
-              case Some(fn) =>
-                val mirror = Value.InstanceV("Mirror", Map(
-                  "label"  -> Value.StringV(typeName),
-                  "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
-                ))
-                Computation.run(interp.callValue1(fn, mirror, Map.empty))
-              case None => Value.UnitV
+        interp.globals.getOrElse(tcName, null) match
+          case tcObj: Value.InstanceV =>
+            val fn = tcObj.fields.getOrElse("derived", null)
+            if fn != null then
+              val mirror = Value.InstanceV("Mirror", Map(
+                "label"  -> Value.StringV(typeName),
+                "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
+              ))
+              Computation.run(interp.callValue1(fn, mirror, Map.empty))
+            else Value.UnitV
           case _ => Value.UnitV
 
     if instance != Value.UnitV then

@@ -206,16 +206,15 @@ private[interpreter] object BuiltinsRuntime:
               // Locate the close member: works on case-class instances
               // (InstanceV.fields("close")) and on plain Map literals
               // (MapV with key "close") alike.
-              val closeOpt: Option[Value] = res match
-                case Value.InstanceV(_, fields) => fields.get("close")
-                case Value.MapV(m)              => m.get(Value.StringV("close"))
-                case _                          => None
+              val closeFn: Value | Null = res match
+                case Value.InstanceV(_, fields) => fields.getOrElse("close", null)
+                case Value.MapV(m)              => m.getOrElse(Value.StringV("close"), null)
+                case _                          => null
               try Computation.run(interp.callValue1(block, res, Map.empty))
               finally
-                closeOpt.foreach { closeFn =>
+                if closeFn != null then
                   try { Computation.run(interp.callValue(closeFn, Nil, Map.empty)); () }
                   catch case _: Throwable => ()
-                }
             case _ => throw InterpretError("Using.resource(r) { r => block }")
           }))
         case _ => throw InterpretError("Using.resource(r) { r => block }")
@@ -240,9 +239,9 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("McpSchema") = Value.InstanceV("McpSchema", Map(
       "derived" -> Value.NativeFnV("McpSchema.derived", {
         case List(Value.InstanceV("Mirror", mfields)) =>
-          val fieldNames: List[String] = mfields.get("fields") match
-            case Some(Value.ListV(xs)) => xs.collect { case Value.StringV(s) => s }
-            case _                     => Nil
+          val fieldNames: List[String] = mfields.getOrElse("fields", null) match
+            case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }
+            case _               => Nil
           val properties = Value.MapV(fieldNames.map(n =>
             (Value.StringV(n): Value) -> (Value.EmptyMap: Value)
           ).toMap)
