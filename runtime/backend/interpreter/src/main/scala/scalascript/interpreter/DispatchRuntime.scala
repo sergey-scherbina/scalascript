@@ -183,8 +183,17 @@ private[interpreter] object DispatchRuntime:
       case "reverse"      => Pure(Value.ListV(ls.reverse))
       case "distinct"     => Pure(Value.ListV(ls.distinct))
       case "sorted"       =>
-        val sortedKeyed = ls.map(v => (v, Value.show(v)))
-        Pure(Value.ListV(sortedKeyed.sortBy(_._2).map(_._1)))
+        if ls.isEmpty then Pure(recv)
+        else
+          // Schwartzian: one array of (Value, key) — no intermediate List passes.
+          val arr = new Array[(Value, String)](ls.length)
+          var i = 0; var rem = ls
+          while rem.nonEmpty do
+            val v = rem.head; arr(i) = (v, Value.show(v)); i += 1; rem = rem.tail
+          java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+          var result: List[Value] = Nil; i = arr.length - 1
+          while i >= 0 do result = arr(i)._1 :: result; i -= 1
+          Pure(Value.ListV(result))
       case "toList"       => Pure(recv)
       case "toSet"        => Pure(Value.ListV(ls.distinct))
       case "flatten"      =>
@@ -408,10 +417,17 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(keys) =>
-              // Pre-compute sort keys once (O(n)) to avoid O(n log n) Value.show calls
-              // during comparison. ls.zip(keys) also creates only one intermediate list.
-              val keyed = ls.zip(keys).map { (v, k) => (v, Value.show(k)) }
-              Value.ListV(keyed.sortBy(_._2).map(_._1))
+              // Build (value, strKey) array in one pass — avoids zip + map double-list.
+              val n = ls.length
+              val arr = new Array[(Value, String)](n)
+              var i = 0; var lRem = ls; var kRem = keys
+              while lRem.nonEmpty do
+                arr(i) = (lRem.head, Value.show(kRem.head))
+                i += 1; lRem = lRem.tail; kRem = kRem.tail
+              java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+              var result: List[Value] = Nil; i = n - 1
+              while i >= 0 do result = arr(i)._1 :: result; i -= 1
+              Value.ListV(result)
             case _ => recv
           }
         case _       => dispatchFallback(recv, name, args, env, interp)

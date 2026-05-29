@@ -625,6 +625,15 @@ private[interpreter] object EvalRuntime:
           case other              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
         }
 
+    // Fast path: s"${expr}" or s"prefix${expr}suffix" — 1-arg s-interpolation.
+    // Avoids: 2 List allocations (cast map + evalArgs map), threadValues,
+    // StringBuilder, for loop. Covers the dominant s"..." pattern.
+    case Term.Interpolate(Term.Name("s"), List(p0: Lit.String, p1: Lit.String), List(arg: Term)) =>
+      val pre = p0.value; val suf = p1.value
+      eval(arg, env, interp) match
+        case Pure(v) => Pure(Value.StringV(pre + Value.show(v) + suf))
+        case argC    => FlatMap(argC, v => Pure(Value.StringV(pre + Value.show(v) + suf)))
+
     // String interpolation s"..." / f"..." / md"..." / html"..." / css"..."
     case Term.Interpolate(Term.Name(prefix), parts, args)
         if prefix == "s" || prefix == "f" || prefix == "md"
