@@ -508,6 +508,72 @@ private[interpreter] object DispatchRuntime:
               case x :: rest => interp.callValue2(f, acc, x, env).flatMap(v => loop(rest, v))
             loop(t, h)
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case "partition"    => args match
+        case List(f) =>
+          val yesBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length / 2 + 1)
+          val noBuf  = new scala.collection.mutable.ArrayBuffer[Value](ls.length / 2 + 1)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil =>
+              Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(noBuf.toList) :: Nil))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.BoolV(true) => yesBuf += h; loop(rest)
+                case _                 => noBuf  += h; loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "groupBy"      => args match
+        case List(f) =>
+          val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil =>
+              val resultMap = groups.iterator.map { (k, buf) => k -> Value.ListV(buf.toList) }.toMap
+              Pure(Value.MapV(resultMap))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap { k =>
+                groups.getOrElseUpdate(k, new scala.collection.mutable.ArrayBuffer[Value]) += h
+                loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "scanLeft"     => args match
+        case List(init) =>
+          Pure(Value.NativeFnV("scanLeft", {
+            case List(f) =>
+              val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length + 1)
+              buf += init
+              def loop(remaining: List[Value], acc: Value): Computation = remaining match
+                case Nil       => Pure(Value.ListV(buf.toList))
+                case h :: rest => interp.callValue2(f, acc, h, env).flatMap { v => buf += v; loop(rest, v) }
+              loop(ls, init)
+            case _ => throw InterpretError("scanLeft expects one function argument")
+          }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "collect"      => args match
+        case List(f) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(buf.toList))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.OptionV(Some(v)) => buf += v; loop(rest)
+                case Value.OptionV(None)    => loop(rest)
+                case v                      => buf += v; loop(rest)
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "unzip"        =>
+        if ls.isEmpty then Pure(Value.TupleV(Value.ListV(Nil) :: Value.ListV(Nil) :: Nil))
+        else
+          val as = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          val bs = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          var rem = ls
+          while rem.nonEmpty do
+            rem.head match
+              case Value.TupleV(a :: b :: _) => as += a; bs += b
+              case _                          => ()
+            rem = rem.tail
+          Pure(Value.TupleV(Value.ListV(as.toList) :: Value.ListV(bs.toList) :: Nil))
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Map ─────────────────────────────────────────────────────────────────────
