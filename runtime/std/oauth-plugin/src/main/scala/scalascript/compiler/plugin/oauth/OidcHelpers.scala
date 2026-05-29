@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin.oauth
 
-import scalascript.backend.spi.NativeContext
+import scalascript.plugin.api.HttpCap
 import scalascript.interpreter.{Value, InterpretError, Computation}
 import scalascript.oauth.*
 import scalascript.oidc.*
@@ -51,7 +51,7 @@ object OidcIntrinsicHelpers:
 
     Value.InstanceV("OidcServer", fields.toMap)
 
-  def serveOidc(idpValue: Any, basePath: String, ctx: NativeContext): Unit =
+  def serveOidc(idpValue: Any, basePath: String, ctx: HttpCap): Unit =
     val idp = idpValue match
       case v: Value => resolveOidcServer(v).getOrElse(
         throw InterpretError("oidc.serve: argument is not an OidcServer (use oidc.server(authServer))"))

@@ -30,6 +30,21 @@ val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
 val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
+// CI classpath guard: plugin subprojects must not have interpreter internals on Compile classpath.
+val pluginBoundaryCheck: Def.Setting[?] = (Compile / compile) := {
+  val cp = (Compile / fullClasspath).value
+  val bad = cp.files.filter { f =>
+    val name = f.getName
+    name.contains("scalascript-backend-interpreter") && !name.contains("spi")
+  }
+  if bad.nonEmpty then
+    throw new RuntimeException(
+      s"Plugin boundary violation: interpreter JAR(s) on Compile classpath: ${bad.map(_.getName).mkString(", ")}\n" +
+      "Plugin subprojects must not depend on scalascript-backend-interpreter directly."
+    )
+  (Compile / compile).value
+}
+
 val javafxVersion: String = "21.0.5"
 val javafxClassifier: String = {
   val os   = Option(System.getProperty("os.name")).getOrElse("").toLowerCase
@@ -38,20 +53,6 @@ val javafxClassifier: String = {
   else if (os.startsWith("mac"))                  "mac"
   else if (os.startsWith("win"))                  "win"
   else                                            "linux"
-}
-
-def isStdPluginInterpreterTest(file: File): Boolean = {
-  val name = file.getName
-  name == "GraphInterpreterIntrinsicTest.scala" ||
-  name == "InProcessBackendTransportTest.scala" ||
-  name == "MountHandlerTest.scala" ||
-  name == "PubSubTest.scala" ||
-  name == "SqlBlockInterpreterTest.scala" ||
-  name == "TypedHandlerTest.scala" ||
-  name == "TypedRpcBinaryTest.scala" ||
-  name.startsWith("Mcp") ||
-  name.startsWith("OAuth") ||
-  name.startsWith("Oidc")
 }
 
 // ── Plugin registry (arch-build-registry-p1) ─────────────────────────────
@@ -639,7 +640,6 @@ lazy val backendInterpreter = project
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
-    Test / unmanagedSources := (Test / unmanagedSources).value.filterNot(isStdPluginInterpreterTest),
     // JvmGen scala-cli runtime smoke tests read these resources to find
     // locally-built internal runtime JARs and avoid resolving unpublished
     // io.scalascript artifacts from Maven Central.
@@ -793,6 +793,7 @@ val installBin    = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/
 val packagePlugin = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
 
 def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
+  pluginBoundaryCheck,
   packagePlugin := {
     val jar       = (Compile / packageBin).value
     val pkgName   = name.value.stripPrefix("scalascript-")
@@ -2481,10 +2482,6 @@ lazy val backendInterpreterPluginTests = project
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
-    Test / unmanagedSources := {
-      val legacySources = ((backendInterpreter / baseDirectory).value / "src" / "test" / "scala" ** "*.scala").get
-      legacySources.filter(isStdPluginInterpreterTest)
-    },
   )
 
 // ── Streams — interpreter plugin ─────────────────────────────────────────

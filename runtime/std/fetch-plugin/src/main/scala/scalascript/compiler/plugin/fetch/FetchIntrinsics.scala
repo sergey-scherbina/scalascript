@@ -5,6 +5,7 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
 import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler, View}
+import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
 
@@ -14,18 +15,18 @@ object FetchIntrinsics:
     // fetchUrlSignal(name, url, refreshTick): Signal[String]
     // Creates a ReactiveSignal[String] that re-fetches `url` whenever `refreshTick` increments.
     // On JVM (interpreter) the initial value is just ""; the React emitter generates useEffect hooks.
-    QualifiedName("fetchUrlSignal") -> NativeImpl((_, args) =>
+    QualifiedName("fetchUrlSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name: String, url: String,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           Value.Foreign("ReactiveSignal",
             new FetchUrlSignal(name, url, tick.id))
         case _ => throw InterpretError("fetchUrlSignal(name, url, refreshTick)")
-    ),
+    },
 
     // fetchAction(method, url, body, onSuccessTick): EventHandler
     // On click: fetch(url, {method, body: bodySignal.value}) then increment onSuccessTick.
-    QualifiedName("fetchAction") -> NativeImpl((_, args) =>
+    QualifiedName("fetchAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String,
                   Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
@@ -35,11 +36,11 @@ object FetchIntrinsics:
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("fetchAction(method, url, body, onSuccessTick)")
-    ),
+    },
 
     // fetchActionClear(method, url, body, onSuccessTick): EventHandler
     // Like fetchAction but also clears the body signal to "" on success.
-    QualifiedName("fetchActionClear") -> NativeImpl((_, args) =>
+    QualifiedName("fetchActionClear") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String,
                   Value.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
@@ -50,21 +51,21 @@ object FetchIntrinsics:
               tick.asInstanceOf[ReactiveSignal[Int]],
               clearBody = true))
         case _ => throw InterpretError("fetchActionClear(method, url, body, onSuccessTick)")
-    ),
+    },
 
     // incSignal(s): EventHandler — increment an Int signal by 1 on click.
-    QualifiedName("incSignal") -> NativeImpl((_, args) =>
+    QualifiedName("incSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.Foreign("ReactiveSignal", rs: ReactiveSignal[?])) =>
           Value.Foreign("EventHandler",
             EventHandler.IncrementSignal(rs.asInstanceOf[ReactiveSignal[Int]], 1))
         case _ => throw InterpretError("incSignal(signal)")
-    ),
+    },
 
     // fetchTableView(fetchUrl, deleteUrl, tick): View
     // Returns a View.FetchTable that the React emitter lowers to a reactive table
     // with per-row Delete buttons.  The tableJsName is derived from fetchUrl.
-    QualifiedName("fetchTableView") -> NativeImpl((_, args) =>
+    QualifiedName("fetchTableView") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(fetchUrl: String, deleteUrl: String,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
@@ -72,5 +73,5 @@ object FetchIntrinsics:
           Value.Foreign("View",
             View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => throw InterpretError("fetchTableView(fetchUrl, deleteUrl, tick)")
-    ),
+    },
   )

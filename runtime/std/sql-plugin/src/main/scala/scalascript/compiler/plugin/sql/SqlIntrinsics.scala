@@ -3,6 +3,8 @@ package scalascript.compiler.plugin.sql
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.Value
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 /** SQL intrinsics: `DriverManager.getConnection` factory + dynamic
  *  `Db.query` / `Db.execute` for route handlers and runtime contexts.
@@ -18,7 +20,7 @@ object SqlIntrinsics:
 
     // DriverManager.getConnection(url): Connection
     // DriverManager.getConnection(url, user, password): Connection
-    QualifiedName("DriverManager.getConnection") -> NativeImpl((_, args) =>
+    QualifiedName("DriverManager.getConnection") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String) =>
           Value.Foreign("Connection", java.sql.DriverManager.getConnection(url))
@@ -28,11 +30,11 @@ object SqlIntrinsics:
           throw new RuntimeException(
             s"DriverManager.getConnection expects (url) or (url, user, password), " +
               s"got: ${other.map(_.getClass.getSimpleName).mkString(", ")}")
-    ),
+    },
 
     // Db.query("default", sql, List(p1, p2, ...)): List[Map[String, Any]]
     // Runs a SELECT and returns each row as a Map keyed by column name.
-    QualifiedName("Db.query") -> NativeImpl((ctx, args) =>
+    QualifiedName("Db.query") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dbName: String, sql: String, params: Value) =>
           val bindList = extractBinds(params)
@@ -46,11 +48,11 @@ object SqlIntrinsics:
               ).toList)
             case _ => Value.EmptyList
         case _ => throw new RuntimeException("Db.query(dbName: String, sql: String, params: List[Any])")
-    ),
+    },
 
     // Db.execute("default", sql, List(p1, p2, ...)): Int
     // Runs an INSERT / UPDATE / DELETE and returns the affected-row count.
-    QualifiedName("Db.execute") -> NativeImpl((ctx, args) =>
+    QualifiedName("Db.execute") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dbName: String, sql: String, params: Value) =>
           val bindList = extractBinds(params)
@@ -59,21 +61,21 @@ object SqlIntrinsics:
             case scalascript.sql.SqlResult.UpdateCount(n) => n.toLong
             case _                                        => 0L
         case _ => throw new RuntimeException("Db.execute(dbName: String, sql: String, params: List[Any])")
-    ),
+    },
 
     // Db.insert("default", "table", value): Int
     // Encodes interpreter case-class instances / maps as SQL columns.
-    QualifiedName("Db.insert") -> NativeImpl((ctx, args) =>
+    QualifiedName("Db.insert") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dbName: String, table: String, value: Value) =>
           val conn = ctx.dbConnect(dbName)
           scalascript.sql.SqlRuntime.insertRow(conn, table, rowFields(ctx, value)).toLong
         case _ => throw new RuntimeException("Db.insert(dbName: String, table: String, value: A)")
-    ),
+    },
 
     // Db.update("default", "table", "id", keyValue, value): Int
     // The key column is excluded from SET by SqlRuntime.updateRow.
-    QualifiedName("Db.update") -> NativeImpl((ctx, args) =>
+    QualifiedName("Db.update") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dbName: String, table: String, keyColumn: String, keyValue, value: Value) =>
           val conn = ctx.dbConnect(dbName)
@@ -81,7 +83,7 @@ object SqlIntrinsics:
             .updateRow(conn, table, keyColumn, keyValue, rowFields(ctx, value))
             .toLong
         case _ => throw new RuntimeException("Db.update(dbName: String, table: String, keyColumn: String, keyValue: Any, value: A)")
-    ),
+    },
   )
 
   private def extractBinds(params: Value): List[Any] = params match
@@ -100,7 +102,7 @@ object SqlIntrinsics:
     case Value.OptionV(Some(inner)) => unwrapValue(inner)
     case _                => v.toString
 
-  private def rowFields(ctx: NativeContext, value: Value): Vector[(String, Any)] = value match
+  private def rowFields(ctx: PluginContext, value: Value): Vector[(String, Any)] = value match
     case Value.InstanceV(typeName, fields) =>
       fields.iterator.toVector.map((name, fieldValue) => ctx.storageFieldName(typeName, name) -> unwrapValue(fieldValue))
     case Value.MapV(entries) =>

@@ -3,28 +3,29 @@ package scalascript.compiler.plugin.request
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError}
+import scalascript.plugin.api.PluginNative
 
 object RequestIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("requireString") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireString") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String) =>
           reqFieldOf(reqAnyToValue(req), name) match
             case Some(s) => s
             case None    => ctx.validationRecord(name, s"missing field: $name", "")
         case _ => throw InterpretError("requireString(req, name)")
-    ),
+    },
 
-    QualifiedName("optionalString") -> NativeImpl((_, args) =>
+    QualifiedName("optionalString") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(req, name: String) =>
           Value.OptionV(reqFieldOf(reqAnyToValue(req), name).map(Value.StringV(_)))
         case _ => throw InterpretError("optionalString(req, name)")
-    ),
+    },
 
-    QualifiedName("requireInt") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireInt") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String) =>
           reqFieldOf(reqAnyToValue(req), name) match
@@ -35,9 +36,9 @@ object RequestIntrinsics:
             case None =>
               ctx.validationRecord(name, s"missing field: $name", 0L)
         case _ => throw InterpretError("requireInt(req, name)")
-    ),
+    },
 
-    QualifiedName("optionalInt") -> NativeImpl((_, args) =>
+    QualifiedName("optionalInt") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
@@ -46,9 +47,9 @@ object RequestIntrinsics:
           }
           Value.OptionV(parsed)
         case _ => throw InterpretError("optionalInt(req, name)")
-    ),
+    },
 
-    QualifiedName("requireDouble") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireDouble") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String) =>
           reqFieldOf(reqAnyToValue(req), name) match
@@ -59,9 +60,9 @@ object RequestIntrinsics:
             case None =>
               ctx.validationRecord(name, s"missing field: $name", 0.0)
         case _ => throw InterpretError("requireDouble(req, name)")
-    ),
+    },
 
-    QualifiedName("optionalDouble") -> NativeImpl((_, args) =>
+    QualifiedName("optionalDouble") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
@@ -70,9 +71,9 @@ object RequestIntrinsics:
           }
           Value.OptionV(parsed)
         case _ => throw InterpretError("optionalDouble(req, name)")
-    ),
+    },
 
-    QualifiedName("requireBool") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireBool") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String) =>
           reqFieldOf(reqAnyToValue(req), name) match
@@ -83,9 +84,9 @@ object RequestIntrinsics:
             case None =>
               ctx.validationRecord(name, s"missing field: $name", false)
         case _ => throw InterpretError("requireBool(req, name)")
-    ),
+    },
 
-    QualifiedName("optionalBool") -> NativeImpl((_, args) =>
+    QualifiedName("optionalBool") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(req, name: String) =>
           val parsed = reqFieldOf(reqAnyToValue(req), name).flatMap { s =>
@@ -96,9 +97,9 @@ object RequestIntrinsics:
           }
           Value.OptionV(parsed)
         case _ => throw InterpretError("optionalBool(req, name)")
-    ),
+    },
 
-    QualifiedName("requireRange") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireRange") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String, min: Long, max: Long) =>
           reqFieldOf(reqAnyToValue(req), name) match
@@ -113,9 +114,9 @@ object RequestIntrinsics:
             case None =>
               ctx.validationRecord(name, s"missing field: $name", min)
         case _ => throw InterpretError("requireRange(req, name, min, max)")
-    ),
+    },
 
-    QualifiedName("requireRangeDouble") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireRangeDouble") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String, min: Double, max: Double) =>
           reqFieldOf(reqAnyToValue(req), name) match
@@ -130,9 +131,9 @@ object RequestIntrinsics:
             case None =>
               ctx.validationRecord(name, s"missing field: $name", min)
         case _ => throw InterpretError("requireRangeDouble(req, name, min: Double, max: Double)")
-    ),
+    },
 
-    QualifiedName("requireOneOf") -> NativeImpl((ctx, args) =>
+    QualifiedName("requireOneOf") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(req, name: String, Value.ListV(opts)) =>
           val allowed = opts.collect { case Value.StringV(s) => s }
@@ -146,7 +147,7 @@ object RequestIntrinsics:
               ctx.validationRecord(name, s"missing field: $name",
                 allowed.headOption.getOrElse(""))
         case _ => throw InterpretError("requireOneOf(req, name, options: List[String])")
-    ),
+    },
 
   )
 

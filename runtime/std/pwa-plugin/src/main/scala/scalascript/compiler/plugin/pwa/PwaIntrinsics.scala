@@ -3,12 +3,14 @@ package scalascript.compiler.plugin.pwa
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 object PwaIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("pwa") -> NativeImpl((ctx, args) =>
+    QualifiedName("pwa") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(name: String) =>
           registerPwaRoutes(ctx, name, name, "", "#ffffff", "#ffffff", "standalone", "/", Nil, Nil)
@@ -32,7 +34,7 @@ object PwaIntrinsics:
           val precache = precacheVals.collect { case Value.StringV(s) => s }
           registerPwaRoutes(ctx, name, if shortName.isEmpty then name else shortName, description, themeColor, bgColor, display, startUrl, icons, precache)
         case _ => throw InterpretError("pwa(name[, shortName, description, themeColor, backgroundColor, display, startUrl, icons, precache])")
-    ),
+    },
   )
 
   private def mkResponse(contentType: String, body: String): Value =
@@ -45,7 +47,7 @@ object PwaIntrinsics:
     ))
 
   private def registerPwaRoutes(
-      ctx:      NativeContext,
+      ctx: PluginContext,
       name:     String,
       short:    String,
       desc:     String,

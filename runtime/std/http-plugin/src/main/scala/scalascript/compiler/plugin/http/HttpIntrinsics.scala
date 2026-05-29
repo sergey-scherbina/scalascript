@@ -4,6 +4,7 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation, jsonToJson}
 import scalascript.plugin.api.{HttpCap, PluginComputation, PluginNative, PluginValue}
+import scalascript.plugin.api.PluginContext
 
 /** HTTP server + client intrinsics for the tree-walking interpreter.
  *
@@ -18,7 +19,7 @@ object HttpIntrinsics:
 
     // ── HTTP server: route / tls / serve / stop ────────────────────────
 
-    QualifiedName("route") -> NativeImpl((ctx, args) =>
+    QualifiedName("route") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(method: String, path: String) =>
           Value.NativeFnV("route.handler", Computation.pureFn {
@@ -28,14 +29,14 @@ object HttpIntrinsics:
             case _ => throw InterpretError("route(method, path) { handler }")
           })
         case _ => throw InterpretError("route(method, path) { handler }")
-    ),
+    },
 
-    QualifiedName("tls") -> NativeImpl((_, args) =>
+    QualifiedName("tls") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cert: String, key: String) =>
           Value.InstanceV("TlsContext", Map("cert" -> Value.StringV(cert), "key" -> Value.StringV(key)))
         case _ => throw InterpretError("tls(certPath, keyPath)")
-    ),
+    },
 
     // Non-blocking variant of `serve` — fires the WS/HTTP server on a
     // virtual thread and returns immediately, so the caller (an actor
@@ -47,7 +48,7 @@ object HttpIntrinsics:
     // wss:// — peers dialing the node use `wss://host:port/_ssc-actors`
     // and the existing `java.net.http`-backed outbound WS client
     // handles the TLS handshake transparently.
-    QualifiedName("serveAsync") -> NativeImpl((ctx, args) =>
+    QualifiedName("serveAsync") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(port: Long) =>
           ctx.registerHealthDefaults()
@@ -66,7 +67,7 @@ object HttpIntrinsics:
             }
           ()
         case _ => throw InterpretError("serveAsync(port) or serveAsync(port, tls(cert, key))")
-    ),
+    },
 
     // serve is handled by UiPrimitives (covers both frontend + REST variants)
 
@@ -77,43 +78,43 @@ object HttpIntrinsics:
 
     // ── Outbound HTTP client ───────────────────────────────────────────
 
-    QualifiedName("httpGet") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpGet") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String)        => doHttpRequest("GET", url, "", Map.empty, ctx)
         case List(url: String, hdrs)  => doHttpRequest("GET", url, "", headersArg(hdrs), ctx)
         case _ => throw InterpretError("httpGet(url[, headers])")
-    ),
+    },
 
-    QualifiedName("httpPost") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpPost") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("POST", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("POST", url, body, headersArg(hdrs), ctx)
         case _ => throw InterpretError("httpPost(url, body[, headers])")
-    ),
+    },
 
-    QualifiedName("httpPut") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpPut") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("PUT", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("PUT", url, body, headersArg(hdrs), ctx)
         case _ => throw InterpretError("httpPut(url, body[, headers])")
-    ),
+    },
 
-    QualifiedName("httpPatch") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpPatch") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String)       => doHttpRequest("PATCH", url, body, Map.empty, ctx)
         case List(url: String, body: String, hdrs) => doHttpRequest("PATCH", url, body, headersArg(hdrs), ctx)
         case _ => throw InterpretError("httpPatch(url, body[, headers])")
-    ),
+    },
 
-    QualifiedName("httpDelete") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpDelete") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String)       => doHttpRequest("DELETE", url, "", Map.empty, ctx)
         case List(url: String, hdrs) => doHttpRequest("DELETE", url, "", headersArg(hdrs), ctx)
         case _ => throw InterpretError("httpDelete(url[, headers])")
-    ),
+    },
 
     // Streaming variants: httpGetStream(url[, headers])(handler)
-    QualifiedName("httpGetStream") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpGetStream") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
           Value.NativeFnV("httpGetStream.handler", Computation.pureFn {
@@ -127,9 +128,9 @@ object HttpIntrinsics:
             case _ => throw InterpretError("httpGetStream(url, headers)(handler)")
           })
         case _ => throw InterpretError("httpGetStream(url[, headers])(handler)")
-    ),
+    },
 
-    QualifiedName("httpPostStream") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpPostStream") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String, body: String) =>
           Value.NativeFnV("httpPostStream.handler", Computation.pureFn {
@@ -143,7 +144,7 @@ object HttpIntrinsics:
             case _ => throw InterpretError("httpPostStream(url, body, headers)(handler)")
           })
         case _ => throw InterpretError("httpPostStream(url, body[, headers])(handler)")
-    ),
+    },
 
     // httpClient(baseUrl) { block } stays as Term.Apply special form in eval.
 
@@ -151,7 +152,7 @@ object HttpIntrinsics:
 
     // wsConnect(url[, headers[, protocols]]) { ws => … }
     // Curried; blocks on the calling thread until the server closes.
-    QualifiedName("wsConnect") -> NativeImpl((ctx, args) =>
+    QualifiedName("wsConnect") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
           Value.NativeFnV("wsConnect.handler", Computation.pureFn {
@@ -172,11 +173,11 @@ object HttpIntrinsics:
             case _ => throw InterpretError("wsConnect(url, headers, protocols) { ws => … }")
           })
         case _ => throw InterpretError("wsConnect(url[, headers[, protocols]]) { ws => … }")
-    ),
+    },
 
     // ── CORS / gzip / cache ────────────────────────────────────────────
 
-    QualifiedName("cors") -> NativeImpl((ctx, args) =>
+    QualifiedName("cors") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.ListV(origins)) =>
           ctx.configureCors(
@@ -195,35 +196,35 @@ object HttpIntrinsics:
             hdrs.collect { case Value.StringV(s) => s })
           ()
         case _ => throw InterpretError("cors(origins[, methods[, headers]])")
-    ),
+    },
 
-    QualifiedName("useGzip") -> NativeImpl((ctx, args) =>
+    QualifiedName("useGzip") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case Nil => ctx.enableGzip(); ()
         case _   => throw InterpretError("useGzip()")
-    ),
+    },
 
-    QualifiedName("cacheable") -> NativeImpl((_, args) =>
+    QualifiedName("cacheable") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(resp, n: Long) =>
           addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$n"))
         case List(resp, n: Long, etag: String) =>
           addCacheHdrs(resp, Map("Cache-Control" -> s"public, max-age=$n", "ETag" -> etag))
         case _ => throw InterpretError("cacheable(response, maxAge[, etag])")
-    ),
+    },
 
-    QualifiedName("noCache") -> NativeImpl((_, args) =>
+    QualifiedName("noCache") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(resp) =>
           addCacheHdrs(resp, Map("Cache-Control" -> "no-store, no-cache, must-revalidate"))
         case _ => throw InterpretError("noCache(response)")
-    ),
+    },
 
     // ── Streaming / SSE ────────────────────────────────────────────────
 
     // streamResponse { write => ... } — chunked streaming from a route handler.
     // Returns a StreamResponse sentinel detected by WebServer.dispatchRoute.
-    QualifiedName("streamResponse") -> NativeImpl((_, args) =>
+    QualifiedName("streamResponse") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(n: Long) =>
           Value.NativeFnV("streamResponse.block", Computation.pureFn {
@@ -241,10 +242,10 @@ object HttpIntrinsics:
           Value.InstanceV("StreamResponse", Map(
             "status" -> Value.intV(200), "headers" -> Value.EmptyMap, "callback" -> block.asInstanceOf[Value]))
         case _ => throw InterpretError("streamResponse(block)")
-    ),
+    },
 
     // sse(req) { stream => stream.send(data) / stream.send(event, data) / stream.close() }
-    QualifiedName("sse") -> NativeImpl((ctx, args) =>
+    QualifiedName("sse") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(_) =>
           val sseHeaders = Map(
@@ -283,56 +284,56 @@ object HttpIntrinsics:
             case _ => throw InterpretError("sse(req)(block)")
           })
         case _ => throw InterpretError("sse(req)(block)")
-    ),
+    },
 
     // ── Body / upload limits ───────────────────────────────────────────
 
-    QualifiedName("maxBodySize") -> NativeImpl((ctx, args) =>
+    QualifiedName("maxBodySize") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long) => ctx.setMaxBodySize(n); ()
         case _ => throw InterpretError("maxBodySize(bytes: Int)")
-    ),
+    },
 
-    QualifiedName("uploadSpoolThreshold") -> NativeImpl((ctx, args) =>
+    QualifiedName("uploadSpoolThreshold") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long) => ctx.setSpoolThreshold(n); ()
         case _ => throw InterpretError("uploadSpoolThreshold(bytes: Int)")
-    ),
+    },
 
-    QualifiedName("uploadDir") -> NativeImpl((ctx, args) =>
+    QualifiedName("uploadDir") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(dir: String) => ctx.setUploadDir(dir); ()
         case _ => throw InterpretError("uploadDir(path: String)")
-    ),
+    },
 
     // ── Middleware ─────────────────────────────────────────────────────
 
-    QualifiedName("use") -> NativeImpl((ctx, args) =>
+    QualifiedName("use") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(fn) => ctx.registerMiddleware(fn); ()
         case _ => throw InterpretError("use(fn: (Request, () => Response) => Response)")
-    ),
+    },
 
     // ── HTTP client config (scoped by httpClient{} block) ─────────────
 
-    QualifiedName("httpTimeout") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpTimeout") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(ms: Long) => ctx.setHttpTimeout(ms); ()
         case _ => throw InterpretError("httpTimeout(ms: Int)")
-    ),
+    },
 
-    QualifiedName("httpRetry") -> NativeImpl((ctx, args) =>
+    QualifiedName("httpRetry") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n: Long)         => ctx.setHttpRetry(n.toInt, ctx.httpRetryDelayMs); ()
         case List(n: Long, d: Long) => ctx.setHttpRetry(n.toInt, d); ()
         case _ => throw InterpretError("httpRetry(maxAttempts[, delayMs])")
-    ),
+    },
 
     // ── WebSocket server ───────────────────────────────────────────────
 
     // onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }
     // Two-arg form restricts upgrades to the given Origin list (browser CSRF guard).
-    QualifiedName("onWebSocket") -> NativeImpl((ctx, args) =>
+    QualifiedName("onWebSocket") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(path: String) =>
           Value.NativeFnV("onWebSocket.handler", Computation.pureFn {
@@ -370,11 +371,11 @@ object HttpIntrinsics:
             case _ => throw InterpretError("onWebSocket(path, origins, protocols, maxConnections, maxMessagesPerSec) { ws => … }")
           })
         case _ => throw InterpretError("onWebSocket(path[, origins[, protocols[, maxConnections[, maxMessagesPerSec]]]]) { ws => … }")
-    ),
+    },
 
     // onWebSocketAuth(path, authFn)(handler) — pre-upgrade auth hook.
     // authFn receives the Request, returns Option[Any]: None → 401, Some(user) → accepted.
-    QualifiedName("onWebSocketAuth") -> NativeImpl((ctx, args) =>
+    QualifiedName("onWebSocketAuth") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(path: String, authFn) =>
           Value.NativeFnV("onWebSocketAuth.handler", Computation.pureFn {
@@ -382,11 +383,11 @@ object HttpIntrinsics:
             case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
           })
         case _ => throw InterpretError("onWebSocketAuth(path, authFn) { ws => … }")
-    ),
+    },
 
     // ── mount(method, path, file[, ctx]) ────────────────────────────────
 
-    QualifiedName("mount") -> NativeImpl((ctx, args) =>
+    QualifiedName("mount") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(method: String, path: String, file: String) =>
           mountFile(ctx, method, path, file, Map.empty)
@@ -397,11 +398,11 @@ object HttpIntrinsics:
           mountFile(ctx, method, path, file, mountCtx)
         case _ =>
           throw InterpretError("mount(method, path, file[, ctx: Map[String, Any]])")
-    ),
+    },
 
     // ── Response builders (Stage 5+/E) ────────────────────────────────────
 
-    QualifiedName("Response.html") -> NativeImpl((_, args) =>
+    QualifiedName("Response.html") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) =>
           Value.InstanceV("Response", Map(
@@ -410,9 +411,9 @@ object HttpIntrinsics:
             "body"    -> Value.StringV(httpBodyOf(v))
           ))
         case _ => throw InterpretError("Response.html(body)")
-    ),
+    },
 
-    QualifiedName("Response.text") -> NativeImpl((_, args) =>
+    QualifiedName("Response.text") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) =>
           httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
@@ -426,36 +427,36 @@ object HttpIntrinsics:
             case _ => 200
           httpMkResponse(code, Map(Value.StringV("Content-Type") -> Value.StringV("text/plain; charset=utf-8")), httpBodyOf(v))
         case _ => throw InterpretError("Response.text(body)")
-    ),
+    },
 
-    QualifiedName("Response.json") -> NativeImpl((_, args) =>
+    QualifiedName("Response.json") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) =>
           httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), s)
         case List(v) =>
           httpMkResponse(200, Map(Value.StringV("Content-Type") -> Value.StringV("application/json")), jsonToJson(httpAnyToValue(v)))
         case _ => throw InterpretError("Response.json(body)")
-    ),
+    },
 
-    QualifiedName("Response.redirect") -> NativeImpl((_, args) =>
+    QualifiedName("Response.redirect") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(loc: String) => httpMkResponse(302, Map(Value.StringV("Location") -> Value.StringV(loc)), "")
         case _ => throw InterpretError("Response.redirect(url)")
-    ),
+    },
 
-    QualifiedName("Response.notFound") -> NativeImpl((_, args) =>
+    QualifiedName("Response.notFound") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case Nil     => httpMkResponse(404, body = "Not Found")
         case List(v) => httpMkResponse(404, body = httpBodyOf(v))
         case _       => throw InterpretError("Response.notFound([body])")
-    ),
+    },
 
-    QualifiedName("Response.status") -> NativeImpl((_, args) =>
+    QualifiedName("Response.status") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: Long)    => httpMkResponse(s.toInt)
         case List(s: Long, v) => httpMkResponse(s.toInt, body = httpBodyOf(v))
         case _ => throw InterpretError("Response.status(code[, body])")
-    ),
+    },
 
   )
 
@@ -471,7 +472,7 @@ object HttpIntrinsics:
    *     - Any other value → auto-wrap as `_ => value` (static response)
    *  4. Register via `ctx.registerMountedRoute` with source + mountCtx. */
   private def mountFile(
-      ctx:      scalascript.backend.spi.NativeContext,
+      ctx:      PluginContext,
       method:   String,
       path:     String,
       file:     String,
@@ -527,7 +528,7 @@ object HttpIntrinsics:
       rawUrl:  String,
       body:    String,
       headers: Map[String, String],
-      ctx:     NativeContext
+      ctx: PluginContext
   ): Value =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
@@ -573,7 +574,7 @@ object HttpIntrinsics:
       body:    String,
       headers: Map[String, String],
       handler: Value,
-      ctx:     NativeContext
+      ctx: PluginContext
   ): Value =
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*

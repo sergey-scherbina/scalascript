@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scalascript.backend.spi.*
 import scalascript.interpreter.Value
 import scalascript.ir.QualifiedName
+import scalascript.plugin.api.PluginNative
 
 object GraphIntrinsics:
   private final case class Edge(id: String, value: Value, from: String, to: String, label: String)
@@ -17,24 +18,24 @@ object GraphIntrinsics:
   private val stores = mutable.Map.empty[String, Store]
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
-    QualifiedName("Graph.putVertex") -> NativeImpl((_, args) => args match
+    QualifiedName("Graph.putVertex") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, value: Value) =>
         val id = vertexId(value)
         store(graphName).vertices.update(id, value)
         value
       case _ => throw RuntimeException("Graph.putVertex(graphName: String, value: A)")
-    ),
-    QualifiedName("Graph.getVertex") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.getVertex") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, id: String) =>
         Value.OptionV(store(graphName).vertices.get(id))
       case _ => throw RuntimeException("Graph.getVertex(graphName: String, id: String)")
-    ),
-    QualifiedName("Graph.vertices") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.vertices") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String) =>
         Value.ListV(store(graphName).vertices.values.toList)
       case _ => throw RuntimeException("Graph.vertices(graphName: String)")
-    ),
-    QualifiedName("Graph.putEdge") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.putEdge") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, value: Value) =>
         val st = store(graphName)
         val from = fieldString(value, "from").getOrElse(throw RuntimeException("Graph.putEdge requires a `from` field"))
@@ -47,29 +48,29 @@ object GraphIntrinsics:
         st.edges.update(id, edge)
         edgeValue(edge)
       case _ => throw RuntimeException("Graph.putEdge(graphName: String, value: A)")
-    ),
-    QualifiedName("Graph.edges") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.edges") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String) =>
         Value.ListV(store(graphName).edges.values.map(_.value).toList)
       case _ => throw RuntimeException("Graph.edges(graphName: String)")
-    ),
-    QualifiedName("Graph.neighborValues") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("Graph.neighborValues") -> PluginNative.evalLegacy { (_, args) =>
       val (graphName, from, label) = neighborArgs(args)
       val st = store(graphName)
       Value.ListV(st.edges.valuesIterator
         .filter(e => e.from == from && label.forall(_ == e.label))
         .flatMap(e => st.vertices.get(e.to))
         .toList)
-    ),
-    QualifiedName("Graph.neighbors") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("Graph.neighbors") -> PluginNative.evalLegacy { (_, args) =>
       val (graphName, from, label) = neighborArgs(args)
       val st = store(graphName)
       Value.ListV(st.edges.valuesIterator
         .filter(e => e.from == from && label.forall(_ == e.label))
         .flatMap(e => st.vertices.get(e.to))
         .toList)
-    ),
-    QualifiedName("Graph.putRdf") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.putRdf") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, value: Value) =>
         val subject = fieldString(value, "id")
           .orElse(fieldString(value, "subject"))
@@ -77,13 +78,13 @@ object GraphIntrinsics:
         store(graphName).rdf.update(subject, RdfRecord(subject, value))
         value
       case _ => throw RuntimeException("Graph.putRdf(graphName: String, value: A)")
-    ),
-    QualifiedName("Graph.getRdf") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.getRdf") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, subject) =>
         Value.OptionV(store(graphName).rdf.get(subjectString(subject)).map(_.value))
       case _ => throw RuntimeException("Graph.getRdf(graphName: String, subject)")
-    ),
-    QualifiedName("Graph.triples") -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Graph.triples") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String) =>
         Value.ListV(store(graphName).rdf.valuesIterator.flatMap(record => rdfTriples(record.value, None)).toList)
       case List(graphName: String, subject) =>
@@ -100,19 +101,19 @@ object GraphIntrinsics:
           .flatMap(record => rdfTriples(record.value, pred))
           .toList)
       case _ => throw RuntimeException("Graph.triples(graphName: String, subject?: Option[String], predicate?: Option[String])")
-    ),
-    QualifiedName("Sparql.select") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Sparql.select") -> PluginNative.evalLegacy { (_, _) =>
       throw RuntimeException("Sparql.select is not available in interpreter mode; use ssc run-jvm with backend: rdf4j-memory")
-    ),
-    QualifiedName("Sparql.update") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Sparql.update") -> PluginNative.evalLegacy { (_, _) =>
       throw RuntimeException("Sparql.update is not available in interpreter mode; use ssc run-jvm with backend: rdf4j-memory or rdf4j-http")
-    ),
-    QualifiedName("Cypher.query") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Cypher.query") -> PluginNative.evalLegacy { (_, _) =>
       throw RuntimeException("Cypher.query is not available in interpreter mode; use ssc run-jvm with backend: neo4j")
-    ),
-    QualifiedName("Gremlin.query") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Gremlin.query") -> PluginNative.evalLegacy { (_, _) =>
       throw RuntimeException("Gremlin.query is not available in interpreter mode; use ssc run-jvm with backend: gremlin-server or janusgraph")
-    ),
+    },
   )
 
   private def store(name: String): Store = stores.getOrElseUpdate(name, Store())

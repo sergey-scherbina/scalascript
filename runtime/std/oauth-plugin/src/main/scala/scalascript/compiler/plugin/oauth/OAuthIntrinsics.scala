@@ -1,25 +1,27 @@
 package scalascript.compiler.plugin.oauth
 
-import scalascript.backend.spi.{IntrinsicImpl, NativeImpl, NativeContext}
+import scalascript.backend.spi.IntrinsicImpl
+import scalascript.plugin.api.{HttpCap, MountCap}
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation, OAuthBridge}
 import scalascript.oauth.*
 import scalascript.oidc.OidcServer
 import scala.collection.mutable
+import scalascript.plugin.api.PluginNative
 
 object OAuthIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("oauth.authServer") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.authServer") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cfg) =>
           val as = OAuthIntrinsicHelpers.buildAuthServer(cfg)
           OAuthIntrinsicHelpers.makeAuthServerInstance(as)
         case _ => throw InterpretError("oauth.authServer(config)")
-    ),
+    },
 
-    QualifiedName("oauth.serveAuthServer") -> NativeImpl((ctx, args) =>
+    QualifiedName("oauth.serveAuthServer") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(asValue)                       =>
           OAuthIntrinsicHelpers.serveAuthServer(asValue, "", ctx); Value.UnitV
@@ -28,27 +30,27 @@ object OAuthIntrinsics:
         case List(asValue, Value.StringV(bp))    =>
           OAuthIntrinsicHelpers.serveAuthServer(asValue, bp, ctx); Value.UnitV
         case _ => throw InterpretError("oauth.serveAuthServer(authServer[, basePath])")
-    ),
+    },
 
-    QualifiedName("oauth.issueHmacToken") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.issueHmacToken") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(secret: String, subject: String, scopesV: Value, expSec: Long) =>
           Value.StringV(OAuth.issueHmacToken(
             secret, subject,
             OAuthIntrinsicHelpers.toStringSet(scopesV), expSec))
         case _ => throw InterpretError("oauth.issueHmacToken(secret, subject, scopes, expiresInSeconds)")
-    ),
+    },
 
-    QualifiedName("oauth.pkceVerifier") -> NativeImpl((_, _) =>
+    QualifiedName("oauth.pkceVerifier") -> PluginNative.evalLegacy { (_, _) =>
       Value.StringV(OAuth.randomOpaqueToken(32))
-    ),
-    QualifiedName("oauth.pkceChallenge") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("oauth.pkceChallenge") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v: String) => Value.StringV(OAuth.pkceS256(v))
         case _               => throw InterpretError("oauth.pkceChallenge(verifier)")
-    ),
+    },
 
-    QualifiedName("oauth.guard") -> NativeImpl((ctx, args) =>
+    QualifiedName("oauth.guard") -> PluginNative.evalLegacy { (ctx, args) =>
       val (asVal, scopes, realm) = args match
         case List(asVal)                                 => (asVal, Set.empty[String], "api")
         case List(asVal, scopesV)                        =>
@@ -62,9 +64,9 @@ object OAuthIntrinsics:
       val as = OAuthIntrinsicHelpers.resolveAuthServer(asValue).getOrElse(
         throw InterpretError("oauth.guard: argument is not an AuthServer (use oauth.authServer(...))"))
       OAuthIntrinsicHelpers.makeGuardCurry(as.tokenValidator, scopes, realm, ctx)
-    ),
+    },
 
-    QualifiedName("oauth.guardWithValidator") -> NativeImpl((ctx, args) =>
+    QualifiedName("oauth.guardWithValidator") -> PluginNative.evalLegacy { (ctx, args) =>
       val (validatorFn, scopes, realm) = args match
         case List(v)                                  => (v, Set.empty[String], "api")
         case List(v, scopesV)                         =>
@@ -78,9 +80,9 @@ object OAuthIntrinsics:
           case v: Value => v
           case _        => Value.StringV(String.valueOf(res)))
       OAuthIntrinsicHelpers.makeGuardCurry(validator, scopes, realm, ctx)
-    ),
+    },
 
-    QualifiedName("oauth.hmacValidator") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.hmacValidator") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(secret: String) =>
           val v = OAuth.hmacValidator(secret)
@@ -90,9 +92,9 @@ object OAuthIntrinsics:
             case _ => throw InterpretError("validator(token)")
           })
         case _ => throw InterpretError("oauth.hmacValidator(secret)")
-    ),
+    },
 
-    QualifiedName("oidc.server") -> NativeImpl((_, args) =>
+    QualifiedName("oidc.server") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(asValue) =>
           val v: Value = asValue match
@@ -106,9 +108,9 @@ object OAuthIntrinsics:
               val idp = new OidcServer(as)
               OidcIntrinsicHelpers.makeOidcServerInstance(idp)
         case _ => throw InterpretError("oidc.server(authServer)")
-    ),
+    },
 
-    QualifiedName("oidc.serve") -> NativeImpl((ctx, args) =>
+    QualifiedName("oidc.serve") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(idpValue: Value)                          =>
           OidcIntrinsicHelpers.serveOidc(idpValue, "", ctx); Value.UnitV
@@ -117,7 +119,7 @@ object OAuthIntrinsics:
         case List(idpValue: Value, Value.StringV(bp))       =>
           OidcIntrinsicHelpers.serveOidc(idpValue, bp, ctx); Value.UnitV
         case _ => throw InterpretError("oidc.serve(idp[, basePath])")
-    )
+    }
   )
 
 
@@ -224,7 +226,7 @@ object OAuthIntrinsicHelpers:
 
     Value.InstanceV("AuthServer", fields.toMap)
 
-  def serveAuthServer(asValue: Any, basePath: String, ctx: NativeContext): Unit =
+  def serveAuthServer(asValue: Any, basePath: String, ctx: HttpCap): Unit =
     val as = asValue match
       case v: Value => resolveAuthServer(v).getOrElse(
         throw InterpretError("oauth.serveAuthServer: argument is not an AuthServer (use oauth.authServer(...))"))
@@ -246,7 +248,7 @@ object OAuthIntrinsicHelpers:
     validator: OAuth.TokenValidator,
     scopes:    Set[String],
     realm:     String,
-    ctx:       NativeContext
+    ctx:       MountCap
   ): Value = Value.NativeFnV("oauth.guard.curry", Computation.pureFn {
     case List(innerHandler) =>
       Value.NativeFnV("oauth.guard.wrapped", Computation.pureFn {

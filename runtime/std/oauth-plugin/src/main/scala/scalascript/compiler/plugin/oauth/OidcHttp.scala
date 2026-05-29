@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin.oauth
 
-import scalascript.backend.spi.NativeContext
+import scalascript.plugin.api.HttpCap
 import scalascript.interpreter.{Computation, Value}
 import scalascript.oauth.*
 import scalascript.oidc.*
@@ -9,7 +9,7 @@ object OidcHttp:
 
   def installRoutes(
     idp:        OidcServer,
-    ctx:        NativeContext,
+    ctx:        HttpCap,
     basePath:   String                                  = "",
     subjectFor: Map[String, String] => Option[String]   = _ => None,
     loginUrl:   Option[String => String]                = None,
@@ -49,7 +49,7 @@ object OidcHttp:
              "oauth.http.passkey-challenge") { (_, _, _) => OAuthRoutes.handlePasskeyChallenge(as) }
 
   private def register(
-    ctx:    NativeContext,
+    ctx:    HttpCap,
     method: String,
     path:   String,
     name:   String

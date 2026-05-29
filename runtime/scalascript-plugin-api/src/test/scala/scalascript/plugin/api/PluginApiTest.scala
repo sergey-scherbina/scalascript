@@ -51,13 +51,20 @@ class PluginApiTest extends AnyFunSuite:
     assert(JsonCodec.True  == ujson.True)
     assert(JsonCodec.Null  == ujson.Null)
 
-  test("PluginContext exposes capability traits through LegacyNativeContext"):
+  test("PluginContext exposes capability traits from NativeContext"):
     val native = new TestNativeContext
     val ctx = PluginContext.fromNative(native)
     ctx.featureSet("x", "y")
     ctx.setHttpTimeout(1234L)
     assert(ctx.featureGet("x").contains("y"))
     assert(ctx.httpTimeoutMs == 1234L)
+    assert(ctx.storageFieldName("User", "userId") == "userId")
+
+  test("PluginContext.RemoteCap exposes remote handler dispatch"):
+    val native = new TestNativeContext
+    val ctx = PluginContext.fromNative(native)
+    assert(ctx.remoteHandlers.isEmpty)
+    assert(ctx.invokeRemoteHandler("x", ()).isLeft)
 
   test("PluginNative.eval builds a NativeImpl from typed PluginContext"):
     import scalascript.backend.spi.{NativeImpl, IntrinsicImpl}
@@ -68,6 +75,24 @@ class PluginApiTest extends AnyFunSuite:
     val native = new TestNativeContext
     val result = impl.asInstanceOf[NativeImpl].eval(native, List("ok"))
     assert(result == "ok")
+
+  test("PluginNative.evalLegacy wraps a legacy body with capability-typed context"):
+    import scalascript.backend.spi.{NativeImpl, IntrinsicImpl}
+    val impl: IntrinsicImpl = PluginNative.evalLegacy { (ctx, args) =>
+      ctx.featureSet("leg", args.headOption.getOrElse("?"))
+      ctx.featureGet("leg").getOrElse(())
+    }
+    val native = new TestNativeContext
+    val result = impl.asInstanceOf[NativeImpl].eval(native, List("ok"))
+    assert(result == "ok")
+
+  test("classpath boundary: scalascript.interpreter.Value is NOT accessible from plugin-api"):
+    // scalascript-plugin-api must NOT depend on scalascript-core (interpreter internals).
+    // This test catches accidental dependency creep at CI time.
+    val cl = getClass.getClassLoader
+    val found = try { cl.loadClass("scalascript.interpreter.Value$"); true }
+                catch case _: ClassNotFoundException => false
+    assert(!found, "scalascript.interpreter.Value leaked into scalascript-plugin-api classpath")
 
 class TestNativeContext extends scalascript.backend.spi.NativeContext:
   private val state = scala.collection.mutable.Map.empty[String, Any]

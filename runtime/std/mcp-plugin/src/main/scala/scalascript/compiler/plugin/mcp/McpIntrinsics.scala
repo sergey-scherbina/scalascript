@@ -6,6 +6,8 @@ import scalascript.interpreter.{Value, InterpretError, Computation, OAuthBridge}
 import scalascript.mcp.*
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.collection.mutable
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 /** v1.17 MCP own-implementation for the interpreter backend — covers
  *  `Transport.Stdio` server + `Transport.Spawn` client.  HTTP+SSE and
@@ -34,7 +36,7 @@ object McpIntrinsics:
 
     // ─── mcpServer { srv => ... } ───────────────────────────────────────
 
-    QualifiedName("mcpServer") -> NativeImpl((ctx, args) =>
+    QualifiedName("mcpServer") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(setup) =>
           val builder = new McpServerBuilder
@@ -43,11 +45,11 @@ object McpIntrinsics:
           ctx.invokeCallback(setup, List(srvInstance))
           ()
         case _ => throw InterpretError("mcpServer { srv => ... }")
-    ),
+    },
 
     // ─── serveMcp(transport) ────────────────────────────────────────────
 
-    QualifiedName("serveMcp") -> NativeImpl((ctx, args) =>
+    QualifiedName("serveMcp") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(transport) =>
           val builder = Option(Mcp.builderTL.get).getOrElse(
@@ -83,11 +85,11 @@ object McpIntrinsics:
             case other =>
               throw InterpretError(s"serveMcp: unsupported transport '$other'")
         case _ => throw InterpretError("serveMcp(transport)")
-    ),
+    },
 
     // ─── mcpConnect(transport[, timeoutMs]) ────────────────────────────
 
-    QualifiedName("mcpConnect") -> NativeImpl((ctx, args) =>
+    QualifiedName("mcpConnect") -> PluginNative.evalLegacy { (ctx, args) =>
       // v1.17.x — final optional argument is the bearer token (String).
       // Position-based: `mcpConnect(transport)`,
       //                 `mcpConnect(transport, timeoutMs)`,
@@ -115,7 +117,7 @@ object McpIntrinsics:
           throw InterpretError("mcpConnect: Transport.Stdio makes sense for servers, not clients — use Transport.Spawn")
         case other =>
           throw InterpretError(s"mcpConnect: unsupported transport '$other'")
-    )
+    }
   )
 
 /** Private helpers — kept inside an object so the public intrinsic map
@@ -176,7 +178,7 @@ private object Mcp:
    *  open it subscribe to server→client notifications via the same
    *  `builder.addSubscriber` mechanism that Stdio/Spawn/Ws use.  Each
    *  notification is wrapped as `data: <json>\n\n`. */
-  def installHttpRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
+  def installHttpRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
     val handler = Value.NativeFnV("mcp.http.handler", Computation.pureFn {
       case List(Value.InstanceV("Request", fields)) =>
         val body = fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
@@ -262,7 +264,7 @@ private object Mcp:
     body:    String,
     fields:  Map[String, Value],
     claims:  Option[McpAuth.AuthClaims],
-    ctx:     NativeContext
+    ctx: PluginContext
   ): Value = builder.withAuth(claims) {
     val acceptsSse = fields.get("headers").collect {
       case Value.MapV(m) =>
@@ -321,7 +323,7 @@ private object Mcp:
    *  or the server shuts down.  v1.17.x: the GET is also auth-gated
    *  when a validator is registered — same WWW-Authenticate path as
    *  the POST handler. */
-  def installSseRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
+  def installSseRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
     val sseEndpoint = path + "/events"
     val sseHandler = Value.NativeFnV("mcp.http.sse", Computation.pureFn {
       case List(Value.InstanceV("Request", fields)) =>
@@ -364,7 +366,7 @@ private object Mcp:
     ctx.registerRoute("GET", sseEndpoint, sseHandler)
 
   /** Build an `McpClient` Value backed by `McpHttpClient`. */
-  def makeHttpClient(url: String, timeoutMs: Long, ctx: NativeContext,
+  def makeHttpClient(url: String, timeoutMs: Long, ctx: PluginContext,
                      bearerToken: Option[String] = None): Value =
     val client = new McpHttpClient(url, timeoutMs)
     bearerToken.foreach(t => client.setBearerToken(Some(t)))
@@ -395,7 +397,7 @@ private object Mcp:
    *  handles request / notification / parse-error variants) and ships
    *  the reply back via `ws.send`.  The user-side ws value is what
    *  `ctx.registerWsRoute`'s handler receives. */
-  def installWsRoute(builder: McpServerBuilder, path: String, ctx: NativeContext): Unit =
+  def installWsRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
     val handler = Value.NativeFnV("mcp.ws.handler", Computation.pureFn {
       case List(Value.InstanceV("WebSocket", wsFields)) =>
         val sendV:      Option[Value] = wsFields.get("send")
@@ -435,7 +437,7 @@ private object Mcp:
     ctx.registerWsRoute(path, Nil, Nil, 0, 0, handler)
 
   /** Build an `McpClient` Value backed by `McpWsClient`. */
-  def makeWsClient(url: String, timeoutMs: Long, ctx: NativeContext,
+  def makeWsClient(url: String, timeoutMs: Long, ctx: PluginContext,
                    bearerToken: Option[String] = None): Value =
     val client = new McpWsClient(url, timeoutMs, bearerToken)
     val initParams = ujson.Obj(
@@ -455,7 +457,7 @@ private object Mcp:
    *  either a `Unit` (no-arg lifecycle hooks) or another `NativeFnV`
    *  (the curried `tool(name)(handler)` / `resource(uri)(handler)` /
    *  `prompt(name)(handler)` two-step). */
-  def makeServerInstance(builder: McpServerBuilder, ctx: NativeContext): Value.InstanceV =
+  def makeServerInstance(builder: McpServerBuilder, ctx: PluginContext): Value.InstanceV =
     def toolFn = Value.NativeFnV("McpServer.tool", Computation.pureFn {
       case List(Value.StringV(name)) =>
         Value.NativeFnV(s"McpServer.tool.$name", Computation.pureFn {
@@ -888,7 +890,7 @@ private object Mcp:
     desc:    Option[String],
     schema:  ujson.Value,
     handler: Value,
-    ctx:     NativeContext
+    ctx: PluginContext
   ): Unit =
     builder.tool(name, desc, schema, args =>
       val argsValue = mapToValue(args)
@@ -902,7 +904,7 @@ private object Mcp:
     name:     Option[String],
     mimeType: Option[String],
     handler:  Value,
-    ctx:      NativeContext
+    ctx: PluginContext
   ): Unit =
     builder.resource(uri, name, mimeType, requestedUri =>
       val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
@@ -916,7 +918,7 @@ private object Mcp:
     description: Option[String],
     mimeType:    Option[String],
     handler:     Value,
-    ctx:         NativeContext
+    ctx: PluginContext
   ): Unit =
     builder.resourceTemplate(uriTemplate, name, description, mimeType, requestedUri =>
       val result = ctx.invokeCallback(handler, List(Value.StringV(requestedUri)))
@@ -928,7 +930,7 @@ private object Mcp:
     name:    String,
     desc:    Option[String],
     handler: Value,
-    ctx:     NativeContext
+    ctx: PluginContext
   ): Unit =
     builder.prompt(name, desc, Nil, args =>
       val argsValue = mapToValue(args)
@@ -1021,7 +1023,7 @@ private object Mcp:
 
   /** Spawn `cmd args*` as a subprocess and return a Value.InstanceV
    *  exposing the McpClient API — listTools / callTool / etc. */
-  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long, ctx: NativeContext): Value =
+  def makeSpawnClient(cmd: String, cmdArgs: List[String], timeoutMs: Long, ctx: PluginContext): Value =
     val pb = new ProcessBuilder((cmd :: cmdArgs).asJavaList).redirectErrorStream(false)
     val proc = pb.start()
     val stdin  = BufferedWriter(OutputStreamWriter(proc.getOutputStream, "UTF-8"))
@@ -1063,7 +1065,7 @@ private object Mcp:
     client:    McpClientCore,
     proc:      Process,
     timeoutMs: Long,
-    ctx:       NativeContext
+    ctx: PluginContext
   ): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
 
@@ -1146,7 +1148,7 @@ private object Mcp:
    *  intentional: both clients expose identical method surfaces but the
    *  request bodies differ in transport semantics (stdio is async with a
    *  pending-id table; HTTP is synchronous request/response). */
-  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long, ctx: NativeContext): Value.InstanceV =
+  def makeHttpClientInstance(client: McpHttpClient, timeoutMs: Long, ctx: PluginContext): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
     fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match
@@ -1228,7 +1230,7 @@ private object Mcp:
    *  routes through `McpWsClient`.  Persistent WS connection — the
    *  pending-request map handles id correlation server→client; the
    *  same channel delivers server→client notifications. */
-  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long, ctx: NativeContext): Value.InstanceV =
+  def makeWsClientInstance(client: McpWsClient, timeoutMs: Long, ctx: PluginContext): Value.InstanceV =
     val fields = mutable.LinkedHashMap.empty[String, Value]
     fields("listTools") = Value.NativeFnV("McpClient.listTools", Computation.pureFn { _ =>
       client.request(McpProtocol.Method.ToolsList, ujson.Obj(), timeoutMs) match

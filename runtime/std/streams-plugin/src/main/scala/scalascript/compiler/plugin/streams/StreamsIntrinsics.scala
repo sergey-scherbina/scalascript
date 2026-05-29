@@ -6,6 +6,8 @@ import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
 
 import scala.collection.mutable.{ListBuffer, LinkedHashMap}
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 /** Backpressured stream intrinsics for the tree-walking interpreter.
  *
@@ -40,7 +42,7 @@ object StreamsIntrinsics:
 
   private def newQ(): Queue = new Queue(16)
 
-  private def sourceFromValues(values: List[Value], ctx: NativeContext): Value =
+  private def sourceFromValues(values: List[Value], ctx: PluginContext): Value =
     val queue = newQ()
     Thread.ofVirtual().start { () =>
       try for v <- values do queue.put(Some(v))
@@ -49,7 +51,7 @@ object StreamsIntrinsics:
     }
     makeSourceV(queue, ctx)
 
-  private def sourceFromReactiveSignal(signal: ReactiveSignal[?], ctx: NativeContext): Value =
+  private def sourceFromReactiveSignal(signal: ReactiveSignal[?], ctx: PluginContext): Value =
     val queue = newQ()
     queue.put(Some(toValue(signal.apply())))
     signal.asInstanceOf[ReactiveSignal[Any]].subscribe { value =>
@@ -123,7 +125,7 @@ object StreamsIntrinsics:
   private def sleepMillis(ms: Long): Unit =
     if ms > 0 then Thread.sleep(ms)
 
-  private def bindSourceToSignal(source: Value.InstanceV, signal: ReactiveSignal[Any], ctx: NativeContext): Value =
+  private def bindSourceToSignal(source: Value.InstanceV, signal: ReactiveSignal[Any], ctx: PluginContext): Value =
     val runForeach = source.fields.getOrElse("runForeach", throw InterpretError("signal.bind(source): not a Source"))
     val setter = Value.NativeFnV("ReactiveSignal.bind.set", Computation.pureFn {
       case List(v) => signal.set(toHostAny(v)); Value.UnitV
@@ -135,7 +137,7 @@ object StreamsIntrinsics:
     }
     Value.UnitV
 
-  private def makeSourceV(queue: Queue, ctx: NativeContext): Value =
+  private def makeSourceV(queue: Queue, ctx: PluginContext): Value =
 
     def call(f: Value, args: List[Value]): Value =
       ctx.synchronized { ctx.invokeCallback(f, args).asInstanceOf[Value] }
@@ -619,7 +621,7 @@ object StreamsIntrinsics:
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     // stream { body } — body runs on a VT; emit(x) blocks when the 16-element buffer is full.
-    QualifiedName("stream") -> NativeImpl((ctx, args) =>
+    QualifiedName("stream") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(body: Value) =>
           val queue = newQ()
@@ -634,10 +636,10 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("stream(body: () => Unit)")
-    ),
+    },
 
     // emit(x) — puts one element into the current stream's queue.
-    QualifiedName("emit") -> NativeImpl((_, args) =>
+    QualifiedName("emit") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) =>
           val q = _emitQueueTL.get()
@@ -645,10 +647,10 @@ object StreamsIntrinsics:
           q.put(Some(toValue(v)))
           Value.UnitV
         case _ => throw InterpretError("emit(value)")
-    ),
+    },
 
     // Source.from(iterable) — wraps a List/range as a Source.
-    QualifiedName("Source.from") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.from") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.ListV(items)) =>
           val queue = newQ()
@@ -659,10 +661,10 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("Source.from(iterable)")
-    ),
+    },
 
     // Source.single(x) — one-element source.
-    QualifiedName("Source.single") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.single") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(v) =>
           val queue = newQ()
@@ -674,17 +676,17 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("Source.single(x)")
-    ),
+    },
 
     // Source.empty — completes immediately.
-    QualifiedName("Source.empty") -> NativeImpl((ctx, _) =>
+    QualifiedName("Source.empty") -> PluginNative.evalLegacy { (ctx, _) =>
       val queue = newQ()
       queue.put(None)
       makeSourceV(queue, ctx)
-    ),
+    },
 
     // Source.fromGenerator(gen) — wraps a Generator[T] as a Source.
-    QualifiedName("Source.fromGenerator") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.fromGenerator") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(gen: Value.InstanceV) =>
           val queue = newQ()
@@ -703,25 +705,25 @@ object StreamsIntrinsics:
           }
           makeSourceV(queue, ctx)
         case _ => throw InterpretError("Source.fromGenerator(gen: Generator)")
-    ),
+    },
 
-    QualifiedName("Source.signal") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.signal") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("ReactiveSignal", signal: ReactiveSignal[?])) =>
           sourceFromReactiveSignal(signal, ctx)
         case List(sig: Value) => sourceFromValues(List(sourceValue(sig)), ctx)
         case List(sig)        => sourceFromValues(List(toValue(sig)), ctx)
         case _ => throw InterpretError("Source.signal(sig)")
-    ),
+    },
 
-    QualifiedName("ReactiveSignal.bind") -> NativeImpl((ctx, args) =>
+    QualifiedName("ReactiveSignal.bind") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("ReactiveSignal", signal: ReactiveSignal[?]), source: Value.InstanceV) =>
           bindSourceToSignal(source, signal.asInstanceOf[ReactiveSignal[Any]], ctx)
         case _ => throw InterpretError("ReactiveSignal.bind(signal, source)")
-    ),
+    },
 
-    QualifiedName("Rate") -> NativeImpl((_, args) =>
+    QualifiedName("Rate") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(elements, perMillis) if intArg(elements).isDefined && intArg(perMillis).isDefined =>
           Value.InstanceV("Rate", Map(
@@ -731,30 +733,30 @@ object StreamsIntrinsics:
         case List(elements) if intArg(elements).isDefined =>
           Value.InstanceV("Rate", Map("elements" -> Value.intV(intArg(elements).get.toLong), "perMillis" -> Value.intV(1000L)))
         case _ => throw InterpretError("Rate(elements, perMillis)")
-    ),
+    },
 
-    QualifiedName("OverflowStrategy.Backpressure") -> NativeImpl((_, _) =>
+    QualifiedName("OverflowStrategy.Backpressure") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.Backpressure", Map.empty)
-    ),
-    QualifiedName("OverflowStrategy.Block") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("OverflowStrategy.Block") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.Block", Map.empty)
-    ),
-    QualifiedName("OverflowStrategy.Drop") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("OverflowStrategy.Drop") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.Drop", Map.empty)
-    ),
-    QualifiedName("OverflowStrategy.DropHead") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("OverflowStrategy.DropHead") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.DropHead", Map.empty)
-    ),
-    QualifiedName("OverflowStrategy.DropOldest") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("OverflowStrategy.DropOldest") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.DropOldest", Map.empty)
-    ),
-    QualifiedName("OverflowStrategy.Fail") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("OverflowStrategy.Fail") -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("OverflowStrategy.Fail", Map.empty)
-    ),
+    },
 
     // ── v1.51.4 SSE / WebSocket / bracket source-sink intrinsics ───────────
 
-    QualifiedName("Source.bracket") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.bracket") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(acquire) =>
           Value.NativeFnV("Source.bracket$1", Computation.pureFn {
@@ -786,9 +788,9 @@ object StreamsIntrinsics:
             case _ => throw InterpretError("Source.bracket(acquire)(release)(use) — release")
           })
         case _ => throw InterpretError("Source.bracket(acquire)(release)(use) — acquire")
-    ),
+    },
 
-    QualifiedName("Source.fromSse") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.fromSse") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
           val q = newQ()
@@ -827,9 +829,9 @@ object StreamsIntrinsics:
           }
           makeSourceV(q, ctx)
         case _ => throw InterpretError("Source.fromSse(url)")
-    ),
+    },
 
-    QualifiedName("Source.fromWebSocket") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.fromWebSocket") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(url: String) =>
           val q     = newQ()
@@ -882,9 +884,9 @@ object StreamsIntrinsics:
           }
           makeSourceV(q, ctx)
         case _ => throw InterpretError("Source.fromWebSocket(url)")
-    ),
+    },
 
-    QualifiedName("Sink.toSseStream") -> NativeImpl((ctx, _) =>
+    QualifiedName("Sink.toSseStream") -> PluginNative.evalLegacy { (ctx, _) =>
       val runFn = Value.NativeFnV("Sink.toSseStream.run", Computation.pureFn {
         case List(src: Value.InstanceV) =>
           src.fields.get("runToList") match
@@ -903,9 +905,9 @@ object StreamsIntrinsics:
         case _ => Value.UnitV
       })
       Value.InstanceV("Sink", Map("run" -> runFn))
-    ),
+    },
 
-    QualifiedName("Sink.toWsRoom") -> NativeImpl((ctx, args) =>
+    QualifiedName("Sink.toWsRoom") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(room: Value.InstanceV) =>
           val broadcastFn = room.fields.getOrElse("broadcast",
@@ -929,11 +931,11 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Sink", Map("run" -> runFn))
         case _ => throw InterpretError("Sink.toWsRoom(room)")
-    ),
+    },
 
     // ── v1.51.3 Sink intrinsics ───────────────────────────────────────────
 
-    QualifiedName("Sink.foreach") -> NativeImpl((ctx, args) =>
+    QualifiedName("Sink.foreach") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(f) =>
           val fv = toValue(f)
@@ -946,9 +948,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Sink", Map("run" -> runFn))
         case _ => throw InterpretError("Sink.foreach(f)")
-    ),
+    },
 
-    QualifiedName("Sink.fold") -> NativeImpl((ctx, args) =>
+    QualifiedName("Sink.fold") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(z) =>
           val zv = toValue(z)
@@ -970,9 +972,9 @@ object StreamsIntrinsics:
             case _ => throw InterpretError("Sink.fold(z)(f) — inner")
           })
         case _ => throw InterpretError("Sink.fold(z)(f) — outer")
-    ),
+    },
 
-    QualifiedName("Sink.ignore") -> NativeImpl((ctx, _) =>
+    QualifiedName("Sink.ignore") -> PluginNative.evalLegacy { (ctx, _) =>
       val runFn = Value.NativeFnV("Sink.ignore.run", Computation.pureFn {
         case List(src: Value.InstanceV) =>
           src.fields.get("runDrain") match
@@ -981,9 +983,9 @@ object StreamsIntrinsics:
         case _ => Value.UnitV
       })
       Value.InstanceV("Sink", Map("run" -> runFn))
-    ),
+    },
 
-    QualifiedName("Sink.toList") -> NativeImpl((ctx, _) =>
+    QualifiedName("Sink.toList") -> PluginNative.evalLegacy { (ctx, _) =>
       val runFn = Value.NativeFnV("Sink.toList.run", Computation.pureFn {
         case List(src: Value.InstanceV) =>
           src.fields.get("runToList") match
@@ -992,11 +994,11 @@ object StreamsIntrinsics:
         case _ => Value.UnitV
       })
       Value.InstanceV("Sink", Map("run" -> runFn))
-    ),
+    },
 
     // ── v1.51.3 Flow intrinsics ───────────────────────────────────────────
 
-    QualifiedName("Flow.map") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.map") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(f) =>
           val fv = toValue(f)
@@ -1009,9 +1011,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.map(f)")
-    ),
+    },
 
-    QualifiedName("Flow.filter") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.filter") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(pred) =>
           val pv = toValue(pred)
@@ -1024,9 +1026,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.filter(pred)")
-    ),
+    },
 
-    QualifiedName("Flow.fromFunction") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.fromFunction") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(f) =>
           val fv = toValue(f)
@@ -1039,9 +1041,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.fromFunction(f)")
-    ),
+    },
 
-    QualifiedName("Flow.take") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.take") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n) =>
           val nv = toValue(n)
@@ -1054,9 +1056,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.take(n)")
-    ),
+    },
 
-    QualifiedName("Flow.drop") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.drop") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n) =>
           val nv = toValue(n)
@@ -1069,9 +1071,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.drop(n)")
-    ),
+    },
 
-    QualifiedName("Flow.flatMap") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.flatMap") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(f) =>
           val fv = toValue(f)
@@ -1084,9 +1086,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.flatMap(f)")
-    ),
+    },
 
-    QualifiedName("Flow.scan") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.scan") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(z) =>
           val zv = toValue(z)
@@ -1109,9 +1111,9 @@ object StreamsIntrinsics:
             case _ => throw InterpretError("Flow.scan(z)(f) — inner")
           })
         case _ => throw InterpretError("Flow.scan(z)(f) — outer")
-    ),
+    },
 
-    QualifiedName("Flow.mapAsync") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.mapAsync") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(n) =>
           val nv = toValue(n)
@@ -1134,9 +1136,9 @@ object StreamsIntrinsics:
             case _ => throw InterpretError("Flow.mapAsync(n)(f) — inner")
           })
         case _ => throw InterpretError("Flow.mapAsync(n)(f) — outer")
-    ),
+    },
 
-    QualifiedName("Flow.recover") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.recover") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(h) =>
           val hv = toValue(h)
@@ -1149,9 +1151,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.recover(h)")
-    ),
+    },
 
-    QualifiedName("Flow.throttle") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.throttle") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(rate) =>
           val rv = toValue(rate)
@@ -1164,9 +1166,9 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.throttle(rate)")
-    ),
+    },
 
-    QualifiedName("Flow.debounce") -> NativeImpl((ctx, args) =>
+    QualifiedName("Flow.debounce") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(ms) =>
           val msv = toValue(ms)
@@ -1179,11 +1181,11 @@ object StreamsIntrinsics:
           })
           Value.InstanceV("Flow", Map("apply" -> applyFn))
         case _ => throw InterpretError("Flow.debounce(ms)")
-    ),
+    },
 
     // ── v1.51.1 factory intrinsics ────────────────────────────────────────
 
-    QualifiedName("Source.tick") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.tick") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(duration) =>
           val ms = positiveMillis(toValue(duration), "tick")
@@ -1198,9 +1200,9 @@ object StreamsIntrinsics:
           }
           makeSourceV(q, ctx)
         case _ => throw InterpretError("Source.tick(durationMillis)")
-    ),
+    },
 
-    QualifiedName("Source.unfold") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.unfold") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(seed) =>
           Value.NativeFnV("Source.unfold$1", Computation.pureFn {
@@ -1225,9 +1227,9 @@ object StreamsIntrinsics:
             case _ => throw InterpretError("Source.unfold(seed)(f) — inner")
           })
         case _ => throw InterpretError("Source.unfold(seed)(f) — outer")
-    ),
+    },
 
-    QualifiedName("Source.fromCallback") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.fromCallback") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(register) =>
           val q = newQ()
@@ -1242,26 +1244,26 @@ object StreamsIntrinsics:
           }
           makeSourceV(q, ctx)
         case _ => throw InterpretError("Source.fromCallback(register)")
-    ),
+    },
 
     // ── v1.63.6 RemoteSource adapters ────────────────────────────────────────
 
     // Source[A].remote(name, policy) — register a named remote stream.
     // Stores the source factory in nativeFeatureState under "remoteSource.<name>"
     // and registers a GET /streams/<name> SSE endpoint via ctx.registerRoute.
-    QualifiedName("Source.remote") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.remote") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(src, name: String, policy) =>
           remoteSourceRegister(ctx, src, name, policy)
         case List(src, name: Value.StringV, policy) =>
           remoteSourceRegister(ctx, src, name.v, policy)
         case _ => throw InterpretError("Source.remote(name, policy)")
-    ),
+    },
 
     // remoteSourceLocal(rs, buffer) — subscribe to a RemoteSource locally.
     // In-process: looks up the source from nativeFeatureState.
     // HTTP: connects via SSE using Source.fromSse pattern.
-    QualifiedName("remoteSourceLocal") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteSourceLocal") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.InstanceV("RemoteSource", fields), bufferV) =>
           val name = fields.get("name").collect { case Value.StringV(s) => s }.getOrElse("")
@@ -1276,10 +1278,10 @@ object StreamsIntrinsics:
                 case Some(url) => remoteSourceFromSse(url, buffer, ctx)
                 case None      => throw InterpretError(s"remoteSourceLocal: no source registered for '$name' and no url")
         case _ => throw InterpretError("remoteSourceLocal(rs, buffer)")
-    ),
+    },
   )
 
-  private def remoteSourceRegister(ctx: NativeContext, src: Any, name: String, policy: Any): Value =
+  private def remoteSourceRegister(ctx: PluginContext, src: Any, name: String, policy: Any): Value =
     ctx.featureSet(s"remoteSource.$name", src)
     // Register SSE route GET /streams/<name>
     val sseHandler = Value.NativeFnV(s"stream.$name.sse", Computation.pureFn { _ =>
@@ -1319,7 +1321,7 @@ object StreamsIntrinsics:
       "policy" -> toValue(policy)
     ))
 
-  private def remoteSourceFromSse(url: String, buffer: Int, ctx: NativeContext): Value =
+  private def remoteSourceFromSse(url: String, buffer: Int, ctx: PluginContext): Value =
     val q = new java.util.concurrent.ArrayBlockingQueue[Option[Value]](buffer.max(1))
     Thread.ofVirtual().start { () =>
       try

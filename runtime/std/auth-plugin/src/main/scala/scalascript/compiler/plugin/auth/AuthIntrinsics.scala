@@ -11,7 +11,7 @@ object AuthIntrinsics:
 
     // ── Response.basicAuthChallenge ──────────────────────────────────────
 
-    QualifiedName("Response.basicAuthChallenge") -> NativeImpl((_, args) =>
+    QualifiedName("Response.basicAuthChallenge") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(realm: String) =>
           val safe = realm.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -23,7 +23,7 @@ object AuthIntrinsics:
             "body"    -> Value.StringV("Authentication required")
           ))
         case _ => throw InterpretError("Response.basicAuthChallenge(realm: String)")
-    ),
+    },
 
     // ── CSRF ─────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ object AuthIntrinsics:
       )
     },
 
-    QualifiedName("csrfValid") -> NativeImpl((_, args) =>
+    QualifiedName("csrfValid") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.InstanceV("Request", fields)) =>
           def asMap(v: Option[Value]): Map[String, String] = v match
@@ -55,44 +55,44 @@ object AuthIntrinsics:
               expected.getBytes("UTF-8"), supplied.getBytes("UTF-8"))
           Value.boolV(ok)
         case _ => throw InterpretError("csrfValid(req)")
-    ),
+    },
 
     // ── Base64-url codec ──────────────────────────────────────────────────
 
-    QualifiedName("base64UrlEncode") -> NativeImpl((_, args) =>
+    QualifiedName("base64UrlEncode") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) =>
           Value.StringV(java.util.Base64.getUrlEncoder.withoutPadding
             .encodeToString(s.getBytes("UTF-8")))
         case _ => throw InterpretError("base64UrlEncode(s: String)")
-    ),
+    },
 
-    QualifiedName("base64UrlDecode") -> NativeImpl((_, args) =>
+    QualifiedName("base64UrlDecode") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) =>
           try Value.StringV(String(java.util.Base64.getUrlDecoder.decode(s), "UTF-8"))
           catch case _: Throwable => Value.EmptyStr
         case _ => throw InterpretError("base64UrlDecode(s: String)")
-    ),
+    },
 
     // ── WebAuthn / passkeys ───────────────────────────────────────────────
 
-    QualifiedName("webauthnChallenge") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnChallenge") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(uid: String) => Value.StringV(scalascript.server.WebAuthn.challenge(uid))
         case _ => throw InterpretError("webauthnChallenge(userId: String)")
-    ),
+    },
 
-    QualifiedName("webauthnConsumeChallenge") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnConsumeChallenge") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) =>
           scalascript.server.WebAuthn.consumeChallenge(s) match
             case Some(uid) => Value.OptionV(Some(Value.StringV(uid)))
             case None      => Value.NoneV
         case _ => throw InterpretError("webauthnConsumeChallenge(challenge: String)")
-    ),
+    },
 
-    QualifiedName("webauthnStorePut") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnStorePut") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(uid: String, cid: String, pk: String, cnt: Long) =>
           scalascript.server.WebAuthn.storePut(uid,
@@ -100,9 +100,9 @@ object AuthIntrinsics:
           ()
         case _ => throw InterpretError(
           "webauthnStorePut(userId, credentialId, publicKeyB64, signCount)")
-    ),
+    },
 
-    QualifiedName("webauthnStoreGet") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnStoreGet") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(uid: String) =>
           Value.ListV(scalascript.server.WebAuthn.storeGet(uid).map { c =>
@@ -113,9 +113,9 @@ object AuthIntrinsics:
             ))
           })
         case _ => throw InterpretError("webauthnStoreGet(userId: String)")
-    ),
+    },
 
-    QualifiedName("webauthnStoreFind") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnStoreFind") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(uid: String, cid: String) =>
           scalascript.server.WebAuthn.storeFind(uid, cid) match
@@ -127,17 +127,17 @@ object AuthIntrinsics:
               ))))
             case None => Value.NoneV
         case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
-    ),
+    },
 
-    QualifiedName("webauthnUpdateSignCount") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnUpdateSignCount") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(_: String, _: String, _: Long) =>
           Value.boolV(false)
         case _ => throw InterpretError(
           "webauthnUpdateSignCount(userId, credentialId, newSignCount)")
-    ),
+    },
 
-    QualifiedName("webauthnVerifyAssertion") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnVerifyAssertion") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cd: String, ad: String, sig: String, cid: String, origin: String) =>
           scalascript.server.WebAuthn.verifyAssertion(cd, ad, sig, cid, origin) match
@@ -150,9 +150,9 @@ object AuthIntrinsics:
         case _ => throw InterpretError(
           "webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64, " +
           "signatureB64, credentialIdB64, expectedOrigin)")
-    ),
+    },
 
-    QualifiedName("webauthnVerifyRegistration") -> NativeImpl((_, args) =>
+    QualifiedName("webauthnVerifyRegistration") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cd: String, att: String, origin: String) =>
           scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
@@ -166,72 +166,72 @@ object AuthIntrinsics:
             case None => Value.NoneV
         case _ => throw InterpretError(
           "webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64, expectedOrigin)")
-    ),
+    },
 
     // ── Rate limiting ─────────────────────────────────────────────────────
 
-    QualifiedName("rateLimit") -> NativeImpl((_, args) =>
+    QualifiedName("rateLimit") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(_: String, _: Long, _: Long) =>
           Value.boolV(false)
         case _ => throw InterpretError("rateLimit(key: String, limit: Int, windowSeconds: Int)")
-    ),
+    },
 
-    QualifiedName("rateLimitReset") -> NativeImpl((_, args) =>
+    QualifiedName("rateLimitReset") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(key: String) => scalascript.server.RateLimit.reset(key); ()
         case _ => throw InterpretError("rateLimitReset(key: String)")
-    ),
+    },
 
     // ── TOTP / 2FA (RFC 6238) ─────────────────────────────────────────────
 
-    QualifiedName("totpSecret") -> NativeImpl((_, _) =>
+    QualifiedName("totpSecret") -> PluginNative.evalLegacy { (_, _) =>
       Value.StringV(scalascript.server.Totp.secret())
-    ),
+    },
 
-    QualifiedName("totpUri") -> NativeImpl((_, args) =>
+    QualifiedName("totpUri") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String, account: String) =>
           Value.StringV(scalascript.server.Totp.uri(s, account))
         case List(s: String, account: String, issuer: String) =>
           Value.StringV(scalascript.server.Totp.uri(s, account, issuer))
         case _ => throw InterpretError("totpUri(secret, account[, issuer])")
-    ),
+    },
 
-    QualifiedName("totpCode") -> NativeImpl((_, args) =>
+    QualifiedName("totpCode") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(s: String) => Value.StringV(scalascript.server.Totp.code(s))
         case _ => throw InterpretError("totpCode(secret)")
-    ),
+    },
 
-    QualifiedName("totpValid") -> NativeImpl((_, args) =>
+    QualifiedName("totpValid") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(_: String, _: String) =>
           Value.boolV(false)
         case List(_: String, _: String, _: Long) =>
           Value.boolV(false)
         case _ => throw InterpretError("totpValid(secret, code[, skew])")
-    ),
+    },
 
     // ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────────
 
-    QualifiedName("hashPassword") -> NativeImpl((_, args) =>
+    QualifiedName("hashPassword") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(pass: String)             => Value.StringV(scalascript.server.Password.hash(pass))
         case List(pass: String, iter: Long) => Value.StringV(scalascript.server.Password.hash(pass, iter.toInt))
         case _ => throw InterpretError("hashPassword(password[, iter])")
-    ),
+    },
 
-    QualifiedName("verifyPassword") -> NativeImpl((_, args) =>
+    QualifiedName("verifyPassword") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(pass: String, encoded: String) =>
           Value.boolV(scalascript.server.Password.verify(pass, encoded))
         case _ => throw InterpretError("verifyPassword(password, encoded)")
-    ),
+    },
 
     // ── Cookie / session ──────────────────────────────────────────────────
 
-    QualifiedName("cookieConfig") -> NativeImpl((_, args) =>
+    QualifiedName("cookieConfig") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(secure: Boolean) =>
           scalascript.server.SessionCookie.setCookieConfig(
@@ -241,18 +241,18 @@ object AuthIntrinsics:
           scalascript.server.SessionCookie.setCookieConfig(secure, sameSite)
           ()
         case _ => throw InterpretError("cookieConfig(secure: Boolean[, sameSite: String])")
-    ),
+    },
 
-    QualifiedName("useSessionStore") -> NativeImpl((_, args) =>
+    QualifiedName("useSessionStore") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case Nil             => scalascript.server.SessionStore.useStore(); ()
         case List(ttl: Long) => scalascript.server.SessionStore.useStore(ttl); ()
         case _ => throw InterpretError("useSessionStore() or useSessionStore(ttlSeconds: Int)")
-    ),
+    },
 
     // ── JWT HS256 ─────────────────────────────────────────────────────────
 
-    QualifiedName("jwtSign") -> NativeImpl((_, args) =>
+    QualifiedName("jwtSign") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.MapV(m)) =>
           val claims = m.collect {
@@ -261,9 +261,9 @@ object AuthIntrinsics:
           }.toMap
           Value.StringV(scalascript.server.Jwt.sign(claims))
         case _ => throw InterpretError("jwtSign(Map[String, String])")
-    ),
+    },
 
-    QualifiedName("jwtVerify") -> NativeImpl((_, args) =>
+    QualifiedName("jwtVerify") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(token: String) =>
           scalascript.server.Jwt.verify(token) match
@@ -271,11 +271,11 @@ object AuthIntrinsics:
               Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
             case None => Value.NoneV
         case _ => throw InterpretError("jwtVerify(token: String)")
-    ),
+    },
 
     // ── JWT RS256 (asymmetric) ────────────────────────────────────────────
 
-    QualifiedName("jwtSignRsa") -> NativeImpl((_, args) =>
+    QualifiedName("jwtSignRsa") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.MapV(m)) =>
           val claims = m.collect {
@@ -284,9 +284,9 @@ object AuthIntrinsics:
           }.toMap
           Value.StringV(scalascript.server.JwtRsa.sign(claims))
         case _ => throw InterpretError("jwtSignRsa(Map[String, String])")
-    ),
+    },
 
-    QualifiedName("jwtVerifyRsa") -> NativeImpl((_, args) =>
+    QualifiedName("jwtVerifyRsa") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(token: String) =>
           scalascript.server.JwtRsa.verify(token) match
@@ -294,11 +294,11 @@ object AuthIntrinsics:
               Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
             case None => Value.NoneV
         case _ => throw InterpretError("jwtVerifyRsa(token: String)")
-    ),
+    },
 
     // ── OAuth2 ───────────────────────────────────────────────────────────
 
-    QualifiedName("oauthAuthorizeUrl") -> NativeImpl((_, args) =>
+    QualifiedName("oauthAuthorizeUrl") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(prov: String, cid: String, redir: String, state: String) =>
           Value.StringV(scalascript.server.OAuth.authorizeUrl(prov, cid, redir, state))
@@ -306,9 +306,9 @@ object AuthIntrinsics:
           Value.StringV(scalascript.server.OAuth.authorizeUrl(prov, cid, redir, state, scope))
         case _ => throw InterpretError(
           "oauthAuthorizeUrl(provider, clientId, redirectUri, state[, scope])")
-    ),
+    },
 
-    QualifiedName("oauthExchangeCode") -> NativeImpl((_, args) =>
+    QualifiedName("oauthExchangeCode") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(prov: String, code: String, cid: String, csec: String, redir: String) =>
           scalascript.server.OAuth.exchangeCode(prov, code, cid, csec, redir) match
@@ -317,9 +317,9 @@ object AuthIntrinsics:
             case None => Value.NoneV
         case _ => throw InterpretError(
           "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
-    ),
+    },
 
-    QualifiedName("oauthUserinfo") -> NativeImpl((_, args) =>
+    QualifiedName("oauthUserinfo") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(prov: String, token: String) =>
           scalascript.server.OAuth.userinfo(prov, token) match
@@ -327,9 +327,9 @@ object AuthIntrinsics:
               Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
             case None => Value.NoneV
         case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
-    ),
+    },
 
-    QualifiedName("oauthRefreshToken") -> NativeImpl((_, args) =>
+    QualifiedName("oauthRefreshToken") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(prov: String, refresh: String, cid: String, csec: String) =>
           scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
@@ -338,9 +338,9 @@ object AuthIntrinsics:
             case None => Value.NoneV
         case _ => throw InterpretError(
           "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")
-    ),
+    },
 
-    QualifiedName("oauthRegisterProvider") -> NativeImpl((_, args) =>
+    QualifiedName("oauthRegisterProvider") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name: String, Value.MapV(m)) =>
           val cfg = m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
@@ -348,5 +348,5 @@ object AuthIntrinsics:
           ()
         case _ => throw InterpretError(
           "oauthRegisterProvider(name, Map[String, String])")
-    ),
+    },
   )

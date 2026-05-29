@@ -1,48 +1,49 @@
 package scalascript.compiler.plugin.oauth
 
-import scalascript.backend.spi.{IntrinsicImpl, NativeImpl}
+import scalascript.backend.spi.IntrinsicImpl
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
 import scalascript.oauth.*
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
+import scalascript.plugin.api.PluginNative
 
 object OAuthClientIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
-    QualifiedName("oauth.client.discoverAs") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.discoverAs") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(issuer: String) =>
           OAuthClientIntrinsicHelpers.ujsonToValue(OAuthClient.discoverAs(issuer))
         case _ => throw InterpretError("oauth.client.discoverAs(issuer)")
-    ),
-    QualifiedName("oauth.client.discoverRs") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("oauth.client.discoverRs") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(resourceUrl: String) =>
           OAuthClientIntrinsicHelpers.ujsonToValue(OAuthClient.discoverRs(resourceUrl))
         case _ => throw InterpretError("oauth.client.discoverRs(resourceUrl)")
-    ),
+    },
 
-    QualifiedName("oauth.client.freshPkce") -> NativeImpl((_, _) =>
+    QualifiedName("oauth.client.freshPkce") -> PluginNative.evalLegacy { (_, _) =>
       val p = OAuthClient.freshPkce()
       Value.MapV(Map(
         Value.StringV("verifier")  -> Value.StringV(p.verifier),
         Value.StringV("challenge") -> Value.StringV(p.challenge),
         Value.StringV("method")    -> Value.StringV(p.method)
       ))
-    ),
-    QualifiedName("oauth.client.freshState") -> NativeImpl((_, _) =>
+    },
+    QualifiedName("oauth.client.freshState") -> PluginNative.evalLegacy { (_, _) =>
       Value.StringV(OAuthClient.freshState())
-    ),
-    QualifiedName("oauth.client.verifyState") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("oauth.client.verifyState") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(a: String, b: String) =>
           Value.boolV(OAuthClient.verifyState(a, b))
         case _ => throw InterpretError("oauth.client.verifyState(expected, presented)")
-    ),
+    },
 
-    QualifiedName("oauth.client.authorizationUrl") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.authorizationUrl") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(ep: String, cid: String, redirect: String, scopesV: Value,
                   state: String, challenge: String, method: String) =>
@@ -57,9 +58,9 @@ object OAuthClientIntrinsics:
           ))
         case _ => throw InterpretError(
           "oauth.client.authorizationUrl(endpoint, clientId, redirectUri, scopes, state, challenge, method)")
-    ),
+    },
 
-    QualifiedName("oauth.client.exchangeAuthorizationCode") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.exchangeAuthorizationCode") -> PluginNative.evalLegacy { (_, args) =>
       val (ep, cid, redirect, code, verifier, secret) = args match
         case List(ep: String, cid: String, redirect: String, code: String, verifier: String) =>
           (ep, cid, redirect, code, verifier, None)
@@ -70,9 +71,9 @@ object OAuthClientIntrinsics:
           "oauth.client.exchangeAuthorizationCode(endpoint, clientId, redirectUri, code, verifier[, secret])")
       OAuthClientIntrinsicHelpers.tokenResultToValue(
         OAuthClient.exchangeAuthorizationCode(ep, cid, redirect, code, verifier, secret))
-    ),
+    },
 
-    QualifiedName("oauth.client.refresh") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.refresh") -> PluginNative.evalLegacy { (_, args) =>
       val (ep, cid, refresh, scopes, secret) = args match
         case List(ep: String, cid: String, refresh: String) =>
           (ep, cid, refresh, Set.empty[String], None)
@@ -84,9 +85,9 @@ object OAuthClientIntrinsics:
           "oauth.client.refresh(endpoint, clientId, refreshToken[, scopes][, secret])")
       OAuthClientIntrinsicHelpers.tokenResultToValue(
         OAuthClient.refresh(ep, cid, refresh, scopes, secret))
-    ),
+    },
 
-    QualifiedName("oauth.client.clientCredentials") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.clientCredentials") -> PluginNative.evalLegacy { (_, args) =>
       val (ep, cid, secret, scopes) = args match
         case List(ep: String, cid: String, secret: String) =>
           (ep, cid, secret, Set.empty[String])
@@ -96,9 +97,9 @@ object OAuthClientIntrinsics:
           "oauth.client.clientCredentials(endpoint, clientId, secret[, scopes])")
       OAuthClientIntrinsicHelpers.tokenResultToValue(
         OAuthClient.clientCredentials(ep, cid, secret, scopes))
-    ),
+    },
 
-    QualifiedName("oauth.client.tokenHolder") -> NativeImpl((_, args) =>
+    QualifiedName("oauth.client.tokenHolder") -> PluginNative.evalLegacy { (_, args) =>
       val (ep, cid, leadSec, secret) = args match
         case List(ep: String, cid: String) =>
           (ep, cid, 60L, None)
@@ -110,7 +111,7 @@ object OAuthClientIntrinsics:
           "oauth.client.tokenHolder(endpoint, clientId[, refreshLeadSeconds][, secret])")
       OAuthClientIntrinsicHelpers.makeTokenHolderInstance(
         new OAuthClient.TokenHolder(ep, cid, secret, leadSec))
-    )
+    }
   )
 
 

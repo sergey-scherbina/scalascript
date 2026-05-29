@@ -5,6 +5,8 @@ import scalascript.ir.QualifiedName
 import scalascript.interpreter.{Value, InterpretError, Computation}
 
 import scala.collection.mutable.{ListBuffer, LinkedHashMap}
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 /** DStream / Pipeline intrinsics for the tree-walking interpreter.
  *
@@ -66,10 +68,10 @@ object DStreamsIntrinsics:
 
   // ── DAG evaluation (DirectRunner) ─────────────────────────────────────────
 
-  private def call(ctx: NativeContext, f: Value, args: List[Value]): Value =
+  private def call(ctx: PluginContext, f: Value, args: List[Value]): Value =
     ctx.synchronized { ctx.invokeCallback(f, args).asInstanceOf[Value] }
 
-  private def evalDag(dag: Value, ctx: NativeContext): Iterator[Value] =
+  private def evalDag(dag: Value, ctx: PluginContext): Iterator[Value] =
     dag match
 
       case Value.InstanceV("_dag_source_list", fields) =>
@@ -403,12 +405,12 @@ object DStreamsIntrinsics:
 
   // ── Collect results from a running pipeline ────────────────────────────────
 
-  private def runToList(dag: Value, ctx: NativeContext): List[Value] =
+  private def runToList(dag: Value, ctx: PluginContext): List[Value] =
     evalDag(dag, ctx).toList
 
   // ── DStream → Source bridge helper ────────────────────────────────────────
 
-  private def mkCollectedSourceV(elems: List[Value], ctx: NativeContext): Value =
+  private def mkCollectedSourceV(elems: List[Value], ctx: PluginContext): Value =
     val arr = elems.toArray
     Value.InstanceV("Source", Map(
       "runForeach" -> Value.NativeFnV("Source.runForeach", Computation.pureFn {
@@ -507,7 +509,7 @@ object DStreamsIntrinsics:
 
   // ── Pipeline execution ────────────────────────────────────────────────────
 
-  private def executePipeline(dag: Value, backendName: String, ctx: NativeContext): Value =
+  private def executePipeline(dag: Value, backendName: String, ctx: PluginContext): Value =
     checkCapabilities(dag, backendName) match
       case Some(err) => throw InterpretError(err)
       case None      =>
@@ -534,7 +536,7 @@ object DStreamsIntrinsics:
 
   // ── DStream operator wiring ───────────────────────────────────────────────
 
-  private def dstreamOps(dag: Value, ctx: NativeContext): Map[String, Value] = Map(
+  private def dstreamOps(dag: Value, ctx: PluginContext): Map[String, Value] = Map(
 
     "map" -> Value.NativeFnV("DStream.map", Computation.pureFn {
       case List(f) => mkDStreamWithOps(dagNode("map", Map("upstream" -> dag, "f" -> f)), ctx)
@@ -828,12 +830,12 @@ object DStreamsIntrinsics:
     }),
   )
 
-  private def mkDStreamWithOps(dag: Value, ctx: NativeContext): Value =
+  private def mkDStreamWithOps(dag: Value, ctx: PluginContext): Value =
     Value.InstanceV("DStream", Map("__dag" -> dag) ++ dstreamOps(dag, ctx))
 
   // ── Pipeline object ───────────────────────────────────────────────────────
 
-  private def mkPipeline(name: String, ctx: NativeContext): Value =
+  private def mkPipeline(name: String, ctx: PluginContext): Value =
     Value.InstanceV("Pipeline", Map(
       "name" -> Value.StringV(name),
 
@@ -867,14 +869,14 @@ object DStreamsIntrinsics:
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
     // Pipeline.create(name)
-    QualifiedName("Pipeline.create") -> NativeImpl((ctx, args) =>
+    QualifiedName("Pipeline.create") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(name: String) => mkPipeline(name, ctx)
         case _                  => throw InterpretError("Pipeline.create(name: String)")
-    ),
+    },
 
     // runPipeline(pipeline, backend) — functional alternative to pipeline.run(backend)
-    QualifiedName("runPipeline") -> NativeImpl((ctx, args) =>
+    QualifiedName("runPipeline") -> PluginNative.evalLegacy { (ctx, args) =>
       def backendNameOf(a: Any): String = a match
         case s: String                   => s
         case Value.InstanceV(name, _)    => name
@@ -889,19 +891,19 @@ object DStreamsIntrinsics:
             throw InterpretError("runPipeline: arg must be a DStream"))
           executePipeline(dag, backendNameOf(backend), ctx)
         case _ => throw InterpretError("runPipeline(pipeline, backend)")
-    ),
+    },
 
     // InMemory.source(list)
-    QualifiedName("InMemory.source") -> NativeImpl((_, args) =>
+    QualifiedName("InMemory.source") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.ListV(elems)) =>
           val dag = dagNode("source_list", Map("elements" -> Value.ListV(elems)))
           Value.InstanceV("DSource", Map("__dag" -> dag))
         case _ => throw InterpretError("InMemory.source(elements: List[T])")
-    ),
+    },
 
     // InMemory.sourceWithTimestamps(list of (T, Long))
-    QualifiedName("InMemory.sourceWithTimestamps") -> NativeImpl((_, args) =>
+    QualifiedName("InMemory.sourceWithTimestamps") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(Value.ListV(pairs)) =>
           val elems = pairs.map {
@@ -911,164 +913,164 @@ object DStreamsIntrinsics:
           val dag = dagNode("source_list", Map("elements" -> Value.ListV(elems)))
           Value.InstanceV("DSource", Map("__dag" -> dag))
         case _ => throw InterpretError("InMemory.sourceWithTimestamps(elements: List[(T, Long)])")
-    ),
+    },
 
     // InMemory.sink() — returns a DSink + getter pair
-    QualifiedName("InMemory.sink") -> NativeImpl((_, _) =>
+    QualifiedName("InMemory.sink") -> PluginNative.evalLegacy { (_, _) =>
       mkInMemorySink()
-    ),
+    },
 
     // InMemory.runAndCollect(stream) — DirectRunner convenience
-    QualifiedName("InMemory.runAndCollect") -> NativeImpl((ctx, args) =>
+    QualifiedName("InMemory.runAndCollect") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(stream: Value.InstanceV) =>
           val dag = stream.fields.getOrElse("__dag",
             throw InterpretError("InMemory.runAndCollect: not a DStream"))
           Value.ListV(runToList(dag, ctx))
         case _ => throw InterpretError("InMemory.runAndCollect(stream: DStream[T])")
-    ),
+    },
 
     // DSource.fromLocalSource(src: Source[A])
-    QualifiedName("DSource.fromLocalSource") -> NativeImpl((_, args) =>
+    QualifiedName("DSource.fromLocalSource") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(src: Value) =>
           val dag = dagNode("source_local", Map("source" -> src))
           Value.InstanceV("DSource", Map("__dag" -> dag))
         case _ => throw InterpretError("DSource.fromLocalSource(src: Source[A])")
-    ),
+    },
 
     // Backend.Direct / Backend.Native / Backend.Spark — singleton values
-    QualifiedName("Backend.Direct")  -> NativeImpl((_, _) => Value.InstanceV("Direct",  Map.empty)),
-    QualifiedName("Backend.Native")  -> NativeImpl((_, _) => Value.InstanceV("Native",  Map.empty)),
-    QualifiedName("Backend.Spark")   -> NativeImpl((_, _) => Value.InstanceV("Spark",   Map.empty)),
+    QualifiedName("Backend.Direct")  -> PluginNative.evalLegacy { (_, _) => Value.InstanceV("Direct",  Map.empty)},
+    QualifiedName("Backend.Native")  -> PluginNative.evalLegacy { (_, _) => Value.InstanceV("Native",  Map.empty)},
+    QualifiedName("Backend.Spark")   -> PluginNative.evalLegacy { (_, _) => Value.InstanceV("Spark",   Map.empty)},
 
     // Window constructors (return tagged values; only identity for v2.1.1)
-    QualifiedName("Window.fixed")    -> NativeImpl((_, args) => args match
+    QualifiedName("Window.fixed")    -> PluginNative.evalLegacy { (_, args) => args match
       case List(ms) => Value.InstanceV("Window.Fixed",   Map("ms" -> toValue(ms)))
       case _        => throw InterpretError("Window.fixed(durationMs)")
-    ),
-    QualifiedName("Window.sliding")  -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Window.sliding")  -> PluginNative.evalLegacy { (_, args) => args match
       case List(ms, p) => Value.InstanceV("Window.Sliding", Map("ms" -> toValue(ms), "period" -> toValue(p)))
       case _           => throw InterpretError("Window.sliding(durationMs, periodMs)")
-    ),
-    QualifiedName("Window.session")  -> NativeImpl((_, args) => args match
+    },
+    QualifiedName("Window.session")  -> PluginNative.evalLegacy { (_, args) => args match
       case List(ms) => Value.InstanceV("Window.Session",  Map("gapMs" -> toValue(ms)))
       case _        => throw InterpretError("Window.session(gapMs)")
-    ),
-    QualifiedName("Window.global")   -> NativeImpl((_, _) => Value.InstanceV("Window.Global", Map.empty)),
+    },
+    QualifiedName("Window.global")   -> PluginNative.evalLegacy { (_, _) => Value.InstanceV("Window.Global", Map.empty)},
 
     // Trigger constructors
-    QualifiedName("Trigger.afterWatermark")       -> NativeImpl((_, _) => Value.StringV("Trigger.AfterWatermark")),
-    QualifiedName("Trigger.afterProcessingTime")  -> NativeImpl((_, args) =>
+    QualifiedName("Trigger.afterWatermark")       -> PluginNative.evalLegacy { (_, _) => Value.StringV("Trigger.AfterWatermark")},
+    QualifiedName("Trigger.afterProcessingTime")  -> PluginNative.evalLegacy { (_, args) =>
       Value.InstanceV("Trigger.AfterProcessingTime",
         Map("ms" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
-    ),
-    QualifiedName("Trigger.afterCount")           -> NativeImpl((_, args) =>
+    },
+    QualifiedName("Trigger.afterCount")           -> PluginNative.evalLegacy { (_, args) =>
       Value.InstanceV("Trigger.AfterCount",
         Map("n" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
-    ),
-    QualifiedName("Trigger.repeatedly")           -> NativeImpl((_, args) =>
+    },
+    QualifiedName("Trigger.repeatedly")           -> PluginNative.evalLegacy { (_, args) =>
       Value.InstanceV("Trigger.Repeatedly",
         Map("inner" -> args.headOption.map(toValue).getOrElse(Value.UnitV)))
-    ),
+    },
 
     // WatermarkStrategy constructors
-    QualifiedName("WatermarkStrategy.monotonicallyIncreasing") -> NativeImpl((_, _) =>
+    QualifiedName("WatermarkStrategy.monotonicallyIncreasing") -> PluginNative.evalLegacy { (_, _) =>
       Value.StringV("WatermarkStrategy.MonotonicallyIncreasing")
-    ),
-    QualifiedName("WatermarkStrategy.atEnd")        -> NativeImpl((_, _) =>
+    },
+    QualifiedName("WatermarkStrategy.atEnd")        -> PluginNative.evalLegacy { (_, _) =>
       Value.StringV("WatermarkStrategy.AtEnd")
-    ),
-    QualifiedName("WatermarkStrategy.boundedOutOfOrder") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("WatermarkStrategy.boundedOutOfOrder") -> PluginNative.evalLegacy { (_, args) =>
       Value.InstanceV("WatermarkStrategy.BoundedOutOfOrder",
         Map("lagMs" -> args.headOption.map(toValue).getOrElse(Value.intV(0))))
-    ),
+    },
 
     // AccumulationMode
-    QualifiedName("AccumulationMode.Discarding")   -> NativeImpl((_, _) => Value.StringV("AccumulationMode.Discarding")),
-    QualifiedName("AccumulationMode.Accumulating") -> NativeImpl((_, _) => Value.StringV("AccumulationMode.Accumulating")),
+    QualifiedName("AccumulationMode.Discarding")   -> PluginNative.evalLegacy { (_, _) => Value.StringV("AccumulationMode.Discarding")},
+    QualifiedName("AccumulationMode.Accumulating") -> PluginNative.evalLegacy { (_, _) => Value.StringV("AccumulationMode.Accumulating")},
 
     // KV constructor — args are unwrapped primitives or Values
-    QualifiedName("KV") -> NativeImpl((_, args) =>
+    QualifiedName("KV") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(k, v) => Value.InstanceV("KV", Map("key" -> toValue(k), "value" -> toValue(v)))
         case _          => throw InterpretError("KV(key, value)")
-    ),
-    QualifiedName("KV.apply") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("KV.apply") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(k, v) => Value.InstanceV("KV", Map("key" -> toValue(k), "value" -> toValue(v)))
         case _          => throw InterpretError("KV(key, value)")
-    ),
+    },
 
     // ── v2.1.6 — Production connectors (stub DSource — return empty for bounded testing) ──
 
     // Kafka connector — source returns empty DSource (live Kafka requires KAFKA_BROKERS)
-    QualifiedName("Kafka.source")          -> NativeImpl((_, _) =>
+    QualifiedName("Kafka.source")          -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Kafka.sourceAssigned")  -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Kafka.sourceAssigned")  -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Kafka.changelog")       -> NativeImpl((_, _) =>
+    },
+    QualifiedName("Kafka.changelog")       -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Kafka.sink")            -> NativeImpl((_, _) => Value.UnitV),
+    },
+    QualifiedName("Kafka.sink")            -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
 
     // Files connector — stub DSource
-    QualifiedName("Files.source")          -> NativeImpl((_, _) =>
+    QualifiedName("Files.source")          -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Files.sink")            -> NativeImpl((_, _) => Value.UnitV),
+    },
+    QualifiedName("Files.sink")            -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
 
     // FileFormat singletons
-    QualifiedName("FileFormat.Text")       -> NativeImpl((_, _) => Value.StringV("Text")),
-    QualifiedName("FileFormat.Json")       -> NativeImpl((_, _) => Value.StringV("Json")),
-    QualifiedName("FileFormat.Parquet")    -> NativeImpl((_, _) => Value.StringV("Parquet")),
-    QualifiedName("FileFormat.Avro")       -> NativeImpl((_, _) => Value.StringV("Avro")),
-    QualifiedName("FileFormat.Csv")        -> NativeImpl((_, args) =>
+    QualifiedName("FileFormat.Text")       -> PluginNative.evalLegacy { (_, _) => Value.StringV("Text")},
+    QualifiedName("FileFormat.Json")       -> PluginNative.evalLegacy { (_, _) => Value.StringV("Json")},
+    QualifiedName("FileFormat.Parquet")    -> PluginNative.evalLegacy { (_, _) => Value.StringV("Parquet")},
+    QualifiedName("FileFormat.Avro")       -> PluginNative.evalLegacy { (_, _) => Value.StringV("Avro")},
+    QualifiedName("FileFormat.Csv")        -> PluginNative.evalLegacy { (_, args) =>
       Value.InstanceV("FileFormat.Csv", Map("header" -> args.headOption.map(toValue).getOrElse(Value.True)))
-    ),
+    },
 
     // JDBC connector — stub DSource
-    QualifiedName("Jdbc.source")           -> NativeImpl((_, _) =>
+    QualifiedName("Jdbc.source")           -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Jdbc.sink")             -> NativeImpl((_, _) => Value.UnitV),
+    },
+    QualifiedName("Jdbc.sink")             -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
 
     // Pulsar connector — stub DSource
-    QualifiedName("Pulsar.source")         -> NativeImpl((_, _) =>
+    QualifiedName("Pulsar.source")         -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Pulsar.sink")           -> NativeImpl((_, _) => Value.UnitV),
+    },
+    QualifiedName("Pulsar.sink")           -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
 
     // Kinesis connector — stub DSource
-    QualifiedName("Kinesis.source")        -> NativeImpl((_, _) =>
+    QualifiedName("Kinesis.source")        -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
-    QualifiedName("Kinesis.sink")          -> NativeImpl((_, _) => Value.UnitV),
+    },
+    QualifiedName("Kinesis.sink")          -> PluginNative.evalLegacy { (_, _) => Value.UnitV},
 
     // DSource.fromDataset bridge
-    QualifiedName("DSource.fromDataset")   -> NativeImpl((_, _) =>
+    QualifiedName("DSource.fromDataset")   -> PluginNative.evalLegacy { (_, _) =>
       Value.InstanceV("DSource", Map("__dag" -> dagNode("source_list", Map("elements" -> Value.EmptyList))))
-    ),
+    },
 
     // ── v2.1.7 — Stateful processing state types ─────────────────────────────
 
     // KeyedStateSpec.value[K, S](init) — returns a spec instance
-    QualifiedName("KeyedStateSpec.value") -> NativeImpl((_, args) =>
+    QualifiedName("KeyedStateSpec.value") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(init) => Value.InstanceV("KeyedStateSpec", Map("init" -> toValue(init)))
         case _          => throw InterpretError("KeyedStateSpec.value(init)")
-    ),
-    QualifiedName("KeyedStateSpec") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("KeyedStateSpec") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(init) => Value.InstanceV("KeyedStateSpec", Map("init" -> toValue(init)))
         case _          => throw InterpretError("KeyedStateSpec(init)")
-    ),
+    },
 
     // ── v2.1.8 — Side inputs / side outputs ──────────────────────────────────
 
-    QualifiedName("SideInput.of") -> NativeImpl((ctx, args) =>
+    QualifiedName("SideInput.of") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(stream: Value.InstanceV) =>
           val dag  = stream.fields.getOrElse("__dag",
@@ -1076,13 +1078,13 @@ object DStreamsIntrinsics:
           val elems = evalDag(dag, ctx).toList
           Value.InstanceV("SideInput", Map("elements" -> Value.ListV(elems)))
         case _ => throw InterpretError("SideInput.of(stream)")
-    ),
-    QualifiedName("SideInput.singleton") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("SideInput.singleton") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(v) => Value.InstanceV("SideInput", Map("elements" -> Value.ListV(List(toValue(v)))))
         case _       => throw InterpretError("SideInput.singleton(value)")
-    ),
-    QualifiedName("SideInput.asMap") -> NativeImpl((ctx, args) =>
+    },
+    QualifiedName("SideInput.asMap") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(stream: Value.InstanceV) =>
           val dag  = stream.fields.getOrElse("__dag",
@@ -1094,35 +1096,35 @@ object DStreamsIntrinsics:
           val mapVal = Value.InstanceV("_side_map", m.map { case (k, v) => k.toString -> v })
           Value.InstanceV("SideInput", Map("elements" -> Value.ListV(List(mapVal))))
         case _ => throw InterpretError("SideInput.asMap(stream)")
-    ),
+    },
 
-    QualifiedName("OutputTag") -> NativeImpl((_, args) =>
+    QualifiedName("OutputTag") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name) =>
           Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> Value.UnitV))
         case _ => throw InterpretError("OutputTag(name)")
-    ),
-    QualifiedName("OutputTag.apply") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("OutputTag.apply") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name) =>
           Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> Value.UnitV))
         case _ => throw InterpretError("OutputTag(name)")
-    ),
-    QualifiedName("OutputTag.withFilter") -> NativeImpl((_, args) =>
+    },
+    QualifiedName("OutputTag.withFilter") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(name, fn) =>
           Value.InstanceV("OutputTag", Map("name" -> toValue(name), "filter" -> toValue(fn)))
         case _ => throw InterpretError("OutputTag.withFilter(name)(fn)")
-    ),
+    },
 
     // Source.distributed — bridge from local Source[A] to DStream[A] (v1.63.1)
     // Registered in globals so DispatchRuntime.dispatchInstanceFallback can find it.
     // First arg is always the Source receiver; optional partitions arg is ignored on DirectRunner.
-    QualifiedName("Source.distributed") -> NativeImpl((ctx, args) =>
+    QualifiedName("Source.distributed") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case src :: _ =>
           val dag = dagNode("source_local", Map("source" -> toValue(src)))
           mkDStreamWithOps(dag, ctx)
         case Nil => throw InterpretError("Source.distributed: missing receiver")
-    ),
+    },
   )

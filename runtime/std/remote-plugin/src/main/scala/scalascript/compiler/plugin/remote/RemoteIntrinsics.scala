@@ -7,97 +7,99 @@ import scalascript.interpreter.{InterpretError, JsonParser, Value}
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.time.Duration
+import scalascript.plugin.api.PluginNative
+import scalascript.plugin.api.PluginContext
 
 object RemoteIntrinsics:
 
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
-    QualifiedName("remoteFunction") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteFunction") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(name: String) => remoteFunctionValue(ctx, name)
         case _ => throw InterpretError("remoteFunction[A, B](name: String)")
-    ),
+    },
 
-    QualifiedName("remoteHttpFunction") -> NativeImpl((_, args) =>
+    QualifiedName("remoteHttpFunction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String) => remoteHttpFunctionValue(url)
         case _ => throw InterpretError("remoteHttpFunction[A, B](url: String)")
-    ),
+    },
 
-    QualifiedName("remoteStub") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteStub") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(baseUrl: String, typeName: String) => remoteTraitStubValue(ctx, baseUrl, typeName)
         case List(baseUrl: String)                   => remoteStubValue(baseUrl)
         case _ => throw InterpretError("remoteStub(baseUrl: String)")
-    ),
+    },
 
-    QualifiedName("remoteStubFunction") -> NativeImpl((_, args) =>
+    QualifiedName("remoteStubFunction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(baseUrl: String, path: String) => remoteHttpFunctionValue(joinRemoteUrl(baseUrl, path))
         case _ => throw InterpretError("remoteStubFunction[A, B](baseUrl: String, path: String)")
-    ),
+    },
 
-    QualifiedName("remoteCall") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteCall") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(name: String, payload) =>
           ctx.invokeRemoteHandler(name, payload) match
             case Right(value) => value
             case Left(err)    => throw InterpretError(remoteErrorMessage(err))
         case _ => throw InterpretError("remoteCall[A, B](name: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteTryCall") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteTryCall") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(name: String, payload) =>
           ctx.invokeRemoteHandler(name, payload) match
             case Right(value) => Value.InstanceV("Right", Map("value" -> value.asInstanceOf[Value]))
             case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
         case _ => throw InterpretError("remoteTryCall[A, B](name: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteHttpCall") -> NativeImpl((_, args) =>
+    QualifiedName("remoteHttpCall") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String, payload: Value) =>
           remoteHttpInvoke(url, payload) match
             case Right(value) => value
             case Left(err)    => throw InterpretError(remoteErrorMessage(err))
         case _ => throw InterpretError("remoteHttpCall[A, B](url: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteHttpTryCall") -> NativeImpl((_, args) =>
+    QualifiedName("remoteHttpTryCall") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String, payload: Value) =>
           remoteHttpInvoke(url, payload) match
             case Right(value) => Value.InstanceV("Right", Map("value" -> value))
             case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
         case _ => throw InterpretError("remoteHttpTryCall[A, B](url: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteStubCall") -> NativeImpl((_, args) =>
+    QualifiedName("remoteStubCall") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(baseUrl: String, path: String, payload: Value) =>
           remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
             case Right(value) => value
             case Left(err)    => throw InterpretError(remoteErrorMessage(err))
         case _ => throw InterpretError("remoteStubCall[A, B](baseUrl: String, path: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteStubTryCall") -> NativeImpl((_, args) =>
+    QualifiedName("remoteStubTryCall") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(baseUrl: String, path: String, payload: Value) =>
           remoteHttpInvoke(joinRemoteUrl(baseUrl, path), payload) match
             case Right(value) => Value.InstanceV("Right", Map("value" -> value))
             case Left(err)    => Value.InstanceV("Left", Map("value" -> remoteErrorValue(err)))
         case _ => throw InterpretError("remoteStubTryCall[A, B](baseUrl: String, path: String, value: A)")
-    ),
+    },
 
-    QualifiedName("remoteHandlers") -> NativeImpl((ctx, args) =>
+    QualifiedName("remoteHandlers") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case Nil => Value.ListV(ctx.remoteHandlers.map(handlerInfoValue))
         case _   => throw InterpretError("remoteHandlers(): List[RemoteHandlerInfo]")
-    ),
+    },
   )
 
-  private def remoteFunctionValue(ctx: NativeContext, name: String): Value =
+  private def remoteFunctionValue(ctx: PluginContext, name: String): Value =
     Value.InstanceV("RemoteFunction", Map(
       "name" -> Value.StringV(name),
       "call" -> Value.NativeFnV(s"Remote.function($name).call", {
@@ -171,7 +173,7 @@ object RemoteIntrinsics:
       })
     ))
 
-  private def remoteTraitStubValue(ctx: NativeContext, baseUrl: String, typeName: String): Value =
+  private def remoteTraitStubValue(ctx: PluginContext, baseUrl: String, typeName: String): Value =
     val methodNames: List[String] = ctx.featureGet(s"$$traitMethods$$${typeName}") match
       case Some(names: List[?]) => names.collect { case s: String => s }
       case _                    => Nil

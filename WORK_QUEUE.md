@@ -109,7 +109,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins: `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`; typed `NativeImpl.eval`; `LegacyNativeContext` shim; migrate `json-plugin`, `http-plugin`, `auth-plugin`. Spec: `docs/arch-stable-spi.md §5 Phase 2`. ✓ Landed 2026-05-29: added capability traits, `LegacyNativeContext`, `PluginNative.eval`, representative typed-bridge intrinsics in json/http/auth plugins, and fixed auth `verifyPassword`.
 
-- [ ] **arch-stable-spi-p3** — Full migration of all `*Intrinsics.scala`: remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter; CI classpath check rejects `scalascript/interpreter/` in plugin subprojects. Spec: `docs/arch-stable-spi.md §5 Phase 3`.
+- [x] **arch-stable-spi-p3** — Full migration of all `*Intrinsics.scala`: remove `LegacyNativeContext`; delete `isStdPluginInterpreterTest` filter; CI classpath check rejects `scalascript/interpreter/` in plugin subprojects. Spec: `docs/arch-stable-spi.md §5 Phase 3`. ✅ Landed 2026-05-29: added `RemoteCap` + `evalLegacy` to `PluginApi`; migrated all 16 `*Intrinsics.scala` from `NativeImpl` to `PluginNative.evalLegacy`; fixed oauth/oidc helper method signatures to capability traits; moved 59 plugin test files to `runtime/backend/interpreter-plugin-tests/`; deleted `isStdPluginInterpreterTest` band-aid from `build.sbt`; added classpath boundary test.
 
 ### Theme F — DSL platform hooks
 

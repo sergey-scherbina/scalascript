@@ -1,6 +1,6 @@
 package scalascript.plugin.api
 
-import scalascript.backend.spi.{NativeContext, NativeImpl}
+import scalascript.backend.spi.{NativeContext, NativeImpl, RemoteCallError, RemoteHandlerInfo}
 
 import scala.util.control.NonFatal
 
@@ -11,7 +11,9 @@ import scala.util.control.NonFatal
  *
  *  Phase 1 shipped the module with minimal opaque aliases.  Phase 2 adds
  *  capability traits and a typed `PluginNative.eval` bridge while keeping the
- *  legacy `NativeImpl` signature source-compatible for unported plugins. */
+ *  legacy `NativeImpl` signature source-compatible for unported plugins.
+ *  Phase 3 completes capability coverage and provides `PluginNative.evalLegacy`
+ *  for mechanical migration of existing NativeImpl bodies. */
 
 /** Opaque handle to a ScalaScript runtime value.
  *  Backed by `Any` in the interpreter; plugins receive it from `NativeImpl.eval`
@@ -83,6 +85,8 @@ trait StorageCap extends NativeContextCap:
   def featureLocalGet(key: String): Option[Any] = nativeContext.featureLocalGet(key)
   def featureLocalSet(key: String, value: Any): Unit = nativeContext.featureLocalSet(key, value)
   def featureLocalRemove(key: String): Option[Any] = nativeContext.featureLocalRemove(key)
+  def storageFieldName(typeName: String, fieldName: String): String =
+    nativeContext.storageFieldName(typeName, fieldName)
 
 trait HttpCap extends NativeContextCap:
   def httpBaseUrl: String = nativeContext.httpBaseUrl
@@ -143,26 +147,23 @@ trait MountCap extends NativeContextCap:
       source: Option[String],
       mountCtx: Map[String, Any]
   ): Unit = nativeContext.registerMountedRoute(method, path, handler, source, mountCtx)
+  def invokeCallback(fn: Any, args: List[Any]): Any = nativeContext.invokeCallback(fn, args)
 
-type PluginContext = HttpCap & WsCap & DbCap & StorageCap & ValidateCap & MountCap
+/** Capability for remote handler dispatch — used by `remote-plugin`. */
+trait RemoteCap extends NativeContextCap:
+  def remoteHandlers: List[RemoteHandlerInfo] = nativeContext.remoteHandlers
+  def invokeRemoteHandler(name: String, payload: Any): Either[RemoteCallError, Any] =
+    nativeContext.invokeRemoteHandler(name, payload)
 
-/** Compatibility adapter for unported runtime implementations.
- *
- *  It wraps the existing `NativeContext` and exposes the Phase 2 capability
- *  traits.  Phase 3 removes this once all std plugins use capability-specific
- *  contexts directly.
- */
-final class LegacyNativeContext private[api] (protected val nativeContext: NativeContext)
-    extends HttpCap
-    with WsCap
-    with DbCap
-    with StorageCap
-    with ValidateCap
-    with MountCap
+type PluginContext = HttpCap & WsCap & DbCap & StorageCap & ValidateCap & MountCap & RemoteCap
 
 object PluginContext:
+  /** Wrap an interpreter `NativeContext` as a full `PluginContext`.
+   *  Used internally by `PluginNative.eval` / `PluginNative.evalLegacy`.
+   *  Plugin authors never call this directly. */
   def fromNative(ctx: NativeContext): PluginContext =
-    new LegacyNativeContext(ctx)
+    new HttpCap with WsCap with DbCap with StorageCap with ValidateCap with MountCap with RemoteCap:
+      protected val nativeContext: NativeContext = ctx
 
 object PluginNative:
   def eval[C](select: PluginContext => C)(
@@ -178,3 +179,19 @@ object PluginNative:
       f: (PluginContext, List[PluginValue]) => PluginComputation
   ): NativeImpl =
     eval[PluginContext]((ctx: PluginContext) => ctx)(f)
+
+  /** Migration helper for porting `NativeImpl` bodies to the capability-typed SPI.
+   *
+   *  Replace `NativeImpl { (ctx, args) => body }` with
+   *  `PluginNative.evalLegacy { (ctx, args) => body }`, where `ctx` is now a
+   *  `PluginContext` (capability-typed) instead of raw `NativeContext`.
+   *  The body may still use interpreter-internal types such as `Value.*`;
+   *  those imports are acceptable in built-in monorepo plugins for Phase 3.
+   *
+   *  Once `Value` is exposed through `PluginApi` (v2.x), `evalLegacy` will be
+   *  removed and all bodies will migrate to the fully opaque `eval` form. */
+  def evalLegacy(f: (PluginContext, List[Any]) => Any): NativeImpl =
+    NativeImpl { (ctx, args) =>
+      val pluginCtx = PluginContext.fromNative(ctx)
+      f(pluginCtx, args)
+    }
