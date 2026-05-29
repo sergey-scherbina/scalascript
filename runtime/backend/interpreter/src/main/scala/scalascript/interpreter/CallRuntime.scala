@@ -407,17 +407,24 @@ private[interpreter] object CallRuntime:
     else
       val provided = args
       var env: Map[String, Value] = baseEnv
-      val pi = params.iterator; val ai = provided.iterator
-      while pi.hasNext && ai.hasNext do env = FrameMap.one(pi.next(), ai.next(), env)
-      val filled = (provided.length until params.length).map { i =>
-        val pname      = params(i)
-        val defaultOpt = if i < defaults.length then defaults(i) else None
+      val paramIter    = params.iterator
+      val argIter      = provided.iterator
+      val defaultIter  = defaults.iterator
+      // Advance past provided args, building env as we go
+      while paramIter.hasNext && argIter.hasNext do
+        val p = paramIter.next(); val a = argIter.next()
+        env = FrameMap.one(p, a, env)
+        if defaultIter.hasNext then defaultIter.next() // skip defaults for provided params
+      // Fill remaining params from defaults
+      val filled = scala.collection.mutable.ArrayBuffer.empty[Value]
+      while paramIter.hasNext do
+        val pname      = paramIter.next()
+        val defaultOpt = if defaultIter.hasNext then defaultIter.next() else None
         defaultOpt match
           case Some(defaultTerm) =>
             val v = Computation.run(interp.eval(defaultTerm, env))
             env = FrameMap.one(pname, v, env)
-            v
+            filled += v
           case None =>
             interp.located(s"missing argument for parameter '$pname'")
-      }.toList
-      provided ++ filled
+      provided ++ filled.toList
