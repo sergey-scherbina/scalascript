@@ -5695,11 +5695,12 @@ optional federation/realtime adapters.
   `graphqlSubscribe`; browser/React/Electron client path.
   Spec: `docs/graphql.md §7 Phase 7`. Effort: ~5 days.
 
-- [ ] **graphql-p8** — Persisted operations / APQ:
-  `emit-graphql-operations` manifest, deterministic hashes, server
-  `persistedOnly` mode, optional APQ negotiation, contract tests for known and
-  unknown operation hashes.
-  Spec: `docs/graphql.md §7 Phase 8`. Effort: ~3 days.
+- [x] **graphql-p8** — Persisted operations / APQ:
+  APQ hash-only requests via `extensions.persistedQuery.sha256Hash`; `persistedOps`
+  manifest map and `persistedOnly` mode in `GraphQLOpts`; SHA-256 hash verification;
+  `PersistedQueryNotFound` error + code; variables pass-through for APQ requests;
+  `GraphQLPersistedOpsTest` (10 tests). `emit-graphql-operations` CLI deferred.
+  ✓ Landed 2026-05-29.
 
 - [ ] **graphql-p9** — DataLoader and batching:
   request-scoped typed loader registry, sync/async batch functions, resolver

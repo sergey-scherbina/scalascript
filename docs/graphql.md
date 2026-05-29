@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4, 5, 6, 10 implemented on `main` (2026-05-29).
-70 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 4, 5, 6, 8, 10 implemented on `main` (2026-05-29).
+80 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -851,21 +851,28 @@ Tasks:
 
 Effort: ~5 days.
 
-### Phase 8 - Persisted Operations / APQ
+### Phase 8 - Persisted Operations / APQ ✅ Landed (2026-05-29)
 
 **Goal:** production clients can ship operation hashes/manifests instead of
 arbitrary query text.
 
-Tasks:
+Implemented in `GraphQLOpts` and `handleRequest`:
 
-- `emit-graphql-operations` CLI.
-- Deterministic manifest format with operation hash, name, type, variables, and
-  data model.
-- Server `persistedOnly` mode.
-- APQ-compatible negotiation mode as an option.
-- Contract tests for allowed/unknown/mismatched hashes.
+- [x] `GraphQL.options(... persistedOps = Map(hash -> operationText), persistedOnly = true)` —
+  5th and 6th positional args to `GraphQL.options`.
+- [x] APQ negotiation — hash-only request (`extensions.persistedQuery.sha256Hash`):
+  if hash is in `persistedOps` map, execute the stored operation; otherwise return
+  `PersistedQueryNotFound` with `code: PERSISTED_QUERY_NOT_FOUND`.
+- [x] APQ hash+query request — executes the query directly (client-side registration).
+- [x] `persistedOnly` mode — compute SHA-256 of the incoming query text and reject
+  if the hash is not in the `persistedOps` manifest.
+- [x] Variables passed through correctly for APQ hash-only requests.
+- [x] `GraphQLPersistedOpsTest` (10 tests): options acceptance, hash-only not-found,
+  hash-only found, hash+query, persistedOnly rejection, persistedOnly allow, with variables.
+- [ ] `emit-graphql-operations` CLI command — deferred (requires AST scanning of .ssc files).
+- [ ] Manifest file format (JSON) with name/type/variables/data model — deferred.
 
-Effort: ~3 days.
+Effort: ~0.5 day (server-side APQ done; CLI emit command deferred).
 
 ### Phase 9 - DataLoader And Batching
 
@@ -961,7 +968,7 @@ Effort: ~5 days.
 | 5 | `GraphQLHttpComplianceTest` (12) ✅; official audit suite pending | Protocol |
 | 6 | `GraphQLTypedResolversTest` (10) ✅; interface/union/oneOf deferred | Type mapping |
 | 7 | Operation validation and typed client round-trips | Compiler + runtime |
-| 8 | Persisted operation manifest/hash tests | CLI + runtime |
+| 8 | `GraphQLPersistedOpsTest` (10) ✅; emit-operations CLI deferred | CLI + runtime |
 | 9 | DataLoader batch/cache/failure tests | Runtime |
 | 10 | `GraphQLSecurityTest` (12) ✅; auth/redaction/tracing deferred | Runtime + security |
 | 11 | Schema export/import/diff/fixture tests | CLI + contract |

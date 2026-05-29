@@ -63,14 +63,20 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
 
     // GraphQL.options(...) — runtime limits and policy.
     // Parameters (all optional, positional):
-    //   maxDepth: Int, maxComplexity: Int, maxQueryLength: Int, disableIntrospection: Boolean
+    //   maxDepth: Int, maxComplexity: Int, maxQueryLength: Int,
+    //   disableIntrospection: Boolean, persistedOps: Map[String, String], persistedOnly: Boolean
     QualifiedName("GraphQL.options") -> PluginNative.evalLegacy { (_, args) =>
-      val maxDepth     = args.headOption.collect { case Value.IntV(n) => n.toInt }
+      val maxDepth      = args.headOption.collect { case Value.IntV(n) => n.toInt }
       val maxComplexity = args.drop(1).headOption.collect { case Value.IntV(n) => n.toInt }
-      val maxQueryLen  = args.drop(2).headOption.collect { case Value.IntV(n) => n.toInt }
-      val noIntrospect = args.drop(3).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
+      val maxQueryLen   = args.drop(2).headOption.collect { case Value.IntV(n) => n.toInt }
+      val noIntrospect  = args.drop(3).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
+      val persisted     = args.drop(4).headOption match
+        case Some(Value.MapV(m)) =>
+          m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }.toMap
+        case _ => Map.empty[String, String]
+      val persistedOnly = args.drop(5).headOption.collect { case Value.BoolV(b) => b }.getOrElse(false)
       Value.Foreign("GraphQLOptions",
-        GraphQLOpts(maxDepth, maxComplexity, maxQueryLen, noIntrospect))
+        GraphQLOpts(maxDepth, maxComplexity, maxQueryLen, noIntrospect, persisted, persistedOnly))
     },
 
     // serveGraphQL(port, resolvers[, opts]) — registers POST + GET /graphql, then starts server.
@@ -253,6 +259,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _         => None
     }.toMap
 
+  private def sha256Hex(text: String): String =
+    java.security.MessageDigest.getInstance("SHA-256")
+      .digest(text.getBytes("UTF-8"))
+      .map(b => f"$b%02x").mkString
+
   private def errorResponse(status: Int, message: String, ct: String): Value =
     Value.InstanceV("Response", Map(
       "status"  -> Value.IntV(status.toLong),
@@ -298,7 +309,34 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         scala.util.Try(ujson.read(if body.isEmpty then "{}" else body))
           .getOrElse(ujson.Obj())
 
-    val query         = source.obj.get("query").collect { case ujson.Str(s) => s }.getOrElse("")
+    // Extract APQ hash from extensions.persistedQuery.sha256Hash if present.
+    val apqHash: Option[String] = source.obj.get("extensions").collect {
+      case ujson.Obj(ext) => ext.get("persistedQuery").collect {
+        case ujson.Obj(pq) => pq.get("sha256Hash").collect { case ujson.Str(h) => h }
+      }.flatten
+    }.flatten
+
+    var query = source.obj.get("query").collect { case ujson.Str(s) => s }.getOrElse("")
+
+    // APQ resolution: if hash present but no query, look up in persistedOps.
+    if query.isBlank && apqHash.isDefined then
+      apqHash.flatMap(opts.persistedOps.get) match
+        case Some(persisted) => query = persisted
+        case None =>
+          return Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(200L),
+            "body"    -> Value.StringV(
+              """{"errors":[{"message":"PersistedQueryNotFound","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}"""),
+            "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+          ))
+
+    // persistedOnly: reject queries not in the manifest (hash not in persistedOps).
+    if opts.persistedOnly && opts.persistedOps.nonEmpty then
+      val queryHash = sha256Hex(query)
+      if !opts.persistedOps.contains(queryHash) then
+        return errorResponse(if useGqlCt then 400 else 200,
+          "Only persisted operations are accepted", ct)
+
     val operationName = source.obj.get("operationName").collect { case ujson.Str(s) => s }.orNull
     val vars          = source.obj.get("variables") match
       case Some(ujson.Obj(m)) => m.toMap.map { (k, v) => k -> ujsonToJava(v) }.asJava
