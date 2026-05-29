@@ -625,17 +625,33 @@ private[interpreter] object DispatchRuntime:
         case List(f) =>
           Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
             case Value.ListV(keys) =>
-              // Build (value, strKey) array in one pass — avoids zip + map double-list.
               val n = ls.length
-              val arr = new Array[(Value, String)](n)
-              var i = 0; var lRem = ls; var kRem = keys
-              while lRem.nonEmpty do
-                arr(i) = (lRem.head, Value.show(kRem.head))
-                i += 1; lRem = lRem.tail; kRem = kRem.tail
-              java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
-              var result: List[Value] = Nil; i = n - 1
-              while i >= 0 do result = arr(i)._1 :: result; i -= 1
-              Value.ListV(result)
+              // Fast path: all keys are Int — sort numerically, not lexicographically.
+              var allIntKeys = true; var kChk = keys
+              while allIntKeys && kChk.nonEmpty do
+                if !kChk.head.isInstanceOf[Value.IntV] then allIntKeys = false
+                kChk = kChk.tail
+              if allIntKeys then
+                val arr2 = new Array[(Value, Long)](n)
+                var i = 0; var lR = ls; var kR = keys
+                while lR.nonEmpty do
+                  arr2(i) = (lR.head, kR.head.asInstanceOf[Value.IntV].v)
+                  i += 1; lR = lR.tail; kR = kR.tail
+                java.util.Arrays.sort(arr2, java.util.Comparator.comparingLong[(Value, Long)](_._2))
+                var result2: List[Value] = Nil; i = n - 1
+                while i >= 0 do result2 = arr2(i)._1 :: result2; i -= 1
+                Value.ListV(result2)
+              else
+                // Build (value, strKey) array in one pass — avoids zip + map double-list.
+                val arr = new Array[(Value, String)](n)
+                var i = 0; var lRem = ls; var kRem = keys
+                while lRem.nonEmpty do
+                  arr(i) = (lRem.head, Value.show(kRem.head))
+                  i += 1; lRem = lRem.tail; kRem = kRem.tail
+                java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+                var result: List[Value] = Nil; i = n - 1
+                while i >= 0 do result = arr(i)._1 :: result; i -= 1
+                Value.ListV(result)
             case _ => recv
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
