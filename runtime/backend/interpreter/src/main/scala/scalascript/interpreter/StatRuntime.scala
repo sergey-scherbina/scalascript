@@ -133,10 +133,31 @@ private[interpreter] object StatRuntime:
           case _              => ""
         if pn.nonEmpty then interp.parentTypes(typeName) = pn
       }
-      env(typeName) = Value.NativeFnV(typeName, args => {
-        val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
-      })
+      val noDefaults = paramDefaults.forall(_.isEmpty)
+      env(typeName) = if noDefaults then
+        paramNames match
+          case Nil =>
+            val singleton = Pure(Value.InstanceV(typeName, Map.empty))
+            Value.NativeFnV(typeName, _ => singleton)
+          case List(p0) =>
+            Value.NativeFnV(typeName, {
+              case List(v0) => Pure(Value.InstanceV(typeName, Map(p0 -> v0)))
+              case args     => Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+            })
+          case List(p0, p1) =>
+            Value.NativeFnV(typeName, {
+              case List(v0, v1) => Pure(Value.InstanceV(typeName, Map(p0 -> v0, p1 -> v1)))
+              case args         => Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+            })
+          case _ =>
+            Value.NativeFnV(typeName, args =>
+              Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+            )
+      else
+        Value.NativeFnV(typeName, args => {
+          val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
+          Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
+        })
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
       // each method's closure with the instance's data fields so the body can
@@ -175,8 +196,24 @@ private[interpreter] object StatRuntime:
             interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
           if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
           interp.parentTypes(caseName) = enumName
+          val noEnumDefaults = paramDefaults.forall(_.isEmpty)
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
+            else if noEnumDefaults then paramNames match
+              case List(p0) =>
+                Value.NativeFnV(caseName, {
+                  case List(v0) => Pure(Value.InstanceV(caseName, Map(p0 -> v0)))
+                  case args     => Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(args))))
+                })
+              case List(p0, p1) =>
+                Value.NativeFnV(caseName, {
+                  case List(v0, v1) => Pure(Value.InstanceV(caseName, Map(p0 -> v0, p1 -> v1)))
+                  case args         => Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(args))))
+                })
+              case _ =>
+                Value.NativeFnV(caseName, args =>
+                  Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(args))))
+                )
             else Value.NativeFnV(caseName, args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
               Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
