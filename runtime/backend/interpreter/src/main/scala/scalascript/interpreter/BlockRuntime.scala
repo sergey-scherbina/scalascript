@@ -31,25 +31,19 @@ private[interpreter] object BlockRuntime:
       !interp.globals.get(k).contains(v)
     })
     val localView = new MutableEnvView(local)
-    // All initial entries differ from globals by construction — pre-add them all.
-    val localOverrides: mutable.Set[String] = mutable.Set.from(local.keysIterator)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
-        local.keys.foreach { k =>
-          if !localOverrides.contains(k) then interp.globals.get(k).foreach(local(k) = _)
-        }
         s match
           case Defn.Val(_, pats, _, rhs) =>
             interp.eval(rhs, localView).flatMap { rhsVal =>
               pats match
                 case List(Pat.Var(n)) =>
                   local(n.value) = rhsVal
-                  localOverrides += n.value
                 case List(pat) =>
                   PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
                     case Some(patEnv) =>
-                      patEnv.foreach { (k, v) => local(k) = v; localOverrides += k }
+                      patEnv.foreach { (k, v) => local(k) = v }
                     case None         => interp.located("Val pattern match failed")
                 case _ => ()
               step(rest, Value.UnitV)
@@ -57,7 +51,6 @@ private[interpreter] object BlockRuntime:
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
             interp.eval(rhs, localView).flatMap { v =>
               local(n.value) = v
-              localOverrides += n.value
               step(rest, Value.UnitV)
             }
           // Variable assignment: write to local AND globals so that both the

@@ -121,7 +121,7 @@ private[interpreter] object DispatchRuntime:
       case "map"         => args match
         case List(f) =>
           Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).map {
-            case Value.ListV(items) => Value.StringV(items.map(Value.show).mkString)
+            case Value.ListV(items) => Value.StringV(items.iterator.map(Value.show).mkString)
             case _                  => Value.StringV(s)
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -147,7 +147,11 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"     => args match
         case List(f) =>
-          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).flatMap(Computation.discardToUnit)
+          // Direct loop: avoids building intermediate ListV via mapSequenceStr.
+          def loop(i: Int): Computation =
+            if i >= s.length then Computation.PureUnit
+            else interp.callValue1(f, Value.CharV(s.charAt(i)), env).flatMap(_ => loop(i + 1))
+          loop(0)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -207,9 +211,29 @@ private[interpreter] object DispatchRuntime:
         else if isDouble then Pure(Value.doubleV(intAcc.toDouble + dblAcc))
         else Computation.pureIntV(intAcc)
       case "min"          =>
-        Pure(ls.minBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
+        if ls.isEmpty then interp.located("min on empty list")
+        else
+          var minVal = ls.head
+          var minKey = minVal match { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 }
+          var minRem = ls.tail
+          while minRem.nonEmpty do
+            val v = minRem.head
+            val k = v match { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 }
+            if k < minKey then { minVal = v; minKey = k }
+            minRem = minRem.tail
+          Pure(minVal)
       case "max"          =>
-        Pure(ls.maxBy { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 })
+        if ls.isEmpty then interp.located("max on empty list")
+        else
+          var maxVal = ls.head
+          var maxKey = maxVal match { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 }
+          var maxRem = ls.tail
+          while maxRem.nonEmpty do
+            val v = maxRem.head
+            val k = v match { case Value.IntV(n) => n.toDouble; case Value.DoubleV(d) => d; case _ => 0.0 }
+            if k > maxKey then { maxVal = v; maxKey = k }
+            maxRem = maxRem.tail
+          Pure(maxVal)
       case "zipWithIndex" =>
         val ziBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var ziRem = ls; var ziIdx = 0
@@ -218,7 +242,10 @@ private[interpreter] object DispatchRuntime:
           ziRem = ziRem.tail; ziIdx += 1
         Pure(Value.ListV(ziBuf.toList))
       case "indices"      =>
-        Pure(Value.ListV(ls.indices.map(i => Value.intV(i.toLong)).toList))
+        val idxBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var idxI = 0
+        while idxI < ls.length do { idxBuf += Value.intV(idxI.toLong); idxI += 1 }
+        Pure(Value.ListV(idxBuf.toList))
       case "contains"     => args match
         case List(v)                  => Computation.pureBool(ls.contains(v))
         case _                        => dispatchFallback(recv, name, args, env, interp)
