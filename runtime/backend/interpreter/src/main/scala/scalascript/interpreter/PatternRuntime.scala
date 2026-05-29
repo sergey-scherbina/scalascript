@@ -424,6 +424,22 @@ private[interpreter] object PatternRuntime:
         interp.eval(rhs, env) match
           case Pure(rhsV) => patLoop(rhsV)
           case rhsC       => FlatMap(rhsC, patLoop)
+      // Fast path: Pat.Var with rest enumerators (e.g. `for { x <- xs; if cond } do body`).
+      // Avoids matchPat + patVarNames Set + .toMap + outerEnv ++ loopVars ++ newVars per item.
+      // Uses FrameMap.one(varName, item, env) as the new outerEnv with empty loopVars so the
+      // recursive evalForDo call skips the `outerEnv ++ loopVars` merge.
+      case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: rest =>
+        val varName = vn.value
+        @inline def varGenLoop(rhsV: Value): Computation =
+          val items = evalCollection(rhsV, interp)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Computation.PureUnit
+            case item :: tail =>
+              FlatMap(evalForDo(rest, body, FrameMap.one(varName, item, env), Map.empty, interp), _ => loop(tail))
+          loop(items)
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => varGenLoop(rhsV)
+          case rhsC       => FlatMap(rhsC, varGenLoop)
       case Enumerator.Generator(pat, rhs) :: rest =>
         @inline def genLoop(rhsV: Value): Computation =
           val items = evalCollection(rhsV, interp)
