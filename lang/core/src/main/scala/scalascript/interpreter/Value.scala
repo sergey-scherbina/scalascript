@@ -32,7 +32,7 @@ sealed abstract class FrameMap
    *  entries whose value matches the same key in `globals`.  Used by lambda
    *  closure construction to avoid iterating the entire globals map. */
   private[interpreter] def appendLocalTo(
-    b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]],
+    b: scala.collection.mutable.Growable[(String, Value)],
     globals: scala.collection.mutable.Map[String, Value]
   ): Unit
 
@@ -49,7 +49,7 @@ final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
     Iterator.single(n1 -> v1) ++ parent.iterator.filterNot(_._1 == n1)
   override protected def flat: Map[String, Value] =
     parent.updated(n1, v1)
-  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
     if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
 
 final class FrameMap2(
@@ -74,7 +74,7 @@ final class FrameMap2(
     }
   override protected def flat: Map[String, Value] =
     parent.updated(n1, v1).updated(n2, v2)
-  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
     if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
     if globals.getOrElse(n2, null) != v2 then b += (n2 -> v2)
 
@@ -114,7 +114,7 @@ final class FrameMapN(
       b += (slots(i) -> vals(i))
       i += 1
     b.result()
-  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
     var i = 0
     while i < slots.length do
       if globals.getOrElse(slots(i), null) != vals(i) then b += (slots(i) -> vals(i))

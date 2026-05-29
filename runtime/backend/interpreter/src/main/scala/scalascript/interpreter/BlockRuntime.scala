@@ -27,9 +27,28 @@ private[interpreter] object BlockRuntime:
     // These are params and shadowed vals; everything else is already visible via
     // interp.globals and the Term.Name fallback, so we skip copying it.
     // Shrinks the frame from O(N_env) to O(N_params + N_stale_closure) — typically 1–5 entries.
-    val local = mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-      interp.globals.getOrElse(k, null) != v
-    })
+    // Walk only FrameMap local slots to avoid O(|globals|) iteration.
+    // After the FrameMap chain, the terminal parent is either interp.globals
+    // (skip it — huge) or a small closure map (iterate it to capture closures).
+    val local: mutable.HashMap[String, Value] = env match
+      case fm: FrameMap =>
+        val b = mutable.HashMap.empty[String, Value]
+        var cur: Map[String, Value] = fm
+        while cur.isInstanceOf[FrameMap] do
+          val fm2 = cur.asInstanceOf[FrameMap]
+          fm2.appendLocalTo(b, interp.globals)
+          cur = fm2.parent
+        // If the terminal parent is the real globals map, skip it.
+        // Otherwise it's a closure HashMap — iterate and capture non-global entries.
+        if cur ne interp.globals then
+          cur.foreach { case (k, v) =>
+            if interp.globals.getOrElse(k, null) != v then b(k) = v
+          }
+        b
+      case _ =>
+        mutable.HashMap.from(env.iterator.filter { case (k, v) =>
+          interp.globals.getOrElse(k, null) != v
+        })
     val localView = new MutableEnvView(local)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
