@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter FrameMap small-field fast path
+
+- **perf/interpreter-small-hotpath** — `FrameMap.fromMap` and
+  `FrameMap.fromMapWithSelf` now use `FrameMap1`/`FrameMap2` for empty, one,
+  and two-field overlays instead of allocating `FrameMapN` arrays. This targets
+  case-class and instance method dispatch, where one- and two-field objects are
+  common.
+
 ## 2026-05-29 — openapi-p5 CLI OpenAPI export
 
 - **openapi-p5** — Added `ssc emit-openapi` for standalone OpenAPI 3.1 export without starting a server. The command runs an abort-at-first-serve interpreter dry-run, writes JSON to stdout by default, supports YAML via `--format yaml` or `-o *.yaml`, and accepts `--title`, `--version`, and repeatable `--server` overrides while preserving route metadata and security schemes.
