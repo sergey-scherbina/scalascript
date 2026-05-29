@@ -95,18 +95,51 @@ private[interpreter] object EffectsRuntime:
             case Perform(eff, op, args) =>
               if !handledOps.contains((eff, op)) then
                 return FlatMap(Perform(eff, op, args), v => handleInterp(f(v)))
-              else
-                val effIsOneShot = !multiShotEffects.contains(eff)
-                var _resumed = false
+              else if multiShotEffects.contains(eff) then
+                // Multi-shot: resume may be called more than once, each branch
+                // needs its own independent handleInterp run.
                 val resume = Value.NativeFnV("resume", rargs => {
-                  if effIsOneShot && _resumed then
-                    throw InterpretError(s"One-shot violation: $eff.$op resumed more than once")
-                  _resumed = true
                   val v = rargs match
                     case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
                   handleInterp(f(v))
                 })
                 current = dispatchCase(eff, op, args, resume)
+              else
+                // One-shot: use a lazy sentinel to detect tail-position resume.
+                //
+                // resume.f stores f(v) in `resolved` and returns the stable
+                // `placeholder` object.  After dispatchCase:
+                //
+                //   caseBodyResult eq placeholder  →  case body IS resume(v),
+                //     tail position.  Set current = resolved and loop — zero
+                //     extra JVM frames per dispatch, O(1) stack for chained
+                //     tail-position effects (e.g. 1000 Counter.tick dispatches).
+                //
+                //   caseBodyResult ne placeholder  →  resume was wrapped in a
+                //     larger expression (e.g. msg :: resume(())), non-tail.
+                //     Eagerly evaluate resolved = handleInterp(f(v)) now so that
+                //     accumulated values keep their left-to-right order when the
+                //     outer while-loop steps through FlatMap(placeholder, k).
+                var resolved: Computation = null
+                val placeholder = FlatMap(Pure(Value.UnitV), (_: Value) => resolved)
+                var _resumed = false
+                val resume = Value.NativeFnV("resume", rargs => {
+                  if _resumed then
+                    throw InterpretError(s"One-shot violation: $eff.$op resumed more than once")
+                  _resumed = true
+                  val v = rargs match
+                    case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
+                  resolved = f(v)
+                  placeholder
+                })
+                val caseBodyResult = dispatchCase(eff, op, args, resume)
+                if caseBodyResult eq placeholder then
+                  current = resolved          // tail position: iterate, no new frame
+                else if _resumed then
+                  resolved = handleInterp(resolved)  // non-tail: eager for ordering
+                  current = caseBodyResult
+                else
+                  current = caseBodyResult   // resume not called (e.g. early abort)
       throw InterpretError("unreachable")
 
     handleInterp(interp.eval(body, env))

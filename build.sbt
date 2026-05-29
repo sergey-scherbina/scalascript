@@ -17,7 +17,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
 // time; 8 MB is what finally stopped it once the WS suites started
 // spawning per-connection virtual threads (each parked VT briefly
 // consumes carrier stack).  Cost is negligible.
-ThisBuild / Test / javaOptions += "-Xss16m"
+ThisBuild / Test / javaOptions += "-Xss8m"
 ThisBuild / Test / fork         := true
 // Export sub-module classes as JARs so cli/stage sees actual JAR files
 // (not class directories) when collecting the classpath for lib/jars/.
