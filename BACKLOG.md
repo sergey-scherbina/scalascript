@@ -5566,6 +5566,72 @@ behaviour unchanged).
 
 ---
 
+## OpenAPI 3.1
+
+**Spec:** [`docs/openapi.md`](docs/openapi.md)
+
+Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
+Phases 2–5 are planned.
+
+- [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
+  when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
+  Swagger UI CDN page; 12 tests in `OpenApiRuntimeTest`. Landed as part of HTTP infrastructure.
+
+- [ ] **openapi-p2** — JVM codegen + shared generator + response schema:
+  extract `OpenApiGenerator` into `runtime/backend/spi/`; `JvmGen` emits `/_openapi.json`
+  and `/_swagger` routes; response schema derived from handler return type.
+  Spec: `docs/openapi.md §5 Phase 2`. Effort: ~3 days.
+
+- [ ] **openapi-p3** — `@openapi` per-route annotation:
+  `runtime/std/openapi.ssc` extern; `RouteEntry.metadata`; `HttpIntrinsics` merges metadata;
+  `OpenApiGenerator` uses it for summary/description/tags/deprecated.
+  Spec: `docs/openapi.md §5 Phase 3`. Effort: ~2 days.
+
+- [ ] **openapi-p4** — Security schemes + auth declarations:
+  `openApiSecurity(name, scheme, format)` extern; `components.securitySchemes` emission;
+  per-route `security` array; `authMw` heuristic.
+  Spec: `docs/openapi.md §5 Phase 4`. Effort: ~2 days.
+
+- [ ] **openapi-p5** — `ssc emit-openapi` CLI + YAML output:
+  `emitOpenapiCommand` in CLI; `--format json|yaml`; `--title`/`--version`/`--server` flags;
+  interpreter dry-run; `EmitOpenapiCliTest` (4+ tests).
+  Spec: `docs/openapi.md §5 Phase 5`. Effort: ~2 days.
+
+---
+
+## GraphQL
+
+**Spec:** [`docs/graphql.md`](docs/graphql.md)
+
+Wires to `graphql-java` (JVM/interpreter) and `graphql-js` (JS/Node).
+Schema-first: SDL in `graphql` fenced blocks. Resolver functions in ScalaScript.
+
+- [ ] **graphql-p1** — Schema + resolvers + `serveGraphQL` (JVM/interpreter):
+  `runtime/std/graphql-plugin/` sbt subproject; `graphql-java` 22.x dep;
+  `GraphQL.schema(sdl)`, `GraphQL.resolvers(…)`, `serveGraphQL(port, resolvers)`,
+  `graphqlHandler(schema, resolvers)` externs; `graphql` fenced-block tag in
+  `SourceLanguageRegistry`; `examples/graphql-hello.ssc`; 10+ tests.
+  Spec: `docs/graphql.md §5 Phase 1`. Effort: ~4 days.
+
+- [ ] **graphql-p2** — Async resolvers + GraphQL client + JS backend:
+  `Future[A]` / `A ! Async` resolver support; `graphqlQuery` client extern;
+  `graphql-js` JS runtime; JsGen `graphqlHandler` codegen; `Feature.GraphQL`;
+  `examples/graphql-client.ssc`.
+  Spec: `docs/graphql.md §5 Phase 2`. Effort: ~3 days.
+
+- [ ] **graphql-p3** — Subscriptions over WebSocket (`graphql-ws`):
+  WS endpoint `GET /graphql/ws`; `graphql-ws` protocol handler; `Source[A]` →
+  `Publisher[A]` bridge; `graphqlSubscribe` client extern; production mode
+  (introspection off); `examples/graphql-subscriptions.ssc`.
+  Spec: `docs/graphql.md §5 Phase 3`. Effort: ~4 days.
+
+- [ ] **graphql-p4** — Compile-time SDL validation:
+  `GraphQLLanguagePlugin.compileBlock` validates SDL via `graphql-java` `SchemaParser`
+  at `ssc build`; LSP diagnostics inline; `GraphQLSchemaCheckTest` (6+ tests).
+  Spec: `docs/graphql.md §5 Phase 4`. Effort: ~2 days.
+
+---
+
 ## v1.38 — Payment Request API (browser + server)
 
 **Status:** Complete
