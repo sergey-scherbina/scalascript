@@ -230,13 +230,13 @@ object Value:
     case CharV(c)             => c.toString
     case UnitV                => "()"
     case NullV                => "null"
-    case ListV(items)         => items.map(show).mkString("List(", ", ", ")")
+    case ListV(items)         => items.iterator.map(show).mkString("List(", ", ", ")")
     case OptionV(None)        => "None"
     case OptionV(Some(v))     => s"Some(${show(v)})"
-    case TupleV(elems)        => elems.map(show).mkString("(", ", ", ")")
+    case TupleV(elems)        => elems.iterator.map(show).mkString("(", ", ", ")")
     case MapV(m)              =>
       if m.isEmpty then "Map()"
-      else m.map { case (k, v) => s"${show(k)} -> ${show(v)}" }.mkString("Map(", ", ", ")")
+      else m.iterator.map { case (k, v) => s"${show(k)} -> ${show(v)}" }.mkString("Map(", ", ", ")")
     case InstanceV("_Raw", fields) =>
       // Pre-escaped HTML marker produced by `raw(s)`; show unwraps the body.
       fields.get("html").map(show).getOrElse("")

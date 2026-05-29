@@ -594,7 +594,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) => opt match
           case None    => Computation.PureNone
           case Some(v) => interp.callValue1(f, v, env).map {
-            case Value.BoolV(true) => Value.OptionV(Some(v))
+            case Value.BoolV(true) => recv
             case _                 => Value.NoneV
           }
         case _       => dispatchFallback(recv, name, args, env, interp)
