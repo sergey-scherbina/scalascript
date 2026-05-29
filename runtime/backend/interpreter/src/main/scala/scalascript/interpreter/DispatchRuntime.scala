@@ -2414,13 +2414,13 @@ private[interpreter] object DispatchRuntime:
 
       case "Signal" => name match
         case "get" | "apply" =>
-          fields.get("id") match
-            case Some(Value.IntV(id)) => Pure(SignalRuntime.signalGet(interp, id))
-            case _                    => interp.located("Signal handle missing id")
+          fields.getOrElse("id", null) match
+            case Value.IntV(id) => Pure(SignalRuntime.signalGet(interp, id))
+            case _              => interp.located("Signal handle missing id")
         case "set" => args match
-          case List(v) => fields.get("id") match
-            case Some(Value.IntV(id)) => SignalRuntime.signalSet(interp, id, v); Computation.PureUnit
-            case _                    => interp.located("Signal handle missing id")
+          case List(v) => fields.getOrElse("id", null) match
+            case Value.IntV(id) => SignalRuntime.signalSet(interp, id, v); Computation.PureUnit
+            case _              => interp.located("Signal handle missing id")
           case _       => dispatchFallback(recv, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
@@ -2433,9 +2433,9 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.InstanceV("Response", fields + ("setSession" -> Value.EmptyMap)))
         case "withHeader" => args match
           case List(Value.StringV(hname), Value.StringV(value)) =>
-            val existing = fields.get("headers") match
-              case Some(Value.MapV(m)) => m
-              case _                   => Map.empty[Value, Value]
+            val existing = fields.getOrElse("headers", null) match
+              case Value.MapV(m) => m
+              case _             => Map.empty[Value, Value]
             val merged = existing + (Value.StringV(hname) -> Value.StringV(value))
             Pure(Value.InstanceV("Response", fields + ("headers" -> Value.MapV(merged))))
           case _           => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)

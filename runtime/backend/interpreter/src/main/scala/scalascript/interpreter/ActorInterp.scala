@@ -801,13 +801,13 @@ private[interpreter] trait ActorInterp:
   }
 
   private def pidNodeId(fields: Map[String, Value]): String =
-    fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+    fields.getOrElse("nodeId", null) match { case Value.StringV(n) => n; case _ => "" }
 
   private def pidLocalId(fields: Map[String, Value]): Long =
-    fields.get("localId").collect {
+    fields.getOrElse("localId", null) match
       case Value.IntV(n)    => n
       case Value.DoubleV(d) => d.toLong
-    }.getOrElse(-1L)
+      case _                => -1L
 
   /** v1.23 — shared peer-loss cleanup.  Runs from three sites that
    *  notice a peer is gone: outbound recv-loop exit, inbound recv-loop
@@ -1678,13 +1678,14 @@ private[interpreter] trait ActorInterp:
           // Deliver to target using send semantics
           target match
             case Value.InstanceV("Pid", tFields) =>
-              val pidNode = tFields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+              val pidNode = pidNodeId(tFields)
               if pidNode.nonEmpty && pidNode != localNodeId then
                 remoteDeliverOrQueue(pidNode, tFields, msg)
-              else tFields.get("localId").collect { case Value.IntV(tid) =>
-                rt.mailboxes.get(tid).foreach(_.offer(msg))
-                wakeBlocked(rt, tid)
-              }
+              else tFields.getOrElse("localId", null) match
+                case Value.IntV(tid) =>
+                  rt.mailboxes.get(tid).foreach(_.offer(msg))
+                  wakeBlocked(rt, tid)
+                case _ => ()
             case _ => ()
         Right(k(Value.UnitV))
       case _ => throw InterpretError("actorGroupTell(group, msg)")
@@ -1783,13 +1784,13 @@ private[interpreter] trait ActorInterp:
 
     case "send" => args match
       case List(Value.InstanceV("Pid", fields), msg) =>
-        val pidNode = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+        val pidNode = pidNodeId(fields)
         if pidNode.nonEmpty && pidNode != localNodeId then
           remoteDeliverOrQueue(pidNode, fields, msg)
           Right(k(Value.UnitV))
         else
-        fields.get("localId") match
-          case Some(Value.IntV(targetId)) =>
+        fields.getOrElse("localId", null) match
+          case Value.IntV(targetId) =>
             rt.mailboxes.get(targetId) match
               case Some(mb) =>
                 // Bounded mailbox: apply overflow strategy if at capacity.
@@ -1853,9 +1854,9 @@ private[interpreter] trait ActorInterp:
 
     case "exit" => args match
       case List(Value.InstanceV("Pid", fields), reason) =>
-        fields.get("localId") match
-          case Some(Value.IntV(targetId)) => killActor(rt, targetId, reason)
-          case _                          => ()
+        fields.getOrElse("localId", null) match
+          case Value.IntV(targetId) => killActor(rt, targetId, reason)
+          case _                    => ()
         // Self-exit or link propagation may have killed the current actor.
         if rt.mailboxes.contains(id) then Right(k(Value.UnitV))
         else Left(())
@@ -1865,9 +1866,9 @@ private[interpreter] trait ActorInterp:
 
     case "link" => args match
       case List(Value.InstanceV("Pid", fields)) =>
-        val nid      = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
-        fields.get("localId") match
-          case Some(Value.IntV(targetId)) =>
+        val nid      = pidNodeId(fields)
+        fields.getOrElse("localId", null) match
+          case Value.IntV(targetId) =>
             if nid.nonEmpty && nid != localNodeId then
               // Remote pid — register cross-node link; fire noproc if peer not connected.
               if peerChannels.containsKey(nid) then
@@ -1902,10 +1903,10 @@ private[interpreter] trait ActorInterp:
 
     case "monitor" => args match
       case List(Value.InstanceV("Pid", fields)) =>
-        val nid      = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
+        val nid      = pidNodeId(fields)
         val monRef   = rt.nextMonRef; rt.nextMonRef += 1
-        fields.get("localId") match
-          case Some(Value.IntV(targetId)) =>
+        fields.getOrElse("localId", null) match
+          case Value.IntV(targetId) =>
             if nid.nonEmpty && nid != localNodeId then
               // Remote pid — register cross-node monitor; fire noproc if not connected.
               if peerChannels.containsKey(nid) then
@@ -2098,7 +2099,7 @@ private[interpreter] trait ActorInterp:
 
     case "register" => args match
       case List(Value.StringV(name), Value.InstanceV("Pid", fields)) =>
-        val localId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(id)
+        val localId = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => id }
         nodeRegistry.put(name, localId)
         Right(k(Value.UnitV))
       case _ => throw InterpretError("register(name, pid)")
@@ -2121,9 +2122,9 @@ private[interpreter] trait ActorInterp:
         // lookups can route back here.  Without this, remote nodes
         // store a Pid with nodeId="" and `send` falls through to the
         // local mailbox lookup, which is empty.
-        val rawNid = fields.get("nodeId").collect { case Value.StringV(s) => s }.getOrElse("")
+        val rawNid = fields.getOrElse("nodeId", null) match { case Value.StringV(s) => s; case _ => "" }
         val nid    = if rawNid.nonEmpty then rawNid else localNodeId
-        val lid    = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val lid    = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => 0L }
         val stampedPid = mkPid(nid, lid)
         globalRegistry.put(name, stampedPid)
         val payload =
@@ -2351,14 +2352,14 @@ private[interpreter] trait ActorInterp:
 
     case "resolveSeeds" => args match
       case List(Value.InstanceV("SeedResolver", fields)) =>
-        val kind = fields.get("kind").collect { case Value.StringV(s) => s }.getOrElse("")
-        val urls = fields.get("urls").collect {
+        val kind = fields.getOrElse("kind", null) match { case Value.StringV(s) => s; case _ => "" }
+        val urls = fields.getOrElse("urls", null) match
           case Value.ListV(items) => items.collect { case Value.StringV(s) => s }
-        }.getOrElse(Nil)
+          case _                  => Nil
         def fieldString(name: String, default: String): String =
-          fields.get(name).collect { case Value.StringV(s) => s }.getOrElse(default)
+          fields.getOrElse(name, null) match { case Value.StringV(s) => s; case _ => default }
         def fieldLong(name: String, default: Long): Long =
-          fields.get(name).collect { case Value.IntV(n) => n }.getOrElse(default)
+          fields.getOrElse(name, null) match { case Value.IntV(n) => n; case _ => default }
         def actorUrl(addr: java.net.InetAddress, port: Long, scheme: String): String =
           val host = addr.getHostAddress
           val bracketed = if host.contains(":") && !host.startsWith("[") then s"[$host]" else host
@@ -2716,7 +2717,7 @@ private[interpreter] trait ActorInterp:
     // v1.6.x — scheduled sends
     case "sendAfter" => args match
       case List(Value.IntV(delayMs), Value.InstanceV("Pid", fields), msg) =>
-        val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val targetId = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => 0L }
         val fireAt   = System.currentTimeMillis() + delayMs
         val ref      = rt.nextTimerId; rt.nextTimerId += 1
         rt.timers(ref) = (fireAt, None, targetId, msg)
@@ -2725,7 +2726,7 @@ private[interpreter] trait ActorInterp:
 
     case "sendInterval" => args match
       case List(Value.IntV(periodMs), Value.InstanceV("Pid", fields), msg) =>
-        val targetId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+        val targetId = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => 0L }
         val fireAt   = System.currentTimeMillis() + periodMs
         val ref      = rt.nextTimerId; rt.nextTimerId += 1
         rt.timers(ref) = (fireAt, Some(periodMs), targetId, msg)

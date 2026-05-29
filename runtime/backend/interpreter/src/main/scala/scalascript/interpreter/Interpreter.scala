@@ -877,7 +877,7 @@ class Interpreter(
               val req = args.headOption.getOrElse(Value.UnitV)
               val body = req match
                 case Value.InstanceV("Request", fields) =>
-                  fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+                  fields.getOrElse("body", null) match { case Value.StringV(s) => s; case _ => "" }
                 case _ => ""
               val payload =
                 if body.trim.isEmpty then Value.UnitV

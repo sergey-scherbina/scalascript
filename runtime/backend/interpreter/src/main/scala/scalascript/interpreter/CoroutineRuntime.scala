@@ -186,8 +186,8 @@ private[interpreter] object CoroutineRuntime:
 
     interp.globals("coroutineResume") = Value.NativeFnV("coroutineResume", {
       case List(Value.InstanceV("Coroutine", fields), in) =>
-        val id = fields.get("_id") match
-          case Some(Value.IntV(n)) => n
+        val id = fields.getOrElse("_id", null) match
+          case Value.IntV(n) => n
           case _ => throw InterpretError("coroutineResume: invalid coroutine handle")
         val handle = interp.coHandles.get(id)
         if handle == null then throw InterpretError("coroutineResume: coroutine already completed or cancelled")
@@ -202,8 +202,8 @@ private[interpreter] object CoroutineRuntime:
 
     interp.globals("coroutineCancel") = Value.NativeFnV("coroutineCancel", {
       case List(Value.InstanceV("Coroutine", fields)) =>
-        val id = fields.get("_id") match
-          case Some(Value.IntV(n)) => n
+        val id = fields.getOrElse("_id", null) match
+          case Value.IntV(n) => n
           case _ => throw InterpretError("coroutineCancel: invalid coroutine handle")
         val handle = interp.coHandles.remove(id)
         if handle != null then
