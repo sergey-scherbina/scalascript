@@ -190,7 +190,7 @@ private[interpreter] object BlockRuntime:
         interp.eval(last, cur)
 
       case Term.Assign(Term.Name(x), rhs) :: rest if varNames.contains(x) =>
-        interp.eval(rhs, cur).flatMap { v => step(rest, cur + (x -> v)) }
+        FlatMap(interp.eval(rhs, cur), { v => step(rest, cur + (x -> v)) })
 
       case Term.Assign(Term.Name(x), rhs) :: rest =>
         FlatMap(interp.eval(rhs, cur), { monadValue =>
@@ -203,7 +203,7 @@ private[interpreter] object BlockRuntime:
         })
 
       case Defn.Val(_, pats, _, rhs) :: rest =>
-        interp.eval(rhs, cur).flatMap { v =>
+        FlatMap(interp.eval(rhs, cur), { v =>
           pats match
             case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
             case List(pat) =>
@@ -211,10 +211,10 @@ private[interpreter] object BlockRuntime:
                 case Some(patEnv) => step(rest, cur ++ patEnv)
                 case None         => interp.located("direct block: val pattern match failed")
             case _ => step(rest, cur)
-        }
+        })
 
       case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) :: rest =>
-        interp.eval(rhs, cur).flatMap { v => step(rest, cur + (n.value -> v)) }
+        FlatMap(interp.eval(rhs, cur), { v => step(rest, cur + (n.value -> v)) })
 
       case (t: Term.Throw) :: _ =>
         interp.eval(t.expr, cur).flatMap { v =>
@@ -222,7 +222,7 @@ private[interpreter] object BlockRuntime:
         }
 
       case (t: Term) :: rest =>
-        interp.eval(t, cur).flatMap(_ => step(rest, cur))
+        FlatMap(interp.eval(t, cur), _ => step(rest, cur))
 
       case (d: Defn.Def) :: rest =>
         val allClauses2       = d.paramClauseGroups.flatMap(_.paramClauses)
