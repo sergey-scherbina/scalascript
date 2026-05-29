@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter for-comprehension pure fast paths
+
+- **perf/interpreter-for-pure** — Ported the `for`/`yield` and `for`/`do`
+  pure RHS/guard fast paths from `perf/interpreter-opt`. Pure generator,
+  guard, and value enumerator evaluations now avoid unnecessary `FlatMap`
+  nodes while preserving the trampoline fallback for suspended computations.
+
 ## 2026-05-29 — interpreter while pure fast path
 
 - **perf/interpreter-while-pure** — Ported the all-pure `while` loop fast path
