@@ -634,6 +634,16 @@ private[interpreter] object EvalRuntime:
         case Pure(v) => Pure(Value.StringV(pre + Value.show(v) + suf))
         case argC    => FlatMap(argC, v => Pure(Value.StringV(pre + Value.show(v) + suf)))
 
+    // Fast path: 2-arg s"${e1}mid${e2}" or similar.
+    case Term.Interpolate(Term.Name("s"), List(p0: Lit.String, p1: Lit.String, p2: Lit.String), List(a1: Term, a2: Term)) =>
+      val pre = p0.value; val mid = p1.value; val suf = p2.value
+      val c1 = eval(a1, env, interp); val c2 = eval(a2, env, interp)
+      (c1, c2) match
+        case (Pure(v1), Pure(v2)) => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))
+        case (Pure(v1), _)        => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
+        case (_, Pure(v2))        => FlatMap(c1, v1 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
+        case _                    => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))))
+
     // String interpolation s"..." / f"..." / md"..." / html"..." / css"..."
     case Term.Interpolate(Term.Name(prefix), parts, args)
         if prefix == "s" || prefix == "f" || prefix == "md"

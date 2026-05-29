@@ -265,7 +265,7 @@ object Value:
       fields.get("_inner").map(show).getOrElse("JsonValue(?)")
     case InstanceV(t, fields) =>
       if fields.isEmpty then t
-      else fields.values.map(show).mkString(s"$t(", ", ", ")")
+      else fields.values.iterator.map(show).mkString(s"$t(", ", ", ")")
     case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")

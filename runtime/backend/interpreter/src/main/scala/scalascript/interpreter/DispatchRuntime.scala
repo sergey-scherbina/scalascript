@@ -941,8 +941,28 @@ private[interpreter] object DispatchRuntime:
       case "toDouble"  => Pure(Value.doubleV(n.toDouble))
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)
+      case "toFloat"   => Pure(Value.doubleV(n.toDouble))
+      case "toByte"    => Computation.pureIntV(n.toByte.toLong)
+      case "toShort"   => Computation.pureIntV(n.toShort.toLong)
       case "abs"       => Computation.pureIntV(math.abs(n))
       case "toString"  => Pure(Value.StringV(n.toString))
+      case "max"       => args match
+        case List(Value.IntV(m))    => Computation.pureIntV(math.max(n, m))
+        case List(Value.DoubleV(d)) => Pure(Value.doubleV(math.max(n.toDouble, d)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "min"       => args match
+        case List(Value.IntV(m))    => Computation.pureIntV(math.min(n, m))
+        case List(Value.DoubleV(d)) => Pure(Value.doubleV(math.min(n.toDouble, d)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "clamp"     => args match
+        case List(Value.IntV(lo), Value.IntV(hi)) => Computation.pureIntV(math.max(lo, math.min(hi, n)))
+        case _                                    => dispatchFallback(recv, name, args, env, interp)
+      case "sign"      => Computation.pureIntV(java.lang.Long.signum(n).toLong)
+      case "signum"    => Computation.pureIntV(java.lang.Long.signum(n).toLong)
+      case "isEven"    => Computation.pureBool((n & 1L) == 0L)
+      case "isOdd"     => Computation.pureBool((n & 1L) != 0L)
+      case "toBinary"  => Pure(Value.StringV(java.lang.Long.toBinaryString(n)))
+      case "toHex"     => Pure(Value.StringV(java.lang.Long.toHexString(n)))
       case "to"        => args match
         case List(Value.IntV(m)) =>
           val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n + 1).toInt))
@@ -960,15 +980,47 @@ private[interpreter] object DispatchRuntime:
   // ── Double ──────────────────────────────────────────────────────────────────
 
   private def dispatchDouble(d: Double, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.doubleV(d)
     name match
       case "toInt"    => Computation.pureIntV(d.toLong)
       case "toLong"   => Computation.pureIntV(d.toLong)
+      case "toFloat"  => Pure(recv)
       case "abs"      => Pure(Value.doubleV(math.abs(d)))
       case "toString" => Pure(Value.StringV(d.toString))
       case "round"    => Computation.pureIntV(math.round(d))
       case "floor"    => Pure(Value.doubleV(math.floor(d)))
       case "ceil"     => Pure(Value.doubleV(math.ceil(d)))
-      case _ => extensionDispatch(Value.doubleV(d), name, args, env, interp)
+      case "sqrt"     => Pure(Value.doubleV(math.sqrt(d)))
+      case "log"      => Pure(Value.doubleV(math.log(d)))
+      case "log10"    => Pure(Value.doubleV(math.log10(d)))
+      case "exp"      => Pure(Value.doubleV(math.exp(d)))
+      case "sin"      => Pure(Value.doubleV(math.sin(d)))
+      case "cos"      => Pure(Value.doubleV(math.cos(d)))
+      case "tan"      => Pure(Value.doubleV(math.tan(d)))
+      case "asin"     => Pure(Value.doubleV(math.asin(d)))
+      case "acos"     => Pure(Value.doubleV(math.acos(d)))
+      case "atan"     => Pure(Value.doubleV(math.atan(d)))
+      case "isNaN"    => Computation.pureBool(d.isNaN)
+      case "isInfinite" => Computation.pureBool(d.isInfinite)
+      case "sign"     => Pure(Value.doubleV(math.signum(d)))
+      case "signum"   => Pure(Value.doubleV(math.signum(d)))
+      case "max"      => args match
+        case List(Value.DoubleV(b)) => Pure(Value.doubleV(math.max(d, b)))
+        case List(Value.IntV(b))    => Pure(Value.doubleV(math.max(d, b.toDouble)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "min"      => args match
+        case List(Value.DoubleV(b)) => Pure(Value.doubleV(math.min(d, b)))
+        case List(Value.IntV(b))    => Pure(Value.doubleV(math.min(d, b.toDouble)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "pow"      => args match
+        case List(Value.DoubleV(b)) => Pure(Value.doubleV(math.pow(d, b)))
+        case List(Value.IntV(b))    => Pure(Value.doubleV(math.pow(d, b.toDouble)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case "atan2"    => args match
+        case List(Value.DoubleV(b)) => Pure(Value.doubleV(math.atan2(d, b)))
+        case List(Value.IntV(b))    => Pure(Value.doubleV(math.atan2(d, b.toDouble)))
+        case _                      => dispatchFallback(recv, name, args, env, interp)
+      case _ => extensionDispatch(recv, name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Double"))
 
   // ── Tuple ───────────────────────────────────────────────────────────────────
