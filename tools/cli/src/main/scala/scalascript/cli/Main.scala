@@ -656,6 +656,8 @@ def printUsage(): Unit =
     |  --lib                  Pack a library source tree into a .ssclib ZIP archive
     |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest ssclib-manifest.yaml] [--precompile]
     |                           Reads <dir>/ssclib-manifest.yaml; falls back to a generated manifest.
+    |                           --jvm-glue <jar>  JVM glue JAR packed at jvm/glue.jar in the archive
+    |                           --js-glue <js>    JS glue script packed at js/glue.js in the archive
     |  --assembly             Fat JAR with all dependencies bundled
     |  --standalone           Self-contained binary (like the ssc binary itself)
     |  --native               GraalVM native image (requires native-image)
@@ -7570,14 +7572,18 @@ def packageLib(args: List[String]): Unit =
   var manifestArg: Option[String] = None
   var outputArg:   Option[String] = None
   var dirArg:      Option[String] = None
-  var precompile = false
+  var precompile  = false
+  var jvmGlueArg: Option[String] = None
+  var jsGlueArg:  Option[String] = None
   val it = args.iterator
   while it.hasNext do
     it.next() match
-      case "--manifest" if it.hasNext      => manifestArg = Some(it.next())
-      case "--output" | "-o" if it.hasNext => outputArg   = Some(it.next())
-      case "--precompile"                  => precompile  = true
-      case d                               => dirArg      = Some(d)
+      case "--manifest" if it.hasNext       => manifestArg = Some(it.next())
+      case "--output" | "-o" if it.hasNext  => outputArg   = Some(it.next())
+      case "--precompile"                   => precompile  = true
+      case "--jvm-glue" if it.hasNext       => jvmGlueArg  = Some(it.next())
+      case "--js-glue" if it.hasNext        => jsGlueArg   = Some(it.next())
+      case d                                => dirArg      = Some(d)
 
   val dir = os.Path(dirArg.getOrElse(os.pwd.toString), os.pwd)
   if !os.isDir(dir) then
@@ -7587,7 +7593,7 @@ def packageLib(args: List[String]): Unit =
     .map(m => os.Path(m, os.pwd))
     .getOrElse(dir / SsclibManifest.FileName)
 
-  val manifest =
+  val baseManifest =
     if os.exists(manifestFile) then
       SsclibManifest.parseString(os.read(manifestFile)) match
         case scala.util.Success(m) => m
@@ -7597,6 +7603,24 @@ def packageLib(args: List[String]): Unit =
     else
       val libName = s"local/${dir.last}"
       SsclibManifest(name = libName)
+
+  // Resolve glue paths; --jvm-glue / --js-glue override manifest fields.
+  val glueJvmPath: Option[os.Path] = jvmGlueArg.map(p => os.Path(p, os.pwd))
+    .orElse(baseManifest.glueJvm.map(p => dir / os.RelPath(p)))
+    .filter(os.exists)
+  val glueJsPath: Option[os.Path] = jsGlueArg.map(p => os.Path(p, os.pwd))
+    .orElse(baseManifest.glueJs.map(p => dir / os.RelPath(p)))
+    .filter(os.exists)
+
+  // Build the manifest with glue archive paths baked in.
+  val jvmGlueEntry = glueJvmPath.map(_ => "jvm/glue.jar")
+    .orElse(jvmGlueArg.map(_ => "jvm/glue.jar"))
+  val jsGlueEntry  = glueJsPath.map(_ => "js/glue.js")
+    .orElse(jsGlueArg.map(_ => "js/glue.js"))
+  val manifest = baseManifest.copy(
+    glueJvm = jvmGlueEntry.orElse(baseManifest.glueJvm),
+    glueJs  = jsGlueEntry.orElse(baseManifest.glueJs),
+  )
 
   val outName = outputArg.getOrElse(s"${manifest.cacheId}-${manifest.version}.ssclib")
   val outPath = os.Path(outName, os.pwd)
@@ -7608,9 +7632,7 @@ def packageLib(args: List[String]): Unit =
     else
       os.list(dir).filter(f => os.isFile(f) && f.ext == "ssc").map { f => (f, f.last) }
 
-  val manifestContent =
-    if os.exists(manifestFile) then os.read(manifestFile)
-    else SsclibManifest.toYaml(manifest)
+  val manifestContent = SsclibManifest.toYaml(manifest)
 
   os.makeDir.all(outPath / os.up)
   val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
@@ -7631,10 +7653,23 @@ def packageLib(args: List[String]): Unit =
         zip.write(bytes)
         zip.closeEntry()
       }
+    glueJvmPath.foreach { jvmJar =>
+      zip.putNextEntry(new ZipEntry("jvm/glue.jar"))
+      zip.write(os.read.bytes(jvmJar))
+      zip.closeEntry()
+    }
+    glueJsPath.foreach { jsFile =>
+      zip.putNextEntry(new ZipEntry("js/glue.js"))
+      zip.write(os.read.bytes(jsFile))
+      zip.closeEntry()
+    }
   finally zip.close()
 
-  val fileCount = sources.length + 1 + (if precompile then sources.count(_._1.ext == "ssc") else 0)
-  println(s"${outPath.last}  ($fileCount files) — name=${manifest.name} version=${manifest.version}")
+  val irCount   = if precompile then sources.count(_._1.ext == "ssc") else 0
+  val glueCount = glueJvmPath.size + glueJsPath.size
+  val fileCount = sources.length + 1 + irCount + glueCount
+  val glueNote  = if glueCount > 0 then s" [+${glueCount} glue]" else ""
+  println(s"${outPath.last}  ($fileCount files$glueNote) — name=${manifest.name} version=${manifest.version}")
 
 private def ssclibIrEntryName(sourceEntry: String): String =
   val withoutSrc = sourceEntry.stripPrefix("src/")

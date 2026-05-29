@@ -28,6 +28,9 @@ import scala.util.Try
  *    - dep: io.example/utils:2.1.0
  *  description: optional human-readable description
  *  author: optional author
+ *  glue:
+ *    jvm: jvm/glue.jar    # optional JVM glue archive (arch-ffi Phase 3)
+ *    js:  js/glue.js      # optional JS glue preamble (arch-ffi Phase 4)
  *  ``` */
 case class SsclibManifest(
   name:               String,
@@ -37,6 +40,8 @@ case class SsclibManifest(
   dependencies:       List[String] = Nil,
   description:        Option[String] = None,
   author:             Option[String] = None,
+  glueJvm:            Option[String] = None,  // archive path for jvm/glue.jar
+  glueJs:             Option[String] = None,  // archive path for js/glue.js
 ):
   /** Best-effort short identifier used in cache directory naming. */
   def cacheId: String = name.replace('/', '_').replace(':', '_')
@@ -75,6 +80,13 @@ object SsclibManifest:
         case Some(s: String) => List(s.trim).filter(_.nonEmpty)
         case _               => Nil
 
+    def glueMap(): Map[String, Any] =
+      m.get("glue") match
+        case Some(gm: java.util.Map[?, ?]) =>
+          gm.asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+        case _ => Map.empty
+
+    val glue = glueMap()
     SsclibManifest(
       name               = requireStr("name"),
       version            = str("version", "0.1.0"),
@@ -83,6 +95,8 @@ object SsclibManifest:
       dependencies       = depsList(),
       description        = optStr("description"),
       author             = optStr("author"),
+      glueJvm            = glue.get("jvm").map(_.toString),
+      glueJs             = glue.get("js").map(_.toString),
     )
   }
 
@@ -97,4 +111,8 @@ object SsclibManifest:
     if m.dependencies.nonEmpty then
       sb.append("dependencies:\n")
       m.dependencies.foreach(dep => sb.append(s"  - dep: $dep\n"))
+    if m.glueJvm.isDefined || m.glueJs.isDefined then
+      sb.append("glue:\n")
+      m.glueJvm.foreach(j => sb.append(s"  jvm: $j\n"))
+      m.glueJs.foreach(j  => sb.append(s"  js: $j\n"))
     sb.toString

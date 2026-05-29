@@ -151,7 +151,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour: JS inline bodies; `@interpreterUnsupported`; cross-backend parity tests. Spec: `docs/arch-ffi.md §6 Phase 2`. ✓ Landed 2026-05-29
 
-- [ ] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`: manifest glue fields, JVM classpath injection, package CLI flag, and glue fixture integration test. Spec: `docs/arch-ffi.md §6 Phase 3`. Prerequisite: `arch-lib-p4`.
+- [x] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`: manifest glue fields, JVM classpath injection, package CLI flag, and glue fixture integration test. Spec: `docs/arch-ffi.md §6 Phase 3`. Prerequisite: `arch-lib-p4`. ✓ Landed 2026-05-29: `SsclibManifest` extended with `glueJvm`/`glueJs` optional fields; `parseString` reads `glue.jvm`/`glue.js` from nested YAML map; `toYaml` emits `glue:` section when non-empty; `GlueClasspathRegistry` (TrieMap-backed, `addJar`/`contains`/`jars`/`clear`); `ImportResolver.extractSsclib` calls `addGlueJarToClasspath` when `glue.jvm` is declared (wires into thread context `URLClassLoader` when possible, always adds to `GlueClasspathRegistry`); `ssc package --lib` gains `--jvm-glue <jar>` and `--js-glue <js>` flags, packing the jars at `jvm/glue.jar` / `js/glue.js` in the archive; 8 unit + integration tests.
 
 - [ ] **arch-ffi-p4** — `js/glue.js` preamble injection + `META-INF/services` in glue.jar: JS glue injection, service loading into `BackendRegistry`, and end-to-end JS glue test. Spec: `docs/arch-ffi.md §6 Phase 4`.
 

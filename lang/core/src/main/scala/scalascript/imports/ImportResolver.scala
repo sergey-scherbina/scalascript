@@ -429,7 +429,33 @@ object ImportResolver:
       )
     // Eagerly pre-fetch transitive deps so they are in cache before the compiler needs them.
     prefetchTransitiveDeps(manifest, depUri, lockPath, state)
+    // Wire glue.jar into the JVM classpath if declared in the manifest.
+    manifest.glueJvm.foreach { glueArchivePath =>
+      val jarPath = destDir / os.RelPath(glueArchivePath)
+      if os.exists(jarPath) then addGlueJarToClasspath(jarPath)
+      else
+        System.err.println(s"[ssc] warn: dep '$depUri' declares glue.jvm '$glueArchivePath' but file not found in extracted archive")
+    }
     entryPath
+
+  /** Register a glue.jar on the JVM classpath (Phase 3 FFI).
+   *
+   *  Uses `java.net.URLClassLoader` thread-context trick: replaces the
+   *  context class loader with a URL class loader that extends the existing
+   *  one.  Falls back gracefully — if the loader is not a URLClassLoader the
+   *  jar is added to `GlueClasspathRegistry` only (for build-time use). */
+  private def addGlueJarToClasspath(jarPath: os.Path): Unit =
+    GlueClasspathRegistry.addJar(jarPath)
+    val url = jarPath.toIO.toURI.toURL
+    val existing = Thread.currentThread().getContextClassLoader
+    existing match
+      case ucl: java.net.URLClassLoader =>
+        // Extend the existing URLClassLoader with the new JAR.
+        val extended = new java.net.URLClassLoader(Array(url), ucl)
+        Thread.currentThread().setContextClassLoader(extended)
+      case _ =>
+        // Non-URLClassLoader (e.g. app class loader in JDK 9+).
+        // Fall through — glue is available via GlueClasspathRegistry.
 
   /** BFS step: resolve all direct dependencies declared in `manifest`.
    *  Errors from transitive deps are wrapped with context. */
