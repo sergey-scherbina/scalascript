@@ -461,7 +461,11 @@ private[interpreter] object DispatchRuntime:
         case Value.StringV(t) => Computation.pureBool(s.endsWith(t))
         case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "split"       => arg match
-        case Value.StringV(sep) => Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep), -1).map(Value.StringV(_)).toList))
+        case Value.StringV(sep) =>
+          val parts = s.split(java.util.regex.Pattern.quote(sep), -1)
+          var list: List[Value] = Nil; var i = parts.length - 1
+          while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _                  => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "repeat"      => arg match
         case Value.IntV(n) => Pure(Value.StringV(s * n.toInt))
@@ -628,7 +632,9 @@ private[interpreter] object DispatchRuntime:
       case "split"       => args match
         case List(Value.StringV(sep)) =>
           val parts = s.split(java.util.regex.Pattern.quote(sep))
-          Pure(Value.ListV(parts.iterator.map(Value.StringV(_)).toList))
+          var list: List[Value] = Nil; var i = parts.length - 1
+          while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "take"        => args match
         case List(Value.IntV(n)) =>
@@ -852,7 +858,9 @@ private[interpreter] object DispatchRuntime:
         Pure(Value.StringV(s.stripMargin))
       case "lines"       =>
         val parts = s.split("\\R", -1)
-        Pure(Value.ListV(parts.iterator.map(Value.StringV(_)).toList))
+        var list: List[Value] = Nil; var i = parts.length - 1
+        while i >= 0 do { list = Value.StringV(parts(i)) :: list; i -= 1 }
+        Pure(Value.ListV(list))
       case "stripPrefix" => args match
         case List(Value.StringV(prefix)) =>
           Pure(if s.startsWith(prefix) then Value.StringV(s.substring(prefix.length)) else recv)
@@ -1144,10 +1152,9 @@ private[interpreter] object DispatchRuntime:
           ziRem = ziRem.tail; ziIdx += 1
         Pure(Value.ListV(ziBuf.toList))
       case "indices"      =>
-        val idxBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-        var idxI = 0
-        while idxI < ls.length do { idxBuf += Value.intV(idxI.toLong); idxI += 1 }
-        Pure(Value.ListV(idxBuf.toList))
+        var list: List[Value] = Nil; var idxI = ls.length - 1
+        while idxI >= 0 do { list = Value.intV(idxI.toLong) :: list; idxI -= 1 }
+        Pure(Value.ListV(list))
       case "contains"     => args match
         case List(v)                  => Computation.pureBool(ls.contains(v))
         case _                        => dispatchFallback(recv, name, args, env, interp)

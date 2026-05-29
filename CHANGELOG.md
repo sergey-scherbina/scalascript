@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter split and indices list builders
+
+- **perf/interpreter-split-indices** — Ported reverse-cons builders for
+  `String.split`, `String.lines`, and `List.indices` from
+  `perf/interpreter-opt`, preserving element order and trailing empty string
+  parts without allocating an intermediate `ArrayBuffer`.
+
 ## 2026-05-29 — interpreter range construction fast path
 
 - **perf/interpreter-ranges-map2** — Ported the range cons-from-end fast path

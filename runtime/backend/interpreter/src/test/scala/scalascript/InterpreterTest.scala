@@ -515,6 +515,8 @@ def main(): Unit =
 
   test("string split") {
     captured("""println("a,b,c".split(",").mkString(" "))""") shouldBe "a b c"
+    captured("""println("a,".split(",").mkString("|"))""") shouldBe "a|"
+    captured("""println("a\n".lines.mkString("|"))""") shouldBe "a|"
   }
 
   test("string replace") {
@@ -562,6 +564,11 @@ def main(): Unit =
       val xs = List("a", "b", "c").zipWithIndex
       println(xs.map(p => s"${p._2}:${p._1}").mkString(", "))
     """) shouldBe "0:a, 1:b, 2:c"
+  }
+
+  test("list indices") {
+    captured("""println(List("a", "b", "c").indices.mkString(", "))""") shouldBe "0, 1, 2"
+    captured("""println(Nil.indices.mkString(", "))""") shouldBe ""
   }
 
   test("list find") {
