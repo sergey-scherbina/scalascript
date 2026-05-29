@@ -736,7 +736,9 @@ over a WebSocket GraphQL transport.
 
 Tasks:
 
-- `serveGraphQL` / `graphqlMount` register `GET /graphql/ws`.
+- `serveGraphQL` / `graphqlMount` register `GET /graphql/ws`. Reuses the
+  existing `onWebSocket` / `onWebSocketAuth` primitives in `HttpIntrinsics`
+  — no new WebSocket primitives needed at the interpreter layer.
 - Implement `graphql-transport-ws` message lifecycle: connection init, ack,
   subscribe, next, error, complete, ping, pong, close handling.
 - Bridge `Source[A]` to the engine subscription publisher model.
@@ -1018,6 +1020,16 @@ substitute for protocol and contract tests.
 8. **Distributed runtime integration.** For internal ScalaScript clusters,
    decide whether GraphQL resolvers can call distributed actors/functions
    directly with typed mapping, or whether a gateway boundary is required.
+
+9. **Plugin-loading order.** When both `graphql-plugin` and `http-plugin` are on
+   the classpath, `ServiceLoader` iteration order is classpath-dependent and not
+   guaranteed. Verify that concurrent plugin discovery does not cause silent
+   intrinsic shadowing or duplicate route registration.
+
+10. **Plugin jar size budget.** `graphql-java 22.x` + Reactive Streams + a JSON
+    library adds ≥ 12 MB to the plugin jar. Confirm acceptable size limits for
+    the fat-jar distribution and whether shading or optional-dependency mode is
+    required.
 
 ---
 

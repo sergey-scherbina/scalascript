@@ -469,6 +469,9 @@ not destroy publication-specific information.
 - Interpreter and JVM generated runtimes consume pending metadata on the next
   route registration.
 - Supported: `summary`, `description`, `tags`, `deprecated`, `security`.
+- Planned (Phase 3b): typer check that `@openapi(...)` keys are restricted to
+  the known set; emit `Diagnostic` on unknown keys so invalid annotations are
+  caught at compile time, not silently ignored at runtime.
 
 ### Phase 4 — Security schemes ✓ Landed
 
