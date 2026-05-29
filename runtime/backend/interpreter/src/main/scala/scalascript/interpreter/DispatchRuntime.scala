@@ -353,10 +353,7 @@ private[interpreter] object DispatchRuntime:
         case Some(v) => interp.callValue1(arg, v, env).flatMap(Computation.wrapSomeC)
       case "flatMap"   => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).map {
-          case o: Value.OptionV => o
-          case other            => Value.OptionV(Some(other))
-        }
+        case Some(v) => interp.callValue1(arg, v, env).flatMap(Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env).map {
@@ -1592,10 +1589,7 @@ private[interpreter] object DispatchRuntime:
       case "flatMap"   => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).map {
-            case o: Value.OptionV => o
-            case other            => Value.OptionV(Some(other))
-          }
+          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.wrapOptionC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"    => args match
         case List(f) => opt match
