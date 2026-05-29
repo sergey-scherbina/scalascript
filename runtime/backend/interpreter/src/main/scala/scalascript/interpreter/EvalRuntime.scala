@@ -736,7 +736,8 @@ private[interpreter] object EvalRuntime:
             cur = cur.asInstanceOf[FrameMap].parent
           b.result()
         case _ =>
-          env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
+          if env eq interp.globals then Map.empty
+          else env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
       val paramNames = paramClause.values.map(_.name.value)
       // Extract declared type annotations so TypedHandlerWrapper can detect
       // typed route handlers at mount time.  Empty string for unannotated params.

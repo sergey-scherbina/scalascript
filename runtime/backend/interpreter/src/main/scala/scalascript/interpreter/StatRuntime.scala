@@ -62,10 +62,10 @@ private[interpreter] object StatRuntime:
       val paramTypes  = regularParamVals.map(p => p.decltpe.fold("Any")(interp.typeToString))
       val usingInfo: List[(String, String)] =
         usingParamVals.map(p => p.name.value -> p.decltpe.fold("Any")(interp.typeToString)) ++ cbUsingParams
-      // See Term.Function above for why we drop only interp.globals-shadowed keys.
-      val capturedEnv = env.iterator.collect {
-        case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
-      }.toMap
+      // Top-level defs (env eq globals) need no capture; locals are already non-global.
+      val capturedEnv: Map[String, Value] =
+        if env eq interp.globals then Map.empty
+        else env.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
       val rThrows = d.decltpe.exists(interp.isThrowsType)
       val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
       env(d.name.value) = fn
@@ -223,9 +223,9 @@ private[interpreter] object StatRuntime:
           if isParametric then
             // Parametric given: register as a factory for later recursive resolution.
             // The captured env is the current env snapshot (minus interp.globals that haven't changed).
-            val captured = env.iterator.collect {
-              case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
-            }.toMap
+            val captured: Map[String, Value] =
+              if env eq interp.globals then Map.empty
+              else env.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
             val factory = ParametricGiven(
               name               = d.name.value,
               typeParams         = givenTypeParams,

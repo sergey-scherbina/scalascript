@@ -264,9 +264,18 @@ private[interpreter] object BlockRuntime:
         val paramTypes2 = regularParamVals2.map(p => p.decltpe.fold("Any")(interp.typeToString))
         val usingInfo2: List[(String, String)] =
           usingParamVals2.map(p => p.name.value -> p.decltpe.fold("Any")(interp.typeToString)) ++ cbUsingParams2
-        val capturedEnv = cur.iterator.collect {
-          case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
-        }.toMap
+        val capturedEnv: Map[String, Value] = cur match
+          case fm: FrameMap =>
+            val b = Map.newBuilder[String, Value]
+            var c: Map[String, Value] = fm
+            while c.isInstanceOf[FrameMap] do
+              c.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
+              c = c.asInstanceOf[FrameMap].parent
+            if c ne interp.globals then
+              c.foreach { case (k, v) => if interp.globals.getOrElse(k, null) != v then b += (k -> v) }
+            b.result()
+          case _ =>
+            cur.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
         val rThrows2 = d.decltpe.exists(interp.isThrowsType)
         val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
         step(rest, cur + (d.name.value -> fn))
