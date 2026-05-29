@@ -3599,12 +3599,39 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     if d.paramClauseGroups.isEmpty then "()"
     else d.paramClauseGroups.map(_.syntax).mkString
 
+  /** Extract the first string literal argument from a named annotation in `mods`.
+   *  Returns `Some(expr)` when `@name("expr")` is present, `None` otherwise. */
+  private def extractAnnotationArg(mods: List[Mod], name: String): Option[String] =
+    mods.collectFirst {
+      case Mod.Annot(init) if (init.tpe match
+        case Type.Name(n)                 => n == name
+        case Type.Select(_, Type.Name(n)) => n == name
+        case _                            => false) =>
+          init.argClauses.headOption.flatMap(_.values.collectFirst { case Lit.String(s) => s })
+    }.flatten
+
+  /** Substitute `$0`, `$1`, … in `expr` with the corresponding parameter name. */
+  private def substituteArgs(expr: String, params: List[String]): String =
+    params.zipWithIndex.foldLeft(expr) { case (e, (name, i)) => e.replace(s"$$$i", name) }
+
   private def emitStat(stat: Stat): String = stat match
-    // Stage 5+/A.6 (Б-1) — `extern def foo(...): T = __extern__` is a
-    // type-only stub; the intrinsic table provides the real impl
-    // (caught at call sites by `dispatchIntrinsic`).  Skip emission
-    // so Scala doesn't choke on `__extern__`.
-    case d: Defn.Def if EffectAnalysis.isExternDef(d.body) => ""
+    // arch-ffi-p1 — `@jvm("expr")` on an extern def: emit the expression as
+    // the method body, with $0/$1/… substituted by parameter names.
+    // Falls through to the plain extern-skip arm when no @jvm annotation exists.
+    case d: Defn.Def if EffectAnalysis.isExternDef(d.body) =>
+      extractAnnotationArg(d.mods, "jvm") match
+        case Some(expr) =>
+          val params   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+          val body     = substituteArgs(expr, params)
+          val paramSig = if d.paramClauseGroups.isEmpty then "()" else d.paramClauseGroups.map(_.syntax).mkString
+          val retType  = d.decltpe.map(t => s": ${t.syntax}").getOrElse(": Any")
+          s"def ${d.name.value}$paramSig$retType = $body"
+        case None =>
+          // Stage 5+/A.6 (Б-1) — `extern def foo(...): T = __extern__` is a
+          // type-only stub; the intrinsic table provides the real impl
+          // (caught at call sites by `dispatchIntrinsic`).  Skip emission
+          // so Scala doesn't choke on `__extern__`.
+          ""
 
     // Effect declaration: `effect Console: def writeLine(s): Unit; def readLine(): String`
     // → `object Console: def writeLine(s) = _perform("Console", "writeLine", s)`

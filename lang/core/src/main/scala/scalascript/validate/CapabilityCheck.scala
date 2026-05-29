@@ -132,7 +132,7 @@ object CapabilityCheck:
     val unsupported = missing.toList.sortBy(_.toString).map { f =>
       Diagnostic.Unsupported(f, backendId)
     }
-    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module)
+    unsupported ++ unknownBlockLanguages(module, cap) ++ unsupportedDbUrls(module, cap, backendId) ++ unsupportedClientSideDbUrls(module) ++ jvmOnlyExternDefs(module, cap, backendId)
 
   /** Validate `databases:` URL schemes against the target backend.
    *
@@ -174,6 +174,54 @@ object CapabilityCheck:
           Diagnostic.UnsupportedClientSideDbUrl("default", url, src.take(40).trim)
         }
     }.flatten
+
+  /** arch-ffi-p1 — detect `@jvm`-only extern defs in modules compiled for the
+   *  JS backend.  An `extern def` annotated `@jvm(...)` without a companion
+   *  `@js(...)` will throw at runtime on JS; this check surfaces the issue at
+   *  compile time.
+   *
+   *  Uses source-text heuristics (no parsed AST available in CapabilityCheck).
+   *  Pattern: collect all annotation lines for each `extern def`; if any
+   *  function has `@jvm(` but no `@js(`, it is JVM-only. */
+  private def jvmOnlyExternDefs(
+    module:    ir.NormalizedModule,
+    cap:       Capabilities,
+    backendId: String
+  ): List[Diagnostic] =
+    val isJsFamily = cap.outputs.contains(OutputKind.JavaScriptSource) ||
+                     cap.outputs.contains(OutputKind.WasmBytecode)
+    if !isJsFamily then return Nil
+
+    val found = scala.collection.mutable.ListBuffer.empty[String]
+
+    def scanSource(src: String): Unit =
+      val lines = src.linesIterator.toArray
+      var i = 0
+      while i < lines.length do
+        val trimmed = lines(i).trim
+        // Collect annotation lines immediately before an `extern def`
+        if trimmed.startsWith("extern def ") then
+          // Look back for annotation lines (up to 10 lines back)
+          val start = math.max(0, i - 10)
+          val annotLines = lines.slice(start, i).map(_.trim).filter(_.startsWith("@"))
+          val hasJvm = annotLines.exists(l => l.startsWith("@jvm(") || l == "@jvm")
+          val hasJs  = annotLines.exists(l => l.startsWith("@js(")  || l == "@js")
+          if hasJvm && !hasJs then
+            // Extract the function name from "extern def name(..."
+            val nameMatch = """^extern def (\w+)""".r.findFirstMatchIn(trimmed)
+            nameMatch.foreach(m => found += m.group(1))
+        i += 1
+
+    def scanContent(c: ir.Content): Unit = c match
+      case ir.Content.CodeBlock(source, _, _) => scanSource(source)
+      case _                                  => ()
+
+    def scanSection(s: ir.Section): Unit =
+      s.content.foreach(scanContent)
+      s.subsections.foreach(scanSection)
+
+    module.sections.foreach(scanSection)
+    found.toList.map(Diagnostic.JvmOnlyExternDef(_, backendId))
 
   // ─── Internal: tiny tokenisation that ignores comments ──────────────────
 

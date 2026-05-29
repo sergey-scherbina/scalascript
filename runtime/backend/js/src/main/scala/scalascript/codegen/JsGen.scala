@@ -9007,6 +9007,20 @@ class JsGen(
     case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(Term.Select(_, Term.Name("runFold")), _), _)   => true
     case _ => false
 
+  /** arch-ffi-p1 — extract the first string literal arg from `@name("expr")` in `mods`. */
+  private def extractAnnotationArg(mods: List[Mod], name: String): Option[String] =
+    mods.collectFirst {
+      case Mod.Annot(init) if (init.tpe match
+        case Type.Name(n)                 => n == name
+        case Type.Select(_, Type.Name(n)) => n == name
+        case _                            => false) =>
+          init.argClauses.headOption.flatMap(_.values.collectFirst { case Lit.String(s) => s })
+    }.flatten
+
+  /** Substitute `$0`, `$1`, … with the corresponding param names. */
+  private def substituteJsArgs(expr: String, params: List[String]): String =
+    params.zipWithIndex.foldLeft(expr) { case (e, (n, i)) => e.replace(s"$$$i", n) }
+
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, _, rhs) =>
       pats match
@@ -9024,11 +9038,22 @@ class JsGen(
       if isIntExpr(rhs) then intVars += n.value
       line(s"let ${n.value} = ${genExpr(rhs)};")
 
-    // Stage 5+/A.6 (Б-1) — extern def stub is type-only; the intrinsic
-    // table provides the real impl (dispatched at call sites by
-    // dispatchIntrinsicJs).  Skip emission entirely so __extern__ doesn't
-    // leak into the JS.
-    case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) => ()
+    // arch-ffi-p1 — @js("expr") / @jvm-only handling for extern defs.
+    // @js("expr")     → emit a JS function with the inline expression body.
+    // @jvm + no @js   → emit a stub that throws a clear runtime error.
+    // no annotation   → skip (intrinsic table handles it at call sites).
+    case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) =>
+      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+      extractAnnotationArg(d.mods, "js") match
+        case Some(jsExpr) =>
+          val body     = substituteJsArgs(jsExpr, params)
+          val paramsStr = params.mkString(", ")
+          line(s"function ${d.name.value}($paramsStr) { return $body; }")
+        case None =>
+          if extractAnnotationArg(d.mods, "jvm").isDefined then
+            // @jvm-only: provide a stub that throws at runtime instead of a silent undefined
+            val paramsStr = params.mkString(", ")
+            line(s"function ${d.name.value}($paramsStr) { throw new Error('${d.name.value} is @jvm-only and cannot be called from the JS backend.'); }")
 
     case d: Defn.Def =>
       val paramVals   = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)

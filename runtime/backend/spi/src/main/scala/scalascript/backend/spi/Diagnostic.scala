@@ -32,3 +32,8 @@ enum Diagnostic:
   // 1-indexed positions within the reconstructed candidate string so the
   // user can locate the broken construct.
   case XmlParseError(message: String, line: Int, col: Int)
+  // arch-ffi-p1 — an `extern def` annotated `@jvm(...)` (JVM-only) is
+  // used in a module being compiled for the JS backend, where no `@js(...)`
+  // alternative is available.  The def will throw at runtime; this diagnostic
+  // surfaces the problem at compile time.
+  case JvmOnlyExternDef(defName: String, backend: String)
