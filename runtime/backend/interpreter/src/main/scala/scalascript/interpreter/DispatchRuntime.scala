@@ -79,6 +79,70 @@ private[interpreter] object DispatchRuntime:
       case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
+  /** Sort ls using a precomputed keys list. Factored out of dispatchList/dispatchList1
+   *  to avoid code duplication and allow both paths to use direct-match on mapSequence results. */
+  private def sortByKeys(ls: List[Value], keys: List[Value]): Computation =
+    val n = ls.length
+    var allIntKeys = true; var kChk = keys
+    while allIntKeys && kChk.nonEmpty do
+      if !kChk.head.isInstanceOf[Value.IntV] then allIntKeys = false
+      kChk = kChk.tail
+    if allIntKeys then
+      val arr2 = new Array[(Value, Long)](n)
+      var i = 0; var lR = ls; var kR = keys
+      while lR.nonEmpty do
+        arr2(i) = (lR.head, kR.head.asInstanceOf[Value.IntV].v)
+        i += 1; lR = lR.tail; kR = kR.tail
+      java.util.Arrays.sort(arr2, java.util.Comparator.comparingLong[(Value, Long)](_._2))
+      var result2: List[Value] = Nil; i = n - 1
+      while i >= 0 do result2 = arr2(i)._1 :: result2; i -= 1
+      Pure(Value.ListV(result2))
+    else
+      val arr = new Array[(Value, String)](n)
+      var i = 0; var lRem = ls; var kRem = keys
+      while lRem.nonEmpty do
+        arr(i) = (lRem.head, Value.show(kRem.head))
+        i += 1; lRem = lRem.tail; kRem = kRem.tail
+      java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+      var result: List[Value] = Nil; i = n - 1
+      while i >= 0 do result = arr(i)._1 :: result; i -= 1
+      Pure(Value.ListV(result))
+
+  /** Apply sortBy via a precomputed keys Computation.  Direct-matches keysC to avoid
+   *  the .flatMap lambda allocation for the common Pure case. */
+  private def applySortBy(ls: List[Value], recv: Value, keysC: Computation): Computation =
+    keysC match
+      case Pure(Value.ListV(keys)) => sortByKeys(ls, keys)
+      case Pure(_)                 => Pure(recv)
+      case comp                    => FlatMap(comp, {
+        case Value.ListV(keys) => sortByKeys(ls, keys)
+        case _                 => Pure(recv)
+      })
+
+  /** Find max/min element of ls by a key function applied to each element. */
+  private def applyMaxBy(ls: List[Value], keysC: Computation, max: Boolean): Computation =
+    keysC match
+      case Pure(Value.ListV(keys)) =>
+        var bestVal = ls.head; var bestKey = Value.show(keys.head)
+        var lRem = ls.tail; var kRem = keys.tail
+        while lRem.nonEmpty do
+          val k = Value.show(kRem.head)
+          if (if max then k > bestKey else k < bestKey) then { bestVal = lRem.head; bestKey = k }
+          lRem = lRem.tail; kRem = kRem.tail
+        Pure(bestVal)
+      case Pure(_) => Pure(ls.head)
+      case comp    => FlatMap(comp, {
+        case Value.ListV(keys) =>
+          var bestVal = ls.head; var bestKey = Value.show(keys.head)
+          var lRem = ls.tail; var kRem = keys.tail
+          while lRem.nonEmpty do
+            val k = Value.show(kRem.head)
+            if (if max then k > bestKey else k < bestKey) then { bestVal = lRem.head; bestKey = k }
+            lRem = lRem.tail; kRem = kRem.tail
+          Pure(bestVal)
+        case _ => Pure(ls.head)
+      })
+
   /** 1-arg fast path for List — avoids `arg :: Nil` allocation for the most common ops. */
   private def dispatchList1(ls: List[Value], recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     name match
@@ -224,7 +288,13 @@ private[interpreter] object DispatchRuntime:
       case "partition"  =>
         Computation.partitionSequence(ls, item => interp.callValue1(arg, item, env))
       case "sortBy"     =>
-        dispatchList(ls, "sortBy", arg :: Nil, env, interp)
+        applySortBy(ls, recv, Computation.mapSequence(ls, item => interp.callValue1(arg, item, env)))
+      case "maxBy"      =>
+        if ls.isEmpty then interp.located("maxBy on empty list")
+        else applyMaxBy(ls, Computation.mapSequence(ls, item => interp.callValue1(arg, item, env)), max = true)
+      case "minBy"      =>
+        if ls.isEmpty then interp.located("minBy on empty list")
+        else applyMaxBy(ls, Computation.mapSequence(ls, item => interp.callValue1(arg, item, env)), max = false)
       case "sortWith"   =>
         dispatchList(ls, "sortWith", arg :: Nil, env, interp)
       case "groupBy"    =>
@@ -884,36 +954,12 @@ private[interpreter] object DispatchRuntime:
       case "maxBy"        => args match
         case List(f) =>
           if ls.isEmpty then interp.located("maxBy on empty list")
-          else
-            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
-              case Value.ListV(keys) =>
-                var bestVal  = ls.head
-                var bestKey  = Value.show(keys.head)
-                var lRem = ls.tail; var kRem = keys.tail
-                while lRem.nonEmpty do
-                  val k = Value.show(kRem.head)
-                  if k > bestKey then { bestVal = lRem.head; bestKey = k }
-                  lRem = lRem.tail; kRem = kRem.tail
-                Pure(bestVal)
-              case _ => Pure(ls.head)
-            }
+          else applyMaxBy(ls, Computation.mapSequence(ls, item => interp.callValue1(f, item, env)), max = true)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "minBy"        => args match
         case List(f) =>
           if ls.isEmpty then interp.located("minBy on empty list")
-          else
-            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
-              case Value.ListV(keys) =>
-                var bestVal  = ls.head
-                var bestKey  = Value.show(keys.head)
-                var lRem = ls.tail; var kRem = keys.tail
-                while lRem.nonEmpty do
-                  val k = Value.show(kRem.head)
-                  if k < bestKey then { bestVal = lRem.head; bestKey = k }
-                  lRem = lRem.tail; kRem = kRem.tail
-                Pure(bestVal)
-              case _ => Pure(ls.head)
-            }
+          else applyMaxBy(ls, Computation.mapSequence(ls, item => interp.callValue1(f, item, env)), max = false)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "product"      =>
         var intAcc = 1L; var dblAcc = 1.0; var isDouble = false
@@ -1206,37 +1252,7 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "sortBy"       => args match
         case List(f) =>
-          Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).flatMap {
-            case Value.ListV(keys) =>
-              val n = ls.length
-              // Fast path: all keys are Int — sort numerically, not lexicographically.
-              var allIntKeys = true; var kChk = keys
-              while allIntKeys && kChk.nonEmpty do
-                if !kChk.head.isInstanceOf[Value.IntV] then allIntKeys = false
-                kChk = kChk.tail
-              if allIntKeys then
-                val arr2 = new Array[(Value, Long)](n)
-                var i = 0; var lR = ls; var kR = keys
-                while lR.nonEmpty do
-                  arr2(i) = (lR.head, kR.head.asInstanceOf[Value.IntV].v)
-                  i += 1; lR = lR.tail; kR = kR.tail
-                java.util.Arrays.sort(arr2, java.util.Comparator.comparingLong[(Value, Long)](_._2))
-                var result2: List[Value] = Nil; i = n - 1
-                while i >= 0 do result2 = arr2(i)._1 :: result2; i -= 1
-                Pure(Value.ListV(result2))
-              else
-                // Build (value, strKey) array in one pass — avoids zip + map double-list.
-                val arr = new Array[(Value, String)](n)
-                var i = 0; var lRem = ls; var kRem = keys
-                while lRem.nonEmpty do
-                  arr(i) = (lRem.head, Value.show(kRem.head))
-                  i += 1; lRem = lRem.tail; kRem = kRem.tail
-                java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
-                var result: List[Value] = Nil; i = n - 1
-                while i >= 0 do result = arr(i)._1 :: result; i -= 1
-                Pure(Value.ListV(result))
-            case _ => Pure(recv)
-          }
+          applySortBy(ls, recv, Computation.mapSequence(ls, item => interp.callValue1(f, item, env)))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foldLeft"     => args match
         case List(init) =>
