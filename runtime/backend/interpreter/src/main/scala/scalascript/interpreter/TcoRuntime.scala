@@ -10,19 +10,21 @@ import Computation.{Pure, FlatMap, Perform}
  */
 private[interpreter] object TcoRuntime:
 
+  // Singleton returned for every unnamed lambda — avoids allocation + cache pollution.
+  private val noTcoInfo = TcoInfo(Set.empty, isSelfTailRec = false, noNonTailSelf = false)
+
   def tcoInfoFor(f: Value.FunV, interp: Interpreter): TcoInfo =
-    val cached = interp.tcoCache.get(f.body)
-    if cached != null then cached
+    if f.name.isEmpty then noTcoInfo
     else
-      val info =
-        if f.name.isEmpty then TcoInfo(Set.empty, false, false)
-        else
-          val targets = tailCallTargets(f.body, f.name, tailPos = true)
-          val selfTR  = callsInTailPos(f.body, f.name)
-          val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
-          TcoInfo(targets, selfTR, noNTS)
-      interp.tcoCache.put(f.body, info)
-      info
+      val cached = interp.tcoCache.get(f.body)
+      if cached != null then cached
+      else
+        val targets = tailCallTargets(f.body, f.name, tailPos = true)
+        val selfTR  = callsInTailPos(f.body, f.name)
+        val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
+        val info    = TcoInfo(targets, selfTR, noNTS)
+        interp.tcoCache.put(f.body, info)
+        info
 
   /** TCO trampoline that survives effect suspensions.
    *

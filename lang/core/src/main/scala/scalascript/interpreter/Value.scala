@@ -410,20 +410,25 @@ object Computation:
    *  List[Computation].  All-Pure fast path: all f(item) results are Pure — no
    *  FlatMap nodes allocated, just ArrayBuffer → toList → ListV. */
   def mapSequence(ls: List[Value], f: Value => Computation): Computation =
-    if ls.isEmpty then return PureEmptyList
-    val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-    var head = ls
-    while head.nonEmpty do
-      f(head.head) match
-        case Pure(v) => buf += v; head = head.tail
-        case comp    =>
-          // Non-pure element: continue with FlatMap chain (stack-safe via trampoline)
-          val rest0 = head.tail
-          def loopRest(vs: List[Value]): Computation = vs match
-            case Nil       => Pure(Value.ListV(buf.toList))
-            case v :: rest => FlatMap(f(v), { rv => buf += rv; loopRest(rest) })
-          return FlatMap(comp, { r => buf += r; loopRest(rest0) })
-    Pure(Value.ListV(buf.toList))
+    ls match
+      case Nil      => PureEmptyList
+      case x :: Nil =>
+        f(x) match
+          case Pure(v) => Pure(Value.ListV(v :: Nil))
+          case comp    => FlatMap(comp, v => Pure(Value.ListV(v :: Nil)))
+      case _ =>
+        val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var head = ls
+        while head.nonEmpty do
+          f(head.head) match
+            case Pure(v) => buf += v; head = head.tail
+            case comp    =>
+              val rest0 = head.tail
+              def loopRest(vs: List[Value]): Computation = vs match
+                case Nil       => Pure(Value.ListV(buf.toList))
+                case v :: rest => FlatMap(f(v), { rv => buf += rv; loopRest(rest) })
+              return FlatMap(comp, { r => buf += r; loopRest(rest0) })
+        Pure(Value.ListV(buf.toList))
 
   /** Like mapSequence but iterates over a String's chars without allocating List[Char]. */
   def mapSequenceStr(s: String, f: Char => Computation): Computation =
