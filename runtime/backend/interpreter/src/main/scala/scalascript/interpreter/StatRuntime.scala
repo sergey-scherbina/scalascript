@@ -18,9 +18,9 @@ private[interpreter] object StatRuntime:
       pats match
         case List(Pat.Var(n)) => env(n.value) = rhsVal
         case List(pat) =>
-          PatternRuntime.matchPat(pat, rhsVal, envView, interp) match
-            case Some(patEnv) => patEnv.foreach { (k, v) => env(k) = v }
-            case None         => interp.located(s"Val pattern match failed")
+          val patEnv = PatternRuntime.matchPat(pat, rhsVal, envView, interp)
+          if patEnv == null then interp.located(s"Val pattern match failed")
+          else patEnv.foreach { (k, v) => env(k) = v }
         case _ => ()
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>

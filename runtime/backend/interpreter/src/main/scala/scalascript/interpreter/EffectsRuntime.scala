@@ -45,10 +45,16 @@ private[interpreter] object EffectsRuntime:
             val patArgs   = argClause.values
             val argPats   = patArgs.dropRight(1).map(_.asInstanceOf[Pat])
             val resumePat = patArgs.lastOption
-            argPats.zip(args).foldLeft(Option(env): Option[Env]) {
-              case (Some(e), (pat, v)) => PatternRuntime.matchPat(pat, v, e, interp)
-              case (None, _)           => None
-            }.flatMap { argEnv =>
+            var matchEnv: Env | Null = env
+            val pairs = argPats.zip(args)
+            var pi = 0
+            while matchEnv != null && pi < pairs.length do
+              val (pat, v) = pairs(pi)
+              matchEnv = PatternRuntime.matchPat(pat, v, matchEnv.asInstanceOf[Env], interp)
+              pi += 1
+            if matchEnv == null then None
+            else
+              val argEnv = matchEnv.asInstanceOf[Env]
               val finalEnv = resumePat match
                 case Some(pv: Pat.Var) => argEnv + (pv.name.value -> resume)
                 case _                 => argEnv
@@ -58,7 +64,6 @@ private[interpreter] object EffectsRuntime:
                   case _              => false
               }
               if guardOk then Some(interp.eval(c.body, finalEnv)) else None
-            }
           case _ => None
       }.nextOption()
         .getOrElse(throw InterpretError(s"Unhandled effect: $eff.$op (no matching case)"))
@@ -164,7 +169,8 @@ private[interpreter] object EffectsRuntime:
     def handleErr(errVal: Value): Computation =
       val handlerResultOpt: Option[Value] =
         cases.iterator.flatMap { c =>
-          PatternRuntime.matchPat(c.pat, errVal, env, interp).map(bound => (c, bound))
+          val bound = PatternRuntime.matchPat(c.pat, errVal, env, interp)
+          if bound == null then Iterator.empty else Iterator.single((c, bound))
         }.nextOption().map { case (matchedCase, bound) =>
           Computation.run(interp.eval(matchedCase.body, env ++ bound))
         }

@@ -933,7 +933,8 @@ private[interpreter] object EvalRuntime:
       @annotation.nowarn("msg=deprecated")
       def tryCatch(thrownVal: Value, cause: Throwable): Value =
         t.catchp.iterator.flatMap { c =>
-          PatternRuntime.matchPat(c.pat, thrownVal, Map.empty, interp).map(bound => (c, bound))
+          val bound = PatternRuntime.matchPat(c.pat, thrownVal, Map.empty, interp)
+          if bound == null then Iterator.empty else Iterator.single((c, bound))
         }.nextOption() match
           case Some((matchedCase, bound)) => Computation.run(eval(matchedCase.body, env ++ bound, interp))
           case None                       => throw cause

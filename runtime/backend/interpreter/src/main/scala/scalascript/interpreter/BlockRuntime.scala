@@ -41,18 +41,18 @@ private[interpreter] object BlockRuntime:
                 pats match
                   case List(Pat.Var(n)) => local(n.value) = rhsVal
                   case List(pat) =>
-                    PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
-                      case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
-                      case None         => interp.located("Val pattern match failed")
+                    val patEnv = PatternRuntime.matchPat(pat, rhsVal, localView, interp)
+                    if patEnv == null then interp.located("Val pattern match failed")
+                    else patEnv.foreach { (k, v) => local(k) = v }
                   case _ =>
                 step(rest, Value.UnitV)
               case rhsC => FlatMap(rhsC, { rhsVal =>
                 pats match
                   case List(Pat.Var(n)) => local(n.value) = rhsVal
                   case List(pat) =>
-                    PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
-                      case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
-                      case None         => interp.located("Val pattern match failed")
+                    val patEnv = PatternRuntime.matchPat(pat, rhsVal, localView, interp)
+                    if patEnv == null then interp.located("Val pattern match failed")
+                    else patEnv.foreach { (k, v) => local(k) = v }
                   case _ =>
                 step(rest, Value.UnitV)
               })
@@ -207,9 +207,9 @@ private[interpreter] object BlockRuntime:
           pats match
             case List(Pat.Var(n)) => step(rest, cur + (n.value -> v))
             case List(pat) =>
-              PatternRuntime.matchPat(pat, v, cur, interp) match
-                case Some(patEnv) => step(rest, cur ++ patEnv)
-                case None         => interp.located("direct block: val pattern match failed")
+              val patEnv = PatternRuntime.matchPat(pat, v, cur, interp)
+              if patEnv == null then interp.located("direct block: val pattern match failed")
+              else step(rest, cur ++ patEnv)
             case _ => step(rest, cur)
         })
 

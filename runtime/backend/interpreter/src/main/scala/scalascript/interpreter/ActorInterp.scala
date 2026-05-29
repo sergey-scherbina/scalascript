@@ -2662,21 +2662,20 @@ private[interpreter] trait ActorInterp:
       val it = cases.iterator
       while matched.isEmpty && it.hasNext do
         val c = it.next()
-        PatternRuntime.matchPat(c.pat, msg, env, this) match
-          case Some(extEnv) =>
-            val guardOk = c.cond.forall { g =>
-              Computation.run(eval(g, extEnv)) match
-                case Value.BoolV(b) => b
-                case _              => false
-            }
-            if guardOk then
-              val body = eval(c.body, extEnv)
-              matched = Some(
-                if wrapSome then body.flatMap(v =>
-                  k(Value.InstanceV("Some", Map("value" -> v))))
-                else body.flatMap(k)
-              )
-          case None => ()
+        val extEnv = PatternRuntime.matchPat(c.pat, msg, env, this)
+        if extEnv != null then
+          val guardOk = c.cond.forall { g =>
+            Computation.run(eval(g, extEnv)) match
+              case Value.BoolV(b) => b
+              case _              => false
+          }
+          if guardOk then
+            val body = eval(c.body, extEnv)
+            matched = Some(
+              if wrapSome then body.flatMap(v =>
+                k(Value.InstanceV("Some", Map("value" -> v))))
+              else body.flatMap(k)
+            )
       if matched.isDefined then
         mb.poll()
         resumeBlockedSender(rt, id)
