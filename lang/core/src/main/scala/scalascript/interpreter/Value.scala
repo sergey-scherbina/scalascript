@@ -335,7 +335,9 @@ object Computation:
     else Pure(Value.IntV(n))
 
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
-  def flatMap(c: Computation, f: Value => Computation): Computation = FlatMap(c, f)
+  def flatMap(c: Computation, f: Value => Computation): Computation = c match
+    case Pure(v) => f(v)
+    case _       => FlatMap(c, f)
 
   def map(c: Computation, f: Value => Value): Computation = c match
     case Pure(v) => Pure(f(v))
