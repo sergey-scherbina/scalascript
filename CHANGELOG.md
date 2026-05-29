@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter closure capture allocation cuts
+
+- **perf/interpreter-closure-capture** — Ported the closure-capture allocation
+  reduction from `perf/interpreter-opt`. Lambda/def/block capture now uses
+  mutable builders and `foreachEntry` to avoid per-slot `Tuple2` allocation,
+  and the direct-monad lift path uses the existing one-argument dispatch fast
+  path.
+
 ## 2026-05-29 — interpreter for-comprehension pure fast paths
 
 - **perf/interpreter-for-pure** — Ported the `for`/`yield` and `for`/`do`

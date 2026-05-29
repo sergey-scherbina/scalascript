@@ -115,7 +115,7 @@ private[interpreter] object GivenRuntime:
 
       resolvedDeps.map { deps =>
         val bodyEnv = mutable.Map.from(interp.globals)
-        factory.capturedEnv.foreach { kv => bodyEnv(kv._1) = kv._2 }
+        factory.capturedEnv.foreachEntry { (k, v) => bodyEnv(k) = v }
         deps.foreach { dep => bodyEnv(dep._1) = dep._2 }
         deps.foreach { dep =>
           dep._2 match

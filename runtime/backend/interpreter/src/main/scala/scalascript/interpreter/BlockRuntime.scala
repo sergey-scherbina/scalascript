@@ -41,14 +41,14 @@ private[interpreter] object BlockRuntime:
         // If the terminal parent is the real globals map, skip it.
         // Otherwise it's a closure HashMap — iterate and capture non-global entries.
         if cur ne interp.globals then
-          cur.foreach { case (k, v) =>
+          cur.foreachEntry { (k, v) =>
             if interp.globals.getOrElse(k, null) != v then b(k) = v
           }
         b
       case _ =>
-        mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-          interp.globals.getOrElse(k, null) != v
-        })
+        val b2 = mutable.HashMap.empty[String, Value]
+        env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
+        b2
     val localView = new MutableEnvView(local)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
@@ -164,7 +164,7 @@ private[interpreter] object BlockRuntime:
       case (OptionM, Value.InstanceV("Left", _))                  => Computation.PureNone
       case (ListM | OtherM, _) | _ =>
         val contFn = Value.NativeFnV("direct-lift-cont", args => cont(args.head))
-        DispatchRuntime.dispatch(monadValue, "flatMap", contFn :: Nil, cur, interp)
+        DispatchRuntime.dispatch1(monadValue, "flatMap", contFn, cur, interp)
 
   private def checkDirectBlockStatics(stats: List[Stat], interp: Interpreter): Unit =
     def isNestedDirect(t: Tree): Boolean = t match
@@ -266,16 +266,18 @@ private[interpreter] object BlockRuntime:
           usingParamVals2.map(p => p.name.value -> p.decltpe.fold("Any")(interp.typeToString)) ++ cbUsingParams2
         val capturedEnv: Map[String, Value] = cur match
           case fm: FrameMap =>
-            val b = Map.newBuilder[String, Value]
+            val b = new scala.collection.mutable.HashMap[String, Value]
             var c: Map[String, Value] = fm
             while c.isInstanceOf[FrameMap] do
               c.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
               c = c.asInstanceOf[FrameMap].parent
             if c ne interp.globals then
-              c.foreach { case (k, v) => if interp.globals.getOrElse(k, null) != v then b += (k -> v) }
-            b.result()
+              c.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b(k) = v }
+            b.toMap
           case _ =>
-            cur.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
+            val b = new scala.collection.mutable.HashMap[String, Value]
+            cur.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b(k) = v }
+            b.toMap
         val rThrows2 = d.decltpe.exists(interp.isThrowsType)
         val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
         step(rest, FrameMap.one(d.name.value, fn, cur))
