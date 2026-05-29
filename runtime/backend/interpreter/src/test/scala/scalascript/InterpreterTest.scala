@@ -34,6 +34,16 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     captured("println(true || false)") shouldBe "true"
   }
 
+  test("unary operators") {
+    captured("""
+      println(-7)
+      println(+7)
+      println(-2.5)
+      println(!false)
+      println(~5)
+    """) shouldBe "-7\n7\n-2.5\ntrue\n-6"
+  }
+
   test("comparison operators") {
     captured("println(3 > 2)") shouldBe "true"
     captured("println(3 == 3)") shouldBe "true"

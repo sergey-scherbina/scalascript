@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter unary pure fast path
+
+- **perf/interpreter-unary-pure** — Ported the direct-match fast path for
+  `Term.ApplyUnary` from `perf/interpreter-opt`. Pure unary operands now avoid
+  allocating an extra `flatMap` continuation.
+
 ## 2026-05-29 — interpreter mapSequence three-element fast path
 
 - **perf/interpreter-mapseq3** — Ported the three-element specialization for
