@@ -28,7 +28,10 @@ private[interpreter] object CallRuntime:
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
-        (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) =>
+        (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) &&
+        // Skip fast path for named self-tail-recursive functions — they need tcoTrampoline.
+        // Anonymous lambdas (f.name.isEmpty) are never self-recursive so always safe here.
+        (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
       val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
       val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
@@ -53,7 +56,8 @@ private[interpreter] object CallRuntime:
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
-        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) =>
+        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) &&
+        (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
       val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
       val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
       val frameName = if f.name.nonEmpty then f.name else "<anon>"

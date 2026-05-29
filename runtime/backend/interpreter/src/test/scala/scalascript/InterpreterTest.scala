@@ -10,7 +10,7 @@ class InterpreterTest extends AnyFunSuite with Matchers:
   private def captured(code: String): String =
     val buf = java.io.ByteArrayOutputStream()
     val ps  = java.io.PrintStream(buf, true)
-    val src = s"# Test\n\n```scala\n$code\n```\n"
+    val src = s"# Test\n\n```scalascript\n$code\n```\n"
     val module = Parser.parse(src)
     Interpreter(ps).run(module)
     ps.flush()
@@ -839,7 +839,7 @@ def main(): Unit =
 
   test("effects — Choose multi-shot nondeterminism") {
     captured("""
-      effect Choose:
+      multi effect Choose:
         def pick(opts: List[Int]): Int
 
       val r = handle {
