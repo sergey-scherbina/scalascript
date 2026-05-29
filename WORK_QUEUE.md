@@ -101,7 +101,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`: introduce `PluginSpec` case class; migrate all plugins; compute CLI deps, installBin, pluginPkgs, aggregate, and pluginTests from it. Spec: `docs/arch-build-registry.md §5 Phase 1`.
 
-- [ ] **arch-build-registry-p2** — Runtime `PluginRegistry` unification: new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it; `PluginManifest`/`SubprocessBackend` to `SubprocessPlugin`; `LocalRegistry` absorbed into `RemotePluginInstaller`. Spec: `docs/arch-build-registry.md §5 Phase 2`.
+- [x] **arch-build-registry-p2** — Runtime `PluginRegistry` unification: new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it; `PluginManifest`/`SubprocessBackend` to `SubprocessPlugin`; `LocalRegistry` absorbed into `RemotePluginInstaller`. Spec: `docs/arch-build-registry.md §5 Phase 2`. ✓ Landed 2026-05-29: `BackendRegistry` now implements the facade, classpath/sscpkg/subprocess/remote sources share install entry points, and CLI/`pkg:` installs reuse `RemotePluginInstaller`.
 
 ### Theme A — Stable Plugin SPI
 

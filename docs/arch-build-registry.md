@@ -1,6 +1,8 @@
 # Build-time Registry Consolidation — Specification
 
-Status: **planned**.  Tracked as `arch-build-registry` milestone in `BACKLOG.md`.
+Status: **partially implemented**.  Phase 1 landed 2026-05-29; Phase 2
+landed 2026-05-29.  Tracked as `arch-build-registry` milestone in
+`BACKLOG.md`.
 Companion: [`docs/plugin-architecture.md`](plugin-architecture.md).
 
 ---
@@ -90,30 +92,44 @@ trait PluginRegistry {
 sealed trait PluginSource
 case class ClasspathPlugin(fqcn: String)    extends PluginSource  // in-process ServiceLoader
 case class SscpkgPlugin(path: Path)         extends PluginSource  // .sscpkg archive
-case class SubprocessPlugin(binary: Path)   extends PluginSource  // out-of-process
+case class SubprocessPlugin(
+  binary: Path,
+  args: Seq[String] = Nil,
+  workingDirectory: Option[Path] = None,
+  protocol: String = "stdio-json",
+) extends PluginSource  // out-of-process
 case class RemotePlugin(uri: URI)           extends PluginSource  // download then sscpkg
 ```
 
-`BackendRegistry` becomes the implementation of `PluginRegistry`.  The three
-existing discovery paths become three `PluginSource` strategies called in
-priority order: classpath > sscpkg > subprocess.  One unified cache keyed on
-`(id, version, sha256)`.
+`BackendRegistry` is the implementation of `PluginRegistry`.  The existing
+public `BackendRegistry.lookup/all/inProcess/loadSscpkg` methods remain for
+compatibility, while new callers can depend on the SPI facade.  Discovery and
+lookup priority is classpath > explicit installed plugin cache > manifest-backed
+subprocess plugins.
+
+Phase 2 uses the existing `BackendRegistry` subprocess cache as the unified
+runtime cache.  A stronger `(id, version, sha256)` cache key is deferred to
+Phase 3 cleanup because legacy `plugin.yaml` subprocess manifests do not carry a
+content hash today.
 
 ### 3c. `LocalRegistry` absorption
 
 `LocalRegistry` (the `~/.scalascript/registry.yaml` file) becomes a
-`RemotePlugin` pre-seeded list, fetched and cached lazily.  The distinct
-`LocalRegistry` class disappears; its download logic moves to a
-`RemotePluginInstaller` helper.
+`RemotePlugin` pre-seeded list, fetched and cached lazily.  In Phase 2 the
+download/install logic moved to `RemotePluginInstaller`; `LocalRegistry` remains
+as a compatibility wrapper for CLI registry management and existing callers.
+The wrapper is removed in Phase 3.
 
 ## 4. Migration
 
 The build.sbt refactor is purely internal; `lazy val` names stay the same,
 only their wiring changes.  No user-facing change.
 
-Runtime: `BackendRegistry` public API stays unchanged; `PluginManifest` and
-`LocalRegistry` are deprecated and kept as thin delegating wrappers through
-one release, then removed.
+Runtime: `BackendRegistry` public API stays unchanged.  `LocalRegistry` is kept
+as a thin compatibility surface through one release.  `PluginManifest` and
+`SubprocessBackend` remain the concrete parser/transport types for legacy
+`plugin.yaml`; `SubprocessPlugin` is the new install strategy at the
+`PluginRegistry` facade.
 
 ## 5. Phases
 
@@ -127,11 +143,16 @@ one release, then removed.
 
 ### Phase 2 — Runtime `PluginRegistry` unification
 
-- New `PluginRegistry` trait in `backend/spi`.
-- `BackendRegistry` implements it.
-- `PluginManifest`/`SubprocessBackend` refactored as `SubprocessPlugin` strategy.
-- `LocalRegistry` absorbed as `RemotePluginInstaller`.
-- Tests: existing `BackendRegistryTest` adapted to `PluginRegistry` API.
+- ✓ Landed 2026-05-29: new `PluginRegistry`, `PluginMeta`, and
+  `PluginSource` hierarchy in `backend/spi`.
+- ✓ Landed 2026-05-29: `BackendRegistry` implements the facade while preserving
+  existing lookup/list/install APIs.
+- ✓ Landed 2026-05-29: `SubprocessPlugin` strategy delegates to the existing
+  `SubprocessBackend` wire protocol.
+- ✓ Landed 2026-05-29: `RemotePluginInstaller` owns path/URL/registry-alias
+  `.sscpkg` install logic; CLI install and `pkg:` auto-install share it.
+- ✓ Landed 2026-05-29: `BackendRegistryTest` covers the facade and classpath
+  install strategy; existing local-registry and subprocess tests remain green.
 
 ### Phase 3 — Cleanup
 

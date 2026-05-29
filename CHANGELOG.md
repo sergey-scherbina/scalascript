@@ -8,6 +8,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **arch-lib-p4** — `.ssclib` ZIP archive format for ScalaScript libraries. New `SsclibManifest` case class in `lang/core/.../imports/` with `parseString(yaml)` / `toYaml(m)` methods; fields: `name`, `version`, `entry`, `scala-script-version`, `dependencies`, `description`, `author`. `ImportResolver.resolveDep` extended: checks new `~/.cache/scalascript/libs/<org>/<name>/<version>/` extracted-lib cache alongside the existing `.ssc` cache; when fetching from dep-sources tries `.ssclib` before `.ssc`; `extractSsclib` unpacks the ZIP and returns the manifest entry-point path. New `ssc package --lib` CLI command (in `packageLib`): reads or auto-generates `ssclib-manifest.yaml`, walks `src/`, packs manifest + sources into a `.ssclib` ZIP; flags: `--manifest`, `-o`/`--output`. `PluginSpec` moved from bare `build.sbt` to `project/PluginSpec.scala` so it is visible in all sbt build segments (worktree compilation fix); `backendInterpreterPluginTests.dependsOn` uses `ClasspathDependency(p.project, None)` for correct type. 11 manifest unit tests in `SsclibManifestTest`.
 
+## 2026-05-29 — arch-build-registry-p2 runtime PluginRegistry facade
+
+- **arch-build-registry-p2** — Added `PluginRegistry`, `PluginMeta`, and `PluginSource` to backend SPI; made `BackendRegistry` implement the facade while preserving existing APIs; added `RemotePluginInstaller` for path/URL/registry `.sscpkg` installs; routed CLI plugin install and `pkg:` auto-install through the shared installer; extended `BackendRegistryTest` for facade/classpath install coverage.
+
 ## 2026-05-29 — arch-ssc-new-p3 standalone install docs
 
 - **arch-ssc-new-p3** — Added `docs/getting-started-standalone.md`, updated user-guide installation and community plugin docs, and changed root `install.sh` to require `--dev` for monorepo staging. Plain `./install.sh` now prints standalone install options (`cs`, Homebrew, curl) instead of starting a local sbt build.

@@ -1,8 +1,20 @@
 package scalascript.compiler.plugin
 
-import scalascript.backend.spi.{Backend, InteractiveBackend}
+import scalascript.backend.spi.{
+  Backend,
+  ClasspathPlugin,
+  InteractiveBackend,
+  PluginMeta,
+  PluginRegistry,
+  PluginSource,
+  RemotePlugin,
+  SscpkgPlugin,
+  SubprocessPlugin
+}
 import scalascript.logging.Logger
 import java.util.ServiceLoader
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.jdk.CollectionConverters.*
 
 /** Central registry for `Backend` plugins.
@@ -21,7 +33,7 @@ import scala.jdk.CollectionConverters.*
  *  Out-of-process plugins are lazy: the subprocess is only spawned
  *  when the plugin is actually looked up.  This keeps `--list-backends`
  *  fast (it reads manifests but doesn't fork). */
-object BackendRegistry:
+object BackendRegistry extends PluginRegistry:
 
   private val log = Logger(getClass)
 
@@ -237,36 +249,66 @@ object BackendRegistry:
   /** Every backend visible to the runtime — in-process first, then
    *  out-of-process descriptors.  Note that calling `.all` *does NOT*
    *  spawn subprocess plugins; use `lookup` for that. */
-  def all: List[Backend] = inProcess
+  def all: List[Backend] =
+    dedupeBackends(inProcess ++ pluginCache.values.toList)
 
   /** Combined list of in-process backends + out-of-process manifests
    *  (as identifying descriptors).  Useful for `--list-backends` so
    *  the user sees subprocess plugins without us spawning them. */
   case class Visible(id: String, displayName: String, spiVersion: String, kind: String)
   def listVisible: List[Visible] =
-    inProcess.map(b => Visible(b.id, b.displayName, b.spiVersion, "in-process")) ++
+    val visible = inProcess.map(b => Visible(b.id, b.displayName, b.spiVersion, "in-process")) ++
       manifests.map(m => Visible(m.id, m.displayName, m.spiVersion, s"subprocess (${m.protocol})"))
+    val knownIds = visible.map(_.id).toSet
+    visible ++ pluginCache.values.toList
+      .filterNot(b => knownIds.contains(b.id))
+      .map(b => Visible(b.id, b.displayName, b.spiVersion, "installed"))
 
   /** Look up a backend by its declared id.  For subprocess plugins,
    *  spawns the process on first lookup and caches the handle. */
-  def lookup(id: String): Option[Backend] =
-    inProcess.find(_.id == id).orElse {
+  override def lookup(id: String): Option[Backend] =
+    inProcess.find(_.id == id).orElse(pluginCache.get(id)).orElse {
       manifests.find(_.id == id).flatMap(subprocessBackendFor)
     }
 
   /** Backends that declare they can embed a given source language. */
   def acceptingSource(language: String): List[Backend] =
-    inProcess.filter(_.acceptedSources.contains(language))
+    all.filter(_.acceptedSources.contains(language))
 
   /** All interactive backends — the subset used by `ssc serve` and
    *  future REPL modes.  Includes subprocess plugins that declare
    *  `interactive: true` (Stage 6+/B). */
   def interactive: List[InteractiveBackend] =
-    val inProc = inProcess.collect { case b: InteractiveBackend => b }
+    val inProc = all.collect { case b: InteractiveBackend => b }
     val sub    = manifests.filter(_.interactive).flatMap(subprocessBackendFor).collect {
       case b: InteractiveBackend => b
     }
-    inProc ++ sub
+    dedupeBackends(inProc ++ sub).collect { case b: InteractiveBackend => b }
+
+  override def listInstalled(): Seq[PluginMeta] =
+    listVisible.map(v => PluginMeta(v.id, v.displayName, v.spiVersion, v.kind))
+
+  override def install(source: PluginSource): Future[Unit] =
+    Future {
+      source match
+        case ClasspathPlugin(fqcn) =>
+          val cls = Class.forName(fqcn)
+          val backend = cls.getDeclaredConstructor().newInstance().asInstanceOf[Backend]
+          pluginCache.put(backend.id, backend)
+        case SscpkgPlugin(path) =>
+          loadSscpkg(os.Path(path.toAbsolutePath))
+        case SubprocessPlugin(binary, args, workingDirectory, protocol) =>
+          val backend = SubprocessBackend.spawn(
+            executable = binary.toAbsolutePath.toString,
+            args       = args.toList,
+            workingDir = workingDirectory.map(p => os.Path(p.toAbsolutePath)),
+            framing    = WireFraming.fromManifest(protocol)
+          ).get
+          pluginCache.put(backend.id, backend)
+        case RemotePlugin(uri) =>
+          loadSscpkg(RemotePluginInstaller.install(uri, RemotePluginInstaller.defaultInstallDir).path)
+      ()
+    }
 
   /** One-line description per backend, intended for `--list-backends`.
    *  Includes both in-process and out-of-process plugins; subprocess
@@ -287,6 +329,12 @@ object BackendRegistry:
       case _                    => ()
     }
     pluginCache.clear()
+
+  private def dedupeBackends[A <: Backend](backends: Iterable[A]): List[A] =
+    backends.foldLeft((Set.empty[String], List.empty[A])) { case ((seen, acc), backend) =>
+      if seen.contains(backend.id) then (seen, acc)
+      else (seen + backend.id, backend :: acc)
+    }._2.reverse
 
   // ── pkg: URI support ───────────────────────────────────────────────
 

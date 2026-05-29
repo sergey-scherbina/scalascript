@@ -738,7 +738,7 @@ core/
     imports/   # Cross-file import resolver
     interpreter/Value.scala  # Computation Free monad (used by interpreter+codegens)
     transform/ # Normalize, DirectDesugar, EffectAnalysis
-    plugin/    # BackendRegistry, SubprocessBackend, WireProtocol
+    plugin/    # PluginRegistry facade, BackendRegistry, SubprocessBackend, WireProtocol
 runtime/backend/jvm/      # JvmGen — emits Scala 3 source
 runtime/backend/js/       # JsGen — transpiles to JavaScript
 runtime/backend/scalajs/  # ScalaJsBackend — emits SPA via Scala.js

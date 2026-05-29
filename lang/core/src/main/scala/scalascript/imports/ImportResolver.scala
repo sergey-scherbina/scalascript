@@ -162,7 +162,7 @@ object ImportResolver:
    *  Additive: scripts that don't use `pkg:` are unaffected. */
   private def resolvePkg(pkgUri: String): os.Path =
     val coord = pkgUri.stripPrefix("pkg:")
-    import scalascript.compiler.plugin.{BackendRegistry, LocalRegistry}
+    import scalascript.compiler.plugin.{BackendRegistry, LocalRegistry, RemotePluginInstaller}
 
     // Try to find an already-installed .sscpkg.
     val maybePkg = BackendRegistry.findInstalledPkg(coord)
@@ -177,16 +177,7 @@ object ImportResolver:
             s"Run: ssc install $coord"
           )
         case Some(e) =>
-          // Download from the registry URL and install.
-          val bytes = downloadBytes(e.url, coord)
-          val tmp   = os.temp(bytes, suffix = ".sscpkg")
-          val manifest =
-            try scalascript.compiler.plugin.SscpkgLoader.load(tmp).manifest
-            finally os.remove(tmp)
-          os.makeDir.all(pkgPluginsDir)
-          val dest = pkgPluginsDir / s"${manifest.id}-${manifest.version}.sscpkg"
-          os.write.over(dest, bytes)
-          dest
+          RemotePluginInstaller.install(e.url, pkgPluginsDir).path
     }
 
     // Load the plugin (registers intrinsics) and extract sources.
@@ -204,23 +195,6 @@ object ImportResolver:
         s"pkg '$coord': no .ssc source found in extracted archive $pkgPath"
       )
     )
-
-  /** Download bytes from a URL, used when auto-installing a plugin on first use. */
-  private def downloadBytes(url: String, label: String): Array[Byte] =
-    if sys.env.get("SSC_NO_NETWORK").contains("1") then
-      throw new RuntimeException(
-        s"Plugin '$label' is not installed and SSC_NO_NETWORK=1 blocks auto-download.\n" +
-        s"Run: ssc install $label"
-      )
-    val req  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url)).GET().build()
-    val resp = java.net.http.HttpClient.newHttpClient()
-      .send(req, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
-    if resp.statusCode() != 200 then
-      throw new RuntimeException(
-        s"pkg install: HTTP ${resp.statusCode()} downloading '$label' from $url\n" +
-        s"Run: ssc install $label"
-      )
-    resp.body()
 
   // ─── dep: scheme ─────────────────────────────────────────────────
 

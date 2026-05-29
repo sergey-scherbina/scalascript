@@ -315,16 +315,20 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme B — Build-time registry consolidation
 
-- [ ] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`:
+- [x] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`:
   introduce `PluginSpec` case class; migrate all ~20 plugins; all five derived
   lists (cli deps, installBin, pluginPkgs, aggregate, pluginTests) computed from it;
   `build.sbt` shrinks ~200 lines.  Spec: `docs/arch-build-registry.md §5 Phase 1`.
+  ✓ Landed 2026-05-29.
 
-- [ ] **arch-build-registry-p2** — Runtime `PluginRegistry` unification:
+- [x] **arch-build-registry-p2** — Runtime `PluginRegistry` unification:
   new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it;
   `PluginManifest`/`SubprocessBackend` → `SubprocessPlugin` strategy;
   `LocalRegistry` absorbed into `RemotePluginInstaller`.
   Spec: `docs/arch-build-registry.md §5 Phase 2`.
+  ✓ Landed 2026-05-29: added the SPI facade and source hierarchy, implemented it
+  in `BackendRegistry`, introduced shared `RemotePluginInstaller`, and routed CLI
+  plugin install plus `pkg:` auto-install through the shared installer.
 
 ### Theme A — Stable Plugin SPI
 

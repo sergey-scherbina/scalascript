@@ -2723,43 +2723,17 @@ def pluginInstall(args: List[String]): Unit =
   val rawSrc = args.headOption.getOrElse {
     System.err.println("Usage: ssc plugin install <path-or-url-or-name>"); System.exit(1); ""
   }
-  // Resolve short name via local registry if it's not a path or URL.
-  val src =
-    if rawSrc.startsWith("http://") || rawSrc.startsWith("https://") || os.exists(os.Path(rawSrc, os.pwd)) then rawSrc
-    else
-      scalascript.compiler.plugin.LocalRegistry.resolve(rawSrc) match
-        case Some(entry) =>
-          println(s"Resolved '$rawSrc' → ${entry.url}  (${entry.description})")
-          entry.url
-        case None =>
-          System.err.println(
-            s"plugin install: '$rawSrc' is not a file, URL, or known registry entry"); System.exit(1); ""
-
-  val bytes: Array[Byte] =
-    if src.startsWith("http://") || src.startsWith("https://") then
-      val req  = java.net.http.HttpRequest.newBuilder(java.net.URI.create(src)).GET().build()
-      val resp = java.net.http.HttpClient.newHttpClient()
-        .send(req, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
-      if resp.statusCode() != 200 then
-        System.err.println(s"plugin install: HTTP ${resp.statusCode()} from $src")
-        System.exit(1)
-      resp.body()
-    else
-      val p = os.Path(src, os.pwd)
-      if !os.exists(p) then
-        System.err.println(s"plugin install: not found: $src"); System.exit(1)
-      os.read.bytes(p)
-
-  // Parse manifest from the archive bytes to get id + version for the filename.
-  val tmp = os.temp(bytes, suffix = ".sscpkg")
-  val manifest =
-    try scalascript.compiler.plugin.SscpkgLoader.load(tmp).manifest
-    finally os.remove(tmp)
-
-  os.makeDir.all(pluginsDir)
-  val dest = pluginsDir / s"${manifest.id}-${manifest.version}.sscpkg"
-  os.write.over(dest, bytes)
-  println(s"Installed ${manifest.id} ${manifest.version} → $dest")
+  try
+    if !rawSrc.startsWith("http://") && !rawSrc.startsWith("https://") && !os.exists(os.Path(rawSrc, os.pwd)) then
+      scalascript.compiler.plugin.LocalRegistry.resolve(rawSrc).foreach { entry =>
+        println(s"Resolved '$rawSrc' → ${entry.url}  (${entry.description})")
+      }
+    val installed = scalascript.compiler.plugin.RemotePluginInstaller.install(rawSrc, pluginsDir)
+    println(s"Installed ${installed.manifest.id} ${installed.manifest.version} → ${installed.path}")
+  catch
+    case e: RuntimeException =>
+      System.err.println(s"plugin install: ${e.getMessage}")
+      System.exit(1)
 
 /** `ssc plugin list` — print every `.sscpkg` in `~/.scalascript/compiler/plugins/`. */
 def pluginList(): Unit =

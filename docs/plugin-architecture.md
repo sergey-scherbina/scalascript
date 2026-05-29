@@ -37,7 +37,9 @@ interpreter.
 |---|---|---|
 | `.sscpkg` archive format | `core/src/…/plugin/SscpkgManifest.scala` | ✅ |
 | Plugin loader (unzip + JAR register) | `core/src/…/plugin/SscpkgLoader.scala` | ✅ |
-| Local registry | `core/src/…/plugin/LocalRegistry.scala` | ✅ |
+| Unified runtime registry facade | `backend-spi/src/…/PluginRegistry.scala` | ✅ |
+| Remote/path installer | `core/src/…/plugin/RemotePluginInstaller.scala` | ✅ |
+| Local registry compatibility wrapper | `core/src/…/plugin/LocalRegistry.scala` | ✅ |
 | `Backend` SPI exposes `intrinsics: Map[QN, IntrinsicImpl]` | `backend-spi/src/…/Backend.scala` | ✅ |
 | `BackendRegistry.loadSscpkg` — adds JAR to URLClassLoader, invalidates ServiceLoader cache | `core/src/…/plugin/BackendRegistry.scala:67` | ✅ |
 | `ServiceLoader[Backend]` discovery | `BackendRegistry.scala:134` | ✅ (used by React/Vue/Solid/Custom, Netty/Jetty, crypto, blockchain) |
@@ -280,7 +282,8 @@ if rawPath.startsWith("pkg:") then
 
 `resolvePkg` mirrors `resolveDep` (line 83) but:
 - resolves to a `.sscpkg` file (not a `.ssc`)
-- calls `BackendRegistry.loadSscpkg(path)` after download
+- calls `RemotePluginInstaller.install(...)`, then
+  `BackendRegistry.loadSscpkg(path)` after download
 - returns the path to the package's `sources/` index (the `.ssc` file
   the import merger uses to bind the named exports)
 

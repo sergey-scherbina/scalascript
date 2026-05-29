@@ -1,6 +1,10 @@
 package scalascript.compiler.plugin
 
+import scalascript.backend.spi.*
+import scalascript.ir.{NormalizedModule, QualifiedName}
 import org.scalatest.funsuite.AnyFunSuite
+import scala.concurrent.Await
+import scala.concurrent.duration.DurationInt
 
 /** Exercises ServiceLoader discovery against the bundled backends.
  *  Lives in the `cli` module because that's the only module whose
@@ -42,3 +46,30 @@ class BackendRegistryTest extends AnyFunSuite:
     val lines = BackendRegistry.describe.linesIterator.toList
     assert(lines.size >= 4)
     assert(lines.exists(_.contains("jvm")))
+
+  test("BackendRegistry implements PluginRegistry facade"):
+    val registry: PluginRegistry = BackendRegistry
+    assert(registry.lookup("jvm").exists(_.id == "jvm"))
+    assert(registry.listInstalled().exists(_.id == "jvm"))
+
+  test("PluginRegistry install supports direct classpath backend strategy"):
+    val registry: PluginRegistry = BackendRegistry
+    try
+      Await.result(
+        registry.install(ClasspathPlugin("scalascript.compiler.plugin.TestInstalledBackend")),
+        5.seconds
+      )
+      assert(registry.lookup("test-installed").exists(_.displayName == "Test Installed Backend"))
+      assert(registry.listInstalled().exists(_.id == "test-installed"))
+    finally BackendRegistry.reload()
+
+class TestInstalledBackend extends Backend:
+  def id: String = "test-installed"
+  def displayName: String = "Test Installed Backend"
+  def spiVersion: String = SpiVersion.Current
+  def capabilities: Capabilities =
+    Capabilities(Set.empty, Set(OutputKind.ScalaSource), Set.empty, SpiVersionRange(SpiVersion.Current, SpiVersion.Current))
+  def intrinsics: Map[QualifiedName, IntrinsicImpl] = Map.empty
+  def acceptedSources: Set[String] = Set.empty
+  def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult =
+    CompileResult.TextOutput("", "scala")
