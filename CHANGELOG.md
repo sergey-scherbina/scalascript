@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter Map.get hit-path allocation cut
+
+- **perf/interpreter-map-get-sentinel** — Ported the `Map.get` null-sentinel
+  fast path from `perf/interpreter-opt`. Map lookup hits now avoid creating an
+  intermediate Scala `Some` before returning `Value.OptionV`.
+
 ## 2026-05-29 — interpreter toList and zipWithIndex builders
 
 - **perf/interpreter-zip-tolist** — Ported reverse-cons builders for
