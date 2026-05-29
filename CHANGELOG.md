@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter mapSequence three-element fast path
+
+- **perf/interpreter-mapseq3** — Ported the three-element specialization for
+  `Computation.mapSequence` from `perf/interpreter-opt`, avoiding
+  `ArrayBuffer` allocation for common three-field/three-value sequencing.
+
 ## 2026-05-29 — interpreter Map.updated tuple-allocation cut
 
 - **perf/interpreter-map-updated** — Ported the map update allocation cut from

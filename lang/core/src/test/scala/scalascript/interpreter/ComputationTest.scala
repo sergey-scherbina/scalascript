@@ -24,3 +24,21 @@ class ComputationTest extends AnyFunSuite:
     ))
 
     assert(result == Value.ListV(List(Value.StringV("a"), Value.StringV("b"))))
+
+  test("mapSequence handles three pure values"):
+    val result = Computation.run(Computation.mapSequence(
+      List(Value.intV(1), Value.intV(2), Value.intV(3)),
+      v => Computation.Pure(v)
+    ))
+
+    assert(result == Value.ListV(List(Value.intV(1), Value.intV(2), Value.intV(3))))
+
+  test("mapSequence handles suspended third value"):
+    val result = Computation.run(Computation.mapSequence(
+      List(Value.intV(1), Value.intV(2), Value.intV(3)),
+      v =>
+        if v == Value.intV(3) then Computation.FlatMap(Computation.Pure(v), x => Computation.Pure(x))
+        else Computation.Pure(v)
+    ))
+
+    assert(result == Value.ListV(List(Value.intV(1), Value.intV(2), Value.intV(3))))
