@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, Perform}
 
@@ -19,9 +20,9 @@ private[interpreter] object StatRuntime:
       case Nil =>
         Pure(Value.InstanceV(typeName, Map.empty))
       case List(p0) if args.length == 1 =>
-        Pure(Value.InstanceV(typeName, Map(p0 -> args.head)))
+        Pure(Value.InstanceV(typeName, new IMap.Map1(p0, args.head)))
       case List(p0, p1) if args.length == 2 =>
-        Pure(Value.InstanceV(typeName, Map(p0 -> args.head, p1 -> args(1))))
+        Pure(Value.InstanceV(typeName, new IMap.Map2(p0, args.head, p1, args(1))))
       case _ if args.length >= paramNames.length =>
         Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
       case _ =>
@@ -345,7 +346,7 @@ private[interpreter] object StatRuntime:
           args => Pure(args.headOption.getOrElse(Value.UnitV)))
         // unapply: wrap value in Some(...)
         val unapplyFn = Value.NativeFnV(s"$typeName.unapply",
-          args => Pure(Value.InstanceV("Some", Map("value" -> args.headOption.getOrElse(Value.UnitV)))))
+          args => Pure(Value.InstanceV("Some", new IMap.Map1("value", args.headOption.getOrElse(Value.UnitV)))))
         env(typeName) = Value.InstanceV(typeName, Map("apply" -> applyFn, "unapply" -> unapplyFn))
 
     case _ => () // type aliases, imports, exports, etc.

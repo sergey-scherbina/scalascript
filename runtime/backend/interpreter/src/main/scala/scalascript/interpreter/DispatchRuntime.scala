@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import Computation.{Pure, Perform, FlatMap}
+import scala.collection.immutable.{Map => IMap}
 
 /** Built-in method dispatch: String, Char, Int, Double, Boolean, List, Option, Map,
  *  Tuple, Either, and instance field access.  User-defined extensions are checked
@@ -573,8 +574,8 @@ private[interpreter] object DispatchRuntime:
         case "map"     =>
           val inner = fields.getOrElse("value", Value.UnitV)
           interp.callValue1(arg, inner, env) match
-            case Pure(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
-            case c       => FlatMap(c, v => Pure(Value.InstanceV("Right", Map("value" -> v))))
+            case Pure(v) => Pure(Value.InstanceV("Right", new IMap.Map1("value", v)))
+            case c       => FlatMap(c, v => Pure(Value.InstanceV("Right", new IMap.Map1("value", v))))
         case "flatMap" => interp.callValue1(arg, fields.getOrElse("value", Value.UnitV), env)
         case _         => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
       case "Left" => name match
@@ -1793,13 +1794,13 @@ private[interpreter] object DispatchRuntime:
           case _                => Pure(recv)
       case "toRight"   => args match
         case List(left) => opt match
-          case None    => Pure(Value.InstanceV("Left", Map("value" -> left)))
-          case Some(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
+          case None    => Pure(Value.InstanceV("Left",  new IMap.Map1("value", left)))
+          case Some(v) => Pure(Value.InstanceV("Right", new IMap.Map1("value", v)))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "toLeft"    => args match
         case List(right) => opt match
-          case None    => Pure(Value.InstanceV("Right", Map("value" -> right)))
-          case Some(v) => Pure(Value.InstanceV("Left", Map("value" -> v)))
+          case None    => Pure(Value.InstanceV("Right", new IMap.Map1("value", right)))
+          case Some(v) => Pure(Value.InstanceV("Left",  new IMap.Map1("value", v)))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "exists"    => args match
         case List(f) => opt match
@@ -2034,7 +2035,7 @@ private[interpreter] object DispatchRuntime:
         case "map"       => args match
           case List(f) =>
             interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env).map(v =>
-              Value.InstanceV("Right", Map("value" -> v)))
+              Value.InstanceV("Right", new IMap.Map1("value", v)))
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "flatMap"   => args match
           case List(f) => interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env)

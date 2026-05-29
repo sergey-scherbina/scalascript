@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter small InstanceV maps
+
+- **perf/interpreter-small-instance-maps** — Ported the small `InstanceV`
+  field-map allocation cuts from `perf/interpreter-opt`. Common one- and
+  two-field runtime instances now use immutable `Map1`/`Map2` constructors
+  directly instead of building maps through tuple-based syntax.
+
 ## 2026-05-29 — interpreter case constructor fast paths
 
 - **perf/interpreter-case-ctor-fast** — Ported a safe version of the
