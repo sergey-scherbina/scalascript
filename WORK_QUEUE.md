@@ -167,6 +167,8 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: reject unsupported macro entrypoints and quoted macro bodies with explicit parser/interface/linker/interpreter diagnostics instead of silent non-expansion. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: `${ impl(x) }` now lowers to an explicit diagnostic helper requiring quoted args such as `${ impl('x) }`; interpreter reports `quoted macro error: ...`; linker rejects non-quoted macro bodies with a direct restricted-subset message.
 
+- [ ] **arch-meta-v2-p4d** — Restricted quoted macro richer unsupported-body diagnostics: classify common unsupported implementation bodies (`Expr(...)`, `x.asValue match`, nested quotes/splices) and report targeted guidance while preserving the direct quoted-expression happy path. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
 ## Government Interaction — v1.59 Bureau
 
 - [x] **v1.59.1-bureau-core** — `gov/bureau-core/` module: all SPI types (`CountryCode` opaque type + constants, `LegalForm` enum, `TaxIdentifier`/`TaxIdType`, `BusinessEntity`, `GovDomain`, `SubmissionResult`/`SubmissionStatus`/`GovError`); domain provider traits (`CountryProvider`, `FiscalProvider`, `SocialProvider`, `RegistryProvider`, `CustomsProvider`, `StatisticsProvider`, `EnvProvider`); shared fiscal/social/registry types (`FiscalInvoice`+`Currency`+`ExchangeRate`, `TaxDeclaration`, `AuditFile`, `ContributionDeclaration`, `EmployeeRecord`, `PaymentReference`, `BusinessRecord`, `VatPayerStatus`); `BureauError` sealed hierarchy (7 cases). `BureauCoreTest`: type construction, `BusinessEntity.requireTaxId`, `SubmissionStatus`, `BureauError` hierarchy. Spec: `docs/bureau.md §3–§7`.
