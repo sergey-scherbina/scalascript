@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, Perform}
 
@@ -141,12 +142,12 @@ private[interpreter] object StatRuntime:
             Value.NativeFnV(typeName, _ => singleton)
           case List(p0) =>
             Value.NativeFnV(typeName, {
-              case List(v0) => Pure(Value.InstanceV(typeName, Map(p0 -> v0)))
+              case List(v0) => Pure(Value.InstanceV(typeName, new IMap.Map1(p0, v0)))
               case args     => Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
             })
           case List(p0, p1) =>
             Value.NativeFnV(typeName, {
-              case List(v0, v1) => Pure(Value.InstanceV(typeName, Map(p0 -> v0, p1 -> v1)))
+              case List(v0, v1) => Pure(Value.InstanceV(typeName, new IMap.Map2(p0, v0, p1, v1)))
               case args         => Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
             })
           case _ =>
@@ -202,12 +203,12 @@ private[interpreter] object StatRuntime:
             else if noEnumDefaults then paramNames match
               case List(p0) =>
                 Value.NativeFnV(caseName, {
-                  case List(v0) => Pure(Value.InstanceV(caseName, Map(p0 -> v0)))
+                  case List(v0) => Pure(Value.InstanceV(caseName, new IMap.Map1(p0, v0)))
                   case args     => Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(args))))
                 })
               case List(p0, p1) =>
                 Value.NativeFnV(caseName, {
-                  case List(v0, v1) => Pure(Value.InstanceV(caseName, Map(p0 -> v0, p1 -> v1)))
+                  case List(v0, v1) => Pure(Value.InstanceV(caseName, new IMap.Map2(p0, v0, p1, v1)))
                   case args         => Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(args))))
                 })
               case _ =>
@@ -350,7 +351,7 @@ private[interpreter] object StatRuntime:
           args => Pure(args.headOption.getOrElse(Value.UnitV)))
         // unapply: wrap value in Some(...)
         val unapplyFn = Value.NativeFnV(s"$typeName.unapply",
-          args => Pure(Value.InstanceV("Some", Map("value" -> args.headOption.getOrElse(Value.UnitV)))))
+          args => Pure(Value.InstanceV("Some", new IMap.Map1("value", args.headOption.getOrElse(Value.UnitV)))))
         env(typeName) = Value.InstanceV(typeName, Map("apply" -> applyFn, "unapply" -> unapplyFn))
 
     case _ => () // type aliases, imports, exports, etc.

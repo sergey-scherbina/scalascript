@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import Computation.{Pure, Perform}
+import scala.collection.immutable.{Map => IMap}
 
 /** Built-in global definitions: standard library companions, HTML DSL,
  *  exception constructors, effect runners, and integration shims.
@@ -105,10 +106,11 @@ private[interpreter] object BuiltinsRuntime:
     // in ScalaScript code.  Each factory produces an InstanceV so field access
     // like `e.message` works naturally.
     def exceptionCtor(typeName: String): Value.NativeFnV =
+      val singleton = Pure(Value.InstanceV(typeName, new IMap.Map1("message", Value.StringV(typeName))))
       Value.NativeFnV(typeName, {
-        case Nil               => Pure(Value.InstanceV(typeName, Map("message" -> Value.StringV(typeName))))
-        case List(v)           => Pure(Value.InstanceV(typeName, Map("message" -> v)))
-        case msg :: cause :: _ => Pure(Value.InstanceV(typeName, Map("message" -> msg, "cause" -> cause)))
+        case Nil               => singleton
+        case List(v)           => Pure(Value.InstanceV(typeName, new IMap.Map1("message", v)))
+        case msg :: cause :: _ => Pure(Value.InstanceV(typeName, new IMap.Map2("message", msg, "cause", cause)))
       })
     List("RuntimeException", "Exception", "IllegalArgumentException",
          "IllegalStateException", "NumberFormatException", "ArithmeticException",
@@ -120,14 +122,14 @@ private[interpreter] object BuiltinsRuntime:
       case List(thunk) =>
         try
           val result = Computation.run(interp.callValue(thunk, Nil, Map.empty))
-          Pure(Value.InstanceV("Right", Map("value" -> result)))
+          Pure(Value.InstanceV("Right", new IMap.Map1("value", result)))
         catch
           case se: ScriptException =>
-            Pure(Value.InstanceV("Left", Map("value" -> se.value)))
+            Pure(Value.InstanceV("Left", new IMap.Map1("value", se.value)))
           case t: Throwable =>
             val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
-            Pure(Value.InstanceV("Left", Map("value" ->
-              Value.InstanceV("RuntimeException", Map("message" -> Value.StringV(msg))))))
+            Pure(Value.InstanceV("Left", new IMap.Map1("value",
+              Value.InstanceV("RuntimeException", new IMap.Map1("message", Value.StringV(msg))))))
       case _ => interp.located("attemptCatch(thunk)")
     })
 
@@ -141,7 +143,7 @@ private[interpreter] object BuiltinsRuntime:
           case se: ScriptException => Pure(se.value)
           case t: Throwable =>
             val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
-            Pure(Value.InstanceV(t.getClass.getSimpleName, Map("message" -> Value.StringV(msg))))
+            Pure(Value.InstanceV(t.getClass.getSimpleName, new IMap.Map1("message", Value.StringV(msg))))
       case _ => interp.located("attemptCatchRaw(thunk)")
     })
 
@@ -151,7 +153,7 @@ private[interpreter] object BuiltinsRuntime:
     // Restart.rethrow    — re-throw the original error as a ScriptException
     interp.globals("Restart") = Value.InstanceV("Restart$", Map(
       "resume" -> Value.NativeFnV("Restart.resume", {
-        case List(v) => Pure(Value.InstanceV("Restart$resume", Map("value" -> v)))
+        case List(v) => Pure(Value.InstanceV("Restart$resume", new IMap.Map1("value", v)))
         case _       => throw InterpretError("Restart.resume(value)")
       }),
       "useDefault" -> Value.InstanceV("Restart$useDefault", Map.empty),
@@ -547,7 +549,7 @@ private[interpreter] object BuiltinsRuntime:
     // to materialise the result of an `async` thunk; users normally
     // only construct Futures via `Async.async(...)`.
     interp.globals("Future") = Value.NativeFnV("Future", {
-      case List(v) => Pure(Value.InstanceV("Future", Map("value" -> v)))
+      case List(v) => Pure(Value.InstanceV("Future", new IMap.Map1("value", v)))
       case _       => throw InterpretError("Future(value)")
     })
 
