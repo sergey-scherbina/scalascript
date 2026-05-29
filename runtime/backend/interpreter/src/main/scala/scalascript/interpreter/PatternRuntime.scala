@@ -326,6 +326,41 @@ private[interpreter] object PatternRuntime:
           case rhsC => FlatMap(rhsC, rhsV =>
             Computation.mapSequence(evalCollection(rhsV, interp),
               item => interp.eval(body, FrameMap.one(varName, item, env))))
+      // Fast path: Pat.Var generator with rest enumerators in for-yield.
+      // Avoids matchPat + flatMap(:: Nil) + Computation.sequence overhead per item.
+      // All-pure fast path: if all inner comprehensions return Pure ListV, accumulate
+      // directly into an ArrayBuffer without building intermediate FlatMap chains.
+      case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: rest =>
+        val varName = vn.value
+        @inline def varYieldLoop(rhsV: Value): Computation =
+          val items = evalCollection(rhsV, interp)
+          if items.isEmpty then Computation.PureEmptyList
+          else
+            val buf = new scala.collection.mutable.ArrayBuffer[Value](items.length)
+            var rem = items
+            while rem.nonEmpty do
+              val item = rem.head
+              evalForYield(rest, body, FrameMap.one(varName, item, env), interp) match
+                case Pure(Value.ListV(inner)) => buf ++= inner; rem = rem.tail
+                case Pure(v)                  => buf += v;      rem = rem.tail
+                case comp =>
+                  val tailItems = rem.tail
+                  def loopRest(remaining: List[Value]): Computation = remaining match
+                    case Nil => Pure(Value.ListV(buf.toList))
+                    case h :: t =>
+                      FlatMap(
+                        evalForYield(rest, body, FrameMap.one(varName, h, env), interp), {
+                          case Value.ListV(inner) => buf ++= inner; loopRest(t)
+                          case v                  => buf += v;      loopRest(t)
+                        })
+                  return FlatMap(comp, {
+                    case Value.ListV(inner) => buf ++= inner; loopRest(tailItems)
+                    case v                  => buf += v;      loopRest(tailItems)
+                  })
+            Pure(Value.ListV(buf.toList))
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => varYieldLoop(rhsV)
+          case rhsC       => FlatMap(rhsC, varYieldLoop)
       case Enumerator.Generator(pat, rhs) :: rest =>
         @inline def genBody(rhsV: Value): Computation =
           val items  = evalCollection(rhsV, interp)
