@@ -1,7 +1,7 @@
 ---
 name: std-graphql
 version: 0.1.0
-description: GraphQL server — schema-first SDL, resolver DSL, serveGraphQL
+description: GraphQL server and client — schema-first SDL, resolver DSL, serveGraphQL, graphqlQuery
 package: std.graphql
 exports:
   - GraphQL
@@ -74,4 +74,26 @@ extern def graphqlMount(resolvers: GraphQLResolvers): Unit
  *  Advanced — prefer `graphqlMount` or `serveGraphQL`.
  */
 extern def graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers): Any
+
+// ── Client DSL ───────────────────────────────────────────────────────────────
+
+/** Execute a GraphQL query against a remote server.
+ *
+ *  @param url   base URL of the remote GraphQL server; `/graphql` is appended if missing.
+ *  @param query GraphQL query document string.
+ *  @return      the `data` field of the GraphQL response as a `Map[String, Any]`.
+ *  @throws      InterpretError if the server returns GraphQL `errors`.
+ *
+ *  Example:
+ *  ```scalascript
+ *  val result = graphqlQuery("https://api.example.com", "{ hello }")
+ *  ```
+ */
+extern def graphqlQuery(url: String, query: String): Any
+
+/** Execute a parameterized GraphQL query with variables.
+ *
+ *  @param variables Map of variable name → value (String, Int, Boolean, or nested Map/List).
+ */
+extern def graphqlQuery(url: String, query: String, variables: Map[String, Any]): Any
 ```

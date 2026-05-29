@@ -82,6 +82,18 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError(
           "graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers)")
     },
+
+    // graphqlQuery(url, query) or graphqlQuery(url, query, variables)
+    // Makes a POST /graphql request and returns the data map.
+    // Throws if the response contains GraphQL errors.
+    QualifiedName("graphqlQuery") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(url: String, query: String) =>
+          executeRemoteQuery(url, query, Map.empty)
+        case List(url: String, query: String, Value.MapV(vars)) =>
+          executeRemoteQuery(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v })
+        case _ => throw InterpretError("graphqlQuery(url: String, query: String[, variables: Map])")
+    },
   )
 
   // ── Internal helpers ───────────────────────────────────────────────────────
@@ -205,6 +217,78 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         Value.StringV("Content-Type") -> Value.StringV("application/json"),
       )),
     ))
+
+  // ── Remote GraphQL client ──────────────────────────────────────────────────
+
+  private def executeRemoteQuery(url: String, query: String, vars: Map[String, Value]): Value =
+    import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
+    import java.net.URI
+    import java.time.Duration
+
+    val varJson = if vars.isEmpty then "{}"
+      else ujson.write(ujson.Obj.from(vars.map { (k, v) => k -> valueToUJson(v) }))
+    val bodyStr = ujson.write(ujson.Obj(
+      "query"     -> ujson.Str(query),
+      "variables" -> ujson.read(varJson)
+    ))
+
+    val timeout = Duration.ofSeconds(30)
+    val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
+    val graphqlUrl = if url.endsWith("/graphql") then url else url.stripSuffix("/") + "/graphql"
+    val request = HttpRequest.newBuilder()
+      .uri(URI.create(graphqlUrl))
+      .timeout(timeout)
+      .header("Content-Type", "application/json")
+      .header("Accept", "application/graphql-response+json, application/json;q=0.9")
+      .POST(HttpRequest.BodyPublishers.ofString(bodyStr))
+      .build()
+
+    val response = try client.send(request, HttpResponse.BodyHandlers.ofString())
+      catch case e: Exception => throw InterpretError(s"graphqlQuery: network error: ${e.getMessage}")
+
+    val json = try ujson.read(response.body())
+      catch case _: Exception => throw InterpretError(s"graphqlQuery: invalid JSON response from $graphqlUrl")
+
+    val errors = json.obj.get("errors").toList.flatMap {
+      case ujson.Arr(xs) => xs.map(_.obj.get("message").map(_.str).getOrElse("unknown error"))
+      case _             => Nil
+    }
+    if errors.nonEmpty then
+      throw InterpretError(s"graphqlQuery: GraphQL errors: ${errors.mkString("; ")}")
+
+    json.obj.get("data") match
+      case Some(data) => ujsonToValue(data)
+      case None       => Value.NullV
+
+  private def valueToJavaForVars(v: Value): String = v match
+    case Value.StringV(s) => s
+    case other            => String.valueOf(other)
+
+  private def valueToUJson(v: Value): ujson.Value = v match
+    case Value.NullV                => ujson.Null
+    case Value.StringV(s)           => ujson.Str(s)
+    case Value.IntV(n)              => ujson.Num(n.toDouble)
+    case Value.DoubleV(d)           => ujson.Num(d)
+    case Value.BoolV(b)             => ujson.Bool(b)
+    case Value.UnitV                => ujson.Null
+    case Value.OptionV(Some(inner)) => valueToUJson(inner)
+    case Value.OptionV(None)        => ujson.Null
+    case Value.ListV(items)         => ujson.Arr.from(items.map(valueToUJson))
+    case Value.MapV(m)              =>
+      ujson.Obj.from(m.map { (k, vv) => String.valueOf(valueToJava(k)) -> valueToUJson(vv) })
+    case Value.InstanceV(_, fields) =>
+      ujson.Obj.from(fields.map { (k, vv) => k -> valueToUJson(vv) })
+    case other                      => ujson.Str(String.valueOf(other))
+
+  private def ujsonToValue(v: ujson.Value): Value = v match
+    case ujson.Null    => Value.NullV
+    case ujson.Str(s)  => Value.StringV(s)
+    case ujson.Num(n)  =>
+      if n == n.toLong.toDouble then Value.IntV(n.toLong) else Value.DoubleV(n)
+    case ujson.Bool(b) => Value.BoolV(b)
+    case ujson.Arr(xs) => Value.ListV(xs.map(ujsonToValue).toList)
+    case ujson.Obj(m)  =>
+      Value.MapV(m.toMap.map { (k, vv) => Value.StringV(k) -> ujsonToValue(vv) })
 
   // ── Value <-> Java conversions ─────────────────────────────────────────────
 

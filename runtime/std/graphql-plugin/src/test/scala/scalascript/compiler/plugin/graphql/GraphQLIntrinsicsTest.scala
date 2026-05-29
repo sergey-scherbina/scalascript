@@ -343,3 +343,98 @@ class GraphQLIntrinsicsTest extends AnyFunSuite:
         fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("{}")
       case other => fail(s"expected Response, got $other")
     ujson.read(bodyStr)
+
+  // ── graphqlQuery remote client ─────────────────────────────────────────────
+
+  /** Starts an embedded HTTP server, runs body with the base URL, then stops it. */
+  private def withTestGraphQLServer(responseJson: String)(body: String => Unit): Unit =
+    import com.sun.net.httpserver.{HttpExchange, HttpServer as JHttpServer}
+    import java.net.InetSocketAddress
+
+    val server = JHttpServer.create(new InetSocketAddress(0), 0)
+    val port   = server.getAddress.getPort
+    server.createContext("/graphql", (ex: HttpExchange) => {
+      val bytes = responseJson.getBytes("UTF-8")
+      ex.getResponseHeaders.set("Content-Type", "application/json")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      ex.getResponseBody.write(bytes)
+      ex.getResponseBody.close()
+    })
+    server.start()
+    try body(s"http://localhost:$port")
+    finally server.stop(0)
+
+  test("graphqlQuery returns data map from a remote GraphQL server"):
+    val response = """{"data":{"hello":"world"}}"""
+    withTestGraphQLServer(response) { baseUrl =>
+      val impl = plugin.intrinsics(scalascript.ir.QualifiedName("graphqlQuery"))
+        .asInstanceOf[scalascript.backend.spi.NativeImpl]
+      val ctx = new scalascript.backend.spi.NativeContext:
+        def out = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+        def err = out
+      val result = impl.eval(ctx, List(baseUrl, "{ hello }"))
+      result match
+        case Value.MapV(m) =>
+          val hello = m.get(Value.StringV("hello")).collect { case Value.StringV(s) => s }
+          assert(hello.contains("world"), s"unexpected data: $m")
+        case other => fail(s"expected MapV data, got $other")
+    }
+
+  test("graphqlQuery appends /graphql if the URL doesn't end with it"):
+    val response = """{"data":{"ping":"pong"}}"""
+    withTestGraphQLServer(response) { baseUrl =>
+      // baseUrl already has /graphql in withTestGraphQLServer — test with a URL
+      // that does NOT end in /graphql by using a raw-port URL without the path suffix
+      // (the implementation strips trailing / and appends /graphql)
+      val impl = plugin.intrinsics(scalascript.ir.QualifiedName("graphqlQuery"))
+        .asInstanceOf[scalascript.backend.spi.NativeImpl]
+      val ctx = new scalascript.backend.spi.NativeContext:
+        def out = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+        def err = out
+      // baseUrl already has /graphql in path, pass it as-is
+      val result = impl.eval(ctx, List(baseUrl, "{ ping }"))
+      result match
+        case Value.MapV(m) => assert(m.contains(Value.StringV("ping")))
+        case other => fail(s"expected MapV, got $other")
+    }
+
+  test("graphqlQuery throws on GraphQL errors in response"):
+    val response = """{"errors":[{"message":"field not found"},{"message":"type mismatch"}]}"""
+    withTestGraphQLServer(response) { baseUrl =>
+      val impl = plugin.intrinsics(scalascript.ir.QualifiedName("graphqlQuery"))
+        .asInstanceOf[scalascript.backend.spi.NativeImpl]
+      val ctx = new scalascript.backend.spi.NativeContext:
+        def out = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+        def err = out
+      val ex = intercept[Exception]:
+        impl.eval(ctx, List(baseUrl, "{ missing }"))
+      assert(ex.getMessage.contains("field not found"), s"error: ${ex.getMessage}")
+    }
+
+  test("graphqlQuery sends variables in the request body"):
+    var receivedBody = ""
+    import com.sun.net.httpserver.{HttpExchange, HttpServer as JHttpServer}
+    import java.net.InetSocketAddress
+
+    val server = JHttpServer.create(new InetSocketAddress(0), 0)
+    val port   = server.getAddress.getPort
+    server.createContext("/graphql", (ex: HttpExchange) => {
+      receivedBody = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
+      val bytes = """{"data":{"user":{"name":"Alice"}}}""".getBytes("UTF-8")
+      ex.getResponseHeaders.set("Content-Type", "application/json")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      ex.getResponseBody.write(bytes)
+      ex.getResponseBody.close()
+    })
+    server.start()
+    try
+      val impl = plugin.intrinsics(scalascript.ir.QualifiedName("graphqlQuery"))
+        .asInstanceOf[scalascript.backend.spi.NativeImpl]
+      val ctx = new scalascript.backend.spi.NativeContext:
+        def out = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+        def err = out
+      val vars = Value.MapV(Map(Value.StringV("id") -> Value.StringV("u1")))
+      impl.eval(ctx, List(s"http://localhost:$port", "query($id:ID!){user(id:$id){name}}", vars))
+      assert(receivedBody.contains("\"variables\""), s"body: $receivedBody")
+      assert(receivedBody.contains("\"id\""), s"body: $receivedBody")
+    finally server.stop(0)

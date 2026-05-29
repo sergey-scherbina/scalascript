@@ -714,18 +714,20 @@ Effort: ~4 days.
 **Goal:** resolvers can return `Future[A]` or `A ! Async`, the dynamic client
 works, and Node output can serve GraphQL.
 
+**Status:** `graphqlQuery` dynamic client landed 2026-05-29 (24 total tests). Async resolvers and JS/Node codegen remain.
+
 Tasks:
 
-- Async resolver support through `CompletableFuture` / engine-native async
-  execution.
-- `graphqlQuery(url, query[, variables])` dynamic client.
-- `GraphQLJsRuntime` and JS codegen intrinsic support for `graphqlHandler`.
-- Node backend preamble and generated `package.json` dependency for `graphql`.
-- `Feature.GraphQL` in backend capabilities.
-- `examples/graphql-client.ssc`.
-- Tests for async round-trip, client request shape, and JS codegen shape.
+- [x] `graphqlQuery(url, query[, variables])` dynamic client — JVM, uses `java.net.http.HttpClient`.
+  Appends `/graphql` if missing; throws on GraphQL `errors`; returns `data` map.
+- [ ] Async resolver support through `CompletableFuture` / engine-native async execution.
+- [ ] `GraphQLJsRuntime` and JS codegen intrinsic support for `graphqlHandler`.
+- [ ] Node backend preamble and generated `package.json` dependency for `graphql`.
+- [ ] `Feature.GraphQL` in backend capabilities.
+- [ ] `examples/graphql-client.ssc`.
+- [ ] Tests for async round-trip and JS codegen shape.
 
-Effort: ~3 days.
+Effort: ~3 days remaining.
 
 ### Phase 3 - Subscriptions Over WebSocket
 
@@ -913,7 +915,7 @@ Effort: ~5 days.
 | Phase | Tests | Kind |
 |---|---|---|
 | 1 | `GraphQLIntrinsicsTest` (20) ✅ | Interpreter + HTTP unit |
-| 2 | Async resolver, dynamic client, JS codegen shape | Interpreter + codegen |
+| 2 | `graphqlQuery` client (4 tests) ✅; async + JS codegen pending | Interpreter + codegen |
 | 3 | Subscription lifecycle and cancellation | Integration |
 | 4 | `GraphQLSchemaCheckTest` (6+) | Compiler/LSP diagnostics |
 | 5 | `GraphQLHttpComplianceTest`, optional `graphql-http` audit | Protocol |
