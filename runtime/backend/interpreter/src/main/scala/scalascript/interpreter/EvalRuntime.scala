@@ -854,18 +854,22 @@ private[interpreter] object EvalRuntime:
           })
       val entrySnap: Map[String, Value] = frame.toMap
       val frameView = new MutableEnvView(frame)
+      // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
+      val refreshFn: (String, Value) => Unit = (k, _) => {
+        val gv = interp.globals.getOrElse(k, null)
+        if gv != null && entrySnap.getOrElse(k, null) != gv then frame(k) = gv
+      }
+      lazy val loopCont: Value => Computation = _ => loop
+      lazy val condCont: Value => Computation = {
+        case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), loopCont)
+        case _                 => Computation.PureUnit
+      }
       def loop: Computation =
         // Refresh mutable frame: only overwrite a key if globals changed since entry.
-        frame.foreachEntry { (k, _) =>
-          val gv = interp.globals.getOrElse(k, null)
-          if gv != null && entrySnap.getOrElse(k, null) != gv then frame(k) = gv
-        }
+        if frame.nonEmpty then frame.foreachEntry(refreshFn)
         // Use FlatMap constructor (not .flatMap) so the trampoline handles iterations
         // iteratively rather than recursing on the JVM stack for pure condition/body.
-        FlatMap(eval(t.expr, frameView, interp), {
-          case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), _ => loop)
-          case _                 => Computation.PureUnit
-        })
+        FlatMap(eval(t.expr, frameView, interp), condCont)
       loop
 
     // return expr  (non-local via exception)
@@ -979,7 +983,9 @@ private[interpreter] object EvalRuntime:
             val exTypeName = th.getClass.getSimpleName
             val msg = Option(th.getMessage).getOrElse(exTypeName)
             tryCatch(Value.InstanceV(exTypeName, Map("message" -> Value.StringV(msg))), th)
-      t.finallyp.foreach(f => Computation.run(eval(f, env, interp)))
+      t.finallyp match
+        case Some(f) => Computation.run(eval(f, env, interp))
+        case None    =>
       Pure(tryResult)
 
     case t: Term.Ascribe =>
