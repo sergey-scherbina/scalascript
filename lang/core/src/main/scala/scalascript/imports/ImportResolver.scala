@@ -63,7 +63,7 @@ object ImportResolver:
       lockPath: Option[os.Path] = None
   ): os.Path =
     val depSpec = parseDepSpec(rawPath)
-    if depSpec.raw.startsWith("github:") then
+    if depSpec.raw.startsWith("github:") || depSpec.raw.startsWith("jitpack:") then
       return resolveExternalDep(depSpec)
 
     // 1. pkg: scheme — installed plugin packages
@@ -72,6 +72,8 @@ object ImportResolver:
 
     // 2. dep: scheme — always resolved through dep-sources chain
     if depSpec.raw.startsWith("dep:") then
+      if MavenDepResolver.isMavenCoordinate(depSpec.raw) then
+        return resolveExternalDep(depSpec)
       return resolveDep(depSpec.raw, lockPath)
 
     val pathThroughDep = applyDeps(depSpec.raw, deps).getOrElse(depSpec.raw)
@@ -111,7 +113,8 @@ object ImportResolver:
 
   private lazy val depResolvers: List[DepResolver] =
     val loaded = ServiceLoader.load(classOf[DepResolver]).iterator().asScala.toList
-    (new GithubReleaseResolver :: loaded).groupBy(_.scheme).values.map(_.head).toList
+    (new GithubReleaseResolver :: new MavenDepResolver :: new JitpackResolver :: loaded)
+      .groupBy(_.scheme).values.map(_.head).toList
 
   private def resolveExternalDep(spec: DepSpec): os.Path =
     val scheme = spec.raw.takeWhile(_ != ':')

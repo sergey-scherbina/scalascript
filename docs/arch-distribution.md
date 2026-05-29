@@ -73,6 +73,14 @@ Phase 1 implementation note: the SPI lives in `runtime/backend/spi`, and
 resolvers. Existing `dep:` and `pkg:` behavior is unchanged; moving those
 schemes behind resolver classes is left to Phase 2 with Coursier/JitPack.
 
+Phase 2 implementation note: Maven-shaped `dep:` coordinates
+(`dep:group:artifact:version` or `dep:group::artifact:version`) now dispatch to
+`MavenDepResolver`; legacy source imports (`dep:org/name:version`) still use the
+existing dep-sources chain. The resolver invokes Coursier via
+`-Dssc.coursier.command`, `SSC_COURSIER`, `cs`, or `coursier`, and accepts extra
+repositories via `ssc.coursier.repositories` / `SSC_COURSIER_REPOSITORIES`.
+`jitpack:` delegates to the same resolver with the `jitpack` repository enabled.
+
 ### 3b. URI scheme syntax
 
 ```
@@ -100,9 +108,9 @@ Auth: uses `GITHUB_TOKEN` env var when present; unauthenticated for public repos
 
 ### 3d. `JitpackResolver`
 
-Constructs `https://jitpack.io/com/github/{owner}/{repo}/{tag}/` as a Coursier
-Maven repo URL, then delegates to `MavenDepResolver` with that extra resolver.
-No custom code needed beyond adding the repo to the Coursier session.
+Delegates to `MavenDepResolver` with Coursier's `jitpack` repository enabled.
+The coordinate body is ordinary Coursier/Maven syntax, for example
+`jitpack:com.github.owner:repo:v1.0.0`.
 
 ### 3e. `DepCache` — content-addressed
 
@@ -178,9 +186,10 @@ upload `*.sscpkg` as a release asset.  Users then add:
 
 ### Phase 2 — Coursier wiring + JitPack
 
-- `MavenDepResolver` using `coursier-core` (already a transitive dep via sbt).
-- `JitpackResolver` as thin Coursier-repo wrapper.
-- Tests: Coursier resolution against a local Maven repo fixture.
+- `MavenDepResolver` using Coursier command wiring. ✓ Landed 2026-05-29.
+- `JitpackResolver` as thin Coursier-repo wrapper. ✓ Landed 2026-05-29.
+- Tests: Coursier command resolution against a local Maven repo fixture.
+  ✓ Landed 2026-05-29.
 
 ### Phase 3 — First-party Maven publication
 

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-distribution-p2 Coursier and JitPack dependency resolver
+
+- **arch-distribution-p2** — Added `MavenDepResolver` for Maven-shaped `dep:group:artifact:version` / `dep:group::artifact:version` imports via Coursier command wiring, preserved legacy `dep:org/name:version` dep-sources behavior, and added `JitpackResolver` as a thin Coursier repository wrapper. Added deterministic fake-Coursier tests over a local Maven-layout fixture.
+
 ## 2026-05-29 — arch-distribution-p1 GitHub release dependency resolver
 
 - **arch-distribution-p1** — Added `DepResolver`/`DepSpec` SPI, content-addressed `DepCache`, built-in `GithubReleaseResolver` for `github:owner/repo@tag[#asset]`, and `ImportResolver` dispatch for `github:` imports with `sha256:` suffix pins. Added mock GitHub API coverage for release lookup, asset download, cache reuse, and pin verification.

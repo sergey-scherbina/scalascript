@@ -226,10 +226,14 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   built-in `GithubReleaseResolver`, `ImportResolver` dispatch for `github:`,
   `sha256:` suffix pins, and mock GitHub API tests.
 
-- [ ] **arch-distribution-p2** — Coursier wiring + JitPack:
+- [x] **arch-distribution-p2** — Coursier wiring + JitPack:
   `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as
   thin Coursier repo wrapper; tests with embedded local Maven fixture.
   Spec: `docs/arch-distribution.md §5 Phase 2`.
+  Landed 2026-05-29: Maven-shaped `dep:` coordinates dispatch to Coursier
+  command wiring; legacy `dep:org/name:version` remains on dep-sources;
+  `jitpack:` enables the JitPack repository; tests use a local Maven-layout
+  fixture and fake Coursier command for deterministic coverage.
 
 - [ ] **arch-distribution-p3** — First-party Maven Central publication
   (deferred; not queued):

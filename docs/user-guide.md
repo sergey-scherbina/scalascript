@@ -2080,6 +2080,20 @@ The resolver uses the GitHub Releases API, selects the first `.sscpkg` asset
 unless an asset path is specified after `#`, stores the artifact under
 `~/.cache/scalascript/deps/github/`, and honors `GITHUB_TOKEN` when set.
 
+Maven-shaped dependencies can be resolved through Coursier:
+
+```markdown
+[Lib](dep:com.example:demo:1.0.0)
+[ScalaLib](dep:com.example::demo-scala:1.0.0)
+[JitPackLib](jitpack:com.github.owner:repo:v1.0.0)
+```
+
+Legacy source imports such as `[Lib](dep:org.example/lib:1.2)` still use the
+existing dep-sources chain. Coursier command lookup uses
+`-Dssc.coursier.command`, `SSC_COURSIER`, `cs`, then `coursier`; additional
+repositories can be supplied with `ssc.coursier.repositories` or
+`SSC_COURSIER_REPOSITORIES`.
+
 ### Plugin System
 
 ```bash
