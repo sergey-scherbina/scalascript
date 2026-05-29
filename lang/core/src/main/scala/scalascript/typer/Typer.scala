@@ -766,6 +766,11 @@ class Typer(
     case Term.Interpolate(Term.Name(p), _, _) if p == "s" || p == "f" || p == "md" =>
       SType.String
 
+    case Term.Interpolate(Term.Name(p), _, _) =>
+      scalascript.compiler.plugin.InterpolatorRegistry.lookup(p)
+        .map(impl => SType.named0(impl.returnTypeName))
+        .getOrElse(SType.String)
+
     // ── Strict-mode check for Select chains rooted at imported modules ──────
     //
     // The existing `Term.Name` branch flags references to undefined top-level

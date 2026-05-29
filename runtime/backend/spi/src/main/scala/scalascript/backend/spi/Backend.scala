@@ -28,6 +28,11 @@ trait Backend:
    *  intrinsic-shipped runtime helpers override nothing. */
   def runtimePreamble: String = ""
 
+  /** Interpolators provided by this backend.
+   *  Registered in `InterpolatorRegistry` when the backend is loaded.
+   *  Default empty — most backends contribute no custom interpolators. */
+  def interpolators: List[InterpolatorImpl] = Nil
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 

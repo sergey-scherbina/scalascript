@@ -3373,12 +3373,20 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     out
 
   private def blockNeedsRewrite(node: ScalaNode): Boolean =
-    blockUsesEffects(node)        ||
-    blockUsesMutualTco(node)      ||
-    blockHasAutoOutputTerm(node)  ||
-    blockUsesIntrinsics(node)     ||
-    blockContainsExternDef(node)  ||
-    blockContainsDirectBlock(node)
+    blockUsesEffects(node)                    ||
+    blockUsesMutualTco(node)                  ||
+    blockHasAutoOutputTerm(node)              ||
+    blockUsesIntrinsics(node)                 ||
+    blockContainsExternDef(node)              ||
+    blockContainsDirectBlock(node)            ||
+    blockContainsRegisteredInterpolator(node)
+
+  private def blockContainsRegisteredInterpolator(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case Term.Interpolate(Term.Name(prefix), _, _) =>
+        scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   /** v1.8 — force any block containing a direct[M] { ... } expression through
    *  emitStats so emitDirectBlock rewrites it to .flatMap chains (and so the
@@ -3506,7 +3514,14 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t)
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t)
+
+  private def termContainsRegisteredInterpolator(t: Term): Boolean =
+    def walk(n: Tree): Boolean = n match
+      case Term.Interpolate(Term.Name(prefix), _, _) =>
+        scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined
+      case _ => n.children.exists(walk)
+    walk(t)
 
   private def termContainsDirectBlock(t: Term): Boolean =
     def go(n: Tree): Boolean = n match
@@ -4284,6 +4299,13 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case single: Term      => emitExpr(single)
         case null              => "??? /* direct: expected block */"
 
+    // Registered interpolator — jvmEmit takes precedence over raw Scala syntax.
+    case Term.Interpolate(Term.Name(prefix), parts, args)
+        if scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined =>
+      val partStrs = parts.map(_.asInstanceOf[Lit.String].value)
+      val argStrs  = args.map(a => emitExpr(a.asInstanceOf[Term]))
+      scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).get.jvmEmit(partStrs, argStrs)
+
     // If the term has nested effect or Focus / Prism content, walk children.
     case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
@@ -4901,15 +4923,18 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         sb2.toString
       }
 
+    // Registered interpolator (InterpolatorRegistry) — jvmEmit takes precedence.
     // User-defined interpolator: StringContext("p1","p2").prefix(arg1, arg2)
     case Term.Interpolate(Term.Name(prefix), parts, args) =>
       bindArgsCps(args.map(_.asInstanceOf[Term])) { vs =>
-        val scParts = parts.map { p =>
-          val s = p.asInstanceOf[Lit.String].value
-          "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-        }.mkString(", ")
-        val argsStr = vs.mkString(", ")
-        s"StringContext($scParts).$prefix($argsStr)"
+        val partStrs = parts.map(_.asInstanceOf[Lit.String].value)
+        scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix) match
+          case Some(impl) => impl.jvmEmit(partStrs, vs.toList)
+          case None =>
+            val scParts = partStrs.map(s => "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+              .mkString(", ")
+            val argsStr = vs.mkString(", ")
+            s"StringContext($scParts).$prefix($argsStr)"
       }
 
     case Term.Tuple(elems) =>

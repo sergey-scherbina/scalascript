@@ -61,6 +61,14 @@ object CapabilityCheck:
                                                                   then detected += Feature.Dataset
       if XmlInterpolatorPat.findFirstIn(src).isDefined            then detected += Feature.Markup
       if XsltTransformPat.findFirstIn(src).isDefined             then detected += Feature.Xslt
+      // Registry-based interpolator capability detection: if a registered
+      // interpolator's prefix appears in source, gate on its requiredFeatures.
+      scalascript.compiler.plugin.InterpolatorRegistry.all.foreach { impl =>
+        if impl.requiredFeatures.nonEmpty then
+          val pat = s"""\\b${java.util.regex.Pattern.quote(impl.name)}"[^"]""".r
+          if pat.findFirstIn(src).isDefined then
+            detected ++= impl.requiredFeatures
+      }
 
     def scanContent(c: ir.Content): Unit = c match
       case ir.Content.CodeBlock(source, _, _) => scanSource(source)
