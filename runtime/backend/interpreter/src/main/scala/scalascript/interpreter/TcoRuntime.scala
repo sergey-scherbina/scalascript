@@ -84,8 +84,9 @@ private[interpreter] object TcoRuntime:
             case p :: Nil          => FrameMap.one(p, curArgs.head, envStable)
             case p1 :: p2 :: Nil   => FrameMap.two(p1, curArgs.head, p2, curArgs(1), envStable)
             case ps                =>
-              val names = ps.toArray
-              val vals  = curArgs.iterator.take(names.length).toArray
+              var names = interp.paramsArrayCache.get(curFun.body)
+              if names == null then { names = ps.toArray; interp.paramsArrayCache.put(curFun.body, names) }
+              val vals = curArgs.iterator.take(names.length).toArray
               FrameMap.of(names, vals, envStable)
           current = interp.eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.

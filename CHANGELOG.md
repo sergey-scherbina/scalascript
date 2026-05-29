@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter parameter array cache
+
+- **perf/interpreter-param-array-cache** — Ported the `params.toArray` cache
+  from `perf/interpreter-opt`. Calls to functions, methods, and TCO frames
+  with three or more parameters now reuse the parameter-name array instead of
+  allocating it on every invocation.
+
 ## 2026-05-29 — interpreter closure capture allocation cuts
 
 - **perf/interpreter-closure-capture** — Ported the closure-capture allocation

@@ -64,6 +64,10 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     captured("def double(x: Int): Int = x * 2; println(double(5))") shouldBe "10"
   }
 
+  test("def with three params") {
+    captured("def sum3(a: Int, b: Int, c: Int): Int = a + b + c; println(sum3(1, 2, 3))") shouldBe "6"
+  }
+
   test("recursive function") {
     captured("""
       def fib(n: Int): Int =
@@ -1011,6 +1015,14 @@ def main(): Unit =
       println(c.add(5))
       println(c.add(-3))
     """) shouldBe "15\n7"
+
+  test("class method with three arguments"):
+    captured("""
+      class Calculator(seed: Int):
+        def mix(a: Int, b: Int, c: Int): Int = seed + a * 100 + b * 10 + c
+      val calc = Calculator(5)
+      println(calc.mix(1, 2, 3))
+    """) shouldBe "128"
 
   test("enum case — default parameters") {
     captured("""

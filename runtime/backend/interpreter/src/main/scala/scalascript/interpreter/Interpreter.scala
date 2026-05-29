@@ -531,6 +531,11 @@ class Interpreter(
   private[interpreter] val closureWithSelfCache: java.util.IdentityHashMap[Value.FunV, Env] =
     java.util.IdentityHashMap()
 
+  /** Cache params.toArray for 3+ param functions, keyed by body identity.
+   *  Avoids re-allocating the Array[String] on every call to the same function. */
+  private[interpreter] val paramsArrayCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
+    java.util.IdentityHashMap()
+
   private[interpreter] def closureWithSelfFor(f: Value.FunV): Env =
     if f.name.isEmpty then f.closure
     else
