@@ -108,8 +108,7 @@ private[interpreter] object CallRuntime:
               slots(i) = Some(Value.ListV(varargVals))
             else
               slots(i) = Some(posIter.next())
-        val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
-        var baseEnv2  = f.closure ++ selfEntry
+        var baseEnv2  = interp.closureWithSelfFor(f)
         val orderedArr = Array.fill[Value](f.params.length)(Value.UnitV)
         var partialFrom = -1  // first index with no value and no default
         for i <- f.params.indices do
@@ -162,7 +161,6 @@ private[interpreter] object CallRuntime:
         if f.params.length > 1 && elems.length == f.params.length =>
         elems
       case _ => args
-    val selfEntry = if f.name.nonEmpty then Map(f.name -> f) else Map.empty
     // True when the last regular parameter is varargs (type ends with "*").
     val lastIsVararg = f.params.nonEmpty &&
       f.paramTypes.lift(f.params.length - 1 - f.usingParams.length).exists(_.endsWith("*"))
@@ -194,7 +192,7 @@ private[interpreter] object CallRuntime:
     // like `f(a)(b, c)` work when the def is stored with all param lists flattened.
     if tupledArgs.nonEmpty && tupledArgs.length < f.params.length && f.usingParams.isEmpty then
       // Fill as many defaults as we can; stop at the first required (no-default) param.
-      var env2 = f.closure ++ selfEntry ++ f.params.take(tupledArgs.length).zip(tupledArgs).toMap
+      var env2 = interp.closureWithSelfFor(f) ++ f.params.take(tupledArgs.length).zip(tupledArgs).toMap
       var partialStart = -1
       val filled = scala.collection.mutable.ListBuffer.empty[Value]
       for i <- (tupledArgs.length until f.params.length) do
@@ -234,9 +232,9 @@ private[interpreter] object CallRuntime:
           else
             tupledArgs
         if withUsing.length >= f.params.length then withUsing
-        else applyDefaults(f.params, f.defaults, withUsing, f.closure ++ selfEntry, interp)
+        else applyDefaults(f.params, f.defaults, withUsing, interp.closureWithSelfFor(f), interp)
       else
-        applyDefaults(f.params, f.defaults, tupledArgs, f.closure ++ selfEntry, interp)
+        applyDefaults(f.params, f.defaults, tupledArgs, interp.closureWithSelfFor(f), interp)
     val info      = TcoRuntime.tcoInfoFor(f, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       (interp.globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
