@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4, 5, 6, 8, 10, 11 implemented on `main` (2026-05-29).
-94 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11 implemented on `main` (2026-05-29).
+121 graphql-plugin tests total. Remaining: Phase 7 (typed codegen), 12 (federation), 13 (SSE).
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -186,7 +186,7 @@ should treat each realtime protocol as an adapter:
 
 | Transport | Role | Status |
 |---|---|---|
-| `graphql-ws` / `graphql-transport-ws` | Primary WebSocket subscription path | Planned Phase 3 |
+| `graphql-ws` / `graphql-transport-ws` | Primary WebSocket subscription path | ✅ Phase 3 (sync list; async bridge deferred) |
 | SSE | Server-to-client stream for subscriptions/incremental responses | Planned later |
 | Multipart HTTP | Incremental response / subscription compatibility path | Planned later |
 | Custom actor/stream transport | Internal ScalaScript distributed runtime bridge | Future |
@@ -540,10 +540,10 @@ GraphQL support is incomplete without production controls:
 
 These controls should be normal options, not ad hoc middleware examples.
 
-### 4.13 DataLoader And Batching
+### 4.13 DataLoader And Batching ✅ Phase 9 Landed
 
-N+1 fetch behavior is a common GraphQL failure mode. ScalaScript should expose
-DataLoader-like batching as a first-class ergonomic API:
+N+1 fetch behavior is a common GraphQL failure mode. ScalaScript exposes
+DataLoader-like batching as a first-class ergonomic API (Phase 9, landed 2026-05-29):
 
 ```scalascript
 val usersById = GraphQL.dataLoader[String, User]("usersById") { ids =>
@@ -729,25 +729,43 @@ Tasks:
 
 Effort: ~3 days remaining.
 
-### Phase 3 - Subscriptions Over WebSocket
+### Phase 3 - Subscriptions Over WebSocket ✅ Landed (2026-05-29)
 
-**Goal:** `subscription` resolvers backed by `Source[A]` push events to clients
-over a WebSocket GraphQL transport.
+**Goal:** `subscription` resolvers push events to clients over a WebSocket
+GraphQL transport.
 
-Tasks:
+Implemented in `GraphQLIntrinsics.scala`:
 
-- `serveGraphQL` / `graphqlMount` register `GET /graphql/ws`. Reuses the
-  existing `onWebSocket` / `onWebSocketAuth` primitives in `HttpIntrinsics`
-  — no new WebSocket primitives needed at the interpreter layer.
-- Implement `graphql-transport-ws` message lifecycle: connection init, ack,
-  subscribe, next, error, complete, ping, pong, close handling.
-- Bridge `Source[A]` to the engine subscription publisher model.
-- `graphqlSubscribe(url, query)(handler)` dynamic client.
-- Production introspection policy option.
-- `examples/graphql-subscriptions.ssc`.
-- Tests for lifecycle, multiple subscribers, cancellation, and errors.
+- [x] `mountGraphQL` registers `/graphql/ws` WS route when the `subscription`
+  map in `GraphQLResolvers` is non-empty; HTTP-only mounts (no subscription
+  resolvers) are unaffected.
+- [x] `Subscription` type wiring: root DataFetcher returns a synchronous
+  `ListPublisher[AnyRef]` (Reactive Streams `Publisher`) on first call
+  (`source == null`); per-event calls (`source != null`) pass through the raw
+  event value so graphql-java can resolve response fields.
+- [x] `ListPublisher`: synchronous `Publisher[AnyRef]` backed by a `List`;
+  emits all items synchronously when `request(n)` is called.
+- [x] Full `graphql-transport-ws` protocol state machine:
+  - `connection_init` → `connection_ack`; sets per-connection `initReceived` flag.
+  - `subscribe` (after init) → executes via `engine.execute(input)`, subscribes
+    to the returned `Publisher<ExecutionResult>`, sends `next` per event, then
+    `complete`.
+  - `subscribe` before init → `error` with "Connection not initialised".
+  - `subscribe` with blank query → `error`.
+  - `ping` → `pong` (with payload echo).
+  - `pong`, `complete`, unknown message types → silently ignored.
+  - Invalid JSON → silently ignored.
+- [x] `GraphQLSubscriptionTest` (14 tests): resolver map storage, WS route
+  registration, route path/protocol, connection_init/ack, subscribe-before-init
+  error, ping/pong, pong/complete/unknown silently ignored, invalid JSON ignored,
+  blank query error, end-to-end event delivery (ListPublisher → graphql-java
+  SubscriptionExecutionStrategy → `next`* + `complete`).
+- [ ] `graphqlSubscribe(url, query)(handler)` dynamic WS client — deferred.
+- [ ] `Source[A]` / reactive backpressure bridge — current impl is synchronous
+  list; full reactive source bridge deferred to Phase 3b.
+- [ ] `examples/graphql-subscriptions.ssc` — deferred.
 
-Effort: ~6 days.
+Effort: ~6 days (core sync path done; async/reactive bridge and client deferred).
 
 ### Phase 4 - Compile-Time SDL Validation + LSP Diagnostics ✅
 
@@ -876,19 +894,34 @@ Implemented in `GraphQLOpts` and `handleRequest`:
 
 Effort: ~0.5 day (server-side APQ done; CLI emit command deferred).
 
-### Phase 9 - DataLoader And Batching
+### Phase 9 - DataLoader And Batching ✅ Landed (2026-05-29)
 
 **Goal:** N+1 mitigation is built into the GraphQL ergonomics.
 
-Tasks:
+Implemented in `GraphQLIntrinsics.scala` and `GraphQLResolvers.scala`:
 
-- Request-scoped typed DataLoader registry.
-- Sync/async batch functions.
-- Integration with resolver context.
-- Metrics for batch size, hit/miss, latency.
-- Tests for batching, cache isolation, failures, and partial responses.
+- [x] `GraphQL.dataLoader(name, batchFn)` intrinsic — returns
+  `Value.Foreign("GraphQLDataLoader", DataLoaderSpec(name, batchFn))`.
+  `batchFn: List[K] => Map[K, V]` receives all pending keys in one batch.
+- [x] `DataLoaderSpec` case class; `GraphQLResolvers.loaders: Map[String, DataLoaderSpec]`
+  (5th positional arg to `GraphQL.resolvers`).
+- [x] `DataLoaderContext` — per-request cache: first call for a key invokes
+  `batchFn(List(key))`; repeated calls for the same key within the same request
+  return the cached value without re-batching.
+- [x] `_load(loaderName, key)` and `_batchLoad(loaderName, keys)` injected into
+  resolver args map alongside the resolver's own arguments.
+- [x] Multiple independent loaders per request; each has its own cache entry.
+- [x] Cache is request-scoped: a new `DataLoaderContext` is created per
+  `handleRequest` invocation; no cross-request leakage.
+- [x] `GraphQLDataLoaderTest` (13 tests): intrinsic, `_load` injection,
+  `_batchLoad` injection, batch fn called, per-request cache dedup, cache
+  isolation, correct value returned, batchLoad dispatch, multiple loaders,
+  backward compat with resolvers without loaders.
+- [ ] Async batch functions (`CompletableFuture`) — deferred.
+- [ ] Batch metrics (size, hit/miss, latency) — deferred to Phase 9b.
+- [ ] Partial-batch failure handling — deferred.
 
-Effort: ~4 days.
+Effort: ~4 days (sync DataLoader done; async and metrics deferred).
 
 ### Phase 10 - Security, Limits, And Observability ✅ Landed (2026-05-29)
 
