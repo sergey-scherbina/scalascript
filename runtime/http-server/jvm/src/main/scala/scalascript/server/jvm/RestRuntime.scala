@@ -641,6 +641,10 @@ private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, 
 def route(method: String, path: String)(handler: Request => Any): Unit =
   _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
 
+def _ssc_route_response(method: String, path: String, responseType: String)(handler: Request => Any): Unit =
+  val rt = Option(responseType).map(_.trim).filter(t => t.nonEmpty && t != "Any")
+  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler, responseType = rt)
+
 def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
 
 private object _OpenApiGenerator:

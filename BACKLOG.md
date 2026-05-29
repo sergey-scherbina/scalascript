@@ -5580,7 +5580,8 @@ behaviour unchanged).
 **Spec:** [`docs/openapi.md`](docs/openapi.md)
 
 Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
-Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phases 2b–5 are planned.
+Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b landed
+2026-05-29 for typed response metadata propagation. Phases 3–5 are planned.
 
 - [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
   when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
@@ -5596,11 +5597,15 @@ Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phases 2
   JVM route closures are currently `Request => Any`. Spec:
   `docs/openapi.md §5 Phase 2`.
 
-- [ ] **openapi-p2b** — Response type metadata propagation:
+- [x] **openapi-p2b** — Response type metadata propagation: ✓ Landed 2026-05-29.
   carry response type metadata from typed route/front-matter/generated route
   declarations into `OpenApiRoute.responseType`; keep raw `route(...)`
   handlers on the safe generic `200 OK` fallback.
-  Spec: `docs/openapi.md §5 Phase 2 follow-up`. Effort: ~1 day.
+  Landed: JVM generated front-matter route registration matches `apiClients:`
+  endpoint metadata by `(method, path)` and calls `_ssc_route_response` with the
+  non-`Any` response type name; raw routes still use ordinary `route(...)`.
+  Added code-shape and scala-cli e2e coverage for typed response schemas.
+  Spec: `docs/openapi.md §5 Phase 2 follow-up`.
 
 - [ ] **openapi-p3** — `@openapi` per-route annotation:
   `runtime/std/openapi.ssc` extern; `RouteEntry.metadata`; `HttpIntrinsics` merges metadata;

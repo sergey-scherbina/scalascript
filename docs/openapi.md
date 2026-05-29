@@ -179,17 +179,21 @@ Tasks:
   script uses an inlined equivalent helper so standalone scala-cli output does
   not depend on a newly published `backend-spi` artifact.
 - Response schema plumbing is in place via `OpenApiRoute.responseType`. Automatic
-  handler return-type extraction for route registries remains a follow-up because
-  the current JVM route closure type is `Request => Any`.
+  handler return-type extraction for raw route registries remains a follow-up
+  because the current JVM route closure type is `Request => Any`.
+- Front-matter/generated route registration now matches `apiClients:` endpoint
+  metadata by `(method, path)` and passes non-`Any` response type names into the
+  generated JVM route table. Raw `route(...) { req => ... }` handlers stay on
+  the safe generic `200 OK` fallback.
 - Tests: `OpenApiGeneratorTest`, existing `OpenApiRuntimeTest`, JvmGen code-shape
   coverage, and a scala-cli JVM e2e probe for `/_openapi.json`.
 
 Follow-up split from Phase 2:
 
-- **openapi-p2b** — automatic response type extraction: carry response type
-  metadata from typed route/front-matter/generated route declarations into
-  `OpenApiRoute.responseType`, and keep raw `route(...) { req => ... }`
-  handlers on the safe `{ "200": { "description": "OK" } }` fallback.
+- **openapi-p2b** ✓ Landed 2026-05-29 — response type metadata propagation:
+  typed front-matter/generated route declarations now carry response type
+  metadata into `OpenApiRoute.responseType`; raw `route(...) { req => ... }`
+  handlers remain on the safe `{ "200": { "description": "OK" } }` fallback.
 
 ### Phase 3 — `@openapi` per-route annotation
 

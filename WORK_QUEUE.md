@@ -252,9 +252,9 @@ ScalaScript's own registry work stays queued.
 
 - [x] **openapi-export** — Auto-derive OpenAPI 3.1 JSON from registered `route()` calls: `GET /_openapi.json` built-in endpoint (JSON document with paths/methods/path-parameters); `GET /_swagger` Swagger UI HTML page (CDN-linked). `OpenApiRuntime` registers both alongside `/_health`/`/_ready` when `serve`/`serveAsync` is called; walks `RouteRegistry.all`; extracts `:param` segments → `{param}` OpenAPI notation; inspects `FunV.paramTypes` for typed handlers; non-path typed params → query (GET/DELETE) or `requestBody` (POST/PUT/PATCH); type map String→string / Int+Long→integer / Double+Float→number / Boolean→boolean / other→object; `IntrinsicImpl.registerOpenApiDefaults()` hook wired from `HttpIntrinsics`; skips internal `/_*` routes. (2026-05-27)
 
-- [x] **openapi-p2** — JVM codegen + shared OpenAPI generator: `OpenApiGenerator` in backend SPI, interpreter adapter, JVM generated `serve` / `serveAsync` registration of `/_openapi.json` and `/_swagger`, and JVM scala-cli e2e coverage. ✓ Landed 2026-05-29. Follow-up `openapi-p2b` tracks automatic response type metadata propagation.
+- [x] **openapi-p2** — JVM codegen + shared OpenAPI generator: `OpenApiGenerator` in backend SPI, interpreter adapter, JVM generated `serve` / `serveAsync` registration of `/_openapi.json` and `/_swagger`, and JVM scala-cli e2e coverage. ✓ Landed 2026-05-29.
 
-- [ ] **openapi-p2b** — Response type metadata propagation for OpenAPI: carry response type metadata from typed route/front-matter/generated route declarations into `OpenApiRoute.responseType`; keep raw `route(...)` handlers on the safe generic `200 OK` fallback. Spec: `docs/openapi.md §5 Phase 2 follow-up`.
+- [x] **openapi-p2b** — Response type metadata propagation for OpenAPI: typed front-matter/generated JVM route registrations now carry non-`Any` `apiClients:` response type metadata into `OpenApiRoute.responseType`; raw `route(...)` handlers keep the safe generic `200 OK` fallback. Spec: `docs/openapi.md §5 Phase 2 follow-up`. ✓ Landed 2026-05-29.
 
 ## Language & Compiler — Spark extensions
 

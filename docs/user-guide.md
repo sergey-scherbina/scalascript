@@ -822,9 +822,10 @@ two development endpoints:
 
 The interpreter derives path parameters, query parameters, and JSON request-body
 properties from typed handler metadata where available. JVM codegen exposes the
-same built-in endpoints from its generated `_routes` table; raw `Request => Any`
-handlers use the generic `200 OK` response schema until response-type metadata is
-carried through generated route registrations.
+same built-in endpoints from its generated `_routes` table. Front-matter routes
+with matching `apiClients:` endpoint metadata carry their response type into the
+OpenAPI response schema; raw `Request => Any` handlers keep the generic `200 OK`
+fallback.
 
 ### File-based handlers (`mount()`)
 

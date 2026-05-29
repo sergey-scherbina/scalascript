@@ -26,6 +26,15 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   private def jvmCode(code: String): String =
     JvmGen.generate(module(code))
 
+  private def jvmCodeDoc(source: String): String =
+    JvmGen.generate(Parser.parse(source))
+
+  private def tailFile(f: java.io.File, n: Int = 80): String =
+    if f.exists() then
+      val lines = java.nio.file.Files.readAllLines(f.toPath).toArray.toList.map(String.valueOf)
+      lines.takeRight(n).mkString("\n")
+    else ""
+
   // ── Code-shape tests ───────────────────────────────────────────────
 
   test("JvmGen: top-level `subscribeClusterEvents()` rewrites to Actor.subscribeClusterEvents()"):
@@ -86,6 +95,51 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     code should include ("def _registerOpenApiDefaults()")
     code should include ("/_openapi.json")
     code should include ("/_swagger")
+
+  test("JvmGen: front-matter routes pass responseType metadata to OpenAPI"):
+    val code = jvmCodeDoc("""---
+      |routes:
+      |  - method: GET
+      |    path: /users/:id
+      |    handler: getUser
+      |apiClients:
+      |  - name: Api
+      |    endpoints:
+      |      - name: getUser
+      |        method: GET
+      |        path: /users/:id
+      |        request: Unit
+      |        response: User
+      |---
+      |
+      |# API
+      |
+      |```scalascript
+      |case class User(id: String)
+      |def getUser(req: Request): Response = Response.json(User("u1"))
+      |serve(8080)
+      |```
+      |""".stripMargin)
+    code should include ("""_ssc_route_response("GET", "/users/:id", "User")""")
+
+  test("JvmGen: raw front-matter routes keep generic OpenAPI fallback"):
+    val code = jvmCodeDoc("""---
+      |routes:
+      |  - method: GET
+      |    path: /users/:id
+      |    handler: getUser
+      |---
+      |
+      |# API
+      |
+      |```scalascript
+      |case class User(id: String)
+      |def getUser(req: Request): Response = Response.json(User("u1"))
+      |serve(8080)
+      |```
+      |""".stripMargin)
+    code should include ("""route("GET", "/users/:id")""")
+    code should not include """_ssc_route_response("GET", "/users/:id""""
 
   test("JvmGen: `serveAsync(port)` pulls in the serve runtime"):
     // A bare `serveAsync(8080)` must trigger `blocksUseRoutes` so the
@@ -372,6 +426,60 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
       body should include ("\"get\"")
       body should not include "\"/_health\""
     }
+
+  test("JvmGen e2e: GET /_openapi.json exposes front-matter response schema"):
+    assume(hasScalaCli, "scala-cli not available")
+    val port = pickFreePort()
+    val sc = jvmCodeDoc(s"""---
+      |routes:
+      |  - method: GET
+      |    path: /users/:id
+      |    handler: getUser
+      |apiClients:
+      |  - name: Api
+      |    endpoints:
+      |      - name: getUser
+      |        method: GET
+      |        path: /users/:id
+      |        request: Unit
+      |        response: User
+      |---
+      |
+      |# API
+      |
+      |```scalascript
+      |case class User(id: String)
+      |def getUser(req: Request): Response = Response.json(User(req.params("id")))
+      |serve($port)
+      |```
+      |""".stripMargin)
+    val tmp  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".sc")
+    val out  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".out")
+    val err  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".err")
+    tmp.deleteOnExit(); out.deleteOnExit(); err.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath)
+      .redirectOutput(out)
+      .redirectError(err)
+      .start()
+    try
+      val deadline = System.currentTimeMillis() + 60_000L
+      var up = false
+      while !up && System.currentTimeMillis() < deadline do
+        try
+          val s = new java.net.Socket()
+          s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 250)
+          s.close()
+          up = true
+        catch case _: Throwable => Thread.sleep(250)
+      if !up then fail(s"schema test server did not bind\nstdout:\n${tailFile(out)}\nstderr:\n${tailFile(err)}")
+      val (status, body) = httpGet(s"http://127.0.0.1:$port/_openapi.json")
+      status shouldBe 200
+      body should include (""""/users/{id}"""")
+      body should include (""""content": { "application/json": { "schema": {"type":"object"} } }""")
+    finally
+      proc.destroyForcibly()
+      proc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS): @scala.annotation.unused
 
   test("JvmGen e2e: POST /_ssc-cluster/drain toggles drainingSelf"):
     withRunningNode { port =>

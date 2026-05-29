@@ -349,9 +349,9 @@ class JvmGen(
     // afterwards would never run.  Forward references to the handler defs
     // work because `.sc` script files wrap all top-level defs as methods
     // of an enclosing class, so they're accessible throughout the body.
+    val apiResponseTypes = openApiResponseTypes(apiClients)
     frontmatterRoutes.foreach { r =>
-      val esc = r.path.replace("\\", "\\\\").replace("\"", "\\\"")
-      sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
+      emitRouteRegistration(sb, r.method, r.path, r.handler, apiResponseTypes)
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
     val jvmClassFields = jvmCaseClassFieldsInBlocks(blocks)
@@ -1173,9 +1173,9 @@ class JvmGen(
 
     val frontmatterRoutes = module.manifest.toList.flatMap(_.routes)
     val apiClients = module.manifest.toList.flatMap(_.apiClients)
+    val apiResponseTypes = openApiResponseTypes(apiClients)
     frontmatterRoutes.foreach { r =>
-      val esc = r.path.replace("\\", "\\\\").replace("\"", "\\\"")
-      sb.append(s"""route("${r.method}", "$esc") { req => ${r.handler}(req) }\n""")
+      emitRouteRegistration(sb, r.method, r.path, r.handler, apiResponseTypes)
     }
     if frontmatterRoutes.nonEmpty then sb.append("\n")
     val jvmClassFields2 = jvmCaseClassFieldsInBlocks(blocks)
@@ -1752,6 +1752,30 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   private def escapeStringLit(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+  private def openApiResponseTypes(apiClients: List[ApiClientDecl]): Map[(String, String), String] =
+    apiClients
+      .flatMap(_.endpoints)
+      .collect {
+        case ep if ep.responseType.nonEmpty && ep.responseType != "Any" =>
+          (ep.method.toUpperCase, ep.path) -> ep.responseType
+      }
+      .toMap
+
+  private def emitRouteRegistration(
+      sb:            StringBuilder,
+      method:        String,
+      path:          String,
+      handler:       String,
+      responseTypes: Map[(String, String), String]
+  ): Unit =
+    val m = method.toUpperCase
+    val p = escapeStringLit(path)
+    responseTypes.get((m, path)) match
+      case Some(responseType) =>
+        sb.append(s"""_ssc_route_response("$m", "$p", ${scalaStringLiteral(responseType)}) { req => $handler(req) }\n""")
+      case None =>
+        sb.append(s"""route("$m", "$p") { req => $handler(req) }\n""")
 
   private val jvmEndpointPrimitives = Set("Int", "Long", "String", "Boolean", "Double", "Float")
 

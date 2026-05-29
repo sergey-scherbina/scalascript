@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — openapi-p2b JVM OpenAPI response schemas
+
+- **openapi-p2b** — JVM generated front-matter routes now propagate non-`Any` response type metadata from matching `apiClients:` endpoints into the generated OpenAPI response schema. Raw `route(...)` handlers continue to use the generic `200 OK` fallback. Added code-shape coverage and a scala-cli JVM e2e check for `/_openapi.json` schema output.
+
 ## 2026-05-29 — openapi-p2 JVM OpenAPI routes
 
 - **openapi-p2** — OpenAPI generation now has a shared `OpenApiGenerator` model in backend SPI, and JVM-generated HTTP servers register `GET /_openapi.json` plus `GET /_swagger` from the generated `_routes` table when `serve()` / `serveAsync()` starts. The interpreter uses the shared generator while preserving typed handler query/body inference. Added SPI, interpreter, JvmGen code-shape, and scala-cli JVM e2e tests. Automatic response-type propagation is split to `openapi-p2b`.

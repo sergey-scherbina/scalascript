@@ -244,7 +244,7 @@ compiles them via Scala.js.
 | HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
 | REPL web mode | `:serve`/`:stop`/`:clear`/`:mount`/`:load`/`:reload`/`:unmount`/`:routes`/`:http`/`:call` — mount handlers and test routes interactively; `:set errorDetails true\|false` |
 | HTTP streaming | `streamResponse`, SSE via `sse(req)` |
-| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` |
+| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` with typed response schemas for front-matter/generated JVM routes when `apiClients:` metadata is available |
 | WebSocket server | `onWebSocket(path)`, `ws.send/recv/close/ping`, rate limiting, per-route `maxConnections` |
 | TLS | `tls("cert.pem", "key.pem")`, `serve(443, tls=...)`, `wss://` |
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
