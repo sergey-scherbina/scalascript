@@ -5702,11 +5702,12 @@ optional federation/realtime adapters.
   `GraphQLPersistedOpsTest` (10 tests). `emit-graphql-operations` CLI deferred.
   ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p9** — DataLoader and batching:
-  request-scoped typed loader registry, sync/async batch functions, resolver
-  context integration, cache isolation, metrics, partial-response failure
-  behavior.
-  Spec: `docs/graphql.md §7 Phase 9`. Effort: ~4 days.
+- [x] **graphql-p9** — DataLoader and batching:
+  `GraphQL.dataLoader(name, batchFn)` intrinsic + `DataLoaderSpec`; per-request
+  `DataLoaderContext` with key deduplication cache; `_load(loaderName, key)` and
+  `_batchLoad(loaderName, keys)` injected into resolver args via GraphQLContext;
+  multiple independent loaders; cache isolated per request; `GraphQLDataLoaderTest`
+  (13 tests); 107 total graphql-plugin tests. ✓ Landed 2026-05-29.
 
 - [x] **graphql-p10** — Security, limits, and observability:
   `GraphQL.options(maxDepth, maxComplexity, maxQueryLength, disableIntrospection)`;
