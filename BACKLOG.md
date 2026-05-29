@@ -5642,32 +5642,92 @@ security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
 
 **Spec:** [`docs/graphql.md`](docs/graphql.md)
 
-Wires to `graphql-java` (JVM/interpreter) and `graphql-js` (JS/Node).
-Schema-first: SDL in `graphql` fenced blocks. Resolver functions in ScalaScript.
+Wires to `graphql-java` (JVM/interpreter/JVM generated) and `graphql-js`
+(JS/Node). Schema-first starts with SDL in `graphql` fenced blocks and dynamic
+resolver functions; later phases add GraphQL-over-HTTP compliance, typed
+resolver/client mapping, persisted operations, DataLoader, contract diffing, and
+optional federation/realtime adapters.
 
 - [ ] **graphql-p1** — Schema + resolvers + `serveGraphQL` (JVM/interpreter):
   `runtime/std/graphql-plugin/` sbt subproject; `graphql-java` 22.x dep;
-  `GraphQL.schema(sdl)`, `GraphQL.resolvers(…)`, `serveGraphQL(port, resolvers)`,
-  `graphqlHandler(schema, resolvers)` externs; `graphql` fenced-block tag in
-  `SourceLanguageRegistry`; `examples/graphql-hello.ssc`; 10+ tests.
-  Spec: `docs/graphql.md §5 Phase 1`. Effort: ~4 days.
+  `GraphQL.schema(sdl)`, `GraphQL.resolvers(...)`, `serveGraphQL(port, resolvers)`,
+  `graphqlHandler(schema, resolvers)` externs; `graphql` fenced-block support
+  through SourceLanguage SPI + interpreter `graphqlBlockRunner`;
+  minimal GraphQL-over-HTTP POST/GET behavior; `examples/graphql-hello.ssc`;
+  10+ tests.
+  Spec: `docs/graphql.md §7 Phase 1`. Effort: ~4 days.
 
 - [ ] **graphql-p2** — Async resolvers + GraphQL client + JS backend:
   `Future[A]` / `A ! Async` resolver support; `graphqlQuery` client extern;
-  `graphql-js` JS runtime; JsGen `graphqlHandler` codegen; `Feature.GraphQL`;
+  `graphql-js` JS runtime; JS intrinsic `graphqlHandler` codegen;
+  `Feature.GraphQL`;
   `examples/graphql-client.ssc`.
-  Spec: `docs/graphql.md §5 Phase 2`. Effort: ~3 days.
+  Spec: `docs/graphql.md §7 Phase 2`. Effort: ~3 days.
 
 - [ ] **graphql-p3** — Subscriptions over WebSocket (`graphql-ws`):
-  WS endpoint `GET /graphql/ws`; `graphql-ws` protocol handler; `Source[A]` →
+  WS endpoint `GET /graphql/ws`; `graphql-ws` protocol handler; `Source[A]` ->
   `Publisher[A]` bridge; `graphqlSubscribe` client extern; production mode
   (introspection off); `examples/graphql-subscriptions.ssc`.
-  Spec: `docs/graphql.md §5 Phase 3`. Effort: ~4 days.
+  Spec: `docs/graphql.md §7 Phase 3`. Effort: ~6 days.
 
 - [ ] **graphql-p4** — Compile-time SDL validation:
-  `GraphQLLanguagePlugin.compileBlock` validates SDL via `graphql-java` `SchemaParser`
-  at `ssc build`; LSP diagnostics inline; `GraphQLSchemaCheckTest` (6+ tests).
-  Spec: `docs/graphql.md §5 Phase 4`. Effort: ~2 days.
+  `GraphQLSourceLanguage.compileBlock` validates SDL via the GraphQL engine at
+  `ssc build`; LSP diagnostics inline; `GraphQLSchemaCheckTest` (6+ tests).
+  Spec: `docs/graphql.md §7 Phase 4`. Effort: ~2 days.
+
+- [ ] **graphql-p5** — GraphQL-over-HTTP compliance:
+  response/request media negotiation (`application/graphql-response+json` +
+  legacy `application/json`), correct POST/GET semantics, mutation-over-GET
+  `405`, status-code behavior, request parameter validation, and optional
+  `graphql-http` audit run.
+  Spec: `docs/graphql.md §7 Phase 5`. Effort: ~3 days.
+
+- [ ] **graphql-p6** — Typed resolver mapping:
+  schema-coordinate resolver builder; typed args/input/output mapping; custom
+  scalar codecs; enum/interface/union support; `@oneOf` inputs; typed mismatch
+  diagnostics; `examples/graphql-typed-resolvers.ssc`.
+  Spec: `docs/graphql.md §7 Phase 6`. Effort: ~5 days.
+
+- [ ] **graphql-p7** — Typed client operations + codegen:
+  `graphql` operation fenced blocks; operation validation against SDL or
+  introspection JSON; generated variable/data models; typed `graphqlQuery` and
+  `graphqlSubscribe`; browser/React/Electron client path.
+  Spec: `docs/graphql.md §7 Phase 7`. Effort: ~5 days.
+
+- [ ] **graphql-p8** — Persisted operations / APQ:
+  `emit-graphql-operations` manifest, deterministic hashes, server
+  `persistedOnly` mode, optional APQ negotiation, contract tests for known and
+  unknown operation hashes.
+  Spec: `docs/graphql.md §7 Phase 8`. Effort: ~3 days.
+
+- [ ] **graphql-p9** — DataLoader and batching:
+  request-scoped typed loader registry, sync/async batch functions, resolver
+  context integration, cache isolation, metrics, partial-response failure
+  behavior.
+  Spec: `docs/graphql.md §7 Phase 9`. Effort: ~4 days.
+
+- [ ] **graphql-p10** — Security, limits, and observability:
+  introspection policy, depth/complexity/alias/token/body limits, resolver
+  timeout/cancellation, auth principal injection, field-level auth helpers,
+  error redaction, structured tracing/metrics/logging.
+  Spec: `docs/graphql.md §7 Phase 10`. Effort: ~5 days.
+
+- [ ] **graphql-p11** — Schema export/import/diff and contract tests:
+  `emit-graphql-schema`, `import-graphql-schema`, `diff-graphql`,
+  `test-graphql`, profile-aware schema export/diff, operation fixture tests.
+  Spec: `docs/graphql.md §7 Phase 11`. Effort: ~4 days.
+
+- [ ] **graphql-p12** — Federation/stitching/gateway plugins:
+  optional `graphql-federation-plugin`, Federation v2 directive passthrough,
+  subgraph SDL export, gateway/stitching design notes, typed coordinate
+  compatibility.
+  Spec: `docs/graphql.md §7 Phase 12`. Effort: ~6 days.
+
+- [ ] **graphql-p13** — Additional realtime and incremental delivery:
+  SSE adapter, multipart incremental response adapter, engine feature checks
+  for incremental delivery directives, backpressure/cancellation tests, and
+  AsyncAPI companion export where appropriate.
+  Spec: `docs/graphql.md §7 Phase 13`. Effort: ~5 days.
 
 ---
 

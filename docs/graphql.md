@@ -1,19 +1,34 @@
-# GraphQL — spec
+# GraphQL contract platform - spec
 
-**Status:** Planning. No implementation yet.
+**Status:** Planning. No GraphQL runtime support has landed on `main` yet as
+of 2026-05-29; `graphql-p1` is the active first implementation slice in
+[`BACKLOG.md`](../BACKLOG.md).
 
-**Companion:** [`docs/future-protocols.md §3`](future-protocols.md)
+**External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
+GraphQL **September 2025** as the latest released GraphQL specification and a
+November 2025 working draft. `https://graphql.github.io/graphql-over-http/`
+lists a GraphQL-over-HTTP prerelease working draft dated 2026-05-28. The HTTP
+draft extends GraphQL for transport interoperability; it does not replace the
+core GraphQL language, type-system, validation, execution, or response
+semantics.
+
+**Companions:**
+- [`docs/future-protocols.md §3`](future-protocols.md)
+- [`docs/openapi.md`](openapi.md)
+- Future AsyncAPI/realtime transport spec for WebSocket/SSE event streams
 
 ---
 
 ## 1. Goals
 
-ScalaScript apps can serve a GraphQL API from a single `.ssc` file.
-The developer experience matches the existing REST surface: define a
-schema in a `graphql` fenced block, write resolver functions in
-ScalaScript, call `serveGraphQL(port)`.
+ScalaScript should treat GraphQL as a first-class typed contract layer, not
+only as a convenience endpoint. A ScalaScript app should be able to publish,
+validate, consume, and test a GraphQL contract from the same `.ssc` source that
+defines the application logic.
 
-```ssc
+The desired developer experience starts simple:
+
+~~~ssc
 ---
 name: my-api
 ---
@@ -27,11 +42,16 @@ type Query {
 }
 
 type Mutation {
-  createUser(name: String!, email: String!): User!
+  createUser(input: CreateUserInput!): User!
 }
 
 type Subscription {
   userCreated: User!
+}
+
+input CreateUserInput {
+  name: String!
+  email: String!
 }
 
 type User {
@@ -46,58 +66,158 @@ type User {
 ```scalascript
 val resolvers = GraphQL.resolvers(
   query = Map(
-    "user"  -> ((args: Map[String, Any]) => db.findUser(args("id").toString)),
-    "users" -> ((_: Map[String, Any]) => db.allUsers())
+    "Query.user" -> ((ctx: GraphQLContext, args: Map[String, Any]) =>
+      db.findUser(args("id").toString)),
+    "Query.users" -> ((ctx: GraphQLContext, args: Map[String, Any]) =>
+      db.allUsers())
   ),
   mutation = Map(
-    "createUser" -> ((args: Map[String, Any]) =>
-      db.createUser(args("name").toString, args("email").toString))
+    "Mutation.createUser" -> ((ctx: GraphQLContext, args: Map[String, Any]) =>
+      db.createUser(args("input").as[CreateUserInput]))
   ),
   subscription = Map(
-    "userCreated" -> ((_: Map[String, Any]) => userCreatedSource)
+    "Subscription.userCreated" -> ((ctx: GraphQLContext, args: Map[String, Any]) =>
+      userCreatedSource)
   )
 )
 
 serveGraphQL(4000, resolvers)
 ```
+~~~
+
+Longer term, the same contract should support:
+
+- schema-first SDL in `graphql` fenced blocks and external `.graphql` files;
+- typed resolver bindings keyed by GraphQL schema coordinates such as
+  `Query.user` rather than ambiguous field names;
+- GraphQL-over-HTTP compliant server and client behavior;
+- typed ScalaScript request/response mapping for arguments, input objects,
+  output objects, custom scalars, enums, interfaces, unions, and errors;
+- generated typed clients for frontend/backends that consume a GraphQL service;
+- compile-time validation of schema and client operations;
+- persisted operations / APQ-style manifests for production clients;
+- query limits, timeouts, auth context, introspection policy, and observability;
+- subscription/realtime transports over WebSocket first, with SSE or multipart
+  incremental delivery as optional later transports;
+- schema diffing and contract tests so GraphQL API changes can be reviewed
+  with the same discipline as OpenAPI changes.
+
+The source of truth is the GraphQL schema plus typed ScalaScript resolver and
+operation metadata. Runtime libraries execute GraphQL; ScalaScript owns the
+developer-facing DSL, type mapping, code generation, plugin packaging, and
+contract workflow.
 
 ---
 
 ## 2. Non-goals
 
-- **Building a GraphQL engine from scratch.** The implementation wires
-  to `graphql-java` (JVM) and `graphql-js` (JS backend). We own the
-  ScalaScript DSL surface and the glue; we do not own the execution engine.
-- **GraphQL federation** (Apollo Federation, schema stitching). Out of scope;
-  may be a downstream library concern.
-- **Persisted queries / APQ.** Deferred to a future phase.
-- **DataLoader / N+1 batching.** Phase 3 candidate; complex enough to defer.
-- **Code-first schema generation** (derive SDL from Scala types). Phase 4+.
-  Phase 1–3 are schema-first (SDL in a `graphql` fenced block).
-- **Subscriptions over HTTP multipart** (the newer spec). Only `graphql-ws`
-  protocol over WebSocket is targeted.
+- **Building a GraphQL engine from scratch.** ScalaScript wraps mature engines:
+  `graphql-java` on JVM/interpreter/JVM-generated paths and `graphql-js` for
+  Node output. We do not implement GraphQL parsing, validation, execution, or
+  introspection ourselves unless a small adapter is unavoidable.
+- **Replacing REST/OpenAPI.** GraphQL and REST solve different API-shape
+  problems. ScalaScript should support both, and mixed servers must be normal.
+- **Making GraphQL core depend on a specific database.** Resolvers call user
+  code, typed mapping helpers, SQL, Spark, streams, actors, or any other
+  ScalaScript capability; the GraphQL layer must not own persistence.
+- **Federation in the core plugin.** Federation, schema stitching, and gateways
+  are important but should land as separate optional plugins after the base
+  contract is solid.
+- **All experimental transport work in Phase 1.** WebSocket subscriptions,
+  SSE, multipart incremental responses, file uploads, and `@defer`/`@stream`
+  style delivery need explicit opt-in phases and engine support checks.
+- **Silent best-effort typing.** If ScalaScript cannot prove a resolver or
+  client operation matches the schema, the API should either fall back to
+  explicit dynamic mode or report diagnostics. It must not pretend dynamic
+  `Any` values are statically safe.
+- **A custom GraphQL dialect.** ScalaScript may add annotations/directives for
+  local tooling, but GraphQL SDL and executable documents must remain standard
+  GraphQL documents.
 
 ---
 
-## 3. Architecture
+## 3. Standards And Compatibility
 
-### 3.1 Approach: wrap existing libraries
+### 3.1 Core GraphQL Version
 
-| Backend | Library | License |
-|---------|---------|---------|
-| JVM / interpreter | `graphql-java` 22.x | MIT |
-| JS (Node target) | `graphql-js` 16.x | MIT |
-| JS (browser SPA) | Not applicable — SPAs are clients, not servers |
-| WASM | JVM path (WASM runs on JVM host) | — |
+The first implementation should target the latest stable GraphQL release
+supported by the chosen engine version. As of 2026-05-29, the public GraphQL
+version index lists **September 2025** as the latest release and a later working
+draft. ScalaScript should expose the intended language target explicitly:
 
-The JVM path works for both the interpreter (which runs on the JVM) and
-the JVM codegen target. The JS path covers `ssc emit-js --target node`.
+```bash
+ssc check-graphql api.ssc --graphql-spec september-2025
+ssc check-graphql api.ssc --graphql-spec draft
+```
 
-### 3.2 SDL source
+Planned behavior:
 
-Schema SDL can come from two places:
+- Default to the latest stable GraphQL release supported by the vendored engine.
+- Allow `draft` only behind an explicit flag, because draft behavior may change.
+- Record the selected spec target in emitted schema metadata/manifests.
+- Keep engine upgrades as visible changelog items, because GraphQL engine major
+  versions may change validation, introspection, or resolver APIs.
 
-1. **`graphql` fenced block** in a `.ssc` file (primary path):
+### 3.2 GraphQL-over-HTTP
+
+The server and client should align with the GraphQL-over-HTTP working draft:
+
+- `POST /graphql` is required.
+- `GET /graphql` is allowed only for query operations; attempting to execute a
+  mutation over `GET` must return `405 Method Not Allowed`.
+- Request JSON uses `query`, `operationName`, `variables`, and `extensions`.
+- The client should send `Accept: application/graphql-response+json,
+  application/json;q=0.9`.
+- The server should prefer `application/graphql-response+json` and retain
+  `application/json` compatibility while the ecosystem transitions.
+- `Content-Type: application/json` over UTF-8 is the baseline request encoding.
+- Response status codes must follow the selected media type semantics. The
+  legacy `application/json` path commonly returns `200` for well-formed GraphQL
+  responses with GraphQL errors; the `application/graphql-response+json` path
+  can use HTTP status codes more precisely for request-level failures.
+
+The official `graphql-http` audit suite should be the long-term compliance
+target for ScalaScript's HTTP adapter where practical.
+
+### 3.3 Realtime Transports
+
+The core GraphQL spec defines subscription execution as source and response
+streams, but it intentionally does not mandate a wire transport. ScalaScript
+should treat each realtime protocol as an adapter:
+
+| Transport | Role | Status |
+|---|---|---|
+| `graphql-ws` / `graphql-transport-ws` | Primary WebSocket subscription path | Planned Phase 3 |
+| SSE | Server-to-client stream for subscriptions/incremental responses | Planned later |
+| Multipart HTTP | Incremental response / subscription compatibility path | Planned later |
+| Custom actor/stream transport | Internal ScalaScript distributed runtime bridge | Future |
+
+The base API should expose subscriptions as `Source[A]` so transport adapters
+can reuse the same resolver contract.
+
+---
+
+## 4. Architecture
+
+### 4.1 Approach: Wrap Existing Libraries
+
+| Backend | Library | Role |
+|---|---|---|
+| JVM / interpreter | `graphql-java` | Schema parsing, validation, execution, introspection |
+| JVM generated | `graphql-java` | Same semantics as interpreter |
+| JS / Node | `graphql-js` | Node server output and client-side validation/codegen helpers |
+| Browser SPA | GraphQL client only | Query/mutation/subscription clients; no server execution |
+| WASM | Host-dependent | Use JVM/JS host adapter until a WASM engine is justified |
+
+The GraphQL plugin lives under `runtime/std/graphql-plugin/` and is loaded only
+when the user imports it. Core interpreter/compiler changes are limited to SPI
+hooks needed by plugins, such as fenced-block runners.
+
+### 4.2 Schema Sources
+
+ScalaScript should support these schema sources:
+
+1. **Inline SDL block** (Phase 1):
 
    ~~~ssc
    ```graphql
@@ -105,382 +225,755 @@ Schema SDL can come from two places:
    ```
    ~~~
 
-   The block content is extracted as a `String` constant and passed to
-   `GraphQL.schema(sdl)` at runtime.
+2. **External `.graphql` files**:
 
-2. **External `.graphql` file** via `//> using file schema.graphql`
-   (Phase 2). Loaded at startup via `readFile("schema.graphql")`.
+   ```ssc
+   //> using file schema.graphql
+   val schema = GraphQL.schemaFile("schema.graphql")
+   ```
 
-### 3.3 Resolver surface
+3. **Generated SDL from ScalaScript types** (later):
 
-Resolvers are plain ScalaScript functions with signature
-`Map[String, Any] => Any`. The `Any` return type is by design:
-GraphQL execution is dynamically typed at the resolver boundary —
-the execution engine validates that the returned value matches the
-schema type, not the ScalaScript typer.
+   ```scalascript
+   val schema = GraphQL.deriveSchema[QueryApi]()
+   ```
 
-```scalascript
-// Minimal resolver: args → value
-"user" -> ((args: Map[String, Any]) => db.findUser(args("id").toString))
+4. **Imported introspection JSON** for client codegen and schema diffing.
 
-// Async resolver: args → Future[value] (Phase 2)
-"user" -> ((args: Map[String, Any]) => db.findUserAsync(args("id").toString))
+5. **Schema extensions/overlays** for local additions, deprecations, auth
+   metadata, or gateway composition. These must remain valid GraphQL SDL.
 
-// Subscription resolver: args → Source[value] (Phase 3)
-"userCreated" -> ((_: Map[String, Any]) => userCreatedSource)
+Merge rules must be deterministic: explicit `GraphQL.schema(...)` wins over an
+implicit last-seen block; multiple inline blocks are concatenated in document
+order unless the user names a schema.
+
+### 4.3 SDL Block Runtime Path
+
+The `graphql` fenced block is registered as a `SourceLanguage` plugin. For the
+interpreter, `SectionRuntime` still sees `ast.Content.CodeBlock`, so Phase 1
+uses the same SPI shape as SQL block runners:
+
+```scala
+trait GraphQLBlockRunner {
+  def registerSdl(source: String, origin: Option[String] = None): Unit
+}
 ```
 
-### 3.4 Runtime surface
+Flow:
+
+1. Parser sees ` ```graphql `.
+2. `SectionRuntime.runSection` detects `Lang.isGraphql(cb.lang)`.
+3. The interpreter calls the plugin-provided `GraphQLBlockRunner`.
+4. The runner registers SDL in interpreter-scoped state.
+5. `serveGraphQL` or `GraphQL.schemaFromRegisteredBlocks()` reads the registered
+   SDL and passes it to the engine.
+
+This is an interpreter convenience only. Compile-time codegen should read SDL
+from `BlockArtifact(ir.Content.EmbeddedBlock(...))` through the
+`SourceLanguage` plugin path.
+
+### 4.4 Resolver Coordinates
+
+Resolver keys should use GraphQL schema coordinates, not plain field names:
 
 ```scalascript
-// Schema construction
-extern def GraphQL.schema(sdl: String): GraphQLSchema
+GraphQL.resolvers(
+  query = Map(
+    "Query.user" -> userResolver,
+    "User.posts" -> userPostsResolver
+  )
+)
+```
+
+Why:
+
+- `user` alone is ambiguous across `Query.user`, `Organization.user`, and
+  nested object fields.
+- Schema coordinates map naturally to compiler diagnostics and schema diff
+  reports.
+- They make later typed APIs and field-level auth policies stable.
+
+Dynamic map resolvers are the Phase 1 fallback. The long-term API should offer
+typed bindings:
+
+```scalascript
+val resolvers =
+  GraphQL.resolverBuilder(schema)
+    .field[UserArgs, Option[User]]("Query.user") { (ctx, args) =>
+      db.findUser(args.id)
+    }
+    .field[User, Unit, List[Post]]("User.posts") { (ctx, user, _) =>
+      db.postsByUser(user.id)
+    }
+    .build()
+```
+
+### 4.5 Context And Execution
+
+Every resolver should receive a `GraphQLContext` with:
+
+- request id, operation name, selected operation type;
+- authenticated principal and authorization claims;
+- HTTP headers/cookies and remote address when served over HTTP;
+- typed service dependencies and per-request resources;
+- DataLoader registry;
+- selected fields / lookahead where the engine exposes it;
+- cancellation token, deadline, and timeout budget;
+- tracing/metrics sink.
+
+The dynamic Phase 1 resolver signature may remain `Map[String, Any] => Any`,
+but the SPI should not prevent the richer context:
+
+```scalascript
+extern type GraphQLContext
+
 extern def GraphQL.resolvers(
-  query:        Map[String, Map[String, Any] => Any]        = Map.empty,
-  mutation:     Map[String, Map[String, Any] => Any]        = Map.empty,
-  subscription: Map[String, Map[String, Any] => Source[Any]]= Map.empty
+  query:        Map[String, (GraphQLContext, Map[String, Any]) => Any] = Map.empty,
+  mutation:     Map[String, (GraphQLContext, Map[String, Any]) => Any] = Map.empty,
+  subscription: Map[String, (GraphQLContext, Map[String, Any]) => Source[Any]] = Map.empty
 ): GraphQLResolvers
-
-// Convenience: registers POST /graphql + (Phase 3) WS /graphql/ws, then calls serve(port).
-// Equivalent to: graphqlMount(resolvers); serve(port)
-extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers): Unit
-extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers,
-                        tlsCtx: TlsContext): Unit
-
-// Mount GraphQL onto an existing route() server WITHOUT calling serve().
-// Registers POST /graphql (and Phase 3: WS /graphql/ws) on the current server.
-// Use this when mixing GraphQL with REST in one server.
-extern def graphqlMount(resolvers: GraphQLResolvers): Unit
-
-// Handler for use with route() directly (advanced; prefer graphqlMount).
-extern def graphqlHandler(schema: GraphQLSchema,
-                          resolvers: GraphQLResolvers): Request => Response
-
-// Client (Phase 2)
-extern def graphqlQuery(url: String, query: String): Map[String, Any]
-extern def graphqlQuery(url: String, query: String,
-                        variables: Map[String, Any]): Map[String, Any]
 ```
 
-`GraphQLSchema` and `GraphQLResolvers` are opaque types — thin wrappers
-over the underlying library objects.
+If we keep a one-argument resolver overload for ergonomics, it should be sugar
+that ignores `GraphQLContext`.
 
-### 3.5 HTTP transport
+### 4.6 Type Mapping
 
-GraphQL runs over HTTP POST at `/graphql` by default:
-- Request: `Content-Type: application/json`, body `{ "query": "...", "variables": {...} }`.
-- Response: `{ "data": {...}, "errors": [...] }`.
-- Introspection (`__schema`) enabled in development, disabled in production
-  (controlled by `ssc run --production` flag, Phase 2).
+GraphQL is strongly typed; ScalaScript should use that instead of stopping at
+`Any`.
 
-Subscriptions run over WebSocket at `/graphql/ws` using the
-`graphql-ws` protocol (current standard, supersedes `subscriptions-transport-ws`).
+| GraphQL type | ScalaScript mapping |
+|---|---|
+| `String!` | `String` |
+| `String` | `Option[String]` in typed mode |
+| `ID!` | `String` initially; later `GraphQLID` newtype |
+| `Int!` | `Int` with 32-bit GraphQL range validation |
+| `Float!` | `Double` |
+| `Boolean!` | `Boolean` |
+| `[A!]!` | `List[A]` |
+| `[A]` | `Option[List[Option[A]]]` in fully faithful mode |
+| `enum` | ScalaScript enum |
+| `input` | case class or map-backed input object |
+| `type` | case class, record, or object resolver source |
+| `interface` | sealed trait plus type resolver |
+| `union` | sealed trait / ADT plus type resolver |
+| custom scalar | `GraphQL.scalar[A](parse, serialize, specifiedBy)` |
+| `@oneOf` input | sealed ADT or generated one-of wrapper |
 
-### 3.6 Module layout
+Typed mode should reject missing required fields, wrong nullability, invalid
+enum values, custom scalar parse failures, and GraphQL `Int` values outside the
+allowed range before invoking user business logic when possible.
+
+Dynamic mode stays available:
+
+```scalascript
+GraphQL.dynamicResolvers(...)
+```
+
+but docs and examples should steer users toward typed mappings once Phase 6
+lands.
+
+### 4.7 Custom Scalars And Directives
+
+Custom scalars need explicit codecs:
+
+```scalascript
+val DateTimeScalar =
+  GraphQL.scalar[Instant](
+    name = "DateTime",
+    specifiedBy = "https://scalars.graphql.org/andimarek/date-time.html",
+    parse = Instant.parse,
+    serialize = _.toString
+  )
+```
+
+Directives should be supported in three layers:
+
+- standard directives (`@skip`, `@include`, `@deprecated`, `@specifiedBy`,
+  `@oneOf`) pass through the engine;
+- ScalaScript tooling directives under an `@ssc_*` naming convention, or a
+  project-defined namespace, can drive auth, caching, visibility, and codegen;
+- unknown directives are allowed only if declared in SDL or explicitly marked
+  as external.
+
+### 4.8 Runtime Surface
+
+Phase 1 can expose a minimal API, but the planned surface should leave room for
+typed contracts:
+
+```scalascript
+extern type GraphQLSchema
+extern type GraphQLResolvers
+extern type GraphQLExecutable
+extern type GraphQLContext
+extern type GraphQLRequest
+extern type GraphQLResponse[A]
+extern type GraphQLError
+extern type GraphQLServeOptions
+extern type GraphQLClientOptions
+
+extern def GraphQL.schema(sdl: String): GraphQLSchema
+extern def GraphQL.schemaFile(path: String): GraphQLSchema
+extern def GraphQL.schemaFromRegisteredBlocks(): GraphQLSchema
+
+extern def GraphQL.resolvers(...): GraphQLResolvers
+extern def GraphQL.dynamicResolvers(...): GraphQLResolvers
+extern def GraphQL.executable(schema: GraphQLSchema,
+                              resolvers: GraphQLResolvers): GraphQLExecutable
+
+extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers): Unit
+extern def serveGraphQL(port: Int, schema: GraphQLSchema,
+                        resolvers: GraphQLResolvers): Unit
+extern def serveGraphQL(port: Int, executable: GraphQLExecutable,
+                        options: GraphQLServeOptions): Unit
+
+extern def graphqlMount(resolvers: GraphQLResolvers): Unit
+extern def graphqlMount(path: String, executable: GraphQLExecutable,
+                        options: GraphQLServeOptions): Unit
+extern def graphqlHandler(executable: GraphQLExecutable): Request => Response
+
+extern def graphqlQuery(url: String, query: String): Map[String, Any]
+extern def graphqlQuery[A](url: String, operation: GraphQLOperation[A],
+                           variables: Any): GraphQLResponse[A]
+extern def graphqlSubscribe[A](url: String, operation: GraphQLOperation[A],
+                               variables: Any): Source[A]
+```
+
+The overloads are intentionally staged: Phase 1 can implement the dynamic
+subset while keeping names compatible with later typed helpers.
+
+### 4.9 HTTP Server Integration
+
+GraphQL should mount onto the existing HTTP plugin rather than own a separate
+server:
+
+```scalascript
+graphqlMount("/graphql", executable, GraphQLServeOptions(
+  introspection = GraphQLIntrospection.DevOnly,
+  maxDepth = 12,
+  maxComplexity = 5000,
+  timeoutMs = 5000,
+  playground = GraphQLPlayground.DevOnly
+))
+
+serve(4000)
+```
+
+Default behavior:
+
+- `serveGraphQL(port, ...)` is convenience sugar for mount + `serve(port)`.
+- `graphqlMount` composes with REST routes, static assets, auth middleware,
+  OpenAPI routes, and frontend dev servers.
+- Development may enable GraphiQL/Apollo Sandbox-compatible landing behavior.
+- Production disables interactive explorers unless explicitly enabled.
+
+### 4.10 Client Operations
+
+Client code should support raw dynamic calls first:
+
+```scalascript
+val result = graphqlQuery(
+  "https://api.example.com/graphql",
+  "query GetUser($id: ID!) { user(id: $id) { id name } }",
+  Map("id" -> "u1")
+)
+```
+
+Then typed operations:
+
+~~~ssc
+```graphql operation GetUser
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+  }
+}
+```
+
+```scalascript
+val getUser = GraphQL.operation[GetUserVars, GetUserData]("GetUser")
+val data = graphqlQuery(client, getUser, GetUserVars(id = "u1")).data
+```
+~~~
+
+The compiler should validate operation documents against either:
+
+- a local SDL block/file;
+- an imported introspection schema;
+- a remote schema fetched explicitly by a CLI command and committed as a
+  generated artifact.
+
+Implicit network fetch during normal compilation is a non-goal.
+
+### 4.11 Persisted Operations
+
+Production clients should be able to use persisted operations:
+
+```bash
+ssc emit-graphql-operations app.ssc --out graphql-operations.json
+ssc run server.ssc --graphql-persisted graphql-operations.json
+```
+
+Planned behavior:
+
+- Hash operation text with a deterministic algorithm.
+- Emit manifest entries with operation name, hash, type, variables type, data
+  type, and optional profile.
+- Server can run in `persistedOnly = true` mode to reject arbitrary documents.
+- APQ-style negotiation may be added as a compatibility mode.
+- Client codegen can send only operation ids/hashes in production builds.
+
+### 4.12 Security And Limits
+
+GraphQL support is incomplete without production controls:
+
+- auth principal injection into `GraphQLContext`;
+- field-level auth helpers keyed by schema coordinates;
+- introspection policy: `always`, `devOnly`, `disabled`, or custom predicate;
+- query depth limit, complexity limit, alias count limit, token count limit;
+- variable size and request body size limits;
+- resolver timeout, cancellation, and backpressure for subscriptions;
+- CSRF/CORS guidance for browser clients;
+- error redaction with structured `extensions.code` in production;
+- persisted-only mode for public clients;
+- audit logging with operation hash and schema version.
+
+These controls should be normal options, not ad hoc middleware examples.
+
+### 4.13 DataLoader And Batching
+
+N+1 fetch behavior is a common GraphQL failure mode. ScalaScript should expose
+DataLoader-like batching as a first-class ergonomic API:
+
+```scalascript
+val usersById = GraphQL.dataLoader[String, User]("usersById") { ids =>
+  db.usersByIds(ids)
+}
+
+GraphQL.resolverBuilder(schema)
+  .field[Post, Unit, User]("Post.author") { (ctx, post, _) =>
+    ctx.loader(usersById).load(post.authorId)
+  }
+```
+
+Requirements:
+
+- loaders are request-scoped by default;
+- cache keys are typed;
+- batch functions may be sync, async, actor-backed, stream-backed, SQL-backed,
+  or Spark-backed through existing ScalaScript mapping abstractions;
+- metrics report hit/miss/batch size/latency;
+- failures preserve GraphQL partial-response semantics.
+
+### 4.14 Observability
+
+GraphQL should emit structured events:
+
+- request started/completed/failed;
+- operation name/type/hash/schema version;
+- parse, validate, execute durations;
+- per-field resolver timings in debug/profile mode;
+- DataLoader batch metrics;
+- subscription lifecycle events;
+- GraphQL errors with redaction policy;
+- HTTP media type and status-code decisions.
+
+This integrates with existing logging/metrics/tracing work rather than adding a
+separate observability stack.
+
+### 4.15 Schema Diff And Contract Tests
+
+ScalaScript should provide GraphQL contract commands:
+
+```bash
+ssc emit-graphql-schema api.ssc --format sdl --out schema.graphql
+ssc emit-graphql-schema api.ssc --format introspection --out schema.json
+ssc check-graphql api.ssc
+ssc diff-graphql old.graphql new.graphql
+ssc test-graphql api.ssc --operations src/graphql/**/*.graphql
+```
+
+Diff behavior:
+
+- detect breaking changes such as removed types/fields/enum values, stricter
+  argument requirements, return type incompatibility, changed nullability, and
+  removed directives;
+- classify dangerous changes such as added enum values for clients with
+  exhaustive matching;
+- allow additive changes by default;
+- support profile-aware diffing for public/internal/admin schemas.
+
+Contract tests should execute declared operations against local handlers using
+fixtures before requiring a real network server.
+
+---
+
+## 5. Module Layout
 
 ```
 runtime/std/
   graphql-plugin/
     src/main/scala/scalascript/compiler/plugin/graphql/
-      GraphQLPlugin.scala                ← Backend SPI registration
-      GraphQLIntrinsics.scala            ← NativeImpl table: schema, resolvers, serveGraphQL, graphqlHandler
-      GraphQLJvmRuntime.scala            ← JVM: graphql-java wiring
-      GraphQLJsRuntime.scala             ← JS: graphql-js wiring (Phase 2)
+      GraphQLPlugin.scala
+      GraphQLIntrinsics.scala
+      GraphQLJvmRuntime.scala
+      GraphQLSourceLanguage.scala
+      GraphQLSchemaValidator.scala
+      GraphQLHttpAdapter.scala
+      GraphQLDataLoaders.scala
+      GraphQLClientRuntime.scala
+      GraphQLJsRuntime.scala              # Phase 2+
     src/main/resources/META-INF/services/
-      scalascript.backend.spi.Backend        ← ServiceLoader entry for intrinsics
-      scalascript.backend.spi.SourceLanguage ← ServiceLoader entry for fenced-block dialect
-  graphql.ssc                            ← extern declarations + opaque types
+      scalascript.backend.spi.Backend
+      scalascript.backend.spi.SourceLanguage
+  graphql.ssc
 
 runtime/backend/
-  js/…/codegen/intrinsics/
-    Graphql.scala                        ← Phase 2: graphqlHandler JS codegen (not JsGen.scala)
-  node/…/codegen/
-    NodeBackend.scala                    ← Phase 2: require('graphql') preamble + package.json dep
+  spi/src/main/scala/scalascript/backend/spi/
+    GraphQLBlockRunner.scala
+  js/.../codegen/intrinsics/
+    Graphql.scala                         # Phase 2+
+  node/.../codegen/
+    NodeBackend.scala                      # Phase 2+
 
-lang/core/…/
-  ast/Lang.scala                         ← Phase 1: add Lang.isGraphql + "graphql" constant
-  (SourceLanguageRegistry.scala: no hand-edit — registration is via META-INF ServiceLoader entry)
+lang/core/.../
+  ast/Lang.scala                           # Graphql language tag helper
 
-tools/cli/…/cli/Main.scala              ← Phase 3: ssc serve --graphql flag
+tools/cli/.../cli/Main.scala
 ```
 
-### 3.7 How `graphql` fenced blocks work
-
-#### Compile-time path (JVM / JS codegen)
-
-The `graphql` fenced block is registered as a `SourceLanguage` plugin —
-the same mechanism as `javascript`, `xml`, `sql`, `transaction` in
-`runtime/backend/scala-source/…/BuiltinSourceLanguages.scala` (note: `html`
-and `css` live in their own subprojects `runtime/backend/html` and
-`runtime/backend/css` and use the same separate-subproject pattern that
-`graphql-plugin` follows). Registration is purely via the plugin's
-`META-INF/services/scalascript.backend.spi.SourceLanguage` entry — no
-hand-edit to `SourceLanguageRegistry.scala` is required.
-
-1. Parser sees ` ```graphql `.
-2. `SourceLanguageRegistry.lookup("graphql")` returns `GraphQLSourceLanguage`.
-3. `GraphQLSourceLanguage.compileBlock(content, …)` returns
-   `BlockArtifact(ir.Content.EmbeddedBlock(language = "graphql", source = sdlString))`.
-   Passthrough — no SDL parsing at compile time.
-4. JVM codegen (`GraphQLJvmRuntime`) reads the SDL from `EmbeddedBlock.source`
-   directly during code generation.
-5. JS codegen (`runtime/backend/js/…/codegen/intrinsics/Graphql.scala`) emits
-   a `buildSchema(sdl)` call; `NodeBackend.scala` adds `require('graphql')` to
-   the preamble and `graphql-js` to the generated `package.json`.
-
-Phase 4 compile-time SDL validation overrides `compileBlock` to run the SDL
-through `graphql-java`'s `SchemaParser` and populate `BlockArtifact.diagnostics`
-(the `diagnostics: List[Diagnostic]` field already exists on `BlockArtifact`).
-The `SourceLanguageRegistry` framework forwards these diagnostics to the user.
-This is a single method change in `GraphQLSourceLanguage.compileBlock` — no
-separate transform pass needed (unlike `MarkupInterpolatorCheck`, which targets
-string interpolators, not fenced blocks).
-
-#### Interpreter runtime path
-
-The interpreter works on `ast.Content.CodeBlock` (AST level), not on
-`ir.Content.EmbeddedBlock` (IR level). `SectionRuntime.runSection` currently
-dispatches on language tags (`isParseable`, `isStringBlock`, `isSql`,
-`isTransaction`, `isXml`). A `graphql` block would otherwise hit `case _ => ()`
-and be silently dropped.
-
-Phase 1 therefore follows the **`sqlBlockRunner` pattern** already used by the
-SQL plugin:
-
-1. `Lang.scala` gains `val Graphql = "graphql"` and `def isGraphql(lang: String)`.
-2. `Backend` SPI gains `def graphqlBlockRunner: Option[GraphQLBlockRunner] = None`.
-3. `Interpreter` installs `graphqlBlockRunner` from loaded plugins (same as
-   `installSqlBlockRunners`).
-4. `SectionRuntime.runSection` gains:
-   ```scala
-   case cb: Content.CodeBlock if Lang.isGraphql(cb.lang) =>
-     interp.graphqlBlockRunner.getOrElse(
-       throw InterpretError("No GraphQL block runner — add the graphql-plugin")
-     ).registerSdl(cb.source)
-   ```
-5. `GraphQLPlugin` implements `graphqlBlockRunner` with a runner that stores the
-   SDL in a thread-local or interpreter-scoped slot readable by `serveGraphQL`.
-
-`serveGraphQL(port, resolvers)` reads the registered SDL at call time and passes
-it to `graphql-java`'s `SchemaParser.parse(sdl)`.
-
-### 3.8 JVM dependency
-
-`graphql-java` is pulled in as a `% Runtime` dependency of the
-`graphql-plugin` sbt subproject, not as a core dependency. It is
-loaded only when the user imports the GraphQL plugin:
-
-```ssc
-//> using dep "pkg:graphql"
-```
-
-or in `build.sbt` (via the sbt plugin):
-
-```scala
-sscPlugins += "io.scalascript::scalascript-graphql:1.0.0"
-```
-
-This keeps the base `ssc` binary free of a 10 MB graphql-java jar.
+GraphQL intrinsics belong in `runtime/std/graphql-plugin/`, not in the
+interpreter core. Only SPI hooks belong in `runtime/backend/spi` or interpreter
+installation code.
 
 ---
 
-## 4. Migration
+## 6. Migration
 
-There is no migration — GraphQL is a new feature. Existing REST apps
-are unaffected. The `graphql` fenced-block tag is new; it does not
-conflict with any existing syntax.
+GraphQL is a new feature. Existing REST/OpenAPI apps are unaffected.
+
+Potential migration after Phase 1:
+
+- dynamic resolver maps continue to work;
+- typed resolver builders are additive;
+- `serveGraphQL(port, resolvers)` remains as ergonomic sugar;
+- future default changes such as stricter HTTP compliance or disabled
+  production introspection must be feature-flagged before becoming defaults.
 
 ---
 
-## 5. Phases
+## 7. Phases
 
-### Phase 1 — Schema + resolvers + `serveGraphQL` (JVM/interpreter only)
+### Phase 1 - Schema + Resolvers + `serveGraphQL` (JVM/interpreter)
 
-**Goal**: `ssc run myapi.ssc` starts a GraphQL server on JVM.
+**Goal:** `ssc run myapi.ssc` starts a JVM GraphQL server from inline SDL and
+dynamic resolvers.
 
 Tasks:
-- `runtime/std/graphql-plugin/` sbt subproject with `graphql-java` 22.x.
-- `GraphQLIntrinsics`: `GraphQL.schema(sdl)`, `GraphQL.resolvers(…)`,
+
+- `runtime/std/graphql-plugin/` sbt subproject with a pinned `graphql-java`
+  dependency verified at implementation time.
+- `GraphQLIntrinsics`: `GraphQL.schema(sdl)`, `GraphQL.resolvers(...)`,
   `serveGraphQL(port, resolvers)`, `graphqlHandler(schema, resolvers)`.
-- `GraphQLJvmRuntime`: build `graphql.GraphQL` instance from SDL +
-  `DataFetchingEnvironment`-backed resolver wrappers.
-- `graphql.ssc`: `extern` declarations + opaque type aliases.
+- `GraphQLJvmRuntime`: build a `graphql.GraphQL` instance from SDL and resolver
+  wrappers.
+- `runtime/std/graphql.ssc`: extern declarations + opaque type aliases.
 - `Lang.scala`: add `val Graphql = "graphql"` + `def isGraphql`.
-- `Backend` SPI: add `def graphqlBlockRunner: Option[GraphQLBlockRunner] = None`.
-- `SectionRuntime`: handle `Lang.isGraphql` blocks via `interp.graphqlBlockRunner`
-  (same pattern as `sqlBlockRunner` / `runSqlBlock`).
-- `META-INF/services/scalascript.backend.spi.SourceLanguage`: register
-  `GraphQLSourceLanguage` for the compile-time IR path (JVM/JS codegen Phase 2+).
-  No hand-edit to `SourceLanguageRegistry.scala` needed — ServiceLoader handles it.
-- `serveGraphQL` wires to the existing `serve()` / `route()` HTTP server:
-  registers `POST /graphql` + `GET /graphql` (GET for browser form queries).
-- `GraphQLPlugin` ServiceLoader.
-- `examples/graphql-hello.ssc` — minimal Hello World query.
-- `GraphQLIntrinsicsTest`: 10+ tests covering schema construction,
-  resolver dispatch, simple query, variable substitution, error response,
-  null field, list field, introspection query.
+- `Backend` SPI: add `graphqlBlockRunner`.
+- `SectionRuntime`: handle `Lang.isGraphql` blocks via the plugin runner.
+- `GraphQLSourceLanguage`: register `graphql` fenced-block support via
+  ServiceLoader; no hand edit to `SourceLanguageRegistry`.
+- Minimal GraphQL-over-HTTP behavior: `POST /graphql`, optional query-only
+  `GET /graphql`, JSON request body, GraphQL response body, correct mutation
+  rejection over `GET`.
+- `examples/graphql-hello.ssc`.
+- `GraphQLIntrinsicsTest`: schema construction, block registration, resolver
+  dispatch, variables, nulls, lists, errors, introspection, HTTP query.
 
-Effort: ~4 days. Spec: `docs/graphql.md §5 Phase 1`.
+Effort: ~4 days.
 
-### Phase 2 — Async resolvers + GraphQL client + JS backend
+### Phase 2 - Async Resolvers + GraphQL Client + Node Backend
 
-**Goal**: resolvers can return `Future[A]` or `A ! Async`; `graphqlQuery`
-client works; `--backend js --target node` serves GraphQL.
+**Goal:** resolvers can return `Future[A]` or `A ! Async`, the dynamic client
+works, and Node output can serve GraphQL.
 
 Tasks:
-- Async resolver support in `GraphQLJvmRuntime`: detect `Source`/`Future`
-  return and use `graphql-java`'s `DataFetcher` with `CompletableFuture`.
-- `graphqlQuery(url, query[, variables])` extern: HTTP POST client.
-- `GraphQLJsRuntime` + `runtime/backend/js/…/codegen/intrinsics/Graphql.scala`:
-  JS codegen for `ssc emit-js --target node`. Per-intrinsic JS codegen lives in
-  `runtime/backend/js/.../codegen/intrinsics/` (alongside `Http.scala`,
-  `Ws.scala`), NOT in `JsGen.scala` itself.
-- `runtime/backend/node/.../codegen/NodeBackend.scala`: adds
-  `const {graphql, buildSchema} = require('graphql')` to the Node preamble and
-  `"graphql": "^16.x"` to the generated `package.json`. This file owns all
-  `require()` and `package.json` emission — not `JsGen`.
-- Registers `POST /graphql` + `GET /graphql` in the Node.js HTTP handler via
-  emitted `graphqlHandler` (JS `async` function wrapping
-  `graphql({ schema, source, variableValues })`).
-- `Feature.GraphQL` in `SpiCapabilities`.
-- `examples/graphql-client.ssc` — query a public GraphQL API.
-- Tests: async resolver round-trip (interpreter), JS codegen shape.
 
-Effort: ~3 days. Spec: `docs/graphql.md §5 Phase 2`.
+- Async resolver support through `CompletableFuture` / engine-native async
+  execution.
+- `graphqlQuery(url, query[, variables])` dynamic client.
+- `GraphQLJsRuntime` and JS codegen intrinsic support for `graphqlHandler`.
+- Node backend preamble and generated `package.json` dependency for `graphql`.
+- `Feature.GraphQL` in backend capabilities.
+- `examples/graphql-client.ssc`.
+- Tests for async round-trip, client request shape, and JS codegen shape.
 
-### Phase 3 — Subscriptions over WebSocket (`graphql-ws`)
+Effort: ~3 days.
 
-**Goal**: `subscription` resolvers backed by `Source[A]` push events to
-connected clients via the `graphql-ws` protocol.
+### Phase 3 - Subscriptions Over WebSocket
 
-```scalascript
-subscription = Map(
-  "userCreated" -> ((_: Map[String, Any]) => userCreatedSource)
-)
-```
+**Goal:** `subscription` resolvers backed by `Source[A]` push events to clients
+over a WebSocket GraphQL transport.
 
 Tasks:
-- `serveGraphQL` registers a second WebSocket endpoint `GET /graphql/ws`
-  using the **existing** `onWebSocket("/graphql/ws") { ws => … }` from
-  `HttpIntrinsics` — no new WS primitives needed.
-- Server-side `graphql-ws` protocol state machine (connection_init, subscribe,
-  next, error, complete, ping, pong messages + flow control). The full message
-  set makes this ~6 days, not 4 — the state machine is substantive even with
-  `onWebSocket` available.
-- `GraphQLJvmRuntime` bridges `Source[A]` → `graphql-java` `Publisher[A]`
-  (Reactive Streams adapter; graphql-java 22.x supports it natively).
-- Client-side: `graphqlSubscribe(url, query)(handler)` extern.
-- Production mode flag: `serveGraphQL(port, resolvers, production = true)`
-  disables introspection.
-- `examples/graphql-subscriptions.ssc` — live-update feed.
-- Tests: subscription lifecycle (subscribe → push N events → complete),
-  error propagation, multiple concurrent subscribers.
 
-Effort: ~6 days. Spec: `docs/graphql.md §5 Phase 3`.
+- `serveGraphQL` / `graphqlMount` register `GET /graphql/ws`.
+- Implement `graphql-transport-ws` message lifecycle: connection init, ack,
+  subscribe, next, error, complete, ping, pong, close handling.
+- Bridge `Source[A]` to the engine subscription publisher model.
+- `graphqlSubscribe(url, query)(handler)` dynamic client.
+- Production introspection policy option.
+- `examples/graphql-subscriptions.ssc`.
+- Tests for lifecycle, multiple subscribers, cancellation, and errors.
 
-### Phase 4 — Compile-time SDL validation + schema-aware completion
+Effort: ~6 days.
 
-**Goal**: schema syntax errors are caught at `ssc build` time (not runtime).
+### Phase 4 - Compile-Time SDL Validation + LSP Diagnostics
+
+**Goal:** SDL errors are reported by `ssc build` and editor diagnostics before
+runtime.
 
 Tasks:
-- `GraphQLSourceLanguage.compileBlock(content, attrs)` runs SDL through
-  `graphql-java`'s `SchemaParser` at compile time; reports errors by
-  populating `BlockArtifact.diagnostics: List[Diagnostic]` (the field already
-  exists on `BlockArtifact`). The `SourceLanguageRegistry` framework forwards
-  diagnostics to the compiler and LSP.
-  Note: `MarkupInterpolatorCheck` (a transform pass) is **not** the right
-  pattern here — it handles string-interpolator sites like `html"…"`, not
-  fenced blocks. Fenced-block errors belong in `compileBlock` itself.
-- `SourceLanguageRegistry` already invokes `compileBlock` and collects
-  `BlockArtifact.diagnostics` — no new framework wiring needed.
-- LSP integration: `ssc lsp` reports SDL errors inline in the editor.
-- `GraphQLSchemaCheckTest`: 6+ tests for valid SDL, field type error,
-  undefined type reference, duplicate type, syntax error.
 
-Effort: ~2 days. Spec: `docs/graphql.md §5 Phase 4`.
+- `GraphQLSourceLanguage.compileBlock` validates SDL and returns diagnostics.
+- Diagnostics include file/block origin and source ranges when the engine
+  exposes them.
+- LSP shows inline SDL errors.
+- `GraphQLSchemaCheckTest`: valid SDL, syntax error, undefined type, duplicate
+  type, bad field type, invalid directive usage.
+
+Effort: ~2 days.
+
+### Phase 5 - GraphQL-over-HTTP Compliance
+
+**Goal:** server and client behavior are intentionally aligned with the
+GraphQL-over-HTTP draft.
+
+Tasks:
+
+- Media-type negotiation for `application/graphql-response+json` and legacy
+  `application/json`.
+- Correct status-code behavior for parse/validation/execution failures under
+  both media types.
+- GET query encoding and mutation-over-GET `405`.
+- Strict request parameter handling: `query`, `operationName`, `variables`,
+  `extensions`.
+- `GraphQLHttpComplianceTest`.
+- Optional local run of the official `graphql-http` audit suite where feasible.
+
+Effort: ~3 days.
+
+### Phase 6 - Typed Resolver Mapping
+
+**Goal:** GraphQL arguments, input objects, output objects, scalars, enums,
+interfaces, unions, and nullability map to ScalaScript types.
+
+Tasks:
+
+- `GraphQL.scalar[A]` codecs.
+- Typed resolver builder keyed by schema coordinates.
+- Input object -> case class decoding.
+- Output object -> case class / source object encoding.
+- Enum mapping.
+- Interface/union type resolution.
+- `@oneOf` input mapping.
+- Typed diagnostics when resolver signatures do not match SDL.
+- `examples/graphql-typed-resolvers.ssc`.
+
+Effort: ~5 days.
+
+### Phase 7 - Typed Client Operations And Codegen
+
+**Goal:** frontend and backend clients can call GraphQL with typed variables
+and typed response data.
+
+Tasks:
+
+- `graphql` operation fenced blocks.
+- Operation validation against local SDL or committed introspection schema.
+- Generated operation models for variables/data.
+- Typed `graphqlQuery[A]` and `graphqlSubscribe[A]`.
+- Browser/React/Electron client support through the existing frontend build
+  paths.
+- `examples/graphql-typed-client/`.
+
+Effort: ~5 days.
+
+### Phase 8 - Persisted Operations / APQ
+
+**Goal:** production clients can ship operation hashes/manifests instead of
+arbitrary query text.
+
+Tasks:
+
+- `emit-graphql-operations` CLI.
+- Deterministic manifest format with operation hash, name, type, variables, and
+  data model.
+- Server `persistedOnly` mode.
+- APQ-compatible negotiation mode as an option.
+- Contract tests for allowed/unknown/mismatched hashes.
+
+Effort: ~3 days.
+
+### Phase 9 - DataLoader And Batching
+
+**Goal:** N+1 mitigation is built into the GraphQL ergonomics.
+
+Tasks:
+
+- Request-scoped typed DataLoader registry.
+- Sync/async batch functions.
+- Integration with resolver context.
+- Metrics for batch size, hit/miss, latency.
+- Tests for batching, cache isolation, failures, and partial responses.
+
+Effort: ~4 days.
+
+### Phase 10 - Security, Limits, And Observability
+
+**Goal:** GraphQL servers have production controls by default.
+
+Tasks:
+
+- Introspection policy.
+- Depth, complexity, alias, token, variable, and body-size limits.
+- Resolver timeout and cancellation.
+- Auth principal injection and field-level auth helpers.
+- Error redaction and `extensions.code`.
+- Structured metrics/tracing/logging.
+- Tests for each limit and redaction mode.
+
+Effort: ~5 days.
+
+### Phase 11 - Schema Export, Import, Diff, And Contract Tests
+
+**Goal:** GraphQL contracts can be reviewed and tested in CI.
+
+Tasks:
+
+- `emit-graphql-schema --format sdl|introspection`.
+- `import-graphql-schema` from SDL or introspection JSON.
+- `diff-graphql old new` compatibility classifier.
+- `test-graphql` operation fixtures against local handlers.
+- Profile-aware schema export/diff.
+- `examples/graphql-contract-tests/`.
+
+Effort: ~4 days.
+
+### Phase 12 - Federation, Stitching, And Gateway Plugins
+
+**Goal:** larger deployments can compose multiple GraphQL services without
+putting federation into the base plugin.
+
+Tasks:
+
+- `runtime/std/graphql-federation-plugin/` optional plugin.
+- Federation v2 directive passthrough and subgraph SDL export.
+- Gateway/stitching exploration document.
+- Compatibility with typed resolver coordinates and schema diffing.
+
+Effort: ~6 days.
+
+### Phase 13 - Additional Realtime And Incremental Delivery
+
+**Goal:** support non-WebSocket realtime delivery where it is useful and
+well-supported by engines.
+
+Tasks:
+
+- SSE subscription adapter.
+- Multipart incremental response adapter.
+- Engine feature checks for incremental delivery directives.
+- Backpressure/cancellation tests.
+- AsyncAPI companion export for realtime transport surfaces where appropriate.
+
+Effort: ~5 days.
 
 ---
 
-## 6. Testing strategy
+## 8. Testing Strategy
 
 | Phase | Tests | Kind |
-|-------|-------|------|
-| 1 | `GraphQLIntrinsicsTest` (10+) | Interpreter unit |
-| 2 | Async resolver test, JS codegen shape (6+) | Interpreter + codegen |
-| 3 | Subscription lifecycle (5+) | Interpreter integration |
-| 4 | `GraphQLSchemaCheckTest` (6+) | Compiler unit |
+|---|---|---|
+| 1 | `GraphQLIntrinsicsTest` (10+) | Interpreter + HTTP unit |
+| 2 | Async resolver, dynamic client, JS codegen shape | Interpreter + codegen |
+| 3 | Subscription lifecycle and cancellation | Integration |
+| 4 | `GraphQLSchemaCheckTest` (6+) | Compiler/LSP diagnostics |
+| 5 | `GraphQLHttpComplianceTest`, optional `graphql-http` audit | Protocol |
+| 6 | Typed resolver signature and codec tests | Type mapping |
+| 7 | Operation validation and typed client round-trips | Compiler + runtime |
+| 8 | Persisted operation manifest/hash tests | CLI + runtime |
+| 9 | DataLoader batch/cache/failure tests | Runtime |
+| 10 | Limits/auth/redaction/metrics tests | Runtime + security |
+| 11 | Schema export/import/diff/fixture tests | CLI + contract |
+| 12 | Federation plugin smoke tests | Plugin integration |
+| 13 | SSE/multipart lifecycle tests | Integration |
 
-No end-to-end browser tests in CI. Manual smoke with Apollo Sandbox
-(`https://studio.apollographql.com/sandbox`) against a running `ssc run`
-server is sufficient for Phase 1–3 acceptance.
-
----
-
-## 7. Open questions
-
-1. **`graphql-java` version pinning**: pin to the latest stable LTS at
-   vendor time (22.x as of this writing; verify before Phase 1 starts).
-   Major versions break resolver API; pin explicitly and document upgrade path.
-
-2. **Introspection in production**: disable by default with
-   `production = true` flag, or require explicit opt-out?
-   Recommendation: disabled when `SSC_ENV=production` or `production = true`
-   flag; enabled otherwise. Matches industry convention.
-
-3. **Schema-first vs code-first long-term**: Phase 1–4 are schema-first
-   (SDL in `graphql` block). A future code-first DSL
-   (`object QueryType extends GraphQLObject { val user = field[User]("user") { ... } }`)
-   would derive SDL from ScalaScript types. Deferred — schema-first covers
-   the majority case and is easier to onboard.
-
-4. **DataLoader (N+1 batching)**: graphql-java has built-in DataLoader support.
-   Should we expose it in the resolver surface?
-   Recommendation: defer to a Phase 5 library concern. Phase 1–3 resolvers
-   execute per-field synchronously; N+1 is the user's responsibility for now.
-   Add `GraphQL.dataLoader(batchFn)` in Phase 5 when demand surfaces.
-
-5. **Federation**: Apollo Federation v2 schema directives + subgraph protocol.
-   Explicitly out of scope for this milestone. A downstream
-   `scalascript-graphql-federation` plugin can add it later.
-
-6. **Error extensions**: graphql-java propagates Java exceptions as
-   `{ "message": "...", "locations": [...], "path": [...] }`.
-   Should we add `extensions: { "code": "..." }` for typed errors?
-   Recommendation: expose `GraphQLError(message, code)` as a throw-able type
-   in Phase 2.
-
-7. **Plugin-loading order**: when the user loads both `graphql-plugin` and
-   `http-plugin`, ServiceLoader order is classpath-dependent. The
-   `graphqlBlockRunner` slot and `graphqlMount` (which calls the existing
-   `route()` server) must be set up before `serveGraphQL` is called. Phase 1
-   must verify that `Interpreter.installPlugins` sequences these correctly and
-   document any ordering constraint in `GraphQLPlugin.description`.
-
-8. **Plugin jar size budget**: `graphql-java` + Reactive Streams adapter +
-   a JSON library totals ≥ 12 MB. The base `ssc` binary stays clean (graphql
-   is loaded only via `//> using dep "pkg:graphql"`), but users loading it in a
-   serverless / GraalVM native-image context should expect a size increase.
-   Document prominently in `graphql.ssc` header and Phase 1 example.
+Manual smoke with Apollo Sandbox or GraphiQL is useful, but it is not a
+substitute for protocol and contract tests.
 
 ---
 
-## 8. Critical files
+## 9. Open Questions
+
+1. **Engine versions.** Which `graphql-java` and `graphql-js` versions best
+   match the latest stable GraphQL spec target at implementation time?
+
+2. **Typed nullability mode.** Should nullable GraphQL values always map to
+   `Option[A]`, or should dynamic/client modes allow nullable fields as
+   nullable platform values for ergonomic interop?
+
+3. **Default production posture.** Should `ssc run --production` force
+   `introspection = disabled`, `playground = disabled`, and nonzero depth/
+   complexity limits, or only warn when they are missing?
+
+4. **Operation document location.** Should client operations live in
+   `graphql` fenced blocks, `.graphql` files, or both from Phase 7?
+
+5. **Schema derivation direction.** Should code-first schema derivation be a
+   core GraphQL plugin feature or a separate `graphql-derive-plugin` once typed
+   mapping exists?
+
+6. **Federation choice.** Apollo Federation v2 is the practical ecosystem
+   target, but it is not part of the core GraphQL spec. Confirm whether the
+   first composition plugin should target Federation, schema stitching, or both.
+
+7. **Uploads.** GraphQL file uploads rely on community multipart conventions and
+   have security tradeoffs. Keep as a separate plugin unless a concrete use case
+   appears.
+
+8. **Distributed runtime integration.** For internal ScalaScript clusters,
+   decide whether GraphQL resolvers can call distributed actors/functions
+   directly with typed mapping, or whether a gateway boundary is required.
+
+---
+
+## 10. Critical Files
 
 | File | Role |
-|------|------|
-| `runtime/std/graphql-plugin/…/GraphQLPlugin.scala` | Phase 1 NEW — SPI entry |
-| `runtime/std/graphql-plugin/…/GraphQLIntrinsics.scala` | Phase 1 NEW — intrinsic table |
-| `runtime/std/graphql-plugin/…/GraphQLJvmRuntime.scala` | Phase 1 NEW — graphql-java wiring |
-| `runtime/std/graphql-plugin/…/GraphQLJsRuntime.scala` | Phase 2 NEW — graphql-js wiring |
-| `runtime/std/graphql.ssc` | Phase 1 NEW — extern declarations |
-| `lang/core/src/main/scala/scalascript/ast/Lang.scala` | Phase 1 — add `val Graphql` + `isGraphql` |
-| `runtime/backend/spi/…/Backend.scala` | Phase 1 — add `graphqlBlockRunner` SPI method |
-| `runtime/backend/interpreter/…/Interpreter.scala` | Phase 1 — install graphqlBlockRunner from plugins |
-| `runtime/backend/interpreter/…/SectionRuntime.scala` | Phase 1 — handle `Lang.isGraphql` blocks |
-| `lang/core/src/main/scala/scalascript/compiler/plugin/SourceLanguageRegistry.scala` | no change — ServiceLoader only |
-| `runtime/backend/js/…/codegen/intrinsics/Graphql.scala` | Phase 2 NEW — JS graphqlHandler codegen |
-| `runtime/backend/node/…/codegen/NodeBackend.scala` | Phase 2 — require('graphql') preamble + package.json |
-| `build.sbt` | Phase 1 — new `graphqlPlugin` subproject |
-| `examples/graphql-hello.ssc` | Phase 1 NEW |
-| `examples/graphql-client.ssc` | Phase 2 NEW |
-| `examples/graphql-subscriptions.ssc` | Phase 3 NEW |
+|---|---|
+| `runtime/std/graphql-plugin/.../GraphQLPlugin.scala` | SPI entry |
+| `runtime/std/graphql-plugin/.../GraphQLIntrinsics.scala` | Intrinsic table |
+| `runtime/std/graphql-plugin/.../GraphQLJvmRuntime.scala` | JVM engine wiring |
+| `runtime/std/graphql-plugin/.../GraphQLSourceLanguage.scala` | SDL block plugin |
+| `runtime/std/graphql-plugin/.../GraphQLHttpAdapter.scala` | HTTP protocol behavior |
+| `runtime/std/graphql-plugin/.../GraphQLSchemaValidator.scala` | SDL and operation diagnostics |
+| `runtime/std/graphql-plugin/.../GraphQLDataLoaders.scala` | Phase 9 batching |
+| `runtime/std/graphql-plugin/.../GraphQLJsRuntime.scala` | Node engine wiring |
+| `runtime/std/graphql.ssc` | User-facing extern declarations |
+| `runtime/backend/spi/.../GraphQLBlockRunner.scala` | Interpreter block SPI |
+| `runtime/backend/spi/.../Backend.scala` | Backend SPI extension |
+| `runtime/backend/interpreter/.../Interpreter.scala` | Plugin installation |
+| `runtime/backend/interpreter/.../SectionRuntime.scala` | `graphql` block dispatch |
+| `lang/core/src/main/scala/scalascript/ast/Lang.scala` | Language tag helper |
+| `runtime/backend/js/.../codegen/intrinsics/Graphql.scala` | JS intrinsic codegen |
+| `runtime/backend/node/.../codegen/NodeBackend.scala` | Node dependency/preamble |
+| `tools/cli/.../cli/Main.scala` | CLI commands |
+| `build.sbt` | Plugin subprojects |
+| `examples/graphql-hello.ssc` | Phase 1 example |
+| `examples/graphql-client.ssc` | Phase 2 example |
+| `examples/graphql-subscriptions.ssc` | Phase 3 example |
+| `examples/graphql-typed-resolvers.ssc` | Phase 6 example |
+| `examples/graphql-typed-client/` | Phase 7 example |
+| `examples/graphql-contract-tests/` | Phase 11 example |
