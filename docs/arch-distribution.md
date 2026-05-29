@@ -145,8 +145,8 @@ GitHub Releases + `github:` scheme is the zero-friction path.
 
 ### 3g. Community plugin starter template
 
-New `tools/cli/src/main/resources/templates/plugin/` directory (used by
-`ssc new --template plugin` per `arch-ssc-new.md`):
+`tools/cli/src/main/resources/templates/plugin/` directory used by
+`ssc new --template plugin` per `arch-ssc-new.md`:
 
 ```
 my-plugin/
@@ -160,6 +160,11 @@ my-plugin/
 The GitHub Actions workflow: on `push tag v*.*.*`, run `ssc package`,
 upload `*.sscpkg` as a release asset.  Users then add:
 `//> using dep "github:{owner}/{repo}@{tag}"`.
+
+Phase 4 implementation note: the template is bundled in CLI resources and
+copied by `NewProject`. Dotfiles are emitted through a template manifest mapping
+(`gitignore -> .gitignore`, `github/... -> .github/...`) so resource packaging
+works both in tests and in the assembled CLI JAR.
 
 ## 4. Migration
 
@@ -200,9 +205,12 @@ upload `*.sscpkg` as a release asset.  Users then add:
 
 ### Phase 4 — Community plugin starter template
 
-- `tools/cli/src/main/resources/templates/plugin/` directory.
-- GitHub Actions workflow template.
-- Docs: new `docs/community-plugins.md` walkthrough.
+- `tools/cli/src/main/resources/templates/plugin/` directory. ✓ Landed
+  2026-05-29.
+- GitHub Actions workflow template. ✓ Landed 2026-05-29.
+- `ssc new <name> --template plugin` minimal CLI scaffolding. ✓ Landed
+  2026-05-29.
+- Docs: new `docs/community-plugins.md` walkthrough. ✓ Landed 2026-05-29.
 
 ## 6. Testing strategy
 

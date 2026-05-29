@@ -1,6 +1,9 @@
 # `ssc new` — Project Scaffolding & Installation
 
-Status: **planned**.  Tracked as `arch-ssc-new` milestone in `BACKLOG.md`.
+Status: **partially implemented**. The plugin template path
+(`ssc new <name> --template plugin`) landed with `arch-distribution-p4` on
+2026-05-29. App/lib templates and standalone installation remain tracked as
+`arch-ssc-new` milestones in `BACKLOG.md`.
 Companion: [`docs/arch-sbt-plugin.md`](arch-sbt-plugin.md),
 [`docs/arch-distribution.md`](arch-distribution.md).
 
@@ -58,6 +61,9 @@ templates/
   web-app/      -- browser frontend (JS backend)
   wasm-app/     -- WASM target
 ```
+
+Implementation note: `plugin/` is currently implemented. Other template IDs in
+this section remain planned.
 
 Each template includes at minimum:
 ```

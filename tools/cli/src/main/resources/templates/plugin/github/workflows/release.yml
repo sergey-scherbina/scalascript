@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: coursier/setup-action@v1
+        with:
+          apps: ssc
+      - uses: sbt/setup-sbt@v1
+      - run: sbt package
+      - run: |
+          mkdir -p plugin/intrinsics dist
+          cp target/scala-*/${name}_*.jar plugin/intrinsics/${name}.jar
+          ssc plugin pack plugin -o dist/${name}.sscpkg
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${name}.sscpkg

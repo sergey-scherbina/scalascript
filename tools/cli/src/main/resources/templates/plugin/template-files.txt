@@ -1,0 +1,10 @@
+README.md
+gitignore -> .gitignore
+build.sbt
+project/build.properties
+src/main/scala/${packagePath}/${Name}.scala
+src/main/scala/${packagePath}/${Name}Intrinsics.scala
+src/main/resources/META-INF/services/scalascript.backend.spi.Backend
+plugin/manifest.yaml
+plugin/sources/index.ssc
+github/workflows/release.yml -> .github/workflows/release.yml

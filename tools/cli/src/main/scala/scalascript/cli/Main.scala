@@ -118,6 +118,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "render"              => renderCommand(args.tail)
     case "build"               => buildCommand(args.tail)
     case "bundle"              => bundleCommand(args.tail)
+    case "new"                 => newCommand(args.tail)
     case "plugin"              => pluginCommand(args.tail)
     case "install"             =>
       // No args or --prefix flag → install ssc itself; otherwise → plugin install shortcut.
@@ -511,6 +512,8 @@ def printUsage(): Unit =
     |                         imports into a .sscpkg zip archive.  External imports
     |                         (above the entry directory) are flattened into
     |                         `_external/` with path references rewritten.
+    |  new <name> --template plugin
+    |                         Create a ScalaScript community plugin starter project.
     |  install [--prefix <dir>]
     |                         Install ssc to a system prefix (default: ~/.local).
     |                         Copies runtime libs and std/ to <prefix>/lib/ssc/,
@@ -2577,6 +2580,21 @@ def pluginCommand(args: List[String]): Unit =
       System.exit(1)
     case Nil =>
       System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
+      System.exit(1)
+
+def newCommand(args: List[String]): Unit =
+  args match
+    case name :: rest =>
+      try
+        val opts = NewProject.parseOptions(rest)
+        val dir = NewProject.create(name, opts.template, opts.outputDir)
+        println(s"Created ${opts.template} project: $dir")
+      catch
+        case e: Exception =>
+          System.err.println(s"ssc new: ${e.getMessage}")
+          System.exit(1)
+    case Nil =>
+      System.err.println("Usage: ssc new <name> [--template plugin] [--output-dir <dir>]")
       System.exit(1)
 
 /** Find the "project" `.ssc` file for the current directory.

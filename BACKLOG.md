@@ -243,9 +243,12 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   publish to Maven Central, sbt Plugin Portal, or other official centralized
   repositories.  Spec: `docs/arch-distribution.md §5 Phase 3`.
 
-- [ ] **arch-distribution-p4** — Community plugin starter template:
+- [x] **arch-distribution-p4** — Community plugin starter template:
   `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`;
   new `docs/community-plugins.md`.  Spec: `docs/arch-distribution.md §5 Phase 4`.
+  Landed 2026-05-29: bundled plugin template resources, `NewProject`
+  scaffolder, `ssc new <name> --template plugin`, release workflow,
+  community plugin guide, and CLI template unit test.
 
 ### Theme D — sbt-scalascript plugin completion
 

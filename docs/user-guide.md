@@ -2097,12 +2097,17 @@ repositories can be supplied with `ssc.coursier.repositories` or
 ### Plugin System
 
 ```bash
+ssc new my-plugin --template plugin
 ssc plugin install ./my-plugin.sscpkg   # install from file
 ssc plugin install org.example/mylib   # install from registry
 ssc plugin list
 ssc plugin uninstall mylib
 ssc plugin pack src/                    # create .sscpkg from source
 ```
+
+The plugin template creates a minimal Backend SPI project, `.sscpkg` package
+manifest, extern source declarations, and a GitHub Actions release workflow.
+See `docs/community-plugins.md`.
 
 ### Separate Compilation
 

@@ -77,7 +77,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-distribution-p2** — Coursier wiring + JitPack: `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as thin Coursier repo wrapper; tests with embedded local Maven fixture. Spec: `docs/arch-distribution.md §5 Phase 2`. ✓ Landed 2026-05-29: Maven-shaped `dep:` coordinates dispatch to Coursier command wiring, legacy `dep:org/name:version` remains on dep-sources, `jitpack:` enables the JitPack repository, and fake-Coursier tests cover a local Maven-layout fixture.
 
-- [ ] **arch-distribution-p4** — Community plugin starter template: `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`; new `docs/community-plugins.md`. Spec: `docs/arch-distribution.md §5 Phase 4`.
+- [x] **arch-distribution-p4** — Community plugin starter template: `templates/plugin/` with GitHub Actions release workflow; `ssc new --template plugin`; new `docs/community-plugins.md`. Spec: `docs/arch-distribution.md §5 Phase 4`. ✓ Landed 2026-05-29: bundled plugin template resources, `NewProject` scaffolder, `ssc new <name> --template plugin`, release workflow, community plugin guide, and CLI template unit test.
 
 ### Theme D — sbt-scalascript plugin completion
 
