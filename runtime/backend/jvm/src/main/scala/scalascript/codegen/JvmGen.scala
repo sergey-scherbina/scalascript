@@ -3692,15 +3692,17 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // `_bind` will unwrap).
       s"def ${d.name.value}$params: Any = ${emitCpsExpr(d.body)}"
 
-    // val/var with effect-using rhs: transform rhs via emitExpr, which routes
-    // `handle(...)` to its CPS rewrite.
-    case Defn.Val(mods, pats, tpe, rhs) if termNeedsCustomEmit(rhs) =>
+    // val/var: always run rhs through emitExpr so constant folding applies
+    // even for non-effectful RHS (e.g. `val x = 1 + 2` folds to `val x = 3`).
+    // emitExpr routes effectful terms via emitExprDeep and falls back to
+    // term.syntax for anything it doesn't special-case.
+    case Defn.Val(mods, pats, tpe, rhs) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
       val tpeStr = tpe.map(t => s": ${t.syntax}").getOrElse("")
       s"${modStr}val $patsStr$tpeStr = ${emitExpr(rhs)}"
-    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) if termNeedsCustomEmit(rhs) =>
+    case Defn.Var.After_4_7_2(mods, pats, tpe, rhs: Term) =>
       val mod = mods.map(_.syntax).mkString(" ")
       val modStr = if mod.isEmpty then "" else mod + " "
       val patsStr = pats.map(_.syntax).mkString(", ")
@@ -4314,6 +4316,25 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val argStrs  = args.map(a => emitExpr(a.asInstanceOf[Term]))
       scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).get.jvmEmit(partStrs, argStrs)
 
+    // Constant folding: if(true)/if(false) branch elimination.
+    // Applied before termNeedsCustomEmit so even simple dead branches are dropped.
+    case t: Term.If =>
+      t.cond match
+        case Lit.Boolean(true)  => emitExpr(t.thenp)
+        case Lit.Boolean(false) => t.elsep match
+          case Lit.Unit() => "()"
+          case e          => emitExpr(e)
+        case _ if termNeedsCustomEmit(t) => emitExprDeep(t)
+        case _                           => t.syntax
+
+    // Constant folding: literal-only binary arithmetic/comparison/logic.
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.length == 1 =>
+      foldConstantScala(lhs, op.value, argClause.values.head.asInstanceOf[Term]) match
+        case Some(folded) => folded
+        case None =>
+          if termNeedsCustomEmit(term) then emitExprDeep(term) else term.syntax
+
     // If the term has nested effect or Focus / Prism content, walk children.
     case _ if termNeedsCustomEmit(term) => emitExprDeep(term)
 
@@ -4585,7 +4606,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       sb2.append("}")
       sb2.toString
     case t: Term.If =>
-      s"if ${emitExpr(t.cond)} then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
+      t.cond match
+        case Lit.Boolean(true)  => emitExpr(t.thenp)
+        case Lit.Boolean(false) => t.elsep match
+          case Lit.Unit() => "()"
+          case e          => emitExpr(e)
+        case _ => s"if ${emitExpr(t.cond)} then ${emitExpr(t.thenp)} else ${emitExpr(t.elsep)}"
     case ta: Term.ApplyType if isPrismApplyType(ta) =>
       emitPrism(ta)
     case app: Term.Apply =>
@@ -4603,16 +4629,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           val args = app.argClause.values.map(emitExpr).mkString(", ")
           s"$f($args)"
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val l = emitExpr(lhs)
-      val r = argClause.values.map(emitExpr).mkString(", ")
-      op.value match
-        // v1.6 actors: `pid ! msg` always lowers to Actor.send.
-        case "!" => s"Actor.send($l, $r)"
-        // Arithmetic / comparison: operands may be Any (e.g. Async.await result),
-        // so delegate to the same _binOp helper used in CPS context.
-        case "+" | "-" | "*" | "/" | "%" |
-             "<" | ">" | "<=" | ">="    => s"""_binOp("${op.value}", $l, $r)"""
-        case other                      => s"$l $other $r"
+      val args = argClause.values
+      val constResult =
+        if args.length == 1 then foldConstantScala(lhs, op.value, args.head.asInstanceOf[Term]) else None
+      constResult.getOrElse {
+        val l = emitExpr(lhs)
+        val r = args.map(v => emitExpr(v.asInstanceOf[Term])).mkString(", ")
+        op.value match
+          // v1.6 actors: `pid ! msg` always lowers to Actor.send.
+          case "!" => s"Actor.send($l, $r)"
+          // Arithmetic / comparison: operands may be Any (e.g. Async.await result),
+          // so delegate to the same _binOp helper used in CPS context.
+          case "+" | "-" | "*" | "/" | "%" |
+               "<" | ">" | "<=" | ">="    => s"""_binOp("${op.value}", $l, $r)"""
+          case other                      => s"$l $other $r"
+      }
     case Term.Select(qual, name) =>
       s"${emitExpr(qual)}.${name.value}"
     case other => other.syntax
@@ -4772,6 +4803,66 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   // The CPS transform converts direct-style ssc code to monadic-style Scala
   // that builds a Free tree at runtime.  Pure sub-expressions stay as-is;
   // function calls and effect ops are threaded through `_bind`.
+
+  /** Try to evaluate a binary infix expression at compile time.
+   *  Returns Some(scala) when both operands are literals and the op is foldable.
+   *  The returned string is valid Scala 3 source for the folded literal value.
+   */
+  private def foldConstantScala(lhs: Term, op: String, rhs: Term): Option[String] =
+    def escStr(s: String): String =
+      "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+                .replace("\r", "\\r").replace("\t", "\\t") + "\""
+    (lhs, rhs) match
+      case (Lit.Int(a), Lit.Int(b)) => op match
+        case "+"  => Some((a + b).toString)
+        case "-"  => Some((a - b).toString)
+        case "*"  => Some((a * b).toString)
+        case "/"  if b != 0 => Some((a / b).toString)
+        case "%"  if b != 0 => Some((a % b).toString)
+        case "<"  => Some((a < b).toString)
+        case ">"  => Some((a > b).toString)
+        case "<=" => Some((a <= b).toString)
+        case ">=" => Some((a >= b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.Long(a), Lit.Long(b)) => op match
+        case "+"  => Some(s"${a + b}L")
+        case "-"  => Some(s"${a - b}L")
+        case "*"  => Some(s"${a * b}L")
+        case "/"  if b != 0 => Some(s"${a / b}L")
+        case "%"  if b != 0 => Some(s"${a % b}L")
+        case "<"  => Some((a < b).toString)
+        case ">"  => Some((a > b).toString)
+        case "<=" => Some((a <= b).toString)
+        case ">=" => Some((a >= b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.Double(as), Lit.Double(bs)) =>
+        // Lit.Double.value is a String in scalameta 4.x
+        val a = as.toDouble; val b = bs.toDouble
+        op match
+          case "+"  => Some((a + b).toString)
+          case "-"  => Some((a - b).toString)
+          case "*"  => Some((a * b).toString)
+          case "/"  => Some((a / b).toString)
+          case "<"  => Some((a < b).toString)
+          case ">"  => Some((a > b).toString)
+          case "<=" => Some((a <= b).toString)
+          case ">=" => Some((a >= b).toString)
+          case "==" => Some((a == b).toString)
+          case "!=" => Some((a != b).toString)
+          case _    => None
+      case (Lit.Boolean(a), Lit.Boolean(b)) => op match
+        case "&&" => Some((a && b).toString)
+        case "||" => Some((a || b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.String(a), Lit.String(b)) if op == "+" =>
+        Some(escStr(a + b))
+      case _ => None
 
   private def isSimpleCps(t: Term): Boolean = t match
     case _: Lit                                  => true

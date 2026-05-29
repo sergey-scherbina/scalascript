@@ -221,14 +221,12 @@ Candidate groupings to split: effects runtime, actor runtime, MCP
 runtime, Dataset runtime.  A module with no actors should not include
 `_actorSpawn` et al.
 
-### 4b. Constant folding in JsGen / JvmGen
+### 4b. Constant folding in JsGen / JvmGen ✅ DONE (opt-const-fold, 2026-05-29)
 
-**Effort: ~3 days. Impact: output quality.**
-
-Expressions like `val x = 1 + 2` should emit `val x = 3` rather than
-`1 + 2`.  Similarly `if true then a else b` → `a`.  The typer already
-evaluates `compiletime.constValue` — extend this to the codegen phase
-for common arithmetic and boolean constants.
+Expressions like `val x = 1 + 2` now emit `const x = 3` in JS output
+and fold in the JvmGen effectful CPS path (avoiding `_binOp` dispatch).
+`if(true/false)` with literal condition eliminates the dead branch.
+Unary `-`/`!` on literals also fold. 36 new tests.
 
 ---
 

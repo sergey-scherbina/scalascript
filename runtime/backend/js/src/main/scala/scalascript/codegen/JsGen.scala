@@ -9833,14 +9833,21 @@ class JsGen(
       if stats.isEmpty then "undefined"
       else genBlockAsIife(stats)
 
-    // If/else
+    // If/else — short-circuit when condition is a boolean literal
     case t: Term.If =>
-      val cond = genExpr(t.cond)
-      val thenp = genExpr(t.thenp)
-      val elsep = t.elsep match
-        case Lit.Unit() => "undefined"
-        case e          => genExpr(e)
-      s"($cond ? $thenp : $elsep)"
+      t.cond match
+        case Lit.Boolean(true)  => genExpr(t.thenp)
+        case Lit.Boolean(false) =>
+          t.elsep match
+            case Lit.Unit() => "undefined"
+            case e          => genExpr(e)
+        case _ =>
+          val cond  = genExpr(t.cond)
+          val thenp = genExpr(t.thenp)
+          val elsep = t.elsep match
+            case Lit.Unit() => "undefined"
+            case e          => genExpr(e)
+          s"($cond ? $thenp : $elsep)"
 
     // String interpolation
     case Term.Interpolate(Term.Name(prefix), parts, args)
@@ -10494,46 +10501,60 @@ class JsGen(
 
     // Infix
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val lhsJs = genExpr(lhs)
       val args = argClause.values
-      val rhsJs = if args.length == 1 then genExpr(args.head) else args.map(genExpr).mkString(", ")
-      op.value match
-        case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
-        case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
-        case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
-        case "++" | ":::" => s"_tupleConcat($lhsJs, ${genExpr(args.head)})"
-        // HTML DSL: `attr.cls := "hero"` builds an Attr object.
-        case ":=" => s"_attr($lhsJs, $rhsJs)"
-        // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
-        case "!" => s"Actor.send($lhsJs, $rhsJs)"
-        case "->" =>
-          s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
-        case "*" =>
-          if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
-          else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
-        case "==" => s"($lhsJs === $rhsJs)"
-        case "!=" => s"($lhsJs !== $rhsJs)"
-        case "&&" => s"($lhsJs && $rhsJs)"
-        case "||" => s"($lhsJs || $rhsJs)"
-        case "to" =>
-          // n to m → array [n, n+1, ..., m]
-          s"_dispatch($lhsJs, 'to', [$rhsJs])"
-        case "until" =>
-          // n until m → array [n, n+1, ..., m-1]
-          s"_dispatch($lhsJs, 'until', [$rhsJs])"
-        case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
-          s"Math.trunc($lhsJs / $rhsJs)"
-        case other => s"($lhsJs $other $rhsJs)"
+      // Constant folding: both operands are compile-time literals
+      val constResult =
+        if args.length == 1 then foldConstant(lhs, op.value, args.head) else None
+      constResult.getOrElse {
+        val lhsJs = genExpr(lhs)
+        val rhsJs = if args.length == 1 then genExpr(args.head) else args.map(genExpr).mkString(", ")
+        op.value match
+          case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
+          case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
+          case "+:" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
+          case "++" | ":::" => s"_tupleConcat($lhsJs, ${genExpr(args.head)})"
+          // HTML DSL: `attr.cls := "hero"` builds an Attr object.
+          case ":=" => s"_attr($lhsJs, $rhsJs)"
+          // v1.6 actors: `pid ! msg` enqueues into the receiver's mailbox.
+          case "!" => s"Actor.send($lhsJs, $rhsJs)"
+          case "->" =>
+            s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
+          case "*" =>
+            if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
+            else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
+          case "==" => s"($lhsJs === $rhsJs)"
+          case "!=" => s"($lhsJs !== $rhsJs)"
+          case "&&" => s"($lhsJs && $rhsJs)"
+          case "||" => s"($lhsJs || $rhsJs)"
+          case "to" =>
+            // n to m → array [n, n+1, ..., m]
+            s"_dispatch($lhsJs, 'to', [$rhsJs])"
+          case "until" =>
+            // n until m → array [n, n+1, ..., m-1]
+            s"_dispatch($lhsJs, 'until', [$rhsJs])"
+          case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
+            s"Math.trunc($lhsJs / $rhsJs)"
+          case other => s"($lhsJs $other $rhsJs)"
+      }
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
     case t: Term.ApplyUnary =>
-      val argJs = genExpr(t.arg)
-      t.op.value match
-        case "!" => s"!($argJs)"
-        case "-" => s"-($argJs)"
-        case "+" => s"+($argJs)"
-        case "~" => s"~($argJs)"
-        case op  => s"/* unsupported unary $op */"
+      // Constant folding for literal operands
+      (t.op.value, t.arg) match
+        case ("-", Lit.Int(n))     => (-n).toString
+        case ("-", Lit.Long(n))    => (-n).toString
+        case ("-", Lit.Double(ns)) => (-ns.toDouble).toString
+        case ("+", Lit.Int(n))     => n.toString
+        case ("+", Lit.Long(n))    => n.toString
+        case ("!", Lit.Boolean(b)) => (!b).toString
+        case _ =>
+          val argJs = genExpr(t.arg)
+          t.op.value match
+            case "!" => s"!($argJs)"
+            case "-" => s"-($argJs)"
+            case "+" => s"+($argJs)"
+            case "~" => s"~($argJs)"
+            case op  => s"/* unsupported unary $op */"
 
     case Term.Ascribe(inner, _) =>
       genExpr(inner)
@@ -11686,3 +11707,68 @@ class JsGen(
         if Set("+", "-", "*", "/", "%").contains(op) =>
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
     case _ => false
+
+  /** Escape a string value for a JS string literal (double-quoted). */
+  private def escapeJsString(s: String): String =
+    s.replace("\\", "\\\\")
+     .replace("\"", "\\\"")
+     .replace("\n", "\\n")
+     .replace("\r", "\\r")
+     .replace("\t", "\\t")
+
+  /** Try to evaluate a binary infix expression at compile time.
+   *  Returns Some(js) when both operands are literals and the op is foldable.
+   *  Returns None when runtime evaluation is required.
+   */
+  private def foldConstant(lhs: Term, op: String, rhs: Term): Option[String] =
+    (lhs, rhs) match
+      case (Lit.Int(a), Lit.Int(b)) => op match
+        case "+"  => Some((a + b).toString)
+        case "-"  => Some((a - b).toString)
+        case "*"  => Some((a * b).toString)
+        case "/"  if b != 0 => Some((a / b).toString)
+        case "%"  if b != 0 => Some((a % b).toString)
+        case "<"  => Some((a < b).toString)
+        case ">"  => Some((a > b).toString)
+        case "<=" => Some((a <= b).toString)
+        case ">=" => Some((a >= b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.Long(a), Lit.Long(b)) => op match
+        case "+"  => Some((a + b).toString)
+        case "-"  => Some((a - b).toString)
+        case "*"  => Some((a * b).toString)
+        case "/"  if b != 0 => Some((a / b).toString)
+        case "%"  if b != 0 => Some((a % b).toString)
+        case "<"  => Some((a < b).toString)
+        case ">"  => Some((a > b).toString)
+        case "<=" => Some((a <= b).toString)
+        case ">=" => Some((a >= b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.Double(as), Lit.Double(bs)) =>
+        // Lit.Double.value is a String in scalameta 4.x
+        val a = as.toDouble; val b = bs.toDouble
+        op match
+          case "+"  => Some((a + b).toString)
+          case "-"  => Some((a - b).toString)
+          case "*"  => Some((a * b).toString)
+          case "/"  => Some((a / b).toString)
+          case "<"  => Some((a < b).toString)
+          case ">"  => Some((a > b).toString)
+          case "<=" => Some((a <= b).toString)
+          case ">=" => Some((a >= b).toString)
+          case "==" => Some((a == b).toString)
+          case "!=" => Some((a != b).toString)
+          case _    => None
+      case (Lit.Boolean(a), Lit.Boolean(b)) => op match
+        case "&&" => Some((a && b).toString)
+        case "||" => Some((a || b).toString)
+        case "==" => Some((a == b).toString)
+        case "!=" => Some((a != b).toString)
+        case _    => None
+      case (Lit.String(a), Lit.String(b)) if op == "+" =>
+        Some("\"" + escapeJsString(a + b) + "\"")
+      case _ => None
