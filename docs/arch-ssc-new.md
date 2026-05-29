@@ -130,6 +130,11 @@ In-repo source lives at `releases/coursier.json`:
 ```
 
 The `ssc.jar` produced by `sbt cli/assembly` is a self-contained fat JAR.
+For checkout-local development, `sbt cli/installBin` stages the thin launcher
+layout consumed by `bin/ssc`: `bin/lib/ssc.jar`, runtime jars, compiler jars,
+and bundled `.sscpkg` plugin archives. The deploy plugin jar is also staged in
+`bin/lib/jars/` because the CLI deploy subcommand directly references deploy
+SPI/runtime classes at startup.
 
 #### Option B — Homebrew tap (Phase 2)
 

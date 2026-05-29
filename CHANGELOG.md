@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — checkout `bin/ssc` staging fix
+
+- **fix-ssc-installbin-classpath** — `bin/ssc` in a fresh worktree failed before staging because `bin/lib/` is intentionally generated, and after `sbt cli/installBin` it failed with `NoClassDefFoundError: scalascript/compiler/plugin/deploy/DeployError`. `cli / assembly` itself was healthy. `installBin` now includes `deployPlugin / packageBin` in `bin/lib/jars/` because the CLI deploy subcommand directly references deploy SPI/runtime classes at startup; other std plugins remain lazily loaded from `.sscpkg`. Added project `.jvmopts` (`-Xmx4G`, G1) so `cli / installBin` does not OOM while compiling/staging all std plugins. Verified `bin/ssc --help` and `bin/ssc examples/hello.ssc`.
+
 ## 2026-05-29 — arch-meta-v2-p4b quoted macro interpreter parity
 
 - **arch-meta-v2-p4b** — Restricted quoted macros now have interpreter/run-path parity for the direct quoted-body subset. Parser helper lowering now carries both quoted parameter names and runtime values (`'x` → `__ssc_quote__("x", x)`, `$x` → `__ssc_splice__("x", x)`); linker/interface extraction remain backward-compatible with the old helper shape. The interpreter registers lightweight `Expr`, `QuotedContext`, `__ssc_macro__`, `__ssc_quote__`, `__ssc_quote_expr__`, and `__ssc_splice__` helpers, so direct quoted macro bodies work under `ssc run`. `Expr.asValue` returns the quoted value as `Option[A]`; `Expr.asTerm` returns an opaque `ScalaScriptTerm(name, value)`. Added `examples/quoted-macro-interpreter.ssc`, 3 interpreter tests, and updated macro/linker/parser tests.

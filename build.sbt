@@ -975,13 +975,18 @@ lazy val cli = project
       val runtimeCp = (Compile / fullClasspath).value.files
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
       val pluginJarPrefixes = allPlugins.map(_.jarPrefix).toSet
+      // The CLI deploy subcommand directly imports deploy SPI/runtime types
+      // (DeployManifest, DeployGroup, DeployError, ...). Most std plugins are
+      // loaded lazily from .sscpkg archives, but deploy must also be present on
+      // the startup classpath for the thin launcher to reach `ssc --help`.
+      val startupPluginJars = Set((deployPlugin / Compile / packageBin).value.getAbsolutePath)
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
         f.getAbsolutePath != appJar.getAbsolutePath &&
         !compilerAbsPaths.contains(f.getAbsolutePath) &&
         !isCompilerJar(f) &&
-        !isPluginJar(f)
+        (!isPluginJar(f) || startupPluginJars.contains(f.getAbsolutePath))
       }
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")

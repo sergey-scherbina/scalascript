@@ -816,6 +816,7 @@ ScalaScript can be used as a Scala 3 library via sbt:
 sbt compile      # compile all modules
 sbt test         # run unit tests
 sbt cli/assembly # produce a self-contained ssc.jar
+sbt cli/installBin # stage bin/lib so bin/ssc works from the checkout
 ```
 
 The public API surface:
