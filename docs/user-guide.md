@@ -2129,6 +2129,16 @@ The plugin template creates a minimal Backend SPI project, `.sscpkg` package
 manifest, extern source declarations, and a GitHub Actions release workflow.
 See `docs/community-plugins.md`.
 
+Source-language plugins own fenced code-block tags. The CLI bundles
+SourceLanguage plugins for `scala`, `html`, `css`, `javascript`/`js`, `xml`,
+bind-aware `sql`, and bind-aware `transaction`; list visible tags with:
+
+```bash
+ssc --list-source-languages
+```
+
+Custom fenced DSLs use the same ServiceLoader-based `SourceLanguage` SPI.
+
 The app, lib, plugin, dsl, web-app, and wasm-app templates are bundled into
 `ssc.jar`. `releases/coursier.json`, `releases/homebrew/ssc.rb`, and
 `releases/install.sh` are repository-side release inputs for standalone

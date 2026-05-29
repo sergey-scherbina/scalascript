@@ -132,66 +132,20 @@ object Normalize:
           ast.ScalaNode.fold(t)(AstToIr.toIrExpr)
         )
         ir.Content.CodeBlock(source = rewrittenSrc, body = bodyIr, span = sp.map(span))
-      else if ast.Lang.isSql(lang) then
-        // v1.26 Phase 3 — sql blocks go through the shared
-        // bind-parameter rewriter (introduced by v1.25 § 9.5 Phase
-        // C.1 as cross-target infrastructure consumed by both
-        // JVM/JDBC and Spark) to extract `${expr}` occurrences into
-        // an ordered bind list.  Only the binds are kept on the IR
-        // node — the `?`-form is recomputed by the execution layer
-        // (Phase 6) via `SqlBindRewriter.rewriteJdbc`, keeping the
-        // IR small and avoiding literal-`?` ambiguity on round-trip.
-        // The original `${expr}` / `$$` source is preserved as-is
-        // so `Denormalize` reproduces it verbatim.
-        //
-        // Malformed bind syntax (unterminated `${`, empty `${}`,
-        // bare `$`) raises `RewriteError`; we fall back to
-        // `EmbeddedBlock` so a single bad block doesn't crash the
-        // pipeline.  `CapabilityCheck` still produces
-        // `UnknownBlockLanguage` for non-JVM backends, and the
-        // execution layer re-runs the rewriter for a precise
-        // diagnostic at compile / run time.
-        try
-          val rewritten = SqlBindRewriter.rewriteJdbc(source)
-          val side = attrs.get("side") match
-            case Some("client") => ir.SqlSide.Client
-            case _              => ir.SqlSide.Server
-          ir.Content.SqlBlock(
-            source = source,
-            binds  = rewritten.binds,
-            dbName = attrs.get("db"),
-            span   = sp.map(span),
-            side   = side
-          )
-        catch case _: SqlBindRewriter.RewriteError =>
-          ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
-      else if ast.Lang.isTransaction(lang) then
-        // transaction fenced blocks: split on `;` outside `${...}`,
-        // rewrite each statement with the bind-parameter rewriter, and
-        // store as a `TransactionBlock` IR node.  A `RewriteError` on any
-        // statement falls back to `EmbeddedBlock` so one bad block doesn't
-        // abort the pipeline.
-        try
-          val stmts     = SqlBindRewriter.splitStatements(source)
-          val rewritten = stmts.map(SqlBindRewriter.rewriteJdbc)
-          ir.Content.TransactionBlock(
-            sources = stmts,
-            binds   = rewritten.map(_.binds),
-            dbName  = attrs.get("db"),
-            span    = sp.map(span)
-          )
-        catch case _: SqlBindRewriter.RewriteError =>
-          ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
       else
-        // Stage 9+/A — ask the SourceLanguage registry first.  A
-        // plugin claiming this fence tag produces the IR fragment
-        // directly; otherwise fall back to the wrapping EmbeddedBlock
-        // shape (Stage 2.1 default — kept for the still-hardcoded
-        // html / css / scala paths in codegen until 9+/B and 9+/C
-        // move them through here).
+        // Stage 9+/A — all fenced tags (html, css, javascript, sql, xml,
+        // transaction, scala, and third-party) route through the registry.
+        // Built-in tags register via META-INF/services in backendScalaSource
+        // / backendHtml / backendCss.  The fallback paths keep callers that
+        // use `core` without those JARs on the classpath working.
         SourceLanguageRegistry.lookup(lang) match
           case Some(plugin) =>
-            plugin.compileBlock(source, NormalizeScope, BackendOptions()).fragment
+            val frag = plugin.compileBlock(source, NormalizeScope, BackendOptions(), attrs).fragment
+            withSpan(frag, sp.map(span))
+          case None if ast.Lang.isSql(lang) =>
+            sqlBlock(source, attrs, sp.map(span), lang)
+          case None if ast.Lang.isTransaction(lang) =>
+            transactionBlock(source, attrs, sp.map(span), lang)
           case None =>
             ir.Content.EmbeddedBlock(language = lang, source = source, span = sp.map(span))
     case ast.Content.Import(path, bindings, sp) =>
@@ -211,6 +165,51 @@ object Normalize:
     val s1 = PrintlnRe.replaceAllIn(src,   "Console.println")
     val s2 = PrintRe.replaceAllIn(s1, "Console.print")
     s2
+
+  /** Restore the AST-level span on a plugin-produced IR fragment.
+   *  Plugins receive no span; Normalize re-applies it so diagnostics
+   *  retain source positions. */
+  private def withSpan(frag: ir.Content, sp: Option[ir.Span]): ir.Content =
+    if sp.isEmpty then frag
+    else frag match
+      case x: ir.Content.EmbeddedBlock    => x.copy(span = sp)
+      case x: ir.Content.SqlBlock         => x.copy(span = sp)
+      case x: ir.Content.TransactionBlock => x.copy(span = sp)
+      case x: ir.Content.CodeBlock        => x.copy(span = sp)
+      case other                          => other
+
+  /** Compatibility fallback for `sql` blocks when the bundled
+   *  SqlSourceLanguage is not on the classpath (e.g. `core`-only tests). */
+  private def sqlBlock(source: String, attrs: Map[String, String], sp: Option[ir.Span], lang: String): ir.Content =
+    try
+      val rewritten = SqlBindRewriter.rewriteJdbc(source)
+      val side = attrs.get("side") match
+        case Some("client") => ir.SqlSide.Client
+        case _              => ir.SqlSide.Server
+      ir.Content.SqlBlock(
+        source = source,
+        binds  = rewritten.binds,
+        dbName = attrs.get("db"),
+        span   = sp,
+        side   = side
+      )
+    catch case _: SqlBindRewriter.RewriteError =>
+      ir.Content.EmbeddedBlock(language = lang, source = source, span = sp)
+
+  /** Compatibility fallback for `transaction` blocks when
+   *  TransactionSourceLanguage is not on the classpath. */
+  private def transactionBlock(source: String, attrs: Map[String, String], sp: Option[ir.Span], lang: String): ir.Content =
+    try
+      val stmts     = SqlBindRewriter.splitStatements(source)
+      val rewritten = stmts.map(SqlBindRewriter.rewriteJdbc)
+      ir.Content.TransactionBlock(
+        sources = stmts,
+        binds   = rewritten.map(_.binds),
+        dbName  = attrs.get("db"),
+        span    = sp
+      )
+    catch case _: SqlBindRewriter.RewriteError =>
+      ir.Content.EmbeddedBlock(language = lang, source = source, span = sp)
 
   /** Minimum-viable scope handed to `SourceLanguage.compileBlock` — no
    *  cross-block visibility (single-pass typing).  Stage 9+/A.2 builds

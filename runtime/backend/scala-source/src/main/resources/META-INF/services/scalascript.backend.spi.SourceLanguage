@@ -1,1 +1,5 @@
 scalascript.source.ScalaSourceLanguage
+scalascript.source.JavaScriptSourceLanguage
+scalascript.source.XmlSourceLanguage
+scalascript.source.SqlSourceLanguage
+scalascript.source.TransactionSourceLanguage

@@ -35,6 +35,21 @@ trait SourceLanguage:
   /** Compile a single block to an IR fragment + diagnostics. */
   def compileBlock(source: String, scope: ScopeContext, opts: BackendOptions): BlockArtifact
 
+  /** Compile a single block with parsed fence attributes.
+   *
+   *  Older plugins implement the 3-argument method above.  The default
+   *  delegation keeps those plugins binary/source-compatible while built-in
+   *  languages such as `sql` can consume attributes like `db` and `side`.
+   */
+  def compileBlock(
+    source: String,
+    scope:  ScopeContext,
+    opts:   BackendOptions,
+    attrs:  Map[String, String]
+  ): BlockArtifact =
+    attrs.foreach(_ => ())
+    compileBlock(source, scope, opts)
+
 /** A symbol declared by a foreign-language block, visible to other
  *  blocks (and to scalascript) in the same module.  See §10. */
 case class SymbolExport(

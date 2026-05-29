@@ -650,17 +650,12 @@ the same. No core change needed.
 
 **Core handles only `scalascript`/`ssc` blocks** (the host embedded
 language) plus the host Markdown structure itself. Every other fence
-tag — `scala`, `html`, `css`, `wat`, `csharp`, `sql`, `python`, … —
-is the responsibility of a `SourceLanguage` plugin. Three of those
-plugins (`scala-source`, `html`, `css`) are *bundled* with the CLI
-but architecturally identical to any third-party plugin.
-
-Today's compiler hard-codes `html`/`css` blocks and the
-`html"…"`/`css"…"` interpolators across `JvmGen`, `JsGen`, and
-`Interpreter`. Phase 9 (§14) extracts them into the bundled plugins;
-the wire is already there because the parser already treats fence
-tags as opaque strings and interpolator prefixes as user-space
-identifiers.
+tag — `scala`, `html`, `css`, `javascript`, `xml`, `sql`, `wat`, `csharp`,
+`python`, … — is the responsibility of a `SourceLanguage` plugin. Bundled
+plugins for `scala`, `html`, `css`, `javascript`/`js`, `xml`, bind-aware
+`sql`, and bind-aware `transaction` ship with the CLI but are architecturally
+identical to third-party plugins. Core keeps SQL/transaction fallbacks for
+library consumers that run without those bundled plugins on the classpath.
 
 This section covers the **source-language** axis of the SPI (see §4
 intro). It is orthogonal to the **target-output** axis (`Backend`,
@@ -674,8 +669,11 @@ A plugin can implement `Backend`, `SourceLanguage`, or both:
 
 ```scala
 trait SourceLanguage:
-  /** Canonical fence tags this plugin owns: "scala", "sql", "rust", ... */
-  def languages: Set[String]
+  def id: String
+  def displayName: String
+  def spiVersion: String
+  def canonicalName: String
+  def aliases: Set[String] = Set.empty
 
   /** Prelude .ssc files this plugin contributes globally. Compiled by
    *  core before user code; symbols become visible across every
@@ -686,23 +684,29 @@ trait SourceLanguage:
   /** Pass 1: report symbols this block contributes to the module
    *  scope (§10). Bodies are NOT type-checked here. Enables forward
    *  and cyclic references between blocks. */
-  def signatures(language: String, source: String, span: Span)
-    : Either[List[Diagnostic], List[SymbolExport]]
+  def signatures(source: String, scope: ScopeContext): List[SymbolExport]
 
   /** Pass 2: type-check + lower against the now-complete module
    *  scope. Result is woven into the surrounding NormalizedModule. */
   def compileBlock(
-    language: String,
     source: String,
-    span: Span,
-    scope: ReadonlyScope,
+    scope: ScopeContext,
     opts: BackendOptions
-  ): Either[List[Diagnostic], BlockArtifact]
+  ): BlockArtifact
+
+  /** Optional attrs-aware overload. The default delegates to the 3-arg method;
+   *  plugins that care about fence attrs, such as `sql @db=... @side=...`,
+   *  override it. */
+  def compileBlock(
+    source: String,
+    scope: ScopeContext,
+    opts: BackendOptions,
+    attrs: Map[String, String]
+  ): BlockArtifact
 
 case class BlockArtifact(
-  irNode:    NormalizedNode,        // injected into NormalizedModule
-  exports:   List[SymbolExport],    // symbols this block contributes globally (§10)
-  artifacts: List[FileArtifact]     // any side-files the block produces
+  fragment:    NormalizedBlock,
+  diagnostics: List[Diagnostic] = Nil
 )
 
 case class PreludeContribution(
@@ -824,9 +828,12 @@ though the target backend would have claimed the language natively.
 | `scala`      | bundled `scala-source` `SourceLanguage`              | `EmbeddedSource(scala)` IR node |
 | `html`       | bundled `html` `SourceLanguage`                      | typed `Html` value in IR        |
 | `css`        | bundled `css` `SourceLanguage`                       | typed `Css` value in IR         |
+| `javascript` / `js` | bundled `javascript-source` `SourceLanguage`  | embedded JavaScript             |
+| `xml`        | bundled `xml-source` `SourceLanguage`                | embedded XML / markup runtime   |
+| `sql`        | bundled `sql-source` `SourceLanguage`                | bind-aware `SqlBlock` IR        |
+| `transaction`| bundled `transaction-source` `SourceLanguage`        | bind-aware `TransactionBlock` IR |
 | `wat`        | future `wasm` plugin                                 | embedded in WASM module         |
 | `csharp`     | future `dotnet` plugin                               | embedded in generated C#        |
-| `sql`        | future `sql` `SourceLanguage` plugin                 | typed query AST in IR           |
 | `python`     | future `python` plugin                               | embedded Python                 |
 | (unknown)    | `Diagnostic.UnknownBlockLanguage(tag, available)`    | —                               |
 

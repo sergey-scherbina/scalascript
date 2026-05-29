@@ -353,20 +353,27 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme F — DSL platform hooks
 
-- [ ] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration:
+- [x] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration:
   `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime /
   JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"…"` and
   `html"…"`.  Spec: `docs/arch-dsl-hooks.md §6 Phase 1`.
+  ✓ Landed 2026-05-29.
 
-- [ ] **arch-dsl-hooks-p2** — `PreprocessorRegistry`:
+- [x] **arch-dsl-hooks-p2** — `PreprocessorRegistry`:
   `Preprocessor` trait; `PreprocessorRegistry`; 5 existing preprocessors
   converted to registered instances; `Parser.parseScalaWithDiagnostic` uses it.
   Spec: `docs/arch-dsl-hooks.md §6 Phase 2`.
+  ✓ Landed 2026-05-29.
 
-- [ ] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration:
+- [x] **arch-dsl-hooks-p3** — `SourceLanguage` built-in migration:
   `html`, `css`, `sql`, `xml`, `javascript` fenced tags become
   `SourceLanguagePlugin` implementations; `Lang.scala` routing removed.
   Spec: `docs/arch-dsl-hooks.md §6 Phase 3`.
+  ✓ Landed 2026-05-29: registered bundled SourceLanguage plugins for
+  `javascript`/`js`, `xml`, bind-aware `sql`, and bind-aware `transaction`
+  alongside existing `scala`/`html`/`css`; added attrs-aware `compileBlock`
+  overload; Normalize routes through the registry with core-only
+  SQL/transaction fallbacks.
 
 - [ ] **arch-dsl-hooks-p4** — `InterpolatorCheckRegistry`:
   `InterpolatorCheck` trait; `MarkupInterpolatorCheck` migrated; plugin

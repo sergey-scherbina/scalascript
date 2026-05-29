@@ -622,6 +622,11 @@ ssc --describe-backend jvm          # capabilities + intrinsics + sources
 ssc --backend js run file.ssc       # override the per-command default
 ```
 
+Built-in fenced languages are SourceLanguage plugins too: `scala`, `html`,
+`css`, `javascript`/`js`, `xml`, bind-aware `sql`, and bind-aware
+`transaction` are visible through `--list-source-languages`. Third-party DSLs
+follow the same path.
+
 The JavaScript backend handles two block types differently:
 
 - **`scalascript` blocks** — transpiled by our custom JS transpiler (`JsGen`), which supports

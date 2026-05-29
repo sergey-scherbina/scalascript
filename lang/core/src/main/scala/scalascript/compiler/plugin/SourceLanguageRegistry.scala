@@ -10,13 +10,11 @@ import scala.jdk.CollectionConverters.*
  *  classpath, plus extension hooks for `--plugin <jar>` /
  *  `--plugin-dir <dir>`.
  *
- *  Stage 9 scope:  registry surface + skeleton.  Parser doesn't yet
- *  consult this for `scalascript`/`ssc` blocks (host language stays in
- *  core) or for `html` / `css` / `scala` blocks (still hardcoded in
- *  JvmGen / JsGen / Interpreter — Stage 9 follow-up extracts them).
- *  Third-party plugins claiming new fence tags can register today and
- *  the BackendRegistry-style API works; consumption is the missing
- *  piece. */
+ *  Host `scalascript`/`ssc` blocks stay in core. Other fenced languages
+ *  route through this registry when a plugin is visible on the classpath;
+ *  the CLI bundles plugins for `scala`, `html`, `css`, `javascript`, `xml`,
+ *  and `sql`.
+ */
 object SourceLanguageRegistry:
 
   private val extraJars = scala.collection.mutable.ListBuffer.empty[os.Path]

@@ -1,6 +1,7 @@
 # DSL Platform Hooks — Specification
 
-Status: **planned**.  Tracked as `arch-dsl-hooks` milestone in `BACKLOG.md`.
+Status: **implemented through Phase 3**.  Tracked as `arch-dsl-hooks` milestone
+in `BACKLOG.md`.
 Companion: [`docs/dsl.md`](dsl.md), [`docs/plugin-architecture.md`](plugin-architecture.md),
 [`docs/arch-stable-spi.md`](arch-stable-spi.md).
 
@@ -45,12 +46,11 @@ assigns the right `SType` instead of `SType.String`).
 
 ### 3b. Fenced language tags — in/out asymmetry
 
-Built-in tags (`html`, `css`, `sql`, `xml`, `javascript`) have hard-coded
-paths in `Parser.scala:477-496` and `Lang.scala`.  Third-party tags use
-`SourceLanguageRegistry` (per `SourceLanguage` SPI in
-`runtime/backend/spi/`), which is the right path — but the built-ins bypass
-it.  The result: a user plugin can add a new fenced language, but built-in
-languages are not an example to follow.
+Built-in tags (`html`, `css`, `sql`, `xml`, `javascript`) now register through
+`SourceLanguageRegistry` like third-party fenced languages. `sql` and
+`transaction` own bind-aware lowering in SourceLanguage implementations; the
+core normalizer keeps compatibility fallbacks only for library/test consumers
+that use `core` without the bundled SourceLanguage plugins on the classpath.
 
 ### 3c. Preprocessors — hard-coded chain
 
@@ -113,10 +113,12 @@ Existing: `SourceLanguageRegistry` + `SourceLanguage` SPI already handle
 third-party fenced languages.  Built-ins (`html`, `css`, `sql`, `xml`,
 `javascript`) have separate hard-coded paths.
 
-Change: Each built-in becomes a `SourceLanguagePlugin` class that implements
-`SourceLanguage` and registers itself via `META-INF/services`.  The
-hard-coded paths in `Parser.scala:477-496` and `Lang.scala` become a
-migration shim, deleted once all built-ins are ported.
+Change: Each built-in becomes a `SourceLanguage` class and registers itself via
+`META-INF/services`.  The implementation now covers `scala`, `html`, `css`,
+`javascript`/`js`, `xml`, bind-aware `sql`, and bind-aware `transaction`.
+`Lang.scala` helpers remain as compatibility predicates for older codegen and
+capability checks; new fenced-language routing should go through
+`SourceLanguageRegistry`.
 
 After the migration, adding `graphql` fenced blocks from an external plugin
 is identical to what `html`/`sql` do internally — there is no asymmetry.
@@ -207,9 +209,18 @@ No user-facing `.ssc` syntax changes.  Existing examples continue to work.
 ### Phase 3 — `SourceLanguage` built-in migration
 
 - `html`, `css`, `sql`, `xml`, `javascript` fenced tags become
-  `SourceLanguagePlugin` implementations.
-- `Lang.scala` and `Parser.scala:477` routing removed.
-- Tests: fenced block eval + codegen for all 5 built-in languages still pass.
+  `SourceLanguage` implementations.
+- `SourceLanguage.compileBlock` gets a backward-compatible attrs overload so
+  `sql` can preserve `@db` and `@side`.
+- `Normalize` routes built-in fenced blocks through `SourceLanguageRegistry`
+  when the bundled plugins are present, with core-only SQL/transaction
+  compatibility fallbacks.
+- `transaction` uses the same path as `sql` even though it was not part of the
+  original Phase 3 list, because it shares the same bind-aware fenced-language
+  machinery.
+- Tests: registry discovery for all built-ins, JS alias lookup, SQL and
+  transaction bind-aware dispatch, XML/JS dispatch, and legacy SQL
+  normalize/capability regression.
 
 ### Phase 4 — `InterpolatorCheckRegistry`
 
