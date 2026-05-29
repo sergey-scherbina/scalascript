@@ -372,14 +372,12 @@ object Computation:
       f(head.head) match
         case Pure(v) => buf += v; head = head.tail
         case comp    =>
-          val prefix = buf.toList
-          def loopRest(vs: List[Value], acc: List[Value]): Computation = vs match
-            case Nil => Pure(Value.ListV(prefix ++ acc.reverse))
-            case v :: rest =>
-              f(v) match
-                case Pure(rv) => loopRest(rest, rv :: acc)
-                case fc       => FlatMap(fc, rv => loopRest(rest, rv :: acc))
-          return FlatMap(comp, r => loopRest(head.tail, List(r)))
+          // Non-pure element: continue with FlatMap chain (stack-safe via trampoline)
+          val rest0 = head.tail
+          def loopRest(vs: List[Value]): Computation = vs match
+            case Nil       => Pure(Value.ListV(buf.toList))
+            case v :: rest => FlatMap(f(v), { rv => buf += rv; loopRest(rest) })
+          return FlatMap(comp, { r => buf += r; loopRest(rest0) })
     Pure(Value.ListV(buf.toList))
 
   /** Like mapSequence but iterates over a String's chars without allocating List[Char]. */
@@ -391,14 +389,11 @@ object Computation:
       f(s.charAt(i)) match
         case Pure(v) => buf += v; i += 1
         case comp    =>
-          val prefix = buf.toList
           val start  = i + 1
-          def loopRest(j: Int, acc: List[Value]): Computation =
-            if j >= s.length then Pure(Value.ListV(prefix ++ acc.reverse))
-            else f(s.charAt(j)) match
-              case Pure(rv) => loopRest(j + 1, rv :: acc)
-              case fc       => FlatMap(fc, rv => loopRest(j + 1, rv :: acc))
-          return FlatMap(comp, r => loopRest(start, List(r)))
+          def loopRest(j: Int): Computation =
+            if j >= s.length then Pure(Value.ListV(buf.toList))
+            else FlatMap(f(s.charAt(j)), { rv => buf += rv; loopRest(j + 1) })
+          return FlatMap(comp, { r => buf += r; loopRest(start) })
     Pure(Value.ListV(buf.toList))
 
   /** Like mapSequence but over an integer range [from, until) without allocating a List[Int]. */
@@ -410,14 +405,11 @@ object Computation:
       f(i) match
         case Pure(v) => buf += v; i += 1
         case comp    =>
-          val prefix = buf.toList
           val start  = i + 1
-          def loopRest(j: Int, acc: List[Value]): Computation =
-            if j >= until then Pure(Value.ListV(prefix ++ acc.reverse))
-            else f(j) match
-              case Pure(rv) => loopRest(j + 1, rv :: acc)
-              case fc       => FlatMap(fc, rv => loopRest(j + 1, rv :: acc))
-          return FlatMap(comp, r => loopRest(start, List(r)))
+          def loopRest(j: Int): Computation =
+            if j >= until then Pure(Value.ListV(buf.toList))
+            else FlatMap(f(j), { rv => buf += rv; loopRest(j + 1) })
+          return FlatMap(comp, { r => buf += r; loopRest(start) })
     Pure(Value.ListV(buf.toList))
 
   /** Like mapSequence but discards results (foreach semantics).
