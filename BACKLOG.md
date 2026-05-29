@@ -480,9 +480,10 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
 
 ### Theme G — Metaprogramming v2.x (deferred)
 
-- [ ] **arch-meta-v2-p3** — Cross-module `inline` expansion:
-  IR-level inlining in `ssc link`; prerequisite: demand from ≥3 plugin authors
-  AND arch-stable-spi + arch-distribution landed.
+- [x] **arch-meta-v2-p3** — Cross-module `inline` expansion: ✓ Landed 2026-05-29.
+  `ExportedSymbol` carries `isInline`/`inlineParamNames`/`inlineBodySource`;
+  `InterfaceExtractor` populates them; `Linker.expandInlineSource` does
+  lambda-lifting expansion in `CodeBlock.source`; 16 tests.
   Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
 
 - [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface:
