@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter two-argument apply fast path
+
+- **perf/interpreter-apply2** — Ported the two-argument `Term.Apply` fast path
+  from `perf/interpreter-opt`. Calls like `obj.method(a, b)` now bypass generic
+  argument collection when the receiver and two arguments can be evaluated
+  directly, reducing overhead in fold/reduce-style call sites.
+
 ## 2026-05-29 — interpreter dispatch1 fast path
 
 - **perf/interpreter-dispatch1** — Ported the single-argument dispatch fast path
