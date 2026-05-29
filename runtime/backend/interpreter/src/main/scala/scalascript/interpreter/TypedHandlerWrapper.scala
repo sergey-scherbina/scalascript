@@ -396,16 +396,19 @@ object TypedHandlerWrapper:
     if comma < 0 then typeName
     else typeName.substring(comma + 1).stripSuffix("]").trim
 
+  private val jsonContentType: Map[Value, Value] =
+    Map(Value.StringV("Content-Type") -> Value.StringV("application/json"))
+
   private def httpErrorResponse(status: Int, body: String): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(status),
-      "body"    -> Value.StringV(body),
-      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("application/json"))),
+    Value.InstanceV("Response", new IMap.Map3(
+      "status",  Value.intV(status),
+      "body",    Value.StringV(body),
+      "headers", Value.MapV(jsonContentType),
     ))
 
   private def httpJsonResponse(status: Int, body: String): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(status),
-      "body"    -> Value.StringV(body),
-      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV("application/json"))),
+    Value.InstanceV("Response", new IMap.Map3(
+      "status",  Value.intV(status),
+      "body",    Value.StringV(body),
+      "headers", Value.MapV(jsonContentType),
     ))
