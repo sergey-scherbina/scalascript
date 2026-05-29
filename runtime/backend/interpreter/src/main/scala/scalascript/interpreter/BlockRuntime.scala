@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import scalascript.transform.{DirectAnorm, DirectTypeUtils}
 import Computation.{Pure, FlatMap}
@@ -159,7 +160,7 @@ private[interpreter] object BlockRuntime:
       case (AsyncM,  Value.InstanceV("Left", _))                  => Pure(monadValue)
       case (EitherM, Value.OptionV(Some(inner)))                  => cont(inner)
       case (EitherM, Value.NoneV)                         =>
-        Pure(Value.InstanceV("Left", Map("value" -> Value.UnitV)))
+        Pure(Value.InstanceV("Left", new IMap.Map1("value", Value.UnitV)))
       case (OptionM, Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
       case (OptionM, Value.InstanceV("Left", _))                  => Computation.PureNone
       case (ListM | OtherM, _) | _ =>
@@ -202,7 +203,7 @@ private[interpreter] object BlockRuntime:
 
       case (t: Term.Throw) :: Nil =>
         interp.eval(t.expr, cur).flatMap { v =>
-          Pure(Value.InstanceV("Left", Map("value" -> v)))
+          Pure(Value.InstanceV("Left", new IMap.Map1("value", v)))
         }
 
       case (last: Term) :: Nil =>
@@ -237,7 +238,7 @@ private[interpreter] object BlockRuntime:
 
       case (t: Term.Throw) :: _ =>
         interp.eval(t.expr, cur).flatMap { v =>
-          Pure(Value.InstanceV("Left", Map("value" -> v)))
+          Pure(Value.InstanceV("Left", new IMap.Map1("value", v)))
         }
 
       case (t: Term) :: rest =>
