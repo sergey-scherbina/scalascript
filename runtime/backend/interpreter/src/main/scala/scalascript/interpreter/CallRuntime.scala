@@ -27,8 +27,8 @@ private[interpreter] object CallRuntime:
         f.params.length == 1 &&
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
-        f.defaults.headOption.flatten.isEmpty &&
-        f.paramTypes.headOption.forall(!_.endsWith("*")) =>
+        (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
+        (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) =>
       val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
       val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
@@ -52,8 +52,8 @@ private[interpreter] object CallRuntime:
         f.params.length == 2 &&
         f.usingParams.isEmpty &&
         !f.returnsThrows &&
-        f.defaults.headOption.flatten.isEmpty &&
-        f.paramTypes.lift(1).forall(!_.endsWith("*")) =>
+        (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
+        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) =>
       val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
       val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
       val frameName = if f.name.nonEmpty then f.name else "<anon>"

@@ -129,7 +129,7 @@ private[interpreter] object StatRuntime:
       }
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        Pure(Value.InstanceV(typeName, paramNames.zip(filled).toMap))
+        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
       })
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
@@ -173,7 +173,7 @@ private[interpreter] object StatRuntime:
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
             else Value.NativeFnV(caseName, args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              Pure(Value.InstanceV(caseName, paramNames.zip(filled).toMap))
+              Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
             })
           env(caseName) = v
           caseFields(caseName) = v
