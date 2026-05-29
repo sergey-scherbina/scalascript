@@ -1,3 +1,0 @@
-opt-const-fold: constant folding in JsGen + JvmGen codegen (4b from optimization-roadmap.md)
-Claimed: 2026-05-29
-Branch: perf/const-fold
