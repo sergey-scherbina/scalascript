@@ -440,10 +440,10 @@ private[interpreter] object DispatchRuntime:
         case Some(v) => interp.callValue1(arg, v, env).flatMap(Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).flatMap {
-          case Value.BoolV(true) => Pure(recv)
-          case _                 => Computation.PureNone
-        }
+        case Some(v) => interp.callValue1(arg, v, env) match
+          case Pure(Value.BoolV(true)) => Pure(recv)
+          case Pure(_)                 => Computation.PureNone
+          case c                       => FlatMap(c, { case Value.BoolV(true) => Pure(recv); case _ => Computation.PureNone })
       case "foreach"   => opt match
         case None    => Computation.PureUnit
         case Some(v) => Computation.mapUnit(interp.callValue1(arg, v, env))
@@ -1640,10 +1640,10 @@ private[interpreter] object DispatchRuntime:
       case "filter"    => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).flatMap {
-            case Value.BoolV(true) => Pure(recv)
-            case _                 => Computation.PureNone
-          }
+          case Some(v) => interp.callValue1(f, v, env) match
+            case Pure(Value.BoolV(true)) => Pure(recv)
+            case Pure(_)                 => Computation.PureNone
+            case c                       => FlatMap(c, { case Value.BoolV(true) => Pure(recv); case _ => Computation.PureNone })
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
         case List(f) => opt match
