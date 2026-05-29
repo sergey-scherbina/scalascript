@@ -474,6 +474,96 @@ private[interpreter] object DispatchRuntime:
       case "apply" | "charAt" => arg match
         case Value.IntV(n) => Pure(Value.charV(s.charAt(n.toInt)))
         case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "indexOf"    => arg match
+        case Value.StringV(t) => Computation.pureIntV(s.indexOf(t).toLong)
+        case Value.CharV(c)   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "codePointAt" => arg match
+        case Value.IntV(i) =>
+          if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
+          else Computation.pureIntV(s.codePointAt(i.toInt).toLong)
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "map"       =>
+        Computation.mapSequenceStr(s, c => interp.callValue1(arg, Value.charV(c), env)) match
+          case Pure(Value.ListV(items)) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
+          case Pure(_)                  => Pure(Value.StringV(s))
+          case comp                     => FlatMap(comp, {
+            case Value.ListV(items) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
+            case _                  => Pure(Value.StringV(s))
+          })
+      case "foreach"   =>
+        var i = 0
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(_) => i += 1
+            case c =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Computation.PureUnit
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), _ => restLoop(j + 1))
+              return FlatMap(c, _ => restLoop(start))
+        Computation.PureUnit
+      case "filter"    =>
+        val sb = new java.lang.StringBuilder(s.length)
+        var i = 0
+        while i < s.length do
+          val c = s.charAt(i)
+          interp.callValue1(arg, Value.charV(c), env) match
+            case Pure(Value.BoolV(true)) => sb.append(c); i += 1
+            case Pure(_)                 => i += 1
+            case comp =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Pure(Value.StringV(sb.toString))
+                else
+                  val ch = s.charAt(j)
+                  FlatMap(interp.callValue1(arg, Value.charV(ch), env), {
+                    case Value.BoolV(true) => sb.append(ch); restLoop(j + 1)
+                    case _                 => restLoop(j + 1)
+                  })
+              return FlatMap(comp, {
+                case Value.BoolV(true) => sb.append(c); restLoop(start)
+                case _                 => restLoop(start)
+              })
+        Pure(Value.StringV(sb.toString))
+      case "takeWhile" =>
+        var i = 0
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(Value.BoolV(true)) => i += 1
+            case Pure(_)                 => return Pure(Value.StringV(s.substring(0, i)))
+            case c =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Pure(Value.StringV(s))
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), {
+                  case Value.BoolV(true) => restLoop(j + 1)
+                  case _                 => Pure(Value.StringV(s.substring(0, j)))
+                })
+              return FlatMap(c, {
+                case Value.BoolV(true) => restLoop(start)
+                case _                 => Pure(Value.StringV(s.substring(0, i)))
+              })
+        Pure(recv)
+      case "dropWhile" =>
+        var i = 0
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(Value.BoolV(true)) => i += 1
+            case Pure(_)                 => return Pure(Value.StringV(s.substring(i)))
+            case c =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Computation.PureEmptyStr
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), {
+                  case Value.BoolV(true) => restLoop(j + 1)
+                  case _                 => Pure(Value.StringV(s.substring(j)))
+                })
+              return FlatMap(c, {
+                case Value.BoolV(true) => restLoop(start)
+                case _                 => Pure(Value.StringV(s.substring(i)))
+              })
+        Computation.PureEmptyStr
       case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for InstanceV: field access and class method call. */

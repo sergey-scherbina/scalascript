@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter String single-arg fast paths
+
+- **perf/interpreter-string1** — Ported `dispatchString1` higher-order string
+  fast paths from `perf/interpreter-opt`. `String.map`, `filter`, `foreach`,
+  `takeWhile`, `dropWhile`, plus one-arg `indexOf` / `codePointAt`, now avoid
+  the generic one-argument dispatch list allocation.
+
 ## 2026-05-29 — interpreter CharV ASCII pool
 
 - **perf/interpreter-char-pool** — Ported the ASCII `CharV` pool from

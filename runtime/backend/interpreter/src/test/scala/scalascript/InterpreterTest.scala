@@ -522,6 +522,18 @@ def main(): Unit =
     captured("""println("  hi  ".trim)""") shouldBe "hi"
   }
 
+  test("string char higher-order methods") {
+    captured("""
+      println("abc".map(c => c.toUpper).mkString)
+      println("abc".filter(c => c.toString != "b"))
+      println("abcde".takeWhile(c => c.toString != "d"))
+      println("abcde".dropWhile(c => c.toString != "c"))
+      var acc = ""
+      "ab".foreach(c => acc = acc + c.toString)
+      println(acc)
+    """) shouldBe "ABC\nac\nabc\ncde\nab"
+  }
+
   // ── List methods ─────────────────────────────────────────────────
 
   test("list zip") {
