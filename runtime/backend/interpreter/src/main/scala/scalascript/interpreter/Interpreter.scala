@@ -151,6 +151,7 @@ class Interpreter(
   // Effect object names detected as multi-shot by EffectAnalysis (populated in runInit).
   private[interpreter] var multiShotEffects: Set[String] = Set.empty
   private[interpreter] var sqlBlockRunner: Option[scalascript.backend.spi.SqlBlockRunner] = None
+  private[interpreter] var graphqlBlockRunner: Option[scalascript.backend.spi.GraphQLBlockRunner] = None
 
   /** Load plugin intrinsics on first use.  Called from EvalRuntime when a
    *  Term.Name lookup misses both env and globals — at that point we may have
@@ -167,6 +168,7 @@ class Interpreter(
         .toMap
     installNativeIntrinsics(pluginImpls)
     installSqlBlockRunners(plugins)
+    installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
 
   /** Install exactly the supplied in-process interpreter plugins.
@@ -183,6 +185,7 @@ class Interpreter(
         .toMap
     installNativeIntrinsics(pluginImpls)
     installSqlBlockRunners(plugins)
+    installGraphqlBlockRunners(plugins)
     BuiltinsRuntime.setupPluginCompanions(this)
     _pluginsLoaded = true
 
@@ -191,6 +194,12 @@ class Interpreter(
       case Nil => ()
       case runners =>
         sqlBlockRunner = Some(runners.last)
+
+  private def installGraphqlBlockRunners(plugins: Iterable[scalascript.backend.spi.Backend]): Unit =
+    plugins.iterator.flatMap(_.graphqlBlockRunner).toList match
+      case Nil => ()
+      case runners =>
+        graphqlBlockRunner = Some(runners.last)
 
   // ThreadLocal so concurrent generator virtual threads each get their own counter.
   private[interpreter] val _phIdxTL: ThreadLocal[Int] = ThreadLocal.withInitial(() => 0)

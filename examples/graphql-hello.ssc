@@ -1,0 +1,39 @@
+---
+name: graphql-hello
+description: Minimal GraphQL server — Hello World query
+---
+
+# GraphQL Hello World
+
+A minimal GraphQL API that serves a single `hello` query.
+
+Run with: `ssc run examples/graphql-hello.ssc`
+
+Then query:
+```sh
+curl -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ hello }"}'
+```
+
+## Schema
+
+```graphql
+type Query {
+  hello: String!
+  greet(name: String!): String!
+}
+```
+
+## Server
+
+```scala
+val resolvers = GraphQL.resolvers(
+  query = Map(
+    "hello"  -> ((_: Map[String, Any]) => "Hello, GraphQL!"),
+    "greet"  -> ((args: Map[String, Any]) => s"Hello, ${args("name")}!"),
+  )
+)
+
+serveGraphQL(4000, resolvers)
+```

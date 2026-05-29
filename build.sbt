@@ -1011,6 +1011,7 @@ lazy val cli = project
         (pwaPlugin             / packagePlugin).value,
         (streamsPlugin         / packagePlugin).value,
         (dstreamsPlugin        / packagePlugin).value,
+        (graphqlPlugin         / packagePlugin).value,
         (deployPlugin          / packagePlugin).value,
         (paymentRequestPlugin  / packagePlugin).value,
         (paymentsPlugin        / packagePlugin).value,
@@ -2511,6 +2512,22 @@ lazy val dstreamsPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.dstreams"))
 
+// ── GraphQL — interpreter plugin (Phase 1) ────────────────────────────────
+lazy val graphqlPlugin = project
+  .in(file("runtime/std/graphql-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .settings(
+    name := "scalascript-graphql-plugin",
+    libraryDependencies ++= Seq(
+      "com.graphql-java" % "graphql-java" % "22.3",
+      "com.lihaoyi"     %% "ujson"        % "4.4.2",
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.graphql"))
+
 // ── Deploy — CLI-time plugin ───────────────────────────────────────────────
 lazy val deployPlugin = project
   .in(file("runtime/std/deploy-plugin"))
@@ -2624,6 +2641,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("pwa",             pwaPlugin,             "scalascript-pwa-plugin"),
   PluginSpec("streams",         streamsPlugin,         "scalascript-streams-plugin"),
   PluginSpec("dstreams",        dstreamsPlugin,        "scalascript-dstreams-plugin"),
+  PluginSpec("graphql",         graphqlPlugin,         "scalascript-graphql-plugin"),
   PluginSpec("deploy",          deployPlugin,          "scalascript-deploy-plugin"),
   PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin"),
   PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),

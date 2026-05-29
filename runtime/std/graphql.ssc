@@ -1,0 +1,71 @@
+---
+name: std-graphql
+version: 0.1.0
+description: GraphQL server — schema-first SDL, resolver DSL, serveGraphQL
+package: std.graphql
+exports:
+  - GraphQL
+  - GraphQLSchema
+  - GraphQLResolvers
+  - serveGraphQL
+  - graphqlMount
+  - graphqlHandler
+---
+
+# `std.graphql` — GraphQL Server
+
+Schema-first GraphQL server backed by `graphql-java` (JVM) and `graphql-js` (Node target).
+Companion to [`docs/graphql.md`](../../docs/graphql.md).
+
+```scala
+// ── Opaque type aliases (erased at runtime) ─────────────────────────────────
+
+opaque type GraphQLSchema   = Any   // Value.Foreign("GraphQLSchema",   sdl: String)
+opaque type GraphQLResolvers = Any  // Value.Foreign("GraphQLResolvers", GraphQLResolvers)
+
+// ── Schema DSL ───────────────────────────────────────────────────────────────
+
+object GraphQL:
+  /** Parse and validate a GraphQL SDL string.
+   *  Returns an opaque `GraphQLSchema` value. */
+  extern def schema(sdl: String): GraphQLSchema
+
+  /** Collect resolver functions into an opaque `GraphQLResolvers` value.
+   *
+   *  @param query    field-name → resolver mapping for the Query type
+   *  @param mutation field-name → resolver mapping for the Mutation type
+   */
+  extern def resolvers(
+    query:    Map[String, Map[String, Any] => Any] = Map.empty,
+    mutation: Map[String, Map[String, Any] => Any] = Map.empty,
+  ): GraphQLResolvers
+
+// ── Server DSL ───────────────────────────────────────────────────────────────
+
+/** Register POST /graphql + GET /graphql, then start an HTTP server on `port`.
+ *
+ *  SDL is read from the `graphql` fenced block that appeared earlier in the
+ *  same document.  A `graphql` block must appear before `serveGraphQL` is called.
+ *
+ *  Example:
+ *  ```graphql
+ *  type Query { hello: String! }
+ *  ```
+ *  ```scalascript
+ *  val resolvers = GraphQL.resolvers(query = Map("hello" -> (_ => "world")))
+ *  serveGraphQL(4000, resolvers)
+ *  ```
+ */
+extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers): Unit
+extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers, tls: TlsContext): Unit
+
+/** Register POST /graphql + GET /graphql on the current server WITHOUT calling serve().
+ *  Use when mixing GraphQL with REST routes in one server.
+ */
+extern def graphqlMount(resolvers: GraphQLResolvers): Unit
+
+/** Return a `Request => Response` handler for manual route wiring.
+ *  Advanced — prefer `graphqlMount` or `serveGraphQL`.
+ */
+extern def graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers): Any
+```

@@ -51,6 +51,7 @@ object Lang:
   val Sql         = "sql"
   val Transaction = "transaction"
   val Xml         = "xml"
+  val Graphql     = "graphql"
 
   def isScalaScript(lang: String): Boolean =
     lang == ScalaScript || lang == Ssc
@@ -72,6 +73,9 @@ object Lang:
 
   def isXml(lang: String): Boolean =
     lang == Xml
+
+  def isGraphql(lang: String): Boolean =
+    lang == Graphql
 
   /** True for blocks whose body is a `String` value with `${expr}`
    *  interpolation (html, css, javascript). Not parsed by scalameta. */
@@ -95,7 +99,7 @@ object Lang:
    *  backend that declares `Lang.Xml` in `blockLanguages` handles
    *  them; others emit `UnknownBlockLanguage`. */
   def isOpaqueExec(lang: String): Boolean =
-    isNode(lang) || isSql(lang) || isTransaction(lang) || isXml(lang)
+    isNode(lang) || isSql(lang) || isTransaction(lang) || isXml(lang) || isGraphql(lang)
 
   /** True for opaque-exec blocks whose source is rewritten by the
    *  front-end into a `(template, binds)` pair before the backend
@@ -117,4 +121,5 @@ object Lang:
     case Sql                       => "SQL"
     case Transaction               => "SQL Transaction"
     case Xml                       => "XML"
+    case Graphql                   => "GraphQL"
     case other                     => other

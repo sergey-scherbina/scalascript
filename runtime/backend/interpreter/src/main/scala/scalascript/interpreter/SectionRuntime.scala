@@ -30,6 +30,11 @@ private[interpreter] object SectionRuntime:
         runTransactionBlock(cb, section, interp)
       case cb: Content.CodeBlock if Lang.isXml(cb.lang) =>
         runXmlBlock(cb, section, interp)
+      case cb: Content.CodeBlock if Lang.isGraphql(cb.lang) =>
+        interp.ensurePluginsLoaded()
+        interp.graphqlBlockRunner.getOrElse(
+          throw InterpretError("No GraphQL block runner installed — add graphql-plugin to the interpreter classpath")
+        ).registerSdl(cb.source)
       case imp: Content.Import =>
         runImport(imp, interp)
       case _ => ()

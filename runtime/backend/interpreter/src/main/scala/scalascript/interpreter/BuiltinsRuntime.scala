@@ -872,6 +872,13 @@ private[interpreter] object BuiltinsRuntime:
       "Random"       -> Value.InstanceV("RoutingPolicy.Random", Map.empty),
       "Broadcast"    -> Value.InstanceV("RoutingPolicy.Broadcast", Map.empty),
     ))
+    // graphql-plugin — GraphQL companion object
+    interp.globals.get("GraphQL.schema").foreach { schemaFn =>
+      interp.globals("GraphQL") = Value.InstanceV("GraphQL", Map(
+        "schema"    -> schemaFn,
+        "resolvers" -> interp.globals.getOrElse("GraphQL.resolvers", Value.UnitV),
+      ))
+    }
 
   /** Invoke an interpreter Value (closure or native fn) from outside —
    *  used by WebServer to call route handlers in response to HTTP requests. */
