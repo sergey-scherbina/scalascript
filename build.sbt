@@ -30,21 +30,6 @@ val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
 val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 val scalatestTest       = "org.scalatest" %% "scalatest" % "3.2.18" % Test
 
-// CI classpath guard: plugin subprojects must not have interpreter internals on Compile classpath.
-val pluginBoundaryCheck: Def.Setting[?] = (Compile / compile) := {
-  val cp = (Compile / fullClasspath).value
-  val bad = cp.files.filter { f =>
-    val name = f.getName
-    name.contains("scalascript-backend-interpreter") && !name.contains("spi")
-  }
-  if bad.nonEmpty then
-    throw new RuntimeException(
-      s"Plugin boundary violation: interpreter JAR(s) on Compile classpath: ${bad.map(_.getName).mkString(", ")}\n" +
-      "Plugin subprojects must not depend on scalascript-backend-interpreter directly."
-    )
-  (Compile / compile).value
-}
-
 val javafxVersion: String = "21.0.5"
 val javafxClassifier: String = {
   val os   = Option(System.getProperty("os.name")).getOrElse("").toLowerCase
@@ -789,11 +774,23 @@ lazy val compilerDriver = project
 // sbt-proguard is used ONLY for config generation + ProGuard JAR resolution;
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
 val shrinkJar     = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
-val installBin    = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
-val packagePlugin = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
+val installBin           = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
+val packagePlugin        = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
+val checkPluginBoundary  = taskKey[Unit]("CI: assert no interpreter JAR is on the plugin Compile classpath")
 
 def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
-  pluginBoundaryCheck,
+  checkPluginBoundary := {
+    val cp  = (Compile / fullClasspath).value
+    val bad = cp.files.filter { f =>
+      val n = f.getName
+      n.contains("scalascript-backend-interpreter") && !n.contains("spi")
+    }
+    if (bad.nonEmpty)
+      throw new RuntimeException(
+        s"Plugin boundary violation: interpreter JAR on Compile classpath: ${bad.map(_.getName).mkString(", ")}" +
+        " — plugin subprojects must not depend on scalascript-backend-interpreter directly."
+      )
+  },
   packagePlugin := {
     val jar       = (Compile / packageBin).value
     val pkgName   = name.value.stripPrefix("scalascript-")
