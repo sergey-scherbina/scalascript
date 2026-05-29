@@ -14,6 +14,7 @@ import scalascript.transform.Normalize
 import scalascript.validate.CapabilityCheck
 import scalascript.compiler.plugin.{BackendRegistry, SourceLanguageRegistry}
 import scalascript.backend.spi.{BackendOptions, BackendTransportKind, CompileResult, Segment}
+import scalascript.backend.spi.OpenApiGenerator.OpenApiOptions
 // v2.0 separate-compilation artifact commands
 import scalascript.artifact.{InterfaceExtractor, ArtifactIO, JvmArtifactIO, JsArtifactIO}
 import scalascript.codegen.JvmGen
@@ -91,6 +92,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "repl"                => replCommand(args.tail)
     case "emit-js"             => emitJsCommand(args.tail)
     case "emit-wasm"           => emitWasmCommand(args.tail)
+    case "emit-openapi"        => emitOpenapiCommand(args.tail)
     case "emit-spa"            => emitSpaCommand(args.tail)
     case "emit-scala"          => emitScalaCommand(args.tail)
     case "emit-spark"          => emitSparkCommand(args.tail)
@@ -555,6 +557,9 @@ def printUsage(): Unit =
     |                                 jetty/netty auto-add the //> using dep directive)
     |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
     |  emit-scala             Print generated Scala 3 script to stdout
+    |  emit-openapi           Export OpenAPI 3.1 JSON/YAML without starting a server
+    |                         Flags: --format <json|yaml>, -o <file>, --title <s>,
+    |                                --version <v>, --server <url> (repeatable)
     |  emit-spark             Print generated Scala 3 + Spark program to stdout (Phase 1: local)
     |  submit                 Package .ssc as a Spark fat JAR and launch via spark-submit
     |                         Flags: --spark-master <url>, --spark-version <v>, --dry-run
@@ -4823,6 +4828,103 @@ def emitWasmCommand(args: List[String]): Unit =
       catch case e: Exception =>
         System.err.println(s"WASM generation error: ${e.getMessage}")
         System.exit(1)
+
+def emitOpenapiCommand(args: List[String]): Unit =
+  var outputArg: Option[String] = None
+  var formatArg: Option[String] = None
+  var title: String = "ScalaScript API"
+  var version: String = "1.0.0"
+  val servers = scala.collection.mutable.ArrayBuffer.empty[String]
+  val files = scala.collection.mutable.ArrayBuffer.empty[String]
+
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "-o" | "--output" if it.hasNext =>
+        outputArg = Some(it.next())
+      case "--format" if it.hasNext =>
+        formatArg = Some(it.next().toLowerCase)
+      case "--title" if it.hasNext =>
+        title = it.next()
+      case "--version" if it.hasNext =>
+        version = it.next()
+      case "--server" if it.hasNext =>
+        servers += it.next()
+      case flag if flag.startsWith("-") =>
+        System.err.println(s"emit-openapi: unknown flag $flag")
+        System.exit(1)
+      case file =>
+        files += file
+  if files.isEmpty then
+    System.err.println("Usage: ssc emit-openapi [--format json|yaml] [-o file] [--title s] [--version v] [--server url] <file.ssc>")
+    System.exit(1)
+  if files.size > 1 then
+    System.err.println("emit-openapi: exactly one input file is supported")
+    System.exit(1)
+
+  val path = os.Path(files.head, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"Error: File not found: ${files.head}")
+    System.exit(1)
+
+  val inferredFormat = outputArg.flatMap { out =>
+    val lower = out.toLowerCase
+    if lower.endsWith(".yaml") || lower.endsWith(".yml") then Some("yaml")
+    else if lower.endsWith(".json") then Some("json")
+    else None
+  }
+  val format = formatArg.orElse(inferredFormat).getOrElse("json")
+  if format != "json" && format != "yaml" then
+    System.err.println("emit-openapi: --format must be json or yaml")
+    System.exit(1)
+
+  val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+  val module = Parser.parseFile(path)
+  scalascript.server.Routes.clear()
+  val interp = Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true, openApiDryRun = true)
+  try interp.run(module)
+  catch
+    case scalascript.backend.spi.OpenApiDryRun.Sentinel => ()
+    case e: Exception =>
+      System.err.println(s"emit-openapi: error running ${files.head} in dry mode: ${e.getMessage}")
+      System.exit(1)
+
+  val options = OpenApiOptions(title = title, version = version, servers = servers.toList)
+  val responseTypes = openApiResponseTypes(module)
+  val securitySchemes = scalascript.interpreter.OpenApiRuntime.openApiSecuritySchemes(interp)
+  val rendered =
+    if format == "yaml" then
+      scalascript.interpreter.OpenApiRuntime.generateOpenApiYaml(
+        interp.routeRegistry,
+        securitySchemes,
+        options,
+        responseTypes
+      )
+    else
+      scalascript.interpreter.OpenApiRuntime.generateOpenApiJson(
+        interp.routeRegistry,
+        securitySchemes,
+        options,
+        responseTypes
+      )
+
+  outputArg match
+    case Some(out) =>
+      val outPath = os.Path(out, os.pwd)
+      os.makeDir.all(outPath / os.up)
+      os.write.over(outPath, rendered)
+    case None =>
+      print(rendered)
+
+private[cli] def openApiResponseTypes(module: Module): Map[(String, String), String] =
+  val entries =
+    module.manifest.toList.flatMap(_.apiClients).flatMap(_.endpoints).collect {
+      case endpoint if endpoint.responseType.nonEmpty && endpoint.responseType != "Any" =>
+        (endpoint.method.toUpperCase -> endpoint.path) -> endpoint.responseType
+    }
+  entries.foldLeft(Map.empty[(String, String), String]) { case (acc, (key, value)) =>
+    if acc.contains(key) then acc else acc.updated(key, value)
+  }
 
 def emitSpaCommand(args: List[String]): Unit =
   // v1.18 / Phase A7 — optional --frontend <custom|react|solid|vue>

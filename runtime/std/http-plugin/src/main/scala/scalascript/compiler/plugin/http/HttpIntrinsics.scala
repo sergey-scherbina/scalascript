@@ -107,11 +107,13 @@ object HttpIntrinsics:
         case List(port: Long) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           ctx.startServerAsync(port.toInt, ".")
           ()
         case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           if !ctx.headless then

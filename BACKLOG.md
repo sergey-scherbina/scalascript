@@ -5583,7 +5583,7 @@ Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infr
 Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b landed
 2026-05-29 for typed response metadata propagation. Phase 3 landed 2026-05-29
 for per-route operation metadata. Phase 4 landed 2026-05-29 for OpenAPI
-security schemes. Phase 5 is planned.
+security schemes. Phase 5 landed 2026-05-29 for standalone CLI export.
 
 - [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
   when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
@@ -5627,10 +5627,14 @@ security schemes. Phase 5 is planned.
   `components.securitySchemes` and operation `security`. The `authMw` heuristic
   remains deferred in favor of explicit metadata. Spec: `docs/openapi.md §5 Phase 4`.
 
-- [ ] **openapi-p5** — `ssc emit-openapi` CLI + YAML output:
+- [x] **openapi-p5** — `ssc emit-openapi` CLI + YAML output: ✓ Landed 2026-05-29.
   `emitOpenapiCommand` in CLI; `--format json|yaml`; `--title`/`--version`/`--server` flags;
   interpreter dry-run; `EmitOpenapiCliTest` (4+ tests).
-  Spec: `docs/openapi.md §5 Phase 5`. Effort: ~2 days.
+  Landed: abort-at-first-serve interpreter dry-run export, JSON stdout default, YAML output
+  via `--format yaml` or `-o *.yaml`, `--title` / `--version` / repeatable
+  `--server` overrides, shared generator options, and CLI coverage for JSON,
+  YAML, file output, and metadata/security preservation. Spec:
+  `docs/openapi.md §5 Phase 5`.
 
 ---
 

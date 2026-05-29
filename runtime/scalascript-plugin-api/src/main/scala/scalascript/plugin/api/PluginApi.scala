@@ -77,6 +77,8 @@ trait NativeContextCap:
   def out: java.io.PrintStream = nativeContext.out
   def err: java.io.PrintStream = nativeContext.err
   def headless: Boolean = nativeContext.headless
+  def openApiDryRun: Boolean = nativeContext.openApiDryRun
+  def abortOpenApiDryRun(): Nothing = nativeContext.abortOpenApiDryRun()
 
 trait StorageCap extends NativeContextCap:
   def featureGet(key: String): Option[Any] = nativeContext.featureGet(key)

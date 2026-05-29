@@ -2,7 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.OpenApiGenerator
 import scalascript.backend.spi.NativeContextFeatureKeys
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation}
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiOptions, OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation}
 import scalascript.server.RouteRegistry
 
 /** Registers built-in `/_openapi.json` and `/_swagger` routes.
@@ -18,7 +18,7 @@ import scalascript.server.RouteRegistry
  *  Called from `Interpreter.registerOpenApiDefaults()`, which is invoked
  *  by `HttpIntrinsics` alongside `registerHealthDefaults()` when the user
  *  calls `serve()` or `serveAsync()`. */
-private[interpreter] object OpenApiRuntime:
+object OpenApiRuntime:
 
   private val SpecialParamTypes =
     Set("Request", "Map", "Map[String,Any]", "Map[String, Any]", "")
@@ -60,20 +60,46 @@ private[interpreter] object OpenApiRuntime:
   def generateOpenApiJson(registry: RouteRegistry): String =
     generateOpenApiJson(registry, Nil)
 
-  def generateOpenApiJson(registry: RouteRegistry, securitySchemes: Iterable[OpenApiSecurityScheme]): String =
-    OpenApiGenerator.generate(registry.all.map { entry =>
+  def generateOpenApiJson(
+      registry:        RouteRegistry,
+      securitySchemes: Iterable[OpenApiSecurityScheme]
+  ): String =
+    generateOpenApiJson(registry, securitySchemes, OpenApiOptions(), Map.empty)
+
+  def generateOpenApiJson(
+      registry:        RouteRegistry,
+      securitySchemes: Iterable[OpenApiSecurityScheme],
+      options:         OpenApiOptions,
+      responseTypes:   Map[(String, String), String]
+  ): String =
+    OpenApiGenerator.generate(openApiRoutes(registry, responseTypes), securitySchemes, options)
+
+  def generateOpenApiYaml(
+      registry:        RouteRegistry,
+      securitySchemes: Iterable[OpenApiSecurityScheme],
+      options:         OpenApiOptions,
+      responseTypes:   Map[(String, String), String]
+  ): String =
+    OpenApiGenerator.generateYaml(openApiRoutes(registry, responseTypes), securitySchemes, options)
+
+  def openApiSecuritySchemes(interp: Interpreter): List[OpenApiSecurityScheme] =
+    interp.nativeFeatureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
+      .collect { case xs: List[?] => xs.collect { case s: OpenApiSecurityScheme => s } }
+      .getOrElse(Nil)
+
+  private def openApiRoutes(
+      registry:      RouteRegistry,
+      responseTypes: Map[(String, String), String]
+  ): Iterable[OpenApiRoute] =
+    registry.all.map { entry =>
       val pathParams = OpenApiGenerator.extractPathParams(entry.path)
       val (queryParams, bodyParams) = extractHandlerParams(entry.handler, pathParams, entry.method)
       val params =
         queryParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Query) } ++
         bodyParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Body) }
-      OpenApiRoute(entry.method, entry.path, params, metadata = entry.metadata)
-    }, securitySchemes)
-
-  private def openApiSecuritySchemes(interp: Interpreter): List[OpenApiSecurityScheme] =
-    interp.nativeFeatureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
-      .collect { case xs: List[?] => xs.collect { case s: OpenApiSecurityScheme => s } }
-      .getOrElse(Nil)
+      val responseType = responseTypes.get(entry.method.toUpperCase -> entry.path)
+      OpenApiRoute(entry.method, entry.path, params, responseType = responseType, metadata = entry.metadata)
+    }
 
   // ── Handler type extraction ───────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 package scalascript.backend.spi
 
 import scalascript.ir.{IrExpr, EmitContext, TargetCode}
+import scala.util.control.NoStackTrace
 
 /** How a backend implements a single platform intrinsic (`extern def`
  *  marker, see docs/backend-spi.md §8).
@@ -51,6 +52,9 @@ object NativeContextFeatureKeys:
   val OpenApiPending   = "scalascript.openapi.pendingRouteMetadata"
   val OpenApiSecuritySchemes = "scalascript.openapi.securitySchemes"
 
+object OpenApiDryRun:
+  case object Sentinel extends RuntimeException("OpenAPI dry-run stopped at serve()") with NoStackTrace
+
 /** Runtime hooks an in-process native intrinsic may consult.  The
  *  interpreter constructs one per session and passes it to every
  *  `NativeImpl.eval` call.  Stateless intrinsics (`nowMillis`,
@@ -88,6 +92,8 @@ trait NativeContext:
   ): Unit = registerRoute(method, path, handler)
   def registerHealthDefaults(): Unit = ()
   def registerOpenApiDefaults(): Unit = ()
+  def openApiDryRun: Boolean = false
+  def abortOpenApiDryRun(): Nothing = throw OpenApiDryRun.Sentinel
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
   def invokeCallback(fn: Any, args: List[Any]): Any = ()
   // Outbound HTTP client state — scoped inside httpClient{} blocks.

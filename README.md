@@ -244,7 +244,7 @@ compiles them via Scala.js.
 | HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
 | REPL web mode | `:serve`/`:stop`/`:clear`/`:mount`/`:load`/`:reload`/`:unmount`/`:routes`/`:http`/`:call` — mount handlers and test routes interactively; `:set errorDetails true\|false` |
 | HTTP streaming | `streamResponse`, SSE via `sse(req)` |
-| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` with typed response schemas for front-matter/generated JVM routes when `apiClients:` metadata is available; `@openapi(...)` adds per-route summary/description/tags/deprecated/security metadata and `openApiSecurity(...)` declares OpenAPI security schemes |
+| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` with typed response schemas for front-matter/generated JVM routes when `apiClients:` metadata is available; `ssc emit-openapi` exports the same document as JSON/YAML without starting a server; `@openapi(...)` adds per-route summary/description/tags/deprecated/security metadata and `openApiSecurity(...)` declares OpenAPI security schemes |
 | WebSocket server | `onWebSocket(path)`, `ws.send/recv/close/ping`, rate limiting, per-route `maxConnections` |
 | TLS | `tls("cert.pem", "key.pem")`, `serve(443, tls=...)`, `wss://` |
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
@@ -602,6 +602,7 @@ ScalaScript supports the following bundled backends, all loaded through the
 | `ssc run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
 | `bin/jssc file.ssc`        | `js`          | Alias for `ssc run-js` via `bin/` wrapper |
 | `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
+| `ssc emit-openapi file.ssc` | `openapi`     | Headless interpreter dry-run that exports registered routes as OpenAPI 3.1 JSON or YAML. Flags: `--format json\|yaml`, `-o`, `--title`, `--version`, repeatable `--server`. |
 | `ssc emit-spa file.ssc`    | `scalajs-spa` | Self-contained SPA HTML + JS bundle |
 | `bin/ssc-spark file.ssc`   | `spark`       | Apache Spark 4 — generates a Scala 3.7.1 `.sc` script with `//> using dep` directives, runs via `scala-cli`. Auto-detects `sql` blocks, `@SqlFn` UDFs, `readStream`/`writeStream`, `.format("delta")`, `@TempView`, MLlib imports. See [§13 of the User Guide](docs/user-guide.md#13-apache-spark). |
 | `ssc emit-wasm file.ssc` / `examples/run-wasm.sh` | `wasm`        | WebAssembly module — `scalascript`/`ssc` blocks lowered to Wasm IR. Cross-backend `sql` fenced blocks supported (v1.27 Phase 5). |

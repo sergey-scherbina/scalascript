@@ -807,7 +807,7 @@ def sscpkgSettings(pluginId: String): Seq[Def.Setting[?]] = Seq(
 lazy val cli = project
   .in(file("tools/cli"))
   .enablePlugins(SbtProguard, GraalVMNativeImagePlugin)
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin % Test)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendInterpreter, backendInterpreterServer, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI, graphPlugin, deployPlugin, httpPlugin % Test, frontendPlugin % Test)
   .settings(
     name := "scalascript-cli",
     libraryDependencies ++= Seq(

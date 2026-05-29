@@ -827,6 +827,20 @@ with matching `apiClients:` endpoint metadata carry their response type into the
 OpenAPI response schema; raw `Request => Any` handlers keep the generic `200 OK`
 fallback.
 
+For CI, client generation, or API gateway import you can export the same
+document without binding an HTTP port:
+
+```bash
+ssc emit-openapi api.ssc
+ssc emit-openapi api.ssc --format yaml -o openapi.yaml
+ssc emit-openapi api.ssc --title "Users API" --version 2.0.0 --server https://api.example.com
+```
+
+`emit-openapi` runs the interpreter in abort-at-first-serve dry-run mode:
+`serve(...)` does not open a socket, and execution stops there after earlier
+`route(...)` registrations, `@openapi(...)` metadata, and `openApiSecurity(...)`
+declarations have been collected.
+
 Per-route operation metadata can be attached to the next `route(...)` call with
 `@openapi(...)`:
 

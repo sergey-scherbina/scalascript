@@ -269,7 +269,7 @@ Tasks:
 
 Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
 
-### Phase 5 — `ssc emit-openapi` CLI + YAML output
+### Phase 5 — `ssc emit-openapi` CLI + YAML output ✓ Landed
 
 **Goal**: export the OpenAPI document without starting the server.
 
@@ -288,10 +288,10 @@ Tasks:
 - `--title`, `--version`, `--server` flags override `info` / `servers`.
 - Runs the interpreter in **abort-at-first-serve** dry-run mode to collect
   registered routes:
-  1. Set a thread-local flag `Interpreter.openapiDryRunMode = true`.
+  1. Create the interpreter with `openApiDryRun = true`.
   2. Patch `HttpIntrinsics.serveAsync` and `FrontendIntrinsics.serve` to throw
-     a sentinel `EmitOpenApiSentinel` instead of binding.
-  3. Catch `EmitOpenApiSentinel`; at that point all `route(…)` calls before
+     `OpenApiDryRun.Sentinel` instead of binding.
+  3. Catch `OpenApiDryRun.Sentinel`; at that point all `route(…)` calls before
      the first `serve()` have populated `RouteRegistry.all`.
   4. Call `OpenApiGenerator.generate(RouteRegistry.all)`.
   **Known limitation**: top-level effects before `serve()` (e.g.
@@ -299,6 +299,13 @@ Tasks:
   can restructure to lazy `val` or move setup inside a function called from
   `serve()`. A future static-analysis path (Phase 6 candidate) eliminates this.
 - `EmitOpenapiCliTest`: 4+ tests (JSON output shape, YAML output, flag overrides).
+
+Landed 2026-05-29: `ssc emit-openapi` performs an abort-at-first-serve
+interpreter dry-run,
+exports JSON by default, infers YAML from `-o *.yaml`, supports explicit
+`--format json|yaml`, applies `--title` / `--version` / repeatable `--server`,
+and reuses the shared OpenAPI generator plus interpreter route metadata and
+security-scheme collection.
 
 Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 5`.
 
@@ -326,7 +333,7 @@ reference: `docs/future-protocols.md §4`.
 | 2 ✓ | `OpenApiGeneratorTest`, `OpenApiRuntimeTest`, JvmGen code-shape + JVM e2e | SPI + interpreter + JVM codegen |
 | 3 | `OpenApiRuntimeTest` annotation cases (6+) | Interpreter unit |
 | 4 | `OpenApiRuntimeTest` security cases (4+) | Interpreter unit |
-| 5 | `EmitOpenapiCliTest` (4+) | CLI subprocess |
+| 5 ✓ | `EmitOpenapiCliTest` (4+) | CLI command |
 
 No integration tests against Swagger UI / Postman in CI — those require a
 browser; manual smoke is sufficient.
@@ -348,8 +355,8 @@ browser; manual smoke is sufficient.
 3. **`ssc emit-openapi` dry-run mode**: running the interpreter to collect
    routes means top-level side effects (DB connections, etc.) fire.
    **Resolved** (Phase 5 uses abort-at-first-serve — see §5 Phase 5 implementation
-   note): `Interpreter.openapiDryRunMode` flag causes `serve*` intrinsics to throw
-   `EmitOpenApiSentinel` before binding; `route()` calls before `serve()` have
+   note): `Interpreter(openApiDryRun = true)` causes `serve*` intrinsics to throw
+   `OpenApiDryRun.Sentinel` before binding; `route()` calls before `serve()` have
    already populated `RouteRegistry.all`. Known limitation: effects before
    `serve()` still run. Static-analysis alternative deferred to Phase 6.
 
@@ -368,7 +375,7 @@ browser; manual smoke is sufficient.
 | `runtime/backend/spi/…/RouteAnnotation.scala` | Phase 3 NEW — @openapi metadata |
 | `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 ✓ — emit /_openapi.json route |
 | `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 ✓ — generated-server OpenAPI defaults |
-| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into Routes.Entry; Phase 5 — openapiDryRunMode for serveAsync |
-| `runtime/std/http-plugin/…/FrontendIntrinsics.scala` | Phase 1 ✓ — registerOpenApiDefaults for serve(); Phase 5 — openapiDryRunMode sentinel |
+| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into Routes.Entry; Phase 5 — OpenAPI dry-run sentinel for serveAsync |
+| `runtime/std/http-plugin/…/FrontendIntrinsics.scala` | Phase 1 ✓ — registerOpenApiDefaults for serve(); Phase 5 — OpenAPI dry-run sentinel |
 | `tools/cli/…/cli/Main.scala` | Phase 5 — `ssc emit-openapi` subcommand |
 | `runtime/std/openapi.ssc` | Phase 3 NEW — extern annotation declaration |

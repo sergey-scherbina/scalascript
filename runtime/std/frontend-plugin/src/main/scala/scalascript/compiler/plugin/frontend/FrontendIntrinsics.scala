@@ -140,24 +140,29 @@ object FrontendIntrinsics:
     QualifiedName("serve") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("View", view: View[?]), port) =>
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
           val outDir = uiEmitToTempDir(view, "")
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(Value.Foreign("View", view: View[?]), port, extraCss: String) =>
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
           val outDir = uiEmitToTempDir(view, extraCss)
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(port: Long) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           ctx.startServer(port.toInt, ".")
         case List(port: Long, dir: String) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           ctx.startServer(port.toInt, dir)
         case List(port: Long, Value.InstanceV("TlsContext", tlsFields)) =>
           ctx.registerHealthDefaults()
           ctx.registerOpenApiDefaults()
+          if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val cert = tlsFields.get("cert").collect { case Value.StringV(s) => s }.getOrElse("")
           val key  = tlsFields.get("key").collect  { case Value.StringV(s) => s }.getOrElse("")
           ctx.startTlsServer(port.toInt, ".", cert, key)

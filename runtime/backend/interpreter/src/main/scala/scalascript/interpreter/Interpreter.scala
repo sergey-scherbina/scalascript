@@ -102,6 +102,7 @@ class Interpreter(
      *  table is filled in, then handlers are invoked off-band with
      *  synthetic requests. */
     headless: Boolean              = false,
+    openApiDryRun: Boolean         = false,
     private[interpreter] val lockPath: Option[os.Path]      = None) extends ActorInterp:
   /** Per-interpreter WebSocket route table.  Owning this here means each
    *  `Interpreter` instance has an isolated WS route set — no global lock
@@ -1023,6 +1024,7 @@ class Interpreter(
       override def featureLocalSet(key: String, value: Any): Unit = Interpreter.this.nativeFeatureLocalSet(key, value)
       override def featureLocalRemove(key: String): Option[Any] = Interpreter.this.nativeFeatureLocalRemove(key)
       override def headless = Interpreter.this.headless
+      override def openApiDryRun: Boolean = Interpreter.this.openApiDryRun
       override def registerRoute(method: String, path: String, handler: Any): Unit =
         Interpreter.this.routeRegistry.register(
           method, path, handler.asInstanceOf[Value], Interpreter.this,
