@@ -3,7 +3,7 @@ package scalascript.interpreter
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.BeforeAndAfterEach
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiSecurityScheme}
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiOptions, OpenApiSecurityScheme, SchemaNode}
 import scalascript.server.{Routes, RouteRegistry}
 import scala.meta.Term as MetaTerm
 
@@ -218,3 +218,38 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
     val json   = parseJson(body)
     json("paths").obj.keys.should(contain("/api/users"))
     json("paths")("/api/users").obj.keys.toSet.shouldBe(Set("get", "post"))
+
+  // ── Phase 6: schemaComponents in generateOpenApiJson ──────────────────
+
+  test("generateOpenApiJson with schemaComponents emits components.schemas"):
+    reg.register("GET", "/users", noop, interp)
+    val schemas = Map(
+      "User" -> SchemaNode.ObjNode(
+        props    = Map("id" -> SchemaNode.IntNode, "name" -> SchemaNode.StrNode),
+        required = List("id")
+      )
+    )
+    val json = parseJson(
+      OpenApiRuntime.generateOpenApiJson(reg, Nil, OpenApiOptions(), Map.empty, schemas)
+    )
+    json("components")("schemas")("User")("type").str shouldBe "object"
+    json("components")("schemas")("User")("properties")("id")("type").str   shouldBe "integer"
+    json("components")("schemas")("User")("properties")("name")("type").str shouldBe "string"
+
+  test("responseType referencing a registered schema emits $ref in generated doc"):
+    reg.register("GET", "/user", noop, interp)
+    val schemas       = Map("User" -> SchemaNode.ObjNode(props = Map("id" -> SchemaNode.IntNode)))
+    val responseTypes = Map(("GET", "/user") -> "User")
+    val json = parseJson(
+      OpenApiRuntime.generateOpenApiJson(reg, Nil, OpenApiOptions(), responseTypes, schemas)
+    )
+    val schema = json("paths")("/user")("get")("responses")("200")("content")("application/json")("schema")
+    schema("$ref").str shouldBe "#/components/schemas/User"
+
+  test("generateOpenApiYaml with schemaComponents emits components.schemas section"):
+    reg.register("GET", "/products", noop, interp)
+    val schemas = Map("Product" -> SchemaNode.ObjNode(props = Map("sku" -> SchemaNode.StrNode)))
+    val yaml = OpenApiRuntime.generateOpenApiYaml(reg, Nil, OpenApiOptions(), Map.empty, schemas)
+    yaml should include ("components:")
+    yaml should include ("schemas:")
+    yaml should include ("Product:")

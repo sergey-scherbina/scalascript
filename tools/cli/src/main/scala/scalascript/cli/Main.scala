@@ -4891,21 +4891,24 @@ def emitOpenapiCommand(args: List[String]): Unit =
 
   val options = OpenApiOptions(title = title, version = version, servers = servers.toList)
   val responseTypes = openApiResponseTypes(module)
-  val securitySchemes = scalascript.interpreter.OpenApiRuntime.openApiSecuritySchemes(interp)
+  val securitySchemes    = scalascript.interpreter.OpenApiRuntime.openApiSecuritySchemes(interp)
+  val schemaComponents   = scalascript.interpreter.OpenApiRuntime.openApiSchemaComponents(interp)
   val rendered =
     if format == "yaml" then
       scalascript.interpreter.OpenApiRuntime.generateOpenApiYaml(
         interp.routeRegistry,
         securitySchemes,
         options,
-        responseTypes
+        responseTypes,
+        schemaComponents
       )
     else
       scalascript.interpreter.OpenApiRuntime.generateOpenApiJson(
         interp.routeRegistry,
         securitySchemes,
         options,
-        responseTypes
+        responseTypes,
+        schemaComponents
       )
 
   outputArg match

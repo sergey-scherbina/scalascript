@@ -5,18 +5,78 @@ package scalascript.backend.spi
  *  Route registries stay backend-local; they adapt their entries into
  *  [[OpenApiRoute]] so the document shape, escaping, parameter inference, and
  *  Swagger UI stay identical across runtimes.
+ *
+ *  Phase 6 adds [[SchemaNode]] — a structured schema representation —
+ *  and `components.schemas` emission.  Existing code that uses [[OpenApiRoute]]
+ *  with a plain `responseType: Option[String]` continues to work unchanged;
+ *  the new `responseSchema: Option[SchemaNode]` field takes precedence when set.
  */
 object OpenApiGenerator:
 
+  // ── Phase 6: structured schema model ────────────────────────────────────────
+
+  /** Structured representation of an OpenAPI 3.1 JSON Schema node.
+   *
+   *  Render with [[schemaNodeToJson]] / [[schemaNodeToYaml]].
+   *  Use [[SchemaNode.fromTypeName]] to derive a node from a ScalaScript type-name string.
+   */
+  sealed trait SchemaNode
+  object SchemaNode:
+    case object StrNode                                                              extends SchemaNode
+    case object IntNode                                                              extends SchemaNode
+    case object NumNode                                                              extends SchemaNode
+    case object BoolNode                                                             extends SchemaNode
+    case object NullNode                                                             extends SchemaNode
+    case class  ArrNode(items: SchemaNode = ObjNode())                              extends SchemaNode
+    case class  ObjNode(
+        props:    Map[String, SchemaNode] = Map.empty,
+        required: List[String]            = Nil
+    )                                                                                extends SchemaNode
+    case class  RefNode(name: String)                                                extends SchemaNode
+    case class  NullableNode(inner: SchemaNode)                                      extends SchemaNode
+    case class  OneOfNode(options: List[SchemaNode])                                 extends SchemaNode
+
+    /** Derive a [[SchemaNode]] from a ScalaScript / Scala type-name string.
+     *
+     *  - Primitives map to the matching leaf node.
+     *  - `Option[T]` wraps the inner node in [[NullableNode]].
+     *  - `List[T]` / `Seq[T]` / `Array[T]` become [[ArrNode]].
+     *  - Any other name is treated as a named component type: [[RefNode]].
+     *    The caller is responsible for registering the corresponding schema
+     *    in the `schemaComponents` map passed to [[generate]].
+     */
+    def fromTypeName(typeName: String): SchemaNode = typeName.trim match
+      case "String"                                          => StrNode
+      case "Int" | "Long" | "Short" | "Byte"                => IntNode
+      case "Double" | "Float" | "BigDecimal"                 => NumNode
+      case "Boolean"                                         => BoolNode
+      case "Unit"                                            => NullNode
+      case t if t.startsWith("Option[") && t.endsWith("]")  =>
+        NullableNode(fromTypeName(t.substring(7, t.length - 1)))
+      case t if (t.startsWith("List[") || t.startsWith("Seq[") || t.startsWith("Array["))
+               && t.endsWith("]")                            =>
+        val inner = t.indexOf('[')
+        ArrNode(fromTypeName(t.substring(inner + 1, t.length - 1)))
+      case ""                                                => ObjNode()
+      case name                                              => RefNode(name)
+
+  // ── Route model ─────────────────────────────────────────────────────────────
+
   final case class OpenApiRoute(
-      method:       String,
-      path:         String,
-      params:       List[OpenApiParam] = Nil,
-      responseType: Option[String]     = None,
-      metadata:     OpenApiMetadata    = OpenApiMetadata()
+      method:         String,
+      path:           String,
+      params:         List[OpenApiParam]          = Nil,
+      responseType:   Option[String]              = None,
+      responseSchema: Option[SchemaNode]          = None,
+      metadata:       OpenApiMetadata             = OpenApiMetadata()
   )
 
-  final case class OpenApiParam(name: String, typeName: String, location: ParamLocation)
+  final case class OpenApiParam(
+      name:     String,
+      typeName: String,
+      location: ParamLocation,
+      schema:   Option[SchemaNode] = None
+  )
 
   final case class OpenApiMetadata(
       summary:     Option[String] = None,
@@ -41,10 +101,13 @@ object OpenApiGenerator:
   enum ParamLocation:
     case Query, Body
 
+  // ── JSON generation ──────────────────────────────────────────────────────────
+
   def generate(
-      routes:          Iterable[OpenApiRoute],
-      securitySchemes: Iterable[OpenApiSecurityScheme] = Nil,
-      options:         OpenApiOptions                  = OpenApiOptions()
+      routes:           Iterable[OpenApiRoute],
+      securitySchemes:  Iterable[OpenApiSecurityScheme] = Nil,
+      options:          OpenApiOptions                   = OpenApiOptions(),
+      schemaComponents: Map[String, SchemaNode]          = Map.empty
   ): String =
     val userRoutes = routes.filterNot(_.path.startsWith("/_")).toList
     val byPath = userRoutes
@@ -99,7 +162,10 @@ object OpenApiGenerator:
 
           val allParams =
             pathParams.map(n => paramEntry(n, "path", required = true)) ++
-            queryParams.map(p => paramEntry(p.name, "query", required = false, schemaType = jsonSchema(p.typeName)))
+            queryParams.map(p => paramEntry(
+              p.name, "query", required = false,
+              schemaType = p.schema.map(schemaNodeToJson).getOrElse(jsonSchema(p.typeName, schemaComponents))
+            ))
           if allParams.nonEmpty then
             sb.append("        \"parameters\": [\n")
             sb.append(allParams.mkString(",\n"))
@@ -107,7 +173,8 @@ object OpenApiGenerator:
 
           if bodyParams.nonEmpty then
             val props = bodyParams.map { p =>
-              s"          ${jsonStr(p.name)}: ${jsonSchema(p.typeName)}"
+              val s = p.schema.map(schemaNodeToJson).getOrElse(jsonSchema(p.typeName, schemaComponents))
+              s"          ${jsonStr(p.name)}: $s"
             }.mkString(",\n")
             sb.append("        \"requestBody\": {\n")
             sb.append("          \"required\": true,\n")
@@ -124,7 +191,12 @@ object OpenApiGenerator:
             sb.append("        },\n")
 
           sb.append("        \"responses\": ")
-          sb.append(responseSchema(route.responseType))
+          // responseSchema (Phase 6) takes precedence over responseType (Phase 2 legacy)
+          val respJson = route.responseSchema
+            .map(node => responseSchemaFromNode(node))
+            .orElse(route.responseType.map(t => responseSchemaFromTypeName(t, schemaComponents)))
+            .getOrElse("""{ "200": { "description": "OK" } }""")
+          sb.append(respJson)
           sb.append("\n")
           sb.append("      }")
 
@@ -133,21 +205,38 @@ object OpenApiGenerator:
       sb.append("\n  }")
 
     val schemes = securitySchemes.toList.filter(_.name.nonEmpty)
-    if schemes.nonEmpty then
+    val hasComponents = schemes.nonEmpty || schemaComponents.nonEmpty
+    if hasComponents then
       sb.append(",\n")
-      sb.append("  \"components\": {\n")
-      sb.append("    \"securitySchemes\": {\n")
-      sb.append(schemes.map(securitySchemeEntry).mkString(",\n"))
-      sb.append("\n    }\n")
-      sb.append("  }")
+      sb.append("  \"components\": {")
+      var firstSection = true
+      if schemaComponents.nonEmpty then
+        firstSection = false
+        sb.append("\n    \"schemas\": {\n")
+        var first = true
+        schemaComponents.toList.sortBy(_._1).foreach { (name, node) =>
+          if !first then sb.append(",\n")
+          first = false
+          sb.append(s"      ${jsonStr(name)}: ${schemaNodeToJson(node)}")
+        }
+        sb.append("\n    }")
+      if schemes.nonEmpty then
+        if !firstSection then sb.append(",\n") else sb.append("\n")
+        sb.append("    \"securitySchemes\": {\n")
+        sb.append(schemes.map(securitySchemeEntry).mkString(",\n"))
+        sb.append("\n    }")
+      sb.append("\n  }")
 
     sb.append("\n}\n")
     sb.toString
 
+  // ── YAML generation ──────────────────────────────────────────────────────────
+
   def generateYaml(
-      routes:          Iterable[OpenApiRoute],
-      securitySchemes: Iterable[OpenApiSecurityScheme] = Nil,
-      options:         OpenApiOptions                  = OpenApiOptions()
+      routes:           Iterable[OpenApiRoute],
+      securitySchemes:  Iterable[OpenApiSecurityScheme] = Nil,
+      options:          OpenApiOptions                   = OpenApiOptions(),
+      schemaComponents: Map[String, SchemaNode]          = Map.empty
   ): String =
     val userRoutes = routes.filterNot(_.path.startsWith("/_")).toList
     val byPath = userRoutes
@@ -194,7 +283,10 @@ object OpenApiGenerator:
 
           val allParams =
             pathParams.map(n => (n, "path", true, "{\"type\":\"string\"}")) ++
-            queryParams.map(p => (p.name, "query", false, jsonSchema(p.typeName)))
+            queryParams.map(p => (
+              p.name, "query", false,
+              p.schema.map(schemaNodeToJson).getOrElse(jsonSchema(p.typeName, schemaComponents))
+            ))
           if allParams.nonEmpty then
             sb.append("      parameters:\n")
             allParams.foreach { case (name, in, required, schema) =>
@@ -212,30 +304,78 @@ object OpenApiGenerator:
             sb.append("              type: object\n")
             sb.append("              properties:\n")
             bodyParams.foreach { p =>
+              val s = p.schema.map(schemaNodeToJson).getOrElse(jsonSchema(p.typeName, schemaComponents))
               sb.append(s"                ${yamlStr(p.name)}:\n")
-              appendYamlSchema(sb, "                  ", jsonSchema(p.typeName), includeKey = false)
+              appendYamlSchema(sb, "                  ", s, includeKey = false)
             }
-          appendYamlResponses(sb, route.responseType)
+          // responseSchema takes precedence
+          route.responseSchema match
+            case Some(node) => appendYamlResponseFromNode(sb, node)
+            case None       => appendYamlResponses(sb, route.responseType, schemaComponents)
 
-    if schemes.nonEmpty then
+    val hasComponents = schemaComponents.nonEmpty || schemes.nonEmpty
+    if hasComponents then
       sb.append("components:\n")
-      sb.append("  securitySchemes:\n")
-      schemes.foreach { scheme =>
-        sb.append(s"    ${yamlStr(scheme.name)}:\n")
-        if scheme.scheme.equalsIgnoreCase("apiKey") || scheme.scheme.equalsIgnoreCase("api-key") then
-          val headerName = Option(scheme.format).map(_.trim).filter(_.nonEmpty).getOrElse("X-API-Key")
-          sb.append("      type: apiKey\n")
-          sb.append("      in: header\n")
-          sb.append(s"      name: ${yamlStr(headerName)}\n")
-        else
-          sb.append("      type: http\n")
-          sb.append(s"      scheme: ${yamlStr(scheme.scheme.toLowerCase)}\n")
-          Option(scheme.format).map(_.trim).filter(_.nonEmpty).foreach { format =>
-            sb.append(s"      bearerFormat: ${yamlStr(format)}\n")
-          }
-      }
+      if schemaComponents.nonEmpty then
+        sb.append("  schemas:\n")
+        schemaComponents.toList.sortBy(_._1).foreach { (name, node) =>
+          sb.append(s"    ${yamlStr(name)}:\n")
+          appendYamlSchemaNode(sb, "      ", node)
+        }
+      if schemes.nonEmpty then
+        sb.append("  securitySchemes:\n")
+        schemes.foreach { scheme =>
+          sb.append(s"    ${yamlStr(scheme.name)}:\n")
+          if scheme.scheme.equalsIgnoreCase("apiKey") || scheme.scheme.equalsIgnoreCase("api-key") then
+            val headerName = Option(scheme.format).map(_.trim).filter(_.nonEmpty).getOrElse("X-API-Key")
+            sb.append("      type: apiKey\n")
+            sb.append("      in: header\n")
+            sb.append(s"      name: ${yamlStr(headerName)}\n")
+          else
+            sb.append("      type: http\n")
+            sb.append(s"      scheme: ${yamlStr(scheme.scheme.toLowerCase)}\n")
+            Option(scheme.format).map(_.trim).filter(_.nonEmpty).foreach { format =>
+              sb.append(s"      bearerFormat: ${yamlStr(format)}\n")
+            }
+        }
 
     sb.toString
+
+  // ── Schema rendering helpers ─────────────────────────────────────────────────
+
+  def schemaNodeToJson(node: SchemaNode): String = node match
+    case SchemaNode.StrNode             => "{\"type\":\"string\"}"
+    case SchemaNode.IntNode             => "{\"type\":\"integer\"}"
+    case SchemaNode.NumNode             => "{\"type\":\"number\"}"
+    case SchemaNode.BoolNode            => "{\"type\":\"boolean\"}"
+    case SchemaNode.NullNode            => "{\"type\":\"null\"}"
+    case SchemaNode.RefNode(name)       =>
+      "{\"$ref\":\"#/components/schemas/" + jsonEscape(name) + "\"}"
+    case SchemaNode.NullableNode(inner) =>
+      // OAS 3.1: use oneOf with null for all nullable types (works for both $ref and inline)
+      "{\"oneOf\":[" + schemaNodeToJson(inner) + ",{\"type\":\"null\"}]}"
+    case SchemaNode.ArrNode(items)      =>
+      "{\"type\":\"array\",\"items\":" + schemaNodeToJson(items) + "}"
+    case SchemaNode.ObjNode(props, required) =>
+      val sb = new StringBuilder("{\"type\":\"object\"")
+      if props.nonEmpty then
+        sb.append(",\"properties\":{")
+        var first = true
+        props.toList.sortBy(_._1).foreach { (k, v) =>
+          if !first then sb.append(",")
+          first = false
+          sb.append(jsonStr(k)).append(":").append(schemaNodeToJson(v))
+        }
+        sb.append("}")
+      if required.nonEmpty then
+        sb.append(",\"required\":[")
+        sb.append(required.map(jsonStr).mkString(","))
+        sb.append("]")
+      sb.append("}").toString
+    case SchemaNode.OneOfNode(options)  =>
+      "{\"oneOf\":[" + options.map(schemaNodeToJson).mkString(",") + "]}"
+
+  // ── Utility ──────────────────────────────────────────────────────────────────
 
   def swaggerUiHtml(openApiPath: String = "/_openapi.json"): String =
     s"""<!DOCTYPE html>
@@ -271,20 +411,38 @@ object OpenApiGenerator:
       case seg if seg.startsWith(":") => seg.tail
     }.toList
 
-  def jsonSchema(typeName: String): String = typeName match
-    case "String"                                  => "{\"type\":\"string\"}"
-    case "Int" | "Long" | "Short" | "Byte"         => "{\"type\":\"integer\"}"
-    case "Double" | "Float" | "BigDecimal"         => "{\"type\":\"number\"}"
-    case "Boolean"                                 => "{\"type\":\"boolean\"}"
-    case "Unit"                                    => "{\"type\":\"null\"}"
-    case t if t.startsWith("List[") || t.startsWith("Seq[") || t.startsWith("Array[") =>
-      "{\"type\":\"array\",\"items\":{\"type\":\"object\"}}"
-    case _                                         => "{\"type\":\"object\"}"
+  /** Legacy type-name → inline JSON schema.
+   *
+   *  If `typeName` is a known primitive, returns an inline schema.
+   *  If `typeName` is in `schemaComponents`, returns a `$ref`.
+   *  Otherwise returns `{"type":"object"}` (backward-compat fallback).
+   */
+  def jsonSchema(typeName: String, schemaComponents: Map[String, SchemaNode] = Map.empty): String =
+    typeName match
+      case "String"                                          => "{\"type\":\"string\"}"
+      case "Int" | "Long" | "Short" | "Byte"                => "{\"type\":\"integer\"}"
+      case "Double" | "Float" | "BigDecimal"                 => "{\"type\":\"number\"}"
+      case "Boolean"                                         => "{\"type\":\"boolean\"}"
+      case "Unit"                                            => "{\"type\":\"null\"}"
+      case t if t.startsWith("List[") || t.startsWith("Seq[") || t.startsWith("Array[") =>
+        "{\"type\":\"array\",\"items\":{\"type\":\"object\"}}"
+      case name if schemaComponents.contains(name)           =>
+        schemaNodeToJson(SchemaNode.RefNode(name))
+      case _                                                 => "{\"type\":\"object\"}"
 
-  private def responseSchema(responseType: Option[String]): String =
-    responseType.filter(t => t.nonEmpty && t != "Response" && t != "Any").map { t =>
-      s"""{ "200": { "description": "OK", "content": { "application/json": { "schema": ${jsonSchema(t)} } } } }"""
-    }.getOrElse("""{ "200": { "description": "OK" } }""")
+  // ── Private helpers ───────────────────────────────────────────────────────────
+
+  private def responseSchemaFromNode(node: SchemaNode): String =
+    s"""{ "200": { "description": "OK", "content": { "application/json": { "schema": ${schemaNodeToJson(node)} } } } }"""
+
+  private def responseSchemaFromTypeName(
+      responseType:     String,
+      schemaComponents: Map[String, SchemaNode]
+  ): String =
+    if responseType.nonEmpty && responseType != "Response" && responseType != "Any" then
+      s"""{ "200": { "description": "OK", "content": { "application/json": { "schema": ${jsonSchema(responseType, schemaComponents)} } } } }"""
+    else
+      """{ "200": { "description": "OK" } }"""
 
   private def securitySchemeEntry(scheme: OpenApiSecurityScheme): String =
     val body =
@@ -305,7 +463,7 @@ object OpenApiGenerator:
   ): String =
     s"""          { "name": ${jsonStr(name)}, "in": "$in", "required": $required, "schema": $schemaType }"""
 
-  private def jsonStr(s: String): String =
+  def jsonStr(s: String): String =
     val sb = new StringBuilder("\"")
     s.foreach {
       case '"'  => sb.append("\\\"")
@@ -316,6 +474,9 @@ object OpenApiGenerator:
       case c    => sb.append(c)
     }
     sb.append("\"").toString
+
+  private def jsonEscape(s: String): String =
+    s.flatMap { case '"' => "\\\""; case '\\' => "\\\\"; case c => c.toString }
 
   private def yamlStr(s: String): String =
     val needsQuotes =
@@ -331,21 +492,75 @@ object OpenApiGenerator:
       schemaJson: String,
       includeKey: Boolean = true
   ): Unit =
-    val schema =
-      if schemaJson.contains("\"type\":\"string\"") then "string"
-      else if schemaJson.contains("\"type\":\"integer\"") then "integer"
-      else if schemaJson.contains("\"type\":\"number\"") then "number"
-      else if schemaJson.contains("\"type\":\"boolean\"") then "boolean"
-      else if schemaJson.contains("\"type\":\"null\"") then "null"
-      else if schemaJson.contains("\"type\":\"array\"") then "array"
-      else "object"
-    if includeKey then sb.append(s"${indent}schema:\n")
-    sb.append(s"${indent}  type: $schema\n")
-    if schema == "array" then
-      sb.append(s"${indent}  items:\n")
-      sb.append(s"${indent}    type: object\n")
+    if schemaJson.contains("\"$ref\"") then
+      // $ref schema: emit as YAML ref
+      val refName = schemaJson.replaceAll(""".*"#/components/schemas/([^"]+)".*""", "$1")
+      if includeKey then sb.append(s"${indent}schema:\n")
+      sb.append(s"${indent}  $$ref: '#/components/schemas/${refName}'\n")
+    else
+      val schema =
+        if schemaJson.contains("\"type\":\"string\"") then "string"
+        else if schemaJson.contains("\"type\":\"integer\"") then "integer"
+        else if schemaJson.contains("\"type\":\"number\"") then "number"
+        else if schemaJson.contains("\"type\":\"boolean\"") then "boolean"
+        else if schemaJson.contains("\"type\":\"null\"") then "null"
+        else if schemaJson.contains("\"type\":\"array\"") then "array"
+        else "object"
+      if includeKey then sb.append(s"${indent}schema:\n")
+      sb.append(s"${indent}  type: $schema\n")
+      if schema == "array" then
+        sb.append(s"${indent}  items:\n")
+        sb.append(s"${indent}    type: object\n")
 
-  private def appendYamlResponses(sb: StringBuilder, responseType: Option[String]): Unit =
+  private def appendYamlSchemaNode(sb: StringBuilder, indent: String, node: SchemaNode): Unit =
+    node match
+      case SchemaNode.StrNode    => sb.append(s"${indent}type: string\n")
+      case SchemaNode.IntNode    => sb.append(s"${indent}type: integer\n")
+      case SchemaNode.NumNode    => sb.append(s"${indent}type: number\n")
+      case SchemaNode.BoolNode   => sb.append(s"${indent}type: boolean\n")
+      case SchemaNode.NullNode   => sb.append(s"${indent}type: 'null'\n")
+      case SchemaNode.RefNode(n) => sb.append(s"${indent}$$ref: '#/components/schemas/${n}'\n")
+      case SchemaNode.ArrNode(items) =>
+        sb.append(s"${indent}type: array\n")
+        sb.append(s"${indent}items:\n")
+        appendYamlSchemaNode(sb, indent + "  ", items)
+      case SchemaNode.ObjNode(props, required) =>
+        sb.append(s"${indent}type: object\n")
+        if props.nonEmpty then
+          sb.append(s"${indent}properties:\n")
+          props.toList.sortBy(_._1).foreach { (k, v) =>
+            sb.append(s"${indent}  ${yamlStr(k)}:\n")
+            appendYamlSchemaNode(sb, indent + "    ", v)
+          }
+        if required.nonEmpty then
+          sb.append(s"${indent}required:\n")
+          required.foreach(r => sb.append(s"${indent}  - ${yamlStr(r)}\n"))
+      case SchemaNode.NullableNode(inner) =>
+        sb.append(s"${indent}oneOf:\n")
+        sb.append(s"${indent}  - ")
+        appendYamlSchemaNode(sb, "", inner)
+        sb.append(s"${indent}  - type: 'null'\n")
+      case SchemaNode.OneOfNode(options) =>
+        sb.append(s"${indent}oneOf:\n")
+        options.foreach { opt =>
+          sb.append(s"${indent}  - ")
+          appendYamlSchemaNode(sb, "", opt)
+        }
+
+  private def appendYamlResponseFromNode(sb: StringBuilder, node: SchemaNode): Unit =
+    sb.append("      responses:\n")
+    sb.append("        \"200\":\n")
+    sb.append("          description: OK\n")
+    sb.append("          content:\n")
+    sb.append("            application/json:\n")
+    sb.append("              schema:\n")
+    appendYamlSchemaNode(sb, "                ", node)
+
+  private def appendYamlResponses(
+      sb:               StringBuilder,
+      responseType:     Option[String],
+      schemaComponents: Map[String, SchemaNode]
+  ): Unit =
     sb.append("      responses:\n")
     sb.append("        \"200\":\n")
     sb.append("          description: OK\n")
@@ -353,7 +568,7 @@ object OpenApiGenerator:
       sb.append("          content:\n")
       sb.append("            application/json:\n")
       sb.append("              schema:\n")
-      appendYamlSchema(sb, "                ", jsonSchema(t), includeKey = false)
+      appendYamlSchema(sb, "                ", jsonSchema(t, schemaComponents), includeKey = false)
     }
 
   private def escapeHtmlAttr(s: String): String =

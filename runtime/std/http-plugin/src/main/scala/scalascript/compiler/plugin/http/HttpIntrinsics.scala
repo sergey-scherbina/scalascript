@@ -85,6 +85,34 @@ object HttpIntrinsics:
         case _ => throw InterpretError("openApiSecurity(name, scheme, format)")
     },
 
+    // openApiRegisterSchema(name, properties, required) — Phase 6 named schemas.
+    // Registers a named object schema in components.schemas.
+    QualifiedName("openApiRegisterSchema") -> PluginNative.evalLegacy { (ctx, args) =>
+      def extractStrMap(v: Value): Map[String, String] = v match
+        case Value.MapV(m) => m.collect { case (Value.StringV(k), Value.StringV(vv)) => k -> vv }.toMap
+        case _             => Map.empty
+      def extractStrList(v: Value): List[String] = v match
+        case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }
+        case _               => Nil
+      def parseNode(typeName: String): OpenApiGenerator.SchemaNode =
+        OpenApiGenerator.SchemaNode.fromTypeName(typeName)
+
+      args match
+        case List(name: String) =>
+          registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode())
+          Value.UnitV
+        case List(name: String, propsV: Value) =>
+          val props = extractStrMap(propsV).map { (k, t) => k -> parseNode(t) }
+          registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode(props))
+          Value.UnitV
+        case List(name: String, propsV: Value, reqV: Value) =>
+          val props    = extractStrMap(propsV).map { (k, t) => k -> parseNode(t) }
+          val required = extractStrList(reqV)
+          registerSchema(ctx, name, OpenApiGenerator.SchemaNode.ObjNode(props, required))
+          Value.UnitV
+        case _ => throw InterpretError("openApiRegisterSchema(name, properties, required?)")
+    },
+
     QualifiedName("tls") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(cert: String, key: String) =>
@@ -678,3 +706,13 @@ object HttpIntrinsics:
     case ()         => Value.UnitV
     case v: Value   => v
     case other      => Value.StringV(other.toString)
+
+  private def registerSchema(ctx: PluginContext, name: String, node: OpenApiGenerator.SchemaNode): Unit =
+    val current: Map[String, OpenApiGenerator.SchemaNode] =
+      ctx.featureGet(NativeContextFeatureKeys.OpenApiSchemaComponents)
+        .collect { case m: Map[?, ?] =>
+          m.collect { case (k: String, v: OpenApiGenerator.SchemaNode) => k -> v }
+           .toMap[String, OpenApiGenerator.SchemaNode]
+        }
+        .getOrElse(Map.empty[String, OpenApiGenerator.SchemaNode])
+    ctx.featureSet(NativeContextFeatureKeys.OpenApiSchemaComponents, current + (name -> node))

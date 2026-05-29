@@ -6,6 +6,7 @@ package: std.openapi
 exports:
   - openapi
   - openApiSecurity
+  - openApiRegisterSchema
 ---
 
 # `std.openapi` — OpenAPI metadata
@@ -22,4 +23,28 @@ extern def openapi(
 ): Unit
 
 extern def openApiSecurity(name: String, scheme: String, format: String = ""): Unit
+
+/** Register a named object schema in OpenAPI `components.schemas`.
+ *
+ *  The schema can then be referenced by name in `@openapi(responseType = "TypeName")`
+ *  or wherever a type name is used.  The generator emits `$ref: "#/components/schemas/TypeName"`.
+ *
+ *  @param name       Schema name (e.g. "User").
+ *  @param properties Map of field name → ScalaScript type name
+ *                    ("String", "Int", "Boolean", "Option[X]", "List[X]", or another schema name).
+ *  @param required   List of required field names (optional; defaults to empty).
+ *
+ *  Example:
+ *  ```scalascript
+ *  openApiRegisterSchema("User",
+ *    Map("id" -> "String", "name" -> "String", "age" -> "Int"),
+ *    List("id", "name")
+ *  )
+ *  ```
+ */
+extern def openApiRegisterSchema(
+  name:       String,
+  properties: Map[String, String] = Map.empty,
+  required:   List[String]        = List.empty
+): Unit
 ```

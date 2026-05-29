@@ -2,7 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.OpenApiGenerator
 import scalascript.backend.spi.NativeContextFeatureKeys
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiOptions, OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation}
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiOptions, OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation, SchemaNode}
 import scalascript.server.RouteRegistry
 
 /** Registers built-in `/_openapi.json` and `/_swagger` routes.
@@ -32,7 +32,8 @@ object OpenApiRuntime:
     val openapiHandler = Value.NativeFnV(
       "_openapi.json",
       Computation.pureFn { _ =>
-        val json = generateOpenApiJson(registry, openApiSecuritySchemes(interp))
+        val json = generateOpenApiJson(registry, openApiSecuritySchemes(interp), OpenApiOptions(),
+                                      Map.empty, openApiSchemaComponents(interp))
         jsonResponse(json)
       }
     )
@@ -67,25 +68,34 @@ object OpenApiRuntime:
     generateOpenApiJson(registry, securitySchemes, OpenApiOptions(), Map.empty)
 
   def generateOpenApiJson(
-      registry:        RouteRegistry,
-      securitySchemes: Iterable[OpenApiSecurityScheme],
-      options:         OpenApiOptions,
-      responseTypes:   Map[(String, String), String]
+      registry:         RouteRegistry,
+      securitySchemes:  Iterable[OpenApiSecurityScheme],
+      options:          OpenApiOptions,
+      responseTypes:    Map[(String, String), String],
+      schemaComponents: Map[String, SchemaNode]          = Map.empty
   ): String =
-    OpenApiGenerator.generate(openApiRoutes(registry, responseTypes), securitySchemes, options)
+    OpenApiGenerator.generate(openApiRoutes(registry, responseTypes), securitySchemes, options, schemaComponents)
 
   def generateOpenApiYaml(
-      registry:        RouteRegistry,
-      securitySchemes: Iterable[OpenApiSecurityScheme],
-      options:         OpenApiOptions,
-      responseTypes:   Map[(String, String), String]
+      registry:         RouteRegistry,
+      securitySchemes:  Iterable[OpenApiSecurityScheme],
+      options:          OpenApiOptions,
+      responseTypes:    Map[(String, String), String],
+      schemaComponents: Map[String, SchemaNode]          = Map.empty
   ): String =
-    OpenApiGenerator.generateYaml(openApiRoutes(registry, responseTypes), securitySchemes, options)
+    OpenApiGenerator.generateYaml(openApiRoutes(registry, responseTypes), securitySchemes, options, schemaComponents)
 
   def openApiSecuritySchemes(interp: Interpreter): List[OpenApiSecurityScheme] =
     interp.nativeFeatureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
       .collect { case xs: List[?] => xs.collect { case s: OpenApiSecurityScheme => s } }
       .getOrElse(Nil)
+
+  def openApiSchemaComponents(interp: Interpreter): Map[String, SchemaNode] =
+    interp.nativeFeatureGet(NativeContextFeatureKeys.OpenApiSchemaComponents)
+      .collect { case m: Map[?, ?] =>
+        m.collect { case (k: String, v: SchemaNode) => k -> v }.toMap[String, SchemaNode]
+      }
+      .getOrElse(Map.empty[String, SchemaNode])
 
   private def openApiRoutes(
       registry:      RouteRegistry,

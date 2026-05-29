@@ -49,8 +49,9 @@ object NativeContextFeatureKeys:
   val HttpTimeoutMs    = "scalascript.http.timeoutMs"
   val HttpMaxRetries   = "scalascript.http.maxRetries"
   val HttpRetryDelayMs = "scalascript.http.retryDelayMs"
-  val OpenApiPending   = "scalascript.openapi.pendingRouteMetadata"
+  val OpenApiPending         = "scalascript.openapi.pendingRouteMetadata"
   val OpenApiSecuritySchemes = "scalascript.openapi.securitySchemes"
+  val OpenApiSchemaComponents = "scalascript.openapi.schemaComponents"
 
 object OpenApiDryRun:
   case object Sentinel extends RuntimeException("OpenAPI dry-run stopped at serve()") with NoStackTrace
