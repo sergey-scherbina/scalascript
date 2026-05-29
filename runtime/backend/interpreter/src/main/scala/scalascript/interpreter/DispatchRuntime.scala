@@ -1523,13 +1523,24 @@ private[interpreter] object DispatchRuntime:
     // Exception .getMessage alias
     else if name == "getMessage" && args.isEmpty then
       Pure(fields.getOrElse("message", Value.EmptyStr))
-    // Class methods (declared inside `class`/`case class` body)
-    else if interp.typeMethods.get(typeName).exists(_.contains(name)) then
-      val fn = interp.typeMethods(typeName)(name)
-      interp.callTypeMethod(fn, fields, args)
+    else
+      // Class methods (declared inside `class`/`case class` body).
+      // Use two null-check lookups instead of get().exists() + (typeName)(name) to
+      // avoid allocating an Option and eliminate the double-lookup hot path.
+      val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
+      if typeMethodMap != null then
+        val fn = typeMethodMap.getOrElse(name, null)
+        if fn != null then
+          interp.callTypeMethod(fn, fields, args)
+        else
+          dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
+      else
+        dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
+
+  private def dispatchInstanceAfterMethods(recv: Value, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // No-arg / native field access (must precede enum-companion check so plain
     // field values like IntV(3) are returned directly instead of being "called")
-    else if args.isEmpty then
+    if args.isEmpty then
       val fieldV = fields.getOrElse(name, null)
       fieldV match
         case null =>
