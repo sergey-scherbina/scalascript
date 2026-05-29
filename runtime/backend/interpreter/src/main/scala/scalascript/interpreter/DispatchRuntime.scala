@@ -295,7 +295,7 @@ private[interpreter] object DispatchRuntime:
       case "contains"  => Computation.pureBool(opt.contains(arg))
       case "map"       => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).map(Computation.wrapSome)
+        case Some(v) => interp.callValue1(arg, v, env).flatMap(Computation.wrapSomeC)
       case "flatMap"   => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env).map {
@@ -1532,7 +1532,7 @@ private[interpreter] object DispatchRuntime:
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).map(Computation.wrapSome)
+          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.wrapSomeC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
@@ -1892,11 +1892,12 @@ private[interpreter] object DispatchRuntime:
         case f: Value.NativeFnV                     => f.f(Nil)
         case v                                      => Pure(v)
     // Enum companion call (Color.RGB(1,2,3)) — only when args are present
-    else if fields.contains(name) then
-      interp.callValue(fields(name), args, env)
     else
-      val ext = extensionDispatch(recv, name, args, env, interp)
-      if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+      val fv = fields.getOrElse(name, null)
+      if fv != null then interp.callValue(fv, args, env)
+      else
+        val ext = extensionDispatch(recv, name, args, env, interp)
+        if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 

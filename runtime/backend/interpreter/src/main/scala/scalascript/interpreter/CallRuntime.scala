@@ -29,8 +29,7 @@ private[interpreter] object CallRuntime:
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
         (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) =>
-      val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
-      val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
+      val callEnv:  Env = FrameMap.one(f.params.head, arg, interp.closureWithSelfFor(f))
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
@@ -54,8 +53,7 @@ private[interpreter] object CallRuntime:
         !f.returnsThrows &&
         (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
         (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) =>
-      val withSelf: Env = if f.name.nonEmpty then FrameMap.one(f.name, f, f.closure) else f.closure
-      val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
+      val callEnv:  Env = FrameMap.two(f.params.head, a, f.params(1), b, interp.closureWithSelfFor(f))
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
