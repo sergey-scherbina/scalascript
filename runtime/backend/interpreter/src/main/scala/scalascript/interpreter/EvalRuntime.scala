@@ -443,6 +443,28 @@ private[interpreter] object EvalRuntime:
               case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
               case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
               case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
+          else if argTerms.lengthCompare(2) == 0 then
+            // 2-arg fast path: avoids extractPureValues ArrayBuffer + argComps List allocation.
+            val arg1C = argTerms.head match
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            val arg2C = argTerms(1) match
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            (qualC, arg1C, arg2C) match
+              case (Pure(qv), Pure(av1), Pure(av2)) =>
+                DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp)
+              case (Pure(qv), Pure(av1), _) =>
+                FlatMap(arg2C, av2 => DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp))
+              case (Pure(qv), _, Pure(av2)) =>
+                FlatMap(arg1C, av1 => DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp))
+              case (Pure(qv), _, _) =>
+                FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp)))
+              case (_, Pure(av1), Pure(av2)) =>
+                FlatMap(qualC, qv => DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp))
+              case _ =>
+                FlatMap(qualC, qv =>
+                  FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch(qv, method, av1 :: av2 :: Nil, env, interp))))
           else
             val argComps = argTerms.map {
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
