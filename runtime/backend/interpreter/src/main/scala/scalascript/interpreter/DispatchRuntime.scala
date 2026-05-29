@@ -50,6 +50,7 @@ private[interpreter] object DispatchRuntime:
       case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
       case Value.UnitV             => dispatchUnit(recv, name, args, env, interp)
       case Value.InstanceV(t, f)   => dispatchInstance(recv, t, f, name, args, env, interp)
+      case Value.Foreign(t, _)     => dispatchForeign(recv, t, name, args, env, interp)
       case other                   => dispatchFallback(other, name, args, env, interp)
 
   /** Single-arg fast path: avoids allocating `arg :: Nil` per method call.
@@ -78,6 +79,7 @@ private[interpreter] object DispatchRuntime:
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
       case Value.IntV(n)        => dispatchInt1(n, name, arg, env, interp)
       case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
+      case Value.Foreign(t, _)   => dispatchForeign(recv, t, name, arg :: Nil, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
   /** Two-arg fast path: avoids allocating `arg1 :: arg2 :: Nil` per method call.
@@ -960,10 +962,15 @@ private[interpreter] object DispatchRuntime:
           if isAllInt then
             val arr = new Array[Long](ls.length)
             var i = 0; var rem2 = ls
-            while rem2.nonEmpty do arr(i) = rem2.head.asInstanceOf[Value.IntV].v; i += 1; rem2 = rem2.tail
+            while rem2.nonEmpty do
+              arr(i) = rem2.head.asInstanceOf[Value.IntV].v
+              i += 1
+              rem2 = rem2.tail
             java.util.Arrays.sort(arr)
             var result2: List[Value] = Nil; i = arr.length - 1
-            while i >= 0 do result2 = Value.intV(arr(i)) :: result2; i -= 1
+            while i >= 0 do
+              result2 = Value.intV(arr(i)) :: result2
+              i -= 1
             Pure(Value.ListV(result2))
           else
             // Schwartzian: one array of (Value, key) — no intermediate List passes.
@@ -973,7 +980,9 @@ private[interpreter] object DispatchRuntime:
               val v = rem.head; arr(i) = (v, Value.show(v)); i += 1; rem = rem.tail
             java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
             var result: List[Value] = Nil; i = arr.length - 1
-            while i >= 0 do result = arr(i)._1 :: result; i -= 1
+            while i >= 0 do
+              result = arr(i)._1 :: result
+              i -= 1
             Pure(Value.ListV(result))
       case "toList"       => Pure(recv)
       case "toSet"        => Pure(Value.ListV(ls.distinct))
@@ -1366,7 +1375,9 @@ private[interpreter] object DispatchRuntime:
                   i += 1; lR = lR.tail; kR = kR.tail
                 java.util.Arrays.sort(arr2, java.util.Comparator.comparingLong[(Value, Long)](_._2))
                 var result2: List[Value] = Nil; i = n - 1
-                while i >= 0 do result2 = arr2(i)._1 :: result2; i -= 1
+                while i >= 0 do
+                  result2 = arr2(i)._1 :: result2
+                  i -= 1
                 Value.ListV(result2)
               else
                 // Build (value, strKey) array in one pass — avoids zip + map double-list.
@@ -1377,7 +1388,9 @@ private[interpreter] object DispatchRuntime:
                   i += 1; lRem = lRem.tail; kRem = kRem.tail
                 java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
                 var result: List[Value] = Nil; i = n - 1
-                while i >= 0 do result = arr(i)._1 :: result; i -= 1
+                while i >= 0 do
+                  result = arr(i)._1 :: result
+                  i -= 1
                 Value.ListV(result)
             case _ => recv
           }
@@ -2149,6 +2162,11 @@ private[interpreter] object DispatchRuntime:
           dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
       else
         dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
+
+  private def dispatchForeign(recv: Value, typeName: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    interp.globals.get(s"$typeName.$name") match
+      case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
+      case None     => dispatchFallback(recv, name, args, env, interp)
 
   private def dispatchInstanceAfterMethods(recv: Value, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // No-arg / native field access (must precede enum-companion check so plain

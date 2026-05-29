@@ -7,6 +7,7 @@ import scalascript.parser.Parser
 import scalascript.compiler.plugin.oauth.OidcHttp
 import scalascript.backend.spi.NativeContext
 import scalascript.interpreter.{Computation, Value}
+import scalascript.plugin.api.{HttpCap, PluginContext}
 import scalascript.oauth.*
 import scalascript.oidc.*
 
@@ -83,6 +84,7 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
     val routes = scala.collection.mutable.LinkedHashMap.empty[(String, String), Any]
     override def registerRoute(method: String, path: String, handler: Any): Unit =
       routes((method, path)) = handler
+    def http: HttpCap = PluginContext.fromNative(this)
 
   private def newIdp(secret: String = "s"): OidcServer =
     val as = new AuthServer(AuthServerConfig(
@@ -110,7 +112,7 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
 
   test("OidcHttp.installRoutes registers OIDC + OAuth route set"):
     val ctx = new CapturingCtx
-    OidcHttp.installRoutes(newIdp(), ctx)
+    OidcHttp.installRoutes(newIdp(), ctx.http)
     ctx.routes.keys.toSet shouldBe Set(
       ("POST", "/token"),
       ("GET",  "/userinfo"),
@@ -128,7 +130,7 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
   test("OidcHttp /userinfo: bearer-validated, returns claims"):
     val idp = newIdp()
     val ctx = new CapturingCtx
-    OidcHttp.installRoutes(idp, ctx)
+    OidcHttp.installRoutes(idp, ctx.http)
     val token = OAuth.issueHmacToken("s", "alice", Set("openid", "profile"), 60L,
       issuer = Some("https://idp.local"), clientId = Some("c1"))
     call(ctx.routes(("GET", "/userinfo")), "",
@@ -146,7 +148,7 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
   test("OidcHttp /.well-known/openid-configuration: serves discovery"):
     val idp = newIdp()
     val ctx = new CapturingCtx
-    OidcHttp.installRoutes(idp, ctx)
+    OidcHttp.installRoutes(idp, ctx.http)
     call(ctx.routes(("GET", "/.well-known/openid-configuration")), "") match
       case Value.InstanceV("Response", fs) =>
         fs("status") shouldBe Value.IntV(200L)
@@ -166,7 +168,7 @@ class OidcScriptTest extends AnyFunSuite with Matchers:
       redirectUris = Set("http://x/cb"), scopes = Set("openid", "profile"),
       clientType = ClientType.Public))
     val ctx = new CapturingCtx
-    OidcHttp.installRoutes(idp, ctx)
+    OidcHttp.installRoutes(idp, ctx.http)
     val v  = "v" * 50
     val ch = OAuth.pkceS256(v)
     val redir = as.issueAuthorizationCode(

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — runtime test blocker fixes
+
+- **fix/runtime-test-blockers** — Added generic `Foreign` method dispatch through
+  `<Type>.<method>` plugin globals (restoring `ReactiveSignal.bind`), updated
+  OAuth/OIDC installer tests to use the `HttpCap` adapter, finished the remaining
+  `OptionV` null-sentinel plugin call sites, and fixed optimized `List.sorted` /
+  `sortBy` loops that could hang and exhaust heap.
+
 ## 2026-05-29 — OptionV optimization follow-up
 
 - **fix/interpreter-optionv-followups** — Completed the null-sentinel

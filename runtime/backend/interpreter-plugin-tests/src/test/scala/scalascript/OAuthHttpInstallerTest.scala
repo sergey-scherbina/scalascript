@@ -6,6 +6,7 @@ import scalascript.oauth.*
 import scalascript.interpreter.{Computation, Value}
 import scalascript.compiler.plugin.oauth.OAuthHttp
 import scalascript.backend.spi.NativeContext
+import scalascript.plugin.api.{HttpCap, PluginContext}
 
 /** v1.17.x — backend-interpreter adapter that wires `OAuthRoutes` pure
  *  handlers into the embedded WebServer.  Tests verify the route
@@ -20,6 +21,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
     val routes = scala.collection.mutable.LinkedHashMap.empty[(String, String), Any]
     override def registerRoute(method: String, path: String, handler: Any): Unit =
       routes((method, path)) = handler
+    def http: HttpCap = PluginContext.fromNative(this)
 
   private def newAs: AuthServer =
     val as = new AuthServer(AuthServerConfig(
@@ -60,7 +62,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("installRoutes registers all OAuth endpoints"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx)
+    OAuthHttp.installRoutes(newAs, ctx.http)
     ctx.routes.keys.toSet shouldBe Set(
       ("POST", "/token"),
       ("POST", "/introspect"),
@@ -74,7 +76,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("installRoutes honours the basePath prefix"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx, basePath = "/oauth")
+    OAuthHttp.installRoutes(newAs, ctx.http, basePath = "/oauth")
     ctx.routes.keys.toSet shouldBe Set(
       ("POST", "/oauth/token"),
       ("POST", "/oauth/introspect"),
@@ -90,7 +92,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("POST /token: returns Response with status 200 + JSON body"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx)
+    OAuthHttp.installRoutes(newAs, ctx.http)
     val req = request(body = "grant_type=client_credentials&client_id=svc&client_secret=s&scope=read")
     call(ctx.routes(("POST", "/token")), req) match
       case Value.InstanceV("Response", fields) =>
@@ -105,7 +107,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("POST /token: invalid_client maps to 401 in the Response"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx)
+    OAuthHttp.installRoutes(newAs, ctx.http)
     val req = request(body = "grant_type=client_credentials&client_id=svc&client_secret=WRONG")
     call(ctx.routes(("POST", "/token")), req) match
       case Value.InstanceV("Response", fs) => fs("status") shouldBe Value.IntV(401L)
@@ -116,7 +118,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
   test("POST /revoke: returns 200 + empty body"):
     val as  = newAs
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(as, ctx)
+    OAuthHttp.installRoutes(as, ctx.http)
     val token = as.issueToken(TokenRequest.ClientCredentialsGrant(
       "svc", "s", Set("read")
     )).asInstanceOf[TokenOutcome.Issued].response.accessToken
@@ -132,7 +134,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("GET /.well-known/oauth-authorization-server: discovery document"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx)
+    OAuthHttp.installRoutes(newAs, ctx.http)
     val req = request()
     call(ctx.routes(("GET", "/.well-known/oauth-authorization-server")), req) match
       case Value.InstanceV("Response", fs) =>
@@ -152,7 +154,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
       scopes = Set("read"), clientType = ClientType.Public
     ))
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(as, ctx,
+    OAuthHttp.installRoutes(as, ctx.http,
       subjectFor = _ => Some("alice"))
     val req = request(query = Map(
       "response_type" -> "code",
@@ -174,7 +176,7 @@ class OAuthHttpInstallerTest extends AnyFunSuite with Matchers:
 
   test("GET /authorize: no subject + no loginUrl → 401"):
     val ctx = new CapturingCtx
-    OAuthHttp.installRoutes(newAs, ctx)  // default subjectFor = None
+    OAuthHttp.installRoutes(newAs, ctx.http)  // default subjectFor = None
     val req = request(query = Map("response_type" -> "code"))
     call(ctx.routes(("GET", "/authorize")), req) match
       case Value.InstanceV("Response", fs) =>

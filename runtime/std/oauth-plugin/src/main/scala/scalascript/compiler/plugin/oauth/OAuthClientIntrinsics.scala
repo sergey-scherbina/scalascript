@@ -126,8 +126,8 @@ object OAuthClientIntrinsicHelpers:
         (Value.StringV("accessToken"):  Value) -> (Value.StringV(t.accessToken):       Value),
         (Value.StringV("tokenType"):    Value) -> (Value.StringV(t.tokenType):         Value),
         (Value.StringV("expiresIn"):    Value) -> (Value.intV(t.expiresIn):            Value),
-        (Value.StringV("refreshToken"): Value) -> Value.OptionV(t.refreshToken.map(Value.StringV(_))),
-        (Value.StringV("idToken"):      Value) -> Value.OptionV(t.idToken.map(Value.StringV(_))),
+        (Value.StringV("refreshToken"): Value) -> Value.OptionV(t.refreshToken.map(Value.StringV(_)).orNull),
+        (Value.StringV("idToken"):      Value) -> Value.OptionV(t.idToken.map(Value.StringV(_)).orNull),
         (Value.StringV("scope"):        Value) -> Value.ListV(t.scope.toList.sorted.map(Value.StringV(_))),
         (Value.StringV("raw"):          Value) -> ujsonToValue(raw)
       ))

@@ -1386,7 +1386,7 @@ private object Mcp:
     Value.ListV(roots.map { r =>
       Value.InstanceV("Root", Map(
         "uri"  -> Value.StringV(r.uri),
-        "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)))
+        "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)).orNull)
       ))
     })
 
