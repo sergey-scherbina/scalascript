@@ -247,7 +247,7 @@ enum Value:
   case NativeFnV(name: String, f: List[Value] => Computation)
   case InstanceV(typeName: String, fields: Map[String, Value])
   case ListV(items: List[Value])
-  case OptionV(inner: Option[Value])
+  case OptionV(inner: Value | Null)
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
   case DocV(parts: List[Value])
@@ -302,18 +302,18 @@ object Value:
   // Pre-cached constants used by the Computation monad's run loop.
   val True:      BoolV   = BoolV(true)
   val False:     BoolV   = BoolV(false)
-  val NoneV:     OptionV  = OptionV(None)
+  val NoneV:     OptionV  = OptionV(null)
   val EmptyList: ListV    = ListV(Nil)
   val EmptyMap:  MapV     = MapV(Map.empty)
   val EmptyStr:  StringV  = StringV("")
 
   def boolV(b: Boolean): BoolV = if b then True else False
 
-  /** Smart constructor for Option[Value]: avoids allocating OptionV(None)
+  /** Smart constructor for Option[Value]: avoids allocating OptionV(null)
    *  on cache-miss map lookups — returns the NoneV singleton instead. */
   def optionV(opt: Option[Value]): OptionV = opt match
     case None    => NoneV
-    case Some(v) => OptionV(Some(v))
+    case Some(v) => OptionV(v)
 
   def show(v: Value): String = v match
     case IntV(n)              => n.toString
@@ -324,8 +324,8 @@ object Value:
     case UnitV                => "()"
     case NullV                => "null"
     case ListV(items)         => items.iterator.map(show).mkString("List(", ", ", ")")
-    case OptionV(None)        => "None"
-    case OptionV(Some(v))     => s"Some(${show(v)})"
+    case OptionV(null)        => "None"
+    case OptionV(v)           => s"Some(${show(v)})"
     case TupleV(elems)        => elems.iterator.map(show).mkString("(", ", ", ")")
     case MapV(m)              =>
       if m.isEmpty then "Map()"
@@ -418,10 +418,10 @@ object Computation:
 
   inline def pureBool(b: Boolean): Pure = if b then PureTrue else PureFalse
 
-  /** Lift an Option[Value] into a Pure Computation without allocating OptionV(None). */
+  /** Lift an Option[Value] into a Pure Computation without allocating OptionV(null). */
   def pureOptionV(opt: Option[Value]): Pure = opt match
     case None    => PureNone
-    case Some(v) => Pure(Value.OptionV(Some(v)))
+    case Some(v) => Pure(Value.OptionV(v))
 
   def pureIntV(n: Long): Pure =
     if n >= -2048L && n <= 16383L then Value._pureIntPool((n + 2048L).toInt)
@@ -440,13 +440,13 @@ object Computation:
    *  to avoid allocating a new `_ => PureUnit` lambda on every call. */
   val discardToUnit: Value => Computation = _ => PureUnit
 
-  /** Cached continuation: wrap a value in OptionV(Some(...)). Used by Option.map.
+  /** Cached continuation: wrap a value in OptionV(v). Used by Option.map.
    *  Avoids one lambda allocation per Option.map call site. */
-  val wrapSome: Value => Value = v => Value.OptionV(Some(v))
+  val wrapSome: Value => Value = v => Value.OptionV(v)
 
-  /** Cached Computation continuation: wrap result in OptionV(Some(v)) and lift to Pure.
+  /** Cached Computation continuation: wrap result in OptionV(v) and lift to Pure.
    *  Using flatMap(wrapSomeC) instead of map(wrapSome) saves the `v => Pure(f(v))` lambda. */
-  val wrapSomeC: Value => Computation = v => Pure(Value.OptionV(Some(v)))
+  val wrapSomeC: Value => Computation = v => Pure(Value.OptionV(v))
 
   /** Run computation c and discard its result (return Unit).  Avoids one lambda allocation
    *  vs `.map(_ => Value.UnitV)` or `.flatMap(_ => PureUnit)`. */

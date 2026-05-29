@@ -154,13 +154,13 @@ private[interpreter] object BlockRuntime:
     interp:     Interpreter
   ): Computation =
     (tag, monadValue) match
-      case (AsyncM,  Value.OptionV(Some(inner)))                  => cont(inner)
-      case (AsyncM,  Value.NoneV)                         => Computation.PureNone
+      case (AsyncM,  ov: Value.OptionV) =>
+        if ov.inner != null then cont(ov.inner) else Computation.PureNone
       case (AsyncM,  Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
       case (AsyncM,  Value.InstanceV("Left", _))                  => Pure(monadValue)
-      case (EitherM, Value.OptionV(Some(inner)))                  => cont(inner)
-      case (EitherM, Value.NoneV)                         =>
-        Pure(Value.InstanceV("Left", new IMap.Map1("value", Value.UnitV)))
+      case (EitherM, ov: Value.OptionV) =>
+        if ov.inner != null then cont(ov.inner)
+        else Pure(Value.InstanceV("Left", new IMap.Map1("value", Value.UnitV)))
       case (OptionM, Value.InstanceV("Right", f)) if f.contains("value") => cont(f("value"))
       case (OptionM, Value.InstanceV("Left", _))                  => Computation.PureNone
       case (ListM | OtherM, _) | _ =>

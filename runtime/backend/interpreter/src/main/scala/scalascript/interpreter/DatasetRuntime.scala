@@ -20,7 +20,7 @@ private[interpreter] object DatasetRuntime:
           var optV   = Computation.run(interp.callValue(nextFn, Nil, Map.empty))
           while optV != Value.NoneV do
             optV match
-              case Value.OptionV(Some(v)) => buf += v
+              case Value.OptionV(v) => buf += v
               case _ =>
             optV = Computation.run(interp.callValue(nextFn, Nil, Map.empty))
           val items = buf.toList
@@ -268,7 +268,7 @@ private[interpreter] object DatasetRuntime:
           Computation.PureUnit
         case _ => throw InterpretError("Dataset.foreach(action: T => Unit): Unit")
       }),
-      "first"  -> Value.NativeFnV("Dataset.first",  Computation.pureFn(_ => Value.OptionV(run().headOption))),
+      "first"  -> Value.NativeFnV("Dataset.first",  Computation.pureFn(_ => Value.OptionV(run().headOption.orNull))),
       "toGenerator" -> Value.NativeFnV("Dataset.toGenerator", Computation.pureFn(_ => {
         val items = run()
         val queue = new interp.GenQueue()

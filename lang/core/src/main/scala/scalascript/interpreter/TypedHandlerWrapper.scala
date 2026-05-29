@@ -287,7 +287,7 @@ object TypedHandlerWrapper:
     case Some(Value.StringV(s)) if s.nonEmpty                    => Some(s)
     case Some(Value.InstanceV("Some", f))                        =>
       f.get("value").collect { case Value.StringV(s) if s.nonEmpty => s }
-    case Some(Value.OptionV(Some(Value.StringV(s)))) if s.nonEmpty => Some(s)
+    case Some(Value.OptionV(Value.StringV(s))) if s.nonEmpty => Some(s)
     case _                                                        => None
 
   private def extractEitherRight(t: String): String =

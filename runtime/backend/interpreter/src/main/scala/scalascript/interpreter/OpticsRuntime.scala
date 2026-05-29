@@ -120,7 +120,7 @@ private[interpreter] object OpticsRuntime:
   def buildPrism(variantName: String, interp: Interpreter): Value.InstanceV =
     val getOptionFn = Value.NativeFnV("Prism.getOption", {
       case List(s) => s match
-        case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(Some(s)))
+        case Value.InstanceV(t, _) if t == variantName => Pure(Value.OptionV(s))
         case _                                          => Computation.PureNone
       case _ => throw InterpretError("Prism.getOption(s)")
     })
@@ -212,7 +212,7 @@ private[interpreter] object OpticsRuntime:
       case Value.InstanceV(_, fields) => fields.get(n).flatMap(v => opticGetOption(v, rest))
       case _                          => None
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) => opticGetOption(inner, rest)
+      case Value.OptionV(inner) => opticGetOption(inner, rest)
       case _                          => None
     case PathStep.IndexStep(i) :: rest => target match
       case Value.ListV(items) if i >= 0 && i < items.length =>
@@ -234,8 +234,8 @@ private[interpreter] object OpticsRuntime:
           case None => target
       case _ => target
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) =>
-        Value.OptionV(Some(opticSet(inner, rest, newVal)))
+      case Value.OptionV(inner) =>
+        Value.OptionV(opticSet(inner, rest, newVal))
       case other => other
     case PathStep.IndexStep(i) :: rest => target match
       case Value.ListV(items) if i >= 0 && i < items.length =>
@@ -296,7 +296,7 @@ private[interpreter] object OpticsRuntime:
         fields.get(n).map(v => opticGetAll(v, rest)).getOrElse(Nil)
       case _ => Nil
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) => opticGetAll(inner, rest)
+      case Value.OptionV(inner) => opticGetAll(inner, rest)
       case _                          => Nil
     case PathStep.EachStep :: rest => target match
       case Value.ListV(items) => items.flatMap(item => opticGetAll(item, rest))
@@ -321,8 +321,8 @@ private[interpreter] object OpticsRuntime:
           case None => Pure(target)
       case _ => Pure(target)
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(Some(inner)) =>
-        opticModifyAll(inner, rest, f, interp).map(updated => Value.OptionV(Some(updated)))
+      case Value.OptionV(inner) =>
+        opticModifyAll(inner, rest, f, interp).map(updated => Value.OptionV(updated))
       case _ => Pure(target)
     case PathStep.EachStep :: rest => target match
       case Value.ListV(items) =>

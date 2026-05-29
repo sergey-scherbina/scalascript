@@ -234,7 +234,6 @@ private[interpreter] object GivenRuntime:
     case Value.CharV(_)        => "Char"
     case Value.ListV(h :: _)   => s"List[${runtimeValueType(h)}]"
     case Value.EmptyList      => "List[_]"
-    case Value.OptionV(Some(h)) => s"Option[${runtimeValueType(h)}]"
-    case Value.NoneV   => "Option[_]"
+    case ov: Value.OptionV => if ov.inner != null then s"Option[${runtimeValueType(ov.inner)}]" else "Option[_]"
     case Value.InstanceV(t, _) => t
     case _                     => "_"
