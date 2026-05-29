@@ -1,5 +1,6 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
 import Computation.Pure
 
 private[interpreter] object DatasetRuntime:
@@ -123,14 +124,14 @@ private[interpreter] object DatasetRuntime:
         val xs = run()
         if xs.isEmpty then
           throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.min: empty dataset"))))
+            new IMap.Map1("message", Value.StringV("Dataset.min: empty dataset"))))
         else xs.reduce((a, b) => if compareValues(a, b) <= 0 then a else b)
       }),
       "max" -> Value.NativeFnV("Dataset.max", Computation.pureFn { _ =>
         val xs = run()
         if xs.isEmpty then
           throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.max: empty dataset"))))
+            new IMap.Map1("message", Value.StringV("Dataset.max: empty dataset"))))
         else xs.reduce((a, b) => if compareValues(a, b) >= 0 then a else b)
       }),
       "sum" -> Value.NativeFnV("Dataset.sum", Computation.pureFn { _ =>
@@ -143,7 +144,7 @@ private[interpreter] object DatasetRuntime:
         val xs = run()
         if xs.isEmpty then
           throw ScriptException(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV("Dataset.avg: empty dataset"))))
+            new IMap.Map1("message", Value.StringV("Dataset.avg: empty dataset"))))
         else
           val total = xs.foldLeft(Value.DoubleZero: Value) { (acc, v) =>
             Computation.run(interp.infix(acc, "+", List(v), Map.empty))
@@ -243,7 +244,7 @@ private[interpreter] object DatasetRuntime:
           val items = run()
           if items.isEmpty then
             throw ScriptException(Value.InstanceV("RuntimeException",
-              Map("message" -> Value.StringV("Dataset.reduce: empty dataset"))))
+              new IMap.Map1("message", Value.StringV("Dataset.reduce: empty dataset"))))
           val result = items.tail.foldLeft(items.head) { (acc, item) =>
             Computation.run(interp.callValue2(combineFn, acc, item, Map.empty))
           }

@@ -1,5 +1,6 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
 import Computation.{Pure, Perform, FlatMap}
 
 /** Async effect handlers — Free-Monad walkers for Async.delay/async/await/parallel/recvFrom.
@@ -45,7 +46,7 @@ private[interpreter] object AsyncRuntime:
       case List(thunk) =>
         asyncInterp(interp.callValue(thunk, Nil, Map.empty), interp) match
           case Pure(v) =>
-            resume(Value.InstanceV("Future", Map("value" -> v)))
+            resume(Value.InstanceV("Future", new IMap.Map1("value", v)))
           case _ => throw InterpretError(
             "Async.async thunk leaked an unhandled non-Async effect")
       case _ => throw InterpretError("Async.async(thunk)")

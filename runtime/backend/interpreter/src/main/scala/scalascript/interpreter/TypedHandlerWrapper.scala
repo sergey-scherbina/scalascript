@@ -1,5 +1,6 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
 import scalascript.wire.{WireEnvelope, WireValue}
 import scalascript.wire.msgpack.MsgPackWireCodec
 import scalascript.wire.cbor.CborWireCodec
@@ -105,11 +106,11 @@ object TypedHandlerWrapper:
                   val innerType = extractEitherRight(typeName)
                   deserializeParam(paramName, innerType, pathParams, queryParams, jsonBody, globalsView) match
                     case Right(v) =>
-                      val eitherRight = Value.InstanceV("Right", Map("value" -> v))
+                      val eitherRight = Value.InstanceV("Right", new IMap.Map1("value", v))
                       val result = invoke(f, List(eitherRight) ++ trailingArgs(reqV, trailingReq, trailingCtx))
                       serializeOutput(result)
                     case Left(_) =>
-                      val eitherLeft = Value.InstanceV("Left", Map("value" -> reqV))
+                      val eitherLeft = Value.InstanceV("Left", new IMap.Map1("value", reqV))
                       val result = invoke(f, List(eitherLeft) ++ trailingArgs(reqV, trailingReq, trailingCtx))
                       serializeOutput(result)
                 case _ =>
