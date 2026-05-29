@@ -1,7 +1,7 @@
 package scalascript.interpreter
 
 import scala.meta.*
-import Computation.FlatMap
+import Computation.{Pure, FlatMap}
 
 /** Pattern matching, for-comprehension evaluation, and collection iteration helpers. */
 private[interpreter] object PatternRuntime:
@@ -319,13 +319,16 @@ private[interpreter] object PatternRuntime:
       // intermediate List[Computation] from the general branches+sequence approach.
       case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
         val varName = vn.value
-        interp.eval(rhs, env).flatMap { rhsV =>
-          Computation.mapSequence(evalCollection(rhsV, interp),
-            item => interp.eval(body, FrameMap.one(varName, item, env)))
-        }
+        interp.eval(rhs, env) match
+          case Pure(rhsV) =>
+            Computation.mapSequence(evalCollection(rhsV, interp),
+              item => interp.eval(body, FrameMap.one(varName, item, env)))
+          case rhsC => FlatMap(rhsC, rhsV =>
+            Computation.mapSequence(evalCollection(rhsV, interp),
+              item => interp.eval(body, FrameMap.one(varName, item, env))))
       case Enumerator.Generator(pat, rhs) :: rest =>
-        interp.eval(rhs, env).flatMap { rhsV =>
-          val items = evalCollection(rhsV, interp)
+        @inline def genBody(rhsV: Value): Computation =
+          val items  = evalCollection(rhsV, interp)
           val isLast = rest.isEmpty
           val branches = items.flatMap { item =>
             val patEnv = matchPat(pat, item, env, interp)
@@ -341,18 +344,25 @@ private[interpreter] object PatternRuntime:
               })
             case other => other
           }
-        }
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => genBody(rhsV)
+          case rhsC       => FlatMap(rhsC, genBody)
       case Enumerator.Guard(cond) :: rest =>
-        interp.eval(cond, env).flatMap {
-          case Value.BoolV(true) => evalForYield(rest, body, env, interp)
-          case _                 => Computation.PureEmptyList
-        }
+        interp.eval(cond, env) match
+          case Pure(Value.BoolV(true)) => evalForYield(rest, body, env, interp)
+          case Pure(_)                 => Computation.PureEmptyList
+          case c => FlatMap(c, {
+            case Value.BoolV(true) => evalForYield(rest, body, env, interp)
+            case _                 => Computation.PureEmptyList
+          })
       case Enumerator.Val(pat, rhs) :: rest =>
-        interp.eval(rhs, env).flatMap { v =>
+        @inline def valBody(v: Value): Computation =
           val patEnv = matchPat(pat, v, env, interp)
           if patEnv == null then Computation.PureEmptyList
           else evalForYield(rest, body, patEnv, interp)
-        }
+        interp.eval(rhs, env) match
+          case Pure(v) => valBody(v)
+          case rhsC    => FlatMap(rhsC, valBody)
       case _ :: rest => evalForYield(rest, body, env, interp)
 
   // evalForDo keeps loop vars separate so assignments to outer vars are visible.
@@ -361,12 +371,15 @@ private[interpreter] object PatternRuntime:
   def evalForDo(enums: List[Enumerator], body: Term, outerEnv: Env, loopVars: Env, interp: Interpreter): Computation =
     val env = if loopVars.isEmpty then outerEnv else outerEnv ++ loopVars
     enums match
-      case Nil => interp.eval(body, env).flatMap(Computation.discardToUnit)
+      case Nil =>
+        interp.eval(body, env) match
+          case Pure(_) => Computation.PureUnit
+          case c       => FlatMap(c, Computation.discardToUnit)
       // Fast path: `for x <- items do body` (single Pat.Var generator, no guards).
       // Avoids matchPat Option/Some, patVarNames Set, and loopVars Map per iteration.
       case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
         val varName = vn.value
-        FlatMap(interp.eval(rhs, env), { rhsV =>
+        @inline def doLoop(rhsV: Value): Computation =
           val items = evalCollection(rhsV, interp)
           def forDoLoop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureUnit
@@ -374,12 +387,14 @@ private[interpreter] object PatternRuntime:
               FlatMap(interp.eval(body, FrameMap.one(varName, item, env)),
                 _ => forDoLoop(tail))
           forDoLoop(items)
-        })
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => doLoop(rhsV)
+          case rhsC       => FlatMap(rhsC, doLoop)
       // Fast path: single generator — avoids patVarNames Set + newVars Map + recursive evalForDo per item.
       // patEnv from matchPat already extends `env` with the pattern bindings, so it's
       // equivalent to the outerEnv ++ loopVars ++ newVars that the general path would build.
       case Enumerator.Generator(pat, rhs) :: Nil =>
-        FlatMap(interp.eval(rhs, env), { rhsV =>
+        @inline def patLoop(rhsV: Value): Computation =
           val items = evalCollection(rhsV, interp)
           def forDoLoop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureUnit
@@ -388,9 +403,11 @@ private[interpreter] object PatternRuntime:
               if patEnv == null then forDoLoop(tail)
               else FlatMap(interp.eval(body, patEnv), _ => forDoLoop(tail))
           forDoLoop(items)
-        })
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => patLoop(rhsV)
+          case rhsC       => FlatMap(rhsC, patLoop)
       case Enumerator.Generator(pat, rhs) :: rest =>
-        FlatMap(interp.eval(rhs, env), { rhsV =>
+        @inline def genLoop(rhsV: Value): Computation =
           val items = evalCollection(rhsV, interp)
           def loop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureUnit
@@ -401,18 +418,25 @@ private[interpreter] object PatternRuntime:
                 val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
                 FlatMap(evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp), _ => loop(tail))
           loop(items)
-        })
+        interp.eval(rhs, env) match
+          case Pure(rhsV) => genLoop(rhsV)
+          case rhsC       => FlatMap(rhsC, genLoop)
       case Enumerator.Guard(cond) :: rest =>
-        interp.eval(cond, env).flatMap {
-          case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp)
-          case _                 => Computation.PureUnit
-        }
+        interp.eval(cond, env) match
+          case Pure(Value.BoolV(true)) => evalForDo(rest, body, outerEnv, loopVars, interp)
+          case Pure(_)                 => Computation.PureUnit
+          case c => FlatMap(c, {
+            case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp)
+            case _                 => Computation.PureUnit
+          })
       case Enumerator.Val(pat, rhs) :: rest =>
-        interp.eval(rhs, env).flatMap { v =>
+        @inline def valBind(v: Value): Computation =
           val patEnv = matchPat(pat, v, env, interp)
           if patEnv == null then Computation.PureUnit
           else
             val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
             evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp)
-        }
+        interp.eval(rhs, env) match
+          case Pure(v) => valBind(v)
+          case rhsC    => FlatMap(rhsC, valBind)
       case _ :: rest => evalForDo(rest, body, outerEnv, loopVars, interp)
