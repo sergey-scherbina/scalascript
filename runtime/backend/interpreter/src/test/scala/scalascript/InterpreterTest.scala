@@ -653,6 +653,14 @@ def main(): Unit =
     captured("""println((1 until 5).mkString(", "))""") shouldBe "1, 2, 3, 4"
   }
 
+  test("int max and min"):
+    captured("""
+      println(3.max(7))
+      println(3.min(7))
+      println(3.max(2.5))
+      println(3.min(2.5))
+    """) shouldBe "7\n3\n3\n2.5"
+
   test("int and double abs") {
     captured("""println(-7.abs)""") shouldBe "7"
     captured("""println(-3.14.abs)""") shouldBe "3.14"

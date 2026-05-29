@@ -75,7 +75,7 @@ private[interpreter] object DispatchRuntime:
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
       case Value.OptionV(opt)   => dispatchOption1(recv, opt, name, arg, env, interp)
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
-      case Value.IntV(n)        => dispatchInt(n, name, arg :: Nil, env, interp)
+      case Value.IntV(n)        => dispatchInt1(n, name, arg, env, interp)
       case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
@@ -1724,6 +1724,32 @@ private[interpreter] object DispatchRuntime:
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Int ─────────────────────────────────────────────────────────────────────
+
+  /** Single-arg fast path for Int — avoids `arg :: Nil` cons cell for max/min/to/until. */
+  private def dispatchInt1(n: Long, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    val recv = Value.intV(n)
+    name match
+      case "max"   => arg match
+        case Value.IntV(m)    => Computation.pureIntV(math.max(n, m))
+        case Value.DoubleV(d) => Pure(Value.doubleV(math.max(n.toDouble, d)))
+        case _                => dispatchFallback(recv, name, arg :: Nil, env, interp)
+      case "min"   => arg match
+        case Value.IntV(m)    => Computation.pureIntV(math.min(n, m))
+        case Value.DoubleV(d) => Pure(Value.doubleV(math.min(n.toDouble, d)))
+        case _                => dispatchFallback(recv, name, arg :: Nil, env, interp)
+      case "to"    => arg match
+        case Value.IntV(m) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n + 1).toInt))
+          var i = n; while i <= m do { buf += Value.intV(i); i += 1 }
+          Pure(Value.ListV(buf.toList))
+        case _ => dispatchFallback(recv, name, arg :: Nil, env, interp)
+      case "until" => arg match
+        case Value.IntV(m) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n).toInt))
+          var i = n; while i < m do { buf += Value.intV(i); i += 1 }
+          Pure(Value.ListV(buf.toList))
+        case _ => dispatchFallback(recv, name, arg :: Nil, env, interp)
+      case _       => dispatchInt(n, name, arg :: Nil, env, interp)
 
   private def dispatchInt(n: Long, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     val recv = Value.intV(n)

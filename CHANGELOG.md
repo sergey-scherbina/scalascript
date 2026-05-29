@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter Int single-arg fast path
+
+- **perf/interpreter-int1** — Ported the `dispatchInt1` fast path from
+  `perf/interpreter-opt`. Common `Int.max`, `Int.min`, `Int.to`, and
+  `Int.until` calls now avoid building the one-argument dispatch list.
+
 ## 2026-05-29 — interpreter computation sequence fast path
 
 - **perf/interpreter-sequence** — Ported the `Computation.sequence` fast path
