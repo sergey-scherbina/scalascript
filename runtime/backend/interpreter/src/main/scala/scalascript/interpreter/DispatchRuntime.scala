@@ -1151,21 +1151,19 @@ private[interpreter] object DispatchRuntime:
           val it = m.iterator
           while it.hasNext do
             val (k, v) = it.next()
-            val entry = Value.TupleV(k :: v :: Nil)
-            interp.callValue1(f, entry, env) match
-              case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Some(entry)))
+            interp.callEntry(f, k, v, env) match
+              case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
               case Pure(_)                  => // continue
               case comp =>
                 return FlatMap(comp, {
-                  case Value.BoolV(true) => Pure(Value.OptionV(Some(entry)))
+                  case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
                   case _ =>
                     def loopRest(): Computation =
                       if !it.hasNext then Computation.PureNone
                       else
                         val (k2, v2) = it.next()
-                        val e2 = Value.TupleV(k2 :: v2 :: Nil)
-                        FlatMap(interp.callValue1(f, e2, env), {
-                          case Value.BoolV(true) => Pure(Value.OptionV(Some(e2)))
+                        FlatMap(interp.callEntry(f, k2, v2, env), {
+                          case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k2 :: v2 :: Nil))))
                           case _                 => loopRest()
                         })
                     loopRest()
