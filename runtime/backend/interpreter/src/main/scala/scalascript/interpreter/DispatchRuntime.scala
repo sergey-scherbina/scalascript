@@ -1396,16 +1396,16 @@ private[interpreter] object DispatchRuntime:
     typeName match
       case "Pid" => name match
         case "tell" | "!" => args match
-          case List(msg) => Perform("Actor", "send", List(recv, msg))
+          case List(msg) => Perform("Actor", "send", recv :: msg :: Nil)
           case _         => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "address" if args.isEmpty =>
-          Perform("Actor", "actorRefAddress", List(recv))
+          Perform("Actor", "actorRefAddress", recv :: Nil)
         case "isLocal" if args.isEmpty =>
-          Perform("Actor", "actorRefIsLocal", List(recv))
+          Perform("Actor", "actorRefIsLocal", recv :: Nil)
         case "tryLocal" if args.isEmpty =>
-          Perform("Actor", "actorRefTryLocal", List(recv))
+          Perform("Actor", "actorRefTryLocal", recv :: Nil)
         case "publishAs" | "publish" => args match
-          case List(Value.StringV(n)) => Perform("Actor", "actorRefPublish", List(recv, Value.StringV(n)))
+          case List(Value.StringV(n)) => Perform("Actor", "actorRefPublish", recv :: Value.StringV(n) :: Nil)
           case _                      => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
@@ -1413,7 +1413,7 @@ private[interpreter] object DispatchRuntime:
         case "resolveSeeds" if args.isEmpty =>
           fields.get("seedResolver") match
             case Some(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
-              Perform("Actor", "resolveSeeds", List(seedResolver))
+              Perform("Actor", "resolveSeeds", seedResolver :: Nil)
             case _ => interp.located("ClusterCapability missing seedResolver")
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
@@ -1664,7 +1664,7 @@ private[interpreter] object DispatchRuntime:
         case _               => dispatch(lhs, op, args, env, interp)
       case "->" => Pure(Value.TupleV(lhs :: rhs :: Nil))
       case "!" => lhs match
-        case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", List(pid, rhs))
+        case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", pid :: rhs :: Nil)
         case _                               => dispatch(lhs, op, List(rhs), env, interp)
       case ":=" => lhs match
         case Value.InstanceV("AttrKey", fields) =>

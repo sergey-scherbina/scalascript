@@ -310,7 +310,7 @@ private[interpreter] object EvalRuntime:
         case pf: Term.PartialFunction =>
           val id = interp.receiveSpecNext; interp.receiveSpecNext += 1
           interp.receiveSpecs(id) = (pf.cases, env)
-          Perform("Actor", "receive", List(Value.intV(id)))
+          Perform("Actor", "receive", Value.intV(id) :: Nil)
         case _ =>
           interp.located("receive expects a partial function { case msg => ... }")
 
@@ -331,7 +331,7 @@ private[interpreter] object EvalRuntime:
         case pf: Term.PartialFunction =>
           val id = interp.receiveSpecNext; interp.receiveSpecNext += 1
           interp.receiveSpecs(id) = (pf.cases, env)
-          Perform("Actor", "receive_t", List(Value.intV(id), Value.intV(timeoutMs)))
+          Perform("Actor", "receive_t", Value.intV(id) :: Value.intV(timeoutMs) :: Nil)
         case _ =>
           interp.located("receive expects a partial function { case msg => ... }")
 
