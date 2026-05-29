@@ -28,18 +28,33 @@ import sbt.plugins.JvmPlugin
  *  Settings:
  *  - `sscArtifactDir`  — directory containing `.scim` artifacts (required).
  *  - `sscBinary`       — path to the `ssc` binary (default: "ssc" on PATH).
+ *  - `sscSourceDirectories` — source directories containing `.ssc` files.
+ *  - `sscBackend`      — backend passed to `ssc build --incremental`.
  *
  *  Tasks:
+ *  - `sscCompile` — compile `.ssc` sources via `ssc build --incremental`.
  *  - `sscGenerateFacade` — generate facade sources (hooked into sourceGenerators).
  */
 object ScalascriptInteropPlugin extends AutoPlugin {
 
   object autoImport {
+    val sscSourceDirectories = settingKey[Seq[File]](
+      "ScalaScript source directories."
+    )
     val sscArtifactDir = settingKey[File](
       "Directory containing ScalaScript .scim artifacts for facade generation."
     )
     val sscBinary = settingKey[String](
-      "Path to the ssc binary used for facade generation (default: 'ssc')."
+      "Path to the ssc binary used by sbt-scalascript tasks (default: 'ssc')."
+    )
+    val sscBackend = settingKey[String](
+      "ScalaScript backend passed to `ssc build --incremental`."
+    )
+    val sscExtraArgs = settingKey[Seq[String]](
+      "Extra arguments appended to `ssc build --incremental`."
+    )
+    val sscCompile = taskKey[Seq[File]](
+      "Compile .ssc sources via `ssc build --incremental`."
     )
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
@@ -55,6 +70,41 @@ object ScalascriptInteropPlugin extends AutoPlugin {
 
   override def projectSettings: Seq[Setting[_]] = Seq(
     sscBinary := "ssc",
+    sscBackend := "jvm",
+    sscExtraArgs := Seq.empty,
+    Compile / sscSourceDirectories := Seq((Compile / sourceDirectory).value / "scalascript"),
+    Test / sscSourceDirectories := Seq((Test / sourceDirectory).value / "scalascript"),
+    Compile / sscArtifactDir := (Compile / target).value / "ssc-artifacts",
+    sscArtifactDir := (Compile / sscArtifactDir).value,
+
+    Compile / sscCompile := {
+      val dirs = (Compile / sscSourceDirectories).value.filter(_.isDirectory)
+      val sourceDirs = dirs.filter(dir => (dir ** "*.ssc").get().nonEmpty)
+      val artifactDir = (Compile / sscArtifactDir).value
+      val log = streams.value.log
+      if (sourceDirs.isEmpty) {
+        log.info("[ssc] no .ssc sources found")
+        Seq.empty[File]
+      } else {
+        IO.createDirectory(artifactDir)
+        sourceDirs.foreach { dir =>
+          SscRunner.run(
+            binary = sscBinary.value,
+            args = Seq(
+              "build",
+              "--incremental",
+              dir.getAbsolutePath,
+              "--artifact-dir",
+              artifactDir.getAbsolutePath,
+              "--backend",
+              sscBackend.value
+            ) ++ sscExtraArgs.value,
+            log = log
+          )
+        }
+        (artifactDir ** "*").get().filter(_.isFile).toSeq
+      }
+    },
 
     sscGenerateFacade := {
       val artifactDir = sscArtifactDir.value
@@ -68,16 +118,17 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       } else {
         IO.createDirectory(outDir)
 
-        val cmd = Seq(ssc, "generate-facade", artifactDir.getAbsolutePath, "-o", outDir.getAbsolutePath)
-        log.info(s"[ssc] ${cmd.mkString(" ")}")
-
-        val rc = scala.sys.process.Process(cmd) ! log
-        if (rc != 0) sys.error(s"ssc generate-facade failed with exit code $rc")
+        SscRunner.run(
+          binary = ssc,
+          args = Seq("generate-facade", artifactDir.getAbsolutePath, "-o", outDir.getAbsolutePath),
+          log = log
+        )
 
         (outDir ** "*.scala").get().toSeq
       }
     },
 
+    Compile / compile := ((Compile / compile) dependsOn (Compile / sscCompile)).value,
     Compile / sourceGenerators += sscGenerateFacade.taskValue
   )
 }

@@ -1,9 +1,11 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
-Status: **planned**.  Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
-Current state: `tools/sbt-plugin/` exists with one task — `sscGenerateFacade` —
-documented in [`docs/scala-interop.md`](scala-interop.md) §6.  This spec
-covers the full plugin surface needed for standalone ScalaScript projects.
+Status: **partially implemented**. Phase 1 landed on 2026-05-29. Tracked as
+`arch-sbt-plugin` milestone in `BACKLOG.md`.
+Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
+task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
+`sscCompile`, `sscBackend`, `sscExtraArgs`). This spec covers the remaining
+plugin surface needed for standalone ScalaScript projects.
 
 ---
 
@@ -45,6 +47,11 @@ tools/sbt-plugin/src/main/scala/scalascript/sbt/
 
 `ScalascriptPlugin` extends `AutoPlugin` with `trigger = noTrigger` (opt-in).
 
+Implementation note: the current source file is still
+`ScalascriptInteropPlugin.scala` to preserve the existing
+`sbt-scalascript-interop` artifact and scripted tests. `SscRunner.scala` landed
+in Phase 1 and is shared by `sscCompile` and `sscGenerateFacade`.
+
 ### 3b. Settings keys
 
 ```scala
@@ -56,6 +63,7 @@ object ScalascriptPlugin extends AutoPlugin {
     val sscBackends          = settingKey[Seq[String]]("For cross-build: all target backends")
     val sscExtraArgs         = settingKey[Seq[String]]("Extra args passed to ssc compile/link")
     val sscArtifactDir       = settingKey[File]("Output dir for ssc artifacts")
+    val sscCompile           = taskKey[Seq[File]]("Compile .ssc sources")
     // existing:
     val sscGenerateFacade    = taskKey[Seq[File]]("Generate Scala facade from .scim")
   }
@@ -98,7 +106,10 @@ Compile / compile := (Compile / compile).dependsOn(sscCompile).value
 ```
 
 Incremental: `ssc build --incremental` uses the `.scim` cache inside
-`sscArtifactDir`; sbt's `Tracked.inputChanged` guards the task trigger.
+`sscArtifactDir`. Phase 1 currently runs once per configured source directory
+that contains at least one `.ssc` file and returns all files under
+`sscArtifactDir`; fine-grained `Tracked.inputChanged` guards remain a future
+optimization.
 
 ### 3d. Link task
 
@@ -182,8 +193,12 @@ cache and they appear on the JVM test classpath.  Requires
 ### Phase 1 — Source convention + `sscCompile`
 
 - `sscSourceDirectories` setting; `sscCompile` task; wire into `compile`.
-- Update existing scripted tests to use a real `ssc` binary (not `mock-ssc`).
+- `SscRunner` shared command runner.
+- Scripted coverage for `sbt compile` invoking `ssc build --incremental`.
+  The scripted test uses a local mock binary for determinism, while the task
+  itself calls the real CLI contract.
 - Deliverable: `sbt compile` compiles `.ssc` files from `src/main/scalascript/`.
+  ✓ Landed 2026-05-29.
 
 ### Phase 2 — `sscLink` + `packageBin`
 
@@ -211,7 +226,9 @@ cache and they appear on the JVM test classpath.  Requires
 
 - Scripted tests for each phase in
   `tools/sbt-plugin/src/sbt-test/sbt-scalascript/`.
-- Phase 1: `basic/` — one `.ssc` file, `sbt compile` exits 0.
+- Phase 1: `compile-sources/` — one `.ssc` file, `sbt compile` invokes
+  `ssc build --incremental` and writes an artifact marker. ✓ Landed
+  2026-05-29.
 - Phase 2: `link-jar/` — `sbt package` produces a JAR that `java -jar` runs.
 - Phase 3: `run-tests/` — `.ssc` test file, `sbt test` green.
 - Phase 4: `bsp/` — `.bsp/scalascript.json` present after `sbt sscBspSetup`.

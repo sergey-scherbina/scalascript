@@ -12,6 +12,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **arch-ffi-p1** — Tier-1 inline FFI annotations for `extern def`. `@jvm("expr")` on an extern def causes `JvmGen` to emit the expression as the method body (instead of skipping); `$0`/`$1`/… placeholders are substituted with the parameter names. `@js("expr")` causes `JsGen` to emit the expression as a JS function body. `@jvm`-only extern defs (no `@js`) get an error-throwing JS stub so the failure is explicit rather than silent. `Diagnostic.JvmOnlyExternDef` added to the `Diagnostic` enum; `CapabilityCheck.jvmOnlyExternDefs` detects `@jvm`-without-`@js` extern defs in modules compiled for the JS family and emits the diagnostic. 13 tests in `FfiAnnotationTest`.
 
+## 2026-05-29 — arch-sbt-plugin-p1 source convention and sscCompile
+
+- **arch-sbt-plugin-p1** — Extended the existing `ScalascriptInteropPlugin` with `SscRunner`, `sscSourceDirectories`, `sscBackend`, `sscExtraArgs`, config-scoped `sscArtifactDir`, `Compile / sscCompile`, and `Compile / compile` wiring. `sscCompile` discovers `.ssc` files under `src/main/scalascript`, runs `ssc build --incremental <src-dir> --artifact-dir <target>/ssc-artifacts --backend <id>`, and returns generated artifact files. Added scripted `compile-sources` coverage while preserving existing facade scripted tests.
+
 ## 2026-05-29 — arch-lib-p1 @deprecated / @experimental annotation warnings
 
 - **arch-lib-p1** — Added `@deprecated` and `@experimental` call-site warnings to the Typer. `fatalWarnings: Boolean` parameter on `Typer`; `TypeError.isWarning` flag; `TypedModule.hasErrors` ignores warnings, `TypedModule.warnings` returns the warning-only subset. `Typer.typeCheckFatalWarnings` factory promotes all warnings to errors (`--fatal-warnings` semantics). Annotation extraction from `Mod.Annot` mods on `Defn.Def`: `@deprecated("msg", since = "v")` populates `deprecatedDefs`; `@experimental("notice")` populates `experimentalDefs`; both emit warnings at every `Term.Name` call site. 11 tests in `TyperAnnotationWarningsTest`.

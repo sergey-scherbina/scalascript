@@ -1,0 +1,5 @@
+# Main
+
+```scala
+val message = "hello from sbt"
+```

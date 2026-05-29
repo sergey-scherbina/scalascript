@@ -252,10 +252,14 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme D — sbt-scalascript plugin completion
 
-- [ ] **arch-sbt-plugin-p1** — Source convention + `sscCompile`:
+- [x] **arch-sbt-plugin-p1** — Source convention + `sscCompile`:
   `sscSourceDirectories` setting; `sscCompile` task forks `ssc build`; wire
   into `Compile / compile`; scripted test: `sbt compile` compiles `.ssc` files.
   Spec: `docs/arch-sbt-plugin.md §5 Phase 1`.
+  Landed 2026-05-29: added `SscRunner`, `sscSourceDirectories`, `sscBackend`,
+  `sscExtraArgs`, config-scoped `sscArtifactDir`, `Compile / sscCompile`, and
+  `Compile / compile` wiring; scripted `compile-sources` verifies `sbt compile`
+  invokes `ssc build --incremental`.
 
 - [ ] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`:
   `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted

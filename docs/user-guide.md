@@ -2121,6 +2121,19 @@ ssc deps app.ssc                      # show import closure
 ssc info lib.scjvm                    # inspect artifact
 ```
 
+### sbt Integration
+
+```scala
+enablePlugins(ScalascriptInteropPlugin)
+
+sscBinary := "ssc"
+Compile / sscSourceDirectories := Seq((Compile / sourceDirectory).value / "scalascript")
+```
+
+`sbt compile` runs `sscCompile` first. The task scans `src/main/scalascript/`,
+invokes `ssc build --incremental`, and writes artifacts under
+`Compile / sscArtifactDir` (`target/ssc-artifacts` by default).
+
 ---
 
 ## 12. Testing
