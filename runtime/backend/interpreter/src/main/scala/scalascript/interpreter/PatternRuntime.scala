@@ -292,7 +292,7 @@ private[interpreter] object PatternRuntime:
 
   def evalCollection(v: Value, interp: Interpreter): List[Value] = v match
     case Value.ListV(ls)        => ls
-    case Value.OptionV(Some(v)) => List(v)
+    case Value.OptionV(Some(v)) => v :: Nil
     case Value.NoneV    => Nil
     case _ => interp.located(s"Cannot iterate over ${Value.show(v)}")
 
@@ -320,7 +320,7 @@ private[interpreter] object PatternRuntime:
             case Value.ListV(results) =>
               Value.ListV(results.flatMap {
                 case Value.ListV(ls) => ls
-                case v               => List(v)
+                case v               => v :: Nil
               })
             case other => other
           }

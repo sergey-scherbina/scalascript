@@ -1063,9 +1063,9 @@ private[interpreter] object EvalRuntime:
     // when all arg evaluations are Pure — the common case for literal arguments.
     comps match
       case Nil => k(Nil)
-      case List(Pure(v1)) => k(List(v1))
-      case List(Pure(v1), Pure(v2)) => k(List(v1, v2))
-      case List(Pure(v1), Pure(v2), Pure(v3)) => k(List(v1, v2, v3))
+      case List(Pure(v1)) => k(v1 :: Nil)
+      case List(Pure(v1), Pure(v2)) => k(v1 :: v2 :: Nil)
+      case List(Pure(v1), Pure(v2), Pure(v3)) => k(v1 :: v2 :: v3 :: Nil)
       case _ =>
         // General case: all-Pure check then FlatMap chain.
         var allPure = true

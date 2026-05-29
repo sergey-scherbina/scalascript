@@ -1666,7 +1666,7 @@ private[interpreter] trait ActorInterp:
           val updated = Value.InstanceV("ActorGroup", currentFields.updated(
             "members",
             currentFields.get("members").collect { case Value.ListV(xs) => Value.ListV(xs :+ ref) }
-              .getOrElse(Value.ListV(List(ref)))
+              .getOrElse(Value.ListV(ref :: Nil))
           ))
           this.nativeFeatureSet(s"actorGroup.$n", updated)
         }
