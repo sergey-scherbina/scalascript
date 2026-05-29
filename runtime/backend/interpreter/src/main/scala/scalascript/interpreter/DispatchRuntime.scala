@@ -984,12 +984,12 @@ private[interpreter] object DispatchRuntime:
           while mapIt.hasNext do
             val (k, v) = mapIt.next()
             interp.callEntry(f, k, v, env) match
-              case Pure(Value.TupleV(nk :: nv :: Nil)) => mapBuf += (nk -> nv)
+              case Pure(Value.TupleV(nk :: nv :: Nil)) => mapBuf(nk) = nv
               case Pure(_)                             => // skip malformed
               case comp =>
                 def loopMap(r: Value): Computation =
                   r match
-                    case Value.TupleV(nk :: nv :: Nil) => mapBuf += (nk -> nv)
+                    case Value.TupleV(nk :: nv :: Nil) => mapBuf(nk) = nv
                     case _                             => // skip malformed
                   if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
                   else
@@ -1005,19 +1005,19 @@ private[interpreter] object DispatchRuntime:
           while filtIt.hasNext do
             val (k, v) = filtIt.next()
             interp.callEntry(f, k, v, env) match
-              case Pure(Value.BoolV(true))  => filtBuf += (k -> v)
+              case Pure(Value.BoolV(true))  => filtBuf(k) = v
               case Pure(_)                  => // skip
               case comp =>
                 def loopFilt(r: Value): Computation =
                   r match
-                    case Value.BoolV(true) => filtBuf += (k -> v)
+                    case Value.BoolV(true) => filtBuf(k) = v
                     case _                 =>
                   def rest(): Computation =
                     if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
                     else
                       val (k2, v2) = filtIt.next()
                       FlatMap(interp.callEntry(f, k2, v2, env), { r2 =>
-                        if r2 == Value.BoolV(true) then filtBuf += (k2 -> v2)
+                        if r2 == Value.BoolV(true) then filtBuf(k2) = v2
                         rest()
                       })
                   rest()
@@ -1047,14 +1047,14 @@ private[interpreter] object DispatchRuntime:
           while it.hasNext do
             val (k, v) = it.next()
             interp.callValue1(f, v, env) match
-              case Pure(nv) => buf += (k -> nv)
+              case Pure(nv) => buf(k) = nv
               case c =>
                 def restLoop(): Computation =
                   if !it.hasNext then Pure(Value.MapV(buf.toMap))
                   else
                     val (k2, v2) = it.next()
-                    FlatMap(interp.callValue1(f, v2, env), { nv2 => buf += (k2 -> nv2); restLoop() })
-                return FlatMap(c, { nv => buf += (k -> nv); restLoop() })
+                    FlatMap(interp.callValue1(f, v2, env), { nv2 => buf(k2) = nv2; restLoop() })
+                return FlatMap(c, { nv => buf(k) = nv; restLoop() })
           Pure(Value.MapV(buf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foldLeft"  => args match
