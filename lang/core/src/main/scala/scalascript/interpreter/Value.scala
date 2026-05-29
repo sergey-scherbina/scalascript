@@ -164,6 +164,13 @@ object FrameMap:
         var k0: String = null; var v0: Value = null
         fields.foreachEntry { (k, v) => k0 = k; v0 = v }
         new FrameMap1(k0, v0, parent)
+      case 2 =>
+        var k0: String = null; var v0: Value = null
+        var k1: String = null; var v1: Value = null
+        fields.foreachEntry { (k, v) =>
+          if k0 == null then { k0 = k; v0 = v } else { k1 = k; v1 = v }
+        }
+        new FrameMap2(k0, v0, k1, v1, parent)
       case _ =>
         val keys = new Array[String](fields.size)
         val vals = new Array[Value](fields.size)
