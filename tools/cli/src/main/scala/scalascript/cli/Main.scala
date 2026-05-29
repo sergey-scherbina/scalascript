@@ -10519,14 +10519,21 @@ private def benchCommand(args: List[String]): Unit =
     else Seq("java", "-jar", sscJarPath)
 
   // Measure wall-clock median for a subprocess command (warmup + reps).
+  // Uses ProcessBuilder with stdin from /dev/null and output discarded to avoid
+  // pipe-inheritance hangs when the subprocess itself spawns grandchildren
+  // (e.g. ssc run-jvm → scala-cli → JVM).
   def timeSubproc(cmd: Seq[String], warmupN: Int, repsN: Int): Option[Long] =
-    for _ <- 1 to warmupN do
-      try os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      catch case _: Throwable => ()
+    def runOnce(): Int =
+      val pb = new java.lang.ProcessBuilder(cmd*)
+      pb.redirectInput(new java.io.File("/dev/null"))
+      pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+      pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+      scala.util.Try(pb.start().waitFor()).getOrElse(1)
+    for _ <- 1 to warmupN do runOnce()
     val times = scala.collection.mutable.ArrayBuffer.empty[Long]
     for _ <- 1 to repsN do
       val t0 = System.nanoTime()
-      val rc = scala.util.Try(os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode).getOrElse(1)
+      val rc = runOnce()
       val ms = (System.nanoTime() - t0) / 1_000_000L
       if rc == 0 then times += ms
     if times.isEmpty then None
