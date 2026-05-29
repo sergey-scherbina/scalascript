@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-ffi-p2: @interpreterUnsupported + cross-backend parity
+
+- **arch-ffi-p2** — Added `@interpreterUnsupported` annotation support in `StatRuntime`: extern defs annotated with `@interpreterUnsupported` register a `NativeFnV` that throws an `InterpretError` with a descriptive message when called from the interpreter. Custom message: `@interpreterUnsupported("msg")`. Default message includes the def name. Error is raised at call site, not at definition. Combined `@jvm`+`@interpreterUnsupported` works: the annotation wins in interpreter mode. Cross-backend parity tests verify the same `.ssc` source with `@jvm`+`@js` produces correct output on both JVM and JS backends including `$N` argument substitution. 9 tests.
+
 ## 2026-05-29 — arch-sbt-plugin-p2 sscLink and packageBin
 
 - **arch-sbt-plugin-p2** — Added `sscLinkedJar` and `Compile / sscLink` to the sbt plugin. `sscLink` depends on `sscCompile`, runs `ssc link --backend <id> --output <jar> <artifact-dir>` through `SscRunner`, skips cleanly when there are no ScalaScript artifacts, and is wired into `Compile / packageBin`. Added scripted `package-link` coverage where `sbt package` produces the configured linked JAR.

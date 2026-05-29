@@ -37,7 +37,13 @@ private[interpreter] object StatRuntime:
       // loaded), trigger ensurePluginsLoaded() now.  This covers child
       // interpreters used to process import files whose exported globals must
       // include plugin-provided intrinsics even when no Term.Name lookup fires.
-      if !interp.globals.contains(d.name.value) && !interp._pluginsLoaded then
+      if hasAnnot(d.mods, "interpreterUnsupported") then
+        // Register a stub that throws a descriptive error at call time.
+        val defName = d.name.value
+        val msg     = stringAnnot(d.mods, "interpreterUnsupported")
+          .getOrElse(s"`$defName` is annotated @interpreterUnsupported and cannot be called from the interpreter.")
+        env(defName) = Value.NativeFnV(defName, _ => interp.located(msg))
+      else if !interp.globals.contains(d.name.value) && !interp._pluginsLoaded then
         interp.ensurePluginsLoaded()
 
     case d: Defn.Def =>

@@ -149,7 +149,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-ffi-p1** — `@jvm("expr")` annotation + JVM codegen: inline JVM expression bodies, argument substitution, capability checks, example, and tests. Spec: `docs/arch-ffi.md §6 Phase 1`. ✓ Landed 2026-05-29
 
-- [ ] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour: JS inline bodies; `@interpreterUnsupported`; cross-backend parity tests. Spec: `docs/arch-ffi.md §6 Phase 2`.
+- [x] **arch-ffi-p2** — `@js("expr")` codegen + interpreter behaviour: JS inline bodies; `@interpreterUnsupported`; cross-backend parity tests. Spec: `docs/arch-ffi.md §6 Phase 2`. ✓ Landed 2026-05-29
 
 - [ ] **arch-ffi-p3** — `jvm/glue.jar` in `.ssclib` + `ssc package --lib --jvm-glue`: manifest glue fields, JVM classpath injection, package CLI flag, and glue fixture integration test. Spec: `docs/arch-ffi.md §6 Phase 3`. Prerequisite: `arch-lib-p4`.
 
