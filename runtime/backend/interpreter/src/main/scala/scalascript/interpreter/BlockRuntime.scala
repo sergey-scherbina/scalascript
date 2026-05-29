@@ -36,23 +36,30 @@ private[interpreter] object BlockRuntime:
       case s :: rest =>
         s match
           case Defn.Val(_, pats, _, rhs) =>
-            interp.eval(rhs, localView).flatMap { rhsVal =>
-              pats match
-                case List(Pat.Var(n)) =>
-                  local(n.value) = rhsVal
-                case List(pat) =>
-                  PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
-                    case Some(patEnv) =>
-                      patEnv.foreach { (k, v) => local(k) = v }
-                    case None         => interp.located("Val pattern match failed")
-                case _ => ()
-              step(rest, Value.UnitV)
-            }
+            interp.eval(rhs, localView) match
+              case Pure(rhsVal) =>
+                pats match
+                  case List(Pat.Var(n)) => local(n.value) = rhsVal
+                  case List(pat) =>
+                    PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
+                      case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
+                      case None         => interp.located("Val pattern match failed")
+                  case _ =>
+                step(rest, Value.UnitV)
+              case rhsC => FlatMap(rhsC, { rhsVal =>
+                pats match
+                  case List(Pat.Var(n)) => local(n.value) = rhsVal
+                  case List(pat) =>
+                    PatternRuntime.matchPat(pat, rhsVal, localView, interp) match
+                      case Some(patEnv) => patEnv.foreach { (k, v) => local(k) = v }
+                      case None         => interp.located("Val pattern match failed")
+                  case _ =>
+                step(rest, Value.UnitV)
+              })
           case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-            interp.eval(rhs, localView).flatMap { v =>
-              local(n.value) = v
-              step(rest, Value.UnitV)
-            }
+            interp.eval(rhs, localView) match
+              case Pure(v) => local(n.value) = v; step(rest, Value.UnitV)
+              case rhsC    => FlatMap(rhsC, { v => local(n.value) = v; step(rest, Value.UnitV) })
           // Variable assignment: write to local AND globals so that both the
           // current evalBlock and any enclosing while loop (via freshEnv) see it.
           // This also keeps local in sync, avoiding a stale-read on the next statement
@@ -60,7 +67,7 @@ private[interpreter] object BlockRuntime:
           case Term.Assign(Term.Name(x), rhs) =>
             interp.eval(rhs, localView) match
               case Pure(v) => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV)
-              case c       => c.flatMap { v => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV) }
+              case c       => FlatMap(c, { v => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV) })
           // Compound assignment inside a block (x += n, x -= n, etc.).
           case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
               if op.value.lengthIs > 1 && op.value.last == '=' &&
@@ -74,16 +81,16 @@ private[interpreter] object BlockRuntime:
                     case Pure(rv) =>
                       interp.infix2(lhsV, baseOp, rv, localView) match
                         case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
-                        case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
+                        case c          => FlatMap(c, { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) })
                     case _ =>
-                      rhsC.flatMap { rv =>
-                        interp.infix2(lhsV, baseOp, rv, localView).flatMap { newV =>
-                          local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) } }
+                      FlatMap(rhsC, { rv =>
+                        FlatMap(interp.infix2(lhsV, baseOp, rv, localView), { newV =>
+                          local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }) })
                 case lhsC =>
-                  lhsC.flatMap { lhsV =>
-                    rhsC.flatMap { rv =>
-                      interp.infix2(lhsV, baseOp, rv, localView).flatMap { newV =>
-                        local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) } } }
+                  FlatMap(lhsC, { lhsV =>
+                    FlatMap(rhsC, { rv =>
+                      FlatMap(interp.infix2(lhsV, baseOp, rv, localView), { newV =>
+                        local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }) }) })
             else
               val argComps   = argClause.values.map(interp.eval(_, localView))
               val argVsBlock = EvalRuntime.extractPureValues(argComps)
@@ -91,19 +98,21 @@ private[interpreter] object BlockRuntime:
                 case Pure(lhsV) if argVsBlock != null =>
                   interp.infix(lhsV, baseOp, argVsBlock, localView) match
                     case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
-                    case c          => c.flatMap { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }
+                    case c          => FlatMap(c, { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) })
                 case lhsC =>
-                  lhsC.flatMap { lhsV =>
+                  FlatMap(lhsC, { lhsV =>
                     interp.threadValues(argComps) { argVs =>
-                      interp.infix(lhsV, baseOp, argVs, localView).flatMap { newV =>
+                      FlatMap(interp.infix(lhsV, baseOp, argVs, localView), { newV =>
                         local(lhs.value)          = newV
                         interp.globals(lhs.value) = newV
                         step(rest, Value.UnitV)
-                      }
+                      })
                     }
-                  }
+                  })
           case t: Term =>
-            interp.eval(t, localView).flatMap(v => step(rest, v))
+            interp.eval(t, localView) match
+              case Pure(v) => step(rest, v)
+              case c       => FlatMap(c, v => step(rest, v))
           case stat =>
             interp.execStat(stat, local)
             step(rest, Value.UnitV)
