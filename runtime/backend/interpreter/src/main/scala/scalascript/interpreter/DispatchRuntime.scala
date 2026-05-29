@@ -42,7 +42,7 @@ private[interpreter] object DispatchRuntime:
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
       case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
       case Value.MapV(m)           => dispatchMap(m, name, args, env, interp)
-      case Value.OptionV(opt)      => dispatchOption(recv, opt, name, args, env, interp)
+      case Value.OptionV(opt)      => dispatchOption(recv, if opt == null then None else Some(opt), name, args, env, interp)
       case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
       case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
       case Value.CharV(c)          => dispatchChar(c, name, args, env, interp)
@@ -74,7 +74,7 @@ private[interpreter] object DispatchRuntime:
     recv match
       case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
-      case Value.OptionV(opt)   => dispatchOption1(recv, opt, name, arg, env, interp)
+      case Value.OptionV(opt)   => dispatchOption1(recv, if opt == null then None else Some(opt), name, arg, env, interp)
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
       case Value.IntV(n)        => dispatchInt1(n, name, arg, env, interp)
       case Value.DoubleV(d)     => dispatchDouble1(d, recv, name, arg, env, interp)
@@ -233,7 +233,7 @@ private[interpreter] object DispatchRuntime:
         while rem.nonEmpty do
           val h = rem.head
           interp.callValue1(arg, h, env) match
-            case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(Some(h)))
+            case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(h: Value))
             case Pure(_)                 => rem = rem.tail
             case c =>
               val tail = rem.tail
@@ -241,11 +241,11 @@ private[interpreter] object DispatchRuntime:
                 case Nil => Computation.PureNone
                 case hh :: rest =>
                   FlatMap(interp.callValue1(arg, hh, env), {
-                    case Value.BoolV(true) => Pure(Value.OptionV(Some(hh)))
+                    case Value.BoolV(true) => Pure(Value.OptionV(hh: Value))
                     case _                 => restLoop(rest)
                   })
               return FlatMap(c, {
-                case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
+                case Value.BoolV(true) => Pure(Value.OptionV(h: Value))
                 case _                 => restLoop(tail)
               })
         Computation.PureNone
@@ -377,23 +377,22 @@ private[interpreter] object DispatchRuntime:
         var rem = ls
         while rem.nonEmpty do
           interp.callValue1(arg, rem.head, env) match
-            case Pure(Value.OptionV(Some(v))) => buf += v; rem = rem.tail
-            case Pure(Value.OptionV(None))    => rem = rem.tail
-            case Pure(v)                      => buf += v; rem = rem.tail
+            case Pure(ov: Value.OptionV) =>
+              if ov.inner != null then buf += ov.inner
+              rem = rem.tail
+            case Pure(v) => buf += v; rem = rem.tail
             case comp =>
               val tail = rem.tail
               def loopRest(remaining: List[Value]): Computation = remaining match
                 case Nil => Pure(Value.ListV(buf.toList))
                 case h :: rest =>
                   FlatMap(interp.callValue1(arg, h, env), {
-                    case Value.OptionV(Some(v)) => buf += v; loopRest(rest)
-                    case Value.OptionV(None)    => loopRest(rest)
-                    case v                      => buf += v; loopRest(rest)
+                    case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                    case v                 => buf += v; loopRest(rest)
                   })
               return FlatMap(comp, {
-                case Value.OptionV(Some(v)) => buf += v; loopRest(tail)
-                case Value.OptionV(None)    => loopRest(tail)
-                case v                      => buf += v; loopRest(tail)
+                case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(tail)
+                case v                 => buf += v; loopRest(tail)
               })
         Pure(Value.ListV(buf.toList))
       case "span"       =>
@@ -561,7 +560,7 @@ private[interpreter] object DispatchRuntime:
     name match
       case "get"        =>
         val gv = m.getOrElse(arg, null)
-        if gv == null then Computation.PureNone else Pure(Value.OptionV(Some(gv)))
+        if gv == null then Computation.PureNone else Pure(Value.OptionV(gv: Value))
       case "apply"      => Pure(m.getOrElse(arg, interp.located(s"Key not found: ${Value.show(arg)}")))
       case "contains"   => Computation.pureBool(m.contains(arg))
       case "removed"    => Pure(Value.MapV(m - arg))
@@ -738,18 +737,18 @@ private[interpreter] object DispatchRuntime:
         while it.hasNext do
           val (k, v) = it.next()
           interp.callEntry(arg, k, v, env) match
-            case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
+            case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Value.TupleV(k :: v :: Nil)))
             case Pure(_)                  =>
             case comp =>
               return FlatMap(comp, {
-                case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
+                case Value.BoolV(true) => Pure(Value.OptionV(Value.TupleV(k :: v :: Nil)))
                 case _ =>
                   def loopRest(): Computation =
                     if !it.hasNext then Computation.PureNone
                     else
                       val (k2, v2) = it.next()
                       FlatMap(interp.callEntry(arg, k2, v2, env), {
-                        case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k2 :: v2 :: Nil))))
+                        case Value.BoolV(true) => Pure(Value.OptionV(Value.TupleV(k2 :: v2 :: Nil)))
                         case _                 => loopRest()
                       })
                   loopRest()
@@ -770,13 +769,13 @@ private[interpreter] object DispatchRuntime:
       case "map"       => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env) match
-          case Pure(rv) => Pure(Value.OptionV(Some(rv)))
+          case Pure(rv) => Pure(Value.OptionV(rv: Value))
           case c        => FlatMap(c, Computation.wrapSomeC)
       case "flatMap"   => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env) match
           case Pure(o: Value.OptionV) => Pure(o)
-          case Pure(other)            => Pure(Value.OptionV(Some(other)))
+          case Pure(other)            => Pure(Value.OptionV(other: Value))
           case c                      => FlatMap(c, Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone
@@ -796,7 +795,7 @@ private[interpreter] object DispatchRuntime:
       case "zip"       => opt match
         case None    => Computation.PureNone
         case Some(v) => arg match
-          case Value.OptionV(Some(w)) => Pure(Value.OptionV(Some(Value.TupleV(v :: w :: Nil))))
+          case Value.OptionV(w: Value) => Pure(Value.OptionV(Value.TupleV(v :: w :: Nil)))
           case _                      => Computation.PureNone
       case "fold"      =>
         Pure(Value.NativeFnV("fold", {
@@ -1061,7 +1060,7 @@ private[interpreter] object DispatchRuntime:
       case "matchPrefix" => args match
         case List(Value.StringV(pat)) =>
           val m = java.util.regex.Pattern.compile(pat).matcher(s)
-          if m.lookingAt() then Pure(Value.OptionV(Some(Value.StringV(s.substring(0, m.end())))))
+          if m.lookingAt() then Pure(Value.OptionV(Value.StringV(s.substring(0, m.end()))))
           else Computation.PureNone
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "split"       => args match
@@ -1699,7 +1698,7 @@ private[interpreter] object DispatchRuntime:
           while rem.nonEmpty do
             val h = rem.head
             interp.callValue1(f, h, env) match
-              case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(Some(h)))
+              case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(h: Value))
               case Pure(_)                 => rem = rem.tail
               case c =>
                 val tail = rem.tail
@@ -1707,11 +1706,11 @@ private[interpreter] object DispatchRuntime:
                   case Nil => Computation.PureNone
                   case hh :: rest =>
                     FlatMap(interp.callValue1(f, hh, env), {
-                      case Value.BoolV(true) => Pure(Value.OptionV(Some(hh)))
+                      case Value.BoolV(true) => Pure(Value.OptionV(hh: Value))
                       case _                 => restLoop(rest)
                     })
                 return FlatMap(c, {
-                  case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
+                  case Value.BoolV(true) => Pure(Value.OptionV(h: Value))
                   case _                 => restLoop(tail)
                 })
           Computation.PureNone
@@ -1832,23 +1831,22 @@ private[interpreter] object DispatchRuntime:
           var rem = ls
           while rem.nonEmpty do
             interp.callValue1(f, rem.head, env) match
-              case Pure(Value.OptionV(Some(v))) => buf += v; rem = rem.tail
-              case Pure(Value.OptionV(None))    => rem = rem.tail
-              case Pure(v)                      => buf += v; rem = rem.tail
+              case Pure(ov: Value.OptionV) =>
+                if ov.inner != null then buf += ov.inner
+                rem = rem.tail
+              case Pure(v) => buf += v; rem = rem.tail
               case comp =>
                 val tail = rem.tail
                 def loopRest(remaining: List[Value]): Computation = remaining match
                   case Nil => Pure(Value.ListV(buf.toList))
                   case h :: rest =>
                     FlatMap(interp.callValue1(f, h, env), {
-                      case Value.OptionV(Some(v)) => buf += v; loopRest(rest)
-                      case Value.OptionV(None)    => loopRest(rest)
-                      case v                      => buf += v; loopRest(rest)
+                      case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(rest)
+                      case v                 => buf += v; loopRest(rest)
                     })
                 return FlatMap(comp, {
-                  case Value.OptionV(Some(v)) => buf += v; loopRest(tail)
-                  case Value.OptionV(None)    => loopRest(tail)
-                  case v                      => buf += v; loopRest(tail)
+                  case ov: Value.OptionV => if ov.inner != null then buf += ov.inner; loopRest(tail)
+                  case v                 => buf += v; loopRest(tail)
                 })
           Pure(Value.ListV(buf.toList))
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -1890,7 +1888,7 @@ private[interpreter] object DispatchRuntime:
       case "get"      => args match
         case List(k)       =>
           val gv = m.getOrElse(k, null)
-          if gv == null then Computation.PureNone else Pure(Value.OptionV(Some(gv)))
+          if gv == null then Computation.PureNone else Pure(Value.OptionV(gv: Value))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "apply"    => args match
         case List(k)       => Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
@@ -2088,18 +2086,18 @@ private[interpreter] object DispatchRuntime:
           while it.hasNext do
             val (k, v) = it.next()
             interp.callEntry(f, k, v, env) match
-              case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
+              case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Value.TupleV(k :: v :: Nil)))
               case Pure(_)                  => // continue
               case comp =>
                 return FlatMap(comp, {
-                  case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k :: v :: Nil))))
+                  case Value.BoolV(true) => Pure(Value.OptionV(Value.TupleV(k :: v :: Nil)))
                   case _ =>
                     def loopRest(): Computation =
                       if !it.hasNext then Computation.PureNone
                       else
                         val (k2, v2) = it.next()
                         FlatMap(interp.callEntry(f, k2, v2, env), {
-                          case Value.BoolV(true) => Pure(Value.OptionV(Some(Value.TupleV(k2 :: v2 :: Nil))))
+                          case Value.BoolV(true) => Pure(Value.OptionV(Value.TupleV(k2 :: v2 :: Nil)))
                           case _                 => loopRest()
                         })
                     loopRest()
@@ -2141,7 +2139,7 @@ private[interpreter] object DispatchRuntime:
         case List(f) => opt match
           case None    => Computation.PureNone
           case Some(v) => interp.callValue1(f, v, env) match
-            case Pure(rv) => Pure(Value.OptionV(Some(rv)))
+            case Pure(rv) => Pure(Value.OptionV(rv: Value))
             case c        => FlatMap(c, Computation.wrapSomeC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
@@ -2149,7 +2147,7 @@ private[interpreter] object DispatchRuntime:
           case None    => Computation.PureNone
           case Some(v) => interp.callValue1(f, v, env) match
             case Pure(o: Value.OptionV) => Pure(o)
-            case Pure(other)            => Pure(Value.OptionV(Some(other)))
+            case Pure(other)            => Pure(Value.OptionV(other: Value))
             case c                      => FlatMap(c, Computation.wrapOptionC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"    => args match
@@ -2178,9 +2176,8 @@ private[interpreter] object DispatchRuntime:
         case List(other) => opt match
           case None    => Computation.PureNone
           case Some(v) => other match
-            case Value.OptionV(Some(w)) => Pure(Value.OptionV(Some(Value.TupleV(v :: w :: Nil))))
-            case Value.NoneV | Value.OptionV(None) => Computation.PureNone
-            case _                      => Computation.PureNone
+            case Value.OptionV(w: Value) => Pure(Value.OptionV(Value.TupleV(v :: w :: Nil)))
+            case _                       => Computation.PureNone
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatten"   => opt match
         case None            => Computation.PureNone
@@ -2444,7 +2441,7 @@ private[interpreter] object DispatchRuntime:
       case "Right" => name match
         case "isRight"   => Computation.PureTrue
         case "isLeft"    => Computation.PureFalse
-        case "toOption"  => Pure(Value.OptionV(Some(fields.getOrElse("value", Value.UnitV))))
+        case "toOption"  => Pure(Value.OptionV(fields.getOrElse("value", Value.UnitV)))
         case "swap"      => Pure(Value.InstanceV("Left", fields))
         case "toSeq"     => Pure(Value.ListV(fields.getOrElse("value", Value.UnitV) :: Nil))
         case "getOrElse" => Pure(fields.getOrElse("value", Value.UnitV))

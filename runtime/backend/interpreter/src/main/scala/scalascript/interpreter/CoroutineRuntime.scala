@@ -21,7 +21,7 @@ private[interpreter] object CoroutineRuntime:
 
     Value.InstanceV("Generator", Map(
       "next" -> Value.NativeFnV("Generator.next", Computation.pureFn { _ =>
-        Value.OptionV(queue.take())
+        Value.OptionV(queue.take().orNull)
       }),
       "foreach" -> Value.NativeFnV("Generator.foreach", Computation.pureFn {
         case List(f) =>
@@ -95,7 +95,7 @@ private[interpreter] object CoroutineRuntime:
                 var sub = Computation.run(interp.callValue(innerNext, Nil, Map.empty))
                 while sub != Value.NoneV do
                   sub match
-                    case Value.OptionV(Some(v)) => ownQ.put(Some(v))
+                    case Value.OptionV(v: Value) => ownQ.put(Some(v))
                     case _ =>
                   sub = Computation.run(interp.callValue(innerNext, Nil, Map.empty))
               case _ => throw InterpretError("Generator.flatMap: body must return a Generator")
@@ -109,7 +109,7 @@ private[interpreter] object CoroutineRuntime:
           var a = queue.take()
           var b = Computation.run(interp.callValue(otherNext, Nil, Map.empty))
           while a.isDefined && b != Value.NoneV do
-            val bVal = b match { case Value.OptionV(Some(v)) => v; case _ => Value.UnitV }
+            val bVal = b match { case Value.OptionV(v: Value) => v; case _ => Value.UnitV }
             ownQ.put(Some(Value.TupleV(a.get :: bVal :: Nil)))
             a = queue.take()
             b = if a.isDefined then Computation.run(interp.callValue(otherNext, Nil, Map.empty)) else Value.NoneV

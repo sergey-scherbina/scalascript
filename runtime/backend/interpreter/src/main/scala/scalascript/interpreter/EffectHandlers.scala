@@ -179,7 +179,8 @@ private[interpreter] object EffectHandlers:
       op match
         case "get" => args match
           case List(Value.StringV(k)) =>
-            resume(Value.OptionV(lookup(k).map(Value.StringV.apply)))
+            val sv = lookup(k).orNull
+            resume(if sv != null then Value.OptionV(Value.StringV(sv)) else Value.NoneV)
           case _ => throw InterpretError("Env.get(key: String)")
         case "set" => args match
           case List(Value.StringV(k), v) =>

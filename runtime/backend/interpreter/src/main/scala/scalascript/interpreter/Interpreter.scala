@@ -673,19 +673,27 @@ class Interpreter(
     val cfgAccessor = scalascript.config.ConfigAccessor.fromRegistry()
     globals("config") = Value.InstanceV("Config", Map(
       "getString" -> Value.NativeFnV("config.getString", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getString(path).map(Value.StringV(_)))
+        case List(Value.StringV(path)) => cfgAccessor.getString(path) match
+          case Some(s) => Value.OptionV(Value.StringV(s))
+          case None    => Value.NoneV
         case _ => throw InterpretError("config.getString(path: String)")
       }),
       "getInt" -> Value.NativeFnV("config.getInt", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getInt(path).map(n => Value.intV(n.toLong)))
+        case List(Value.StringV(path)) => cfgAccessor.getInt(path) match
+          case Some(n) => Value.OptionV(Value.intV(n.toLong))
+          case None    => Value.NoneV
         case _ => throw InterpretError("config.getInt(path: String)")
       }),
       "getDouble" -> Value.NativeFnV("config.getDouble", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getDouble(path).map(Value.doubleV(_)))
+        case List(Value.StringV(path)) => cfgAccessor.getDouble(path) match
+          case Some(d) => Value.OptionV(Value.doubleV(d))
+          case None    => Value.NoneV
         case _ => throw InterpretError("config.getDouble(path: String)")
       }),
       "getBool" -> Value.NativeFnV("config.getBool", Computation.pureFn {
-        case List(Value.StringV(path)) => Value.OptionV(cfgAccessor.getBool(path).map(Value.boolV(_)))
+        case List(Value.StringV(path)) => cfgAccessor.getBool(path) match
+          case Some(b) => Value.OptionV(Value.boolV(b))
+          case None    => Value.NoneV
         case _ => throw InterpretError("config.getBool(path: String)")
       }),
       "requireString" -> Value.NativeFnV("config.requireString", Computation.pureFn {
@@ -730,7 +738,7 @@ class Interpreter(
       "algorithm" -> Value.StringV("sha256"),
       "digest"    -> Value.StringV(digest),
       "format"    -> Value.StringV(format),
-      "module"    -> module.manifest.flatMap(_.name).map(name => Value.OptionV(Some(Value.StringV(name)))).getOrElse(Value.NoneV)
+      "module"    -> module.manifest.flatMap(_.name).map(name => Value.OptionV(Value.StringV(name))).getOrElse(Value.NoneV)
     ))
 
   private def autoCallMain(): Unit =

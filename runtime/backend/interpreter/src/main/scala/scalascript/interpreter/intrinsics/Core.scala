@@ -53,7 +53,7 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   QualifiedName("Some") -> NativeImpl((_, args) =>
     args match
-      case List(v) => Value.OptionV(Some(coreAnyToValue(v)))
+      case List(v) => Value.OptionV(coreAnyToValue(v))
       case _       => throw InterpretError("Some takes 1 arg")
   ),
 

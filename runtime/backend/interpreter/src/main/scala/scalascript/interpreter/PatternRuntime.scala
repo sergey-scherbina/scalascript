@@ -156,7 +156,7 @@ private[interpreter] object PatternRuntime:
           val noGuard = c.cond.isEmpty
           (scrutV, env) =>
             scrutV match
-              case Value.OptionV(Some(v)) if tn == "Some" && bindNames.length == 1 =>
+              case Value.OptionV(v: Value) if tn == "Some" && bindNames.length == 1 =>
                 val bname = bindNames(0)
                 val patEnv = if bname == null then env else FrameMap.one(bname, v, env)
                 if noGuard || evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
@@ -245,7 +245,7 @@ private[interpreter] object PatternRuntime:
                          else matchPat(as.head, fv, curEnv.asInstanceOf[Env], interp)
                 as = as.tail; os = os.tail
               curEnv
-          case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
+          case Value.OptionV(v: Value) if typeName == "Some" && args.length == 1 =>
             matchPat(args.head, v, env, interp)
           case Value.NoneV if typeName == "None" && args.isEmpty =>
             env
@@ -308,8 +308,7 @@ private[interpreter] object PatternRuntime:
 
   def evalCollection(v: Value, interp: Interpreter): List[Value] = v match
     case Value.ListV(ls)        => ls
-    case Value.OptionV(Some(v)) => v :: Nil
-    case Value.NoneV    => Nil
+    case ov: Value.OptionV => if ov.inner != null then ov.inner :: Nil else Nil
     case _ => interp.located(s"Cannot iterate over ${Value.show(v)}")
 
   def evalForYield(enums: List[Enumerator], body: Term, env: Env, interp: Interpreter): Computation =

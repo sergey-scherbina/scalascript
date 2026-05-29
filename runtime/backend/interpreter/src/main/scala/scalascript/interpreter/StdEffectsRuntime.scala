@@ -131,7 +131,7 @@ private[interpreter] object StdEffectsRuntime:
     // Auth: currentUser / require — thread-local current user.
     interp.globals("Auth") = Value.InstanceV("Auth", Map(
       "currentUser" -> Value.NativeFnV("Auth.currentUser",
-        _ => Pure(interp._authUser.get().fold[Value](Value.NoneV)(u => Value.OptionV(Some(u))))),
+        _ => Pure(interp._authUser.get().fold[Value](Value.NoneV)(u => Value.OptionV(u: Value)))),
       "require"     -> Value.NativeFnV("Auth.require",
         _ => interp._authUser.get() match
           case Some(u) => Pure(u)

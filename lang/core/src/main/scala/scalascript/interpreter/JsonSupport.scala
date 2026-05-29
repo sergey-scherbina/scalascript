@@ -38,7 +38,7 @@ def jsonToJson(v: Value): String =
     case Value.MapV(entries)        =>
       entries.map((k, v) => quote(keyStr(k)) + ":" + jsonToJson(v)).mkString("{", ",", "}")
     case Value.NoneV        => "null"
-    case Value.OptionV(Some(x))     => jsonToJson(x)
+    case Value.OptionV(x)  => jsonToJson(x)
     case Value.TupleV(elems)        => elems.map(jsonToJson).mkString("[", ",", "]")
     case Value.InstanceV(_, fields) =>
       fields.map((k, v) => quote(k) + ":" + jsonToJson(v)).mkString("{", ",", "}")
@@ -64,11 +64,13 @@ def wrapJson(inner: Value): Value =
   })
   val getFn = Value.NativeFnV("JsonValue.get", Computation.pureFn {
     case List(Value.StringV(k)) => inner match
-      case Value.MapV(m) => Value.OptionV(m.get(Value.StringV(k)).map(wrapJson))
+      case Value.MapV(m) =>
+        val v = m.getOrElse(Value.StringV(k), null)
+        if v != null then Value.OptionV(wrapJson(v)) else Value.NoneV
       case _             => Value.NoneV
     case List(Value.IntV(i)) => inner match
       case Value.ListV(items) if i >= 0 && i < items.length =>
-        Value.OptionV(Some(wrapJson(items(i.toInt))))
+        Value.OptionV(wrapJson(items(i.toInt)))
       case _ => Value.NoneV
     case _ => throw InterpretError("JsonValue.get(key | index)")
   })
