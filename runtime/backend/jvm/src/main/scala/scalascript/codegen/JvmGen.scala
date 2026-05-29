@@ -2744,7 +2744,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       "ObjectCodec", "ObjectValue", "ObjectFieldSpec",
       "VertexCodec", "VertexValue", "EdgeCodec", "EdgeValue",
       "RdfCodec", "RdfValue", "RdfTriple", "RdfNode",
-      "DatasetCodec", "DatasetPartition", "DatasetWirePartition",
+      "DatasetCodec", "DatasetPartition", "DatasetWire", "DatasetWirePartition",
       "SparkSchemaCodec", "SparkSchema", "SparkSchemaField", "SparkSchemaType"
     )
     blocks.exists { b =>

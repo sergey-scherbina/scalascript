@@ -176,11 +176,21 @@ conformance is green.
       large partitions at element boundaries with `chunk-id` / `chunk-index` /
       `chunk-count` headers. Runner transport selection split into
       `v1.62.4b`.
-- [ ] **v1.62.4b-dataset-runner-binary-wire** - Distributed Dataset/MapReduce
+- [x] **v1.62.4b-dataset-runner-binary-wire** - Distributed Dataset/MapReduce
       runner binary transport selection: wire `runDistributedWire` /
       `runDistributedShuffleWire` actor messages to use `DatasetWire` envelopes
       when `wire.dataset` selects MsgPack/CBOR, retain JSON fallback, and add
       distributed map/shuffle conformance under JSON, MsgPack, and CBOR.
+      Landed 2026-05-29 partial runner boundary: `DistributedDataset.run` /
+      `runShuffle` accept `wireFormat` and round-trip input/output
+      `DatasetWirePartition` values through `DatasetWire` for MsgPack/CBOR
+      conformance while retaining existing actor messages. Direct binary actor
+      frame selection split into `v1.62.4c`.
+- [ ] **v1.62.4c-dataset-actor-binary-frames** - Distributed Dataset/MapReduce
+      direct binary actor frames: send `DatasetWire` envelope bytes in runner
+      worker messages when `wire.dataset` selects MsgPack/CBOR, retain JSON
+      object fallback, and add local actor map/shuffle conformance under all
+      three formats.
 - [ ] **v1.62.5-dstream-native-wire** - Native DStream runner wire
       integration: binary element batches, watermarks, triggers, side inputs,
       side outputs, checkpoint metadata, and errors; external Spark/Kafka/

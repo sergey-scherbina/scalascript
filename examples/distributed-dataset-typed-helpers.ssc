@@ -82,7 +82,8 @@ runActors {
     Stage(List(MapOp("addBonus"))),
     cluster.asInstanceOf[Cluster],
     retries = 0,
-    allowPartial = false
+    allowPartial = false,
+    wireFormat = "cbor"
   ).asInstanceOf[DistributedResult[Sale]].results
 
   val reducedList: List[Sale] = DistributedDataset.runShuffle[Sale, Sale](
@@ -95,7 +96,8 @@ runActors {
     ),
     cluster.asInstanceOf[Cluster],
     retries = 0,
-    allowPartial = false
+    allowPartial = false,
+    wireFormat = "cbor"
   ).asInstanceOf[DistributedResult[Sale]].results.asInstanceOf[List[Sale]]
   reduced = reducedList
 }

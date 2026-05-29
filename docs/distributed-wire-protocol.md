@@ -394,7 +394,10 @@ Land this document, link it from README, and add implementation phases to
   partition chunking with `chunk-id`, `chunk-index`, and `chunk-count` envelope
   headers plus deterministic reassembly.
 - Verify interpreter/JVM distributed MapReduce examples with JSON, MsgPack,
-  and CBOR. Planned follow-up after runner transport integration.
+  and CBOR. ✓ Landed 2026-05-29 partial runner boundary: `DistributedDataset`
+  `run` / `runShuffle` accept `wireFormat` and round-trip input/output
+  `DatasetWirePartition` values through `DatasetWire` before/after the actor
+  runner. Direct binary actor frame selection remains a follow-up.
 
 ### Phase 5 - Native DStream Runner
 

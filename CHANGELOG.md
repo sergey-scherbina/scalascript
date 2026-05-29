@@ -12,6 +12,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **v1.62.5-dstream-native-wire** — `DStreamMsg` sealed trait (7 kinds: `ElementBatch`, `Watermark`, `Trigger`, `SideInput`, `SideOutput`, `CheckpointMetadata`, `DStreamError`) with full `WireCodec[DStreamMsg]` instances and `DStreamEnvelope` helpers for building/decoding `WireEnvelope(protocol="dstream")`. `TriggerKind` enum (EventTime/ProcessingTime/CountBased/AfterWatermark) with `WireCodec[TriggerKind]`. All 7 message kinds round-trip through JSON, MsgPack, and CBOR (58 tests). External Spark/Kafka/Flink/Beam protocols untouched.
 
+## 2026-05-29 — v1.62.4b Dataset runner wire-format boundary
+
+- **v1.62.4b-dataset-runner-binary-wire** — `DistributedDataset.run` and `DistributedDataset.runShuffle` now accept `wireFormat`; non-JSON formats round-trip input and output `DatasetWirePartition` values through `DatasetWire` so runner-facing map/shuffle boundaries are checked under MsgPack/CBOR while preserving the current actor messages. Updated `examples/distributed-dataset-typed-helpers.ssc` to use `wireFormat = "cbor"`. Direct binary actor frames remain tracked in `v1.62.4c`.
+
 ## 2026-05-29 — v1.62.4 Dataset binary partition envelopes
 
 - **v1.62.4-dataset-binary-partitions** — Added `DatasetWire`, a typed-data bridge that wraps `DatasetWirePartition` in shared `WireEnvelope(protocol = "dataset")` frames and encodes/decodes partitions as JSON, MsgPack, or CBOR. JSON numbers are preserved exactly via tagged string representation. Large partitions can now be chunked at element boundaries and reassembled using `chunk-id`, `chunk-index`, and `chunk-count` envelope headers. Added focused `DatasetCodecTest` coverage and updated wire/mapreduce/user docs. Runner transport selection remains tracked in `v1.62.4b`.
