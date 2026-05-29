@@ -69,6 +69,20 @@ private[interpreter] object CallRuntime:
     case f: Value.NativeFnV => f.f(a :: b :: Nil)
     case _ => callValue(fn, a :: b :: Nil, env, interp)
 
+  /** Fast path for map-iteration callbacks receiving a (key, value) entry.
+   *  If `fn` is a 2-param FunV (e.g. `{ (k, v) => ... }`), calls callValue2 — no TupleV.
+   *  Otherwise creates Value.TupleV(k :: v :: Nil) and calls callValue1. */
+  inline def callEntry(fn: Value, k: Value, v: Value, env: Env, interp: Interpreter): Computation = fn match
+    case f: Value.FunV if
+        f.params.length == 2 &&
+        f.usingParams.isEmpty &&
+        !f.returnsThrows &&
+        (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
+        (f.paramTypes.lengthCompare(2) < 2 || !f.paramTypes(1).endsWith("*")) =>
+      callValue2(fn, k, v, env, interp)
+    case _ =>
+      callValue1(fn, Value.TupleV(k :: v :: Nil), env, interp)
+
   /** Fast path for `fn(recv, args*)`: avoids allocating `recv :: args` list.
    *  Dispatches to callValue1/callValue2 for the 0/1-arg cases; falls back otherwise. */
   inline def callValuePrepend(fn: Value, recv: Value, args: List[Value], env: Env, interp: Interpreter): Computation =

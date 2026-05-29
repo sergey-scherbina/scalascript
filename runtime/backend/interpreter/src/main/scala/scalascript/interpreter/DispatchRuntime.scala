@@ -983,7 +983,7 @@ private[interpreter] object DispatchRuntime:
           val mapBuf = scala.collection.mutable.Map.empty[Value, Value]
           while mapIt.hasNext do
             val (k, v) = mapIt.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(Value.TupleV(nk :: nv :: Nil)) => mapBuf += (nk -> nv)
               case Pure(_)                             => // skip malformed
               case comp =>
@@ -994,7 +994,7 @@ private[interpreter] object DispatchRuntime:
                   if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
                   else
                     val (k2, v2) = mapIt.next()
-                    FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), loopMap)
+                    FlatMap(interp.callEntry(f, k2, v2, env), loopMap)
                 return FlatMap(comp, loopMap)
           Pure(Value.MapV(mapBuf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -1004,7 +1004,7 @@ private[interpreter] object DispatchRuntime:
           val filtBuf = scala.collection.mutable.Map.empty[Value, Value]
           while filtIt.hasNext do
             val (k, v) = filtIt.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(Value.BoolV(true))  => filtBuf += (k -> v)
               case Pure(_)                  => // skip
               case comp =>
@@ -1016,7 +1016,7 @@ private[interpreter] object DispatchRuntime:
                     if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
                     else
                       val (k2, v2) = filtIt.next()
-                      FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), { r2 =>
+                      FlatMap(interp.callEntry(f, k2, v2, env), { r2 =>
                         if r2 == Value.BoolV(true) then filtBuf += (k2 -> v2)
                         rest()
                       })
@@ -1029,14 +1029,14 @@ private[interpreter] object DispatchRuntime:
           val it = m.iterator
           while it.hasNext do
             val (k, v) = it.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(_) =>
               case c =>
                 def restLoop(): Computation =
                   if !it.hasNext then Computation.PureUnit
                   else
                     val (k2, v2) = it.next()
-                    FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), _ => restLoop())
+                    FlatMap(interp.callEntry(f, k2, v2, env), _ => restLoop())
                 return FlatMap(c, _ => restLoop())
           Computation.PureUnit
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -1078,7 +1078,7 @@ private[interpreter] object DispatchRuntime:
           val it = m.iterator
           while it.hasNext do
             val (k, v) = it.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(Value.BoolV(true))  => return Computation.PureTrue
               case Pure(_)                  => // continue
               case comp =>
@@ -1089,7 +1089,7 @@ private[interpreter] object DispatchRuntime:
                       if !it.hasNext then Computation.PureFalse
                       else
                         val (k2, v2) = it.next()
-                        FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
+                        FlatMap(interp.callEntry(f, k2, v2, env), {
                           case Value.BoolV(true) => Computation.PureTrue
                           case _                 => loopRest()
                         })
@@ -1102,7 +1102,7 @@ private[interpreter] object DispatchRuntime:
           val it = m.iterator
           while it.hasNext do
             val (k, v) = it.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(Value.BoolV(false)) => return Computation.PureFalse
               case Pure(_)                  => // continue
               case comp =>
@@ -1113,7 +1113,7 @@ private[interpreter] object DispatchRuntime:
                       if !it.hasNext then Computation.PureTrue
                       else
                         val (k2, v2) = it.next()
-                        FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
+                        FlatMap(interp.callEntry(f, k2, v2, env), {
                           case Value.BoolV(false) => Computation.PureFalse
                           case _                  => loopRest()
                         })
@@ -1127,7 +1127,7 @@ private[interpreter] object DispatchRuntime:
           var acc = 0L
           while it.hasNext do
             val (k, v) = it.next()
-            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+            interp.callEntry(f, k, v, env) match
               case Pure(Value.BoolV(true))  => acc += 1L
               case Pure(_)                  => // false, no increment
               case comp =>
@@ -1138,7 +1138,7 @@ private[interpreter] object DispatchRuntime:
                     if !it.hasNext then Computation.pureIntV(a)
                     else
                       val (k2, v2) = it.next()
-                      FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
+                      FlatMap(interp.callEntry(f, k2, v2, env), {
                         case Value.BoolV(true) => loopRest(a + 1L)
                         case _                 => loopRest(a)
                       })

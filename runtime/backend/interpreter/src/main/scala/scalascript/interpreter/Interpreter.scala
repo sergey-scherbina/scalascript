@@ -1250,6 +1250,9 @@ class Interpreter(
   private[interpreter] def callValue2(fn: Value, a: Value, b: Value, env: Env): Computation =
     CallRuntime.callValue2(fn, a, b, env, this)
 
+  private[interpreter] inline def callEntry(fn: Value, k: Value, v: Value, env: Env): Computation =
+    CallRuntime.callEntry(fn, k, v, env, this)
+
   private[interpreter] inline def callValuePrepend(fn: Value, recv: Value, args: List[Value], env: Env): Computation =
     CallRuntime.callValuePrepend(fn, recv, args, env, this)
 
