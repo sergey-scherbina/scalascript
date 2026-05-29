@@ -83,7 +83,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-sbt-plugin-p1** — Source convention + `sscCompile`: `sscSourceDirectories` setting; `sscCompile` task forks `ssc build`; wire into `Compile / compile`; scripted test: `sbt compile` compiles `.ssc` files. Spec: `docs/arch-sbt-plugin.md §5 Phase 1`. ✓ Landed 2026-05-29: added `SscRunner`, `sscSourceDirectories`, `sscBackend`, `sscExtraArgs`, config-scoped `sscArtifactDir`, `Compile / sscCompile`, and `Compile / compile` wiring; scripted `compile-sources` verifies `sbt compile` invokes `ssc build --incremental`.
 
-- [ ] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`: `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted test: `sbt package` produces runnable JAR. Spec: `docs/arch-sbt-plugin.md §5 Phase 2`.
+- [x] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`: `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted test: `sbt package` produces runnable JAR. Spec: `docs/arch-sbt-plugin.md §5 Phase 2`. ✓ Landed 2026-05-29: added `sscLinkedJar`, `Compile / sscLink`, link command wiring through `SscRunner`, skip behavior for projects without `.ssc` artifacts, and scripted `package-link` coverage for `sbt package`.
 
 - [ ] **arch-sbt-plugin-p3** — Test integration: `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`; JUnit XML parsing to sbt `TestResult`; scripted test: `sbt test` discovers and runs `.ssc` tests. Spec: `docs/arch-sbt-plugin.md §5 Phase 3`.
 

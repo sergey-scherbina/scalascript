@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$1" = "generate-facade" ]; then
+  mkdir -p "$4"
+  exit 0
+fi
+
+if [ "$1" = "build" ]; then
+  if [ "$2" != "--incremental" ]; then
+    echo "[mock-ssc] expected build --incremental" >&2
+    exit 1
+  fi
+
+  SRC_DIR="$3"
+  ARTIFACT_DIR=""
+  BACKEND=""
+  shift 3
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --artifact-dir)
+        ARTIFACT_DIR="$2"; shift 2 ;;
+      --backend)
+        BACKEND="$2"; shift 2 ;;
+      *)
+        shift ;;
+    esac
+  done
+
+  if [ -z "$ARTIFACT_DIR" ] || [ -z "$BACKEND" ]; then
+    echo "[mock-ssc] missing artifact dir or backend" >&2
+    exit 1
+  fi
+
+  mkdir -p "$ARTIFACT_DIR"
+  printf 'src=%s\nbackend=%s\n' "$SRC_DIR" "$BACKEND" > "$ARTIFACT_DIR/compiled.marker"
+  exit 0
+fi
+
+if [ "$1" = "link" ]; then
+  BACKEND=""
+  OUTPUT=""
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --backend)
+        BACKEND="$2"; shift 2 ;;
+      --output)
+        OUTPUT="$2"; shift 2 ;;
+      *)
+        ARTIFACT_DIR="$1"; shift ;;
+    esac
+  done
+
+  if [ -z "$BACKEND" ] || [ -z "$OUTPUT" ] || [ -z "${ARTIFACT_DIR:-}" ]; then
+    echo "[mock-ssc] expected: link --backend <id> --output <jar> <artifact-dir>" >&2
+    exit 1
+  fi
+  if [ ! -f "$ARTIFACT_DIR/compiled.marker" ]; then
+    echo "[mock-ssc] missing compiled marker before link" >&2
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$OUTPUT")"
+  printf 'linked backend=%s\nartifactDir=%s\n' "$BACKEND" "$ARTIFACT_DIR" > "$OUTPUT"
+  exit 0
+fi
+
+echo "[mock-ssc] unknown command: $1" >&2
+exit 1

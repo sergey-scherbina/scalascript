@@ -261,10 +261,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   `Compile / compile` wiring; scripted `compile-sources` verifies `sbt compile`
   invokes `ssc build --incremental`.
 
-- [ ] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`:
+- [x] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`:
   `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted
   test: `sbt package` produces runnable JAR.
   Spec: `docs/arch-sbt-plugin.md §5 Phase 2`.
+  Landed 2026-05-29: added `sscLinkedJar`, `Compile / sscLink`, link command
+  wiring through `SscRunner`, skip behavior for projects without `.ssc`
+  artifacts, and scripted `package-link` coverage for `sbt package`.
 
 - [ ] **arch-sbt-plugin-p3** — Test integration:
   `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`;

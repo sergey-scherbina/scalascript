@@ -1,0 +1,6 @@
+# Package Link
+
+```scala
+def main(): Unit =
+  println("linked from sbt package")
+```

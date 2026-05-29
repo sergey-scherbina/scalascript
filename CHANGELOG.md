@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-sbt-plugin-p2 sscLink and packageBin
+
+- **arch-sbt-plugin-p2** — Added `sscLinkedJar` and `Compile / sscLink` to the sbt plugin. `sscLink` depends on `sscCompile`, runs `ssc link --backend <id> --output <jar> <artifact-dir>` through `SscRunner`, skips cleanly when there are no ScalaScript artifacts, and is wired into `Compile / packageBin`. Added scripted `package-link` coverage where `sbt package` produces the configured linked JAR.
+
 ## 2026-05-29 — arch-lib-p2 @internal access control
 
 - **arch-lib-p2** — `@internal` cross-package access control. `ExportedSymbol.isInternal: Boolean = false` field added (backward-compatible, derives ReadWriter). `InterfaceExtractor` detects `@internal` annotations via `Mod.Annot` on top-level `Defn.Def/Val/Var/Class/Object/Trait` and sets `isInternal = true` in the emitted interface. Typer builds `internalImportedNames: Set[String]` from all `importedInterfaces` entries where `isInternal = true`; at `Term.Name` call sites, if the name is in `internalImportedNames`, a hard `TypeError` is emitted with a message naming the `@internal` symbol. 8 tests in `TyperInternalAccessTest`.

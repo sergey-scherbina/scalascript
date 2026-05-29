@@ -1,11 +1,12 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
-Status: **partially implemented**. Phase 1 landed on 2026-05-29. Tracked as
-`arch-sbt-plugin` milestone in `BACKLOG.md`.
+Status: **partially implemented**. Phases 1 and 2 landed on 2026-05-29.
+Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
 Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
 task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
-`sscCompile`, `sscBackend`, `sscExtraArgs`). This spec covers the remaining
-plugin surface needed for standalone ScalaScript projects.
+`sscCompile`, `sscBackend`, `sscExtraArgs`) and Phase 2 linking (`sscLink`,
+`sscLinkedJar`). This spec covers the remaining plugin surface needed for
+standalone ScalaScript projects.
 
 ---
 
@@ -63,7 +64,9 @@ object ScalascriptPlugin extends AutoPlugin {
     val sscBackends          = settingKey[Seq[String]]("For cross-build: all target backends")
     val sscExtraArgs         = settingKey[Seq[String]]("Extra args passed to ssc compile/link")
     val sscArtifactDir       = settingKey[File]("Output dir for ssc artifacts")
+    val sscLinkedJar         = settingKey[File]("Runnable JAR produced by ssc link")
     val sscCompile           = taskKey[Seq[File]]("Compile .ssc sources")
+    val sscLink              = taskKey[File]("Link .ssc artifacts")
     // existing:
     val sscGenerateFacade    = taskKey[Seq[File]]("Generate Scala facade from .scim")
   }
@@ -79,6 +82,7 @@ sscSourceDirectories := Seq(
 sscBinary    := "ssc"
 sscBackend   := "jvm"
 sscArtifactDir := (Compile / target).value / "ssc-artifacts"
+sscLinkedJar := (Compile / sscArtifactDir).value / "linked.jar"
 ```
 
 ### 3c. Compile task
@@ -130,6 +134,12 @@ sscLink := {
 
 Compile / packageBin := (Compile / packageBin).dependsOn(sscLink).value
 ```
+
+Phase 2 implementation: `Compile / sscLink` first depends on
+`Compile / sscCompile`, then invokes `ssc link --backend <sscBackend>
+--output <sscLinkedJar> <sscArtifactDir>` when artifacts exist. Projects with
+no `.ssc` sources skip linking and still package normally. `sscExtraArgs` are
+appended to both compile and link invocations.
 
 ### 3e. Test integration
 
@@ -204,6 +214,7 @@ cache and they appear on the JVM test classpath.  Requires
 
 - `sscLink` task; wire into `Compile / packageBin`.
 - Deliverable: `sbt package` produces a runnable JAR with ScalaScript output.
+  ✓ Landed 2026-05-29.
 
 ### Phase 3 — Test integration
 

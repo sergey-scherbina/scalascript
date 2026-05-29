@@ -27,12 +27,14 @@ import sbt.plugins.JvmPlugin
  *
  *  Settings:
  *  - `sscArtifactDir`  — directory containing `.scim` artifacts (required).
+ *  - `sscLinkedJar`    — linked ScalaScript runnable JAR output.
  *  - `sscBinary`       — path to the `ssc` binary (default: "ssc" on PATH).
  *  - `sscSourceDirectories` — source directories containing `.ssc` files.
  *  - `sscBackend`      — backend passed to `ssc build --incremental`.
  *
  *  Tasks:
  *  - `sscCompile` — compile `.ssc` sources via `ssc build --incremental`.
+ *  - `sscLink` — link `.ssc` artifacts via `ssc link`.
  *  - `sscGenerateFacade` — generate facade sources (hooked into sourceGenerators).
  */
 object ScalascriptInteropPlugin extends AutoPlugin {
@@ -43,6 +45,9 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscArtifactDir = settingKey[File](
       "Directory containing ScalaScript .scim artifacts for facade generation."
+    )
+    val sscLinkedJar = settingKey[File](
+      "Runnable JAR produced by `ssc link`."
     )
     val sscBinary = settingKey[String](
       "Path to the ssc binary used by sbt-scalascript tasks (default: 'ssc')."
@@ -55,6 +60,9 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscCompile = taskKey[Seq[File]](
       "Compile .ssc sources via `ssc build --incremental`."
+    )
+    val sscLink = taskKey[File](
+      "Link .ssc artifacts into a runnable JAR via `ssc link`."
     )
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
@@ -75,7 +83,9 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     Compile / sscSourceDirectories := Seq((Compile / sourceDirectory).value / "scalascript"),
     Test / sscSourceDirectories := Seq((Test / sourceDirectory).value / "scalascript"),
     Compile / sscArtifactDir := (Compile / target).value / "ssc-artifacts",
+    Compile / sscLinkedJar := (Compile / sscArtifactDir).value / "linked.jar",
     sscArtifactDir := (Compile / sscArtifactDir).value,
+    sscLinkedJar := (Compile / sscLinkedJar).value,
 
     Compile / sscCompile := {
       val dirs = (Compile / sscSourceDirectories).value.filter(_.isDirectory)
@@ -106,6 +116,31 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       }
     },
 
+    Compile / sscLink := {
+      val compileArtifacts = (Compile / sscCompile).value
+      val artifactDir = (Compile / sscArtifactDir).value
+      val linkedJar = (Compile / sscLinkedJar).value
+      val log = streams.value.log
+      if (!artifactDir.exists() || compileArtifacts.isEmpty) {
+        log.info("[ssc] no .ssc artifacts to link")
+      } else {
+        IO.createDirectory(linkedJar.getParentFile)
+        SscRunner.run(
+          binary = sscBinary.value,
+          args = Seq(
+            "link",
+            "--backend",
+            sscBackend.value,
+            "--output",
+            linkedJar.getAbsolutePath,
+            artifactDir.getAbsolutePath
+          ) ++ sscExtraArgs.value,
+          log = log
+        )
+      }
+      linkedJar
+    },
+
     sscGenerateFacade := {
       val artifactDir = sscArtifactDir.value
       val outDir      = (Compile / sourceManaged).value / "ssc-facade"
@@ -129,6 +164,7 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     },
 
     Compile / compile := ((Compile / compile) dependsOn (Compile / sscCompile)).value,
+    Compile / packageBin := ((Compile / packageBin) dependsOn (Compile / sscLink)).value,
     Compile / sourceGenerators += sscGenerateFacade.taskValue
   )
 }

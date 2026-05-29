@@ -2134,6 +2134,11 @@ Compile / sscSourceDirectories := Seq((Compile / sourceDirectory).value / "scala
 invokes `ssc build --incremental`, and writes artifacts under
 `Compile / sscArtifactDir` (`target/ssc-artifacts` by default).
 
+`sbt package` runs `sscLink` before packaging. The task links the generated
+ScalaScript artifacts with `ssc link --backend <backend> --output <jar>` and
+writes the linked JAR to `Compile / sscLinkedJar`
+(`target/ssc-artifacts/linked.jar` by default).
+
 ---
 
 ## 12. Testing
