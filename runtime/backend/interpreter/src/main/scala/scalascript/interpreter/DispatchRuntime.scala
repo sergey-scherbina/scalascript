@@ -76,6 +76,7 @@ private[interpreter] object DispatchRuntime:
       case Value.OptionV(opt)   => dispatchOption1(recv, opt, name, arg, env, interp)
       case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
       case Value.IntV(n)        => dispatchInt1(n, name, arg, env, interp)
+      case Value.DoubleV(d)     => dispatchDouble1(d, recv, name, arg, env, interp)
       case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
@@ -1854,6 +1855,27 @@ private[interpreter] object DispatchRuntime:
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Double ──────────────────────────────────────────────────────────────────
+
+  /** 1-arg fast path for Double: avoids arg :: Nil cons cell for the common math ops. */
+  private def dispatchDouble1(d: Double, @annotation.unused recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    name match
+      case "max"   => arg match
+        case Value.DoubleV(b) => Pure(Value.doubleV(math.max(d, b)))
+        case Value.IntV(b)    => Pure(Value.doubleV(math.max(d, b.toDouble)))
+        case _                => dispatchDouble(d, name, arg :: Nil, env, interp)
+      case "min"   => arg match
+        case Value.DoubleV(b) => Pure(Value.doubleV(math.min(d, b)))
+        case Value.IntV(b)    => Pure(Value.doubleV(math.min(d, b.toDouble)))
+        case _                => dispatchDouble(d, name, arg :: Nil, env, interp)
+      case "pow"   => arg match
+        case Value.DoubleV(b) => Pure(Value.doubleV(math.pow(d, b)))
+        case Value.IntV(b)    => Pure(Value.doubleV(math.pow(d, b.toDouble)))
+        case _                => dispatchDouble(d, name, arg :: Nil, env, interp)
+      case "atan2" => arg match
+        case Value.DoubleV(b) => Pure(Value.doubleV(math.atan2(d, b)))
+        case Value.IntV(b)    => Pure(Value.doubleV(math.atan2(d, b.toDouble)))
+        case _                => dispatchDouble(d, name, arg :: Nil, env, interp)
+      case _       => dispatchDouble(d, name, arg :: Nil, env, interp)
 
   private def dispatchDouble(d: Double, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     val recv = Value.doubleV(d)
