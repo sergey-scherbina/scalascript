@@ -1,381 +1,598 @@
-# OpenAPI 3.1 — spec
+# OpenAPI contract platform — spec
 
-**Status:** Phase 1 landed (interpreter `/_openapi.json` + `/_swagger`).
-Phase 2 landed for shared generation and JVM route emission. Phases 3–5 planned.
+**Status:** Phases 1-5 landed on 2026-05-29: interpreter/JVM OpenAPI defaults,
+shared generator, route metadata, security schemes, and `ssc emit-openapi`
+JSON/YAML export.
 
-**Companion:** [`docs/future-protocols.md §4`](future-protocols.md)
+**External reference:** as of 2026-05-29, the OpenAPI Initiative authoritative
+specification site (`https://spec.openapis.org/oas/latest`) lists OpenAPI 3.2.0
+as the latest published OAS version, while the version index
+(`https://spec.openapis.org/oas/`) also lists OpenAPI 3.1.2 and current 3.1
+schema iterations. ScalaScript should keep OpenAPI 3.1 as the default
+compatibility target for now, while planning selectable 3.2 output.
+
+**Companions:**
+- [`docs/future-protocols.md §4`](future-protocols.md)
+- [`docs/graphql.md`](graphql.md)
+- Future AsyncAPI spec for WebSocket/SSE routes
 
 ---
 
 ## 1. Goals
 
-Every ScalaScript HTTP server automatically exposes a machine-readable
-description of its API surface — no hand-maintenance required.
-The same description drives:
+ScalaScript should treat OpenAPI as a first-class HTTP contract layer, not just
+as generated documentation. Every ScalaScript HTTP server can expose and export
+a machine-readable API description that is:
 
-- **Swagger UI** at `/_swagger` for interactive exploration during development.
-- **Client code generation** via `ssc emit-openapi` (standalone JSON/YAML export).
-- **API gateway import** (AWS API Gateway, Kong, Traefik — all accept OpenAPI).
-- **Contract testing** (Dredd, Schemathesis — send random valid requests and assert the server agrees).
+- **derived from source and typed route metadata** rather than hand-maintained;
+- **stable enough for client generation** through deterministic `operationId`
+  and schema names;
+- **precise enough for contract tests** with status codes, content types,
+  request bodies, response bodies, headers, cookies, and typed errors;
+- **publishable** through public/internal/admin profiles and visibility rules;
+- **portable** across interpreter, JVM generated servers, and future backends;
+- **compatible with ecosystem tools** such as Swagger UI, OpenAPI Generator,
+  API gateway importers, Schemathesis/Dredd-style test runners, and OAI
+  ecosystem specs such as Overlays and Arazzo.
 
-The source of truth is always the live route table; the document is
-derived, never hand-written.
+The source of truth is still the route surface plus typed ScalaScript metadata.
+Hand-written OpenAPI may be imported or overlaid, but it must not silently drift
+from the route contracts that ScalaScript can verify.
 
 ---
 
 ## 2. Non-goals
 
-- **OpenAPI 2.0 (Swagger 2).** Only OpenAPI 3.1 is targeted. Tooling has
-  converged on 3.x; 3.1 aligns with JSON Schema 2020-12.
-- **AsyncAPI for WebSocket / SSE routes.** Out of scope for this milestone;
-  tracked as a Phase 6 candidate.
-- **GraphQL introspection.** Separate milestone — `docs/graphql.md`.
-- **gRPC / Protobuf reflection.** Separate, gated on HTTP/2.
-- **Manual schema overrides** via hand-written YAML alongside the code.
-  We derive; we don't blend.
+- **OpenAPI 2.0 / Swagger 2.0 output.** Not planned. If needed later, it should
+  be a down-conversion tool, not the canonical contract format.
+- **Replacing GraphQL introspection.** GraphQL has its own schema and
+  introspection model; see [`docs/graphql.md`](graphql.md).
+- **Modeling WebSocket/SSE as OpenAPI-only.** OpenAPI can describe the HTTP
+  upgrade/handshake surface, but message streams need AsyncAPI or a dedicated
+  companion document.
+- **Silent best-effort documents.** Exporting an incomplete or guessed contract
+  as if it were authoritative is worse than omitting fields. Unknown request or
+  response shapes must remain explicit as `Any`/generic schemas unless the user
+  supplies metadata.
+- **Unbounded side effects during contract export.** The current dry-run path is
+  useful, but long-term pure/static export is the target for production CI.
 
 ---
 
-## 3. Architecture
+## 3. Contract Model
 
-### 3.1 What already exists (Phase 1 — landed)
+### 3.1 OpenAPI Versions
 
-`runtime/backend/interpreter/src/main/scala/scalascript/interpreter/OpenApiRuntime.scala`
+ScalaScript should support an explicit OpenAPI target version:
 
-- **`OpenApiRuntime.registerOpenApiDefaults(interp)`** — called by
-  `HttpIntrinsics` (`serveAsync`) and `FrontendIntrinsics` (`serve`,
-  `serve(port, dir)`, `serve(port, tls)`) when a server starts. Registers:
-  - `GET /_openapi.json` — generates live OpenAPI 3.1 JSON from `RouteRegistry.all`.
-  - `GET /_swagger` — serves Swagger UI (CDN-linked assets, no bundled files).
-- **`OpenApiRuntime.generateOpenApiJson(registry)`** — public so tests call it directly.
-  Produces valid JSON: `openapi: 3.1.0`, `info`, `paths` with per-method `parameters`
-  (path + query), `requestBody` (POST/PUT/PATCH), and a stub `responses: { 200: OK }`.
-- Path parameter conversion: `:id` → `{id}` (OpenAPI convention).
-- Internal routes (`/_*`) excluded from the document.
-- Handler introspection: `Value.FunV` param names + types drive `parameters` and
-  `requestBody.properties`.
-- **16 tests** in `OpenApiRuntimeTest` covering empty registry, path params, internal
-  exclusion, query params, POST body, multi-method path, Swagger HTML shape.
+```bash
+ssc emit-openapi api.ssc --oas-version 3.1
+ssc emit-openapi api.ssc --oas-version 3.2
+```
 
-### 3.2 Gaps
+Planned behavior:
 
-| # | Gap | Affects |
-|---|-----|---------|
-| G1 | JVM codegen — `RestRuntime.scala` / `JvmGen` emits no `/_openapi.json` route | Landed in Phase 2 |
-| G2 | Response schema — registries only pass schema when a type is known | All |
-| G3 | Auth declarations — no way to mark a route as requiring bearer/api-key | All |
-| G4 | Route metadata — no description, summary, tags, deprecation per route | All |
-| G5 | `ssc emit-openapi` CLI command — standalone export without serving | CLI |
-| G6 | `@openapi(…)` annotation for per-route metadata | Parser + Typer |
+- Default: `3.1` / latest supported `3.1.x` dialect for broad tooling
+  compatibility.
+- Optional: `3.2` once generator and validator coverage exists.
+- The `openapi` field is a format version, not the application version; app
+  version stays in `info.version`.
+- Generator tests must validate both JSON and YAML output against the relevant
+  OAS schema where practical.
 
-### 3.3 Key types
+### 3.2 Route Contract
 
-```scalascript
-// Route annotation (Phase 3)
-@openapi(
-  summary:     "Get user by ID",
-  description: "Returns a single user. 404 if not found.",
-  tags:        List("users"),
-  deprecated:  false
+Each HTTP operation lowers to:
+
+```scala
+OpenApiOperation(
+  method:        "GET",
+  path:          "/users/:id",
+  operationId:   "getUser",
+  tags:          List("users"),
+  visibility:    Public,
+  request:       RequestContract(...),
+  responses:     List(ResponseContract(...)),
+  security:      List(SecurityRequirement(...)),
+  metadata:      OpenApiMetadata(...)
 )
-route("GET", "/users/:id") { req =>
-  ...
-}
-
-// Auth declaration (Phase 4)
-@openapi(security: List("bearerAuth"))
-route("DELETE", "/users/:id") { req =>
-  ...
-}
 ```
 
-The annotation is optional; unannotated routes get auto-derived summary
-(`"GET /users/:id"`) and no tags.
+The current implementation has `OpenApiRoute`; the long-term model should split
+route identity, request contract, response contract, and publication metadata so
+schema generation and compatibility checks are not tied to string rendering.
 
-### 3.4 Schema derivation pipeline
+### 3.3 User-Facing Metadata
 
-```
-                    Interpreter path                JVM codegen path
-                    ────────────────                ────────────────
-route() call   →  RouteRegistry.all            →  RestRuntime._routes
-                        │                                   │
-                        ▼                                   ▼
-             OpenApiRuntime.generateOpenApiJson   _generateOpenApiJson()
-               (Value.FunV introspection)         (path params only; no
-               ← path params ✓                     handler introspection)
-               ← query/body params ✓               ← path params ✓
-               ← @openapi metadata (Phase 3)       ← @openapi metadata (Phase 3)
-               ← response schema (Phase 2)         ← stub 200 OK only
-                        │                                   │
-                        └──────────────┬─────────────────────┘
-                                       ▼
-                            JSON string (OpenAPI 3.1)
-                             served at /_openapi.json
-                             exported by ssc emit-openapi
-
-Note: The interpreter path has richer handler introspection because it
-inspects Value.FunV objects at runtime. The JVM path generates static
-Scala code — handler types are erased to (Request => Any) so param
-inference requires the @openapi annotation (Phase 3) for full schema.
-```
-
-### 3.5 Module layout
-
-```
-lang/core/
-  parser/Parser.scala                    ← Phase 3 ✓: @openapi route-marker rewrite
-runtime/http-server/jvm/…/server/jvm/
-  RestRuntime.scala                      ← Phase 2 ✓: OpenAPI defaults; Phase 3 ✓:
-                                           pending @openapi metadata for inline routes
-runtime/backend/
-  interpreter/…/interpreter/
-    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2/3 use shared generator
-  interpreter/…/server/
-    Routes.scala                         ← Phase 3 ✓: RouteEntry OpenApiMetadata
-  jvm/…/codegen/
-    JvmGen.scala                         ← Phase 2 ✓: emit /_openapi.json route
-  spi/…/spi/
-    OpenApiGenerator.scala               ← Phase 2 ✓: shared generation; Phase 3 ✓:
-                                           OpenApiMetadata
-tools/cli/…/cli/
-  Main.scala                             ← Phase 5: ssc emit-openapi subcommand
-runtime/std/
-  openapi.ssc                            ← Phase 3 ✓: @openapi marker extern
-```
-
----
-
-## 4. Migration
-
-Phase 1 is already running in production — no migration needed for existing
-apps. Phases 2–5 are additive; no existing route definitions change.
-
-The `@openapi` annotation (Phase 3) is purely optional. An app without any
-`@openapi` annotations continues to work; the document just lacks human-readable
-summaries and tags.
-
----
-
-## 5. Phases
-
-### Phase 1 — Interpreter `/_openapi.json` + `/_swagger` ✓ Landed
-
-Files: `OpenApiRuntime.scala`, `OpenApiRuntimeTest.scala` (12 tests at Phase 1 landing; 16 tests as of Phase 2).
-
-- Auto-registered when `serve()` / `serveAsync()` is called.
-- `/_openapi.json`: live OpenAPI 3.1 JSON from route table.
-- `/_swagger`: Swagger UI CDN page.
-- Interpreter only.
-
-### Phase 2 — JVM codegen + shared generator + response schema foundation ✓ Landed
-
-**Goal**: `ssc link --backend jvm --bytecode` produces `/_openapi.json` and
-`/_swagger`; interpreter path gets richer response schema.
-
-Tasks:
-- `OpenApiGenerator` lives in `runtime/backend/spi/` and owns the shared route
-  model, path conversion, parameter/body schema emission, response schema
-  emission when a response type is supplied, JSON escaping, and Swagger UI HTML.
-- The interpreter adapts `RouteRegistry.all` into `OpenApiGenerator.OpenApiRoute`
-  and preserves the existing typed `Value.FunV.paramTypes` query/body inference.
-- JVM generated servers register `GET /_openapi.json` and `GET /_swagger` from
-  the same `_routes` table when `serve()` / `serveAsync()` starts. The generated
-  script uses an inlined equivalent helper so standalone scala-cli output does
-  not depend on a newly published `backend-spi` artifact.
-- Response schema plumbing is in place via `OpenApiRoute.responseType`. Automatic
-  handler return-type extraction for raw route registries remains a follow-up
-  because the current JVM route closure type is `Request => Any`.
-- Front-matter/generated route registration now matches `apiClients:` endpoint
-  metadata by `(method, path)` and passes non-`Any` response type names into the
-  generated JVM route table. Raw `route(...) { req => ... }` handlers stay on
-  the safe generic `200 OK` fallback.
-- Tests: `OpenApiGeneratorTest`, existing `OpenApiRuntimeTest`, JvmGen code-shape
-  coverage, and a scala-cli JVM e2e probe for `/_openapi.json`.
-
-Follow-up split from Phase 2:
-
-- **openapi-p2b** ✓ Landed 2026-05-29 — response type metadata propagation:
-  typed front-matter/generated route declarations now carry response type
-  metadata into `OpenApiRoute.responseType`; raw `route(...) { req => ... }`
-  handlers remain on the safe `{ "200": { "description": "OK" } }` fallback.
-
-### Phase 3 — `@openapi` per-route annotation ✓ Landed
-
-**Goal**: route authors can add human-readable metadata without any runtime cost.
+`@openapi(...)` remains the lightweight route annotation. The supported surface
+should grow conservatively:
 
 ```scalascript
-//> using dep "std.openapi"
-
-@openapi(summary = "List all users", tags = List("users"))
-route("GET", "/users") { req => Response.json(users) }
-
-@openapi(summary = "Get user", deprecated = true)
+@openapi(
+  operationId = "getUser",
+  summary = "Get user by ID",
+  description = "Returns a single user. 404 if not found.",
+  tags = List("users"),
+  deprecated = false,
+  security = List("bearerAuth"),
+  visibility = "public",
+  externalDocs = "https://docs.example.com/users#get"
+)
 route("GET", "/users/:id") { req => ... }
 ```
 
-Tasks:
-- `runtime/std/openapi.ssc` exports `openapi(summary, description, tags, deprecated)`.
-  User-facing `@openapi(...)` syntax is rewritten by the parser to this marker
-  call because Scala annotations cannot target a standalone `route(...)`
-  expression directly.
-- `Routes.Entry` in `RouteRegistry` carries `OpenApiMetadata` (summary,
-  description, tags, deprecated).
-- `HttpIntrinsics`: when `@openapi(…)` precedes a `route()` call, the marker is
-  stored as pending route metadata and consumed by the next route registration.
-- `OpenApiGenerator`: uses metadata when present and falls back to the derived
-  `METHOD /path` summary.
-- JVM generated servers use the same marker/consume model in their inlined
-  runtime, so annotated inline routes affect `/_openapi.json`.
-- Tests: parser rewrite, shared generator metadata emission, interpreter route
-  registry metadata, HTTP plugin consumption, JVM code shape, and JVM e2e
-  OpenAPI route coverage.
+Rules:
 
-Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
+- `operationId` must be unique in the exported profile.
+- Missing `operationId` is derived from typed route client metadata, handler
+  name, or method/path fallback, in that priority order.
+- `visibility` controls profile filtering: `public`, `internal`, `admin`,
+  `private`, or project-defined profile names.
+- Route annotations override derived metadata only for presentation, not for
+  type safety. A route cannot claim a schema that contradicts its typed handler
+  unless explicit override mode is enabled.
 
-### Phase 4 — Security schemes + auth declarations ✓ Landed
+---
 
-**Goal**: routes protected by `authMw { … }` (or `@openapi(security = …)`)
-appear with correct `securityRequirements` in the document. Swagger UI's
-"Authorize" button works.
+## 4. Schema Derivation
+
+### 4.1 Components
+
+The generator should emit stable `components.schemas` for ScalaScript types:
+
+| ScalaScript type | OpenAPI schema |
+|---|---|
+| `String` | `{ type: "string" }` |
+| `Int`, `Long`, `Short`, `Byte` | `{ type: "integer", format: ... }` where known |
+| `Double`, `Float`, `BigDecimal` | `{ type: "number", format: ... }` where known |
+| `Boolean` | `{ type: "boolean" }` |
+| `Unit` | no body or `{ type: "null" }`, depending on context |
+| `Option[A]` | not required and/or nullable, depending on field context |
+| `List[A]`, `Seq[A]`, `Array[A]` | `{ type: "array", items: schema(A) }` |
+| `Map[String, A]` | object with `additionalProperties: schema(A)` |
+| `case class` | object with named properties and required fields |
+| `enum` | string enum when cases are value-like; `oneOf` when cases carry data |
+| `sealed trait` hierarchy | `oneOf` plus discriminator when a stable tag exists |
+
+Schema names must be deterministic and collision-safe. Prefer fully-qualified
+type names internally, with short names in output when there is no ambiguity.
+
+### 4.2 Constraints And Examples
+
+ScalaScript should support schema-relevant annotations on types and fields:
 
 ```scalascript
-// Declare global scheme once
-openApiSecurity("bearerAuth", scheme = "bearer", format = "JWT")
+case class CreateUser(
+  @minLength(1) @maxLength(80)
+  name: String,
 
-// Per-route (explicit)
-@openapi(security = List("bearerAuth"))
-route("DELETE", "/users/:id") { req => ... }
+  @format("email")
+  email: String,
 
-// Auto-detected from middleware (heuristic)
-authMw {
-  route("GET", "/admin/stats") { req => ... }
+  @minimum(0)
+  age: Option[Int] = None
+)
+```
+
+Planned annotations:
+
+- numeric: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`,
+  `multipleOf`;
+- string: `minLength`, `maxLength`, `pattern`, `format`;
+- arrays: `minItems`, `maxItems`, `uniqueItems`;
+- objects: `minProperties`, `maxProperties`;
+- documentation: `description`, `example`, `externalDocs`;
+- compatibility: `deprecated`, `experimental`, `internal`.
+
+### 4.3 Recursive Types
+
+Recursive schemas must use `$ref` through `components.schemas`, not inline
+expansion. The generator must detect cycles and keep output finite.
+
+---
+
+## 5. Requests And Responses
+
+### 5.1 Request Sources
+
+OpenAPI generation should distinguish:
+
+- path parameters;
+- query parameters;
+- headers;
+- cookies;
+- JSON body;
+- form URL-encoded body;
+- multipart body and uploaded files;
+- raw binary body;
+- text body.
+
+Typed handlers should be able to declare this directly:
+
+```scalascript
+case class SearchUsers(
+  q: String,
+  page: Option[Int] = Some(1)
+)
+
+route("GET", "/users") { input: SearchUsers =>
+  ...
 }
 ```
 
-Tasks:
-- `openApiSecurity(name, scheme, format)` extern in `openapi.ssc`.
-- `OpenApiGenerator`: emits `components.securitySchemes` + per-operation
-  `security` array.
-- Explicit `@openapi(security = List("schemeName"))` is supported on route
-  metadata and works in interpreter and JVM generated servers.
-- Bearer/http schemes use `{ type: "http", scheme, bearerFormat }`; api-key
-  schemes use `{ type: "apiKey", in: "header", name }`, where `format` carries
-  the header name.
-- Middleware heuristic for `authMw { route(...) }` remains deferred; explicit
-  `@openapi(security = ...)` is the supported path for this phase.
-- Tests: parser rewrite, shared generator bearer/api-key emission, interpreter
-  security generation, HTTP plugin marker consumption, and JVM code shape/e2e
-  coverage.
+For ambiguous handlers, `@openapi` may specify parameter location explicitly:
 
-Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
+```scalascript
+@openapiParam("X-Request-Id", in = "header", required = false)
+```
+
+### 5.2 Response Contracts
+
+Responses must support multiple status codes and content types:
+
+```scalascript
+@openapiResponses(
+  200 -> schema[User],
+  404 -> schema[Problem],
+  422 -> schema[ValidationProblem]
+)
+route("GET", "/users/:id") { req => ... }
+```
+
+Long-term preferred path is typed result ADTs:
+
+```scalascript
+enum GetUserResult:
+  case Ok(user: User)              @status(200)
+  case NotFound(problem: Problem)  @status(404)
+
+route("GET", "/users/:id") { req => getUser(req.params("id")) }
+```
+
+The generator should map:
+
+- `Response.json[A]` / typed route clients to JSON schema;
+- `Response.text` to `text/plain`;
+- HTML responses to `text/html`;
+- file/binary responses to `application/octet-stream` or declared media type;
+- redirects to 3xx responses with `Location` header;
+- no-content responses to `204` without body.
+
+### 5.3 Error Model
+
+ScalaScript should define a standard Problem Details model, compatible with
+RFC 9457-style `application/problem+json`, while still allowing project-specific
+error ADTs. Default framework errors should be documented when enabled:
+
+- validation failure: `400` or `422`;
+- auth required: `401`;
+- forbidden: `403`;
+- not found: `404`;
+- conflict: `409`;
+- unhandled server error: `500`.
+
+---
+
+## 6. Security
+
+Current explicit schemes stay valid:
+
+```scalascript
+openApiSecurity("bearerAuth", "bearer", "JWT")
+
+@openapi(security = List("bearerAuth"))
+route("DELETE", "/users/:id") { req => ... }
+```
+
+The contract platform should add:
+
+- Basic auth;
+- API key in header/query/cookie;
+- HTTP bearer with format;
+- OAuth2 flows: authorization code, client credentials, password, device code
+  where applicable;
+- OpenID Connect discovery URL;
+- scopes and per-operation scope requirements;
+- global security defaults with per-route override;
+- profile-aware redaction of private/internal schemes.
+
+Middleware auto-detection remains a best-effort helper, not the authority.
+The authoritative source should be explicit route/security metadata or typed
+middleware that exposes a contract hook.
+
+---
+
+## 7. Export, Profiles, And Overlays
+
+### 7.1 CLI
+
+Current:
+
+```bash
+ssc emit-openapi api.ssc
+ssc emit-openapi api.ssc --format yaml -o openapi.yaml
+ssc emit-openapi api.ssc --title "Users API" --version 2.0.0 --server https://api.example.com
+```
+
+Planned:
+
+```bash
+ssc emit-openapi api.ssc --oas-version 3.2
+ssc emit-openapi api.ssc --profile public
+ssc emit-openapi api.ssc --profile internal
+ssc emit-openapi api.ssc --validate
+ssc emit-openapi api.ssc --overlay overlays/public.yaml
+```
+
+### 7.2 Profiles
+
+Profiles filter routes, schemas, tags, servers, security schemes, and examples.
+The same source can produce:
+
+- public partner API;
+- internal service API;
+- admin/debug API;
+- local development API.
+
+Filtering must be conservative: if a public route references an internal schema,
+the export should fail unless the schema is explicitly public or redacted.
+
+### 7.3 Overlays
+
+OAI Overlays are a good fit for publication-specific changes that should not be
+encoded in source annotations: vendor extensions, externally hosted docs,
+gateway-specific extensions, or partner-specific descriptions. ScalaScript
+should support applying overlays after deriving the canonical contract.
+
+---
+
+## 8. Validation, Diff, And Contract Tests
+
+### 8.1 Validation
+
+Planned commands:
+
+```bash
+ssc check-openapi api.ssc
+ssc emit-openapi api.ssc --validate
+```
+
+Validation levels:
+
+- structural OAS schema validation;
+- semantic checks: duplicate `operationId`, missing schema refs, invalid
+  security scheme references, invalid path parameter names;
+- ScalaScript consistency checks: declared route response schema matches typed
+  handler/result where known;
+- profile checks: no internal references leak into public output.
+
+### 8.2 Compatibility Diff
+
+Planned command:
+
+```bash
+ssc diff-openapi old.yaml new.yaml
+ssc diff-openapi --fail-on breaking old.yaml new.yaml
+```
+
+Breaking changes include:
+
+- removed path/method;
+- changed `operationId`;
+- removed or newly required request field;
+- narrowed enum;
+- changed response status/content type/schema incompatibly;
+- removed auth scheme or changed security requirement;
+- removed public schema/tag used by clients.
+
+Non-breaking changes include:
+
+- added optional field;
+- added route;
+- added response status when existing statuses remain;
+- added enum value only when the API compatibility policy allows it.
+
+### 8.3 Contract Tests
+
+OpenAPI should feed test generation:
+
+```bash
+ssc test-openapi api.ssc --server http://localhost:8080
+ssc test-openapi api.ssc --profile public
+```
+
+Initial tests can be smoke-level: each operation has a valid example request,
+server status/content-type matches the spec, and JSON responses validate
+against declared schemas. Later phases can integrate property-based request
+generation.
+
+---
+
+## 9. Import Existing OpenAPI
+
+ScalaScript should eventually support OpenAPI as input:
+
+```bash
+ssc import-openapi openapi.yaml --out src/generated/api.ssc
+ssc import-openapi openapi.yaml --client js
+ssc import-openapi openapi.yaml --server-stubs
+```
+
+Generated artifacts:
+
+- DTO case classes/enums;
+- typed route client declarations;
+- route stubs for server implementation;
+- contract tests from examples;
+- schema compatibility metadata for future diffs.
+
+Import must preserve unknown vendor extensions in metadata so round-tripping does
+not destroy publication-specific information.
+
+---
+
+## 10. Arazzo, AsyncAPI, And Adjacent Specs
+
+- **Arazzo** describes multi-call workflows. ScalaScript can derive Arazzo from
+  tests/tutorial flows or explicit workflow declarations later.
+- **AsyncAPI** should describe WebSocket, SSE, DStream, and actor-message
+  streaming protocols. OpenAPI can link to the AsyncAPI document but should not
+  pretend to model message streams fully.
+- **OpenAPI Links / callbacks / webhooks** should be supported for callback-style
+  HTTP workflows before reaching for AsyncAPI.
+
+---
+
+## 11. Current Implementation Snapshot
+
+### Phase 1 — Interpreter `/_openapi.json` + `/_swagger` ✓ Landed
+
+- Auto-registered when `serve()` / `serveAsync()` is called.
+- `/_openapi.json`: live OpenAPI document from route table.
+- `/_swagger`: Swagger UI CDN page.
+- Interpreter handler introspection for typed `Value.FunV` parameters.
+
+### Phase 2 — JVM codegen + shared generator + response schema foundation ✓ Landed
+
+- `OpenApiGenerator` in backend SPI owns shared route model and rendering.
+- JVM generated servers register `GET /_openapi.json` and `GET /_swagger`.
+- Front-matter/generated route registration can propagate non-`Any`
+  `apiClients:` response metadata.
+- Raw `route(...) { req => ... }` handlers still use generic `200 OK` unless
+  additional typed metadata exists.
+
+### Phase 3 — `@openapi` per-route metadata ✓ Landed
+
+- Parser rewrites `@openapi(...)` before `route(...)` into a marker call.
+- `Routes.Entry` carries `OpenApiMetadata`.
+- Interpreter and JVM generated runtimes consume pending metadata on the next
+  route registration.
+- Supported: `summary`, `description`, `tags`, `deprecated`, `security`.
+
+### Phase 4 — Security schemes ✓ Landed
+
+- `openApiSecurity(name, scheme, format)` declares reusable schemes.
+- Supported output: bearer/http and API key header schemes.
+- Per-route `@openapi(security = List(...))` requirements are emitted.
+- `authMw` heuristic remains deferred; explicit metadata is authoritative.
 
 ### Phase 5 — `ssc emit-openapi` CLI + YAML output ✓ Landed
 
-**Goal**: export the OpenAPI document without starting the server.
-
-```bash
-ssc emit-openapi api.ssc                  # JSON to stdout
-ssc emit-openapi api.ssc -o api.yaml      # YAML to file
-ssc emit-openapi api.ssc --format yaml    # explicit format
-ssc emit-openapi api.ssc --title "My API" --version 2.0.0
-```
-
-Tasks:
-- `emitOpenapiCommand` in `tools/cli/Main.scala`.
-- `--format json|yaml` flag. YAML serialisation via simple string transform
-  (no extra library — OpenAPI structure is shallow enough for a manual
-  YAML builder that outputs valid YAML 1.2).
-- `--title`, `--version`, `--server` flags override `info` / `servers`.
-- Runs the interpreter in **abort-at-first-serve** dry-run mode to collect
-  registered routes:
-  1. Create the interpreter with `openApiDryRun = true`.
-  2. Patch `HttpIntrinsics.serveAsync` and `FrontendIntrinsics.serve` to throw
-     `OpenApiDryRun.Sentinel` instead of binding.
-  3. Catch `OpenApiDryRun.Sentinel`; at that point all `route(…)` calls before
-     the first `serve()` have populated `RouteRegistry.all`.
-  4. Call `OpenApiGenerator.generate(RouteRegistry.all)`.
-  **Known limitation**: top-level effects before `serve()` (e.g.
-  `val db = Database.open(…)`) still fire. Users who need pure introspection
-  can restructure to lazy `val` or move setup inside a function called from
-  `serve()`. A future static-analysis path (Phase 6 candidate) eliminates this.
-- `EmitOpenapiCliTest`: 4+ tests (JSON output shape, YAML output, flag overrides).
-
-Landed 2026-05-29: `ssc emit-openapi` performs an abort-at-first-serve
-interpreter dry-run,
-exports JSON by default, infers YAML from `-o *.yaml`, supports explicit
-`--format json|yaml`, applies `--title` / `--version` / repeatable `--server`,
-and reuses the shared OpenAPI generator plus interpreter route metadata and
-security-scheme collection.
-
-Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 5`.
-
-### Phase 6 — AsyncAPI for WebSocket / SSE routes (deferred)
-
-**Goal**: machine-readable description of WS (`onWebSocket`) and SSE
-(`Response.sse`) routes using the AsyncAPI 3.0 format. Served at
-`/_asyncapi.json`; Swagger UI equivalent served at `/_asyncapi`.
-
-**Blockers before starting**: (a) AsyncAPI 3.0 is not yet stable across
-tooling (as of 2026-05); (b) SSE format question: whether to use
-AsyncAPI's HTTP binding or a custom extension. Defer until there is
-concrete user demand or tooling matures.
-
-Effort: ~3 days once blockers clear. Tracked separately from OpenAPI. Cross-
-reference: `docs/future-protocols.md §4`.
+- JSON stdout by default.
+- YAML via `--format yaml` or `-o *.yaml`.
+- `--title`, `--version`, repeatable `--server`.
+- Abort-at-first-serve interpreter dry-run: routes before the first `serve(...)`
+  are collected, no socket is opened, and later top-level code does not run.
 
 ---
 
-## 6. Testing strategy
+## 12. Planned Phases
 
-| Phase | Tests | Kind |
-|-------|-------|------|
-| 1 ✓ | `OpenApiRuntimeTest` (16 as of Phase 2) | Interpreter unit |
-| 2 ✓ | `OpenApiGeneratorTest`, `OpenApiRuntimeTest`, JvmGen code-shape + JVM e2e | SPI + interpreter + JVM codegen |
-| 3 | `OpenApiRuntimeTest` annotation cases (6+) | Interpreter unit |
-| 4 | `OpenApiRuntimeTest` security cases (4+) | Interpreter unit |
-| 5 ✓ | `EmitOpenapiCliTest` (4+) | CLI command |
+### Phase 6 — Rich `components.schemas`
 
-No integration tests against Swagger UI / Postman in CI — those require a
-browser; manual smoke is sufficient.
+Derive named schemas for case classes, enums, sealed traits, collections,
+options, maps, recursive types, defaults, constraints, examples, and docs.
+
+### Phase 7 — Typed request/response contracts
+
+Model request locations, status codes, response headers, content types, typed
+error ADTs, binary/form/multipart bodies, redirects, and no-content responses.
+
+### Phase 8 — Operation identity, tags, and profiles
+
+Add stable `operationId`, global tag metadata, visibility profiles, public vs
+internal filtering, and leak checks.
+
+### Phase 9 — Validation and compatibility diff
+
+Add `check-openapi`, `emit-openapi --validate`, and `diff-openapi` with
+breaking/non-breaking classification.
+
+### Phase 10 — `import-openapi`
+
+Generate DTOs, typed clients, server stubs, and tests from existing OpenAPI
+documents while preserving vendor extensions.
+
+### Phase 11 — Contract testing
+
+Generate and run smoke/property contract tests from the derived OpenAPI
+document against a live server or in-process handler runtime.
+
+### Phase 12 — OAS 3.2, Overlays, Arazzo
+
+Add selectable OAS 3.2 output, OAI Overlay application, and Arazzo workflow
+export/import once the core HTTP contract is stable.
+
+### Phase 13 — AsyncAPI companion
+
+Track separately for WebSocket/SSE/DStream/actor streams. OpenAPI may link to
+AsyncAPI but should not replace it.
 
 ---
 
-## 7. Open questions
+## 13. Testing Strategy
 
-1. **YAML serialisation library**: roll a minimal builder (avoids a dep) or
-   pull `circe-yaml` / `snakeyaml`? Recommendation: minimal builder for Phase 5
-   (structure is shallow), revisit if AsyncAPI (Phase 6) requires deep YAML.
+| Area | Tests |
+|------|-------|
+| Rendering | JSON/YAML golden tests, escaping, deterministic ordering |
+| Validation | OAS schema validation for every generated fixture |
+| Schema derivation | primitives, options, collections, case classes, enums, sealed traits, recursion |
+| Routes | path/query/header/cookie/body extraction; method grouping; internal route exclusion |
+| Responses | status codes, content types, headers, typed errors, no-content, redirects |
+| Security | bearer, basic, API key, OAuth2/OIDC, route/global requirements |
+| Profiles | public/internal filtering, no leaked private schemas |
+| Compatibility | breaking and non-breaking diffs |
+| Import | round-trip DTO/client/stub generation from fixture specs |
+| Contract tests | live and in-process smoke tests generated from examples |
 
-2. **Middleware heuristic for auth detection** (Phase 4): `authMw` is a user
-   function, not a first-class keyword. Can we detect it reliably from the
-   AST? Alternative: require explicit `@openapi(security = …)`. Recommendation:
-   explicit annotation for correctness; middleware heuristic as best-effort
-   opt-in via `useOpenApiAuth()`.
+Existing landed tests remain part of the regression baseline:
 
-3. **`ssc emit-openapi` dry-run mode**: running the interpreter to collect
-   routes means top-level side effects (DB connections, etc.) fire.
-   **Resolved** (Phase 5 uses abort-at-first-serve — see §5 Phase 5 implementation
-   note): `Interpreter(openApiDryRun = true)` causes `serve*` intrinsics to throw
-   `OpenApiDryRun.Sentinel` before binding; `route()` calls before `serve()` have
-   already populated `RouteRegistry.all`. Known limitation: effects before
-   `serve()` still run. Static-analysis alternative deferred to Phase 6.
-
-4. **AsyncAPI for SSE / WS** (Phase 6): AsyncAPI 3.0 describes WebSocket and
-   SSE channels. Worth shipping? Depends on demand. Track separately.
+- `OpenApiGeneratorTest`
+- `OpenApiRuntimeTest`
+- `JvmGenEffectsRuntimeTest` OpenAPI cases
+- `HttpPluginInterpreterTest`
+- `EmitOpenapiCliTest`
 
 ---
 
-## 8. Critical files
+## 14. Design Notes And Open Questions
+
+Resolved:
+
+- YAML output currently uses a lightweight generator. A full YAML library is not
+  required until overlays/import/round-trip fidelity need comment/order
+  preservation.
+- `emit-openapi` currently uses abort-at-first-serve dry-run. This limits
+  side effects after `serve(...)`, but effects before `serve(...)` still run.
+
+Open:
+
+1. **Pure static export.** Can route registrations, mounted handlers, security
+   declarations, and type metadata be collected without evaluating top-level
+   user code?
+2. **Schema override policy.** Should users be able to override derived schemas,
+   and if yes, should overrides be checked for compatibility with source types?
+3. **OpenAPI 3.2 default timing.** When should the default move from 3.1 to
+   3.2, given ecosystem tooling lag?
+4. **Publication profiles.** Should profile names be fixed (`public/internal`)
+   or arbitrary per project?
+5. **Contract compatibility policy.** Should enum value additions and optional
+   response fields be considered non-breaking by default?
+
+---
+
+## 15. Critical Files
 
 | File | Role |
 |------|------|
-| `runtime/backend/interpreter/…/OpenApiRuntime.scala` | Phase 1 ✓; Phase 2 shared-generator adapter |
-| `runtime/backend/interpreter/src/test/scala/scalascript/OpenApiRuntimeTest.scala` | Phase 1/2 tests (16) |
-| `runtime/backend/spi/…/OpenApiGenerator.scala` | Phase 2 ✓ — shared route model and generator |
-| `runtime/backend/spi/…/RouteAnnotation.scala` | Phase 3 NEW — @openapi metadata |
-| `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 ✓ — emit /_openapi.json route |
-| `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 ✓ — generated-server OpenAPI defaults |
-| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into Routes.Entry; Phase 5 — OpenAPI dry-run sentinel for serveAsync |
-| `runtime/std/http-plugin/…/FrontendIntrinsics.scala` | Phase 1 ✓ — registerOpenApiDefaults for serve(); Phase 5 — OpenAPI dry-run sentinel |
-| `tools/cli/…/cli/Main.scala` | Phase 5 — `ssc emit-openapi` subcommand |
-| `runtime/std/openapi.ssc` | Phase 3 NEW — extern annotation declaration |
+| `runtime/backend/spi/src/main/scala/scalascript/backend/spi/OpenApiGenerator.scala` | Shared route model and JSON/YAML generator |
+| `runtime/backend/spi/src/main/scala/scalascript/backend/spi/IntrinsicImpl.scala` | OpenAPI dry-run sentinel and native-context hooks |
+| `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/OpenApiRuntime.scala` | Interpreter adapter from route registry to generator |
+| `runtime/backend/interpreter/src/main/scala/scalascript/server/Routes.scala` | Runtime route table carrying OpenAPI metadata |
+| `runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala` | JVM route/OpenAPI metadata emission |
+| `runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala` | Generated-server OpenAPI defaults |
+| `runtime/std/http-plugin/src/main/scala/scalascript/compiler/plugin/http/HttpIntrinsics.scala` | `route`, `openapi`, `openApiSecurity`, `serveAsync` dry-run behavior |
+| `runtime/std/frontend-plugin/src/main/scala/scalascript/compiler/plugin/frontend/FrontendIntrinsics.scala` | `serve` dry-run behavior |
+| `runtime/std/openapi.ssc` | User-facing OpenAPI extern declarations |
+| `tools/cli/src/main/scala/scalascript/cli/Main.scala` | `ssc emit-openapi` command |
+| `tools/cli/src/test/scala/scalascript/cli/EmitOpenapiCliTest.scala` | CLI export regression tests |
