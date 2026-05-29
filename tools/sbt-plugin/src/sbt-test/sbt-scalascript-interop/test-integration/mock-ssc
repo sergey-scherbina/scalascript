@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$1" = "generate-facade" ]; then
+  mkdir -p "$4"
+  exit 0
+fi
+
+if [ "$1" != "test" ]; then
+  echo "[mock-ssc] expected: test <src-dir> --backend <id> --output-format junit-xml --output <dir>" >&2
+  exit 1
+fi
+
+SRC_DIR="$2"
+BACKEND=""
+OUTPUT_FORMAT=""
+OUTPUT_DIR=""
+shift 2
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --backend)
+      BACKEND="$2"; shift 2 ;;
+    --output-format)
+      OUTPUT_FORMAT="$2"; shift 2 ;;
+    --output)
+      OUTPUT_DIR="$2"; shift 2 ;;
+    *)
+      shift ;;
+  esac
+done
+
+if [ -z "$BACKEND" ] || [ "$OUTPUT_FORMAT" != "junit-xml" ] || [ -z "$OUTPUT_DIR" ]; then
+  echo "[mock-ssc] missing backend, junit-xml format, or output dir" >&2
+  exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+cat > "$OUTPUT_DIR/TEST-scalascript.xml" << XML
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="scalascript" tests="1" failures="0" errors="0" skipped="0">
+  <testcase classname="sample_test" name="sample"/>
+  <properties>
+    <property name="src" value="$SRC_DIR"/>
+    <property name="backend" value="$BACKEND"/>
+  </properties>
+</testsuite>
+XML

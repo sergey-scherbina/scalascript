@@ -28,6 +28,7 @@ import sbt.plugins.JvmPlugin
  *  Settings:
  *  - `sscArtifactDir`  — directory containing `.scim` artifacts (required).
  *  - `sscLinkedJar`    — linked ScalaScript runnable JAR output.
+ *  - `sscTestResultsDir` — directory for `ssc test` JUnit XML output.
  *  - `sscBinary`       — path to the `ssc` binary (default: "ssc" on PATH).
  *  - `sscSourceDirectories` — source directories containing `.ssc` files.
  *  - `sscBackend`      — backend passed to `ssc build --incremental`.
@@ -35,6 +36,7 @@ import sbt.plugins.JvmPlugin
  *  Tasks:
  *  - `sscCompile` — compile `.ssc` sources via `ssc build --incremental`.
  *  - `sscLink` — link `.ssc` artifacts via `ssc link`.
+ *  - `sscTest` — run `.ssc` tests via `ssc test`.
  *  - `sscGenerateFacade` — generate facade sources (hooked into sourceGenerators).
  */
 object ScalascriptInteropPlugin extends AutoPlugin {
@@ -48,6 +50,9 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscLinkedJar = settingKey[File](
       "Runnable JAR produced by `ssc link`."
+    )
+    val sscTestResultsDir = settingKey[File](
+      "Directory where `ssc test --output-format junit-xml` writes results."
     )
     val sscBinary = settingKey[String](
       "Path to the ssc binary used by sbt-scalascript tasks (default: 'ssc')."
@@ -63,6 +68,9 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscLink = taskKey[File](
       "Link .ssc artifacts into a runnable JAR via `ssc link`."
+    )
+    val sscTest = taskKey[TestResult](
+      "Run .ssc tests via `ssc test --output-format junit-xml`."
     )
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
@@ -84,8 +92,10 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     Test / sscSourceDirectories := Seq((Test / sourceDirectory).value / "scalascript"),
     Compile / sscArtifactDir := (Compile / target).value / "ssc-artifacts",
     Compile / sscLinkedJar := (Compile / sscArtifactDir).value / "linked.jar",
+    Test / sscTestResultsDir := (Test / target).value / "ssc-test-results",
     sscArtifactDir := (Compile / sscArtifactDir).value,
     sscLinkedJar := (Compile / sscLinkedJar).value,
+    sscTestResultsDir := (Test / sscTestResultsDir).value,
 
     Compile / sscCompile := {
       val dirs = (Compile / sscSourceDirectories).value.filter(_.isDirectory)
@@ -163,8 +173,46 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       }
     },
 
+    Test / sscTest := {
+      val dirs = (Test / sscSourceDirectories).value.filter(_.isDirectory)
+      val testDirs = dirs.filter(dir => (dir ** "*.ssc").get().nonEmpty)
+      val resultsDir = (Test / sscTestResultsDir).value
+      val log = streams.value.log
+
+      if (testDirs.isEmpty) {
+        log.info("[ssc] no .ssc tests found")
+        TestResult.Passed
+      } else {
+        IO.delete(resultsDir)
+        IO.createDirectory(resultsDir)
+        testDirs.foreach { dir =>
+          SscRunner.run(
+            binary = sscBinary.value,
+            args = Seq(
+              "test",
+              dir.getAbsolutePath,
+              "--backend",
+              sscBackend.value,
+              "--output-format",
+              "junit-xml",
+              "--output",
+              resultsDir.getAbsolutePath
+            ) ++ sscExtraArgs.value,
+            log = log
+          )
+        }
+        val result = SscTestFramework.parseJUnitXml(resultsDir, log)
+        result match {
+          case TestResult.Passed => result
+          case TestResult.Failed => sys.error("ssc tests failed")
+          case TestResult.Error  => sys.error("ssc tests errored")
+        }
+      }
+    },
+
     Compile / compile := ((Compile / compile) dependsOn (Compile / sscCompile)).value,
     Compile / packageBin := ((Compile / packageBin) dependsOn (Compile / sscLink)).value,
+    Test / test := ((Test / test) dependsOn (Test / sscTest)).value,
     Compile / sourceGenerators += sscGenerateFacade.taskValue
   )
 }

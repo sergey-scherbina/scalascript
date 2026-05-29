@@ -85,7 +85,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-sbt-plugin-p2** — `sscLink` + `packageBin`: `sscLink` task forks `ssc link`; wire into `Compile / packageBin`; scripted test: `sbt package` produces runnable JAR. Spec: `docs/arch-sbt-plugin.md §5 Phase 2`. ✓ Landed 2026-05-29: added `sscLinkedJar`, `Compile / sscLink`, link command wiring through `SscRunner`, skip behavior for projects without `.ssc` artifacts, and scripted `package-link` coverage for `sbt package`.
 
-- [ ] **arch-sbt-plugin-p3** — Test integration: `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`; JUnit XML parsing to sbt `TestResult`; scripted test: `sbt test` discovers and runs `.ssc` tests. Spec: `docs/arch-sbt-plugin.md §5 Phase 3`.
+- [x] **arch-sbt-plugin-p3** — Test integration: `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`; JUnit XML parsing to sbt `TestResult`; scripted test: `sbt test` discovers and runs `.ssc` tests. Spec: `docs/arch-sbt-plugin.md §5 Phase 3`. ✓ Landed 2026-05-29: added `sscTestResultsDir`, `Test / sscTest`, JUnit XML parsing in `SscTestFramework`, `Test / test` dependency wiring, and scripted `test-integration` coverage for `sbt test`.
 
 - [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring: `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits `.bsp/scalascript.json` for Metals/IntelliJ. Spec: `docs/arch-sbt-plugin.md §5 Phase 4`.
 

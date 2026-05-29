@@ -8,6 +8,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **arch-ffi-p2** — Added `@interpreterUnsupported` annotation support in `StatRuntime`: extern defs annotated with `@interpreterUnsupported` register a `NativeFnV` that throws an `InterpretError` with a descriptive message when called from the interpreter. Custom message: `@interpreterUnsupported("msg")`. Default message includes the def name. Error is raised at call site, not at definition. Combined `@jvm`+`@interpreterUnsupported` works: the annotation wins in interpreter mode. Cross-backend parity tests verify the same `.ssc` source with `@jvm`+`@js` produces correct output on both JVM and JS backends including `$N` argument substitution. 9 tests.
 
+## 2026-05-29 — arch-sbt-plugin-p3 sbt test integration
+
+- **arch-sbt-plugin-p3** — Added `sscTestResultsDir`, `Test / sscTest`, and `SscTestFramework` JUnit XML parsing to the sbt plugin. `sscTest` scans `src/test/scalascript`, runs `ssc test <dir> --backend <id> --output-format junit-xml --output <dir>`, maps failures/errors to sbt `TestResult`, and is wired into `Test / test`. Added scripted `test-integration` coverage for `sbt test`.
+
 ## 2026-05-29 — arch-sbt-plugin-p2 sscLink and packageBin
 
 - **arch-sbt-plugin-p2** — Added `sscLinkedJar` and `Compile / sscLink` to the sbt plugin. `sscLink` depends on `sscCompile`, runs `ssc link --backend <id> --output <jar> <artifact-dir>` through `SscRunner`, skips cleanly when there are no ScalaScript artifacts, and is wired into `Compile / packageBin`. Added scripted `package-link` coverage where `sbt package` produces the configured linked JAR.

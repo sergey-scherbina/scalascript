@@ -2139,6 +2139,11 @@ ScalaScript artifacts with `ssc link --backend <backend> --output <jar>` and
 writes the linked JAR to `Compile / sscLinkedJar`
 (`target/ssc-artifacts/linked.jar` by default).
 
+`sbt test` runs `sscTest` first. The task scans `src/test/scalascript/`,
+invokes `ssc test --output-format junit-xml`, writes results under
+`Test / sscTestResultsDir` (`target/scala-*/ssc-test-results` by default),
+and fails the sbt test run when the JUnit XML reports failures or errors.
+
 ---
 
 ## 12. Testing

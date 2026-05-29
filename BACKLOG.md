@@ -269,10 +269,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   wiring through `SscRunner`, skip behavior for projects without `.ssc`
   artifacts, and scripted `package-link` coverage for `sbt package`.
 
-- [ ] **arch-sbt-plugin-p3** — Test integration:
+- [x] **arch-sbt-plugin-p3** — Test integration:
   `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`;
   JUnit XML parsing → sbt `TestResult`; scripted test: `sbt test` discovers
   and runs `.ssc` tests.  Spec: `docs/arch-sbt-plugin.md §5 Phase 3`.
+  Landed 2026-05-29: added `sscTestResultsDir`, `Test / sscTest`, JUnit XML
+  parsing in `SscTestFramework`, `Test / test` dependency wiring, and scripted
+  `test-integration` coverage for `sbt test`.
 
 - [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring:
   `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits

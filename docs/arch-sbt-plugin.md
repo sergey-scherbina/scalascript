@@ -1,12 +1,13 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
-Status: **partially implemented**. Phases 1 and 2 landed on 2026-05-29.
+Status: **partially implemented**. Phases 1, 2, and 3 landed on 2026-05-29.
 Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
 Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
 task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
 `sscCompile`, `sscBackend`, `sscExtraArgs`) and Phase 2 linking (`sscLink`,
-`sscLinkedJar`). This spec covers the remaining plugin surface needed for
-standalone ScalaScript projects.
+`sscLinkedJar`), plus Phase 3 test integration (`sscTest`,
+`sscTestResultsDir`, `SscTestFramework`). This spec covers the remaining
+plugin surface needed for standalone ScalaScript projects.
 
 ---
 
@@ -65,8 +66,10 @@ object ScalascriptPlugin extends AutoPlugin {
     val sscExtraArgs         = settingKey[Seq[String]]("Extra args passed to ssc compile/link")
     val sscArtifactDir       = settingKey[File]("Output dir for ssc artifacts")
     val sscLinkedJar         = settingKey[File]("Runnable JAR produced by ssc link")
+    val sscTestResultsDir    = settingKey[File]("Directory for ssc test JUnit XML")
     val sscCompile           = taskKey[Seq[File]]("Compile .ssc sources")
     val sscLink              = taskKey[File]("Link .ssc artifacts")
+    val sscTest              = taskKey[TestResult]("Run .ssc tests")
     // existing:
     val sscGenerateFacade    = taskKey[Seq[File]]("Generate Scala facade from .scim")
   }
@@ -83,6 +86,7 @@ sscBinary    := "ssc"
 sscBackend   := "jvm"
 sscArtifactDir := (Compile / target).value / "ssc-artifacts"
 sscLinkedJar := (Compile / sscArtifactDir).value / "linked.jar"
+sscTestResultsDir := (Test / target).value / "ssc-test-results"
 ```
 
 ### 3c. Compile task
@@ -145,11 +149,18 @@ appended to both compile and link invocations.
 
 `ssc test` already exists as a CLI subcommand.  The sbt integration:
 
-1. `sscTest` task forks `ssc test --backend jvm --output-format junit-xml
-   --output <target>/ssc-test-results/` and parses the JUnit XML.
-2. Results are fed into sbt's `testGrouping` / `executeTests` via a
-   `SscTestFramework` wrapper implementing `sbt.testing.Framework`.
-3. `Test / test` depends on `sscTest`.
+1. `sscTest` task scans `Test / sscSourceDirectories` for `.ssc` files and
+   forks `ssc test <dir> --backend <sscBackend> --output-format junit-xml
+   --output <Test / sscTestResultsDir>`.
+2. `SscTestFramework` parses the JUnit XML with JAXP and maps aggregate
+   failures/errors to sbt `TestResult`.
+3. `Test / test` depends on `sscTest`; failed or errored ScalaScript tests
+   fail the sbt test run.
+
+Phase 3 intentionally starts with task-level integration instead of a full
+`sbt.testing.Framework` implementation. That keeps the user-facing `sbt test`
+workflow correct while leaving per-test event streaming and `testOnly`
+integration for a later refinement.
 
 ### 3f. REPL / Run / Watch
 
@@ -220,6 +231,7 @@ cache and they appear on the JVM test classpath.  Requires
 
 - `SscTestFramework`; `sscTest`; JUnit XML parsing; `Test / test` wire.
 - Scripted test: create project with `.ssc` test file, `sbt test` passes.
+  ✓ Landed 2026-05-29.
 
 ### Phase 4 — REPL / Run / Watch + BSP
 
