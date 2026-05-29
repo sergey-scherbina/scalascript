@@ -187,6 +187,14 @@ object JsGen:
     val caps = capabilities + Capability.Core
     val sb   = new StringBuilder
     sb.append("// ── scalascript JS runtime ──────────────────────────────────────────\n")
+    // Inject js/glue.js preambles from loaded .ssclib archives (Phase 4 FFI).
+    val gluePreambles = scalascript.imports.GlueJsPreambleRegistry.preambles
+    if gluePreambles.nonEmpty then
+      sb.append("// ── glue preambles ─────────────────────────────────────────────────\n")
+      gluePreambles.foreach { glue =>
+        sb.append(glue)
+        if !glue.endsWith("\n") then sb.append('\n')
+      }
     // v1.61.6: build from individual parts so unused sections are omitted.
     // Part1a is always included (Core).
     sb.append(JsRuntimePart1a)

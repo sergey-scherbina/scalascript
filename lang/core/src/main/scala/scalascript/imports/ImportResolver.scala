@@ -436,26 +436,40 @@ object ImportResolver:
       else
         System.err.println(s"[ssc] warn: dep '$depUri' declares glue.jvm '$glueArchivePath' but file not found in extracted archive")
     }
+    // Register glue.js preamble content if declared in the manifest (Phase 4 FFI).
+    manifest.glueJs.foreach { glueJsPath =>
+      val jsFile = destDir / os.RelPath(glueJsPath)
+      if os.exists(jsFile) then
+        GlueJsPreambleRegistry.addPreamble(depUri, os.read(jsFile))
+      else
+        System.err.println(s"[ssc] warn: dep '$depUri' declares glue.js '$glueJsPath' but file not found in extracted archive")
+    }
     entryPath
 
-  /** Register a glue.jar on the JVM classpath (Phase 3 FFI).
+  /** Register a glue.jar on the JVM classpath (Phase 3+4 FFI).
    *
    *  Uses `java.net.URLClassLoader` thread-context trick: replaces the
    *  context class loader with a URL class loader that extends the existing
    *  one.  Falls back gracefully — if the loader is not a URLClassLoader the
-   *  jar is added to `GlueClasspathRegistry` only (for build-time use). */
+   *  jar is added to `GlueClasspathRegistry` only (for build-time use).
+   *
+   *  Also registers the JAR with `BackendRegistry` so that any
+   *  `META-INF/services/scalascript.backend.spi.Backend` entries in the
+   *  glue.jar are loaded into the backend registry (Phase 4). */
   private def addGlueJarToClasspath(jarPath: os.Path): Unit =
     GlueClasspathRegistry.addJar(jarPath)
     val url = jarPath.toIO.toURI.toURL
     val existing = Thread.currentThread().getContextClassLoader
     existing match
       case ucl: java.net.URLClassLoader =>
-        // Extend the existing URLClassLoader with the new JAR.
         val extended = new java.net.URLClassLoader(Array(url), ucl)
         Thread.currentThread().setContextClassLoader(extended)
       case _ =>
         // Non-URLClassLoader (e.g. app class loader in JDK 9+).
         // Fall through — glue is available via GlueClasspathRegistry.
+    // Register for ServiceLoader-based Backend discovery (Phase 4).
+    import scalascript.compiler.plugin.BackendRegistry
+    BackendRegistry.addPluginJar(jarPath)
 
   /** BFS step: resolve all direct dependencies declared in `manifest`.
    *  Errors from transitive deps are wrapped with context. */
