@@ -5670,7 +5670,7 @@ signal semantics and style modifier lowering.
 
 ## v1.48.2 — `ssc run --target ios` (iOS Simulator)
 
-**Status:** planned
+**Status:** ✓ Landed (2026-05-26)
 **Depends on:** v1.48.1 ✓
 
 `--target ios` is the canonical name; `mobile-ios` kept as alias (same rename pattern as `desktop-macos` → `macos`).
@@ -5736,7 +5736,7 @@ Effort: ~1 day.
 
 ## v1.48.3 — `ssc run --target ios --device` (real device via ios-deploy)
 
-**Status:** planned
+**Status:** ✓ Landed (2026-05-26)
 **Depends on:** v1.48.2 ✓ (same Swift Package generation, same xcodebuild build step)
 
 ### Goals
@@ -5787,7 +5787,7 @@ Effort: ~1 day.
 
 ## v1.48.4 — `ssc package --target ios` → distributable .ipa
 
-**Status:** planned
+**Status:** ✓ Landed (2026-05-26)
 **Depends on:** v1.48.1 ✓
 
 ### Goals
@@ -5831,7 +5831,7 @@ Effort: ~1 day.
 
 ## v1.48.5 — `ssc publish --target ios` (TestFlight + App Store via fastlane)
 
-**Status:** planned
+**Status:** ✓ Landed (2026-05-26)
 **Depends on:** v1.48.4 ✓
 
 ### Goals
@@ -5898,7 +5898,7 @@ Effort: ~2 days (fastlane integration + credential handling + Fastfile generatio
 
 ## v1.49 — macOS distribution: notarize + DMG + Mac App Store
 
-**Status:** planned
+**Status:** ✓ Landed (2026-05-26)
 **Depends on:** v1.48.1 ✓
 
 ### Goals
