@@ -4377,6 +4377,49 @@ for interpreter `ssc run` paths that do not go through `ssc link`.
 
 ---
 
+## 31. Mirror-Based Custom Derives
+
+The interpreter exposes a runtime Mirror value for declared product and sum
+types. This lets user-defined typeclasses provide a `derived(m: Mirror)` method
+and opt into `derives`.
+
+```scala
+trait Csv[A]:
+  def header: String
+
+case class CsvInstance(header: String) extends Csv[Any]
+
+object Csv:
+  def derived(m: Mirror): Csv[Any] =
+    CsvInstance(m.elemLabels.mkString(","))
+
+case class Person(name: String, age: Int) derives Csv
+
+val csv = summon[Csv[Person]]
+println(csv.header) // name,age
+```
+
+You can also summon Mirror metadata directly:
+
+```scala
+case class Person(name: String, age: Int)
+
+val m = summon[Mirror.Of[Person]]
+println(m.label)                    // Person
+println(m.elemLabels.mkString("|"))  // name|age
+println(m.elemTypes.mkString("|"))   // String|Int
+```
+
+Status: **partially implemented**. Supported now in the interpreter:
+`Mirror.Of[T]`, `Mirror.ProductOf[T]`, `Mirror.SumOf[T]`, `Mirror.of[T]`,
+`label`, `fields`, `elemLabels`, `elemTypes`, `variants`, `isProduct`,
+`isSum`, `fromProduct`, and `ordinal`. Still planned: source-level
+`inline match` over `Mirror.Product/Sum`, richer compile-time tuple
+operations, and explicit cross-backend conformance for JVM/JS/WASM generated
+paths.
+
+---
+
 ### Feature Quick-Links
 
 - Typed algebraic effects: §4, [docs/algebraic-effects.md](algebraic-effects.md)
@@ -4404,3 +4447,4 @@ for interpreter `ssc run` paths that do not go through `ssc link`.
 - GraalVM native binary: §28 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
 - Library packages: §29 above, [docs/arch-library-modularity.md](arch-library-modularity.md)
 - Restricted quoted macros: §30 above, [docs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- Mirror-based custom derives: §31 above, [docs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)

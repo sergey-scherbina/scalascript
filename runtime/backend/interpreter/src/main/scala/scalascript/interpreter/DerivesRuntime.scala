@@ -11,6 +11,55 @@ import Computation.Pure
  */
 private[interpreter] object DerivesRuntime:
 
+  def mirrorForType(typeName: String, interp: Interpreter): Value.InstanceV =
+    val fieldNames = interp.typeFieldOrder.getOrElse(typeName, Nil)
+    val fieldTypes = interp.typeFieldTypes.getOrElse(typeName, fieldNames.map(_ => "Any"))
+    val variants = interp.parentTypes.iterator.collect {
+      case (child, parent) if parent == typeName => child
+    }.toList.sorted
+    val isProduct = fieldNames.nonEmpty || interp.typeFieldOrder.contains(typeName)
+    val isSum = variants.nonEmpty
+    Value.InstanceV("Mirror", Map(
+      "label"      -> Value.StringV(typeName),
+      "fields"     -> Value.ListV(fieldNames.map(Value.StringV.apply)), // legacy alias
+      "elemLabels" -> Value.ListV(fieldNames.map(Value.StringV.apply)),
+      "elemTypes"  -> Value.ListV(fieldTypes.map(Value.StringV.apply)),
+      "variants"   -> Value.ListV(variants.map(Value.StringV.apply)),
+      "isProduct"  -> Value.BoolV(isProduct),
+      "isSum"      -> Value.BoolV(isSum),
+      "fromProduct" -> Value.NativeFnV(s"Mirror.$typeName.fromProduct", {
+        case List(Value.ListV(values)) =>
+          Pure(Value.InstanceV(typeName, Map.from(fieldNames.lazyZip(values))))
+        case List(Value.TupleV(values)) =>
+          Pure(Value.InstanceV(typeName, Map.from(fieldNames.lazyZip(values))))
+        case values =>
+          Pure(Value.InstanceV(typeName, Map.from(fieldNames.lazyZip(values))))
+      }),
+      "ordinal" -> Value.NativeFnV(s"Mirror.$typeName.ordinal", {
+        case List(Value.InstanceV(child, _)) =>
+          Computation.pureIntV(variants.indexOf(child).toLong)
+        case _ =>
+          Computation.pureIntV(-1)
+      })
+    ))
+
+  def registerMirror(typeName: String, env: mutable.Map[String, Value], interp: Interpreter): Value.InstanceV =
+    val mirror = mirrorForType(typeName, interp)
+    val isProduct = mirror.fields.get("isProduct").contains(Value.BoolV(true))
+    val isSum = mirror.fields.get("isSum").contains(Value.BoolV(true))
+    val keys =
+      List(
+        s"Mirror.Of[$typeName]",
+        s"deriving.Mirror.Of[$typeName]"
+      ) ++
+      (if isProduct then List(s"Mirror.ProductOf[$typeName]", s"deriving.Mirror.ProductOf[$typeName]") else Nil) ++
+      (if isSum then List(s"Mirror.SumOf[$typeName]", s"deriving.Mirror.SumOf[$typeName]") else Nil)
+    keys.foreach { key =>
+      env(key) = mirror
+      interp.globals(key) = mirror
+    }
+    mirror
+
   def synthesizeDerivedInstance(
     typeName:   String,
     fieldNames: List[String],
@@ -18,6 +67,9 @@ private[interpreter] object DerivesRuntime:
     env:        mutable.Map[String, Value],
     interp:     Interpreter
   ): Unit =
+    if fieldNames.nonEmpty && !interp.typeFieldOrder.contains(typeName) then
+      interp.typeFieldOrder(typeName) = fieldNames
+    val derivedMirror = registerMirror(typeName, env, interp)
     val typeKey = s"$tcName[$typeName]"
     val instance: Value = tcName match
 
@@ -69,11 +121,7 @@ private[interpreter] object DerivesRuntime:
           case Some(tcObj: Value.InstanceV) =>
             tcObj.fields.get("derived") match
               case Some(fn) =>
-                val mirror = Value.InstanceV("Mirror", Map(
-                  "label"  -> Value.StringV(typeName),
-                  "fields" -> Value.ListV(fieldNames.map(Value.StringV.apply))
-                ))
-                Computation.run(interp.callValue1(fn, mirror, Map.empty))
+                Computation.run(interp.callValue1(fn, derivedMirror, Map.empty))
               case None => Value.UnitV
           case _ => Value.UnitV
 

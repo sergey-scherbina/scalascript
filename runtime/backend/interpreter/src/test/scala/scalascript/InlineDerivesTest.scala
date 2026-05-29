@@ -236,3 +236,33 @@ class InlineDerivesTest extends AnyFunSuite with Matchers:
       val s = summon[Show[Circle]]
       println(s.show(c))
     """) shouldBe "Circle(radius=5.5)"
+
+  // ── arch-meta-v2-p5: public Mirror metadata + user typeclass derives ───
+
+  test("Mirror.Of — summon exposes product labels, types, and fromProduct"):
+    captured("""
+      case class Person(name: String, age: Int)
+      val m = summon[Mirror.Of[Person]]
+      println(m.label)
+      println(m.elemLabels.mkString("|"))
+      println(m.elemTypes.mkString("|"))
+      val p = m.fromProduct(List("Ada", 42))
+      println(p.name)
+      println(p.age)
+    """) shouldBe "Person\nname|age\nString|Int\nAda\n42"
+
+  test("derives custom typeclass via Mirror metadata"):
+    captured("""
+      trait Csv[A]:
+        def header: String
+
+      case class CsvInstance(header: String) extends Csv[Any]
+
+      object Csv:
+        def derived(m: Mirror): Csv[Any] =
+          CsvInstance(m.elemLabels.mkString(","))
+
+      case class Person(name: String, age: Int) derives Csv
+      val csv = summon[Csv[Person]]
+      println(csv.header)
+    """) shouldBe "name,age"

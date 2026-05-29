@@ -494,9 +494,14 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   interpreter/run-path parity remain planned follow-ups.
   Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 
-- [ ] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation:
-  `scalascript.reflect.Mirror`; `inline match` on `Mirror.Product/Sum` for
-  arbitrary user typeclasses.  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`.
+- [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: ✓ Landed 2026-05-29.
+  Interpreter/runtime slice registers summon-able `Mirror.Of[T]`,
+  `Mirror.ProductOf[T]`, and `Mirror.SumOf[T]`; exposes `Mirror.of[T]`;
+  carries product/sum metadata (`label`, `elemLabels`, `elemTypes`,
+  `variants`, `fromProduct`, `ordinal`); and supports user-defined
+  `derived(m: Mirror)` typeclasses from `derives`. Source-level `inline match`
+  over `Mirror.Product/Sum` and broader backend conformance remain planned
+  follow-ups. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`.
 
 ---
 

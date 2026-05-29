@@ -1,0 +1,28 @@
+---
+name: custom-derives-mirror
+version: 1.0.0
+description: User-defined typeclass derivation through runtime Mirror metadata
+---
+
+# Custom Derives With Mirror
+
+```scalascript
+trait Csv[A]:
+  def header: String
+
+case class CsvInstance(header: String) extends Csv[Any]
+
+object Csv:
+  def derived(m: Mirror): Csv[Any] =
+    CsvInstance(m.elemLabels.mkString(","))
+
+case class Person(name: String, age: Int) derives Csv
+
+val mirror = summon[Mirror.Of[Person]]
+val csv    = summon[Csv[Person]]
+
+println(mirror.label)
+println(mirror.elemLabels.mkString("|"))
+println(mirror.elemTypes.mkString("|"))
+println(csv.header)
+```

@@ -924,6 +924,11 @@ private[interpreter] object EvalRuntime:
           val found = env.get(key).orElse(interp.globals.get(key)).orElse(GivenRuntime.resolveGiven(key, Nil, env, interp))
           Pure(found.getOrElse(interp.located(s"No given instance for '$key' (summonInline)")))
 
+        // Mirror.of[T] — runtime view of the same product/sum metadata used by derives.
+        case (Term.Select(Term.Name("Mirror"), Term.Name("of")), List(typeArg)) =>
+          val typeName = interp.typeToString(typeArg.asInstanceOf[scala.meta.Type])
+          Pure(DerivesRuntime.mirrorForType(typeName, interp))
+
         case _ => eval(t.fun, env, interp)  // other type applications — erase type args
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.

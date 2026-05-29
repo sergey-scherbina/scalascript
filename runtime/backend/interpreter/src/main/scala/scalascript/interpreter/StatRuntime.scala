@@ -133,6 +133,8 @@ private[interpreter] object StatRuntime:
           case _              => ""
         if pn.nonEmpty then interp.parentTypes(typeName) = pn
       }
+      DerivesRuntime.registerMirror(typeName, env, interp)
+      interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
       env(typeName) = Value.NativeFnV(typeName, args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
@@ -193,6 +195,7 @@ private[interpreter] object StatRuntime:
       val traitName = d.name.value
       if !env.contains(traitName) then
         env(traitName) = Value.InstanceV(traitName, Map.empty)
+      DerivesRuntime.registerMirror(traitName, env, interp)
       // Store abstract method names for remoteStub[Api] trait-method derivation.
       val abstractMethods = d.templ.body.stats.collect { case m: Decl.Def => m.name.value }
       if abstractMethods.nonEmpty then

@@ -113,6 +113,24 @@ Today `derives` is hard-coded for the stdlib typeclasses.  Phase 5:
 - Example: a user-defined `Csv[A]` typeclass with `derived` method using
   `Mirror` works exactly like `Eq.derived`.
 
+Landed first runtime slice (2026-05-29):
+
+- The interpreter registers summon-able `Mirror.Of[T]` /
+  `Mirror.ProductOf[T]` / `Mirror.SumOf[T]` values as types are declared.
+- `Mirror.of[T]` returns the same runtime metadata.
+- Mirror values expose `label`, `fields` (legacy alias), `elemLabels`,
+  `elemTypes`, `variants`, `isProduct`, `isSum`, `fromProduct`, and `ordinal`.
+- User-defined typeclasses can now implement `derived(m: Mirror)` and be used
+  from `case class T(...) derives MyTypeclass` in the interpreter path.
+
+Current implementation boundary:
+
+- Implemented: interpreter/runtime Mirror metadata and custom typeclass
+  `derived(m: Mirror)` dispatch.
+- Planned: source-level `inline match` over `Mirror.Product/Sum`, richer
+  compile-time tuple operations, and explicit cross-backend conformance for
+  generated JVM/JS/WASM paths.
+
 ## 5. Dependency graph
 
 ```

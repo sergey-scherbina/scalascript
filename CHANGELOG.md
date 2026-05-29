@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-meta-v2-p5 runtime Mirror derives
+
+- **arch-meta-v2-p5** — Runtime/interpreter slice for Mirror-based user typeclass derivation. The interpreter now registers summon-able `Mirror.Of[T]`, `Mirror.ProductOf[T]`, `Mirror.SumOf[T]`, and `deriving.Mirror.*` aliases when product/sum types are declared; `Mirror.of[T]` returns the same metadata. Mirror values now expose `label`, `fields`, `elemLabels`, `elemTypes`, `variants`, `isProduct`, `isSum`, `fromProduct`, and `ordinal`. Custom `derives` now works for user-defined typeclasses that provide `derived(m: Mirror)`; the existing `TC.derived` dispatch reuses the richer mirror. Added focused tests for `summon[Mirror.Of[Person]]` and `case class Person(...) derives Csv`. Source-level `inline match` over Mirror and broader generated-backend conformance remain planned follow-ups.
+
 ## 2026-05-29 — arch-meta-v2-p4 restricted quoted macro slice
 
 - **arch-meta-v2-p4** — First restricted `QuotedMacro[A]` slice. Parser preprocessing now accepts `${ impl('x) }` macro entrypoints and `'{ $x + ... }` quoted bodies by lowering them to stable helper calls for Scalameta while preserving original code-block source. `.scim` interfaces carry `MacroImplRef` metadata on inline entrypoints plus `isMacroImpl` / `macroQuotedBodySource` metadata on direct implementation helpers. IR now has a `MacroImpl` node and `AstToIr` lowers the parser helper call into it. `Linker` builds a macro expansion table and expands direct quoted-expression macro bodies in `CodeBlock.source` before existing inline/FQN rewrites. 3 parser tests, 1 interface test, and 3 linker tests cover preprocessing, metadata, IR/link expansion, and cross-module expansion. `Expr[A].asValue`, `Expr[A].asTerm`, richer quoted terms, diagnostics for unsupported bodies, and interpreter/run-path parity remain planned follow-ups.

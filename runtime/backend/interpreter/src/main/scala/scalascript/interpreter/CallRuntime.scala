@@ -376,6 +376,13 @@ private[interpreter] object CallRuntime:
 
   def typeToString(t: scala.meta.Type): String = t match
     case scala.meta.Type.Name(n)         => n
+    case scala.meta.Type.Select(qual, name) =>
+      def refToString(r: scala.meta.Term.Ref): String = r match
+        case scala.meta.Term.Name(n) => n
+        case scala.meta.Term.Select(q: scala.meta.Term.Ref, n) => s"${refToString(q)}.${n.value}"
+        case scala.meta.Term.Select(q, n) => s"${q.syntax}.${n.value}"
+        case _ => r.syntax
+      s"${refToString(qual)}.${name.value}"
     case ta: scala.meta.Type.Apply       => s"${typeToString(ta.tpe)}[${ta.argClause.values.map(typeToString).mkString(", ")}]"
     case scala.meta.Type.Function.After_4_6_0(params, r) => s"(${params.values.map(typeToString).mkString(", ")}) => ${typeToString(r)}"
     case scala.meta.Type.Tuple(ts)       => ts.map(typeToString).mkString("(", ", ", ")")
