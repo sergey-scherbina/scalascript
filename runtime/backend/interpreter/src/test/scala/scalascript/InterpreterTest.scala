@@ -677,6 +677,10 @@ def main(): Unit =
   test("int to and until ranges") {
     captured("""println((1 to 5).mkString(", "))""") shouldBe "1, 2, 3, 4, 5"
     captured("""println((1 until 5).mkString(", "))""") shouldBe "1, 2, 3, 4"
+    captured("""println((5 to 3).mkString(", "))""") shouldBe ""
+    captured("""println((5 until 5).mkString(", "))""") shouldBe ""
+    captured("""println(List.range(2, 5).mkString(", "))""") shouldBe "2, 3, 4"
+    captured("""println(List.range(5, 5).mkString(", "))""") shouldBe ""
   }
 
   test("int max and min"):

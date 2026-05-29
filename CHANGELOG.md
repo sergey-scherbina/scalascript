@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter range construction fast path
+
+- **perf/interpreter-ranges-map2** — Ported the range cons-from-end fast path
+  and `AttrKey :=` `Map2` allocation cut from `perf/interpreter-opt`.
+  Empty ranges keep their existing empty-list behavior while non-empty
+  `to`/`until`/`List.range` calls avoid the intermediate `ArrayBuffer`.
+
 ## 2026-05-29 — interpreter runtime Map1 constructors
 
 - **perf/interpreter-runtime-map1** — Extended the direct immutable `Map1`
