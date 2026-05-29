@@ -146,13 +146,18 @@ object FrameMap:
    *  Used by the typeMethods dispatch path to inject instance fields into a
    *  method's closure without calling `fn.closure ++ fields`. */
   def fromMap(fields: Map[String, Value], parent: Map[String, Value]): Map[String, Value] =
-    if fields.isEmpty then parent
-    else
-      val keys = new Array[String](fields.size)
-      val vals = new Array[Value](fields.size)
-      var i = 0
-      fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
-      new FrameMapN(keys, vals, parent)
+    fields.size match
+      case 0 => parent
+      case 1 =>
+        var k0: String = null; var v0: Value = null
+        fields.foreachEntry { (k, v) => k0 = k; v0 = v }
+        new FrameMap1(k0, v0, parent)
+      case _ =>
+        val keys = new Array[String](fields.size)
+        val vals = new Array[Value](fields.size)
+        var i = 0
+        fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
+        new FrameMapN(keys, vals, parent)
 
   /** Like fromMap but also inlines an extra (selfName, selfRef) slot so the
    *  self-reference for a named class method is available without an additional
@@ -161,14 +166,22 @@ object FrameMap:
     fields: Map[String, Value], selfName: String, selfRef: Value,
     parent: Map[String, Value]
   ): Map[String, Value] =
-    val n = fields.size + 1
-    val keys = new Array[String](n)
-    val vals = new Array[Value](n)
-    var i = 0
-    fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
-    keys(n - 1) = selfName
-    vals(n - 1) = selfRef
-    new FrameMapN(keys, vals, parent)
+    fields.size match
+      case 0 =>
+        new FrameMap1(selfName, selfRef, parent)
+      case 1 =>
+        var k0: String = null; var v0: Value = null
+        fields.foreachEntry { (k, v) => k0 = k; v0 = v }
+        new FrameMap2(k0, v0, selfName, selfRef, parent)
+      case _ =>
+        val n = fields.size + 1
+        val keys = new Array[String](n)
+        val vals = new Array[Value](n)
+        var i = 0
+        fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
+        keys(n - 1) = selfName
+        vals(n - 1) = selfRef
+        new FrameMapN(keys, vals, parent)
 
 /** Presents a `scala.collection.mutable.Map` as an immutable `Map[String, Value]`
  *  without copying it.  Used by `BlockRuntime.evalBlock` to avoid the

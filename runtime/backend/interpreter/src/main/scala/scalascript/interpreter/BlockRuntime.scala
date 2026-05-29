@@ -62,7 +62,7 @@ private[interpreter] object BlockRuntime:
                   case List(pat) =>
                     val patEnv = PatternRuntime.matchPat(pat, rhsVal, localView, interp)
                     if patEnv == null then interp.located("Val pattern match failed")
-                    else patEnv.foreach { (k, v) => local(k) = v }
+                    else patEnv.foreachEntry { (k, v) => local(k) = v }
                   case _ =>
                 step(rest, Value.UnitV)
               case rhsC => FlatMap(rhsC, { rhsVal =>
@@ -71,7 +71,7 @@ private[interpreter] object BlockRuntime:
                   case List(pat) =>
                     val patEnv = PatternRuntime.matchPat(pat, rhsVal, localView, interp)
                     if patEnv == null then interp.located("Val pattern match failed")
-                    else patEnv.foreach { (k, v) => local(k) = v }
+                    else patEnv.foreachEntry { (k, v) => local(k) = v }
                   case _ =>
                 step(rest, Value.UnitV)
               })
