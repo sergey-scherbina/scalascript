@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter Map.updated tuple-allocation cut
+
+- **perf/interpreter-map-updated** — Ported the map update allocation cut from
+  `perf/interpreter-opt`. Map `updated` and `+` paths now use
+  `m.updated(k, v)` instead of allocating an intermediate `(k -> v)` tuple.
+
 ## 2026-05-29 — interpreter Map.get hit-path allocation cut
 
 - **perf/interpreter-map-get-sentinel** — Ported the `Map.get` null-sentinel
