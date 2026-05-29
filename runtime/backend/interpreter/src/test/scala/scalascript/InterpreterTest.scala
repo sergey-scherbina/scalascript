@@ -576,6 +576,20 @@ def main(): Unit =
     """) shouldBe "15"
   }
 
+  test("list aggregators scanLeft reduceLeft partition and groupBy") {
+    captured("""
+      val xs = List(1, 2, 3, 4, 5)
+      println(xs.scanLeft(0)(_ + _).mkString(", "))
+      println(xs.reduceLeft(_ + _))
+      val parts = xs.partition(x => x % 2 == 0)
+      println(parts._1.mkString(", "))
+      println(parts._2.mkString(", "))
+      val grouped = xs.groupBy(x => x % 2)
+      println(grouped(0).mkString(", "))
+      println(grouped(1).mkString(", "))
+    """) shouldBe "0, 1, 3, 6, 10, 15\n15\n2, 4\n1, 3, 5\n2, 4\n1, 3, 5"
+  }
+
   test("list distinct") {
     captured("""
       val xs = List(1, 2, 2, 3, 3, 3)
@@ -1153,4 +1167,3 @@ def main(): Unit =
          |""".stripMargin
     capturedDoc(src) shouldBe "if (a < b && b > c) { /* 42 */ }"
   }
-

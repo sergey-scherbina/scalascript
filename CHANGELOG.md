@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter list aggregator fast paths
+
+- **perf/interpreter-list1-aggs** — Ported high-impact list aggregation
+  fast paths from `perf/interpreter-opt`. Curried calls such as
+  `foldLeft(init)(f)`, `foldRight(init)(f)`, `scanLeft(init)(f)`,
+  `reduceLeft(f)`, `partition(f)`, and `groupBy(f)` now stay in
+  `dispatchList1` and avoid the extra one-argument dispatch list allocation.
+
 ## 2026-05-29 — interpreter dispatch2 built-in fast path
 
 - **perf/interpreter-dispatch2** — Ported the two-argument built-in dispatch
