@@ -2218,15 +2218,15 @@ private[interpreter] object DispatchRuntime:
         case _                => dispatchFallback(recv, name, arg :: Nil, env, interp)
       case "to"    => arg match
         case Value.IntV(m) =>
-          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n + 1).toInt))
-          var i = n; while i <= m do { buf += Value.intV(i); i += 1 }
-          Pure(Value.ListV(buf.toList))
+          var list: List[Value] = Nil; var i = m
+          while i >= n do { list = Value.intV(i) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _ => dispatchFallback(recv, name, arg :: Nil, env, interp)
       case "until" => arg match
         case Value.IntV(m) =>
-          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n).toInt))
-          var i = n; while i < m do { buf += Value.intV(i); i += 1 }
-          Pure(Value.ListV(buf.toList))
+          var list: List[Value] = Nil; var i = m - 1
+          while i >= n do { list = Value.intV(i) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _ => dispatchFallback(recv, name, arg :: Nil, env, interp)
       case _       => dispatchInt(n, name, arg :: Nil, env, interp)
 
@@ -2260,15 +2260,15 @@ private[interpreter] object DispatchRuntime:
       case "toHex"     => Pure(Value.StringV(java.lang.Long.toHexString(n)))
       case "to"        => args match
         case List(Value.IntV(m)) =>
-          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n + 1).toInt))
-          var i = n; while i <= m do { buf += Value.intV(i); i += 1 }
-          Pure(Value.ListV(buf.toList))
+          var list: List[Value] = Nil; var i = m
+          while i >= n do { list = Value.intV(i) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "until"     => args match
         case List(Value.IntV(m)) =>
-          val buf = new scala.collection.mutable.ArrayBuffer[Value](math.max(0, (m - n).toInt))
-          var i = n; while i < m do { buf += Value.intV(i); i += 1 }
-          Pure(Value.ListV(buf.toList))
+          var list: List[Value] = Nil; var i = m - 1
+          while i >= n do { list = Value.intV(i) :: list; i -= 1 }
+          Pure(Value.ListV(list))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -2702,9 +2702,9 @@ private[interpreter] object DispatchRuntime:
       case ":=" => lhs match
         case Value.InstanceV("AttrKey", fields) =>
           val name = fields.get("name").map(Value.show).getOrElse("")
-          Pure(Value.InstanceV("Attr", Map(
-            "name"  -> Value.StringV(name),
-            "value" -> Value.StringV(Value.show(rhs))
+          Pure(Value.InstanceV("Attr", new IMap.Map2(
+            "name",  Value.StringV(name),
+            "value", Value.StringV(Value.show(rhs))
           )))
         case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
       case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
