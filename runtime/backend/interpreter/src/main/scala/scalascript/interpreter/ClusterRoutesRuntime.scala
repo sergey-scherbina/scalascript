@@ -267,6 +267,72 @@ private[interpreter] object ClusterRoutesRuntime:
     })
     interp.routeRegistry.register("GET", path, handler, interp)
 
+  // v1.63.8 — GET /_ssc-cluster/audit: in-memory bundle audit ring-buffer as JSON array
+  def registerClusterAuditRoute(interp: Interpreter): Unit =
+    val path = "/_ssc-cluster/audit"
+    val already = interp.routeRegistry.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    def jstr(s: String): String =
+      "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    val auditHandler = Value.NativeFnV("_clusterAudit", Computation.pureFn { args =>
+      clusterAuthReject(args, interp).getOrElse {
+        val sb    = new StringBuilder("[")
+        var first = true
+        val it    = interp.bundleAuditLog.iterator()
+        var n     = 0
+        while it.hasNext && n < 200 do
+          val (ts, event, detail, actor) = it.next()
+          if !first then sb.append(',')
+          first = false
+          sb.append(s"""{"ts":$ts,"event":${jstr(event)},"detail":${jstr(detail)},"actor":${jstr(actor)}}""")
+          n += 1
+        sb.append(']')
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.intV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
+      }
+    })
+    interp.routeRegistry.register("GET", path, auditHandler, interp)
+
+  // v1.63.8 — GET /_ssc-cluster/workers: list loaded worker bundles as JSON
+  def registerClusterWorkersRoute(interp: Interpreter): Unit =
+    val path = "/_ssc-cluster/workers"
+    val already = interp.routeRegistry.all.exists(e =>
+      e.method == "GET" && e.path == path)
+    if already then return
+    def jstr(s: String): String =
+      "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    val workersHandler = Value.NativeFnV("_clusterWorkers", Computation.pureFn { args =>
+      clusterAuthReject(args, interp).getOrElse {
+        val sb    = new StringBuilder("[")
+        var first = true
+        interp.loadedBundles.forEach { (wid, entry) =>
+          if !first then sb.append(',')
+          first = false
+          sb.append('{')
+          sb.append(s""""workerId":${jstr(wid)}""")
+          sb.append(s""","hash":${jstr(entry.hash)}""")
+          sb.append(s""","prevHash":${jstr(entry.prevHash)}""")
+          sb.append(s""","loadedAt":${entry.loadedAt}""")
+          sb.append('}')
+        }
+        sb.append(']')
+        Value.InstanceV("Response", Map(
+          "status"  -> Value.intV(200),
+          "headers" -> Value.MapV(Map(
+            Value.StringV("Content-Type") -> Value.StringV("application/json")
+          )),
+          "body"    -> Value.StringV(sb.toString)
+        ))
+      }
+    })
+    interp.routeRegistry.register("GET", path, workersHandler, interp)
+
   def registerClusterHandlersRoute(interp: Interpreter): Unit =
     val path = "/_ssc-cluster/handlers"
     val already = interp.routeRegistry.all.exists(e =>

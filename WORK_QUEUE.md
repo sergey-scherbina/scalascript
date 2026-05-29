@@ -38,7 +38,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.63.7-cluster-aware-deploy-ops** — Cluster-aware deployment and operations: `ClusterTarget`, K8s StatefulSet/headless Service/token Secret, `rotateClusterToken` with `token_rotate` / `token_rotate_ack` and quorum overlap, `clusterConfigSet/Get` persistence through `StateBackend`, `Deploy.rollingCluster`, `FaultToleranceConfig` multi-region lowering, K8s HPA/autoscale emission through `HpaConfig`, and Docker Compose target. Spec: `docs/distributed-runtime.md §v1.63.7`. ✓ Landed 2026-05-29.
 
-- [ ] **v1.63.8-dynamic-code-ops-hardening** — Dynamic code shipping and ops hardening: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload/rollback, mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production cookbook. Spec: `docs/distributed-runtime.md §v1.63.8`.
+- [x] **v1.63.8-dynamic-code-ops-hardening** — Dynamic code shipping and ops hardening: signed worker bundles, remote artifact cache, dependency verification, sandbox/resource policy, audit log, unload/rollback, mixed-version placement after wire/schema compatibility, metrics/tracing, circuit breakers, load shedding, and production cookbook. Spec: `docs/distributed-runtime.md §v1.63.8`. ✓ Landed 2026-05-29.
 
 ## Distributed Wire Protocol — v1.62
 

@@ -421,6 +421,32 @@ private[interpreter] object ActorGlobals:
       case _   => throw InterpretError("subscribeMetricEvents(): Unit")
     })
 
+    // ── v1.63.8 — dynamic code shipping ops ──────────────────────────────
+    g("shipWorker") = Value.NativeFnV("shipWorker", {
+      case List(Value.StringV(wid), Value.StringV(zip64)) =>
+        Perform("Actor", "shipWorker", Value.StringV(wid) :: Value.StringV(zip64) :: Nil)
+      case _ => throw InterpretError("shipWorker(workerId: String, zipBase64: String): Unit")
+    })
+    g("unloadWorker") = Value.NativeFnV("unloadWorker", {
+      case List(Value.StringV(wid)) =>
+        Perform("Actor", "unloadWorker", Value.StringV(wid) :: Nil)
+      case _ => throw InterpretError("unloadWorker(workerId: String): Unit")
+    })
+    g("rollbackWorker") = Value.NativeFnV("rollbackWorker", {
+      case List(Value.StringV(wid)) =>
+        Perform("Actor", "rollbackWorker", Value.StringV(wid) :: Nil)
+      case _ => throw InterpretError("rollbackWorker(workerId: String): Unit")
+    })
+    g("workerStatus") = Value.NativeFnV("workerStatus", {
+      case List(Value.StringV(wid)) =>
+        Perform("Actor", "workerStatus", Value.StringV(wid) :: Nil)
+      case _ => throw InterpretError("workerStatus(workerId: String): Option[Map[String, Any]]")
+    })
+    g("workerList") = Value.NativeFnV("workerList", {
+      case Nil => Perform("Actor", "workerList", Nil)
+      case _   => throw InterpretError("workerList(): List[String]")
+    })
+
     // ── v1.6.x — scheduled sends ──────────────────────────────────────────
     g("sendAfter") = Value.NativeFnV("sendAfter", {
       case List(Value.IntV(delayMs), pid @ Value.InstanceV("Pid", _), msg) =>

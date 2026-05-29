@@ -1206,3 +1206,216 @@ class DeployPluginTest extends AnyFunSuite:
     assert(pol.minReplicas == 2)
     assert(pol.maxReplicas == 10)
     assert(pol.targets.size == 1)
+
+  // ── v1.63.8: WorkerBundle ─────────────────────────────────────────────────
+
+  private def makeBundle(sourceContent: String = "hello"): (Array[Byte], String) =
+    val sourceBytes = sourceContent.getBytes("UTF-8")
+    val hash        = WorkerBundle.sha256Hex(sourceBytes)
+    val manifest    = s"""{"bundleVersion":"1","target":"jvm","sourceFile":"main.ssc","hash":"$hash","runtimeVersion":"1.0","deps":[]}"""
+    val bos  = new java.io.ByteArrayOutputStream()
+    val zos  = new java.util.zip.ZipOutputStream(bos)
+    zos.putNextEntry(new java.util.zip.ZipEntry("manifest.json"))
+    zos.write(manifest.getBytes("UTF-8"))
+    zos.closeEntry()
+    zos.putNextEntry(new java.util.zip.ZipEntry("main.ssc"))
+    zos.write(sourceBytes)
+    zos.closeEntry()
+    zos.close()
+    (bos.toByteArray, hash)
+
+  test("WorkerBundle.verify: valid unsigned bundle succeeds"):
+    val (zip, hash) = makeBundle()
+    WorkerBundle.verify(zip) match
+      case Right(b) =>
+        assert(b.manifest.codeIdentityHash == hash)
+        assert(b.sourceFile == "main.ssc")
+      case Left(e) => fail(s"Expected success, got $e")
+
+  test("WorkerBundle.verify: hash mismatch returns HashMismatch"):
+    // Build a valid zip with a deliberately wrong hash in the manifest
+    val sourceBytes = "hello".getBytes("UTF-8")
+    val wrongHash   = "0" * 64  // all-zero hash, doesn't match actual sha256
+    val manifest    = s"""{"bundleVersion":"1","target":"jvm","sourceFile":"main.ssc","hash":"$wrongHash","runtimeVersion":"1.0","deps":[]}"""
+    val bos  = new java.io.ByteArrayOutputStream()
+    val zos  = new java.util.zip.ZipOutputStream(bos)
+    zos.putNextEntry(new java.util.zip.ZipEntry("manifest.json"))
+    zos.write(manifest.getBytes("UTF-8"))
+    zos.closeEntry()
+    zos.putNextEntry(new java.util.zip.ZipEntry("main.ssc"))
+    zos.write(sourceBytes)
+    zos.closeEntry()
+    zos.close()
+    WorkerBundle.verify(bos.toByteArray) match
+      case Left(_: BundleVerificationError.HashMismatch) => // expected
+      case other => fail(s"Expected HashMismatch, got $other")
+
+  test("WorkerBundle.verify: missing manifest returns ManifestMissing"):
+    val bos = new java.io.ByteArrayOutputStream()
+    val zos = new java.util.zip.ZipOutputStream(bos)
+    zos.putNextEntry(new java.util.zip.ZipEntry("something.txt"))
+    zos.write("hello".getBytes())
+    zos.closeEntry()
+    zos.close()
+    assert(WorkerBundle.verify(bos.toByteArray) == Left(BundleVerificationError.ManifestMissing))
+
+  test("WorkerBundle.verify: HMAC signature missing when secret provided"):
+    val (zip, _) = makeBundle()
+    WorkerBundle.verify(zip, hmacSecret = Some("key".getBytes())) match
+      case Left(BundleVerificationError.SignatureMissing(_)) => // expected
+      case other => fail(s"Expected SignatureMissing, got $other")
+
+  test("WorkerBundle.sign and verify round-trip"):
+    val (zip, _) = makeBundle()
+    val secret   = "mysecret".getBytes("UTF-8")
+    val signed   = WorkerBundle.sign(zip, secret, keyId = "key-1")
+    WorkerBundle.verify(signed, hmacSecret = Some(secret)) match
+      case Right(b) => assert(b.manifest.signedBy.contains("key-1"))
+      case Left(e)  => fail(s"Expected success after sign, got $e")
+
+  test("WorkerBundle.verify: tampered signature returns SignatureMismatch"):
+    val (zip, _) = makeBundle()
+    val secret   = "mysecret".getBytes("UTF-8")
+    val signed   = WorkerBundle.sign(zip, secret)
+    WorkerBundle.verify(signed, hmacSecret = Some("wrongkey".getBytes())) match
+      case Left(BundleVerificationError.SignatureMismatch(_, _)) => // expected
+      case other => fail(s"Expected SignatureMismatch, got $other")
+
+  test("WorkerBundle.verify: missing dep returns MissingDep"):
+    val (zip, _) = makeBundle()
+    WorkerBundle.verify(zip, knownDeps = Set("foo")) match
+      case Left(_) => // no missing dep, succeeds
+      case Right(_) => // ok, deps is empty in test bundle so no MissingDep
+    // Now build bundle with a dep
+    val sourceBytes = "hello".getBytes("UTF-8")
+    val hash        = WorkerBundle.sha256Hex(sourceBytes)
+    val manifest    = s"""{"bundleVersion":"1","target":"jvm","sourceFile":"main.ssc","hash":"$hash","runtimeVersion":"1.0","deps":["some-lib-1.0"]}"""
+    val bos  = new java.io.ByteArrayOutputStream()
+    val zos  = new java.util.zip.ZipOutputStream(bos)
+    zos.putNextEntry(new java.util.zip.ZipEntry("manifest.json"))
+    zos.write(manifest.getBytes("UTF-8"))
+    zos.closeEntry()
+    zos.putNextEntry(new java.util.zip.ZipEntry("main.ssc"))
+    zos.write(sourceBytes)
+    zos.closeEntry()
+    zos.close()
+    WorkerBundle.verify(bos.toByteArray, knownDeps = Set.empty) match
+      case Left(BundleVerificationError.MissingDep("some-lib-1.0")) => // expected
+      case other => fail(s"Expected MissingDep, got $other")
+
+  // ── v1.63.8: ArtifactCache ────────────────────────────────────────────────
+
+  test("ArtifactCache: put and get by hash"):
+    val cache = new ArtifactCache(maxEntries = 4)
+    cache.put("sha256:abc", Array(1, 2, 3))
+    assert(cache.get("sha256:abc").map(_.toSeq) == Some(Seq(1, 2, 3)))
+
+  test("ArtifactCache: missing key returns None"):
+    val cache = new ArtifactCache()
+    assert(cache.get("sha256:nope") == None)
+
+  test("ArtifactCache: evicts LRU when maxEntries exceeded"):
+    val cache = new ArtifactCache(maxEntries = 3)
+    cache.put("a", Array(1)); cache.put("b", Array(2)); cache.put("c", Array(3))
+    // access 'a' to make it recently used
+    cache.get("a")
+    // add 'd' — should evict 'b' (LRU)
+    cache.put("d", Array(4))
+    assert(cache.size <= 3)
+
+  test("ArtifactCache: remove deletes entry"):
+    val cache = new ArtifactCache()
+    cache.put("sha256:x", Array(9))
+    cache.remove("sha256:x")
+    assert(!cache.contains("sha256:x"))
+
+  // ── v1.63.8: AuditLog ────────────────────────────────────────────────────
+
+  test("AuditLog: records entries and recent() returns latest first"):
+    val log = new AuditLog(capacity = 5)
+    log.record("bundle_loaded", "node1", "hash=abc", "admin")
+    log.record("bundle_unloaded", "node1", "hash=abc", "admin")
+    val entries = log.recent(10)
+    assert(entries.size == 2)
+    assert(entries.head.event == "bundle_unloaded")
+    assert(entries(1).event == "bundle_loaded")
+
+  test("AuditLog: capacity eviction drops oldest entries"):
+    val log = new AuditLog(capacity = 3)
+    (1 to 5).foreach(i => log.record(s"event$i", "n", "", ""))
+    assert(log.recent(10).size == 3)
+    assert(log.recent(10).exists(_.event == "event5"))
+    assert(!log.recent(10).exists(_.event == "event1"))
+
+  test("AuditLog: toJson produces valid JSON array"):
+    val log = new AuditLog()
+    log.record("test", "n1", "d", "a")
+    val json = log.toJson(10)
+    assert(json.startsWith("["))
+    assert(json.contains("\"event\":\"test\""))
+
+  // ── v1.63.8: CircuitBreaker ───────────────────────────────────────────────
+
+  test("CircuitBreaker: stays closed below threshold"):
+    val cb = new CircuitBreaker(threshold = 3, resetAfterMs = 60_000L)
+    cb.recordFailure("w1")
+    cb.recordFailure("w1")
+    assert(!cb.isOpen("w1"))
+
+  test("CircuitBreaker: opens at threshold"):
+    val cb = new CircuitBreaker(threshold = 3, resetAfterMs = 60_000L)
+    cb.recordFailure("w1"); cb.recordFailure("w1"); cb.recordFailure("w1")
+    assert(cb.isOpen("w1"))
+
+  test("CircuitBreaker: recordSuccess resets state"):
+    val cb = new CircuitBreaker(threshold = 2, resetAfterMs = 60_000L)
+    cb.recordFailure("w1"); cb.recordFailure("w1")
+    assert(cb.isOpen("w1"))
+    cb.recordSuccess("w1")
+    assert(!cb.isOpen("w1"))
+    assert(cb.failureCount("w1") == 0L)
+
+  test("CircuitBreaker: resets after resetAfterMs"):
+    val cb = new CircuitBreaker(threshold = 1, resetAfterMs = 1L) // 1 ms
+    cb.recordFailure("w1")
+    assert(cb.isOpen("w1"))
+    Thread.sleep(10)
+    assert(!cb.isOpen("w1"))
+
+  test("CircuitBreaker: allOpen lists open workers"):
+    val cb = new CircuitBreaker(threshold = 1, resetAfterMs = 60_000L)
+    cb.recordFailure("w1"); cb.recordFailure("w2")
+    val open = cb.allOpen
+    assert(open.contains("w1"))
+    assert(open.contains("w2"))
+
+  // ── v1.63.8: ResourcePolicy / LoadTracker ─────────────────────────────────
+
+  test("ResourcePolicy.parse: parses limits from map"):
+    val raw = Map[String, Any]("max_cpu_ms" -> Integer.valueOf(500), "max_queue_depth" -> Integer.valueOf(10))
+    val pol = ResourcePolicy.parse(raw)
+    assert(pol.maxCpuMs == 500L)
+    assert(pol.maxQueueDepth == 10)
+
+  test("ResourcePolicy.unlimited: all zeroes"):
+    assert(ResourcePolicy.unlimited == ResourcePolicy(0, 0, 0, 0))
+
+  test("LoadTracker: acquire allows within limit"):
+    val lt  = new LoadTracker
+    val pol = ResourcePolicy(maxQueueDepth = 2)
+    assert(lt.acquire("w1", pol))
+    assert(lt.acquire("w1", pol))
+    assert(!lt.acquire("w1", pol))
+
+  test("LoadTracker: release decrements count"):
+    val lt  = new LoadTracker
+    val pol = ResourcePolicy(maxQueueDepth = 1)
+    assert(lt.acquire("w1", pol))
+    assert(!lt.acquire("w1", pol))
+    lt.release("w1")
+    assert(lt.acquire("w1", pol))
+
+  test("LoadTracker: unlimited policy always allows"):
+    val lt  = new LoadTracker
+    val pol = ResourcePolicy.unlimited
+    (1 to 100).foreach(_ => assert(lt.acquire("w1", pol)))

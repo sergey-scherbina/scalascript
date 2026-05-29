@@ -130,6 +130,22 @@ private[interpreter] trait ActorInterp:
   // v1.63.7 — token rotation: during the overlap window, both old and new tokens are accepted.
   @volatile private[interpreter] var pendingNewToken: String = ""
   @volatile private[interpreter] var tokenValidFromMs: Long  = 0L
+  // v1.63.8 — per-workerId loaded bundle tracking for ship/unload/rollback ops
+  private[interpreter] val loadedBundles =
+    new java.util.concurrent.ConcurrentHashMap[String, LoadedBundleEntry]()
+  // Simple ring-buffer audit log for bundle events (ts, event, detail, actor)
+  private[interpreter] val bundleAuditLog =
+    new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, String, String)]()
+  private val bundleAuditCapacity = 1000
+  private def bundleAuditRecord(event: String, detail: String, actor: String): Unit =
+    bundleAuditLog.addFirst((System.currentTimeMillis(), event, detail, actor))
+    while bundleAuditLog.size() > bundleAuditCapacity do bundleAuditLog.removeLast()
+  // Per-workerId zip bytes for rollback (keyed by "workerId#prev" for previous version)
+  private val bundleByteStore =
+    new java.util.concurrent.ConcurrentHashMap[String, Array[Byte]]()
+  private def sha256Hex(bytes: Array[Byte]): String =
+    java.security.MessageDigest.getInstance("SHA-256")
+      .digest(bytes).map(b => "%02x".format(b)).mkString
   // v1.23 — auto-reconnect: exponential-backoff retry per peer URL after a
   // disconnect.  initial/max both 0 ⇒ disabled (default).  giveUpAfterMs
   // bounds the total wall-clock retry budget — 0 ⇒ no cap (retry forever).
@@ -1129,6 +1145,23 @@ private[interpreter] trait ActorInterp:
                 },
                 delayMs, java.util.concurrent.TimeUnit.MILLISECONDS
               )
+          // v1.63.8 — bundle-ops peer notifications: record to local audit ring-buffer
+          case "bundle_load" =>
+            val wid  = m.get(Value.StringV("workerId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val hash = m.get(Value.StringV("hash")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val frm  = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if wid.nonEmpty then
+              bundleAuditRecord("bundle_shipped_peer", s"peer=$frm hash=$hash workerId=$wid", frm)
+          case "bundle_unload" =>
+            val wid = m.get(Value.StringV("workerId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val frm = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if wid.nonEmpty then
+              bundleAuditRecord("bundle_unloaded_peer", s"peer=$frm workerId=$wid", frm)
+          case "bundle_rollback" =>
+            val wid = m.get(Value.StringV("workerId")).collect { case Value.StringV(s) => s }.getOrElse("")
+            val frm = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
+            if wid.nonEmpty then
+              bundleAuditRecord("bundle_rolled_back_peer", s"peer=$frm workerId=$wid", frm)
           case "metric" =>
             val from  = m.get(Value.StringV("from")).collect { case Value.StringV(s) => s }.getOrElse("")
             val name  = m.get(Value.StringV("name")).collect { case Value.StringV(s) => s }.getOrElse("")
@@ -2043,6 +2076,9 @@ private[interpreter] trait ActorInterp:
       registerClusterStepDownRoute()
       // v1.63.5 — GET /_ssc-cluster/handlers — list remote handler registry.
       registerClusterHandlersRoute()
+      // v1.63.8 — audit log + loaded worker status routes
+      registerClusterAuditRoute()
+      registerClusterWorkersRoute()
       Right(k(Value.UnitV))
 
     case "connectNode" => args match
@@ -2615,6 +2651,70 @@ private[interpreter] trait ActorInterp:
       if !metricEventSubs.contains(boxed) then metricEventSubs.add(boxed)
       Right(k(Value.UnitV))
 
+    // v1.63.8 — dynamic code shipping ops
+    case "shipWorker" => args match
+      case List(Value.StringV(workerId), Value.StringV(zipBase64)) =>
+        val zipBytes = java.util.Base64.getDecoder.decode(zipBase64)
+        val hash     = "sha256:" + sha256Hex(zipBytes)
+        val prevEntry = loadedBundles.get(workerId)
+        val prevHash  = if prevEntry != null then prevEntry.hash else ""
+        if prevHash.nonEmpty then bundleByteStore.put(workerId + "#prev", bundleByteStore.getOrDefault(workerId, Array.emptyByteArray))
+        bundleByteStore.put(workerId, zipBytes)
+        loadedBundles.put(workerId, LoadedBundleEntry(hash, prevHash, System.currentTimeMillis()))
+        bundleAuditRecord("bundle_loaded", s"hash=$hash workerId=$workerId", "")
+        val payload = s"""{"t":"bundle_load","workerId":${jsonStr(workerId)},"hash":${jsonStr(hash)},"from":${jsonStr(localNodeId)}}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("shipWorker(workerId: String, zipBase64: String)")
+
+    case "unloadWorker" => args match
+      case List(Value.StringV(workerId)) =>
+        val prev = loadedBundles.remove(workerId)
+        if prev != null then
+          bundleByteStore.remove(workerId)
+          bundleByteStore.remove(workerId + "#prev")
+          bundleAuditRecord("bundle_unloaded", s"hash=${prev.hash} workerId=$workerId", "")
+          val payload = s"""{"t":"bundle_unload","workerId":${jsonStr(workerId)},"from":${jsonStr(localNodeId)}}"""
+          peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("unloadWorker(workerId: String)")
+
+    case "rollbackWorker" => args match
+      case List(Value.StringV(workerId)) =>
+        val entry = loadedBundles.get(workerId)
+        if entry == null || entry.prevHash.isEmpty then
+          throw InterpretError(s"rollbackWorker: no previous version available for $workerId")
+        val prevBytes = bundleByteStore.get(workerId + "#prev")
+        if prevBytes == null || prevBytes.isEmpty then
+          throw InterpretError(s"rollbackWorker: previous artifact bytes not in local store for $workerId")
+        bundleByteStore.put(workerId, prevBytes)
+        bundleByteStore.remove(workerId + "#prev")
+        loadedBundles.put(workerId, LoadedBundleEntry(entry.prevHash, "", System.currentTimeMillis()))
+        bundleAuditRecord("bundle_rolled_back", s"workerId=$workerId to=${entry.prevHash}", "")
+        val payload = s"""{"t":"bundle_rollback","workerId":${jsonStr(workerId)},"hash":${jsonStr(entry.prevHash)},"from":${jsonStr(localNodeId)}}"""
+        peerChannels.forEach { (_, send) => try send(payload) catch case _: Throwable => () }
+        Right(k(Value.UnitV))
+      case _ => throw InterpretError("rollbackWorker(workerId: String)")
+
+    case "workerStatus" => args match
+      case List(Value.StringV(workerId)) =>
+        val entry = loadedBundles.get(workerId)
+        if entry == null then Right(k(Value.NoneV))
+        else
+          val fields: Map[Value, Value] = Map(
+            Value.StringV("workerId") -> Value.StringV(workerId),
+            Value.StringV("hash")     -> Value.StringV(entry.hash),
+            Value.StringV("prevHash") -> Value.StringV(entry.prevHash),
+            Value.StringV("loadedAt") -> Value.IntV(entry.loadedAt),
+          )
+          Right(k(Value.OptionV(Some(Value.MapV(fields)))))
+      case _ => throw InterpretError("workerStatus(workerId: String)")
+
+    case "workerList" =>
+      val buf = scala.collection.mutable.ListBuffer.empty[Value]
+      loadedBundles.keySet().forEach(wid => buf += Value.StringV(wid))
+      Right(k(Value.ListV(buf.toList)))
+
     // v1.6.x — scheduled sends
     case "sendAfter" => args match
       case List(Value.IntV(delayMs), Value.InstanceV("Pid", fields), msg) =>
@@ -2771,3 +2871,6 @@ private[interpreter] trait ActorInterp:
             rt.ready.enqueue(id)
           case None => ()
       case None => ()
+
+// v1.63.8 — bundle entry stored per workerId in ActorInterp.loadedBundles
+private[interpreter] case class LoadedBundleEntry(hash: String, prevHash: String, loadedAt: Long)

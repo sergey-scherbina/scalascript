@@ -381,6 +381,28 @@ extern def setClusterAuthToken(token: String): Unit
 // dropped after `validFrom`.  Updates the local token immediately.
 extern def rotateClusterToken(newToken: String, overlapMs: Int = 30_000): Unit
 
+// ─── Dynamic code shipping and ops (v1.63.8) ──────────────────────────────
+
+// Ship a signed worker bundle to this node.  `zipBase64` is the Base64-encoded
+// content of a `.zip` produced by `ssc cluster package`.  The bundle's
+// SHA-256 hash is verified before it is accepted; the previous version is
+// retained for one `rollbackWorker` call.
+extern def shipWorker(workerId: String, zipBase64: String): Unit
+
+// Remove the loaded bundle for `workerId`.  Broadcasts a peer notification
+// so cluster audit logs stay consistent.  No-op if not loaded.
+extern def unloadWorker(workerId: String): Unit
+
+// Restore the previous bundle version for `workerId`.  Fails if no previous
+// version is available or if the previous artifact has been evicted from cache.
+extern def rollbackWorker(workerId: String): Unit
+
+// Return the status of a loaded worker bundle, or None if not loaded.
+extern def workerStatus(workerId: String): Option[Map[String, Any]]
+
+// List all loaded worker IDs on this node.
+extern def workerList(): List[String]
+
 // ─── Cluster-wide pub/sub (v1.23) ─────────────────────────────────────────
 
 // Publish `msg` on `topic`.  Delivers to every actor on every node that
