@@ -165,7 +165,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-meta-v2-p4b** — Restricted quoted macro runtime parity: implement the next `Expr[A].asValue` / `Expr[A].asTerm` evaluation slice for direct quoted macro bodies and document the supported boundary. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: parser quote/splice helpers now carry runtime values, interpreter registers lightweight `Expr` / `QuotedContext` plus macro helper intrinsics, direct quoted macro bodies run under `ssc run`, and `Expr.asValue` / `Expr.asTerm` expose the restricted runtime metadata.
 
-- [ ] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: reject unsupported macro entrypoints and quoted macro bodies with explicit parser/interface/linker/interpreter diagnostics instead of silent non-expansion. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+- [x] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: reject unsupported macro entrypoints and quoted macro bodies with explicit parser/interface/linker/interpreter diagnostics instead of silent non-expansion. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: `${ impl(x) }` now lowers to an explicit diagnostic helper requiring quoted args such as `${ impl('x) }`; interpreter reports `quoted macro error: ...`; linker rejects non-quoted macro bodies with a direct restricted-subset message.
 
 ## Government Interaction — v1.59 Bureau
 

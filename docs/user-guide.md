@@ -4374,9 +4374,15 @@ direct `'{ $x + ... }` quoted bodies, `MacroImpl` IR metadata, cross-module
 link expansion, and interpreter `ssc run` parity for the same direct
 quoted-body subset. In the interpreter, `Expr[A].asValue` returns the quoted
 runtime value as `Option[A]`, and `Expr[A].asTerm` returns an opaque
-`ScalaScriptTerm` value with `name` and `value` fields. Still planned: richer
-quoted-term construction, compile-time constant folding inside macro
-implementations, diagnostics for unsupported macro bodies, and broader
+`ScalaScriptTerm` value with `name` and `value` fields.
+
+Unsupported restricted macro forms fail explicitly. `${ impl(x) }` reports
+that quoted macro entrypoints must pass quoted arguments such as
+`${ impl('x) }`, and linker-time macro metadata rejects implementation bodies
+that are not direct quoted expressions such as `'{ $x + 1 }`.
+
+Still planned: richer quoted-term construction, compile-time constant folding
+inside macro implementations, richer unsupported-body diagnostics, and broader
 generated-backend conformance.
 
 ---

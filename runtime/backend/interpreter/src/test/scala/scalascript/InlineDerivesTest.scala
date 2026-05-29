@@ -185,6 +185,17 @@ class InlineDerivesTest extends AnyFunSuite with Matchers:
       println(termName(5))
     """) shouldBe "x"
 
+  test("restricted quoted macro — unsupported entrypoint reports a diagnostic"):
+    val ex = intercept[Exception] {
+      captured("""
+        inline def bad(x: Int): Int = ${ badImpl(x) }
+        def badImpl(x: Int): Int = x + 1
+        println(bad(1))
+      """)
+    }
+    ex.getMessage should include ("quoted macro error")
+    ex.getMessage should include ("quoted arguments")
+
   // ── Phase 3: derives Eq ───────────────────────────────────────────
 
   test("derives Eq — eqv(a, a) is true"):

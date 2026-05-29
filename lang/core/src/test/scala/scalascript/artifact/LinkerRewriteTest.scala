@@ -482,6 +482,12 @@ class LinkerRewriteTest extends AnyFunSuite:
     val result = Linker.normalizeQuotedMacroBody("""'{ $x + 1 }""")
     assert(result == "x + 1", s"unexpected normalized body: $result")
 
+  test("normalizeQuotedMacroBody rejects unsupported non-quoted body"):
+    val ex = intercept[IllegalArgumentException] {
+      Linker.normalizeQuotedMacroBody("""x.asValue.getOrElse(0)""")
+    }
+    assert(ex.getMessage.contains("restricted quoted macros must return a direct quoted expression"), ex.getMessage)
+
   test("expandMacroSource expands quoted macro call through lambda-lifted body"):
     val table = Map("plusOne" -> Linker.MacroExpansion(List("x"), """'{ $x + 1 }"""))
     val result = Linker.expandMacroSource("val y = plusOne(n)", table)

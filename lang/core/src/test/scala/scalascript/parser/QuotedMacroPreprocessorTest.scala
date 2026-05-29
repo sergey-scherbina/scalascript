@@ -9,6 +9,12 @@ class QuotedMacroPreprocessorTest extends AnyFunSuite:
     val out = Parser.preprocessQuotedMacros(src)
     assert(out.contains("""__ssc_macro__( plusOneImpl(__ssc_quote__("x", x)) )"""), out)
 
+  test("preprocessQuotedMacros diagnoses macro splice without quoted args"):
+    val src = "inline def plusOne(x: Int): Int = ${ plusOneImpl(x) }"
+    val out = Parser.preprocessQuotedMacros(src)
+    assert(out.contains("__ssc_macro_error__("), out)
+    assert(out.contains("quoted arguments"), out)
+
   test("preprocessQuotedMacros rewrites quoted expression splices"):
     val src = "def impl(x: Expr[Int])(using q: QuotedContext): Expr[Int] = '{ $x + 1 }"
     val out = Parser.preprocessQuotedMacros(src)

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-meta-v2-p4c quoted macro diagnostics
+
+- **arch-meta-v2-p4c** — Restricted quoted macros now fail explicitly for unsupported forms. Parser preprocessing turns entrypoints without quoted args, such as `${ impl(x) }`, into a diagnostic helper requiring `${ impl('x) }`; interpreter `ssc run` reports `quoted macro error: ...`; linker normalization rejects non-quoted macro implementation bodies and explains that the restricted subset must return a direct quoted expression like `'{ $x + 1 }`. Added parser/linker/interpreter negative tests while preserving the p4/p4b happy path.
+
 ## 2026-05-29 — checkout `bin/ssc` staging fix
 
 - **fix-ssc-installbin-classpath** — `bin/ssc` in a fresh worktree failed before staging because `bin/lib/` is intentionally generated, and after `sbt cli/installBin` it failed with `NoClassDefFoundError: scalascript/compiler/plugin/deploy/DeployError`. `cli / assembly` itself was healthy. `installBin` now includes `deployPlugin / packageBin` in `bin/lib/jars/` because the CLI deploy subcommand directly references deploy SPI/runtime classes at startup; other std plugins remain lazily loaded from `.sscpkg`. Added project `.jvmopts` (`-Xmx4G`, G1) so `cli / installBin` does not OOM while compiling/staging all std plugins. Verified `bin/ssc --help` and `bin/ssc examples/hello.ssc`.

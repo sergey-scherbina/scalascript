@@ -108,15 +108,28 @@ Landed interpreter/runtime parity slice (2026-05-29):
   `ScalaScriptTerm` value with `name` and `value` fields.
 - Example: `examples/quoted-macro-interpreter.ssc`.
 
+Landed diagnostics slice (2026-05-29):
+
+- Unsupported macro entrypoints such as `${ impl(x) }` are rewritten to an
+  explicit diagnostic helper instead of silently becoming a non-expanding
+  macro call. The diagnostic explains that restricted quoted macros require
+  quoted arguments, for example `${ impl('x) }`.
+- The interpreter reports `quoted macro error: ...` for unsupported helper
+  forms on the `ssc run` path.
+- `Linker.normalizeQuotedMacroBody` rejects non-quoted implementation bodies
+  with a direct message: restricted quoted macros must return a direct quoted
+  expression such as `'{ $x + 1 }`.
+
 Current implementation boundary:
 
 - Implemented: `${ impl('x) }` entrypoints, direct `'{ $x + ... }` quoted
   bodies, cross-module source expansion in `ssc link`, and interpreter/run-path
   parity for the same direct quoted-body subset including runtime
-  `Expr.asValue` / `Expr.asTerm`.
+  `Expr.asValue` / `Expr.asTerm`; unsupported entrypoints and non-quoted
+  macro bodies now produce explicit diagnostics.
 - Planned: compile-time constant folding inside macro implementations, richer
-  quoted terms, diagnostics for unsupported macro bodies, and broader
-  generated-backend conformance.
+  quoted terms, richer unsupported-body diagnostics, and broader generated
+  backend conformance.
 
 ### Phase 5 — Full `derives` for user typeclasses
 

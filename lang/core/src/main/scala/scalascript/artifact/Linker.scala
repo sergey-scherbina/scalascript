@@ -370,7 +370,10 @@ object Linker:
         body.substring(2, body.length - 1).trim
       else if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then
         body.substring("__ssc_quote_expr__(".length, body.length - 1).trim
-      else body
+      else
+        throw new IllegalArgumentException(
+          "quoted macro error: unsupported macro body; restricted quoted macros must return a direct quoted expression, e.g. '{ $x + 1 }"
+        )
     val helperFree = """__ssc_splice__\("([^"]+)"(?:\s*,[^)]*)?\)""".r.replaceAllIn(raw, m => m.group(1))
     """\$([A-Za-z_][A-Za-z0-9_]*)""".r.replaceAllIn(helperFree, m => m.group(1))
 

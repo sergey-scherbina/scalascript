@@ -278,6 +278,11 @@ private[interpreter] object BuiltinsRuntime:
       case List(v) => Pure(v)
       case _       => interp.located("__ssc_macro__(expr)")
     })
+    interp.globals("__ssc_macro_error__") = Value.NativeFnV("__ssc_macro_error__", {
+      case List(Value.StringV(msg)) => interp.located(s"quoted macro error: $msg")
+      case List(v)                  => interp.located(s"quoted macro error: ${Value.show(v)}")
+      case _                        => interp.located("quoted macro error: unsupported restricted quoted macro form")
+    })
     interp.globals("__ssc_quote__") = Value.NativeFnV("__ssc_quote__", {
       case List(Value.StringV(name), value) =>
         Pure(Value.InstanceV("Expr", Map(

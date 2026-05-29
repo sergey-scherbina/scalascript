@@ -505,6 +505,14 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   `examples/quoted-macro-interpreter.ssc`. Spec:
   `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 
+- [x] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: ✓ Landed 2026-05-29.
+  Parser preprocessing lowers unsupported entrypoints such as `${ impl(x) }`
+  to an explicit diagnostic helper instead of silently treating them as
+  expandable macros; the interpreter reports `quoted macro error: ...`;
+  linker normalization rejects non-quoted macro bodies and explains that the
+  restricted subset must return a direct quoted expression such as
+  `'{ $x + 1 }`. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
 - [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: ✓ Landed 2026-05-29.
   Interpreter/runtime slice registers summon-able `Mirror.Of[T]`,
   `Mirror.ProductOf[T]`, and `Mirror.SumOf[T]`; exposes `Mirror.of[T]`;

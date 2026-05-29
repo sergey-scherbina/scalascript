@@ -1301,6 +1301,16 @@ object Parser:
             j += 1
       sb.toString
 
+    def stringLit(s: String): String =
+      "\"" + s.flatMap {
+        case '\\' => "\\\\"
+        case '"'  => "\\\""
+        case '\n' => "\\n"
+        case '\r' => "\\r"
+        case '\t' => "\\t"
+        case c    => c.toString
+      } + "\""
+
     def rewriteSplices(s: String): String =
       val sb = new StringBuilder(s.length + 16)
       var j = 0
@@ -1348,7 +1358,13 @@ object Parser:
           val close = findBalanced(i + 1, '{', '}')
           if close >= 0 then
             val inner = new String(in, i + 2, close - i - 2)
-            out.append("__ssc_macro__(").append(rewriteQuotedArgs(inner)).append(")")
+            val rewritten = rewriteQuotedArgs(inner)
+            if rewritten.contains("__ssc_quote__(") then
+              out.append("__ssc_macro__(").append(rewritten).append(")")
+            else
+              out.append("__ssc_macro_error__(")
+                .append(stringLit("restricted quoted macro entrypoint must call an implementation with quoted arguments, e.g. ${ impl('x) }"))
+                .append(")")
             i = close + 1
             changed = true
           else
