@@ -53,20 +53,19 @@ derived, never hand-written.
 - Internal routes (`/_*`) excluded from the document.
 - Handler introspection: `Value.FunV` param names + types drive `parameters` and
   `requestBody.properties`.
-- **12 tests** in `OpenApiRuntimeTest` covering empty registry, path params, internal
+- **16 tests** in `OpenApiRuntimeTest` covering empty registry, path params, internal
   exclusion, query params, POST body, multi-method path, Swagger HTML shape.
 
 ### 3.2 Gaps
 
 | # | Gap | Affects |
 |---|-----|---------|
-| G1 | JVM codegen — `JvmGen` emits no `/_openapi.json` route | `--backend jvm --bytecode` |
+| G1 | JVM codegen — `RestRuntime.scala` (inlined by JvmGen) has no `_registerOpenApiDefaults()` | `--backend jvm --bytecode` |
 | G2 | Response schema — all responses emit `{ "200": { "description": "OK" } }` only | All |
 | G3 | Auth declarations — no way to mark a route as requiring bearer/api-key | All |
 | G4 | Route metadata — no description, summary, tags, deprecation per route | All |
 | G5 | `ssc emit-openapi` CLI command — standalone export without serving | CLI |
 | G6 | `@openapi(…)` annotation for per-route metadata | Parser + Typer |
-| G7 | No doc (`docs/openapi.md` is this spec; a user-facing guide is separate) | Docs |
 
 ### 3.3 Key types
 
@@ -95,36 +94,40 @@ The annotation is optional; unannotated routes get auto-derived summary
 ### 3.4 Schema derivation pipeline
 
 ```
-Route registration (route())
-        │
-        ▼
-RouteRegistry.all              ← live, hot-reload-aware
-        │
-        ▼
-OpenApiGenerator.generate()    ← new shared module (Phase 2)
-  ├─ path param extraction      (already working)
-  ├─ query/body param inference (already working, basic types only)
-  ├─ response schema derivation (Phase 2 — from handler return type)
-  ├─ @openapi annotation merge  (Phase 3)
-  └─ securitySchemes            (Phase 4)
-        │
-        ▼
- JSON string (OpenAPI 3.1)     ← served at /_openapi.json
-                                  exported by ssc emit-openapi
+                    Interpreter path                JVM codegen path
+                    ────────────────                ────────────────
+route() call   →  RouteRegistry.all            →  RestRuntime._routes
+                        │                                   │
+                        ▼                                   ▼
+             OpenApiRuntime.generateOpenApiJson   _generateOpenApiJson()
+               (Value.FunV introspection)         (path params only; no
+               ← path params ✓                     handler introspection)
+               ← query/body params ✓               ← path params ✓
+               ← @openapi metadata (Phase 3)       ← @openapi metadata (Phase 3)
+               ← response schema (Phase 2)         ← stub 200 OK only
+                        │                                   │
+                        └──────────────┬─────────────────────┘
+                                       ▼
+                            JSON string (OpenAPI 3.1)
+                             served at /_openapi.json
+                             exported by ssc emit-openapi
+
+Note: The interpreter path has richer handler introspection because it
+inspects Value.FunV objects at runtime. The JVM path generates static
+Scala code — handler types are erased to (Request => Any) so param
+inference requires the @openapi annotation (Phase 3) for full schema.
 ```
 
 ### 3.5 Module layout
 
 ```
 lang/core/                               (no changes — annotation parsing only)
+runtime/http-server/jvm/…/server/jvm/
+  RestRuntime.scala                      ← Phase 2: add _registerOpenApiDefaults()
+                                           _generateOpenApiJson() (path-only)
 runtime/backend/
   interpreter/…/interpreter/
-    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2 extends it
-  jvm/…/codegen/
-    JvmGen.scala                         ← Phase 2: emit /_openapi.json route
-  spi/…/spi/
-    OpenApiGenerator.scala               ← Phase 2: shared generation logic (NEW)
-    RouteAnnotation.scala                ← Phase 3: @openapi annotation type (NEW)
+    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2 extends (response schema)
 tools/cli/…/cli/
   Main.scala                             ← Phase 5: ssc emit-openapi subcommand
 runtime/std/
@@ -155,21 +158,26 @@ Files: `OpenApiRuntime.scala`, `OpenApiRuntimeTest.scala` (12 tests).
 - `/_swagger`: Swagger UI CDN page.
 - Interpreter only.
 
-### Phase 2 — JVM codegen + shared generator + response schema
+### Phase 2 — JVM codegen OpenAPI + interpreter response schema
 
-**Goal**: `ssc run --backend jvm --bytecode` produces the same `/_openapi.json`
-and `/_swagger` routes as the interpreter.
+**Goal**: `ssc link --backend jvm --bytecode` produces `/_openapi.json` and
+`/_swagger`; interpreter path gets richer response schema.
 
-Tasks:
-- Extract `OpenApiGenerator` into `runtime/backend/spi/` so JVM and interpreter
-  share the same generation logic.
-- `JvmGen`: emit Scala code for `/_openapi.json` and `/_swagger` handlers using
-  the same `RouteRegistry` that `serve()` populates.
-- Response schema derivation: inspect handler return type annotations
-  (`Response.json(T)`, `Response.status(n)`) to derive richer
-  `responses: { "200": { content: { "application/json": { schema: ... } } } }`.
-  Fall back to `{ "200": { "description": "OK" } }` for untyped handlers.
-- `OpenApiRuntimeTest`: add JVM-path tests via `JvmGen` codegen round-trip.
+**JVM path** (`runtime/http-server/jvm/…/RestRuntime.scala`):
+- Add `_registerOpenApiDefaults()` — mirrors interpreter's `registerOpenApiDefaults`.
+  Generates JSON by walking `_routes`: path params from `:segment` notation;
+  `requestBody` present for POST/PUT/PATCH (object schema with no properties,
+  since JVM handlers are `Request => Any` and param names are erased).
+- Add `_generateOpenApiJson(): String` — path-only generation.
+- Register `GET /_openapi.json` and `GET /_swagger` inside `def serve(port)` and
+  `def serveAsync(port)` after `_registerHealthDefaults()`.
+- `_swagger` response identical to interpreter (CDN Swagger UI page).
+- Test: `JvmGenTest` — codegen output contains `/_openapi.json` route and valid JSON shape.
+
+**Interpreter path** (extend `OpenApiRuntime.scala`):
+- Response schema derivation: check if handler is registered with a type hint
+  (`Response.json(v)` path → infer `application/json` content type). Falls back
+  to `{ "200": { "description": "OK" } }` for all other handlers.
 
 Effort: ~3 days. Spec: `docs/openapi.md §5 Phase 2`.
 
@@ -298,11 +306,10 @@ browser; manual smoke is sufficient.
 
 | File | Role |
 |------|------|
-| `runtime/backend/interpreter/…/OpenApiRuntime.scala` | Phase 1 implementation (landed) |
-| `runtime/backend/interpreter/src/test/scala/scalascript/OpenApiRuntimeTest.scala` | Phase 1 tests (landed) |
-| `runtime/backend/spi/…/OpenApiGenerator.scala` | Phase 2 NEW — shared logic |
-| `runtime/backend/spi/…/RouteAnnotation.scala` | Phase 3 NEW — @openapi metadata |
-| `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 — emit /_openapi.json route |
-| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into RouteEntry |
+| `runtime/backend/interpreter/…/OpenApiRuntime.scala` | Phase 1 ✓ + Phase 2 extension |
+| `runtime/backend/interpreter/src/test/scala/scalascript/OpenApiRuntimeTest.scala` | Phase 1 ✓ tests (16) |
+| `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 — add `_registerOpenApiDefaults()` |
+| `runtime/backend/interpreter/src/main/scala/scalascript/server/RouteRegistry.scala` | Phase 3 — add `RouteMetadata` to `RouteEntry` |
+| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — store `@openapi` metadata in RouteEntry |
 | `tools/cli/…/cli/Main.scala` | Phase 5 — `ssc emit-openapi` subcommand |
 | `runtime/std/openapi.ssc` | Phase 3 NEW — extern annotation declaration |

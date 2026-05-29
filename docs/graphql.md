@@ -141,12 +141,18 @@ extern def GraphQL.resolvers(
   subscription: Map[String, Map[String, Any] => Source[Any]]= Map.empty
 ): GraphQLResolvers
 
-// Server
+// Convenience: registers POST /graphql + (Phase 3) WS /graphql/ws, then calls serve(port).
+// Equivalent to: graphqlMount(resolvers); serve(port)
 extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers): Unit
 extern def serveGraphQL(port: Int, resolvers: GraphQLResolvers,
                         tlsCtx: TlsContext): Unit
 
-// Manual endpoint (use with existing route() server)
+// Mount GraphQL onto an existing route() server WITHOUT calling serve().
+// Registers POST /graphql (and Phase 3: WS /graphql/ws) on the current server.
+// Use this when mixing GraphQL with REST in one server.
+extern def graphqlMount(resolvers: GraphQLResolvers): Unit
+
+// Handler for use with route() directly (advanced; prefer graphqlMount).
 extern def graphqlHandler(schema: GraphQLSchema,
                           resolvers: GraphQLResolvers): Request => Response
 
@@ -198,16 +204,24 @@ tools/cli/…/cli/Main.scala              ← Phase 3: ssc serve --graphql flag
 ### 3.7 How `graphql` fenced blocks work
 
 The `graphql` fenced block is registered as a `SourceLanguage` plugin
-(same mechanism as `sql`, `html`, `css`). At parse time:
+(same mechanism as `sql`, `html`, `javascript`, `xml` in
+`runtime/backend/scala-source/…/BuiltinSourceLanguages.scala`). At compile time:
 
 1. Parser sees ` ```graphql `.
-2. `SourceLanguageRegistry.lookup("graphql")` returns `GraphQLLanguagePlugin`.
-3. `GraphQLLanguagePlugin.compileBlock(content, attrs)` returns an
-   `IrExpr` that evaluates to the raw SDL `String` at runtime.
+2. `SourceLanguageRegistry.lookup("graphql")` returns `GraphQLSourceLanguage`.
+3. `GraphQLSourceLanguage.compileBlock(content, …)` returns
+   `BlockArtifact(ir.Content.EmbeddedBlock(language = "graphql", source = sdlString))`.
+   Passthrough — no SDL parsing at compile time.
 
-No SDL parsing happens at compile time — the SDL is validated by
-`graphql-java` / `graphql-js` when `GraphQL.schema(sdl)` is called at
-startup. Compile-time SDL validation is a Phase 4 goal.
+At runtime (interpreter / JVM):
+- `BlockRuntime` evaluates `EmbeddedBlock("graphql", sdl)` as `Value.StringV(sdl)`.
+  The SDL content becomes a plain `String` value.
+- `GraphQL.schema(sdl)` receives this string and calls
+  `graphql-java`'s `SchemaParser.parse(sdl)`.
+
+Compile-time SDL validation (Phase 4) overrides `compileBlock` to call
+`graphql-java`'s `SchemaParser` at `ssc build` time and emit `Diagnostic`
+instances, using the same `MarkupInterpolatorCheck` pattern.
 
 ### 3.8 JVM dependency
 
@@ -270,10 +284,11 @@ Tasks:
 - Async resolver support in `GraphQLJvmRuntime`: detect `Source`/`Future`
   return and use `graphql-java`'s `DataFetcher` with `CompletableFuture`.
 - `graphqlQuery(url, query[, variables])` extern: HTTP POST client.
-- `GraphQLJsRuntime`: wire to `graphql-js` 16.x via JVM→JS interop
-  (existing `JsGen` runtime preamble extension). Register
-  `POST /graphql` + `GET /graphql` in the JS runtime.
-- `JsGen` codegen: emit `graphqlHandler` as a JS `async` handler wrapping
+- `GraphQLJsRuntime`: JS backend for `ssc emit-js --target node`. `JsGen`
+  emits a JS preamble with `const {graphql, buildSchema} = require('graphql')`
+  and adds `graphql-js` to the generated `package.json` `dependencies`.
+  Registers `POST /graphql` + `GET /graphql` in the Node.js HTTP handler.
+- `JsGen` codegen: emit `graphqlHandler` as a JS `async` function wrapping
   `graphql({ schema, source, variableValues })`.
 - `Feature.GraphQL` in `SpiCapabilities`.
 - `examples/graphql-client.ssc` — query a public GraphQL API.
