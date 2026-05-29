@@ -1,0 +1,6 @@
+# ${Name}
+
+```scala
+def greeting(name: String): String =
+  "Hello, " + name
+```

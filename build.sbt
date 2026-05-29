@@ -62,12 +62,8 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
 //
 // Note on `pluginPkgs` inside `installBin`: sbt's task-macro prevents
 // dynamic `.value` resolution in a loop, so that list remains explicit.
-// Every other place uses `allPlugins.*` derivation.
-case class PluginSpec(
-  id:        String,   // short id: "json", "http", etc.
-  project:   Project,  // the sbt Project lazy val
-  jarPrefix: String,   // JAR / sscpkg filename prefix, e.g. "scalascript-json-plugin"
-)
+// Every other place uses `allPlugins.*` derivation. `PluginSpec` lives under
+// `project/` so sbt exposes it consistently across the generated build units.
 
 // ---------------------------------------------------------------------------
 // Backend SPI v0.1 — module layout (docs/backend-spi.md §4.1)
@@ -2475,7 +2471,7 @@ lazy val backendInterpreterPluginTests = project
     backendInterpreter % "compile->compile;test->test",
     backendInterpreterServer,
   )
-  .dependsOn(allPlugins.map(_.project): _*)
+  .dependsOn(allPlugins.map(spec => ClasspathDependency(spec.project, None)): _*)
   .settings(
     name := "scalascript-backend-interpreter-plugin-tests",
     libraryDependencies ++= Seq(scalatestTest),

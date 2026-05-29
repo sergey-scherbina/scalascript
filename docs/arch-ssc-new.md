@@ -2,8 +2,9 @@
 
 Status: **partially implemented**. The plugin template path
 (`ssc new <name> --template plugin`) landed with `arch-distribution-p4` on
-2026-05-29. App/lib templates and standalone installation remain tracked as
-`arch-ssc-new` milestones in `BACKLOG.md`.
+2026-05-29. Phase 1 app/lib templates and repository-side Coursier channel
+fixture landed on 2026-05-29. Homebrew/curl installation and extra templates
+remain tracked as `arch-ssc-new` milestones in `BACKLOG.md`.
 Companion: [`docs/arch-sbt-plugin.md`](arch-sbt-plugin.md),
 [`docs/arch-distribution.md`](arch-distribution.md).
 
@@ -62,8 +63,8 @@ templates/
   wasm-app/     -- WASM target
 ```
 
-Implementation note: `plugin/` is currently implemented. Other template IDs in
-this section remain planned.
+Implementation note: `app/`, `lib/`, and `plugin/` are currently implemented.
+Other template IDs in this section remain planned.
 
 Each template includes at minimum:
 ```
@@ -115,7 +116,8 @@ cs install ssc:1.0.0 --channel https://releases.scalascript.io/coursier.json
 ssc new my-project
 ```
 
-`releases.scalascript.io/coursier.json` is a Coursier channel descriptor:
+`releases.scalascript.io/coursier.json` is a Coursier channel descriptor.
+In-repo source lives at `releases/coursier.json`:
 ```json
 {
   "libraries": {
@@ -163,13 +165,21 @@ User-facing docs replace references to it with Option A/B/C.
 
 ### Phase 1 — `ssc new` + `app` template + Coursier channel
 
-- `NewProject.scala` in `tools/cli/src/main/scala/scalascript/cli/`.
-- `app`, `lib` templates in `tools/cli/src/main/resources/templates/`.
-- Coursier channel JSON at `releases.scalascript.io`.
-- `sbt cli/assembly` produces self-contained `ssc.jar`.
+- `NewProject.scala` in `tools/cli/src/main/scala/scalascript/cli/`. ✓ Landed
+  2026-05-29; default template is now `app`, while `--template plugin` remains
+  explicit.
+- `app`, `lib` templates in `tools/cli/src/main/resources/templates/`. ✓
+  Landed 2026-05-29.
+- Coursier channel JSON at `releases.scalascript.io`. ✓ Landed 2026-05-29 as
+  `releases/coursier.json` source fixture.
+- `sbt cli/assembly` produces self-contained `ssc.jar`. ✓ Already wired in
+  `build.sbt` via sbt-assembly (`assembly / assemblyJarName := "ssc.jar"`).
 - Tests: `NewProject` unit test (creates project in temp dir, verifies
   structure); integration test: `ssc new foo --template app && sbt run`
   exits 0.
+  ✓ Unit coverage landed 2026-05-29 for default app, lib, and plugin
+  scaffolds. Full `sbt run` integration remains CI-only/future because it
+  requires a published sbt plugin artifact.
 
 ### Phase 2 — `plugin`, `dsl`, `web-app`, `wasm-app` templates
 

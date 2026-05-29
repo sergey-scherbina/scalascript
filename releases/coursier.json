@@ -1,0 +1,11 @@
+{
+  "apps": [
+    {
+      "name": "ssc",
+      "repositories": ["central"],
+      "dependencies": ["io.scalascript:scalascript-cli_3:0.1.0"],
+      "mainClass": "scalascript.cli.ssc",
+      "launcherType": "bootstrap"
+    }
+  ]
+}

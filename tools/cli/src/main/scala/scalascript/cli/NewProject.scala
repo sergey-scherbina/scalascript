@@ -3,9 +3,9 @@ package scalascript.cli
 import java.nio.charset.StandardCharsets
 
 object NewProject:
-  final case class Options(template: String = "plugin", outputDir: os.Path = os.pwd)
+  final case class Options(template: String = "app", outputDir: os.Path = os.pwd)
 
-  def create(name: String, template: String = "plugin", outputDir: os.Path = os.pwd): os.Path =
+  def create(name: String, template: String = "app", outputDir: os.Path = os.pwd): os.Path =
     val cleanName = sanitizeName(name)
     if cleanName.isEmpty then throw new IllegalArgumentException("project name must contain at least one letter or digit")
 
@@ -26,7 +26,7 @@ object NewProject:
     target
 
   def parseOptions(args: List[String]): Options =
-    var template = "plugin"
+    var template = "app"
     var outputDir = os.pwd
     val it = args.iterator
     while it.hasNext do

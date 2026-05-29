@@ -2594,7 +2594,7 @@ def newCommand(args: List[String]): Unit =
           System.err.println(s"ssc new: ${e.getMessage}")
           System.exit(1)
     case Nil =>
-      System.err.println("Usage: ssc new <name> [--template plugin] [--output-dir <dir>]")
+      System.err.println("Usage: ssc new <name> [--template app|lib|plugin] [--output-dir <dir>]")
       System.exit(1)
 
 /** Find the "project" `.ssc` file for the current directory.

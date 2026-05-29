@@ -2097,6 +2097,8 @@ repositories can be supplied with `ssc.coursier.repositories` or
 ### Plugin System
 
 ```bash
+ssc new my-app                    # app template
+ssc new my-lib --template lib     # library template
 ssc new my-plugin --template plugin
 ssc plugin install ./my-plugin.sscpkg   # install from file
 ssc plugin install org.example/mylib   # install from registry
@@ -2108,6 +2110,10 @@ ssc plugin pack src/                    # create .sscpkg from source
 The plugin template creates a minimal Backend SPI project, `.sscpkg` package
 manifest, extern source declarations, and a GitHub Actions release workflow.
 See `docs/community-plugins.md`.
+
+The app and lib templates are bundled into `ssc.jar` alongside the plugin
+template. `releases/coursier.json` is the repository-side Coursier channel
+fixture for the future `cs install ssc --channel ...` standalone path.
 
 ### Separate Compilation
 

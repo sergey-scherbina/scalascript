@@ -2,6 +2,8 @@ package scalascript.plugin.api
 
 import scalascript.backend.spi.NativeContext
 
+import scala.util.control.NonFatal
+
 /** Stable surface for ScalaScript plugin authors.
  *
  *  Plugin authors depend only on `scalascript-plugin-api`; they never
@@ -48,11 +50,14 @@ object JsonCodec:
 
   def parseString(src: String): Either[String, ujson.Value] =
     try Right(ujson.read(src))
-    catch case e: ujson.ParseException => Left(e.getMessage)
+    catch case NonFatal(e) => Left(e.getMessage)
 
   def stringify(v: ujson.Value): String = ujson.write(v)
 
-  def obj(fields: (String, ujson.Value)*): ujson.Obj   = ujson.Obj(fields*)
+  def obj(fields: (String, ujson.Value)*): ujson.Obj =
+    val out = ujson.Obj()
+    fields.foreach { case (key, value) => out(key) = value }
+    out
   def arr(elems: ujson.Value*):            ujson.Arr   = ujson.Arr(elems*)
   def str(s: String):                      ujson.Str   = ujson.Str(s)
   def num(n: Double):                      ujson.Num   = ujson.Num(n)

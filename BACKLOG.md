@@ -287,10 +287,15 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme E — `ssc new` + standalone installation
 
-- [ ] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel:
+- [x] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel:
   `NewProject.scala` in CLI; `app`, `lib` templates bundled in `ssc.jar`;
   Coursier channel JSON at `releases.scalascript.io`; `sbt cli/assembly` fat JAR.
   Spec: `docs/arch-ssc-new.md §5 Phase 1`.
+  Landed 2026-05-29: changed `ssc new` default template to `app`, added bundled
+  `app` and `lib` templates, added `releases/coursier.json`, documented the
+  existing `cli/assembly` fat JAR path, expanded `NewProjectTest`, and fixed
+  fresh `pluginApi` and `PluginSpec` Scala 3.8.3/sbt compatibility blockers
+  found while verifying the CLI module.
 
 - [ ] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer:
   `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula;

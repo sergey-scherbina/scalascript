@@ -1,0 +1,6 @@
+# ${Name}
+
+```scala
+def main(): Unit =
+  println("Hello from ${Name}")
+```

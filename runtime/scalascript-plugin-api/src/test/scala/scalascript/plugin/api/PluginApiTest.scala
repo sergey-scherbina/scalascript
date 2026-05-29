@@ -56,11 +56,13 @@ class PluginApiTest extends AnyFunSuite:
     def acceptNativeContext(ctx: scalascript.backend.spi.NativeContext): Unit = ()
     def usePluginContext(ctx: PluginContext): Unit = acceptNativeContext(ctx)
     // If this compiles, the type alias is correctly defined.
+    assert(usePluginContext != null)
     succeed
 
   test("NativeImpl accepts PluginContext"):
     import scalascript.backend.spi.{NativeImpl, IntrinsicImpl}
     val impl: IntrinsicImpl = NativeImpl((ctx: PluginContext, args: List[Any]) =>
+      val _ = ctx
       PluginValue.wrap(args.headOption.getOrElse(()))
     )
     assert(impl.isInstanceOf[NativeImpl])
