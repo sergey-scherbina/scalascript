@@ -2485,18 +2485,26 @@ private[interpreter] object DispatchRuntime:
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble < b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a < b.toDouble)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a > b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a > b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble > b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a > b.toDouble)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "<=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a <= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a <= b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble <= b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a <= b.toDouble)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a >= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a >= b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble >= b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a >= b.toDouble)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "&&" => (lhs, rhs) match
         case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)
