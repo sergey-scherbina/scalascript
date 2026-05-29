@@ -268,8 +268,9 @@ private[interpreter] object CallRuntime:
         case p :: Nil          => FrameMap.one(p, effArgs.head, withSelf)
         case p1 :: p2 :: Nil   => FrameMap.two(p1, effArgs.head, p2, effArgs(1), withSelf)
         case ps                =>
-          val names = ps.toArray
-          val arr   = effArgs.iterator.take(names.length).toArray
+          var names = interp.paramsArrayCache.get(f.body)
+          if names == null then { names = ps.toArray; interp.paramsArrayCache.put(f.body, names) }
+          val arr = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, withSelf)
       val frameName  = if f.name.nonEmpty then f.name else "<anon>"
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
@@ -353,8 +354,9 @@ private[interpreter] object CallRuntime:
         case p :: Nil          => FrameMap.one(p, effArgs.head, base)
         case p1 :: p2 :: Nil   => FrameMap.two(p1, effArgs.head, p2, effArgs(1), base)
         case ps                =>
-          val names = ps.toArray
-          val arr   = effArgs.iterator.take(names.length).toArray
+          var names = interp.paramsArrayCache.get(fn.body)
+          if names == null then { names = ps.toArray; interp.paramsArrayCache.put(fn.body, names) }
+          val arr = effArgs.iterator.take(names.length).toArray
           FrameMap.of(names, arr, base)
       val frameName  = if fn.name.nonEmpty then fn.name else "<anon>"
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
