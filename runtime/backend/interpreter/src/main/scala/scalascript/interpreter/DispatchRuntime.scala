@@ -338,8 +338,9 @@ private[interpreter] object DispatchRuntime:
       case "toUpper" | "toUpperCase" => Pure(Value.CharV(c.toUpper))
       case "toLower" | "toLowerCase" => Pure(Value.CharV(c.toLower))
       case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
-      case _ => extensionDispatch(Value.CharV(c), name, args, env, interp)
-                  .getOrElse(interp.located(s"No method '$name' on Char"))
+      case _ =>
+        val ext = extensionDispatch(Value.CharV(c), name, args, env, interp)
+        if ext != null then ext else interp.located(s"No method '$name' on Char")
 
   // ── Boolean ─────────────────────────────────────────────────────────────────
 
@@ -367,8 +368,9 @@ private[interpreter] object DispatchRuntime:
       case "compare"   => args match
         case List(Value.BoolV(r)) => Computation.pureIntV(b.compare(r).toLong)
         case _                    => dispatchFallback(recv, name, args, env, interp)
-      case _ => extensionDispatch(recv, name, args, env, interp)
-                  .getOrElse(interp.located(s"No method '$name' on Boolean"))
+      case _ =>
+        val ext = extensionDispatch(recv, name, args, env, interp)
+        if ext != null then ext else interp.located(s"No method '$name' on Boolean")
 
   // ── List ────────────────────────────────────────────────────────────────────
 
@@ -1349,8 +1351,9 @@ private[interpreter] object DispatchRuntime:
         case List(Value.DoubleV(b)) => Pure(Value.doubleV(math.atan2(d, b)))
         case List(Value.IntV(b))    => Pure(Value.doubleV(math.atan2(d, b.toDouble)))
         case _                      => dispatchFallback(recv, name, args, env, interp)
-      case _ => extensionDispatch(recv, name, args, env, interp)
-                  .getOrElse(interp.located(s"No method '$name' on Double"))
+      case _ =>
+        val ext = extensionDispatch(recv, name, args, env, interp)
+        if ext != null then ext else interp.located(s"No method '$name' on Double")
 
   // ── Tuple ───────────────────────────────────────────────────────────────────
 
@@ -1545,8 +1548,9 @@ private[interpreter] object DispatchRuntime:
       fieldV match
         case null =>
           if name == "toString" then Pure(Value.StringV(Value.show(recv)))
-          else extensionDispatch(recv, name, Nil, env, interp)
-            .getOrElse(interp.located(s"No field '$name'"))
+          else
+            val ext = extensionDispatch(recv, name, Nil, env, interp)
+            if ext != null then ext else interp.located(s"No field '$name'")
         case f: Value.FunV      if f.params.isEmpty => interp.callFun(f, Nil)
         case f: Value.NativeFnV                     => f.f(Nil)
         case v                                      => Pure(v)
@@ -1554,8 +1558,8 @@ private[interpreter] object DispatchRuntime:
     else if fields.contains(name) then
       interp.callValue(fields(name), args, env)
     else
-      extensionDispatch(recv, name, args, env, interp)
-        .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+      val ext = extensionDispatch(recv, name, args, env, interp)
+      if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
@@ -1577,11 +1581,12 @@ private[interpreter] object DispatchRuntime:
             case Value.TupleV(as) => Pure(Value.TupleV(as :+ w))    // shouldn't reach here but safe
             case Value.UnitV      => Pure(w)                         // shouldn't reach here but safe
             case _                => Pure(Value.TupleV(recv :: w :: Nil))
-        case _ => extensionDispatch(recv, name, args, env, interp)
-                    .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+        case _ =>
+          val ext = extensionDispatch(recv, name, args, env, interp)
+          if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
     else
-      extensionDispatch(recv, name, args, env, interp)
-        .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
+      val ext = extensionDispatch(recv, name, args, env, interp)
+      if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     infix2(lhs, op, if args.nonEmpty then args.head else Value.UnitV, args, env, interp)
@@ -1687,7 +1692,7 @@ private[interpreter] object DispatchRuntime:
         case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
       case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
 
-  private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Option[Computation] =
+  private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Computation | Null =
     val typeName = recv match
       case _: Value.IntV        => "Int"
       case _: Value.DoubleV     => "Double"
@@ -1699,19 +1704,20 @@ private[interpreter] object DispatchRuntime:
       case Value.TupleV(elems)  => s"Tuple${elems.length}"
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
-    interp.extensions.get((typeName, method)).map { fn =>
-      interp.callValuePrepend(fn, recv, args, env)
-    }.orElse {
-      var parent: Option[String] = interp.parentTypes.get(typeName)
-      var found: Option[Computation] = None
-      while parent.isDefined && found.isEmpty do
-        found = interp.extensions.get((parent.get, method)).map(fn => interp.callValuePrepend(fn, recv, args, env))
-        parent = interp.parentTypes.get(parent.get)
-      found
-    }.orElse {
-      interp.globals.values.collectFirst {
-        case Value.InstanceV(name, fields)
-          if name.endsWith(s"[$typeName]") && fields.contains(method) =>
-          interp.callValuePrepend(fields(method), recv, args, env)
-      }
-    }
+    val direct = interp.extensions.getOrElse((typeName, method), null)
+    if direct != null then return interp.callValuePrepend(direct, recv, args, env)
+    // Walk parent-type chain
+    var parent = interp.parentTypes.getOrElse(typeName, null)
+    while parent != null do
+      val fn = interp.extensions.getOrElse((parent, method), null)
+      if fn != null then return interp.callValuePrepend(fn, recv, args, env)
+      parent = interp.parentTypes.getOrElse(parent, null)
+    // Last-resort: scan globals for a typeclass instance ending in [typeName] that has the method
+    val suffix = s"[$typeName]"
+    val iter = interp.globals.iterator
+    while iter.hasNext do
+      iter.next() match
+        case (_, Value.InstanceV(n, fields)) if n.endsWith(suffix) && fields.contains(method) =>
+          return interp.callValuePrepend(fields(method), recv, args, env)
+        case _ =>
+    null
