@@ -1294,6 +1294,11 @@ class Interpreter(
   ): Computation =
     CallRuntime.callTypeMethod(fn, fields, args, this)
 
+  private[interpreter] def callTypeMethod1(
+    fn: Value.FunV, fields: Map[String, Value], arg: Value
+  ): Computation =
+    CallRuntime.callTypeMethod1(fn, fields, arg, this)
+
   // ─── Given / using helpers — see CallRuntime.scala ───────────────────────
 
   private[interpreter] def typeToString(t: scala.meta.Type): String =

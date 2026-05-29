@@ -983,6 +983,15 @@ def main(): Unit =
     """) shouldBe "Hi World\nHi Anna"
   }
 
+  test("class method with one argument"):
+    captured("""
+      class Counter(start: Int):
+        def add(n: Int): Int = start + n
+      val c = Counter(10)
+      println(c.add(5))
+      println(c.add(-3))
+    """) shouldBe "15\n7"
+
   test("enum case — default parameters") {
     captured("""
       enum Shape:

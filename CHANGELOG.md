@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter instance one-arg fast path
+
+- **perf/interpreter-instance1** — Ported a safe `dispatchInstance1` /
+  `callTypeMethod1` slice from `perf/interpreter-opt`. One-argument
+  user-defined class methods, `Right.map` / `Right.flatMap`, `Left.getOrElse`,
+  `Left.map` / `Left.flatMap`, and `Pid.tell` now avoid the generic
+  `arg :: Nil` dispatch allocation while preserving the existing two-argument
+  `Either.fold` behavior.
+
 ## 2026-05-29 — interpreter list aggregator fast paths
 
 - **perf/interpreter-list1-aggs** — Ported high-impact list aggregation
