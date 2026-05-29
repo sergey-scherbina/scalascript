@@ -37,11 +37,12 @@ private[interpreter] object CallRuntime:
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
-      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
+      val profiling = Profiler.enabled
+      val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+      if profiling && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       result
     case f: Value.NativeFnV => f.f(arg :: Nil)
@@ -63,11 +64,12 @@ private[interpreter] object CallRuntime:
       val frameName = if f.name.nonEmpty then f.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
-      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
+      val profiling = Profiler.enabled
+      val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+      if profiling && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       result
     case f: Value.NativeFnV => f.f(a :: b :: Nil)
@@ -279,11 +281,12 @@ private[interpreter] object CallRuntime:
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       val absDocLine = interp.debugBlockDocLine + relLine
       interp.callStackPush(frameName, interp.debugSourceFile, absDocLine)
-      val t0 = if Profiler.enabled && f.name.nonEmpty then System.nanoTime() else 0L
+      val profiling = Profiler.enabled
+      val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && f.name.nonEmpty then
+      if profiling && f.name.nonEmpty then
         Profiler.record(f.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       if f.returnsThrows then result.map(throwsAutoWrap)
@@ -364,11 +367,12 @@ private[interpreter] object CallRuntime:
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       val absDocLine = interp.debugBlockDocLine + relLine
       interp.callStackPush(frameName, interp.debugSourceFile, absDocLine)
-      val t0 = if Profiler.enabled && fn.name.nonEmpty then System.nanoTime() else 0L
+      val profiling = Profiler.enabled
+      val t0 = if profiling && fn.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(fn.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
+      if profiling && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       if fn.returnsThrows then result.map(throwsAutoWrap)
       else result
@@ -403,11 +407,12 @@ private[interpreter] object CallRuntime:
       val frameName = if fn.name.nonEmpty then fn.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
-      val t0 = if Profiler.enabled && fn.name.nonEmpty then System.nanoTime() else 0L
+      val profiling = Profiler.enabled
+      val t0 = if profiling && fn.name.nonEmpty then System.nanoTime() else 0L
       val result =
         try TcoRuntime.runUntilSuspension(interp.eval(fn.body, callEnv))
         catch case r: ReturnSignal => Pure(r.value)
-      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
+      if profiling && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       result
 

@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter while pure fast path
+
+- **perf/interpreter-while-pure** — Ported the all-pure `while` loop fast path
+  from `perf/interpreter-opt` and snapshots `Profiler.enabled` once per call
+  helper invocation. Pure tight loops now avoid allocating immediate
+  condition/body `FlatMap` nodes on every iteration.
+
 ## 2026-05-29 — interpreter String single-arg fast paths
 
 - **perf/interpreter-string1** — Ported `dispatchString1` higher-order string
