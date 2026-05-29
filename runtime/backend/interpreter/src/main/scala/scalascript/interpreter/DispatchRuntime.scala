@@ -249,11 +249,19 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchChar(c: Char, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
-      case "toInt"    => Computation.pureIntV(c.toInt.toLong)
-      case "toLong"   => Computation.pureIntV(c.toLong)
-      case "toString" => Pure(Value.StringV(c.toString))
-      case "isDigit"  => Computation.pureBool(c.isDigit)
-      case "isLetter" => Computation.pureBool(c.isLetter)
+      case "toInt"          => Computation.pureIntV(c.toInt.toLong)
+      case "toLong"         => Computation.pureIntV(c.toLong)
+      case "toString"       => Pure(Value.StringV(c.toString))
+      case "isDigit"        => Computation.pureBool(c.isDigit)
+      case "isLetter"       => Computation.pureBool(c.isLetter)
+      case "isLetterOrDigit"=> Computation.pureBool(c.isLetterOrDigit)
+      case "isUpper" | "isUpperCase" => Computation.pureBool(c.isUpper)
+      case "isLower" | "isLowerCase" => Computation.pureBool(c.isLower)
+      case "isWhitespace" | "isSpaceChar" => Computation.pureBool(c.isWhitespace)
+      case "isControl"      => Computation.pureBool(c.isControl)
+      case "toUpper" | "toUpperCase" => Pure(Value.CharV(c.toUpper))
+      case "toLower" | "toLowerCase" => Pure(Value.CharV(c.toLower))
+      case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
       case _ => extensionDispatch(Value.CharV(c), name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Char"))
 
@@ -930,6 +938,48 @@ private[interpreter] object DispatchRuntime:
         case List(f) => opt match
           case None    => Computation.PureUnit
           case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.discardToUnit)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "fold"      => args match
+        case List(default) =>
+          Pure(Value.NativeFnV("fold", {
+            case List(f) => opt match
+              case None    => Pure(default)
+              case Some(v) => interp.callValue1(f, v, env)
+            case _ => throw InterpretError("Option.fold expects one function argument")
+          }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "zip"       => args match
+        case List(other) => opt match
+          case None    => Computation.PureNone
+          case Some(v) => other match
+            case Value.OptionV(Some(w)) => Pure(Value.OptionV(Some(Value.TupleV(v :: w :: Nil))))
+            case Value.NoneV | Value.OptionV(None) => Computation.PureNone
+            case _                      => Computation.PureNone
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "flatten"   => opt match
+        case None            => Computation.PureNone
+        case Some(inner)     => inner match
+          case o: Value.OptionV => Pure(o)
+          case _                => Pure(recv)
+      case "toRight"   => args match
+        case List(left) => opt match
+          case None    => Pure(Value.InstanceV("Left", Map("value" -> left)))
+          case Some(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "toLeft"    => args match
+        case List(right) => opt match
+          case None    => Pure(Value.InstanceV("Right", Map("value" -> right)))
+          case Some(v) => Pure(Value.InstanceV("Left", Map("value" -> v)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "exists"    => args match
+        case List(f) => opt match
+          case None    => Computation.PureFalse
+          case Some(v) => interp.callValue1(f, v, env)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "forall"    => args match
+        case List(f) => opt match
+          case None    => Computation.PureTrue
+          case Some(v) => interp.callValue1(f, v, env)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
 
