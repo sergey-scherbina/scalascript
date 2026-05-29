@@ -181,6 +181,16 @@ class InterpreterTest extends AnyFunSuite with Matchers:
     """) shouldBe "3\n4"
   }
 
+  test("case class missing required field raises error") {
+    val ex = intercept[InterpretError] {
+      captured("""
+        case class Point(x: Int, y: Int)
+        println(Point(3).x)
+      """)
+    }
+    ex.getMessage should include ("missing argument")
+  }
+
   test("case class pattern matching") {
     captured("""
       case class Person(name: String, age: Int)
@@ -1033,6 +1043,17 @@ def main(): Unit =
       println(Square().side)
       println(Circle(7).radius)
     """) shouldBe "1\n2\n7"
+  }
+
+  test("enum case missing required field raises error") {
+    val ex = intercept[InterpretError] {
+      captured("""
+        enum Shape:
+          case Rect(width: Int, height: Int)
+        println(Rect(10).width)
+      """)
+    }
+    ex.getMessage should include ("missing argument")
   }
 
   test("recursive function with default seed") {

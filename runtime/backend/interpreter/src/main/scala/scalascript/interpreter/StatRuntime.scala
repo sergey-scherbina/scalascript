@@ -9,6 +9,24 @@ import Computation.{Pure, Perform}
  */
 private[interpreter] object StatRuntime:
 
+  private def constructNoDefaultInstanceOrFallback(
+      typeName: String,
+      paramNames: List[String],
+      args: List[Value],
+      fallback: List[Value] => Computation
+  ): Computation =
+    paramNames match
+      case Nil =>
+        Pure(Value.InstanceV(typeName, Map.empty))
+      case List(p0) if args.length == 1 =>
+        Pure(Value.InstanceV(typeName, Map(p0 -> args.head)))
+      case List(p0, p1) if args.length == 2 =>
+        Pure(Value.InstanceV(typeName, Map(p0 -> args.head, p1 -> args(1))))
+      case _ if args.length >= paramNames.length =>
+        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+      case _ =>
+        fallback(args)
+
   def execStat(stat: Stat, env: mutable.Map[String, Value], printResult: Boolean = false, interp: Interpreter): Unit =
     interp.trackPos(stat)
     val envView = new MutableEnvView(env)
@@ -135,10 +153,16 @@ private[interpreter] object StatRuntime:
       }
       DerivesRuntime.registerMirror(typeName, env, interp)
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
-      env(typeName) = Value.NativeFnV(typeName, args => {
+      val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
-      })
+      }
+      val noDefaults = paramDefaults.forall(_.isEmpty)
+      env(typeName) = if noDefaults then
+        Value.NativeFnV(typeName, args =>
+          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classFallbackCtor))
+      else
+        Value.NativeFnV(typeName, classFallbackCtor)
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
       // each method's closure with the instance's data fields so the body can
@@ -177,12 +201,17 @@ private[interpreter] object StatRuntime:
             interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
           if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
           interp.parentTypes(caseName) = enumName
+          val enumFallbackCtor: List[Value] => Computation = args => {
+            val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
+            Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
+          }
+          val noEnumDefaults = paramDefaults.forall(_.isEmpty)
           val v: Value =
             if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
-            else Value.NativeFnV(caseName, args => {
-              val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
-            })
+            else if noEnumDefaults then
+              Value.NativeFnV(caseName, args =>
+                constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor))
+            else Value.NativeFnV(caseName, enumFallbackCtor)
           env(caseName) = v
           caseFields(caseName) = v
         case _ => ()

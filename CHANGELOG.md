@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter case constructor fast paths
+
+- **perf/interpreter-case-ctor-fast** — Ported a safe version of the
+  `perf/interpreter-opt` case-class/enum constructor fast path. Constructors
+  without defaults now avoid default-application overhead for valid arities
+  while preserving the existing missing-argument error behavior.
+
 ## 2026-05-29 — interpreter parameter array cache
 
 - **perf/interpreter-param-array-cache** — Ported the `params.toArray` cache
