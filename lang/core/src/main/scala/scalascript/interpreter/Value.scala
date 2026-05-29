@@ -480,6 +480,44 @@ object Computation:
           })
     Pure(Value.ListV(buf.toList))
 
+  /** foldLeft semantics with Pure fast-path: if f returns Pure on every step, zero FlatMap allocations. */
+  def foldLeftSequence(ls: List[Value], init: Value, f: (Value, Value) => Computation): Computation =
+    var rem = ls; var acc = init
+    while rem.nonEmpty do
+      f(acc, rem.head) match
+        case Pure(v) => acc = v; rem = rem.tail
+        case comp    =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value], curAcc: Value): Computation = remaining match
+            case Nil       => Pure(curAcc)
+            case h :: rest => FlatMap(f(curAcc, h), v => loopRest(rest, v))
+          return FlatMap(comp, v => loopRest(tail, v))
+    Pure(acc)
+
+  /** partition semantics with Pure fast-path: splits list into (yes, no) tuple without FlatMap when f is pure. */
+  def partitionSequence(ls: List[Value], f: Value => Computation): Computation =
+    val yesBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length / 2 + 1)
+    val noBuf  = new scala.collection.mutable.ArrayBuffer[Value](ls.length / 2 + 1)
+    var rem = ls
+    while rem.nonEmpty do
+      val h = rem.head
+      f(h) match
+        case Pure(Value.BoolV(true)) => yesBuf += h; rem = rem.tail
+        case Pure(_)                 => noBuf  += h; rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(noBuf.toList) :: Nil))
+            case hh :: rest => FlatMap(f(hh), {
+              case Value.BoolV(true) => yesBuf += hh; loopRest(rest)
+              case _                 => noBuf  += hh; loopRest(rest)
+            })
+          return FlatMap(comp, {
+            case Value.BoolV(true) => yesBuf += h; loopRest(tail)
+            case _                 => noBuf  += h; loopRest(tail)
+          })
+    Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(noBuf.toList) :: Nil))
+
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =
