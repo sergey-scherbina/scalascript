@@ -418,9 +418,21 @@ Spark/Kafka/Flink/Beam external engine protocols are unchanged.
 
 ### Phase 6 - Object Sync and Client Cache Traffic
 
-- Add binary pull/push/sync payloads for generated object-sync routes when both
-  client and server are ScalaScript.
-- Keep JSON REST as public/debug fallback.
+**Landed v1.62.6.** Implemented in `backend/wire/.../sync/ObjectSyncWireProtocol.scala`.
+
+Four message kinds over `WireEnvelope(protocol="object-sync")`:
+
+| Kind            | `env.kind`       | Route counterpart                          |
+|-----------------|------------------|--------------------------------------------|
+| `PullRequest`   | `pull-request`   | `GET /__ssc/sync/<store>/changes` params   |
+| `PullResponse`  | `pull-response`  | Changes + `nextCursor`                     |
+| `PushRequest`   | `push-request`   | `POST /__ssc/sync/<store>/push` body       |
+| `PushResponse`  | `push-response`  | Applied results + conflicts                |
+
+Supporting value types: `SyncChange` (key/version/updatedAt/deleted/value),
+`SyncMutation` (key/value/deleted/expectedVersion?), `SyncResult`, `SyncConflict`.
+`correlationId` threaded through pull request/response pairs.
+JSON REST routes remain the public/debug fallback. 31 tests.
 
 ### Phase 7 - Security, Compression, and Operations
 

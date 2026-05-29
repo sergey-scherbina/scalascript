@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.62.6 ObjectStore sync binary wire protocol
+
+- **v1.62.6-object-sync-binary** — `ObjectSyncMsg` sealed trait (4 kinds: `PullRequest`, `PullResponse`, `PushRequest`, `PushResponse`) + value types (`SyncChange`, `SyncMutation`, `SyncResult`, `SyncConflict`) with full `WireCodec` instances and `ObjectSyncEnvelope` helpers. Mirrors the generated `/__ssc/sync/<store>/changes` GET and `/__ssc/sync/<store>/push` POST routes. `correlationId` passed through for request/response pairing. JSON/MsgPack/CBOR round-trips, 31 tests.
+
 ## 2026-05-29 — v1.62.5 DStream native wire protocol
 
 - **v1.62.5-dstream-native-wire** — `DStreamMsg` sealed trait (7 kinds: `ElementBatch`, `Watermark`, `Trigger`, `SideInput`, `SideOutput`, `CheckpointMetadata`, `DStreamError`) with full `WireCodec[DStreamMsg]` instances and `DStreamEnvelope` helpers for building/decoding `WireEnvelope(protocol="dstream")`. `TriggerKind` enum (EventTime/ProcessingTime/CountBased/AfterWatermark) with `WireCodec[TriggerKind]`. All 7 message kinds round-trip through JSON, MsgPack, and CBOR (58 tests). External Spark/Kafka/Flink/Beam protocols untouched.

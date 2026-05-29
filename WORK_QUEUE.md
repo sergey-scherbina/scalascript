@@ -56,7 +56,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.5-dstream-native-wire** — `DStreamMsg` (7 kinds) + `WireCodec` + `DStreamEnvelope`; `TriggerKind` enum; JSON/MsgPack/CBOR round-trips; 58 tests. ✓ Landed 2026-05-29.
 
-- [ ] **v1.62.6-object-sync-binary** — Client/server object sync binary payloads for generated ScalaScript clients/servers, with public/debug JSON routes retained. Spec: `docs/distributed-wire-protocol.md §Phase 6`.
+- [x] **v1.62.6-object-sync-binary** — `ObjectSyncMsg` (4 kinds) + value types (`SyncChange`/`SyncMutation`/`SyncResult`/`SyncConflict`) + `ObjectSyncEnvelope`; JSON/MsgPack/CBOR; 31 tests. ✓ Landed 2026-05-29.
 
 - [ ] **v1.62.7-wire-security-ops** — Wire security and operations: HMAC frame signatures, session ids, sequence numbers, replay windows, gzip/zstd negotiation, mTLS hooks, frame/depth/chunk limits, and metrics. Spec: `docs/distributed-wire-protocol.md §Phase 7`.
 
