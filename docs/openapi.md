@@ -43,7 +43,8 @@ derived, never hand-written.
 `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/OpenApiRuntime.scala`
 
 - **`OpenApiRuntime.registerOpenApiDefaults(interp)`** — called by
-  `HttpIntrinsics` when `serve()` / `serveAsync()` is invoked. Registers:
+  `HttpIntrinsics` (`serveAsync`) and `FrontendIntrinsics` (`serve`,
+  `serve(port, dir)`, `serve(port, tls)`) when a server starts. Registers:
   - `GET /_openapi.json` — generates live OpenAPI 3.1 JSON from `RouteRegistry.all`.
   - `GET /_swagger` — serves Swagger UI (CDN-linked assets, no bundled files).
 - **`OpenApiRuntime.generateOpenApiJson(registry)`** — public so tests call it directly.
@@ -159,7 +160,7 @@ summaries and tags.
 
 ### Phase 1 — Interpreter `/_openapi.json` + `/_swagger` ✓ Landed
 
-Files: `OpenApiRuntime.scala`, `OpenApiRuntimeTest.scala` (12 tests).
+Files: `OpenApiRuntime.scala`, `OpenApiRuntimeTest.scala` (12 tests at Phase 1 landing; 16 tests as of Phase 2).
 
 - Auto-registered when `serve()` / `serveAsync()` is called.
 - `/_openapi.json`: live OpenAPI 3.1 JSON from route table.
@@ -217,7 +218,7 @@ Tasks:
   User-facing `@openapi(...)` syntax is rewritten by the parser to this marker
   call because Scala annotations cannot target a standalone `route(...)`
   expression directly.
-- `RouteEntry` in `RouteRegistry` carries `OpenApiMetadata` (summary,
+- `Routes.Entry` in `RouteRegistry` carries `OpenApiMetadata` (summary,
   description, tags, deprecated).
 - `HttpIntrinsics`: when `@openapi(…)` precedes a `route()` call, the marker is
   stored as pending route metadata and consumed by the next route registration.
@@ -285,11 +286,35 @@ Tasks:
   (no extra library — OpenAPI structure is shallow enough for a manual
   YAML builder that outputs valid YAML 1.2).
 - `--title`, `--version`, `--server` flags override `info` / `servers`.
-- Runs the interpreter in "dry" mode (no `serve()` side-effects) to collect
-  registered routes, then calls `OpenApiGenerator.generate()`.
+- Runs the interpreter in **abort-at-first-serve** dry-run mode to collect
+  registered routes:
+  1. Set a thread-local flag `Interpreter.openapiDryRunMode = true`.
+  2. Patch `HttpIntrinsics.serveAsync` and `FrontendIntrinsics.serve` to throw
+     a sentinel `EmitOpenApiSentinel` instead of binding.
+  3. Catch `EmitOpenApiSentinel`; at that point all `route(…)` calls before
+     the first `serve()` have populated `RouteRegistry.all`.
+  4. Call `OpenApiGenerator.generate(RouteRegistry.all)`.
+  **Known limitation**: top-level effects before `serve()` (e.g.
+  `val db = Database.open(…)`) still fire. Users who need pure introspection
+  can restructure to lazy `val` or move setup inside a function called from
+  `serve()`. A future static-analysis path (Phase 6 candidate) eliminates this.
 - `EmitOpenapiCliTest`: 4+ tests (JSON output shape, YAML output, flag overrides).
 
 Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 5`.
+
+### Phase 6 — AsyncAPI for WebSocket / SSE routes (deferred)
+
+**Goal**: machine-readable description of WS (`onWebSocket`) and SSE
+(`Response.sse`) routes using the AsyncAPI 3.0 format. Served at
+`/_asyncapi.json`; Swagger UI equivalent served at `/_asyncapi`.
+
+**Blockers before starting**: (a) AsyncAPI 3.0 is not yet stable across
+tooling (as of 2026-05); (b) SSE format question: whether to use
+AsyncAPI's HTTP binding or a custom extension. Defer until there is
+concrete user demand or tooling matures.
+
+Effort: ~3 days once blockers clear. Tracked separately from OpenAPI. Cross-
+reference: `docs/future-protocols.md §4`.
 
 ---
 
@@ -297,7 +322,7 @@ Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 5`.
 
 | Phase | Tests | Kind |
 |-------|-------|------|
-| 1 ✓ | `OpenApiRuntimeTest` (12) | Interpreter unit |
+| 1 ✓ | `OpenApiRuntimeTest` (16 as of Phase 2) | Interpreter unit |
 | 2 ✓ | `OpenApiGeneratorTest`, `OpenApiRuntimeTest`, JvmGen code-shape + JVM e2e | SPI + interpreter + JVM codegen |
 | 3 | `OpenApiRuntimeTest` annotation cases (6+) | Interpreter unit |
 | 4 | `OpenApiRuntimeTest` security cases (4+) | Interpreter unit |
@@ -320,11 +345,13 @@ browser; manual smoke is sufficient.
    explicit annotation for correctness; middleware heuristic as best-effort
    opt-in via `useOpenApiAuth()`.
 
-3. **`/ssc emit-openapi` dry-run mode**: running the interpreter to collect
+3. **`ssc emit-openapi` dry-run mode**: running the interpreter to collect
    routes means top-level side effects (DB connections, etc.) fire.
-   Alternative: static analysis of `route()` calls from the AST without
-   running the interpreter. Recommendation: interpreter dry-run for Phase 5
-   (simpler); static analysis as a Phase 6 enhancement.
+   **Resolved** (Phase 5 uses abort-at-first-serve — see §5 Phase 5 implementation
+   note): `Interpreter.openapiDryRunMode` flag causes `serve*` intrinsics to throw
+   `EmitOpenApiSentinel` before binding; `route()` calls before `serve()` have
+   already populated `RouteRegistry.all`. Known limitation: effects before
+   `serve()` still run. Static-analysis alternative deferred to Phase 6.
 
 4. **AsyncAPI for SSE / WS** (Phase 6): AsyncAPI 3.0 describes WebSocket and
    SSE channels. Worth shipping? Depends on demand. Track separately.
@@ -341,6 +368,7 @@ browser; manual smoke is sufficient.
 | `runtime/backend/spi/…/RouteAnnotation.scala` | Phase 3 NEW — @openapi metadata |
 | `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 ✓ — emit /_openapi.json route |
 | `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 ✓ — generated-server OpenAPI defaults |
-| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into RouteEntry |
+| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into Routes.Entry; Phase 5 — openapiDryRunMode for serveAsync |
+| `runtime/std/http-plugin/…/FrontendIntrinsics.scala` | Phase 1 ✓ — registerOpenApiDefaults for serve(); Phase 5 — openapiDryRunMode sentinel |
 | `tools/cli/…/cli/Main.scala` | Phase 5 — `ssc emit-openapi` subcommand |
 | `runtime/std/openapi.ssc` | Phase 3 NEW — extern annotation declaration |

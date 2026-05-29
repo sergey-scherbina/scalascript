@@ -187,41 +187,82 @@ runtime/std/
       GraphQLJvmRuntime.scala            ← JVM: graphql-java wiring
       GraphQLJsRuntime.scala             ← JS: graphql-js wiring (Phase 2)
     src/main/resources/META-INF/services/
-      scalascript.backend.spi.Backend    ← ServiceLoader entry
+      scalascript.backend.spi.Backend        ← ServiceLoader entry for intrinsics
+      scalascript.backend.spi.SourceLanguage ← ServiceLoader entry for fenced-block dialect
   graphql.ssc                            ← extern declarations + opaque types
 
 runtime/backend/
-  jvm/…/codegen/JvmGen.scala            ← Phase 2: graphqlHandler codegen
-  js/…/codegen/JsGen.scala              ← Phase 2: graphqlHandler JS codegen
+  js/…/codegen/intrinsics/
+    Graphql.scala                        ← Phase 2: graphqlHandler JS codegen (not JsGen.scala)
+  node/…/codegen/
+    NodeBackend.scala                    ← Phase 2: require('graphql') preamble + package.json dep
 
 lang/core/…/
-  parser/SourceLanguageRegistry.scala   ← Phase 1: register "graphql" fenced block tag
-  (no change to typer or IR — graphql blocks lower to String constants)
+  ast/Lang.scala                         ← Phase 1: add Lang.isGraphql + "graphql" constant
+  (SourceLanguageRegistry.scala: no hand-edit — registration is via META-INF ServiceLoader entry)
 
 tools/cli/…/cli/Main.scala              ← Phase 3: ssc serve --graphql flag
 ```
 
 ### 3.7 How `graphql` fenced blocks work
 
-The `graphql` fenced block is registered as a `SourceLanguage` plugin
-(same mechanism as `sql`, `html`, `javascript`, `xml` in
-`runtime/backend/scala-source/…/BuiltinSourceLanguages.scala`). At compile time:
+#### Compile-time path (JVM / JS codegen)
+
+The `graphql` fenced block is registered as a `SourceLanguage` plugin —
+the same mechanism as `javascript`, `xml`, `sql`, `transaction` in
+`runtime/backend/scala-source/…/BuiltinSourceLanguages.scala` (note: `html`
+and `css` live in their own subprojects `runtime/backend/html` and
+`runtime/backend/css` and use the same separate-subproject pattern that
+`graphql-plugin` follows). Registration is purely via the plugin's
+`META-INF/services/scalascript.backend.spi.SourceLanguage` entry — no
+hand-edit to `SourceLanguageRegistry.scala` is required.
 
 1. Parser sees ` ```graphql `.
 2. `SourceLanguageRegistry.lookup("graphql")` returns `GraphQLSourceLanguage`.
 3. `GraphQLSourceLanguage.compileBlock(content, …)` returns
    `BlockArtifact(ir.Content.EmbeddedBlock(language = "graphql", source = sdlString))`.
    Passthrough — no SDL parsing at compile time.
+4. JVM codegen (`GraphQLJvmRuntime`) reads the SDL from `EmbeddedBlock.source`
+   directly during code generation.
+5. JS codegen (`runtime/backend/js/…/codegen/intrinsics/Graphql.scala`) emits
+   a `buildSchema(sdl)` call; `NodeBackend.scala` adds `require('graphql')` to
+   the preamble and `graphql-js` to the generated `package.json`.
 
-At runtime (interpreter / JVM):
-- `BlockRuntime` evaluates `EmbeddedBlock("graphql", sdl)` as `Value.StringV(sdl)`.
-  The SDL content becomes a plain `String` value.
-- `GraphQL.schema(sdl)` receives this string and calls
-  `graphql-java`'s `SchemaParser.parse(sdl)`.
+Phase 4 compile-time SDL validation overrides `compileBlock` to run the SDL
+through `graphql-java`'s `SchemaParser` and populate `BlockArtifact.diagnostics`
+(the `diagnostics: List[Diagnostic]` field already exists on `BlockArtifact`).
+The `SourceLanguageRegistry` framework forwards these diagnostics to the user.
+This is a single method change in `GraphQLSourceLanguage.compileBlock` — no
+separate transform pass needed (unlike `MarkupInterpolatorCheck`, which targets
+string interpolators, not fenced blocks).
 
-Compile-time SDL validation (Phase 4) overrides `compileBlock` to call
-`graphql-java`'s `SchemaParser` at `ssc build` time and emit `Diagnostic`
-instances, using the same `MarkupInterpolatorCheck` pattern.
+#### Interpreter runtime path
+
+The interpreter works on `ast.Content.CodeBlock` (AST level), not on
+`ir.Content.EmbeddedBlock` (IR level). `SectionRuntime.runSection` currently
+dispatches on language tags (`isParseable`, `isStringBlock`, `isSql`,
+`isTransaction`, `isXml`). A `graphql` block would otherwise hit `case _ => ()`
+and be silently dropped.
+
+Phase 1 therefore follows the **`sqlBlockRunner` pattern** already used by the
+SQL plugin:
+
+1. `Lang.scala` gains `val Graphql = "graphql"` and `def isGraphql(lang: String)`.
+2. `Backend` SPI gains `def graphqlBlockRunner: Option[GraphQLBlockRunner] = None`.
+3. `Interpreter` installs `graphqlBlockRunner` from loaded plugins (same as
+   `installSqlBlockRunners`).
+4. `SectionRuntime.runSection` gains:
+   ```scala
+   case cb: Content.CodeBlock if Lang.isGraphql(cb.lang) =>
+     interp.graphqlBlockRunner.getOrElse(
+       throw InterpretError("No GraphQL block runner — add the graphql-plugin")
+     ).registerSdl(cb.source)
+   ```
+5. `GraphQLPlugin` implements `graphqlBlockRunner` with a runner that stores the
+   SDL in a thread-local or interpreter-scoped slot readable by `serveGraphQL`.
+
+`serveGraphQL(port, resolvers)` reads the registered SDL at call time and passes
+it to `graphql-java`'s `SchemaParser.parse(sdl)`.
 
 ### 3.8 JVM dependency
 
@@ -264,7 +305,13 @@ Tasks:
 - `GraphQLJvmRuntime`: build `graphql.GraphQL` instance from SDL +
   `DataFetchingEnvironment`-backed resolver wrappers.
 - `graphql.ssc`: `extern` declarations + opaque type aliases.
-- Register `"graphql"` in `SourceLanguageRegistry` → plain SDL String.
+- `Lang.scala`: add `val Graphql = "graphql"` + `def isGraphql`.
+- `Backend` SPI: add `def graphqlBlockRunner: Option[GraphQLBlockRunner] = None`.
+- `SectionRuntime`: handle `Lang.isGraphql` blocks via `interp.graphqlBlockRunner`
+  (same pattern as `sqlBlockRunner` / `runSqlBlock`).
+- `META-INF/services/scalascript.backend.spi.SourceLanguage`: register
+  `GraphQLSourceLanguage` for the compile-time IR path (JVM/JS codegen Phase 2+).
+  No hand-edit to `SourceLanguageRegistry.scala` needed — ServiceLoader handles it.
 - `serveGraphQL` wires to the existing `serve()` / `route()` HTTP server:
   registers `POST /graphql` + `GET /graphql` (GET for browser form queries).
 - `GraphQLPlugin` ServiceLoader.
@@ -284,12 +331,17 @@ Tasks:
 - Async resolver support in `GraphQLJvmRuntime`: detect `Source`/`Future`
   return and use `graphql-java`'s `DataFetcher` with `CompletableFuture`.
 - `graphqlQuery(url, query[, variables])` extern: HTTP POST client.
-- `GraphQLJsRuntime`: JS backend for `ssc emit-js --target node`. `JsGen`
-  emits a JS preamble with `const {graphql, buildSchema} = require('graphql')`
-  and adds `graphql-js` to the generated `package.json` `dependencies`.
-  Registers `POST /graphql` + `GET /graphql` in the Node.js HTTP handler.
-- `JsGen` codegen: emit `graphqlHandler` as a JS `async` function wrapping
-  `graphql({ schema, source, variableValues })`.
+- `GraphQLJsRuntime` + `runtime/backend/js/…/codegen/intrinsics/Graphql.scala`:
+  JS codegen for `ssc emit-js --target node`. Per-intrinsic JS codegen lives in
+  `runtime/backend/js/.../codegen/intrinsics/` (alongside `Http.scala`,
+  `Ws.scala`), NOT in `JsGen.scala` itself.
+- `runtime/backend/node/.../codegen/NodeBackend.scala`: adds
+  `const {graphql, buildSchema} = require('graphql')` to the Node preamble and
+  `"graphql": "^16.x"` to the generated `package.json`. This file owns all
+  `require()` and `package.json` emission — not `JsGen`.
+- Registers `POST /graphql` + `GET /graphql` in the Node.js HTTP handler via
+  emitted `graphqlHandler` (JS `async` function wrapping
+  `graphql({ schema, source, variableValues })`).
 - `Feature.GraphQL` in `SpiCapabilities`.
 - `examples/graphql-client.ssc` — query a public GraphQL API.
 - Tests: async resolver round-trip (interpreter), JS codegen shape.
@@ -308,9 +360,13 @@ subscription = Map(
 ```
 
 Tasks:
-- `serveGraphQL` registers a second WebSocket endpoint `GET /graphql/ws`.
-- Server-side `graphql-ws` protocol handler (connection init, subscribe,
-  next, error, complete messages) on top of the existing WS infrastructure.
+- `serveGraphQL` registers a second WebSocket endpoint `GET /graphql/ws`
+  using the **existing** `onWebSocket("/graphql/ws") { ws => … }` from
+  `HttpIntrinsics` — no new WS primitives needed.
+- Server-side `graphql-ws` protocol state machine (connection_init, subscribe,
+  next, error, complete, ping, pong messages + flow control). The full message
+  set makes this ~6 days, not 4 — the state machine is substantive even with
+  `onWebSocket` available.
 - `GraphQLJvmRuntime` bridges `Source[A]` → `graphql-java` `Publisher[A]`
   (Reactive Streams adapter; graphql-java 22.x supports it natively).
 - Client-side: `graphqlSubscribe(url, query)(handler)` extern.
@@ -320,17 +376,23 @@ Tasks:
 - Tests: subscription lifecycle (subscribe → push N events → complete),
   error propagation, multiple concurrent subscribers.
 
-Effort: ~4 days. Spec: `docs/graphql.md §5 Phase 3`.
+Effort: ~6 days. Spec: `docs/graphql.md §5 Phase 3`.
 
 ### Phase 4 — Compile-time SDL validation + schema-aware completion
 
 **Goal**: schema syntax errors are caught at `ssc build` time (not runtime).
 
 Tasks:
-- `GraphQLLanguagePlugin.compileBlock(content, attrs)` runs SDL through
-  `graphql-java`'s `SchemaParser` at compile time; reports errors as
-  `Diagnostic` instances (same mechanism as `MarkupInterpolatorCheck`).
-- `SourceLanguageRegistry` already supports `compileBlock` override.
+- `GraphQLSourceLanguage.compileBlock(content, attrs)` runs SDL through
+  `graphql-java`'s `SchemaParser` at compile time; reports errors by
+  populating `BlockArtifact.diagnostics: List[Diagnostic]` (the field already
+  exists on `BlockArtifact`). The `SourceLanguageRegistry` framework forwards
+  diagnostics to the compiler and LSP.
+  Note: `MarkupInterpolatorCheck` (a transform pass) is **not** the right
+  pattern here — it handles string-interpolator sites like `html"…"`, not
+  fenced blocks. Fenced-block errors belong in `compileBlock` itself.
+- `SourceLanguageRegistry` already invokes `compileBlock` and collects
+  `BlockArtifact.diagnostics` — no new framework wiring needed.
 - LSP integration: `ssc lsp` reports SDL errors inline in the editor.
 - `GraphQLSchemaCheckTest`: 6+ tests for valid SDL, field type error,
   undefined type reference, duplicate type, syntax error.
@@ -356,7 +418,8 @@ server is sufficient for Phase 1–3 acceptance.
 
 ## 7. Open questions
 
-1. **`graphql-java` version pinning**: 22.x is current as of 2026-05.
+1. **`graphql-java` version pinning**: pin to the latest stable LTS at
+   vendor time (22.x as of this writing; verify before Phase 1 starts).
    Major versions break resolver API; pin explicitly and document upgrade path.
 
 2. **Introspection in production**: disable by default with
@@ -386,6 +449,19 @@ server is sufficient for Phase 1–3 acceptance.
    Recommendation: expose `GraphQLError(message, code)` as a throw-able type
    in Phase 2.
 
+7. **Plugin-loading order**: when the user loads both `graphql-plugin` and
+   `http-plugin`, ServiceLoader order is classpath-dependent. The
+   `graphqlBlockRunner` slot and `graphqlMount` (which calls the existing
+   `route()` server) must be set up before `serveGraphQL` is called. Phase 1
+   must verify that `Interpreter.installPlugins` sequences these correctly and
+   document any ordering constraint in `GraphQLPlugin.description`.
+
+8. **Plugin jar size budget**: `graphql-java` + Reactive Streams adapter +
+   a JSON library totals ≥ 12 MB. The base `ssc` binary stays clean (graphql
+   is loaded only via `//> using dep "pkg:graphql"`), but users loading it in a
+   serverless / GraalVM native-image context should expect a size increase.
+   Document prominently in `graphql.ssc` header and Phase 1 example.
+
 ---
 
 ## 8. Critical files
@@ -397,9 +473,13 @@ server is sufficient for Phase 1–3 acceptance.
 | `runtime/std/graphql-plugin/…/GraphQLJvmRuntime.scala` | Phase 1 NEW — graphql-java wiring |
 | `runtime/std/graphql-plugin/…/GraphQLJsRuntime.scala` | Phase 2 NEW — graphql-js wiring |
 | `runtime/std/graphql.ssc` | Phase 1 NEW — extern declarations |
-| `lang/core/…/parser/SourceLanguageRegistry.scala` | Phase 1 — register "graphql" tag |
-| `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 — graphqlHandler codegen |
-| `runtime/backend/js/…/codegen/JsGen.scala` | Phase 2 — JS graphqlHandler codegen |
+| `lang/core/src/main/scala/scalascript/ast/Lang.scala` | Phase 1 — add `val Graphql` + `isGraphql` |
+| `runtime/backend/spi/…/Backend.scala` | Phase 1 — add `graphqlBlockRunner` SPI method |
+| `runtime/backend/interpreter/…/Interpreter.scala` | Phase 1 — install graphqlBlockRunner from plugins |
+| `runtime/backend/interpreter/…/SectionRuntime.scala` | Phase 1 — handle `Lang.isGraphql` blocks |
+| `lang/core/src/main/scala/scalascript/compiler/plugin/SourceLanguageRegistry.scala` | no change — ServiceLoader only |
+| `runtime/backend/js/…/codegen/intrinsics/Graphql.scala` | Phase 2 NEW — JS graphqlHandler codegen |
+| `runtime/backend/node/…/codegen/NodeBackend.scala` | Phase 2 — require('graphql') preamble + package.json |
 | `build.sbt` | Phase 1 — new `graphqlPlugin` subproject |
 | `examples/graphql-hello.ssc` | Phase 1 NEW |
 | `examples/graphql-client.ssc` | Phase 2 NEW |
