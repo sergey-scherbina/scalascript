@@ -252,6 +252,10 @@ ScalaScript's own registry work stays queued.
 
 - [x] **openapi-export** — Auto-derive OpenAPI 3.1 JSON from registered `route()` calls: `GET /_openapi.json` built-in endpoint (JSON document with paths/methods/path-parameters); `GET /_swagger` Swagger UI HTML page (CDN-linked). `OpenApiRuntime` registers both alongside `/_health`/`/_ready` when `serve`/`serveAsync` is called; walks `RouteRegistry.all`; extracts `:param` segments → `{param}` OpenAPI notation; inspects `FunV.paramTypes` for typed handlers; non-path typed params → query (GET/DELETE) or `requestBody` (POST/PUT/PATCH); type map String→string / Int+Long→integer / Double+Float→number / Boolean→boolean / other→object; `IntrinsicImpl.registerOpenApiDefaults()` hook wired from `HttpIntrinsics`; skips internal `/_*` routes. (2026-05-27)
 
+- [x] **openapi-p2** — JVM codegen + shared OpenAPI generator: `OpenApiGenerator` in backend SPI, interpreter adapter, JVM generated `serve` / `serveAsync` registration of `/_openapi.json` and `/_swagger`, and JVM scala-cli e2e coverage. ✓ Landed 2026-05-29. Follow-up `openapi-p2b` tracks automatic response type metadata propagation.
+
+- [ ] **openapi-p2b** — Response type metadata propagation for OpenAPI: carry response type metadata from typed route/front-matter/generated route declarations into `OpenApiRoute.responseType`; keep raw `route(...)` handlers on the safe generic `200 OK` fallback. Spec: `docs/openapi.md §5 Phase 2 follow-up`.
+
 ## Language & Compiler — Spark extensions
 
 - [x] **spark-streaming-f2-f4** — Spark Structured Streaming phases F.2–F.4: (F.2) `SparkGen.detectStreaming`, `awaitTermination()` shim, `examples/spark-streaming-rate-console.ssc`, 3+ codegen tests; (F.3) file source/sink + checkpointing comment emit, `examples/spark-streaming-file-parquet.ssc`; (F.4) `.format("kafka")` detection → auto-emit `spark-sql-kafka-0-10_2.13` dep, `examples/spark-streaming-kafka.ssc`. Smoke tests gated by `RUN_SPARK_INTEGRATION`/`RUN_SPARK_KAFKA`. Spec: `docs/spark-streaming.md §F.2–F.4`. ✓ Landed (2026-05-27)

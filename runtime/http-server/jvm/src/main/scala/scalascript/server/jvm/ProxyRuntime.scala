@@ -228,6 +228,7 @@ def setHttpServerBackend(name: String): Unit =
 // machinery now lives in the SPI impl.
 def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
   _registerHealthDefaults()
+  _registerOpenApiDefaults()
   // Seed the default JDK backend.  ServiceLoader would normally find
   // it via `META-INF/services/scalascript.server.spi.HttpServerSpi`,
   // but the codegen pipeline inlines `.scala` sources (no `META-INF`),
@@ -275,6 +276,7 @@ def serve(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
 // handshake transparently.
 def serveAsync(port: Int, tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]): Unit =
   _registerHealthDefaults()
+  _registerOpenApiDefaults()
   // Same backend bootstrap as `serve` — register the inlined JDK impl
   // programmatically since the codegen pipeline doesn't carry
   // `META-INF/services` entries.
@@ -516,4 +518,3 @@ private final class _CodegenWsListener(
 
   override def onError(t: Throwable): Unit =
     _proxyLog.error(s"WS error: ${t.getMessage}", t)
-

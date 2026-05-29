@@ -5580,16 +5580,27 @@ behaviour unchanged).
 **Spec:** [`docs/openapi.md`](docs/openapi.md)
 
 Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
-Phases 2–5 are planned.
+Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phases 2b–5 are planned.
 
 - [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
   when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
   Swagger UI CDN page; 12 tests in `OpenApiRuntimeTest`. Landed as part of HTTP infrastructure.
 
-- [ ] **openapi-p2** — JVM codegen + shared generator + response schema:
+- [x] **openapi-p2** — JVM codegen + shared generator + response schema foundation: ✓ Landed 2026-05-29.
   extract `OpenApiGenerator` into `runtime/backend/spi/`; `JvmGen` emits `/_openapi.json`
   and `/_swagger` routes; response schema derived from handler return type.
-  Spec: `docs/openapi.md §5 Phase 2`. Effort: ~3 days.
+  Landed: shared `OpenApiGenerator` route model/schema/html generator, interpreter
+  adapter preserving typed handler parameter inference, JVM generated `serve` /
+  `serveAsync` OpenAPI + Swagger default routes, and scala-cli JVM e2e coverage.
+  Automatic handler return-type extraction is split to `openapi-p2b` because raw
+  JVM route closures are currently `Request => Any`. Spec:
+  `docs/openapi.md §5 Phase 2`.
+
+- [ ] **openapi-p2b** — Response type metadata propagation:
+  carry response type metadata from typed route/front-matter/generated route
+  declarations into `OpenApiRoute.responseType`; keep raw `route(...)`
+  handlers on the safe generic `200 OK` fallback.
+  Spec: `docs/openapi.md §5 Phase 2 follow-up`. Effort: ~1 day.
 
 - [ ] **openapi-p3** — `@openapi` per-route annotation:
   `runtime/std/openapi.ssc` extern; `RouteEntry.metadata`; `HttpIntrinsics` merges metadata;

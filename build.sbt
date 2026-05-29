@@ -77,6 +77,7 @@ lazy val backendSpi = project
   .dependsOn(ir, markupCore)
   .settings(
     name := "scalascript-backend-spi",
+    libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )

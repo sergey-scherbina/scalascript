@@ -628,7 +628,13 @@ private def _parsePath(p: String): List[_Seg] = HttpHelpers.parsePath(p)
 // bytes accordingly.  The wider Any return type is what lets MCP transports use
 // `route("GET", path) { req => sse(req) { … } }`: `sse()` returns `_StreamResponse`,
 // not `Response`.
-private case class _Route(method: String, path: String, pattern: List[_Seg], handler: Request => Any)
+private case class _Route(
+    method:       String,
+    path:         String,
+    pattern:      List[_Seg],
+    handler:      Request => Any,
+    responseType: Option[String] = None
+)
 private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
 private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
 
@@ -636,6 +642,98 @@ def route(method: String, path: String)(handler: Request => Any): Unit =
   _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
 
 def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
+
+private object _OpenApiGenerator:
+  def generate(routes: Iterable[_Route]): String =
+    val byPath = routes.filterNot(_.path.startsWith("/_")).toList
+      .groupBy(r => toOpenApiPath(r.path))
+      .toList
+      .sortBy(_._1)
+    val sb = new StringBuilder()
+    sb.append("{\n")
+    sb.append("  \"openapi\": \"3.1.0\",\n")
+    sb.append("  \"info\": { \"title\": \"ScalaScript API\", \"version\": \"1.0.0\" },\n")
+    sb.append("  \"paths\": {")
+    if byPath.isEmpty then sb.append("}\n}\n")
+    else
+      sb.append("\n")
+      var firstPath = true
+      for (path, entries) <- byPath do
+        if !firstPath then sb.append(",\n")
+        firstPath = false
+        sb.append(s"    ${jsonStr(path)}: {\n")
+        var firstMethod = true
+        for r <- entries.sortBy(_.method) do
+          if !firstMethod then sb.append(",\n")
+          firstMethod = false
+          val params = extractPathParams(r.path).map(paramEntry)
+          sb.append(s"      ${jsonStr(r.method.toLowerCase)}: {\n")
+          sb.append(s"        \"summary\": ${jsonStr(r.method + " " + r.path)},\n")
+          if params.nonEmpty then
+            sb.append("        \"parameters\": [\n")
+            sb.append(params.mkString(",\n"))
+            sb.append("\n        ],\n")
+          sb.append("        \"responses\": ")
+          sb.append(responseSchema(r.responseType))
+          sb.append("\n")
+          sb.append("      }")
+        sb.append("\n    }")
+      sb.append("\n  }")
+      sb.append("\n}\n")
+    sb.toString
+
+  def swaggerUiHtml(): String =
+    """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>API Docs — ScalaScript</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"/>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: "/_openapi.json",
+      dom_id: "#swagger-ui",
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+      layout: "BaseLayout",
+      deepLinking: true
+    });
+  </script>
+</body>
+</html>"""
+
+  private def toOpenApiPath(path: String): String =
+    path.split('/').map(seg => if seg.startsWith(":") then s"{${seg.tail}}" else seg).mkString("/")
+  private def extractPathParams(path: String): List[String] =
+    path.split('/').collect { case seg if seg.startsWith(":") => seg.tail }.toList
+  private def responseSchema(responseType: Option[String]): String =
+    responseType.filter(t => t.nonEmpty && t != "Response" && t != "Any").map { t =>
+      s"""{ "200": { "description": "OK", "content": { "application/json": { "schema": ${jsonSchema(t)} } } } }"""
+    }.getOrElse("""{ "200": { "description": "OK" } }""")
+  private def jsonSchema(typeName: String): String = typeName match
+    case "String"                          => "{\"type\":\"string\"}"
+    case "Int" | "Long" | "Short" | "Byte" => "{\"type\":\"integer\"}"
+    case "Double" | "Float" | "BigDecimal" => "{\"type\":\"number\"}"
+    case "Boolean"                         => "{\"type\":\"boolean\"}"
+    case "Unit"                            => "{\"type\":\"null\"}"
+    case _                                 => "{\"type\":\"object\"}"
+  private def paramEntry(name: String): String =
+    s"""          { "name": ${jsonStr(name)}, "in": "path", "required": true, "schema": {"type":"string"} }"""
+  private def jsonStr(s: String): String =
+    val sb = new StringBuilder("\"")
+    s.foreach {
+      case '"'  => sb.append("\\\"")
+      case '\\' => sb.append("\\\\")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c    => sb.append(c)
+    }
+    sb.append("\"").toString
 
 // Tier 5 #21 — `/_health` and `/_ready` defaults auto-registered the
 // first time `serve(...)` runs.  User-defined routes with the same
@@ -646,6 +744,34 @@ private def _registerHealthDefaults(): Unit =
     Response(200, Map("Content-Type" -> "application/json"), "{\"status\":\"ok\"}")
   if !has("/_health") then _routes += _Route("GET", "/_health", _parsePath("/_health"), ok)
   if !has("/_ready")  then _routes += _Route("GET", "/_ready",  _parsePath("/_ready"),  ok)
+
+private def _registerOpenApiDefaults(): Unit =
+  def has(p: String): Boolean = _routes.exists(r => r.method == "GET" && r.path == p)
+  if !has("/_openapi.json") then
+    _routes += _Route(
+      "GET",
+      "/_openapi.json",
+      _parsePath("/_openapi.json"),
+      _ => Response(
+        200,
+        Map(
+          "Content-Type"                -> "application/json",
+          "Access-Control-Allow-Origin" -> "*"
+        ),
+        _OpenApiGenerator.generate(_routes)
+      )
+    )
+  if !has("/_swagger") then
+    _routes += _Route(
+      "GET",
+      "/_swagger",
+      _parsePath("/_swagger"),
+      _ => Response(
+        200,
+        Map("Content-Type" -> "text/html; charset=utf-8"),
+        _OpenApiGenerator.swaggerUiHtml()
+      )
+    )
 
 private def _matchPath(pat: List[_Seg], segs: List[String]): Option[Map[String, String]] =
   HttpHelpers.matchPath(pat, segs)
@@ -881,4 +1007,3 @@ private def _serveStatic(ex: com.sun.net.httpserver.HttpExchange, urlPath: Strin
   StaticAssetServer.tryServe(ex, urlPath, _ssc_static_root)
 
 private def _contentTypeFor(name: String): String = HttpHelpers.contentTypeFor(name)
-

@@ -1,7 +1,7 @@
 # OpenAPI 3.1 — spec
 
 **Status:** Phase 1 landed (interpreter `/_openapi.json` + `/_swagger`).
-Phases 2–5 planned.
+Phase 2 landed for shared generation and JVM route emission. Phases 3–5 planned.
 
 **Companion:** [`docs/future-protocols.md §4`](future-protocols.md)
 
@@ -60,8 +60,8 @@ derived, never hand-written.
 
 | # | Gap | Affects |
 |---|-----|---------|
-| G1 | JVM codegen — `RestRuntime.scala` (inlined by JvmGen) has no `_registerOpenApiDefaults()` | `--backend jvm --bytecode` |
-| G2 | Response schema — all responses emit `{ "200": { "description": "OK" } }` only | All |
+| G1 | JVM codegen — `RestRuntime.scala` / `JvmGen` emits no `/_openapi.json` route | Landed in Phase 2 |
+| G2 | Response schema — registries only pass schema when a type is known | All |
 | G3 | Auth declarations — no way to mark a route as requiring bearer/api-key | All |
 | G4 | Route metadata — no description, summary, tags, deprecation per route | All |
 | G5 | `ssc emit-openapi` CLI command — standalone export without serving | CLI |
@@ -127,7 +127,12 @@ runtime/http-server/jvm/…/server/jvm/
                                            _generateOpenApiJson() (path-only)
 runtime/backend/
   interpreter/…/interpreter/
-    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2 extends (response schema)
+    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2 uses shared generator
+  jvm/…/codegen/
+    JvmGen.scala                         ← Phase 2 ✓: emit /_openapi.json route
+  spi/…/spi/
+    OpenApiGenerator.scala               ← Phase 2 ✓: shared generation model + logic
+    RouteAnnotation.scala                ← Phase 3: @openapi annotation type (NEW)
 tools/cli/…/cli/
   Main.scala                             ← Phase 5: ssc emit-openapi subcommand
 runtime/std/
@@ -158,28 +163,33 @@ Files: `OpenApiRuntime.scala`, `OpenApiRuntimeTest.scala` (12 tests).
 - `/_swagger`: Swagger UI CDN page.
 - Interpreter only.
 
-### Phase 2 — JVM codegen OpenAPI + interpreter response schema
+### Phase 2 — JVM codegen + shared generator + response schema foundation ✓ Landed
 
 **Goal**: `ssc link --backend jvm --bytecode` produces `/_openapi.json` and
 `/_swagger`; interpreter path gets richer response schema.
 
-**JVM path** (`runtime/http-server/jvm/…/RestRuntime.scala`):
-- Add `_registerOpenApiDefaults()` — mirrors interpreter's `registerOpenApiDefaults`.
-  Generates JSON by walking `_routes`: path params from `:segment` notation;
-  `requestBody` present for POST/PUT/PATCH (object schema with no properties,
-  since JVM handlers are `Request => Any` and param names are erased).
-- Add `_generateOpenApiJson(): String` — path-only generation.
-- Register `GET /_openapi.json` and `GET /_swagger` inside `def serve(port)` and
-  `def serveAsync(port)` after `_registerHealthDefaults()`.
-- `_swagger` response identical to interpreter (CDN Swagger UI page).
-- Test: `JvmGenTest` — codegen output contains `/_openapi.json` route and valid JSON shape.
+Tasks:
+- `OpenApiGenerator` lives in `runtime/backend/spi/` and owns the shared route
+  model, path conversion, parameter/body schema emission, response schema
+  emission when a response type is supplied, JSON escaping, and Swagger UI HTML.
+- The interpreter adapts `RouteRegistry.all` into `OpenApiGenerator.OpenApiRoute`
+  and preserves the existing typed `Value.FunV.paramTypes` query/body inference.
+- JVM generated servers register `GET /_openapi.json` and `GET /_swagger` from
+  the same `_routes` table when `serve()` / `serveAsync()` starts. The generated
+  script uses an inlined equivalent helper so standalone scala-cli output does
+  not depend on a newly published `backend-spi` artifact.
+- Response schema plumbing is in place via `OpenApiRoute.responseType`. Automatic
+  handler return-type extraction for route registries remains a follow-up because
+  the current JVM route closure type is `Request => Any`.
+- Tests: `OpenApiGeneratorTest`, existing `OpenApiRuntimeTest`, JvmGen code-shape
+  coverage, and a scala-cli JVM e2e probe for `/_openapi.json`.
 
-**Interpreter path** (extend `OpenApiRuntime.scala`):
-- Response schema derivation: check if handler is registered with a type hint
-  (`Response.json(v)` path → infer `application/json` content type). Falls back
-  to `{ "200": { "description": "OK" } }` for all other handlers.
+Follow-up split from Phase 2:
 
-Effort: ~3 days. Spec: `docs/openapi.md §5 Phase 2`.
+- **openapi-p2b** — automatic response type extraction: carry response type
+  metadata from typed route/front-matter/generated route declarations into
+  `OpenApiRoute.responseType`, and keep raw `route(...) { req => ... }`
+  handlers on the safe `{ "200": { "description": "OK" } }` fallback.
 
 ### Phase 3 — `@openapi` per-route annotation
 
@@ -269,7 +279,7 @@ Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 5`.
 | Phase | Tests | Kind |
 |-------|-------|------|
 | 1 ✓ | `OpenApiRuntimeTest` (12) | Interpreter unit |
-| 2 | `OpenApiRuntimeTest` + new JVM round-trip (6+) | Interpreter + JVM codegen |
+| 2 ✓ | `OpenApiGeneratorTest`, `OpenApiRuntimeTest`, JvmGen code-shape + JVM e2e | SPI + interpreter + JVM codegen |
 | 3 | `OpenApiRuntimeTest` annotation cases (6+) | Interpreter unit |
 | 4 | `OpenApiRuntimeTest` security cases (4+) | Interpreter unit |
 | 5 | `EmitOpenapiCliTest` (4+) | CLI subprocess |
@@ -306,10 +316,12 @@ browser; manual smoke is sufficient.
 
 | File | Role |
 |------|------|
-| `runtime/backend/interpreter/…/OpenApiRuntime.scala` | Phase 1 ✓ + Phase 2 extension |
-| `runtime/backend/interpreter/src/test/scala/scalascript/OpenApiRuntimeTest.scala` | Phase 1 ✓ tests (16) |
-| `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 — add `_registerOpenApiDefaults()` |
-| `runtime/backend/interpreter/src/main/scala/scalascript/server/RouteRegistry.scala` | Phase 3 — add `RouteMetadata` to `RouteEntry` |
-| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — store `@openapi` metadata in RouteEntry |
+| `runtime/backend/interpreter/…/OpenApiRuntime.scala` | Phase 1 ✓; Phase 2 shared-generator adapter |
+| `runtime/backend/interpreter/src/test/scala/scalascript/OpenApiRuntimeTest.scala` | Phase 1/2 tests (16) |
+| `runtime/backend/spi/…/OpenApiGenerator.scala` | Phase 2 ✓ — shared route model and generator |
+| `runtime/backend/spi/…/RouteAnnotation.scala` | Phase 3 NEW — @openapi metadata |
+| `runtime/backend/jvm/…/codegen/JvmGen.scala` | Phase 2 ✓ — emit /_openapi.json route |
+| `runtime/http-server/jvm/…/server/jvm/RestRuntime.scala` | Phase 2 ✓ — generated-server OpenAPI defaults |
+| `runtime/std/http-plugin/…/HttpIntrinsics.scala` | Phase 3 — merge @openapi into RouteEntry |
 | `tools/cli/…/cli/Main.scala` | Phase 5 — `ssc emit-openapi` subcommand |
 | `runtime/std/openapi.ssc` | Phase 3 NEW — extern annotation declaration |

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — openapi-p2 JVM OpenAPI routes
+
+- **openapi-p2** — OpenAPI generation now has a shared `OpenApiGenerator` model in backend SPI, and JVM-generated HTTP servers register `GET /_openapi.json` plus `GET /_swagger` from the generated `_routes` table when `serve()` / `serveAsync()` starts. The interpreter uses the shared generator while preserving typed handler query/body inference. Added SPI, interpreter, JvmGen code-shape, and scala-cli JVM e2e tests. Automatic response-type propagation is split to `openapi-p2b`.
+
 ## 2026-05-29 — arch-meta-v2-p4d richer quoted macro diagnostics
 
 - **arch-meta-v2-p4d** — Restricted quoted macro unsupported-body diagnostics now classify common misses before the generic fallback. `Expr.asValue match` points at not-yet-implemented compile-time branching, `Expr(...)` points users back to direct quote syntax, and nested/non-top-level quotes or splices outside a direct quoted expression explain the current body-shape restriction. Added linker tests for each targeted diagnostic while preserving direct quoted-expression expansion.

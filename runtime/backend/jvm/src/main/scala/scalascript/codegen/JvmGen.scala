@@ -278,6 +278,10 @@ class JvmGen(
     val effectiveFrontend = frontendOverride.orElse(frontendFramework)
     val usesObjectStore = blocksUseObjectStore(blocks)
     val usesGraph = blocksUseGraph(blocks) || graphStores.nonEmpty
+    val usesHttpServer =
+      effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty ||
+      objectStores.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) ||
+      effectiveFrontend.isDefined
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
     val usesTypedData = blocksUseTypedData(blocks)
@@ -334,7 +338,7 @@ class JvmGen(
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
-    if effectOps.nonEmpty || blocksUseRoutes(blocks) || frontmatterRoutes.nonEmpty || objectStores.nonEmpty || blocksUseJson(blocks) || blocksUseMcp(blocks) || effectiveFrontend.isDefined then sb.append(serveRuntime)
+    if usesHttpServer then sb.append(serveRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
@@ -7346,6 +7350,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  val _globalRegistry  = new java.util.concurrent.ConcurrentHashMap[String, _Pid]()
        |  val _peerChannels    = new java.util.concurrent.ConcurrentHashMap[String, String => Unit]()
        |  val _remoteInbox    = new java.util.concurrent.ConcurrentLinkedQueue[(Long, Any)]()
+       |  case class _RemoteHandlerInfo(function: String, path: Option[String], requestType: Option[String], responseType: Option[String], transports: Set[String])
+       |  val _remoteHandlers = new java.util.concurrent.ConcurrentHashMap[String, _RemoteHandlerInfo]()
        |  val _peerLastPong   = new java.util.concurrent.ConcurrentHashMap[String, Long]()
        |  val _nodeDownQueue  = new java.util.concurrent.ConcurrentLinkedQueue[String]()
        |  // cross-node monitors: nodeId → [(localActorId, monRef, remotePid.localId)]

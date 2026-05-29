@@ -810,6 +810,22 @@ route("DELETE", "/users/:id") { req =>
 serve(8080)
 ```
 
+### OpenAPI and Swagger
+
+When a server calls `serve(port)` or `serveAsync(port)`, ScalaScript registers
+two development endpoints:
+
+| Route | Behaviour |
+|---|---|
+| `GET /_openapi.json` | OpenAPI 3.1 JSON derived from registered `route()` handlers |
+| `GET /_swagger` | Swagger UI page pointing at `/_openapi.json` |
+
+The interpreter derives path parameters, query parameters, and JSON request-body
+properties from typed handler metadata where available. JVM codegen exposes the
+same built-in endpoints from its generated `_routes` table; raw `Request => Any`
+handlers use the generic `200 OK` response schema until response-type metadata is
+carried through generated route registrations.
+
 ### File-based handlers (`mount()`)
 
 `mount()` evaluates a `.ssc` file once at startup and registers the result

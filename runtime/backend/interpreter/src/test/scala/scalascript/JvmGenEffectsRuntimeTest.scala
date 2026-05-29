@@ -81,6 +81,12 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     serveDefs shouldBe 1
     code should include ("tlsCfg: _TlsConfig = null.asInstanceOf[_TlsConfig]")
 
+  test("JvmGen: HTTP server runtime registers OpenAPI defaults"):
+    val code = jvmCode("""serve(8080)""")
+    code should include ("def _registerOpenApiDefaults()")
+    code should include ("/_openapi.json")
+    code should include ("/_swagger")
+
   test("JvmGen: `serveAsync(port)` pulls in the serve runtime"):
     // A bare `serveAsync(8080)` must trigger `blocksUseRoutes` so the
     // inlined ProxyRuntime (which defines `def serveAsync`) is in
@@ -277,16 +283,21 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     val port = pickFreePort()
     val sc   = jvmCode(scriptBody(port))
     val tmp  = java.io.File.createTempFile("ssc-jvmgen-cluster-e2e-", ".sc")
+    val out  = java.io.File.createTempFile("ssc-jvmgen-cluster-e2e-", ".out")
+    val err  = java.io.File.createTempFile("ssc-jvmgen-cluster-e2e-", ".err")
     tmp.deleteOnExit()
+    out.deleteOnExit()
+    err.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath, sc.getBytes(StandardCharsets.UTF_8))
     val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath)
-      .redirectError(ProcessBuilder.Redirect.DISCARD)
-      .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+      .redirectOutput(out)
+      .redirectError(err)
       .start()
     try
       // Poll for the listener — `serveAsync` returns immediately but
-      // the bind happens on a virtual thread, so we wait up to ~30 s.
-      val deadline = System.currentTimeMillis() + 30_000L
+      // the bind happens on a virtual thread; scala-cli may also need
+      // a cold compile when the generated runtime changes.
+      val deadline = System.currentTimeMillis() + 60_000L
       var up = false
       while !up && System.currentTimeMillis() < deadline do
         try
@@ -295,7 +306,13 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
           s.close()
           up = true
         catch case _: Throwable => Thread.sleep(250)
-      if !up then fail(s"node didn't bind 127.0.0.1:$port within 30 s")
+      if !up then
+        def tail(f: java.io.File): String =
+          if f.exists() then
+            val lines = java.nio.file.Files.readAllLines(f.toPath).toArray.toList.map(String.valueOf)
+            lines.takeRight(80).mkString("\n")
+          else ""
+        fail(s"node didn't bind 127.0.0.1:$port within 60 s\nstdout:\n${tail(out)}\nstderr:\n${tail(err)}")
       body(port)
     finally
       proc.destroyForcibly()
@@ -339,6 +356,21 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
       body should include ("\"drainingPeers\":[]")
       body should include ("\"raftTerm\":0")
       body should include ("\"raftState\":\"follower\"")
+    }
+
+  test("JvmGen e2e: GET /_openapi.json exposes user routes"):
+    withRunningNode { port =>
+      s"""
+        route("GET", "/hello/:name") { req => Response.json(Map("ok" -> true)) }
+        serve($port)
+      """
+    } { port =>
+      val (status, body) = httpGet(s"http://127.0.0.1:$port/_openapi.json")
+      status shouldBe 200
+      body should include ("\"openapi\": \"3.1.0\"")
+      body should include ("\"/hello/{name}\"")
+      body should include ("\"get\"")
+      body should not include "\"/_health\""
     }
 
   test("JvmGen e2e: POST /_ssc-cluster/drain toggles drainingSelf"):
