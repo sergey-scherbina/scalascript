@@ -550,6 +550,14 @@ def main(): Unit =
     """) shouldBe "ABC\nac\nabc\ncde\nab"
   }
 
+  test("string toList and zipWithIndex") {
+    captured("""println("abc".toList.map(c => c.toString).mkString("-"))""") shouldBe "a-b-c"
+    captured("""
+      val xs = "abc".zipWithIndex
+      println(xs.map(p => s"${p._2}:${p._1}").mkString(", "))
+    """) shouldBe "0:a, 1:b, 2:c"
+  }
+
   // ── List methods ─────────────────────────────────────────────────
 
   test("list zip") {

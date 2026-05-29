@@ -829,10 +829,9 @@ private[interpreter] object DispatchRuntime:
           Computation.PureTrue
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "toList"      =>
-        val buf = new scala.collection.mutable.ArrayBuffer[Value](s.length)
-        var i = 0
-        while i < s.length do { buf += Value.charV(s.charAt(i)); i += 1 }
-        Pure(Value.ListV(buf.toList))
+        var tlList: List[Value] = Nil; var tlI = s.length - 1
+        while tlI >= 0 do { tlList = Value.charV(s.charAt(tlI)) :: tlList; tlI -= 1 }
+        Pure(Value.ListV(tlList))
       case "init"        =>
         if s.isEmpty then interp.located("init on empty String")
         else Pure(Value.StringV(s.init))
@@ -875,10 +874,11 @@ private[interpreter] object DispatchRuntime:
           else Pure(Value.StringV(s.padTo(n.toInt, c)))
         case _                                   => dispatchFallback(recv, name, args, env, interp)
       case "zipWithIndex" =>
-        val buf = new scala.collection.mutable.ArrayBuffer[Value](s.length)
-        var i = 0
-        while i < s.length do { buf += Value.TupleV(Value.charV(s.charAt(i)) :: Value.intV(i.toLong) :: Nil); i += 1 }
-        Pure(Value.ListV(buf.toList))
+        var ziList: List[Value] = Nil; var ziI = s.length - 1
+        while ziI >= 0 do
+          ziList = Value.TupleV(Value.charV(s.charAt(ziI)) :: Value.intV(ziI.toLong) :: Nil) :: ziList
+          ziI -= 1
+        Pure(Value.ListV(ziList))
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Char ────────────────────────────────────────────────────────────────────
@@ -1145,12 +1145,12 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.MapV(groups.iterator.map { (k, buf) => k -> Value.ListV(buf.toList) }.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "zipWithIndex" =>
-        val ziBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-        var ziRem = ls; var ziIdx = 0
-        while ziRem.nonEmpty do
-          ziBuf += Value.TupleV(ziRem.head :: Value.intV(ziIdx.toLong) :: Nil)
-          ziRem = ziRem.tail; ziIdx += 1
-        Pure(Value.ListV(ziBuf.toList))
+        val ziArr = ls.toArray
+        var ziList: List[Value] = Nil; var ziI = ziArr.length - 1
+        while ziI >= 0 do
+          ziList = Value.TupleV(ziArr(ziI) :: Value.intV(ziI.toLong) :: Nil) :: ziList
+          ziI -= 1
+        Pure(Value.ListV(ziList))
       case "indices"      =>
         var list: List[Value] = Nil; var idxI = ls.length - 1
         while idxI >= 0 do { list = Value.intV(idxI.toLong) :: list; idxI -= 1 }

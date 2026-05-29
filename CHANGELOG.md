@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter toList and zipWithIndex builders
+
+- **perf/interpreter-zip-tolist** — Ported reverse-cons builders for
+  `String.toList`, `String.zipWithIndex`, and `List.zipWithIndex` from
+  `perf/interpreter-opt`, preserving element order while avoiding
+  `ArrayBuffer` allocation in these common collection conversions.
+
 ## 2026-05-29 — interpreter split and indices list builders
 
 - **perf/interpreter-split-indices** — Ported reverse-cons builders for
