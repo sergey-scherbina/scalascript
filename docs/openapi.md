@@ -1,8 +1,9 @@
 # OpenAPI contract platform — spec
 
-**Status:** Phases 1-5 landed on 2026-05-29: interpreter/JVM OpenAPI defaults,
-shared generator, route metadata, security schemes, and `ssc emit-openapi`
-JSON/YAML export.
+**Status:** Phases 1-6 (foundation) landed on 2026-05-29: interpreter/JVM
+OpenAPI defaults, shared generator, route metadata, security schemes,
+`ssc emit-openapi` JSON/YAML export, and `components.schemas` with `SchemaNode`
+model and `openApiRegisterSchema` intrinsic.
 
 **External reference:** as of 2026-05-29, the OpenAPI Initiative authoritative
 specification site (`https://spec.openapis.org/oas/latest`) lists OpenAPI 3.2.0
@@ -484,14 +485,39 @@ not destroy publication-specific information.
 - Abort-at-first-serve interpreter dry-run: routes before the first `serve(...)`
   are collected, no socket is opened, and later top-level code does not run.
 
+### Phase 6 — `components.schemas` foundation ✓ Landed (foundation)
+
+- `SchemaNode` sealed trait hierarchy: `StrNode`, `IntNode`, `NumNode`,
+  `BoolNode`, `NullNode`, `ArrNode`, `ObjNode`, `RefNode`, `NullableNode`,
+  `OneOfNode`.
+- `SchemaNode.fromTypeName(typeName)` derives a node from a ScalaScript type
+  string; `Option[T]` → `NullableNode` using OAS 3.1 `oneOf + null`.
+- `OpenApiRoute.responseSchema: Option[SchemaNode]` — preferred over the legacy
+  `responseType: Option[String]` when set.
+- `generate()` and `generateYaml()` emit `components.schemas` when
+  `schemaComponents: Map[String, SchemaNode]` is non-empty.
+- `jsonSchema(typeName, schemaComponents)` returns `$ref` when the type name is
+  registered in `schemaComponents`.
+- `openApiRegisterSchema(name, properties, required)` — user-callable intrinsic
+  that registers a named `ObjNode` schema in the session's schema component map.
+- `NativeContextFeatureKeys.OpenApiSchemaComponents` feature key.
+- `OpenApiRuntime` and `ssc emit-openapi` pass schema components through end
+  to end.
+- 20 `OpenApiGeneratorTest` + 21 `OpenApiRuntimeTest` = 41 tests.
+
+Remaining for Phase 6: automatic derivation of `SchemaNode` from ScalaScript
+`case class`, `enum`, `sealed trait`, and field-level constraint annotations.
+Manual `openApiRegisterSchema` is the supported path until auto-derivation lands.
+
 ---
 
 ## 12. Planned Phases
 
-### Phase 6 — Rich `components.schemas`
+### Phase 6 — Rich `components.schemas` (auto-derivation)
 
-Derive named schemas for case classes, enums, sealed traits, collections,
-options, maps, recursive types, defaults, constraints, examples, and docs.
+Automatically derive named schemas for case classes, enums, sealed traits;
+support field-level constraint annotations (`@minLength`, `@format`, etc.),
+recursive types via `$ref`, and schema examples/docs.
 
 ### Phase 7 — Typed request/response contracts
 

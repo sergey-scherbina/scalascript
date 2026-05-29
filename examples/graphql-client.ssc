@@ -1,0 +1,105 @@
+---
+name: graphql-client
+description: GraphQL dynamic client — query a remote GraphQL API with graphqlQuery
+---
+
+# GraphQL Client
+
+Demonstrates `graphqlQuery` — a lightweight dynamic GraphQL client that sends
+requests to any GraphQL endpoint over HTTP POST and returns the `data` map.
+
+Run with: `ssc run examples/graphql-client.ssc`
+
+Queries the public SpaceX GraphQL API (no auth required). Replace the URL and
+query string to point at your own endpoint.
+
+## Simple query
+
+```scala
+import std.graphql
+
+val url = "https://spacex-production.up.railway.app"
+
+val data = graphqlQuery(url, """
+  {
+    company {
+      name
+      ceo
+      founded
+    }
+  }
+""")
+
+println(s"Company: ${data("company")}")
+```
+
+## Query with variables
+
+```scala
+import std.graphql
+
+val url = "https://spacex-production.up.railway.app"
+
+val rocketId = "falcon9"
+
+val data = graphqlQuery(
+  url,
+  """
+    query GetRocket($id: ID!) {
+      rocket(id: $id) {
+        name
+        active
+        country
+      }
+    }
+  """,
+  Map("id" -> rocketId)
+)
+
+val rocket = data("rocket").asInstanceOf[Map[String, Any]]
+println(s"Rocket: ${rocket("name")}, active: ${rocket("active")}")
+```
+
+## Error handling
+
+`graphqlQuery` throws `RuntimeException` if the response contains a GraphQL
+`errors` field.  Wrap in try/catch to handle API errors gracefully:
+
+```scala
+import std.graphql
+
+val url = "https://spacex-production.up.railway.app"
+
+try
+  val data = graphqlQuery(url, "{ nonExistentField }")
+  println(data)
+catch
+  case e: RuntimeException =>
+    println(s"GraphQL error: ${e.getMessage}")
+```
+
+## Querying a local ScalaScript GraphQL server
+
+Start the hello-world server in one terminal:
+
+```sh
+ssc run examples/graphql-hello.ssc
+```
+
+Then query it from another `ssc run` session or a `.ssc` script:
+
+```scala
+import std.graphql
+
+val url = "http://localhost:4000"
+
+val data = graphqlQuery(url, """{ hello }""")
+println(data("hello"))
+
+val greeting = graphqlQuery(
+  url,
+  """query Greet($name: String!) { greet(name: $name) }""",
+  Map("name" -> "ScalaScript")
+)
+println(greeting("greet"))
+```

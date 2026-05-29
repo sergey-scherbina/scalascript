@@ -724,7 +724,7 @@ Tasks:
 - [ ] `GraphQLJsRuntime` and JS codegen intrinsic support for `graphqlHandler`.
 - [ ] Node backend preamble and generated `package.json` dependency for `graphql`.
 - [ ] `Feature.GraphQL` in backend capabilities.
-- [ ] `examples/graphql-client.ssc`.
+- [x] `examples/graphql-client.ssc`.
 - [ ] Tests for async round-trip and JS codegen shape.
 
 Effort: ~3 days remaining.
