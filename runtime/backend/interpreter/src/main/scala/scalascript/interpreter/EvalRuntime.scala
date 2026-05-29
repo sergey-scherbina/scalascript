@@ -735,12 +735,12 @@ private[interpreter] object EvalRuntime:
       // parent chain.  Avoids O(|globals|) iteration that env.filter would do.
       val closure: Map[String, Value] = env match
         case fm: FrameMap =>
-          val b = Map.newBuilder[String, Value]
+          val b = new scala.collection.mutable.HashMap[String, Value]
           var cur: Map[String, Value] = fm
           while cur.isInstanceOf[FrameMap] do
             cur.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
             cur = cur.asInstanceOf[FrameMap].parent
-          b.result()
+          b.toMap
         case _ =>
           if env eq interp.globals then Map.empty
           else env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
@@ -845,14 +845,14 @@ private[interpreter] object EvalRuntime:
             fm2.appendLocalTo(b, interp.globals)
             cur = fm2.parent
           if cur ne interp.globals then
-            cur.foreach { case (k, v) =>
+            cur.foreachEntry { (k, v) =>
               if interp.globals.getOrElse(k, null) != v then b(k) = v
             }
           b
         case _ =>
-          scala.collection.mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-            interp.globals.getOrElse(k, null) != v
-          })
+          val b2 = scala.collection.mutable.HashMap.empty[String, Value]
+          env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
+          b2
       val entrySnap: Map[String, Value] = frame.toMap
       val frameView = new MutableEnvView(frame)
       // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
