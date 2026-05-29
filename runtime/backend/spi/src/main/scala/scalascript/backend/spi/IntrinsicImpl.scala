@@ -48,6 +48,7 @@ object NativeContextFeatureKeys:
   val HttpTimeoutMs    = "scalascript.http.timeoutMs"
   val HttpMaxRetries   = "scalascript.http.maxRetries"
   val HttpRetryDelayMs = "scalascript.http.retryDelayMs"
+  val OpenApiPending   = "scalascript.openapi.pendingRouteMetadata"
 
 /** Runtime hooks an in-process native intrinsic may consult.  The
  *  interpreter constructs one per session and passes it to every
@@ -78,6 +79,12 @@ trait NativeContext:
   // can live in `InterpreterCapabilities` without a circular dependency.
   def headless: Boolean = false
   def registerRoute(method: String, path: String, handler: Any): Unit = ()
+  def registerRouteWithOpenApi(
+      method:   String,
+      path:     String,
+      handler:  Any,
+      @annotation.unused metadata: OpenApiGenerator.OpenApiMetadata
+  ): Unit = registerRoute(method, path, handler)
   def registerHealthDefaults(): Unit = ()
   def registerOpenApiDefaults(): Unit = ()
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.

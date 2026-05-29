@@ -623,6 +623,13 @@ private type _Seg = HttpHelpers.Seg
 private val _Seg  = HttpHelpers.Seg
 private def _parsePath(p: String): List[_Seg] = HttpHelpers.parsePath(p)
 
+private case class _OpenApiMetadata(
+    summary:     Option[String] = None,
+    description: Option[String] = None,
+    tags:        List[String]   = Nil,
+    deprecated:  Boolean        = false
+)
+
 // Route handler returns Any (Response | _StreamResponse | primitive auto-wrapped) — the
 // runtime dispatcher in `_handle` pattern-matches on the actual type and writes the wire
 // bytes accordingly.  The wider Any return type is what lets MCP transports use
@@ -633,17 +640,37 @@ private case class _Route(
     path:         String,
     pattern:      List[_Seg],
     handler:      Request => Any,
-    responseType: Option[String] = None
+    responseType: Option[String] = None,
+    metadata:     _OpenApiMetadata = _OpenApiMetadata()
 )
 private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
 private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
+private var _ssc_openapi_pending: Option[_OpenApiMetadata] = None
+
+def openapi(
+    summary:     String       = "",
+    description: String       = "",
+    tags:        List[String] = Nil,
+    deprecated:  Boolean      = false
+): Unit =
+  _ssc_openapi_pending = Some(_OpenApiMetadata(
+    summary     = Option(summary).map(_.trim).filter(_.nonEmpty),
+    description = Option(description).map(_.trim).filter(_.nonEmpty),
+    tags        = tags.filter(_.nonEmpty),
+    deprecated  = deprecated
+  ))
+
+private def _consumeOpenApiMetadata(): _OpenApiMetadata =
+  val m = _ssc_openapi_pending.getOrElse(_OpenApiMetadata())
+  _ssc_openapi_pending = None
+  m
 
 def route(method: String, path: String)(handler: Request => Any): Unit =
-  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler)
+  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler, metadata = _consumeOpenApiMetadata())
 
 def _ssc_route_response(method: String, path: String, responseType: String)(handler: Request => Any): Unit =
   val rt = Option(responseType).map(_.trim).filter(t => t.nonEmpty && t != "Any")
-  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler, responseType = rt)
+  _routes += _Route(method.toUpperCase, path, _parsePath(path), handler, responseType = rt, metadata = _consumeOpenApiMetadata())
 
 def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
 
@@ -672,7 +699,15 @@ private object _OpenApiGenerator:
           firstMethod = false
           val params = extractPathParams(r.path).map(paramEntry)
           sb.append(s"      ${jsonStr(r.method.toLowerCase)}: {\n")
-          sb.append(s"        \"summary\": ${jsonStr(r.method + " " + r.path)},\n")
+          val summary = r.metadata.summary.filter(_.nonEmpty).getOrElse(r.method + " " + r.path)
+          sb.append(s"        \"summary\": ${jsonStr(summary)},\n")
+          r.metadata.description.filter(_.nonEmpty).foreach { description =>
+            sb.append(s"        \"description\": ${jsonStr(description)},\n")
+          }
+          if r.metadata.tags.nonEmpty then
+            sb.append(s"        \"tags\": [${r.metadata.tags.map(jsonStr).mkString(", ")}],\n")
+          if r.metadata.deprecated then
+            sb.append("        \"deprecated\": true,\n")
           if params.nonEmpty then
             sb.append("        \"parameters\": [\n")
             sb.append(params.mkString(",\n"))

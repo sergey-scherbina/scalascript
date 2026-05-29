@@ -12,10 +12,18 @@ object OpenApiGenerator:
       method:       String,
       path:         String,
       params:       List[OpenApiParam] = Nil,
-      responseType: Option[String]     = None
+      responseType: Option[String]     = None,
+      metadata:     OpenApiMetadata    = OpenApiMetadata()
   )
 
   final case class OpenApiParam(name: String, typeName: String, location: ParamLocation)
+
+  final case class OpenApiMetadata(
+      summary:     Option[String] = None,
+      description: Option[String] = None,
+      tags:        List[String]   = Nil,
+      deprecated:  Boolean        = false
+  )
 
   enum ParamLocation:
     case Query, Body
@@ -52,7 +60,16 @@ object OpenApiGenerator:
           val bodyParams = route.params.filter(_.location == ParamLocation.Body)
 
           sb.append(s"      ${jsonStr(method)}: {\n")
-          sb.append(s"        \"summary\": ${jsonStr(route.method.toUpperCase + " " + route.path)},\n")
+          val metadata = route.metadata
+          val summary = metadata.summary.filter(_.nonEmpty).getOrElse(route.method.toUpperCase + " " + route.path)
+          sb.append(s"        \"summary\": ${jsonStr(summary)},\n")
+          metadata.description.filter(_.nonEmpty).foreach { description =>
+            sb.append(s"        \"description\": ${jsonStr(description)},\n")
+          }
+          if metadata.tags.nonEmpty then
+            sb.append(s"        \"tags\": [${metadata.tags.map(jsonStr).mkString(", ")}],\n")
+          if metadata.deprecated then
+            sb.append("        \"deprecated\": true,\n")
 
           val allParams =
             pathParams.map(n => paramEntry(n, "path", required = true)) ++

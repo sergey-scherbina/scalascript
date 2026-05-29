@@ -63,7 +63,7 @@ private[interpreter] object OpenApiRuntime:
       val params =
         queryParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Query) } ++
         bodyParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Body) }
-      OpenApiRoute(entry.method, entry.path, params)
+      OpenApiRoute(entry.method, entry.path, params, metadata = entry.metadata)
     })
 
   // ── Handler type extraction ───────────────────────────────────────────

@@ -814,6 +814,117 @@ object Parser:
 
   // ─── Scala parsing via scalameta ─────────────────────────────────
 
+  /** Rewrite route metadata annotations into an ordinary marker call that
+   *  scalameta and the runtimes can consume:
+   *
+   *    @openapi(summary = "List users", tags = List("users"))
+   *    route("GET", "/users") { ... }
+   *
+   *  becomes:
+   *
+   *    openapi("List users", "", List("users"), false)
+   *    route("GET", "/users") { ... }
+   *
+   *  Scala 3 annotations cannot be applied directly to a standalone route()
+   *  expression, so this keeps the user-facing syntax while preserving a
+   *  plain Scala-shaped tree for downstream parsing.
+   */
+  private[parser] def preprocessOpenApiAnnotations(code: String): String =
+    if !code.contains("@openapi") then return code
+
+    def parenDelta(s: String): Int =
+      s.count(_ == '(') - s.count(_ == ')')
+
+    def splitTopLevelArgs(s: String): List[String] =
+      val out = ListBuffer.empty[String]
+      val cur = new StringBuilder
+      var depth = 0
+      var inString = false
+      var escape = false
+      s.foreach { ch =>
+        if inString then
+          cur.append(ch)
+          if escape then escape = false
+          else if ch == '\\' then escape = true
+          else if ch == '"' then inString = false
+        else ch match
+          case '"' =>
+            inString = true
+            cur.append(ch)
+          case '(' | '[' | '{' =>
+            depth += 1
+            cur.append(ch)
+          case ')' | ']' | '}' =>
+            depth -= 1
+            cur.append(ch)
+          case ',' if depth == 0 =>
+            out += cur.toString.trim
+            cur.clear()
+          case other =>
+            cur.append(other)
+      }
+      val tail = cur.toString.trim
+      if tail.nonEmpty then out += tail
+      out.toList
+
+    def normalizeArgs(raw: String): String =
+      val defaults = collection.mutable.LinkedHashMap(
+        "summary" -> "\"\"",
+        "description" -> "\"\"",
+        "tags" -> "List()",
+        "deprecated" -> "false"
+      )
+      val positional = ListBuffer.empty[String]
+      splitTopLevelArgs(raw).foreach { arg =>
+        val eq = arg.indexOf('=')
+        val colon = arg.indexOf(':')
+        val sep =
+          if eq >= 0 && (colon < 0 || eq < colon) then eq
+          else if colon >= 0 then colon
+          else -1
+        if sep > 0 then
+          val key = arg.take(sep).trim
+          val value = arg.drop(sep + 1).trim
+          if defaults.contains(key) && value.nonEmpty then defaults(key) = value
+        else if arg.nonEmpty then positional += arg
+      }
+      val ordered = defaults.keys.toList.zipWithIndex.map { case (key, idx) =>
+        if idx < positional.length then positional(idx) else defaults(key)
+      }
+      ordered.mkString(", ")
+
+    val lines = code.split("\n", -1).toList
+    val out = new StringBuilder
+    var i = 0
+    while i < lines.length do
+      val line = lines(i)
+      val trimmed = line.trim
+      if trimmed.startsWith("@openapi") then
+        val indent = line.takeWhile(_.isWhitespace)
+        val collected = ListBuffer(line)
+        var delta = parenDelta(line)
+        var j = i + 1
+        while delta > 0 && j < lines.length do
+          collected += lines(j)
+          delta += parenDelta(lines(j))
+          j += 1
+        val nextNonEmpty = lines.drop(j).find(_.trim.nonEmpty).map(_.trim)
+        if nextNonEmpty.exists(_.startsWith("route(")) then
+          val text = collected.mkString("\n").trim
+          val start = text.indexOf('(')
+          val end = text.lastIndexOf(')')
+          val args = if start >= 0 && end > start then normalizeArgs(text.substring(start + 1, end)) else normalizeArgs("")
+          out.append(indent).append("openapi(").append(args).append(")\n")
+          i = j
+        else
+          collected.foreach(l => out.append(l).append("\n"))
+          i = j
+      else
+        out.append(line)
+        if i < lines.length - 1 then out.append("\n")
+        i += 1
+    out.toString
+
   /** Preprocess `extern` surface forms into scalameta-friendly Scala 3:
    *
    *    extern def foo(...): T          → def foo(...): T = __extern__

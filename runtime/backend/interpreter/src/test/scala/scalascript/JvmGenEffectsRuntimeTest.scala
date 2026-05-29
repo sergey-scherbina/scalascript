@@ -141,6 +141,21 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     code should include ("""route("GET", "/users/:id")""")
     code should not include """_ssc_route_response("GET", "/users/:id""""
 
+  test("JvmGen: @openapi route annotation emits runtime metadata marker"):
+    val code = jvmCodeDoc("""# API
+      |
+      |[route, serve, Response, Request](std/http.ssc)
+      |[openapi](std/openapi.ssc)
+      |
+      |```scalascript
+      |@openapi(summary = "Get user", description = "Fetch a user.", tags = List("users"), deprecated = true)
+      |route("GET", "/users/:id") { req => Response.text(req.params("id")) }
+      |serve(8080)
+      |```
+      |""".stripMargin)
+    code should include ("""openapi("Get user", "Fetch a user.", List("users"), true)""")
+    code should include ("""route("GET", "/users/:id")""")
+
   test("JvmGen: `serveAsync(port)` pulls in the serve runtime"):
     // A bare `serveAsync(8080)` must trigger `blocksUseRoutes` so the
     // inlined ProxyRuntime (which defines `def serveAsync`) is in

@@ -24,11 +24,45 @@ object HttpIntrinsics:
         case List(method: String, path: String) =>
           Value.NativeFnV("route.handler", Computation.pureFn {
             case List(handler) =>
-              ctx.registerRoute(method, path, handler)
+              ctx.featureLocalRemove(NativeContextFeatureKeys.OpenApiPending) match
+                case Some(metadata: OpenApiGenerator.OpenApiMetadata) =>
+                  ctx.registerRouteWithOpenApi(method, path, handler, metadata)
+                case _ =>
+                  ctx.registerRoute(method, path, handler)
               Value.UnitV
             case _ => throw InterpretError("route(method, path) { handler }")
           })
         case _ => throw InterpretError("route(method, path) { handler }")
+    },
+
+    QualifiedName("openapi") -> PluginNative.evalLegacy { (ctx, args) =>
+      def asString(v: Any): String = v match
+        case s: String        => s
+        case Value.StringV(s) => s
+        case Value.UnitV      => ""
+        case null             => ""
+        case other            => String.valueOf(other)
+      def asBool(v: Any): Boolean = v match
+        case b: Boolean      => b
+        case Value.BoolV(b)  => b
+        case s: String       => s.equalsIgnoreCase("true")
+        case Value.StringV(s) => s.equalsIgnoreCase("true")
+        case _               => false
+      def asTags(v: Any): List[String] = v match
+        case xs: List[?]    => xs.map(asString).filter(_.nonEmpty)
+        case Value.ListV(xs) => xs.map(asString).filter(_.nonEmpty)
+        case Value.UnitV     => Nil
+        case s: String if s.nonEmpty => List(s)
+        case _             => Nil
+      val padded = args.padTo(4, "")
+      val metadata = OpenApiGenerator.OpenApiMetadata(
+        summary     = Option(asString(padded(0))).filter(_.nonEmpty),
+        description = Option(asString(padded(1))).filter(_.nonEmpty),
+        tags        = asTags(padded(2)),
+        deprecated  = asBool(padded(3))
+      )
+      ctx.featureLocalSet(NativeContextFeatureKeys.OpenApiPending, metadata)
+      Value.UnitV
     },
 
     QualifiedName("tls") -> PluginNative.evalLegacy { (_, args) =>

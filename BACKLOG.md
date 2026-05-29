@@ -5581,7 +5581,8 @@ behaviour unchanged).
 
 Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
 Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b landed
-2026-05-29 for typed response metadata propagation. Phases 3–5 are planned.
+2026-05-29 for typed response metadata propagation. Phase 3 landed 2026-05-29
+for per-route operation metadata. Phases 4–5 are planned.
 
 - [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
   when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
@@ -5607,10 +5608,14 @@ Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b
   Added code-shape and scala-cli e2e coverage for typed response schemas.
   Spec: `docs/openapi.md §5 Phase 2 follow-up`.
 
-- [ ] **openapi-p3** — `@openapi` per-route annotation:
+- [x] **openapi-p3** — `@openapi` per-route annotation: ✓ Landed 2026-05-29.
   `runtime/std/openapi.ssc` extern; `RouteEntry.metadata`; `HttpIntrinsics` merges metadata;
   `OpenApiGenerator` uses it for summary/description/tags/deprecated.
-  Spec: `docs/openapi.md §5 Phase 3`. Effort: ~2 days.
+  Landed: parser rewrites user-facing `@openapi(...)` before `route(...)` into a
+  runtime marker call; interpreter and JVM generated runtimes consume pending
+  metadata on the next route; shared OpenAPI generation emits summary,
+  description, tags, and deprecated. Added `examples/openapi-annotation.ssc`.
+  Spec: `docs/openapi.md §5 Phase 3`.
 
 - [ ] **openapi-p4** — Security schemes + auth declarations:
   `openApiSecurity(name, scheme, format)` extern; `components.securitySchemes` emission;

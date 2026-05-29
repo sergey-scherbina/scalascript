@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — openapi-p3 per-route OpenAPI metadata
+
+- **openapi-p3** — Added user-facing `@openapi(...)` route metadata for summary, description, tags, and deprecation. The parser rewrites the annotation into a marker call before `route(...)`; interpreter and JVM generated runtimes consume the marker on the next route registration; shared OpenAPI output emits the metadata. Added `std/openapi.ssc`, `examples/openapi-annotation.ssc`, and parser/generator/interpreter/plugin/JVM coverage.
+
 ## 2026-05-29 — openapi-p2b JVM OpenAPI response schemas
 
 - **openapi-p2b** — JVM generated front-matter routes now propagate non-`Any` response type metadata from matching `apiClients:` endpoints into the generated OpenAPI response schema. Raw `route(...)` handlers continue to use the generic `200 OK` fallback. Added code-shape coverage and a scala-cli JVM e2e check for `/_openapi.json` schema output.

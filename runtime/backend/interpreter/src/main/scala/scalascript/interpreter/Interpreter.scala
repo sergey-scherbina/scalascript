@@ -1029,6 +1029,18 @@ class Interpreter(
           source   = Interpreter.this.currentLoadingFile,
           style    = if Interpreter.this.currentLoadingFile.isDefined then "load" else "route"
         )
+      override def registerRouteWithOpenApi(
+          method:   String,
+          path:     String,
+          handler:  Any,
+          metadata: scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
+      ): Unit =
+        Interpreter.this.routeRegistry.register(
+          method, path, handler.asInstanceOf[Value], Interpreter.this,
+          source   = Interpreter.this.currentLoadingFile,
+          style    = if Interpreter.this.currentLoadingFile.isDefined then "load" else "route",
+          metadata = metadata
+        )
       override def registerHealthDefaults(): Unit = Interpreter.this.registerHealthDefaults()
       override def registerOpenApiDefaults(): Unit = Interpreter.this.registerOpenApiDefaults()
       override def invokeCallback(fn: Any, args: List[Any]): Any =

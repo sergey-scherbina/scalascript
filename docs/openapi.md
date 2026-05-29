@@ -121,22 +121,25 @@ inference requires the @openapi annotation (Phase 3) for full schema.
 ### 3.5 Module layout
 
 ```
-lang/core/                               (no changes — annotation parsing only)
+lang/core/
+  parser/Parser.scala                    ← Phase 3 ✓: @openapi route-marker rewrite
 runtime/http-server/jvm/…/server/jvm/
-  RestRuntime.scala                      ← Phase 2: add _registerOpenApiDefaults()
-                                           _generateOpenApiJson() (path-only)
+  RestRuntime.scala                      ← Phase 2 ✓: OpenAPI defaults; Phase 3 ✓:
+                                           pending @openapi metadata for inline routes
 runtime/backend/
   interpreter/…/interpreter/
-    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2 uses shared generator
+    OpenApiRuntime.scala                 ← Phase 1 ✓; Phase 2/3 use shared generator
+  interpreter/…/server/
+    Routes.scala                         ← Phase 3 ✓: RouteEntry OpenApiMetadata
   jvm/…/codegen/
     JvmGen.scala                         ← Phase 2 ✓: emit /_openapi.json route
   spi/…/spi/
-    OpenApiGenerator.scala               ← Phase 2 ✓: shared generation model + logic
-    RouteAnnotation.scala                ← Phase 3: @openapi annotation type (NEW)
+    OpenApiGenerator.scala               ← Phase 2 ✓: shared generation; Phase 3 ✓:
+                                           OpenApiMetadata
 tools/cli/…/cli/
   Main.scala                             ← Phase 5: ssc emit-openapi subcommand
 runtime/std/
-  openapi.ssc                            ← Phase 3: @openapi extern annotation (NEW)
+  openapi.ssc                            ← Phase 3 ✓: @openapi marker extern
 ```
 
 ---
@@ -195,7 +198,7 @@ Follow-up split from Phase 2:
   metadata into `OpenApiRoute.responseType`; raw `route(...) { req => ... }`
   handlers remain on the safe `{ "200": { "description": "OK" } }` fallback.
 
-### Phase 3 — `@openapi` per-route annotation
+### Phase 3 — `@openapi` per-route annotation ✓ Landed
 
 **Goal**: route authors can add human-readable metadata without any runtime cost.
 
@@ -210,17 +213,23 @@ route("GET", "/users/:id") { req => ... }
 ```
 
 Tasks:
-- `runtime/std/openapi.ssc`: `extern def openapi(summary, description, tags, deprecated)`.
-  This is a no-op at runtime — the annotation lives in the route's
-  `RouteEntry` metadata.
-- `RouteEntry` in `RouteRegistry`: add `metadata: RouteMetadata` field
-  (summary, description, tags, deprecated).
-- `HttpIntrinsics`: when `@openapi(…)` precedes a `route()` call, merge
-  metadata into `RouteEntry`.
-- `OpenApiGenerator`: use metadata when present, fallback to auto-derived.
-- `OpenApiRuntimeTest`: 6+ new tests for annotated routes.
+- `runtime/std/openapi.ssc` exports `openapi(summary, description, tags, deprecated)`.
+  User-facing `@openapi(...)` syntax is rewritten by the parser to this marker
+  call because Scala annotations cannot target a standalone `route(...)`
+  expression directly.
+- `RouteEntry` in `RouteRegistry` carries `OpenApiMetadata` (summary,
+  description, tags, deprecated).
+- `HttpIntrinsics`: when `@openapi(…)` precedes a `route()` call, the marker is
+  stored as pending route metadata and consumed by the next route registration.
+- `OpenApiGenerator`: uses metadata when present and falls back to the derived
+  `METHOD /path` summary.
+- JVM generated servers use the same marker/consume model in their inlined
+  runtime, so annotated inline routes affect `/_openapi.json`.
+- Tests: parser rewrite, shared generator metadata emission, interpreter route
+  registry metadata, HTTP plugin consumption, JVM code shape, and JVM e2e
+  OpenAPI route coverage.
 
-Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 3`.
+Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
 
 ### Phase 4 — Security schemes + auth declarations
 

@@ -59,6 +59,11 @@ object PreprocessorRegistry:
       override def apply(s: String) = Parser.preprocessRemoteDefs(s)
     })
     register(new Preprocessor {
+      override val name     = "openapi-annotations"
+      override val priority = 45
+      override def apply(s: String) = Parser.preprocessOpenApiAnnotations(s)
+    })
+    register(new Preprocessor {
       override val name     = "effects"
       override val priority = 50
       override def apply(s: String) = Parser.preprocessEffects(s)

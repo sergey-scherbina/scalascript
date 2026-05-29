@@ -1,6 +1,7 @@
 package scalascript.server
 
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
 
 /** SPI for HTTP route registration and dispatch.
  *
@@ -20,7 +21,8 @@ trait RouteRegistry:
       interp:   Interpreter,
       source:   Option[String]     = None,
       mountCtx: Map[String, Value] = Map.empty,
-      style:    String             = "route"
+      style:    String             = "route",
+      metadata: OpenApiMetadata    = OpenApiMetadata()
   ): Unit
 
   def remove(method: String, path: String): Boolean

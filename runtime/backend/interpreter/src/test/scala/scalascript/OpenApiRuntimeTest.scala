@@ -3,6 +3,7 @@ package scalascript.interpreter
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.BeforeAndAfterEach
+import scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
 import scalascript.server.{Routes, RouteRegistry}
 import scala.meta.Term as MetaTerm
 
@@ -121,6 +122,26 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
     schemaType("price")  shouldBe "number"
     schemaType("active") shouldBe "boolean"
     schemaType("meta")   shouldBe "object"
+
+  test("route metadata appears in generated OpenAPI operation"):
+    reg.register(
+      "GET",
+      "/users/:id",
+      noop,
+      interp,
+      metadata = OpenApiMetadata(
+        summary = Some("Get user"),
+        description = Some("Returns a single user."),
+        tags = List("users"),
+        deprecated = true
+      )
+    )
+    val json = parseJson(OpenApiRuntime.generateOpenApiJson(reg))
+    val op = json("paths")("/users/{id}")("get")
+    op("summary").str shouldBe "Get user"
+    op("description").str shouldBe "Returns a single user."
+    op("tags").arr.map(_.str).toList shouldBe List("users")
+    op("deprecated").bool shouldBe true
 
   // ── registerOpenApiDefaults ────────────────────────────────────────────
 

@@ -1,7 +1,11 @@
 package scalascript.compiler.plugin.http
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.interpreter.Value
+import scalascript.backend.spi.OpenApiGenerator
+import scalascript.backend.spi.OpenApiGenerator.OpenApiRoute
+import scalascript.interpreter.{Interpreter, Value}
+import scalascript.parser.Parser
+import scalascript.server.Routes
 import scalascript.testkit.TestInterpreter
 
 class HttpPluginInterpreterTest extends AnyFunSuite:
@@ -55,6 +59,29 @@ class HttpPluginInterpreterTest extends AnyFunSuite:
     )
 
     assert(result == 1L)
+
+  test("HTTP plugin consumes @openapi metadata for the next route"):
+    Routes.clear()
+    val interpreter = Interpreter()
+    interpreter.installPlugins(List(HttpInterpreterPlugin()))
+    val src =
+      """# Test
+        |
+        |```scala
+        |@openapi(summary = "Ping route", description = "Health-ish ping.", tags = List("ops"))
+        |route("GET", "/ping") { req => Response.text("pong") }
+        |```
+        |""".stripMargin
+    try
+      interpreter.run(Parser.parse(src))
+      val routes = interpreter.routeRegistry.all.map(e => OpenApiRoute(e.method, e.path, metadata = e.metadata))
+      val json = ujson.read(OpenApiGenerator.generate(routes))
+      val op = json("paths")("/ping")("get")
+      assert(op("summary").str == "Ping route")
+      assert(op("description").str == "Health-ish ping.")
+      assert(op("tags").arr.map(_.str).toList == List("ops"))
+    finally
+      Routes.clear()
 
   private def responseStatus(value: Any): Long =
     responseFields(value)("status") match

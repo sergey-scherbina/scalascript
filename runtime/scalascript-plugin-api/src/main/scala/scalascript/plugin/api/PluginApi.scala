@@ -1,6 +1,6 @@
 package scalascript.plugin.api
 
-import scalascript.backend.spi.{NativeContext, NativeImpl, RemoteCallError, RemoteHandlerInfo}
+import scalascript.backend.spi.{NativeContext, NativeImpl, OpenApiGenerator, RemoteCallError, RemoteHandlerInfo}
 
 import scala.util.control.NonFatal
 
@@ -103,6 +103,13 @@ trait HttpCap extends NativeContextCap:
   def stopServer(): Unit = nativeContext.stopServer()
   def registerRoute(method: String, path: String, handler: Any): Unit =
     nativeContext.registerRoute(method, path, handler)
+  def registerRouteWithOpenApi(
+      method:   String,
+      path:     String,
+      handler:  Any,
+      metadata: OpenApiGenerator.OpenApiMetadata
+  ): Unit =
+    nativeContext.registerRouteWithOpenApi(method, path, handler, metadata)
   def registerHealthDefaults(): Unit = nativeContext.registerHealthDefaults()
   def registerOpenApiDefaults(): Unit = nativeContext.registerOpenApiDefaults()
   def configureCors(origins: List[String], methods: List[String], allowedHeaders: List[String]): Unit =

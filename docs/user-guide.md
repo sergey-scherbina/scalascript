@@ -827,6 +827,18 @@ with matching `apiClients:` endpoint metadata carry their response type into the
 OpenAPI response schema; raw `Request => Any` handlers keep the generic `200 OK`
 fallback.
 
+Per-route operation metadata can be attached to the next `route(...)` call with
+`@openapi(...)`:
+
+```scalascript
+[openapi](std/openapi.ssc)
+
+@openapi(summary = "Get user", description = "Returns a user.", tags = List("users"))
+route("GET", "/users/:id") { req => Response.json(Map("id" -> req.params("id"))) }
+```
+
+Supported fields are `summary`, `description`, `tags`, and `deprecated`.
+
 ### File-based handlers (`mount()`)
 
 `mount()` evaluates a `.ssc` file once at startup and registers the result

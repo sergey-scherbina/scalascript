@@ -1,6 +1,7 @@
 package scalascript.server
 
 import scalascript.interpreter.{Interpreter, Value}
+import scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
 
 /** Global REST route table — populated by `route(method, path)(handler)` calls
  *  and `mount(method, path, file)` calls inside the running interpreter and
@@ -41,7 +42,8 @@ object Routes extends RouteRegistry:
       interpreter: Interpreter,
       source:      Option[String]        = None,
       mountCtx:    Map[String, Value]    = Map.empty,
-      style:       String                = "route"
+      style:       String                = "route",
+      metadata:    OpenApiMetadata       = OpenApiMetadata()
   )
 
   sealed trait Segment
@@ -63,11 +65,12 @@ object Routes extends RouteRegistry:
       interp:   Interpreter,
       source:   Option[String]     = None,
       mountCtx: Map[String, Value] = Map.empty,
-      style:    String             = "route"
+      style:    String             = "route",
+      metadata: OpenApiMetadata    = OpenApiMetadata()
   ): Unit =
     val m   = method.toUpperCase
     val key = (m, path)
-    entries(key) = Entry(m, path, parsePath(path), handler, interp, source, mountCtx, style)
+    entries(key) = Entry(m, path, parsePath(path), handler, interp, source, mountCtx, style, metadata)
 
   /** Remove the entry with the given `(method.toUpperCase, path)` key.
    *  Returns `true` if an entry was removed, `false` if it was not found. */

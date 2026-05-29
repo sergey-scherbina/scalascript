@@ -244,7 +244,7 @@ compiles them via Scala.js.
 | HTTP server | `route(method, path)(handler)`, `serve(port)`, `Request`/`Response` |
 | REPL web mode | `:serve`/`:stop`/`:clear`/`:mount`/`:load`/`:reload`/`:unmount`/`:routes`/`:http`/`:call` — mount handlers and test routes interactively; `:set errorDetails true\|false` |
 | HTTP streaming | `streamResponse`, SSE via `sse(req)` |
-| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` with typed response schemas for front-matter/generated JVM routes when `apiClients:` metadata is available |
+| HTTP middleware | CORS, gzip, cache headers, `/_health` / `/_ready`, `/_openapi.json` / `/_swagger` with typed response schemas for front-matter/generated JVM routes when `apiClients:` metadata is available; `@openapi(...)` adds per-route summary/description/tags/deprecated metadata |
 | WebSocket server | `onWebSocket(path)`, `ws.send/recv/close/ping`, rate limiting, per-route `maxConnections` |
 | TLS | `tls("cert.pem", "key.pem")`, `serve(443, tls=...)`, `wss://` |
 | HTTP client | `httpGet/httpPost`, `httpClient { }`, `httpGetStream` for SSE/LLM streaming |
@@ -400,6 +400,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [actors-typed-remote-spawn.ssc](examples/actors-typed-remote-spawn.ssc) | Typed `ActorRef[M]` helpers plus named `registerBehavior` / `spawnRemote` |
 | [cluster-capability.ssc](examples/cluster-capability.ssc) | `ClusterCapability`, static seed discovery, and code identity checks |
 | [remote-registry-rpc.ssc](examples/remote-registry-rpc.ssc) | `remoteHandlers:` / `@remote` / `remote def` registry declarations, `Remote.function`, typed `remoteTryCall`, HTTP JSON fallback path metadata, and generated `RemoteRpc` typed client metadata for `path:` handlers |
+| [openapi-annotation.ssc](examples/openapi-annotation.ssc) | `@openapi(...)` route metadata surfaced in `/_openapi.json` and Swagger UI |
 | [ws-recv-demo.ssc](examples/ws-recv-demo.ssc) | Sync-style `ws.recv()` loop alternative to `onMessage` callbacks |
 | [mcp-demo.ssc](examples/mcp-demo.ssc) | MCP server with tools and resources; MCP client usage |
 | [dataset-stats.ssc](examples/dataset-stats.ssc) | Dataset MapReduce — `runLocal`, `runParallel`, aggregations |

@@ -2,7 +2,7 @@ package scalascript.backend.spi
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiParam, OpenApiRoute, ParamLocation}
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiParam, OpenApiRoute, ParamLocation}
 
 class OpenApiGeneratorTest extends AnyFunSuite with Matchers:
 
@@ -34,6 +34,24 @@ class OpenApiGeneratorTest extends AnyFunSuite with Matchers:
       OpenApiRoute("GET", "/count", responseType = Some("Int"))
     ))
     doc should include (""""content": { "application/json": { "schema": {"type":"integer"} } }""")
+
+  test("route metadata emits summary description tags and deprecated"):
+    val doc = OpenApiGenerator.generate(List(
+      OpenApiRoute(
+        "GET",
+        "/users/:id",
+        metadata = OpenApiMetadata(
+          summary = Some("Get user"),
+          description = Some("Returns a user by id."),
+          tags = List("users", "admin"),
+          deprecated = true
+        )
+      )
+    ))
+    doc should include (""""summary": "Get user"""")
+    doc should include (""""description": "Returns a user by id."""")
+    doc should include (""""tags": ["users", "admin"]""")
+    doc should include (""""deprecated": true""")
 
   test("swaggerUiHtml points at the OpenAPI endpoint"):
     val html = OpenApiGenerator.swaggerUiHtml()

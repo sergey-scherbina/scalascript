@@ -1,0 +1,22 @@
+---
+name: openapi-annotation-demo
+version: 0.1.0
+---
+
+# OpenAPI Annotation Demo
+
+[route, serve, Response, Request](std/http.ssc)
+[openapi](std/openapi.ssc)
+
+```scalascript
+@openapi(
+  summary = "Get user",
+  description = "Returns a single user by id.",
+  tags = List("users")
+)
+route("GET", "/users/:id") { req =>
+  Response.json(Map("id" -> req.params("id")))
+}
+
+serve(8080)
+```

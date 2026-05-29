@@ -9,23 +9,24 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
 
   // ── Built-in registrations ──────────────────────────────────────────────
 
-  test("PreprocessorRegistry: all 6 built-in preprocessors are registered") {
+  test("PreprocessorRegistry: all 7 built-in preprocessors are registered") {
     val names = PreprocessorRegistry.all.map(_.name).toSet
     names should contain ("inline-imports")
     names should contain ("list-literals")
     names should contain ("slash-imports")
     names should contain ("remote-defs")
+    names should contain ("openapi-annotations")
     names should contain ("effects")
     names should contain ("extern")
   }
 
-  test("PreprocessorRegistry: built-in priorities are ordered 10/20/30/40/50/60") {
+  test("PreprocessorRegistry: built-in priorities are ordered 10/20/30/40/45/50/60") {
     val builtinNames = Set("inline-imports", "list-literals", "slash-imports",
-                            "remote-defs", "effects", "extern")
+                            "remote-defs", "openapi-annotations", "effects", "extern")
     val builtins = PreprocessorRegistry.all.filter(p => builtinNames(p.name))
     val prios = builtins.map(_.priority)
     prios shouldBe prios.sorted
-    prios should contain allOf(10, 20, 30, 40, 50, 60)
+    prios should contain allOf(10, 20, 30, 40, 45, 50, 60)
   }
 
   test("PreprocessorRegistry.lookup: finds registered preprocessor by name") {
@@ -149,4 +150,16 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
     val src = "import io/example/Foo"
     val m = Parser.parse(s"# T\n\n```scalascript\n$src\n```\n")
     m.sections should not be empty
+  }
+
+  test("Parser: @openapi route annotation rewrites before parsing") {
+    val src =
+      """@openapi(summary = "List users", tags = List("users"), deprecated = true)
+        |route("GET", "/users") { req => Response.text("ok") }
+        |""".stripMargin
+    val processed = PreprocessorRegistry.applyAll(src)
+    processed should include ("""openapi("List users", "", List("users"), true)""")
+    processed should include ("""route("GET", "/users")""")
+    val m = Parser.parse(s"# T\n\n```scalascript\n$src\n```\n")
+    m.sections.head.content.collectFirst { case cb: scalascript.ast.Content.CodeBlock => cb.parseError } shouldBe Some(None)
   }
