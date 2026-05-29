@@ -28,7 +28,7 @@ private[interpreter] object BlockRuntime:
     // interp.globals and the Term.Name fallback, so we skip copying it.
     // Shrinks the frame from O(N_env) to O(N_params + N_stale_closure) — typically 1–5 entries.
     val local = mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-      !interp.globals.get(k).contains(v)
+      interp.globals.getOrElse(k, null) != v
     })
     val localView = new MutableEnvView(local)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
@@ -237,7 +237,7 @@ private[interpreter] object BlockRuntime:
         val usingInfo2: List[(String, String)] =
           usingParamVals2.map(p => p.name.value -> p.decltpe.fold("Any")(interp.typeToString)) ++ cbUsingParams2
         val capturedEnv = cur.iterator.collect {
-          case (k, v) if !interp.globals.get(k).contains(v) => k -> v
+          case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
         }.toMap
         val rThrows2 = d.decltpe.exists(interp.isThrowsType)
         val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)

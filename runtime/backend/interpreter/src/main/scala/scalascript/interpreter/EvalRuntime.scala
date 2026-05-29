@@ -715,7 +715,7 @@ private[interpreter] object EvalRuntime:
       // a param like `a` for `def adder(a)` is stripped because interp.globals also
       // hold the `<a>` HTML tag under that name, and the inner `b => a + b`
       // would resolve `a` to the tag instead of the captured Int.
-      val closure    = env.filter { case (k, v) => !interp.globals.get(k).contains(v) }
+      val closure    = env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
       val paramNames = paramClause.values.map(_.name.value)
       // Extract declared type annotations so TypedHandlerWrapper can detect
       // typed route handlers at mount time.  Empty string for unannotated params.
@@ -749,6 +749,26 @@ private[interpreter] object EvalRuntime:
       }
 
     // Tuple  (a, b, ...)
+    // Fast paths for 2- and 3-tuples avoid the intermediate List[Computation]
+    // allocation that evalArgs creates for all-Pure cases.
+    case Term.Tuple(List(e1: Term, e2: Term)) =>
+      val c1 = eval(e1, env, interp); val c2 = eval(e2, env, interp)
+      (c1, c2) match
+        case (Pure(v1), Pure(v2)) => Pure(Value.TupleV(v1 :: v2 :: Nil))
+        case (Pure(v1), _)        => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
+        case (_, Pure(v2))        => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
+        case _                    => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil))))
+    case Term.Tuple(List(e1: Term, e2: Term, e3: Term)) =>
+      val c1 = eval(e1, env, interp); val c2 = eval(e2, env, interp); val c3 = eval(e3, env, interp)
+      (c1, c2, c3) match
+        case (Pure(v1), Pure(v2), Pure(v3)) => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))
+        case (Pure(v1), Pure(v2), _)        => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+        case (Pure(v1), _, Pure(v3))        => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+        case (_, Pure(v2), Pure(v3))        => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+        case (Pure(v1), _, _)               => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+        case (_, Pure(v2), _)               => FlatMap(c1, v1 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+        case (_, _, Pure(v3))               => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+        case _                              => FlatMap(c1, v1 => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))))
     case Term.Tuple(elems) =>
       evalArgs(elems, env, interp)(vs => Pure(Value.TupleV(vs)))
 
@@ -789,7 +809,7 @@ private[interpreter] object EvalRuntime:
     // This shrinks frame from O(N_globals) to O(N_local_vars) — typically 2-5 entries.
     case t: Term.While =>
       val frame = scala.collection.mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-        !interp.globals.get(k).contains(v)
+        interp.globals.getOrElse(k, null) != v
       })
       val entrySnap: Map[String, Value] = frame.toMap
       val frameView = new MutableEnvView(frame)

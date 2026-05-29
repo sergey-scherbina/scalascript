@@ -64,7 +64,7 @@ private[interpreter] object StatRuntime:
         usingParamVals.map(p => p.name.value -> p.decltpe.fold("Any")(interp.typeToString)) ++ cbUsingParams
       // See Term.Function above for why we drop only interp.globals-shadowed keys.
       val capturedEnv = env.iterator.collect {
-        case (k, v) if !interp.globals.get(k).contains(v) => k -> v
+        case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
       }.toMap
       val rThrows = d.decltpe.exists(interp.isThrowsType)
       val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
@@ -224,7 +224,7 @@ private[interpreter] object StatRuntime:
             // Parametric given: register as a factory for later recursive resolution.
             // The captured env is the current env snapshot (minus interp.globals that haven't changed).
             val captured = env.iterator.collect {
-              case (k, v) if !interp.globals.get(k).contains(v) => k -> v
+              case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v
             }.toMap
             val factory = ParametricGiven(
               name               = d.name.value,
