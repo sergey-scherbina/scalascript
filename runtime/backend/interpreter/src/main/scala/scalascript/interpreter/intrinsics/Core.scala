@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
+import scala.collection.immutable.{Map => IMap}
 
 /** Core language intrinsics for the tree-walking interpreter (Stage 5+/E).
  *
@@ -58,13 +59,13 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
 
   QualifiedName("Left") -> NativeImpl((_, args) =>
     args match
-      case List(v) => Value.InstanceV("Left", Map("value" -> coreAnyToValue(v)))
+      case List(v) => Value.InstanceV("Left", new IMap.Map1("value", coreAnyToValue(v)))
       case _       => throw InterpretError("Left takes 1 arg")
   ),
 
   QualifiedName("Right") -> NativeImpl((_, args) =>
     args match
-      case List(v) => Value.InstanceV("Right", Map("value" -> coreAnyToValue(v)))
+      case List(v) => Value.InstanceV("Right", new IMap.Map1("value", coreAnyToValue(v)))
       case _       => throw InterpretError("Right takes 1 arg")
   ),
 

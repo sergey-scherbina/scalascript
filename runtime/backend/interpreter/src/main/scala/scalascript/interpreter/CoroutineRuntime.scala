@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.collection.mutable.ListBuffer
+import scala.collection.immutable.{Map => IMap}
 import Computation.Pure
 
 private[interpreter] object CoroutineRuntime:
@@ -146,7 +147,7 @@ private[interpreter] object CoroutineRuntime:
       case List(v) =>
         val coH = interp._coHandleTL.get()
         if coH != null then
-          coH.fromBody.put(Value.InstanceV("Yielded", Map("value" -> v)))
+          coH.fromBody.put(Value.InstanceV("Yielded", new IMap.Map1("value", v)))
           Pure(coH.toBody.take())
         else
           val genQ = interp._genQueueTL.get()
@@ -172,14 +173,14 @@ private[interpreter] object CoroutineRuntime:
           try
             toBody.take()  // lazy start: block until first coroutineResume
             val result = Computation.run(interp.callValue(thunk, Nil, Map.empty))
-            fromBody.put(Value.InstanceV("Returned", Map("value" -> result)))
+            fromBody.put(Value.InstanceV("Returned", new IMap.Map1("value", result)))
           catch case t: Throwable =>
             val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
             // offer instead of put: if handle was removed (cancelled) nobody
             // reads fromBody, so we must not block the virtual thread forever.
-            fromBody.offer(Value.InstanceV("Errored", Map("message" -> Value.StringV(msg))))
+            fromBody.offer(Value.InstanceV("Errored", new IMap.Map1("message", Value.StringV(msg))))
         }
-        Pure(Value.InstanceV("Coroutine", Map("_id" -> Value.intV(id))))
+        Pure(Value.InstanceV("Coroutine", new IMap.Map1("_id", Value.intV(id))))
       case _ => throw InterpretError("coroutineCreate(body: () => T)")
     })
 

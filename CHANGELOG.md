@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter runtime Map1 constructors
+
+- **perf/interpreter-runtime-map1** — Extended the direct immutable `Map1`
+  constructor optimization to direct blocks, throws auto-wrapping, coroutine
+  state values, and core `Left`/`Right` intrinsics.
+
 ## 2026-05-29 — interpreter small InstanceV maps
 
 - **perf/interpreter-small-instance-maps** — Ported the small `InstanceV`

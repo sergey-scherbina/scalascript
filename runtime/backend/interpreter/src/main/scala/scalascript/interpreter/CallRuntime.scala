@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.meta.*
+import scala.collection.immutable.{Map => IMap}
 import Computation.Pure
 
 /** Call helpers: callValue, callFun (with TCO + factory stubs + defaults),
@@ -421,7 +422,7 @@ private[interpreter] object CallRuntime:
   private def throwsAutoWrap(v: Value): Value = v match
     case Value.InstanceV("Left",  _) => v
     case Value.InstanceV("Right", _) => v
-    case other => Value.InstanceV("Right", Map("value" -> other))
+    case other => Value.InstanceV("Right", new IMap.Map1("value", other))
 
   def typeToString(t: scala.meta.Type): String = t match
     case scala.meta.Type.Name(n)         => n
