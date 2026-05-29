@@ -644,6 +644,19 @@ private[interpreter] object DispatchRuntime:
         case Some(v) => arg match
           case Value.OptionV(Some(w)) => Pure(Value.OptionV(Some(Value.TupleV(v :: w :: Nil))))
           case _                      => Computation.PureNone
+      case "fold"      =>
+        Pure(Value.NativeFnV("fold", {
+          case List(f) => opt match
+            case None    => Pure(arg)
+            case Some(v) => interp.callValue1(f, v, env)
+          case _ => throw InterpretError("Option.fold expects one function argument")
+        }))
+      case "toRight"   => opt match
+        case None    => Pure(Value.InstanceV("Left",  Map("value" -> arg)))
+        case Some(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
+      case "toLeft"    => opt match
+        case None    => Pure(Value.InstanceV("Right", Map("value" -> arg)))
+        case Some(v) => Pure(Value.InstanceV("Left",  Map("value" -> v)))
       case _           => dispatchOption(recv, opt, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for String single-arg operations. */
