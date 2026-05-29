@@ -32,12 +32,18 @@ object GraphQL:
 
   /** Collect resolver functions into an opaque `GraphQLResolvers` value.
    *
-   *  @param query    field-name → resolver mapping for the Query type
-   *  @param mutation field-name → resolver mapping for the Mutation type
+   *  Keys may be plain field names (`"hello"`) or GraphQL schema coordinates
+   *  (`"Query.hello"`, `"User.posts"`).  Schema coordinates are recommended
+   *  because they are unambiguous across nested object types.
+   *
+   *  @param query        coordinate → resolver for query fields
+   *  @param mutation     coordinate → resolver for mutation fields
+   *  @param subscription coordinate → Source[Any] resolver (Phase 3 — accepted but deferred)
    */
   extern def resolvers(
-    query:    Map[String, Map[String, Any] => Any] = Map.empty,
-    mutation: Map[String, Map[String, Any] => Any] = Map.empty,
+    query:        Map[String, Map[String, Any] => Any] = Map.empty,
+    mutation:     Map[String, Map[String, Any] => Any] = Map.empty,
+    subscription: Map[String, Map[String, Any] => Any] = Map.empty,
   ): GraphQLResolvers
 
 // ── Server DSL ───────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import scalascript.interpreter.{Value, InterpretError, Computation}
 import scalascript.plugin.api.{PluginContext, PluginNative}
 
 import graphql.GraphQL
+import graphql.language.OperationDefinition
 import graphql.schema.DataFetchingEnvironment
 import graphql.schema.idl.{RuntimeWiring, SchemaGenerator, SchemaParser, TypeRuntimeWiring}
 import graphql.ExecutionInput
@@ -32,11 +33,14 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("GraphQL.schema(sdl: String)")
     },
 
-    // GraphQL.resolvers(query = Map(...), mutation = Map(...))
+    // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...))
+    // Keys may be plain field names ("hello") or schema coordinates ("Query.hello").
+    // subscription is accepted for API compatibility; Phase 3 wires it to WebSocket.
     QualifiedName("GraphQL.resolvers") -> PluginNative.evalLegacy { (_, args) =>
-      val query    = extractResolverMap(args.headOption.getOrElse(Value.MapV(Map.empty)))
-      val mutation = extractResolverMap(args.drop(1).headOption.getOrElse(Value.MapV(Map.empty)))
-      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation))
+      val query        = extractResolverMap(args.headOption.getOrElse(Value.MapV(Map.empty)))
+      val mutation     = extractResolverMap(args.drop(1).headOption.getOrElse(Value.MapV(Map.empty)))
+      val subscription = extractResolverMap(args.drop(2).headOption.getOrElse(Value.MapV(Map.empty)))
+      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription))
     },
 
     // serveGraphQL(port, resolvers) — registers POST + GET /graphql, then starts server.
@@ -94,13 +98,32 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     ctx.registerRoute("POST", "/graphql", h)
     ctx.registerRoute("GET",  "/graphql", h)
 
+  // Parse a resolver key into (typeName, fieldName).
+  // Plain keys ("hello") use the provided defaultType.
+  // Schema coordinate keys ("Query.user", "User.posts") supply the type explicitly.
+  private def parseCoordinate(key: String, defaultType: String): (String, String) =
+    val dot = key.indexOf('.')
+    if dot < 0 then (defaultType, key) else (key.substring(0, dot), key.substring(dot + 1))
+
   private def buildEngine(sdl: String, res: GraphQLResolvers, ctx: PluginContext): graphql.GraphQL =
     val typeReg = new SchemaParser().parse(sdl)
     val wiring  = RuntimeWiring.newRuntimeWiring()
-    if res.query.nonEmpty then
-      val tw = TypeRuntimeWiring.newTypeWiring("Query")
-      res.query.foreach { (field, fn) =>
-        tw.dataFetcher(field, (env: DataFetchingEnvironment) =>
+
+    // Collect all resolvers grouped by type name.
+    // Keys may be plain ("hello") or schema coordinates ("Query.hello", "User.posts").
+    val byType = scala.collection.mutable.Map[String, scala.collection.mutable.Map[String, Value]]()
+
+    def addResolver(key: String, fn: Value, defaultType: String): Unit =
+      val (typeName, fieldName) = parseCoordinate(key, defaultType)
+      byType.getOrElseUpdate(typeName, scala.collection.mutable.Map()) += (fieldName -> fn)
+
+    res.query.foreach    { (k, fn) => addResolver(k, fn, "Query") }
+    res.mutation.foreach { (k, fn) => addResolver(k, fn, "Mutation") }
+
+    byType.foreach { (typeName, fields) =>
+      val tw = TypeRuntimeWiring.newTypeWiring(typeName)
+      fields.foreach { (fieldName, fn) =>
+        tw.dataFetcher(fieldName, (env: DataFetchingEnvironment) =>
           val argsMap = Value.MapV(env.getArguments.asScala.toMap.map { (k, v) =>
             Value.StringV(k) -> javaToValue(v)
           })
@@ -108,17 +131,8 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         )
       }
       wiring.`type`(tw)
-    if res.mutation.nonEmpty then
-      val tw = TypeRuntimeWiring.newTypeWiring("Mutation")
-      res.mutation.foreach { (field, fn) =>
-        tw.dataFetcher(field, (env: DataFetchingEnvironment) =>
-          val argsMap = Value.MapV(env.getArguments.asScala.toMap.map { (k, v) =>
-            Value.StringV(k) -> javaToValue(v)
-          })
-          valueToJava(ctx.invokeCallback(fn, List(argsMap)).asInstanceOf[Value])
-        )
-      }
-      wiring.`type`(tw)
+    }
+
     val schema = new SchemaGenerator().makeExecutableSchema(typeReg, wiring.build())
     GraphQL.newGraphQL(schema).build()
 
@@ -129,15 +143,55 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     })
 
   private def handleRequest(engine: graphql.GraphQL, req: Any): Value =
-    val body = req match
+    val (method, path, body) = req match
       case Value.InstanceV("Request", fields) =>
-        fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("{}")
-      case _ => "{}"
-    val parsed = ujson.read(if body.isEmpty then "{}" else body)
-    val query  = parsed.obj.get("query").map(_.str).getOrElse("")
-    val vars   = parsed.obj.get("variables") match
+        val m = fields.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
+        val p = fields.get("path").collect   { case Value.StringV(s) => s }.getOrElse("/graphql")
+        val b = fields.get("body").collect   { case Value.StringV(s) => s }.getOrElse("{}")
+        (m, p, b)
+      case _ => ("POST", "/graphql", "{}")
+
+    // For GET requests, try to extract ?query=... from the path; fall back to body.
+    val source =
+      if method == "GET" then
+        val qs = path.split('?').lift(1).getOrElse("")
+        val qp = qs.split('&').flatMap { p =>
+          p.split('=').toList match
+            case k :: rest => Some(java.net.URLDecoder.decode(k, "UTF-8") ->
+                                   java.net.URLDecoder.decode(rest.mkString("="), "UTF-8"))
+            case _         => None
+        }.toMap
+        qp.get("query") match
+          case Some(q) => ujson.Obj("query" -> ujson.Str(q))
+          case None    => ujson.read(if body.isEmpty then "{}" else body)
+      else
+        ujson.read(if body.isEmpty then "{}" else body)
+
+    val query  = source.obj.get("query").map(_.str).getOrElse("")
+    val vars   = source.obj.get("variables") match
       case Some(ujson.Obj(m)) => m.toMap.map { (k, v) => k -> ujsonToJava(v) }.asJava
       case _                  => java.util.Collections.emptyMap[String, Any]()
+
+    // GET requests must not execute mutations (GraphQL-over-HTTP §6.2.2).
+    if method == "GET" && query.nonEmpty then
+      try
+        val doc = graphql.parser.Parser.parse(query)
+        val hasMutation = doc.getDefinitions.asScala.exists {
+          case od: OperationDefinition =>
+            od.getOperation == OperationDefinition.Operation.MUTATION
+          case _ => false
+        }
+        if hasMutation then
+          return Value.InstanceV("Response", Map(
+            "status"  -> Value.IntV(405L),
+            "body"    -> Value.StringV(
+              """{"errors":[{"message":"Mutations are not allowed over GET"}]}"""),
+            "headers" -> Value.MapV(Map(
+              Value.StringV("Content-Type") -> Value.StringV("application/json"),
+            )),
+          ))
+      catch case _: Exception => () // parse errors surface through the engine below
+
     val input  = ExecutionInput.newExecutionInput(query).variables(vars).build()
     val result = engine.execute(input)
     val dataVal = if result.getData[Any] == null then ujson.Null

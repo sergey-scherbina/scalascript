@@ -1,8 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Planning. No GraphQL runtime support has landed on `main` yet as
-of 2026-05-29; `graphql-p1` is the active first implementation slice in
-[`BACKLOG.md`](../BACKLOG.md).
+**Status:** Phase 1 implemented (`graphql-p1`, 2026-05-29, 20 tests on `main`).
+Phase 2 (async resolvers, client, Node backend) is the next active slice.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -615,15 +614,16 @@ fixtures before requiring a real network server.
 runtime/std/
   graphql-plugin/
     src/main/scala/scalascript/compiler/plugin/graphql/
-      GraphQLPlugin.scala
-      GraphQLIntrinsics.scala
-      GraphQLJvmRuntime.scala
-      GraphQLSourceLanguage.scala
-      GraphQLSchemaValidator.scala
-      GraphQLHttpAdapter.scala
-      GraphQLDataLoaders.scala
-      GraphQLClientRuntime.scala
-      GraphQLJsRuntime.scala              # Phase 2+
+      GraphQLInterpreterPlugin.scala      # SPI entry (Backend + graphqlBlockRunner)
+      GraphQLIntrinsics.scala             # Intrinsic table + JVM engine building
+      GraphQLJvmBlockRunner.scala         # SDL registration (implements GraphQLBlockRunner)
+      GraphQLResolvers.scala              # Resolver container (query/mutation/subscription maps)
+      GraphQLSourceLanguage.scala         # SourceLanguage SPI — graphql fenced blocks
+      GraphQLSchemaValidator.scala        # Phase 4 — compile-time SDL validation
+      GraphQLHttpAdapter.scala            # Phase 5 — media-type negotiation, strict HTTP
+      GraphQLDataLoaders.scala            # Phase 9 — DataLoader/batching
+      GraphQLClientRuntime.scala          # Phase 7+ — typed client operations
+      GraphQLJsRuntime.scala              # Phase 2+ — Node/JS codegen
     src/main/resources/META-INF/services/
       scalascript.backend.spi.Backend
       scalascript.backend.spi.SourceLanguage
@@ -665,31 +665,47 @@ Potential migration after Phase 1:
 
 ## 7. Phases
 
-### Phase 1 - Schema + Resolvers + `serveGraphQL` (JVM/interpreter)
+### Phase 1 - Schema + Resolvers + `serveGraphQL` (JVM/interpreter) ✅
 
 **Goal:** `ssc run myapi.ssc` starts a JVM GraphQL server from inline SDL and
 dynamic resolvers.
 
-Tasks:
+**Status:** Implemented 2026-05-29. 20 tests pass.
 
-- `runtime/std/graphql-plugin/` sbt subproject with a pinned `graphql-java`
-  dependency verified at implementation time.
-- `GraphQLIntrinsics`: `GraphQL.schema(sdl)`, `GraphQL.resolvers(...)`,
-  `serveGraphQL(port, resolvers)`, `graphqlHandler(schema, resolvers)`.
-- `GraphQLJvmRuntime`: build a `graphql.GraphQL` instance from SDL and resolver
-  wrappers.
+**Implementation notes:**
+
+- JVM runtime (engine building, DataFetcher wiring) lives in `GraphQLIntrinsics`
+  rather than a separate `GraphQLJvmRuntime.scala`; the file can be split in a
+  later refactor if it grows.
+- HTTP handling is inline in `GraphQLIntrinsics.handleRequest` rather than a
+  separate `GraphQLHttpAdapter.scala`; again, split-out is a Phase 5 candidate.
+- `GraphQLInterpreterPlugin.scala` is the SPI entry point (rather than
+  `GraphQLPlugin.scala` — the spec had a placeholder name).
+- Resolver keys support both plain field names (`"hello"`) and GraphQL schema
+  coordinates (`"Query.hello"`, `"User.posts"`). Plain keys in the `query` map
+  default to the `Query` type; plain keys in the `mutation` map default to
+  `Mutation`. Schema coordinates select any type name explicitly.
+- `GraphQL.resolvers()` accepts a `subscription` parameter (stored, not yet
+  wired); Phase 3 connects it to WebSocket.
+- GET /graphql rejects mutation documents with `405 Method Not Allowed`.
+
+Tasks (done):
+
+- `runtime/std/graphql-plugin/` sbt subproject with `graphql-java 22.3`.
+- `GraphQLIntrinsics`: `GraphQL.schema(sdl)`, `GraphQL.resolvers(query, mutation, subscription)`,
+  `serveGraphQL(port, resolvers[, tls])`, `graphqlMount(resolvers)`,
+  `graphqlHandler(schema, resolvers)`.
 - `runtime/std/graphql.ssc`: extern declarations + opaque type aliases.
-- `Lang.scala`: add `val Graphql = "graphql"` + `def isGraphql`.
-- `Backend` SPI: add `graphqlBlockRunner`.
+- `Lang.scala`: `val Graphql = "graphql"`, `def isGraphql`.
+- `Backend` SPI: `graphqlBlockRunner`.
 - `SectionRuntime`: handle `Lang.isGraphql` blocks via the plugin runner.
-- `GraphQLSourceLanguage`: register `graphql` fenced-block support via
-  ServiceLoader; no hand edit to `SourceLanguageRegistry`.
-- Minimal GraphQL-over-HTTP behavior: `POST /graphql`, optional query-only
-  `GET /graphql`, JSON request body, GraphQL response body, correct mutation
-  rejection over `GET`.
+- `GraphQLSourceLanguage`: registered via ServiceLoader (no hand edit to registry).
+- Dual META-INF: `scalascript.backend.spi.Backend` and `scalascript.backend.spi.SourceLanguage`.
+- GraphQL-over-HTTP: `POST /graphql`, query-only `GET /graphql`, mutation-over-GET → 405.
 - `examples/graphql-hello.ssc`.
-- `GraphQLIntrinsicsTest`: schema construction, block registration, resolver
-  dispatch, variables, nulls, lists, errors, introspection, HTTP query.
+- `GraphQLIntrinsicsTest` (20 tests): schema, block registration, schema coordinates,
+  nested type resolvers, plain keys, mutations, variables, lists, booleans,
+  introspection, Content-Type, GET mutation rejection.
 
 Effort: ~4 days.
 
@@ -896,7 +912,7 @@ Effort: ~5 days.
 
 | Phase | Tests | Kind |
 |---|---|---|
-| 1 | `GraphQLIntrinsicsTest` (10+) | Interpreter + HTTP unit |
+| 1 | `GraphQLIntrinsicsTest` (20) ✅ | Interpreter + HTTP unit |
 | 2 | Async resolver, dynamic client, JS codegen shape | Interpreter + codegen |
 | 3 | Subscription lifecycle and cancellation | Integration |
 | 4 | `GraphQLSchemaCheckTest` (6+) | Compiler/LSP diagnostics |

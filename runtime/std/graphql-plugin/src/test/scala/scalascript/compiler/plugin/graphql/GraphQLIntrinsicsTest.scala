@@ -193,6 +193,120 @@ class GraphQLIntrinsicsTest extends AnyFunSuite:
     )
     assert(json("data")("createUser").str == "Bob")
 
+  // ── Schema coordinate resolver keys ───────────────────────────────────────
+
+  test("graphqlHandler accepts schema coordinate keys (Query.hello)"):
+    val json = executeQuery(
+      sdl       = "type Query { hello: String! }",
+      query     = "{ hello }",
+      resolvers = GraphQLResolvers(
+        query    = Map("Query.hello" -> Value.NativeFnV("hello", Computation.pureFn(_ => Value.StringV("coords!")))),
+        mutation = Map.empty,
+      ),
+    )
+    assert(json("data")("hello").str == "coords!")
+
+  test("graphqlHandler accepts schema coordinate mutation key (Mutation.save)"):
+    val json = executeQuery(
+      sdl   = "type Query { _dummy: String } type Mutation { save(x: Int!): Int! }",
+      query = "mutation { save(x: 7) }",
+      resolvers = GraphQLResolvers(
+        query    = Map.empty,
+        mutation = Map("Mutation.save" -> Value.NativeFnV("save", Computation.pureFn {
+          case List(Value.MapV(args)) =>
+            args.get(Value.StringV("x")).collect { case Value.IntV(n) => Value.IntV(n) }.getOrElse(Value.IntV(0L))
+          case _ => Value.IntV(0L)
+        })),
+      ),
+    )
+    assert(json("data")("save").num.toLong == 7L)
+
+  test("graphqlHandler accepts nested type resolver (User.name)"):
+    val sdl =
+      """|type Query { user: User! }
+         |type User { name: String! }""".stripMargin
+    val json = executeQuery(
+      sdl   = sdl,
+      query = "{ user { name } }",
+      resolvers = GraphQLResolvers(
+        query = Map("Query.user" -> Value.NativeFnV("user", Computation.pureFn(_ =>
+          Value.InstanceV("User", Map("__typename" -> Value.StringV("User")))))),
+        mutation = Map("User.name" -> Value.NativeFnV("name", Computation.pureFn(_ =>
+          Value.StringV("Alice")))),
+      ),
+    )
+    assert(json("data")("user")("name").str == "Alice")
+
+  // ── GET mutation rejection (GraphQL-over-HTTP §6.2.2) ─────────────────────
+
+  test("GET /graphql rejects mutation with 405"):
+    val p = new GraphQLInterpreterPlugin()
+    p.graphqlBlockRunner.foreach(_.registerSdl(
+      "type Query { _dummy: String } type Mutation { ping: String! }"))
+
+    val ctx = new scalascript.backend.spi.NativeContext:
+      def out: java.io.PrintStream = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+      def err: java.io.PrintStream = out
+      override def invokeCallback(fn: Any, args: List[Any]): Any = Value.NullV
+
+    val handlerImpl = p.intrinsics(scalascript.ir.QualifiedName("graphqlHandler"))
+      .asInstanceOf[scalascript.backend.spi.NativeImpl]
+    val sdl = "type Query { _dummy: String } type Mutation { ping: String! }"
+    val handler = handlerImpl.eval(
+      ctx,
+      List(Value.Foreign("GraphQLSchema", sdl),
+           Value.Foreign("GraphQLResolvers", GraphQLResolvers(Map.empty, Map.empty))),
+    ).asInstanceOf[Value.NativeFnV]
+
+    val getReq = Value.InstanceV("Request", Map(
+      "method" -> Value.StringV("GET"),
+      "path"   -> Value.StringV("/graphql?query=mutation+%7B+ping+%7D"),
+      "body"   -> Value.StringV(""),
+    ))
+    val resp = Computation.run(handler.f(List(getReq)))
+    resp match
+      case Value.InstanceV("Response", fields) =>
+        assert(fields.get("status").contains(Value.IntV(405L)), s"expected 405, got ${fields.get("status")}")
+      case other => fail(s"expected Response, got $other")
+
+  test("GET /graphql executes queries normally"):
+    val p = new GraphQLInterpreterPlugin()
+    val sdl = "type Query { hello: String! }"
+    p.graphqlBlockRunner.foreach(_.registerSdl(sdl))
+
+    val ctx = new scalascript.backend.spi.NativeContext:
+      def out: java.io.PrintStream = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+      def err: java.io.PrintStream = out
+      override def invokeCallback(fn: Any, args: List[Any]): Any =
+        fn match
+          case f: Value.NativeFnV => Computation.run(f.f(args.collect { case v: Value => v }))
+          case _ => Value.NullV
+
+    val handlerImpl = p.intrinsics(scalascript.ir.QualifiedName("graphqlHandler"))
+      .asInstanceOf[scalascript.backend.spi.NativeImpl]
+    val resolvers = GraphQLResolvers(
+      query    = Map("hello" -> Value.NativeFnV("hello", Computation.pureFn(_ => Value.StringV("world")))),
+      mutation = Map.empty,
+    )
+    val handler = handlerImpl.eval(
+      ctx,
+      List(Value.Foreign("GraphQLSchema", sdl),
+           Value.Foreign("GraphQLResolvers", resolvers)),
+    ).asInstanceOf[Value.NativeFnV]
+
+    val getReq = Value.InstanceV("Request", Map(
+      "method" -> Value.StringV("GET"),
+      "path"   -> Value.StringV("/graphql"),
+      "body"   -> Value.StringV("""{"query":"{ hello }"}"""),
+    ))
+    val resp = Computation.run(handler.f(List(getReq)))
+    resp match
+      case Value.InstanceV("Response", fields) =>
+        assert(fields.get("status").contains(Value.IntV(200L)))
+        val body = fields.get("body").collect { case Value.StringV(s) => ujson.read(s) }
+        assert(body.flatMap(_.obj.get("data")).flatMap(_.obj.get("hello")).map(_.str).contains("world"))
+      case other => fail(s"expected Response, got $other")
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   private def buildAndInvokeHandler(sdl: String, query: String, resolvers: GraphQLResolvers): Value =
