@@ -115,7 +115,7 @@ final class WsClientSession(
     val recvFn = NativeFnV("WebSocket.recv", pureFn {
       case Nil =>
         client.recv() match
-          case Some(msg) => OptionV(Some(StringV(msg)))
+          case Some(msg) => OptionV(StringV(msg))
           case None      => Value.NoneV
       case _ => throw InterpretError("ws.recv()")
     })

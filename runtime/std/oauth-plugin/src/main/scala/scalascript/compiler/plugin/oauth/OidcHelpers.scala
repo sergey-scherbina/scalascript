@@ -34,7 +34,7 @@ object OidcIntrinsicHelpers:
     fields("userInfo") = Value.NativeFnV("OidcServer.userInfo", Computation.pureFn {
       case List(Value.StringV(token)) => idp.userInfoFor(token) match
         case UserInfoOutcome.Found(c)    =>
-          Value.OptionV(Some(OAuthIntrinsicHelpers.ujsonToValue(c)))
+          Value.OptionV(OAuthIntrinsicHelpers.ujsonToValue(c))
         case _                            => Value.NoneV
       case _ => throw InterpretError("idp.userInfo(token)")
     })

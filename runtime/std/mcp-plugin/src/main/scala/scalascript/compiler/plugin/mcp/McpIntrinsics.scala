@@ -1386,7 +1386,7 @@ private object Mcp:
     Value.ListV(roots.map { r =>
       Value.InstanceV("Root", Map(
         "uri"  -> Value.StringV(r.uri),
-        "name" -> Value.OptionV(r.name.map(s => Value.StringV(s)))
+        "name" -> Value.optionV(r.name.map(s => Value.StringV(s)))
       ))
     })
 
@@ -1430,11 +1430,11 @@ private object Mcp:
   def authClaimsToValueOpt(c: Option[McpAuth.AuthClaims]): Value = c match
     case None => Value.NoneV
     case Some(claims) =>
-      Value.OptionV(Some(Value.InstanceV("AuthClaims", Map(
+      Value.OptionV(Value.InstanceV("AuthClaims", Map(
         "subject" -> Value.StringV(claims.subject),
         "scopes"  -> Value.ListV(claims.scopes.toList.sorted.map(s => Value.StringV(s))),
         "extra"   -> jsonToValue(claims.extra)
-      ))))
+      )))
 
   /** Decode a user-supplied `Map` / `InstanceV` describing the metadata
    *  document.  Missing fields fall to spec defaults. */
@@ -1460,7 +1460,7 @@ private object Mcp:
     case McpProtocol.ElicitationResult.Accept(content) =>
       Value.InstanceV("ElicitationResult", Map(
         "action"  -> Value.StringV("accept"),
-        "content" -> Value.OptionV(Some(jsonToValue(content)))
+        "content" -> Value.OptionV(jsonToValue(content))
       ))
     case McpProtocol.ElicitationResult.Decline =>
       Value.InstanceV("ElicitationResult", Map(
@@ -1485,7 +1485,7 @@ private object Mcp:
 
   def valueToJson(v: Value): ujson.Value = v match
     case Value.NoneV    => ujson.Null
-    case Value.OptionV(Some(x)) => valueToJson(x)
+    case Value.OptionV(x) if x != null => valueToJson(x)
     case Value.BoolV(b)         => if b then ujson.True else ujson.False
     case Value.StringV(s)       => ujson.Str(s)
     case Value.IntV(i)          => ujson.Num(i.toDouble)

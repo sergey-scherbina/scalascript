@@ -51,7 +51,7 @@ object JsonIntrinsics:
 
     QualifiedName("lookupOpt") -> stableNative(args =>
       args match
-        case List(v, k) => Value.OptionV(lookupKey(jsonAnyToValue(v), jsonAnyToValue(k)))
+        case List(v, k) => Value.optionV(lookupKey(jsonAnyToValue(v), jsonAnyToValue(k)))
         case _          => throw InterpretError("lookupOpt(v, key)")
     ),
 

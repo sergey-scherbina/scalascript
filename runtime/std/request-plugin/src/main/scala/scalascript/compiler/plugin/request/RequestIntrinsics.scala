@@ -21,7 +21,7 @@ object RequestIntrinsics:
     QualifiedName("optionalString") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(req, name: String) =>
-          Value.OptionV(reqFieldOf(reqAnyToValue(req), name).map(Value.StringV(_)))
+          Value.optionV(reqFieldOf(reqAnyToValue(req), name).map(Value.StringV(_)))
         case _ => throw InterpretError("optionalString(req, name)")
     },
 
@@ -45,7 +45,7 @@ object RequestIntrinsics:
             try Some(Value.intV(s.toLong))
             catch case _: NumberFormatException => None
           }
-          Value.OptionV(parsed)
+          Value.optionV(parsed)
         case _ => throw InterpretError("optionalInt(req, name)")
     },
 
@@ -69,7 +69,7 @@ object RequestIntrinsics:
             try Some(Value.doubleV(s.toDouble))
             catch case _: NumberFormatException => None
           }
-          Value.OptionV(parsed)
+          Value.optionV(parsed)
         case _ => throw InterpretError("optionalDouble(req, name)")
     },
 
@@ -95,7 +95,7 @@ object RequestIntrinsics:
               case "false" | "0" | "no"  | "off" => Some(Value.False)
               case _ => None
           }
-          Value.OptionV(parsed)
+          Value.optionV(parsed)
         case _ => throw InterpretError("optionalBool(req, name)")
     },
 

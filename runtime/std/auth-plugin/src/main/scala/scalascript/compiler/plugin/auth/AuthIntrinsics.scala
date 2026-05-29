@@ -87,7 +87,7 @@ object AuthIntrinsics:
       args match
         case List(s: String) =>
           scalascript.server.WebAuthn.consumeChallenge(s) match
-            case Some(uid) => Value.OptionV(Some(Value.StringV(uid)))
+            case Some(uid) => Value.OptionV(Value.StringV(uid))
             case None      => Value.NoneV
         case _ => throw InterpretError("webauthnConsumeChallenge(challenge: String)")
     },
@@ -120,11 +120,11 @@ object AuthIntrinsics:
         case List(uid: String, cid: String) =>
           scalascript.server.WebAuthn.storeFind(uid, cid) match
             case Some(c) =>
-              Value.OptionV(Some(Value.MapV(Map(
+              Value.OptionV(Value.MapV(Map(
                 Value.StringV("credentialId") -> Value.StringV(c.credentialId),
                 Value.StringV("publicKey")    -> Value.StringV(c.publicKey),
                 Value.StringV("signCount")    -> Value.intV(c.signCount),
-              ))))
+              )))
             case None => Value.NoneV
         case _ => throw InterpretError("webauthnStoreFind(userId, credentialId)")
     },
@@ -142,10 +142,10 @@ object AuthIntrinsics:
         case List(cd: String, ad: String, sig: String, cid: String, origin: String) =>
           scalascript.server.WebAuthn.verifyAssertion(cd, ad, sig, cid, origin) match
             case Some(a) =>
-              Value.OptionV(Some(Value.MapV(Map(
+              Value.OptionV(Value.MapV(Map(
                 Value.StringV("userId")    -> Value.StringV(a.userId),
                 Value.StringV("signCount") -> Value.intV(a.signCount),
-              ))))
+              )))
             case None => Value.NoneV
         case _ => throw InterpretError(
           "webauthnVerifyAssertion(clientDataJSONb64, authenticatorDataB64, " +
@@ -157,12 +157,12 @@ object AuthIntrinsics:
         case List(cd: String, att: String, origin: String) =>
           scalascript.server.WebAuthn.verifyRegistration(cd, att, origin) match
             case Some(r) =>
-              Value.OptionV(Some(Value.MapV(Map(
+              Value.OptionV(Value.MapV(Map(
                 Value.StringV("userId")       -> Value.StringV(r.userId),
                 Value.StringV("credentialId") -> Value.StringV(r.credentialId),
                 Value.StringV("publicKey")    -> Value.StringV(r.publicKey),
                 Value.StringV("signCount")    -> Value.intV(r.signCount),
-              ))))
+              )))
             case None => Value.NoneV
         case _ => throw InterpretError(
           "webauthnVerifyRegistration(clientDataJSONb64, attestationObjectB64, expectedOrigin)")
@@ -268,7 +268,7 @@ object AuthIntrinsics:
         case List(token: String) =>
           scalascript.server.Jwt.verify(token) match
             case Some(claims) =>
-              Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+              Value.OptionV(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v))))
             case None => Value.NoneV
         case _ => throw InterpretError("jwtVerify(token: String)")
     },
@@ -291,7 +291,7 @@ object AuthIntrinsics:
         case List(token: String) =>
           scalascript.server.JwtRsa.verify(token) match
             case Some(claims) =>
-              Value.OptionV(Some(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+              Value.OptionV(Value.MapV(claims.map((k, v) => Value.StringV(k) -> Value.StringV(v))))
             case None => Value.NoneV
         case _ => throw InterpretError("jwtVerifyRsa(token: String)")
     },
@@ -313,7 +313,7 @@ object AuthIntrinsics:
         case List(prov: String, code: String, cid: String, csec: String, redir: String) =>
           scalascript.server.OAuth.exchangeCode(prov, code, cid, csec, redir) match
             case Some(m) =>
-              Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+              Value.OptionV(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v))))
             case None => Value.NoneV
         case _ => throw InterpretError(
           "oauthExchangeCode(provider, code, clientId, clientSecret, redirectUri)")
@@ -324,7 +324,7 @@ object AuthIntrinsics:
         case List(prov: String, token: String) =>
           scalascript.server.OAuth.userinfo(prov, token) match
             case Some(m) =>
-              Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+              Value.OptionV(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v))))
             case None => Value.NoneV
         case _ => throw InterpretError("oauthUserinfo(provider, accessToken)")
     },
@@ -334,7 +334,7 @@ object AuthIntrinsics:
         case List(prov: String, refresh: String, cid: String, csec: String) =>
           scalascript.server.OAuth.refreshToken(prov, refresh, cid, csec) match
             case Some(m) =>
-              Value.OptionV(Some(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
+              Value.OptionV(Value.MapV(m.map((k, v) => Value.StringV(k) -> Value.StringV(v))))
             case None => Value.NoneV
         case _ => throw InterpretError(
           "oauthRefreshToken(provider, refreshToken, clientId, clientSecret)")

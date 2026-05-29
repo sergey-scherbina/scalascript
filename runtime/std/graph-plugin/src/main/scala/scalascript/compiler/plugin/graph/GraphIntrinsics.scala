@@ -27,7 +27,7 @@ object GraphIntrinsics:
     },
     QualifiedName("Graph.getVertex") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, id: String) =>
-        Value.OptionV(store(graphName).vertices.get(id))
+        Value.optionV(store(graphName).vertices.get(id))
       case _ => throw RuntimeException("Graph.getVertex(graphName: String, id: String)")
     },
     QualifiedName("Graph.vertices") -> PluginNative.evalLegacy { (_, args) => args match
@@ -81,7 +81,7 @@ object GraphIntrinsics:
     },
     QualifiedName("Graph.getRdf") -> PluginNative.evalLegacy { (_, args) => args match
       case List(graphName: String, subject) =>
-        Value.OptionV(store(graphName).rdf.get(subjectString(subject)).map(_.value))
+        Value.optionV(store(graphName).rdf.get(subjectString(subject)).map(_.value))
       case _ => throw RuntimeException("Graph.getRdf(graphName: String, subject)")
     },
     QualifiedName("Graph.triples") -> PluginNative.evalLegacy { (_, args) => args match
@@ -171,7 +171,7 @@ object GraphIntrinsics:
     case Value.StringV(s) => s
     case Value.InstanceV("Iri", fields) => fields.get("value").flatMap(asString).getOrElse(Value.show(Value.InstanceV("Iri", fields)))
     case Value.InstanceV("RdfNode.Iri", fields) => fields.get("value").flatMap(asString).getOrElse(Value.show(Value.InstanceV("RdfNode.Iri", fields)))
-    case Value.OptionV(Some(v)) => subjectString(v)
+    case Value.OptionV(v) if v != null => subjectString(v)
     case other: Value => Value.show(other)
     case other => other.toString
 
@@ -183,7 +183,7 @@ object GraphIntrinsics:
   private def optionString(value: Any): Option[String] = value match
     case null => None
     case Value.NoneV => None
-    case Value.OptionV(Some(v)) => asString(v)
+    case Value.OptionV(v) if v != null => asString(v)
     case s: String => Some(s)
     case v: Value => asString(v)
     case other => Some(other.toString)
@@ -193,7 +193,7 @@ object GraphIntrinsics:
     case Value.IntV(n) => Some(n.toString)
     case Value.DoubleV(d) => Some(if d == d.toLong.toDouble then d.toLong.toString else d.toString)
     case Value.BoolV(b) => Some(b.toString)
-    case Value.OptionV(Some(v)) => asString(v)
+    case Value.OptionV(v) if v != null => asString(v)
     case Value.NoneV => None
     case other => Some(Value.show(other))
 

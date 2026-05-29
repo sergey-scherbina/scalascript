@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — OptionV optimization follow-up
+
+- **fix/interpreter-optionv-followups** — Completed the null-sentinel
+  `OptionV` migration across DAP, interpreter-server, JSON/request/auth/OAuth/
+  MCP/GraphQL/graph/sql/streams/remote plugins, and added a regression test for
+  optional optics preserving `None` as absent.
+
 ## 2026-05-29 — interpreter unary pure fast path
 
 - **perf/interpreter-unary-pure** — Ported the direct-match fast path for

@@ -122,9 +122,9 @@ final class InterpreterHttpHandler(
         var authRejected: Boolean      = false
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(requestValue)) match
-            case Value.OptionV(Some(v)) => userPayload = Some(v)
-            case Value.NoneV    => authRejected = true
-            case other                  => userPayload = Some(other)
+            case Value.OptionV(v) if v != null => userPayload = Some(v)
+            case Value.NoneV                   => authRejected = true
+            case other                         => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"WS auth hook error: ${e.getMessage}")
             authRejected = true
@@ -166,7 +166,7 @@ final class InterpreterHttpHandler(
       "query"   -> Value.MapV(r.query.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "headers" -> Value.MapV(r.headers.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "body"    -> Value.StringV(r.body),
-      "json"    -> Value.OptionV(
+      "json"    -> Value.optionV(
         if r.body.isEmpty then None
         else scalascript.interpreter.JsonParser.parseOption(r.body)
       ),
@@ -183,13 +183,13 @@ final class InterpreterHttpHandler(
       }),
       "session" -> Value.MapV(r.session.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
       "cookies" -> Value.MapV(r.cookies.map((k, v) => Value.StringV(k) -> Value.StringV(v))),
-      "bearerToken" -> r.bearerToken.map(t => Value.OptionV(Some(Value.StringV(t))))
+      "bearerToken" -> r.bearerToken.map(t => Value.OptionV(Value.StringV(t)))
         .getOrElse(Value.NoneV),
       "jwtClaims"   -> r.jwtClaims.map(c =>
-          Value.OptionV(Some(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v))))))
+          Value.OptionV(Value.MapV(c.map((k, v) => Value.StringV(k) -> Value.StringV(v)))))
         .getOrElse(Value.NoneV),
       "basicAuth"   -> r.basicAuth.map((u, p) =>
-          Value.OptionV(Some(Value.TupleV(List(Value.StringV(u), Value.StringV(p))))))
+          Value.OptionV(Value.TupleV(List(Value.StringV(u), Value.StringV(p)))))
         .getOrElse(Value.NoneV)
     ))
 
@@ -394,11 +394,11 @@ private final class InterpreterWsListener(
     // the cluster's `/_ssc-actors` route) need a parked-on-VT
     // read primitive in addition to the onMessage callback path.
     val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
-      case Nil => Value.OptionV(controls.recv().map(Value.StringV(_)))
+      case Nil => Value.optionV(controls.recv().map(Value.StringV(_)))
       case _   => throw scalascript.interpreter.InterpretError("ws.recv()")
     })
     val userValue: Value = userPayload match
-      case Some(v) => Value.OptionV(Some(v))
+      case Some(v) => Value.OptionV(v)
       case None    => Value.NoneV
     Value.InstanceV("WebSocket", Map(
       "send"        -> send,

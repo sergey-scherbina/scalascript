@@ -212,8 +212,8 @@ private[interpreter] object OpticsRuntime:
       case Value.InstanceV(_, fields) => fields.get(n).flatMap(v => opticGetOption(v, rest))
       case _                          => None
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(inner) => opticGetOption(inner, rest)
-      case _                          => None
+      case Value.OptionV(inner) if inner != null => opticGetOption(inner, rest)
+      case _                                     => None
     case PathStep.IndexStep(i) :: rest => target match
       case Value.ListV(items) if i >= 0 && i < items.length =>
         opticGetOption(items(i), rest)
@@ -234,7 +234,7 @@ private[interpreter] object OpticsRuntime:
           case None => target
       case _ => target
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(inner) =>
+      case Value.OptionV(inner) if inner != null =>
         Value.OptionV(opticSet(inner, rest, newVal))
       case other => other
     case PathStep.IndexStep(i) :: rest => target match
@@ -296,8 +296,8 @@ private[interpreter] object OpticsRuntime:
         fields.get(n).map(v => opticGetAll(v, rest)).getOrElse(Nil)
       case _ => Nil
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(inner) => opticGetAll(inner, rest)
-      case _                          => Nil
+      case Value.OptionV(inner) if inner != null => opticGetAll(inner, rest)
+      case _                                     => Nil
     case PathStep.EachStep :: rest => target match
       case Value.ListV(items) => items.flatMap(item => opticGetAll(item, rest))
       case _                  => Nil
@@ -321,7 +321,7 @@ private[interpreter] object OpticsRuntime:
           case None => Pure(target)
       case _ => Pure(target)
     case PathStep.SomeStep :: rest => target match
-      case Value.OptionV(inner) =>
+      case Value.OptionV(inner) if inner != null =>
         opticModifyAll(inner, rest, f, interp).map(updated => Value.OptionV(updated))
       case _ => Pure(target)
     case PathStep.EachStep :: rest => target match

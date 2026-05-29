@@ -107,7 +107,7 @@ object WsConnection:
     val recv = Value.NativeFnV("WebSocket.recv", Computation.pureFn {
       case Nil =>
         ws.recv() match
-          case Some(msg) => Value.OptionV(Some(Value.StringV(msg)))
+          case Some(msg) => Value.OptionV(Value.StringV(msg))
           case None      => Value.NoneV
       case _ => throw InterpretError("ws.recv()")
     })
@@ -116,8 +116,8 @@ object WsConnection:
       case _   => throw InterpretError("ws.isClosed")
     })
     val userValue: Value = ws.user match
-      case Some(v: Value) => Value.OptionV(Some(v))
-      case Some(other)    => Value.OptionV(Some(Value.StringV(other.toString)))
+      case Some(v: Value) => Value.OptionV(v)
+      case Some(other)    => Value.OptionV(Value.StringV(other.toString))
       case None           => Value.NoneV
     Value.InstanceV("WebSocket", Map(
       "send"        -> send,

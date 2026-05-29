@@ -98,9 +98,9 @@ object TlsProxy:
         var authRejected               = false
         entry.auth.foreach { fn =>
           try entry.interpreter.invoke(fn, List(request)) match
-            case Value.OptionV(Some(v)) => userPayload = Some(v)
-            case Value.NoneV    => authRejected = true
-            case other                  => userPayload = Some(other)
+            case Value.OptionV(v) if v != null => userPayload = Some(v)
+            case Value.NoneV                   => authRejected = true
+            case other                         => userPayload = Some(other)
           catch case e: Throwable =>
             log.println(s"TLS WS auth hook error: ${e.getMessage}")
             authRejected = true

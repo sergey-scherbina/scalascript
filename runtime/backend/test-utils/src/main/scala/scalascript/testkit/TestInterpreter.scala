@@ -37,5 +37,5 @@ object TestInterpreter:
     case Value.TupleV(items) => items.map(unwrap)
     case Value.MapV(entries) =>
       entries.map { case (k, v) => unwrap(k) -> unwrap(v) }
-    case Value.OptionV(opt)  => opt.map(unwrap)
+    case Value.OptionV(opt)  => if opt == null then None else Some(unwrap(opt))
     case other               => other
