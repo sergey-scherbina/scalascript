@@ -333,6 +333,100 @@ private[interpreter] object DispatchRuntime:
             if k > maxKey then { maxVal = v; maxKey = k }
             maxRem = maxRem.tail
           Pure(maxVal)
+      case "maxBy"        => args match
+        case List(f) =>
+          if ls.isEmpty then interp.located("maxBy on empty list")
+          else
+            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
+              case Value.ListV(keys) =>
+                var bestVal  = ls.head
+                var bestKey  = Value.show(keys.head)
+                var lRem = ls.tail; var kRem = keys.tail
+                while lRem.nonEmpty do
+                  val k = Value.show(kRem.head)
+                  if k > bestKey then { bestVal = lRem.head; bestKey = k }
+                  lRem = lRem.tail; kRem = kRem.tail
+                bestVal
+              case _ => ls.head
+            }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "minBy"        => args match
+        case List(f) =>
+          if ls.isEmpty then interp.located("minBy on empty list")
+          else
+            Computation.mapSequence(ls, item => interp.callValue1(f, item, env)).map {
+              case Value.ListV(keys) =>
+                var bestVal  = ls.head
+                var bestKey  = Value.show(keys.head)
+                var lRem = ls.tail; var kRem = keys.tail
+                while lRem.nonEmpty do
+                  val k = Value.show(kRem.head)
+                  if k < bestKey then { bestVal = lRem.head; bestKey = k }
+                  lRem = lRem.tail; kRem = kRem.tail
+                bestVal
+              case _ => ls.head
+            }
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "product"      =>
+        var intAcc = 1L; var dblAcc = 1.0; var isDouble = false
+        var rem = ls
+        while rem.nonEmpty do
+          rem.head match
+            case Value.IntV(n)    => intAcc *= n
+            case Value.DoubleV(d) => dblAcc *= d; isDouble = true
+            case v                => return interp.located(s"Cannot multiply $v")
+          rem = rem.tail
+        if isDouble then Pure(Value.doubleV(intAcc.toDouble * dblAcc))
+        else Computation.pureIntV(intAcc)
+      case "span"         => args match
+        case List(f) =>
+          val yesBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(Nil) :: Nil))
+            case h :: rest =>
+              interp.callValue1(f, h, env).flatMap {
+                case Value.BoolV(true) => yesBuf += h; loop(rest)
+                case _                 =>
+                  Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(remaining) :: Nil))
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "intersect"    => args match
+        case List(Value.ListV(other)) =>
+          val otherSet = other.toSet
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
+          var rem = ls
+          while rem.nonEmpty do
+            if otherSet.contains(rem.head) then buf += rem.head
+            rem = rem.tail
+          Pure(Value.ListV(buf.toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "diff"         => args match
+        case List(Value.ListV(other)) =>
+          val otherSet = other.toSet
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          var rem = ls
+          while rem.nonEmpty do
+            if !otherSet.contains(rem.head) then buf += rem.head
+            rem = rem.tail
+          Pure(Value.ListV(buf.toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "groupMap"     => args match
+        case List(kf, vf) =>
+          val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil =>
+              val resultMap = groups.iterator.map { (k, buf) => k -> Value.ListV(buf.toList) }.toMap
+              Pure(Value.MapV(resultMap))
+            case h :: rest =>
+              interp.callValue1(kf, h, env).flatMap { k =>
+                interp.callValue1(vf, h, env).flatMap { v =>
+                  groups.getOrElseUpdate(k, new scala.collection.mutable.ArrayBuffer[Value]) += v
+                  loop(rest)
+                }
+              }
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
       case "zipWithIndex" =>
         val ziBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var ziRem = ls; var ziIdx = 0
