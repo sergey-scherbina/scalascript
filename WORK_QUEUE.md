@@ -62,7 +62,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.7-wire-security-ops** — `WireIntegrity` (HMAC-SHA256), `WireCompression` (gzip), `WireSession`+`WireReplayWindow` (sequence+replay), `WireTlsConfig`, `WireMetrics`+`WireDebug`; 37 tests. ✓ Landed 2026-05-29.
 
-- [ ] **v1.62.8-wire-compatibility** — Binary compatibility before first stable release: schema-id hashing, additive evolution rules, default/unknown-field policy, old/new test vectors, and explicit mixed-version opt-in. Spec: `docs/distributed-wire-protocol.md §Phase 8`.
+- [x] **v1.62.8-wire-compatibility** — `WireSchemaId` (SHA-256 hash), `WireSchemaRegistry` (directional evolution), `WireCompatibilityGuard`, `WireGoldenVectorRegistry`; additive-field forward-compat verified; 21 tests. ✓ Landed 2026-05-29.
 
 ## Architecture & Extensibility — queued
 

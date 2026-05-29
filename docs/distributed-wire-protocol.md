@@ -458,9 +458,21 @@ gzip uses standard `java.util.zip.*` — no external deps.
 
 ### Phase 8 - Compatibility and Evolution
 
-- Define `schemaId` hashing and evolution rules.
-- Add old/new vector tests.
-- Allow configured mixed-version binary traffic when schemas are compatible.
+**Landed v1.62.8.** Implemented in `backend/wire/.../compat/WireCompatibility.scala`.
+
+| Type                       | Responsibility                                                        |
+|----------------------------|-----------------------------------------------------------------------|
+| `WireSchemaId`             | `hash(definition): String` — SHA-256 truncated to 16 hex chars       |
+| `CompatibilityResult`      | Enum: `Identical | Compatible | Unknown | Incompatible`               |
+| `WireSchemaRegistry`       | Directional `registerEvolution(oldId, newId, reason)` + `check`      |
+| `WireCompatibilityGuard`   | `check(env, localId, registry, requireSchemaId, allowUnknown)`        |
+| `WireGoldenVectorRegistry` | Base64-stored encoded vectors for cross-version decode tests          |
+
+Evolution policy: unknown fields in `WireValue.Object` are silently ignored
+(field-by-field decoding never rejects extra keys), making additive field
+additions automatically forward-compatible.  Mixed-version traffic is gated by
+`WireSchemaRegistry` — `Unknown` pairs are allowed by default; `allowUnknown=false`
+enforces strict same-version-only mode. 21 tests.
 
 ## Testing Strategy
 

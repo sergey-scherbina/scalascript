@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.62.8 Wire binary compatibility and evolution
+
+- **v1.62.8-wire-compatibility** — `WireSchemaId.hash` (SHA-256 truncated to 16 hex, `sha256:` prefix); `CompatibilityResult` enum (Identical/Compatible/Unknown/Incompatible); `WireSchemaRegistry` (directional `registerEvolution` + `check`); `WireCompatibilityGuard.check` (envelope schema-id guard with `requireSchemaId`/`allowUnknown` flags); `WireGoldenVectorRegistry` (Base64-stored cross-version decode test vectors + `byFormat`). Evolution policy: additive field additions are automatically forward-compatible because field-by-field decoders ignore unknown keys. 21 tests.
+
 ## 2026-05-29 — v1.62.7 Wire security and operations
 
 - **v1.62.7-wire-security-ops** — Five modules in `backend/wire/.../security/`: `WireIntegrity` (HMAC-SHA256 sign/verify via `javax.crypto.Mac`, constant-time compare, `attachHmac`/`verifyEnvelope`); `WireCompression` (gzip compress/decompress via `java.util.zip.*`, ratio utility, stub for unsupported algorithms); `WireSession` (per-connection sequence counter + `stamp(env)`) + `WireReplayWindow` (sliding BitSet, configurable window size, `checkAndRecord`/`checkEnvelope`); `WireTlsConfig` (keystore/truststore/ciphers/protocols data type + `fromMap` front-matter parser); `WireMetrics` (`LongAdder` counters for frames/bytes/errors/hmac/replay/chunked/compressed + immutable snapshot + reset) + `WireDebug` (`summary()` one-liner, `dump()` multi-line pretty-print). 37 tests.
