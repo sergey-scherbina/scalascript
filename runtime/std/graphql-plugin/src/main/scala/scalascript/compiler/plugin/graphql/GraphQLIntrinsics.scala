@@ -7,7 +7,7 @@ import scalascript.plugin.api.{PluginContext, PluginNative}
 
 import graphql.GraphQL
 import graphql.language.OperationDefinition
-import graphql.schema.DataFetchingEnvironment
+import graphql.schema.{Coercing, DataFetchingEnvironment, GraphQLScalarType}
 import graphql.schema.idl.{RuntimeWiring, SchemaGenerator, SchemaParser, TypeRuntimeWiring}
 import graphql.ExecutionInput
 
@@ -33,14 +33,30 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("GraphQL.schema(sdl: String)")
     },
 
-    // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...))
+    // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...), scalars = Map(...))
     // Keys may be plain field names ("hello") or schema coordinates ("Query.hello").
     // subscription is accepted for API compatibility; Phase 3 wires it to WebSocket.
+    // scalars: Map[String, GraphQLScalar] — custom scalar codecs from GraphQL.scalar(...)
     QualifiedName("GraphQL.resolvers") -> PluginNative.evalLegacy { (_, args) =>
       val query        = extractResolverMap(args.headOption.getOrElse(Value.MapV(Map.empty)))
       val mutation     = extractResolverMap(args.drop(1).headOption.getOrElse(Value.MapV(Map.empty)))
       val subscription = extractResolverMap(args.drop(2).headOption.getOrElse(Value.MapV(Map.empty)))
-      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription))
+      val scalars      = extractScalarMap(args.drop(3).headOption.getOrElse(Value.MapV(Map.empty)))
+      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription, scalars))
+    },
+
+    // GraphQL.scalar(name, serialize, coerce) — custom scalar codec.
+    // serialize: ScalaScript value (resolver output) -> JSON-serializable Any
+    // coerce:    JSON input Any (from variables or literals) -> ScalaScript Value
+    QualifiedName("GraphQL.scalar") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(name: String, serFn, coerceFn) =>
+          val codec = ScalarCodec(
+            serialize = v   => valueToJava(ctx.invokeCallback(serFn,   List(v)).asInstanceOf[Value]),
+            coerce    = raw => ctx.invokeCallback(coerceFn, List(javaToValue(raw))).asInstanceOf[Value],
+          )
+          Value.Foreign("GraphQLScalar", (name, codec))
+        case _ => throw InterpretError("GraphQL.scalar(name: String, serialize: Value => Any, coerce: Any => Value)")
     },
 
     // serveGraphQL(port, resolvers) — registers POST + GET /graphql, then starts server.
@@ -102,6 +118,13 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     case Value.MapV(m) => m.collect { case (Value.StringV(k), fn) => k -> fn }.toMap
     case _             => Map.empty
 
+  private def extractScalarMap(v: Any): Map[String, ScalarCodec] = v match
+    case Value.MapV(m) =>
+      m.collect { case (Value.StringV(_), Value.Foreign("GraphQLScalar", (name: String, codec: ScalarCodec))) =>
+        name -> codec
+      }.toMap
+    case _ => Map.empty
+
   private def mountGraphQL(ctx: PluginContext, res: GraphQLResolvers): Unit =
     val sdl = runner.registeredSdl.getOrElse(
       throw InterpretError("No graphql SDL registered — add a ```graphql block before serveGraphQL"))
@@ -120,6 +143,19 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
   private def buildEngine(sdl: String, res: GraphQLResolvers, ctx: PluginContext): graphql.GraphQL =
     val typeReg = new SchemaParser().parse(sdl)
     val wiring  = RuntimeWiring.newRuntimeWiring()
+
+    // Register custom scalars before building type wiring.
+    res.scalars.foreach { (name, codec) =>
+      val scalarType = GraphQLScalarType.newScalar()
+        .name(name)
+        .coercing(new Coercing[Any, Any]:
+          override def serialize(o: Any) = codec.serialize(javaToValue(o))
+          override def parseValue(o: Any) = valueToJava(codec.coerce(o))
+          override def parseLiteral(o: Any) = valueToJava(codec.coerce(String.valueOf(o)))
+        )
+        .build()
+      wiring.scalar(scalarType)
+    }
 
     // Collect all resolvers grouped by type name.
     // Keys may be plain ("hello") or schema coordinates ("Query.hello", "User.posts").

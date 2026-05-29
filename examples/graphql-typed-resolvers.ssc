@@ -1,0 +1,148 @@
+# GraphQL Typed Resolver Patterns
+
+This example shows idiomatic patterns for writing GraphQL resolvers in
+ScalaScript, including custom scalar codecs, nested object types, and
+typed argument extraction.
+
+## Schema
+
+```graphql
+scalar Date
+
+type Query {
+  today: Date!
+  user(id: Int!): User
+  users: [User!]!
+  search(filter: String!, after: Date): [User!]!
+}
+
+type Mutation {
+  createUser(name: String!, role: String!): User!
+  deleteUser(id: Int!): Boolean!
+}
+
+type User {
+  id:        Int!
+  name:      String!
+  role:      String!
+  createdAt: Date!
+}
+```
+
+## Custom Scalar: Date
+
+A `Date` scalar serializes as an ISO-8601 string and coerces input strings
+to the same representation.
+
+```scala
+val dateScalar = GraphQL.scalar("Date",
+  serialize = (v: String) => v,         // resolver output  -> JSON string
+  coerce    = (raw: String) => raw,     // JSON input string -> resolver value
+)
+```
+
+## In-Memory User Store
+
+```scala
+case class User(id: Int, name: String, role: String, createdAt: String)
+
+var nextId = 1
+val store = collection.mutable.ArrayBuffer[User](
+  User(nextId, "Alice", "admin",  "2024-01-01"),
+  User({ nextId += 1; nextId }, "Bob",   "member", "2024-03-15"),
+)
+```
+
+## Typed Argument Extraction Helpers
+
+```scala
+def intArg   (args: Map[String, Any], key: String): Int    = args(key).asInstanceOf[Long].toInt
+def strArg   (args: Map[String, Any], key: String): String = args(key).asInstanceOf[String]
+def optStrArg(args: Map[String, Any], key: String): Option[String] =
+  args.get(key).collect { case s: String => s }
+```
+
+## Query Resolvers
+
+```scala
+val queryResolvers = Map(
+  "today" -> ((_: Map[String, Any]) =>
+    java.time.LocalDate.now().toString
+  ),
+
+  "user" -> ((args: Map[String, Any]) =>
+    val id = intArg(args, "id")
+    store.find(_.id == id).orNull
+  ),
+
+  "users" -> ((_: Map[String, Any]) => store.toList),
+
+  "search" -> ((args: Map[String, Any]) =>
+    val filter = strArg(args, "filter").toLowerCase
+    store.filter(u => u.name.toLowerCase.contains(filter)).toList
+  ),
+)
+```
+
+## Mutation Resolvers
+
+```scala
+val mutationResolvers = Map(
+  "createUser" -> ((args: Map[String, Any]) =>
+    nextId += 1
+    val u = User(nextId, strArg(args, "name"), strArg(args, "role"),
+                 java.time.LocalDate.now().toString)
+    store += u
+    u
+  ),
+
+  "deleteUser" -> ((args: Map[String, Any]) =>
+    val id  = intArg(args, "id")
+    val idx = store.indexWhere(_.id == id)
+    if idx >= 0 then { store.remove(idx); true } else false
+  ),
+)
+```
+
+## User Object Resolvers
+
+GraphQL-java fetches object fields from the resolver return value.
+Returning a case class-like map lets graphql-java reflect field names.
+You can also wire individual field resolvers by schema coordinate:
+
+```scala
+val userFieldResolvers = Map(
+  "User.id"        -> ((args: Map[String, Any]) => args.get("id")),
+  "User.name"      -> ((args: Map[String, Any]) => args.get("name")),
+  "User.role"      -> ((args: Map[String, Any]) => args.get("role")),
+  "User.createdAt" -> ((args: Map[String, Any]) => args.get("createdAt")),
+)
+```
+
+## Assembling and Serving
+
+```scala
+val resolvers = GraphQL.resolvers(
+  query    = queryResolvers ++ userFieldResolvers,
+  mutation = mutationResolvers,
+  scalars  = Map("Date" -> dateScalar),
+)
+
+serveGraphQL(8080, resolvers)
+```
+
+## Example Queries
+
+```graphql
+# Fetch today's date via custom scalar
+query { today }
+
+# Look up a user
+query { user(id: 1) { id name role createdAt } }
+
+# Create a user
+mutation { createUser(name: "Carol", role: "member") { id name createdAt } }
+
+# Search
+query { search(filter: "ali") { id name } }
+```

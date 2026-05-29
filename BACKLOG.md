@@ -5681,11 +5681,13 @@ optional federation/realtime adapters.
   errors key omitted when empty, `extensions` passthrough, error locations.
   12 `GraphQLHttpComplianceTest` tests. ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p6** — Typed resolver mapping:
-  schema-coordinate resolver builder; typed args/input/output mapping; custom
-  scalar codecs; enum/interface/union support; `@oneOf` inputs; typed mismatch
-  diagnostics; `examples/graphql-typed-resolvers.ssc`.
-  Spec: `docs/graphql.md §7 Phase 6`. Effort: ~5 days.
+- [x] **graphql-p6** — Typed resolver mapping:
+  `GraphQL.scalar(name, serialize, coerce)` + `ScalarCodec` + `scalars` field
+  in `GraphQLResolvers`; custom scalar wired into graphql-java `RuntimeWiring`;
+  nested object output via `Value.MapV`; list-of-objects via `Value.ListV`;
+  `GraphQLTypedResolversTest` (10 tests); `examples/graphql-typed-resolvers.ssc`.
+  Interface/union `__resolveType`, `@oneOf`, typed diagnostics deferred to Phase 6b.
+  ✓ Landed 2026-05-29.
 
 - [ ] **graphql-p7** — Typed client operations + codegen:
   `graphql` operation fenced blocks; operation validation against SDL or

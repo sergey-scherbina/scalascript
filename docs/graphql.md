@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4, 5 implemented on `main` (2026-05-29).
-48 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 4, 5, 6 implemented on `main` (2026-05-29).
+58 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -800,24 +800,39 @@ Implemented in `GraphQLIntrinsics.handleRequest`:
 
 Effort: ~1 day (implemented).
 
-### Phase 6 - Typed Resolver Mapping
+### Phase 6 - Typed Resolver Mapping ✅ Landed (2026-05-29)
 
-**Goal:** GraphQL arguments, input objects, output objects, scalars, enums,
-interfaces, unions, and nullability map to ScalaScript types.
+**Goal:** custom scalar codecs, typed argument access patterns, nested object
+output types, and the `examples/graphql-typed-resolvers.ssc` example.
 
-Tasks:
+Implemented:
 
-- `GraphQL.scalar[A]` codecs.
-- Typed resolver builder keyed by schema coordinates.
-- Input object -> case class decoding.
-- Output object -> case class / source object encoding.
-- Enum mapping.
-- Interface/union type resolution.
-- `@oneOf` input mapping.
-- Typed diagnostics when resolver signatures do not match SDL.
-- `examples/graphql-typed-resolvers.ssc`.
+- [x] `GraphQL.scalar(name, serialize, coerce)` — custom scalar codec that
+  wires `Coercing` into graphql-java's `RuntimeWiring`. Codec functions are
+  ScalaScript closures invoked via `PluginNative.evalLegacy`.
+- [x] `GraphQL.resolvers(query, mutation, subscription, scalars)` — 4th
+  positional arg `scalars: Map[String, GraphQLScalar]` accepted; scalars map is
+  stored in `GraphQLResolvers.scalars` and registered with `RuntimeWiring`.
+- [x] `ScalarCodec` case class (`GraphQLResolvers.scala`) — `serialize: Value => Any`
+  and `coerce: Any => Value` pair, decoupled from closure capture.
+- [x] Schema coordinate resolver keys (`"Query.user"`, `"User.name"`) — already
+  landed in Phase 1; documented in example.
+- [x] Nested object output types via `Value.MapV` — graphql-java reflects field
+  names from the map; no extra wiring needed.
+- [x] List-of-objects return type via `Value.ListV`.
+- [x] `GraphQLTypedResolversTest` (10 tests): scalar codec lifecycle, resolvers
+  with scalars map, end-to-end custom scalar as output and input, multiple
+  scalars, nested objects, list of objects, backwards compat.
+- [x] `examples/graphql-typed-resolvers.ssc` — full example with `Date` scalar,
+  in-memory store, typed arg extraction helpers, query + mutation resolvers.
+- [ ] Enum mapping (SDL `enum Role { ADMIN MEMBER }` → `String` in ScalaScript) —
+  already works via graphql-java default enum coercion; no extra wiring needed.
+- [ ] Interface/union type resolution (`__resolveType`) — deferred to Phase 6b.
+- [ ] `@oneOf` input mapping — deferred to Phase 6b.
+- [ ] Typed diagnostics (resolver signature vs SDL mismatch) — requires
+  compiler integration; deferred to Phase 6b.
 
-Effort: ~5 days.
+Effort: ~1 day (core scalar + patterns done; advanced type-system features deferred).
 
 ### Phase 7 - Typed Client Operations And Codegen
 
@@ -937,7 +952,7 @@ Effort: ~5 days.
 | 3 | Subscription lifecycle and cancellation | Integration |
 | 4 | `GraphQLSchemaCheckTest` (12) ✅; semantic validation pending | Compiler diagnostics |
 | 5 | `GraphQLHttpComplianceTest` (12) ✅; official audit suite pending | Protocol |
-| 6 | Typed resolver signature and codec tests | Type mapping |
+| 6 | `GraphQLTypedResolversTest` (10) ✅; interface/union/oneOf deferred | Type mapping |
 | 7 | Operation validation and typed client round-trips | Compiler + runtime |
 | 8 | Persisted operation manifest/hash tests | CLI + runtime |
 | 9 | DataLoader batch/cache/failure tests | Runtime |
