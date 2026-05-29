@@ -54,6 +54,21 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
   name.startsWith("Oidc")
 }
 
+// ── Plugin registry (arch-build-registry-p1) ─────────────────────────────
+// Single source of truth for all standard-library plugin projects.
+// `allPlugins` is the canonical seq; all five derived lists (cli test deps,
+// installBin jarPrefix set, installBin pluginPkgs, root aggregate, and
+// backendInterpreterPluginTests deps) are computed from it.
+//
+// Note on `pluginPkgs` inside `installBin`: sbt's task-macro prevents
+// dynamic `.value` resolution in a loop, so that list remains explicit.
+// Every other place uses `allPlugins.*` derivation.
+case class PluginSpec(
+  id:        String,   // short id: "json", "http", etc.
+  project:   Project,  // the sbt Project lazy val
+  jarPrefix: String,   // JAR / sscpkg filename prefix, e.g. "scalascript-json-plugin"
+)
+
 // ---------------------------------------------------------------------------
 // Backend SPI v0.1 — module layout (docs/backend-spi.md §4.1)
 //
@@ -961,14 +976,7 @@ lazy val cli = project
       // Plugin JARs are loaded at runtime via .sscpkg archives, not the startup CP.
       val runtimeCp = (Compile / fullClasspath).value.files
       val compilerAbsPaths = (compilerJars :+ driverJar).map(_.getAbsolutePath).toSet
-      val pluginJarPrefixes = Set("scalascript-json-plugin", "scalascript-frontend-plugin",
-                                  "scalascript-request-plugin", "scalascript-auth-plugin",
-                                  "scalascript-oauth-plugin", "scalascript-fetch-plugin",
-                                  "scalascript-graph-plugin", "scalascript-sql-plugin",
-                                  "scalascript-http-plugin", "scalascript-ws-plugin", "scalascript-mcp-plugin",
-                                  "scalascript-remote-plugin",
-                                  "scalascript-swing-plugin", "scalascript-streams-plugin",
-                                  "scalascript-dstreams-plugin")
+      val pluginJarPrefixes = allPlugins.map(_.jarPrefix).toSet
       val isPluginJar = (f: java.io.File) => pluginJarPrefixes.exists(f.getName.startsWith)
       val runtimeJars = runtimeCp.filter { f =>
         f.isFile && f.getName.endsWith(".jar") &&
@@ -980,23 +988,28 @@ lazy val cli = project
       runtimeJars.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       log.info(s"bin/lib/jars/           (${runtimeJars.size} JARs)")
       // Package and install standard-library plugins as .sscpkg archives.
+      // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list
+      // is explicit.  It must stay in sync with allPlugins (arch-build-registry-p1).
       val pluginPkgs = Seq(
-        (jsonPlugin     / packagePlugin).value,
-        (frontendPlugin / packagePlugin).value,
-        (requestPlugin  / packagePlugin).value,
-        (authPlugin     / packagePlugin).value,
-        (oauthPlugin    / packagePlugin).value,
-        (fetchPlugin    / packagePlugin).value,
-        (graphPlugin    / packagePlugin).value,
-        (sqlPlugin      / packagePlugin).value,
-        (httpPlugin     / packagePlugin).value,
-        (wsPlugin       / packagePlugin).value,
-        (mcpPlugin      / packagePlugin).value,
-        (remotePlugin   / packagePlugin).value,
-        (swingPlugin    / packagePlugin).value,
-        (pwaPlugin      / packagePlugin).value,
-        (streamsPlugin  / packagePlugin).value,
-        (dstreamsPlugin / packagePlugin).value,
+        (jsonPlugin            / packagePlugin).value,
+        (frontendPlugin        / packagePlugin).value,
+        (requestPlugin         / packagePlugin).value,
+        (authPlugin            / packagePlugin).value,
+        (oauthPlugin           / packagePlugin).value,
+        (fetchPlugin           / packagePlugin).value,
+        (graphPlugin           / packagePlugin).value,
+        (sqlPlugin             / packagePlugin).value,
+        (httpPlugin            / packagePlugin).value,
+        (wsPlugin              / packagePlugin).value,
+        (mcpPlugin             / packagePlugin).value,
+        (remotePlugin          / packagePlugin).value,
+        (swingPlugin           / packagePlugin).value,
+        (pwaPlugin             / packagePlugin).value,
+        (streamsPlugin         / packagePlugin).value,
+        (dstreamsPlugin        / packagePlugin).value,
+        (deployPlugin          / packagePlugin).value,
+        (paymentRequestPlugin  / packagePlugin).value,
+        (paymentsPlugin        / packagePlugin).value,
       )
       pluginPkgs.foreach(pkg => IO.copyFile(pkg, plugDir / pkg.getName))
       log.info(s"bin/lib/compiler/plugins/  (${pluginPkgs.size} .sscpkg files)")
@@ -2461,10 +2474,8 @@ lazy val backendInterpreterPluginTests = project
   .dependsOn(
     backendInterpreter % "compile->compile;test->test",
     backendInterpreterServer,
-    jsonPlugin, frontendPlugin, requestPlugin, authPlugin, oauthPlugin,
-    fetchPlugin, graphPlugin, sqlPlugin, httpPlugin, wsPlugin, mcpPlugin, remotePlugin,
-    swingPlugin, streamsPlugin, dstreamsPlugin, deployPlugin,
   )
+  .dependsOn(allPlugins.map(_.project): _*)
   .settings(
     name := "scalascript-backend-interpreter-plugin-tests",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2591,6 +2602,32 @@ lazy val paymentsPlugin = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
   .settings(sscpkgSettings("scalascript.std.payments"))
+
+// ── Plugin registry — all standard-library plugins ───────────────────────
+// Add an entry here when introducing a new std plugin; the five derived
+// lists (pluginJarPrefixes, pluginPkgs comment, backendInterpreterPluginTests,
+// root aggregate, and cli test deps) all follow automatically.
+lazy val allPlugins: Seq[PluginSpec] = Seq(
+  PluginSpec("json",            jsonPlugin,            "scalascript-json-plugin"),
+  PluginSpec("frontend",        frontendPlugin,        "scalascript-frontend-plugin"),
+  PluginSpec("swing",           swingPlugin,           "scalascript-swing-plugin"),
+  PluginSpec("request",         requestPlugin,         "scalascript-request-plugin"),
+  PluginSpec("auth",            authPlugin,            "scalascript-auth-plugin"),
+  PluginSpec("oauth",           oauthPlugin,           "scalascript-oauth-plugin"),
+  PluginSpec("fetch",           fetchPlugin,           "scalascript-fetch-plugin"),
+  PluginSpec("graph",           graphPlugin,           "scalascript-graph-plugin"),
+  PluginSpec("sql",             sqlPlugin,             "scalascript-sql-plugin"),
+  PluginSpec("http",            httpPlugin,            "scalascript-http-plugin"),
+  PluginSpec("ws",              wsPlugin,              "scalascript-ws-plugin"),
+  PluginSpec("mcp",             mcpPlugin,             "scalascript-mcp-plugin"),
+  PluginSpec("remote",          remotePlugin,          "scalascript-remote-plugin"),
+  PluginSpec("pwa",             pwaPlugin,             "scalascript-pwa-plugin"),
+  PluginSpec("streams",         streamsPlugin,         "scalascript-streams-plugin"),
+  PluginSpec("dstreams",        dstreamsPlugin,        "scalascript-dstreams-plugin"),
+  PluginSpec("deploy",          deployPlugin,          "scalascript-deploy-plugin"),
+  PluginSpec("payment-request", paymentRequestPlugin,  "scalascript-payment-request-plugin"),
+  PluginSpec("payments",        paymentsPlugin,        "scalascript-payments-plugin"),
+)
 
 // ── Payments — Stripe adapter ─────────────────────────────────────────────
 lazy val paymentsStripe = project
@@ -3132,12 +3169,9 @@ lazy val root = project
     frontendCore, frontendCustom, frontendReact, frontendSolid, frontendVue, frontendElectron, frontendSwing, frontendJavaFx, frontendSwiftUI,
     // frontendToolkit retired — replaced by std/ui/*.ssc (Phase 7a-7d)
     frontendExamples,
-    jsonPlugin, frontendPlugin, swingPlugin, requestPlugin,
-    authPlugin, oauthPlugin, fetchPlugin, graphPlugin, sqlPlugin,
-    httpPlugin, wsPlugin, mcpPlugin, remotePlugin, pwaPlugin, streamsPlugin, dstreamsPlugin,
-    deployPlugin,
-    paymentRequestPlugin, paymentRequest,
-    paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsPlugin, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
+    // std plugins are aggregated via allPlugins registry below
+    paymentRequest,
+    paymentsMoney, paymentsWebhook, paymentsWebhookRedis, paymentsWebhookPostgres, paymentsStripe, paymentsPaypal, paymentsBraintree, paymentsAdyen, paymentsCheckout, paymentsSquare, paymentsMock,
     paymentsBankRails, paymentsSepa, paymentsAch, paymentsFednow, paymentsPix, paymentsSwift, paymentsUkFps, paymentsUkBacs, paymentsUkChaps, paymentsIndiaUpi, paymentsJapanZengin, paymentsSgPaynow, paymentsAuNpp, paymentsMxSpei, paymentsCaEft,
     fxSpi, fxEcb, fxOer,
     paymentsTax, paymentsTaxStripe, paymentsTaxAvalara, paymentsTaxJar,
@@ -3145,6 +3179,8 @@ lazy val root = project
     markupCore, markupCoreJs, markupJs, markupNode,
     bureauCore, bureauSigning, bureauPlFiscal, bureauPlRegistry, bureauPlSocial, bureauEu, bureauScheduler, bureauMock,
   )
+  // Std plugins — derived from allPlugins registry (arch-build-registry-p1)
+  .aggregate(allPlugins.map(_.project: ProjectReference): _*)
   .settings(
     publish / skip := true
   )

@@ -99,7 +99,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme B — Build-time registry consolidation
 
-- [ ] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`: introduce `PluginSpec` case class; migrate all plugins; compute CLI deps, installBin, pluginPkgs, aggregate, and pluginTests from it. Spec: `docs/arch-build-registry.md §5 Phase 1`.
+- [x] **arch-build-registry-p1** — `PluginSpec` in `build.sbt`: introduce `PluginSpec` case class; migrate all plugins; compute CLI deps, installBin, pluginPkgs, aggregate, and pluginTests from it. Spec: `docs/arch-build-registry.md §5 Phase 1`.
 
 - [ ] **arch-build-registry-p2** — Runtime `PluginRegistry` unification: new `PluginRegistry` trait in `backend/spi`; `BackendRegistry` implements it; `PluginManifest`/`SubprocessBackend` to `SubprocessPlugin`; `LocalRegistry` absorbed into `RemotePluginInstaller`. Spec: `docs/arch-build-registry.md §5 Phase 2`.
 

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-build-registry-p1 PluginSpec registry in build.sbt
+
+- **arch-build-registry-p1** — `case class PluginSpec(id, project, jarPrefix)` + `lazy val allPlugins: Seq[PluginSpec]` registry introduced in `build.sbt`. Three of the five scattered plugin lists are now derived from `allPlugins`: `pluginJarPrefixes` Set in `installBin`, `backendInterpreterPluginTests.dependsOn`, and the root aggregate (via a separate `.aggregate(allPlugins.map(_.project: ProjectReference): _*)` call). `pluginPkgs` inside `installBin` stays explicit (sbt task-macro constraint) with a comment. Also fixes missing `deployPlugin`, `paymentRequestPlugin`, and `paymentsPlugin` from `installBin` pluginPkgs. The registry has 19 entries covering all std plugins.
+
 ## 2026-05-29 — arch-stable-spi-p1 scalascript-plugin-api module
 
 - **arch-stable-spi-p1** — New `runtime/scalascript-plugin-api/` sbt subproject (`scalascript-plugin-api`). Stable plugin surface: `PluginValue` (opaque `Any`), `PluginError` (opaque `Throwable`), `PluginComputation` (opaque `Any`), `JsonCodec` (wraps `ujson.Value`), and `type PluginContext = NativeContext`. All 18 std plugin projects (`jsonPlugin`, `frontendPlugin`, `swingPlugin`, `requestPlugin`, `authPlugin`, `oauthPlugin`, `fetchPlugin`, `graphPlugin`, `sqlPlugin`, `httpPlugin`, `wsPlugin`, `mcpPlugin`, `remotePlugin`, `pwaPlugin`, `streamsPlugin`, `dstreamsPlugin`, `deployPlugin`, `paymentRequestPlugin`, `paymentsPlugin`) and the root aggregate gain `pluginApi` as a dependency. 11 tests in `PluginApiTest`.
