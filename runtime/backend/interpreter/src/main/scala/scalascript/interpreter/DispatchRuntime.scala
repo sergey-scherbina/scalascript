@@ -874,23 +874,35 @@ private[interpreter] object DispatchRuntime:
       case "foreach"   => args match
         case List(f) =>
           val it = m.iterator
-          def loop(): Computation =
-            if !it.hasNext then Computation.PureUnit
-            else
-              val (k, v) = it.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap(_ => loop())
-          loop()
+          while it.hasNext do
+            val (k, v) = it.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(_) =>
+              case c =>
+                def restLoop(): Computation =
+                  if !it.hasNext then Computation.PureUnit
+                  else
+                    val (k2, v2) = it.next()
+                    interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap(_ => restLoop())
+                return c.flatMap(_ => restLoop())
+          Computation.PureUnit
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "mapValues" => args match
         case List(f) =>
           val it  = m.iterator
           val buf = scala.collection.mutable.Map.empty[Value, Value]
-          def loop(): Computation =
-            if !it.hasNext then Pure(Value.MapV(buf.toMap))
-            else
-              val (k, v) = it.next()
-              interp.callValue1(f, v, env).flatMap { nv => buf += (k -> nv); loop() }
-          loop()
+          while it.hasNext do
+            val (k, v) = it.next()
+            interp.callValue1(f, v, env) match
+              case Pure(nv) => buf += (k -> nv)
+              case c =>
+                def restLoop(): Computation =
+                  if !it.hasNext then Pure(Value.MapV(buf.toMap))
+                  else
+                    val (k2, v2) = it.next()
+                    interp.callValue1(f, v2, env).flatMap { nv2 => buf += (k2 -> nv2); restLoop() }
+                return c.flatMap { nv => buf += (k -> nv); restLoop() }
+          Pure(Value.MapV(buf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foldLeft"  => args match
         case List(init) =>
@@ -993,7 +1005,7 @@ private[interpreter] object DispatchRuntime:
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.wrapSomeC)
+          case Some(v) => interp.callValue1(f, v, env).map(Computation.wrapSome)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
@@ -1014,7 +1026,7 @@ private[interpreter] object DispatchRuntime:
       case "foreach"   => args match
         case List(f) => opt match
           case None    => Computation.PureUnit
-          case Some(v) => interp.callValue1(f, v, env).flatMap(Computation.discardToUnit)
+          case Some(v) => Computation.mapUnit(interp.callValue1(f, v, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "fold"      => args match
         case List(default) =>
