@@ -54,7 +54,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [ ] **v1.62.4b-dataset-runner-binary-wire** — Distributed Dataset/MapReduce runner binary transport selection: wire `runDistributedWire` / `runDistributedShuffleWire` actor messages to use `DatasetWire` envelopes when `wire.dataset` selects MsgPack/CBOR, retain JSON fallback, and add distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`.
 
-- [ ] **v1.62.5-dstream-native-wire** — Native DStream runner binary wire: element batches, watermarks, triggers, side inputs, side outputs, checkpoint metadata, and errors over the shared wire layer. External Spark/Kafka/Flink/Beam protocols stay unchanged. Spec: `docs/distributed-wire-protocol.md §Phase 5`.
+- [x] **v1.62.5-dstream-native-wire** — `DStreamMsg` (7 kinds) + `WireCodec` + `DStreamEnvelope`; `TriggerKind` enum; JSON/MsgPack/CBOR round-trips; 58 tests. ✓ Landed 2026-05-29.
 
 - [ ] **v1.62.6-object-sync-binary** — Client/server object sync binary payloads for generated ScalaScript clients/servers, with public/debug JSON routes retained. Spec: `docs/distributed-wire-protocol.md §Phase 6`.
 

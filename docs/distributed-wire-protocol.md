@@ -398,9 +398,23 @@ Land this document, link it from README, and add implementation phases to
 
 ### Phase 5 - Native DStream Runner
 
-- Encode native runner element batches, watermarks, triggers, side inputs,
-  side outputs, checkpoint metadata, and errors through the wire layer.
-- Keep Spark/Kafka/Flink/Beam external engine protocols unchanged.
+**Landed v1.62.5.** Implemented in `backend/wire/.../dstream/DStreamWireProtocol.scala`.
+
+`DStreamMsg` sealed trait with seven message kinds, `WireCodec[DStreamMsg]` instances,
+and `DStreamEnvelope` helpers for building and decoding `WireEnvelope(protocol="dstream")`:
+
+| Kind                   | `env.kind`       | Description                                    |
+|------------------------|------------------|------------------------------------------------|
+| `ElementBatch`         | `element-batch`  | Batch of serialized stream elements + isFinal  |
+| `Watermark`            | `watermark`      | Event-time watermark with optional side-input tag |
+| `Trigger`              | `trigger`        | Window trigger (EventTime/ProcessingTime/CountBased/AfterWatermark) |
+| `SideInput`            | `side-input`     | Broadcast side-input data delivered to a stage |
+| `SideOutput`           | `side-output`    | Tagged output branch emitted by a stage        |
+| `CheckpointMetadata`   | `checkpoint`     | Sequence number + state keys + offsets JSON    |
+| `DStreamError`         | `error`          | Stage failure code + message + optional cause  |
+
+All seven kinds round-trip through JSON, MsgPack, and CBOR (58 tests).
+Spark/Kafka/Flink/Beam external engine protocols are unchanged.
 
 ### Phase 6 - Object Sync and Client Cache Traffic
 
