@@ -69,7 +69,7 @@ private[interpreter] object DispatchRuntime:
         val typeExts = interp.extensions.getOrElse(typeName, null)
         if typeExts != null then
           val fn = typeExts.getOrElse(name, null)
-          if fn != null then return interp.callValuePrepend(fn, recv, arg :: Nil, env)
+          if fn != null then return interp.callValue2(fn, recv, arg, env)
     recv match
       case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
       case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
@@ -1820,7 +1820,26 @@ private[interpreter] object DispatchRuntime:
           case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
-      case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+      case _ =>
+        // Fast path for ordinary user case classes: skip the 6 special-type
+        // string comparisons in dispatchInstanceFallback for types that aren't
+        // Source / RemoteSource / ReactiveSignal (plugin-bridged types).
+        if typeName == "Source" || typeName == "RemoteSource" || typeName == "ReactiveSignal" then
+          dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+        else
+          val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
+          if typeMethodMap != null then
+            val fn = typeMethodMap.getOrElse(name, null)
+            if fn != null then
+              args match
+                case List(a) => interp.callTypeMethod1(fn, fields, a)
+                case _       => interp.callTypeMethod(fn, fields, args)
+            else
+              dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
+          else if name == "getMessage" && args.isEmpty then
+            Pure(fields.getOrElse("message", Value.EmptyStr))
+          else
+            dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
 
   private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Source.distributed bridge — dispatches to DStreams plugin when loaded (v1.63.1)
