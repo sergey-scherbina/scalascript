@@ -195,6 +195,61 @@ private[interpreter] object DispatchRuntime:
       case "sliding"    => arg match
         case Value.IntV(n) => Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
         case _             => dispatchList(ls, name, arg :: Nil, env, interp)
+      // Common 1-arg aggregators — avoids `arg :: Nil` cons cell when called
+      // via the curried `list.foldLeft(init)(f)` path.
+      case "foldLeft"   =>
+        Pure(Value.NativeFnV("foldLeft", {
+          case List(f) => Computation.foldLeftSequence(ls, arg, (acc, h) => interp.callValue2(f, acc, h, env))
+          case _       => throw InterpretError("foldLeft expects one function argument")
+        }))
+      case "foldRight"  =>
+        Pure(Value.NativeFnV("foldRight", {
+          case List(f) => Computation.foldLeftSequence(ls.reverse, arg, (acc, h) => interp.callValue2(f, h, acc, env))
+          case _       => throw InterpretError("foldRight expects one function argument")
+        }))
+      case "scanLeft"   =>
+        Pure(Value.NativeFnV("scanLeft", {
+          case List(f) =>
+            val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length + 1)
+            buf += arg
+            def loop(remaining: List[Value], acc: Value): Computation = remaining match
+              case Nil       => Pure(Value.ListV(buf.toList))
+              case h :: rest => FlatMap(interp.callValue2(f, acc, h, env), { v => buf += v; loop(rest, v) })
+            loop(ls, arg)
+          case _ => throw InterpretError("scanLeft expects one function argument")
+        }))
+      case "reduceLeft" => ls match
+        case Nil    => interp.located("reduceLeft on empty list")
+        case h :: t => Computation.foldLeftSequence(t, h, (acc, x) => interp.callValue2(arg, acc, x, env))
+      case "partition"  =>
+        Computation.partitionSequence(ls, item => interp.callValue1(arg, item, env))
+      case "sortBy"     =>
+        dispatchList(ls, "sortBy", arg :: Nil, env, interp)
+      case "sortWith"   =>
+        dispatchList(ls, "sortWith", arg :: Nil, env, interp)
+      case "groupBy"    =>
+        val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
+        var rem = ls
+        while rem.nonEmpty do
+          val h = rem.head
+          interp.callValue1(arg, h, env) match
+            case Pure(k) =>
+              groups.getOrElseUpdate(k, new scala.collection.mutable.ArrayBuffer[Value]) += h
+              rem = rem.tail
+            case c =>
+              val tail = rem.tail
+              def loopRest(remaining: List[Value]): Computation = remaining match
+                case Nil => Pure(Value.MapV(groups.iterator.map((k2, buf) => k2 -> Value.ListV(buf.toList)).toMap))
+                case hh :: rest =>
+                  FlatMap(interp.callValue1(arg, hh, env), { k2 =>
+                    groups.getOrElseUpdate(k2, new scala.collection.mutable.ArrayBuffer[Value]) += hh
+                    loopRest(rest)
+                  })
+              return FlatMap(c, { k =>
+                groups.getOrElseUpdate(k, new scala.collection.mutable.ArrayBuffer[Value]) += h
+                loopRest(tail)
+              })
+        Pure(Value.MapV(groups.iterator.map((k, buf) => k -> Value.ListV(buf.toList)).toMap))
       case _            => dispatchList(ls, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Map. */
