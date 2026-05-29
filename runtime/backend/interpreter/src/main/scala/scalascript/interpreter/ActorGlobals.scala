@@ -1,6 +1,6 @@
 package scalascript.interpreter
 
-import Computation.Perform
+import Computation.{FlatMap, Perform}
 
 /** Actor/cluster globals registration — pure Perform-node factories.
  *  The cooperative scheduler and handleActorOp live in Interpreter.scala.
@@ -70,6 +70,12 @@ private[interpreter] object ActorGlobals:
       case List(pid @ Value.InstanceV("Pid", _), reason) =>
         Perform("Actor", "exit", pid :: reason :: Nil)
       case _ => throw InterpretError("exit(pid, reason)")
+    })
+    g("stop") = Value.NativeFnV("stop", {
+      case Nil =>
+        FlatMap(Perform("Actor", "self", Nil), pid =>
+          Perform("Actor", "exit", pid :: Value.StringV("normal") :: Nil))
+      case _ => throw InterpretError("stop() takes no arguments")
     })
 
     // ── Phase 2 — supervision ─────────────────────────────────────────────

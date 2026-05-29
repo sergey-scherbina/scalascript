@@ -150,9 +150,9 @@ $code
         )
 
       def jArr(): Parser[Any] =
-        (ws ~> Parser.char('[') ~> ws ~>
-          (jValue() ~ (ws ~> Parser.char(',') ~> ws ~> jValue()).many()).opt() <~
-        ws <~ Parser.char(']')).map(opt =>
+        (ws ~> Parser.string("[") ~> ws ~>
+          (jValue() ~ (ws ~> Parser.string(",") ~> ws ~> jValue()).many()).opt() <~
+        ws <~ Parser.string("]")).map(opt =>
           opt match
             case None => JArr(Nil)
             case Some(pair) =>
@@ -160,10 +160,10 @@ $code
         )
 
       def jObj(): Parser[Any] =
-        val field = jStr ~ (ws ~> Parser.char(':') ~> ws ~> jValue())
-        (ws ~> Parser.char('{') ~> ws ~>
-          (field ~ (ws ~> Parser.char(',') ~> ws ~> field).many()).opt() <~
-        ws <~ Parser.char('}')).map(opt =>
+        val field = jStr ~ (ws ~> Parser.string(":") ~> ws ~> jValue())
+        (ws ~> Parser.string("{") ~> ws ~>
+          (field ~ (ws ~> Parser.string(",") ~> ws ~> field).many()).opt() <~
+        ws <~ Parser.string("}")).map(opt =>
           opt match
             case None => JObj(Nil)
             case Some(pair) =>

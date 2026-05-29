@@ -762,6 +762,11 @@ private[interpreter] object EvalRuntime:
           while cur.isInstanceOf[FrameMap] do
             cur.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
             cur = cur.asInstanceOf[FrameMap].parent
+          // Include terminal non-FrameMap parent (e.g., a prior closure Map)
+          if cur ne interp.globals then
+            cur.foreachEntry { (k, v) =>
+              if interp.globals.getOrElse(k, null) != v then b(k) = v
+            }
           b.toMap
         case _ =>
           if env eq interp.globals then Map.empty
@@ -875,7 +880,14 @@ private[interpreter] object EvalRuntime:
           val b2 = scala.collection.mutable.HashMap.empty[String, Value]
           env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
           b2
-      val entrySnap: Map[String, Value] = frame.toMap
+      // Snapshot the GLOBALS value of each frame key at loop entry.
+      // refreshFn fires when a global was reassigned after loop start — so we compare
+      // current globals vs. globals-at-entry, not globals vs. local-at-entry.
+      val entrySnap: scala.collection.mutable.HashMap[String, Value] = {
+        val s = scala.collection.mutable.HashMap.empty[String, Value]
+        frame.foreachEntry { (k, _) => s(k) = interp.globals.getOrElse(k, null) }
+        s
+      }
       val frameView = new MutableEnvView(frame)
       // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
       val refreshFn: (String, Value) => Unit = (k, _) => {

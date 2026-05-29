@@ -2275,7 +2275,9 @@ private[interpreter] object DispatchRuntime:
         case (Value.UnitV,      _)                => Pure(rhs)
         case (_,                Value.TupleV(bs)) => Pure(Value.TupleV(lhs :: bs))
         case (_,                Value.UnitV)      => Pure(lhs)
-        case _                                    => Pure(Value.TupleV(lhs :: rhs :: Nil))
+        case _ =>
+          val ext = extensionDispatch(lhs, "++", rhs :: Nil, env, interp)
+          if ext != null then ext else Pure(Value.TupleV(lhs :: rhs :: Nil))
       case ":::" => (lhs, rhs) match
         case (Value.ListV(a), Value.ListV(b)) =>
           if b.isEmpty then Pure(lhs)

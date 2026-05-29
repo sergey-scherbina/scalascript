@@ -14,7 +14,8 @@ class SingletonStatefulTest extends AnyFunSuite with Matchers:
   test("Singleton.useStateful bootstraps from initialState; saveState persists") {
     scalascript.server.Routes.clear()
     val repoRoot = os.pwd / os.up
-    val src = """# T
+    val key = s"ctr-${java.util.UUID.randomUUID()}"
+    val src = s"""# T
 
 [Singleton](std/cluster/singleton.ssc)
 
@@ -22,10 +23,10 @@ class SingletonStatefulTest extends AnyFunSuite with Matchers:
 runActors {
   startNode("solo-stateful", "ws://127.0.0.1:0/_ssc-actors")
   electLeader()
-  Singleton.useStateful("ctr", "10", { (state: String) =>
+  Singleton.useStateful("$key", "10", { (state: String) =>
     spawn { () =>
       println("RESUMED:" + state)
-      Singleton.saveState("ctr", "42")
+      Singleton.saveState("$key", "42")
       stop()
     }
   })
@@ -33,7 +34,7 @@ runActors {
     val s = self()
     sendAfter(300, s, "check")
     receive { case "check" =>
-      println("STATE:" + Singleton.peekState("ctr").getOrElse("<none>"))
+      println("STATE:" + Singleton.peekState("$key").getOrElse("<none>"))
       stop()
     }
   }
