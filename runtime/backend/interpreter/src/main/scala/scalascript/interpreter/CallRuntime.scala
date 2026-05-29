@@ -282,9 +282,15 @@ private[interpreter] object CallRuntime:
     fn: Value.FunV, fields: Map[String, Value], args: List[Value], interp: Interpreter
   ): Computation =
     // Layer instance fields over fn.closure without allocating a merged Map.
+    // For named methods the self-ref is a NativeFnV that re-dispatches through
+    // callTypeMethod so that non-tail-recursive calls still see instance fields.
+    // This avoids fn.closure.updated(fn.name, ...) which for MutableEnvView
+    // would copy the entire scope (O(n) allocation).
     val base: Map[String, Value] =
       if fn.name.isEmpty then FrameMap.fromMap(fields, fn.closure)
-      else FrameMap.fromMap(fields, fn.closure.updated(fn.name, fn))
+      else
+        val selfRef = Value.NativeFnV(fn.name, recArgs => callTypeMethod(fn, fields, recArgs, interp))
+        FrameMap.fromMapWithSelf(fields, fn.name, selfRef, fn.closure)
     val info = TcoRuntime.tcoInfoFor(fn, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       (interp.globals.get(n) orElse base.get(n)).exists(_.isInstanceOf[Value.FunV])

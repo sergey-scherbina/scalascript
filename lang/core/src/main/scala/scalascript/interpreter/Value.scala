@@ -121,6 +121,22 @@ object FrameMap:
       fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
       new FrameMapN(keys, vals, parent)
 
+  /** Like fromMap but also inlines an extra (selfName, selfRef) slot so the
+   *  self-reference for a named class method is available without an additional
+   *  Map.updated call on the parent (which for MutableEnvView is a full copy). */
+  def fromMapWithSelf(
+    fields: Map[String, Value], selfName: String, selfRef: Value,
+    parent: Map[String, Value]
+  ): Map[String, Value] =
+    val n = fields.size + 1
+    val keys = new Array[String](n)
+    val vals = new Array[Value](n)
+    var i = 0
+    fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
+    keys(n - 1) = selfName
+    vals(n - 1) = selfRef
+    new FrameMapN(keys, vals, parent)
+
 /** Presents a `scala.collection.mutable.Map` as an immutable `Map[String, Value]`
  *  without copying it.  Used by `BlockRuntime.evalBlock` to avoid the
  *  `local.toMap` allocation on every statement.
