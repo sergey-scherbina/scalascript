@@ -267,6 +267,82 @@ private[interpreter] object CallRuntime:
       if f.returnsThrows then result.map(throwsAutoWrap)
       else result
 
+  /** Optimised entry point for the typeMethods dispatch path.
+   *
+   *  The standard path does `fn.copy(closure = fn.closure ++ fields)` which:
+   *    1. Merges two HashMaps (O(n) allocation)
+   *    2. Creates a new FunV — a fresh identity causes tcoCache and
+   *       closureWithSelfCache to miss on every call and re-traverse the body AST.
+   *
+   *  Here we build the base env with FrameMap.fromMap (one FrameMapN allocation,
+   *  no merge), pass the ORIGINAL fn so tcoInfoFor gets a body-keyed cache hit,
+   *  and fall back to the full path only for the rare TCO case.
+   */
+  def callTypeMethod(
+    fn: Value.FunV, fields: Map[String, Value], args: List[Value], interp: Interpreter
+  ): Computation =
+    // Layer instance fields over fn.closure without allocating a merged Map.
+    val base: Map[String, Value] =
+      if fn.name.isEmpty then FrameMap.fromMap(fields, fn.closure)
+      else FrameMap.fromMap(fields, fn.closure.updated(fn.name, fn))
+    val info = TcoRuntime.tcoInfoFor(fn, interp)
+    val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
+      (interp.globals.get(n) orElse base.get(n)).exists(_.isInstanceOf[Value.FunV])
+    }
+    if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
+      // TCO path: tcoTrampoline reads curFun.closure directly, so we still need
+      // a copy here. We use `base` (already a FrameMapN) rather than `fn.closure ++ fields`
+      // to avoid the HashMap merge; tcoInfoFor now hits the cache via body identity.
+      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, 0L)
+      TcoRuntime.tcoTrampoline(fn.copy(closure = base), args, null, interp)
+    else
+      // Normal path: build call env directly on top of `base`.
+      // vararg / usingParam logic is the same as callFun.
+      val lastIsVararg = fn.params.nonEmpty &&
+        fn.paramTypes.lift(fn.params.length - 1 - fn.usingParams.length).exists(_.endsWith("*"))
+      def packVarargs(rawArgs: List[Value]): List[Value] =
+        if !lastIsVararg || rawArgs.length < fn.params.length - 1 then rawArgs
+        else
+          val regularCount = fn.params.length - 1
+          rawArgs.take(regularCount) :+ Value.ListV(rawArgs.drop(regularCount))
+      val effArgs =
+        if lastIsVararg && args.length == fn.params.length - 1 then packVarargs(args)
+        else if args.length >= fn.params.length then packVarargs(args)
+        else if fn.usingParams.nonEmpty then
+          val regularCount = fn.params.length - fn.usingParams.length
+          val withUsing =
+            if args.length >= regularCount then
+              val regularArgVals = args.take(regularCount)
+              val resolved = fn.usingParams.map { (pname, typeKey) =>
+                GivenRuntime.resolveGiven(typeKey, regularArgVals, base, interp)
+                  .getOrElse(interp.located(s"No given instance found for '$typeKey' (using parameter '$pname')"))
+              }
+              args ++ resolved
+            else args
+          if withUsing.length >= fn.params.length then withUsing
+          else applyDefaults(fn.params, fn.defaults, withUsing, base, interp)
+        else applyDefaults(fn.params, fn.defaults, args, base, interp)
+      val callEnv: Env = fn.params match
+        case Nil               => base
+        case p :: Nil          => FrameMap.one(p, effArgs.head, base)
+        case p1 :: p2 :: Nil   => FrameMap.two(p1, effArgs.head, p2, effArgs(1), base)
+        case ps                =>
+          val names = ps.toArray
+          val arr   = effArgs.iterator.take(names.length).toArray
+          FrameMap.of(names, arr, base)
+      val frameName  = if fn.name.nonEmpty then fn.name else "<anon>"
+      val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+      val absDocLine = interp.debugBlockDocLine + relLine
+      interp.callStackPush(frameName, interp.debugSourceFile, absDocLine)
+      val t0 = if Profiler.enabled && fn.name.nonEmpty then System.nanoTime() else 0L
+      val result =
+        try TcoRuntime.runUntilSuspension(interp.eval(fn.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
+      if interp.callStackNonEmpty then interp.callStackPop()
+      if fn.returnsThrows then result.map(throwsAutoWrap)
+      else result
+
   private def throwsAutoWrap(v: Value): Value = v match
     case Value.InstanceV("Left",  _) => v
     case Value.InstanceV("Right", _) => v

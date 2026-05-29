@@ -392,9 +392,12 @@ class Interpreter(
     if s == null then { s = new java.util.ArrayDeque(); _restartableTL.set(s) }
     s
 
-  /** Per-FunV cache of the TCO classification — see TcoRuntime.tcoInfoFor.
-   *  Keyed by FunV identity. */
-  private[interpreter] val tcoCache: java.util.IdentityHashMap[Value.FunV, TcoInfo] =
+  /** Per-function-body cache of the TCO classification — see TcoRuntime.tcoInfoFor.
+   *  Keyed by body Term identity rather than FunV identity so that fn.copy(closure=…)
+   *  (used in the typeMethods dispatch path) hits the cache instead of re-traversing
+   *  the AST on every class method call. Safe because TcoInfo depends only on the body
+   *  and the function name, both of which are preserved across closure-only copies. */
+  private[interpreter] val tcoCache: java.util.IdentityHashMap[scala.meta.Term, TcoInfo] =
     java.util.IdentityHashMap()
 
   /** Reusable tail-call sentinel objects: avoids allocating a new TailCall /
@@ -1242,6 +1245,16 @@ class Interpreter(
 
   private[interpreter] def callFun(f: Value.FunV, args: List[Value]): Computation =
     CallRuntime.callFun(f, args, this)
+
+  /** Dispatch a typeMethods class method without copying the FunV or merging
+   *  the closure Map.  Instead, the instance `fields` are layered over `fn.closure`
+   *  using FrameMap.fromMap (one FrameMapN allocation, no HashMap.++) and the
+   *  original `fn` is used for tcoInfoFor so the body-keyed cache hits on
+   *  subsequent calls to the same method. */
+  private[interpreter] def callTypeMethod(
+    fn: Value.FunV, fields: Map[String, Value], args: List[Value]
+  ): Computation =
+    CallRuntime.callTypeMethod(fn, fields, args, this)
 
   // ─── Given / using helpers — see CallRuntime.scala ───────────────────────
 

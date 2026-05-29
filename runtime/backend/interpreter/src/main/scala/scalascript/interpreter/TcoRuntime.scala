@@ -11,7 +11,7 @@ import Computation.{Pure, FlatMap, Perform}
 private[interpreter] object TcoRuntime:
 
   def tcoInfoFor(f: Value.FunV, interp: Interpreter): TcoInfo =
-    val cached = interp.tcoCache.get(f)
+    val cached = interp.tcoCache.get(f.body)
     if cached != null then cached
     else
       val info =
@@ -21,7 +21,7 @@ private[interpreter] object TcoRuntime:
           val selfTR  = callsInTailPos(f.body, f.name)
           val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
           TcoInfo(targets, selfTR, noNTS)
-      interp.tcoCache.put(f, info)
+      interp.tcoCache.put(f.body, info)
       info
 
   /** TCO trampoline that survives effect suspensions.

@@ -1526,7 +1526,7 @@ private[interpreter] object DispatchRuntime:
     // Class methods (declared inside `class`/`case class` body)
     else if interp.typeMethods.get(typeName).exists(_.contains(name)) then
       val fn = interp.typeMethods(typeName)(name)
-      interp.callFun(fn.copy(closure = fn.closure ++ fields), args)
+      interp.callTypeMethod(fn, fields, args)
     // No-arg / native field access (must precede enum-companion check so plain
     // field values like IntV(3) are returned directly instead of being "called")
     else if args.isEmpty then

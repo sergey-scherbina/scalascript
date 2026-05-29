@@ -109,6 +109,17 @@ object FrameMap:
     new FrameMap2(n1, v1, n2, v2, parent)
   def of(names: Array[String], vals: Array[Value], parent: Map[String, Value]): FrameMap =
     new FrameMapN(names, vals, parent)
+  /** Overlay `fields` on top of `parent` without allocating a merged HashMap.
+   *  Used by the typeMethods dispatch path to inject instance fields into a
+   *  method's closure without calling `fn.closure ++ fields`. */
+  def fromMap(fields: Map[String, Value], parent: Map[String, Value]): Map[String, Value] =
+    if fields.isEmpty then parent
+    else
+      val keys = new Array[String](fields.size)
+      val vals = new Array[Value](fields.size)
+      var i = 0
+      fields.foreachEntry { (k, v) => keys(i) = k; vals(i) = v; i += 1 }
+      new FrameMapN(keys, vals, parent)
 
 /** Presents a `scala.collection.mutable.Map` as an immutable `Map[String, Value]`
  *  without copying it.  Used by `BlockRuntime.evalBlock` to avoid the
