@@ -1177,10 +1177,10 @@ private[interpreter] object DispatchRuntime:
                       case Value.BoolV(true) => restLoop(rest, cnt + 1L)
                       case _                 => restLoop(rest, cnt)
                     })
-                return c.flatMap {
+                return FlatMap(c, {
                   case Value.BoolV(true) => restLoop(tail, acc0 + 1L)
                   case _                 => restLoop(tail, acc0)
-                }
+                })
           Computation.pureIntV(acc)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "find"         => args match
