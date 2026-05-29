@@ -13,6 +13,8 @@ import graphql.schema.{Coercing, DataFetchingEnvironment, GraphQLScalarType}
 import graphql.schema.idl.{RuntimeWiring, SchemaGenerator, SchemaParser, TypeRuntimeWiring}
 import graphql.ExecutionInput
 
+import org.reactivestreams.{Publisher, Subscriber, Subscription}
+
 import scala.jdk.CollectionConverters.*
 
 /** Intrinsics table for the GraphQL interpreter plugin.
@@ -227,6 +229,9 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     val h = handlerValue(engine, opts, res.loaders, ctx)
     ctx.registerRoute("POST", "/graphql", h)
     ctx.registerRoute("GET",  "/graphql", h)
+    if res.subscription.nonEmpty then
+      val wsH = wsHandlerValue(engine, ctx)
+      ctx.registerWsRoute("/graphql/ws", Nil, List("graphql-transport-ws"), 0, 0, wsH)
 
   // Parse a resolver key into (typeName, fieldName).
   // Plain keys ("hello") use the provided defaultType.
@@ -295,6 +300,30 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       }
       wiring.`type`(tw)
     }
+
+    // Subscription resolvers: root DataFetcher returns Publisher<T> on first call (source=null),
+    // passes through event value on subsequent per-event calls (source≠null).
+    if res.subscription.nonEmpty then
+      val subTw = TypeRuntimeWiring.newTypeWiring("Subscription")
+      res.subscription.foreach { (k, fn) =>
+        val (_, fieldName) = parseCoordinate(k, "Subscription")
+        subTw.dataFetcher(fieldName, (env: DataFetchingEnvironment) =>
+          env.getSource[Any] match
+            case null =>
+              val args: Map[Value, Value] = env.getArguments.asScala.toMap.map { (k, v) => (Value.StringV(k): Value) -> javaToValue(v) }
+              val result = ctx.invokeCallback(fn, List(Value.MapV(args))).asInstanceOf[Value]
+              val items: List[AnyRef] =
+                if result.isInstanceOf[Value.ListV] then
+                  result.asInstanceOf[Value.ListV].items.map(x => valueToJava(x).asInstanceOf[AnyRef])
+                else List(valueToJava(result).asInstanceOf[AnyRef])
+              new ListPublisher(items)
+            case source =>
+              source match
+                case m: java.util.Map[?, ?] => m
+                case scalar                  => scalar
+        )
+      }
+      wiring.`type`(subTw)
 
     val schema  = new SchemaGenerator().makeExecutableSchema(typeReg, wiring.build())
     val builder = GraphQL.newGraphQL(schema)
@@ -394,6 +423,132 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       case List(req) => handleRequest(engine, opts, loaders, pCtx, req)
       case _         => throw InterpretError("GraphQL handler expects a Request argument")
     })
+
+  // ── graphql-transport-ws protocol handler ─────────────────────────────────
+
+  private def wsHandlerValue(
+    engine: graphql.GraphQL,
+    pCtx:   PluginContext,
+  ): Value.NativeFnV =
+    Value.NativeFnV("graphql.wsHandler", Computation.pureFn {
+      case List(ws: Value) => handleWsConnection(engine, pCtx, ws); Value.UnitV
+      case _               => throw InterpretError("WS handler expects a WebSocket argument")
+    })
+
+  private def handleWsConnection(
+    engine:  graphql.GraphQL,
+    pCtx:    PluginContext,
+    ws:      Value,
+  ): Unit =
+    val initReceived = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val fields = ws match
+      case Value.InstanceV("WebSocket", f) => f
+      case _                               => Map.empty[String, Value]
+
+    def sendMsg(msg: ujson.Value): Unit =
+      fields.get("send").foreach { sendFn =>
+        pCtx.invokeCallback(sendFn, List(Value.StringV(ujson.write(msg))))
+      }
+
+    val msgHandler = Value.NativeFnV("graphql.ws.onMessage", Computation.pureFn {
+      case List(Value.StringV(text)) =>
+        handleWsMessage(engine, sendMsg, initReceived, text)
+        Value.UnitV
+      case _ => Value.UnitV
+    })
+    fields.get("onMessage").foreach { onMsgFn => pCtx.invokeCallback(onMsgFn, List(msgHandler)) }
+
+  private def handleWsMessage(
+    engine:       graphql.GraphQL,
+    sendMsg:      ujson.Value => Unit,
+    initReceived: java.util.concurrent.atomic.AtomicBoolean,
+    text:         String,
+  ): Unit =
+    val msgTry = scala.util.Try(ujson.read(text))
+    if msgTry.isFailure then return
+    val msg = msgTry.get
+    val msgTypeOpt = msg.obj.get("type").collect { case ujson.Str(s) => s }
+    if msgTypeOpt.isEmpty then return
+    val msgType = msgTypeOpt.get
+    val id      = msg.obj.get("id").collect   { case ujson.Str(s) => s }.getOrElse("")
+    msgType match
+      case "connection_init" =>
+        initReceived.set(true)
+        sendMsg(ujson.Obj("type" -> ujson.Str("connection_ack")))
+
+      case "subscribe" if initReceived.get =>
+        val payload = msg.obj.get("payload").getOrElse(ujson.Obj())
+        val query   = payload.obj.get("query").collect { case ujson.Str(s) => s }.getOrElse("")
+        val vars    = payload.obj.get("variables").collect { case ujson.Obj(m) =>
+          m.toMap.map { (k, v) => k -> ujsonToJava(v) }.asJava
+        }.getOrElse(java.util.Collections.emptyMap[String, Any]())
+        val opName  = payload.obj.get("operationName").collect { case ujson.Str(s) => s }.orNull
+
+        if query.isBlank then
+          sendMsg(ujson.Obj("type" -> ujson.Str("error"), "id" -> ujson.Str(id),
+            "payload" -> ujson.Arr(ujson.Obj("message" -> ujson.Str("Missing query")))))
+          return
+
+        val inputBuilder = ExecutionInput.newExecutionInput(query).variables(vars)
+        if opName != null then inputBuilder.operationName(opName)
+        val input  = inputBuilder.build()
+        val resultTry = scala.util.Try(engine.execute(input))
+        if resultTry.isFailure then
+          sendMsg(ujson.Obj("type" -> ujson.Str("error"), "id" -> ujson.Str(id),
+            "payload" -> ujson.Arr(ujson.Obj("message" -> ujson.Str("Execution error")))))
+          return
+        val result = resultTry.get
+
+        result.getData[Any] match
+          case pub: Publisher[?] =>
+            pub.asInstanceOf[Publisher[graphql.ExecutionResult]].subscribe(
+              new Subscriber[graphql.ExecutionResult]:
+                override def onSubscribe(s: Subscription): Unit = s.request(Long.MaxValue)
+                override def onNext(er: graphql.ExecutionResult): Unit =
+                  val dataVal = if er.getData[Any] == null then ujson.Null
+                                else anyToUJson(er.getData[java.util.Map[String, Any]]())
+                  val payload = ujson.Obj("data" -> dataVal)
+                  val errs = er.getErrors.asScala.toList
+                  if errs.nonEmpty then
+                    payload("errors") = ujson.Arr.from(errs.map(e => ujson.Obj("message" -> ujson.Str(e.getMessage))))
+                  sendMsg(ujson.Obj("type" -> ujson.Str("next"), "id" -> ujson.Str(id), "payload" -> payload))
+                override def onError(t: Throwable): Unit =
+                  sendMsg(ujson.Obj("type" -> ujson.Str("error"), "id" -> ujson.Str(id),
+                    "payload" -> ujson.Arr(ujson.Obj("message" -> ujson.Str(Option(t.getMessage).getOrElse("Subscription error"))))))
+                override def onComplete(): Unit =
+                  sendMsg(ujson.Obj("type" -> ujson.Str("complete"), "id" -> ujson.Str(id)))
+            )
+          case _ =>
+            sendMsg(ujson.Obj("type" -> ujson.Str("error"), "id" -> ujson.Str(id),
+              "payload" -> ujson.Arr(ujson.Obj("message" -> ujson.Str("Not a subscription operation")))))
+
+      case "subscribe" if !initReceived.get =>
+        sendMsg(ujson.Obj("type" -> ujson.Str("error"), "id" -> ujson.Str(id),
+          "payload" -> ujson.Arr(ujson.Obj("message" -> ujson.Str("Connection not initialised")))))
+
+      case "complete" => () // client cancels; for synchronous publisher, ignored
+
+      case "ping" =>
+        val payload = msg.obj.get("payload").getOrElse(ujson.Obj())
+        sendMsg(ujson.Obj("type" -> ujson.Str("pong"), "payload" -> payload))
+
+      case "pong" => () // client responds to server ping; no action needed
+
+      case _ => () // unknown message type — silently ignore (spec §4.5)
+
+  // ── Synchronous Reactive Streams Publisher backed by a List ───────────────
+
+  private class ListPublisher(items: List[AnyRef]) extends Publisher[AnyRef]:
+    def subscribe(s: Subscriber[? >: AnyRef]): Unit =
+      var cancelled = false
+      s.onSubscribe(new Subscription:
+        def request(n: Long): Unit =
+          if !cancelled then
+            val toEmit = if n >= items.size.toLong then items else items.take(n.toInt)
+            toEmit.foreach(item => if !cancelled then s.onNext(item))
+            if !cancelled then s.onComplete()
+        def cancel(): Unit = cancelled = true
+      )
 
   // GraphQL-over-HTTP §7.1 — preferred response content type.
   private val GQL_RESPONSE_JSON = "application/graphql-response+json"
