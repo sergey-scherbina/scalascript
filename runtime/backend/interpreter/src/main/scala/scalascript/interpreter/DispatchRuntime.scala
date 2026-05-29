@@ -409,8 +409,12 @@ private[interpreter] object DispatchRuntime:
   private def dispatchInstance1(recv: Value, typeName: String, fields: Map[String, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     typeName match
       case "Right" => name match
-        case "map"     => interp.callValue1(fields.getOrElse("value", Value.UnitV), arg, env)
-        case "flatMap" => interp.callValue1(fields.getOrElse("value", Value.UnitV), arg, env)
+        case "map"     =>
+          val inner = fields.getOrElse("value", Value.UnitV)
+          interp.callValue1(arg, inner, env) match
+            case Pure(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
+            case c       => FlatMap(c, v => Pure(Value.InstanceV("Right", Map("value" -> v))))
+        case "flatMap" => interp.callValue1(arg, fields.getOrElse("value", Value.UnitV), env)
         case "fold"    => interp.callValue1(arg, fields.getOrElse("value", Value.UnitV), env)
         case _         => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
       case "Left" => name match
