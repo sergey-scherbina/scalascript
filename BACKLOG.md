@@ -277,10 +277,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   parsing in `SscTestFramework`, `Test / test` dependency wiring, and scripted
   `test-integration` coverage for `sbt test`.
 
-- [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring:
+- [x] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring:
   `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits
   `.bsp/scalascript.json` for Metals/IntelliJ.
   Spec: `docs/arch-sbt-plugin.md §5 Phase 4`.
+  Landed 2026-05-29: added interactive `SscRunner`, `sscRepl`, `sscRun`,
+  `sscWatch`, `sscBspSetup`, `BspIntegration`, and scripted `dev-tools`
+  coverage for command wiring plus BSP file emission.
 
 ### Theme E — `ssc new` + standalone installation
 

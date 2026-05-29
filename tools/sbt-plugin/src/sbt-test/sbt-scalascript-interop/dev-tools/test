@@ -1,0 +1,8 @@
+> sscBspSetup
+$ exists .bsp/scalascript.json
+> sscRun sample.ssc
+$ exists target/run.marker
+> sscRepl
+$ exists target/repl.marker
+> sscWatch
+$ exists target/watch.marker

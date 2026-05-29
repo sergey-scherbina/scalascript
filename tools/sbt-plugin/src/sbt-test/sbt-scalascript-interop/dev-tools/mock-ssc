@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p target
+
+case "${1:-}" in
+  repl)
+    printf '%s\n' "$*" > target/repl.marker
+    ;;
+  run)
+    printf '%s\n' "$*" > target/run.marker
+    ;;
+  watch)
+    printf '%s\n' "$*" > target/watch.marker
+    ;;
+  generate-facade)
+    mkdir -p "$4"
+    ;;
+  *)
+    echo "[mock-ssc] unexpected command: ${1:-}" >&2
+    exit 1
+    ;;
+esac

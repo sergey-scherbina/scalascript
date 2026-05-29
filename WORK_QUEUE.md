@@ -87,7 +87,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-sbt-plugin-p3** — Test integration: `SscTestFramework`; `sscTest` forks `ssc test --output-format junit-xml`; JUnit XML parsing to sbt `TestResult`; scripted test: `sbt test` discovers and runs `.ssc` tests. Spec: `docs/arch-sbt-plugin.md §5 Phase 3`. ✓ Landed 2026-05-29: added `sscTestResultsDir`, `Test / sscTest`, JUnit XML parsing in `SscTestFramework`, `Test / test` dependency wiring, and scripted `test-integration` coverage for `sbt test`.
 
-- [ ] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring: `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits `.bsp/scalascript.json` for Metals/IntelliJ. Spec: `docs/arch-sbt-plugin.md §5 Phase 4`.
+- [x] **arch-sbt-plugin-p4** — REPL / Run / Watch + BSP wiring: `sscRepl`, `sscRun`, `sscWatch` tasks; `BspIntegration` emits `.bsp/scalascript.json` for Metals/IntelliJ. Spec: `docs/arch-sbt-plugin.md §5 Phase 4`. ✓ Landed 2026-05-29: added interactive `SscRunner`, `sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup`, `BspIntegration`, and scripted `dev-tools` coverage for command wiring plus BSP file emission.
 
 ### Theme E — `ssc new` + standalone installation
 

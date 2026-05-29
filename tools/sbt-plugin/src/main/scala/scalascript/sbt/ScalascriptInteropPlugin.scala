@@ -2,6 +2,7 @@ package scalascript.sbt
 
 import sbt._
 import sbt.Keys._
+import complete.DefaultParsers._
 import sbt.plugins.JvmPlugin
 
 /** sbt plugin for ScalaScript v2.0 interop (Tier 3).
@@ -37,6 +38,7 @@ import sbt.plugins.JvmPlugin
  *  - `sscCompile` — compile `.ssc` sources via `ssc build --incremental`.
  *  - `sscLink` — link `.ssc` artifacts via `ssc link`.
  *  - `sscTest` — run `.ssc` tests via `ssc test`.
+ *  - `sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup` — developer tooling.
  *  - `sscGenerateFacade` — generate facade sources (hooked into sourceGenerators).
  */
 object ScalascriptInteropPlugin extends AutoPlugin {
@@ -71,6 +73,18 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     )
     val sscTest = taskKey[TestResult](
       "Run .ssc tests via `ssc test --output-format junit-xml`."
+    )
+    val sscRepl = taskKey[Unit](
+      "Start the ScalaScript REPL."
+    )
+    val sscRun = inputKey[Unit](
+      "Run a ScalaScript file through `ssc run`."
+    )
+    val sscWatch = taskKey[Unit](
+      "Start ScalaScript watch mode for this project."
+    )
+    val sscBspSetup = taskKey[File](
+      "Emit .bsp/scalascript.json for editor integration."
     )
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
@@ -208,6 +222,39 @@ object ScalascriptInteropPlugin extends AutoPlugin {
           case TestResult.Error  => sys.error("ssc tests errored")
         }
       }
+    },
+
+    sscRepl := {
+      SscRunner.runInteractive(
+        binary = sscBinary.value,
+        args = Seq("repl", "--backend", sscBackend.value) ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+    },
+
+    sscRun := {
+      val args = spaceDelimited("<ssc-run-args>").parsed
+      SscRunner.runInteractive(
+        binary = sscBinary.value,
+        args = Seq("run", "--backend", sscBackend.value) ++ args ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+    },
+
+    sscWatch := {
+      SscRunner.runInteractive(
+        binary = sscBinary.value,
+        args = Seq("watch", "--backend", sscBackend.value, baseDirectory.value.getAbsolutePath) ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+    },
+
+    sscBspSetup := {
+      BspIntegration.write(
+        baseDirectory = baseDirectory.value,
+        binary = sscBinary.value,
+        log = streams.value.log
+      )
     },
 
     Compile / compile := ((Compile / compile) dependsOn (Compile / sscCompile)).value,

@@ -2144,6 +2144,18 @@ invokes `ssc test --output-format junit-xml`, writes results under
 `Test / sscTestResultsDir` (`target/scala-*/ssc-test-results` by default),
 and fails the sbt test run when the JUnit XML reports failures or errors.
 
+Developer tools:
+
+```bash
+sbt sscRun path/to/app.ssc
+sbt sscRepl
+sbt sscWatch
+sbt sscBspSetup
+```
+
+`sscBspSetup` writes `.bsp/scalascript.json` so BSP-aware editors can discover
+ScalaScript diagnostics through `ssc lsp --project <project>`.
+
 ---
 
 ## 12. Testing

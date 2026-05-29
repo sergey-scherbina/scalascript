@@ -1,13 +1,15 @@
 # sbt-scalascript Plugin — Full Completion Spec
 
-Status: **partially implemented**. Phases 1, 2, and 3 landed on 2026-05-29.
+Status: **partially implemented**. Phases 1, 2, 3, and 4 landed on
+2026-05-29.
 Tracked as `arch-sbt-plugin` milestone in `BACKLOG.md`.
 Current state: `tools/sbt-plugin/` contains the existing `sscGenerateFacade`
 task plus Phase 1 source-convention compilation (`sscSourceDirectories`,
 `sscCompile`, `sscBackend`, `sscExtraArgs`) and Phase 2 linking (`sscLink`,
 `sscLinkedJar`), plus Phase 3 test integration (`sscTest`,
-`sscTestResultsDir`, `SscTestFramework`). This spec covers the remaining
-plugin surface needed for standalone ScalaScript projects.
+`sscTestResultsDir`, `SscTestFramework`) and Phase 4 developer tooling
+(`sscRepl`, `sscRun`, `sscWatch`, `sscBspSetup`, `BspIntegration`). This spec
+covers the remaining plugin surface needed for standalone ScalaScript projects.
 
 ---
 
@@ -43,7 +45,7 @@ Specifically:
 tools/sbt-plugin/src/main/scala/scalascript/sbt/
   ScalascriptPlugin.scala      // AutoPlugin, keys, task wiring
   SscRunner.scala              // fork `ssc` binary, capture output
-  SscTestFramework.scala       // sbt TestFramework adapter
+  SscTestFramework.scala       // JUnit XML parser for sscTest
   BspIntegration.scala         // emit .bsp/scalascript.json
 ```
 
@@ -70,6 +72,10 @@ object ScalascriptPlugin extends AutoPlugin {
     val sscCompile           = taskKey[Seq[File]]("Compile .ssc sources")
     val sscLink              = taskKey[File]("Link .ssc artifacts")
     val sscTest              = taskKey[TestResult]("Run .ssc tests")
+    val sscRepl              = taskKey[Unit]("Start ScalaScript REPL")
+    val sscRun               = inputKey[Unit]("Run a .ssc file")
+    val sscWatch             = taskKey[Unit]("Start ScalaScript watch mode")
+    val sscBspSetup          = taskKey[File]("Emit .bsp/scalascript.json")
     // existing:
     val sscGenerateFacade    = taskKey[Seq[File]]("Generate Scala facade from .scim")
   }
@@ -173,6 +179,15 @@ val sscWatch = taskKey[Unit]("Watch + recompile on change")
 All three fork the `ssc` binary and inherit stdin/stdout so interactive
 REPL works.  `sscWatch` uses sbt's `watchSources` to trigger on `*.ssc` changes.
 
+Phase 4 implementation delegates directly to the CLI:
+
+- `sscRepl` → `ssc repl --backend <sscBackend>`
+- `sscRun <args>` → `ssc run --backend <sscBackend> <args>`
+- `sscWatch` → `ssc watch --backend <sscBackend> <baseDirectory>`
+
+`SscRunner.runInteractive` connects stdin for REPL/run/watch use cases while
+still routing process output into the sbt logger.
+
 ### 3g. BSP / LSP wiring
 
 `BspIntegration.scala` emits `<project>/.bsp/scalascript.json` on
@@ -238,6 +253,7 @@ cache and they appear on the JVM test classpath.  Requires
 - `sscRepl`, `sscRun`, `sscWatch` tasks.
 - `BspIntegration` / `sscBspSetup`.
 - End-to-end smoke test: `sbt sscRepl` opens a REPL in a subprocess.
+  ✓ Landed 2026-05-29.
 
 ### Phase 5 — Dep resolution + Maven publication
 
