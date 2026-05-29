@@ -80,6 +80,61 @@ private[interpreter] object DispatchRuntime:
       case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
       case _                    => dispatch(recv, name, arg :: Nil, env, interp)
 
+  /** Two-arg fast path: avoids allocating `arg1 :: arg2 :: Nil` per method call.
+   *  Covers the most common 2-arg operations on Map/String/Int.
+   *  Falls through to dispatch(recv, name, arg1 :: arg2 :: Nil, ...) for uncommon ops. */
+  def dispatch2(recv: Value, name: String, arg1: Value, arg2: Value, env: Env, interp: Interpreter): Computation =
+    recv match
+      case Value.MapV(m) => name match
+        case "getOrElse" | "getOrDefault" => Pure(m.getOrElse(arg1, arg2))
+        case "updated"   => Pure(Value.MapV(m + (arg1 -> arg2)))
+        case _           => dispatchMap(m, name, arg1 :: arg2 :: Nil, env, interp)
+      case Value.StringV(s) => name match
+        case "replace"    => (arg1, arg2) match
+          case (Value.StringV(a), Value.StringV(b)) => Pure(Value.StringV(s.replace(a, b)))
+          case _                                    => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "substring"  => (arg1, arg2) match
+          case (Value.IntV(a), Value.IntV(b)) =>
+            val from = a.toInt.max(0).min(s.length)
+            val to   = b.toInt.max(from).min(s.length)
+            Pure(Value.StringV(s.substring(from, to)))
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "slice"      => (arg1, arg2) match
+          case (Value.IntV(a), Value.IntV(b)) =>
+            val from = a.toInt.max(0).min(s.length)
+            val to   = b.toInt.max(from).min(s.length)
+            Pure(Value.StringV(s.slice(from, to)))
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case "padTo"      => (arg1, arg2) match
+          case (Value.IntV(n), Value.CharV(c)) =>
+            if n <= s.length then Pure(recv) else Pure(Value.StringV(s.padTo(n.toInt, c)))
+          case _ => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+        case _            => dispatchString(recv, s, name, arg1 :: arg2 :: Nil, env, interp)
+      case Value.IntV(n) => name match
+        case "clamp" => (arg1, arg2) match
+          case (Value.IntV(lo), Value.IntV(hi)) => Computation.pureIntV(math.max(lo, math.min(hi, n)))
+          case _ => dispatchInt(n, name, arg1 :: arg2 :: Nil, env, interp)
+        case _ => dispatchInt(n, name, arg1 :: arg2 :: Nil, env, interp)
+      case Value.ListV(ls) => name match
+        case "slice" => (arg1, arg2) match
+          case (Value.IntV(a), Value.IntV(b)) =>
+            val from = a.toInt.max(0)
+            val to   = b.toInt.min(ls.length)
+            if from >= to then Computation.PureEmptyList
+            else Pure(Value.ListV(ls.slice(from, to)))
+          case _ => dispatchList(ls, name, arg1 :: arg2 :: Nil, env, interp)
+        case "zip" => (arg1, arg2) match
+          case (Value.ListV(bs), _) =>
+            val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(bs.length))
+            var as = ls; var bsRem = bs
+            while as.nonEmpty && bsRem.nonEmpty do
+              buf += Value.TupleV(as.head :: bsRem.head :: Nil)
+              as = as.tail; bsRem = bsRem.tail
+            Pure(Value.ListV(buf.toList))
+          case _ => dispatchList(ls, name, arg1 :: arg2 :: Nil, env, interp)
+        case _ => dispatchList(ls, name, arg1 :: arg2 :: Nil, env, interp)
+      case _ => dispatch(recv, name, arg1 :: arg2 :: Nil, env, interp)
+
   /** Sort ls using a precomputed keys list. Factored out of dispatchList/dispatchList1
    *  to avoid code duplication and allow both paths to use direct-match on mapSequence results. */
   private def sortByKeys(ls: List[Value], keys: List[Value]): Computation =
