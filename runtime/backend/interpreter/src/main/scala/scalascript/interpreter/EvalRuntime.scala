@@ -885,9 +885,28 @@ private[interpreter] object EvalRuntime:
       def loop: Computation =
         // Refresh mutable frame: only overwrite a key if globals changed since entry.
         if frame.nonEmpty then frame.foreachEntry(refreshFn)
-        // Use FlatMap constructor (not .flatMap) so the trampoline handles iterations
-        // iteratively rather than recursing on the JVM stack for pure condition/body.
-        FlatMap(eval(t.expr, frameView, interp), condCont)
+        // All-pure fast path: if both the condition and body are pure on the first
+        // iteration, run subsequent iterations in a plain JVM while loop — zero
+        // FlatMap allocations for tight loops (saves 2 allocs × N iterations).
+        // Falls back to the trampoline path on the first effectful step.
+        eval(t.expr, frameView, interp) match
+          case Pure(Value.BoolV(true)) =>
+            eval(t.body, frameView, interp) match
+              case Pure(_) =>
+                var running = true
+                while running do
+                  if frame.nonEmpty then frame.foreachEntry(refreshFn)
+                  eval(t.expr, frameView, interp) match
+                    case Pure(Value.BoolV(true)) =>
+                      eval(t.body, frameView, interp) match
+                        case Pure(_)  => ()
+                        case bodyComp => return FlatMap(bodyComp, loopCont)
+                    case Pure(_) => running = false
+                    case condComp => return FlatMap(condComp, condCont)
+                Computation.PureUnit
+              case bodyComp => FlatMap(bodyComp, loopCont)
+          case Pure(_)   => Computation.PureUnit
+          case condComp  => FlatMap(condComp, condCont)
       loop
 
     // return expr  (non-local via exception)
