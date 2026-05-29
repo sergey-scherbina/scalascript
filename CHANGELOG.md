@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — bench{} language block + ssc bench + cross-backend JMH
+
+- **feat/bench-tooling** — Three complementary benchmark tools:
+  1. `bench("label") { expr }` / `bench("label", warmup, reps) { expr }` special form in the interpreter: re-evaluates the body AST term warmup+reps times, prints `[bench] label  p50=Xms  min=Yms  max=Zms  (N reps)` to stdout, returns the last result. Works inside any ScalaScript program.
+  2. `ssc bench [--no-interp|--no-jvm|--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>` — runs a file through all three backends and prints a markdown comparison table. Interpreter runs in-process (no JVM startup overhead); JvmGen + JsGen run as subprocesses via the running ssc.jar. Auto-detects scala-cli / node availability.
+  3. `CrossBackendBench.scala` JMH suite in `interpreterBench`: `jvmGen_*/jsGen_*` benchmarks measure codegen time (in-process, no subprocess), `interp_*` benchmarks measure execution. Run via `sbt "interpreterBench/Jmh/run .*CrossBackend.*"`. `build.sbt` adds `backendJvm + backendJs` deps to `interpreterBench`.
+  Also committed: `scripts/runtime-bench.sh` shell harness for full multi-workload wall-clock comparison with pre-warm, median calculation, and optional `--baseline` write.
+
 ## 2026-05-29 — runtime test blocker fixes
 
 - **fix/runtime-test-blockers** — Added generic `Foreign` method dispatch through
