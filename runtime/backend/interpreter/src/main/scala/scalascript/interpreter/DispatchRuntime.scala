@@ -320,6 +320,18 @@ private[interpreter] object DispatchRuntime:
                 loopRest(tail)
               })
         Pure(Value.MapV(groups.iterator.map((k, buf) => k -> Value.ListV(buf.toList)).toMap))
+      case "mkString"   => arg match
+        case Value.StringV(sep) => Pure(Value.StringV(ls.iterator.map(Value.show).mkString(sep)))
+        case _                  => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "zip"        => arg match
+        case Value.ListV(other) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
+          var as = ls; var bs = other
+          while as.nonEmpty && bs.nonEmpty do
+            buf += Value.TupleV(as.head :: bs.head :: Nil)
+            as = as.tail; bs = bs.tail
+          Pure(Value.ListV(buf.toList))
+        case _                  => dispatchList(ls, name, arg :: Nil, env, interp)
       case _            => dispatchList(ls, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Map. */
@@ -760,7 +772,7 @@ private[interpreter] object DispatchRuntime:
       case "toList"      =>
         val buf = new scala.collection.mutable.ArrayBuffer[Value](s.length)
         var i = 0
-        while i < s.length do { buf += Value.CharV(s.charAt(i)); i += 1 }
+        while i < s.length do { buf += Value.charV(s.charAt(i)); i += 1 }
         Pure(Value.ListV(buf.toList))
       case "init"        =>
         if s.isEmpty then interp.located("init on empty String")
@@ -804,7 +816,7 @@ private[interpreter] object DispatchRuntime:
       case "zipWithIndex" =>
         val buf = new scala.collection.mutable.ArrayBuffer[Value](s.length)
         var i = 0
-        while i < s.length do { buf += Value.TupleV(Value.CharV(s.charAt(i)) :: Value.intV(i.toLong) :: Nil); i += 1 }
+        while i < s.length do { buf += Value.TupleV(Value.charV(s.charAt(i)) :: Value.intV(i.toLong) :: Nil); i += 1 }
         Pure(Value.ListV(buf.toList))
       case _ => dispatchFallback(recv, name, args, env, interp)
 
@@ -826,7 +838,7 @@ private[interpreter] object DispatchRuntime:
       case "toLower" | "toLowerCase" => Pure(Value.charV(c.toLower))
       case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
       case _ =>
-        val ext = extensionDispatch(Value.CharV(c), name, args, env, interp)
+        val ext = extensionDispatch(Value.charV(c), name, args, env, interp)
         if ext != null then ext else interp.located(s"No method '$name' on Char")
 
   // ── Boolean ─────────────────────────────────────────────────────────────────
