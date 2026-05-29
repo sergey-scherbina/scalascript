@@ -938,16 +938,18 @@ private[interpreter] object EvalRuntime:
 
     // Prefix unary operators: `!x`, `-x`, `+x`, `~x`.
     case t: Term.ApplyUnary =>
-      eval(t.arg, env, interp).flatMap { v =>
-        (t.op.value, v) match
-          case ("!", Value.BoolV(b))   => Computation.pureBool(!b)
-          case ("-", Value.IntV(n))    => Computation.pureIntV(-n)
-          case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
-          case ("+", n: Value.IntV)    => Pure(n)
-          case ("+", d: Value.DoubleV) => Pure(d)
-          case ("~", Value.IntV(n))    => Computation.pureIntV(~n)
-          case (op, other)             => interp.located(s"Cannot apply unary $op to ${Value.show(other)}")
-      }
+      val op = t.op.value
+      @inline def applyUnary(v: Value): Computation = (op, v) match
+        case ("!", Value.BoolV(b))   => Computation.pureBool(!b)
+        case ("-", Value.IntV(n))    => Computation.pureIntV(-n)
+        case ("-", Value.DoubleV(d)) => Pure(Value.doubleV(-d))
+        case ("+", n: Value.IntV)    => Pure(n)
+        case ("+", d: Value.DoubleV) => Pure(d)
+        case ("~", Value.IntV(n))    => Computation.pureIntV(~n)
+        case (_, other)              => interp.located(s"Cannot apply unary $op to ${Value.show(other)}")
+      eval(t.arg, env, interp) match
+        case Pure(v) => applyUnary(v)
+        case c       => FlatMap(c, applyUnary)
 
     case t: Term.Throw =>
       eval(t.expr, env, interp).flatMap { v =>
