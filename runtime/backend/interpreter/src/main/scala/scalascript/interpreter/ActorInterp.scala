@@ -1661,13 +1661,18 @@ private[interpreter] trait ActorInterp:
     case "actorGroupTell" => args match
       case List(Value.InstanceV("ActorGroup", fields), msg) =>
         // Look up current group state by name (members may have been added after creation)
-        val currentFields = fields.get("name").collect { case Value.StringV(n) => n }
-          .flatMap { n =>
-            this.nativeFeatureGet(s"actorGroup.$n").collect { case g: Value.InstanceV => g.fields }
-          }.getOrElse(fields)
-        val members = currentFields.get("members").collect { case Value.ListV(xs) => xs }.getOrElse(Nil)
+        val currentFields = fields.getOrElse("name", null) match
+          case Value.StringV(n) => this.nativeFeatureGet(s"actorGroup.$n") match
+            case Some(g: Value.InstanceV) => g.fields
+            case _                        => fields
+          case _ => fields
+        val members = currentFields.getOrElse("members", null) match
+          case Value.ListV(xs) => xs
+          case _               => Nil
         if members.nonEmpty then
-          val kind = currentFields.get("kind").collect { case Value.StringV(s) => s }.getOrElse("router")
+          val kind = currentFields.getOrElse("kind", null) match
+            case Value.StringV(s) => s
+            case _                => "router"
           val target = kind match
             case "sharded" =>
               val idx = math.abs(Value.show(msg).hashCode) % members.size
@@ -1692,42 +1697,47 @@ private[interpreter] trait ActorInterp:
 
     case "actorGroupAdd" => args match
       case List(Value.InstanceV("ActorGroup", fields), ref) =>
-        fields.get("name").collect { case Value.StringV(n) => n }.foreach { n =>
-          val currentFields = this.nativeFeatureGet(s"actorGroup.$n")
-            .collect { case g: Value.InstanceV => g.fields }.getOrElse(fields)
-          val updated = Value.InstanceV("ActorGroup", currentFields.updated(
-            "members",
-            currentFields.get("members").collect { case Value.ListV(xs) => Value.ListV(xs :+ ref) }
-              .getOrElse(Value.ListV(ref :: Nil))
-          ))
-          this.nativeFeatureSet(s"actorGroup.$n", updated)
-        }
+        fields.getOrElse("name", null) match
+          case Value.StringV(n) =>
+            val currentFields = this.nativeFeatureGet(s"actorGroup.$n") match
+              case Some(g: Value.InstanceV) => g.fields
+              case _                        => fields
+            val newMembers = currentFields.getOrElse("members", null) match
+              case Value.ListV(xs) => xs :+ ref
+              case _               => ref :: Nil
+            this.nativeFeatureSet(s"actorGroup.$n",
+              Value.InstanceV("ActorGroup", currentFields.updated("members", Value.ListV(newMembers))))
+          case _ => ()
         Right(k(Value.UnitV))
       case _ => throw InterpretError("actorGroupAdd(group, ref)")
 
     case "actorGroupRemove" => args match
       case List(Value.InstanceV("ActorGroup", fields), ref) =>
-        fields.get("name").collect { case Value.StringV(n) => n }.foreach { n =>
-          val currentFields = this.nativeFeatureGet(s"actorGroup.$n")
-            .collect { case g: Value.InstanceV => g.fields }.getOrElse(fields)
-          val updated = Value.InstanceV("ActorGroup", currentFields.updated(
-            "members",
-            currentFields.get("members").collect { case Value.ListV(xs) => Value.ListV(xs.filterNot(_ == ref)) }
-              .getOrElse(Value.ListV(Nil))
-          ))
-          this.nativeFeatureSet(s"actorGroup.$n", updated)
-        }
+        fields.getOrElse("name", null) match
+          case Value.StringV(n) =>
+            val currentFields = this.nativeFeatureGet(s"actorGroup.$n") match
+              case Some(g: Value.InstanceV) => g.fields
+              case _                        => fields
+            val newMembers = currentFields.getOrElse("members", null) match
+              case Value.ListV(xs) => xs.filterNot(_ == ref)
+              case _               => Nil
+            this.nativeFeatureSet(s"actorGroup.$n",
+              Value.InstanceV("ActorGroup", currentFields.updated("members", Value.ListV(newMembers))))
+          case _ => ()
         Right(k(Value.UnitV))
       case _ => throw InterpretError("actorGroupRemove(group, ref)")
 
     case "actorGroupMembers" => args match
       case List(Value.InstanceV("ActorGroup", fields)) =>
         // Look up current group state by name (members may have been added after creation)
-        val currentFields = fields.get("name").collect { case Value.StringV(n) => n }
-          .flatMap { n =>
-            this.nativeFeatureGet(s"actorGroup.$n").collect { case g: Value.InstanceV => g.fields }
-          }.getOrElse(fields)
-        val members = currentFields.get("members").collect { case Value.ListV(xs) => xs }.getOrElse(Nil)
+        val currentFields = fields.getOrElse("name", null) match
+          case Value.StringV(n) => this.nativeFeatureGet(s"actorGroup.$n") match
+            case Some(g: Value.InstanceV) => g.fields
+            case _                        => fields
+          case _ => fields
+        val members = currentFields.getOrElse("members", null) match
+          case Value.ListV(xs) => xs
+          case _               => Nil
         Right(k(Value.ListV(members)))
       case _ => throw InterpretError("actorGroupMembers(group)")
 

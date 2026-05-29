@@ -142,8 +142,8 @@ private[interpreter] object OpticsRuntime:
     })
     val andThenFn = Value.NativeFnV("Prism.andThen", {
       case List(other: Value.InstanceV) if other.typeName == "Prism" =>
-        other.fields.get("_variant") match
-          case Some(Value.StringV(inner)) => Pure(buildPrismChain(variantName, inner, interp))
+        other.fields.getOrElse("_variant", null) match
+          case Value.StringV(inner) => Pure(buildPrismChain(variantName, inner, interp))
           case _ => throw InterpretError("Prism.andThen: malformed Prism")
       case List(_) =>
         throw InterpretError("Prism.andThen(other): only Prism-Prism composition supported in this stage")
@@ -387,8 +387,8 @@ private[interpreter] object OpticsRuntime:
     })
 
   def stepsFromFields(fields: Map[String, Value]): Option[List[PathStep]] =
-    fields.get("_steps").orElse(fields.get("_path")) match
-      case Some(Value.ListV(items)) => Some(items.collect {
+    (fields.getOrElse("_steps", null) match { case null => fields.getOrElse("_path", null); case v => v }) match
+      case Value.ListV(items) => Some(items.collect {
         case Value.StringV("__some__") => PathStep.SomeStep
         case Value.StringV("__each__") => PathStep.EachStep
         case Value.TupleV(List(Value.StringV("__index__"), Value.IntV(i))) =>
