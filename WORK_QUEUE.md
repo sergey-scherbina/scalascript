@@ -113,7 +113,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme F — DSL platform hooks
 
-- [ ] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration: `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime / JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"..."` and `html"..."`. Spec: `docs/arch-dsl-hooks.md §6 Phase 1`.
+- [x] **arch-dsl-hooks-p1** — `InterpolatorRegistry` + first migration: `InterpolatorImpl` trait; `Backend.interpolators` field; Typer / EvalRuntime / JvmGen / JsGen / CapabilityCheck consult registry; migrate `json"..."` and `html"..."`. Spec: `docs/arch-dsl-hooks.md §6 Phase 1`. ✓ Landed 2026-05-29: `InterpolatorImpl` SPI trait in `runtime/backend/spi`; `InterpolatorRegistry` (TrieMap, `register`/`lookup`/`all`/`registerFrom`) in `lang/core/compiler/plugin` with built-in `HtmlInterpolator` + `CssInterpolator` pre-registered; `Backend.interpolators: List[InterpolatorImpl]` default `Nil`; Typer fallthrough to `registry.lookup(p).map(_.returnTypeName)`; JvmGen `blockContainsRegisteredInterpolator` + `termContainsRegisteredInterpolator` detectors + `jvmEmit` dispatch; JsGen both direct and CPS paths dispatch through `jsEmit`; CapabilityCheck scans source for registered interpolator prefixes and gates on `requiredFeatures`; 18 tests (11 registry+typer, 7 codegen).
 
 - [ ] **arch-dsl-hooks-p2** — `PreprocessorRegistry`: `Preprocessor` trait; `PreprocessorRegistry`; five existing preprocessors converted to registered instances; `Parser.parseScalaWithDiagnostic` uses it. Spec: `docs/arch-dsl-hooks.md §6 Phase 2`.
 

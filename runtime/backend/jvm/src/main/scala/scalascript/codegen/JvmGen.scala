@@ -3381,9 +3381,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     blockContainsDirectBlock(node)            ||
     blockContainsRegisteredInterpolator(node)
 
+  // Interpolator prefixes that JvmGen handles natively via other code paths
+  // (emitCpsExpr top case, emitExpr top case, or raw Scala emission).
+  // Only non-built-in registered interpolators need the rewrite trigger.
+  private val jvmNativeInterpolators = Set("s", "f", "md", "sx", "html", "css")
+
   private def blockContainsRegisteredInterpolator(node: ScalaNode): Boolean =
     def go(t: scala.meta.Tree): Boolean = t match
-      case Term.Interpolate(Term.Name(prefix), _, _) =>
+      case Term.Interpolate(Term.Name(prefix), _, _)
+          if !jvmNativeInterpolators.contains(prefix) =>
         scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined
       case other => other.children.exists(go)
     ScalaNode.fold(node)(go)
@@ -3518,7 +3524,8 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
 
   private def termContainsRegisteredInterpolator(t: Term): Boolean =
     def walk(n: Tree): Boolean = n match
-      case Term.Interpolate(Term.Name(prefix), _, _) =>
+      case Term.Interpolate(Term.Name(prefix), _, _)
+          if !jvmNativeInterpolators.contains(prefix) =>
         scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined
       case _ => n.children.exists(walk)
     walk(t)
@@ -4299,9 +4306,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         case single: Term      => emitExpr(single)
         case null              => "??? /* direct: expected block */"
 
-    // Registered interpolator — jvmEmit takes precedence over raw Scala syntax.
+    // Registered (non-native) interpolator — jvmEmit takes precedence over raw Scala syntax.
     case Term.Interpolate(Term.Name(prefix), parts, args)
-        if scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined =>
+        if !jvmNativeInterpolators.contains(prefix)
+        && scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).isDefined =>
       val partStrs = parts.map(_.asInstanceOf[Lit.String].value)
       val argStrs  = args.map(a => emitExpr(a.asInstanceOf[Term]))
       scalascript.compiler.plugin.InterpolatorRegistry.lookup(prefix).get.jvmEmit(partStrs, argStrs)
