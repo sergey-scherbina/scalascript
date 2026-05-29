@@ -123,7 +123,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme H — Library Modularity
 
-- [ ] **arch-lib-p1** — `@deprecated` + `@experimental` annotations: new annotations in `Annotation.scala`; typer emits warnings at call sites; `--fatal-warnings` flag; tests. Spec: `docs/arch-library-modularity.md §6 Phase 1`.
+- [x] **arch-lib-p1** — `@deprecated` + `@experimental` annotations: new annotations in `Annotation.scala`; typer emits warnings at call sites; `--fatal-warnings` flag; tests. Spec: `docs/arch-library-modularity.md §6 Phase 1`. ✓ Landed 2026-05-29
 
 - [ ] **arch-lib-p2** — `@internal` access control: parsed and stored annotations; cross-package check in Typer; source-package diagnostics; per-definition and per-heading granularity. Spec: `docs/arch-library-modularity.md §6 Phase 2`.
 

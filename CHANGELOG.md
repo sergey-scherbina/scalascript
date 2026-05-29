@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-lib-p1 @deprecated / @experimental annotation warnings
+
+- **arch-lib-p1** — Added `@deprecated` and `@experimental` call-site warnings to the Typer. `fatalWarnings: Boolean` parameter on `Typer`; `TypeError.isWarning` flag; `TypedModule.hasErrors` ignores warnings, `TypedModule.warnings` returns the warning-only subset. `Typer.typeCheckFatalWarnings` factory promotes all warnings to errors (`--fatal-warnings` semantics). Annotation extraction from `Mod.Annot` mods on `Defn.Def`: `@deprecated("msg", since = "v")` populates `deprecatedDefs`; `@experimental("notice")` populates `experimentalDefs`; both emit warnings at every `Term.Name` call site. 11 tests in `TyperAnnotationWarningsTest`.
+
 ## 2026-05-29 — arch-distribution-p2 Coursier and JitPack dependency resolver
 
 - **arch-distribution-p2** — Added `MavenDepResolver` for Maven-shaped `dep:group:artifact:version` / `dep:group::artifact:version` imports via Coursier command wiring, preserved legacy `dep:org/name:version` dep-sources behavior, and added `JitpackResolver` as a thin Coursier repository wrapper. Added deterministic fake-Coursier tests over a local Maven-layout fixture.

@@ -22,9 +22,15 @@ import java.security.MessageDigest
 class Typer(
     importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
     strict: Boolean = false,
-    extraBuiltins: Set[String] = Set.empty
+    extraBuiltins: Set[String] = Set.empty,
+    fatalWarnings: Boolean = false
 ):
   private val errors      = ListBuffer[TypeError]()
+
+  /** Deprecated definitions: name → deprecation message. */
+  private val deprecatedDefs    = collection.mutable.Map.empty[String, String]
+  /** Experimental definitions: name → experimental notice. */
+  private val experimentalDefs  = collection.mutable.Map.empty[String, String]
   /** Registry of user-defined type aliases: name → (typeParams, expandedRhs).
    *  Populated by `checkStat` when it encounters a `type Name[...] = T` declaration.
    *  Consulted by `typeAnnotToSType` to expand alias names at use-sites. */
@@ -508,6 +514,33 @@ class Typer(
       val fnType = SType.Function(paramSTypes, retType, declaredEffects)
       scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
       out += DefSummary(d.name.value, SymbolKind.Def, fnType, paramSTypes)
+      // Collect @deprecated / @experimental annotations after body check to avoid
+      // false-positive warnings on recursive self-calls within the function body.
+      d.mods.foreach {
+        case Mod.Annot(init) =>
+          val annotName = init.tpe match
+            case Type.Name(n)                 => n
+            case Type.Select(_, Type.Name(n)) => n
+            case other                        => other.syntax.split('.').lastOption.getOrElse("")
+          annotName match
+            case "deprecated" =>
+              val sinceArg = init.argClauses.flatMap(_.values).collectFirst {
+                case Term.Assign(Term.Name("since"), Lit.String(v)) => v
+              }
+              val msgArg = init.argClauses.flatMap(_.values).collectFirst {
+                case Lit.String(s) => s
+              }
+              val msg = msgArg.map(m => s": $m").getOrElse("") +
+                sinceArg.map(s => s" (since $s)").getOrElse("")
+              deprecatedDefs(d.name.value) = msg
+            case "experimental" =>
+              val notice = init.argClauses.headOption
+                .flatMap(_.values.collectFirst { case Lit.String(s) => s })
+                .map(m => s": $m").getOrElse("")
+              experimentalDefs(d.name.value) = notice
+            case _ => ()
+        case _ => ()
+      }
 
     // class Name(params...)
     case d: Defn.Class =>
@@ -606,7 +639,15 @@ class Typer(
 
     case t @ Term.Name(name) =>
       scope.lookup(name) match
-        case Some(sym) => sym.tpe
+        case Some(sym) =>
+          // Emit lifecycle warnings for deprecated / experimental defs at use sites.
+          deprecatedDefs.get(name).foreach { suffix =>
+            emitWarning(s"$name is deprecated$suffix", posToSpan(t.pos))
+          }
+          experimentalDefs.get(name).foreach { suffix =>
+            emitWarning(s"$name is experimental$suffix", posToSpan(t.pos))
+          }
+          sym.tpe
         case None      =>
           // Strict mode: record a diagnostic for references to identifiers
           // that are not in any scope (the consumer's defs, any imported
@@ -1220,6 +1261,9 @@ class Typer(
 
       case QualResult.NotAnalysable => ()
 
+  private def emitWarning(msg: String, span: Option[Span]): Unit =
+    errors += TypeError(msg, span, isWarning = !fatalWarnings)
+
   private def posToSpan(pos: scala.meta.Position): Option[Span] =
     if pos.isEmpty then None
     else Some(Span(
@@ -1227,10 +1271,10 @@ class Typer(
       scalascript.ast.Position(pos.endLine, pos.endColumn, pos.end)
     ))
 
-case class TypeError(msg: String, span: Option[Span]):
+case class TypeError(msg: String, span: Option[Span], isWarning: Boolean = false):
   def show: String = span match
-    case Some(s) => s"$s: $msg"
-    case None    => msg
+    case Some(s) => s"${if isWarning then "warning" else "error"} $s: $msg"
+    case None    => s"${if isWarning then "warning" else "error"}: $msg"
 
 // ─── Summary of a single definition found in a code block ────────
 
@@ -1247,13 +1291,20 @@ case class TypedModule(
   sections: List[TypedSection],
   errors: List[TypeError]
 ):
-  def hasErrors: Boolean = errors.nonEmpty
+  def hasErrors: Boolean = errors.exists(!_.isWarning)
+  def warnings:  List[TypeError] = errors.filter(_.isWarning)
   def show: String =
     val sb = StringBuilder()
     sb ++= s"module $name v$version\n"
-    if errors.nonEmpty then
-      sb ++= s"Errors (${errors.length}):\n"
-      errors.foreach(e => sb ++= s"  - ${e.show}\n")
+    val trueErrors = errors.filter(!_.isWarning)
+    val warns      = errors.filter(_.isWarning)
+    if trueErrors.nonEmpty then
+      sb ++= s"Errors (${trueErrors.length}):\n"
+      trueErrors.foreach(e => sb ++= s"  - ${e.show}\n")
+      sb ++= "\n"
+    if warns.nonEmpty then
+      sb ++= s"Warnings (${warns.length}):\n"
+      warns.foreach(w => sb ++= s"  - ${w.show}\n")
       sb ++= "\n"
     sections.foreach(s => sb ++= s.show(1))
     sb.toString
@@ -1398,6 +1449,14 @@ object Typer:
    */
   def typeCheckStrict(module: Module, extraBuiltins: Set[String]): TypedModule =
     Typer(Map.empty, strict = true, extraBuiltins).typeCheck(module)
+
+  /** Variant that treats all warnings as errors (`--fatal-warnings`).
+   *
+   *  `@deprecated` and `@experimental` call-site warnings become type errors
+   *  so that `hasErrors` is true and the build fails.
+   */
+  def typeCheckFatalWarnings(module: Module): TypedModule =
+    Typer(Map.empty, strict = false, Set.empty, fatalWarnings = true).typeCheck(module)
 
   /** Incremental type-check — companion factory (no imported interfaces, non-strict).
    *

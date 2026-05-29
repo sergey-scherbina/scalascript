@@ -174,19 +174,20 @@ class Documents:
     buf.toList
 
   private def typeErrorToDiagnostic(te: TypeError): LspDiagnostic =
+    val severity = if te.isWarning then 2 else 1
     te.span match
       case Some(sp) =>
         LspDiagnostic(
-          line     = sp.start.line,
-          column   = sp.start.column,
-          endLine  = sp.end.line,
+          line      = sp.start.line,
+          column    = sp.start.column,
+          endLine   = sp.end.line,
           endColumn = sp.end.column,
-          severity = 1,
-          message  = te.msg,
-          source   = "typer"
+          severity  = severity,
+          message   = te.msg,
+          source    = "typer"
         )
       case None =>
-        LspDiagnostic(0, 0, 0, 1, 1, te.msg, "typer")
+        LspDiagnostic(0, 0, 0, 1, severity, te.msg, "typer")
 
 object Documents:
 

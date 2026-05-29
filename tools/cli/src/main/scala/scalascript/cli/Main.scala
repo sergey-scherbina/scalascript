@@ -8362,7 +8362,7 @@ private case class CheckResult(
   elapsedMs:   Long,
   missing:     Boolean = false
 ):
-  def ok: Boolean = !missing && !parseErrors && errors.isEmpty
+  def ok: Boolean = !missing && !parseErrors && !errors.exists(!_.isWarning)
 
 /** Check a single `.ssc` file.  Does NOT invoke any backend (no JvmGen / JsGen /
  *  Interpreter).  Returns a [[CheckResult]] summary.
@@ -8436,12 +8436,15 @@ private def checkResultsToJson(results: List[CheckResult]): String =
      .replace("\n", "\\n")
      .replace("\r", "\\r")
      .replace("\t", "\\t")
-  def errorToJson(e: scalascript.typer.TypeError): String =
+  def diagToJson(e: scalascript.typer.TypeError): String =
     val (line, col) = e.span.map(s => (s.start.line, s.start.column)).getOrElse((0, 0))
-    s"""{"line":$line,"col":$col,"severity":"error","message":"${escapeJson(e.msg)}"}"""
+    val sev = if e.isWarning then "warning" else "error"
+    s"""{"line":$line,"col":$col,"severity":"$sev","message":"${escapeJson(e.msg)}"}"""
   def resultToJson(r: CheckResult): String =
-    val errJsons = r.errors.map(errorToJson).mkString(",")
-    val errArray = s"[$errJsons]"
+    val trueErrors = r.errors.filter(!_.isWarning)
+    val warns      = r.errors.filter(_.isWarning)
+    val errJsons   = trueErrors.map(diagToJson).mkString(",")
+    val warnJsons  = warns.map(diagToJson).mkString(",")
     val parseNote =
       if r.missing then s"""{"line":0,"col":0,"severity":"error","message":"file not found"}"""
       else if r.parseErrors && r.errors.isEmpty then
@@ -8450,8 +8453,8 @@ private def checkResultsToJson(results: List[CheckResult]): String =
     val allErrs =
       if parseNote.nonEmpty then
         if errJsons.isEmpty then s"[$parseNote]" else s"[$parseNote,$errJsons]"
-      else errArray
-    s"""{"file":"${escapeJson(r.file)}","errors":$allErrs,"warnings":[],"elapsed_ms":${r.elapsedMs}}"""
+      else s"[$errJsons]"
+    s"""{"file":"${escapeJson(r.file)}","errors":$allErrs,"warnings":[$warnJsons],"elapsed_ms":${r.elapsedMs}}"""
   if results.length == 1 then resultToJson(results.head)
   else "[" + results.map(resultToJson).mkString(",\n ") + "]"
 
@@ -8520,10 +8523,10 @@ def checkCommand(args: List[String]): Unit =
 
   // ── Exit code helper ─────────────────────────────────────────────────
   def exitCodeFor(results: List[CheckResult]): Int =
-    if      results.exists(_.missing)                              then 3
-    else if results.exists(r => !r.missing && r.errors.nonEmpty)  then 1
-    else if results.exists(_.parseErrors)                         then 2
-    else                                                               0
+    if      results.exists(_.missing)                                           then 3
+    else if results.exists(r => !r.missing && r.errors.exists(!_.isWarning))   then 1
+    else if results.exists(_.parseErrors)                                       then 2
+    else                                                                             0
 
   // ── Watch mode ────────────────────────────────────────────────────────
   if watchMode then
@@ -8617,12 +8620,14 @@ def checkCommand(args: List[String]): Unit =
             val location = e.span match
               case Some(s) => s"${r.file}:${s.start.line}:${s.start.column}"
               case None    => r.file
-            System.err.println(s"$location: error: ${e.msg}")
+            val label = if e.isWarning then "warning" else "error"
+            System.err.println(s"$location: $label: ${e.msg}")
           }
+          if r.errors.forall(_.isWarning) then println(s"${r.file}: OK (with warnings)")
         else
           println(s"${r.file}: OK")
       }
-      val errCount = results.count(r => r.missing || r.parseErrors || r.errors.nonEmpty)
+      val errCount = results.count(r => r.missing || r.parseErrors || r.errors.exists(!_.isWarning))
       if errCount > 1 then System.err.println(s"$errCount errors found.")
   System.exit(exitCodeFor(results))
 
