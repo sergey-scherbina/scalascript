@@ -36,6 +36,7 @@ private[interpreter] object DispatchRuntime:
       case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
       case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
       case Value.CharV(c)          => dispatchChar(c, name, args, env, interp)
+      case Value.BoolV(b)          => dispatchBool(recv, b, name, args, env, interp)
       case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
       case Value.UnitV             => dispatchUnit(recv, name, args, env, interp)
       case Value.InstanceV(t, f)   => dispatchInstance(recv, t, f, name, args, env, interp)
@@ -264,6 +265,35 @@ private[interpreter] object DispatchRuntime:
       case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
       case _ => extensionDispatch(Value.CharV(c), name, args, env, interp)
                   .getOrElse(interp.located(s"No method '$name' on Char"))
+
+  // ── Boolean ─────────────────────────────────────────────────────────────────
+
+  private def dispatchBool(recv: Value, b: Boolean, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
+      case "toString"  => Pure(Value.StringV(b.toString))
+      case "!"         => Computation.pureBool(!b)
+      case "unary_!"   => Computation.pureBool(!b)
+      case "toInt"     => Computation.pureIntV(if b then 1L else 0L)
+      case "&&"        => args match
+        case List(Value.BoolV(r)) => Computation.pureBool(b && r)
+        case _                    => dispatchFallback(recv, name, args, env, interp)
+      case "||"        => args match
+        case List(Value.BoolV(r)) => Computation.pureBool(b || r)
+        case _                    => dispatchFallback(recv, name, args, env, interp)
+      case "^"         => args match
+        case List(Value.BoolV(r)) => Computation.pureBool(b ^ r)
+        case _                    => dispatchFallback(recv, name, args, env, interp)
+      case "==" | "equals" => args match
+        case List(Value.BoolV(r)) => Computation.pureBool(b == r)
+        case _                    => Computation.pureBool(false)
+      case "!="        => args match
+        case List(Value.BoolV(r)) => Computation.pureBool(b != r)
+        case _                    => Computation.pureBool(true)
+      case "compare"   => args match
+        case List(Value.BoolV(r)) => Computation.pureIntV(b.compare(r).toLong)
+        case _                    => dispatchFallback(recv, name, args, env, interp)
+      case _ => extensionDispatch(recv, name, args, env, interp)
+                  .getOrElse(interp.located(s"No method '$name' on Boolean"))
 
   // ── List ────────────────────────────────────────────────────────────────────
 
@@ -1397,7 +1427,15 @@ private[interpreter] object DispatchRuntime:
           if b.isEmpty then Pure(lhs)
           else if a.isEmpty then Pure(rhs)
           else Pure(Value.ListV(a ++ b))
-        case _ => dispatch(lhs, op, args, env, interp)
+        case (Value.TupleV(as), Value.TupleV(bs)) => Pure(Value.TupleV(as ++ bs))
+        case (Value.TupleV(_),  Value.UnitV)      => Pure(lhs)
+        case (Value.TupleV(as), _)                => Pure(Value.TupleV(as :+ rhs))
+        case (Value.UnitV,      Value.TupleV(_))  => Pure(rhs)
+        case (Value.UnitV,      Value.UnitV)      => Computation.PureUnit
+        case (Value.UnitV,      _)                => Pure(rhs)
+        case (_,                Value.TupleV(bs)) => Pure(Value.TupleV(lhs :: bs))
+        case (_,                Value.UnitV)      => Pure(lhs)
+        case _                                    => Pure(Value.TupleV(List(lhs, rhs)))
       case ":::" => (lhs, rhs) match
         case (Value.ListV(a), Value.ListV(b)) =>
           if b.isEmpty then Pure(lhs)
@@ -1413,7 +1451,7 @@ private[interpreter] object DispatchRuntime:
       case "->" => Pure(Value.TupleV(List(lhs, rhs)))
       case "!" => lhs match
         case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", List(pid, rhs))
-        case _                               => dispatch(lhs, op, args, env, interp)
+        case _                               => dispatch(lhs, op, List(rhs), env, interp)
       case ":=" => lhs match
         case Value.InstanceV("AttrKey", fields) =>
           val name = fields.get("name").map(Value.show).getOrElse("")
@@ -1421,8 +1459,8 @@ private[interpreter] object DispatchRuntime:
             "name"  -> Value.StringV(name),
             "value" -> Value.StringV(Value.show(rhs))
           )))
-        case _ => dispatch(lhs, op, args, env, interp)
-      case _ => dispatch(lhs, op, args, env, interp)
+        case _ => dispatch(lhs, op, List(rhs), env, interp)
+      case _ => dispatch(lhs, op, List(rhs), env, interp)
 
   private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Option[Computation] =
     val typeName = recv match
