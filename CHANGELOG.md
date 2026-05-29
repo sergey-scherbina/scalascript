@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-stable-spi-p1 scalascript-plugin-api module
+
+- **arch-stable-spi-p1** — New `runtime/scalascript-plugin-api/` sbt subproject (`scalascript-plugin-api`). Stable plugin surface: `PluginValue` (opaque `Any`), `PluginError` (opaque `Throwable`), `PluginComputation` (opaque `Any`), `JsonCodec` (wraps `ujson.Value`), and `type PluginContext = NativeContext`. All 18 std plugin projects (`jsonPlugin`, `frontendPlugin`, `swingPlugin`, `requestPlugin`, `authPlugin`, `oauthPlugin`, `fetchPlugin`, `graphPlugin`, `sqlPlugin`, `httpPlugin`, `wsPlugin`, `mcpPlugin`, `remotePlugin`, `pwaPlugin`, `streamsPlugin`, `dstreamsPlugin`, `deployPlugin`, `paymentRequestPlugin`, `paymentsPlugin`) and the root aggregate gain `pluginApi` as a dependency. 11 tests in `PluginApiTest`.
+
 ## 2026-05-29 — arch-ffi-p2: @interpreterUnsupported + cross-backend parity
 
 - **arch-ffi-p2** — Added `@interpreterUnsupported` annotation support in `StatRuntime`: extern defs annotated with `@interpreterUnsupported` register a `NativeFnV` that throws an `InterpretError` with a descriptive message when called from the interpreter. Custom message: `@interpreterUnsupported("msg")`. Default message includes the def name. Error is raised at call site, not at definition. Combined `@jvm`+`@interpreterUnsupported` works: the annotation wins in interpreter mode. Cross-backend parity tests verify the same `.ssc` source with `@jvm`+`@js` produces correct output on both JVM and JS backends including `$N` argument substitution. 9 tests.

@@ -105,7 +105,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme A — Stable Plugin SPI
 
-- [ ] **arch-stable-spi-p1** — `scalascript-plugin-api` module: new sbt subproject; `PluginValue`, `PluginError`, `PluginComputation`, `JsonCodec`, and `PluginContext` capability re-export; existing plugins add dependency. Spec: `docs/arch-stable-spi.md §5 Phase 1`.
+- [x] **arch-stable-spi-p1** — `scalascript-plugin-api` module: new sbt subproject; `PluginValue`, `PluginError`, `PluginComputation`, `JsonCodec`, and `PluginContext` capability re-export; existing plugins add dependency. Spec: `docs/arch-stable-spi.md §5 Phase 1`.
 
 - [ ] **arch-stable-spi-p2** — Capability decomposition + 3 showcase plugins: `HttpCap`, `WsCap`, `DbCap`, `StorageCap`, `ValidateCap`, `MountCap`; typed `NativeImpl.eval`; `LegacyNativeContext` shim; migrate `json-plugin`, `http-plugin`, `auth-plugin`. Spec: `docs/arch-stable-spi.md §5 Phase 2`.
 

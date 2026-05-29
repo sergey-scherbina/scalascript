@@ -80,6 +80,23 @@ lazy val backendSpi = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// ── Stable Plugin API (arch-stable-spi) ──────────────────────────────────
+// Stable surface for plugin authors: PluginValue, PluginError,
+// PluginComputation, JsonCodec, PluginContext.  Plugins depend only on
+// this module; they never import scalascript.interpreter.* directly.
+lazy val pluginApi = project
+  .in(file("runtime/scalascript-plugin-api"))
+  .dependsOn(backendSpi, ir)
+  .settings(
+    name := "scalascript-plugin-api",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % "4.4.2",
+      scalatestTest
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions
+  )
+
 // ── Wire protocol shared module (v1.62.1) ─────────────────────────────────
 // WireValue, WireEnvelope, WireCodec[A], JSON/MsgPack/CBOR profiles.
 // No dependency on backendSpi — usable from any module.
@@ -170,7 +187,7 @@ lazy val interop = project
 
 // ── Publish shortcuts ─────────────────────────────────────────────────────────
 // Publish shortcuts — replaces the old bundle aggregate projects
-addCommandAlias("publishCore",        ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal")
+addCommandAlias("publishCore",        ";ir/publishLocal;backendSpi/publishLocal;pluginApi/publishLocal;core/publishLocal")
 addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;core/publishLocal;backendInterpreter/publishLocal;backendInterpreterServer/publishLocal")
 
 // Phase 1a of the runtime-consolidation refactor (see
@@ -2288,7 +2305,7 @@ lazy val micropaymentHydra = project
 
 lazy val jsonPlugin = project
   .in(file("runtime/std/json-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-json-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2299,7 +2316,7 @@ lazy val jsonPlugin = project
 
 lazy val frontendPlugin = project
   .in(file("runtime/std/frontend-plugin"))
-  .dependsOn(backendSpi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
   .settings(
     name := "scalascript-frontend-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2310,7 +2327,7 @@ lazy val frontendPlugin = project
 
 lazy val swingPlugin = project
   .in(file("runtime/std/swing-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-swing-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2321,7 +2338,7 @@ lazy val swingPlugin = project
 
 lazy val requestPlugin = project
   .in(file("runtime/std/request-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-request-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2332,7 +2349,7 @@ lazy val requestPlugin = project
 
 lazy val authPlugin = project
   .in(file("runtime/std/auth-plugin"))
-  .dependsOn(backendSpi, ir, core, runtimeServerCommon, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-auth-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2343,7 +2360,7 @@ lazy val authPlugin = project
 
 lazy val oauthPlugin = project
   .in(file("runtime/std/oauth-plugin"))
-  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-oauth-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2354,7 +2371,7 @@ lazy val oauthPlugin = project
 
 lazy val fetchPlugin = project
   .in(file("runtime/std/fetch-plugin"))
-  .dependsOn(backendSpi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-fetch-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2365,7 +2382,7 @@ lazy val fetchPlugin = project
 
 lazy val graphPlugin = project
   .in(file("runtime/std/graph-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graph-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2376,7 +2393,7 @@ lazy val graphPlugin = project
 
 lazy val sqlPlugin = project
   .in(file("runtime/std/sql-plugin"))
-  .dependsOn(backendSpi, ir, core, backendSqlRuntime, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, backendSqlRuntime, testUtils % Test)
   .settings(
     name := "scalascript-sql-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2387,7 +2404,7 @@ lazy val sqlPlugin = project
 
 lazy val httpPlugin = project
   .in(file("runtime/std/http-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-http-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2398,7 +2415,7 @@ lazy val httpPlugin = project
 
 lazy val wsPlugin = project
   .in(file("runtime/std/ws-plugin"))
-  .dependsOn(backendSpi, ir, core, runtimeServerCommon, runtimeServerSpi, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, runtimeServerSpi, testUtils % Test)
   .settings(
     name := "scalascript-ws-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2409,7 +2426,7 @@ lazy val wsPlugin = project
 
 lazy val mcpPlugin = project
   .in(file("runtime/std/mcp-plugin"))
-  .dependsOn(backendSpi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-mcp-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2420,7 +2437,7 @@ lazy val mcpPlugin = project
 
 lazy val remotePlugin = project
   .in(file("runtime/std/remote-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-remote-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2431,7 +2448,7 @@ lazy val remotePlugin = project
 
 lazy val pwaPlugin = project
   .in(file("runtime/std/pwa-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-pwa-plugin",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -2462,7 +2479,7 @@ lazy val backendInterpreterPluginTests = project
 // ── Streams — interpreter plugin ─────────────────────────────────────────
 lazy val streamsPlugin = project
   .in(file("runtime/std/streams-plugin"))
-  .dependsOn(backendSpi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-streams-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2474,7 +2491,7 @@ lazy val streamsPlugin = project
 // ── DStreams — interpreter plugin ─────────────────────────────────────────
 lazy val dstreamsPlugin = project
   .in(file("runtime/std/dstreams-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test, streamsPlugin % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test, streamsPlugin % Test)
   .settings(
     name := "scalascript-dstreams-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -2486,7 +2503,7 @@ lazy val dstreamsPlugin = project
 // ── Deploy — CLI-time plugin ───────────────────────────────────────────────
 lazy val deployPlugin = project
   .in(file("runtime/std/deploy-plugin"))
-  .dependsOn(backendSpi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-deploy-plugin",
     libraryDependencies ++= Seq(
@@ -2501,7 +2518,7 @@ lazy val deployPlugin = project
 // ── Payment Request API — interpreter plugin ──────────────────────────────
 lazy val paymentRequestPlugin = project
   .in(file("runtime/std/payment-request-plugin"))
-  .dependsOn(backendSpi, ir, core)
+  .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-payment-request-plugin",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
@@ -2566,7 +2583,7 @@ lazy val paymentsWebhookPostgres = project
 // ── Payments — PaymentProvider SPI plugin ────────────────────────────────
 lazy val paymentsPlugin = project
   .in(file("runtime/std/payments-plugin"))
-  .dependsOn(backendSpi, ir, core, paymentsMoney, paymentsWebhook, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, paymentsMoney, paymentsWebhook, testUtils % Test)
   .settings(
     name := "scalascript-payments-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -3099,7 +3116,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    backendSpi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
+    backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, mcpCommon,
