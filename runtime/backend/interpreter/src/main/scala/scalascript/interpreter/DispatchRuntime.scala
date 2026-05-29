@@ -847,15 +847,28 @@ private[interpreter] object DispatchRuntime:
       case "collect"      => args match
         case List(f) =>
           val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.ListV(buf.toList))
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.OptionV(Some(v)) => buf += v; loop(rest)
-                case Value.OptionV(None)    => loop(rest)
-                case v                      => buf += v; loop(rest)
-              }
-          loop(ls)
+          var rem = ls
+          while rem.nonEmpty do
+            interp.callValue1(f, rem.head, env) match
+              case Pure(Value.OptionV(Some(v))) => buf += v; rem = rem.tail
+              case Pure(Value.OptionV(None))    => rem = rem.tail
+              case Pure(v)                      => buf += v; rem = rem.tail
+              case comp =>
+                val tail = rem.tail
+                def loopRest(remaining: List[Value]): Computation = remaining match
+                  case Nil => Pure(Value.ListV(buf.toList))
+                  case h :: rest =>
+                    interp.callValue1(f, h, env).flatMap {
+                      case Value.OptionV(Some(v)) => buf += v; loopRest(rest)
+                      case Value.OptionV(None)    => loopRest(rest)
+                      case v                      => buf += v; loopRest(rest)
+                    }
+                return FlatMap(comp, {
+                  case Value.OptionV(Some(v)) => buf += v; loopRest(tail)
+                  case Value.OptionV(None)    => loopRest(tail)
+                  case v                      => buf += v; loopRest(tail)
+                })
+          Pure(Value.ListV(buf.toList))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "unzip"        =>
         if ls.isEmpty then Pure(Value.TupleV(Value.ListV(Nil) :: Value.ListV(Nil) :: Nil))
@@ -984,67 +997,121 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.NativeFnV("foldLeft", {
             case List(f) =>
               val it = m.iterator
-              def loop(acc: Value): Computation =
-                if !it.hasNext then Pure(acc)
-                else
-                  val (k, v) = it.next()
-                  interp.callValue2(f, acc, Value.TupleV(List(k, v)), env).flatMap(loop)
-              loop(init)
+              var acc = init
+              while it.hasNext do
+                val (k, v) = it.next()
+                interp.callValue2(f, acc, Value.TupleV(k :: v :: Nil), env) match
+                  case Pure(nv) => acc = nv
+                  case comp =>
+                    val capturedAcc = acc
+                    def loopRest(a: Value): Computation =
+                      if !it.hasNext then Pure(a)
+                      else
+                        val (k2, v2) = it.next()
+                        interp.callValue2(f, a, Value.TupleV(k2 :: v2 :: Nil), env).flatMap(loopRest)
+                    return comp.flatMap(loopRest)
+              Pure(acc)
             case _ => throw InterpretError("Map.foldLeft expects one function argument")
           }))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "exists"    => args match
         case List(f) =>
           val it = m.iterator
-          def loop(): Computation =
-            if !it.hasNext then Computation.PureFalse
-            else
-              val (k, v) = it.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
-                case Value.BoolV(true) => Computation.PureTrue
-                case _                 => loop()
-              }
-          loop()
+          while it.hasNext do
+            val (k, v) = it.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(Value.BoolV(true))  => return Computation.PureTrue
+              case Pure(_)                  => // continue
+              case comp =>
+                return FlatMap(comp, {
+                  case Value.BoolV(true) => Computation.PureTrue
+                  case _ =>
+                    def loopRest(): Computation =
+                      if !it.hasNext then Computation.PureFalse
+                      else
+                        val (k2, v2) = it.next()
+                        interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                          case Value.BoolV(true) => Computation.PureTrue
+                          case _                 => loopRest()
+                        }
+                    loopRest()
+                })
+          Computation.PureFalse
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "forall"    => args match
         case List(f) =>
           val it = m.iterator
-          def loop(): Computation =
-            if !it.hasNext then Computation.PureTrue
-            else
-              val (k, v) = it.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
-                case Value.BoolV(false) => Computation.PureFalse
-                case _                  => loop()
-              }
-          loop()
+          while it.hasNext do
+            val (k, v) = it.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(Value.BoolV(false)) => return Computation.PureFalse
+              case Pure(_)                  => // continue
+              case comp =>
+                return FlatMap(comp, {
+                  case Value.BoolV(false) => Computation.PureFalse
+                  case _ =>
+                    def loopRest(): Computation =
+                      if !it.hasNext then Computation.PureTrue
+                      else
+                        val (k2, v2) = it.next()
+                        interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                          case Value.BoolV(false) => Computation.PureFalse
+                          case _                  => loopRest()
+                        }
+                    loopRest()
+                })
+          Computation.PureTrue
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"     => args match
         case List(f) =>
           val it = m.iterator
-          def loop(acc: Long): Computation =
-            if !it.hasNext then Computation.pureIntV(acc)
-            else
-              val (k, v) = it.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
-                case Value.BoolV(true) => loop(acc + 1L)
-                case _                 => loop(acc)
-              }
-          loop(0L)
+          var acc = 0L
+          while it.hasNext do
+            val (k, v) = it.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(Value.BoolV(true))  => acc += 1L
+              case Pure(_)                  => // false, no increment
+              case comp =>
+                val capturedAcc = acc
+                return FlatMap(comp, { r =>
+                  val newAcc = if r == Value.BoolV(true) then capturedAcc + 1L else capturedAcc
+                  def loopRest(a: Long): Computation =
+                    if !it.hasNext then Computation.pureIntV(a)
+                    else
+                      val (k2, v2) = it.next()
+                      interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                        case Value.BoolV(true) => loopRest(a + 1L)
+                        case _                 => loopRest(a)
+                      }
+                  loopRest(newAcc)
+                })
+          Computation.pureIntV(acc)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "find"      => args match
         case List(f) =>
           val it = m.iterator
-          def loop(): Computation =
-            if !it.hasNext then Computation.PureNone
-            else
-              val (k, v) = it.next()
-              val entry = Value.TupleV(List(k, v))
-              interp.callValue1(f, entry, env).flatMap {
-                case Value.BoolV(true) => Pure(Value.OptionV(Some(entry)))
-                case _                 => loop()
-              }
-          loop()
+          while it.hasNext do
+            val (k, v) = it.next()
+            val entry = Value.TupleV(k :: v :: Nil)
+            interp.callValue1(f, entry, env) match
+              case Pure(Value.BoolV(true))  => return Pure(Value.OptionV(Some(entry)))
+              case Pure(_)                  => // continue
+              case comp =>
+                return FlatMap(comp, {
+                  case Value.BoolV(true) => Pure(Value.OptionV(Some(entry)))
+                  case _ =>
+                    def loopRest(): Computation =
+                      if !it.hasNext then Computation.PureNone
+                      else
+                        val (k2, v2) = it.next()
+                        val e2 = Value.TupleV(k2 :: v2 :: Nil)
+                        interp.callValue1(f, e2, env).flatMap {
+                          case Value.BoolV(true) => Pure(Value.OptionV(Some(e2)))
+                          case _                 => loopRest()
+                        }
+                    loopRest()
+                })
+          Computation.PureNone
         case _       => dispatchFallback(recv, name, args, env, interp)
       case _ =>
         // String-key access shorthand: map.key (no args, unknown method name = key lookup)
