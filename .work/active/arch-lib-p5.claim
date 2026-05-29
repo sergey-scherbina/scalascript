@@ -1,4 +1,0 @@
-task: arch-lib-p5
-claimed_by: claude
-claimed_at: 2026-05-29
-description: Transitive deps + lockfile for .ssclib
