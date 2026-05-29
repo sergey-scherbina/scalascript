@@ -381,12 +381,30 @@ private[interpreter] object PatternRuntime:
         val varName = vn.value
         @inline def doLoop(rhsV: Value): Computation =
           val items = evalCollection(rhsV, interp)
-          def forDoLoop(remaining: List[Value]): Computation = remaining match
+          items match
             case Nil => Computation.PureUnit
-            case item :: tail =>
-              FlatMap(interp.eval(body, FrameMap.one(varName, item, env)),
-                _ => forDoLoop(tail))
-          forDoLoop(items)
+            case first :: rest =>
+              // All-pure fast path: if first body eval is pure, run the rest in a JVM loop.
+              interp.eval(body, FrameMap.one(varName, first, env)) match
+                case Pure(_) =>
+                  var remaining = rest
+                  while remaining.nonEmpty do
+                    interp.eval(body, FrameMap.one(varName, remaining.head, env)) match
+                      case Pure(_) => remaining = remaining.tail
+                      case c =>
+                        val tail = remaining.tail
+                        def forDoLoop(rem: List[Value]): Computation = rem match
+                          case Nil => Computation.PureUnit
+                          case item :: t =>
+                            FlatMap(interp.eval(body, FrameMap.one(varName, item, env)), _ => forDoLoop(t))
+                        return FlatMap(c, _ => forDoLoop(tail))
+                  Computation.PureUnit
+                case c =>
+                  def forDoLoop(rem: List[Value]): Computation = rem match
+                    case Nil => Computation.PureUnit
+                    case item :: t =>
+                      FlatMap(interp.eval(body, FrameMap.one(varName, item, env)), _ => forDoLoop(t))
+                  FlatMap(c, _ => forDoLoop(rest))
         interp.eval(rhs, env) match
           case Pure(rhsV) => doLoop(rhsV)
           case rhsC       => FlatMap(rhsC, doLoop)

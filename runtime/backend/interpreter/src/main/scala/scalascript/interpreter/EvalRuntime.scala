@@ -842,7 +842,10 @@ private[interpreter] object EvalRuntime:
     // new ClassName(args)
     case Term.New(Init.After_4_6_0(tpe, _, argClauses)) =>
       val typeName = tpe match { case Type.Name(n) => n; case _ => "?" }
-      val argTerms = argClauses.toList.flatMap(_.values)
+      // Avoid .toList.flatMap for the common single-clause case.
+      val argTerms: List[Term] = if argClauses.lengthCompare(1) == 0
+        then argClauses.head.values
+        else argClauses.toList.flatMap(_.values)
       evalArgs(argTerms, env, interp) { argVals =>
         env.getOrElse(typeName, interp.globals.getOrElse(typeName,
           interp.located(s"Unknown constructor: $typeName"))) match
@@ -857,7 +860,7 @@ private[interpreter] object EvalRuntime:
 
     // for x <- xs do f(x)
     case t: Term.For =>
-      PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp).flatMap(Computation.discardToUnit)
+      Computation.mapUnit(PatternRuntime.evalForDo(t.enumsBlock.enums, t.body, env, Map.empty, interp))
 
     // while cond do body  — refresh env from interp.globals each iteration so mutations are visible.
     // Snapshot interp.globals at loop entry: only update a key on subsequent iterations if its
