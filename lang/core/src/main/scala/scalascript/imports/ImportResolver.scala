@@ -24,8 +24,9 @@ import scala.jdk.CollectionConverters.*
  *  Supply `lockPath` to enforce v1.19 integrity-check semantics.
  */
 object ImportResolver:
-  private val cacheRoot: os.Path = os.home / ".cache" / "ssc"
-  private val depCacheRoot: os.Path = os.home / ".cache" / "scalascript" / "deps"
+  private val cacheRoot: os.Path     = os.home / ".cache" / "ssc"
+  private val depCacheRoot: os.Path  = os.home / ".cache" / "scalascript" / "deps"
+  private val libCacheRoot: os.Path  = os.home / ".cache" / "scalascript" / "libs"
   private val depSourcesPath: os.Path = os.home / ".config" / "scalascript" / "dep-sources"
 
   /** Root for library (non-relative) imports — the parent of `std/`.
@@ -226,21 +227,21 @@ object ImportResolver:
   /** Resolve `dep:org.example/lib:1.2` through the dep-sources chain.
    *
    *  Resolution order:
-   *  1. Local dep cache `~/.cache/scalascript/deps/<org.name>/<name>/<version>.ssc`
-   *  2. Each line in `~/.config/scalascript/dep-sources` treated as a base URL:
-   *     `GET <base>/<org.name>/<lib-name>/<version>.ssc`
-   *  3. Fail with a clear message pointing to `dep-sources` config.
+   *  1. Local dep cache `~/.cache/scalascript/deps/<org>/<name>/<version>.ssc`
+   *  2. Extracted `.ssclib` cache `~/.cache/scalascript/libs/<org>/<name>/<version>/`
+   *  3. Each line in `~/.config/scalascript/dep-sources` treated as a base URL.
+   *     Per source, `.ssclib` is tried before `.ssc` for backwards compat.
+   *  4. Fail with a clear message pointing to `dep-sources` config.
    *
    *  v1.19.x: central registry (`registry.scalascript.io`) deferred.
    */
   private def resolveDep(depUri: String, lockPath: Option[os.Path]): os.Path =
     val rest = depUri.stripPrefix("dep:")
-    // Parse `org.example/lib:1.2` → (org.example, lib, 1.2)
     val slashIdx = rest.indexOf('/')
     if slashIdx < 0 then throw new RuntimeException(
       s"Invalid dep: URI format '$depUri' — expected dep:<org>/<name>:<version>"
     )
-    val org  = rest.substring(0, slashIdx)
+    val org   = rest.substring(0, slashIdx)
     val rest2 = rest.substring(slashIdx + 1)
     val colonIdx = rest2.indexOf(':')
     if colonIdx < 0 then throw new RuntimeException(
@@ -248,19 +249,31 @@ object ImportResolver:
     )
     val name    = rest2.substring(0, colonIdx)
     val version = rest2.substring(colonIdx + 1)
-    val cacheKey = s"$org/$name/$version.ssc"
-    val cached = depCacheRoot / os.RelPath(cacheKey)
-    if os.exists(cached) then
-      // Already cached — verify lock if present
+
+    // 1. Plain .ssc cache
+    val sscCached = depCacheRoot / os.RelPath(s"$org/$name/$version.ssc")
+    if os.exists(sscCached) then
       lockPath.foreach { lp =>
-        val content = os.read.bytes(cached)
+        val content = os.read.bytes(sscCached)
         LockFile.read(lp).fold(
-          err => throw new RuntimeException(err.getMessage),
+          err  => throw new RuntimeException(err.getMessage),
           lock => lock.check(depUri, content).fold(err => throw new RuntimeException(err), identity)
         )
       }
-      return cached
-    // Try each dep-source endpoint
+      return sscCached
+
+    // 2. Extracted .ssclib cache
+    val libDir = libCacheRoot / org / name / version
+    if os.exists(libDir) && os.list(libDir).nonEmpty then
+      val manifestFile = libDir / SsclibManifest.FileName
+      if os.exists(manifestFile) then
+        SsclibManifest.parseString(os.read(manifestFile)) match
+          case scala.util.Success(manifest) =>
+            val entryPath = libDir / os.RelPath(manifest.entry)
+            if os.exists(entryPath) then return entryPath
+          case _ => ()
+
+    // 3. Fetch from dep-sources: try .ssclib first, then .ssc
     val sources = depSources()
     if sources.isEmpty then
       throw new RuntimeException(
@@ -268,28 +281,86 @@ object ImportResolver:
         s"Add an endpoint to ~/.config/scalascript/dep-sources, e.g.:\n" +
         s"  https://packages.example.com/ssc/"
       )
-    val tried = sources.map { base =>
-      val url = if base.endsWith("/") then s"$base$org/$name/$version.ssc"
-                else s"$base/$org/$name/$version.ssc"
-      tryFetch(url)
-    }
-    tried.collectFirst { case Right((url, bytes)) => (url, bytes) } match
+
+    // For each source try .ssclib then .ssc; take the first that resolves.
+    val fetchResult: Option[(String, Array[Byte], Boolean)] =
+      sources.iterator.flatMap { base =>
+        val b      = if base.endsWith("/") then base else base + "/"
+        val libUrl = s"${b}$org/$name/$version.ssclib"
+        val sscUrl = s"${b}$org/$name/$version.ssc"
+        Iterator(
+          tryFetch(libUrl).toOption.map(pair => (pair._1, pair._2, true)),
+          tryFetch(sscUrl).toOption.map(pair => (pair._1, pair._2, false)),
+        ).flatten
+      }.nextOption()
+
+    fetchResult match
       case None =>
         val endpoints = sources.mkString(", ")
         throw new RuntimeException(
           s"dep '$depUri' not found at any configured endpoint ($endpoints)"
         )
-      case Some((resolvedUrl, bytes)) =>
-        // Write to dep cache
-        os.makeDir.all(cached / os.up)
-        os.write(cached, bytes)
-        // Update ssc.lock
+      case Some((resolvedUrl, bytes, true)) =>
+        // .ssclib archive — extract to libs cache
         lockPath.foreach { lp =>
           val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
           val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
           LockFile.write(lock1, lp)
         }
-        cached
+        extractSsclib(bytes, org, name, version, depUri)
+      case Some((resolvedUrl, bytes, false)) =>
+        // Plain .ssc file — cache as before
+        os.makeDir.all(sscCached / os.up)
+        os.write(sscCached, bytes)
+        lockPath.foreach { lp =>
+          val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
+          val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
+          LockFile.write(lock1, lp)
+        }
+        sscCached
+
+  /** Extract a `.ssclib` ZIP to `~/.cache/scalascript/libs/<org>/<name>/<version>/`
+   *  and return the path to the library entry point declared in the manifest. */
+  private def extractSsclib(
+      zipBytes: Array[Byte],
+      org:      String,
+      name:     String,
+      version:  String,
+      depUri:   String,
+  ): os.Path =
+    import java.util.zip.ZipInputStream
+    import java.io.ByteArrayInputStream
+
+    val destDir = libCacheRoot / org / name / version
+    os.makeDir.all(destDir)
+
+    val zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))
+    try
+      var entry = zis.getNextEntry
+      while entry != null do
+        if !entry.isDirectory then
+          val outPath = destDir / os.RelPath(entry.getName)
+          os.makeDir.all(outPath / os.up)
+          os.write.over(outPath, zis.readAllBytes())
+        entry = zis.getNextEntry
+    finally zis.close()
+
+    val manifestFile = destDir / SsclibManifest.FileName
+    if !os.exists(manifestFile) then
+      throw new RuntimeException(
+        s"dep '$depUri': archive missing '${SsclibManifest.FileName}'"
+      )
+    val manifest = SsclibManifest.parseString(os.read(manifestFile)).getOrElse(
+      throw new RuntimeException(
+        s"dep '$depUri': cannot parse '${SsclibManifest.FileName}'"
+      )
+    )
+    val entryPath = destDir / os.RelPath(manifest.entry)
+    if !os.exists(entryPath) then
+      throw new RuntimeException(
+        s"dep '$depUri': entry '${manifest.entry}' not found in archive"
+      )
+    entryPath
 
   private def depSources(): List[String] =
     if !os.exists(depSourcesPath) then Nil

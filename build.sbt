@@ -60,6 +60,10 @@ def isStdPluginInterpreterTest(file: File): Boolean = {
 // installBin jarPrefix set, installBin pluginPkgs, root aggregate, and
 // backendInterpreterPluginTests deps) are computed from it.
 //
+// PluginSpec is defined in project/PluginSpec.scala so it is visible in all
+// build.sbt segments (sbt limitation: bare class defs in .sbt are not always
+// in scope across segment compilation boundaries).
+//
 // Note on `pluginPkgs` inside `installBin`: sbt's task-macro prevents
 // dynamic `.value` resolution in a loop, so that list remains explicit.
 // Every other place uses `allPlugins.*` derivation. `PluginSpec` lives under

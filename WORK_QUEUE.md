@@ -129,7 +129,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-lib-p3** — Namespace collision detection: `ImportResolver` tracks name contributions per import; warning on collision; `--strict-namespaces`; qualified import syntax `[Name from alias](dep:...)`. Spec: `docs/arch-library-modularity.md §6 Phase 3`. ✓ Landed 2026-05-29: `NamespaceCollision` detection in `InterfaceScope.detectCollisions`; `[Name from Alias]` qualified import syntax in parser; `strictNamespaces` Typer param; `--strict-namespaces` CLI flag; 12 tests.
 
-- [ ] **arch-lib-p4** — `ssclib` format + `ssc package --lib`: `SsclibManifest` YAML schema; `.ssclib` ZIP format; `ssc package --lib`; `ImportResolver` unpacks archives. Spec: `docs/arch-library-modularity.md §6 Phase 4`.
+- [x] **arch-lib-p4** — `ssclib` format + `ssc package --lib`: `SsclibManifest` YAML schema; `.ssclib` ZIP format; `ssc package --lib`; `ImportResolver` unpacks archives. Spec: `docs/arch-library-modularity.md §6 Phase 4`. ✓ Landed 2026-05-29: `SsclibManifest` case class with `parseString`/`toYaml`; `ImportResolver` resolves `dep:` to `.ssclib` archives (extracts to `~/.cache/scalascript/libs/`); `ssc package --lib` CLI command with `--manifest`/`--output` flags; `PluginSpec` moved to `project/PluginSpec.scala` (build.sbt scope fix); 11 manifest unit tests.
 
 - [ ] **arch-lib-p5** — Transitive deps + lockfile: BFS dependency resolution from `ssclib-manifest.yaml`; conflict resolution; `ssc-lock.yaml`; `ssc update`; `--strict-deps`; cycle detection. Spec: `docs/arch-library-modularity.md §6 Phase 5`.
 

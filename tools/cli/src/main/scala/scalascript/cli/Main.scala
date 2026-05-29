@@ -646,6 +646,9 @@ def printUsage(): Unit =
     |  help                   Show this help message
     |
     |Package flags (passed through to scala-cli package):
+    |  --lib                  Pack a library source tree into a .ssclib ZIP archive
+    |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest ssclib-manifest.yaml]
+    |                           Reads <dir>/ssclib-manifest.yaml; falls back to a generated manifest.
     |  --assembly             Fat JAR with all dependencies bundled
     |  --standalone           Self-contained binary (like the ssc binary itself)
     |  --native               GraalVM native image (requires native-image)
@@ -7569,7 +7572,80 @@ private def stagePrecompiledDepArtifacts(
  *
  *  Auto-discovers the project file by directory name when none is given,
  *  exactly like `ssc build`. */
+/** `ssc package --lib [<dir>] [-o <out.ssclib>] [--manifest <file>]`
+ *
+ *  Pack a ScalaScript library source tree into a `.ssclib` ZIP archive.
+ *
+ *  - `<dir>` defaults to `os.pwd`.
+ *  - Manifest is read from `<dir>/ssclib-manifest.yaml` unless overridden.
+ *  - Output defaults to `<cacheId>-<version>.ssclib` in the current directory.
+ *  - All files under `src/` are included; falls back to all `.ssc` in the root. */
+def packageLib(args: List[String]): Unit =
+  import java.util.zip.{ZipOutputStream, ZipEntry}
+  import scalascript.imports.SsclibManifest
+
+  var manifestArg: Option[String] = None
+  var outputArg:   Option[String] = None
+  var dirArg:      Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--manifest" if it.hasNext      => manifestArg = Some(it.next())
+      case "--output" | "-o" if it.hasNext => outputArg   = Some(it.next())
+      case d                               => dirArg      = Some(d)
+
+  val dir = os.Path(dirArg.getOrElse(os.pwd.toString), os.pwd)
+  if !os.isDir(dir) then
+    System.err.println(s"ssc package --lib: not a directory: $dir"); System.exit(1)
+
+  val manifestFile = manifestArg
+    .map(m => os.Path(m, os.pwd))
+    .getOrElse(dir / SsclibManifest.FileName)
+
+  val manifest =
+    if os.exists(manifestFile) then
+      SsclibManifest.parseString(os.read(manifestFile)) match
+        case scala.util.Success(m) => m
+        case scala.util.Failure(e) =>
+          System.err.println(s"ssc package --lib: invalid manifest: ${e.getMessage}")
+          System.exit(1); ???
+    else
+      val libName = s"local/${dir.last}"
+      SsclibManifest(name = libName)
+
+  val outName = outputArg.getOrElse(s"${manifest.cacheId}-${manifest.version}.ssclib")
+  val outPath = os.Path(outName, os.pwd)
+
+  val srcDir = dir / "src"
+  val sources: Seq[(os.Path, String)] =
+    if os.exists(srcDir) && os.isDir(srcDir) then
+      os.walk(srcDir).filter(os.isFile).map { f => (f, "src/" + f.relativeTo(srcDir).toString) }
+    else
+      os.list(dir).filter(f => os.isFile(f) && f.ext == "ssc").map { f => (f, f.last) }
+
+  val manifestContent =
+    if os.exists(manifestFile) then os.read(manifestFile)
+    else SsclibManifest.toYaml(manifest)
+
+  os.makeDir.all(outPath / os.up)
+  val zip = new ZipOutputStream(new java.io.FileOutputStream(outPath.toIO))
+  try
+    zip.putNextEntry(new ZipEntry(SsclibManifest.FileName))
+    zip.write(manifestContent.getBytes("UTF-8"))
+    zip.closeEntry()
+    sources.foreach { (file, entryName) =>
+      zip.putNextEntry(new ZipEntry(entryName))
+      zip.write(os.read.bytes(file))
+      zip.closeEntry()
+    }
+  finally zip.close()
+
+  val fileCount = sources.length + 1
+  println(s"${outPath.last}  ($fileCount files) — name=${manifest.name} version=${manifest.version}")
+
 def packageCommand(args: List[String]): Unit =
+  if args.contains("--lib") then
+    return packageLib(args.filterNot(_ == "--lib"))
   val compiled = args.contains("--compiled")
   val rest     = args.filterNot(_ == "--compiled")
 
