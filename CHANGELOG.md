@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-ssc-new-p2 extra templates and standalone install inputs
+
+- **arch-ssc-new-p2** — Added bundled `dsl`, `web-app`, and `wasm-app` templates for `ssc new` (`plugin` was already present), a repo-local Homebrew formula source at `releases/homebrew/ssc.rb`, and a lightweight `releases/install.sh` curl/wget installer for GitHub Release `ssc.jar` downloads. Updated scaffolding docs and expanded `NewProjectTest` coverage for the new templates.
+
 ## 2026-05-29 — arch-build-registry-p1 PluginSpec registry in build.sbt
 
 - **arch-build-registry-p1** — `case class PluginSpec(id, project, jarPrefix)` + `lazy val allPlugins: Seq[PluginSpec]` registry introduced in `build.sbt`. Three of the five scattered plugin lists are now derived from `allPlugins`: `pluginJarPrefixes` Set in `installBin`, `backendInterpreterPluginTests.dependsOn`, and the root aggregate (via a separate `.aggregate(allPlugins.map(_.project: ProjectReference): _*)` call). `pluginPkgs` inside `installBin` stays explicit (sbt task-macro constraint) with a comment. Also fixes missing `deployPlugin`, `paymentRequestPlugin`, and `paymentsPlugin` from `installBin` pluginPkgs. The registry has 19 entries covering all std plugins.

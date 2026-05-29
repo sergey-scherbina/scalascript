@@ -1,0 +1,9 @@
+# ${Name}
+
+```scala
+case class Command(name: String, args: List[String])
+
+def parseCommand(input: String): Command =
+  val parts = input.split(" ").toList
+  Command(parts.headOption.getOrElse("empty"), parts.drop(1))
+```

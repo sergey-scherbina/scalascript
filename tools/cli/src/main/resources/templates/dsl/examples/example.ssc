@@ -1,0 +1,8 @@
+# Example
+
+[${Name}](../src/main/scalascript/${Name}.ssc)
+
+```scala
+val cmd = parseCommand("hello world")
+println(cmd.name)
+```

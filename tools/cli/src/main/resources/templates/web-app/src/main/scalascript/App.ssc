@@ -1,0 +1,7 @@
+# ${Name}
+
+```scala
+route("/") {
+  html"<main><h1>${Name}</h1><p>Hello from ScalaScript.</p></main>"
+}
+```

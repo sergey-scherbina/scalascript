@@ -93,7 +93,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-ssc-new-p1** — `ssc new` subcommand + `app`/`lib` templates + Coursier channel: `NewProject.scala` in CLI; `app`, `lib` templates bundled in `ssc.jar`; Coursier channel JSON at `releases.scalascript.io`; `sbt cli/assembly` fat JAR. Spec: `docs/arch-ssc-new.md §5 Phase 1`. ✓ Landed 2026-05-29: changed `ssc new` default template to `app`, added bundled `app` and `lib` templates, added `releases/coursier.json`, documented the existing `cli/assembly` fat JAR path, expanded `NewProjectTest`, and fixed fresh `pluginApi` and `PluginSpec` Scala 3.8.3/sbt compatibility blockers found while verifying the CLI module.
 
-- [ ] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer: `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula; `curl | sh` installer; `README.md` Getting Started updated. Spec: `docs/arch-ssc-new.md §5 Phase 2`.
+- [x] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer: `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula; `curl | sh` installer; `README.md` Getting Started updated. Spec: `docs/arch-ssc-new.md §5 Phase 2`. ✓ Landed 2026-05-29: added bundled `dsl`, `web-app`, and `wasm-app` templates (`plugin` already existed), repo-local Homebrew formula source, `releases/install.sh`, documentation updates, and `NewProjectTest` coverage.
 
 - [ ] **arch-ssc-new-p3** — Standalone docs update: `docs/getting-started-standalone.md`; `docs/community-plugins.md`; `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag. Spec: `docs/arch-ssc-new.md §5 Phase 3`.
 

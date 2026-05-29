@@ -297,10 +297,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   fresh `pluginApi` and `PluginSpec` Scala 3.8.3/sbt compatibility blockers
   found while verifying the CLI module.
 
-- [ ] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer:
+- [x] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer:
   `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula;
   `curl | sh` installer; `README.md` Getting Started updated.
   Spec: `docs/arch-ssc-new.md §5 Phase 2`.
+  Landed 2026-05-29: added bundled `dsl`, `web-app`, and `wasm-app` templates
+  (`plugin` already existed), repo-local Homebrew formula source,
+  `releases/install.sh`, documentation updates, and `NewProjectTest` coverage.
 
 - [ ] **arch-ssc-new-p3** — Standalone docs update:
   `docs/getting-started-standalone.md`; `docs/community-plugins.md`;

@@ -3,8 +3,10 @@
 Status: **partially implemented**. The plugin template path
 (`ssc new <name> --template plugin`) landed with `arch-distribution-p4` on
 2026-05-29. Phase 1 app/lib templates and repository-side Coursier channel
-fixture landed on 2026-05-29. Homebrew/curl installation and extra templates
-remain tracked as `arch-ssc-new` milestones in `BACKLOG.md`.
+fixture landed on 2026-05-29. Phase 2 dsl/web-app/wasm-app templates plus
+Homebrew/curl release inputs landed on 2026-05-29. Standalone docs/install.sh
+developer-mode cleanup remains tracked as `arch-ssc-new` milestones in
+`BACKLOG.md`.
 Companion: [`docs/arch-sbt-plugin.md`](arch-sbt-plugin.md),
 [`docs/arch-distribution.md`](arch-distribution.md).
 
@@ -63,8 +65,8 @@ templates/
   wasm-app/     -- WASM target
 ```
 
-Implementation note: `app/`, `lib/`, and `plugin/` are currently implemented.
-Other template IDs in this section remain planned.
+Implementation note: `app/`, `lib/`, `plugin/`, `dsl/`, `web-app/`, and
+`wasm-app/` are currently implemented.
 
 Each template includes at minimum:
 ```
@@ -183,10 +185,13 @@ User-facing docs replace references to it with Option A/B/C.
 
 ### Phase 2 — `plugin`, `dsl`, `web-app`, `wasm-app` templates
 
-- Four additional templates.
-- Homebrew tap formula.
-- `curl | sh` installer script.
-- Update `README.md` "Getting Started" section.
+- Four additional templates. ✓ Landed 2026-05-29: `plugin` already existed;
+  `dsl`, `web-app`, and `wasm-app` added in CLI resources.
+- Homebrew tap formula. ✓ Landed 2026-05-29 as `releases/homebrew/ssc.rb`
+  source template with release SHA placeholder.
+- `curl | sh` installer script. ✓ Landed 2026-05-29 as `releases/install.sh`.
+- Update `README.md` "Getting Started" section. ✓ Landed 2026-05-29 in the
+  capabilities table and user-guide scaffolding notes.
 
 ### Phase 3 — docs update
 

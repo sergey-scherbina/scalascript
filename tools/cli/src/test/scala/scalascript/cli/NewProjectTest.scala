@@ -26,6 +26,22 @@ class NewProjectTest extends AnyFunSuite:
       assert(os.read(dir / "README.md").contains("[DemoLib]"))
     finally os.remove.all(out)
 
+  test("additional templates create their expected entry files"):
+    val out = os.temp.dir(prefix = "ssc-new-extra")
+    try
+      val dsl = NewProject.create("demo-dsl", template = "dsl", outputDir = out)
+      assert(os.exists(dsl / "src" / "main" / "scalascript" / "DemoDsl.ssc"))
+      assert(os.exists(dsl / "examples" / "example.ssc"))
+
+      val web = NewProject.create("demo-web", template = "web-app", outputDir = out)
+      assert(os.exists(web / "src" / "main" / "scalascript" / "App.ssc"))
+      assert(os.read(web / "build.sbt").contains("""sscBackend := "js""""))
+
+      val wasm = NewProject.create("demo-wasm", template = "wasm-app", outputDir = out)
+      assert(os.exists(wasm / "src" / "main" / "scalascript" / "Main.ssc"))
+      assert(os.read(wasm / "build.sbt").contains("""sscBackend := "wasm""""))
+    finally os.remove.all(out)
+
   test("plugin template creates substituted project files"):
     val out = os.temp.dir(prefix = "ssc-new-plugin")
     try
