@@ -439,10 +439,10 @@ private[interpreter] object EvalRuntime:
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
               case other               => eval(other, env, interp)
             (qualC, arg1C) match
-              case (Pure(qv), Pure(av)) => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp)
-              case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp))
-              case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp))
-              case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp)))
+              case (Pure(qv), Pure(av)) => DispatchRuntime.dispatch1(qv, method, av, env, interp)
+              case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+              case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+              case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
           else
             val argComps = argTerms.map {
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
