@@ -654,7 +654,7 @@ lazy val backendInterpreter = project
 // Save JSON: sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json"
 lazy val interpreterBench = project
   .in(file("runtime/backend/interpreter-bench"))
-  .dependsOn(backendInterpreter)
+  .dependsOn(backendInterpreter, backendJvm, backendJs)
   .enablePlugins(JmhPlugin)
   .settings(
     name := "scalascript-interpreter-bench",

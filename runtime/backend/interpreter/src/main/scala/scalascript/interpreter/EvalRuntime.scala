@@ -303,6 +303,45 @@ private[interpreter] object EvalRuntime:
           Pure(Value.InstanceV("Right", Map("value" -> result)))
       }
 
+    // ── bench(name) { body } / bench(name, warmup, reps) { body } ───────────
+    // Timing micro-benchmark: evaluates body warmup+reps times, prints a one-
+    // line summary to interp.out, and returns the last result.
+    //   bench("label") { expr }
+    //   bench("label", 2, 7) { expr }   — explicit warmup / rep counts
+    case Term.Apply.After_4_6_0(
+        Term.Apply.After_4_6_0(Term.Name("bench"), nameClause),
+        bodyClause)
+        if nameClause.values.nonEmpty && bodyClause.values.size == 1 =>
+      val nameVal = Computation.run(eval(nameClause.values.head, env, interp))
+      val label = nameVal match
+        case Value.StringV(s) => s
+        case other            => Value.show(other)
+      val warmup = nameClause.values.lift(1).map { t =>
+        Computation.run(eval(t, env, interp)) match
+          case Value.IntV(n) => n.toInt
+          case _             => 2
+      }.getOrElse(2)
+      val reps = nameClause.values.lift(2).map { t =>
+        Computation.run(eval(t, env, interp)) match
+          case Value.IntV(n) => n.toInt
+          case _             => 7
+      }.getOrElse(7)
+      val bodyTerm = bodyClause.values.head
+      var lastResult: Value = Value.UnitV
+      for _ <- 1 to warmup do
+        lastResult = Computation.run(eval(bodyTerm, env, interp))
+      val times = new Array[Long](reps)
+      for i <- 0 until reps do
+        val t0 = System.nanoTime()
+        lastResult = Computation.run(eval(bodyTerm, env, interp))
+        times(i) = (System.nanoTime() - t0) / 1_000_000L
+      java.util.Arrays.sort(times)
+      val p50 = times(reps / 2)
+      val min = times(0)
+      val max = times(reps - 1)
+      interp.out.println(f"[bench] $label%-30s  p50=${p50}ms  min=${min}ms  max=${max}ms  ($reps reps)")
+      Pure(lastResult)
+
     // `receive { case … }` — special form so we can pull interp.out the AST
     // cases at dispatch time.  Stashes (cases, env) and emits a Perform
     // whose payload is the integer token into that side table.

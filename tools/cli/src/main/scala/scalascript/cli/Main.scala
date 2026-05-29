@@ -134,6 +134,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
     case "fmt"                 => fmtCommand(args.tail)
+    case "bench"               => benchCommand(args.tail)
     case "profile"             => profileCommand(args.tail)
     case "lsp"                 => lspCommand(args.tail)
     case "debug"               => DebugCommand.run(args.tail)
@@ -10443,6 +10444,180 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
   val wallMs = (System.nanoTime() - t0) / 1_000_000L
   val alloc  = (rt.totalMemory - rt.freeMemory) - heap0
   (result, PhaseResult(name, wallMs, alloc))
+
+/** `ssc bench <file.ssc> [options]` — run a .ssc file through all three
+ *  backends (interpreter, JvmGen, JsGen) and print a wall-clock comparison
+ *  table.  Interpreter timing is in-process (no JVM startup overhead); JVM/JS
+ *  times include ssc subprocess + scala-cli / node startup.
+ *
+ *  Options:
+ *  {{{
+ *    --no-interp        skip interpreter backend
+ *    --no-jvm           skip JVM backend
+ *    --no-js            skip JS backend
+ *    --warmup N         warmup iterations per backend (default 2)
+ *    --reps N           measured iterations per backend (default 7)
+ *    --baseline         write results to bench/BASELINE_RUNTIME.md
+ *  }}}
+ */
+private def benchCommand(args: List[String]): Unit =
+  if args.isEmpty then
+    System.err.println("Usage: ssc bench [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>")
+    System.exit(1)
+
+  var runInterp  = true
+  var runJvm     = true
+  var runJs      = true
+  var warmup     = 2
+  var reps       = 7
+  var writeBase  = false
+  var fileArg: Option[String] = None
+
+  val arr = args.toArray
+  var i   = 0
+  while i < arr.length do
+    arr(i) match
+      case "--no-interp"               => runInterp = false; i += 1
+      case "--no-jvm"                  => runJvm    = false; i += 1
+      case "--no-js"                   => runJs     = false; i += 1
+      case "--baseline"                => writeBase = true;  i += 1
+      case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); i += 2
+      case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); i += 2
+      case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); i += 1
+      case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7);   i += 1
+      case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
+      case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
+
+  val file = fileArg.getOrElse {
+    System.err.println("bench: no file specified"); System.exit(1); ""
+  }
+  val path = os.Path(file, os.pwd)
+  if !os.exists(path) then
+    System.err.println(s"bench: file not found: $file"); System.exit(1)
+
+  // Check tool availability
+  val jvmAvail = runJvm && JvmBytecode.scalaCliAvailable
+  if runJvm && !jvmAvail then
+    System.err.println("[warn] scala-cli not found — skipping JVM backend")
+  val nodeAvail = runJs && scala.util.Try {
+    os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+  }.getOrElse(false)
+  if runJs && !nodeAvail then
+    System.err.println("[warn] node not found — skipping JS backend")
+
+  // Locate the running ssc.jar via class-source URL, falling back to SSC_JAR env.
+  val sscJarPath: String = sys.env.getOrElse("SSC_JAR", {
+    val src = classOf[scalascript.interpreter.Interpreter].getProtectionDomain.getCodeSource
+    if src != null then
+      val u = src.getLocation
+      if u.getProtocol == "file" then java.nio.file.Paths.get(u.toURI).toString
+      else "ssc"
+    else "ssc"
+  })
+  val sscCmd: Seq[String] =
+    if sscJarPath == "ssc" then Seq("ssc")
+    else Seq("java", "-jar", sscJarPath)
+
+  // Measure wall-clock median for a subprocess command (warmup + reps).
+  def timeSubproc(cmd: Seq[String], warmupN: Int, repsN: Int): Option[Long] =
+    for _ <- 1 to warmupN do
+      try os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      catch case _: Throwable => ()
+    val times = scala.collection.mutable.ArrayBuffer.empty[Long]
+    for _ <- 1 to repsN do
+      val t0 = System.nanoTime()
+      val rc = scala.util.Try(os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode).getOrElse(1)
+      val ms = (System.nanoTime() - t0) / 1_000_000L
+      if rc == 0 then times += ms
+    if times.isEmpty then None
+    else
+      val sorted = times.sorted
+      Some(sorted(sorted.length / 2))
+
+  // Measure interpreter in-process (no startup overhead).
+  def timeInterp(repsN: Int, warmupN: Int): Option[Long] =
+    val module = scalascript.parser.Parser.parse(os.read(path))
+    val nullOut = new java.io.PrintStream(java.io.OutputStream.nullOutputStream(), false, "UTF-8")
+    for _ <- 1 to warmupN do
+      try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
+      catch case _: Throwable => ()
+    val times = new Array[Long](repsN)
+    for i <- 0 until repsN do
+      val t0 = System.nanoTime()
+      try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
+      catch case _: Throwable => ()
+      times(i) = (System.nanoTime() - t0) / 1_000_000L
+    java.util.Arrays.sort(times)
+    Some(times(repsN / 2))
+
+  val name = path.last.stripSuffix(".ssc")
+  println(s"\nssc bench — $name")
+  println("=" * 60)
+  println(s"Warmup: $warmup  Reps: $reps")
+  println()
+
+  println("Running...")
+
+  val ti: Option[Long] = if runInterp then
+    print(s"  interpreter... ")
+    val r = timeInterp(reps, warmup)
+    println(r.fold("ERR")(n => s"${n}ms"))
+    r
+  else None
+
+  val tj: Option[Long] = if jvmAvail then
+    print(s"  jvm (subprocess)... ")
+    val r = timeSubproc(sscCmd ++ Seq("run-jvm", path.toString), warmup, reps)
+    println(r.fold("ERR")(n => s"${n}ms"))
+    r
+  else None
+
+  val ts: Option[Long] = if nodeAvail then
+    print(s"  js (subprocess)... ")
+    val r = timeSubproc(sscCmd ++ Seq("run-js", path.toString), warmup, reps)
+    println(r.fold("ERR")(n => s"${n}ms"))
+    r
+  else None
+
+  // Build markdown table
+  val sb = new StringBuilder
+  var header = "| Backend | p50 ms |"
+  var sep    = "|---|---:|"
+  if ti.isDefined && (tj.isDefined || ts.isDefined) then
+    header += " vs Interpreter |"
+    sep    += "---:|"
+  sb.append("\n")
+  sb.append(header).append("\n")
+  sb.append(sep).append("\n")
+
+  def row(label: String, ms: Option[Long], base: Option[Long]): String =
+    val msStr = ms.fold("ERR")(n => s"$n")
+    val ratioStr = (ms, base) match
+      case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
+        f" ${m.toDouble / b.toDouble}%.2fx |"
+      case _ if tj.isDefined || ts.isDefined => " — |"
+      case _ => ""
+    s"| $label | $msStr |$ratioStr"
+
+  if runInterp then sb.append(row("Interpreter (in-process)", ti, ti)).append("\n")
+  if jvmAvail  then sb.append(row("JvmGen + scala-cli", tj, ti)).append("\n")
+  if nodeAvail then sb.append(row("JsGen + node", ts, ti)).append("\n")
+
+  val table = sb.result()
+  println(table)
+
+  val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
+  println(s"Date: ${java.time.Instant.now()}")
+  println(s"Hardware: $hw")
+  println(s"Notes: warmup=$warmup reps=$reps; interpreter times are in-process (no JVM startup)")
+
+  if writeBase then
+    val baseDir = os.Path(file, os.pwd) / os.up / os.up / "bench"
+    val outPath = baseDir / "BASELINE_RUNTIME.md"
+    if os.exists(baseDir) then
+      val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
+      os.write.over(outPath, content)
+      println(s"\nBaseline written to ${outPath}")
 
 /** `ssc profile <file.ssc> [options]` — instrument each compiler phase and
  *  report wall-clock time, heap allocation delta, optional flame-graph JSON
