@@ -109,7 +109,7 @@ class Interpreter(
   val wsRoutes: scalascript.server.WsRoutes = new scalascript.server.WsRoutes()
   val routeRegistry: scalascript.server.RouteRegistry = scalascript.server.Routes
   private[interpreter] val globals      = mutable.Map.empty[String, Value]
-  private[interpreter] val extensions   = mutable.Map.empty[(String, String), Value.FunV]
+  private[interpreter] val extensions   = mutable.HashMap.empty[String, mutable.HashMap[String, Value.FunV]]
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.
   private[interpreter] val parentTypes  = mutable.Map.empty[String, String]
@@ -731,7 +731,7 @@ class Interpreter(
   private[interpreter] def takeCheckpoint(): InterpCheckpoint =
     InterpCheckpoint(
       globals             = globals.toMap,
-      extensions          = extensions.toMap,
+      extensions          = extensions.iterator.flatMap { case (t, mm) => mm.iterator.map { case (m, f) => (t, m) -> f } }.toMap,
       parentTypes         = parentTypes.toMap,
       typeMethods         = typeMethods.toMap,
       typeFieldOrder      = typeFieldOrder.toMap,
@@ -748,7 +748,10 @@ class Interpreter(
    *  after that checkpoint was taken. */
   private[interpreter] def restoreCheckpoint(cp: InterpCheckpoint): Unit =
     globals.clear();             globals             ++= cp.globals
-    extensions.clear();          extensions          ++= cp.extensions
+    extensions.clear()
+    cp.extensions.foreach { case ((typeName, method), fn) =>
+      extensions.getOrElseUpdate(typeName, mutable.HashMap.empty)(method) = fn
+    }
     parentTypes.clear();         parentTypes         ++= cp.parentTypes
     typeMethods.clear();         typeMethods         ++= cp.typeMethods
     typeFieldOrder.clear();      typeFieldOrder      ++= cp.typeFieldOrder
@@ -1198,7 +1201,8 @@ class Interpreter(
    *  JS and JVM backends inline imports wholesale and pick these up
    *  for free, but the interpreter only copies the values named in
    *  the import binding list and would otherwise drop extensions. */
-  def exportedExtensions:    Map[(String, String), Value.FunV] = extensions.toMap
+  def exportedExtensions: Map[(String, String), Value.FunV] =
+    extensions.iterator.flatMap { case (t, mm) => mm.iterator.map { case (m, f) => (t, m) -> f } }.toMap
   def exportedParentTypes:   Map[String, String]               = parentTypes.toMap
   def exportedTypeFieldOrder: Map[String, List[String]]        = typeFieldOrder.toMap
   def exportedTypeFieldTypes: Map[String, List[String]]        = typeFieldTypes.toMap

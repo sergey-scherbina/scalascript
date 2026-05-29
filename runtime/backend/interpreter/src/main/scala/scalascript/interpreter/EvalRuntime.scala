@@ -697,10 +697,11 @@ private[interpreter] object EvalRuntime:
       evalArgs(args.map(_.asInstanceOf[Term]), env, interp) { argVs =>
         val partVals = parts.map(p => Value.StringV(p.asInstanceOf[Lit.String].value))
         val sc = Value.InstanceV("StringContext", Map("parts" -> Value.ListV(partVals)))
-        val fn: Value = interp.extensions.get(("StringContext", prefix))
-          .orElse(env.get(prefix))
-          .orElse(interp.globals.get(prefix))
-          .getOrElse(interp.located(s"Unknown interpolator '$prefix': not in scope"))
+        val scExts = interp.extensions.getOrElse("StringContext", null)
+        val extFn = if scExts != null then scExts.getOrElse(prefix, null) else null
+        val fn: Value = if extFn != null then extFn
+          else env.get(prefix).orElse(interp.globals.get(prefix))
+               .getOrElse(interp.located(s"Unknown interpolator '$prefix': not in scope"))
         interp.callValue2(fn, sc, Value.ListV(argVs), env)
       }
 

@@ -15,6 +15,11 @@ import Computation.{Pure, Perform, FlatMap}
  */
 private[interpreter] object DispatchRuntime:
 
+  // Avoids s"Tuple$n" string allocation on every TupleV extensionDispatch call.
+  private val tupleTypeNames: Array[String] = Array.tabulate(23)(i => s"Tuple$i")
+  private def tupleTypeName(n: Int): String =
+    if n < tupleTypeNames.length then tupleTypeNames(n) else s"Tuple$n"
+
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
     if interp.extensions.nonEmpty then
@@ -28,8 +33,10 @@ private[interpreter] object DispatchRuntime:
         case _: Value.MapV    => "Map"
         case _                => null
       if typeName != null then
-        val fn = interp.extensions.getOrElse((typeName, name), null)
-        if fn != null then return interp.callValuePrepend(fn, recv, args, env)
+        val typeExts = interp.extensions.getOrElse(typeName, null)
+        if typeExts != null then
+          val fn = typeExts.getOrElse(name, null)
+          if fn != null then return interp.callValuePrepend(fn, recv, args, env)
     recv match
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
       case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
@@ -1703,15 +1710,17 @@ private[interpreter] object DispatchRuntime:
       case _: Value.ListV       => "List"
       case _: Value.OptionV     => "Option"
       case _: Value.MapV        => "Map"
-      case Value.TupleV(elems)  => s"Tuple${elems.length}"
+      case Value.TupleV(elems)  => DispatchRuntime.tupleTypeName(elems.length)
       case Value.InstanceV(t,_) => t
       case _                    => "Any"
-    val direct = interp.extensions.getOrElse((typeName, method), null)
+    val typeExts = interp.extensions.getOrElse(typeName, null)
+    val direct = if typeExts != null then typeExts.getOrElse(method, null) else null
     if direct != null then return interp.callValuePrepend(direct, recv, args, env)
     // Walk parent-type chain
     var parent = interp.parentTypes.getOrElse(typeName, null)
     while parent != null do
-      val fn = interp.extensions.getOrElse((parent, method), null)
+      val parentExts = interp.extensions.getOrElse(parent, null)
+      val fn = if parentExts != null then parentExts.getOrElse(method, null) else null
       if fn != null then return interp.callValuePrepend(fn, recv, args, env)
       parent = interp.parentTypes.getOrElse(parent, null)
     // Last-resort: scan globals for a typeclass instance ending in [typeName] that has the method

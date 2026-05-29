@@ -279,7 +279,7 @@ private[interpreter] object StatRuntime:
             val methodParams = mparamVals.map(_.name.value)
             // Receiver param has no default; method params keep theirs.
             val methodDefaults: List[Option[Term]] = None :: mparamVals.map(_.default)
-            interp.extensions((recvTypeName, defn.name.value)) =
+            interp.extensions.getOrElseUpdate(recvTypeName, mutable.HashMap.empty)(defn.name.value) =
               Value.FunV(recvName :: methodParams, defn.body, envView, "", methodDefaults)
           d.body match
             case defn: Defn.Def    => registerDef(defn)

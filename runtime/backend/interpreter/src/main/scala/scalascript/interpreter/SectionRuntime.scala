@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scalascript.ast.*
+import scala.collection.mutable
 import scala.meta.*
 
 /** Section / block execution: runSection, SQL blocks, HTML/CSS blocks,
@@ -229,7 +230,9 @@ private[interpreter] object SectionRuntime:
               if !interp.globals.contains(inst.typeName) then interp.globals(inst.typeName) = inst
             case _ => ()
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
-    interp.extensions     ++= child.exportedExtensions
+    child.exportedExtensions.foreach { case ((typeName, method), fn) =>
+      interp.extensions.getOrElseUpdate(typeName, mutable.HashMap.empty)(method) = fn
+    }
     interp.parentTypes    ++= child.exportedParentTypes
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
     interp.typeFieldSchemas ++= child.exportedTypeFieldSchemas
