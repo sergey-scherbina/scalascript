@@ -334,8 +334,22 @@ private[interpreter] object DispatchRuntime:
                   FlatMap(interp.callValue1(arg, v2, env), { nv2 => buf(k2) = nv2; restLoop() })
               return FlatMap(c, { nv => buf(k) = nv; restLoop() })
         Pure(Value.MapV(buf.toMap))
-      case "getOrDefault" | "getOrElse" =>
-        dispatchMap(m, name, arg :: Nil, env, interp)
+      case "+"  => arg match
+        case Value.TupleV(k :: v :: Nil) => Pure(Value.MapV(m + (k -> v)))
+        case _                           => dispatchMap(m, "+", arg :: Nil, env, interp)
+      case "++" => arg match
+        case Value.MapV(other) => Pure(Value.MapV(m ++ other))
+        case _                 => dispatchMap(m, "++", arg :: Nil, env, interp)
+      case "getOrElse" =>
+        Pure(Value.NativeFnV("getOrElse", {
+          case List(d) => Pure(m.getOrElse(arg, d))
+          case _       => dispatchMap(m, "getOrElse", arg :: Nil, env, interp)
+        }))
+      case "getOrDefault" =>
+        Pure(Value.NativeFnV("getOrDefault", {
+          case List(d) => Pure(m.getOrElse(arg, d))
+          case _       => dispatchMap(m, "getOrDefault", arg :: Nil, env, interp)
+        }))
       case _            => dispatchMap(m, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Option. */
@@ -402,6 +416,15 @@ private[interpreter] object DispatchRuntime:
         case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "apply" | "charAt" => arg match
         case Value.IntV(n) => Pure(Value.CharV(s.charAt(n.toInt)))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "indexOf"    => arg match
+        case Value.StringV(t) => Computation.pureIntV(s.indexOf(t).toLong)
+        case Value.CharV(c)   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "codePointAt" => arg match
+        case Value.IntV(i) =>
+          if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
+          else Computation.pureIntV(s.codePointAt(i.toInt).toLong)
         case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
 
@@ -512,10 +535,13 @@ private[interpreter] object DispatchRuntime:
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "map"         => args match
         case List(f) =>
-          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)).flatMap {
-            case Value.ListV(items) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
-            case _                  => Pure(Value.StringV(s))
-          }
+          Computation.mapSequenceStr(s, c => interp.callValue1(f, Value.CharV(c), env)) match
+            case Pure(Value.ListV(items)) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
+            case Pure(_)                  => Pure(Value.StringV(s))
+            case comp                     => FlatMap(comp, {
+              case Value.ListV(items) => Pure(Value.StringV(items.iterator.map(Value.show).mkString))
+              case _                  => Pure(Value.StringV(s))
+            })
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "takeWhile"   => args match
         case List(f) =>
@@ -1846,8 +1872,10 @@ private[interpreter] object DispatchRuntime:
         case "getOrElse" => Pure(fields.getOrElse("value", Value.UnitV))
         case "map"       => args match
           case List(f) =>
-            interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env).map(v =>
-              Value.InstanceV("Right", Map("value" -> v)))
+            val inner = fields.getOrElse("value", Value.UnitV)
+            interp.callValue1(f, inner, env) match
+              case Pure(v) => Pure(Value.InstanceV("Right", Map("value" -> v)))
+              case c       => FlatMap(c, v => Pure(Value.InstanceV("Right", Map("value" -> v))))
           case _       => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case "flatMap"   => args match
           case List(f) => interp.callValue1(f, fields.getOrElse("value", Value.UnitV), env)
