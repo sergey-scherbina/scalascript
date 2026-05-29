@@ -1,5 +1,10 @@
 package scalascript.imports
 
+import scalascript.backend.spi.{DepResolver, DepSpec}
+
+import java.util.ServiceLoader
+import scala.jdk.CollectionConverters.*
+
 /** Resolves Markdown-import link destinations to a local `os.Path`.
  *
  *  Four cases:
@@ -57,15 +62,19 @@ object ImportResolver:
       deps:     Map[String, String],
       lockPath: Option[os.Path] = None
   ): os.Path =
+    val depSpec = parseDepSpec(rawPath)
+    if depSpec.raw.startsWith("github:") then
+      return resolveExternalDep(depSpec)
+
     // 1. pkg: scheme — installed plugin packages
-    if rawPath.startsWith("pkg:") then
-      return resolvePkg(rawPath)
+    if depSpec.raw.startsWith("pkg:") then
+      return resolvePkg(depSpec.raw)
 
     // 2. dep: scheme — always resolved through dep-sources chain
-    if rawPath.startsWith("dep:") then
-      return resolveDep(rawPath, lockPath)
+    if depSpec.raw.startsWith("dep:") then
+      return resolveDep(depSpec.raw, lockPath)
 
-    val pathThroughDep = applyDeps(rawPath, deps).getOrElse(rawPath)
+    val pathThroughDep = applyDeps(depSpec.raw, deps).getOrElse(depSpec.raw)
     val resolved =
       if isUrl(pathThroughDep) then fetchToCache(pathThroughDep, lockPath)
       else
@@ -89,6 +98,26 @@ object ImportResolver:
       val index = resolved / "index.ssc"
       if os.exists(index) then index else resolved
     else resolved
+
+  private def parseDepSpec(rawPath: String): DepSpec =
+    val marker = " sha256:"
+    val idx = rawPath.indexOf(marker)
+    if idx < 0 then DepSpec(raw = rawPath)
+    else
+      val raw = rawPath.substring(0, idx).trim
+      val sha = rawPath.substring(idx + marker.length).trim
+      if sha.isEmpty then throw new RuntimeException(s"empty sha256 pin in import '$rawPath'")
+      DepSpec(raw = raw, sha256 = Some(sha))
+
+  private lazy val depResolvers: List[DepResolver] =
+    val loaded = ServiceLoader.load(classOf[DepResolver]).iterator().asScala.toList
+    (new GithubReleaseResolver :: loaded).groupBy(_.scheme).values.map(_.head).toList
+
+  private def resolveExternalDep(spec: DepSpec): os.Path =
+    val scheme = spec.raw.takeWhile(_ != ':')
+    depResolvers.find(_.scheme == scheme) match
+      case Some(resolver) => os.Path(resolver.resolve(spec))
+      case None => throw new RuntimeException(s"no DepResolver registered for scheme '$scheme'")
 
   /** Rewrite a `<name>://<sub>` path to the URL from the deps map. */
   private def applyDeps(rawPath: String, deps: Map[String, String]): Option[String] =

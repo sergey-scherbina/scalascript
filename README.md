@@ -312,7 +312,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Package system | `package: org.example.ui` in frontmatter, namespaced exports, collision-safe imports |
 | Module imports | `[name](./lib.ssc)` markdown links bring definitions into scope |
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
-| Dependency imports | `[X](dep:org/lib:1.2)` resolver, `ssc.lock` |
+| Dependency imports | `[X](dep:org/lib:1.2)` resolver, `[X](github:owner/repo@tag[#asset])` GitHub Release resolver, `sha256:` pins, `ssc.lock` |
 | Plugin system | `.sscpkg` format, `ssc plugin install/list/uninstall/check/pack`, `~/.scalascript/registry.yaml` |
 | Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `docs/config-system.md` |
 | Separate compilation | `ssc emit-interface`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs` |

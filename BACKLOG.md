@@ -218,10 +218,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
 
 ### Theme C — Distribution ecosystem (multi-channel, not Maven-only)
 
-- [ ] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`:
+- [x] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`:
   refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag`
   scheme; `DepCache` with sha256 pin; tests against mock GitHub API.
   Spec: `docs/arch-distribution.md §5 Phase 1`.
+  Landed 2026-05-29: `DepResolver`/`DepSpec`, content-addressed `DepCache`,
+  built-in `GithubReleaseResolver`, `ImportResolver` dispatch for `github:`,
+  `sha256:` suffix pins, and mock GitHub API tests.
 
 - [ ] **arch-distribution-p2** — Coursier wiring + JitPack:
   `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as

@@ -2068,6 +2068,18 @@ dependencies:
 
 `ssc.lock` pins exact hashes for reproducible builds.
 
+GitHub Release assets can be imported directly with the `github:` resolver:
+
+```markdown
+[Plugin](github:owner/repo@v1.0.0)
+[Plugin](github:owner/repo@v1.0.0#dist/plugin.sscpkg)
+[Plugin](github:owner/repo@v1.0.0 sha256:0123...)
+```
+
+The resolver uses the GitHub Releases API, selects the first `.sscpkg` asset
+unless an asset path is specified after `#`, stores the artifact under
+`~/.cache/scalascript/deps/github/`, and honors `GITHUB_TOKEN` when set.
+
 ### Plugin System
 
 ```bash

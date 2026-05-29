@@ -1,6 +1,7 @@
 # Distribution Ecosystem — Multi-Channel Plugin & Artifact Delivery
 
-Status: **planned**.  Tracked as `arch-distribution` milestone in `BACKLOG.md`.
+Status: **partially implemented**.  Phase 1 landed 2026-05-29; later phases
+remain tracked as `arch-distribution` milestones in `BACKLOG.md`.
 Companion specs: [`docs/plugin-architecture.md`](plugin-architecture.md),
 [`docs/arch-build-registry.md`](arch-build-registry.md),
 [`docs/arch-sbt-plugin.md`](arch-sbt-plugin.md).
@@ -66,6 +67,11 @@ Built-in resolvers shipped in `lang/core`:
 | `jitpack:` | `JitpackResolver` | JitPack Maven endpoint via Coursier |
 
 Third-party resolvers register via `META-INF/services/scalascript.backend.spi.DepResolver`.
+
+Phase 1 implementation note: the SPI lives in `runtime/backend/spi`, and
+`ImportResolver` dispatches `github:` through built-in plus ServiceLoader
+resolvers. Existing `dep:` and `pkg:` behavior is unchanged; moving those
+schemes behind resolver classes is left to Phase 2 with Coursier/JitPack.
 
 ### 3b. URI scheme syntax
 
@@ -160,11 +166,15 @@ upload `*.sscpkg` as a release asset.  Users then add:
 
 ### Phase 1 — `DepResolver` SPI + `GithubReleaseResolver`
 
-- New `DepResolver` trait in `backend/spi`.
-- `ImportResolver` refactored to use it internally.
-- `GithubReleaseResolver` as first non-trivial new channel.
+- New `DepResolver` trait in `backend/spi`. ✓ Landed 2026-05-29.
+- `ImportResolver` refactored to dispatch external resolver schemes.
+  ✓ Landed 2026-05-29 for `github:` while preserving existing `dep:` / `pkg:`.
+- `GithubReleaseResolver` as first non-trivial new channel. ✓ Landed
+  2026-05-29.
 - Tests: mock GitHub API server; resolve + cache; sha256 pin verification.
-- Deliverable: `//> using dep "github:user/repo@v1.0.0"` works.
+  ✓ Landed 2026-05-29.
+- Deliverable: `//> using dep "github:user/repo@v1.0.0"` works. ✓ Landed
+  2026-05-29 for Markdown imports such as `[Plugin](github:user/repo@v1.0.0)`.
 
 ### Phase 2 — Coursier wiring + JitPack
 

@@ -73,7 +73,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme C — Distribution ecosystem
 
-- [ ] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`: refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag` scheme; `DepCache` with sha256 pin; tests against mock GitHub API. Spec: `docs/arch-distribution.md §5 Phase 1`.
+- [x] **arch-distribution-p1** — `DepResolver` SPI + `GithubReleaseResolver`: refactor `ImportResolver` into a pluggable registry; add `github:user/repo@tag` scheme; `DepCache` with sha256 pin; tests against mock GitHub API. Spec: `docs/arch-distribution.md §5 Phase 1`. ✓ Landed 2026-05-29: `DepResolver`/`DepSpec`, content-addressed `DepCache`, built-in `GithubReleaseResolver`, `ImportResolver` dispatch for `github:` plus `sha256:` suffix pins, and mock GitHub API coverage.
 
 - [ ] **arch-distribution-p2** — Coursier wiring + JitPack: `MavenDepResolver` using Coursier for `dep:` scheme; `JitpackResolver` as thin Coursier repo wrapper; tests with embedded local Maven fixture. Spec: `docs/arch-distribution.md §5 Phase 2`.
 
