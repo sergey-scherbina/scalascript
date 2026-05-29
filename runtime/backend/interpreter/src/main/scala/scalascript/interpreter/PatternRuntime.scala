@@ -288,7 +288,7 @@ private[interpreter] object PatternRuntime:
     // @ binder: `xs @ pattern` — bind `xs` to the whole scrutinee, then match `pattern`
     case Pat.Bind(lhs: Pat.Var, rhs) =>
       val e = matchPat(rhs, scrutinee, env, interp)
-      if e != null then e.asInstanceOf[Env] + (lhs.name.value -> scrutinee) else null
+      if e != null then FrameMap.one(lhs.name.value, scrutinee, e.asInstanceOf[Env]) else null
     case t: Term.Name =>
       val v = env.getOrElse(t.value, interp.globals.getOrElse(t.value, null))
       if v != null && v == scrutinee then env else null
