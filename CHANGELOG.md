@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-registry-p2 ssc search/info/add + RegistryClient
+
+- **arch-registry-p2** — Package registry CLI commands and client. New `RegistryClient` in `lang/core/imports`: `load(url, refresh)` fetches `packages.yaml` from the registry URL (default `https://registry.scalascript.io/packages.yaml`) or returns from `~/.cache/scalascript/registry/packages.yaml` when fresh (1-hour TTL); `fetchAndCache` writes cache + timestamp; `search(query, entries)` returns scored matches (name prefix > name contains > desc/keyword); `formatRow` and `formatInfo` produce CLI output. New `ssc search [<query>] [--refresh]` command; `ssc add <name> [<version>]` appends dep entry to `ssclib-manifest.yaml` (creates it if absent); `ssc info <group>/<artifact>` now also dispatches to registry info when the argument is a package name (no file extension). 14 tests: fetch+cache, TTL, search scoring, format helpers.
+
 ## 2026-05-29 — arch-registry-p1 packages.yaml schema
 
 - **arch-registry-p1** — Package registry schema foundation. New `RegistryEntry` case class in `lang/core/imports` models the `packages.yaml` entry format: `name` (required, `<group>/<artifact>`), `version` (required, semver), `description`, `keywords`, `backends`, `url` (allowed schemes: `github:`, `jitpack:`, `dep:`, `https://`), `license`, `author`, `homepage`, `changelog`, `scala-script-version`, `deprecated`. `RegistryEntry.parseAll` returns `Either[List[String], List[RegistryEntry]]`; `validate` checks name format, version semver shape, URL scheme whitelist, and HTTPS homepage requirement. `toYaml` serialises the list back to YAML. New `registry/packages.yaml` seeds 5 first-party packages (`io.scalascript/json`, `http`, `streams`, `actors`, `sql`). 15 schema validation tests including seed file round-trip.

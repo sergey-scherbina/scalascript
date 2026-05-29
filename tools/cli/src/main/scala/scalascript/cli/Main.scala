@@ -127,6 +127,8 @@ private def dispatchCommand(args: List[String]): Unit =
       else pluginInstall(args.tail)
     case "lock"                => lockCommand(args.tail)
     case "update"              => updateCommand(args.tail)
+    case "search"              => registrySearchCommand(args.tail)
+    case "add"                 => registryAddCommand(args.tail)
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
     case "fmt"                 => fmtCommand(args.tail)
@@ -6692,9 +6694,25 @@ def infoCommand(args: List[String]): Unit =
     case f             => files += f
   }
   if files.isEmpty then
-    System.err.println("Usage: ssc info <artifact> [--json] [--sections]")
-    System.err.println("Supported extensions: .scim, .scir, .scjvm, .scjs")
+    System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections]")
+    System.err.println("  Registry: ssc info io.example/lib")
+    System.err.println("  Artifact: ssc info <file>.scim  (supported: .scim, .scir, .scjvm, .scjs)")
     System.exit(1)
+
+  // If first arg looks like a registry name (<group>/<artifact>), dispatch to registry info.
+  val firstArg = files.head
+  if firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
+    import scalascript.imports.RegistryClient
+    val entries = RegistryClient.load()
+    entries.find(_.name == firstArg) match
+      case None =>
+        System.err.println(s"Package '${firstArg}' not found in registry.")
+        System.err.println(s"Run 'ssc search' to browse available packages.")
+        System.exit(1)
+      case Some(e) =>
+        print(RegistryClient.formatInfo(e))
+    return
+
   // Single-argument MVP — process the first file only.  Multiple files
   // are reserved for a follow-up; pre-warn if the user passed more.
   if files.length > 1 then
@@ -8234,6 +8252,100 @@ private def lockCheckCommand(args: List[String]): Unit =
   catch case e: Exception =>
     System.err.println(s"lock check error: ${e.getMessage}")
     System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc search — search the ScalaScript package registry
+// ssc info <name> — show registry entry details  (see also infoCommand above)
+// ssc add <name> [<version>] — add a dep to the current project manifest
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc search [<query>] [--refresh]`
+ *
+ *  Downloads + caches `packages.yaml` from the registry, then performs
+ *  substring/keyword matching on the query.  `--refresh` bypasses the cache. */
+def registrySearchCommand(args: List[String]): Unit =
+  import scalascript.imports.RegistryClient
+  var refresh = false
+  var query   = ""
+  args.foreach {
+    case "--refresh" => refresh = true
+    case q           => query   = q
+  }
+  val cached = RegistryClient.isCacheFresh
+  if refresh then print("Fetching registry... ")
+  else if !cached then print("Fetching registry... ")
+  val entries = RegistryClient.load(refresh = refresh)
+  if refresh || !cached then println(s"(${entries.length} packages)")
+  if entries.isEmpty then
+    println("Registry is empty or could not be fetched.  Try --refresh.")
+    return
+  val results = RegistryClient.search(query, entries)
+  if results.isEmpty then
+    println(s"No packages found for '${query}'.")
+    println("Run `ssc search` (no query) to list all packages.")
+  else
+    if query.nonEmpty then println(s"${results.length} result(s) for '${query}':")
+    results.foreach(e => println(RegistryClient.formatRow(e)))
+    if results.length == 1 then println(s"\nUse `ssc info ${results.head.name}` for details.")
+
+/** `ssc add <name> [<version>] [--file <manifest>]`
+ *
+ *  Looks up `name` in the registry, then appends a dep: entry to the current
+ *  project's `ssclib-manifest.yaml` (creates it if absent) or to the
+ *  front-matter `dependencies:` of a single-file `.ssc`. */
+def registryAddCommand(args: List[String]): Unit =
+  import scalascript.imports.{RegistryClient, SsclibManifest}
+  var nameArg:    String        = ""
+  var versionArg: Option[String] = None
+  var fileArg:    Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--file" | "-f" if it.hasNext => fileArg = Some(it.next())
+      case a if nameArg.isEmpty          => nameArg = a
+      case v                             => versionArg = Some(v)
+
+  if nameArg.isEmpty then
+    System.err.println("Usage: ssc add <name> [<version>] [--file <manifest>]")
+    System.exit(1)
+
+  // Resolve the version: explicit arg > registry lookup > error.
+  val version = versionArg.getOrElse {
+    val entries = RegistryClient.load()
+    entries.find(_.name == nameArg) match
+      case None =>
+        System.err.println(s"add: package '$nameArg' not found in registry.")
+        System.err.println(s"Specify a version explicitly: ssc add $nameArg <version>")
+        System.exit(1); ""
+      case Some(e) => e.version
+  }
+
+  val depEntry = s"dep:$nameArg:$version"
+
+  // Find / create a ssclib-manifest.yaml.
+  val manifestPath = fileArg
+    .map(f => os.Path(f, os.pwd))
+    .getOrElse(os.pwd / SsclibManifest.FileName)
+
+  if os.exists(manifestPath) then
+    val existing = SsclibManifest.parseString(os.read(manifestPath)).getOrElse {
+      System.err.println(s"add: cannot parse ${manifestPath.last}"); System.exit(1)
+      SsclibManifest(name = "")
+    }
+    if existing.dependencies.contains(depEntry) then
+      println(s"$nameArg:$version is already in ${manifestPath.last}")
+      return
+    val updated = existing.copy(dependencies = existing.dependencies :+ depEntry)
+    os.write.over(manifestPath, SsclibManifest.toYaml(updated))
+  else
+    val manifest = SsclibManifest(
+      name         = "my-project",
+      dependencies = List(depEntry),
+    )
+    os.write(manifestPath, SsclibManifest.toYaml(manifest))
+
+  println(s"Added $nameArg:$version to ${manifestPath.last}")
+  println(s"Run `ssc update` to download and lock.")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc update — refresh transitive dep resolution + write ssc-lock.yaml
