@@ -439,10 +439,22 @@ JSON REST routes remain the public/debug fallback. 31 tests.
 
 ### Phase 7 - Security, Compression, and Operations
 
-- HMAC signatures, session ids, sequence numbers, replay windows.
-- gzip/zstd negotiation.
-- mTLS configuration hooks.
-- Runtime metrics and debug dump tools.
+**Landed v1.62.7.** Implemented in `backend/wire/.../security/`.
+
+| File                    | Responsibility                                            |
+|-------------------------|-----------------------------------------------------------|
+| `WireIntegrity.scala`   | HMAC-SHA256 sign/verify; `attachHmac`/`verifyEnvelope`    |
+| `WireCompression.scala` | gzip compress/decompress via `java.util.zip.*`; ratio util |
+| `WireSession.scala`     | `WireSession` (seq counter + stamp); `WireReplayWindow`   |
+| `WireTlsConfig.scala`   | mTLS config type (keystore/truststore/ciphers/protocols)  |
+| `WireMetrics.scala`     | Concurrent `LongAdder` counters + snapshot                |
+| `WireDebug.scala`       | `summary()` one-liner + `dump()` multi-line pretty-print  |
+
+HMAC-SHA256 uses `javax.crypto.Mac` (constant-time verify).
+gzip uses standard `java.util.zip.*` — no external deps.
+`WireReplayWindow` uses a sliding BitSet (configurable window, default 64).
+`WireTlsConfig` is a pure-data type; transport implementations configure `SSLContext` from it.
+37 tests.
 
 ### Phase 8 - Compatibility and Evolution
 

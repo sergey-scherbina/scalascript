@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — v1.62.7 Wire security and operations
+
+- **v1.62.7-wire-security-ops** — Five modules in `backend/wire/.../security/`: `WireIntegrity` (HMAC-SHA256 sign/verify via `javax.crypto.Mac`, constant-time compare, `attachHmac`/`verifyEnvelope`); `WireCompression` (gzip compress/decompress via `java.util.zip.*`, ratio utility, stub for unsupported algorithms); `WireSession` (per-connection sequence counter + `stamp(env)`) + `WireReplayWindow` (sliding BitSet, configurable window size, `checkAndRecord`/`checkEnvelope`); `WireTlsConfig` (keystore/truststore/ciphers/protocols data type + `fromMap` front-matter parser); `WireMetrics` (`LongAdder` counters for frames/bytes/errors/hmac/replay/chunked/compressed + immutable snapshot + reset) + `WireDebug` (`summary()` one-liner, `dump()` multi-line pretty-print). 37 tests.
+
 ## 2026-05-29 — v1.62.6 ObjectStore sync binary wire protocol
 
 - **v1.62.6-object-sync-binary** — `ObjectSyncMsg` sealed trait (4 kinds: `PullRequest`, `PullResponse`, `PushRequest`, `PushResponse`) + value types (`SyncChange`, `SyncMutation`, `SyncResult`, `SyncConflict`) with full `WireCodec` instances and `ObjectSyncEnvelope` helpers. Mirrors the generated `/__ssc/sync/<store>/changes` GET and `/__ssc/sync/<store>/push` POST routes. `correlationId` passed through for request/response pairing. JSON/MsgPack/CBOR round-trips, 31 tests.

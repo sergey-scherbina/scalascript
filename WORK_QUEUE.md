@@ -60,7 +60,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.6-object-sync-binary** — `ObjectSyncMsg` (4 kinds) + value types (`SyncChange`/`SyncMutation`/`SyncResult`/`SyncConflict`) + `ObjectSyncEnvelope`; JSON/MsgPack/CBOR; 31 tests. ✓ Landed 2026-05-29.
 
-- [ ] **v1.62.7-wire-security-ops** — Wire security and operations: HMAC frame signatures, session ids, sequence numbers, replay windows, gzip/zstd negotiation, mTLS hooks, frame/depth/chunk limits, and metrics. Spec: `docs/distributed-wire-protocol.md §Phase 7`.
+- [x] **v1.62.7-wire-security-ops** — `WireIntegrity` (HMAC-SHA256), `WireCompression` (gzip), `WireSession`+`WireReplayWindow` (sequence+replay), `WireTlsConfig`, `WireMetrics`+`WireDebug`; 37 tests. ✓ Landed 2026-05-29.
 
 - [ ] **v1.62.8-wire-compatibility** — Binary compatibility before first stable release: schema-id hashing, additive evolution rules, default/unknown-field policy, old/new test vectors, and explicit mixed-version opt-in. Spec: `docs/distributed-wire-protocol.md §Phase 8`.
 
