@@ -295,6 +295,73 @@ private[interpreter] object DispatchRuntime:
       case "minBy"      =>
         if ls.isEmpty then interp.located("minBy on empty list")
         else applyMaxBy(ls, Computation.mapSequence(ls, item => interp.callValue1(arg, item, env)), max = false)
+      case "count"      =>
+        var rem = ls; var acc = 0L
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.BoolV(true)) => acc += 1L; rem = rem.tail
+            case Pure(_)                 => rem = rem.tail
+            case c =>
+              val acc0 = acc; val tail = rem.tail
+              def restLoop(remaining: List[Value], cnt: Long): Computation = remaining match
+                case Nil => Computation.pureIntV(cnt)
+                case h :: rest =>
+                  FlatMap(interp.callValue1(arg, h, env), {
+                    case Value.BoolV(true) => restLoop(rest, cnt + 1L)
+                    case _                 => restLoop(rest, cnt)
+                  })
+              return FlatMap(c, {
+                case Value.BoolV(true) => restLoop(tail, acc0 + 1L)
+                case _                 => restLoop(tail, acc0)
+              })
+        Computation.pureIntV(acc)
+      case "collect"    =>
+        val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var rem = ls
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.OptionV(Some(v))) => buf += v; rem = rem.tail
+            case Pure(Value.OptionV(None))    => rem = rem.tail
+            case Pure(v)                      => buf += v; rem = rem.tail
+            case comp =>
+              val tail = rem.tail
+              def loopRest(remaining: List[Value]): Computation = remaining match
+                case Nil => Pure(Value.ListV(buf.toList))
+                case h :: rest =>
+                  FlatMap(interp.callValue1(arg, h, env), {
+                    case Value.OptionV(Some(v)) => buf += v; loopRest(rest)
+                    case Value.OptionV(None)    => loopRest(rest)
+                    case v                      => buf += v; loopRest(rest)
+                  })
+              return FlatMap(comp, {
+                case Value.OptionV(Some(v)) => buf += v; loopRest(tail)
+                case Value.OptionV(None)    => loopRest(tail)
+                case v                      => buf += v; loopRest(tail)
+              })
+        Pure(Value.ListV(buf.toList))
+      case "span"       =>
+        val yesBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var rem = ls
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.BoolV(true)) => yesBuf += rem.head; rem = rem.tail
+            case Pure(_)                 => return Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(rem) :: Nil))
+            case comp =>
+              val h = rem.head; val remaining = rem
+              return FlatMap(comp, {
+                case Value.BoolV(true) =>
+                  yesBuf += h
+                  def loopRest(rest: List[Value]): Computation = rest match
+                    case Nil    => Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(Nil) :: Nil))
+                    case hh :: t =>
+                      FlatMap(interp.callValue1(arg, hh, env), {
+                        case Value.BoolV(true) => yesBuf += hh; loopRest(t)
+                        case _                 => Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(rest) :: Nil))
+                      })
+                  loopRest(rem.tail)
+                case _ => Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(remaining) :: Nil))
+              })
+        Pure(Value.TupleV(Value.ListV(yesBuf.toList) :: Value.ListV(Nil) :: Nil))
       case "sortWith"   =>
         dispatchList(ls, "sortWith", arg :: Nil, env, interp)
       case "groupBy"    =>
