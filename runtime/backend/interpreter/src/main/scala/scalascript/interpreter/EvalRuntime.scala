@@ -16,8 +16,10 @@ private[interpreter] object EvalRuntime:
     // whether to suspend (breakpoint, stepIn, stepOver, stepOut).
     // currentSpan: block-relative 0-based line; docLine = debugBlockDocLine + blockLine + 1.
     // callStack.length is the current call depth (0 at top level).
-    interp.debugHooks.foreach { hooks =>
-      if interp.currentSpanLine >= 0 then
+    // Pattern match instead of .foreach: .foreach { hooks => ... } allocates a lambda
+    // on every eval call even when debugHooks is None. Match desugars to isEmpty+get.
+    interp.debugHooks match
+      case Some(hooks) if interp.currentSpanLine >= 0 =>
         val blockLine  = interp.currentSpanLine
         val docLine    = interp.debugBlockDocLine + blockLine + 1
         val callFrames = interp.callStackToIndexedSeq.map { case (n, sf, l) =>
@@ -25,7 +27,7 @@ private[interpreter] object EvalRuntime:
         }
         val frame = scalascript.interpreter.debug.DebugFrame(0, "frame", interp.debugSourceFile, docLine, interp.callStackLength, env, callFrames)
         hooks.onStep(frame)
-    }
+      case _ =>
     term match
     // Literals — interned by Lit identity so a hot loop reuses the same
     // `Pure(Value)` instance instead of reallocating on every eval. The

@@ -527,7 +527,9 @@ class Interpreter(
       val cached = closureWithSelfCache.get(f)
       if cached != null then cached
       else
-        val w = f.closure.updated(f.name, f)
+        // FrameMap1 instead of HashMap.updated: O(1) first-slot lookup for the self-ref,
+        // and the cached value is reused on every call to the same named function.
+        val w = FrameMap.one(f.name, f, f.closure)
         closureWithSelfCache.put(f, w)
         w
 
