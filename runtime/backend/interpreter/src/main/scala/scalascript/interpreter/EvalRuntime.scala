@@ -725,7 +725,18 @@ private[interpreter] object EvalRuntime:
       // a param like `a` for `def adder(a)` is stripped because interp.globals also
       // hold the `<a>` HTML tag under that name, and the inner `b => a + b`
       // would resolve `a` to the tag instead of the captured Int.
-      val closure    = env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
+      // Build closure by walking only FrameMap local slots, skipping the globals
+      // parent chain.  Avoids O(|globals|) iteration that env.filter would do.
+      val closure: Map[String, Value] = env match
+        case fm: FrameMap =>
+          val b = Map.newBuilder[String, Value]
+          var cur: Map[String, Value] = fm
+          while cur.isInstanceOf[FrameMap] do
+            cur.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
+            cur = cur.asInstanceOf[FrameMap].parent
+          b.result()
+        case _ =>
+          env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
       val paramNames = paramClause.values.map(_.name.value)
       // Extract declared type annotations so TypedHandlerWrapper can detect
       // typed route handlers at mount time.  Empty string for unannotated params.
@@ -826,9 +837,8 @@ private[interpreter] object EvalRuntime:
       def loop: Computation =
         // Refresh mutable frame: only overwrite a key if globals changed since entry.
         frame.foreachEntry { (k, _) =>
-          interp.globals.get(k) match
-            case Some(gv) if entrySnap.get(k).forall(_ != gv) => frame(k) = gv
-            case _                                             =>
+          val gv = interp.globals.getOrElse(k, null)
+          if gv != null && entrySnap.getOrElse(k, null) != gv then frame(k) = gv
         }
         // Use FlatMap constructor (not .flatMap) so the trampoline handles iterations
         // iteratively rather than recursing on the JVM stack for pure condition/body.

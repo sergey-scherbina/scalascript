@@ -22,11 +22,19 @@ type Env = Map[String, Value]
 sealed abstract class FrameMap
     extends scala.collection.immutable.AbstractMap[String, Value]:
   protected def parentMap: Map[String, Value]
+  private[interpreter] def parent: Map[String, Value] = parentMap
   protected def flat: Map[String, Value]
   override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
     flat.updated(key, value)
   override def removed(key: String): Map[String, Value] =
     flat.removed(key)
+  /** Append only the local slots (not the parent chain) to `b`, filtering out
+   *  entries whose value matches the same key in `globals`.  Used by lambda
+   *  closure construction to avoid iterating the entire globals map. */
+  private[interpreter] def appendLocalTo(
+    b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]],
+    globals: scala.collection.mutable.Map[String, Value]
+  ): Unit
 
 final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
     extends FrameMap:
@@ -41,6 +49,8 @@ final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
     Iterator.single(n1 -> v1) ++ parent.iterator.filterNot(_._1 == n1)
   override protected def flat: Map[String, Value] =
     parent.updated(n1, v1)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
 
 final class FrameMap2(
   n1: String, v1: Value,
@@ -64,6 +74,9 @@ final class FrameMap2(
     }
   override protected def flat: Map[String, Value] =
     parent.updated(n1, v1).updated(n2, v2)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
+    if globals.getOrElse(n2, null) != v2 then b += (n2 -> v2)
 
 final class FrameMapN(
   slots: Array[String],
@@ -101,6 +114,11 @@ final class FrameMapN(
       b += (slots(i) -> vals(i))
       i += 1
     b.result()
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Builder[(String, Value), Map[String, Value]], globals: scala.collection.mutable.Map[String, Value]): Unit =
+    var i = 0
+    while i < slots.length do
+      if globals.getOrElse(slots(i), null) != vals(i) then b += (slots(i) -> vals(i))
+      i += 1
 
 object FrameMap:
   def one(name: String, value: Value, parent: Map[String, Value]): FrameMap =
@@ -457,6 +475,7 @@ object Computation:
   /** Like foreachSequence but collects elements where f returns BoolV(true) (filter semantics).
    *  All-Pure fast path: zero FlatMap allocations when f returns Pure(BoolV) every time. */
   def filterSequence(ls: List[Value], f: Value => Computation): Computation =
+    if ls.isEmpty then return PureEmptyList
     val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
     var rem = ls
     while rem.nonEmpty do
@@ -480,6 +499,7 @@ object Computation:
 
   /** Like filterSequence but inverts the predicate (filterNot semantics). */
   def filterNotSequence(ls: List[Value], f: Value => Computation): Computation =
+    if ls.isEmpty then return PureEmptyList
     val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
     var rem = ls
     while rem.nonEmpty do
