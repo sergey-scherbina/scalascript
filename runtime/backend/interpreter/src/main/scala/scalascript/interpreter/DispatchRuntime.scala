@@ -576,80 +576,102 @@ private[interpreter] object DispatchRuntime:
           loop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"       => args match
-        case List(f) =>
-          // Direct loop: avoids intermediate ListV[BoolV] from mapSequence+map.
-          val filtBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-          def filterLoop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.ListV(filtBuf.toList))
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(true) => filtBuf += h; filterLoop(rest)
-                case _                 => filterLoop(rest)
-              }
-          filterLoop(ls)
+        case List(f) => Computation.filterSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filterNot"    => args match
-        case List(f) =>
-          val fnBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-          def filterNotLoop(remaining: List[Value]): Computation = remaining match
-            case Nil => Pure(Value.ListV(fnBuf.toList))
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(true) => filterNotLoop(rest)
-                case _                 => fnBuf += h; filterNotLoop(rest)
-              }
-          filterNotLoop(ls)
+        case List(f) => Computation.filterNotSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
-        case List(f) =>
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil    => Computation.PureUnit
-            case h :: t => interp.callValue1(f, h, env).flatMap(_ => loop(t))
-          loop(ls)
+        case List(f) => Computation.foreachSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
-          def loop(remaining: List[Value], acc: Long): Computation = remaining match
-            case Nil => Computation.pureIntV(acc)
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(true) => loop(rest, acc + 1L)
-                case _                 => loop(rest, acc)
-              }
-          loop(ls, 0L)
+          var rem = ls; var acc = 0L
+          while rem.nonEmpty do
+            interp.callValue1(f, rem.head, env) match
+              case Pure(Value.BoolV(true)) => acc += 1L; rem = rem.tail
+              case Pure(_)                 => rem = rem.tail
+              case c =>
+                val acc0 = acc; val tail = rem.tail
+                def restLoop(remaining: List[Value], cnt: Long): Computation = remaining match
+                  case Nil => Computation.pureIntV(cnt)
+                  case h :: rest =>
+                    interp.callValue1(f, h, env).flatMap {
+                      case Value.BoolV(true) => restLoop(rest, cnt + 1L)
+                      case _                 => restLoop(rest, cnt)
+                    }
+                return c.flatMap {
+                  case Value.BoolV(true) => restLoop(tail, acc0 + 1L)
+                  case _                 => restLoop(tail, acc0)
+                }
+          Computation.pureIntV(acc)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "find"         => args match
         case List(f) =>
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Computation.PureNone
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
-                case _                 => loop(rest)
-              }
-          loop(ls)
+          var rem = ls
+          while rem.nonEmpty do
+            val h = rem.head
+            interp.callValue1(f, h, env) match
+              case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(Some(h)))
+              case Pure(_)                 => rem = rem.tail
+              case c =>
+                val tail = rem.tail
+                def restLoop(remaining: List[Value]): Computation = remaining match
+                  case Nil => Computation.PureNone
+                  case hh :: rest =>
+                    interp.callValue1(f, hh, env).flatMap {
+                      case Value.BoolV(true) => Pure(Value.OptionV(Some(hh)))
+                      case _                 => restLoop(rest)
+                    }
+                return c.flatMap {
+                  case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
+                  case _                 => restLoop(tail)
+                }
+          Computation.PureNone
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "exists"       => args match
         case List(f) =>
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Computation.PureFalse
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(true) => Computation.PureTrue
-                case _                 => loop(rest)
-              }
-          loop(ls)
+          var rem = ls
+          while rem.nonEmpty do
+            interp.callValue1(f, rem.head, env) match
+              case Pure(Value.BoolV(true)) => return Computation.PureTrue
+              case Pure(_)                 => rem = rem.tail
+              case c =>
+                val tail = rem.tail
+                def restLoop(remaining: List[Value]): Computation = remaining match
+                  case Nil => Computation.PureFalse
+                  case h :: rest =>
+                    interp.callValue1(f, h, env).flatMap {
+                      case Value.BoolV(true) => Computation.PureTrue
+                      case _                 => restLoop(rest)
+                    }
+                return c.flatMap {
+                  case Value.BoolV(true) => Computation.PureTrue
+                  case _                 => restLoop(tail)
+                }
+          Computation.PureFalse
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "forall"       => args match
         case List(f) =>
-          def loop(remaining: List[Value]): Computation = remaining match
-            case Nil => Computation.PureTrue
-            case h :: rest =>
-              interp.callValue1(f, h, env).flatMap {
-                case Value.BoolV(false) => Computation.PureFalse
-                case _                  => loop(rest)
-              }
-          loop(ls)
+          var rem = ls
+          while rem.nonEmpty do
+            interp.callValue1(f, rem.head, env) match
+              case Pure(Value.BoolV(false)) => return Computation.PureFalse
+              case Pure(_)                  => rem = rem.tail
+              case c =>
+                val tail = rem.tail
+                def restLoop(remaining: List[Value]): Computation = remaining match
+                  case Nil => Computation.PureTrue
+                  case h :: rest =>
+                    interp.callValue1(f, h, env).flatMap {
+                      case Value.BoolV(false) => Computation.PureFalse
+                      case _                  => restLoop(rest)
+                    }
+                return c.flatMap {
+                  case Value.BoolV(false) => Computation.PureFalse
+                  case _                  => restLoop(tail)
+                }
+          Computation.PureTrue
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "sortBy"       => args match
         case List(f) =>

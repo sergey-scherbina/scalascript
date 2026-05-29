@@ -418,6 +418,68 @@ object Computation:
           return FlatMap(comp, r => loopRest(start, List(r)))
     Pure(Value.ListV(buf.toList))
 
+  /** Like mapSequence but discards results (foreach semantics).
+   *  All-Pure fast path: zero FlatMap allocations when f returns Pure for every element. */
+  def foreachSequence(ls: List[Value], f: Value => Computation): Computation =
+    var rem = ls
+    while rem.nonEmpty do
+      f(rem.head) match
+        case Pure(_) => rem = rem.tail
+        case comp    =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value]): Computation = remaining match
+            case Nil    => PureUnit
+            case h :: t => FlatMap(f(h), _ => loopRest(t))
+          return FlatMap(comp, _ => loopRest(tail))
+    PureUnit
+
+  /** Like foreachSequence but collects elements where f returns BoolV(true) (filter semantics).
+   *  All-Pure fast path: zero FlatMap allocations when f returns Pure(BoolV) every time. */
+  def filterSequence(ls: List[Value], f: Value => Computation): Computation =
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+    var rem = ls
+    while rem.nonEmpty do
+      val h = rem.head
+      f(h) match
+        case Pure(Value.BoolV(true))  => buf += h; rem = rem.tail
+        case Pure(_)                  => rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(buf.toList))
+            case hh :: t => FlatMap(f(hh), {
+              case Value.BoolV(true) => buf += hh; loopRest(t)
+              case _                 => loopRest(t)
+            })
+          return FlatMap(comp, {
+            case Value.BoolV(true) => buf += h; loopRest(tail)
+            case _                 => loopRest(tail)
+          })
+    Pure(Value.ListV(buf.toList))
+
+  /** Like filterSequence but inverts the predicate (filterNot semantics). */
+  def filterNotSequence(ls: List[Value], f: Value => Computation): Computation =
+    val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+    var rem = ls
+    while rem.nonEmpty do
+      val h = rem.head
+      f(h) match
+        case Pure(Value.BoolV(false)) | Pure(Value.UnitV) => buf += h; rem = rem.tail
+        case Pure(_)                  => rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          def loopRest(remaining: List[Value]): Computation = remaining match
+            case Nil => Pure(Value.ListV(buf.toList))
+            case hh :: t => FlatMap(f(hh), {
+              case Value.BoolV(true) => loopRest(t)
+              case _                 => buf += hh; loopRest(t)
+            })
+          return FlatMap(comp, {
+            case Value.BoolV(true) => loopRest(tail)
+            case _                 => buf += h; loopRest(tail)
+          })
+    Pure(Value.ListV(buf.toList))
+
   /** Evaluate a list of computations in order, collecting their results in a ListV.
    *  All-Pure fast path: skip FlatMap chain when every computation is already Pure. */
   def sequence(cs: List[Computation]): Computation =
