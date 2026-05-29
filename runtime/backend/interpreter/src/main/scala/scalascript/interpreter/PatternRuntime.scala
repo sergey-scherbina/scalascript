@@ -33,11 +33,12 @@ private[interpreter] object PatternRuntime:
     new CompiledMatch(handlers)
 
   private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
-    cond.forall { g =>
-      Computation.run(interp.eval(g, env)) match
-        case Value.BoolV(b) => b
-        case _              => false
-    }
+    cond match
+      case None    => true
+      case Some(g) =>
+        Computation.run(interp.eval(g, env)) match
+          case Value.BoolV(b) => b
+          case _              => false
 
   private def compileLit(lit: Lit): Value = lit match
     case Lit.Int(v)     => Value.intV(v.toLong)
@@ -107,22 +108,34 @@ private[interpreter] object PatternRuntime:
     c.pat match
 
       case Pat.Wildcard() =>
-        (_, env) =>
-          if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
-          else null
+        if c.cond.isEmpty then
+          (_, env) => interp.eval(c.body, env)
+        else
+          (_, env) =>
+            if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+            else null
 
       case Pat.Var(n) =>
         val name = n.value
-        (scrutV, env) =>
-          val patEnv = FrameMap.one(name, scrutV, env)
-          if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
-          else null
+        if c.cond.isEmpty then
+          (scrutV, env) =>
+            val patEnv = FrameMap.one(name, scrutV, env)
+            interp.eval(c.body, patEnv)
+        else
+          (scrutV, env) =>
+            val patEnv = FrameMap.one(name, scrutV, env)
+            if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+            else null
 
       case lit: Lit =>
         val litV = compileLit(lit)
-        (scrutV, env) =>
-          if scrutV == litV && evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
-          else null
+        if c.cond.isEmpty then
+          (scrutV, env) =>
+            if scrutV == litV then interp.eval(c.body, env) else null
+        else
+          (scrutV, env) =>
+            if scrutV == litV && evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+            else null
 
       case Pat.Extract.After_4_6_0(fn, argClause) =>
         val typeName: String | Null = fn match
@@ -140,15 +153,16 @@ private[interpreter] object PatternRuntime:
           // Lazily populated field order on first successful match
           var fieldOrderCache: Array[String] = null
           val tn = typeName  // capture for closure
+          val noGuard = c.cond.isEmpty
           (scrutV, env) =>
             scrutV match
               case Value.OptionV(Some(v)) if tn == "Some" && bindNames.length == 1 =>
                 val bname = bindNames(0)
                 val patEnv = if bname == null then env else FrameMap.one(bname, v, env)
-                if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                if noGuard || evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
                 else null
               case Value.NoneV if tn == "None" && bindNames.isEmpty =>
-                if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+                if noGuard || evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
                 else null
               case Value.InstanceV(t, fields) if t == tn =>
                 if fieldOrderCache == null then
@@ -160,7 +174,7 @@ private[interpreter] object PatternRuntime:
                 else
                   val patEnv = buildPatEnv(fo, bindNames, fields, env)
                   if patEnv == null then null
-                  else if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                  else if noGuard || evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
                   else null
               case _ => null
         else
@@ -177,14 +191,15 @@ private[interpreter] object PatternRuntime:
       case _ => fallbackCase(c, interp)
 
   private def fallbackCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
-    (scrutV, env) =>
-      val patEnv = matchPat(c.pat, scrutV, env, interp)
-      if patEnv == null then null
-      else
-        val guardOk = c.cond.forall(g => Computation.run(interp.eval(g, patEnv)) match
-          case Value.BoolV(b) => b
-          case _              => false)
-        if guardOk then interp.eval(c.body, patEnv) else null
+    if c.cond.isEmpty then
+      (scrutV, env) =>
+        val patEnv = matchPat(c.pat, scrutV, env, interp)
+        if patEnv != null then interp.eval(c.body, patEnv) else null
+    else
+      (scrutV, env) =>
+        val patEnv = matchPat(c.pat, scrutV, env, interp)
+        if patEnv != null && evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+        else null
 
   /** Match pattern against scrutinee. Returns the extended env on success, null on failure.
    *  Uses null instead of Option to avoid allocating Some wrappers on the hot match path. */
@@ -251,8 +266,8 @@ private[interpreter] object PatternRuntime:
         val matches = scrutinee match
           case Value.InstanceV(t, _) =>
             t == typeName || {
-              var p = interp.parentTypes.get(t); var ok = false
-              while p.isDefined && !ok do { ok = p.get == typeName; p = interp.parentTypes.get(p.get) }
+              var p = interp.parentTypes.getOrElse(t, null); var ok = false
+              while p != null && !ok do { ok = p == typeName; p = interp.parentTypes.getOrElse(p, null) }
               ok
             }
           // IntV represents both Int and Long (stored as JVM Long internally).
