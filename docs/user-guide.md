@@ -4370,10 +4370,14 @@ example shape above expands a downstream `plusOne(n)` call as if the linked
 source contained `((x) => x + 1)(n)`.
 
 Status: **partially implemented**. Supported now: `${ impl('x) }` entrypoints,
-direct `'{ $x + ... }` quoted bodies, `MacroImpl` IR metadata, and cross-module
-link expansion. Still planned: `Expr[A].asValue`, `Expr[A].asTerm`, richer
-quoted-term construction, diagnostics for unsupported macro bodies, and parity
-for interpreter `ssc run` paths that do not go through `ssc link`.
+direct `'{ $x + ... }` quoted bodies, `MacroImpl` IR metadata, cross-module
+link expansion, and interpreter `ssc run` parity for the same direct
+quoted-body subset. In the interpreter, `Expr[A].asValue` returns the quoted
+runtime value as `Option[A]`, and `Expr[A].asTerm` returns an opaque
+`ScalaScriptTerm` value with `name` and `value` fields. Still planned: richer
+quoted-term construction, compile-time constant folding inside macro
+implementations, diagnostics for unsupported macro bodies, and broader
+generated-backend conformance.
 
 ---
 

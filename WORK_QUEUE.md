@@ -159,11 +159,11 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-meta-v2-p3** — Cross-module `inline` expansion: IR-level inlining in `ssc link`; requires plugin-author demand and stable SPI/distribution foundations. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
 
-- [x] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: first restricted slice adds parser preprocessing for `${ impl('x) }` and `'{ $x + ... }`, `.scim` `MacroImplRef` metadata, `MacroImpl` IR, and link-time expansion for direct quoted-expression bodies; `asValue`/`asTerm` evaluation remains planned follow-up.
+- [x] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: first restricted slice adds parser preprocessing for `${ impl('x) }` and `'{ $x + ... }`, `.scim` `MacroImplRef` metadata, `MacroImpl` IR, and link-time expansion for direct quoted-expression bodies; runtime/interpreter parity landed in `arch-meta-v2-p4b`.
 
 - [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: `scalascript.reflect.Mirror`; inline match on `Mirror.Product/Sum` for arbitrary user typeclasses. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`. ✓ Landed 2026-05-29: interpreter/runtime slice registers summon-able `Mirror.Of/ProductOf/SumOf`, exposes `Mirror.of[T]`, richer product/sum metadata, and supports user-defined `derived(m: Mirror)` typeclasses; source-level inline match and broader backend conformance remain planned follow-ups.
 
-- [ ] **arch-meta-v2-p4b** — Restricted quoted macro runtime parity: implement the next `Expr[A].asValue` / `Expr[A].asTerm` evaluation slice for direct quoted macro bodies and document the supported boundary. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+- [x] **arch-meta-v2-p4b** — Restricted quoted macro runtime parity: implement the next `Expr[A].asValue` / `Expr[A].asTerm` evaluation slice for direct quoted macro bodies and document the supported boundary. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: parser quote/splice helpers now carry runtime values, interpreter registers lightweight `Expr` / `QuotedContext` plus macro helper intrinsics, direct quoted macro bodies run under `ssc run`, and `Expr.asValue` / `Expr.asTerm` expose the restricted runtime metadata.
 
 ## Government Interaction — v1.59 Bureau
 

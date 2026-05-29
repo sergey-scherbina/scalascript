@@ -1,0 +1,28 @@
+---
+name: quoted-macro-interpreter
+version: 1.0.0
+description: Restricted quoted macro interpreter run-path parity
+---
+
+# Restricted Quoted Macro Interpreter Parity
+
+```scalascript
+inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }
+
+def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] =
+  '{ $x + 1 }
+
+inline def literalLabel(x: Int): String = ${ literalLabelImpl('x) }
+
+def literalLabelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+  "literal: " + x.asValue.getOrElse("?")
+
+inline def termName(x: Int): String = ${ termNameImpl('x) }
+
+def termNameImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+  x.asTerm.name
+
+println(plusOne(41))
+println(literalLabel(7))
+println(termName(5))
+```

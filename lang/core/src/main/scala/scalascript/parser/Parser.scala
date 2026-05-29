@@ -1250,8 +1250,8 @@ object Parser:
    *  source parser path we use for `.ssc` blocks, so this preprocessor
    *  rewrites it into ordinary helper calls:
    *
-   *    `${ impl('x) }` -> `__ssc_macro__(impl(__ssc_quote__("x")))`
-   *    `'{ $x + 1 }`  -> `__ssc_quote_expr__(__ssc_splice__("x") + 1)`
+   *    `${ impl('x) }` -> `__ssc_macro__(impl(__ssc_quote__("x", x)))`
+   *    `'{ $x + 1 }`  -> `__ssc_quote_expr__(__ssc_splice__("x", x) + 1)`
    *
    *  The original source remains in `Content.CodeBlock.source`; the helper
    *  calls exist only in the parsed tree used by InterfaceExtractor. */
@@ -1294,7 +1294,7 @@ object Parser:
             var k = j + 2
             while k < s.length && isIdentPart(s.charAt(k)) do k += 1
             val name = s.substring(j + 1, k)
-            sb.append("__ssc_quote__(\"").append(name).append("\")")
+            sb.append("__ssc_quote__(\"").append(name).append("\", ").append(name).append(")")
             j = k
           case c =>
             sb.append(c)
@@ -1319,7 +1319,7 @@ object Parser:
             var k = j + 2
             while k < s.length && isIdentPart(s.charAt(k)) do k += 1
             val name = s.substring(j + 1, k)
-            sb.append("__ssc_splice__(\"").append(name).append("\")")
+            sb.append("__ssc_splice__(\"").append(name).append("\", ").append(name).append(")")
             j = k
           case c =>
             sb.append(c)

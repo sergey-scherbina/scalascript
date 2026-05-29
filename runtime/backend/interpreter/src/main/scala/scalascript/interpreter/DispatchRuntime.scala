@@ -1492,6 +1492,21 @@ private[interpreter] object DispatchRuntime:
           case _          => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
+      case "Expr" => name match
+        case "asValue" if args.isEmpty =>
+          fields.get("value") match
+            case Some(Value.NoneV) | None => Computation.PureNone
+            case Some(v)                 => Pure(Value.OptionV(Some(v)))
+        case "asTerm" if args.isEmpty =>
+          Pure(Value.InstanceV("ScalaScriptTerm", Map(
+            "name"  -> fields.getOrElse("name", Value.StringV("<expr>")),
+            "value" -> fields.getOrElse("value", Value.UnitV)
+          )))
+        case "toString" if args.isEmpty =>
+          val label = fields.get("name").map(Value.show).getOrElse("<expr>")
+          Pure(Value.StringV(s"Expr($label)"))
+        case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
+
       case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
 
   private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =

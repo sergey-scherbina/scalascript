@@ -490,9 +490,20 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   First slice implements parser preprocessing for `${ impl('x) }` entrypoints
   and `'{ $x + ... }` quoted bodies, `.scim` `MacroImplRef` metadata,
   `MacroImpl` IR, and link-time expansion for direct quoted-expression macro
-  bodies. `Expr[A].asValue`, `Expr[A].asTerm`, richer quoted terms, and
-  interpreter/run-path parity remain planned follow-ups.
+  bodies. Runtime/interpreter parity now supports the same direct quoted-body
+  subset plus `Expr[A].asValue` / `Expr[A].asTerm`. Richer quoted terms,
+  compile-time constant folding, unsupported-body diagnostics, and broader
+  backend conformance remain planned follow-ups.
   Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
+- [x] **arch-meta-v2-p4b** — Restricted quoted macro runtime parity: ✓ Landed 2026-05-29.
+  Parser helper lowering carries quoted parameter names and runtime values;
+  the interpreter registers lightweight `Expr`, `QuotedContext`, macro quote,
+  splice, and quote-expression helpers; direct quoted macro bodies now run under
+  `ssc run`; `Expr.asValue` returns `Option[A]`, and `Expr.asTerm` returns an
+  opaque `ScalaScriptTerm` with `name` / `value`. Example:
+  `examples/quoted-macro-interpreter.ssc`. Spec:
+  `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: ✓ Landed 2026-05-29.
   Interpreter/runtime slice registers summon-able `Mirror.Of[T]`,

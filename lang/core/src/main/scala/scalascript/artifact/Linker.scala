@@ -352,8 +352,8 @@ object Linker:
    *
    *  The supported first slice is intentionally small and deterministic:
    *  quoted macro bodies are expression templates (`'{ $x + 1 }` or the
-   *  parser-helper form `__ssc_quote_expr__(__ssc_splice__("x").+(1))`).
-   *  A call `macroName(arg)` substitutes `$x` / `__ssc_splice__("x")` with
+   *  parser-helper form `__ssc_quote_expr__(__ssc_splice__("x", x).+(1))`).
+   *  A call `macroName(arg)` substitutes `$x` / `__ssc_splice__("x", x)` with
    *  the original call-site argument source and wraps the result in parens. */
   private[artifact] def expandMacroSource(
       src:        String,
@@ -371,7 +371,7 @@ object Linker:
       else if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then
         body.substring("__ssc_quote_expr__(".length, body.length - 1).trim
       else body
-    val helperFree = """__ssc_splice__\("([^"]+)"\)""".r.replaceAllIn(raw, m => m.group(1))
+    val helperFree = """__ssc_splice__\("([^"]+)"(?:\s*,[^)]*)?\)""".r.replaceAllIn(raw, m => m.group(1))
     """\$([A-Za-z_][A-Za-z0-9_]*)""".r.replaceAllIn(helperFree, m => m.group(1))
 
   private def rewriteExpr(

@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-meta-v2-p4b quoted macro interpreter parity
+
+- **arch-meta-v2-p4b** — Restricted quoted macros now have interpreter/run-path parity for the direct quoted-body subset. Parser helper lowering now carries both quoted parameter names and runtime values (`'x` → `__ssc_quote__("x", x)`, `$x` → `__ssc_splice__("x", x)`); linker/interface extraction remain backward-compatible with the old helper shape. The interpreter registers lightweight `Expr`, `QuotedContext`, `__ssc_macro__`, `__ssc_quote__`, `__ssc_quote_expr__`, and `__ssc_splice__` helpers, so direct quoted macro bodies work under `ssc run`. `Expr.asValue` returns the quoted value as `Option[A]`; `Expr.asTerm` returns an opaque `ScalaScriptTerm(name, value)`. Added `examples/quoted-macro-interpreter.ssc`, 3 interpreter tests, and updated macro/linker/parser tests.
+
 ## 2026-05-29 — arch-meta-v2-p5 runtime Mirror derives
 
 - **arch-meta-v2-p5** — Runtime/interpreter slice for Mirror-based user typeclass derivation. The interpreter now registers summon-able `Mirror.Of[T]`, `Mirror.ProductOf[T]`, `Mirror.SumOf[T]`, and `deriving.Mirror.*` aliases when product/sum types are declared; `Mirror.of[T]` returns the same metadata. Mirror values now expose `label`, `fields`, `elemLabels`, `elemTypes`, `variants`, `isProduct`, `isSum`, `fromProduct`, and `ordinal`. Custom `derives` now works for user-defined typeclasses that provide `derived(m: Mirror)`; the existing `TC.derived` dispatch reuses the richer mirror. Added focused tests for `summon[Mirror.Of[Person]]` and `case class Person(...) derives Csv`. Source-level `inline match` over Mirror and broader generated-backend conformance remain planned follow-ups.

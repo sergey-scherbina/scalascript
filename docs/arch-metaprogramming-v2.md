@@ -95,13 +95,28 @@ Landed first slice (2026-05-29):
   the same lambda-lifted shape as cross-module `inline`:
   `plusOne(n)` → `((x) => x + 1)(n)`.
 
+Landed interpreter/runtime parity slice (2026-05-29):
+
+- Parser helper lowering now carries both the quoted parameter name and the
+  runtime value: `'x` becomes `__ssc_quote__("x", x)` and `$x` becomes
+  `__ssc_splice__("x", x)`.
+- The interpreter registers lightweight `Expr` / `QuotedContext` helpers plus
+  `__ssc_macro__`, `__ssc_quote__`, `__ssc_quote_expr__`, and `__ssc_splice__`
+  so direct quoted macro bodies can run without first going through `ssc link`.
+- `Expr[A].asValue` returns the quoted runtime value as `Option[A]` in this
+  restricted interpreter slice; `Expr[A].asTerm` returns an opaque
+  `ScalaScriptTerm` value with `name` and `value` fields.
+- Example: `examples/quoted-macro-interpreter.ssc`.
+
 Current implementation boundary:
 
 - Implemented: `${ impl('x) }` entrypoints, direct `'{ $x + ... }` quoted
-  bodies, cross-module source expansion in `ssc link`.
-- Planned: `Expr[A].asValue`, `Expr[A].asTerm`, constant folding inside macro
-  implementations, richer quoted terms, diagnostics for unsupported macro
-  bodies, and interpreter/run-path expansion parity.
+  bodies, cross-module source expansion in `ssc link`, and interpreter/run-path
+  parity for the same direct quoted-body subset including runtime
+  `Expr.asValue` / `Expr.asTerm`.
+- Planned: compile-time constant folding inside macro implementations, richer
+  quoted terms, diagnostics for unsupported macro bodies, and broader
+  generated-backend conformance.
 
 ### Phase 5 — Full `derives` for user typeclasses
 

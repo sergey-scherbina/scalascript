@@ -160,6 +160,31 @@ class InlineDerivesTest extends AnyFunSuite with Matchers:
       compiletime.error("this is a compile-time error")
     """)
 
+  // ── Phase 4: restricted quoted macro interpreter parity ───────────
+
+  test("restricted quoted macro — direct interpreter run expands quoted body"):
+    captured("""
+      inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }
+      def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] = '{ $x + 1 }
+      println(plusOne(41))
+    """) shouldBe "42"
+
+  test("restricted quoted macro — Expr.asValue exposes runtime quoted value"):
+    captured("""
+      inline def literalLabel(x: Int): String = ${ literalLabelImpl('x) }
+      def literalLabelImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        "literal: " + x.asValue.getOrElse("?")
+      println(literalLabel(7))
+    """) shouldBe "literal: 7"
+
+  test("restricted quoted macro — Expr.asTerm exposes opaque term metadata"):
+    captured("""
+      inline def termName(x: Int): String = ${ termNameImpl('x) }
+      def termNameImpl(x: Expr[Int])(using q: QuotedContext): Expr[String] =
+        x.asTerm.name
+      println(termName(5))
+    """) shouldBe "x"
+
   // ── Phase 3: derives Eq ───────────────────────────────────────────
 
   test("derives Eq — eqv(a, a) is true"):

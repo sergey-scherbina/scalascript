@@ -443,7 +443,7 @@ object InterfaceExtractor:
           else
             val implName = inner.substring(0, nameEnd).trim
             val argsText = inner.substring(nameEnd + 1, inner.length - 1)
-            val quotedParam = """__ssc_quote__\("([^"]+)"\)""".r
+            val quotedParam = """__ssc_quote__\("([^"]+)"(?:\s*,[^)]*)?\)""".r
             val params = quotedParam.findAllMatchIn(argsText).map(_.group(1)).toList
             Some(MacroImplRef(
               implName = implName,
@@ -453,7 +453,7 @@ object InterfaceExtractor:
 
     /** arch-meta-v2-p4 — Direct quoted expression body of a macro impl.
      *  `'{ $x + 1 }` is preprocessed to
-     *  `__ssc_quote_expr__(__ssc_splice__("x").+(1))` by scalameta syntax
+     *  `__ssc_quote_expr__(__ssc_splice__("x", x).+(1))` by scalameta syntax
      *  rendering.  Store that body verbatim; Linker handles both original
      *  and preprocessed quote/splice spellings. */
     def extractMacroQuotedBody(d: Defn.Def): Option[String] =

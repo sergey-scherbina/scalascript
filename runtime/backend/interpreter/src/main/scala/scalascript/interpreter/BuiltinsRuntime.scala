@@ -268,6 +268,54 @@ private[interpreter] object BuiltinsRuntime:
       "summonInline"  -> Value.NativeFnV("compiletime.summonInline",  _ => Computation.PureUnit)
     ))
 
+    // ── restricted quoted macros — interpreter/run-path parity ───────────
+    //
+    // Parser preprocessing lowers `${ impl('x) }` and `'{ $x + ... }` to
+    // these helpers. Link-time expansion still erases the helper form for
+    // separately compiled modules; the interpreter keeps enough structure to
+    // run the direct quoted-body subset without going through `ssc link`.
+    interp.globals("__ssc_macro__") = Value.NativeFnV("__ssc_macro__", {
+      case List(v) => Pure(v)
+      case _       => interp.located("__ssc_macro__(expr)")
+    })
+    interp.globals("__ssc_quote__") = Value.NativeFnV("__ssc_quote__", {
+      case List(Value.StringV(name), value) =>
+        Pure(Value.InstanceV("Expr", Map(
+          "name"  -> Value.StringV(name),
+          "value" -> value
+        )))
+      case List(Value.StringV(name)) =>
+        Pure(Value.InstanceV("Expr", Map(
+          "name"  -> Value.StringV(name),
+          "value" -> Value.NoneV
+        )))
+      case _ => interp.located("__ssc_quote__(name, value)")
+    })
+    interp.globals("__ssc_quote_expr__") = Value.NativeFnV("__ssc_quote_expr__", {
+      case List(v) => Pure(v)
+      case _       => interp.located("__ssc_quote_expr__(value)")
+    })
+    interp.globals("__ssc_splice__") = Value.NativeFnV("__ssc_splice__", {
+      case List(Value.StringV(_), Value.InstanceV("Expr", fields)) =>
+        Pure(fields.getOrElse("value", Value.UnitV))
+      case List(Value.StringV(_), value) =>
+        Pure(value)
+      case List(Value.InstanceV("Expr", fields)) =>
+        Pure(fields.getOrElse("value", Value.UnitV))
+      case _ => interp.located("__ssc_splice__(name, expr)")
+    })
+    interp.globals("Expr") = Value.InstanceV("Expr", Map(
+      "apply" -> Value.NativeFnV("Expr.apply", {
+        case List(v) =>
+          Pure(Value.InstanceV("Expr", Map(
+            "name"  -> Value.StringV("<literal>"),
+            "value" -> v
+          )))
+        case _ => interp.located("Expr(value)")
+      })
+    ))
+    interp.globals("QuotedContext") = Value.InstanceV("QuotedContext", Map.empty)
+
     interp.globals("math.Pi")   = Value.doubleV(math.Pi)
     interp.globals("math.E")    = Value.doubleV(math.E)
     // math as an object so `math.sqrt(x)` works via field dispatch
