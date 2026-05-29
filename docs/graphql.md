@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4 implemented on `main` (2026-05-29).
-36 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 4, 5 implemented on `main` (2026-05-29).
+48 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -774,24 +774,31 @@ Tasks:
 
 Effort: ~2 days (syntax validation done; semantic + LSP are follow-ups).
 
-### Phase 5 - GraphQL-over-HTTP Compliance
+### Phase 5 - GraphQL-over-HTTP Compliance ✅ Landed (2026-05-29)
 
 **Goal:** server and client behavior are intentionally aligned with the
 GraphQL-over-HTTP draft.
 
-Tasks:
+Implemented in `GraphQLIntrinsics.handleRequest`:
 
-- Media-type negotiation for `application/graphql-response+json` and legacy
+- [x] Media-type negotiation: respond with `application/graphql-response+json`
+  when the `Accept` header requests it; fall back to `application/json`.
+- [x] Status codes: return `400` for request errors (missing/blank query,
+  null data) under `application/graphql-response+json`; always `200` under
   `application/json`.
-- Correct status-code behavior for parse/validation/execution failures under
-  both media types.
-- GET query encoding and mutation-over-GET `405`.
-- Strict request parameter handling: `query`, `operationName`, `variables`,
-  `extensions`.
-- `GraphQLHttpComplianceTest`.
-- Optional local run of the official `graphql-http` audit suite where feasible.
+- [x] GET query-string precedence: `?query=`, `?variables=` (JSON-encoded),
+  `?operationName=`; falls back to JSON body when no query string present.
+- [x] Mutation-over-GET rejection with `405` (§6.2.2).
+- [x] `operationName` passed to `ExecutionInput` from both POST body and GET
+  query string.
+- [x] `errors` key omitted from response body when the errors list is empty.
+- [x] `extensions` passthrough when the engine returns non-null extensions.
+- [x] Error objects include `locations` (line + column) when available.
+- [x] `GraphQLHttpComplianceTest` (12 tests).
+- [ ] Official `graphql-http` audit suite — deferred (requires running
+  a live HTTP server in CI).
 
-Effort: ~3 days.
+Effort: ~1 day (implemented).
 
 ### Phase 6 - Typed Resolver Mapping
 
@@ -929,7 +936,7 @@ Effort: ~5 days.
 | 2 | `graphqlQuery` client (4 tests) ✅; async + JS codegen pending | Interpreter + codegen |
 | 3 | Subscription lifecycle and cancellation | Integration |
 | 4 | `GraphQLSchemaCheckTest` (12) ✅; semantic validation pending | Compiler diagnostics |
-| 5 | `GraphQLHttpComplianceTest`, optional `graphql-http` audit | Protocol |
+| 5 | `GraphQLHttpComplianceTest` (12) ✅; official audit suite pending | Protocol |
 | 6 | Typed resolver signature and codec tests | Type mapping |
 | 7 | Operation validation and typed client round-trips | Compiler + runtime |
 | 8 | Persisted operation manifest/hash tests | CLI + runtime |

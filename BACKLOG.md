@@ -5674,12 +5674,12 @@ optional federation/realtime adapters.
   blocks propagate as build error via `Normalize`; `GraphQLSchemaCheckTest` 12 tests;
   36 total graphql-plugin tests. ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p5** — GraphQL-over-HTTP compliance:
-  response/request media negotiation (`application/graphql-response+json` +
-  legacy `application/json`), correct POST/GET semantics, mutation-over-GET
-  `405`, status-code behavior, request parameter validation, and optional
-  `graphql-http` audit run.
-  Spec: `docs/graphql.md §7 Phase 5`. Effort: ~3 days.
+- [x] **graphql-p5** — GraphQL-over-HTTP compliance:
+  media-type negotiation (`application/graphql-response+json` / `application/json`),
+  status-code behavior (400 on request errors under graphql-response+json),
+  `operationName` + JSON `variables` in POST body and GET query string,
+  errors key omitted when empty, `extensions` passthrough, error locations.
+  12 `GraphQLHttpComplianceTest` tests. ✓ Landed 2026-05-29.
 
 - [ ] **graphql-p6** — Typed resolver mapping:
   schema-coordinate resolver builder; typed args/input/output mapping; custom

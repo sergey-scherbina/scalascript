@@ -154,38 +154,81 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       case _         => throw InterpretError("GraphQL handler expects a Request argument")
     })
 
+  // GraphQL-over-HTTP §7.1 — preferred response content type.
+  private val GQL_RESPONSE_JSON = "application/graphql-response+json"
+  private val APP_JSON          = "application/json"
+
+  private def headerValue(fields: Map[String, Value], name: String): Option[String] =
+    fields.get("headers").collect {
+      case Value.MapV(m) =>
+        m.collectFirst {
+          case (Value.StringV(k), Value.StringV(v)) if k.equalsIgnoreCase(name) => v
+        }
+    }.flatten
+
+  private def acceptsGqlResponseJson(fields: Map[String, Value]): Boolean =
+    headerValue(fields, "accept").exists(_.contains(GQL_RESPONSE_JSON))
+
+  private def parseQueryString(qs: String): Map[String, String] =
+    qs.split('&').flatMap { p =>
+      p.split('=').toList match
+        case k :: rest => Some(java.net.URLDecoder.decode(k, "UTF-8") ->
+                               java.net.URLDecoder.decode(rest.mkString("="), "UTF-8"))
+        case _         => None
+    }.toMap
+
+  private def errorResponse(status: Int, message: String, ct: String): Value =
+    Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(status.toLong),
+      "body"    -> Value.StringV(s"""{"errors":[{"message":"$message"}]}"""),
+      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+    ))
+
   private def handleRequest(engine: graphql.GraphQL, req: Any): Value =
-    val (method, path, body) = req match
-      case Value.InstanceV("Request", fields) =>
-        val m = fields.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
-        val p = fields.get("path").collect   { case Value.StringV(s) => s }.getOrElse("/graphql")
-        val b = fields.get("body").collect   { case Value.StringV(s) => s }.getOrElse("{}")
-        (m, p, b)
-      case _ => ("POST", "/graphql", "{}")
+    val (method, path, body, fields) = req match
+      case Value.InstanceV("Request", f) =>
+        val m = f.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
+        val p = f.get("path").collect   { case Value.StringV(s) => s }.getOrElse("/graphql")
+        val b = f.get("body").collect   { case Value.StringV(s) => s }.getOrElse("")
+        (m, p, b, f)
+      case _ => ("POST", "/graphql", "", Map.empty[String, Value])
 
-    // For GET requests, try to extract ?query=... from the path; fall back to body.
-    val source =
+    // GraphQL-over-HTTP §7.1: if Accept contains application/graphql-response+json
+    // we respond with that type and may return 4xx/5xx status codes on errors.
+    val useGqlCt = acceptsGqlResponseJson(fields)
+    val ct       = if useGqlCt then GQL_RESPONSE_JSON else APP_JSON
+
+    // Decode query parameters from path for GET requests.
+    val qp: Map[String, String] =
+      if method == "GET" then parseQueryString(path.split('?').lift(1).getOrElse(""))
+      else Map.empty
+
+    // For POST: parse JSON body; for GET: prefer query-string params, fall back to body.
+    val source: ujson.Value =
       if method == "GET" then
-        val qs = path.split('?').lift(1).getOrElse("")
-        val qp = qs.split('&').flatMap { p =>
-          p.split('=').toList match
-            case k :: rest => Some(java.net.URLDecoder.decode(k, "UTF-8") ->
-                                   java.net.URLDecoder.decode(rest.mkString("="), "UTF-8"))
-            case _         => None
-        }.toMap
-        qp.get("query") match
-          case Some(q) => ujson.Obj("query" -> ujson.Str(q))
-          case None    => ujson.read(if body.isEmpty then "{}" else body)
+        if qp.contains("query") then
+          val q  = qp.get("query").map(ujson.Str(_)).getOrElse(ujson.Null)
+          val v  = qp.get("variables").flatMap(raw => scala.util.Try(ujson.read(raw)).toOption).getOrElse(ujson.Null)
+          val op = qp.get("operationName").map(ujson.Str(_)).getOrElse(ujson.Null)
+          ujson.Obj("query" -> q, "variables" -> v, "operationName" -> op)
+        else
+          scala.util.Try(ujson.read(if body.isEmpty then "{}" else body)).getOrElse(ujson.Obj())
       else
-        ujson.read(if body.isEmpty then "{}" else body)
+        scala.util.Try(ujson.read(if body.isEmpty then "{}" else body))
+          .getOrElse(ujson.Obj())
 
-    val query  = source.obj.get("query").map(_.str).getOrElse("")
-    val vars   = source.obj.get("variables") match
+    val query         = source.obj.get("query").collect { case ujson.Str(s) => s }.getOrElse("")
+    val operationName = source.obj.get("operationName").collect { case ujson.Str(s) => s }.orNull
+    val vars          = source.obj.get("variables") match
       case Some(ujson.Obj(m)) => m.toMap.map { (k, v) => k -> ujsonToJava(v) }.asJava
       case _                  => java.util.Collections.emptyMap[String, Any]()
 
+    if query.isBlank then
+      return if useGqlCt then errorResponse(400, "Missing query", ct)
+             else errorResponse(200, "Missing query", ct)
+
     // GET requests must not execute mutations (GraphQL-over-HTTP §6.2.2).
-    if method == "GET" && query.nonEmpty then
+    if method == "GET" then
       try
         val doc = graphql.parser.Parser.parse(query)
         val hasMutation = doc.getDefinitions.asScala.exists {
@@ -196,26 +239,50 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         if hasMutation then
           return Value.InstanceV("Response", Map(
             "status"  -> Value.IntV(405L),
-            "body"    -> Value.StringV(
-              """{"errors":[{"message":"Mutations are not allowed over GET"}]}"""),
-            "headers" -> Value.MapV(Map(
-              Value.StringV("Content-Type") -> Value.StringV("application/json"),
-            )),
+            "body"    -> Value.StringV("""{"errors":[{"message":"Mutations are not allowed over GET"}]}"""),
+            "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
           ))
-      catch case _: Exception => () // parse errors surface through the engine below
+      catch case _: Exception => () // syntax errors surface through the engine below
 
-    val input  = ExecutionInput.newExecutionInput(query).variables(vars).build()
+    val inputBuilder = ExecutionInput.newExecutionInput(query).variables(vars)
+    if operationName != null then inputBuilder.operationName(operationName)
+    val input  = inputBuilder.build()
     val result = engine.execute(input)
+
     val dataVal = if result.getData[Any] == null then ujson.Null
-      else anyToUJson(result.getData[java.util.Map[String, Any]]())
-    val errsArr = result.getErrors.asScala.map(e => ujson.Str(e.getMessage)).toList
-    val resp    = ujson.Obj("data" -> dataVal, "errors" -> ujson.Arr.from(errsArr))
+                  else anyToUJson(result.getData[java.util.Map[String, Any]]())
+    val errsArr = result.getErrors.asScala.toList
+
+    // Under application/graphql-response+json: omit "errors" key when empty;
+    // use 200 for partial results, 4xx only for request errors (no data at all).
+    val hasRequestError = result.getData[Any] == null && errsArr.nonEmpty
+    val status =
+      if useGqlCt && hasRequestError then 400
+      else 200
+
+    val respObj = ujson.Obj("data" -> dataVal)
+    if errsArr.nonEmpty then
+      respObj("errors") = ujson.Arr.from(
+        errsArr.map { e =>
+          val obj = ujson.Obj("message" -> ujson.Str(e.getMessage))
+          val locs = Option(e.getLocations).map(_.asScala.toList).getOrElse(Nil)
+          if locs.nonEmpty then
+            obj("locations") = ujson.Arr.from(locs.map { l =>
+              ujson.Obj("line" -> ujson.Num(l.getLine), "column" -> ujson.Num(l.getColumn))
+            })
+          obj
+        }
+      )
+
+    // Pass through extensions if the engine returned any.
+    val ext = result.getExtensions
+    if ext != null && !ext.isEmpty then
+      respObj("extensions") = anyToUJson(ext)
+
     Value.InstanceV("Response", Map(
-      "status"  -> Value.IntV(200L),
-      "body"    -> Value.StringV(ujson.write(resp)),
-      "headers" -> Value.MapV(Map(
-        Value.StringV("Content-Type") -> Value.StringV("application/json"),
-      )),
+      "status"  -> Value.IntV(status.toLong),
+      "body"    -> Value.StringV(ujson.write(respObj)),
+      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
     ))
 
   // ── Remote GraphQL client ──────────────────────────────────────────────────
