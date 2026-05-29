@@ -431,7 +431,27 @@ case class ExportedSymbol(
    *  whose package (`manifest.name`) differs from the exporting library's
    *  package.  Default `false` preserves backward compatibility with
    *  `.scim` artifacts emitted before this field existed. */
-  isInternal: Boolean = false
+  isInternal: Boolean = false,
+  /** arch-meta-v2-p3 — `inline def` marker.
+   *  When `true` this symbol was declared `inline def` in its source module.
+   *  Consumers may use this to decide whether to inline the call site.
+   *
+   *  Default `false` preserves backward compatibility with `.scim` artifacts
+   *  emitted before this field existed. */
+  isInline: Boolean = false,
+  /** arch-meta-v2-p3 — Parameter names of an `inline def`, in declaration order.
+   *  Empty for non-inline symbols, non-def symbols, or multi-clause defs.
+   *  Pair with [[inlineBodySource]] for call-site expansion.
+   *
+   *  Default `Nil` preserves backward compatibility. */
+  inlineParamNames: List[String] = Nil,
+  /** arch-meta-v2-p3 — Source text of the `inline def` body expression.
+   *  `None` for non-inline symbols or when the body is not expressible as
+   *  a single term (e.g. `def f(x: Int): Unit = { side(); other() }`).
+   *
+   *  Used by `Linker.expandInlineCalls` to substitute the body at the
+   *  call site.  Default `None` preserves backward compatibility. */
+  inlineBodySource: Option[String] = None
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.

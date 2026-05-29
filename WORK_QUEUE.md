@@ -157,7 +157,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme G — Metaprogramming v2.x
 
-- [ ] **arch-meta-v2-p3** — Cross-module `inline` expansion: IR-level inlining in `ssc link`; requires plugin-author demand and stable SPI/distribution foundations. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
+- [x] **arch-meta-v2-p3** — Cross-module `inline` expansion: IR-level inlining in `ssc link`; requires plugin-author demand and stable SPI/distribution foundations. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
 
 - [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 

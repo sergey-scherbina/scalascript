@@ -431,3 +431,57 @@ class InterfaceExtractorTest extends AnyFunSuite:
       "exported names must appear in facade")
     assert(!iface.scalaFacade.contains("org.acme.privat"),
       s"private helpers must NOT appear in facade, got: ${iface.scalaFacade.keySet}")
+
+  // ── arch-meta-v2-p3: inline def metadata ────────────────────────────────
+
+  test("inline def — isInline=true, paramNames and bodySource populated"):
+    val iface = extract("inline def double(x: Int): Int = x * 2")
+    val sym = iface.exports.find(_.name == "double").getOrElse {
+      fail(s"expected 'double' in exports; got: ${iface.exports.map(_.name)}")
+    }
+    assert(sym.isInline, "isInline should be true for `inline def`")
+    assert(sym.inlineParamNames == List("x"),
+      s"expected paramNames=[x], got: ${sym.inlineParamNames}")
+    assert(sym.inlineBodySource.contains("x * 2"),
+      s"expected body 'x * 2', got: ${sym.inlineBodySource}")
+
+  test("inline def — non-inline def leaves isInline=false"):
+    val iface = extract("def add(a: Int, b: Int): Int = a + b")
+    val sym = iface.exports.find(_.name == "add").getOrElse {
+      fail(s"expected 'add' in exports; got: ${iface.exports.map(_.name)}")
+    }
+    assert(!sym.isInline, "isInline must be false for a plain def")
+    assert(sym.inlineParamNames.isEmpty)
+    assert(sym.inlineBodySource.isEmpty)
+
+  test("inline def — zero-arg inline records empty param list"):
+    val iface = extract("inline def pi: Double = 3.14159")
+    val sym = iface.exports.find(_.name == "pi").getOrElse {
+      fail(s"expected 'pi' in exports")
+    }
+    assert(sym.isInline, "isInline should be true")
+    assert(sym.inlineParamNames.isEmpty, "zero-arg inline has no param names")
+    assert(sym.inlineBodySource.nonEmpty, s"body should be non-empty, got: ${sym.inlineBodySource}")
+
+  test("inline def — multi-param inline captures all param names"):
+    val iface = extract("inline def clamp(lo: Int, x: Int, hi: Int): Int = if x < lo then lo else if x > hi then hi else x")
+    val sym = iface.exports.find(_.name == "clamp").getOrElse {
+      fail(s"expected 'clamp' in exports")
+    }
+    assert(sym.isInline)
+    assert(sym.inlineParamNames == List("lo", "x", "hi"),
+      s"expected [lo, x, hi], got: ${sym.inlineParamNames}")
+
+  test("inline def — nested inside object: isInline propagated via buildNestedSymbol"):
+    val iface = extract(
+      """object Math:
+        |  inline def square(n: Int): Int = n * n""".stripMargin)
+    val mathSym = iface.exports.find(_.name == "Math").getOrElse {
+      fail(s"expected 'Math' object export")
+    }
+    val squareSym = mathSym.nested.find(_.name == "square").getOrElse {
+      fail(s"expected nested 'square' export; nested: ${mathSym.nested.map(_.name)}")
+    }
+    assert(squareSym.isInline, "nested inline def should have isInline=true")
+    assert(squareSym.inlineParamNames == List("n"))
+    assert(squareSym.inlineBodySource.contains("n * n"))

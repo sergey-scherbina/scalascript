@@ -62,9 +62,17 @@ object Linker:
     // Build the global symbol table: fqn → SymbolEntry
     val symTable = buildSymbolTable(modules)
 
-    // Merge all sections, rewriting cross-module VarRef nodes in CodeBlocks.
+    // arch-meta-v2-p3 — Build the cross-module inline table.
+    // Each entry maps the inline def's short name (as it appears in source)
+    // to its (paramNames, bodySource) pair from the defining module's .scim.
+    // Only defs from *foreign* modules are included; a module's own inlines
+    // are already expanded by the compiler before linking.
+    val inlineTable = buildInlineTable(modules)
+
+    // Merge all sections, rewriting cross-module VarRef nodes in CodeBlocks
+    // and expanding cross-module inline calls in CodeBlock.source.
     val allSections = modules.flatMap { cm =>
-      rewriteSections(cm.body.sections, symTable, cm.iface.pkg)
+      expandAndRewriteSections(cm.body.sections, symTable, inlineTable, cm.iface.pkg)
     }
 
     // Use the last module's manifest as the entry manifest.
@@ -91,38 +99,225 @@ object Linker:
     }
     table.toMap
 
-  /** Rewrite `VarRef` nodes in code-block bodies to use FQNs when the name
-   *  resolves to an import from a different module (i.e. a foreign package).
+  /** arch-meta-v2-p3 — Build the cross-module inline table.
    *
-   *  The current IR does not yet carry full expression bodies (code blocks
-   *  store source, not IrExpr trees).  When Stage 3+ effect lowering populates
-   *  `CodeBlock.body` the rewriter below will operate on real IrExpr trees.
-   *  For now it is a no-op on the CodeBlock.source field — source rewriting
-   *  is not performed (backends re-parse from source).
+   *  Collects every `inline def` export (where `isInline = true` and
+   *  `inlineBodySource` is non-empty) from every module.  All modules are
+   *  included; when a consumer module calls one of these, `expandInlineSource`
+   *  will substitute the call with a lambda-lifted form.
    *
-   *  The method is still wired in so the linker call-site is correct and can
-   *  be filled in incrementally as Stage 3+ lands. */
-  private def rewriteSections(
-      sections:  List[Section],
-      symTable:  Map[String, SymbolEntry],
-      ownPkg:    List[String]
+   *  Key = short name (as it appears at a call site, without package prefix).
+   *  If two modules export an inline def with the same short name, the last
+   *  one wins — the same precedence as `buildSymbolTable`. */
+  private def buildInlineTable(
+      modules: List[CompiledModule]
+  ): Map[String, (List[String], String)] =
+    val table = scala.collection.mutable.Map.empty[String, (List[String], String)]
+    def collectSymbol(sym: ExportedSymbol): Unit =
+      if sym.isInline then
+        sym.inlineBodySource.foreach { body =>
+          table(sym.name) = (sym.inlineParamNames, body)
+        }
+      sym.nested.foreach(collectSymbol)
+    modules.foreach { cm =>
+      cm.iface.exports.foreach(collectSymbol)
+    }
+    table.toMap
+
+  /** arch-meta-v2-p3 — Expand cross-module inline calls in `CodeBlock.source`
+   *  and rewrite `VarRef` nodes in code-block bodies to use FQNs when the
+   *  name resolves to an import from a different module.
+   *
+   *  Source-level expansion uses a lambda-lifting strategy:
+   *    `f(arg1, arg2)` → `((p1, p2) => body)(arg1, arg2)`
+   *  This is hygienic: no capture of surrounding names, no alpha-renaming
+   *  needed.  The ScalaScript compiler in the backend re-parses the expanded
+   *  source and beta-reduces the immediately-applied lambda as part of normal
+   *  compilation.
+   *
+   *  For code blocks that also have a populated `body: List[IrExpr]` (Stage
+   *  3+ effect lowering), the VarRef rewriter runs on the IrExpr tree as
+   *  before. */
+  private def expandAndRewriteSections(
+      sections:    List[Section],
+      symTable:    Map[String, SymbolEntry],
+      inlineTable: Map[String, (List[String], String)],
+      ownPkg:      List[String]
   ): List[Section] =
     sections.map { s =>
       s.copy(
-        content     = s.content.map(c => rewriteContent(c, symTable, ownPkg)),
-        subsections = rewriteSections(s.subsections, symTable, ownPkg)
+        content     = s.content.map(c => expandAndRewriteContent(c, symTable, inlineTable, ownPkg)),
+        subsections = expandAndRewriteSections(s.subsections, symTable, inlineTable, ownPkg)
       )
     }
 
-  private def rewriteContent(
-      content:  Content,
-      symTable: Map[String, SymbolEntry],
-      ownPkg:   List[String]
+  private def expandAndRewriteContent(
+      content:     Content,
+      symTable:    Map[String, SymbolEntry],
+      inlineTable: Map[String, (List[String], String)],
+      ownPkg:      List[String]
   ): Content = content match
-    case cb: Content.CodeBlock if cb.body.nonEmpty =>
-      // Rewrite IrExpr nodes in the body list (populated by Stage 3+).
-      cb.copy(body = cb.body.map(e => rewriteExpr(e, symTable, ownPkg)))
+    case cb: Content.CodeBlock =>
+      val expandedSrc =
+        if inlineTable.nonEmpty then expandInlineSource(cb.source, inlineTable)
+        else cb.source
+      val rewrittenBody =
+        if cb.body.nonEmpty then cb.body.map(e => rewriteExpr(e, symTable, ownPkg))
+        else cb.body
+      if (expandedSrc eq cb.source) && (rewrittenBody eq cb.body) then cb
+      else cb.copy(source = expandedSrc, body = rewrittenBody)
     case other => other
+
+  /** arch-meta-v2-p3 — Expand cross-module `inline def` call sites in source text.
+   *
+   *  For each entry in `inlineTable` (name → (paramNames, bodySource)),
+   *  finds call sites of the form `name(arg1, arg2, ...)` in `src` and
+   *  replaces them with `((p1, p2) => body)(arg1, arg2, ...)`.
+   *
+   *  The scanner is careful about:
+   *  - Word boundaries: only matches `name(` where `name` is not preceded by
+   *    an identifier character (avoids matching `methodName` inside `fullName`).
+   *  - Nested parentheses: uses a counter so `f(g(x), y)` is parsed as a
+   *    single call with two args `g(x)` and `y`.
+   *  - String literals: skips `"..."` and `'...'` so a name appearing inside
+   *    a string is not treated as a call site.
+   *
+   *  No-arg inlines (`params = Nil`) are expanded to `(body)` without
+   *  the lambda wrapper.  Multi-clause inlines are never stored in the table
+   *  (filtered in `InterfaceExtractor.extractInlineInfo`). */
+  private[artifact] def expandInlineSource(
+      src:         String,
+      inlineTable: Map[String, (List[String], String)]
+  ): String =
+    if inlineTable.isEmpty || src.isEmpty then return src
+
+    val sb       = new java.lang.StringBuilder(src.length + 64)
+    val len      = src.length
+    var i        = 0
+    var modified = false
+
+    def isIdentChar(c: Char): Boolean =
+      c.isLetterOrDigit || c == '_' || c == '$'
+
+    // Skip a string literal starting at position j (src(j) == '"' or '\'').
+    // Returns the index after the closing delimiter.
+    def skipStringLit(j: Int): Int =
+      val delim = src(j)
+      var k = j + 1
+      while k < len && src(k) != delim do
+        if src(k) == '\\' then k += 1  // skip escaped char
+        k += 1
+      if k < len then k + 1 else k     // skip closing delimiter
+
+    // Extract comma-separated call arguments from `src` starting just
+    // after the opening '(' (i.e. `from` is the index of the first char
+    // inside the parens).  Returns `Some((args, endPos))` where `endPos`
+    // is the index of the matching ')'.
+    def extractArgs(from: Int): Option[(List[String], Int)] =
+      var depth   = 1
+      var k       = from
+      val argBuf  = new java.lang.StringBuilder
+      val args    = scala.collection.mutable.ListBuffer.empty[String]
+      // Bracket stacks for `[...]` and `{...}` — treated as depth-neutral
+      // relative to the outer `(...)` counter so that `f(xs.map { _ + 1 })`
+      // doesn't prematurely close the arg list on `}`.
+      var squareDepth = 0
+      var curlyDepth  = 0
+      while k < len && depth > 0 do
+        src(k) match
+          case '"' | '\'' =>
+            val end = skipStringLit(k)
+            argBuf.append(src, k, end)
+            k = end
+          case '(' =>
+            depth += 1
+            argBuf.append(src(k))
+            k += 1
+          case ')' =>
+            depth -= 1
+            if depth > 0 then argBuf.append(src(k))
+            k += 1
+          case '[' =>
+            squareDepth += 1
+            argBuf.append(src(k))
+            k += 1
+          case ']' =>
+            if squareDepth > 0 then squareDepth -= 1
+            argBuf.append(src(k))
+            k += 1
+          case '{' =>
+            curlyDepth += 1
+            argBuf.append(src(k))
+            k += 1
+          case '}' =>
+            if curlyDepth > 0 then curlyDepth -= 1
+            argBuf.append(src(k))
+            k += 1
+          case ',' if depth == 1 && squareDepth == 0 && curlyDepth == 0 =>
+            args += argBuf.toString.trim
+            argBuf.setLength(0)
+            k += 1
+          case c =>
+            argBuf.append(c)
+            k += 1
+      if depth != 0 then None
+      else
+        val last = argBuf.toString.trim
+        val allArgs = if last.isEmpty && args.isEmpty then Nil
+                      else (args += last).toList
+        Some(allArgs -> (k - 1))   // k - 1 is the index of the closing ')'
+
+    while i < len do
+      src(i) match
+        // Skip string literals to avoid false call-site detection inside strings.
+        case '"' | '\'' =>
+          val end = skipStringLit(i)
+          sb.append(src, i, end)
+          i = end
+        case c =>
+          // Check if any inline name starts at position i with a word boundary.
+          if isIdentChar(c) && (i == 0 || !isIdentChar(src(i - 1))) then
+            val matched = inlineTable.find { case (name, _) =>
+              src.startsWith(name, i) &&
+                (i + name.length >= len || !isIdentChar(src(i + name.length)))
+            }
+            matched match
+              case Some((name, (params, body))) =>
+                // Advance past the name; skip any whitespace; check for '('
+                val afterName = i + name.length
+                var j = afterName
+                while j < len && src(j).isWhitespace do j += 1
+                if j < len && src(j) == '(' then
+                  extractArgs(j + 1) match
+                    case Some((args, endPos)) =>
+                      modified = true
+                      if params.isEmpty then
+                        sb.append('(').append(body).append(')')
+                      else
+                        sb.append("((")
+                        sb.append(params.mkString(", "))
+                        sb.append(") => ")
+                        sb.append(body)
+                        sb.append(")(")
+                        sb.append(args.mkString(", "))
+                        sb.append(')')
+                      i = endPos + 1
+                    case None =>
+                      // Unmatched parens — emit as-is and move forward 1 char.
+                      sb.append(src(i))
+                      i += 1
+                else
+                  // Name not followed by '(' — not a call site.
+                  sb.append(src(i))
+                  i += 1
+              case None =>
+                sb.append(src(i))
+                i += 1
+          else
+            sb.append(src(i))
+            i += 1
+
+    if modified then sb.toString else src
 
   private def rewriteExpr(
       expr:     IrExpr,

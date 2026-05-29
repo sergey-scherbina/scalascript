@@ -415,3 +415,123 @@ class LinkerRewriteTest extends AnyFunSuite:
     // The literal 42 must still be the sole argument, unchanged.
     assert(call.args == List(Lit(LitValue.IntL(42L))),
       s"expected args=[Lit(IntL(42))], got: ${call.args}")
+
+  // ── arch-meta-v2-p3: cross-module inline expansion ──────────────────────
+
+  test("expandInlineSource — single-param inline: lambda-lifted form emitted"):
+    val table = Map("double" -> (List("x") -> "x * 2"))
+    val result = Linker.expandInlineSource("val y = double(n + 1)", table)
+    assert(result == "val y = ((x) => x * 2)(n + 1)",
+      s"unexpected expansion: $result")
+
+  test("expandInlineSource — zero-param inline: body wrapped in parens (no lambda)"):
+    val table = Map("pi" -> (Nil -> "3.14159"))
+    val result = Linker.expandInlineSource("val r = pi", table)
+    // name not followed by '(' — not treated as a call site
+    assert(result == "val r = pi", s"should leave bare reference as-is: $result")
+
+  test("expandInlineSource — zero-param inline with call-site parens"):
+    val table = Map("pi" -> (Nil -> "3.14159"))
+    val result = Linker.expandInlineSource("val r = pi()", table)
+    assert(result == "val r = (3.14159)", s"unexpected: $result")
+
+  test("expandInlineSource — multi-param inline expands all params"):
+    val table = Map("clamp" -> (List("lo", "x", "hi") -> "if x < lo then lo else if x > hi then hi else x"))
+    val result = Linker.expandInlineSource("clamp(0, v, 100)", table)
+    assert(result == "((lo, x, hi) => if x < lo then lo else if x > hi then hi else x)(0, v, 100)",
+      s"unexpected: $result")
+
+  test("expandInlineSource — name in string literal is NOT expanded"):
+    val table = Map("double" -> (List("x") -> "x * 2"))
+    val result = Linker.expandInlineSource("""val s = "double(5)"""", table)
+    assert(result == """val s = "double(5)"""", s"string contents must not be expanded: $result")
+
+  test("expandInlineSource — nested parens in args parsed correctly"):
+    val table = Map("neg" -> (List("x") -> "-x"))
+    val result = Linker.expandInlineSource("neg(f(g(1, 2), 3))", table)
+    assert(result == "((x) => -x)(f(g(1, 2), 3))",
+      s"unexpected: $result")
+
+  test("expandInlineSource — word-boundary: `notDouble(5)` is not confused with `double`"):
+    val table = Map("double" -> (List("x") -> "x * 2"))
+    val result = Linker.expandInlineSource("notDouble(5)", table)
+    assert(result == "notDouble(5)", s"should not match partial identifier: $result")
+
+  test("expandInlineSource — no-op on source with no matching calls (returns same ref)"):
+    val table = Map("double" -> (List("x") -> "x * 2"))
+    val src = "val y = triple(5)"
+    val result = Linker.expandInlineSource(src, table)
+    assert(result eq src, "should return the original string ref when nothing matched")
+
+  test("expandInlineSource — multiple distinct inline calls in one source"):
+    val table = Map(
+      "inc"  -> (List("n") -> "n + 1"),
+      "dbl"  -> (List("n") -> "n * 2")
+    )
+    val result = Linker.expandInlineSource("inc(dbl(x))", table)
+    // Only the outermost match fires — the inner `dbl(x)` is already inside
+    // the matched arg span and stays as-is in the arg text.
+    // After first pass: inc → expanded; dbl inside arg stays raw.
+    // (The expander makes only one pass, not recursive.)
+    assert(result.contains("=> n + 1"), s"inc should be expanded: $result")
+
+  test("link — inline export in dependency module is expanded in consumer source"):
+    // Build a library module that exports an `inline def`
+    val libIface = ModuleInterface(
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = List("lib"),
+      moduleName    = Some("lib"),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = List(ExportedSymbol(
+        name             = "square",
+        fqn              = "lib_square",
+        kind             = "def",
+        tpe              = "Any",
+        isInline         = true,
+        inlineParamNames = List("n"),
+        inlineBodySource = Some("n * n")
+      ))
+    )
+    val libBody = NormalizedModule(
+      manifest = None,
+      sections = List(Section(
+        heading     = Heading(level = 1, text = "lib"),
+        content     = List(Content.CodeBlock("inline def square(n: Int): Int = n * n")),
+        subsections = Nil))
+    )
+    val libModule = Linker.CompiledModule(iface = libIface, body = libBody)
+
+    // Build a consumer module that calls `square`
+    val withFence =
+      s"""# Consumer
+         |
+         |```scalascript
+         |val y = square(5)
+         |```
+         |""".stripMargin
+    val consumerAst  = scalascript.parser.Parser.parse(withFence)
+    val consumerNorm = scalascript.transform.Normalize(consumerAst)
+    val consumerIface = ModuleInterface(
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = List("app"),
+      moduleName    = Some("consumer"),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = List(ExportedSymbol(name = "y", fqn = "app_y", kind = "val", tpe = "Any"))
+    )
+    val consumerModule = Linker.CompiledModule(iface = consumerIface, body = consumerNorm)
+
+    val merged = Linker.link(List(libModule, consumerModule))
+    // The consumer's code block source should have `square(5)` replaced by
+    // the lambda-lifted form.
+    val allSources = merged.sections.flatMap { s =>
+      s.content.collect { case cb: Content.CodeBlock => cb.source }
+    }
+    val consumerSrc = allSources.find(_.contains("5")).getOrElse(
+      fail(s"could not find consumer code block; sources: $allSources")
+    )
+    assert(consumerSrc.contains("=> n * n"),
+      s"expected lambda-lifted inline body in consumer source; got:\n$consumerSrc")

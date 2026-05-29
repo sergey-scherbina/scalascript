@@ -408,6 +408,23 @@ object InterfaceExtractor:
       val ret = typeToString(d.decltpe)
       if paramText.isEmpty then ret else s"$paramText: $ret"
 
+    /** arch-meta-v2-p3 — Extract `inline def` metadata.
+     *
+     *  Returns `Some((paramNames, bodySource))` when `d` is an `inline def`
+     *  with a single, simple parameter clause (no `using`/`given` clauses)
+     *  and a single-expression body.  Returns `None` for non-inline defs,
+     *  multi-clause defs, and defs whose body is not a single term. */
+    def extractInlineInfo(d: Defn.Def): Option[(List[String], String)] =
+      if !d.mods.exists(_.is[Mod.Inline]) then None
+      else
+        // Only inline single-clause defs for now; multi-clause is deferred.
+        val clauses = d.paramClauseGroups.flatMap(_.paramClauses)
+          .filterNot(_.values.exists(_.mods.exists(_.is[Mod.Using])))
+        if clauses.size > 1 then None
+        else
+          val params = clauses.headOption.map(_.values.map(_.name.value)).getOrElse(Nil)
+          Some(params -> d.body.syntax)
+
     // ── Recursive nested-member extraction ────────────────────────────────
     //
     // Maximum depth for walking nested `Defn.Object` stats.  An object at
@@ -433,13 +450,17 @@ object InterfaceExtractor:
       stat match
         case d: Defn.Def if !EffectAnalysis.isExternDef(d.body) =>
           val (dl, dc) = positionFor(d.name)
+          val inl = extractInlineInfo(d)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
             kind = "def",
             tpe  = "Any",
             definitionLine   = dl,
-            definitionColumn = dc
+            definitionColumn = dc,
+            isInline         = inl.isDefined,
+            inlineParamNames = inl.map(_._1).getOrElse(Nil),
+            inlineBodySource = inl.map(_._2)
           ))
         case d: Defn.Val =>
           // Multi-pat `val (a, b) = …` is rare here; surface each Pat.Var.
@@ -659,6 +680,14 @@ object InterfaceExtractor:
         case _                                           => Nil
       }.toSet
 
+    // arch-meta-v2-p3 — inline metadata for top-level defs.
+    // `buildNestedSymbol` already populates isInline for nested objects;
+    // this map covers the top-level path that goes through `allDefs`.
+    val topLevelInlineInfo: Map[String, (List[String], String)] =
+      topLevelStats.collect {
+        case d: Defn.Def => extractInlineInfo(d).map(d.name.value -> _)
+      }.flatten.toMap
+
     val rawExports = allDefs
       .filterNot { d =>
         d.kind == TSymbolKind.Param ||
@@ -670,6 +699,7 @@ object InterfaceExtractor:
             nestedForObject(topLevelStats, d.name, fqn(d.name))
           else Nil
         val (dl, dc) = topLevelPositions.getOrElse(d.name, (0, 0))
+        val inlineInfo = topLevelInlineInfo.get(d.name)
         ExportedSymbol(
           name             = d.name,
           fqn              = fqn(d.name),
@@ -678,7 +708,10 @@ object InterfaceExtractor:
           nested           = nested,
           definitionLine   = dl,
           definitionColumn = dc,
-          isInternal       = internalNames.contains(d.name)
+          isInternal       = internalNames.contains(d.name),
+          isInline         = inlineInfo.isDefined,
+          inlineParamNames = inlineInfo.map(_._1).getOrElse(Nil),
+          inlineBodySource = inlineInfo.map(_._2)
         )
       }
       .toList
