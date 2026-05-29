@@ -5662,11 +5662,12 @@ optional federation/realtime adapters.
   Remaining: `Future[A]` async resolvers, `graphql-js` JS backend, `Feature.GraphQL`.
   Partially landed 2026-05-29.
 
-- [ ] **graphql-p3** — Subscriptions over WebSocket (`graphql-ws`):
-  WS endpoint `GET /graphql/ws`; `graphql-ws` protocol handler; `Source[A]` ->
-  `Publisher[A]` bridge; `graphqlSubscribe` client extern; production mode
-  (introspection off); `examples/graphql-subscriptions.ssc`.
-  Spec: `docs/graphql.md §7 Phase 3`. Effort: ~6 days.
+- [x] **graphql-p3** — Subscriptions over WebSocket (`graphql-transport-ws`):
+  Subscription resolver wired into graphql-java `Subscription` type wiring;
+  `ListPublisher` (Reactive Streams); `mountGraphQL` registers `/graphql/ws` WS route
+  when subscription resolvers present; full graphql-transport-ws protocol state machine
+  (connection_init/ack, subscribe, ping/pong, complete, error, invalid-JSON ignored);
+  `GraphQLSubscriptionTest` 14 tests; 121 total graphql-plugin tests. ✓ Landed 2026-05-29.
 
 - [x] **graphql-p4** — Compile-time SDL validation:
   `GraphQLSourceLanguage.compileBlock` validates SDL via graphql-java's `SchemaParser`;
