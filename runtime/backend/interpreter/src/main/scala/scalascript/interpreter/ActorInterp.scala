@@ -1706,7 +1706,7 @@ private[interpreter] trait ActorInterp:
         val proxyId = rt.nextId
         rt.nextId += 1
         rt.mailboxes(proxyId) = new java.util.concurrent.LinkedBlockingQueue[Value]()
-        rt.pending(proxyId) = Computation.Perform("Actor", "proxyFlush", List(targetRef))
+        rt.pending(proxyId) = Computation.Perform("Actor", "proxyFlush", targetRef :: Nil)
         rt.ready.enqueue(proxyId)
         Right(k(mkPid("", proxyId)))
       case _ => throw InterpretError("proxyActor(ref)")

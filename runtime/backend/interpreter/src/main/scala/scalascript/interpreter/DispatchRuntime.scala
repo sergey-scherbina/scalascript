@@ -1665,7 +1665,7 @@ private[interpreter] object DispatchRuntime:
       case "->" => Pure(Value.TupleV(lhs :: rhs :: Nil))
       case "!" => lhs match
         case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", pid :: rhs :: Nil)
-        case _                               => dispatch(lhs, op, List(rhs), env, interp)
+        case _                               => dispatch(lhs, op, rhs :: Nil, env, interp)
       case ":=" => lhs match
         case Value.InstanceV("AttrKey", fields) =>
           val name = fields.get("name").map(Value.show).getOrElse("")
@@ -1673,8 +1673,8 @@ private[interpreter] object DispatchRuntime:
             "name"  -> Value.StringV(name),
             "value" -> Value.StringV(Value.show(rhs))
           )))
-        case _ => dispatch(lhs, op, List(rhs), env, interp)
-      case _ => dispatch(lhs, op, List(rhs), env, interp)
+        case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
 
   private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Option[Computation] =
     val typeName = recv match

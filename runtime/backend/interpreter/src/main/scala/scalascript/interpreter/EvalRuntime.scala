@@ -437,10 +437,10 @@ private[interpreter] object EvalRuntime:
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
               case other               => eval(other, env, interp)
             (qualC, arg1C) match
-              case (Pure(qv), Pure(av)) => DispatchRuntime.dispatch(qv, method, List(av), env, interp)
-              case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, List(av), env, interp))
-              case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch(qv, method, List(av), env, interp))
-              case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, List(av), env, interp)))
+              case (Pure(qv), Pure(av)) => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp)
+              case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp))
+              case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp))
+              case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch(qv, method, av :: Nil, env, interp)))
           else
             val argComps = argTerms.map {
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
@@ -535,12 +535,12 @@ private[interpreter] object EvalRuntime:
             val arg1C = eval(allArgTerms.head, env, interp)
             val arg2C = eval(allArgTerms(1),   env, interp)
             (funC, arg1C, arg2C) match
-              case (Pure(fv), Pure(av1), Pure(av2)) => interp.callValue(fv, List(av1, av2), env)
-              case (Pure(fv), Pure(av1), _)         => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env))
-              case (Pure(fv), _, Pure(av2))         => FlatMap(arg1C, av1 => interp.callValue(fv, List(av1, av2), env))
-              case (Pure(fv), _, _)                 => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env)))
-              case (_, Pure(av1), Pure(av2))        => FlatMap(funC, fv => interp.callValue(fv, List(av1, av2), env))
-              case _                                => FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, List(av1, av2), env))))
+              case (Pure(fv), Pure(av1), Pure(av2)) => interp.callValue(fv, av1 :: av2 :: Nil, env)
+              case (Pure(fv), Pure(av1), _)         => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+              case (Pure(fv), _, Pure(av2))         => FlatMap(arg1C, av1 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+              case (Pure(fv), _, _)                 => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env)))
+              case (_, Pure(av1), Pure(av2))        => FlatMap(funC, fv => interp.callValue(fv, av1 :: av2 :: Nil, env))
+              case _                                => FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))))
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
             val argVsPos = extractPureValues(argComps)

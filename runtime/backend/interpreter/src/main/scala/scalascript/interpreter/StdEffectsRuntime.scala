@@ -90,7 +90,7 @@ private[interpreter] object StdEffectsRuntime:
       "attempt" -> Value.NativeFnV("Retry.attempt", args => args match
         case List(Value.IntV(n), Value.IntV(delayMs)) =>
           Pure(Value.NativeFnV("Retry.attempt.thunk", thunkArgs => thunkArgs match
-            case List(thunk) => Perform("Retry", "attempt", List(Value.intV(n), Value.intV(delayMs), thunk))
+            case List(thunk) => Perform("Retry", "attempt", Value.intV(n) :: Value.intV(delayMs) :: thunk :: Nil)
             case _           => throw InterpretError("Retry.attempt(n, delayMs)(thunk: () => Any)")
           ))
         case _ => throw InterpretError("Retry.attempt(n: Int, delayMs: Long)(thunk: () => Any)")
@@ -102,7 +102,7 @@ private[interpreter] object StdEffectsRuntime:
       "memoize" -> Value.NativeFnV("Cache.memoize", args => args match
         case List(Value.StringV(key), Value.IntV(ttlSeconds)) =>
           Pure(Value.NativeFnV("Cache.memoize.thunk", thunkArgs => thunkArgs match
-            case List(thunk) => Perform("Cache", "memoize", List(Value.StringV(key), Value.intV(ttlSeconds), thunk))
+            case List(thunk) => Perform("Cache", "memoize", Value.StringV(key) :: Value.intV(ttlSeconds) :: thunk :: Nil)
             case _           => throw InterpretError("Cache.memoize(key, ttlSeconds)(thunk: () => Any)")
           ))
         case _ => throw InterpretError("Cache.memoize(key: String, ttlSeconds: Long)(thunk: () => Any)")

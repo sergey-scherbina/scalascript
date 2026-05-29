@@ -110,13 +110,13 @@ private[interpreter] object DatasetRuntime:
               case other           => List(other)
             case _ => () => Nil
           Pure(makeDatasetV(() => run().zip(otherRun()).map { case (a, b) =>
-            Value.TupleV(List(a, b))
+            Value.TupleV(a :: b :: Nil)
           }, interp))
         case _ => throw InterpretError("Dataset.zip(other: Dataset[U]): Dataset[(T, U)]")
       }),
       "zipWithIndex" -> Value.NativeFnV("Dataset.zipWithIndex",
         Computation.pureFn(_ => makeDatasetV(() =>
-          run().zipWithIndex.map { case (v, i) => Value.TupleV(List(v, Value.IntV(i.toLong))) }
+          run().zipWithIndex.map { case (v, i) => Value.TupleV(v :: Value.IntV(i.toLong) :: Nil) }
         , interp))
       ),
       "min" -> Value.NativeFnV("Dataset.min", Computation.pureFn { _ =>
@@ -172,7 +172,7 @@ private[interpreter] object DatasetRuntime:
               case Value.BoolV(b) => b
               case _              => false
           )
-          Pure(Value.TupleV(List(Value.ListV(yes), Value.ListV(no))))
+          Pure(Value.TupleV(Value.ListV(yes) :: Value.ListV(no) :: Nil))
         case _ => throw InterpretError("Dataset.partition(p: T => Boolean): (List[T], List[T])")
       }),
       "mkString" -> Value.NativeFnV("Dataset.mkString", {
@@ -206,7 +206,7 @@ private[interpreter] object DatasetRuntime:
         case List(keyFn) => Pure(makeDatasetV(() => {
           val items = run()
           val grouped = items.groupBy(item => Computation.run(interp.callValue1(keyFn, item, Map.empty)))
-          grouped.toList.map { case (k, vs) => Value.TupleV(List(k, Value.ListV(vs))) }
+          grouped.toList.map { case (k, vs) => Value.TupleV(k :: Value.ListV(vs) :: Nil) }
         }, interp))
         case _ => throw InterpretError("Dataset.groupBy(key: T => K): Dataset[(K, List[T])]")
       }),
@@ -217,7 +217,7 @@ private[interpreter] object DatasetRuntime:
             val grouped = items.groupBy(item => Computation.run(interp.callValue1(keyFn, item, Map.empty)))
             grouped.toList.map { case (k, vs) =>
               val reduced = vs.reduce((a, b) => Computation.run(interp.callValue2(combineFn, a, b, Map.empty)))
-              Value.TupleV(List(k, reduced))
+              Value.TupleV(k :: reduced :: Nil)
             }
           }, interp))
           case _ => throw InterpretError("Dataset.reduceByKey$combine")

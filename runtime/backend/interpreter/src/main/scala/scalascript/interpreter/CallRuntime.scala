@@ -41,8 +41,8 @@ private[interpreter] object CallRuntime:
       if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       result
-    case f: Value.NativeFnV => f.f(List(arg))
-    case _ => callValue(fn, List(arg), env, interp)
+    case f: Value.NativeFnV => f.f(arg :: Nil)
+    case _ => callValue(fn, arg :: Nil, env, interp)
 
   /** Two-argument fast path: avoids allocating List(a, b) on foldLeft/foldRight/reduceLeft calls.
    *  For simple 2-param FunV (no varargs, no using, no defaults, no TCO) builds the call env
@@ -66,8 +66,8 @@ private[interpreter] object CallRuntime:
       if Profiler.enabled && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
       if interp.callStackNonEmpty then interp.callStackPop()
       result
-    case f: Value.NativeFnV => f.f(List(a, b))
-    case _ => callValue(fn, List(a, b), env, interp)
+    case f: Value.NativeFnV => f.f(a :: b :: Nil)
+    case _ => callValue(fn, a :: b :: Nil, env, interp)
 
   /** Fast path for `fn(recv, args*)`: avoids allocating `recv :: args` list.
    *  Dispatches to callValue1/callValue2 for the 0/1-arg cases; falls back otherwise. */

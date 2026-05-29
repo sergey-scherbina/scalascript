@@ -109,7 +109,7 @@ private[interpreter] object CoroutineRuntime:
           var b = Computation.run(interp.callValue(otherNext, Nil, Map.empty))
           while a.isDefined && b != Value.NoneV do
             val bVal = b match { case Value.OptionV(Some(v)) => v; case _ => Value.UnitV }
-            ownQ.put(Some(Value.TupleV(List(a.get, bVal))))
+            ownQ.put(Some(Value.TupleV(a.get :: bVal :: Nil)))
             a = queue.take()
             b = if a.isDefined then Computation.run(interp.callValue(otherNext, Nil, Map.empty)) else Value.NoneV
         }
@@ -120,7 +120,7 @@ private[interpreter] object CoroutineRuntime:
           var idx = 0
           var item = queue.take()
           while item.isDefined do
-            ownQ.put(Some(Value.TupleV(List(item.get, Value.intV(idx)))))
+            ownQ.put(Some(Value.TupleV(item.get :: Value.intV(idx) :: Nil)))
             idx += 1
             item = queue.take()
         }

@@ -468,13 +468,13 @@ private[interpreter] object EffectHandlers:
         // Return a Source that fails on first pull by wrapping in a failed source if available.
         interp.globals.get("Source.failed") match
           case Some(fn) =>
-            try interp.invoke(fn, List(Value.StringV(errorMsg.get)))
+            try interp.invoke(fn, Value.StringV(errorMsg.get) :: Nil)
             catch case _: Throwable => emitted
           case None => emitted
       else
         interp.globals.get("Source.from") match
           case Some(fn) =>
-            try interp.invoke(fn, List(emitted))
+            try interp.invoke(fn, emitted :: Nil)
             catch case _: Throwable => emitted
           case None => emitted
 

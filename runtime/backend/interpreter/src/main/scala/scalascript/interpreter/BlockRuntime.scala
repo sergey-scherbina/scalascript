@@ -145,7 +145,7 @@ private[interpreter] object BlockRuntime:
       case (OptionM, Value.InstanceV("Left", _))                  => Computation.PureNone
       case (ListM | OtherM, _) | _ =>
         val contFn = Value.NativeFnV("direct-lift-cont", args => cont(args.head))
-        DispatchRuntime.dispatch(monadValue, "flatMap", List(contFn), cur, interp)
+        DispatchRuntime.dispatch(monadValue, "flatMap", contFn :: Nil, cur, interp)
 
   private def checkDirectBlockStatics(stats: List[Stat], interp: Interpreter): Unit =
     def isNestedDirect(t: Tree): Boolean = t match
