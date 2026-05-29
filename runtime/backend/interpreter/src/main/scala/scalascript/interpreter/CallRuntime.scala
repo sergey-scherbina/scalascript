@@ -369,6 +369,44 @@ private[interpreter] object CallRuntime:
       if fn.returnsThrows then result.map(throwsAutoWrap)
       else result
 
+  /** 1-arg fast path for callTypeMethod: avoids `arg :: Nil` allocation when the method
+   *  is a simple non-TCO, 1-param, no-defaults, no-using function. */
+  def callTypeMethod1(fn: Value.FunV, fields: Map[String, Value], arg: Value, interp: Interpreter): Computation =
+    // Bail to full path for rare cases: TCO, defaults, using params, vararg, throws
+    val simple = fn.params.lengthCompare(1) == 0 &&
+      fn.usingParams.isEmpty &&
+      !fn.returnsThrows &&
+      (fn.defaults.isEmpty || fn.defaults.head.isEmpty) &&
+      (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*"))
+    if !simple then return callTypeMethod(fn, fields, arg :: Nil, interp)
+
+    val base: Map[String, Value] =
+      if fn.name.isEmpty then FrameMap.fromMap(fields, fn.closure)
+      else
+        val selfRef = Value.NativeFnV(fn.name, recArgs => callTypeMethod(fn, fields, recArgs, interp))
+        FrameMap.fromMapWithSelf(fields, fn.name, selfRef, fn.closure)
+    val info = TcoRuntime.tcoInfoFor(fn, interp)
+    val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
+      val gv = interp.globals.getOrElse(n, null)
+      val v  = if gv != null then gv else base.getOrElse(n, null)
+      v != null && v.isInstanceOf[Value.FunV]
+    }
+    if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
+      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, 0L)
+      TcoRuntime.tcoTrampoline(fn.copy(closure = base), arg :: Nil, null, interp)
+    else
+      val callEnv   = FrameMap.one(fn.params.head, arg, base)
+      val frameName = if fn.name.nonEmpty then fn.name else "<anon>"
+      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      val t0 = if Profiler.enabled && fn.name.nonEmpty then System.nanoTime() else 0L
+      val result =
+        try TcoRuntime.runUntilSuspension(interp.eval(fn.body, callEnv))
+        catch case r: ReturnSignal => Pure(r.value)
+      if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, System.nanoTime() - t0)
+      if interp.callStackNonEmpty then interp.callStackPop()
+      result
+
   private def throwsAutoWrap(v: Value): Value = v match
     case Value.InstanceV("Left",  _) => v
     case Value.InstanceV("Right", _) => v

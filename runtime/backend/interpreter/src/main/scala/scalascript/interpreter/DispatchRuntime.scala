@@ -353,8 +353,27 @@ private[interpreter] object DispatchRuntime:
 
   /** 1-arg fast path for InstanceV: field access and class method call. */
   private def dispatchInstance1(recv: Value, typeName: String, fields: Map[String, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
-    // Delegate to the full instance dispatch; single-arg list built lazily
-    dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+    typeName match
+      case "Right" => name match
+        case "map"     => interp.callValue1(fields.getOrElse("value", Value.UnitV), arg, env)
+        case "flatMap" => interp.callValue1(fields.getOrElse("value", Value.UnitV), arg, env)
+        case "fold"    => interp.callValue1(arg, fields.getOrElse("value", Value.UnitV), env)
+        case _         => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+      case "Left" => name match
+        case "getOrElse" => Pure(arg)
+        case "fold"      => interp.callValue1(fields.getOrElse("value", Value.UnitV), arg, env)
+        case _           => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+      case "Pid" => name match
+        case "tell" | "!" => Perform("Actor", "send", recv :: arg :: Nil)
+        case _            => dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+      case _ =>
+        val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
+        if typeMethodMap != null then
+          val fn = typeMethodMap.getOrElse(name, null)
+          if fn != null then interp.callTypeMethod1(fn, fields, arg)
+          else dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+        else
+          dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
 
   // ── String ──────────────────────────────────────────────────────────────────
 
@@ -1846,7 +1865,9 @@ private[interpreter] object DispatchRuntime:
       if typeMethodMap != null then
         val fn = typeMethodMap.getOrElse(name, null)
         if fn != null then
-          interp.callTypeMethod(fn, fields, args)
+          args match
+            case List(a) => interp.callTypeMethod1(fn, fields, a)
+            case _       => interp.callTypeMethod(fn, fields, args)
         else
           dispatchInstanceAfterMethods(recv, fields, name, args, env, interp)
       else
