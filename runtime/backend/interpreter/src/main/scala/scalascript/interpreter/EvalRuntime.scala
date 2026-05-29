@@ -830,10 +830,12 @@ private[interpreter] object EvalRuntime:
             case Some(gv) if entrySnap.get(k).forall(_ != gv) => frame(k) = gv
             case _                                             =>
         }
-        eval(t.expr, frameView, interp).flatMap {
-          case Value.BoolV(true) => eval(t.body, frameView, interp).flatMap(_ => loop)
+        // Use FlatMap constructor (not .flatMap) so the trampoline handles iterations
+        // iteratively rather than recursing on the JVM stack for pure condition/body.
+        FlatMap(eval(t.expr, frameView, interp), {
+          case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), _ => loop)
           case _                 => Computation.PureUnit
-        }
+        })
       loop
 
     // return expr  (non-local via exception)

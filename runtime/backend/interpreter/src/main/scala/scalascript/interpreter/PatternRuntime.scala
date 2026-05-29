@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.meta.*
+import Computation.FlatMap
 
 /** Pattern matching, for-comprehension evaluation, and collection iteration helpers. */
 private[interpreter] object PatternRuntime:
@@ -348,18 +349,17 @@ private[interpreter] object PatternRuntime:
       // Avoids matchPat Option/Some, patVarNames Set, and loopVars Map per iteration.
       case Enumerator.Generator(scala.meta.Pat.Var(vn), rhs) :: Nil =>
         val varName = vn.value
-        interp.eval(rhs, env).flatMap { rhsV =>
+        FlatMap(interp.eval(rhs, env), { rhsV =>
           val items = evalCollection(rhsV, interp)
           def forDoLoop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureUnit
             case item :: tail =>
-              interp.eval(body, FrameMap.one(varName, item, env))
-                .flatMap(Computation.discardToUnit)
-                .flatMap(_ => forDoLoop(tail))
+              FlatMap(interp.eval(body, FrameMap.one(varName, item, env)),
+                _ => forDoLoop(tail))
           forDoLoop(items)
-        }
+        })
       case Enumerator.Generator(pat, rhs) :: rest =>
-        interp.eval(rhs, env).flatMap { rhsV =>
+        FlatMap(interp.eval(rhs, env), { rhsV =>
           val items = evalCollection(rhsV, interp)
           def loop(remaining: List[Value]): Computation = remaining match
             case Nil => Computation.PureUnit
@@ -367,10 +367,10 @@ private[interpreter] object PatternRuntime:
               matchPat(pat, item, env, interp) match
                 case Some(patEnv) =>
                   val newVars = patVarNames(pat).map(k => k -> patEnv(k)).toMap
-                  evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp).flatMap(_ => loop(tail))
+                  FlatMap(evalForDo(rest, body, outerEnv, loopVars ++ newVars, interp), _ => loop(tail))
                 case None => loop(tail)
           loop(items)
-        }
+        })
       case Enumerator.Guard(cond) :: rest =>
         interp.eval(cond, env).flatMap {
           case Value.BoolV(true) => evalForDo(rest, body, outerEnv, loopVars, interp)
