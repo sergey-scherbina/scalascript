@@ -88,7 +88,7 @@ private[interpreter] object DispatchRuntime:
     recv match
       case Value.MapV(m) => name match
         case "getOrElse" | "getOrDefault" => Pure(m.getOrElse(arg1, arg2))
-        case "updated"   => Pure(Value.MapV(m + (arg1 -> arg2)))
+        case "updated"   => Pure(Value.MapV(m.updated(arg1, arg2)))
         case _           => dispatchMap(m, name, arg1 :: arg2 :: Nil, env, interp)
       case Value.StringV(s) => name match
         case "replace"    => (arg1, arg2) match
@@ -639,7 +639,7 @@ private[interpreter] object DispatchRuntime:
               return FlatMap(c, { nv => buf(k) = nv; restLoop() })
         Pure(Value.MapV(buf.toMap))
       case "+"  => arg match
-        case Value.TupleV(k :: v :: Nil) => Pure(Value.MapV(m + (k -> v)))
+        case Value.TupleV(k :: v :: Nil) => Pure(Value.MapV(m.updated(k, v)))
         case _                           => dispatchMap(m, "+", arg :: Nil, env, interp)
       case "++" => arg match
         case Value.MapV(other) => Pure(Value.MapV(m ++ other))
@@ -1899,13 +1899,13 @@ private[interpreter] object DispatchRuntime:
         case List(k, d)    => Pure(m.getOrElse(k, d))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "updated"  => args match
-        case List(k, v)    => Pure(Value.MapV(m + (k -> v)))
+        case List(k, v)    => Pure(Value.MapV(m.updated(k, v)))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "removed"  => args match
         case List(k)       => Pure(Value.MapV(m - k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "+"        => args match
-        case List(Value.TupleV(k :: v :: Nil)) => Pure(Value.MapV(m + (k -> v)))
+        case List(Value.TupleV(k :: v :: Nil)) => Pure(Value.MapV(m.updated(k, v)))
         case _                              => dispatchFallback(recv, name, args, env, interp)
       case "++"       => args match
         case List(Value.MapV(other))        => Pure(Value.MapV(m ++ other))
