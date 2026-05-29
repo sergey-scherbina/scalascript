@@ -1416,11 +1416,11 @@ For the distributed binary wire milestone, `DatasetWire` also wraps
 `DatasetWirePartition` in the shared `WireEnvelope` model and can encode/decode
 the same logical partition as JSON, MsgPack, or CBOR. Large partitions can be
 split at element boundaries with `encodePartitionChunks` and reassembled with
-`decodePartitionChunks`. `DistributedDataset.run` and
-`DistributedDataset.runShuffle` also accept `wireFormat = "json" | "msgpack" |
-"cbor"`; non-JSON formats round-trip the runner boundary through `DatasetWire`
-before and after the actor execution path. Direct binary actor frames remain a
-planned follow-up.
+`decodePartitionChunks`. `runDistributedWire`, `runDistributedShuffleWire`, and
+`DistributedDataset.run/runShuffle` accept `wireFormat = "json" | "msgpack" |
+"cbor"`; JSON keeps the in-memory object-message fallback, while MsgPack/CBOR
+send `DatasetWire` envelope bytes through partition, shuffle-bucket, and
+key-result actor messages.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.

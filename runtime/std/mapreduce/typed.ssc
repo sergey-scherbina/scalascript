@@ -22,7 +22,7 @@ transport on the stable encoded wire path.
 [ShuffleStage, runDistributedShuffleWire](shuffle.ssc)
 
 ```scalascript
-import scalascript.typeddata.{DatasetCodec, DatasetWire, DatasetWirePartition}
+import scalascript.typeddata.{DatasetCodec, DatasetWirePartition}
 
 object DistributedDataset:
   def partition[A](values: List[A], partitionCount: Int): List[List[A]] =
@@ -54,19 +54,19 @@ object DistributedDataset:
     allowPartial: Boolean,
     wireFormat: String = "json"
   )(using inCodec: DatasetCodec[A], outCodec: DatasetCodec[B]): DistributedResult[B] =
-    val partitions0 = encode[A](
+    val partitions = encode[A](
       values.asInstanceOf[List[A]],
       cluster.nodes.length.asInstanceOf[Int]
     )
-    val partitions = roundTripPartitions(partitions0, wireFormat)
     val wire = runDistributedWire(
       partitions,
       stage,
       cluster,
       retries,
-      allowPartial
+      allowPartial,
+      wireFormat
     ).asInstanceOf[DistributedResult[DatasetWirePartition]]
-    decode[B](wire.copy(results = roundTripPartitions(wire.results, wireFormat)).asInstanceOf[DistributedResult[DatasetWirePartition]])
+    decode[B](wire.asInstanceOf[DistributedResult[DatasetWirePartition]])
 
   def runShuffle[A, B](
     values: List[Any],
@@ -76,33 +76,18 @@ object DistributedDataset:
     allowPartial: Boolean,
     wireFormat: String = "json"
   )(using inCodec: DatasetCodec[A], outCodec: DatasetCodec[B]): DistributedResult[B] =
-    val partitions0 = encode[A](
+    val partitions = encode[A](
       values.asInstanceOf[List[A]],
       cluster.nodes.length.asInstanceOf[Int]
     )
-    val partitions = roundTripPartitions(partitions0, wireFormat)
     val wire = runDistributedShuffleWire(
       partitions,
       shuffleStage,
       cluster,
       retries,
-      allowPartial
+      allowPartial,
+      wireFormat
     ).asInstanceOf[DistributedResult[DatasetWirePartition]]
-    decode[B](wire.copy(results = roundTripPartitions(wire.results, wireFormat)).asInstanceOf[DistributedResult[DatasetWirePartition]])
-
-  private def roundTripPartitions(
-    partitions: List[DatasetWirePartition],
-    wireFormat: String
-  ): List[DatasetWirePartition] =
-    if wireFormat == "json" then partitions
-    else
-      partitions.map { partition =>
-        val bytes = DatasetWire.encodePartition(partition, wireFormat) match
-          case Right(value) => value
-          case Left(error)  => throw RuntimeException(error.message)
-        DatasetWire.decodePartition(bytes, wireFormat) match
-          case Right(value) => value
-          case Left(error)  => throw RuntimeException(error.message)
-      }
+    decode[B](wire.asInstanceOf[DistributedResult[DatasetWirePartition]])
 
 ```

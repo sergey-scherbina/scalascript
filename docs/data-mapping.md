@@ -354,7 +354,10 @@ Roles:
   error paths, plus `DatasetWirePartition` and partition encode/decode helpers
   for distributed worker payloads. `std/mapreduce` can now move those payloads
   directly through `runDistributedWire` and `runDistributedShuffleWire`; worker
-  handlers on those paths consume and return `JsonValue`.
+  handlers on those paths consume and return `JsonValue`. Non-JSON
+  `wireFormat` values send `DatasetWire` envelope bytes through the actor
+  partition, shuffle-bucket, and key-result messages; JSON keeps the object
+  fallback.
 - `SparkSchemaCodec[A]` is now available for Spark-like schema metadata in the
   shared typed-data layer. It derives case-class field names from the same
   `@fieldName` annotation used by `JsonCodec` / `RowCodec`, preserves `@key`
@@ -529,6 +532,10 @@ the same query model.
    2026-05-29: `DatasetWire` wraps `DatasetWirePartition` in shared
    `WireEnvelope` frames and round-trips partitions through JSON, MsgPack, and
    CBOR, with element-boundary chunking/reassembly for large partitions.
+   Follow-up landed 2026-05-29: `runDistributedWire`,
+   `runDistributedShuffleWire`, and `DistributedDataset.run/runShuffle`
+   route MsgPack/CBOR `wireFormat` through `DatasetWire` binary actor frames
+   while preserving JSON object fallback.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

@@ -9,8 +9,11 @@ exports:
   - runDistributedShuffle
   - runDistributedShuffleWire
   - WireShufflePartial
+  - WireShufflePartialFrame
   - WireProcessKeyPartition
+  - WireProcessKeyPartitionFrame
   - WireKeyResult
+  - WireKeyResultFrame
 ---
 
 # `std.mapreduce.shuffle` — coordinator-mediated shuffle
@@ -39,7 +42,7 @@ coordinator merges KeyResults → final List[(K, V)]
 ```
 
 ```scalascript
-import scalascript.typeddata.{DatasetWirePartition, JsonValue as TJsonValue}
+import scalascript.typeddata.{DatasetWire, DatasetWirePartition, JsonValue as TJsonValue}
 
 // ── Shuffle-specific stage ops ─────────────────────────────────────────
 // GroupByOp: extract key, return (key, item) pairs
@@ -78,6 +81,15 @@ case class WireShufflePartial(
   buckets: List[(TJsonValue, List[TJsonValue])]
 )
 
+// Worker → coordinator after typed wire map phase when bucket payloads move as
+// DatasetWire binary envelopes.
+case class WireShufflePartialFrame(
+  jobId:   String,
+  partId:  Int,
+  buckets: List[(TJsonValue, Array[Byte])],
+  format:  String
+)
+
 // Coordinator → worker for typed wire reduce/group phase.
 case class WireProcessKeyPartition(
   jobId:   String,
@@ -87,11 +99,31 @@ case class WireProcessKeyPartition(
   replyTo: Any
 )
 
+// Coordinator → worker for typed wire reduce/group phase when the item payload
+// moves as a DatasetWire binary envelope.
+case class WireProcessKeyPartitionFrame(
+  jobId:   String,
+  key:     TJsonValue,
+  bytes:   Array[Byte],
+  format:  String,
+  combineHandlerName: String,
+  replyTo: Any
+)
+
 // Worker → coordinator: one typed wire key's reduced/grouped result.
 case class WireKeyResult(
   jobId:  String,
   key:    TJsonValue,
   result: TJsonValue
+)
+
+// Worker → coordinator: one typed wire key's reduced/grouped result encoded as
+// a DatasetWire binary envelope containing a single JsonValue.
+case class WireKeyResultFrame(
+  jobId:  String,
+  key:    TJsonValue,
+  bytes:  Array[Byte],
+  format: String
 )
 
 // ── Shuffle protocol (worker side) ────────────────────────────────────
@@ -126,6 +158,55 @@ object ShuffleProtocol:
         handleMessages()
 
       case WireProcessPartition(jobId, partition, stage, replyTo) =>
+        respondWireShufflePartition(jobId, partition, stage, replyTo, "json")
+        handleMessages()
+
+      case WireProcessPartitionFrame(jobId, partId, bytes, format, stage, replyTo) =>
+        DatasetWire.decodePartition(bytes, format) match
+          case Right(partition) =>
+            respondWireShufflePartition(jobId, partition, stage, replyTo, format)
+          case Left(error) =>
+            replyTo ! PartitionFailed(jobId, partId, error.message)
+        handleMessages()
+
+      case ProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
+        // Phase B: either group (return List) or reduce (combine items)
+        val result =
+          if combineHandlerName.isEmpty then
+            items   // groupBy: return the list as-is
+          else
+            items.reduce((a, b) => HandlerRegistry.applyCombine(combineHandlerName, a, b))
+        replyTo ! KeyResult(jobId, key, result)
+        handleMessages()
+
+      case WireProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
+        respondWireKeyPartition(jobId, key, items, combineHandlerName, replyTo, "json")
+        handleMessages()
+
+      case WireProcessKeyPartitionFrame(jobId, key, bytes, format, combineHandlerName, replyTo) =>
+        DatasetWire.decodePartition(bytes, format) match
+          case Right(partition) =>
+            respondWireKeyPartition(
+              jobId,
+              key,
+              partition.values.toList,
+              combineHandlerName,
+              replyTo,
+              format
+            )
+          case Left(error) =>
+            replyTo ! PartitionFailed(jobId, 0, error.message)
+        handleMessages()
+    }
+
+  def respondWireShufflePartition(
+    jobId:     String,
+    partition: DatasetWirePartition,
+    stage:     Stage,
+    replyTo:   Any,
+    format:    String
+  ): Unit =
+    if format == "json" then
         val (priorOps, shuffleOp) = splitAtShuffle(stage.ops)
         val input = partition.values.toList
         val intermediate = WorkerProtocol.applyStage(Stage(priorOps), input)
@@ -151,33 +232,61 @@ object ShuffleProtocol:
               jobId,
               DatasetWirePartition(partId, values)
             )
-        handleMessages()
+    else
+      val (priorOps, shuffleOp) = splitAtShuffle(stage.ops)
+      val input = partition.values.toList
+      val intermediate = WorkerProtocol.applyStage(Stage(priorOps), input)
+        .asInstanceOf[List[TJsonValue]]
+      shuffleOp match
+        case Some(GroupByOp(keyName)) =>
+          val buckets = encodeWireBuckets(buildWireBuckets(intermediate, keyName), format)
+          replyTo ! WireShufflePartialFrame(jobId, partition.partitionId, buckets, format)
+        case Some(ReduceByKeyOp(keyName, _)) =>
+          val buckets = encodeWireBuckets(buildWireBuckets(intermediate, keyName), format)
+          replyTo ! WireShufflePartialFrame(jobId, partition.partitionId, buckets, format)
+        case Some(_) =>
+          val output = DatasetWirePartition(partition.partitionId, intermediate.toVector)
+          DatasetWire.encodePartition(output, format) match
+            case Right(bytes) =>
+              replyTo ! WirePartitionResultFrame(jobId, partition.partitionId, bytes, format)
+            case Left(error) =>
+              replyTo ! PartitionFailed(jobId, partition.partitionId, error.message)
+        case None =>
+          val output = DatasetWirePartition(partition.partitionId, intermediate.toVector)
+          DatasetWire.encodePartition(output, format) match
+            case Right(bytes) =>
+              replyTo ! WirePartitionResultFrame(jobId, partition.partitionId, bytes, format)
+            case Left(error) =>
+              replyTo ! PartitionFailed(jobId, partition.partitionId, error.message)
 
-      case ProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
-        // Phase B: either group (return List) or reduce (combine items)
-        val result =
-          if combineHandlerName.isEmpty then
-            items   // groupBy: return the list as-is
-          else
-            items.reduce((a, b) => HandlerRegistry.applyCombine(combineHandlerName, a, b))
-        replyTo ! KeyResult(jobId, key, result)
-        handleMessages()
-
-      case WireProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo) =>
-        val result: TJsonValue =
-          if combineHandlerName.isEmpty then
-            val valueArray: TJsonValue = TJsonValue.Arr(items.toVector)
-            val fields: Map[String, TJsonValue] =
-              Map.empty[String, TJsonValue]
-                .updated("key", key)
-                .updated("values", valueArray)
-            TJsonValue.Obj(fields)
-          else
-            items.reduce((a, b) =>
-              HandlerRegistry.applyCombine(combineHandlerName, a, b).asInstanceOf[TJsonValue])
-        replyTo ! WireKeyResult(jobId, key, result)
-        handleMessages()
-    }
+  def respondWireKeyPartition(
+    jobId:              String,
+    key:                TJsonValue,
+    items:              List[TJsonValue],
+    combineHandlerName: String,
+    replyTo:            Any,
+    format:             String
+  ): Unit =
+    val result: TJsonValue =
+      if combineHandlerName.isEmpty then
+        val valueArray: TJsonValue = TJsonValue.Arr(items.toVector)
+        val fields: Map[String, TJsonValue] =
+          Map.empty[String, TJsonValue]
+            .updated("key", key)
+            .updated("values", valueArray)
+        TJsonValue.Obj(fields)
+      else
+        items.reduce((a, b) =>
+          HandlerRegistry.applyCombine(combineHandlerName, a, b).asInstanceOf[TJsonValue])
+    if format == "json" then
+      replyTo ! WireKeyResult(jobId, key, result)
+    else
+      val output = DatasetWirePartition(0, Vector(result))
+      DatasetWire.encodePartition(output, format) match
+        case Right(bytes) =>
+          replyTo ! WireKeyResultFrame(jobId, key, bytes, format)
+        case Left(error) =>
+          replyTo ! PartitionFailed(jobId, 0, error.message)
 
   // Split the ops list at the first GroupByOp / ReduceByKeyOp.
   // Returns (priorOps, Some(shuffleOp)) or (allOps, None).
@@ -206,6 +315,17 @@ object ShuffleProtocol:
     keys.map { k =>
       val group = keyedItems.filter(_._1 == k).map(_._2)
       (k, group)
+    }
+
+  def encodeWireBuckets(
+    buckets: List[(TJsonValue, List[TJsonValue])],
+    format:  String
+  ): List[(TJsonValue, Array[Byte])] =
+    buckets.zipWithIndex.map { case ((key, values), idx) =>
+      val partition = DatasetWirePartition(idx, values.toVector)
+      DatasetWire.encodePartition(partition, format) match
+        case Right(bytes) => (key, bytes)
+        case Left(_)      => throw RuntimeException("DatasetWire encodePartition failed")
     }
 
 // ── Shuffle coordinator ───────────────────────────────────────────────
@@ -300,7 +420,8 @@ def runDistributedShuffleWire(
   shuffleStage: ShuffleStage,
   cluster:      Cluster,
   retries:      Int,
-  allowPartial: Boolean
+  allowPartial: Boolean,
+  wireFormat:   String = "json"
 ): DistributedResult[DatasetWirePartition] =
   val jobId = nanoTime().toString
 
@@ -318,7 +439,7 @@ def runDistributedShuffleWire(
 
   val phaseAStage = Stage(shuffleStage.preShuffle.ops :+ groupByOp)
   val assignments = workers.zip(partitions).map { case ((wPid, node), partition) =>
-    wPid ! WireProcessPartition(jobId, partition, phaseAStage, me)
+    sendWireProcess(wPid, jobId, partition, phaseAStage, me, wireFormat)
     (partition.partitionId, wPid, node)
   }
 
@@ -336,10 +457,14 @@ def runDistributedShuffleWire(
   val reducePid = workers.head._1
   val keyAssignments = keys.map { key =>
     val items = mergedByKey.find(_._1 == key).map(_._2).getOrElse(Nil)
-    reducePid ! WireProcessKeyPartition(
-      jobId, key, items,
+    sendWireKeyProcess(
+      reducePid,
+      jobId,
+      key,
+      items,
       shuffleStage.combineHandlerName,
-      me
+      me,
+      wireFormat
     )
     key
   }
@@ -389,6 +514,9 @@ def collectWireShufflePartials(
     receive {
       case WireShufflePartial(jid, _, newBuckets) if jid == jobId =>
         collectWireShufflePartials(jobId, pending - 1, buckets ++ newBuckets)
+      case WireShufflePartialFrame(jid, _, newBucketFrames, format) if jid == jobId =>
+        val decoded = decodeWireBucketFrames(newBucketFrames, format)
+        collectWireShufflePartials(jobId, pending - 1, buckets ++ decoded)
     }
 
 // Merge typed wire key-bucketed lists from multiple workers into one per-key list.
@@ -423,5 +551,44 @@ def collectWireKeyResults(
     receive {
       case WireKeyResult(jid, key, result) if jid == jobId =>
         collectWireKeyResults(jobId, pending - 1, (key, result) :: results)
+      case WireKeyResultFrame(jid, key, bytes, format) if jid == jobId =>
+        val partition = decodeDatasetPartition(bytes, format)
+        val result = partition.values.head
+        collectWireKeyResults(jobId, pending - 1, (key, result) :: results)
     }
+
+def sendWireKeyProcess(
+  wPid:               Any,
+  jobId:              String,
+  key:                TJsonValue,
+  items:              List[TJsonValue],
+  combineHandlerName: String,
+  replyTo:            Any,
+  wireFormat:         String
+): Unit =
+  if wireFormat == "json" then
+    wPid ! WireProcessKeyPartition(jobId, key, items, combineHandlerName, replyTo)
+  else
+    val partition = DatasetWirePartition(0, items.toVector)
+    DatasetWire.encodePartition(partition, wireFormat) match
+      case Right(bytes) =>
+        wPid ! WireProcessKeyPartitionFrame(
+          jobId,
+          key,
+          bytes,
+          wireFormat,
+          combineHandlerName,
+          replyTo
+        )
+      case Left(_) =>
+        throw RuntimeException("DatasetWire encodePartition failed")
+
+def decodeWireBucketFrames(
+  buckets: List[(TJsonValue, Array[Byte])],
+  format:  String
+): List[(TJsonValue, List[TJsonValue])] =
+  buckets.map { case (key, bytes) =>
+    val partition = decodeDatasetPartition(bytes, format)
+    (key, partition.values.toList)
+  }
 ```

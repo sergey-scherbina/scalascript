@@ -387,17 +387,17 @@ Land this document, link it from README, and add implementation phases to
   as `DatasetWire`, a shared typed-data bridge that wraps
   `DatasetWirePartition` in `WireEnvelope(protocol = "dataset")`.
 - Add binary partition and shuffle payloads. ✓ Landed 2026-05-29 for explicit
-  JSON, MsgPack, and CBOR partition envelope encode/decode helpers. Wiring the
-  actor MapReduce runner to select this binary envelope on transport remains a
-  follow-up.
+  JSON, MsgPack, and CBOR partition envelope encode/decode helpers. Direct
+  binary actor frame selection for the MapReduce runner landed in `v1.62.4c`.
 - Add chunking for large partitions. ✓ Landed 2026-05-29 for value-boundary
   partition chunking with `chunk-id`, `chunk-index`, and `chunk-count` envelope
   headers plus deterministic reassembly.
 - Verify interpreter/JVM distributed MapReduce examples with JSON, MsgPack,
-  and CBOR. ✓ Landed 2026-05-29 partial runner boundary: `DistributedDataset`
-  `run` / `runShuffle` accept `wireFormat` and round-trip input/output
-  `DatasetWirePartition` values through `DatasetWire` before/after the actor
-  runner. Direct binary actor frame selection remains a follow-up.
+  and CBOR. ✓ Landed 2026-05-29: `runDistributedWire`,
+  `runDistributedShuffleWire`, and `DistributedDataset.run/runShuffle` accept
+  `wireFormat`; JSON keeps the object-message fallback, while MsgPack/CBOR send
+  `DatasetWire` envelope bytes in partition, shuffle-bucket, and key-result
+  actor messages.
 
 ### Phase 5 - Native DStream Runner
 

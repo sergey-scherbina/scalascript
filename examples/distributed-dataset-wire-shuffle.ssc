@@ -75,7 +75,8 @@ runActors {
     ),
     cluster,
     retries = 0,
-    allowPartial = false
+    allowPartial = false,
+    wireFormat = "cbor"
   )
 
   wirePartitions = wireResult.asInstanceOf[DistributedResult[DatasetWirePartition]].results

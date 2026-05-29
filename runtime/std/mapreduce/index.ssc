@@ -23,7 +23,9 @@ exports:
   - ProcessPartition
   - PartitionResult
   - WireProcessPartition
+  - WireProcessPartitionFrame
   - WirePartitionResult
+  - WirePartitionResultFrame
   - PartitionFailed
   - HealthCheckRequest
   - HealthCheckOk
@@ -33,8 +35,11 @@ exports:
   - runDistributedShuffle
   - runDistributedShuffleWire
   - WireShufflePartial
+  - WireShufflePartialFrame
   - WireProcessKeyPartition
+  - WireProcessKeyPartitionFrame
   - WireKeyResult
+  - WireKeyResultFrame
   - DistributedDataset
 ---
 
@@ -51,8 +56,8 @@ Re-exports everything from the sub-modules so callers can write
 
 [HandlerRegistry, NamedHandler, named](handlers.ssc)
 
-[DistributedError, DistributedResult, runDistributed, runDistributedWire, WorkerProtocol, StageOp, MapOp, FilterOp, FlatMapOp, Stage, ProcessPartition, PartitionResult, WireProcessPartition, WirePartitionResult, PartitionFailed, HealthCheckRequest, HealthCheckOk, ShutdownWorker](distributed.ssc)
+[DistributedError, DistributedResult, runDistributed, runDistributedWire, WorkerProtocol, StageOp, MapOp, FilterOp, FlatMapOp, Stage, ProcessPartition, PartitionResult, WireProcessPartition, WireProcessPartitionFrame, WirePartitionResult, WirePartitionResultFrame, PartitionFailed, HealthCheckRequest, HealthCheckOk, ShutdownWorker](distributed.ssc)
 
-[ShuffleStage, ShuffleProtocol, runDistributedShuffle, runDistributedShuffleWire, WireShufflePartial, WireProcessKeyPartition, WireKeyResult](shuffle.ssc)
+[ShuffleStage, ShuffleProtocol, runDistributedShuffle, runDistributedShuffleWire, WireShufflePartial, WireShufflePartialFrame, WireProcessKeyPartition, WireProcessKeyPartitionFrame, WireKeyResult, WireKeyResultFrame](shuffle.ssc)
 
 [DistributedDataset](typed.ssc)

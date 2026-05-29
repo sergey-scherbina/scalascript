@@ -272,10 +272,10 @@ Options:
   `DatasetWire` now wraps the same `DatasetWirePartition` in a shared
   `WireEnvelope(protocol = "dataset")`, supports JSON/MsgPack/CBOR
   encode/decode, and chunks large partitions at element boundaries before
-  reassembly. `DistributedDataset.run/runShuffle` accept `wireFormat` and use
-  `DatasetWire` to verify the runner boundary under MsgPack/CBOR while keeping
-  the existing actor messages intact. The MapReduce actor runner still needs a
-  follow-up to negotiate and send those binary envelopes as transport frames.
+  reassembly. `runDistributedWire`, `runDistributedShuffleWire`, and
+  `DistributedDataset.run/runShuffle` accept `wireFormat`; JSON keeps the
+  existing object-message fallback, while MsgPack/CBOR send `DatasetWire`
+  envelope bytes in partition, shuffle-bucket, and key-result actor messages.
 - **Closure serialisation** — serialise the `T => U`
   closure including its captured environment.  Deferred to
   v1.22.x; requires v1.14 `derives` + bytecode shenanigans;
