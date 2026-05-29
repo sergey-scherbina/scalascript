@@ -235,14 +235,15 @@ private[interpreter] object PatternRuntime:
         val args = argClause.values
         scrutinee match
           case Value.InstanceV(t, fields) if t == typeName =>
-            val order     = interp.typeFieldOrder.getOrElse(t, fields.keys.toList)
-            val fieldVals = order.flatMap(fields.get)
-            if args.length != fieldVals.length then null
+            val order = interp.typeFieldOrder.getOrElse(t, fields.keys.toList)
+            if args.length != order.length then null
             else
-              var curEnv: Env | Null = env; var as = args; var fvs = fieldVals
+              var curEnv: Env | Null = env; var as = args; var os = order
               while curEnv != null && as.nonEmpty do
-                curEnv = matchPat(as.head, fvs.head, curEnv.asInstanceOf[Env], interp)
-                as = as.tail; fvs = fvs.tail
+                val fv = fields.getOrElse(os.head, null)
+                curEnv = if fv == null then null
+                         else matchPat(as.head, fv, curEnv.asInstanceOf[Env], interp)
+                as = as.tail; os = os.tail
               curEnv
           case Value.OptionV(Some(v)) if typeName == "Some" && args.length == 1 =>
             matchPat(args.head, v, env, interp)
@@ -372,6 +373,20 @@ private[interpreter] object PatternRuntime:
             case item :: tail =>
               FlatMap(interp.eval(body, FrameMap.one(varName, item, env)),
                 _ => forDoLoop(tail))
+          forDoLoop(items)
+        })
+      // Fast path: single generator — avoids patVarNames Set + newVars Map + recursive evalForDo per item.
+      // patEnv from matchPat already extends `env` with the pattern bindings, so it's
+      // equivalent to the outerEnv ++ loopVars ++ newVars that the general path would build.
+      case Enumerator.Generator(pat, rhs) :: Nil =>
+        FlatMap(interp.eval(rhs, env), { rhsV =>
+          val items = evalCollection(rhsV, interp)
+          def forDoLoop(remaining: List[Value]): Computation = remaining match
+            case Nil => Computation.PureUnit
+            case item :: tail =>
+              val patEnv = matchPat(pat, item, env, interp)
+              if patEnv == null then forDoLoop(tail)
+              else FlatMap(interp.eval(body, patEnv), _ => forDoLoop(tail))
           forDoLoop(items)
         })
       case Enumerator.Generator(pat, rhs) :: rest =>
