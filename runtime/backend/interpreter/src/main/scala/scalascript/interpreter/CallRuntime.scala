@@ -303,12 +303,15 @@ private[interpreter] object CallRuntime:
     // callTypeMethod so that non-tail-recursive calls still see instance fields.
     // This avoids fn.closure.updated(fn.name, ...) which for MutableEnvView
     // would copy the entire scope (O(n) allocation).
+    // Compute tcoInfo first (cached after first call) so we can skip the
+    // NativeFnV + lambda allocation for the common case of non-recursive methods.
+    val info = TcoRuntime.tcoInfoFor(fn, interp)
     val base: Map[String, Value] =
-      if fn.name.isEmpty then FrameMap.fromMap(fields, fn.closure)
+      if fn.name.isEmpty || (info.noNonTailSelf && !info.isSelfTailRec) then
+        FrameMap.fromMap(fields, fn.closure)
       else
         val selfRef = Value.NativeFnV(fn.name, recArgs => callTypeMethod(fn, fields, recArgs, interp))
         FrameMap.fromMapWithSelf(fields, fn.name, selfRef, fn.closure)
-    val info = TcoRuntime.tcoInfoFor(fn, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       val gv = interp.globals.getOrElse(n, null)
       val v  = if gv != null then gv else base.getOrElse(n, null)
@@ -380,12 +383,13 @@ private[interpreter] object CallRuntime:
       (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*"))
     if !simple then return callTypeMethod(fn, fields, arg :: Nil, interp)
 
+    val info = TcoRuntime.tcoInfoFor(fn, interp)
     val base: Map[String, Value] =
-      if fn.name.isEmpty then FrameMap.fromMap(fields, fn.closure)
+      if fn.name.isEmpty || (info.noNonTailSelf && !info.isSelfTailRec) then
+        FrameMap.fromMap(fields, fn.closure)
       else
         val selfRef = Value.NativeFnV(fn.name, recArgs => callTypeMethod(fn, fields, recArgs, interp))
         FrameMap.fromMapWithSelf(fields, fn.name, selfRef, fn.closure)
-    val info = TcoRuntime.tcoInfoFor(fn, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       val gv = interp.globals.getOrElse(n, null)
       val v  = if gv != null then gv else base.getOrElse(n, null)
