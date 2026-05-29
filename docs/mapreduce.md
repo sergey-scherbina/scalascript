@@ -269,6 +269,11 @@ Options:
   `DatasetWirePartition`. `DistributedDataset.encode/decode[A]` wraps the
   common typed boundary, and `DistributedDataset.run/runShuffle[A, B]` wrap
   the actor-effect map and shuffle calls for JVM generated code.
+  `DatasetWire` now wraps the same `DatasetWirePartition` in a shared
+  `WireEnvelope(protocol = "dataset")`, supports JSON/MsgPack/CBOR
+  encode/decode, and chunks large partitions at element boundaries before
+  reassembly. The MapReduce actor runner still needs a follow-up to negotiate
+  and select those binary envelopes on transport.
 - **Closure serialisation** — serialise the `T => U`
   closure including its captured environment.  Deferred to
   v1.22.x; requires v1.14 `derives` + bytecode shenanigans;

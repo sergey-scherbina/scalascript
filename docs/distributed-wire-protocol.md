@@ -383,11 +383,18 @@ Land this document, link it from README, and add implementation phases to
 
 ### Phase 4 - Distributed Dataset / MapReduce
 
-- Route `DatasetWirePartition` through `WireCodec[A]`.
-- Add binary partition and shuffle payloads.
-- Add chunking for large partitions.
+- Route `DatasetWirePartition` through `WireCodec[A]`. ✓ Landed 2026-05-29
+  as `DatasetWire`, a shared typed-data bridge that wraps
+  `DatasetWirePartition` in `WireEnvelope(protocol = "dataset")`.
+- Add binary partition and shuffle payloads. ✓ Landed 2026-05-29 for explicit
+  JSON, MsgPack, and CBOR partition envelope encode/decode helpers. Wiring the
+  actor MapReduce runner to select this binary envelope on transport remains a
+  follow-up.
+- Add chunking for large partitions. ✓ Landed 2026-05-29 for value-boundary
+  partition chunking with `chunk-id`, `chunk-index`, and `chunk-count` envelope
+  headers plus deterministic reassembly.
 - Verify interpreter/JVM distributed MapReduce examples with JSON, MsgPack,
-  and CBOR.
+  and CBOR. Planned follow-up after runner transport integration.
 
 ### Phase 5 - Native DStream Runner
 

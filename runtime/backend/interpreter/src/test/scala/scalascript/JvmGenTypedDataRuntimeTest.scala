@@ -19,3 +19,18 @@ class JvmGenTypedDataRuntimeTest extends AnyFunSuite:
 
     val code = JvmGen.generate(Parser.parse(source))
     assert(code.contains("scalascript-backend-typed-data-runtime"))
+    assert(code.contains("scalascript-wire-core"))
+
+  test("JVM codegen adds wire-core jar when user code imports wire runtime"):
+    val source =
+      """# Test
+        |
+        |```scala
+        |import scalascript.wire.WireFormat
+        |
+        |val fmt = WireFormat.Cbor
+        |```
+        |""".stripMargin
+
+    val code = JvmGen.generate(Parser.parse(source))
+    assert(code.contains("scalascript-wire-core"))

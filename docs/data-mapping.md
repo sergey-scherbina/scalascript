@@ -525,7 +525,10 @@ the same query model.
    `DatasetWirePartition` boundary. Follow-up landed 2026-05-26:
    `DistributedDataset.run/runShuffle[A, B]` now wrap the actor-effect map
    and shuffle calls for generated JVM code; see
-   `examples/distributed-dataset-typed-helpers.ssc`.
+   `examples/distributed-dataset-typed-helpers.ssc`. Follow-up landed
+   2026-05-29: `DatasetWire` wraps `DatasetWirePartition` in shared
+   `WireEnvelope` frames and round-trips partitions through JSON, MsgPack, and
+   CBOR, with element-boundary chunking/reassembly for large partitions.
 8. **Examples + conformance** — add one domain type persisted through SQL,
    ObjectStore/IndexedDB sync, graph vertices/edges, and RDF where applicable.
    Include a data-processing example that reads typed data from SQL/ObjectStore

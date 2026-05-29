@@ -1,14 +1,15 @@
 #!/usr/bin/env ssc
 ---
 title: Distributed Dataset codec
-description: Typed DatasetCodec partition payloads for distributed MapReduce workers
+description: Typed DatasetCodec partition payloads and DatasetWire envelopes for distributed MapReduce workers
 backend: jvm
 ---
 
 # Distributed Dataset Codec
 
 ```scalascript
-import scalascript.typeddata.{DatasetCodec, DatasetPartition, JsonCodec, JsonValue}
+import scalascript.typeddata.{DatasetCodec, DatasetPartition, DatasetWire, JsonCodec, JsonValue}
+import scalascript.wire.WireFormat
 
 case class Metric(id: String, amount: Int, tags: List[String]) derives JsonCodec
 
@@ -27,4 +28,14 @@ val summary = decoded
   .mkString(",")
 
 println(summary)
+
+val cborBytes = DatasetWire.encodePartition(partitions.head, WireFormat.Cbor) match
+  case Right(bytes) => bytes
+  case Left(error)  => throw RuntimeException(error.message)
+
+val roundTripped = DatasetWire.decodePartition(cborBytes, WireFormat.Cbor) match
+  case Right(value) => value
+  case Left(error)  => throw RuntimeException(error.message)
+
+println(roundTripped.partitionId.toString + ":" + roundTripped.values.length.toString)
 ```

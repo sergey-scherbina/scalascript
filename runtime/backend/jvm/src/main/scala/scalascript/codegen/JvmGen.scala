@@ -280,7 +280,11 @@ class JvmGen(
     val usesGraph = blocksUseGraph(blocks) || graphStores.nonEmpty
     if blocksUseMcp(blocks) then
       sb.append(s"""//> using dep "$JvmMcpDep"\n""")
-    if blocksUseTypedData(blocks) then
+    val usesTypedData = blocksUseTypedData(blocks)
+    val usesWire = blocksUseWire(blocks) || usesTypedData || apiClients.nonEmpty
+    if usesWire then
+      sb.append(sscJarDirective("scalascript-wire-core"))
+    if usesTypedData then
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
     if usesGraph then
       sb.append(sscJarDirective("scalascript-backend-typed-data-runtime"))
@@ -2750,6 +2754,22 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       ScalaNode.fold(b.node) { tree =>
         if !found then tree.collect {
           case Import(importers) if importers.exists(_.ref.syntax.startsWith("scalascript.typeddata")) => found = true
+          case Term.Name(name) if names(name) => found = true
+          case Type.Name(name) if names(name) => found = true
+        }
+      }
+      found
+    }
+
+  private def blocksUseWire(blocks: List[JvmGen.Block]): Boolean =
+    val names = Set("WireFormat", "WireEnvelope", "WireValue", "WireCodec", "WireDecodeError")
+    blocks.exists { b =>
+      var found = false
+      if b.src.contains("scalascript.wire") || names.exists(name => b.src.contains(name)) then
+        found = true
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Import(importers) if importers.exists(_.ref.syntax.startsWith("scalascript.wire")) => found = true
           case Term.Name(name) if names(name) => found = true
           case Type.Name(name) if names(name) => found = true
         }

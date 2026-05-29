@@ -1412,6 +1412,12 @@ outputs are returned as `DatasetWirePartition` payloads. `DistributedDataset`
 adds typed `encode/decode[A]` helpers for that boundary, plus
 `run/runShuffle[A, B]` wrappers that keep the actor-effect map and shuffle
 calls behind the typed Dataset facade on the JVM generated path.
+For the distributed binary wire milestone, `DatasetWire` also wraps
+`DatasetWirePartition` in the shared `WireEnvelope` model and can encode/decode
+the same logical partition as JSON, MsgPack, or CBOR. Large partitions can be
+split at element boundaries with `encodePartitionChunks` and reassembled with
+`decodePartitionChunks`; the current runner integration still uses the existing
+actor payload path until transport selection is wired in.
 `SparkSchemaCodec[A]` is also available for Spark-like schema metadata: it
 derives field names from `@fieldName`, preserves `@key`, maps primitive and
 collection shapes to `SparkSchemaType`, and marks `Option[A]` fields nullable.

@@ -1171,6 +1171,7 @@ lazy val sqlAzure = project
 // route clients; later phases grow explicit/derived user codecs here.
 lazy val backendTypedDataRuntime = project
   .in(file("backend/typed-data"))
+  .dependsOn(wireCore)
   .settings(
     name := "scalascript-backend-typed-data-runtime",
     libraryDependencies ++= Seq(scalatestTest),

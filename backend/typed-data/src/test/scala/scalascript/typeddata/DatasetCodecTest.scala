@@ -1,6 +1,7 @@
 package scalascript.typeddata
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.wire.WireFormat
 
 class DatasetCodecTest extends AnyFunSuite:
 
@@ -53,3 +54,42 @@ class DatasetCodecTest extends AnyFunSuite:
     assert(DatasetCodec.decodePartitions[Event](bad).left.toOption.exists(
       _.render == "$.partition[1].0.amount: expected number, got string"
     ))
+
+  test("DatasetWire round-trips partitions through JSON, MsgPack, and CBOR envelopes"):
+    val partition = DatasetCodec.encodePartition(7, Vector(
+      Event("e1", 1, List("json")),
+      Event("e2", 2, List("wire", "binary"))
+    ))
+
+    List(WireFormat.Json, WireFormat.MsgPack, WireFormat.Cbor).foreach { format =>
+      val bytes = DatasetWire.encodePartition(partition, format).toOption.get
+      val decoded = DatasetWire.decodePartition(bytes, format).toOption.get
+      assert(decoded == partition, s"format=$format")
+    }
+
+  test("DatasetWire preserves JSON numbers exactly across binary profiles"):
+    val partition = DatasetWirePartition(1, Vector(JsonValue.obj(
+      "big" -> JsonValue.Num(BigDecimal("12345678901234567890.123456789"))
+    )))
+
+    val bytes = DatasetWire.encodePartition(partition, WireFormat.Cbor).toOption.get
+    val decoded = DatasetWire.decodePartition(bytes, WireFormat.Cbor).toOption.get
+
+    assert(decoded == partition)
+
+  test("DatasetWire chunks large partitions and reassembles them in order"):
+    val values = (1 to 12).toVector.map(i => JsonValue.obj(
+      "id" -> JsonValue.Str(s"e$i"),
+      "payload" -> JsonValue.Str("x" * 80)
+    ))
+    val partition = DatasetWirePartition(42, values)
+
+    val full = DatasetWire.encodePartition(partition, WireFormat.MsgPack, maxFrameBytes = 256)
+    assert(full.left.toOption.exists(_.message.contains("exceeds limit")))
+
+    val chunks = DatasetWire.encodePartitionChunks(partition, WireFormat.MsgPack, maxFrameBytes = 512, chunkId = "chunk-a").toOption.get
+    assert(chunks.size > 1)
+    assert(chunks.forall(_.length <= 512))
+
+    val decoded = DatasetWire.decodePartitionChunks(chunks.reverse, WireFormat.MsgPack, maxFrameBytes = 512).toOption.get
+    assert(decoded == partition)

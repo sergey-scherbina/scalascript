@@ -50,7 +50,9 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **v1.62.3-typed-rpc-binary** — Typed route clients/RPC binary negotiation: generated HTTP `Accept`/`Content-Type` for MsgPack/CBOR wire payloads, JSON fallback, 406/415 errors, binary WS subscription frames, and SSE text/base64 fallback. Spec: `docs/distributed-wire-protocol.md §Phase 3`. ✓ Landed 2026-05-29.
 
-- [ ] **v1.62.4-dataset-binary-partitions** — Distributed Dataset/MapReduce binary partitions and shuffle: route `DatasetWirePartition` through `WireCodec[A]`, chunk large partitions, and run distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`.
+- [x] **v1.62.4-dataset-binary-partitions** — Distributed Dataset/MapReduce binary partitions and shuffle: route `DatasetWirePartition` through `WireCodec[A]`, chunk large partitions, and run distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`. ✓ Landed 2026-05-29: `DatasetWire` wraps `DatasetWirePartition` in `WireEnvelope(protocol = "dataset")`, encodes/decodes JSON, MsgPack, and CBOR envelopes, preserves JSON numbers exactly, and chunks/reassembles large partitions at element boundaries with `chunk-id` / `chunk-index` / `chunk-count` headers. Runner transport selection split into `v1.62.4b`.
+
+- [ ] **v1.62.4b-dataset-runner-binary-wire** — Distributed Dataset/MapReduce runner binary transport selection: wire `runDistributedWire` / `runDistributedShuffleWire` actor messages to use `DatasetWire` envelopes when `wire.dataset` selects MsgPack/CBOR, retain JSON fallback, and add distributed map/shuffle conformance under JSON, MsgPack, and CBOR. Spec: `docs/distributed-wire-protocol.md §Phase 4`.
 
 - [ ] **v1.62.5-dstream-native-wire** — Native DStream runner binary wire: element batches, watermarks, triggers, side inputs, side outputs, checkpoint metadata, and errors over the shared wire layer. External Spark/Kafka/Flink/Beam protocols stay unchanged. Spec: `docs/distributed-wire-protocol.md §Phase 5`.
 
