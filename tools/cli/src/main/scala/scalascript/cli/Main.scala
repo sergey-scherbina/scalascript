@@ -6685,16 +6685,19 @@ def cleanCommand(args: List[String]): Unit =
  *
  *  v2.0 — artifact introspection. */
 def infoCommand(args: List[String]): Unit =
-  var jsonMode = false
+  var jsonMode     = false
   var sectionsMode = false
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  args.foreach {
-    case "--json"      => jsonMode = true
-    case "--sections"  => sectionsMode = true
-    case f             => files += f
-  }
+  var registryArg: Option[String] = None
+  val files        = scala.collection.mutable.ArrayBuffer.empty[String]
+  val it2          = args.iterator
+  while it2.hasNext do
+    it2.next() match
+      case "--json"                       => jsonMode     = true
+      case "--sections"                   => sectionsMode = true
+      case "--registry" if it2.hasNext   => registryArg  = Some(it2.next())
+      case f                             => files        += f
   if files.isEmpty then
-    System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections]")
+    System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections] [--registry <url>]")
     System.err.println("  Registry: ssc info io.example/lib")
     System.err.println("  Artifact: ssc info <file>.scim  (supported: .scim, .scir, .scjvm, .scjs)")
     System.exit(1)
@@ -6703,7 +6706,8 @@ def infoCommand(args: List[String]): Unit =
   val firstArg = files.head
   if firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
     import scalascript.imports.RegistryClient
-    val entries = RegistryClient.load()
+    val url     = RegistryClient.effectiveUrl(registryArg)
+    val entries = RegistryClient.load(url, refresh = registryArg.isDefined)
     entries.find(_.name == firstArg) match
       case None =>
         System.err.println(s"Package '${firstArg}' not found in registry.")
@@ -8265,16 +8269,19 @@ private def lockCheckCommand(args: List[String]): Unit =
  *  substring/keyword matching on the query.  `--refresh` bypasses the cache. */
 def registrySearchCommand(args: List[String]): Unit =
   import scalascript.imports.RegistryClient
-  var refresh = false
-  var query   = ""
-  args.foreach {
-    case "--refresh" => refresh = true
-    case q           => query   = q
-  }
-  val cached = RegistryClient.isCacheFresh
-  if refresh then print("Fetching registry... ")
-  else if !cached then print("Fetching registry... ")
-  val entries = RegistryClient.load(refresh = refresh)
+  var refresh     = false
+  var query       = ""
+  var registryArg: Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--refresh"                      => refresh = true
+      case "--registry" if it.hasNext       => registryArg = Some(it.next())
+      case q                                => query = q
+  val url    = RegistryClient.effectiveUrl(registryArg)
+  val cached = registryArg.isEmpty && RegistryClient.isCacheFresh
+  if refresh || !cached then print("Fetching registry... ")
+  val entries = RegistryClient.load(url, refresh = refresh || registryArg.isDefined)
   if refresh || !cached then println(s"(${entries.length} packages)")
   if entries.isEmpty then
     println("Registry is empty or could not be fetched.  Try --refresh.")
@@ -8295,23 +8302,26 @@ def registrySearchCommand(args: List[String]): Unit =
  *  front-matter `dependencies:` of a single-file `.ssc`. */
 def registryAddCommand(args: List[String]): Unit =
   import scalascript.imports.{RegistryClient, SsclibManifest}
-  var nameArg:    String        = ""
+  var nameArg:    String         = ""
   var versionArg: Option[String] = None
   var fileArg:    Option[String] = None
+  var registryArg: Option[String] = None
   val it = args.iterator
   while it.hasNext do
     it.next() match
-      case "--file" | "-f" if it.hasNext => fileArg = Some(it.next())
-      case a if nameArg.isEmpty          => nameArg = a
-      case v                             => versionArg = Some(v)
+      case "--file" | "-f" if it.hasNext    => fileArg     = Some(it.next())
+      case "--registry" if it.hasNext       => registryArg = Some(it.next())
+      case a if nameArg.isEmpty             => nameArg     = a
+      case v                                => versionArg  = Some(v)
 
   if nameArg.isEmpty then
-    System.err.println("Usage: ssc add <name> [<version>] [--file <manifest>]")
+    System.err.println("Usage: ssc add <name> [<version>] [--file <manifest>] [--registry <url>]")
     System.exit(1)
 
   // Resolve the version: explicit arg > registry lookup > error.
   val version = versionArg.getOrElse {
-    val entries = RegistryClient.load()
+    val url     = RegistryClient.effectiveUrl(registryArg)
+    val entries = RegistryClient.load(url, refresh = registryArg.isDefined)
     entries.find(_.name == nameArg) match
       case None =>
         System.err.println(s"add: package '$nameArg' not found in registry.")

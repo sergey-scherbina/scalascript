@@ -143,7 +143,7 @@ ScalaScript's own registry work stays queued.
 
 - [ ] **arch-registry-p3** — GitHub Pages HTML index: generation script, publish workflow, client-side search, per-package JSON, and `registry.scalascript.io` CNAME. Spec: `docs/arch-registry.md §5 Phase 3`.
 
-- [ ] **arch-registry-p4** — Private registry support: `registry.url` config; `--registry <url>` CLI flag; enterprise internal mirror documentation. Spec: `docs/arch-registry.md §5 Phase 4`.
+- [x] **arch-registry-p4** — Private registry support: `registry.url` config; `--registry <url>` CLI flag; enterprise internal mirror documentation. Spec: `docs/arch-registry.md §5 Phase 4`.
 
 ### Theme J — Lightweight FFI
 

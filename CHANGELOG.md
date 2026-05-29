@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-registry-p4 private registry support
+
+- **arch-registry-p4** — Private registry support. `RegistryClient.effectiveUrl(registryArg)` resolves the URL with priority: CLI `--registry <url>` arg > `registry.url` in `~/.config/scalascript/config.yaml` > built-in default. `registryUrlFromConfig()` reads `registry.url` from `config.yaml` (SimpleYaml). `fetchYaml` now handles `file://` and `file:` URLs (reads directly from the filesystem without HTTP, useful for local mirrors and tests). All three registry commands (`ssc search`, `ssc add`, `ssc info <pkg>`) accept `--registry <url>` and pass it through to `RegistryClient.load`. 9 tests: file:// fetch, URL priority (CLI > config > default), config.yaml read/absent, search on locally-fetched entries.
+
 ## 2026-05-29 — arch-registry-p2 ssc search/info/add + RegistryClient
 
 - **arch-registry-p2** — Package registry CLI commands and client. New `RegistryClient` in `lang/core/imports`: `load(url, refresh)` fetches `packages.yaml` from the registry URL (default `https://registry.scalascript.io/packages.yaml`) or returns from `~/.cache/scalascript/registry/packages.yaml` when fresh (1-hour TTL); `fetchAndCache` writes cache + timestamp; `search(query, entries)` returns scored matches (name prefix > name contains > desc/keyword); `formatRow` and `formatInfo` produce CLI output. New `ssc search [<query>] [--refresh]` command; `ssc add <name> [<version>]` appends dep entry to `ssclib-manifest.yaml` (creates it if absent); `ssc info <group>/<artifact>` now also dispatches to registry info when the argument is a package name (no file extension). 14 tests: fetch+cache, TTL, search scoring, format helpers.

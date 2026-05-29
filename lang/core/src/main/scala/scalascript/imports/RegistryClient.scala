@@ -5,22 +5,43 @@ import java.net.{HttpURLConnection, URI}
 
 /** HTTP client for the ScalaScript package registry.
  *
- *  Fetches `packages.yaml` from the registry URL (default:
- *  `https://registry.scalascript.io/packages.yaml`), caches to
- *  `~/.cache/scalascript/registry/packages.yaml` with a 1-hour TTL.
- *  Search runs locally via substring + keyword matching.
+ *  Fetches `packages.yaml` from the registry URL.  URL priority:
+ *    1. `--registry <url>` CLI flag (callers pass this explicitly)
+ *    2. `registry.url` key in `~/.config/scalascript/config.yaml`
+ *    3. Built-in default `https://registry.scalascript.io/packages.yaml`
  *
- *  See `docs/arch-registry.md §3c`. */
+ *  Results cached to `~/.cache/scalascript/registry/packages.yaml` with a
+ *  1-hour TTL.  Search runs locally via substring + keyword matching.
+ *
+ *  See `docs/arch-registry.md §3c, §3d Phase 4`. */
 object RegistryClient:
 
-  val DefaultRegistryUrl = "https://registry.scalascript.io/packages.yaml"
-  val CacheTtlMs: Long   = 60L * 60 * 1000   // 1 hour
+  val DefaultRegistryUrl  = "https://registry.scalascript.io/packages.yaml"
+  val CacheTtlMs: Long    = 60L * 60 * 1000   // 1 hour
+  val ConfigFile: os.Path = os.home / ".config" / "scalascript" / "config.yaml"
 
   private def cacheFile: os.Path =
     os.home / ".cache" / "scalascript" / "registry" / "packages.yaml"
 
   private def cacheMetaFile: os.Path =
     os.home / ".cache" / "scalascript" / "registry" / "packages.yaml.ts"
+
+  /** Read `registry.url` from `~/.config/scalascript/config.yaml`, if set. */
+  def registryUrlFromConfig(): Option[String] =
+    if !os.exists(ConfigFile) then None
+    else
+      Try {
+        import scalascript.parser.SimpleYaml
+        import scala.jdk.CollectionConverters.*
+        val raw = SimpleYaml.load[java.util.Map[String, Any]](os.read(ConfigFile))
+        Option(raw).flatMap(_.asScala.get("registry.url")).map(_.toString.trim).filter(_.nonEmpty)
+      }.toOption.flatten
+
+  /** Effective registry URL: explicit override > config file > default. */
+  def effectiveUrl(registryArg: Option[String] = None): String =
+    registryArg.filter(_.nonEmpty)
+      .orElse(registryUrlFromConfig())
+      .getOrElse(DefaultRegistryUrl)
 
   /** Fetch-or-load the registry.  Returns all entries (empty list on error).
    *
@@ -55,18 +76,25 @@ object RegistryClient:
         entries
 
   private def fetchYaml(url: String): Option[String] =
-    Try {
-      val conn = URI.create(url).toURL.openConnection().asInstanceOf[HttpURLConnection]
-      conn.setConnectTimeout(8000)
-      conn.setReadTimeout(15000)
-      conn.setRequestProperty("Accept", "text/plain, application/x-yaml, */*")
-      conn.setRequestProperty("User-Agent", "ssc/registry-client")
-      try
-        if conn.getResponseCode == 200 then
-          Some(new String(conn.getInputStream.readAllBytes(), "UTF-8"))
-        else None
-      finally conn.disconnect()
-    }.toOption.flatten
+    if url.startsWith("file://") || url.startsWith("file:") then
+      // Local file URL — read directly (used for tests and local mirrors).
+      Try {
+        val path = java.nio.file.Paths.get(URI.create(url))
+        Some(new String(java.nio.file.Files.readAllBytes(path), "UTF-8"))
+      }.toOption.flatten
+    else
+      Try {
+        val conn = URI.create(url).toURL.openConnection().asInstanceOf[HttpURLConnection]
+        conn.setConnectTimeout(8000)
+        conn.setReadTimeout(15000)
+        conn.setRequestProperty("Accept", "text/plain, application/x-yaml, */*")
+        conn.setRequestProperty("User-Agent", "ssc/registry-client")
+        try
+          if conn.getResponseCode == 200 then
+            Some(new String(conn.getInputStream.readAllBytes(), "UTF-8"))
+          else None
+        finally conn.disconnect()
+      }.toOption.flatten
 
   /** Search entries by name, description, and keywords.
    *  Returns entries sorted by relevance (name prefix > name contains > keyword/desc). */
