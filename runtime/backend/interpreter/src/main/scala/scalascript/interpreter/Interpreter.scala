@@ -108,7 +108,7 @@ class Interpreter(
    *  or `WsTestLock` synchronization required in tests. */
   val wsRoutes: scalascript.server.WsRoutes = new scalascript.server.WsRoutes()
   val routeRegistry: scalascript.server.RouteRegistry = scalascript.server.Routes
-  private[interpreter] val globals      = mutable.Map.empty[String, Value]
+  private[interpreter] val globals      = mutable.HashMap.empty[String, Value]
   private[interpreter] val extensions   = mutable.HashMap.empty[String, mutable.HashMap[String, Value.FunV]]
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.

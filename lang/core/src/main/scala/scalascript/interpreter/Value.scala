@@ -35,6 +35,11 @@ sealed abstract class FrameMap
     b: scala.collection.mutable.Growable[(String, Value)],
     globals: scala.collection.mutable.Map[String, Value]
   ): Unit
+  /** HashMap overload: uses `b(k) = v` (no Tuple2) instead of `b += (k -> v)`. */
+  private[interpreter] def appendLocalTo(
+    b: scala.collection.mutable.HashMap[String, Value],
+    globals: scala.collection.mutable.HashMap[String, Value]
+  ): Unit
 
 final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
     extends FrameMap:
@@ -51,6 +56,8 @@ final class FrameMap1(n1: String, v1: Value, parent: Map[String, Value])
     parent.updated(n1, v1)
   override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
     if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.HashMap[String, Value], globals: scala.collection.mutable.HashMap[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b(n1) = v1
 
 final class FrameMap2(
   n1: String, v1: Value,
@@ -77,6 +84,9 @@ final class FrameMap2(
   override private[interpreter] def appendLocalTo(b: scala.collection.mutable.Growable[(String, Value)], globals: scala.collection.mutable.Map[String, Value]): Unit =
     if globals.getOrElse(n1, null) != v1 then b += (n1 -> v1)
     if globals.getOrElse(n2, null) != v2 then b += (n2 -> v2)
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.HashMap[String, Value], globals: scala.collection.mutable.HashMap[String, Value]): Unit =
+    if globals.getOrElse(n1, null) != v1 then b(n1) = v1
+    if globals.getOrElse(n2, null) != v2 then b(n2) = v2
 
 final class FrameMapN(
   slots: Array[String],
@@ -118,6 +128,11 @@ final class FrameMapN(
     var i = 0
     while i < slots.length do
       if globals.getOrElse(slots(i), null) != vals(i) then b += (slots(i) -> vals(i))
+      i += 1
+  override private[interpreter] def appendLocalTo(b: scala.collection.mutable.HashMap[String, Value], globals: scala.collection.mutable.HashMap[String, Value]): Unit =
+    var i = 0
+    while i < slots.length do
+      if globals.getOrElse(slots(i), null) != vals(i) then b(slots(i)) = vals(i)
       i += 1
 
 object FrameMap:
