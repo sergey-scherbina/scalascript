@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-registry-p1 packages.yaml schema
+
+- **arch-registry-p1** — Package registry schema foundation. New `RegistryEntry` case class in `lang/core/imports` models the `packages.yaml` entry format: `name` (required, `<group>/<artifact>`), `version` (required, semver), `description`, `keywords`, `backends`, `url` (allowed schemes: `github:`, `jitpack:`, `dep:`, `https://`), `license`, `author`, `homepage`, `changelog`, `scala-script-version`, `deprecated`. `RegistryEntry.parseAll` returns `Either[List[String], List[RegistryEntry]]`; `validate` checks name format, version semver shape, URL scheme whitelist, and HTTPS homepage requirement. `toYaml` serialises the list back to YAML. New `registry/packages.yaml` seeds 5 first-party packages (`io.scalascript/json`, `http`, `streams`, `actors`, `sql`). 15 schema validation tests including seed file round-trip.
+
 ## 2026-05-29 — arch-dsl-hooks-p4 InterpolatorCheckRegistry
 
 - **arch-dsl-hooks-p4** — Compile-time interpolator validation is now extensible. New `InterpolatorCheck` SPI trait (`interpolatorName`, `check(parts: List[String]): List[Diagnostic]`) in `runtime/backend/spi`. New `InterpolatorCheckRegistry` in `lang/core/compiler/plugin`: TrieMap-backed `register`/`checksFor`/`checkAll`/`registerFrom`; pre-registers `XmlInterpolatorCheck` (xml placeholder validation via `PureMarkupCodec`). `MarkupInterpolatorCheck` now dispatches ALL `name"..."` interpolations through `InterpolatorCheckRegistry.checkAll` rather than hard-checking only `xml`. `Backend.interpolatorChecks: List[InterpolatorCheck]` field (default `Nil`); `BackendRegistry.registerDslHooks` registers checks on backend load. 12 tests: MarkupInterpolatorCheck XML regression (10) + registry discovery + custom check via traversal (2).

@@ -1,0 +1,62 @@
+# ScalaScript Package Registry
+#
+# One entry per package.  Required fields: name, version.
+# Submit a PR adding your package to this list.
+# CI runs: schema validation + `ssc check` on each entry.
+#
+# See docs/arch-registry.md for the full schema specification.
+
+- name: io.scalascript/json
+  version: 1.0.0
+  description: "Built-in JSON encoding/decoding for ScalaScript"
+  keywords: [json, serialization, codec, parsing]
+  backends: [jvm, js]
+  url: "github:scalascript/scalascript@v1.0.0"
+  license: Apache-2.0
+  author: "ScalaScript Team"
+  homepage: "https://scalascript.io/packages/json"
+  scala-script-version: ">=1.0"
+
+- name: io.scalascript/http
+  version: 1.0.0
+  description: "HTTP client and server primitives for ScalaScript"
+  keywords: [http, web, client, server, rest]
+  backends: [jvm, js]
+  url: "github:scalascript/scalascript@v1.0.0"
+  license: Apache-2.0
+  author: "ScalaScript Team"
+  homepage: "https://scalascript.io/packages/http"
+  scala-script-version: ">=1.0"
+
+- name: io.scalascript/streams
+  version: 1.0.0
+  description: "Lazy reactive streams and async pipelines for ScalaScript"
+  keywords: [streams, reactive, async, pipeline, source, sink]
+  backends: [jvm, js]
+  url: "github:scalascript/scalascript@v1.0.0"
+  license: Apache-2.0
+  author: "ScalaScript Team"
+  homepage: "https://scalascript.io/packages/streams"
+  scala-script-version: ">=1.51"
+
+- name: io.scalascript/actors
+  version: 1.0.0
+  description: "Lightweight actor model for concurrent ScalaScript programs"
+  keywords: [actors, concurrency, async, mailbox]
+  backends: [jvm, js]
+  url: "github:scalascript/scalascript@v1.0.0"
+  license: Apache-2.0
+  author: "ScalaScript Team"
+  homepage: "https://scalascript.io/packages/actors"
+  scala-script-version: ">=1.40"
+
+- name: io.scalascript/sql
+  version: 1.0.0
+  description: "SQL database access (PostgreSQL, SQLite) for ScalaScript"
+  keywords: [sql, database, postgresql, sqlite, jdbc]
+  backends: [jvm]
+  url: "github:scalascript/scalascript@v1.0.0"
+  license: Apache-2.0
+  author: "ScalaScript Team"
+  homepage: "https://scalascript.io/packages/sql"
+  scala-script-version: ">=1.27"

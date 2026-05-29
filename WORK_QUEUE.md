@@ -137,7 +137,7 @@ ScalaScript's own registry work stays queued.
 
 ### Theme I — Package Registry
 
-- [ ] **arch-registry-p1** — Registry repository + `packages.yaml` schema: create first-party registry repo; define schema; seed with first-party packages; validation CI. Spec: `docs/arch-registry.md §5 Phase 1`.
+- [x] **arch-registry-p1** — Registry repository + `packages.yaml` schema: create first-party registry repo; define schema; seed with first-party packages; validation CI. Spec: `docs/arch-registry.md §5 Phase 1`.
 
 - [ ] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI: cached `RegistryClient`; local ranked search; manifest update; mock-HTTP tests. Spec: `docs/arch-registry.md §5 Phase 2`.
 
