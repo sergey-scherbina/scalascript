@@ -1,0 +1,3 @@
+fix-interpreter-stackoverflow: StackOverflowError in InterpreterTest — infinite recursion in EvalRuntime.eval
+Claimed: 2026-05-29
+Branch: fix/interpreter-stackoverflow
