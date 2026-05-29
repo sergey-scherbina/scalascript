@@ -51,6 +51,311 @@ private[interpreter] object DispatchRuntime:
       case Value.InstanceV(t, f)   => dispatchInstance(recv, t, f, name, args, env, interp)
       case other                   => dispatchFallback(other, name, args, env, interp)
 
+  /** Single-arg fast path: avoids allocating `arg :: Nil` per method call.
+   *  Covers the most common 1-arg operations on List/Map/Option/String/Int/instances.
+   *  Falls through to dispatch(recv, name, arg :: Nil, ...) for uncommon operations. */
+  def dispatch1(recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    if interp.extensions.nonEmpty then
+      val typeName: String = recv match
+        case _: Value.OptionV => "Option"
+        case _: Value.ListV   => "List"
+        case _: Value.IntV    => "Int"
+        case _: Value.DoubleV => "Double"
+        case _: Value.StringV => "String"
+        case _: Value.BoolV   => "Boolean"
+        case _: Value.MapV    => "Map"
+        case _                => null
+      if typeName != null then
+        val typeExts = interp.extensions.getOrElse(typeName, null)
+        if typeExts != null then
+          val fn = typeExts.getOrElse(name, null)
+          if fn != null then return interp.callValuePrepend(fn, recv, arg :: Nil, env)
+    recv match
+      case Value.ListV(ls)      => dispatchList1(ls, recv, name, arg, env, interp)
+      case Value.MapV(m)        => dispatchMap1(m, name, arg, env, interp)
+      case Value.OptionV(opt)   => dispatchOption1(recv, opt, name, arg, env, interp)
+      case Value.StringV(s)     => dispatchString1(recv, s, name, arg, env, interp)
+      case Value.IntV(n)        => dispatchInt(n, name, arg :: Nil, env, interp)
+      case Value.InstanceV(t, f) => dispatchInstance1(recv, t, f, name, arg, env, interp)
+      case _                    => dispatch(recv, name, arg :: Nil, env, interp)
+
+  /** 1-arg fast path for List — avoids `arg :: Nil` allocation for the most common ops. */
+  private def dispatchList1(ls: List[Value], recv: Value, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    name match
+      case "map"        => Computation.mapSequence(ls, item => interp.callValue1(arg, item, env))
+      case "filter"     => Computation.filterSequence(ls, item => interp.callValue1(arg, item, env))
+      case "filterNot"  => Computation.filterNotSequence(ls, item => interp.callValue1(arg, item, env))
+      case "foreach"    => Computation.foreachSequence(ls, item => interp.callValue1(arg, item, env))
+      case "flatMap"    =>
+        val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var rem = ls
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.ListV(inner)) => buf ++= inner; rem = rem.tail
+            case Pure(v)                  => buf += v; rem = rem.tail
+            case comp =>
+              val tail = rem.tail
+              def loopRest(remaining: List[Value]): Computation = remaining match
+                case Nil => Pure(Value.ListV(buf.toList))
+                case h :: rest =>
+                  FlatMap(interp.callValue1(arg, h, env), {
+                    case Value.ListV(inner) => buf ++= inner; loopRest(rest)
+                    case v                  => buf += v;      loopRest(rest)
+                  })
+              return FlatMap(comp, {
+                case Value.ListV(inner) => buf ++= inner; loopRest(tail)
+                case v                  => buf += v;      loopRest(tail)
+              })
+        Pure(Value.ListV(buf.toList))
+      case "find"       =>
+        var rem = ls
+        while rem.nonEmpty do
+          val h = rem.head
+          interp.callValue1(arg, h, env) match
+            case Pure(Value.BoolV(true)) => return Pure(Value.OptionV(Some(h)))
+            case Pure(_)                 => rem = rem.tail
+            case c =>
+              val tail = rem.tail
+              def restLoop(remaining: List[Value]): Computation = remaining match
+                case Nil => Computation.PureNone
+                case hh :: rest =>
+                  FlatMap(interp.callValue1(arg, hh, env), {
+                    case Value.BoolV(true) => Pure(Value.OptionV(Some(hh)))
+                    case _                 => restLoop(rest)
+                  })
+              return FlatMap(c, {
+                case Value.BoolV(true) => Pure(Value.OptionV(Some(h)))
+                case _                 => restLoop(tail)
+              })
+        Computation.PureNone
+      case "exists"     =>
+        var rem = ls
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.BoolV(true)) => return Computation.PureTrue
+            case Pure(_)                 => rem = rem.tail
+            case c =>
+              val tail = rem.tail
+              def restLoop(remaining: List[Value]): Computation = remaining match
+                case Nil => Computation.PureFalse
+                case h :: rest =>
+                  FlatMap(interp.callValue1(arg, h, env), {
+                    case Value.BoolV(true) => Computation.PureTrue
+                    case _                 => restLoop(rest)
+                  })
+              return FlatMap(c, {
+                case Value.BoolV(true) => Computation.PureTrue
+                case _                 => restLoop(tail)
+              })
+        Computation.PureFalse
+      case "forall"     =>
+        var rem = ls
+        while rem.nonEmpty do
+          interp.callValue1(arg, rem.head, env) match
+            case Pure(Value.BoolV(false)) => return Computation.PureFalse
+            case Pure(_)                  => rem = rem.tail
+            case c =>
+              val tail = rem.tail
+              def restLoop(remaining: List[Value]): Computation = remaining match
+                case Nil => Computation.PureTrue
+                case h :: rest =>
+                  FlatMap(interp.callValue1(arg, h, env), {
+                    case Value.BoolV(false) => Computation.PureFalse
+                    case _                  => restLoop(rest)
+                  })
+              return FlatMap(c, {
+                case Value.BoolV(false) => Computation.PureFalse
+                case _                  => restLoop(tail)
+              })
+        Computation.PureTrue
+      case "contains"   => Computation.pureBool(ls.contains(arg))
+      case "indexOf"    => Computation.pureIntV(ls.indexOf(arg).toLong)
+      case "appended"   => Pure(Value.ListV(ls :+ arg))
+      case "prepended"  => Pure(Value.ListV(arg +: ls))
+      case "take"       => arg match
+        case Value.IntV(n) =>
+          if n >= ls.length then Pure(recv)
+          else if n <= 0 then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.take(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "drop"       => arg match
+        case Value.IntV(n) =>
+          if n <= 0 then Pure(recv)
+          else if n >= ls.length then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.drop(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "apply"      => arg match
+        case Value.IntV(i) =>
+          if i < 0 || i >= ls.length then interp.located(s"index $i out of bounds for list of length ${ls.length}")
+          else Pure(ls(i.toInt))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "grouped"    => arg match
+        case Value.IntV(n) => Pure(Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList))
+        case _             => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "sliding"    => arg match
+        case Value.IntV(n) => Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
+        case _             => dispatchList(ls, name, arg :: Nil, env, interp)
+      case _            => dispatchList(ls, name, arg :: Nil, env, interp)
+
+  /** 1-arg fast path for Map. */
+  private def dispatchMap1(m: Map[Value, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    name match
+      case "get"        => Pure(Value.optionV(m.get(arg)))
+      case "apply"      => Pure(m.getOrElse(arg, interp.located(s"Key not found: ${Value.show(arg)}")))
+      case "contains"   => Computation.pureBool(m.contains(arg))
+      case "removed"    => Pure(Value.MapV(m - arg))
+      case "-"          => Pure(Value.MapV(m - arg))
+      case "map"        =>
+        val mapIt  = m.iterator
+        val mapBuf = scala.collection.mutable.Map.empty[Value, Value]
+        while mapIt.hasNext do
+          val (k, v) = mapIt.next()
+          interp.callEntry(arg, k, v, env) match
+            case Pure(Value.TupleV(nk :: nv :: Nil)) => mapBuf(nk) = nv
+            case Pure(_)                             => // skip malformed
+            case comp =>
+              def loopMap(r: Value): Computation =
+                r match
+                  case Value.TupleV(nk :: nv :: Nil) => mapBuf(nk) = nv
+                  case _                             =>
+                if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
+                else
+                  val (k2, v2) = mapIt.next()
+                  FlatMap(interp.callEntry(arg, k2, v2, env), loopMap)
+              return FlatMap(comp, loopMap)
+        Pure(Value.MapV(mapBuf.toMap))
+      case "filter"     =>
+        val filtIt  = m.iterator
+        val filtBuf = scala.collection.mutable.Map.empty[Value, Value]
+        while filtIt.hasNext do
+          val (k, v) = filtIt.next()
+          interp.callEntry(arg, k, v, env) match
+            case Pure(Value.BoolV(true))  => filtBuf(k) = v
+            case Pure(_)                  => // skip
+            case comp =>
+              def loopFilt(r: Value): Computation =
+                r match
+                  case Value.BoolV(true) => filtBuf(k) = v
+                  case _                 =>
+                def rest(): Computation =
+                  if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
+                  else
+                    val (k2, v2) = filtIt.next()
+                    FlatMap(interp.callEntry(arg, k2, v2, env), { r2 =>
+                      if r2 == Value.BoolV(true) then filtBuf(k2) = v2
+                      rest()
+                    })
+                rest()
+              return FlatMap(comp, loopFilt)
+        Pure(Value.MapV(filtBuf.toMap))
+      case "foreach"    =>
+        val it = m.iterator
+        while it.hasNext do
+          val (k, v) = it.next()
+          interp.callEntry(arg, k, v, env) match
+            case Pure(_) =>
+            case c =>
+              def restLoop(): Computation =
+                if !it.hasNext then Computation.PureUnit
+                else
+                  val (k2, v2) = it.next()
+                  FlatMap(interp.callEntry(arg, k2, v2, env), _ => restLoop())
+              return FlatMap(c, _ => restLoop())
+        Computation.PureUnit
+      case "mapValues"  =>
+        val it  = m.iterator
+        val buf = scala.collection.mutable.Map.empty[Value, Value]
+        while it.hasNext do
+          val (k, v) = it.next()
+          interp.callValue1(arg, v, env) match
+            case Pure(nv) => buf(k) = nv
+            case c =>
+              def restLoop(): Computation =
+                if !it.hasNext then Pure(Value.MapV(buf.toMap))
+                else
+                  val (k2, v2) = it.next()
+                  FlatMap(interp.callValue1(arg, v2, env), { nv2 => buf(k2) = nv2; restLoop() })
+              return FlatMap(c, { nv => buf(k) = nv; restLoop() })
+        Pure(Value.MapV(buf.toMap))
+      case "getOrDefault" | "getOrElse" =>
+        dispatchMap(m, name, arg :: Nil, env, interp)
+      case _            => dispatchMap(m, name, arg :: Nil, env, interp)
+
+  /** 1-arg fast path for Option. */
+  private def dispatchOption1(recv: Value, opt: Option[Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    name match
+      case "getOrElse" => opt match
+        case Some(v) => Pure(v)
+        case None    => Pure(arg)
+      case "orElse"    => opt match
+        case Some(_) => Pure(recv)
+        case None    => Pure(arg)
+      case "contains"  => Computation.pureBool(opt.contains(arg))
+      case "map"       => opt match
+        case None    => Computation.PureNone
+        case Some(v) => interp.callValue1(arg, v, env).map(Computation.wrapSome)
+      case "flatMap"   => opt match
+        case None    => Computation.PureNone
+        case Some(v) => interp.callValue1(arg, v, env).map {
+          case o: Value.OptionV => o
+          case other            => Value.OptionV(Some(other))
+        }
+      case "filter"    => opt match
+        case None    => Computation.PureNone
+        case Some(v) => interp.callValue1(arg, v, env).map {
+          case Value.BoolV(true) => recv
+          case _                 => Value.NoneV
+        }
+      case "foreach"   => opt match
+        case None    => Computation.PureUnit
+        case Some(v) => Computation.mapUnit(interp.callValue1(arg, v, env))
+      case "exists"    => opt match
+        case None    => Computation.PureFalse
+        case Some(v) => interp.callValue1(arg, v, env)
+      case "forall"    => opt match
+        case None    => Computation.PureTrue
+        case Some(v) => interp.callValue1(arg, v, env)
+      case "zip"       => opt match
+        case None    => Computation.PureNone
+        case Some(v) => arg match
+          case Value.OptionV(Some(w)) => Pure(Value.OptionV(Some(Value.TupleV(v :: w :: Nil))))
+          case _                      => Computation.PureNone
+      case _           => dispatchOption(recv, opt, name, arg :: Nil, env, interp)
+
+  /** 1-arg fast path for String single-arg operations. */
+  private def dispatchString1(recv: Value, s: String, name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    name match
+      case "contains"    => arg match
+        case Value.StringV(t) => Computation.pureBool(s.contains(t))
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "startsWith"  => arg match
+        case Value.StringV(t) => Computation.pureBool(s.startsWith(t))
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "endsWith"    => arg match
+        case Value.StringV(t) => Computation.pureBool(s.endsWith(t))
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "split"       => arg match
+        case Value.StringV(sep) => Pure(Value.ListV(s.split(java.util.regex.Pattern.quote(sep), -1).map(Value.StringV(_)).toList))
+        case _                  => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "repeat"      => arg match
+        case Value.IntV(n) => Pure(Value.StringV(s * n.toInt))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "take"        => arg match
+        case Value.IntV(n) => Pure(Value.StringV(s.take(n.toInt)))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "drop"        => arg match
+        case Value.IntV(n) => Pure(Value.StringV(s.drop(n.toInt)))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "apply" | "charAt" => arg match
+        case Value.IntV(n) => Pure(Value.CharV(s.charAt(n.toInt)))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
+
+  /** 1-arg fast path for InstanceV: field access and class method call. */
+  private def dispatchInstance1(recv: Value, typeName: String, fields: Map[String, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
+    // Delegate to the full instance dispatch; single-arg list built lazily
+    dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
+
   // ── String ──────────────────────────────────────────────────────────────────
 
   private def dispatchString(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =

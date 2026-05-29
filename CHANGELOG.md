@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter dispatch1 fast path
+
+- **perf/interpreter-dispatch1** — Ported the single-argument dispatch fast path
+  from `perf/interpreter-opt`. The interpreter now routes many one-argument
+  built-in method calls through `dispatch1`, avoiding `arg :: Nil` allocation
+  in common `map`/`filter`/collection/string/option-style calls.
+
 ## 2026-05-29 — interpreter FrameMap small-field fast path
 
 - **perf/interpreter-small-hotpath** — `FrameMap.fromMap` and
