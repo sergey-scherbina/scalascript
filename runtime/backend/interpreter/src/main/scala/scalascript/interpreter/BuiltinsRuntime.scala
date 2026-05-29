@@ -19,15 +19,15 @@ private[interpreter] object BuiltinsRuntime:
     // to give the ServiceLoader a chance to register it.
     def globalOrStub(name: String): Value =
       Value.NativeFnV(name, args =>
-        interp.globals.get(name) match
-          case Some(fn) => interp.callValue(fn, args, Map.empty)
-          case None if interp._pluginsLoaded =>
-            throw InterpretError(s"'$name' requires a plugin that is not loaded")
-          case None =>
-            interp.ensurePluginsLoaded()
-            interp.globals.get(name) match
-              case Some(fn) => interp.callValue(fn, args, Map.empty)
-              case None     => throw InterpretError(s"'$name' requires a plugin that is not loaded")
+        val fn = interp.globals.getOrElse(name, null)
+        if fn != null then interp.callValue(fn, args, Map.empty)
+        else if interp._pluginsLoaded then
+          throw InterpretError(s"'$name' requires a plugin that is not loaded")
+        else
+          interp.ensurePluginsLoaded()
+          val fn2 = interp.globals.getOrElse(name, null)
+          if fn2 != null then interp.callValue(fn2, args, Map.empty)
+          else throw InterpretError(s"'$name' requires a plugin that is not loaded")
       )
 
     // Phase 2 lazy loading: install only the built-in interpreter intrinsics
