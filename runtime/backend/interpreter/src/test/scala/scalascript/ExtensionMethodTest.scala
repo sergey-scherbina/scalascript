@@ -77,6 +77,15 @@ class ExtensionMethodTest extends AnyFunSuite with Matchers:
       println(u.greet("Hi"))
     """) shouldBe "Hello, Alice!\nHi, Alice!"
 
+  test("Interpreter: primitive extension with two additional arguments"):
+    run("""
+      extension (n: Int)
+        def between(lo: Int, hi: Int): Boolean = n >= lo && n <= hi
+
+      println(5.between(1, 10))
+      println(12.between(1, 10))
+    """) shouldBe "true\nfalse"
+
   test("Interpreter: no collision between same-named extensions on different case classes"):
     run("""
       case class Dog(name: String)

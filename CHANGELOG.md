@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter dispatch2 built-in fast path
+
+- **perf/interpreter-dispatch2** — Ported the two-argument built-in dispatch
+  fast path from `perf/interpreter-opt`. Common two-argument methods such as
+  `Map.getOrElse`, `Map.updated`, string `substring`/`replace`/`slice`, integer
+  `clamp`, and list `slice`/`zip` now avoid constructing `arg1 :: arg2 :: Nil`
+  in the interpreter dispatch path while preserving primitive extension-method
+  dispatch.
+
 ## 2026-05-29 — interpreter two-argument apply fast path
 
 - **perf/interpreter-apply2** — Ported the two-argument `Term.Apply` fast path
