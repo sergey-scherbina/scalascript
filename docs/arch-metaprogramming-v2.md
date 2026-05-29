@@ -120,16 +120,28 @@ Landed diagnostics slice (2026-05-29):
   with a direct message: restricted quoted macros must return a direct quoted
   expression such as `'{ $x + 1 }`.
 
+Landed richer unsupported-body diagnostics slice (2026-05-29):
+
+- Unsupported implementation bodies are now classified before the generic
+  fallback. `Expr.asValue match` reports that compile-time branching in macro
+  implementations is not implemented yet.
+- `Expr(...)` construction reports that link-time expansion currently requires
+  direct quote syntax, `'{ ... }`.
+- Nested/non-top-level quotes and splices outside a direct quoted expression
+  report targeted guidance while preserving the direct quoted-expression happy
+  path.
+
 Current implementation boundary:
 
 - Implemented: `${ impl('x) }` entrypoints, direct `'{ $x + ... }` quoted
   bodies, cross-module source expansion in `ssc link`, and interpreter/run-path
   parity for the same direct quoted-body subset including runtime
   `Expr.asValue` / `Expr.asTerm`; unsupported entrypoints and non-quoted
-  macro bodies now produce explicit diagnostics.
+  macro bodies now produce explicit diagnostics, with targeted hints for common
+  unsupported body shapes.
 - Planned: compile-time constant folding inside macro implementations, richer
-  quoted terms, richer unsupported-body diagnostics, and broader generated
-  backend conformance.
+  quoted terms, source-positioned diagnostics, and broader generated backend
+  conformance.
 
 ### Phase 5 — Full `derives` for user typeclasses
 

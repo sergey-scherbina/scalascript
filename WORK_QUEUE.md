@@ -167,7 +167,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-meta-v2-p4c** — Restricted quoted macro diagnostics: reject unsupported macro entrypoints and quoted macro bodies with explicit parser/interface/linker/interpreter diagnostics instead of silent non-expansion. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: `${ impl(x) }` now lowers to an explicit diagnostic helper requiring quoted args such as `${ impl('x) }`; interpreter reports `quoted macro error: ...`; linker rejects non-quoted macro bodies with a direct restricted-subset message.
 
-- [ ] **arch-meta-v2-p4d** — Restricted quoted macro richer unsupported-body diagnostics: classify common unsupported implementation bodies (`Expr(...)`, `x.asValue match`, nested quotes/splices) and report targeted guidance while preserving the direct quoted-expression happy path. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+- [x] **arch-meta-v2-p4d** — Restricted quoted macro richer unsupported-body diagnostics: classify common unsupported implementation bodies (`Expr(...)`, `x.asValue match`, nested quotes/splices) and report targeted guidance while preserving the direct quoted-expression happy path. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: linker unsupported-body diagnostics now classify `Expr.asValue match`, `Expr(...)` construction, nested/non-top-level quotes, and splices outside direct quote bodies with targeted guidance while preserving direct quoted-expression expansion.
 
 ## Government Interaction — v1.59 Bureau
 

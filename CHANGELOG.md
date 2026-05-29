@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-meta-v2-p4d richer quoted macro diagnostics
+
+- **arch-meta-v2-p4d** — Restricted quoted macro unsupported-body diagnostics now classify common misses before the generic fallback. `Expr.asValue match` points at not-yet-implemented compile-time branching, `Expr(...)` points users back to direct quote syntax, and nested/non-top-level quotes or splices outside a direct quoted expression explain the current body-shape restriction. Added linker tests for each targeted diagnostic while preserving direct quoted-expression expansion.
+
 ## 2026-05-29 — arch-meta-v2-p4c quoted macro diagnostics
 
 - **arch-meta-v2-p4c** — Restricted quoted macros now fail explicitly for unsupported forms. Parser preprocessing turns entrypoints without quoted args, such as `${ impl(x) }`, into a diagnostic helper requiring `${ impl('x) }`; interpreter `ssc run` reports `quoted macro error: ...`; linker normalization rejects non-quoted macro implementation bodies and explains that the restricted subset must return a direct quoted expression like `'{ $x + 1 }`. Added parser/linker/interpreter negative tests while preserving the p4/p4b happy path.

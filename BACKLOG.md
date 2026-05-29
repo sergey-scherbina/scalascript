@@ -513,6 +513,15 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   restricted subset must return a direct quoted expression such as
   `'{ $x + 1 }`. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 
+- [x] **arch-meta-v2-p4d** — Restricted quoted macro richer unsupported-body diagnostics: ✓ Landed 2026-05-29.
+  Linker unsupported-body diagnostics now classify common restricted-macro
+  misses: `Expr.asValue match` explains compile-time branching is not
+  implemented yet; `Expr(...)` explains that link-time expansion requires
+  direct quote syntax today; nested/non-top-level quotes and splices outside
+  a direct quoted expression get targeted guidance while preserving direct
+  quoted-expression expansion. Spec:
+  `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+
 - [x] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: ✓ Landed 2026-05-29.
   Interpreter/runtime slice registers summon-able `Mirror.Of[T]`,
   `Mirror.ProductOf[T]`, and `Mirror.SumOf[T]`; exposes `Mirror.of[T]`;

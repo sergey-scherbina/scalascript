@@ -488,6 +488,22 @@ class LinkerRewriteTest extends AnyFunSuite:
     }
     assert(ex.getMessage.contains("restricted quoted macros must return a direct quoted expression"), ex.getMessage)
 
+  test("unsupportedQuotedMacroBodyMessage classifies asValue match"):
+    val msg = Linker.unsupportedQuotedMacroBodyMessage(
+      """x.asValue match { case Some(n) => Expr(n + 1); case None => '{ $x + 1 } }"""
+    )
+    assert(msg.contains("Expr.asValue match"), msg)
+    assert(msg.contains("not implemented yet"), msg)
+
+  test("unsupportedQuotedMacroBodyMessage classifies Expr construction"):
+    val msg = Linker.unsupportedQuotedMacroBodyMessage("""Expr("literal")""")
+    assert(msg.contains("Expr(...)"), msg)
+    assert(msg.contains("direct quote syntax"), msg)
+
+  test("unsupportedQuotedMacroBodyMessage classifies nested quote"):
+    val msg = Linker.unsupportedQuotedMacroBodyMessage("""if flag then '{ $x + 1 } else '{ $x }""")
+    assert(msg.contains("nested or non-top-level quoted expressions"), msg)
+
   test("expandMacroSource expands quoted macro call through lambda-lifted body"):
     val table = Map("plusOne" -> Linker.MacroExpansion(List("x"), """'{ $x + 1 }"""))
     val result = Linker.expandMacroSource("val y = plusOne(n)", table)

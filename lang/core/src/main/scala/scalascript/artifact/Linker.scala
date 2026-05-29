@@ -371,11 +371,26 @@ object Linker:
       else if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then
         body.substring("__ssc_quote_expr__(".length, body.length - 1).trim
       else
-        throw new IllegalArgumentException(
-          "quoted macro error: unsupported macro body; restricted quoted macros must return a direct quoted expression, e.g. '{ $x + 1 }"
-        )
+        throw new IllegalArgumentException(unsupportedQuotedMacroBodyMessage(body))
     val helperFree = """__ssc_splice__\("([^"]+)"(?:\s*,[^)]*)?\)""".r.replaceAllIn(raw, m => m.group(1))
     """\$([A-Za-z_][A-Za-z0-9_]*)""".r.replaceAllIn(helperFree, m => m.group(1))
+
+  private[artifact] def unsupportedQuotedMacroBodyMessage(bodySource: String): String =
+    val body = bodySource.trim
+    val base =
+      "quoted macro error: unsupported macro body; restricted quoted macros must return a direct quoted expression, e.g. '{ $x + 1 }"
+    val hint =
+      if body.contains(".asValue match") || body.contains(".asValue.match") then
+        "compile-time `Expr.asValue match` branching is not implemented yet; keep the implementation body as a direct quote and move branching to ordinary runtime code for now."
+      else if body.startsWith("Expr(") || body.contains(" Expr(") || body.contains(".Expr(") then
+        "`Expr(...)` construction is not link-expanded yet; use direct quote syntax `'{ ... }` in restricted quoted macros."
+      else if body.contains("'{") || body.contains("__ssc_quote_expr__(") then
+        "nested or non-top-level quoted expressions are not supported yet; the whole implementation body must be the direct quote."
+      else if body.contains("$") || body.contains("__ssc_splice__(") then
+        "splices are only supported inside a direct quoted expression body."
+      else
+        "supported body shape is exactly a direct quoted expression."
+    s"$base ($hint)"
 
   private def rewriteExpr(
       expr:     IrExpr,

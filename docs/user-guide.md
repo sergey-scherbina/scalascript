@@ -4379,10 +4379,15 @@ runtime value as `Option[A]`, and `Expr[A].asTerm` returns an opaque
 Unsupported restricted macro forms fail explicitly. `${ impl(x) }` reports
 that quoted macro entrypoints must pass quoted arguments such as
 `${ impl('x) }`, and linker-time macro metadata rejects implementation bodies
-that are not direct quoted expressions such as `'{ $x + 1 }`.
+that are not direct quoted expressions such as `'{ $x + 1 }`. Common
+unsupported implementation shapes get targeted hints: `x.asValue match`
+reports that compile-time macro branching is not implemented yet, `Expr(...)`
+reports that direct quote syntax is required today, and nested quotes or
+splices outside a direct quoted expression explain the current restricted
+body shape.
 
 Still planned: richer quoted-term construction, compile-time constant folding
-inside macro implementations, richer unsupported-body diagnostics, and broader
+inside macro implementations, source-positioned diagnostics, and broader
 generated-backend conformance.
 
 ---
