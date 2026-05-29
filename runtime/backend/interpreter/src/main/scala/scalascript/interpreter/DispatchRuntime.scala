@@ -2708,7 +2708,8 @@ private[interpreter] object DispatchRuntime:
         case _                               => dispatch(lhs, op, rhs :: Nil, env, interp)
       case ":=" => lhs match
         case Value.InstanceV("AttrKey", fields) =>
-          val name = fields.get("name").map(Value.show).getOrElse("")
+          val nv = fields.getOrElse("name", null)
+          val name = if nv == null then "" else Value.show(nv)
           Pure(Value.InstanceV("Attr", new IMap.Map2(
             "name",  Value.StringV(name),
             "value", Value.StringV(Value.show(rhs))
