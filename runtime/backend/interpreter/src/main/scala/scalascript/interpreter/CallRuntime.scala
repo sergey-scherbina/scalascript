@@ -101,11 +101,11 @@ private[interpreter] object CallRuntime:
             interp.located(s"Unknown argument name '$n' for function '${if f.name.nonEmpty then f.name else "<anon>"}' (parameters: ${f.params.mkString(", ")})")
           case _ => ()
         }
-        val slots = Array.fill[Option[Value]](f.params.length)(None)
+        val slots = Array.ofDim[Value](f.params.length)  // null = unfilled
         namedArgs.foreach {
           case (Some(n), v) =>
             val idx = f.params.indexOf(n)
-            if idx >= 0 then slots(idx) = Some(v)
+            if idx >= 0 then slots(idx) = v
           case _ => ()
         }
         val positionals = namedArgs.collect { case (None, v) => v }
@@ -116,30 +116,30 @@ private[interpreter] object CallRuntime:
           lastRegularIdx >= 0 &&
           f.paramTypes.lift(lastRegularIdx).exists(_.endsWith("*"))
         for i <- slots.indices do
-          if slots(i).isEmpty && posIter.hasNext then
+          if slots(i) == null && posIter.hasNext then
             if lastRegularIsVararg && i == lastRegularIdx then
               // Collect all remaining positionals into a ListV for the vararg param.
               val varargVals = (Iterator.single(posIter.next()) ++ posIter).toList
-              slots(i) = Some(Value.ListV(varargVals))
+              slots(i) = Value.ListV(varargVals)
             else
-              slots(i) = Some(posIter.next())
+              slots(i) = posIter.next()
         var baseEnv2  = interp.closureWithSelfFor(f)
         val orderedArr = Array.fill[Value](f.params.length)(Value.UnitV)
         var partialFrom = -1  // first index with no value and no default
         for i <- f.params.indices do
-          slots(i) match
-            case Some(v) =>
-              orderedArr(i) = v
-              baseEnv2 = FrameMap.one(f.params(i), v, baseEnv2)
-            case None =>
-              val defaultOpt = if i < f.defaults.length then f.defaults(i) else None
-              defaultOpt match
-                case Some(defaultTerm) =>
-                  val v = Computation.run(interp.eval(defaultTerm, baseEnv2))
-                  orderedArr(i) = v
-                  baseEnv2 = FrameMap.one(f.params(i), v, baseEnv2)
-                case None =>
-                  if partialFrom < 0 then partialFrom = i
+          val sv = slots(i)
+          if sv != null then
+            orderedArr(i) = sv
+            baseEnv2 = FrameMap.one(f.params(i), sv, baseEnv2)
+          else
+            val defaultOpt = if i < f.defaults.length then f.defaults(i) else None
+            defaultOpt match
+              case Some(defaultTerm) =>
+                val v = Computation.run(interp.eval(defaultTerm, baseEnv2))
+                orderedArr(i) = v
+                baseEnv2 = FrameMap.one(f.params(i), v, baseEnv2)
+              case None =>
+                if partialFrom < 0 then partialFrom = i
         if partialFrom >= 0 && namedArgs.nonEmpty then
           // Some required params are unsatisfied — return a partial closure so that
           // curried call sites like `f(a)(b, c)` work when `f` is stored flattened.
@@ -158,7 +158,7 @@ private[interpreter] object CallRuntime:
           // If the vararg slot was never filled, truncate the args so callFun sees
           // only the filled positions and appends an empty ListV for the vararg.
           val filledCount =
-            if lastRegularIsVararg && slots(lastRegularIdx).isEmpty
+            if lastRegularIsVararg && slots(lastRegularIdx) == null
             then lastRegularIdx
             else f.params.length
           callFun(f, orderedArr.take(filledCount).toList, interp)
