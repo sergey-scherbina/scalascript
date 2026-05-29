@@ -18,6 +18,10 @@ import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
 // spawning per-connection virtual threads (each parked VT briefly
 // consumes carrier stack).  Cost is negligible.
 ThisBuild / Test / javaOptions += "-Xss8m"
+ThisBuild / Test / javaOptions += {
+  val root = (ThisBuild / baseDirectory).value
+  s"-Dssc.std.path=${root.getAbsolutePath}/runtime"
+}
 ThisBuild / Test / fork         := true
 // Export sub-module classes as JARs so cli/stage sees actual JAR files
 // (not class directories) when collecting the classpath for lib/jars/.
