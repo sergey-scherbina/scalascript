@@ -835,7 +835,7 @@ object Parser:
    *  by indentation) to use `__extern__` as a stub right-hand side.
    *
    *  Original: Stage 5+/A.6 (Б-1); class/object forms added 2026-05-19. */
-  private def preprocessExtern(code: String): String =
+  private[parser] def preprocessExtern(code: String): String =
     val externDefPat   = """^(\s*)extern\s+def\s+(.+)$""".r
     val externTypePat  = """^(\s*)extern\s+(class|object|trait)\s+(.+?:)\s*$""".r
     val lines = code.linesIterator.toArray
@@ -1002,7 +1002,7 @@ object Parser:
    *  can precede list literals and are excluded from the "type-parameter" path.
    *  Map vs List: if the content contains `->` at bracket-depth 0 → Map; else → List.
    *  Handles strings (single/double/triple-quoted), line `//` and block `/* */` comments. */
-  private def preprocessListLiterals(code: String): String =
+  private[parser] def preprocessListLiterals(code: String): String =
     if !code.contains('[') then return code
     val in  = code.toCharArray
     val n   = in.length
@@ -1122,7 +1122,7 @@ object Parser:
 
     if changed then out.toString else code
 
-  private def preprocessSlashImports(code: String): String =
+  private[parser] def preprocessSlashImports(code: String): String =
     val importPat = """^(\s*import\s+)([A-Za-z_][\w]*(?:/[A-Za-z_][\w]*)+)(\.\{.*|\..*|\s*$)""".r
     val lines = code.linesIterator.toArray
     if !lines.exists(l => l.startsWith("import ") || l.matches("""^\s+import\s.*""")) then
@@ -1141,7 +1141,7 @@ object Parser:
           out.append(line).append('\n')
     if changed then out.toString else code
 
-  private def preprocessInlineImports(code: String): String =
+  private[parser] def preprocessInlineImports(code: String): String =
     val lines = code.linesIterator.toArray
     // Quick reject: only inspect files that actually contain a `]( ... .ssc)` or
     // `]( dep:` etc.  Cheap pre-filter.
@@ -1199,7 +1199,7 @@ object Parser:
     result.toString
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
-  private def preprocessEffects(code: String): String =
+  private[parser] def preprocessEffects(code: String): String =
     val effectLine = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
     val lines = code.linesIterator.toArray
     if !lines.exists(l => effectLine.findFirstIn(l).isDefined) then return code
@@ -1233,7 +1233,7 @@ object Parser:
           i += 1
     result.toString
 
-  private def preprocessRemoteDefs(code: String): String =
+  private[parser] def preprocessRemoteDefs(code: String): String =
     val remoteDef = """^(\s*)remote\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""".r
     val lines = code.linesIterator.toArray
     if !lines.exists(l => remoteDef.findFirstIn(l).isDefined) then return code
@@ -1243,7 +1243,7 @@ object Parser:
     }.mkString("\n")
 
   private def preprocessForScala(code: String): String =
-    preprocessExtern(preprocessEffects(preprocessRemoteDefs(preprocessSlashImports(preprocessListLiterals(preprocessInlineImports(code))))))
+    PreprocessorRegistry.applyAll(code)
 
   /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
    *

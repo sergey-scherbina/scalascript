@@ -33,6 +33,11 @@ trait Backend:
    *  Default empty — most backends contribute no custom interpolators. */
   def interpolators: List[InterpolatorImpl] = Nil
 
+  /** Source preprocessors provided by this backend.
+   *  Registered in `PreprocessorRegistry` when the backend is loaded.
+   *  Default empty — most backends contribute no custom preprocessors. */
+  def preprocessors: List[Preprocessor] = Nil
+
   /** One-shot compilation. */
   def compile(ir: NormalizedModule, opts: BackendOptions): CompileResult
 
