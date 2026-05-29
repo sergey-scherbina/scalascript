@@ -96,8 +96,15 @@ private[interpreter] object EffectsRuntime:
               if !handledOps.contains((eff, op)) then
                 return FlatMap(Perform(eff, op, args), v => handleInterp(f(v)))
               else if multiShotEffects.contains(eff) then
-                // Multi-shot: resume may be called more than once, each branch
-                // needs its own independent handleInterp run.
+                // Multi-shot: resume may be called more than once; each call
+                // must independently evaluate its continuation branch.  The
+                // lazy-placeholder trick cannot be used here because with n
+                // sequential dispatches each resolved_i = f(v) already contains
+                // all prior continuations, producing an O(n²) FlatMap tree that
+                // exhausts the heap.  The O(n) JVM stack depth is the lesser
+                // evil: real nondeterminism programs rarely chain more than a
+                // handful of sequential multi-shot dispatches before the
+                // combinatorial result space itself becomes the bottleneck.
                 val resume = Value.NativeFnV("resume", rargs => {
                   val v = rargs match
                     case List(v) => v; case Nil => Value.UnitV; case vs => Value.TupleV(vs)
