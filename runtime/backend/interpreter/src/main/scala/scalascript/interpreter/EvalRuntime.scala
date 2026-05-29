@@ -829,9 +829,23 @@ private[interpreter] object EvalRuntime:
     // EvalRuntime.Term.Name's globals fallback makes them visible without copying.
     // This shrinks frame from O(N_globals) to O(N_local_vars) — typically 2-5 entries.
     case t: Term.While =>
-      val frame = scala.collection.mutable.HashMap.from(env.iterator.filter { case (k, v) =>
-        interp.globals.getOrElse(k, null) != v
-      })
+      val frame: scala.collection.mutable.HashMap[String, Value] = env match
+        case fm: FrameMap =>
+          val b = scala.collection.mutable.HashMap.empty[String, Value]
+          var cur: Map[String, Value] = fm
+          while cur.isInstanceOf[FrameMap] do
+            val fm2 = cur.asInstanceOf[FrameMap]
+            fm2.appendLocalTo(b, interp.globals)
+            cur = fm2.parent
+          if cur ne interp.globals then
+            cur.foreach { case (k, v) =>
+              if interp.globals.getOrElse(k, null) != v then b(k) = v
+            }
+          b
+        case _ =>
+          scala.collection.mutable.HashMap.from(env.iterator.filter { case (k, v) =>
+            interp.globals.getOrElse(k, null) != v
+          })
       val entrySnap: Map[String, Value] = frame.toMap
       val frameView = new MutableEnvView(frame)
       def loop: Computation =
