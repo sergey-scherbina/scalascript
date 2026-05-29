@@ -1,11 +1,45 @@
 #!/usr/bin/env bash
-# Build ssc and stage all launchers into the repo-local bin/.
-# Requires sbt and a JDK (21+).
+# Developer-mode installer for contributors working from the monorepo.
+# User-facing standalone installers live in releases/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$ROOT/bin"
 LIB="$BIN/lib"
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  ./install.sh --dev
+
+For normal user installation without cloning/building the monorepo, use one of:
+  cs install ssc --channel https://releases.scalascript.io/coursier.json
+  brew install scalascript/tap/ssc
+  curl -fsSL https://get.scalascript.io | sh
+
+This script is intentionally developer-only because it requires sbt and a JDK
+and builds/stages the local checkout into ./bin.
+USAGE
+}
+
+case "${1:-}" in
+    --dev)
+        shift
+        ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
+
+if [ "$#" -ne 0 ]; then
+    usage
+    exit 1
+fi
 
 echo "Staging ssc (thin jar + deps) via sbt cli/stage..."
 (cd "$ROOT" && sbt -no-colors cli/stage)

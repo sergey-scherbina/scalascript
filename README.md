@@ -52,10 +52,11 @@ $ ssc watch hello.ssc
 git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
-# One-time setup: builds the self-contained ssc launcher and symlinks the
-# tools/scripts/launchers/* wrappers into bin/.  The entire bin/ is generated
-# and gitignored — sources live in tools/scripts/launchers/.
-./install.sh
+# Standalone install, once releases are published:
+cs install ssc --channel https://releases.scalascript.io/coursier.json
+
+# Contributor checkout only: builds and stages local bin/ launchers.
+./install.sh --dev
 
 # Pipe sops-decrypted secrets into a script (${sops:key} references in databases:)
 sops -d secrets.enc.yaml | ssc myapp.ssc
@@ -788,7 +789,7 @@ tools/scripts/         # launchers/ and validate-frontmatter.scala
 ./setup.sh
 
 # Build ssc into bin/
-./install.sh
+./install.sh --dev
 ```
 
 After installation:

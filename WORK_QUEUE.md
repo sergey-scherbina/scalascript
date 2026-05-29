@@ -95,7 +95,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-ssc-new-p2** — Additional templates + Homebrew tap + curl installer: `plugin`, `dsl`, `web-app`, `wasm-app` templates; Homebrew tap formula; `curl | sh` installer; `README.md` Getting Started updated. Spec: `docs/arch-ssc-new.md §5 Phase 2`. ✓ Landed 2026-05-29: added bundled `dsl`, `web-app`, and `wasm-app` templates (`plugin` already existed), repo-local Homebrew formula source, `releases/install.sh`, documentation updates, and `NewProjectTest` coverage.
 
-- [ ] **arch-ssc-new-p3** — Standalone docs update: `docs/getting-started-standalone.md`; `docs/community-plugins.md`; `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag. Spec: `docs/arch-ssc-new.md §5 Phase 3`.
+- [x] **arch-ssc-new-p3** — Standalone docs update: `docs/getting-started-standalone.md`; `docs/community-plugins.md`; `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag. Spec: `docs/arch-ssc-new.md §5 Phase 3`. ✓ Landed 2026-05-29: added standalone getting-started guide, updated user guide and community plugin docs, and made root `install.sh` developer-only via `--dev` with standalone install guidance by default.
 
 ### Theme B — Build-time registry consolidation
 

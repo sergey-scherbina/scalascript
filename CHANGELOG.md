@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-ssc-new-p3 standalone install docs
+
+- **arch-ssc-new-p3** — Added `docs/getting-started-standalone.md`, updated user-guide installation and community plugin docs, and changed root `install.sh` to require `--dev` for monorepo staging. Plain `./install.sh` now prints standalone install options (`cs`, Homebrew, curl) instead of starting a local sbt build.
+
 ## 2026-05-29 — arch-ssc-new-p2 extra templates and standalone install inputs
 
 - **arch-ssc-new-p2** — Added bundled `dsl`, `web-app`, and `wasm-app` templates for `ssc new` (`plugin` was already present), a repo-local Homebrew formula source at `releases/homebrew/ssc.rb`, and a lightweight `releases/install.sh` curl/wget installer for GitHub Release `ssc.jar` downloads. Updated scaffolding docs and expanded `NewProjectTest` coverage for the new templates.

@@ -2,8 +2,9 @@
 
 Status: **partially implemented**. The plugin starter template and
 `ssc new <name> --template plugin` scaffolding landed in
-`arch-distribution-p4` on 2026-05-29. Public artifact publication and stable
-plugin API packaging remain planned.
+`arch-distribution-p4` on 2026-05-29. App/lib/dsl/web/wasm scaffolds and
+standalone install release inputs are also present. Public centralized artifact
+publication remains deferred.
 
 ## Create a Plugin Project
 
@@ -52,6 +53,5 @@ For reproducible builds, add a `sha256:` suffix:
   Until official publication lands, plugin authors working from this monorepo
   should publish the required ScalaScript modules locally or replace the
   dependencies with local project wiring.
-- `ssc new` currently ships the plugin template path. The broader `app`, `lib`,
-  `dsl`, `web-app`, and `wasm-app` templates remain tracked in
-  `docs/arch-ssc-new.md`.
+- Official Maven Central / sbt Plugin Portal publication is intentionally
+  deferred; GitHub Release `.sscpkg` distribution is the current community path.

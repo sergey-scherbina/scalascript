@@ -305,10 +305,13 @@ distribute — identified in the 2026-05-28 architectural review.  Ten themes
   (`plugin` already existed), repo-local Homebrew formula source,
   `releases/install.sh`, documentation updates, and `NewProjectTest` coverage.
 
-- [ ] **arch-ssc-new-p3** — Standalone docs update:
+- [x] **arch-ssc-new-p3** — Standalone docs update:
   `docs/getting-started-standalone.md`; `docs/community-plugins.md`;
   `docs/user-guide.md §Installation` updated; `install.sh` gets `--dev` flag.
   Spec: `docs/arch-ssc-new.md §5 Phase 3`.
+  Landed 2026-05-29: added standalone getting-started guide, updated user guide
+  and community plugin docs, and made root `install.sh` developer-only via
+  `--dev` with standalone install guidance by default.
 
 ### Theme B — Build-time registry consolidation
 

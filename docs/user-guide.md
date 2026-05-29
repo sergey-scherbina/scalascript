@@ -6,7 +6,22 @@ A practical reference for ScalaScript v1.27+.
 
 ## 1. Installation
 
-### Prerequisites
+### Standalone Install
+
+```bash
+cs install ssc --channel https://releases.scalascript.io/coursier.json
+```
+
+Alternative release paths:
+
+```bash
+brew install scalascript/tap/ssc
+curl -fsSL https://get.scalascript.io | sh
+```
+
+See `docs/getting-started-standalone.md` for the fresh-machine path.
+
+### Developer Checkout
 
 - **Java 21+** (for JVM backend and interpreter)
 - **[scala-cli](https://scala-cli.virtuslab.org)** (required)
@@ -22,7 +37,7 @@ cd scalascript
 ./setup.sh
 
 # Build the ssc launcher and helper scripts into bin/
-./install.sh
+./install.sh --dev
 ```
 
 After installation:

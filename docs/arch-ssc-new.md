@@ -4,9 +4,8 @@ Status: **partially implemented**. The plugin template path
 (`ssc new <name> --template plugin`) landed with `arch-distribution-p4` on
 2026-05-29. Phase 1 app/lib templates and repository-side Coursier channel
 fixture landed on 2026-05-29. Phase 2 dsl/web-app/wasm-app templates plus
-Homebrew/curl release inputs landed on 2026-05-29. Standalone docs/install.sh
-developer-mode cleanup remains tracked as `arch-ssc-new` milestones in
-`BACKLOG.md`.
+Homebrew/curl release inputs landed on 2026-05-29. Phase 3 standalone docs and
+`install.sh --dev` behavior landed on 2026-05-29.
 Companion: [`docs/arch-sbt-plugin.md`](arch-sbt-plugin.md),
 [`docs/arch-distribution.md`](arch-distribution.md).
 
@@ -196,9 +195,12 @@ User-facing docs replace references to it with Option A/B/C.
 ### Phase 3 — docs update
 
 - New `docs/getting-started-standalone.md` (fresh machine → running app
-  in <5 minutes, no monorepo clone).
-- `docs/community-plugins.md` walkthrough for plugin template.
-- Update `docs/user-guide.md` "Installation" section.
+  in <5 minutes, no monorepo clone). ✓ Landed 2026-05-29.
+- `docs/community-plugins.md` walkthrough for plugin template. ✓ Updated
+  2026-05-29 with current template/install status.
+- Update `docs/user-guide.md` "Installation" section. ✓ Landed 2026-05-29.
+- `install.sh --dev` developer-mode switch. ✓ Landed 2026-05-29; plain
+  `./install.sh` prints standalone install options instead of building.
 
 ## 6. Testing strategy
 
