@@ -35,16 +35,30 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("GraphQL.schema(sdl: String)")
     },
 
-    // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...), scalars = Map(...))
+    // GraphQL.resolvers(query = Map(...), mutation = Map(...), subscription = Map(...),
+    //                   scalars = Map(...), loaders = Map(...))
     // Keys may be plain field names ("hello") or schema coordinates ("Query.hello").
     // subscription is accepted for API compatibility; Phase 3 wires it to WebSocket.
     // scalars: Map[String, GraphQLScalar] — custom scalar codecs from GraphQL.scalar(...)
+    // loaders: Map[String, GraphQLDataLoader] — DataLoader specs from GraphQL.dataLoader(...)
     QualifiedName("GraphQL.resolvers") -> PluginNative.evalLegacy { (_, args) =>
       val query        = extractResolverMap(args.headOption.getOrElse(Value.MapV(Map.empty)))
       val mutation     = extractResolverMap(args.drop(1).headOption.getOrElse(Value.MapV(Map.empty)))
       val subscription = extractResolverMap(args.drop(2).headOption.getOrElse(Value.MapV(Map.empty)))
       val scalars      = extractScalarMap(args.drop(3).headOption.getOrElse(Value.MapV(Map.empty)))
-      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription, scalars))
+      val loaders      = extractLoaderMap(args.drop(4).headOption.getOrElse(Value.MapV(Map.empty)))
+      Value.Foreign("GraphQLResolvers", GraphQLResolvers(query, mutation, subscription, scalars, loaders))
+    },
+
+    // GraphQL.dataLoader(name, batchFn) — register a per-request-cached DataLoader.
+    // batchFn: List[K] => Map[K, V] — receives a list of keys, returns a map of key → value.
+    // Each request gets a fresh cache; identical keys within one request hit the batch fn once.
+    // Resolvers access loaders via the injected _load(loaderName, key) function in their args map.
+    QualifiedName("GraphQL.dataLoader") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String, batchFn) =>
+          Value.Foreign("GraphQLDataLoader", DataLoaderSpec(name, batchFn))
+        case _ => throw InterpretError("GraphQL.dataLoader(name: String, batchFn: List[K] => Map[K, V])")
     },
 
     // GraphQL.scalar(name, serialize, coerce) — custom scalar codec.
@@ -125,12 +139,12 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case List(Value.Foreign("GraphQLSchema", sdl: String),
                   Value.Foreign("GraphQLResolvers", res: GraphQLResolvers)) =>
           val engine = buildEngine(sdl, res, ctx, GraphQLOpts.default)
-          handlerValue(engine, GraphQLOpts.default)
+          handlerValue(engine, GraphQLOpts.default, res.loaders, ctx)
         case List(Value.Foreign("GraphQLSchema", sdl: String),
                   Value.Foreign("GraphQLResolvers", res: GraphQLResolvers),
                   Value.Foreign("GraphQLOptions", opts: GraphQLOpts)) =>
           val engine = buildEngine(sdl, res, ctx, opts)
-          handlerValue(engine, opts)
+          handlerValue(engine, opts, res.loaders, ctx)
         case _ => throw InterpretError(
           "graphqlHandler(schema: GraphQLSchema, resolvers: GraphQLResolvers[, opts: GraphQLOptions])")
     },
@@ -199,11 +213,18 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       }.toMap
     case _ => Map.empty
 
+  private def extractLoaderMap(v: Any): Map[String, DataLoaderSpec] = v match
+    case Value.MapV(m) =>
+      m.collect { case (Value.StringV(_), Value.Foreign("GraphQLDataLoader", spec: DataLoaderSpec)) =>
+        spec.name -> spec
+      }.toMap
+    case _ => Map.empty
+
   private def mountGraphQL(ctx: PluginContext, res: GraphQLResolvers, opts: GraphQLOpts): Unit =
     val sdl = runner.registeredSdl.getOrElse(
       throw InterpretError("No graphql SDL registered — add a ```graphql block before serveGraphQL"))
     val engine = buildEngine(sdl, res, ctx, opts)
-    val h = handlerValue(engine, opts)
+    val h = handlerValue(engine, opts, res.loaders, ctx)
     ctx.registerRoute("POST", "/graphql", h)
     ctx.registerRoute("GET",  "/graphql", h)
 
@@ -246,10 +267,30 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       val tw = TypeRuntimeWiring.newTypeWiring(typeName)
       fields.foreach { (fieldName, fn) =>
         tw.dataFetcher(fieldName, (env: DataFetchingEnvironment) =>
-          val argsMap = Value.MapV(env.getArguments.asScala.toMap.map { (k, v) =>
+          val baseArgs: Map[Value, Value] = env.getArguments.asScala.toMap.map { (k, v) =>
             Value.StringV(k) -> javaToValue(v)
-          })
-          valueToJava(ctx.invokeCallback(fn, List(argsMap)).asInstanceOf[Value])
+          }
+          val enrichedArgs =
+            if res.loaders.isEmpty then Value.MapV(baseArgs)
+            else
+              val dlCtx = env.getGraphQlContext.getOrDefault("_dlCtx", null)
+                .asInstanceOf[DataLoaderContext]
+              if dlCtx == null then Value.MapV(baseArgs)
+              else
+                val loadFn = Value.NativeFnV("graphql.load", Computation.pureFn {
+                  case List(Value.StringV(loaderName), key: Value) =>
+                    dlCtx.load(loaderName, key)
+                  case _ => throw InterpretError("_load(loaderName: String, key)")
+                })
+                val batchLoadFn = Value.NativeFnV("graphql.batchLoad", Computation.pureFn {
+                  case List(Value.StringV(loaderName), Value.ListV(keys)) =>
+                    dlCtx.batchLoad(loaderName, keys)
+                  case _ => throw InterpretError("_batchLoad(loaderName: String, keys: List)")
+                })
+                Value.MapV(baseArgs
+                  + (Value.StringV("_load")      -> loadFn)
+                  + (Value.StringV("_batchLoad") -> batchLoadFn))
+          valueToJava(ctx.invokeCallback(fn, List(enrichedArgs)).asInstanceOf[Value])
         )
       }
       wiring.`type`(tw)
@@ -306,9 +347,51 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     }
     changes.toList
 
-  private def handlerValue(engine: graphql.GraphQL, opts: GraphQLOpts): Value =
+  /** Per-request DataLoader cache. Deduplicates repeated key fetches within one request.
+   *
+   *  `load` calls the batch function with a single-element list on first access for a key,
+   *  caches ALL entries returned by the batch function, then returns the cached value.
+   *  `batchLoad` dispatches all uncached keys in one batch-function call.
+   */
+  private class DataLoaderContext(
+    specs:   Map[String, DataLoaderSpec],
+    pCtx:    PluginContext,
+  ):
+    private val cache = scala.collection.mutable.Map[String, scala.collection.mutable.Map[Value, Value]]()
+
+    private def cacheFor(loaderName: String) =
+      cache.getOrElseUpdate(loaderName, scala.collection.mutable.Map())
+
+    def load(loaderName: String, key: Value): Value =
+      val spec   = specs.getOrElse(loaderName, throw InterpretError(s"Unknown DataLoader: '$loaderName'"))
+      val lCache = cacheFor(loaderName)
+      lCache.getOrElse(key, {
+        val result = pCtx.invokeCallback(spec.batchFn, List(Value.ListV(List(key)))).asInstanceOf[Value]
+        result match
+          case Value.MapV(m) =>
+            m.foreach { (k, v) => lCache(k) = v }
+            lCache.getOrElse(key, Value.NullV)
+          case single => lCache(key) = single; single
+      })
+
+    def batchLoad(loaderName: String, keys: List[Value]): Value =
+      val spec      = specs.getOrElse(loaderName, throw InterpretError(s"Unknown DataLoader: '$loaderName'"))
+      val lCache    = cacheFor(loaderName)
+      val uncached  = keys.filter(k => !lCache.contains(k))
+      if uncached.nonEmpty then
+        pCtx.invokeCallback(spec.batchFn, List(Value.ListV(uncached))).asInstanceOf[Value] match
+          case Value.MapV(m) => m.foreach { (k, v) => lCache(k) = v }
+          case _             => ()
+      Value.MapV(keys.map { k => k -> lCache.getOrElse(k, Value.NullV) }.toMap)
+
+  private def handlerValue(
+    engine:  graphql.GraphQL,
+    opts:    GraphQLOpts,
+    loaders: Map[String, DataLoaderSpec],
+    pCtx:    PluginContext,
+  ): Value =
     Value.NativeFnV("graphql.handler", Computation.pureFn {
-      case List(req) => handleRequest(engine, opts, req)
+      case List(req) => handleRequest(engine, opts, loaders, pCtx, req)
       case _         => throw InterpretError("GraphQL handler expects a Request argument")
     })
 
@@ -347,7 +430,13 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
     ))
 
-  private def handleRequest(engine: graphql.GraphQL, opts: GraphQLOpts, req: Any): Value =
+  private def handleRequest(
+    engine:  graphql.GraphQL,
+    opts:    GraphQLOpts,
+    loaders: Map[String, DataLoaderSpec],
+    pCtx:    PluginContext,
+    req:     Any,
+  ): Value =
     val (method, path, body, fields) = req match
       case Value.InstanceV("Request", f) =>
         val m = f.get("method").collect { case Value.StringV(s) => s }.getOrElse("POST")
@@ -448,6 +537,11 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
 
     val inputBuilder = ExecutionInput.newExecutionInput(query).variables(vars)
     if operationName != null then inputBuilder.operationName(operationName)
+    if loaders.nonEmpty && pCtx != null then
+      val dlCtx = new DataLoaderContext(loaders, pCtx)
+      inputBuilder.graphQLContext { (b: graphql.GraphQLContext.Builder) =>
+        b.put("_dlCtx", dlCtx); ()
+      }
     val input  = inputBuilder.build()
     val result = engine.execute(input)
 
