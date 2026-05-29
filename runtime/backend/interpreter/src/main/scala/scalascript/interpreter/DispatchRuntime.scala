@@ -283,23 +283,39 @@ private[interpreter] object DispatchRuntime:
       case "sorted"       =>
         if ls.isEmpty then Pure(recv)
         else
-          // Schwartzian: one array of (Value, key) — no intermediate List passes.
-          val arr = new Array[(Value, String)](ls.length)
-          var i = 0; var rem = ls
-          while rem.nonEmpty do
-            val v = rem.head; arr(i) = (v, Value.show(v)); i += 1; rem = rem.tail
-          java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
-          var result: List[Value] = Nil; i = arr.length - 1
-          while i >= 0 do result = arr(i)._1 :: result; i -= 1
-          Pure(Value.ListV(result))
+          // Numeric fast path: if all elements are IntV, sort natively without string keys.
+          var isAllInt = true; var chk = ls
+          while isAllInt && chk.nonEmpty do
+            if !chk.head.isInstanceOf[Value.IntV] then isAllInt = false
+            chk = chk.tail
+          if isAllInt then
+            val arr = new Array[Long](ls.length)
+            var i = 0; var rem2 = ls
+            while rem2.nonEmpty do arr(i) = rem2.head.asInstanceOf[Value.IntV].v; i += 1; rem2 = rem2.tail
+            java.util.Arrays.sort(arr)
+            var result2: List[Value] = Nil; i = arr.length - 1
+            while i >= 0 do result2 = Value.intV(arr(i)) :: result2; i -= 1
+            Pure(Value.ListV(result2))
+          else
+            // Schwartzian: one array of (Value, key) — no intermediate List passes.
+            val arr = new Array[(Value, String)](ls.length)
+            var i = 0; var rem = ls
+            while rem.nonEmpty do
+              val v = rem.head; arr(i) = (v, Value.show(v)); i += 1; rem = rem.tail
+            java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+            var result: List[Value] = Nil; i = arr.length - 1
+            while i >= 0 do result = arr(i)._1 :: result; i -= 1
+            Pure(Value.ListV(result))
       case "toList"       => Pure(recv)
       case "toSet"        => Pure(Value.ListV(ls.distinct))
       case "flatten"      =>
         val flatBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
-        ls.foreach {
-          case Value.ListV(inner) => flatBuf ++= inner
-          case v                  => flatBuf += v
-        }
+        var flatRem = ls
+        while flatRem.nonEmpty do
+          flatRem.head match
+            case Value.ListV(inner) => flatBuf ++= inner
+            case v                  => flatBuf += v
+          flatRem = flatRem.tail
         Pure(Value.ListV(flatBuf.toList))
       case "sum"          =>
         // Direct accumulator: avoids N intermediate IntV/DoubleV allocations from foldLeft.
@@ -734,7 +750,10 @@ private[interpreter] object DispatchRuntime:
       case "values"   => Pure(Value.ListV(m.values.toList))
       case "toList"   =>
         val tlBuf = new scala.collection.mutable.ArrayBuffer[Value](m.size)
-        m.foreach { (k, v) => tlBuf += Value.TupleV(List(k, v)) }
+        val tlIt = m.iterator
+        while tlIt.hasNext do
+          val (k, v) = tlIt.next()
+          tlBuf += Value.TupleV(k :: v :: Nil)
         Pure(Value.ListV(tlBuf.toList))
       case "mkString" => Pure(Value.StringV(Value.show(recv)))
       case "contains" => args match
