@@ -200,7 +200,9 @@ private[interpreter] object DispatchRuntime:
   /** 1-arg fast path for Map. */
   private def dispatchMap1(m: Map[Value, Value], name: String, arg: Value, env: Env, interp: Interpreter): Computation =
     name match
-      case "get"        => Pure(Value.optionV(m.get(arg)))
+      case "get"        =>
+        val gv = m.getOrElse(arg, null)
+        if gv == null then Computation.PureNone else Pure(Value.OptionV(Some(gv)))
       case "apply"      => Pure(m.getOrElse(arg, interp.located(s"Key not found: ${Value.show(arg)}")))
       case "contains"   => Computation.pureBool(m.contains(arg))
       case "removed"    => Pure(Value.MapV(m - arg))
@@ -1278,7 +1280,9 @@ private[interpreter] object DispatchRuntime:
         case List(k)       => Computation.pureBool(m.contains(k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "get"      => args match
-        case List(k)       => Computation.pureOptionV(m.get(k))
+        case List(k)       =>
+          val gv = m.getOrElse(k, null)
+          if gv == null then Computation.PureNone else Pure(Value.OptionV(Some(gv)))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "apply"    => args match
         case List(k)       => Pure(m.getOrElse(k, interp.located(s"Key not found: ${Value.show(k)}")))
