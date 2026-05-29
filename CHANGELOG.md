@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — interpreter computation sequence fast path
+
+- **perf/interpreter-sequence** — Ported the `Computation.sequence` fast path
+  from `perf/interpreter-opt`. Mixed pure/suspended computation lists now resume
+  from the first non-pure element instead of rebuilding a `FlatMap` chain over
+  already-collected leading pure values.
+
 ## 2026-05-29 — interpreter instance one-arg fast path
 
 - **perf/interpreter-instance1** — Ported a safe `dispatchInstance1` /
