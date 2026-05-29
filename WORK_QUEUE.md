@@ -141,7 +141,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-registry-p2** — `ssc search` / `ssc info` / `ssc add` CLI: cached `RegistryClient`; local ranked search; manifest update; mock-HTTP tests. Spec: `docs/arch-registry.md §5 Phase 2`.
 
-- [ ] **arch-registry-p3** — GitHub Pages HTML index: generation script, publish workflow, client-side search, per-package JSON, and `registry.scalascript.io` CNAME. Spec: `docs/arch-registry.md §5 Phase 3`.
+- [x] **arch-registry-p3** — GitHub Pages HTML index: generation script, publish workflow, client-side search, per-package JSON, and `registry.scalascript.io` CNAME. Spec: `docs/arch-registry.md §5 Phase 3`.
 
 - [x] **arch-registry-p4** — Private registry support: `registry.url` config; `--registry <url>` CLI flag; enterprise internal mirror documentation. Spec: `docs/arch-registry.md §5 Phase 4`.
 

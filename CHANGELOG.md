@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-registry-p3 GitHub Pages registry site generator
+
+- **arch-registry-p3** — Static site generation for the package registry. New `RegistrySiteGenerator` object in `lang/core/imports`: `generate(entries, outputDir)` writes `site/packages/{group}/{artifact}/index.json` (per-package machine-readable JSON with all fields + `install` field), `site/search-index.json` (lunr.js-compatible array of `{ref, name, version, description, body}` documents for client-side indexing), and `site/index.html` (self-contained searchable HTML page with `<table>`, client-side JS filter on name/description/keywords, deprecated row opacity). `packageJson` escapes JSON special chars (`\`, `"`, `\n`, `\r`); `indexHtml` escapes HTML special chars (`&`, `<`, `>`, `"`); deprecated entries get `style="opacity:0.5"` and a `[deprecated]` badge. New standalone `tools/registry-site/generate.sc` scala-cli script (self-contained, no sbt dep): reads `registry/packages.yaml`, generates `registry/site/` with the same 3 outputs. New `registry/site/CNAME` pointing to `registry.scalascript.io`. 16 tests covering all public methods, filesystem output, HTML escaping, JSON structure, empty-list edge cases.
+
 ## 2026-05-29 — arch-registry-p4 private registry support
 
 - **arch-registry-p4** — Private registry support. `RegistryClient.effectiveUrl(registryArg)` resolves the URL with priority: CLI `--registry <url>` arg > `registry.url` in `~/.config/scalascript/config.yaml` > built-in default. `registryUrlFromConfig()` reads `registry.url` from `config.yaml` (SimpleYaml). `fetchYaml` now handles `file://` and `file:` URLs (reads directly from the filesystem without HTTP, useful for local mirrors and tests). All three registry commands (`ssc search`, `ssc add`, `ssc info <pkg>`) accept `--registry <url>` and pass it through to `RegistryClient.load`. 9 tests: file:// fetch, URL priority (CLI > config > default), config.yaml read/absent, search on locally-fetched entries.
