@@ -146,6 +146,44 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
           executeRemoteQuery(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v })
         case _ => throw InterpretError("graphqlQuery(url: String, query: String[, variables: Map])")
     },
+
+    // GraphQL.printSchema(schema) — return the normalized SDL string.
+    // Parses and reprints the SDL via graphql-java SchemaPrinter, normalizing whitespace.
+    QualifiedName("GraphQL.printSchema") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Value.Foreign("GraphQLSchema", sdl: String)) =>
+          val typeReg = new SchemaParser().parse(sdl)
+          val schema  = new SchemaGenerator().makeExecutableSchema(
+            typeReg, RuntimeWiring.newRuntimeWiring().build())
+          Value.StringV(new graphql.schema.idl.SchemaPrinter().print(schema))
+        case _ => throw InterpretError("GraphQL.printSchema(schema: GraphQLSchema)")
+    },
+
+    // GraphQL.introspectionJson(schema) — run the standard introspection query and
+    // return the JSON result as a String.  Suitable for feeding to client-side codegen.
+    QualifiedName("GraphQL.introspectionJson") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(Value.Foreign("GraphQLSchema", sdl: String)) =>
+          val engine = buildEngine(sdl, GraphQLResolvers(Map.empty, Map.empty), ctx, GraphQLOpts.default)
+          val result = engine.execute(
+            ExecutionInput.newExecutionInput(graphql.introspection.IntrospectionQuery.INTROSPECTION_QUERY).build())
+          Value.StringV(ujson.write(anyToUJson(result.getData[java.util.Map[String, Any]]())))
+        case _ => throw InterpretError("GraphQL.introspectionJson(schema: GraphQLSchema)")
+    },
+
+    // GraphQL.diffSchemas(sdlA, sdlB) — compare two SDL strings and return a List of
+    // change Maps, each with "kind" and "description" keys.
+    QualifiedName("GraphQL.diffSchemas") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(sdlA: String, sdlB: String) =>
+          Value.ListV(diffSdl(sdlA, sdlB).map { (kind, desc) =>
+            Value.MapV(Map(
+              Value.StringV("kind")        -> Value.StringV(kind),
+              Value.StringV("description") -> Value.StringV(desc),
+            ))
+          })
+        case _ => throw InterpretError("GraphQL.diffSchemas(sdlA: String, sdlB: String)")
+    },
   )
 
   // ── Internal helpers ───────────────────────────────────────────────────────
@@ -229,6 +267,44 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       builder.instrumentation(ChainedInstrumentation(instrumentations.toList.asJava))
 
     builder.build()
+
+  // Produce a coarse-grained diff between two SDL strings.
+  // Returns a list of (kind, description) tuples describing added/removed types and fields.
+  private def diffSdl(sdlA: String, sdlB: String): List[(String, String)] =
+    import scala.util.Try
+    import graphql.language.{ObjectTypeDefinition, InterfaceTypeDefinition, InputObjectTypeDefinition}
+    val changes = scala.collection.mutable.ListBuffer[(String, String)]()
+
+    def fieldNames(td: graphql.language.TypeDefinition[?]): Set[String] = td match
+      case o: ObjectTypeDefinition      => o.getFieldDefinitions.asScala.map(_.getName).toSet
+      case i: InterfaceTypeDefinition   => i.getFieldDefinitions.asScala.map(_.getName).toSet
+      case n: InputObjectTypeDefinition => n.getInputValueDefinitions.asScala.map(_.getName).toSet
+      case _                            => Set.empty
+
+    def typeMap(sdl: String): Map[String, graphql.language.TypeDefinition[?]] =
+      Try(new SchemaParser().parse(sdl)).toOption.map(_.types().asScala.toMap)
+        .getOrElse(Map.empty)
+
+    val typesA = typeMap(sdlA)
+    val typesB = typeMap(sdlB)
+    val addedTypes   = typesB.keySet -- typesA.keySet
+    val removedTypes = typesA.keySet -- typesB.keySet
+    val commonTypes  = typesA.keySet intersect typesB.keySet
+
+    addedTypes.toList.sorted.foreach   { t => changes += (("TYPE_ADDED",   s"Type '$t' was added")) }
+    removedTypes.toList.sorted.foreach { t => changes += (("TYPE_REMOVED", s"Type '$t' was removed")) }
+
+    commonTypes.toList.sorted.foreach { t =>
+      val fieldsA = fieldNames(typesA(t))
+      val fieldsB = fieldNames(typesB(t))
+      (fieldsB -- fieldsA).toList.sorted.foreach { f =>
+        changes += (("FIELD_ADDED",   s"Field '$f' was added to type '$t'"))
+      }
+      (fieldsA -- fieldsB).toList.sorted.foreach { f =>
+        changes += (("FIELD_REMOVED", s"Field '$f' was removed from type '$t'"))
+      }
+    }
+    changes.toList
 
   private def handlerValue(engine: graphql.GraphQL, opts: GraphQLOpts): Value =
     Value.NativeFnV("graphql.handler", Computation.pureFn {

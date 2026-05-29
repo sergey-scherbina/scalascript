@@ -5715,10 +5715,10 @@ optional federation/realtime adapters.
   `graphqlMount`, `serveGraphQL`; `GraphQLOpts` data class; `GraphQLSecurityTest` (12 tests).
   Auth/redaction/tracing deferred to Phase 10b. ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p11** — Schema export/import/diff and contract tests:
+- [x] **graphql-p11** — Schema export/import/diff and contract tests:
   `emit-graphql-schema`, `import-graphql-schema`, `diff-graphql`,
   `test-graphql`, profile-aware schema export/diff, operation fixture tests.
-  Spec: `docs/graphql.md §7 Phase 11`. Effort: ~4 days.
+  Spec: `docs/graphql.md §7 Phase 11`. Effort: ~4 days. Landed 2026-05-29 (14 tests).
 
 - [ ] **graphql-p12** — Federation/stitching/gateway plugins:
   optional `graphql-federation-plugin`, Federation v2 directive passthrough,

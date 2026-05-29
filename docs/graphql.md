@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 4, 5, 6, 8, 10 implemented on `main` (2026-05-29).
-80 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
+**Status:** Phases 1, 2 (partial), 4, 5, 6, 8, 10, 11 implemented on `main` (2026-05-29).
+94 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -913,16 +913,23 @@ Effort: ~1 day (core instrumentation limits done; advanced security deferred).
 
 ### Phase 11 - Schema Export, Import, Diff, And Contract Tests
 
-**Goal:** GraphQL contracts can be reviewed and tested in CI.
+**Status:** ✅ Landed 2026-05-29 (14 tests).
 
-Tasks:
+**Intrinsics added:**
 
-- `emit-graphql-schema --format sdl|introspection`.
-- `import-graphql-schema` from SDL or introspection JSON.
-- `diff-graphql old new` compatibility classifier.
-- `test-graphql` operation fixtures against local handlers.
-- Profile-aware schema export/diff.
-- `examples/graphql-contract-tests/`.
+- `GraphQL.printSchema(schema: GraphQLSchema): String` — serialises a
+  `GraphQLSchema` foreign value to normalised SDL via `SchemaPrinter`.
+- `GraphQL.introspectionJson(schema: GraphQLSchema): String` — runs the
+  standard introspection query against the schema and returns the JSON result
+  (`__schema`, `queryType`, `types`, `fields`).
+- `GraphQL.diffSchemas(sdlA: String, sdlB: String): List[Map]` — structural
+  diff; each entry has `kind` (`TYPE_ADDED`, `TYPE_REMOVED`, `FIELD_ADDED`,
+  `FIELD_REMOVED`) and `description`.
+
+**Tests:** `GraphQLSchemaExportTest` (14 tests) — printSchema non-empty, type/field
+names present, whitespace normalisation, multi-type schema, introspection JSON
+structure, queryType, type list, field list, diff identical/added-type/removed-type/
+added-field/removed-field, change map keys.
 
 Effort: ~4 days.
 
