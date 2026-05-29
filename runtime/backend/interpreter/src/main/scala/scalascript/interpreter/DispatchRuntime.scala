@@ -1,6 +1,6 @@
 package scalascript.interpreter
 
-import Computation.{Pure, Perform}
+import Computation.{Pure, Perform, FlatMap}
 
 /** Built-in method dispatch: String, Char, Int, Double, Boolean, List, Option, Map,
  *  Tuple, Either, and instance field access.  User-defined extensions are checked
@@ -560,7 +560,7 @@ private[interpreter] object DispatchRuntime:
         val ziBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var ziRem = ls; var ziIdx = 0
         while ziRem.nonEmpty do
-          ziBuf += Value.TupleV(List(ziRem.head, Value.intV(ziIdx.toLong)))
+          ziBuf += Value.TupleV(ziRem.head :: Value.intV(ziIdx.toLong) :: Nil)
           ziRem = ziRem.tail; ziIdx += 1
         Pure(Value.ListV(ziBuf.toList))
       case "indices"      =>
@@ -606,7 +606,7 @@ private[interpreter] object DispatchRuntime:
       case "splitAt"      => args match
         case List(Value.IntV(n)) =>
           val (a, b) = ls.splitAt(n.toInt)
-          Pure(Value.TupleV(List(Value.ListV(a), Value.ListV(b))))
+          Pure(Value.TupleV(Value.ListV(a) :: Value.ListV(b) :: Nil))
         case _                   => dispatchFallback(recv, name, args, env, interp)
       case "appended"     => args match
         case List(v)                  => Pure(Value.ListV(ls :+ v))
@@ -625,7 +625,7 @@ private[interpreter] object DispatchRuntime:
           val zipBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
           var zipAs = ls; var zipBs = other
           while zipAs.nonEmpty && zipBs.nonEmpty do
-            zipBuf += Value.TupleV(List(zipAs.head, zipBs.head))
+            zipBuf += Value.TupleV(zipAs.head :: zipBs.head :: Nil)
             zipAs = zipAs.tail; zipBs = zipBs.tail
           Pure(Value.ListV(zipBuf.toList))
         case _                        => dispatchFallback(recv, name, args, env, interp)
@@ -921,7 +921,7 @@ private[interpreter] object DispatchRuntime:
         case List(k)       => Pure(Value.MapV(m - k))
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "+"        => args match
-        case List(Value.TupleV(List(k, v))) => Pure(Value.MapV(m + (k -> v)))
+        case List(Value.TupleV(k :: v :: Nil)) => Pure(Value.MapV(m + (k -> v)))
         case _                              => dispatchFallback(recv, name, args, env, interp)
       case "++"       => args match
         case List(Value.MapV(other))        => Pure(Value.MapV(m ++ other))
@@ -931,33 +931,50 @@ private[interpreter] object DispatchRuntime:
         case _             => dispatchFallback(recv, name, args, env, interp)
       case "map"      => args match
         case List(f) =>
-          // Direct iterator loop: avoids m.toList, intermediate TupleV list, mapSequence ListV, collect.
           val mapIt  = m.iterator
           val mapBuf = scala.collection.mutable.Map.empty[Value, Value]
-          def mapLoop(): Computation =
-            if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
-            else
-              val (k, v) = mapIt.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
-                case Value.TupleV(nk :: nv :: Nil) => mapBuf += (nk -> nv); mapLoop()
-                case _                             => mapLoop()
-              }
-          mapLoop()
+          while mapIt.hasNext do
+            val (k, v) = mapIt.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(Value.TupleV(nk :: nv :: Nil)) => mapBuf += (nk -> nv)
+              case Pure(_)                             => // skip malformed
+              case comp =>
+                def loopMap(r: Value): Computation =
+                  r match
+                    case Value.TupleV(nk :: nv :: Nil) => mapBuf += (nk -> nv)
+                    case _                             => // skip malformed
+                  if !mapIt.hasNext then Pure(Value.MapV(mapBuf.toMap))
+                  else
+                    val (k2, v2) = mapIt.next()
+                    FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), loopMap)
+                return FlatMap(comp, loopMap)
+          Pure(Value.MapV(mapBuf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"   => args match
         case List(f) =>
-          // Direct iterator loop: avoids m.toList, tuples list, mapSequence ListV[BoolV].
           val filtIt  = m.iterator
           val filtBuf = scala.collection.mutable.Map.empty[Value, Value]
-          def filtLoop(): Computation =
-            if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
-            else
-              val (k, v) = filtIt.next()
-              interp.callValue1(f, Value.TupleV(List(k, v)), env).flatMap {
-                case Value.BoolV(true) => filtBuf += (k -> v); filtLoop()
-                case _                 => filtLoop()
-              }
-          filtLoop()
+          while filtIt.hasNext do
+            val (k, v) = filtIt.next()
+            interp.callValue1(f, Value.TupleV(k :: v :: Nil), env) match
+              case Pure(Value.BoolV(true))  => filtBuf += (k -> v)
+              case Pure(_)                  => // skip
+              case comp =>
+                def loopFilt(r: Value): Computation =
+                  r match
+                    case Value.BoolV(true) => filtBuf += (k -> v)
+                    case _                 =>
+                  def rest(): Computation =
+                    if !filtIt.hasNext then Pure(Value.MapV(filtBuf.toMap))
+                    else
+                      val (k2, v2) = filtIt.next()
+                      FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), { r2 =>
+                        if r2 == Value.BoolV(true) then filtBuf += (k2 -> v2)
+                        rest()
+                      })
+                  rest()
+                return FlatMap(comp, loopFilt)
+          Pure(Value.MapV(filtBuf.toMap))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
         case List(f) =>
@@ -997,20 +1014,14 @@ private[interpreter] object DispatchRuntime:
           Pure(Value.NativeFnV("foldLeft", {
             case List(f) =>
               val it = m.iterator
-              var acc = init
-              while it.hasNext do
-                val (k, v) = it.next()
-                interp.callValue2(f, acc, Value.TupleV(k :: v :: Nil), env) match
-                  case Pure(nv) => acc = nv
-                  case comp =>
-                    val capturedAcc = acc
-                    def loopRest(a: Value): Computation =
-                      if !it.hasNext then Pure(a)
-                      else
-                        val (k2, v2) = it.next()
-                        interp.callValue2(f, a, Value.TupleV(k2 :: v2 :: Nil), env).flatMap(loopRest)
-                    return comp.flatMap(loopRest)
-              Pure(acc)
+              // Use FlatMap directly (not Computation.flatMap) so the trampoline
+              // handles the loop iteratively — stack-safe for any map size.
+              def loop(acc: Value): Computation =
+                if !it.hasNext then Pure(acc)
+                else
+                  val (k, v) = it.next()
+                  FlatMap(interp.callValue2(f, acc, Value.TupleV(k :: v :: Nil), env), loop)
+              loop(init)
             case _ => throw InterpretError("Map.foldLeft expects one function argument")
           }))
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -1030,10 +1041,10 @@ private[interpreter] object DispatchRuntime:
                       if !it.hasNext then Computation.PureFalse
                       else
                         val (k2, v2) = it.next()
-                        interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                        FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
                           case Value.BoolV(true) => Computation.PureTrue
                           case _                 => loopRest()
-                        }
+                        })
                     loopRest()
                 })
           Computation.PureFalse
@@ -1054,10 +1065,10 @@ private[interpreter] object DispatchRuntime:
                       if !it.hasNext then Computation.PureTrue
                       else
                         val (k2, v2) = it.next()
-                        interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                        FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
                           case Value.BoolV(false) => Computation.PureFalse
                           case _                  => loopRest()
-                        }
+                        })
                     loopRest()
                 })
           Computation.PureTrue
@@ -1079,10 +1090,10 @@ private[interpreter] object DispatchRuntime:
                     if !it.hasNext then Computation.pureIntV(a)
                     else
                       val (k2, v2) = it.next()
-                      interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env).flatMap {
+                      FlatMap(interp.callValue1(f, Value.TupleV(k2 :: v2 :: Nil), env), {
                         case Value.BoolV(true) => loopRest(a + 1L)
                         case _                 => loopRest(a)
-                      }
+                      })
                   loopRest(newAcc)
                 })
           Computation.pureIntV(acc)
@@ -1105,10 +1116,10 @@ private[interpreter] object DispatchRuntime:
                       else
                         val (k2, v2) = it.next()
                         val e2 = Value.TupleV(k2 :: v2 :: Nil)
-                        interp.callValue1(f, e2, env).flatMap {
+                        FlatMap(interp.callValue1(f, e2, env), {
                           case Value.BoolV(true) => Pure(Value.OptionV(Some(e2)))
                           case _                 => loopRest()
-                        }
+                        })
                     loopRest()
                 })
           Computation.PureNone
@@ -1517,7 +1528,7 @@ private[interpreter] object DispatchRuntime:
           recv match
             case Value.TupleV(as) => Pure(Value.TupleV(as :+ w))    // shouldn't reach here but safe
             case Value.UnitV      => Pure(w)                         // shouldn't reach here but safe
-            case _                => Pure(Value.TupleV(List(recv, w)))
+            case _                => Pure(Value.TupleV(recv :: w :: Nil))
         case _ => extensionDispatch(recv, name, args, env, interp)
                     .getOrElse(interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})"))
     else
