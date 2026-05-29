@@ -297,7 +297,8 @@ private[interpreter] object OpticsRuntime:
     case Nil => List(target)
     case PathStep.FieldStep(n) :: rest => target match
       case Value.InstanceV(_, fields) =>
-        fields.get(n).map(v => opticGetAll(v, rest)).getOrElse(Nil)
+        val v = fields.getOrElse(n, null)
+        if v == null then Nil else opticGetAll(v, rest)
       case _ => Nil
     case PathStep.SomeStep :: rest => target match
       case Value.OptionV(Some(inner)) => opticGetAll(inner, rest)
@@ -310,8 +311,10 @@ private[interpreter] object OpticsRuntime:
         opticGetAll(items(i), rest)
       case _ => Nil
     case PathStep.AtKey(k) :: rest => target match
-      case Value.MapV(m) => m.get(k).map(v => opticGetAll(v, rest)).getOrElse(Nil)
-      case _             => Nil
+      case Value.MapV(m) =>
+        val v = m.getOrElse(k, null)
+        if v == null then Nil else opticGetAll(v, rest)
+      case _ => Nil
 
   def opticModifyAll(target: Value, steps: List[PathStep], f: Value, interp: Interpreter): Computation =
     steps match

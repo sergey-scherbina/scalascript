@@ -2406,8 +2406,8 @@ private[interpreter] object DispatchRuntime:
 
       case "ClusterCapability" => name match
         case "resolveSeeds" if args.isEmpty =>
-          fields.get("seedResolver") match
-            case Some(seedResolver @ Value.InstanceV("SeedResolver", _)) =>
+          fields.getOrElse("seedResolver", null) match
+            case seedResolver @ Value.InstanceV("SeedResolver", _) =>
               Perform("Actor", "resolveSeeds", seedResolver :: Nil)
             case _ => interp.located("ClusterCapability missing seedResolver")
         case _ => dispatchInstanceFallback(recv, typeName, fields, name, args, env, interp)
@@ -2503,38 +2503,38 @@ private[interpreter] object DispatchRuntime:
   private def dispatchInstanceFallback(recv: Value, typeName: String, fields: Map[String, Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Source.distributed bridge — dispatches to DStreams plugin when loaded (v1.63.1)
     if typeName == "Source" && name == "distributed" then
-      interp.globals.get("Source.distributed") match
-        case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
-        case None     => interp.located("Source.distributed requires the DStreams plugin")
+      val fn = interp.globals.getOrElse("Source.distributed", null)
+      if fn != null then interp.callValuePrepend(fn, recv, args, env)
+      else interp.located("Source.distributed requires the DStreams plugin")
     // Source.remote bridge — dispatches to streams-bridge plugin when loaded (v1.63.6)
     else if typeName == "Source" && name == "remote" then
-      interp.globals.get("Source.remote") match
-        case Some(fn) => interp.callValuePrepend(fn, recv, args, env)
-        case None     => interp.located("Source.remote requires the streams-bridge plugin")
+      val fn = interp.globals.getOrElse("Source.remote", null)
+      if fn != null then interp.callValuePrepend(fn, recv, args, env)
+      else interp.located("Source.remote requires the streams-bridge plugin")
     // RemoteSource.local bridge (v1.63.6)
     else if typeName == "RemoteSource" && name == "local" then
-      interp.globals.get("remoteSourceLocal") match
-        case Some(fn) =>
-          val buffer = args.headOption.getOrElse(Value.intV(1024))
-          interp.callValue2(fn, recv, buffer, env)
-        case None => interp.located("remoteSourceLocal requires the streams-bridge plugin")
+      val fn = interp.globals.getOrElse("remoteSourceLocal", null)
+      if fn != null then
+        val buffer = if args.nonEmpty then args.head else Value.intV(1024)
+        interp.callValue2(fn, recv, buffer, env)
+      else interp.located("remoteSourceLocal requires the streams-bridge plugin")
     // RemoteSource.distributed bridge (v1.63.6)
     else if typeName == "RemoteSource" && name == "distributed" then
-      interp.globals.get("remoteSourceLocal") match
-        case Some(localFn) =>
-          interp.callValue2(localFn, recv, Value.intV(1024), env).flatMap { localSrc =>
-            interp.globals.get("Source.distributed") match
-              case Some(df) => interp.callValuePrepend(df, localSrc, args, env)
-              case None     => interp.located("RemoteSource.distributed requires the DStreams plugin")
-          }
-        case None => interp.located("remoteSourceLocal requires the streams-bridge plugin")
+      val localFn = interp.globals.getOrElse("remoteSourceLocal", null)
+      if localFn != null then
+        interp.callValue2(localFn, recv, Value.intV(1024), env).flatMap { localSrc =>
+          val df = interp.globals.getOrElse("Source.distributed", null)
+          if df != null then interp.callValuePrepend(df, localSrc, args, env)
+          else interp.located("RemoteSource.distributed requires the DStreams plugin")
+        }
+      else interp.located("remoteSourceLocal requires the streams-bridge plugin")
     // ReactiveSignal bridge (no hard-coding streams into core)
     else if typeName == "ReactiveSignal" && name == "bind" then
       args match
         case List(source) =>
-          interp.globals.get("ReactiveSignal.bind") match
-            case Some(fn) => interp.callValue2(fn, recv, source, env)
-            case None     => interp.located("No method 'bind' on ReactiveSignal")
+          val fn = interp.globals.getOrElse("ReactiveSignal.bind", null)
+          if fn != null then interp.callValue2(fn, recv, source, env)
+          else interp.located("No method 'bind' on ReactiveSignal")
         case _ => dispatchFallback(recv, name, args, env, interp)
     // Exception .getMessage alias
     else if name == "getMessage" && args.isEmpty then
