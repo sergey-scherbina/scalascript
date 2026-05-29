@@ -23,7 +23,9 @@ class Typer(
     importedInterfaces: Map[String, scalascript.ir.ModuleInterface] = Map.empty,
     strict: Boolean = false,
     extraBuiltins: Set[String] = Set.empty,
-    fatalWarnings: Boolean = false
+    fatalWarnings: Boolean = false,
+    strictNamespaces: Boolean = false,
+    suppressedCollisions: Set[(String, String)] = Set.empty
 ):
   private val errors      = ListBuffer[TypeError]()
 
@@ -76,6 +78,15 @@ class Typer(
       if importedInterfaces.isEmpty then prelude.child("<module>")
       else
         import scalascript.artifact.InterfaceScope
+        // Detect namespace collisions before building the merged scope.
+        if importedInterfaces.size > 1 then
+          val collisions = InterfaceScope.detectCollisions(
+            importedInterfaces.toList,
+            suppressed = suppressedCollisions
+          )
+          collisions.foreach { c =>
+            errors += TypeError(c.message, None, isWarning = !(fatalWarnings || strictNamespaces))
+          }
         InterfaceScope.fromInterfaces(importedInterfaces.toList, parent = Some(prelude))
     // Pre-declare all top-level names from every section so cross-section
     // forward references and mutual recursion work in ssc check.
@@ -1467,6 +1478,33 @@ object Typer:
    */
   def typeCheckFatalWarnings(module: Module): TypedModule =
     Typer(Map.empty, strict = false, Set.empty, fatalWarnings = true).typeCheck(module)
+
+  /** Type-check with namespace-collision detection in strict mode (`--strict-namespaces`).
+   *
+   *  Collisions are hard errors; the build fails if two imported modules
+   *  export the same name.  Pass `suppressedCollisions` to acknowledge
+   *  known collisions (e.g. from `[Name from Alias]` qualified imports).
+   */
+  def typeCheckStrictNamespaces(
+      module:               Module,
+      interfaces:           Map[String, scalascript.ir.ModuleInterface],
+      suppressedCollisions: Set[(String, String)] = Set.empty
+  ): TypedModule =
+    Typer(interfaces, suppressedCollisions = suppressedCollisions, strictNamespaces = true)
+      .typeCheck(module)
+
+  /** Type-check with namespace-collision warnings (non-strict, default).
+   *
+   *  Emits warnings for colliding export names across imports without
+   *  failing the build.  Use [[typeCheckStrictNamespaces]] to error instead.
+   */
+  def typeCheckWithCollisionWarnings(
+      module:               Module,
+      interfaces:           Map[String, scalascript.ir.ModuleInterface],
+      suppressedCollisions: Set[(String, String)] = Set.empty
+  ): TypedModule =
+    Typer(interfaces, suppressedCollisions = suppressedCollisions)
+      .typeCheck(module)
 
   /** Incremental type-check — companion factory (no imported interfaces, non-strict).
    *

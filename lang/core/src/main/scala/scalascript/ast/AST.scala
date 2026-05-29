@@ -264,7 +264,18 @@ enum Content:
   /** Ordered or unordered list. */
   case DataList(items: List[ListItem], ordered: Boolean, span: Option[Span] = None)
 
-case class ImportBinding(name: String, alias: Option[String], span: Option[Span] = None)
+/** An import binding: `[Name](path)`, `[Name as Alias](path)`, or `[Name from Module](path)`.
+ *
+ *  `alias`      renames the imported name locally (`Name as Alias`).
+ *  `fromModule` is a qualified-import qualifier (`Name from Module`) that
+ *               suppresses namespace-collision warnings for this binding.
+ */
+case class ImportBinding(
+  name:       String,
+  alias:      Option[String]      = None,
+  fromModule: Option[String]      = None,
+  span:       Option[Span]        = None
+)
 case class ListItem(content: String, nested: List[ListItem], span: Option[Span] = None)
 
 /** Structured diagnostic for a failed scalameta parse of a `Content.CodeBlock`.

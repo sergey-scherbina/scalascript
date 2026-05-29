@@ -127,7 +127,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-lib-p2** — `@internal` access control: parsed and stored annotations; cross-package check in Typer; source-package diagnostics; per-definition and per-heading granularity. Spec: `docs/arch-library-modularity.md §6 Phase 2`. ✓ Landed 2026-05-29
 
-- [ ] **arch-lib-p3** — Namespace collision detection: `ImportResolver` tracks name contributions per import; warning on collision; `--strict-namespaces`; qualified import syntax `[Name from alias](dep:...)`. Spec: `docs/arch-library-modularity.md §6 Phase 3`.
+- [x] **arch-lib-p3** — Namespace collision detection: `ImportResolver` tracks name contributions per import; warning on collision; `--strict-namespaces`; qualified import syntax `[Name from alias](dep:...)`. Spec: `docs/arch-library-modularity.md §6 Phase 3`. ✓ Landed 2026-05-29: `NamespaceCollision` detection in `InterfaceScope.detectCollisions`; `[Name from Alias]` qualified import syntax in parser; `strictNamespaces` Typer param; `--strict-namespaces` CLI flag; 12 tests.
 
 - [ ] **arch-lib-p4** — `ssclib` format + `ssc package --lib`: `SsclibManifest` YAML schema; `.ssclib` ZIP format; `ssc package --lib`; `ImportResolver` unpacks archives. Spec: `docs/arch-library-modularity.md §6 Phase 4`.
 

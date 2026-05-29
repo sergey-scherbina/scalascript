@@ -8392,7 +8392,8 @@ private case class CheckResult(
 private def checkOneFile(
   file: String,
   interfaces: Map[String, scalascript.ir.ModuleInterface],
-  pluginBuiltins: Set[String]
+  pluginBuiltins: Set[String],
+  strictNamespaces: Boolean = false
 ): CheckResult =
   val path = os.Path(file, os.pwd)
   if !os.exists(path) then
@@ -8417,6 +8418,8 @@ private def checkOneFile(
     else
       val typed =
         if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
+        else if strictNamespaces then
+          Typer.typeCheckStrictNamespaces(module, interfaces)
         else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
       val elapsed = System.currentTimeMillis() - t0
       CheckResult(file, parseErrors = false, errors = typed.errors, elapsedMs = elapsed)
@@ -8480,25 +8483,27 @@ def checkCommand(args: List[String]): Unit =
   import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
   import scala.jdk.CollectionConverters.*
 
-  var ifaceDir:   Option[os.Path] = None
-  var jsonMode:   Boolean         = false
-  var quietMode:  Boolean         = false
-  var watchMode:  Boolean         = false
+  var ifaceDir:         Option[os.Path] = None
+  var jsonMode:         Boolean         = false
+  var quietMode:        Boolean         = false
+  var watchMode:        Boolean         = false
+  var strictNamespaces: Boolean         = false
   val inputs = scala.collection.mutable.ArrayBuffer.empty[String]
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--iface-dir" | "-I" if it.hasNext =>
         ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case "--json"    => jsonMode  = true
-      case "--quiet"   => quietMode = true
-      case "--watch"   => watchMode = true
-      case f           => inputs += f
+      case "--json"              => jsonMode         = true
+      case "--quiet"             => quietMode        = true
+      case "--watch"             => watchMode        = true
+      case "--strict-namespaces" => strictNamespaces = true
+      case f                     => inputs += f
 
   if inputs.isEmpty then
     if !quietMode then
       System.err.println(
-        "Usage: ssc check [--iface-dir <dir>] [--json] [--quiet] [--watch] <file.ssc|dir/> [...]"
+        "Usage: ssc check [--iface-dir <dir>] [--json] [--quiet] [--watch] [--strict-namespaces] <file.ssc|dir/> [...]"
       )
     System.exit(1)
 
@@ -8562,7 +8567,7 @@ def checkCommand(args: List[String]): Unit =
 
     def runOnce(): Unit =
       val t0       = System.currentTimeMillis()
-      val result   = checkOneFile(displayF, interfaces, pluginBuiltins)
+      val result   = checkOneFile(displayF, interfaces, pluginBuiltins, strictNamespaces)
       val elapsed  = System.currentTimeMillis() - t0
       val ts       = timestamp()
       if !quietMode then
@@ -8611,12 +8616,12 @@ def checkCommand(args: List[String]): Unit =
     System.exit(1)
   // checkOneFile is stateless (new Typer per call, immutable inputs), so safe to parallelize.
   val results: List[CheckResult] =
-    if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins))
+    if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces))
     else
       val nCores = Runtime.getRuntime.availableProcessors().max(1)
       val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(fileList.size))
       try
-        val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins)))
+        val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces)))
         tasks.map(_.get())
       finally pool.shutdown()
   if !quietMode then

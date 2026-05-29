@@ -3,6 +3,17 @@ package scalascript.artifact
 import scalascript.ir.ModuleInterface
 import scalascript.typer.{Symbol, Scope, SType, EffectOp, SymbolKind as TSymbolKind, RefMember, MatchCase}
 
+/** Records a single namespace-level export collision between two imports.
+ *
+ *  @param name   the export name that appears in both `aliasA` and `aliasB`
+ *  @param aliasA the first import alias that exports `name`
+ *  @param aliasB the second import alias that exports `name` (shadows `aliasA`)
+ */
+case class NamespaceCollision(name: String, aliasA: String, aliasB: String):
+  def message: String =
+    s"both '$aliasA' and '$aliasB' export '$name'; '$aliasB' shadows '$aliasA'. " +
+    s"Use '[${name} from ${aliasA}](...)' or '[${name} from ${aliasB}](...)' to disambiguate."
+
 /** A `Scope` populated from a pre-compiled `ModuleInterface`.
  *
  *  Allows the `Typer` to resolve cross-module references by consuming
@@ -69,6 +80,42 @@ object InterfaceScope:
       }
     }
     merged
+
+  /** Detect exported-name collisions across a list of module interfaces.
+   *
+   *  A collision occurs when two or more interfaces in `ifaces` export the
+   *  same symbol name.  Returns one [[NamespaceCollision]] per conflicting
+   *  name, with the first and second import alias (the second shadows the
+   *  first in the merged scope produced by [[fromInterfaces]]).
+   *
+   *  @param ifaces  `(alias, interface)` pairs — order matters: later entries
+   *                 shadow earlier ones on conflict.
+   *  @param suppressed  set of (name, alias) pairs explicitly acknowledged
+   *                     by a qualified import `[Name from Alias](path)`.
+   *                     A collision is suppressed when BOTH conflicting
+   *                     aliases for the same name have an entry in this set.
+   */
+  def detectCollisions(
+      ifaces:     List[(String, ModuleInterface)],
+      suppressed: Set[(String, String)] = Set.empty
+  ): List[NamespaceCollision] =
+    val nameToAlias = collection.mutable.LinkedHashMap.empty[String, String]
+    val collisions  = collection.mutable.ListBuffer.empty[NamespaceCollision]
+    ifaces.foreach { (alias, iface) =>
+      val exportNames = iface.exports.map(_.name) ++ iface.externDefs.map(_.name)
+      exportNames.foreach { name =>
+        nameToAlias.get(name) match
+          case Some(firstAlias) if firstAlias != alias =>
+            val isSuppressed =
+              suppressed.contains(name -> firstAlias) || suppressed.contains(name -> alias)
+            if !isSuppressed then
+              if !collisions.exists(c => c.name == name && c.aliasA == firstAlias && c.aliasB == alias) then
+                collisions += NamespaceCollision(name, firstAlias, alias)
+          case None => nameToAlias(name) = alias
+          case _    => ()
+      }
+    }
+    collisions.toList
 
   // ─── Type + kind parsing ────────────────────────────────────────────────
 

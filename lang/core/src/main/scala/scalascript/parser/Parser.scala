@@ -789,14 +789,15 @@ object Parser:
     child match
       case link: CmLink =>
         val path     = link.getDestination
-        // `Name` or `Name as Alias` — multiple bindings separated by commas.
-        // Whitespace around the `as` keyword is required so it doesn't collide
-        // with names that happen to contain the substring.
-        val asPattern = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r
+        // `Name` or `Name as Alias` or `Name from Module` — comma-separated.
+        // Whitespace around the keyword is required to avoid substring collisions.
+        val asPattern   = """^([A-Za-z_][\w]*)\s+as\s+([A-Za-z_][\w]*)$""".r
+        val fromPattern = """^([A-Za-z_][\w]*)\s+from\s+([A-Za-z_][\w]*)$""".r
         val bindings = textOf(link).split(",").map(_.trim).filter(_.nonEmpty).map { s =>
           s match
-            case asPattern(name, alias) => ImportBinding(name, Some(alias))
-            case bare                   => ImportBinding(bare, None)
+            case asPattern(name, alias)     => ImportBinding(name, alias = Some(alias))
+            case fromPattern(name, srcMod)  => ImportBinding(name, fromModule = Some(srcMod))
+            case bare                       => ImportBinding(bare)
         }.toList
         if path.nonEmpty && bindings.nonEmpty then Some(Content.Import(path, bindings)) else None
       case _ => None

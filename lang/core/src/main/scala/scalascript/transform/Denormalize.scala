@@ -151,7 +151,7 @@ object Denormalize:
       ast.Content.DataList(items.map(listItem), ordered, sp.map(span))
 
   private def importBinding(b: ir.ImportBinding): ast.ImportBinding =
-    ast.ImportBinding(b.name, b.alias, b.span.map(span))
+    ast.ImportBinding(b.name, alias = b.alias, span = b.span.map(span))
 
   private def listItem(i: ir.ListItem): ast.ListItem =
     ast.ListItem(i.content, i.nested.map(listItem), i.span.map(span))
