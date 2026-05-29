@@ -40,6 +40,8 @@ object Linker:
    */
   case class CompiledModule(iface: ModuleInterface, body: NormalizedModule)
 
+  private[artifact] case class MacroExpansion(paramNames: List[String], bodySource: String)
+
   /** Link a list of compiled modules in dependency order (entry module last).
    *
    *  @param modules    Modules in topological dependency order.  Each module's
@@ -68,11 +70,12 @@ object Linker:
     // Only defs from *foreign* modules are included; a module's own inlines
     // are already expanded by the compiler before linking.
     val inlineTable = buildInlineTable(modules)
+    val macroTable = buildMacroTable(modules)
 
     // Merge all sections, rewriting cross-module VarRef nodes in CodeBlocks
     // and expanding cross-module inline calls in CodeBlock.source.
     val allSections = modules.flatMap { cm =>
-      expandAndRewriteSections(cm.body.sections, symTable, inlineTable, cm.iface.pkg)
+      expandAndRewriteSections(cm.body.sections, symTable, inlineTable, macroTable, cm.iface.pkg)
     }
 
     // Use the last module's manifest as the entry manifest.
@@ -124,6 +127,27 @@ object Linker:
     }
     table.toMap
 
+  /** arch-meta-v2-p4 — Build the restricted quoted-macro expansion table.
+   *
+   *  The table is intentionally source-shaped for the first implementation:
+   *  an inline macro entrypoint maps to a quoted body expression and the
+   *  parameter names that may appear as `$param` splices in that body.
+   *  Backends never see the macro helper calls; expansion happens in Linker. */
+  private def buildMacroTable(modules: List[CompiledModule]): Map[String, MacroExpansion] =
+    val table = scala.collection.mutable.Map.empty[String, MacroExpansion]
+    def collectSymbol(sym: ExportedSymbol): Unit =
+      sym.macroImpl.foreach { ref =>
+        ref.expansionBodySource.foreach { body =>
+          val params =
+            if ref.quotedParams.nonEmpty then ref.quotedParams
+            else sym.inlineParamNames
+          table(sym.name) = MacroExpansion(params, body)
+        }
+      }
+      sym.nested.foreach(collectSymbol)
+    modules.foreach(_.iface.exports.foreach(collectSymbol))
+    table.toMap
+
   /** arch-meta-v2-p3 — Expand cross-module inline calls in `CodeBlock.source`
    *  and rewrite `VarRef` nodes in code-block bodies to use FQNs when the
    *  name resolves to an import from a different module.
@@ -142,12 +166,13 @@ object Linker:
       sections:    List[Section],
       symTable:    Map[String, SymbolEntry],
       inlineTable: Map[String, (List[String], String)],
+      macroTable:  Map[String, MacroExpansion],
       ownPkg:      List[String]
   ): List[Section] =
     sections.map { s =>
       s.copy(
-        content     = s.content.map(c => expandAndRewriteContent(c, symTable, inlineTable, ownPkg)),
-        subsections = expandAndRewriteSections(s.subsections, symTable, inlineTable, ownPkg)
+        content     = s.content.map(c => expandAndRewriteContent(c, symTable, inlineTable, macroTable, ownPkg)),
+        subsections = expandAndRewriteSections(s.subsections, symTable, inlineTable, macroTable, ownPkg)
       )
     }
 
@@ -155,12 +180,16 @@ object Linker:
       content:     Content,
       symTable:    Map[String, SymbolEntry],
       inlineTable: Map[String, (List[String], String)],
+      macroTable:  Map[String, MacroExpansion],
       ownPkg:      List[String]
   ): Content = content match
     case cb: Content.CodeBlock =>
-      val expandedSrc =
-        if inlineTable.nonEmpty then expandInlineSource(cb.source, inlineTable)
+      val macroExpandedSrc =
+        if macroTable.nonEmpty then expandMacroSource(cb.source, macroTable)
         else cb.source
+      val expandedSrc =
+        if inlineTable.nonEmpty then expandInlineSource(macroExpandedSrc, inlineTable)
+        else macroExpandedSrc
       val rewrittenBody =
         if cb.body.nonEmpty then cb.body.map(e => rewriteExpr(e, symTable, ownPkg))
         else cb.body
@@ -319,6 +348,32 @@ object Linker:
 
     if modified then sb.toString else src
 
+  /** arch-meta-v2-p4 — Expand restricted quoted-macro calls in source text.
+   *
+   *  The supported first slice is intentionally small and deterministic:
+   *  quoted macro bodies are expression templates (`'{ $x + 1 }` or the
+   *  parser-helper form `__ssc_quote_expr__(__ssc_splice__("x").+(1))`).
+   *  A call `macroName(arg)` substitutes `$x` / `__ssc_splice__("x")` with
+   *  the original call-site argument source and wraps the result in parens. */
+  private[artifact] def expandMacroSource(
+      src:        String,
+      macroTable: Map[String, MacroExpansion]
+  ): String =
+    if macroTable.isEmpty || src.isEmpty then return src
+    val inlineShape = macroTable.view.mapValues(m => (m.paramNames, normalizeQuotedMacroBody(m.bodySource))).toMap
+    expandInlineSource(src, inlineShape)
+
+  private[artifact] def normalizeQuotedMacroBody(bodySource: String): String =
+    val body = bodySource.trim
+    val raw =
+      if body.startsWith("'{") && body.endsWith("}") then
+        body.substring(2, body.length - 1).trim
+      else if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then
+        body.substring("__ssc_quote_expr__(".length, body.length - 1).trim
+      else body
+    val helperFree = """__ssc_splice__\("([^"]+)"\)""".r.replaceAllIn(raw, m => m.group(1))
+    """\$([A-Za-z_][A-Za-z0-9_]*)""".r.replaceAllIn(helperFree, m => m.group(1))
+
   private def rewriteExpr(
       expr:     IrExpr,
       symTable: Map[String, SymbolEntry],
@@ -347,6 +402,8 @@ object Linker:
       TailCall(target, args.map(a => rewriteExpr(a, symTable, ownPkg)))
     case ExternCall(name, args, span) =>
       ExternCall(name, args.map(a => rewriteExpr(a, symTable, ownPkg)), span)
+    case MacroImpl(name, args, resultType, span) =>
+      MacroImpl(name, args.map(a => rewriteExpr(a, symTable, ownPkg)), resultType, span)
     case MatchTree(scrutinee, root) =>
       MatchTree(rewriteExpr(scrutinee, symTable, ownPkg), rewriteNode(root, symTable, ownPkg))
     case Apply(fn, args) =>

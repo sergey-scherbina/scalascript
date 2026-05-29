@@ -82,6 +82,27 @@ simpler surface covers most practical macro use cases.
 Backends see the macro as a `MacroImpl` call in the IR; expansion happens at
 link time after separate compilation.
 
+Landed first slice (2026-05-29):
+
+- Parser preprocessing accepts the restricted syntax and lowers it to stable
+  helper calls for Scalameta only; original `Content.CodeBlock.source` stays
+  unchanged.
+- `.scim` interfaces carry `MacroImplRef` metadata on the inline entrypoint
+  and `macroQuotedBodySource` metadata on direct implementation helpers.
+- IR includes `MacroImpl`, so macro call sites can be represented before link
+  expansion.
+- `Linker` expands simple quoted-expression macro bodies at link time using
+  the same lambda-lifted shape as cross-module `inline`:
+  `plusOne(n)` → `((x) => x + 1)(n)`.
+
+Current implementation boundary:
+
+- Implemented: `${ impl('x) }` entrypoints, direct `'{ $x + ... }` quoted
+  bodies, cross-module source expansion in `ssc link`.
+- Planned: `Expr[A].asValue`, `Expr[A].asTerm`, constant folding inside macro
+  implementations, richer quoted terms, diagnostics for unsupported macro
+  bodies, and interpreter/run-path expansion parity.
+
 ### Phase 5 — Full `derives` for user typeclasses
 
 Today `derives` is hard-coded for the stdlib typeclasses.  Phase 5:

@@ -1242,6 +1242,135 @@ object Parser:
       case other => other
     }.mkString("\n")
 
+  /** arch-meta-v2-p4 — Make the restricted quoted-macro surface parseable
+   *  by Scalameta while preserving the original code block source.
+   *
+   *  ScalaScript treats `${ impl('x) }` and `'{ $x + 1 }` as link-time
+   *  macro syntax. Scalameta does not expose that syntax in the simple
+   *  source parser path we use for `.ssc` blocks, so this preprocessor
+   *  rewrites it into ordinary helper calls:
+   *
+   *    `${ impl('x) }` -> `__ssc_macro__(impl(__ssc_quote__("x")))`
+   *    `'{ $x + 1 }`  -> `__ssc_quote_expr__(__ssc_splice__("x") + 1)`
+   *
+   *  The original source remains in `Content.CodeBlock.source`; the helper
+   *  calls exist only in the parsed tree used by InterfaceExtractor. */
+  private[parser] def preprocessQuotedMacros(code: String): String =
+    if !(code.contains("${") || code.contains("'{")) then return code
+
+    val in = code.toCharArray
+    val n  = in.length
+    val out = new StringBuilder(n + 32)
+    var i = 0
+    var changed = false
+
+    def isIdentStart(c: Char): Boolean = c.isLetter || c == '_'
+    def isIdentPart(c: Char): Boolean = c.isLetterOrDigit || c == '_'
+
+    def skipString(start: Int): Int =
+      val q = in(start)
+      var j = start + 1
+      var esc = false
+      while j < n && (esc || in(j) != q) do
+        esc = !esc && in(j) == '\\'
+        j += 1
+      if j < n then j + 1 else j
+
+    def rewriteQuotedArgs(s: String): String =
+      val sb = new StringBuilder(s.length + 16)
+      var j = 0
+      while j < s.length do
+        s.charAt(j) match
+          case '"' =>
+            val start = j
+            j += 1
+            var esc = false
+            while j < s.length && (esc || s.charAt(j) != '"') do
+              esc = !esc && s.charAt(j) == '\\'
+              j += 1
+            if j < s.length then j += 1
+            sb.append(s, start, j)
+          case '\'' if j + 1 < s.length && isIdentStart(s.charAt(j + 1)) =>
+            var k = j + 2
+            while k < s.length && isIdentPart(s.charAt(k)) do k += 1
+            val name = s.substring(j + 1, k)
+            sb.append("__ssc_quote__(\"").append(name).append("\")")
+            j = k
+          case c =>
+            sb.append(c)
+            j += 1
+      sb.toString
+
+    def rewriteSplices(s: String): String =
+      val sb = new StringBuilder(s.length + 16)
+      var j = 0
+      while j < s.length do
+        s.charAt(j) match
+          case q @ ('"' | '\'') =>
+            val start = j
+            j += 1
+            var esc = false
+            while j < s.length && (esc || s.charAt(j) != q) do
+              esc = !esc && s.charAt(j) == '\\'
+              j += 1
+            if j < s.length then j += 1
+            sb.append(s, start, j)
+          case '$' if j + 1 < s.length && isIdentStart(s.charAt(j + 1)) =>
+            var k = j + 2
+            while k < s.length && isIdentPart(s.charAt(k)) do k += 1
+            val name = s.substring(j + 1, k)
+            sb.append("__ssc_splice__(\"").append(name).append("\")")
+            j = k
+          case c =>
+            sb.append(c)
+            j += 1
+      sb.toString
+
+    def findBalanced(openIdx: Int, open: Char, close: Char): Int =
+      var depth = 1
+      var j = openIdx + 1
+      while j < n && depth > 0 do
+        in(j) match
+          case '"' =>
+            j = skipString(j)
+          case c if c == open =>
+            depth += 1; j += 1
+          case c if c == close =>
+            depth -= 1
+            if depth > 0 then j += 1
+          case _ =>
+            j += 1
+      if depth == 0 then j else -1
+
+    while i < n do
+      in(i) match
+        case '$' if i + 1 < n && in(i + 1) == '{' =>
+          val close = findBalanced(i + 1, '{', '}')
+          if close >= 0 then
+            val inner = new String(in, i + 2, close - i - 2)
+            out.append("__ssc_macro__(").append(rewriteQuotedArgs(inner)).append(")")
+            i = close + 1
+            changed = true
+          else
+            out.append(in(i)); i += 1
+        case '\'' if i + 1 < n && in(i + 1) == '{' =>
+          val close = findBalanced(i + 1, '{', '}')
+          if close >= 0 then
+            val inner = new String(in, i + 2, close - i - 2)
+            out.append("__ssc_quote_expr__(").append(rewriteSplices(inner)).append(")")
+            i = close + 1
+            changed = true
+          else
+            out.append(in(i)); i += 1
+        case '"' =>
+          val end = skipString(i)
+          out.appendAll(in, i, end - i)
+          i = end
+        case c =>
+          out.append(c); i += 1
+
+    if changed then out.toString else code
+
   private def preprocessForScala(code: String): String =
     PreprocessorRegistry.applyAll(code)
 

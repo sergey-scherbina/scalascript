@@ -107,7 +107,7 @@ bin/http.ssc
 | [Coroutines & Generators](docs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
 | [Algebraic Effects spec](docs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
-| [Metaprogramming](docs/metaprogramming.md) | `inline`, `derives`, `compiletime.*` |
+| [Metaprogramming](docs/metaprogramming.md) / [v2 macros](docs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link` |
 | [DSL Authoring](docs/dsl.md) | Parser combinators, multi-pass pipelines, `runtime/std/parsing/*` |
 
 **Platform & runtime**
@@ -302,7 +302,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 |---------|--------|
 | Parser combinators | `runtime/std/parsing/*` — Parser ADT, `~/~>/~<`, rep, opt, sep, error recovery, indentation-aware |
 | Multi-pass pipelines | `runtime/std/dsl/*` — `Pass[A,B]`, `andThen/parallel/recover`, `Visitor`, `cata`, `ana` |
-| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error` |
+| Metaprogramming | `inline def/val/if/match`, `compiletime.constValue/summonInline/error`, restricted quoted macro link expansion (partial) |
 | Derives | `derives Eq/Show/Hash/Order/Foldable/Traversable/Functor` |
 | Checked errors | `throws[A, E] = Either[E, A]`, `throwsRaw[A, E] = A \| E`, `attemptCatch`, `HasStackTrace` |
 
@@ -580,7 +580,7 @@ scala-cli conformance/run.sc
 | mcp | MCP server tools + resources; MCP client callTool |
 | dataset | `Dataset[T]` local sequential, parallel, distributed MapReduce |
 | dsl | Parser combinators, error recovery, indentation-aware, multi-pass pipeline |
-| metaprogramming | `inline`, `derives`, `compiletime.*` |
+| metaprogramming | `inline`, `derives`, `compiletime.*`, restricted quoted macro link expansion (partial) |
 | checked-errors | `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
 | websocket | `onWebSocket`, `ws.send/recv`, rate limiting, `wss://` |
 | tls | `tls(cert, key)`, HTTPS, WSS |

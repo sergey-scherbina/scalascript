@@ -84,6 +84,7 @@ class LinkerRewriteTest extends AnyFunSuite:
       case Resume(_, v)     => walkExpr(v)
       case TailCall(_, a)   => a.foreach(walkExpr)
       case ExternCall(_, a, _) => a.foreach(walkExpr)
+      case MacroImpl(_, a, _, _) => a.foreach(walkExpr)
       case MatchTree(s, root) =>
         walkExpr(s); walkNode(root)
       case _: Lit | _: Unsupported => ()
@@ -475,6 +476,17 @@ class LinkerRewriteTest extends AnyFunSuite:
     // (The expander makes only one pass, not recursive.)
     assert(result.contains("=> n + 1"), s"inc should be expanded: $result")
 
+  // ── arch-meta-v2-p4: restricted quoted macro expansion ─────────────────
+
+  test("normalizeQuotedMacroBody strips quote and splice markers"):
+    val result = Linker.normalizeQuotedMacroBody("""'{ $x + 1 }""")
+    assert(result == "x + 1", s"unexpected normalized body: $result")
+
+  test("expandMacroSource expands quoted macro call through lambda-lifted body"):
+    val table = Map("plusOne" -> Linker.MacroExpansion(List("x"), """'{ $x + 1 }"""))
+    val result = Linker.expandMacroSource("val y = plusOne(n)", table)
+    assert(result == "val y = ((x) => x + 1)(n)", s"unexpected macro expansion: $result")
+
   test("link — inline export in dependency module is expanded in consumer source"):
     // Build a library module that exports an `inline def`
     val libIface = ModuleInterface(
@@ -535,3 +547,64 @@ class LinkerRewriteTest extends AnyFunSuite:
     )
     assert(consumerSrc.contains("=> n * n"),
       s"expected lambda-lifted inline body in consumer source; got:\n$consumerSrc")
+
+  test("link — quoted macro export in dependency module is expanded in consumer source"):
+    val libIface = ModuleInterface(
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = List("lib"),
+      moduleName    = Some("lib"),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = List(
+        ExportedSymbol(
+          name = "plusOne",
+          fqn  = "lib_plusOne",
+          kind = "def",
+          isInline = true,
+          inlineParamNames = List("x"),
+          inlineBodySource = Some("__ssc_macro__(plusOneImpl(__ssc_quote__(\"x\")))"),
+          macroImpl = Some(MacroImplRef(
+            implName = "plusOneImpl",
+            quotedParams = List("x"),
+            resultType = Some("Int"),
+            expansionBodySource = Some("""'{ $x + 1 }""")
+          ))
+        )
+      )
+    )
+    val libBody = NormalizedModule(
+      manifest = None,
+      sections = List(Section(
+        heading     = Heading(level = 1, text = "lib"),
+        content     = List(Content.CodeBlock("inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }")),
+        subsections = Nil))
+    )
+    val consumerAst  = Parser.parse(
+      """# Consumer
+        |
+        |```scalascript
+        |val y = plusOne(41)
+        |```
+        |""".stripMargin)
+    val consumerNorm = Normalize(consumerAst)
+    val consumerIface = ModuleInterface(
+      magic         = ArtifactVersion.magic,
+      abiVersion    = ArtifactVersion.current,
+      pkg           = List("app"),
+      moduleName    = Some("consumer"),
+      moduleVersion = None,
+      sourceHash    = "0" * 64,
+      exports       = List(ExportedSymbol(name = "y", fqn = "app_y", kind = "val", tpe = "Any"))
+    )
+
+    val merged = Linker.link(List(
+      Linker.CompiledModule(iface = libIface, body = libBody),
+      Linker.CompiledModule(iface = consumerIface, body = consumerNorm)
+    ))
+    val consumerSrc = merged.sections.flatMap(_.content.collect {
+      case cb: Content.CodeBlock if cb.source.contains("41") => cb.source
+    }).headOption.getOrElse(fail(s"could not find consumer code block: ${merged.sections}"))
+
+    assert(consumerSrc.contains("=> x + 1"),
+      s"expected quoted macro body in consumer source; got:\n$consumerSrc")

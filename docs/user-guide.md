@@ -4352,6 +4352,31 @@ artifacts, the command derives interfaces from packaged `src/*.ssc` files.
 
 ---
 
+## 30. Restricted Quoted Macros
+
+ScalaScript has a first restricted slice of v2 quoted macros for separately
+compiled modules linked with `ssc link`.
+
+```scala
+inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }
+
+def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] =
+  '{ $x + 1 }
+```
+
+The current implementation records macro metadata in `.scim` interfaces and
+expands direct quoted-expression bodies during link-time source merging. The
+example shape above expands a downstream `plusOne(n)` call as if the linked
+source contained `((x) => x + 1)(n)`.
+
+Status: **partially implemented**. Supported now: `${ impl('x) }` entrypoints,
+direct `'{ $x + ... }` quoted bodies, `MacroImpl` IR metadata, and cross-module
+link expansion. Still planned: `Expr[A].asValue`, `Expr[A].asTerm`, richer
+quoted-term construction, diagnostics for unsupported macro bodies, and parity
+for interpreter `ssc run` paths that do not go through `ssc link`.
+
+---
+
 ### Feature Quick-Links
 
 - Typed algebraic effects: §4, [docs/algebraic-effects.md](algebraic-effects.md)
@@ -4366,7 +4391,7 @@ artifacts, the command derives interfaces from packaged `src/*.ssc` files.
 - Frontend toolkit + framework SPI: [docs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [docs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
 - x402 micropayments + wallet SPI: [docs/x402.md](x402.md), [docs/wallet-spi.md](wallet-spi.md), [docs/wallet-spi-scalajs.md](wallet-spi-scalajs.md), [docs/blockchain-spi.md](blockchain-spi.md), [docs/micropayment-spi.md](micropayment-spi.md)
 - MCP: [docs/mcp.md](mcp.md)
-- Metaprogramming: [docs/metaprogramming.md](metaprogramming.md)
+- Metaprogramming: [docs/metaprogramming.md](metaprogramming.md), [docs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
 - Error handling: [docs/error-handling.md](error-handling.md)
 - Backend SPI: [docs/backend-spi.md](backend-spi.md)
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
@@ -4378,3 +4403,4 @@ artifacts, the command derives interfaces from packaged `src/*.ssc` files.
 - **Traditional payment processors: §27 above, [docs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
 - GraalVM native binary: §28 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
 - Library packages: §29 above, [docs/arch-library-modularity.md](arch-library-modularity.md)
+- Restricted quoted macros: §30 above, [docs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)

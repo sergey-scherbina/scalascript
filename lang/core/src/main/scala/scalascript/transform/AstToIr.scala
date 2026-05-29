@@ -117,6 +117,14 @@ object AstToIr:
   private def translateTerm(t: Term): ir.IrExpr = t match
     case Term.Name(n)                  => ir.VarRef(n)
     case Term.Select(qual, name)       => ir.Select(translateTerm(qual), name.value)
+    case Term.Apply.After_4_6_0(Term.Name("__ssc_macro__"), argClause) =>
+      argClause.values.headOption match
+        case Some(Term.Apply.After_4_6_0(Term.Name(name), macroArgs)) =>
+          ir.MacroImpl(ir.QualifiedName(name), macroArgs.values.map(translateTerm))
+        case Some(other) =>
+          ir.MacroImpl(ir.QualifiedName(other.syntax), Nil)
+        case None =>
+          ir.MacroImpl(ir.QualifiedName("<empty>"), Nil)
     case Term.Apply.After_4_6_0(fn, argClause)          => ir.Apply(translateTerm(fn), argClause.values.map(translateTerm))
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       // a + b   →   Apply(Select(a, "+"), [b])

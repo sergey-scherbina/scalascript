@@ -64,6 +64,11 @@ object PreprocessorRegistry:
       override def apply(s: String) = Parser.preprocessEffects(s)
     })
     register(new Preprocessor {
+      override val name     = "quoted-macros"
+      override val priority = 55
+      override def apply(s: String) = Parser.preprocessQuotedMacros(s)
+    })
+    register(new Preprocessor {
       override val name     = "extern"
       override val priority = 60
       override def apply(s: String) = Parser.preprocessExtern(s)

@@ -336,6 +336,14 @@ case class TailCall(target: SymbolRef, args: List[IrExpr]) extends IrExpr derive
  *  inline target source, runtime helper, or out-of-process callback. */
 case class ExternCall(name: QualifiedName, args: List[IrExpr], span: Option[Span] = None) extends IrExpr derives ReadWriter
 
+/** Restricted quoted-macro call site.
+ *
+ *  Phase arch-meta-v2-p4 keeps macros target-independent by representing
+ *  them at the ScalaScript IR/link layer instead of as Scala 3 compiler
+ *  trees. Backends should never execute this node directly; `Linker`
+ *  expands it before backend code generation. */
+case class MacroImpl(name: QualifiedName, args: List[IrExpr], resultType: Option[String] = None, span: Option[Span] = None) extends IrExpr derives ReadWriter
+
 /** Compiled pattern-match decision tree.  Stage 3's match desugaring
  *  produces this so each backend doesn't re-implement decision-tree
  *  compilation. */
@@ -451,7 +459,18 @@ case class ExportedSymbol(
    *
    *  Used by `Linker.expandInlineCalls` to substitute the body at the
    *  call site.  Default `None` preserves backward compatibility. */
-  inlineBodySource: Option[String] = None
+  inlineBodySource: Option[String] = None,
+  /** arch-meta-v2-p4 — Restricted quoted-macro implementation reference.
+   *  Present only for inline defs whose body is a macro splice of the form
+   *  `${ impl('arg1, 'arg2) }`. */
+  macroImpl: Option[MacroImplRef] = None,
+  /** arch-meta-v2-p4 — Marks a helper def returning `Expr[A]` as a macro
+   *  implementation candidate. This is metadata only; execution happens
+   *  through the inline entrypoint's [[macroImpl]] field. */
+  isMacroImpl: Boolean = false,
+  /** arch-meta-v2-p4 — Quoted body source of a macro implementation when it
+   *  is a direct quoted expression (`'{ ... }`). */
+  macroQuotedBodySource: Option[String] = None
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.
@@ -469,6 +488,21 @@ case class InstanceDecl(
  *  target backend does not support, without loading the full `.scir`. */
 case class CapabilityDecl(
   name: String                // e.g. "Http", "WebSocket", "FileSystem"
+) derives ReadWriter
+
+/** Restricted quoted-macro metadata carried in `.scim`.
+ *
+ *  `inline def foo(x: Int): Int = ${ fooImpl('x) }` records
+ *  `implName = "fooImpl"` and `quotedParams = List("x")`. When the
+ *  implementation's quoted body is known, `expansionBodySource` stores
+ *  the quoted expression source (for example `'{ $x + 1 }`) so the linker
+ *  can expand cross-module call sites without loading Scala compiler
+ *  internals. */
+case class MacroImplRef(
+  implName: String,
+  quotedParams: List[String] = Nil,
+  resultType: Option[String] = None,
+  expansionBodySource: Option[String] = None
 ) derives ReadWriter
 
 /** Module interface artifact — written as `.scim` JSON.

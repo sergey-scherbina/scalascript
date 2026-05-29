@@ -425,6 +425,45 @@ object InterfaceExtractor:
           val params = clauses.headOption.map(_.values.map(_.name.value)).getOrElse(Nil)
           Some(params -> d.body.syntax)
 
+    /** arch-meta-v2-p4 — Extract restricted quoted macro entrypoints.
+     *
+     *  The parser preprocessor rewrites `${ fooImpl('x) }` to
+     *  `__ssc_macro__(fooImpl(__ssc_quote__("x")))`, so this extractor can
+     *  stay syntax-tree agnostic and read the stable helper-call shape. */
+    def extractMacroImplRef(d: Defn.Def): Option[MacroImplRef] =
+      if !d.mods.exists(_.is[Mod.Inline]) then None
+      else
+        val body = d.body.syntax.trim
+        val Prefix = "__ssc_macro__("
+        if !body.startsWith(Prefix) || !body.endsWith(")") then None
+        else
+          val inner = body.substring(Prefix.length, body.length - 1).trim
+          val nameEnd = inner.indexOf('(')
+          if nameEnd <= 0 || !inner.endsWith(")") then None
+          else
+            val implName = inner.substring(0, nameEnd).trim
+            val argsText = inner.substring(nameEnd + 1, inner.length - 1)
+            val quotedParam = """__ssc_quote__\("([^"]+)"\)""".r
+            val params = quotedParam.findAllMatchIn(argsText).map(_.group(1)).toList
+            Some(MacroImplRef(
+              implName = implName,
+              quotedParams = params,
+              resultType = d.decltpe.map(_.toString)
+            ))
+
+    /** arch-meta-v2-p4 — Direct quoted expression body of a macro impl.
+     *  `'{ $x + 1 }` is preprocessed to
+     *  `__ssc_quote_expr__(__ssc_splice__("x").+(1))` by scalameta syntax
+     *  rendering.  Store that body verbatim; Linker handles both original
+     *  and preprocessed quote/splice spellings. */
+    def extractMacroQuotedBody(d: Defn.Def): Option[String] =
+      val body = d.body.syntax.trim
+      if body.startsWith("__ssc_quote_expr__(") && body.endsWith(")") then Some(body)
+      else None
+
+    def isMacroImplDef(d: Defn.Def): Boolean =
+      d.decltpe.exists(_.toString.contains("Expr[")) || extractMacroQuotedBody(d).nonEmpty
+
     // ── Recursive nested-member extraction ────────────────────────────────
     //
     // Maximum depth for walking nested `Defn.Object` stats.  An object at
@@ -451,6 +490,8 @@ object InterfaceExtractor:
         case d: Defn.Def if !EffectAnalysis.isExternDef(d.body) =>
           val (dl, dc) = positionFor(d.name)
           val inl = extractInlineInfo(d)
+          val macroRef = extractMacroImplRef(d)
+          val quotedBody = extractMacroQuotedBody(d)
           Some(ExportedSymbol(
             name = d.name.value,
             fqn  = joinFqn(d.name.value),
@@ -460,7 +501,10 @@ object InterfaceExtractor:
             definitionColumn = dc,
             isInline         = inl.isDefined,
             inlineParamNames = inl.map(_._1).getOrElse(Nil),
-            inlineBodySource = inl.map(_._2)
+            inlineBodySource = inl.map(_._2),
+            macroImpl = macroRef,
+            isMacroImpl = isMacroImplDef(d),
+            macroQuotedBodySource = quotedBody
           ))
         case d: Defn.Val =>
           // Multi-pat `val (a, b) = …` is rare here; surface each Pat.Var.
@@ -688,6 +732,21 @@ object InterfaceExtractor:
         case d: Defn.Def => extractInlineInfo(d).map(d.name.value -> _)
       }.flatten.toMap
 
+    val topLevelMacroInfo: Map[String, MacroImplRef] =
+      topLevelStats.collect {
+        case d: Defn.Def => extractMacroImplRef(d).map(d.name.value -> _)
+      }.flatten.toMap
+
+    val topLevelMacroQuotedBodies: Map[String, String] =
+      topLevelStats.collect {
+        case d: Defn.Def => extractMacroQuotedBody(d).map(d.name.value -> _)
+      }.flatten.toMap
+
+    val topLevelMacroImplNames: Set[String] =
+      topLevelStats.collect {
+        case d: Defn.Def if isMacroImplDef(d) => d.name.value
+      }.toSet
+
     val rawExports = allDefs
       .filterNot { d =>
         d.kind == TSymbolKind.Param ||
@@ -700,6 +759,10 @@ object InterfaceExtractor:
           else Nil
         val (dl, dc) = topLevelPositions.getOrElse(d.name, (0, 0))
         val inlineInfo = topLevelInlineInfo.get(d.name)
+        val macroInfo = topLevelMacroInfo.get(d.name).map { ref =>
+          val withBody = topLevelMacroQuotedBodies.get(ref.implName).orElse(ref.expansionBodySource)
+          ref.copy(expansionBodySource = withBody)
+        }
         ExportedSymbol(
           name             = d.name,
           fqn              = fqn(d.name),
@@ -711,7 +774,10 @@ object InterfaceExtractor:
           isInternal       = internalNames.contains(d.name),
           isInline         = inlineInfo.isDefined,
           inlineParamNames = inlineInfo.map(_._1).getOrElse(Nil),
-          inlineBodySource = inlineInfo.map(_._2)
+          inlineBodySource = inlineInfo.map(_._2),
+          macroImpl = macroInfo,
+          isMacroImpl = topLevelMacroImplNames.contains(d.name),
+          macroQuotedBodySource = topLevelMacroQuotedBodies.get(d.name)
         )
       }
       .toList

@@ -486,9 +486,13 @@ only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
   lambda-lifting expansion in `CodeBlock.source`; 16 tests.
   Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
 
-- [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface:
-  `Expr[A].asValue`, `Expr[A].asTerm`, `'{...}` quoting; `MacroImpl` IR node;
-  expansion at link time.  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+- [x] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: ✓ Landed 2026-05-29.
+  First slice implements parser preprocessing for `${ impl('x) }` entrypoints
+  and `'{ $x + ... }` quoted bodies, `.scim` `MacroImplRef` metadata,
+  `MacroImpl` IR, and link-time expansion for direct quoted-expression macro
+  bodies. `Expr[A].asValue`, `Expr[A].asTerm`, richer quoted terms, and
+  interpreter/run-path parity remain planned follow-ups.
+  Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
 
 - [ ] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation:
   `scalascript.reflect.Mirror`; `inline match` on `Mirror.Product/Sum` for

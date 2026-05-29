@@ -159,7 +159,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-meta-v2-p3** — Cross-module `inline` expansion: IR-level inlining in `ssc link`; requires plugin-author demand and stable SPI/distribution foundations. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 3`.
 
-- [ ] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`.
+- [x] **arch-meta-v2-p4** — Restricted `QuotedMacro[A]` surface: `Expr[A].asValue`, `Expr[A].asTerm`, quoting, `MacroImpl` IR node, expansion at link time. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 4`. ✓ Landed 2026-05-29: first restricted slice adds parser preprocessing for `${ impl('x) }` and `'{ $x + ... }`, `.scim` `MacroImplRef` metadata, `MacroImpl` IR, and link-time expansion for direct quoted-expression bodies; `asValue`/`asTerm` evaluation remains planned follow-up.
 
 - [ ] **arch-meta-v2-p5** — Full `Mirror`-based user typeclass derivation: `scalascript.reflect.Mirror`; inline match on `Mirror.Product/Sum` for arbitrary user typeclasses. Spec: `docs/arch-metaprogramming-v2.md §4 Phase 5`.
 

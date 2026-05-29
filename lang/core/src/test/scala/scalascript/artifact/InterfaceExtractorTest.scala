@@ -485,3 +485,27 @@ class InterfaceExtractorTest extends AnyFunSuite:
     assert(squareSym.isInline, "nested inline def should have isInline=true")
     assert(squareSym.inlineParamNames == List("n"))
     assert(squareSym.inlineBodySource.contains("n * n"))
+
+  // ── arch-meta-v2-p4: restricted quoted macro metadata ──────────────────
+
+  test("quoted macro entrypoint records MacroImplRef and implementation body"):
+    val iface = extract(
+      """inline def plusOne(x: Int): Int = ${ plusOneImpl('x) }
+        |def plusOneImpl(x: Expr[Int])(using q: QuotedContext): Expr[Int] = '{ $x + 1 }""".stripMargin)
+
+    val entry = iface.exports.find(_.name == "plusOne").getOrElse {
+      fail(s"expected plusOne export; got ${iface.exports.map(_.name)}")
+    }
+    val ref = entry.macroImpl.getOrElse(fail(s"plusOne should carry macroImpl metadata: $entry"))
+    assert(ref.implName == "plusOneImpl")
+    assert(ref.quotedParams == List("x"))
+    assert(ref.resultType.contains("Int"))
+    assert(ref.expansionBodySource.exists(_.contains("__ssc_quote_expr__")),
+      s"expected linked quoted body source, got ${ref.expansionBodySource}")
+
+    val impl = iface.exports.find(_.name == "plusOneImpl").getOrElse {
+      fail(s"expected plusOneImpl export; got ${iface.exports.map(_.name)}")
+    }
+    assert(impl.isMacroImpl, s"implementation should be marked as macro impl: $impl")
+    assert(impl.macroQuotedBodySource.exists(_.contains("__ssc_splice__")),
+      s"expected quoted body metadata, got ${impl.macroQuotedBodySource}")
