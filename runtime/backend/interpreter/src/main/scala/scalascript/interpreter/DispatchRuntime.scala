@@ -18,16 +18,18 @@ private[interpreter] object DispatchRuntime:
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // Extensions early-exit: avoid 7 HashMap lookups when no extensions registered.
     if interp.extensions.nonEmpty then
-      val userExt = recv match
-        case _: Value.OptionV => interp.extensions.get(("Option",  name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.ListV   => interp.extensions.get(("List",    name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.IntV    => interp.extensions.get(("Int",     name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.DoubleV => interp.extensions.get(("Double",  name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.StringV => interp.extensions.get(("String",  name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.BoolV   => interp.extensions.get(("Boolean", name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _: Value.MapV    => interp.extensions.get(("Map",     name)).map(interp.callValuePrepend(_, recv, args, env))
-        case _                => None
-      if userExt.isDefined then return userExt.get
+      val typeName: String = recv match
+        case _: Value.OptionV => "Option"
+        case _: Value.ListV   => "List"
+        case _: Value.IntV    => "Int"
+        case _: Value.DoubleV => "Double"
+        case _: Value.StringV => "String"
+        case _: Value.BoolV   => "Boolean"
+        case _: Value.MapV    => "Map"
+        case _                => null
+      if typeName != null then
+        val fn = interp.extensions.getOrElse((typeName, name), null)
+        if fn != null then return interp.callValuePrepend(fn, recv, args, env)
     recv match
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
       case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)

@@ -416,6 +416,18 @@ object Computation:
         f(x) match
           case Pure(v) => Pure(Value.ListV(v :: Nil))
           case comp    => FlatMap(comp, v => Pure(Value.ListV(v :: Nil)))
+      case x :: y :: Nil =>
+        f(x) match
+          case Pure(v1) =>
+            f(y) match
+              case Pure(v2) => Pure(Value.ListV(v1 :: v2 :: Nil))
+              case comp2    => FlatMap(comp2, v2 => Pure(Value.ListV(v1 :: v2 :: Nil)))
+          case comp1 =>
+            FlatMap(comp1, v1 =>
+              f(y) match
+                case Pure(v2) => Pure(Value.ListV(v1 :: v2 :: Nil))
+                case comp2    => FlatMap(comp2, v2 => Pure(Value.ListV(v1 :: v2 :: Nil)))
+            )
       case _ =>
         val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var head = ls

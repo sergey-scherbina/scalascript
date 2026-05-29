@@ -447,12 +447,13 @@ private[interpreter] object EvalRuntime:
               case other               => eval(other, env, interp)
             }
             val argVsS = extractPureValues(argComps)
-            qualC match
-              case Pure(qualV) if argVsS != null =>
-                DispatchRuntime.dispatch(qualV, method, argVsS, env, interp)
-              case _ =>
-                FlatMap(qualC, qualV =>
-                  interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+            if argVsS != null then
+              qualC match
+                case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp)
+                case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp))
+            else
+              FlatMap(qualC, qualV =>
+                interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
         // ── remoteStub[Api](baseUrl) / Remote.stub[Api](baseUrl) ─────────────
         // Pass the erased type-name as a second argument so RemoteIntrinsics
         // can look up the stored abstract method list and build per-method
@@ -489,12 +490,13 @@ private[interpreter] object EvalRuntime:
             case other               => eval(other, env, interp)
           }
           val argVsT = extractPureValues(argComps)
-          qualC match
-            case Pure(qualV) if argVsT != null =>
-              DispatchRuntime.dispatch(qualV, method, argVsT, env, interp)
-            case _ =>
-              FlatMap(qualC, qualV =>
-                interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+          if argVsT != null then
+            qualC match
+              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp)
+              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp))
+          else
+            FlatMap(qualC, qualV =>
+              interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
         case _ =>
           // Flatten nested Apply nodes so that curried calls like `f(a)(using b)`
           // are collected into a single `interp.callValue(f, [a, b])` invocation.
@@ -544,12 +546,13 @@ private[interpreter] object EvalRuntime:
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
             val argVsPos = extractPureValues(argComps)
-            funC match
-              case Pure(fv) if argVsPos != null =>
-                interp.callValue(fv, argVsPos, env)
-              case _ =>
-                FlatMap(funC, fv =>
-                  interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
+            if argVsPos != null then
+              funC match
+                case Pure(fv) => interp.callValue(fv, argVsPos, env)
+                case _        => FlatMap(funC, fv => interp.callValue(fv, argVsPos, env))
+            else
+              FlatMap(funC, fv =>
+                interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
 
     // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
     // Desugar: read current value, apply base-op, write back to interp.globals.

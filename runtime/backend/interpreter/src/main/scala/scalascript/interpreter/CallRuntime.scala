@@ -237,7 +237,9 @@ private[interpreter] object CallRuntime:
         applyDefaults(f.params, f.defaults, tupledArgs, interp.closureWithSelfFor(f), interp)
     val info      = TcoRuntime.tcoInfoFor(f, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
-      (interp.globals.get(n) orElse f.closure.get(n)).exists(_.isInstanceOf[Value.FunV])
+      val gv = interp.globals.getOrElse(n, null)
+      val v  = if gv != null then gv else f.closure.getOrElse(n, null)
+      v != null && v.isInstanceOf[Value.FunV]
     }
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
       if Profiler.enabled && f.name.nonEmpty then
