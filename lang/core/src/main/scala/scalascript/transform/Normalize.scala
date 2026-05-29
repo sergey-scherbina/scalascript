@@ -2,7 +2,7 @@ package scalascript.transform
 
 import scalascript.ast
 import scalascript.ir
-import scalascript.backend.spi.{BackendOptions, ScopeContext, SymbolKind}
+import scalascript.backend.spi.{BackendOptions, Diagnostic, ScopeContext, SymbolKind}
 import scalascript.compiler.plugin.SourceLanguageRegistry
 
 /** AST → IR conversion.
@@ -140,8 +140,14 @@ object Normalize:
         // use `core` without those JARs on the classpath working.
         SourceLanguageRegistry.lookup(lang) match
           case Some(plugin) =>
-            val frag = plugin.compileBlock(source, NormalizeScope, BackendOptions(), attrs).fragment
-            withSpan(frag, sp.map(span))
+            val artifact = plugin.compileBlock(source, NormalizeScope, BackendOptions(), attrs)
+            if artifact.diagnostics.nonEmpty then
+              val msg = artifact.diagnostics.map {
+                case Diagnostic.GraphQLSdlError(m, l, c) if l > 0 => s"$m (line $l, col $c)"
+                case d => d.toString
+              }.mkString("\n")
+              throw new RuntimeException(s"$lang block validation failed:\n$msg")
+            withSpan(artifact.fragment, sp.map(span))
           case None if ast.Lang.isSql(lang) =>
             sqlBlock(source, attrs, sp.map(span), lang)
           case None if ast.Lang.isTransaction(lang) =>

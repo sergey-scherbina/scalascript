@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phase 1 implemented (`graphql-p1`, 2026-05-29, 20 tests on `main`).
-Phase 2 (async resolvers, client, Node backend) is the next active slice.
+**Status:** Phases 1, 2 (partial), 4 implemented on `main` (2026-05-29).
+36 graphql-plugin tests total. Phase 3 (WebSocket subscriptions) is next.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -747,21 +747,32 @@ Tasks:
 
 Effort: ~6 days.
 
-### Phase 4 - Compile-Time SDL Validation + LSP Diagnostics
+### Phase 4 - Compile-Time SDL Validation + LSP Diagnostics ✅
+
+**Status:** Implemented 2026-05-29. 12 `GraphQLSchemaCheckTest` tests pass; 36
+total graphql-plugin tests.
 
 **Goal:** SDL errors are reported by `ssc build` and editor diagnostics before
 runtime.
 
 Tasks:
 
-- `GraphQLSourceLanguage.compileBlock` validates SDL and returns diagnostics.
-- Diagnostics include file/block origin and source ranges when the engine
-  exposes them.
-- LSP shows inline SDL errors.
-- `GraphQLSchemaCheckTest`: valid SDL, syntax error, undefined type, duplicate
-  type, bad field type, invalid directive usage.
+- [x] `GraphQLSourceLanguage.compileBlock` validates SDL via graphql-java's
+  `SchemaParser`; syntax errors (invalid tokens, unclosed braces, duplicate type
+  definitions) are caught and returned as `Diagnostic.GraphQLSdlError(message,
+  line, col)` entries in `BlockArtifact.diagnostics`.
+- [x] `Diagnostic.GraphQLSdlError` added to `backend-spi` enum (analogous to
+  `Diagnostic.XmlParseError`).
+- [x] `Normalize.scala` propagates non-empty diagnostics from `compileBlock`
+  as a `RuntimeException` so `ssc build` fails with a clear message on invalid SDL.
+- [x] `GraphQLSchemaCheckTest` (12 tests): valid SDL varieties, syntax errors,
+  empty SDL, unclosed braces, duplicate types, error message non-empty,
+  fragment still returned on error.
+- [ ] Semantic validation (unknown type references, missing Query type) —
+  requires `SchemaGenerator` integration; deferred to Phase 4b.
+- [ ] LSP inline diagnostics — depends on LSP server integration; deferred.
 
-Effort: ~2 days.
+Effort: ~2 days (syntax validation done; semantic + LSP are follow-ups).
 
 ### Phase 5 - GraphQL-over-HTTP Compliance
 
@@ -917,7 +928,7 @@ Effort: ~5 days.
 | 1 | `GraphQLIntrinsicsTest` (20) ✅ | Interpreter + HTTP unit |
 | 2 | `graphqlQuery` client (4 tests) ✅; async + JS codegen pending | Interpreter + codegen |
 | 3 | Subscription lifecycle and cancellation | Integration |
-| 4 | `GraphQLSchemaCheckTest` (6+) | Compiler/LSP diagnostics |
+| 4 | `GraphQLSchemaCheckTest` (12) ✅; semantic validation pending | Compiler diagnostics |
 | 5 | `GraphQLHttpComplianceTest`, optional `graphql-http` audit | Protocol |
 | 6 | Typed resolver signature and codec tests | Type mapping |
 | 7 | Operation validation and typed client round-trips | Compiler + runtime |

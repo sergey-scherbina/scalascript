@@ -37,3 +37,7 @@ enum Diagnostic:
   // alternative is available.  The def will throw at runtime; this diagnostic
   // surfaces the problem at compile time.
   case JvmOnlyExternDef(defName: String, backend: String)
+  // graphql-p4 — a `graphql` fenced block contains SDL that fails schema
+  // parsing or semantic validation by graphql-java's SchemaParser.
+  // `line` / `col` are 1-indexed positions within the SDL source.
+  case GraphQLSdlError(message: String, line: Int, col: Int)

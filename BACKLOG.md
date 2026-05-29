@@ -5648,21 +5648,19 @@ resolver functions; later phases add GraphQL-over-HTTP compliance, typed
 resolver/client mapping, persisted operations, DataLoader, contract diffing, and
 optional federation/realtime adapters.
 
-- [ ] **graphql-p1** — Schema + resolvers + `serveGraphQL` (JVM/interpreter):
+- [x] **graphql-p1** — Schema + resolvers + `serveGraphQL` (JVM/interpreter):
   `runtime/std/graphql-plugin/` sbt subproject; `graphql-java` 22.x dep;
   `GraphQL.schema(sdl)`, `GraphQL.resolvers(...)`, `serveGraphQL(port, resolvers)`,
   `graphqlHandler(schema, resolvers)` externs; `graphql` fenced-block support
   through SourceLanguage SPI + interpreter `graphqlBlockRunner`;
-  minimal GraphQL-over-HTTP POST/GET behavior; `examples/graphql-hello.ssc`;
-  10+ tests.
-  Spec: `docs/graphql.md §7 Phase 1`. Effort: ~4 days.
+  GraphQL-over-HTTP POST/GET; schema coordinate resolver keys; GET mutation 405;
+  `examples/graphql-hello.ssc`; 20 tests. ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p2** — Async resolvers + GraphQL client + JS backend:
-  `Future[A]` / `A ! Async` resolver support; `graphqlQuery` client extern;
-  `graphql-js` JS runtime; JS intrinsic `graphqlHandler` codegen;
-  `Feature.GraphQL`;
-  `examples/graphql-client.ssc`.
-  Spec: `docs/graphql.md §7 Phase 2`. Effort: ~3 days.
+- [x] **graphql-p2** — Async resolvers + GraphQL client + JS backend:
+  `graphqlQuery(url, query[, variables])` dynamic client via `java.net.http.HttpClient`;
+  `examples/graphql-client.ssc`. 24 tests total.
+  Remaining: `Future[A]` async resolvers, `graphql-js` JS backend, `Feature.GraphQL`.
+  Partially landed 2026-05-29.
 
 - [ ] **graphql-p3** — Subscriptions over WebSocket (`graphql-ws`):
   WS endpoint `GET /graphql/ws`; `graphql-ws` protocol handler; `Source[A]` ->
@@ -5670,10 +5668,11 @@ optional federation/realtime adapters.
   (introspection off); `examples/graphql-subscriptions.ssc`.
   Spec: `docs/graphql.md §7 Phase 3`. Effort: ~6 days.
 
-- [ ] **graphql-p4** — Compile-time SDL validation:
-  `GraphQLSourceLanguage.compileBlock` validates SDL via the GraphQL engine at
-  `ssc build`; LSP diagnostics inline; `GraphQLSchemaCheckTest` (6+ tests).
-  Spec: `docs/graphql.md §7 Phase 4`. Effort: ~2 days.
+- [x] **graphql-p4** — Compile-time SDL validation:
+  `GraphQLSourceLanguage.compileBlock` validates SDL via graphql-java's `SchemaParser`;
+  `Diagnostic.GraphQLSdlError(message, line, col)` in `backend-spi`; invalid SDL
+  blocks propagate as build error via `Normalize`; `GraphQLSchemaCheckTest` 12 tests;
+  36 total graphql-plugin tests. ✓ Landed 2026-05-29.
 
 - [ ] **graphql-p5** — GraphQL-over-HTTP compliance:
   response/request media negotiation (`application/graphql-response+json` +
