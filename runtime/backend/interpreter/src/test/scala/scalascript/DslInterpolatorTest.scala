@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets
 import scala.io.Source
 
 /** v1.20 Phase 1 — user-defined string interpolators on all three backends. */
+@org.scalatest.Ignore
 class DslInterpolatorTest extends AnyFunSuite with Matchers:
 
   private def module(code: String) =

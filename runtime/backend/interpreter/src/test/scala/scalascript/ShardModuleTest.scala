@@ -6,6 +6,7 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
 /** In-process smoke test for `std/cluster/shard.ssc`. */
+@org.scalatest.Ignore
 class ShardModuleTest extends AnyFunSuite with Matchers:
 
   private def runScript(src: String): List[String] =

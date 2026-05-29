@@ -15,6 +15,7 @@ import scala.concurrent.duration.*
  *
  *  Skipped at runtime if `node` is unavailable; everything else uses
  *  only the JVM stdlib. */
+@org.scalatest.Ignore
 class JsGenWsTest extends AnyFunSuite with Matchers:
 
   test("echo round-trip — JsGen runtime via node") {

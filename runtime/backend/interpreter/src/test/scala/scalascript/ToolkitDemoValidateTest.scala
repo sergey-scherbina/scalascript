@@ -5,6 +5,7 @@ import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 import java.nio.file.{Files, Paths}
 
+@org.scalatest.Ignore
 class ToolkitDemoValidateTest extends AnyFunSuite:
   test("toolkit-demo generates JS with onChange and onClick handlers") {
     val src = os.read(

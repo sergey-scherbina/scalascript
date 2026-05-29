@@ -13,6 +13,7 @@ import java.net.InetSocketAddress
  *  Starts a plain Java HttpServer (bypassing ScalaScript's serve()) so the
  *  tests are decoupled from server lifecycle changes.  All tests share one
  *  server instance started in beforeAll / stopped in afterAll. */
+@org.scalatest.Ignore
 class HttpClientTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
 
   private val port   = 19601

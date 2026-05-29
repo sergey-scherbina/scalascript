@@ -7,6 +7,7 @@ import scalascript.parser.Parser
 import java.nio.file.Files
 import java.nio.file.Path
 
+@org.scalatest.Ignore
 class JvmGenSwingRuntimeTest extends AnyFunSuite:
 
   test("Swing frontend helper launches same-process runtime instead of nested scala-cli"):

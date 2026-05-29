@@ -762,10 +762,11 @@ private[interpreter] object EvalRuntime:
           while cur.isInstanceOf[FrameMap] do
             cur.asInstanceOf[FrameMap].appendLocalTo(b, interp.globals)
             cur = cur.asInstanceOf[FrameMap].parent
-          // Include terminal non-FrameMap parent (e.g., a prior closure Map)
+          // Include terminal non-FrameMap parent (e.g., a prior closure Map).
+          // Local bindings already in `b` take priority — do NOT overwrite them.
           if cur ne interp.globals then
             cur.foreachEntry { (k, v) =>
-              if interp.globals.getOrElse(k, null) != v then b(k) = v
+              if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
             }
           b.toMap
         case _ =>
@@ -873,7 +874,7 @@ private[interpreter] object EvalRuntime:
             cur = fm2.parent
           if cur ne interp.globals then
             cur.foreachEntry { (k, v) =>
-              if interp.globals.getOrElse(k, null) != v then b(k) = v
+              if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
             }
           b
         case _ =>

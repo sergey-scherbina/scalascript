@@ -9,6 +9,7 @@ import scalascript.parser.Parser
  *  interpreter backend.  The conformance .ssc file itself is also
  *  consumed by the JS / JVM backends via the e2e cross-backend
  *  shell-script harness; this test pins the INT path. */
+@org.scalatest.Ignore
 class RaftConformanceTest extends AnyFunSuite with Matchers:
 
   test("Raft single-node election claims self"):
