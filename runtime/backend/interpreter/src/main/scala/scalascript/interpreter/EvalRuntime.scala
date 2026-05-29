@@ -555,7 +555,7 @@ private[interpreter] object EvalRuntime:
     // Desugar: read current value, apply base-op, write back to interp.globals.
     case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
         if op.value.lengthIs > 1 && op.value.last == '=' &&
-           !Set(">=", "<=", "!=", "==").contains(op.value) =>
+           !BlockRuntime.isCompareOp(op.value) =>
       val baseOp = op.value.init
       if argClause.values.lengthCompare(1) == 0 then
         val rhsC = eval(argClause.values.head, env, interp)

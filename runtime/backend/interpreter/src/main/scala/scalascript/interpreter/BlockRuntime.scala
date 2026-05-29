@@ -64,7 +64,7 @@ private[interpreter] object BlockRuntime:
           // Compound assignment inside a block (x += n, x -= n, etc.).
           case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
               if op.value.lengthIs > 1 && op.value.last == '=' &&
-                 !Set(">=", "<=", "!=", "==").contains(op.value) =>
+                 !BlockRuntime.isCompareOp(op.value) =>
             val baseOp = op.value.init
             if argClause.values.lengthCompare(1) == 0 then
               val rhsC = interp.eval(argClause.values.head, localView)
@@ -108,6 +108,10 @@ private[interpreter] object BlockRuntime:
             interp.execStat(stat, local)
             step(rest, Value.UnitV)
     step(stats, Value.UnitV)
+
+  /** True when `op` is a comparison operator ending in `=` (not a compound assignment). */
+  private[interpreter] inline def isCompareOp(op: String): Boolean =
+    op == ">=" || op == "<=" || op == "!=" || op == "=="
 
   /** Intercept monadic bind to auto-lift foreign monad values.
    *
