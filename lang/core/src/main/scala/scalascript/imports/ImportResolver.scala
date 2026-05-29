@@ -198,6 +198,32 @@ object ImportResolver:
 
   // ─── dep: scheme ─────────────────────────────────────────────────
 
+  /** Mutable state for one BFS transitive-resolution session.
+   *  Passed down the call chain so all recursive `resolveDep` calls share context. */
+  private final class ResolutionState(val strictDeps: Boolean):
+    val resolved: scala.collection.mutable.LinkedHashMap[String, String] =
+      scala.collection.mutable.LinkedHashMap.empty  // org/name → chosen version
+    val visiting: scala.collection.mutable.HashSet[String] =
+      scala.collection.mutable.HashSet.empty        // currently-being-resolved keys (cycle detection)
+
+  /** Resolve all `dep:` URIs transitively, pre-populating the local cache.
+   *
+   *  Returns a `SscLibLock` mapping every transitively-encountered `org/name` to
+   *  its resolved version.  Called by `ssc update`.
+   *
+   *  @param strictDeps  when `true`, a version conflict is a hard error;
+   *                     when `false` (default), the higher version wins. */
+  def resolveAll(
+      depUris:   List[String],
+      lockPath:  Option[os.Path] = None,
+      strictDeps: Boolean        = false,
+  ): SscLibLock =
+    val state = ResolutionState(strictDeps)
+    depUris.foreach { uri =>
+      if uri.startsWith("dep:") then resolveDep(uri, lockPath, Some(state))
+    }
+    SscLibLock(state.resolved.toMap)
+
   /** Resolve `dep:org.example/lib:1.2` through the dep-sources chain.
    *
    *  Resolution order:
@@ -207,9 +233,16 @@ object ImportResolver:
    *     Per source, `.ssclib` is tried before `.ssc` for backwards compat.
    *  4. Fail with a clear message pointing to `dep-sources` config.
    *
+   *  When `state` is present (transitive-resolution session), cycle detection and
+   *  version-conflict tracking are performed.
+   *
    *  v1.19.x: central registry (`registry.scalascript.io`) deferred.
    */
-  private def resolveDep(depUri: String, lockPath: Option[os.Path]): os.Path =
+  private def resolveDep(
+      depUri:   String,
+      lockPath: Option[os.Path],
+      state:    Option[ResolutionState] = None,
+  ): os.Path =
     val rest = depUri.stripPrefix("dep:")
     val slashIdx = rest.indexOf('/')
     if slashIdx < 0 then throw new RuntimeException(
@@ -223,84 +256,144 @@ object ImportResolver:
     )
     val name    = rest2.substring(0, colonIdx)
     val version = rest2.substring(colonIdx + 1)
+    val depKey  = s"$org/$name"
 
-    // 1. Plain .ssc cache
-    val sscCached = depCacheRoot / os.RelPath(s"$org/$name/$version.ssc")
-    if os.exists(sscCached) then
-      lockPath.foreach { lp =>
-        val content = os.read.bytes(sscCached)
-        LockFile.read(lp).fold(
-          err  => throw new RuntimeException(err.getMessage),
-          lock => lock.check(depUri, content).fold(err => throw new RuntimeException(err), identity)
+    // Cycle detection
+    state match
+      case Some(s) if s.visiting.contains(depKey) =>
+        throw new RuntimeException(
+          s"Dependency cycle detected: '$depKey' depends on itself (transitively)"
         )
-      }
-      return sscCached
+      case _ => ()
 
-    // 2. Extracted .ssclib cache
+    // Version-conflict deduplication: compute an early-exit path if already resolved.
+    val earlyExit: Option[os.Path] = state.flatMap { s =>
+      s.resolved.get(depKey) match
+        case Some(resolvedVer) if resolvedVer == version =>
+          Some(resolveCached(depUri, version, org, name, lockPath))
+        case Some(resolvedVer) if SemVer.compare(resolvedVer, version) >= 0 =>
+          // Already have a ≥ version — skip (latest-wins already applied earlier)
+          Some(resolveCached(depUri, resolvedVer, org, name, lockPath))
+        case Some(resolvedVer) if s.strictDeps =>
+          throw new RuntimeException(
+            s"Version conflict: '$depKey' requires '$version' but '$resolvedVer' was already selected. " +
+            s"Use --no-strict-deps to allow latest-wins resolution."
+          )
+        case _ => None
+    }
+    if earlyExit.isDefined then return earlyExit.get
+
+    state.foreach(_.visiting += depKey)
+    try
+      // 1. Plain .ssc cache
+      val sscCached = depCacheRoot / os.RelPath(s"$org/$name/$version.ssc")
+      if os.exists(sscCached) then
+        lockPath.foreach { lp =>
+          val content = os.read.bytes(sscCached)
+          LockFile.read(lp).fold(
+            err  => throw new RuntimeException(err.getMessage),
+            lock => lock.check(depUri, content).fold(err => throw new RuntimeException(err), identity)
+          )
+        }
+        state.foreach(_.resolved(depKey) = version)
+        return sscCached
+
+      // 2. Extracted .ssclib cache
+      val libDir = libCacheRoot / org / name / version
+      if os.exists(libDir) && os.list(libDir).nonEmpty then
+        val manifestFile = libDir / SsclibManifest.FileName
+        if os.exists(manifestFile) then
+          SsclibManifest.parseString(os.read(manifestFile)) match
+            case scala.util.Success(manifest) =>
+              val entryPath = libDir / os.RelPath(manifest.entry)
+              if os.exists(entryPath) then
+                state.foreach(_.resolved(depKey) = version)
+                prefetchTransitiveDeps(manifest, depUri, lockPath, state)
+                return entryPath
+            case _ => ()
+
+      // 3. Fetch from dep-sources: try .ssclib first, then .ssc
+      val sources = depSources()
+      if sources.isEmpty then
+        throw new RuntimeException(
+          s"No dep-sources configured for '$depUri'.\n" +
+          s"Add an endpoint to ~/.config/scalascript/dep-sources, e.g.:\n" +
+          s"  https://packages.example.com/ssc/"
+        )
+
+      // For each source try .ssclib then .ssc; take the first that resolves.
+      val fetchResult: Option[(String, Array[Byte], Boolean)] =
+        sources.iterator.flatMap { base =>
+          val b      = if base.endsWith("/") then base else base + "/"
+          val libUrl = s"${b}$org/$name/$version.ssclib"
+          val sscUrl = s"${b}$org/$name/$version.ssc"
+          Iterator(
+            tryFetch(libUrl).toOption.map(pair => (pair._1, pair._2, true)),
+            tryFetch(sscUrl).toOption.map(pair => (pair._1, pair._2, false)),
+          ).flatten
+        }.nextOption()
+
+      fetchResult match
+        case None =>
+          val endpoints = sources.mkString(", ")
+          throw new RuntimeException(
+            s"dep '$depUri' not found at any configured endpoint ($endpoints)"
+          )
+        case Some((resolvedUrl, bytes, true)) =>
+          // .ssclib archive — extract to libs cache
+          lockPath.foreach { lp =>
+            val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
+            val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
+            LockFile.write(lock1, lp)
+          }
+          state.foreach(_.resolved(depKey) = version)
+          extractSsclib(bytes, org, name, version, depUri, lockPath, state)
+        case Some((resolvedUrl, bytes, false)) =>
+          // Plain .ssc file — cache as before
+          val sscCached = depCacheRoot / os.RelPath(s"$org/$name/$version.ssc")
+          os.makeDir.all(sscCached / os.up)
+          os.write(sscCached, bytes)
+          lockPath.foreach { lp =>
+            val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
+            val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
+            LockFile.write(lock1, lp)
+          }
+          state.foreach(_.resolved(depKey) = version)
+          sscCached
+    finally
+      state.foreach(_.visiting -= depKey)
+
+  /** Return entry for a dep that's already in the cache (used during conflict resolution). */
+  private def resolveCached(
+      depUri: String, version: String, org: String, name: String,
+      lockPath: Option[os.Path],
+  ): os.Path =
+    val sscCached = depCacheRoot / os.RelPath(s"$org/$name/$version.ssc")
+    if os.exists(sscCached) then return sscCached
     val libDir = libCacheRoot / org / name / version
-    if os.exists(libDir) && os.list(libDir).nonEmpty then
+    if os.exists(libDir) then
       val manifestFile = libDir / SsclibManifest.FileName
       if os.exists(manifestFile) then
-        SsclibManifest.parseString(os.read(manifestFile)) match
-          case scala.util.Success(manifest) =>
-            val entryPath = libDir / os.RelPath(manifest.entry)
-            if os.exists(entryPath) then return entryPath
-          case _ => ()
-
-    // 3. Fetch from dep-sources: try .ssclib first, then .ssc
-    val sources = depSources()
-    if sources.isEmpty then
-      throw new RuntimeException(
-        s"No dep-sources configured for '$depUri'.\n" +
-        s"Add an endpoint to ~/.config/scalascript/dep-sources, e.g.:\n" +
-        s"  https://packages.example.com/ssc/"
-      )
-
-    // For each source try .ssclib then .ssc; take the first that resolves.
-    val fetchResult: Option[(String, Array[Byte], Boolean)] =
-      sources.iterator.flatMap { base =>
-        val b      = if base.endsWith("/") then base else base + "/"
-        val libUrl = s"${b}$org/$name/$version.ssclib"
-        val sscUrl = s"${b}$org/$name/$version.ssc"
-        Iterator(
-          tryFetch(libUrl).toOption.map(pair => (pair._1, pair._2, true)),
-          tryFetch(sscUrl).toOption.map(pair => (pair._1, pair._2, false)),
-        ).flatten
-      }.nextOption()
-
-    fetchResult match
-      case None =>
-        val endpoints = sources.mkString(", ")
-        throw new RuntimeException(
-          s"dep '$depUri' not found at any configured endpoint ($endpoints)"
-        )
-      case Some((resolvedUrl, bytes, true)) =>
-        // .ssclib archive — extract to libs cache
-        lockPath.foreach { lp =>
-          val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
-          val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
-          LockFile.write(lock1, lp)
+        val fromLib = SsclibManifest.parseString(os.read(manifestFile)).toOption.flatMap { manifest =>
+          val entryPath = libDir / os.RelPath(manifest.entry)
+          if os.exists(entryPath) then Some(entryPath) else None
         }
-        extractSsclib(bytes, org, name, version, depUri)
-      case Some((resolvedUrl, bytes, false)) =>
-        // Plain .ssc file — cache as before
-        os.makeDir.all(sscCached / os.up)
-        os.write(sscCached, bytes)
-        lockPath.foreach { lp =>
-          val lock0 = LockFile.read(lp).getOrElse(LockFile.empty)
-          val lock1 = lock0.pin(depUri, bytes, resolvedUrl = Some(resolvedUrl))
-          LockFile.write(lock1, lp)
-        }
-        sscCached
+        fromLib match
+          case Some(ep) => return ep
+          case None     => ()
+    // Not in cache — re-resolve normally (rare: was cleared between sessions)
+    resolveDep(depUri, lockPath)
 
-  /** Extract a `.ssclib` ZIP to `~/.cache/scalascript/libs/<org>/<name>/<version>/`
-   *  and return the path to the library entry point declared in the manifest. */
+  /** Extract a `.ssclib` ZIP to `~/.cache/scalascript/libs/<org>/<name>/<version>/`,
+   *  pre-fetch transitive deps, and return the entry-point path. */
   private def extractSsclib(
       zipBytes: Array[Byte],
       org:      String,
       name:     String,
       version:  String,
       depUri:   String,
+      lockPath: Option[os.Path],
+      state:    Option[ResolutionState],
   ): os.Path =
     import java.util.zip.ZipInputStream
     import java.io.ByteArrayInputStream
@@ -334,7 +427,26 @@ object ImportResolver:
       throw new RuntimeException(
         s"dep '$depUri': entry '${manifest.entry}' not found in archive"
       )
+    // Eagerly pre-fetch transitive deps so they are in cache before the compiler needs them.
+    prefetchTransitiveDeps(manifest, depUri, lockPath, state)
     entryPath
+
+  /** BFS step: resolve all direct dependencies declared in `manifest`.
+   *  Errors from transitive deps are wrapped with context. */
+  private def prefetchTransitiveDeps(
+      manifest: SsclibManifest,
+      parentUri: String,
+      lockPath:  Option[os.Path],
+      state:     Option[ResolutionState],
+  ): Unit =
+    manifest.dependencies.foreach { dep =>
+      if dep.startsWith("dep:") then
+        try resolveDep(dep, lockPath, state)
+        catch case e: RuntimeException =>
+          throw new RuntimeException(
+            s"Transitive dep error for '$parentUri': ${e.getMessage}", e
+          )
+    }
 
   private def depSources(): List[String] =
     if !os.exists(depSourcesPath) then Nil

@@ -125,6 +125,7 @@ private def dispatchCommand(args: List[String]): Unit =
       if args.tail.isEmpty || args.tail.headOption.contains("--prefix") then selfInstallCommand(args.tail)
       else pluginInstall(args.tail)
     case "lock"                => lockCommand(args.tail)
+    case "update"              => updateCommand(args.tail)
     case "test"                => testCommand(args.tail)
     case "preview"             => previewCommand(args.tail)
     case "fmt"                 => fmtCommand(args.tail)
@@ -599,6 +600,9 @@ def printUsage(): Unit =
     |                         declared in the front-matter variants: list.  Storybook-lite.
     |  lock <file>            Pin all URL/dep imports in ssc.lock (SHA-256 integrity)
     |  lock check <file>      Verify all URL/dep imports match ssc.lock
+    |  update [<file>] [--strict-deps]
+    |                         Re-resolve all dep: imports transitively; write ssc-lock.yaml.
+    |                         --strict-deps  Error on version conflicts (default: latest-wins).
     |  fmt [--check|--stdout] <file(s)>
     |                         Format .ssc files in-place (default).
     |                         --check  Exit non-zero if any file needs formatting (CI mode).
@@ -8094,6 +8098,70 @@ private def lockCheckCommand(args: List[String]): Unit =
   catch case e: Exception =>
     System.err.println(s"lock check error: ${e.getMessage}")
     System.exit(1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ssc update — refresh transitive dep resolution + write ssc-lock.yaml
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `ssc update [<file.ssc>] [--strict-deps]`
+ *
+ *  Re-resolves all `dep:` imports in the project (including transitive deps),
+ *  clears the `.ssclib` extraction cache for changed versions, and writes
+ *  `ssc-lock.yaml` recording the full resolved-version map.
+ *
+ *  Without `--strict-deps` (default), version conflicts are resolved by picking
+ *  the highest version.  With `--strict-deps`, any conflict is an error. */
+def updateCommand(args: List[String]): Unit =
+  import scalascript.imports.{ImportResolver, SscLibLock}
+  import scalascript.parser.Parser
+
+  var strictDeps = false
+  var fileArg: Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--strict-deps"     => strictDeps = true
+      case "--no-strict-deps"  => strictDeps = false
+      case f                   => fileArg = Some(f)
+
+  val projectFile = fileArg
+    .map(f => os.Path(f, os.pwd))
+    .orElse(findProjectSsc())
+    .getOrElse {
+      System.err.println("ssc update: no project file found (pass a .ssc file or run from a project directory)")
+      System.exit(1); os.pwd / "not-found.ssc"
+    }
+
+  if !os.exists(projectFile) then
+    System.err.println(s"ssc update: file not found: $projectFile"); System.exit(1)
+
+  try
+    val module  = Parser.parse(os.read(projectFile))
+    val depUris = collectDepImports(module)
+    if depUris.isEmpty then
+      println("ssc update: no dep: imports found")
+      return
+
+    println(s"Resolving ${depUris.size} top-level dep(s) transitively...")
+    val lock = ImportResolver.resolveAll(depUris, lockPath = None, strictDeps = strictDeps)
+    val lockPath = projectFile / os.up / SscLibLock.FileName
+    SscLibLock.write(lock, lockPath)
+    println(s"Resolved ${lock.locked.size} dep(s):")
+    lock.locked.toList.sortBy(_._1).foreach { (dep, ver) =>
+      println(s"  $dep  $ver")
+    }
+    println(s"\nWrote ${lockPath.relativeTo(os.pwd)}")
+  catch case e: Exception =>
+    System.err.println(s"ssc update error: ${e.getMessage}")
+    System.exit(1)
+
+private def collectDepImports(module: scalascript.ast.Module): List[String] =
+  def fromSection(s: scalascript.ast.Section): List[String] =
+    val direct = s.content.collect {
+      case scalascript.ast.Content.Import(path, _, _) if path.startsWith("dep:") => path
+    }
+    direct ++ s.subsections.flatMap(fromSection)
+  module.sections.flatMap(fromSection)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc test <file(s)>  —  v0.9 component-level unit test runner
