@@ -2,7 +2,7 @@ package scalascript.backend.spi
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiParam, OpenApiRoute, ParamLocation}
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation}
 
 class OpenApiGeneratorTest extends AnyFunSuite with Matchers:
 
@@ -52,6 +52,22 @@ class OpenApiGeneratorTest extends AnyFunSuite with Matchers:
     doc should include (""""description": "Returns a user by id."""")
     doc should include (""""tags": ["users", "admin"]""")
     doc should include (""""deprecated": true""")
+
+  test("security schemes and per-route requirements are emitted"):
+    val doc = OpenApiGenerator.generate(
+      List(OpenApiRoute("DELETE", "/users/:id", metadata = OpenApiMetadata(security = List("bearerAuth")))),
+      List(OpenApiSecurityScheme("bearerAuth", "bearer", "JWT"))
+    )
+    doc should include (""""security": [{ "bearerAuth": [] }]""")
+    doc should include (""""securitySchemes"""")
+    doc should include (""""bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }""")
+
+  test("apiKey security scheme emits header name from format"):
+    val doc = OpenApiGenerator.generate(
+      List(OpenApiRoute("GET", "/admin", metadata = OpenApiMetadata(security = List("apiKeyAuth")))),
+      List(OpenApiSecurityScheme("apiKeyAuth", "apiKey", "X-API-Key"))
+    )
+    doc should include (""""apiKeyAuth": { "type": "apiKey", "in": "header", "name": "X-API-Key" }""")
 
   test("swaggerUiHtml points at the OpenAPI endpoint"):
     val html = OpenApiGenerator.swaggerUiHtml()

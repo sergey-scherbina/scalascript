@@ -49,6 +49,7 @@ object NativeContextFeatureKeys:
   val HttpMaxRetries   = "scalascript.http.maxRetries"
   val HttpRetryDelayMs = "scalascript.http.retryDelayMs"
   val OpenApiPending   = "scalascript.openapi.pendingRouteMetadata"
+  val OpenApiSecuritySchemes = "scalascript.openapi.securitySchemes"
 
 /** Runtime hooks an in-process native intrinsic may consult.  The
  *  interpreter constructs one per session and passes it to every

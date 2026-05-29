@@ -5582,7 +5582,8 @@ behaviour unchanged).
 Phase 1 (interpreter `/_openapi.json` + `/_swagger`) landed as part of HTTP infrastructure.
 Phase 2 landed 2026-05-29 for shared generation and JVM route emission. Phase 2b landed
 2026-05-29 for typed response metadata propagation. Phase 3 landed 2026-05-29
-for per-route operation metadata. Phases 4–5 are planned.
+for per-route operation metadata. Phase 4 landed 2026-05-29 for OpenAPI
+security schemes. Phase 5 is planned.
 
 - [x] **openapi-p1** — Interpreter `/_openapi.json` + `/_swagger`: `OpenApiRuntime` auto-registered
   when `serve()` / `serveAsync()` is called; path-param conversion; handler introspection;
@@ -5617,10 +5618,14 @@ for per-route operation metadata. Phases 4–5 are planned.
   description, tags, and deprecated. Added `examples/openapi-annotation.ssc`.
   Spec: `docs/openapi.md §5 Phase 3`.
 
-- [ ] **openapi-p4** — Security schemes + auth declarations:
+- [x] **openapi-p4** — Security schemes + auth declarations: ✓ Landed 2026-05-29.
   `openApiSecurity(name, scheme, format)` extern; `components.securitySchemes` emission;
   per-route `security` array; `authMw` heuristic.
-  Spec: `docs/openapi.md §5 Phase 4`. Effort: ~2 days.
+  Landed: `openApiSecurity(...)` declares reusable bearer/http or api-key
+  security schemes; `@openapi(security = List(...))` attaches per-route
+  requirements; shared/interpreter/JVM OpenAPI output emits
+  `components.securitySchemes` and operation `security`. The `authMw` heuristic
+  remains deferred in favor of explicit metadata. Spec: `docs/openapi.md §5 Phase 4`.
 
 - [ ] **openapi-p5** — `ssc emit-openapi` CLI + YAML output:
   `emitOpenapiCommand` in CLI; `--format json|yaml`; `--title`/`--version`/`--server` flags;

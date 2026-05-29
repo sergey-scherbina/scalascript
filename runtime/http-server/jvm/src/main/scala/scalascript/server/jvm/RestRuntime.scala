@@ -627,7 +627,13 @@ private case class _OpenApiMetadata(
     summary:     Option[String] = None,
     description: Option[String] = None,
     tags:        List[String]   = Nil,
-    deprecated:  Boolean        = false
+    deprecated:  Boolean        = false,
+    security:    List[String]   = Nil
+)
+private case class _OpenApiSecurityScheme(
+    name:   String,
+    scheme: String,
+    format: String = ""
 )
 
 // Route handler returns Any (Response | _StreamResponse | primitive auto-wrapped) — the
@@ -646,19 +652,27 @@ private case class _Route(
 private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
 private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
 private var _ssc_openapi_pending: Option[_OpenApiMetadata] = None
+private val _ssc_openapi_security = scala.collection.mutable.ArrayBuffer.empty[_OpenApiSecurityScheme]
 
 def openapi(
     summary:     String       = "",
     description: String       = "",
     tags:        List[String] = Nil,
-    deprecated:  Boolean      = false
+    deprecated:  Boolean      = false,
+    security:    List[String] = Nil
 ): Unit =
   _ssc_openapi_pending = Some(_OpenApiMetadata(
     summary     = Option(summary).map(_.trim).filter(_.nonEmpty),
     description = Option(description).map(_.trim).filter(_.nonEmpty),
     tags        = tags.filter(_.nonEmpty),
-    deprecated  = deprecated
+    deprecated  = deprecated,
+    security    = security.filter(_.nonEmpty)
   ))
+
+def openApiSecurity(name: String, scheme: String, format: String = ""): Unit =
+  _ssc_openapi_security.indexWhere(_.name == name) match
+    case idx if idx >= 0 => _ssc_openapi_security.update(idx, _OpenApiSecurityScheme(name, scheme, format))
+    case _               => _ssc_openapi_security += _OpenApiSecurityScheme(name, scheme, format)
 
 private def _consumeOpenApiMetadata(): _OpenApiMetadata =
   val m = _ssc_openapi_pending.getOrElse(_OpenApiMetadata())
@@ -708,6 +722,8 @@ private object _OpenApiGenerator:
             sb.append(s"        \"tags\": [${r.metadata.tags.map(jsonStr).mkString(", ")}],\n")
           if r.metadata.deprecated then
             sb.append("        \"deprecated\": true,\n")
+          if r.metadata.security.nonEmpty then
+            sb.append(s"        \"security\": [${r.metadata.security.map(n => s"{ ${jsonStr(n)}: [] }").mkString(", ")}],\n")
           if params.nonEmpty then
             sb.append("        \"parameters\": [\n")
             sb.append(params.mkString(",\n"))
@@ -718,6 +734,13 @@ private object _OpenApiGenerator:
           sb.append("      }")
         sb.append("\n    }")
       sb.append("\n  }")
+      if _ssc_openapi_security.nonEmpty then
+        sb.append(",\n")
+        sb.append("  \"components\": {\n")
+        sb.append("    \"securitySchemes\": {\n")
+        sb.append(_ssc_openapi_security.toList.map(securitySchemeEntry).mkString(",\n"))
+        sb.append("\n    }\n")
+        sb.append("  }")
       sb.append("\n}\n")
     sb.toString
 
@@ -760,6 +783,16 @@ private object _OpenApiGenerator:
     case "Boolean"                         => "{\"type\":\"boolean\"}"
     case "Unit"                            => "{\"type\":\"null\"}"
     case _                                 => "{\"type\":\"object\"}"
+  private def securitySchemeEntry(scheme: _OpenApiSecurityScheme): String =
+    val body =
+      if scheme.scheme.equalsIgnoreCase("apiKey") || scheme.scheme.equalsIgnoreCase("api-key") then
+        val headerName = Option(scheme.format).map(_.trim).filter(_.nonEmpty).getOrElse("X-API-Key")
+        s"""{ "type": "apiKey", "in": "header", "name": ${jsonStr(headerName)} }"""
+      else
+        val fmt = Option(scheme.format).map(_.trim).filter(_.nonEmpty)
+          .map(f => s""", "bearerFormat": ${jsonStr(f)}""").getOrElse("")
+        s"""{ "type": "http", "scheme": ${jsonStr(scheme.scheme.toLowerCase)}$fmt }"""
+    s"      ${jsonStr(scheme.name)}: $body"
   private def paramEntry(name: String): String =
     s"""          { "name": ${jsonStr(name)}, "in": "path", "required": true, "schema": {"type":"string"} }"""
   private def jsonStr(s: String): String =

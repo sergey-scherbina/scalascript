@@ -153,8 +153,24 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
       |serve(8080)
       |```
       |""".stripMargin)
-    code should include ("""openapi("Get user", "Fetch a user.", List("users"), true)""")
+    code should include ("""openapi("Get user", "Fetch a user.", List("users"), true, List())""")
     code should include ("""route("GET", "/users/:id")""")
+
+  test("JvmGen: @openapi security metadata and openApiSecurity emit runtime calls"):
+    val code = jvmCodeDoc("""# API
+      |
+      |[route, serve, Response, Request](std/http.ssc)
+      |[openapi, openApiSecurity](std/openapi.ssc)
+      |
+      |```scalascript
+      |openApiSecurity("bearerAuth", "bearer", "JWT")
+      |@openapi(security = List("bearerAuth"))
+      |route("DELETE", "/users/:id") { req => Response.status(204) }
+      |serve(8080)
+      |```
+      |""".stripMargin)
+    code should include ("""openApiSecurity("bearerAuth", "bearer", "JWT")""")
+    code should include ("""openapi("", "", List(), false, List("bearerAuth"))""")
 
   test("JvmGen: `serveAsync(port)` pulls in the serve runtime"):
     // A bare `serveAsync(8080)` must trigger `blocksUseRoutes` so the

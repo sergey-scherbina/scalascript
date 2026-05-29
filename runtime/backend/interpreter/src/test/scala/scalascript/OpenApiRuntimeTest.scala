@@ -3,7 +3,7 @@ package scalascript.interpreter
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.BeforeAndAfterEach
-import scalascript.backend.spi.OpenApiGenerator.OpenApiMetadata
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiMetadata, OpenApiSecurityScheme}
 import scalascript.server.{Routes, RouteRegistry}
 import scala.meta.Term as MetaTerm
 
@@ -142,6 +142,23 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
     op("description").str shouldBe "Returns a single user."
     op("tags").arr.map(_.str).toList shouldBe List("users")
     op("deprecated").bool shouldBe true
+
+  test("security schemes are emitted with per-route security requirements"):
+    reg.register(
+      "DELETE",
+      "/users/:id",
+      noop,
+      interp,
+      metadata = OpenApiMetadata(security = List("bearerAuth"))
+    )
+    val json = parseJson(OpenApiRuntime.generateOpenApiJson(
+      reg,
+      List(OpenApiSecurityScheme("bearerAuth", "bearer", "JWT"))
+    ))
+    val op = json("paths")("/users/{id}")("delete")
+    op("security").arr.head.obj.contains("bearerAuth") shouldBe true
+    json("components")("securitySchemes")("bearerAuth")("type").str shouldBe "http"
+    json("components")("securitySchemes")("bearerAuth")("scheme").str shouldBe "bearer"
 
   // ── registerOpenApiDefaults ────────────────────────────────────────────
 

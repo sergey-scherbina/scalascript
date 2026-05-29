@@ -6,13 +6,16 @@ version: 0.1.0
 # OpenAPI Annotation Demo
 
 [route, serve, Response, Request](std/http.ssc)
-[openapi](std/openapi.ssc)
+[openapi, openApiSecurity](std/openapi.ssc)
 
 ```scalascript
+openApiSecurity("bearerAuth", "bearer", "JWT")
+
 @openapi(
   summary = "Get user",
   description = "Returns a single user by id.",
-  tags = List("users")
+  tags = List("users"),
+  security = List("bearerAuth")
 )
 route("GET", "/users/:id") { req =>
   Response.json(Map("id" -> req.params("id")))

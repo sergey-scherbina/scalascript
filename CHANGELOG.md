@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — openapi-p4 OpenAPI security schemes
+
+- **openapi-p4** — Added `openApiSecurity(...)` declarations and `@openapi(security = List(...))` route requirements. Shared OpenAPI generation now emits `components.securitySchemes` plus per-operation `security` arrays for bearer/http and api-key schemes; interpreter and JVM generated server paths carry the metadata. Updated the OpenAPI example to include bearer security.
+
 ## 2026-05-29 — openapi-p3 per-route OpenAPI metadata
 
 - **openapi-p3** — Added user-facing `@openapi(...)` route metadata for summary, description, tags, and deprecation. The parser rewrites the annotation into a marker call before `route(...)`; interpreter and JVM generated runtimes consume the marker on the next route registration; shared OpenAPI output emits the metadata. Added `std/openapi.ssc`, `examples/openapi-annotation.ssc`, and parser/generator/interpreter/plugin/JVM coverage.

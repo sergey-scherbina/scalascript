@@ -822,7 +822,7 @@ object Parser:
    *
    *  becomes:
    *
-   *    openapi("List users", "", List("users"), false)
+   *    openapi("List users", "", List("users"), false, List())
    *    route("GET", "/users") { ... }
    *
    *  Scala 3 annotations cannot be applied directly to a standalone route()
@@ -872,7 +872,8 @@ object Parser:
         "summary" -> "\"\"",
         "description" -> "\"\"",
         "tags" -> "List()",
-        "deprecated" -> "false"
+        "deprecated" -> "false",
+        "security" -> "List()"
       )
       val positional = ListBuffer.empty[String]
       splitTopLevelArgs(raw).foreach { arg =>

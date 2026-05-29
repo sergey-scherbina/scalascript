@@ -22,13 +22,23 @@ object OpenApiGenerator:
       summary:     Option[String] = None,
       description: Option[String] = None,
       tags:        List[String]   = Nil,
-      deprecated:  Boolean        = false
+      deprecated:  Boolean        = false,
+      security:    List[String]   = Nil
+  )
+
+  final case class OpenApiSecurityScheme(
+      name:   String,
+      scheme: String,
+      format: String = ""
   )
 
   enum ParamLocation:
     case Query, Body
 
-  def generate(routes: Iterable[OpenApiRoute]): String =
+  def generate(
+      routes:          Iterable[OpenApiRoute],
+      securitySchemes: Iterable[OpenApiSecurityScheme] = Nil
+  ): String =
     val userRoutes = routes.filterNot(_.path.startsWith("/_")).toList
     val byPath = userRoutes
       .groupBy(route => toOpenApiPath(route.path))
@@ -41,7 +51,7 @@ object OpenApiGenerator:
     sb.append("  \"info\": { \"title\": \"ScalaScript API\", \"version\": \"1.0.0\" },\n")
     sb.append("  \"paths\": {")
 
-    if byPath.isEmpty then sb.append("}\n}\n")
+    if byPath.isEmpty then sb.append("}")
     else
       sb.append("\n")
       var firstPath = true
@@ -70,6 +80,8 @@ object OpenApiGenerator:
             sb.append(s"        \"tags\": [${metadata.tags.map(jsonStr).mkString(", ")}],\n")
           if metadata.deprecated then
             sb.append("        \"deprecated\": true,\n")
+          if metadata.security.nonEmpty then
+            sb.append(s"        \"security\": [${metadata.security.map(n => s"{ ${jsonStr(n)}: [] }").mkString(", ")}],\n")
 
           val allParams =
             pathParams.map(n => paramEntry(n, "path", required = true)) ++
@@ -105,8 +117,17 @@ object OpenApiGenerator:
         sb.append("\n    }")
 
       sb.append("\n  }")
-      sb.append("\n}\n")
 
+    val schemes = securitySchemes.toList.filter(_.name.nonEmpty)
+    if schemes.nonEmpty then
+      sb.append(",\n")
+      sb.append("  \"components\": {\n")
+      sb.append("    \"securitySchemes\": {\n")
+      sb.append(schemes.map(securitySchemeEntry).mkString(",\n"))
+      sb.append("\n    }\n")
+      sb.append("  }")
+
+    sb.append("\n}\n")
     sb.toString
 
   def swaggerUiHtml(openApiPath: String = "/_openapi.json"): String =
@@ -157,6 +178,17 @@ object OpenApiGenerator:
     responseType.filter(t => t.nonEmpty && t != "Response" && t != "Any").map { t =>
       s"""{ "200": { "description": "OK", "content": { "application/json": { "schema": ${jsonSchema(t)} } } } }"""
     }.getOrElse("""{ "200": { "description": "OK" } }""")
+
+  private def securitySchemeEntry(scheme: OpenApiSecurityScheme): String =
+    val body =
+      if scheme.scheme.equalsIgnoreCase("apiKey") || scheme.scheme.equalsIgnoreCase("api-key") then
+        val headerName = Option(scheme.format).map(_.trim).filter(_.nonEmpty).getOrElse("X-API-Key")
+        s"""{ "type": "apiKey", "in": "header", "name": ${jsonStr(headerName)} }"""
+      else
+        val fmt = Option(scheme.format).map(_.trim).filter(_.nonEmpty)
+          .map(f => s""", "bearerFormat": ${jsonStr(f)}""").getOrElse("")
+        s"""{ "type": "http", "scheme": ${jsonStr(scheme.scheme.toLowerCase)}$fmt }"""
+    s"      ${jsonStr(scheme.name)}: $body"
 
   private def paramEntry(
       name:       String,

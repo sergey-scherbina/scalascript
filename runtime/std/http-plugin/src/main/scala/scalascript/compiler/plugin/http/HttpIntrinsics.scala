@@ -54,15 +54,35 @@ object HttpIntrinsics:
         case Value.UnitV     => Nil
         case s: String if s.nonEmpty => List(s)
         case _             => Nil
-      val padded = args.padTo(4, "")
+      val padded = args.padTo(5, "")
       val metadata = OpenApiGenerator.OpenApiMetadata(
         summary     = Option(asString(padded(0))).filter(_.nonEmpty),
         description = Option(asString(padded(1))).filter(_.nonEmpty),
         tags        = asTags(padded(2)),
-        deprecated  = asBool(padded(3))
+        deprecated  = asBool(padded(3)),
+        security    = asTags(padded(4))
       )
       ctx.featureLocalSet(NativeContextFeatureKeys.OpenApiPending, metadata)
       Value.UnitV
+    },
+
+    QualifiedName("openApiSecurity") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(name: String, scheme: String, format: String) =>
+          val next = ctx.featureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
+            .collect { case xs: List[?] => xs.collect { case s: OpenApiGenerator.OpenApiSecurityScheme => s } }
+            .getOrElse(Nil)
+            .filterNot(_.name == name) :+ OpenApiGenerator.OpenApiSecurityScheme(name, scheme, format)
+          ctx.featureSet(NativeContextFeatureKeys.OpenApiSecuritySchemes, next)
+          Value.UnitV
+        case List(name: String, scheme: String) =>
+          val next = ctx.featureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
+            .collect { case xs: List[?] => xs.collect { case s: OpenApiGenerator.OpenApiSecurityScheme => s } }
+            .getOrElse(Nil)
+            .filterNot(_.name == name) :+ OpenApiGenerator.OpenApiSecurityScheme(name, scheme, "")
+          ctx.featureSet(NativeContextFeatureKeys.OpenApiSecuritySchemes, next)
+          Value.UnitV
+        case _ => throw InterpretError("openApiSecurity(name, scheme, format)")
     },
 
     QualifiedName("tls") -> PluginNative.evalLegacy { (_, args) =>

@@ -1,7 +1,8 @@
 package scalascript.interpreter
 
 import scalascript.backend.spi.OpenApiGenerator
-import scalascript.backend.spi.OpenApiGenerator.{OpenApiParam, OpenApiRoute, ParamLocation}
+import scalascript.backend.spi.NativeContextFeatureKeys
+import scalascript.backend.spi.OpenApiGenerator.{OpenApiParam, OpenApiRoute, OpenApiSecurityScheme, ParamLocation}
 import scalascript.server.RouteRegistry
 
 /** Registers built-in `/_openapi.json` and `/_swagger` routes.
@@ -31,7 +32,7 @@ private[interpreter] object OpenApiRuntime:
     val openapiHandler = Value.NativeFnV(
       "_openapi.json",
       Computation.pureFn { _ =>
-        val json = generateOpenApiJson(registry)
+        val json = generateOpenApiJson(registry, openApiSecuritySchemes(interp))
         jsonResponse(json)
       }
     )
@@ -57,6 +58,9 @@ private[interpreter] object OpenApiRuntime:
   // ── OpenAPI 3.1 JSON generation ───────────────────────────────────────
 
   def generateOpenApiJson(registry: RouteRegistry): String =
+    generateOpenApiJson(registry, Nil)
+
+  def generateOpenApiJson(registry: RouteRegistry, securitySchemes: Iterable[OpenApiSecurityScheme]): String =
     OpenApiGenerator.generate(registry.all.map { entry =>
       val pathParams = OpenApiGenerator.extractPathParams(entry.path)
       val (queryParams, bodyParams) = extractHandlerParams(entry.handler, pathParams, entry.method)
@@ -64,7 +68,12 @@ private[interpreter] object OpenApiRuntime:
         queryParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Query) } ++
         bodyParams.map { case (n, t) => OpenApiParam(n, t, ParamLocation.Body) }
       OpenApiRoute(entry.method, entry.path, params, metadata = entry.metadata)
-    })
+    }, securitySchemes)
+
+  private def openApiSecuritySchemes(interp: Interpreter): List[OpenApiSecurityScheme] =
+    interp.nativeFeatureGet(NativeContextFeatureKeys.OpenApiSecuritySchemes)
+      .collect { case xs: List[?] => xs.collect { case s: OpenApiSecurityScheme => s } }
+      .getOrElse(Nil)
 
   // ── Handler type extraction ───────────────────────────────────────────
 

@@ -5,6 +5,7 @@ description: OpenAPI route metadata helpers.
 package: std.openapi
 exports:
   - openapi
+  - openApiSecurity
 ---
 
 # `std.openapi` — OpenAPI metadata
@@ -16,6 +17,9 @@ extern def openapi(
   summary: String = "",
   description: String = "",
   tags: List[String] = List(),
-  deprecated: Boolean = false
+  deprecated: Boolean = false,
+  security: List[String] = List()
 ): Unit
+
+extern def openApiSecurity(name: String, scheme: String, format: String = ""): Unit
 ```

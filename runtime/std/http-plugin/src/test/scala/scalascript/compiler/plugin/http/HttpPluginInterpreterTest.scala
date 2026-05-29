@@ -68,18 +68,21 @@ class HttpPluginInterpreterTest extends AnyFunSuite:
       """# Test
         |
         |```scala
-        |@openapi(summary = "Ping route", description = "Health-ish ping.", tags = List("ops"))
+        |openApiSecurity("bearerAuth", "bearer", "JWT")
+        |@openapi(summary = "Ping route", description = "Health-ish ping.", tags = List("ops"), security = List("bearerAuth"))
         |route("GET", "/ping") { req => Response.text("pong") }
         |```
         |""".stripMargin
     try
       interpreter.run(Parser.parse(src))
       val routes = interpreter.routeRegistry.all.map(e => OpenApiRoute(e.method, e.path, metadata = e.metadata))
-      val json = ujson.read(OpenApiGenerator.generate(routes))
+      val json = ujson.read(OpenApiGenerator.generate(routes, List(OpenApiGenerator.OpenApiSecurityScheme("bearerAuth", "bearer", "JWT"))))
       val op = json("paths")("/ping")("get")
       assert(op("summary").str == "Ping route")
       assert(op("description").str == "Health-ish ping.")
       assert(op("tags").arr.map(_.str).toList == List("ops"))
+      assert(op("security").arr.head.obj.contains("bearerAuth"))
+      assert(json("components")("securitySchemes")("bearerAuth")("bearerFormat").str == "JWT")
     finally
       Routes.clear()
 

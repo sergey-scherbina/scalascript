@@ -837,7 +837,17 @@ Per-route operation metadata can be attached to the next `route(...)` call with
 route("GET", "/users/:id") { req => Response.json(Map("id" -> req.params("id"))) }
 ```
 
-Supported fields are `summary`, `description`, `tags`, and `deprecated`.
+Supported fields are `summary`, `description`, `tags`, `deprecated`, and
+`security`. Declare reusable security schemes with `openApiSecurity(...)`:
+
+```scalascript
+[openapi, openApiSecurity](std/openapi.ssc)
+
+openApiSecurity("bearerAuth", "bearer", "JWT")
+
+@openapi(security = List("bearerAuth"))
+route("DELETE", "/users/:id") { req => Response.status(204) }
+```
 
 ### File-based handlers (`mount()`)
 

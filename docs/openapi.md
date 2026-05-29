@@ -231,7 +231,7 @@ Tasks:
 
 Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
 
-### Phase 4 — Security schemes + auth declarations
+### Phase 4 — Security schemes + auth declarations ✓ Landed
 
 **Goal**: routes protected by `authMw { … }` (or `@openapi(security = …)`)
 appear with correct `securityRequirements` in the document. Swagger UI's
@@ -253,14 +253,20 @@ authMw {
 
 Tasks:
 - `openApiSecurity(name, scheme, format)` extern in `openapi.ssc`.
-- `OpenApiGenerator`: emit `components.securitySchemes` + per-operation
+- `OpenApiGenerator`: emits `components.securitySchemes` + per-operation
   `security` array.
-- Middleware heuristic: if `authMw` wraps a `route()`, infer `bearerAuth`
-  requirement automatically (best-effort; explicit `@openapi` wins).
-- Swagger UI renders the "Authorize" padlock and allows pasting a token.
-- Tests: 4+ scenarios (no auth, bearer, api-key, mixed).
+- Explicit `@openapi(security = List("schemeName"))` is supported on route
+  metadata and works in interpreter and JVM generated servers.
+- Bearer/http schemes use `{ type: "http", scheme, bearerFormat }`; api-key
+  schemes use `{ type: "apiKey", in: "header", name }`, where `format` carries
+  the header name.
+- Middleware heuristic for `authMw { route(...) }` remains deferred; explicit
+  `@openapi(security = ...)` is the supported path for this phase.
+- Tests: parser rewrite, shared generator bearer/api-key emission, interpreter
+  security generation, HTTP plugin marker consumption, and JVM code shape/e2e
+  coverage.
 
-Effort: ~2 days. Spec: `docs/openapi.md §5 Phase 4`.
+Landed 2026-05-29. Example: [`examples/openapi-annotation.ssc`](../examples/openapi-annotation.ssc).
 
 ### Phase 5 — `ssc emit-openapi` CLI + YAML output
 

@@ -158,8 +158,17 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
         |route("GET", "/users") { req => Response.text("ok") }
         |""".stripMargin
     val processed = PreprocessorRegistry.applyAll(src)
-    processed should include ("""openapi("List users", "", List("users"), true)""")
+    processed should include ("""openapi("List users", "", List("users"), true, List())""")
     processed should include ("""route("GET", "/users")""")
     val m = Parser.parse(s"# T\n\n```scalascript\n$src\n```\n")
     m.sections.head.content.collectFirst { case cb: scalascript.ast.Content.CodeBlock => cb.parseError } shouldBe Some(None)
+  }
+
+  test("Parser: @openapi security argument rewrites to fifth marker argument") {
+    val src =
+      """@openapi(security = List("bearerAuth"))
+        |route("DELETE", "/users/:id") { req => Response.status(204) }
+        |""".stripMargin
+    val processed = PreprocessorRegistry.applyAll(src)
+    processed should include ("""openapi("", "", List(), false, List("bearerAuth"))""")
   }
