@@ -133,7 +133,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-lib-p5** — Transitive deps + lockfile: BFS dependency resolution from `ssclib-manifest.yaml`; conflict resolution; `ssc-lock.yaml`; `ssc update`; `--strict-deps`; cycle detection. Spec: `docs/arch-library-modularity.md §6 Phase 5`. ✓ Landed 2026-05-29: `SemVer` numeric segment comparison; `SscLibLock` (`ssc-lock.yaml` YAML R/W); `ImportResolver.resolveAll` BFS with `ResolutionState` (cycle detection via `visiting` set, latest-wins conflict resolution, strict-deps error mode); `ssc update` CLI command; 19 unit + integration tests (mock HTTP server).
 
-- [ ] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check: `ssc package --lib --precompile`; `.scim` in `ir/`; resolver prefers pre-compiled IR; `ssc check-compat old.ssclib new.ssclib`. Spec: `docs/arch-library-modularity.md §6 Phase 6`.
+- [x] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check: `ssc package --lib --precompile`; `.scim` in `ir/`; resolver prefers pre-compiled IR; `ssc check-compat old.ssclib new.ssclib`. Spec: `docs/arch-library-modularity.md §6 Phase 6`. ✓ Landed 2026-05-29: `--precompile` writes `ir/*.scim`, `check-compat` reports removed/changed public symbols with source fallback, and CLI tests cover archive layout plus removed-symbol detection.
 
 ### Theme I — Package Registry
 

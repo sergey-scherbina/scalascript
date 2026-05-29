@@ -4314,6 +4314,34 @@ For building a plugin as a native binary itself, see
 
 ---
 
+## 29. Library Packages
+
+ScalaScript libraries can be distributed as `.ssclib` archives. A library
+archive contains a manifest, packaged `.ssc` sources, and optionally
+precompiled public interface artifacts.
+
+```bash
+ssc package --lib --precompile --manifest ssclib-manifest.yaml -o dist/my-lib.ssclib
+```
+
+`--precompile` adds `.scim` files under `ir/` inside the archive. These files
+capture the public interface shape used by compatibility checks and by future
+import-time fast paths. Source files remain packaged under `src/`, so existing
+source-based imports keep working.
+
+To compare two library versions:
+
+```bash
+ssc check-compat dist/my-lib-1.0.ssclib dist/my-lib-1.1.ssclib
+```
+
+`check-compat` exits successfully when the new archive preserves the public
+surface. It reports removed or changed public symbols when the new archive is
+not compatible with the old one. If an archive has no precompiled `.scim`
+artifacts, the command derives interfaces from packaged `src/*.ssc` files.
+
+---
+
 ### Feature Quick-Links
 
 - Typed algebraic effects: §4, [docs/algebraic-effects.md](algebraic-effects.md)
@@ -4339,3 +4367,4 @@ For building a plugin as a native binary itself, see
 - **Deploy plugin (`ssc deploy`): §26 above, [`examples/deploy.ssc`](../examples/deploy.ssc)**
 - **Traditional payment processors: §27 above, [docs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
 - GraalVM native binary: §28 above, [docs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
+- Library packages: §29 above, [docs/arch-library-modularity.md](arch-library-modularity.md)

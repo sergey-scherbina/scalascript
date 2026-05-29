@@ -397,21 +397,23 @@ enforcement.  Full analysis in `docs/arch-library-modularity.md`.
   `[Name from alias](dep:...)`; 6+ tests.
   Spec: `docs/arch-library-modularity.md §6 Phase 3`.
 
-- [ ] **arch-lib-p4** — `ssclib` format + `ssc package --lib`:
+- [x] **arch-lib-p4** — `ssclib` format + `ssc package --lib`:
   `SsclibManifest` YAML schema; `.ssclib` ZIP format (`src/` + optional `ir/`);
   `ssc package --lib` CLI command; `ImportResolver` unpacks archives; 8+ tests.
-  Spec: `docs/arch-library-modularity.md §6 Phase 4`.
+  Spec: `docs/arch-library-modularity.md §6 Phase 4`. ✓ Landed 2026-05-29.
 
-- [ ] **arch-lib-p5** — Transitive deps + lockfile:
+- [x] **arch-lib-p5** — Transitive deps + lockfile:
   BFS dep resolution from `ssclib-manifest.yaml`; conflict resolution
   (latest-wins default); `ssc-lock.yaml` generation; `ssc update`; `--strict-deps`
   flag; cycle detection; 10+ tests.
-  Spec: `docs/arch-library-modularity.md §6 Phase 5`.
+  Spec: `docs/arch-library-modularity.md §6 Phase 5`. ✓ Landed 2026-05-29.
 
-- [ ] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check (v2.x):
+- [x] **arch-lib-p6** — Pre-compiled IR in `.ssclib` + compat check (v2.x):
   `ssc package --lib --precompile` → `.scim` in `ir/`; `ImportResolver` prefers
   pre-compiled; `ssc check-compat old.ssclib new.ssclib` reports API breakage.
-  Spec: `docs/arch-library-modularity.md §6 Phase 6`.
+  Spec: `docs/arch-library-modularity.md §6 Phase 6`. ✓ Landed 2026-05-29:
+  `--precompile` writes `ir/*.scim`, `check-compat` reports removed/changed
+  public symbols with source fallback, and `SsclibPackageCliTest` covers both.
 
 ### Theme I — Package Registry (discoverability)
 

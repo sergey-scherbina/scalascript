@@ -824,6 +824,18 @@ val js    = JsGen.generate(module)           // emit JavaScript
 val scala = JvmGen.generate(module)          // emit Scala 3 script
 ```
 
+ScalaScript libraries can also be packaged as `.ssclib` archives:
+
+```bash
+ssc package --lib --precompile --manifest ssclib-manifest.yaml -o dist/my-lib.ssclib
+ssc check-compat dist/my-lib-1.0.ssclib dist/my-lib-1.1.ssclib
+```
+
+`--precompile` embeds `.scim` public interface artifacts under `ir/`.
+`check-compat` reports removed or changed public symbols between library
+versions and falls back to deriving interfaces from packaged sources when a
+library has no precompiled interface artifacts.
+
 ## Design Principles
 
 1. **Reuse, don't invent.** Markdown, YAML, Scala 3 — use what works.

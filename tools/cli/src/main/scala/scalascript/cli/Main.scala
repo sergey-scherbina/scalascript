@@ -110,6 +110,7 @@ private def dispatchCommand(args: List[String]): Unit =
     case "info"                => infoCommand(args.tail)
     case "clean"               => cleanCommand(args.tail)
     case "verify"              => verifyCommand(args.tail)
+    case "check-compat"        => checkCompatCommand(args.tail)
     case "deps"                => depsCommand(args.tail)
     case "deploy"              => deployCommand(args.tail)
     case "package"             => packageCommand(args.tail)
@@ -583,6 +584,8 @@ def printUsage(): Unit =
     |                         Validates envelope, sourceHash shape, cross-refs, and runtime
     |                         coverage.  Flags: --strict (also re-hash source files),
     |                         --src-dir <dir> (default: artifact-dir/..), --json.
+    |  check-compat <old.ssclib> <new.ssclib>
+    |                         Compare public .scim interfaces and fail on removed/changed symbols.
     |  serve                  Start HTTP server serving .ssc files as web pages
     |  parse                  Parse .ssc files and print AST
     |  check                  Type-check .ssc files (parse + typer only; no codegen)
@@ -651,7 +654,7 @@ def printUsage(): Unit =
     |
     |Package flags (passed through to scala-cli package):
     |  --lib                  Pack a library source tree into a .ssclib ZIP archive
-    |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest ssclib-manifest.yaml]
+    |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest ssclib-manifest.yaml] [--precompile]
     |                           Reads <dir>/ssclib-manifest.yaml; falls back to a generated manifest.
     |  --assembly             Fat JAR with all dependencies bundled
     |  --standalone           Self-contained binary (like the ssc binary itself)
@@ -7550,14 +7553,16 @@ private def stagePrecompiledDepArtifacts(
  *
  *  Auto-discovers the project file by directory name when none is given,
  *  exactly like `ssc build`. */
-/** `ssc package --lib [<dir>] [-o <out.ssclib>] [--manifest <file>]`
+/** `ssc package --lib [<dir>] [-o <out.ssclib>] [--manifest <file>] [--precompile]`
  *
  *  Pack a ScalaScript library source tree into a `.ssclib` ZIP archive.
  *
  *  - `<dir>` defaults to `os.pwd`.
  *  - Manifest is read from `<dir>/ssclib-manifest.yaml` unless overridden.
  *  - Output defaults to `<cacheId>-<version>.ssclib` in the current directory.
- *  - All files under `src/` are included; falls back to all `.ssc` in the root. */
+ *  - All files under `src/` are included; falls back to all `.ssc` in the root.
+ *  - `--precompile` adds `.scim` interfaces under `ir/` for fast consumers and
+ *    `ssc check-compat`. */
 def packageLib(args: List[String]): Unit =
   import java.util.zip.{ZipOutputStream, ZipEntry}
   import scalascript.imports.SsclibManifest
@@ -7565,11 +7570,13 @@ def packageLib(args: List[String]): Unit =
   var manifestArg: Option[String] = None
   var outputArg:   Option[String] = None
   var dirArg:      Option[String] = None
+  var precompile = false
   val it = args.iterator
   while it.hasNext do
     it.next() match
       case "--manifest" if it.hasNext      => manifestArg = Some(it.next())
       case "--output" | "-o" if it.hasNext => outputArg   = Some(it.next())
+      case "--precompile"                  => precompile  = true
       case d                               => dirArg      = Some(d)
 
   val dir = os.Path(dirArg.getOrElse(os.pwd.toString), os.pwd)
@@ -7616,10 +7623,104 @@ def packageLib(args: List[String]): Unit =
       zip.write(os.read.bytes(file))
       zip.closeEntry()
     }
+    if precompile then
+      sources.filter(_._1.ext == "ssc").foreach { (file, entryName) =>
+        val irName = ssclibIrEntryName(entryName)
+        val bytes  = ssclibInterfaceBytes(file.toString, os.read.bytes(file))
+        zip.putNextEntry(new ZipEntry(irName))
+        zip.write(bytes)
+        zip.closeEntry()
+      }
   finally zip.close()
 
-  val fileCount = sources.length + 1
+  val fileCount = sources.length + 1 + (if precompile then sources.count(_._1.ext == "ssc") else 0)
   println(s"${outPath.last}  ($fileCount files) — name=${manifest.name} version=${manifest.version}")
+
+private def ssclibIrEntryName(sourceEntry: String): String =
+  val withoutSrc = sourceEntry.stripPrefix("src/")
+  "ir/" + withoutSrc.stripSuffix(".ssc") + ".scim"
+
+private def ssclibInterfaceBytes(label: String, sourceBytes: Array[Byte]): Array[Byte] =
+  val module = Parser.parse(new String(sourceBytes, "UTF-8"))
+  if reportCodeBlockParseErrors(module, label) then
+    throw RuntimeException(s"cannot precompile $label: parse errors")
+  val iface = InterfaceExtractor.extract(module, sourceBytes)
+  ArtifactIO.writeInterface(iface).getBytes("UTF-8")
+
+case class CompatReport(removed: List[String], changed: List[String]):
+  def isCompatible: Boolean = removed.isEmpty && changed.isEmpty
+
+def checkCompatCommand(args: List[String]): Unit =
+  if args.length != 2 then
+    System.err.println("Usage: ssc check-compat <old.ssclib> <new.ssclib>")
+    System.exit(1)
+  val oldPath = os.Path(args(0), os.pwd)
+  val newPath = os.Path(args(1), os.pwd)
+  try
+    val report = checkSsclibCompat(oldPath, newPath)
+    if report.isCompatible then
+      println(s"Compatible: ${oldPath.last} -> ${newPath.last}")
+    else
+      report.removed.foreach(s => println(s"REMOVED $s"))
+      report.changed.foreach(s => println(s"CHANGED $s"))
+      System.exit(1)
+  catch case e: RuntimeException =>
+    System.err.println(s"check-compat: ${e.getMessage}")
+    System.exit(1)
+
+def checkSsclibCompat(oldPath: os.Path, newPath: os.Path): CompatReport =
+  val oldSymbols = publicSsclibSymbols(oldPath)
+  val newSymbols = publicSsclibSymbols(newPath)
+  val removed = (oldSymbols.keySet -- newSymbols.keySet).toList.sorted
+  val changed = oldSymbols.keySet.intersect(newSymbols.keySet).toList.sorted.filter { key =>
+    oldSymbols(key) != newSymbols(key)
+  }
+  CompatReport(removed, changed)
+
+private def publicSsclibSymbols(path: os.Path): Map[String, String] =
+  if !os.exists(path) then throw RuntimeException(s"archive not found: $path")
+  val interfaces = readSsclibInterfaces(path)
+  interfaces.values.toList.flatMap(iface =>
+    iface.exports.flatMap(publicSymbolShapes) ++ iface.externDefs.flatMap(publicSymbolShapes)
+  ).toMap
+
+private def publicSymbolShapes(sym: scalascript.ir.ExportedSymbol): List[(String, String)] =
+  if sym.isInternal then Nil
+  else
+    val key = if sym.fqn.nonEmpty then sym.fqn else sym.name
+    (key -> s"${sym.kind}:${sym.tpe}") :: sym.nested.flatMap(publicSymbolShapes)
+
+private def readSsclibInterfaces(path: os.Path): Map[String, scalascript.ir.ModuleInterface] =
+  import java.util.zip.ZipInputStream
+  import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+
+  val scim = scala.collection.mutable.LinkedHashMap.empty[String, scalascript.ir.ModuleInterface]
+  val sources = scala.collection.mutable.LinkedHashMap.empty[String, Array[Byte]]
+  val zis = ZipInputStream(ByteArrayInputStream(os.read.bytes(path)))
+  try
+    var entry = zis.getNextEntry
+    while entry != null do
+      if !entry.isDirectory then
+        val out = ByteArrayOutputStream()
+        zis.transferTo(out)
+        val bytes = out.toByteArray
+        val name = entry.getName
+        if name.startsWith("ir/") && name.endsWith(".scim") then
+          ArtifactIO.readInterface(bytes) match
+            case Right(iface) => scim(name) = iface
+            case Left(err)    => throw RuntimeException(s"${path.last}: $name: $err")
+        else if name.startsWith("src/") && name.endsWith(".ssc") then
+          sources(name) = bytes
+      entry = zis.getNextEntry
+  finally zis.close()
+
+  if scim.nonEmpty then scim.toMap
+  else
+    sources.map { (name, bytes) =>
+      ArtifactIO.readInterface(ssclibInterfaceBytes(name, bytes)) match
+        case Right(iface) => name -> iface
+        case Left(err)    => throw RuntimeException(s"${path.last}: generated $name interface unreadable: $err")
+    }.toMap
 
 def packageCommand(args: List[String]): Unit =
   if args.contains("--lib") then

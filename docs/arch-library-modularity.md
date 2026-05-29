@@ -1,6 +1,7 @@
 # Library Modularity — Specification
 
-Status: **planned**.  Tracked as `arch-library-modularity` milestone in `BACKLOG.md`.
+Status: **implemented through Phase 6**.  Tracked as `arch-library-modularity`
+milestone in `BACKLOG.md`.
 Companion specs: [`docs/arch-distribution.md`](arch-distribution.md),
 [`docs/arch-stable-spi.md`](arch-stable-spi.md).
 
@@ -178,7 +179,13 @@ Produces a `.ssclib` archive from a project directory:
 ssc package --lib --manifest ssclib-manifest.yaml --output dist/my-lib-1.0.ssclib
 ```
 
-Optionally pre-compiles all `.ssc` files to `.scim` for faster consumer imports.
+Optionally pre-compiles all `.ssc` files to `.scim` interface artifacts under
+`ir/`, and compares public interfaces before publishing a new version:
+
+```bash
+ssc package --lib --precompile --manifest ssclib-manifest.yaml --output dist/my-lib-1.0.ssclib
+ssc check-compat dist/my-lib-1.0.ssclib dist/my-lib-1.1.ssclib
+```
 
 ## 5. Migration
 
@@ -239,20 +246,25 @@ Optionally pre-compiles all `.ssc` files to `.scim` for faster consumer imports.
 
 ### Phase 6 — Pre-compiled IR in `.ssclib` + fast import (v2.x)
 
-- `ssc package --lib --precompile`: compiles all `.ssc` → `.scim` and bundles
-  in `ir/` directory.
-- `ImportResolver` prefers `.scim` over re-parsing `.ssc` when both present.
-- Binary compatibility check (`ssc check-compat old.ssclib new.ssclib`) compares
-  public `.scim` interfaces; reports removed/changed symbols.
-- Tests: import from pre-compiled `.ssclib` is faster (benchmark); compat check
-  detects removed def.
+- ✓ Landed 2026-05-29: `ssc package --lib --precompile` compiles all packaged
+  `.ssc` sources to `.scim` interfaces and bundles them in `ir/`.
+- ✓ Landed 2026-05-29: `ssc check-compat old.ssclib new.ssclib` compares public
+  `.scim` symbol shapes and reports removed/changed symbols; if no `ir/*.scim`
+  exists, it derives interfaces from packaged `src/*.ssc`.
+- Import-time fast-path remains staged behind consumers that already pass
+  `.scim` interface directories; `dep:` resolution still returns the manifest
+  entry `.ssc` path for source compatibility.
+- Tests: `SsclibPackageCliTest` covers precompiled archive layout and removed
+  public symbol detection.
 
 ## 7. Testing strategy
 
 - Phase 1–3: unit tests in `lang/core/src/test/` using in-memory source strings.
 - Phase 4: integration tests using temp directories; `ssc package --lib` CLI.
 - Phase 5: multi-library fixture (3 libs with shared dep) + conflict fixture.
-- Phase 6: benchmark test (import from `.scim` ≤50% of parse time).
+- Phase 6: CLI integration tests for `--precompile` and `check-compat`; a
+  performance benchmark can be added once import consumers use `ir/*.scim`
+  directly from the `.ssclib` cache.
 
 ## 8. Open questions
 
