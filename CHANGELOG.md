@@ -4,6 +4,10 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-29 — arch-lib-p2 @internal access control
+
+- **arch-lib-p2** — `@internal` cross-package access control. `ExportedSymbol.isInternal: Boolean = false` field added (backward-compatible, derives ReadWriter). `InterfaceExtractor` detects `@internal` annotations via `Mod.Annot` on top-level `Defn.Def/Val/Var/Class/Object/Trait` and sets `isInternal = true` in the emitted interface. Typer builds `internalImportedNames: Set[String]` from all `importedInterfaces` entries where `isInternal = true`; at `Term.Name` call sites, if the name is in `internalImportedNames`, a hard `TypeError` is emitted with a message naming the `@internal` symbol. 8 tests in `TyperInternalAccessTest`.
+
 ## 2026-05-29 — arch-ffi-p1 @jvm / @js inline FFI annotations
 
 - **arch-ffi-p1** — Tier-1 inline FFI annotations for `extern def`. `@jvm("expr")` on an extern def causes `JvmGen` to emit the expression as the method body (instead of skipping); `$0`/`$1`/… placeholders are substituted with the parameter names. `@js("expr")` causes `JsGen` to emit the expression as a JS function body. `@jvm`-only extern defs (no `@js`) get an error-throwing JS stub so the failure is explicit rather than silent. `Diagnostic.JvmOnlyExternDef` added to the `Diagnostic` enum; `CapabilityCheck.jvmOnlyExternDefs` detects `@jvm`-without-`@js` extern defs in modules compiled for the JS family and emits the diagnostic. 13 tests in `FfiAnnotationTest`.

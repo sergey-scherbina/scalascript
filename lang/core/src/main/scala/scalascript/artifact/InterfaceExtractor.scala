@@ -637,6 +637,28 @@ object InterfaceExtractor:
       }
       out.toMap
 
+    // arch-lib-p2 — collect names of top-level defs annotated @internal so
+    // the exported symbol can be marked isInternal = true in the interface.
+    val internalNames: Set[String] =
+      def hasInternalAnnot(mods: List[Mod]): Boolean =
+        mods.exists {
+          case Mod.Annot(init) =>
+            (init.tpe match
+              case Type.Name(n)                 => n == "internal"
+              case Type.Select(_, Type.Name(n)) => n == "internal"
+              case _                            => false)
+          case _ => false
+        }
+      topLevelStats.flatMap {
+        case d: Defn.Def    if hasInternalAnnot(d.mods) => List(d.name.value)
+        case d: Defn.Val    if hasInternalAnnot(d.mods) => d.pats.collect { case Pat.Var(n) => n.value }
+        case d: Defn.Var    if hasInternalAnnot(d.mods) => d.pats.collect { case Pat.Var(n) => n.value }
+        case d: Defn.Class  if hasInternalAnnot(d.mods) => List(d.name.value)
+        case d: Defn.Object if hasInternalAnnot(d.mods) => List(d.name.value)
+        case d: Defn.Trait  if hasInternalAnnot(d.mods) => List(d.name.value)
+        case _                                           => Nil
+      }.toSet
+
     val rawExports = allDefs
       .filterNot { d =>
         d.kind == TSymbolKind.Param ||
@@ -655,7 +677,8 @@ object InterfaceExtractor:
           tpe              = d.tpe.show,
           nested           = nested,
           definitionLine   = dl,
-          definitionColumn = dc
+          definitionColumn = dc,
+          isInternal       = internalNames.contains(d.name)
         )
       }
       .toList

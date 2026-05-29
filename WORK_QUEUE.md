@@ -125,7 +125,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **arch-lib-p1** — `@deprecated` + `@experimental` annotations: new annotations in `Annotation.scala`; typer emits warnings at call sites; `--fatal-warnings` flag; tests. Spec: `docs/arch-library-modularity.md §6 Phase 1`. ✓ Landed 2026-05-29
 
-- [ ] **arch-lib-p2** — `@internal` access control: parsed and stored annotations; cross-package check in Typer; source-package diagnostics; per-definition and per-heading granularity. Spec: `docs/arch-library-modularity.md §6 Phase 2`.
+- [x] **arch-lib-p2** — `@internal` access control: parsed and stored annotations; cross-package check in Typer; source-package diagnostics; per-definition and per-heading granularity. Spec: `docs/arch-library-modularity.md §6 Phase 2`. ✓ Landed 2026-05-29
 
 - [ ] **arch-lib-p3** — Namespace collision detection: `ImportResolver` tracks name contributions per import; warning on collision; `--strict-namespaces`; qualified import syntax `[Name from alias](dep:...)`. Spec: `docs/arch-library-modularity.md §6 Phase 3`.
 

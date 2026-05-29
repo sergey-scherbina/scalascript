@@ -31,6 +31,10 @@ class Typer(
   private val deprecatedDefs    = collection.mutable.Map.empty[String, String]
   /** Experimental definitions: name → experimental notice. */
   private val experimentalDefs  = collection.mutable.Map.empty[String, String]
+  /** arch-lib-p2 — names marked @internal in any imported module interface.
+   *  Accessing one of these from this module is a cross-package access error. */
+  private val internalImportedNames: Set[String] =
+    importedInterfaces.values.flatMap(_.exports.filter(_.isInternal).map(_.name)).toSet
   /** Registry of user-defined type aliases: name → (typeParams, expandedRhs).
    *  Populated by `checkStat` when it encounters a `type Name[...] = T` declaration.
    *  Consulted by `typeAnnotToSType` to expand alias names at use-sites. */
@@ -647,6 +651,12 @@ class Typer(
           experimentalDefs.get(name).foreach { suffix =>
             emitWarning(s"$name is experimental$suffix", posToSpan(t.pos))
           }
+          // arch-lib-p2 — cross-package @internal access error.
+          if internalImportedNames.contains(name) then
+            errors += TypeError(
+              s"`$name` is marked @internal in the imported library and cannot be accessed from outside that library.",
+              posToSpan(t.pos)
+            )
           sym.tpe
         case None      =>
           // Strict mode: record a diagnostic for references to identifiers

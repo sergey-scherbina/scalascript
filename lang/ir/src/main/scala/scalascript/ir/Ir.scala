@@ -425,7 +425,13 @@ case class ExportedSymbol(
   definitionLine:   Int = 0,
   /** File-level 0-indexed column of the symbol's definition name.  Pair
    *  with [[definitionLine]] — same lifecycle and backward-compat policy. */
-  definitionColumn: Int = 0
+  definitionColumn: Int = 0,
+  /** arch-lib-p2 — `@internal` annotation on the definition.
+   *  When `true`, this symbol must not be imported by a consumer module
+   *  whose package (`manifest.name`) differs from the exporting library's
+   *  package.  Default `false` preserves backward compatibility with
+   *  `.scim` artifacts emitted before this field existed. */
+  isInternal: Boolean = false
 ) derives ReadWriter
 
 /** Typeclass instance entry in a `.scim` interface.
