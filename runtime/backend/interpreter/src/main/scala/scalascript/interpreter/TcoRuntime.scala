@@ -53,6 +53,7 @@ private[interpreter] object TcoRuntime:
     var curFun: Value.FunV   = initialFun
     var curArgs: List[Value] = initialArgs
     var current: Computation = initialComp
+    var profileCurrentFun    = Profiler.enabled && curFun.name.nonEmpty
     // Stable, per-curFun part of the call env: closure + self-tco stub +
     // mutual-tail-call stubs. The only thing that varies across tail
     // iterations is the param binding, so build this once per `curFun`
@@ -64,21 +65,25 @@ private[interpreter] object TcoRuntime:
         if current == null then
           if (envStable eq null) || (envStableFor ne curFun) then
             val targets = tcoInfoFor(curFun, interp).tailTargets
-            val mutualEntries: Map[String, Value] = targets.flatMap { name =>
-              (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
-                case fn: Value.FunV =>
-                  name -> (Value.NativeFnV(name, a => {
-                    interp.mutualTailCallSig.f    = fn
-                    interp.mutualTailCallSig.args = a
-                    throw interp.mutualTailCallSig
-                  }): Value)
-              }
-            }.toMap
             val selfTco = Value.NativeFnV(curFun.name, a => {
               interp.tailCallSig.args = a
               throw interp.tailCallSig
             })
-            envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
+            val selfEnv: Env = FrameMap.one(curFun.name, selfTco, curFun.closure)
+            envStable =
+              if targets.isEmpty then selfEnv
+              else
+                val mutualEntries: Map[String, Value] = targets.flatMap { name =>
+                  (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
+                    case fn: Value.FunV =>
+                      name -> (Value.NativeFnV(name, a => {
+                        interp.mutualTailCallSig.f    = fn
+                        interp.mutualTailCallSig.args = a
+                        throw interp.mutualTailCallSig
+                      }): Value)
+                  }
+                }.toMap
+                FrameMap.fromMap(mutualEntries, selfEnv)
             envStableFor  = curFun
           val callEnv: Env = curFun.params match
             case Nil               => envStable
@@ -123,7 +128,7 @@ private[interpreter] object TcoRuntime:
         case r: ReturnSignal    => return Pure(r.value)
         case tc: TailCall       =>
           // Each TailCall is one additional recursive invocation.
-          if Profiler.enabled && curFun.name.nonEmpty then
+          if profileCurrentFun then
             Profiler.record(curFun.name, 0L)
           curArgs = tc.args
           current = null
@@ -131,10 +136,12 @@ private[interpreter] object TcoRuntime:
           val next = mc.f
           if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
             // Mutual tail call counts as one call to `next`.
-            if Profiler.enabled && next.name.nonEmpty then
+            val profileNext = Profiler.enabled && next.name.nonEmpty
+            if profileNext then
               Profiler.record(next.name, 0L)
             curFun  = next
             curArgs = mc.args
+            profileCurrentFun = profileNext
             current = null
           else
             return interp.callFun(next, mc.args)
