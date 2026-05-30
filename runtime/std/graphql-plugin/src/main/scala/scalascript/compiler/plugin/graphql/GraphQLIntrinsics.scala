@@ -175,6 +175,19 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("graphqlSse(url: String, query: String[, variables: Map])")
     },
 
+    // graphqlSubscribe(url, query[, variables], handler)
+    // Opens a WebSocket connection to url/graphql/ws using graphql-transport-ws protocol.
+    // Calls handler(payload) for each "next" message. Blocks until "complete" or error.
+    QualifiedName("graphqlSubscribe") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(url: String, query: String, handler) =>
+          executeRemoteSubscription(url, query, Map.empty, handler, ctx)
+        case List(url: String, query: String, Value.MapV(vars), handler) =>
+          executeRemoteSubscription(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v }, handler, ctx)
+        case _ => throw InterpretError(
+          "graphqlSubscribe(url: String, query: String[, variables: Map], handler: Value => Unit)")
+    },
+
     // GraphQL.printSchema(schema) — return the normalized SDL string.
     // Parses and reprints the SDL via graphql-java SchemaPrinter, normalizing whitespace.
     QualifiedName("GraphQL.printSchema") -> PluginNative.evalLegacy { (_, args) =>
@@ -1015,6 +1028,99 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       .map(ujsonToValue)
 
     Value.ListV(events)
+
+  // ── WebSocket subscription client ─────────────────────────────────────────
+
+  private[graphql] def graphqlWsUrl(url: String): String =
+    val wsScheme = url
+      .replace("https://", "wss://")
+      .replace("http://", "ws://")
+    val base = wsScheme.stripSuffix("/")
+    if base.endsWith("/graphql/ws") then base
+    else if base.endsWith("/graphql") then base + "/ws"
+    else base + "/graphql/ws"
+
+  private def executeRemoteSubscription(
+    url:     String,
+    query:   String,
+    vars:    Map[String, Value],
+    handler: Any,
+    pCtx:    PluginContext,
+  ): Value =
+    import java.net.http.{HttpClient as JHttpClient, WebSocket}
+    import java.net.URI
+    import java.util.concurrent.{CompletableFuture, CountDownLatch, TimeUnit}
+
+    if query.isBlank then throw InterpretError("graphqlSubscribe: query must not be blank")
+
+    val wsUrl = graphqlWsUrl(url)
+    val subscribePayload = ujson.write(ujson.Obj(
+      "type"    -> ujson.Str("subscribe"),
+      "id"      -> ujson.Str("sub1"),
+      "payload" -> ujson.Obj(
+        "query"     -> ujson.Str(query),
+        "variables" -> ujson.Obj.from(vars.map { (k, v) => k -> valueToUJson(v) }),
+      ),
+    ))
+
+    val done    = new CountDownLatch(1)
+    var errorMsg: String = null
+    val client  = JHttpClient.newHttpClient()
+
+    val listenerBuf = new StringBuilder()
+
+    val wsTry = scala.util.Try(
+      client.newWebSocketBuilder()
+        .subprotocols("graphql-transport-ws")
+        .buildAsync(URI.create(wsUrl), new WebSocket.Listener:
+          override def onOpen(ws: WebSocket): Unit =
+            ws.request(1)
+            ws.sendText("""{"type":"connection_init"}""", true)
+
+          override def onText(ws: WebSocket, data: CharSequence, last: Boolean): CompletableFuture[?] =
+            listenerBuf.append(data)
+            if last then
+              val text = listenerBuf.toString
+              listenerBuf.clear()
+              ws.request(1)
+              scala.util.Try(ujson.read(text)).foreach { msg =>
+                msg.obj.get("type").collect { case ujson.Str(s) => s }.foreach {
+                  case "connection_ack" =>
+                    ws.sendText(subscribePayload, true)
+                  case "next" =>
+                    val payload = msg.obj.get("payload").getOrElse(ujson.Null)
+                    pCtx.invokeCallback(handler, List(ujsonToValue(payload)))
+                  case "complete" =>
+                    done.countDown()
+                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
+                  case "error" =>
+                    val errs = msg.obj.get("payload").collect {
+                      case ujson.Arr(xs) => xs.map(_.obj.get("message").map(_.str).getOrElse("?"))
+                    }.getOrElse(Nil)
+                    errorMsg = s"GraphQL subscription errors: ${errs.mkString("; ")}"
+                    done.countDown()
+                    ws.sendClose(WebSocket.NORMAL_CLOSURE, "error")
+                  case _ => ()
+                }
+              }
+            null
+
+          override def onClose(ws: WebSocket, statusCode: Int, reason: String): CompletableFuture[?] =
+            done.countDown()
+            null
+
+          override def onError(ws: WebSocket, e: Throwable): Unit =
+            errorMsg = s"connection error: ${Option(e.getMessage).getOrElse("unknown")}"
+            done.countDown()
+        ).get(30, TimeUnit.SECONDS)
+    )
+    if wsTry.isFailure then
+      val msg = Option(wsTry.failed.get.getMessage).getOrElse("connection failed")
+      throw InterpretError(s"graphqlSubscribe: $msg")
+
+    done.await(30, TimeUnit.SECONDS)
+    if errorMsg != null then throw InterpretError(s"graphqlSubscribe: $errorMsg")
+    Value.UnitV
 
   private def valueToJavaForVars(v: Value): String = v match
     case Value.StringV(s) => s
