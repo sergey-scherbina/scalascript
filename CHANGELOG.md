@@ -43,6 +43,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   actor-group delivery paths now avoid the same temporary `Option` wrappers.
   Actor receive-loop dispatch now avoids boxing the matched computation before
   returning it to the scheduler.
+  Built-in HTML rendering and `attr := value` dispatch now use direct field
+  lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

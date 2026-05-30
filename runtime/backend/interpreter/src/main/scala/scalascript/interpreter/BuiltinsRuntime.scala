@@ -446,24 +446,25 @@ private[interpreter] object BuiltinsRuntime:
         val tagStr = Value.show(tag)
         val css = component match
           case Value.InstanceV(_, fields) =>
-            fields.get("css").map(Value.show).getOrElse("")
+            val cv = fields.getOrElse("css", null)
+            if cv == null then "" else Value.show(cv)
           case _ => ""
         val renderFn = component match
-          case Value.InstanceV(_, fields) => fields.get("render")
-          case _                          => None
-        renderFn match
-          case Some(fn) =>
-            interp.callValue(fn, rest, Map.empty).map { inner =>
-              val innerHtml = inner match
-                case Value.InstanceV("_Raw", fields) =>
-                  fields.get("html").map(Value.show).getOrElse("")
-                case v => Value.show(v)
-              val shadow = s"<template shadowrootmode=\"open\"><style>$css</style>$innerHtml</template>"
-              Value.InstanceV("_Raw", Map("html" -> Value.StringV(s"<$tagStr-component>$shadow</$tagStr-component>")))
-            }
-          case None =>
-            Pure(Value.InstanceV("_Raw", Map("html" ->
-              Value.StringV(s"<$tagStr-component></$tagStr-component>"))))
+          case Value.InstanceV(_, fields) => fields.getOrElse("render", null)
+          case _                          => null
+        if renderFn != null then
+          interp.callValue(renderFn, rest, Map.empty).map { inner =>
+            val innerHtml = inner match
+              case Value.InstanceV("_Raw", fields) =>
+                val hv = fields.getOrElse("html", null)
+                if hv == null then "" else Value.show(hv)
+              case v => Value.show(v)
+            val shadow = s"<template shadowrootmode=\"open\"><style>$css</style>$innerHtml</template>"
+            Value.InstanceV("_Raw", Map("html" -> Value.StringV(s"<$tagStr-component>$shadow</$tagStr-component>")))
+          }
+        else
+          Pure(Value.InstanceV("_Raw", Map("html" ->
+            Value.StringV(s"<$tagStr-component></$tagStr-component>"))))
       case _ => Computation.PureUnit
     })
 
@@ -513,7 +514,8 @@ private[interpreter] object BuiltinsRuntime:
      *  tag, everything else goes through `Value.show` + `htmlEscape`. */
     def renderChild(v: Value): String = v match
       case Value.InstanceV("_Raw", fields) =>
-        fields.get("html").map(Value.show).getOrElse("")
+        val hv = fields.getOrElse("html", null)
+        if hv == null then "" else Value.show(hv)
       case Value.ListV(items) =>
         items.map(renderChild).mkString
       case other => interp.htmlEscape(Value.show(other))
@@ -526,9 +528,10 @@ private[interpreter] object BuiltinsRuntime:
       val children = StringBuilder()
       def handle(v: Value): Unit = v match
         case Value.InstanceV("Attr", fields) =>
-          val k = fields.get("name").map(Value.show).getOrElse("")
-          val vv = fields.get("value").map(Value.show).getOrElse("")
-          attrs(k) = vv
+          val kv = fields.getOrElse("name", null)
+          val vv = fields.getOrElse("value", null)
+          attrs(if kv == null then "" else Value.show(kv)) =
+            if vv == null then "" else Value.show(vv)
         case Value.ListV(items) =>
           items.foreach(handle)
         case other =>
