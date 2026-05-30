@@ -73,14 +73,28 @@ the contracts are explicit.
       helpers → `RenderHelpers.scala`, artifact-info printers →
       `ArtifactInfoPrinters.scala`. Call sites import `.*` to stay unqualified;
       command behavior + `CliCommand` registry contracts unchanged.
-- [ ] **cli-main-helper-split-p3** - Continue behavior-preserving extraction from
-      `tools/cli/.../Main.scala`. Remaining cohesive clusters: build/compile
-      pipeline helpers (`compileJvmAndCache` / `compileJvmDepInto` /
-      `ensureRuntimeArtifact` / JS runtime-artifact + dep-capability helpers /
-      `extractDepBundlesForCompile`) and install/stage helpers
-      (`selfInstallCommand` / `scriptCommand` / `stagePrecompiledDepArtifacts` /
-      `packageLib`). Higher coupling — move the dependency cluster together.
-      Keep command behavior and `CliCommand` registry contracts unchanged.
+- [x] **cli-main-helper-split-p3** _(landed 2026-05-30)_ - Behavior-preserving
+      extraction of the two cleanly-decoupled `Main.scala` clusters:
+      install/script commands → `InstallCommands.scala` (`scriptCommand`,
+      `selfInstallCommand`) and `.ssclib` packaging + compat →
+      `SsclibPackaging.scala` (`packageLib`, `ssclibIrEntryName`,
+      `ssclibInterfaceBytes`, `CompatReport`, `checkSsclibCompat`,
+      `publicSsclibSymbols`, `publicSymbolShapes`, `readSsclibInterfaces`).
+      Both are top-level package-level defs in `scalascript.cli`, so Main's
+      command classes call them unqualified — file-scoped `private def`s widened
+      to `private[cli] def`, bodies byte-identical. `CheckCompatCmd`/`PackageCmd`
+      stay in Main. Main drops 289 lines; `cli/compile` clean;
+      `SsclibPackageCliTest` + `CommandRegistryTest` green (10).
+- [ ] **cli-main-helper-split-p4** - Continue behavior-preserving extraction:
+      the build/compile pipeline cluster from `Main.scala` — `compileJvmAndCache`,
+      `compileJvmDepInto`, `compileJsDepInto`, `ensureRuntimeArtifact`,
+      `ensureJsRuntimeArtifact`, `unionDepCapabilities`, `unionDepCapabilitiesJs`,
+      `extractDepBundlesForCompile`, `stagePrecompiledDepArtifacts`. Higher
+      coupling: these share the file-scoped `collectImports` (11 refs) — widen it
+      to `private[cli]` (or move it alongside) so both Main and the extracted
+      cluster resolve it. Move the dependency cluster together into a
+      `BuildPipeline.scala`. Keep command behavior + `CliCommand` registry
+      contracts unchanged; verify via `cli/compile` + CLI build/incremental tests.
 - [x] **jsgen-split-p1** _(landed 2026-05-30)_ - Behavior-preserving extraction from the 12k-line
       `runtime/backend/js/.../codegen/JsGen.scala`, mirroring the established
       `JsRuntime*.scala` (preamble strings) + `intrinsics/*.scala` (per-intrinsic
