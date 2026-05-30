@@ -619,11 +619,8 @@ runtime/std/
       GraphQLJvmBlockRunner.scala         # SDL registration (implements GraphQLBlockRunner)
       GraphQLResolvers.scala              # Resolver container (query/mutation/subscription maps)
       GraphQLSourceLanguage.scala         # SourceLanguage SPI — graphql fenced blocks
-      GraphQLSchemaValidator.scala        # Phase 4 — compile-time SDL validation
-      GraphQLHttpAdapter.scala            # Phase 5 — media-type negotiation, strict HTTP
-      GraphQLDataLoaders.scala            # Phase 9 — DataLoader/batching
-      GraphQLClientRuntime.scala          # Phase 7+ — typed client operations
-      GraphQLJsRuntime.scala              # Phase 2+ — Node/JS codegen
+      GraphQLOpts.scala                    # Configuration options (maxDepth, APQ, etc.)
+      GraphQLJsRuntime.scala              # Phase 2+ — Node/JS codegen (planned)
     src/main/resources/META-INF/services/
       scalascript.backend.spi.Backend
       scalascript.backend.spi.SourceLanguage
@@ -646,6 +643,12 @@ tools/cli/.../cli/Main.scala
 GraphQL intrinsics belong in `runtime/std/graphql-plugin/`, not in the
 interpreter core. Only SPI hooks belong in `runtime/backend/spi` or interpreter
 installation code.
+
+Note: SDL validation (Phase 4), HTTP protocol handling (Phase 5), DataLoader
+batching (Phase 9), and the WS subscription client (Phase 7) are all implemented
+inside `GraphQLIntrinsics.scala` rather than separate files. Splitting into
+`GraphQLHttpAdapter.scala`, `GraphQLDataLoaders.scala`, etc. is a future refactor
+once the file grows large enough to justify it.
 
 ---
 
@@ -1084,14 +1087,13 @@ substitute for protocol and contract tests.
 
 | File | Role |
 |---|---|
-| `runtime/std/graphql-plugin/.../GraphQLPlugin.scala` | SPI entry |
-| `runtime/std/graphql-plugin/.../GraphQLIntrinsics.scala` | Intrinsic table |
-| `runtime/std/graphql-plugin/.../GraphQLJvmRuntime.scala` | JVM engine wiring |
-| `runtime/std/graphql-plugin/.../GraphQLSourceLanguage.scala` | SDL block plugin |
-| `runtime/std/graphql-plugin/.../GraphQLHttpAdapter.scala` | HTTP protocol behavior |
-| `runtime/std/graphql-plugin/.../GraphQLSchemaValidator.scala` | SDL and operation diagnostics |
-| `runtime/std/graphql-plugin/.../GraphQLDataLoaders.scala` | Phase 9 batching |
-| `runtime/std/graphql-plugin/.../GraphQLJsRuntime.scala` | Node engine wiring |
+| `runtime/std/graphql-plugin/.../GraphQLInterpreterPlugin.scala` | SPI entry (Backend + graphqlBlockRunner slot) |
+| `runtime/std/graphql-plugin/.../GraphQLIntrinsics.scala` | All intrinsics: engine, HTTP, APQ, SSE, DataLoader, federation, WS client |
+| `runtime/std/graphql-plugin/.../GraphQLJvmBlockRunner.scala` | SDL block runner (implements GraphQLBlockRunner) |
+| `runtime/std/graphql-plugin/.../GraphQLResolvers.scala` | Resolver/entity/loader container case classes |
+| `runtime/std/graphql-plugin/.../GraphQLOpts.scala` | Options (maxDepth, maxComplexity, APQ, persistedOnly) |
+| `runtime/std/graphql-plugin/.../GraphQLSourceLanguage.scala` | SDL block plugin + Phase 4 compile-time SDL validation |
+| `runtime/std/graphql-plugin/.../GraphQLJsRuntime.scala` | Phase 2+ Node engine wiring (planned) |
 | `runtime/std/graphql.ssc` | User-facing extern declarations |
 | `runtime/backend/spi/.../GraphQLBlockRunner.scala` | Interpreter block SPI |
 | `runtime/backend/spi/.../Backend.scala` | Backend SPI extension |
