@@ -97,7 +97,7 @@ the contracts are explicit.
       verify byte-identical emitted JS via compile + `JsGenTypedRouteClientTest` +
       node round-trip. Defer giant `JsRuntimeAsyncA`/`AsyncB` + `Part1a–Part2b`
       core sequence to a follow-up phase.
-- [ ] **jsgen-split-p3** - Phase 3 of the `JsGen.scala` preamble-string extraction.
+- [x] **jsgen-split-p3** _(landed 2026-05-30)_ - Phase 3 of the `JsGen.scala` preamble-string extraction.
       Move the 6 core sequential preamble `val`s — `JsRuntimePart1a`/`1b`/`1c`/`1d`,
       `JsRuntimePart2a`/`2b` — each into its own `JsRuntimePart*.scala` (top-level
       `val` in `package scalascript.codegen`); references stay unqualified, no
