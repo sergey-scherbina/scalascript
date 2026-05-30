@@ -14,9 +14,9 @@ private[interpreter] object CallRuntime:
     case f: Value.FunV      => callFun(f, args, interp)
     case f: Value.NativeFnV => f.f(args)
     case Value.InstanceV(_, fields) =>
-      fields.get("apply") match
-        case Some(f) => callValue(f, args, env, interp)
-        case None    => interp.located(s"Instance is not callable")
+      val applyFn = fields.getOrElse("apply", null)
+      if applyFn != null then callValue(applyFn, args, env, interp)
+      else interp.located(s"Instance is not callable")
     case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", args, env, interp)
     case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 
@@ -170,9 +170,9 @@ private[interpreter] object CallRuntime:
           callFun(f, orderedArr.take(filledCount).toList, interp)
       case f: Value.NativeFnV => f.f(namedArgs.map(_._2))
       case Value.InstanceV(_, fields) =>
-        fields.get("apply") match
-          case Some(f) => callValueNamed(f, namedArgs, env, interp)
-          case None    => interp.located(s"Instance is not callable")
+        val applyFn = fields.getOrElse("apply", null)
+        if applyFn != null then callValueNamed(applyFn, namedArgs, env, interp)
+        else interp.located(s"Instance is not callable")
       case _: Value.ListV | _: Value.MapV => DispatchRuntime.dispatch(fn, "apply", namedArgs.map(_._2), env, interp)
       case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 

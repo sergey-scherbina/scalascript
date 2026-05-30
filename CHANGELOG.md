@@ -35,7 +35,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   parameter names and type annotations are cached per AST parameter clause.
   More single-argument `String` operations now stay on the direct dispatch path.
   `Map` higher-order single-argument calls now do the same for `foldLeft`,
-  `exists`, `forall`, `count`, and `find`.
+  `exists`, `forall`, `count`, and `find`. Callable instances, signal handles,
+  and response header updates now avoid temporary `Option` wrappers in their
+  hot lookups.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
