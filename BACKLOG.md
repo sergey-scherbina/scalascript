@@ -86,6 +86,17 @@ the contracts are explicit.
       Emitted JS must stay byte-identical; verify via `node` round-trip + existing
       JS codegen tests. Heavier `genExpr` / `genStat` clusters deferred to a
       follow-up phase.
+- [ ] **jsgen-split-p2** - Phase 2 of the `JsGen.scala` preamble-string extraction.
+      Move the self-contained domain runtime-preamble `val`s — `JsRuntimeOptics`,
+      `JsRuntimeSignals`, `JsRuntimeIndexedDb`, `JsRuntimeV14Effects`,
+      `JsRuntimeBrowserPatch` — each into its own `JsRuntime<Name>.scala` (top-level
+      `val` in `package scalascript.codegen`, mirroring `JsRuntimeDataset.scala`);
+      references stay unqualified, no call-site changes. NOTE: `Optics`/`Signals`/
+      `IndexedDb` are operands of the eager top-level `val JsRuntime` concat —
+      extraction relies on cross-object lazy init (pure string vals, no cycles);
+      verify byte-identical emitted JS via compile + `JsGenTypedRouteClientTest` +
+      node round-trip. Defer giant `JsRuntimeAsyncA`/`AsyncB` + `Part1a–Part2b`
+      core sequence to a follow-up phase.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
