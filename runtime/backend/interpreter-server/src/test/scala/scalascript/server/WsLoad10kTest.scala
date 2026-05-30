@@ -14,23 +14,27 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 /** Smoke test: 10 000 concurrent WebSocket connections must open
  *  and drain without an OutOfMemoryError.
  *
- *  Skipped automatically when the OS file-descriptor limit is below
- *  22 000 (need ≈2 fd per in-process connection, plus OS overhead).
- *  On macOS the default per-process limit is 256; on Linux/CI it is
- *  typically 65 536 or higher.  The test always runs in CI if the fd
- *  limit is sufficient.
+ *  This is an explicit load test, not part of the default unit-test budget:
+ *  set `SSC_WS_LOAD10K=1` to run it.  Even when enabled, it is skipped
+ *  automatically when the OS file-descriptor limit is below 22 000
+ *  (need ≈2 fd per in-process connection, plus OS overhead).  On macOS the
+ *  default per-process limit is 256; on Linux/CI it is typically 65 536 or
+ *  higher.
  *
  *  The Loom virtual-thread executor is used for both server and
  *  client so each connection costs only a few KB of stack, not a
  *  full platform thread (~1 MB).  This is the same executor wired
  *  into `WsProxy` and `WebServer` since the Project-Loom migration
  *  (2026-05-21). */
-@org.scalatest.Ignore
 class WsLoad10kTest extends AnyFunSuite with Matchers:
 
+  private val RUN_ENV   = "SSC_WS_LOAD10K"
   private val TARGET    = 10_000
   private val MIN_FD    = TARGET * 2 + 2_000   // headroom for OS + JVM internals
   private val THRESHOLD = 0.99                  // 99 % of connections must succeed
+
+  private def loadTestEnabled: Boolean =
+    sys.env.get(RUN_ENV).exists(v => Set("1", "true", "yes").contains(v.toLowerCase))
 
   /** Reads the OS fd limit.  Returns `Int.MaxValue` if unreadable. */
   private def fdLimit(): Int =
@@ -91,6 +95,7 @@ onWebSocket("/load") { ws => () }
   // ── test ───────────────────────────────────────────────────────────────
 
   test(s"$TARGET concurrent WebSocket connections: ≥99% open without OOM"):
+    assume(loadTestEnabled, s"set $RUN_ENV=1 to run this explicit load test")
     assume(fdLimit() >= MIN_FD,
       s"fd limit ${fdLimit()} < $MIN_FD — skip (run `ulimit -n 65536` to enable)")
 

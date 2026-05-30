@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — WebSocket 10k load test made explicit
+
+- **fix/ws-load10k-env-gate** — Removed the last ScalaTest `@Ignore` from
+  `WsLoad10kTest`; the expensive 10k WebSocket load test is now visible but
+  env-gated behind `SSC_WS_LOAD10K=1` for default test runs.
+
 ## 2026-05-30 — JS WebSocket runtime smoke restored
 
 - **fix/jsgen-ws-ignored-test** — Re-enabled `JsGenWsTest` and restored the
