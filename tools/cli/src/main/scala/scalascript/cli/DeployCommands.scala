@@ -8,126 +8,130 @@ package scalascript.cli
 // ssc deploy [subverb] [target|group] [--env=<env>] [flags]  —  v1.52
 // ─────────────────────────────────────────────────────────────────────────────
 
-def deployCommand(args: List[String]): Unit =
-  import scalascript.compiler.plugin.deploy.*
-  import scalascript.compiler.plugin.deploy.DeployManifest.{parse => parseDeployManifest, *}
-  import scalascript.parser.Parser
+final class DeployCmd extends CliCommand:
+  def name = "deploy"
+  override def summary = "Deploy to hostings, clouds & Kubernetes-like environments"
+  override def category = "Build, bundle & package"
+  def run(args: List[String]): Unit =
+    import scalascript.compiler.plugin.deploy.*
+    import scalascript.compiler.plugin.deploy.DeployManifest.{parse => parseDeployManifest, *}
+    import scalascript.parser.Parser
 
-  var envFlag:       Option[String] = None
-  var dryRun:        Boolean        = false
-  var verbose:       Boolean        = false
-  var manifestPath:  Option[String] = None
-  var slotOverride:  Option[String] = None
-  val positional     = scala.collection.mutable.ListBuffer.empty[String]
+    var envFlag:       Option[String] = None
+    var dryRun:        Boolean        = false
+    var verbose:       Boolean        = false
+    var manifestPath:  Option[String] = None
+    var slotOverride:  Option[String] = None
+    val positional     = scala.collection.mutable.ListBuffer.empty[String]
 
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case s if s.startsWith("--env=")      => envFlag      = Some(s.stripPrefix("--env="))
-      case "--env" if it.hasNext            => envFlag      = Some(it.next())
-      case "--dry-run"                      => dryRun       = true
-      case "--verbose" | "-v"               => verbose      = true
-      case s if s.startsWith("--manifest=") => manifestPath = Some(s.stripPrefix("--manifest="))
-      case "--manifest" if it.hasNext       => manifestPath = Some(it.next())
-      case s if s.startsWith("--slot=")     => slotOverride = Some(s.stripPrefix("--slot="))
-      case "--slot" if it.hasNext           => slotOverride = Some(it.next())
-      case other => positional += other
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case s if s.startsWith("--env=")      => envFlag      = Some(s.stripPrefix("--env="))
+        case "--env" if it.hasNext            => envFlag      = Some(it.next())
+        case "--dry-run"                      => dryRun       = true
+        case "--verbose" | "-v"               => verbose      = true
+        case s if s.startsWith("--manifest=") => manifestPath = Some(s.stripPrefix("--manifest="))
+        case "--manifest" if it.hasNext       => manifestPath = Some(it.next())
+        case s if s.startsWith("--slot=")     => slotOverride = Some(s.stripPrefix("--slot="))
+        case "--slot" if it.hasNext           => slotOverride = Some(it.next())
+        case other => positional += other
 
-  val subverb = positional.headOption.getOrElse("deploy")
-  val subject = if positional.size > 1 then positional(1) else ""
+    val subverb = positional.headOption.getOrElse("deploy")
+    val subject = if positional.size > 1 then positional(1) else ""
 
-  // ─── Load project manifest ────────────────────────────────────────────────
-  val sscFile: os.Path = manifestPath.map(p => os.Path(p, os.pwd))
-    .orElse(findProjectSsc())
-    .getOrElse {
-      System.err.println("ssc deploy: no .ssc project file found"); System.exit(1); ???
-    }
-  val source  = os.read(sscFile)
-  val module  = Parser.parse(source)
-  val mf      = module.manifest.getOrElse {
-    System.err.println("ssc deploy: .ssc file has no front-matter manifest"); System.exit(1); ???
-  }
-
-  // Merge the raw YAML from all four deploy keys into one map for parsing
-  val deployRaw: Map[String, Any] = Map(
-    "deploy"       -> mf.raw.getOrElse("deploy", null),
-    "groups"       -> mf.raw.getOrElse("groups", null),
-    "environments" -> mf.raw.getOrElse("environments", null),
-    "state"        -> mf.raw.getOrElse("state", null),
-  ).collect { case (k, v) if v != null => k -> v }
-
-  val dm = parseDeployManifest(deployRaw)
-
-  if dm.targets.isEmpty && dm.environments.isEmpty then
-    System.err.println("ssc deploy: manifest has no deploy: or environments: blocks")
-    System.exit(1)
-
-  val resolvedEnv = envFlag.getOrElse(defaultEnv(dm))
-
-  subverb match
-
-    case "envs" =>
-      if dm.environments.isEmpty then println("No environments declared.")
-      else
-        println(f"${"ENVIRONMENT"}%-20s ${"PURPOSE"}%-12s ${"SLOT"}%-8s ${"GROUPS"}")
-        for (name, env) <- dm.environments do
-          val slot = env.blueGreen.map(bg => bg.activeSlot).getOrElse("-")
-          val grps = env.activeGroups.mkString(", ")
-          println(f"${name}%-20s ${env.purpose.toString.toLowerCase}%-12s ${slot}%-8s ${grps}")
-
-    case "plan" =>
-      val groupName = if subject.nonEmpty then subject
-                      else dm.groups.headOption.map(_._1).getOrElse {
-                        System.err.println("ssc deploy plan: specify a group name"); System.exit(1); ???
-                      }
-      val group = dm.groups.getOrElse(groupName,
-        throw DeployError(s"[deploy/unknown-group] Group '$groupName' not found. Available: ${dm.groups.keys.mkString(", ")}"))
-      val sorted = DeployDag.topoSort(group.members, group.deps)
-      val stages = group.mode match
-        case ExecMode.Parallel            => DeployDag.toStages(sorted, group.deps)
-        case ExecMode.Sequence            => sorted.map(List(_))
-        case ExecMode.Pipeline(explicit)  => explicit
-      println(s"Deploy plan: group=$groupName env=$resolvedEnv mode=${group.mode} on_failure=${group.onFailure}")
-      println(s"Resolved execution stages:")
-      stages.zipWithIndex.foreach { case (stage, i) =>
-        println(s"  Stage ${i + 1}: ${stage.mkString(", ")}")
-        stage.foreach { t =>
-          val cfg    = dm.targets.getOrElse(t, Map.empty)
-          val kind   = cfg.getOrElse("kind", "?").toString
-          val deps   = group.deps.getOrElse(t, Nil)
-          val depStr = if deps.nonEmpty then s" (depends on: ${deps.mkString(", ")})" else ""
-          println(s"           [$t] kind=$kind$depStr")
-        }
+    // ─── Load project manifest ────────────────────────────────────────────────
+    val sscFile: os.Path = manifestPath.map(p => os.Path(p, os.pwd))
+      .orElse(findProjectSsc())
+      .getOrElse {
+        System.err.println("ssc deploy: no .ssc project file found"); System.exit(1); ???
       }
-      if dryRun then println("[dry-run] No actions taken.")
+    val source  = os.read(sscFile)
+    val module  = Parser.parse(source)
+    val mf      = module.manifest.getOrElse {
+      System.err.println("ssc deploy: .ssc file has no front-matter manifest"); System.exit(1); ???
+    }
 
-    case "status" =>
-      val targets = if subject.nonEmpty then List(subject)
-                    else dm.targets.keys.toList
-      println(f"${"TARGET"}%-25s ${"KIND"}%-15s ${"HEALTHY"}%-8s ${"REVISION"}")
-      for t <- targets do
-        val cfg     = dm.targets.getOrElse(t, Map.empty)
-        val kind    = cfg.getOrElse("kind", "?").toString
-        println(f"${t}%-25s ${kind}%-15s ${"?"}%-8s -")
+    // Merge the raw YAML from all four deploy keys into one map for parsing
+    val deployRaw: Map[String, Any] = Map(
+      "deploy"       -> mf.raw.getOrElse("deploy", null),
+      "groups"       -> mf.raw.getOrElse("groups", null),
+      "environments" -> mf.raw.getOrElse("environments", null),
+      "state"        -> mf.raw.getOrElse("state", null),
+    ).collect { case (k, v) if v != null => k -> v }
 
-    case "deploy" | "" =>
-      val groupOrTarget = subject
-      val env = resolveEnv(dm, resolvedEnv)
-      val activeGroups =
-        if groupOrTarget.nonEmpty then List(groupOrTarget)
-        else env.activeGroups.filter(dm.groups.contains)
-      if activeGroups.isEmpty && dm.targets.nonEmpty then
-        // Deploy all targets in declaration order as a single sequence
-        runDeployTargets(dm.targets.keys.toList, dm, env, resolvedEnv, slotOverride, dryRun, verbose, sscFile.toNIO.getParent.toString)
-      else
-        for gn <- activeGroups do
-          val group = dm.groups.getOrElse(gn,
-            throw DeployError(s"[deploy/unknown-group] Group '$gn' not found."))
-          runDeployGroup(group, dm, env, resolvedEnv, slotOverride, dryRun, verbose, sscFile.toNIO.getParent.toString)
+    val dm = parseDeployManifest(deployRaw)
 
-    case other =>
-      System.err.println(s"ssc deploy: unknown subverb '$other'. Use: deploy, plan, envs, status, build, push, rollback, logs, diff, destroy, switch, promote")
+    if dm.targets.isEmpty && dm.environments.isEmpty then
+      System.err.println("ssc deploy: manifest has no deploy: or environments: blocks")
       System.exit(1)
+
+    val resolvedEnv = envFlag.getOrElse(defaultEnv(dm))
+
+    subverb match
+
+      case "envs" =>
+        if dm.environments.isEmpty then println("No environments declared.")
+        else
+          println(f"${"ENVIRONMENT"}%-20s ${"PURPOSE"}%-12s ${"SLOT"}%-8s ${"GROUPS"}")
+          for (name, env) <- dm.environments do
+            val slot = env.blueGreen.map(bg => bg.activeSlot).getOrElse("-")
+            val grps = env.activeGroups.mkString(", ")
+            println(f"${name}%-20s ${env.purpose.toString.toLowerCase}%-12s ${slot}%-8s ${grps}")
+
+      case "plan" =>
+        val groupName = if subject.nonEmpty then subject
+                        else dm.groups.headOption.map(_._1).getOrElse {
+                          System.err.println("ssc deploy plan: specify a group name"); System.exit(1); ???
+                        }
+        val group = dm.groups.getOrElse(groupName,
+          throw DeployError(s"[deploy/unknown-group] Group '$groupName' not found. Available: ${dm.groups.keys.mkString(", ")}"))
+        val sorted = DeployDag.topoSort(group.members, group.deps)
+        val stages = group.mode match
+          case ExecMode.Parallel            => DeployDag.toStages(sorted, group.deps)
+          case ExecMode.Sequence            => sorted.map(List(_))
+          case ExecMode.Pipeline(explicit)  => explicit
+        println(s"Deploy plan: group=$groupName env=$resolvedEnv mode=${group.mode} on_failure=${group.onFailure}")
+        println(s"Resolved execution stages:")
+        stages.zipWithIndex.foreach { case (stage, i) =>
+          println(s"  Stage ${i + 1}: ${stage.mkString(", ")}")
+          stage.foreach { t =>
+            val cfg    = dm.targets.getOrElse(t, Map.empty)
+            val kind   = cfg.getOrElse("kind", "?").toString
+            val deps   = group.deps.getOrElse(t, Nil)
+            val depStr = if deps.nonEmpty then s" (depends on: ${deps.mkString(", ")})" else ""
+            println(s"           [$t] kind=$kind$depStr")
+          }
+        }
+        if dryRun then println("[dry-run] No actions taken.")
+
+      case "status" =>
+        val targets = if subject.nonEmpty then List(subject)
+                      else dm.targets.keys.toList
+        println(f"${"TARGET"}%-25s ${"KIND"}%-15s ${"HEALTHY"}%-8s ${"REVISION"}")
+        for t <- targets do
+          val cfg     = dm.targets.getOrElse(t, Map.empty)
+          val kind    = cfg.getOrElse("kind", "?").toString
+          println(f"${t}%-25s ${kind}%-15s ${"?"}%-8s -")
+
+      case "deploy" | "" =>
+        val groupOrTarget = subject
+        val env = resolveEnv(dm, resolvedEnv)
+        val activeGroups =
+          if groupOrTarget.nonEmpty then List(groupOrTarget)
+          else env.activeGroups.filter(dm.groups.contains)
+        if activeGroups.isEmpty && dm.targets.nonEmpty then
+          // Deploy all targets in declaration order as a single sequence
+          runDeployTargets(dm.targets.keys.toList, dm, env, resolvedEnv, slotOverride, dryRun, verbose, sscFile.toNIO.getParent.toString)
+        else
+          for gn <- activeGroups do
+            val group = dm.groups.getOrElse(gn,
+              throw DeployError(s"[deploy/unknown-group] Group '$gn' not found."))
+            runDeployGroup(group, dm, env, resolvedEnv, slotOverride, dryRun, verbose, sscFile.toNIO.getParent.toString)
+
+      case other =>
+        System.err.println(s"ssc deploy: unknown subverb '$other'. Use: deploy, plan, envs, status, build, push, rollback, logs, diff, destroy, switch, promote")
+        System.exit(1)
 
 private def runDeployGroup(
   group:      scalascript.compiler.plugin.deploy.DeployGroup,

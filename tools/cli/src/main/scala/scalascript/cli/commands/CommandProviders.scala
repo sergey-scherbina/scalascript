@@ -84,23 +84,11 @@ final class BuildCmd extends CliCommand:
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = buildCommand(args)
 
-final class BundleCmd extends CliCommand:
-  def name = "bundle"
-  override def summary = "Pack .ssc files + their .ssc imports into a .sscpkg archive"
-  override def category = "Build, bundle & package"
-  def run(args: List[String]): Unit = bundleCommand(args)
-
 final class PackageCmd extends CliCommand:
   def name = "package"
   override def summary = "Package .ssc via scala-cli (see Package flags below)"
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = packageCommand(args)
-
-final class DeployCmd extends CliCommand:
-  def name = "deploy"
-  override def summary = "Deploy to hostings, clouds & Kubernetes-like environments"
-  override def category = "Build, bundle & package"
-  def run(args: List[String]): Unit = deployCommand(args)
 
 final class NewCmd extends CliCommand:
   def name = "new"
@@ -226,46 +214,6 @@ final class DepsCmd extends CliCommand:
   override def summary = "Print the resolved import/dependency graph"
   override def category = "Check & inspect"
   def run(args: List[String]): Unit = depsCommand(args)
-
-final class LockCmd extends CliCommand:
-  def name = "lock"
-  override def summary = "Pin URL/dep imports in ssc.lock (SHA-256 integrity)"
-  override def category = "Dependencies & plugins"
-  override def details = List("ssc lock check <file> verifies imports against the lock")
-  def run(args: List[String]): Unit = lockCommand(args)
-
-final class UpdateCmd extends CliCommand:
-  def name = "update"
-  override def summary = "Re-resolve dep: imports transitively; write ssc-lock.yaml"
-  override def category = "Dependencies & plugins"
-  override def details = List("Flags: --strict-deps")
-  def run(args: List[String]): Unit = updateCommand(args)
-
-final class SearchCmd extends CliCommand:
-  def name = "search"
-  override def summary = "Search the plugin registry by id or description"
-  override def category = "Dependencies & plugins"
-  def run(args: List[String]): Unit = registrySearchCommand(args)
-
-final class AddCmd extends CliCommand:
-  def name = "add"
-  override def summary = "Add or update a plugin registry entry"
-  override def category = "Dependencies & plugins"
-  def run(args: List[String]): Unit = registryAddCommand(args)
-
-final class PluginCmd extends CliCommand:
-  def name = "plugin"
-  override def summary = "Manage installed .sscpkg plugins"
-  override def category = "Dependencies & plugins"
-  override def details = List("Subs: install | list | uninstall | check | pack | registry")
-  def run(args: List[String]): Unit = pluginCommand(args)
-
-final class ClusterCmd extends CliCommand:
-  def name = "cluster"
-  override def summary = "Inspect or operate a running ssc cluster node"
-  override def category = "Services & tooling"
-  override def details = List("Subs: status | events | drain | step-down | run | package | handlers | stop")
-  def run(args: List[String]): Unit = clusterCommand(args)
 
 final class LspCmd extends CliCommand:
   def name = "lsp"
