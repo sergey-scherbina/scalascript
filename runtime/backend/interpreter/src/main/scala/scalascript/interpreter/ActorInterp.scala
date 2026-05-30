@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, Perform, FlatMap}
 
@@ -553,10 +554,10 @@ private[interpreter] trait ActorInterp:
     val ts = System.currentTimeMillis()
     recordEventLog(s"""{"ts":$ts,"type":"MetricChanged","name":${jsonStr(name)},"nodeId":${jsonStr(nodeId)},"value":$value}""")
     if !metricEventSubs.isEmpty then
-      val ev = Value.InstanceV("MetricChanged", Map(
-        "name"   -> Value.StringV(name),
-        "nodeId" -> Value.StringV(nodeId),
-        "value"  -> Value.doubleV(value)))
+      val ev = Value.InstanceV("MetricChanged", new IMap.Map3(
+        "name",   Value.StringV(name),
+        "nodeId", Value.StringV(nodeId),
+        "value",  Value.doubleV(value)))
       metricEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def applyMetricUpdate(name: String, nodeId: String, value: Double): Unit =
@@ -758,10 +759,10 @@ private[interpreter] trait ActorInterp:
     val noconn = Value.InstanceV("noconnection", Map.empty)
     Option(remoteMonitors.remove(nodeId)).foreach { list =>
       list.forEach { (actorId, monRef, rPidLocalId) =>
-        val downMsg = Value.InstanceV("Down", Map(
-          "ref"    -> Value.intV(monRef),
-          "from"   -> mkPid(nodeId, rPidLocalId),
-          "reason" -> noconn))
+        val downMsg = Value.InstanceV("Down", new IMap.Map3(
+          "ref",    Value.intV(monRef),
+          "from",   mkPid(nodeId, rPidLocalId),
+          "reason", noconn))
         rt.mailboxes.get(actorId).foreach(_.offer(downMsg))
         wakeBlocked(rt, actorId)
       }
@@ -770,7 +771,7 @@ private[interpreter] trait ActorInterp:
       list.forEach { (actorId, rPidLocalId) =>
         val deadPid = mkPid(nodeId, rPidLocalId)
         if rt.trapExit.getOrElse(actorId, false) then
-          val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> noconn))
+          val exitMsg = Value.InstanceV("Exit", new IMap.Map2("from", deadPid, "reason", noconn))
           rt.mailboxes.get(actorId).foreach(_.offer(exitMsg))
           wakeBlocked(rt, actorId)
         else
@@ -1627,11 +1628,11 @@ private[interpreter] trait ActorInterp:
     case "actorGroupRouter" => args match
       case List(nameV, policyV) =>
         val name = nameV match { case Value.StringV(s) => s; case _ => "" }
-        val group = Value.InstanceV("ActorGroup", Map(
-          "kind"    -> Value.StringV("router"),
-          "name"    -> Value.StringV(name),
-          "policy"  -> policyV,
-          "members" -> Value.ListV(Nil)
+        val group = Value.InstanceV("ActorGroup", new IMap.Map4(
+          "kind",    Value.StringV("router"),
+          "name",    Value.StringV(name),
+          "policy",  policyV,
+          "members", Value.ListV(Nil)
         ))
         this.nativeFeatureSet(s"actorGroup.$name", group)
         Right(k(group))
@@ -1640,10 +1641,10 @@ private[interpreter] trait ActorInterp:
     case "actorGroupSharded" => args match
       case List(nameV, _) =>
         val name = nameV match { case Value.StringV(s) => s; case _ => "" }
-        val group = Value.InstanceV("ActorGroup", Map(
-          "kind"    -> Value.StringV("sharded"),
-          "name"    -> Value.StringV(name),
-          "members" -> Value.ListV(Nil)
+        val group = Value.InstanceV("ActorGroup", new IMap.Map3(
+          "kind",    Value.StringV("sharded"),
+          "name",    Value.StringV(name),
+          "members", Value.ListV(Nil)
         ))
         this.nativeFeatureSet(s"actorGroup.$name", group)
         Right(k(group))
@@ -1652,10 +1653,10 @@ private[interpreter] trait ActorInterp:
     case "actorGroupRole" => args match
       case List(roleV) =>
         val role = roleV match { case Value.StringV(s) => s; case _ => "" }
-        val group = Value.InstanceV("ActorGroup", Map(
-          "kind"     -> Value.StringV("role"),
-          "roleName" -> Value.StringV(role),
-          "members"  -> Value.ListV(Nil)
+        val group = Value.InstanceV("ActorGroup", new IMap.Map3(
+          "kind",     Value.StringV("role"),
+          "roleName", Value.StringV(role),
+          "members",  Value.ListV(Nil)
         ))
         Right(k(group))
       case _ => throw InterpretError("actorGroupRole(roleName)")
@@ -1775,10 +1776,10 @@ private[interpreter] trait ActorInterp:
             .map(_.toList.map(lid => mkPid("", lid)))
             .getOrElse(Nil)
           val status = if rt.blocked.contains(targetId) then "blocked" else "running"
-          val info = Value.InstanceV("ProcessInfo", Map(
-            "mailboxSize" -> Value.intV(mailboxSize),
-            "links"       -> Value.ListV(links),
-            "status"      -> Value.StringV(status)
+          val info = Value.InstanceV("ProcessInfo", new IMap.Map3(
+            "mailboxSize", Value.intV(mailboxSize),
+            "links",       Value.ListV(links),
+            "status",      Value.StringV(status)
           ))
           Right(k(Value.OptionV(info)))
       case _ => throw InterpretError("processInfo(pid)")
@@ -1878,8 +1879,8 @@ private[interpreter] trait ActorInterp:
               else
                 val noproc = Value.InstanceV("noproc", Map.empty)
                 if rt.trapExit.getOrElse(id, false) then
-                  val exitMsg = Value.InstanceV("Exit", Map(
-                    "from" -> mkPid(nid, targetId), "reason" -> noproc))
+                  val exitMsg = Value.InstanceV("Exit", new IMap.Map2(
+                    "from", mkPid(nid, targetId), "reason", noproc))
                   rt.mailboxes.get(id).foreach(_.offer(exitMsg))
                 else killActor(rt, id, noproc)
             else if rt.mailboxes.contains(targetId) then
@@ -1890,9 +1891,9 @@ private[interpreter] trait ActorInterp:
               // Target already dead — noproc exit signal
               val noproc = Value.InstanceV("noproc", Map.empty)
               if rt.trapExit.getOrElse(id, false) then
-                val exitMsg = Value.InstanceV("Exit", Map(
-                  "from"   -> mkPid("", targetId),
-                  "reason" -> noproc))
+                val exitMsg = Value.InstanceV("Exit", new IMap.Map2(
+                  "from",   mkPid("", targetId),
+                  "reason", noproc))
                 rt.mailboxes.get(id).foreach(_.offer(exitMsg))
               else
                 killActor(rt, id, noproc)
@@ -1914,10 +1915,10 @@ private[interpreter] trait ActorInterp:
                 remoteMonitors.computeIfAbsent(nid, _ =>
                   new java.util.concurrent.CopyOnWriteArrayList()).add((id, monRef, targetId))
               else
-                val downMsg = Value.InstanceV("Down", Map(
-                  "ref"    -> Value.intV(monRef),
-                  "from"   -> mkPid(nid, targetId),
-                  "reason" -> Value.InstanceV("noconnection", Map.empty)))
+                val downMsg = Value.InstanceV("Down", new IMap.Map3(
+                  "ref",    Value.intV(monRef),
+                  "from",   mkPid(nid, targetId),
+                  "reason", Value.InstanceV("noconnection", Map.empty)))
                 rt.mailboxes.get(id).foreach(_.offer(downMsg))
                 wakeBlocked(rt, id)
               Right(k(Value.intV(monRef)))
@@ -1926,10 +1927,10 @@ private[interpreter] trait ActorInterp:
               Right(k(Value.intV(monRef)))
             else
               // Already dead — immediately deliver Down
-              val downMsg = Value.InstanceV("Down", Map(
-                "ref"    -> Value.intV(monRef),
-                "from"   -> mkPid("", targetId),
-                "reason" -> Value.InstanceV("noproc", Map.empty)))
+              val downMsg = Value.InstanceV("Down", new IMap.Map3(
+                "ref",    Value.intV(monRef),
+                "from",   mkPid("", targetId),
+                "reason", Value.InstanceV("noproc", Map.empty)))
               rt.mailboxes.get(id).foreach(_.offer(downMsg))
               wakeBlocked(rt, id)
               Right(k(Value.intV(monRef)))
@@ -2839,7 +2840,7 @@ private[interpreter] trait ActorInterp:
       linkedSet.foreach { linkedId =>
         rt.links.get(linkedId).foreach(_.remove(targetId))
         if rt.trapExit.getOrElse(linkedId, false) then
-          val exitMsg = Value.InstanceV("Exit", Map("from" -> deadPid, "reason" -> reason))
+          val exitMsg = Value.InstanceV("Exit", new IMap.Map2("from", deadPid, "reason", reason))
           rt.mailboxes.get(linkedId).foreach(_.offer(exitMsg))
           wakeBlocked(rt, linkedId)
         else
@@ -2850,10 +2851,10 @@ private[interpreter] trait ActorInterp:
     // Fire Down messages for all monitors on this actor.
     rt.monitors.remove(targetId).foreach { monMap =>
       monMap.foreach { (monRef, observerId) =>
-        val downMsg = Value.InstanceV("Down", Map(
-          "ref"    -> Value.intV(monRef),
-          "from"   -> deadPid,
-          "reason" -> reason))
+        val downMsg = Value.InstanceV("Down", new IMap.Map3(
+          "ref",    Value.intV(monRef),
+          "from",   deadPid,
+          "reason", reason))
         rt.mailboxes.get(observerId).foreach(_.offer(downMsg))
         wakeBlocked(rt, observerId)
       }

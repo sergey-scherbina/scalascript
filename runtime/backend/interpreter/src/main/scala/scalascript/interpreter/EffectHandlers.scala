@@ -1,6 +1,7 @@
 package scalascript.interpreter
 
 import Computation.{Pure, Perform, FlatMap}
+import scala.collection.immutable.{Map => IMap}
 
 /** Free-Monad effect handlers: Logger / Random / Clock / Env / Http /
  *  Retry / Cache / State.  Each `*Run` walks the computation tree,
@@ -223,16 +224,16 @@ private[interpreter] object EffectHandlers:
           val key = Value.StringV(url)
           m.get(key) match
             case Some(v) =>
-              Value.InstanceV("Response", Map(
-                "status"  -> Value.intV(200),
-                "headers" -> Value.EmptyMap,
-                "body"    -> Value.StringV(Value.show(v))
+              Value.InstanceV("Response", new IMap.Map3(
+                "status",  Value.intV(200),
+                "headers", Value.EmptyMap,
+                "body",    Value.StringV(Value.show(v))
               ))
             case None =>
-              Value.InstanceV("Response", Map(
-                "status"  -> Value.intV(404),
-                "headers" -> Value.EmptyMap,
-                "body"    -> Value.EmptyStr
+              Value.InstanceV("Response", new IMap.Map3(
+                "status",  Value.intV(404),
+                "headers", Value.EmptyMap,
+                "body",    Value.EmptyStr
               ))
         case _ => throw InterpretError("httpRun: stub routes must be a Map[String, String]")
     def dispatch(op: String, args: List[Value], resume: Value => Computation): Computation =
@@ -448,10 +449,10 @@ private[interpreter] object EffectHandlers:
       if e.getValue.isEmpty then None
       else Some((Value.StringV(e.getKey): Value) -> (Value.StringV(e.getValue.get(0)): Value))
     }.toMap
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(resp.statusCode().toLong),
-      "body"    -> Value.StringV(resp.body()),
-      "headers" -> Value.MapV(hdrs)
+    Value.InstanceV("Response", new IMap.Map3(
+      "status",  Value.intV(resp.statusCode().toLong),
+      "body",    Value.StringV(resp.body()),
+      "headers", Value.MapV(hdrs)
     ))
 
   // ── Stream (v1.51.6) ─────────────────────────────────────────────────

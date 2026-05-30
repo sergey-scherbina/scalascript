@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scalascript.ast.*
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 
 /** A parametric `given` definition that has type parameters and/or `using` dependencies.
@@ -920,10 +921,10 @@ class Interpreter(
       body:        String,
       contentType: String = "text/plain; charset=utf-8"
   ): Value =
-    Value.InstanceV("Response", Map(
-      "status"  -> Value.intV(status),
-      "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(contentType))),
-      "body"    -> Value.StringV(body)
+    Value.InstanceV("Response", new IMap.Map3(
+      "status",  Value.intV(status),
+      "headers", Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(contentType))),
+      "body",    Value.StringV(body)
     ))
 
   private def remoteStatus(err: scalascript.backend.spi.RemoteCallError): Int = err match

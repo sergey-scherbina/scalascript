@@ -25,6 +25,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   an extra continuation. Plugin and stdlib helper lookups in `globalOrStub`,
   `Using.resource`, `McpSchema.derived`, derives fallback, and `Storage.get`
   now use null-sentinel map access instead of temporary `Option` wrappers.
+  Actor system messages and interpreter HTTP response helpers now use direct
+  small immutable map constructors for fixed-shape values.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
