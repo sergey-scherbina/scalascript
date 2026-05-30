@@ -53,6 +53,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   dispatch chains while preserving absent-field behavior.
   Stream effect finalization now resolves `Source.from` / `Source.failed` with
   direct global lookups.
+  Cluster seed resolution and Source / RemoteSource / ReactiveSignal bridge
+  dispatch now use direct global or field lookup paths.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
