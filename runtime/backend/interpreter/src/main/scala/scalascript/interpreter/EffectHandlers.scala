@@ -32,6 +32,7 @@ private[interpreter] object EffectHandlers:
         case Perform("Logger", op, args) =>
           current = dispatch(op, args, v => Pure(v))
         case Perform(_, _, _) => return current
+        case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
         case FlatMap(sub, f) => sub match
           case Pure(v)                      => current = f(v)
           case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -39,6 +40,7 @@ private[interpreter] object EffectHandlers:
             current = dispatch(op, args, v => loggerRun(f(v), format, sink))
           case Perform(_, _, _)             =>
             return FlatMap(sub, v => loggerRun(f(v), format, sink))
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
     throw InterpretError("unreachable")
 
   // Returns (bodyResult, List((level, msg), …)) as a TupleV pair.
@@ -56,6 +58,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Logger", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _)            => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                     => current = f(v)
             case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -63,6 +66,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)            =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial).flatMap { v =>
       val entries = Value.ListV(log.toList.map { (lv, msg) =>
@@ -118,6 +122,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Random", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                      => current = f(v)
             case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -125,6 +130,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)             =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial)
 
@@ -153,6 +159,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Clock", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                    => current = f(v)
             case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -160,6 +167,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)           =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial)
 
@@ -200,6 +208,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Env", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                  => current = f(v)
             case FlatMap(s2, g)           => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -207,6 +216,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)         =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial)
 
@@ -273,6 +283,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Http", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                    => current = f(v)
             case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -280,6 +291,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)           =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial)
 
@@ -314,6 +326,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Retry", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                     => current = f(v)
             case FlatMap(s2, g)             => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -321,6 +334,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)            =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial)
 
@@ -356,6 +370,7 @@ private[interpreter] object EffectHandlers:
           case Perform("Cache", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                     => current = f(v)
             case FlatMap(s2, g)              => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -363,6 +378,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)            =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     try run(initial)
     finally interp._cacheBypass.set(priorBypass)
@@ -392,6 +408,7 @@ private[interpreter] object EffectHandlers:
           case Perform("State", op, args) =>
             current = dispatch(op, args, v => Pure(v))
           case Perform(_, _, _) => return current
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                      => current = f(v)
             case FlatMap(s2, g)               => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -399,6 +416,7 @@ private[interpreter] object EffectHandlers:
               current = dispatch(op, args, v => run(f(v)))
             case Perform(_, _, _)             =>
               return FlatMap(sub, v => run(f(v)))
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
     run(initial).flatMap { result =>
       Pure(Value.TupleV(state :: result :: Nil))
@@ -507,6 +525,7 @@ private[interpreter] object EffectHandlers:
             cur = Computation.PureUnit  // advisory no-op in v1.51.6
           case Perform(_, _, _) =>
             result = cur; done = true
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v)                          => cur = f(v)
             case FlatMap(s2, g)                   => cur = FlatMap(s2, x => FlatMap(g(x), f))
@@ -525,5 +544,6 @@ private[interpreter] object EffectHandlers:
               cur = f(Value.UnitV)
             case Perform(_, _, _)                 =>
               result = FlatMap(sub, v => go(f(v))); done = true
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       result
     go(initial)

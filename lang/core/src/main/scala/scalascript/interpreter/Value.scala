@@ -408,6 +408,10 @@ enum Computation:
   case Pure(value: Value)
   case Perform(effectName: String, opName: String, args: List[Value])
   case FlatMap(sub: Computation, k: Value => Computation)
+  /** Tail-call signal: replaces throw/catch for self-recursive tail calls.
+   *  Only meaningful inside tcoTrampoline; propagates through FlatMap chains
+   *  without JVM exception overhead. */
+  case TailRec(args: List[Value])
 
 object Computation:
   // Singleton Pure wrappers for the most common return values — eliminates one
@@ -688,10 +692,14 @@ object Computation:
         case Pure(v)                => return v
         case Perform(eff, op, _)    =>
           throw InterpretError(s"Unhandled effect: $eff.$op (no handler in scope)")
+        case TailRec(_)             =>
+          throw InterpretError("TailRec escaped trampoline")
         case FlatMap(sub, f) => sub match
           case Pure(v)                => current = f(v)
           case Perform(eff, op, _)    =>
             throw InterpretError(s"Unhandled effect: $eff.$op (no handler in scope)")
+          case TailRec(_)             =>
+            throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub2, g)       =>
             current = FlatMap(sub2, x => FlatMap(g(x), f))
     throw InterpretError("unreachable")

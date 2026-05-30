@@ -19,6 +19,7 @@ private[interpreter] object AsyncRuntime:
         case Perform("Async", op, args) =>
           current = asyncDispatch(op, args, v => Pure(v), interp)
         case Perform(_, _, _) => return current
+        case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
         case FlatMap(sub, f) => sub match
           case Pure(v) =>
             current = f(v)
@@ -28,6 +29,7 @@ private[interpreter] object AsyncRuntime:
             current = asyncDispatch(op, args, v => asyncInterp(f(v), interp), interp)
           case Perform(_, _, _) =>
             return FlatMap(sub, v => asyncInterp(f(v), interp))
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
     throw InterpretError("unreachable")
 
   private def asyncDispatch(
@@ -88,6 +90,7 @@ private[interpreter] object AsyncRuntime:
             case Perform("Async", op, args) =>
               current = asyncParDispatch(op, args, v => Pure(v), ex, driver, interp)
             case Perform(_, _, _) => return current
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
             case FlatMap(sub, f) => sub match
               case Pure(v)          => current = f(v)
               case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -95,6 +98,7 @@ private[interpreter] object AsyncRuntime:
                 current = asyncParDispatch(op, args, v => driver(f(v)), ex, driver, interp)
               case Perform(_, _, _) =>
                 return FlatMap(sub, v => driver(f(v)))
+              case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
         throw InterpretError("unreachable")
       driver(initial)
     finally ex.shutdown()

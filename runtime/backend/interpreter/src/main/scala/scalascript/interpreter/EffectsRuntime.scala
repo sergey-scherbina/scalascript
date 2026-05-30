@@ -87,6 +87,7 @@ private[interpreter] object EffectsRuntime:
                 Pure(v)
               })
               current = dispatchCase(eff, op, args, resume)
+          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
           case FlatMap(sub, f) => sub match
             case Pure(v) =>
               current = f(v)
@@ -147,6 +148,7 @@ private[interpreter] object EffectsRuntime:
                   current = caseBodyResult
                 else
                   current = caseBodyResult   // resume not called (e.g. early abort)
+            case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
       throw InterpretError("unreachable")
 
     handleInterp(interp.eval(body, env))

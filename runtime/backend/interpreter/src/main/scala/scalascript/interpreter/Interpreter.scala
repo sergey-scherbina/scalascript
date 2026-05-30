@@ -230,6 +230,9 @@ class Interpreter(
   def setLoadingFile(path: Option[String]): Unit = currentLoadingFile = path
   // Phase 2 DAP: debug hooks; None means no-op (normal run).
   private[interpreter] var debugHooks: Option[scalascript.interpreter.debug.DebugHooks] = None
+  /** Fast boolean flag: true iff debugHooks is set.  Used in hot paths (callStack push/pop)
+   *  to avoid Option.isDefined overhead on every function call. */
+  private[interpreter] var debugEnabled: Boolean = false
   // Phase 2 DAP: document-level line offset of the current code block.
   // Set by SectionRuntime to cb.lineOffset (0-based line in the .ssc file
   // where the first code line starts), so EvalRuntime can translate
@@ -243,7 +246,8 @@ class Interpreter(
   /** Attach debug hooks (e.g. a DAP session's breakpoint handler).  None
    *  means no-op — normal (non-debug) execution.  Called before [[run]]. */
   def setDebugHooks(hooks: Option[scalascript.interpreter.debug.DebugHooks]): Unit =
-    debugHooks = hooks
+    debugHooks    = hooks
+    debugEnabled  = hooks.isDefined
 
   /** Public read-only view of the REPL's live global bindings.
    *  Used by `:mount name` to look up a previously-defined function.
@@ -1399,13 +1403,16 @@ class Interpreter(
    *  Debug hooks are suppressed during evaluation so the REPL `:print` command
    *  does not trigger spurious breakpoints. */
   def evalExpr(exprSrc: String, extraEnv: Map[String, Value] = Map.empty): Value =
-    val savedHooks = debugHooks
-    debugHooks = None
+    val savedHooks   = debugHooks
+    val savedEnabled = debugEnabled
+    debugHooks   = None
+    debugEnabled = false
     try
       val parsed = scala.meta.dialects.Scala3(exprSrc).parse[scala.meta.Term].get
       Computation.run(eval(parsed, extraEnv ++ globals.toMap))
     finally
-      debugHooks = savedHooks
+      debugHooks   = savedHooks
+      debugEnabled = savedEnabled
 
   // ── v1.4 effect handlers — see EffectHandlers.scala ────────────────────
   //
