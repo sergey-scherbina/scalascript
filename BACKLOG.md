@@ -6,6 +6,14 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **import-transitive-helpers** - Fix: an imported module's exported
+      function could not resolve its own internal helpers or the names it
+      imported-but-did-not-re-export (resolved against the importer's globals at
+      call time, which lacked them). `SectionRuntime.runImport` now merges the
+      dependency's module-level names into the importer's globals, skipping any
+      name already present (keeps builtins from shadowing params). 2 tests;
+      suite green (1176). ✓ Landed 2026-05-30.
+
 - [x] **enum-value-support** - Scala 3 `enum` cases usable as values (bare +
       qualified references, matching, `EnumName.values`) on all backends.
       Spec: [`docs/enum-values.md`](docs/enum-values.md). ✓ Landed 2026-05-30:

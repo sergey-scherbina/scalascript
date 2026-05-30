@@ -242,6 +242,17 @@ private[interpreter] object SectionRuntime:
     interp.typeFieldOrder ++= child.exportedTypeFieldOrder
     interp.typeFieldSchemas ++= child.exportedTypeFieldSchemas
     interp.rejectUnknownTypes ++= child.exportedRejectUnknownTypes
+    // Transitive call-time resolution.  A dependency's exported function may
+    // internally call its own helpers, or names it *imported* but did not
+    // re-export (e.g. `validateEntry` using `minorUnits` that the module pulled
+    // from `std/money`).  Free names are resolved against `interp.globals` at
+    // call time, so make the dependency's module-level names available here.
+    // Never overwrite a name the parent already has — that skips the identical
+    // builtins (so HTML-tag builtins can't shadow params, the #503a7e6c case)
+    // and preserves the parent's own / explicitly-bound names.
+    for (name, value) <- childCtx do
+      if !interp.globals.contains(name) then
+        interp.globals(name) = value
 
   /** Enrich `FunV` closures with `ctx` so that exported functions can reference
    *  sibling-module bindings (case-class constructors, helpers) when called
