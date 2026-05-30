@@ -521,6 +521,28 @@ def main(): Unit =
     """) shouldBe "10"
   }
 
+  test("top-level while observes global mutation from called function") {
+    captured("""
+      var i = 0
+      def bump(): Unit =
+        i = i + 2
+      while i < 5 do
+        bump()
+      println(i)
+    """) shouldBe "6"
+  }
+
+  test("while loop direct assignments preserve statement order") {
+    captured("""
+      var x = 0
+      var y = 0
+      while x < 3 do
+        x = x + 1
+        y = x
+      println(y)
+    """) shouldBe "3"
+  }
+
   // ── String methods ───────────────────────────────────────────────
 
   test("string split") {

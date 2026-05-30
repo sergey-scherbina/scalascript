@@ -56,6 +56,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   Primitive infix expressions whose operands are direct names or literals now
   bypass subterm `Pure` wrapper creation and the generic infix dispatcher when
   debugger hooks are disabled, improving tight arithmetic/recursive benchmarks.
+  Top-level `while` loops now reuse the interpreter globals view directly when
+  there are no local shadow slots, avoiding a synthetic side frame and per-iteration
+  refresh in tight assignment loops. `while` bodies made only of primitive direct
+  assignments now take a guarded JVM-loop fast path after a dry-run confirms that
+  no generic calls/extensions are involved; nested primitive infix expressions use
+  the same recursive fast evaluator.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now

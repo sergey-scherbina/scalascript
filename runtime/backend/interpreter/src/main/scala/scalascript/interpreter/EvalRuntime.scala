@@ -97,11 +97,106 @@ private[interpreter] object EvalRuntime:
       case _ => null
 
   private def fastPrimitiveInfixTerm(lhs: Term, op: String, rhs: Term, env: Env, interp: Interpreter): Computation | Null =
-    val lv = fastValue(lhs, env, interp)
+    val lv = fastPrimitiveValue(lhs, env, interp)
     if lv == null then null
     else
-      val rv = fastValue(rhs, env, interp)
+      val rv = fastPrimitiveValue(rhs, env, interp)
       if rv == null then null else fastPrimitiveInfix(lv, op, rv)
+
+  private def fastPrimitiveValue(term: Term, env: Env, interp: Interpreter): Value | Null =
+    term match
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        fastPrimitiveInfixTerm(lhs, op.value, argClause.values.head, env, interp) match
+          case Pure(v) => v
+          case _       => null
+      case _ => fastValue(term, env, interp)
+
+  private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
+
+  private final class OverlayEnvView(base: Env, overlay: mutable.HashMap[String, Value])
+      extends scala.collection.immutable.AbstractMap[String, Value]:
+    override def get(key: String): Option[Value] =
+      overlay.get(key).orElse(base.get(key))
+    override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+      val v = overlay.getOrElse(key, null)
+      if v != null then v else base.getOrElse(key, default)
+    override def contains(key: String): Boolean =
+      overlay.contains(key) || base.contains(key)
+    override def iterator: Iterator[(String, Value)] =
+      overlay.iterator ++ base.iterator.filterNot { case (k, _) => overlay.contains(k) }
+    override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+      (base ++ overlay).updated(key, value)
+    override def removed(key: String): Map[String, Value] =
+      (base ++ overlay).removed(key)
+
+  private def collectFastAssignBody(body: Term): FastAssignBody | Null =
+    def one(assign: Term.Assign): FastAssignBody | Null =
+      if assign.lhs.isInstanceOf[Term.Name] then
+        new FastAssignBody(Array(assign.lhs.asInstanceOf[Term.Name].value), Array(assign.rhs))
+      else null
+
+    body match
+      case assign: Term.Assign => one(assign)
+      case Term.Block(stats) if stats.nonEmpty =>
+        val names = new Array[String](stats.length)
+        val rhs   = new Array[Term](stats.length)
+        var rest  = stats
+        var i     = 0
+        while rest.nonEmpty do
+          rest.head match
+            case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
+              names(i) = assign.lhs.asInstanceOf[Term.Name].value
+              rhs(i) = assign.rhs
+            case _ => return null
+          i += 1
+          rest = rest.tail
+        new FastAssignBody(names, rhs)
+      case _ => null
+
+  private def previewFastAssignIteration(body: FastAssignBody, cond: Term, env: Env, interp: Interpreter): java.lang.Boolean | Null =
+    val overlay = mutable.HashMap.empty[String, Value]
+    val preview = new OverlayEnvView(env, overlay)
+    try
+      var i = 0
+      while i < body.names.length do
+        val v = fastPrimitiveValue(body.rhs(i), preview, interp)
+        if v == null then return null
+        overlay(body.names(i)) = v
+        i += 1
+      fastPrimitiveValue(cond, preview, interp) match
+        case Value.BoolV(next) => java.lang.Boolean.valueOf(next)
+        case _                 => null
+    catch
+      case scala.util.control.NonFatal(_) => null
+
+  private def tryFastWhileAssign(t: Term.While, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
+    if interp.debugHooks.nonEmpty then null
+    else
+      val body = collectFastAssignBody(t.body)
+      if body == null then null
+      else
+        fastPrimitiveValue(t.expr, frameView, interp) match
+          case Value.BoolV(false) => Computation.PureUnit
+          case Value.BoolV(true) =>
+            if previewFastAssignIteration(body, t.expr, frameView, interp) == null then null
+            else
+              val local = frameView.underlying
+              var running = true
+              while running do
+                var i = 0
+                while i < body.names.length do
+                  val v = fastPrimitiveValue(body.rhs(i), frameView, interp)
+                  if v == null then interp.located("Fast while assignment left the primitive path")
+                  val name = body.names(i)
+                  local(name) = v
+                  interp.globals(name) = v
+                  i += 1
+                fastPrimitiveValue(t.expr, frameView, interp) match
+                  case Value.BoolV(next) => running = next
+                  case _                 => running = false
+              Computation.PureUnit
+          case _ => null
 
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
@@ -1090,51 +1185,62 @@ private[interpreter] object EvalRuntime:
           val b2 = scala.collection.mutable.HashMap.empty[String, Value]
           env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
           b2
+      // Top-level loops already run in the interpreter globals map.  If the
+      // compacted frame is empty and the incoming env is just a globals view,
+      // execute the loop body directly against globals instead of creating a
+      // side frame that must be refreshed every iteration.
+      val useGlobalsFrame = frame.isEmpty && (env match
+        case mev: MutableEnvView => mev.underlying.asInstanceOf[AnyRef] eq interp.globals.asInstanceOf[AnyRef]
+        case _                   => false
+      )
       // Snapshot the GLOBALS value of each frame key at loop entry.
       // refreshFn fires when a global was reassigned after loop start — so we compare
       // current globals vs. globals-at-entry, not globals vs. local-at-entry.
       val entrySnap: scala.collection.mutable.HashMap[String, Value] = {
         val s = scala.collection.mutable.HashMap.empty[String, Value]
-        frame.foreachEntry { (k, _) => s(k) = interp.globals.getOrElse(k, null) }
+        if !useGlobalsFrame then frame.foreachEntry { (k, _) => s(k) = interp.globals.getOrElse(k, null) }
         s
       }
-      val frameView = new MutableEnvView(frame)
-      // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
-      val refreshFn: (String, Value) => Unit = (k, _) => {
-        val gv = interp.globals.getOrElse(k, null)
-        if gv != null && entrySnap.getOrElse(k, null) != gv then frame(k) = gv
-      }
-      lazy val loopCont: Value => Computation = _ => loop
-      lazy val condCont: Value => Computation = {
-        case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), loopCont)
-        case _                 => Computation.PureUnit
-      }
-      def loop: Computation =
-        // Refresh mutable frame: only overwrite a key if globals changed since entry.
-        if frame.nonEmpty then frame.foreachEntry(refreshFn)
-        // All-pure fast path: if both the condition and body are pure on the first
-        // iteration, run subsequent iterations in a plain JVM while loop — zero
-        // FlatMap allocations for tight loops (saves 2 allocs × N iterations).
-        // Falls back to the trampoline path on the first effectful step.
-        eval(t.expr, frameView, interp) match
-          case Pure(Value.BoolV(true)) =>
-            eval(t.body, frameView, interp) match
-              case Pure(_) =>
-                var running = true
-                while running do
-                  if frame.nonEmpty then frame.foreachEntry(refreshFn)
-                  eval(t.expr, frameView, interp) match
-                    case Pure(Value.BoolV(true)) =>
-                      eval(t.body, frameView, interp) match
-                        case Pure(_)  => ()
-                        case bodyComp => return FlatMap(bodyComp, loopCont)
-                    case Pure(_) => running = false
-                    case condComp => return FlatMap(condComp, condCont)
-                Computation.PureUnit
-              case bodyComp => FlatMap(bodyComp, loopCont)
-          case Pure(_)   => Computation.PureUnit
-          case condComp  => FlatMap(condComp, condCont)
-      loop
+      val frameView = new MutableEnvView(if useGlobalsFrame then interp.globals else frame)
+      val fastLoop = tryFastWhileAssign(t, frameView, interp)
+      if fastLoop != null then fastLoop
+      else
+        // Hoist per-iteration closures: allocated once per while-entry, reused across all iterations.
+        val refreshFn: (String, Value) => Unit = (k, _) => {
+          val gv = interp.globals.getOrElse(k, null)
+          if gv != null && entrySnap.getOrElse(k, null) != gv then frame(k) = gv
+        }
+        lazy val loopCont: Value => Computation = _ => loop
+        lazy val condCont: Value => Computation = {
+          case Value.BoolV(true) => FlatMap(eval(t.body, frameView, interp), loopCont)
+          case _                 => Computation.PureUnit
+        }
+        def loop: Computation =
+          // Refresh mutable frame: only overwrite a key if globals changed since entry.
+          if !useGlobalsFrame && frame.nonEmpty then frame.foreachEntry(refreshFn)
+          // All-pure fast path: if both the condition and body are pure on the first
+          // iteration, run subsequent iterations in a plain JVM while loop — zero
+          // FlatMap allocations for tight loops (saves 2 allocs × N iterations).
+          // Falls back to the trampoline path on the first effectful step.
+          eval(t.expr, frameView, interp) match
+            case Pure(Value.BoolV(true)) =>
+              eval(t.body, frameView, interp) match
+                case Pure(_) =>
+                  var running = true
+                  while running do
+                    if !useGlobalsFrame && frame.nonEmpty then frame.foreachEntry(refreshFn)
+                    eval(t.expr, frameView, interp) match
+                      case Pure(Value.BoolV(true)) =>
+                        eval(t.body, frameView, interp) match
+                          case Pure(_)  => ()
+                          case bodyComp => return FlatMap(bodyComp, loopCont)
+                      case Pure(_) => running = false
+                      case condComp => return FlatMap(condComp, condCont)
+                  Computation.PureUnit
+                case bodyComp => FlatMap(bodyComp, loopCont)
+            case Pure(_)   => Computation.PureUnit
+            case condComp  => FlatMap(condComp, condCont)
+        loop
 
     // return expr  (non-local via exception)
     case Term.Return(expr) =>
