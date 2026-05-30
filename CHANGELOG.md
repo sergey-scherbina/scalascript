@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — shard module smoke restored
+
+- **fix/shard-module-ignored-test** — Re-enabled `ShardModuleTest`; the
+  in-process `std/cluster/shard.ssc` solo-node owner/send smoke passes without
+  additional runtime changes.
+
 ## 2026-05-30 — obsolete core UI ignored tests removed
 
 - **fix/obsolete-core-ui-ignored-tests** — Removed stale ignored
