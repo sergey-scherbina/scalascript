@@ -3,6 +3,7 @@ package scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.BeforeAndAfterAll
+import scalascript.compiler.plugin.http.HttpInterpreterPlugin
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 import com.sun.net.httpserver.HttpServer
@@ -12,8 +13,8 @@ import java.net.InetSocketAddress
  *
  *  Starts a plain Java HttpServer (bypassing ScalaScript's serve()) so the
  *  tests are decoupled from server lifecycle changes.  All tests share one
- *  server instance started in beforeAll / stopped in afterAll. */
-@org.scalatest.Ignore
+ *  server instance started in beforeAll / stopped in afterAll.
+ */
 class HttpClientTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
 
   private val port   = 19601
@@ -59,7 +60,9 @@ class HttpClientTest extends AnyFunSuite with Matchers with BeforeAndAfterAll:
     val ps  = java.io.PrintStream(buf, true)
     val src = s"# Test\n\n```scala\n$code\n```\n"
     val module = Parser.parse(src)
-    Interpreter(ps).run(module)
+    val interp = Interpreter(ps)
+    interp.installPlugins(List(HttpInterpreterPlugin()))
+    interp.run(module)
     ps.flush()
     buf.toString.trim
 

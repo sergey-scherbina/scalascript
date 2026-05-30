@@ -5,7 +5,7 @@ import org.scalatest.matchers.should.Matchers
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
 
-/** Smoke test for `conformance/actors-cluster-coordinator.ssc` on the
+/** Smoke test for `tests/conformance/actors-cluster-coordinator.ssc` on the
  *  interpreter backend.  Pins the 4-arg `useExternalCoordinator`
  *  round-trip: switch → initial sync acquire → currentLeader =
  *  localNodeId → leaderHistory recorded. */

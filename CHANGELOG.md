@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — ignored interpreter tests restored
+
+- **fix/ignored-interpreter-tests** — Re-enabled the coordinator conformance
+  smoke by reading `tests/conformance/actors-cluster-coordinator.ssc`, moved
+  HTTP client integration coverage to interpreter plugin tests with explicit
+  `HttpInterpreterPlugin`, and made interpreter call-stack tracking
+  thread-local so `runAsyncParallel` thunks cannot race on shared stack
+  buffers.
+
 ## 2026-05-29 — bench{} language block + ssc bench + cross-backend JMH
 
 - **feat/bench-tooling** — Three complementary benchmark tools:

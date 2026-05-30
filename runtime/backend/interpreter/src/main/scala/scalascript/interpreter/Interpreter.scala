@@ -325,21 +325,29 @@ class Interpreter(
       mountCtx = ctx,
       style    = "mount")
 
-  // Phase 5 DAP: call stack — three parallel ArrayBuffers to avoid Tuple3 allocation per push.
-  private[interpreter] val callStackNames = scala.collection.mutable.ArrayBuffer.empty[String]
-  private[interpreter] val callStackFiles = scala.collection.mutable.ArrayBuffer.empty[String]
-  private[interpreter] val callStackLines = scala.collection.mutable.ArrayBuffer.empty[Int]
-  private[interpreter] inline def callStackNonEmpty: Boolean = callStackNames.nonEmpty
-  private[interpreter] inline def callStackLength: Int = callStackNames.length
-  private[interpreter] inline def callStackPush(name: String, file: String, line: Int): Unit =
-    callStackNames += name; callStackFiles += file; callStackLines += line
-  private[interpreter] inline def callStackPop(): Unit =
-    val last = callStackNames.length - 1
-    callStackNames.remove(last); callStackFiles.remove(last); callStackLines.remove(last)
+  // Phase 5 DAP: call stack — thread-local because runAsyncParallel evaluates
+  // thunks on virtual threads against the same Interpreter instance.
+  private final class CallStackState:
+    val names = scala.collection.mutable.ArrayBuffer.empty[String]
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val lines = scala.collection.mutable.ArrayBuffer.empty[Int]
+  private val callStackLocal = ThreadLocal.withInitial(() => new CallStackState)
+  private def callStackState: CallStackState = callStackLocal.get()
+  private[interpreter] def callStackNonEmpty: Boolean = callStackState.names.nonEmpty
+  private[interpreter] def callStackLength: Int = callStackState.names.length
+  private[interpreter] def callStackPush(name: String, file: String, line: Int): Unit =
+    val s = callStackState
+    s.names += name; s.files += file; s.lines += line
+  private[interpreter] def callStackPop(): Unit =
+    val s = callStackState
+    val last = s.names.length - 1
+    s.names.remove(last); s.files.remove(last); s.lines.remove(last)
   private[interpreter] def callStackToList: List[(String, String, Int)] =
-    callStackNames.indices.map(i => (callStackNames(i), callStackFiles(i), callStackLines(i))).toList
+    val s = callStackState
+    s.names.indices.map(i => (s.names(i), s.files(i), s.lines(i))).toList
   private[interpreter] def callStackToIndexedSeq: scala.collection.immutable.IndexedSeq[(String, String, Int)] =
-    callStackNames.indices.map(i => (callStackNames(i), callStackFiles(i), callStackLines(i))).toIndexedSeq
+    val s = callStackState
+    s.names.indices.map(i => (s.names(i), s.files(i), s.lines(i))).toIndexedSeq
   // When true, currentStackTrace() includes anonymous (<anon>) and _-prefixed frames.
   private[interpreter] var traceVerbose: Boolean = false
   // Types declared with @noTrace — throw uses ScriptExceptionNoTrace to skip JVM fillInStackTrace.
