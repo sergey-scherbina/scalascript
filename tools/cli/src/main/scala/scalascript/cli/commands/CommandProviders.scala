@@ -108,45 +108,6 @@ final class NewCmd extends CliCommand:
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = newCommand(args)
 
-final class EmitScalaCmd extends CliCommand:
-  def name = "emit-scala"
-  override def summary = "Print generated Scala 3 script to stdout"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitScalaCommand(args)
-
-final class EmitJsCmd extends CliCommand:
-  def name = "emit-js"
-  override def summary = "Transpile .ssc to JavaScript (Node) and print to stdout"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --no-tree-shake, --stats")
-  def run(args: List[String]): Unit = emitJsCommand(args)
-
-final class EmitWasmCmd extends CliCommand:
-  def name = "emit-wasm"
-  override def summary = "Compile scala/scalascript blocks to WebAssembly via Scala.js"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitWasmCommand(args)
-
-final class EmitSpaCmd extends CliCommand:
-  def name = "emit-spa"
-  override def summary = "Wrap .ssc as a browser SPA (HTML + embedded JS)"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --frontend <custom|react|solid|vue>")
-  def run(args: List[String]): Unit = emitSpaCommand(args)
-
-final class EmitWcCmd extends CliCommand:
-  def name = "emit-wc"
-  override def summary = "Emit each component as a W3C Custom Element bundle"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitWcCommand(args)
-
-final class EmitOpenapiCmd extends CliCommand:
-  def name = "emit-openapi"
-  override def summary = "Export OpenAPI 3.1 JSON/YAML without starting a server"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --format <json|yaml>, -o <file>, --title <s>, --version <v>, --server <url>")
-  def run(args: List[String]): Unit = emitOpenapiCommand(args)
-
 final class EmitSparkCmd extends CliCommand:
   def name = "emit-spark"
   override def summary = "Print generated Scala 3 + Spark program to stdout"
