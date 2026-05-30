@@ -824,10 +824,16 @@ private[interpreter] object EvalRuntime:
         case _ =>
           if env eq interp.globals then Map.empty
           else env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
-      val paramNames = paramClause.values.map(_.name.value)
-      // Extract declared type annotations so TypedHandlerWrapper can detect
-      // typed route handlers at mount time.  Empty string for unannotated params.
-      val paramTypes = paramClause.values.map(p => p.decltpe.fold("")(interp.typeToString))
+      // Extract and cache lambda parameter metadata once per AST node. Typed
+      // handler mounting reads paramTypes, with empty string for unannotated params.
+      var paramInfo = interp.paramInfoCache.get(paramClause)
+      if paramInfo == null then
+        paramInfo = (
+          paramClause.values.map(_.name.value),
+          paramClause.values.map(p => p.decltpe.fold("")(interp.typeToString))
+        )
+        interp.paramInfoCache.put(paramClause, paramInfo)
+      val (paramNames, paramTypes) = paramInfo
       Pure(Value.FunV(paramNames, body, closure, paramTypes = paramTypes))
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }

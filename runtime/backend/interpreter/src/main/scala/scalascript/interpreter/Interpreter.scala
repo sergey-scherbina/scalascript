@@ -546,6 +546,13 @@ class Interpreter(
   private[interpreter] val paramsArrayCache: java.util.IdentityHashMap[scala.meta.Term, Array[String]] =
     java.util.IdentityHashMap()
 
+  /** Cache (paramNames, paramTypes) for each lambda parameter clause.
+   *  A lambda evaluated in a tight loop recreates these Lists on every iteration;
+   *  caching by ParamClause identity saves O(n_params) allocations per pass. */
+  private[interpreter] val paramInfoCache:
+      java.util.IdentityHashMap[scala.meta.Term.ParamClause, (List[String], List[String])] =
+    java.util.IdentityHashMap()
+
   private[interpreter] def closureWithSelfFor(f: Value.FunV): Env =
     if f.name.isEmpty then f.closure
     else
