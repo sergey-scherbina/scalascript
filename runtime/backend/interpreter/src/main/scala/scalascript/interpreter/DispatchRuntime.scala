@@ -2761,9 +2761,66 @@ private[interpreter] object DispatchRuntime:
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     infix2(lhs, op, if args.nonEmpty then args.head else Value.UnitV, env, interp)
 
+  /** Tuple-free fast path for primitive Int/Double arithmetic and ordering.
+   *  Uses nested `lhs match → rhs match` rather than `(lhs, rhs) match` so the
+   *  hot path allocates no Tuple2 per operation. Returns null for any operand
+   *  or operator combination it does not handle, so callers fall through to the
+   *  full dispatch below. Deliberately excludes `==`/`!=`/`&&`/`||` so equality
+   *  and short-circuit semantics remain owned by the general path unchanged. */
+  private[interpreter] def numericFast(lhs: Value, op: String, rhs: Value): Computation | Null =
+    lhs match
+      case Value.IntV(a) => rhs match
+        case Value.IntV(b) => op match
+          case "+"  => Computation.pureIntV(a + b)
+          case "-"  => Computation.pureIntV(a - b)
+          case "*"  => Computation.pureIntV(a * b)
+          case "/"  => Computation.pureIntV(a / b)
+          case "%"  => Computation.pureIntV(a % b)
+          case "<"  => Computation.pureBool(a < b)
+          case ">"  => Computation.pureBool(a > b)
+          case "<=" => Computation.pureBool(a <= b)
+          case ">=" => Computation.pureBool(a >= b)
+          case _    => null
+        case Value.DoubleV(b) => op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a.toDouble < b)
+          case ">"  => Computation.pureBool(a.toDouble > b)
+          case "<=" => Computation.pureBool(a.toDouble <= b)
+          case ">=" => Computation.pureBool(a.toDouble >= b)
+          case _    => null
+        case _ => null
+      case Value.DoubleV(a) => rhs match
+        case Value.DoubleV(b) => op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a < b)
+          case ">"  => Computation.pureBool(a > b)
+          case "<=" => Computation.pureBool(a <= b)
+          case ">=" => Computation.pureBool(a >= b)
+          case _    => null
+        case Value.IntV(b) => op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a < b.toDouble)
+          case ">"  => Computation.pureBool(a > b.toDouble)
+          case "<=" => Computation.pureBool(a <= b.toDouble)
+          case ">=" => Computation.pureBool(a >= b.toDouble)
+          case _    => null
+        case _ => null
+      case _ => null
+
   /** Infix fast path: rhs already extracted. args is created lazily (rhs :: Nil) only in the
    *  fallback dispatch path, so arithmetic/comparison fast paths pay zero allocation. */
   def infix2(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
+    val nf = numericFast(lhs, op, rhs)
+    if nf != null then return nf
     // Dispatch on op first — Scala 3 compiles this to a hashCode-based O(1) switch
     // rather than the previous O(N) linear scan through 40 tuple-match cases.
     op match

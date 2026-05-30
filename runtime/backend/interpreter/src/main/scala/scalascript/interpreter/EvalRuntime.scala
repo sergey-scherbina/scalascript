@@ -38,62 +38,27 @@ private[interpreter] object EvalRuntime:
         cachedLiteralValue(lit, interp)
       case _ => null
 
+  // Tuple-free: arithmetic/ordering shared with DispatchRuntime.numericFast; the
+  // Double/Bool equality and Bool short-circuit cases are kept here because
+  // numericFast deliberately leaves them to the general path.
   private def fastPrimitiveInfix(lhs: Value, op: String, rhs: Value): Computation | Null =
-    (lhs, rhs) match
-      case (Value.IntV(a), Value.IntV(b)) =>
-        op match
-          case "+"  => Computation.pureIntV(a + b)
-          case "-"  => Computation.pureIntV(a - b)
-          case "*"  => Computation.pureIntV(a * b)
-          case "/"  => Computation.pureIntV(a / b)
-          case "%"  => Computation.pureIntV(a % b)
-          case "<"  => Computation.pureBool(a < b)
-          case ">"  => Computation.pureBool(a > b)
-          case "<=" => Computation.pureBool(a <= b)
-          case ">=" => Computation.pureBool(a >= b)
-          case _    => null
-      case (Value.DoubleV(a), Value.DoubleV(b)) =>
-        op match
-          case "+"  => Pure(Value.doubleV(a + b))
-          case "-"  => Pure(Value.doubleV(a - b))
-          case "*"  => Pure(Value.doubleV(a * b))
-          case "/"  => Pure(Value.doubleV(a / b))
-          case "<"  => Computation.pureBool(a < b)
-          case ">"  => Computation.pureBool(a > b)
-          case "<=" => Computation.pureBool(a <= b)
-          case ">=" => Computation.pureBool(a >= b)
+    val nf = DispatchRuntime.numericFast(lhs, op, rhs)
+    if nf != null then nf
+    else lhs match
+      case Value.DoubleV(a) => rhs match
+        case Value.DoubleV(b) => op match
           case "==" => Computation.pureBool(a == b)
           case "!=" => Computation.pureBool(a != b)
           case _    => null
-      case (Value.IntV(a), Value.DoubleV(b)) =>
-        op match
-          case "+"  => Pure(Value.doubleV(a + b))
-          case "-"  => Pure(Value.doubleV(a - b))
-          case "*"  => Pure(Value.doubleV(a * b))
-          case "/"  => Pure(Value.doubleV(a / b))
-          case "<"  => Computation.pureBool(a.toDouble < b)
-          case ">"  => Computation.pureBool(a.toDouble > b)
-          case "<=" => Computation.pureBool(a.toDouble <= b)
-          case ">=" => Computation.pureBool(a.toDouble >= b)
-          case _    => null
-      case (Value.DoubleV(a), Value.IntV(b)) =>
-        op match
-          case "+"  => Pure(Value.doubleV(a + b))
-          case "-"  => Pure(Value.doubleV(a - b))
-          case "*"  => Pure(Value.doubleV(a * b))
-          case "/"  => Pure(Value.doubleV(a / b))
-          case "<"  => Computation.pureBool(a < b.toDouble)
-          case ">"  => Computation.pureBool(a > b.toDouble)
-          case "<=" => Computation.pureBool(a <= b.toDouble)
-          case ">=" => Computation.pureBool(a >= b.toDouble)
-          case _    => null
-      case (Value.BoolV(a), Value.BoolV(b)) =>
-        op match
+        case _ => null
+      case Value.BoolV(a) => rhs match
+        case Value.BoolV(b) => op match
           case "&&" => Computation.pureBool(a && b)
           case "||" => Computation.pureBool(a || b)
           case "==" => Computation.pureBool(a == b)
           case "!=" => Computation.pureBool(a != b)
           case _    => null
+        case _ => null
       case _ => null
 
   private def fastPrimitiveInfixTerm(lhs: Term, op: String, rhs: Term, env: Env, interp: Interpreter): Computation | Null =
