@@ -697,11 +697,11 @@ private[interpreter] object EvalRuntime:
         case Pure(Value.BoolV(true))  => eval(t.thenp, env, interp)
         case Pure(Value.BoolV(false)) => eval(t.elsep, env, interp)
         case Pure(other)              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
-        case condC                    => condC.flatMap {
+        case condC                    => FlatMap(condC, {
           case Value.BoolV(true)  => eval(t.thenp, env, interp)
           case Value.BoolV(false) => eval(t.elsep, env, interp)
           case other              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
-        }
+        })
 
     // Fast path: s"${expr}" or s"prefix${expr}suffix" — 1-arg s-interpolation.
     // Avoids: 2 List allocations (cast map + evalArgs map), threadValues,
@@ -986,7 +986,7 @@ private[interpreter] object EvalRuntime:
     case Term.Assign(Term.Name(name), rhs) =>
       eval(rhs, env, interp) match
         case Pure(v) => interp.globals(name) = v; Computation.PureUnit
-        case c       => c.flatMap { v => interp.globals(name) = v; Computation.PureUnit }
+        case c       => FlatMap(c, { v => interp.globals(name) = v; Computation.PureUnit })
 
     // summon[TC[T]] — retrieve a given instance from the table
     case t: Term.ApplyType =>
