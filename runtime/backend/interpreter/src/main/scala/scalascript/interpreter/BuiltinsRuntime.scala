@@ -117,6 +117,44 @@ private[interpreter] object BuiltinsRuntime:
       case _                       => throw InterpretError("BigInt requires exactly one argument")
     })
 
+    // ── Decimal constructor (exact-numerics v1.64) ──────────────────────
+    // `Decimal("12.34")` (canonical), `Decimal(123, 2)` = 1.23, Decimal(int),
+    // Decimal(bigint), Decimal(decimal).  Building from Double is rejected —
+    // exact decimals must not start from an inexact binary float.
+    interp.globals("Decimal") = Value.NativeFnV("Decimal", {
+      case List(Value.StringV(s)) =>
+        try Pure(Value.DecimalV(BigDecimal(s.trim)))
+        catch case _: NumberFormatException =>
+          throw InterpretError(s"Decimal: not a valid number: '$s'")
+      case List(Value.IntV(n))            => Pure(Value.DecimalV(BigDecimal(n)))
+      case List(Value.BigIntV(n))         => Pure(Value.DecimalV(BigDecimal(n)))
+      case List(Value.DecimalV(d))        => Pure(Value.DecimalV(d))
+      // Decimal(unscaled, scale): integer unscaled value scaled by 10^-scale.
+      case List(Value.IntV(u), Value.IntV(sc))    => Pure(Value.DecimalV(BigDecimal(BigInt(u), sc.toInt)))
+      case List(Value.BigIntV(u), Value.IntV(sc)) => Pure(Value.DecimalV(BigDecimal(u, sc.toInt)))
+      case List(Value.DoubleV(_)) =>
+        throw InterpretError("Decimal: refusing to build from a Double (inexact). Use Decimal(\"…\") or Decimal(unscaled, scale).")
+      case List(other) => throw InterpretError(s"Decimal: cannot build from ${Value.show(other)}")
+      case _           => throw InterpretError("Decimal(value) or Decimal(unscaled, scale)")
+    })
+    interp.globals("BigDecimal") = interp.globals("Decimal")
+
+    // ── RoundingMode constants (exact-numerics v1.64) ───────────────────
+    // `RoundingMode.HALF_UP` etc. — each is an InstanceV carrying its name,
+    // consumed by Decimal.setScale / round / divide.
+    def roundingMode(n: String): Value.InstanceV =
+      Value.InstanceV("RoundingMode", new IMap.Map1("_name", Value.StringV(n)))
+    interp.globals("RoundingMode") = Value.InstanceV("RoundingMode", IMap(
+      "UP"        -> roundingMode("UP"),
+      "DOWN"      -> roundingMode("DOWN"),
+      "CEILING"   -> roundingMode("CEILING"),
+      "FLOOR"     -> roundingMode("FLOOR"),
+      "HALF_UP"   -> roundingMode("HALF_UP"),
+      "HALF_DOWN" -> roundingMode("HALF_DOWN"),
+      "HALF_EVEN" -> roundingMode("HALF_EVEN"),
+      "UNNECESSARY" -> roundingMode("UNNECESSARY"),
+    ))
+
     // ── Exception constructors ────────────────────────────────────────
     // Allow `throw RuntimeException("msg")` and `try ... catch { case e: ... }`
     // in ScalaScript code.  Each factory produces an InstanceV so field access

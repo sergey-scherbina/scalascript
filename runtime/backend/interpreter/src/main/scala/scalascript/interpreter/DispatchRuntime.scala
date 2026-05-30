@@ -46,6 +46,7 @@ private[interpreter] object DispatchRuntime:
       case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
       case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
       case Value.BigIntV(b)        => dispatchBigInt(b, name, args, env, interp)
+      case Value.DecimalV(d)       => dispatchDecimal(d, name, args, env, interp)
       case Value.CharV(c)          => dispatchChar(c, name, args, env, interp)
       case Value.BoolV(b)          => dispatchBool(recv, b, name, args, env, interp)
       case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
@@ -1903,6 +1904,7 @@ private[interpreter] object DispatchRuntime:
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)
       case "toBigInt"  => Pure(Value.BigIntV(BigInt(n)))
+      case "toDecimal" => Pure(Value.DecimalV(BigDecimal(n)))
       case "toFloat"   => Pure(Value.doubleV(n.toDouble))
       case "toByte"    => Computation.pureIntV(n.toByte.toLong)
       case "toShort"   => Computation.pureIntV(n.toShort.toLong)
@@ -1984,11 +1986,71 @@ private[interpreter] object DispatchRuntime:
         case List(Value.IntV(c)) => Computation.pureBool(n.isProbablePrime(c.toInt))
         case Nil                 => Computation.pureBool(n.isProbablePrime(20))
         case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "toDecimal"  => Pure(Value.DecimalV(BigDecimal(n)))
       case "+" => args match { case List(a) => Pure(Value.BigIntV(n + asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "-" => args match { case List(a) => Pure(Value.BigIntV(n - asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "*" => args match { case List(a) => Pure(Value.BigIntV(n * asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "/" => args match { case List(a) => Pure(Value.BigIntV(n / asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "%" => args match { case List(a) => Pure(Value.BigIntV(n % asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── Decimal (exact-numerics v1.64) ────────────────────────────────────────────
+
+  /** Parse a RoundingMode from a ScalaScript value: a String name
+   *  ("HALF_UP", "HALF_EVEN", …) or a RoundingMode.X instance carrying `_name`. */
+  private def roundingMode(v: Value): java.math.RoundingMode = v match
+    case Value.StringV(s)                       => java.math.RoundingMode.valueOf(s.trim.toUpperCase)
+    case Value.InstanceV("RoundingMode", f)     =>
+      f.get("_name") match
+        case Some(Value.StringV(s)) => java.math.RoundingMode.valueOf(s.trim.toUpperCase)
+        case _                      => throw InterpretError("RoundingMode: missing name")
+    case other => throw InterpretError(s"expected a RoundingMode, got ${Value.show(other)}")
+
+  private def dispatchDecimal(d: BigDecimal, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.DecimalV(d)
+    def asDec(v: Value): BigDecimal = v match
+      case Value.DecimalV(x) => x
+      case Value.IntV(i)     => BigDecimal(i)
+      case Value.BigIntV(b)  => BigDecimal(b)
+      case Value.DoubleV(_)  => throw decimalDoubleMix(name)
+      case other             => throw InterpretError(s"Decimal.$name: expected a number, got ${Value.show(other)}")
+    name match
+      case "scale"     => Computation.pureIntV(d.scale.toLong)
+      case "precision" => Computation.pureIntV(d.precision.toLong)
+      case "toDecimal" => Pure(recv)
+      case "toBigInt"  => Pure(Value.BigIntV(d.toBigInt))
+      case "toInt"     => Computation.pureIntV(d.toLong)
+      case "toLong"    => Computation.pureIntV(d.toLong)
+      case "toDouble"  => Pure(Value.doubleV(d.toDouble))
+      case "toString"  => Pure(Value.StringV(d.bigDecimal.toPlainString))
+      case "abs"       => Pure(Value.DecimalV(d.abs))
+      case "negate"    => Pure(Value.DecimalV(-d))
+      case "signum"    => Computation.pureIntV(d.signum.toLong)
+      case "isZero"    => Computation.pureBool(d.signum == 0)
+      case "min"       => args match { case List(a) => Pure(Value.DecimalV(d.min(asDec(a)))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "max"       => args match { case List(a) => Pure(Value.DecimalV(d.max(asDec(a)))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "pow"       => args match
+        case List(Value.IntV(e)) => Pure(Value.DecimalV(d.pow(e.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "setScale"  => args match
+        case List(Value.IntV(sc))             => Pure(Value.DecimalV(BigDecimal(d.bigDecimal.setScale(sc.toInt, java.math.RoundingMode.HALF_UP))))
+        case List(Value.IntV(sc), modeV)      => Pure(Value.DecimalV(BigDecimal(d.bigDecimal.setScale(sc.toInt, roundingMode(modeV)))))
+        case _                                => dispatchFallback(recv, name, args, env, interp)
+      case "round"     => args match
+        case List(modeV)                      => Pure(Value.DecimalV(BigDecimal(d.bigDecimal.setScale(0, roundingMode(modeV)))))
+        case Nil                              => Pure(Value.DecimalV(BigDecimal(d.bigDecimal.setScale(0, java.math.RoundingMode.HALF_UP))))
+        case _                                => dispatchFallback(recv, name, args, env, interp)
+      case "divide"    => args match
+        case List(divisor, Value.IntV(sc), modeV) =>
+          Pure(Value.DecimalV(BigDecimal(d.bigDecimal.divide(asDec(divisor).bigDecimal, sc.toInt, roundingMode(modeV)))))
+        case List(divisor, modeV) =>
+          Pure(Value.DecimalV(BigDecimal(d.bigDecimal.divide(asDec(divisor).bigDecimal, d.scale, roundingMode(modeV)))))
+        case _                                => dispatchFallback(recv, name, args, env, interp)
+      case "compareTo" => args match { case List(a) => Computation.pureIntV(d.compare(asDec(a)).toLong); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "+" => args match { case List(a) => Pure(Value.DecimalV(d + asDec(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "-" => args match { case List(a) => Pure(Value.DecimalV(d - asDec(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "*" => args match { case List(a) => Pure(Value.DecimalV(d * asDec(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "/" => args match { case List(a) => Pure(Value.DecimalV(d / asDec(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Double ──────────────────────────────────────────────────────────────────
@@ -2293,6 +2355,12 @@ private[interpreter] object DispatchRuntime:
       val ext = extensionDispatch(recv, name, args, env, interp)
       if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
+  /** Decimal⊕Double is a deliberate error (exact-numerics §4.3): mixing exact
+   *  decimal with inexact binary float silently loses precision. Convert
+   *  explicitly with `.toDouble` or `.toDecimal`. */
+  private def decimalDoubleMix(op: String): InterpretError =
+    InterpretError(s"cannot mix Decimal and Double in '$op' — convert explicitly (.toDouble or .toDecimal)")
+
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     infix2(lhs, op, if args.nonEmpty then args.head else Value.UnitV, args, env, interp)
 
@@ -2309,6 +2377,13 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a + b))
         case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a + BigInt(b)))
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) + b))
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Pure(Value.DecimalV(a + b))
+        case (Value.DecimalV(a), Value.IntV(b))     => Pure(Value.DecimalV(a + BigDecimal(b)))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) + b))
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Pure(Value.DecimalV(a + BigDecimal(b)))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) + b))
+        case (Value.DecimalV(_), Value.DoubleV(_))  => throw decimalDoubleMix("+")
+        case (Value.DoubleV(_),  Value.DecimalV(_)) => throw decimalDoubleMix("+")
         case (Value.StringV(a), b)                => Pure(Value.StringV(a + Value.show(b)))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "-" => (lhs, rhs) match
@@ -2319,6 +2394,13 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a - b))
         case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a - BigInt(b)))
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) - b))
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Pure(Value.DecimalV(a - b))
+        case (Value.DecimalV(a), Value.IntV(b))     => Pure(Value.DecimalV(a - BigDecimal(b)))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) - b))
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Pure(Value.DecimalV(a - BigDecimal(b)))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) - b))
+        case (Value.DecimalV(_), Value.DoubleV(_))  => throw decimalDoubleMix("-")
+        case (Value.DoubleV(_),  Value.DecimalV(_)) => throw decimalDoubleMix("-")
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "*" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a * b)
@@ -2328,6 +2410,13 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a * b))
         case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a * BigInt(b)))
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) * b))
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Pure(Value.DecimalV(a * b))
+        case (Value.DecimalV(a), Value.IntV(b))     => Pure(Value.DecimalV(a * BigDecimal(b)))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) * b))
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Pure(Value.DecimalV(a * BigDecimal(b)))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) * b))
+        case (Value.DecimalV(_), Value.DoubleV(_))  => throw decimalDoubleMix("*")
+        case (Value.DoubleV(_),  Value.DecimalV(_)) => throw decimalDoubleMix("*")
         case (Value.StringV(a), Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "/" => (lhs, rhs) match
@@ -2338,6 +2427,13 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a / b))
         case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a / BigInt(b)))
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) / b))
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Pure(Value.DecimalV(a / b))
+        case (Value.DecimalV(a), Value.IntV(b))     => Pure(Value.DecimalV(a / BigDecimal(b)))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) / b))
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Pure(Value.DecimalV(a / BigDecimal(b)))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Pure(Value.DecimalV(BigDecimal(a) / b))
+        case (Value.DecimalV(_), Value.DoubleV(_))  => throw decimalDoubleMix("/")
+        case (Value.DoubleV(_),  Value.DecimalV(_)) => throw decimalDoubleMix("/")
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "%" => (lhs, rhs) match
         case (Value.IntV(a), Value.IntV(b)) => Computation.pureIntV(a % b)
@@ -2346,19 +2442,32 @@ private[interpreter] object DispatchRuntime:
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) % b))
         case _                              => dispatch(lhs, op, args, env, interp)
       case "==" => (lhs, rhs) match
-        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a == BigInt(b))
-        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) == b)
-        case _                                    => Computation.pureBool(lhs == rhs)
+        case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a == BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b))  => Computation.pureBool(BigInt(a) == b)
+        case (Value.DecimalV(a), Value.IntV(b))    => Computation.pureBool(a == BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) == b)
+        case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a == BigDecimal(b))
+        case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) == b)
+        case _                                     => Computation.pureBool(lhs == rhs)
       case "!=" => (lhs, rhs) match
-        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a != BigInt(b))
-        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) != b)
-        case _                                    => Computation.pureBool(lhs != rhs)
+        case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a != BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b))  => Computation.pureBool(BigInt(a) != b)
+        case (Value.DecimalV(a), Value.IntV(b))    => Computation.pureBool(a != BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) != b)
+        case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a != BigDecimal(b))
+        case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) != b)
+        case _                                     => Computation.pureBool(lhs != rhs)
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a < b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a < BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) < b)
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Computation.pureBool(a < b)
+        case (Value.DecimalV(a), Value.IntV(b))     => Computation.pureBool(a < BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) < b)
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Computation.pureBool(a < BigDecimal(b))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) < b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a > b)
@@ -2366,6 +2475,11 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a > b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a > BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) > b)
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Computation.pureBool(a > b)
+        case (Value.DecimalV(a), Value.IntV(b))     => Computation.pureBool(a > BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) > b)
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Computation.pureBool(a > BigDecimal(b))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) > b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "<=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a <= b)
@@ -2373,6 +2487,11 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a <= b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a <= BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) <= b)
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Computation.pureBool(a <= b)
+        case (Value.DecimalV(a), Value.IntV(b))     => Computation.pureBool(a <= BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) <= b)
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Computation.pureBool(a <= BigDecimal(b))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) <= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a >= b)
@@ -2380,6 +2499,11 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a >= b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a >= BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) >= b)
+        case (Value.DecimalV(a), Value.DecimalV(b)) => Computation.pureBool(a >= b)
+        case (Value.DecimalV(a), Value.IntV(b))     => Computation.pureBool(a >= BigDecimal(b))
+        case (Value.IntV(a),     Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) >= b)
+        case (Value.DecimalV(a), Value.BigIntV(b))  => Computation.pureBool(a >= BigDecimal(b))
+        case (Value.BigIntV(a),  Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) >= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "&&" => (lhs, rhs) match
         case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)

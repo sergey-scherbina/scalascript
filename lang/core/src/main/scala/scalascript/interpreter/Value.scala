@@ -229,6 +229,11 @@ enum Value:
   /** Arbitrary-precision signed integer (exact-numerics v1.64). Produced by
    *  the `BigInt(...)` built-in and by Int→BigInt widening in arithmetic. */
   case BigIntV(v: BigInt)
+  /** Arbitrary-precision signed decimal with explicit scale (exact-numerics
+   *  v1.64). Backed by `scala.math.BigDecimal`, whose `equals`/`hashCode` are
+   *  value-based (`Decimal("1.0") == Decimal("1.00")`) — so numeric `==` and
+   *  consistent hashing come for free. The workhorse for money. */
+  case DecimalV(v: BigDecimal)
   case StringV(v: String)
   case BoolV(v: Boolean)
   case CharV(v: Char)
@@ -334,6 +339,7 @@ object Value:
     case IntV(n)              => n.toString
     case DoubleV(d)           => if d == d.toLong.toDouble then d.toLong.toString else d.toString
     case BigIntV(n)           => n.toString
+    case DecimalV(d)          => d.bigDecimal.toPlainString
     case StringV(s)           => s
     case BoolV(b)             => b.toString
     case CharV(c)             => c.toString

@@ -24,10 +24,11 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
       constructor in `BuiltinsRuntime`, arithmetic + methods + Int↔BigInt tower in
       `DispatchRuntime`, `show`/serialize, tests. Spec: `docs/exact-numerics.md
       §4-5, §7`. ✓ Landed 2026-05-30 (9 tests; full interpreter suite green).
-- [ ] **v1.64.2-decimal-interpreter** - `Value.DecimalV(BigDecimal)`,
+- [x] **v1.64.2-decimal-interpreter** - `Value.DecimalV(BigDecimal)`,
       construction (`Decimal("…")`, `Decimal(n, scale)`), exact `+-*`,
       `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised
       `hashCode`, serialize, tests. Spec: `docs/exact-numerics.md §4.4-4.7`.
+      ✓ Landed 2026-05-30 (14 tests; Decimal⊕Double rejected; full suite green, 1131).
 - [ ] **v1.64.3-numerics-typer** - Register `BigInt`/`Decimal`/`BigDecimal`/
       `RoundingMode`; implement the numeric tower; raise the **Decimal↔Double**
       type error; inference rules. Spec: `docs/exact-numerics.md §4.3`.

@@ -30,6 +30,9 @@ object ValueSerializer:
     case Value.BigIntV(n) =>
       // arbitrary precision → string-encoded to survive JSON number limits
       sb.append("{\"$t\":\"bi\",\"v\":"); writeStr(n.toString, sb); sb.append("}")
+    case Value.DecimalV(d) =>
+      // string-encoded canonical (plain, no scientific) to preserve scale
+      sb.append("{\"$t\":\"dec\",\"v\":"); writeStr(d.bigDecimal.toPlainString, sb); sb.append("}")
     case Value.StringV(s) =>
       sb.append("{\"$t\":\"s\",\"v\":"); writeStr(s, sb); sb.append("}")
     case Value.BoolV(b)   =>
@@ -114,6 +117,7 @@ object ValueSerializer:
             case Some(Value.IntV(n))    => Value.doubleV(n.toDouble)
             case _                      => Value.doubleV(0.0)
           case "bi" => Value.BigIntV(BigInt(str("v").getOrElse("0")))
+          case "dec" => Value.DecimalV(BigDecimal(str("v").getOrElse("0")))
           case "s"  => Value.StringV(str("v").getOrElse(""))
           case "b"  => Value.boolV(any("v").collect { case Value.BoolV(b) => b }.getOrElse(false))
           case "u"  => Value.UnitV
