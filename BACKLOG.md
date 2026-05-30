@@ -76,6 +76,16 @@ the contracts are explicit.
       (`selfInstallCommand` / `scriptCommand` / `stagePrecompiledDepArtifacts` /
       `packageLib`). Higher coupling — move the dependency cluster together.
       Keep command behavior and `CliCommand` registry contracts unchanged.
+- [ ] **jsgen-split-p1** - Behavior-preserving extraction from the 12k-line
+      `runtime/backend/js/.../codegen/JsGen.scala`, mirroring the established
+      `JsRuntime*.scala` (preamble strings) + `intrinsics/*.scala` (per-intrinsic
+      codegen) split. Phase 1 leaf clusters: (a) large embedded runtime-preamble
+      `String` vals (e.g. `httpTypedRouteClientRuntime`) → a `JsRuntime*.scala`
+      file; (b) self-contained string/quoting helpers (`jsQuote` / `jsStringLit`
+      / `jsTemplateEscape` / `stringBlockTemplate`) → a `JsGenStringUtils` object.
+      Emitted JS must stay byte-identical; verify via `node` round-trip + existing
+      JS codegen tests. Heavier `genExpr` / `genStat` clusters deferred to a
+      follow-up phase.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
