@@ -43,10 +43,11 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
       conformance vs interpreter/JVM. Spec: `docs/exact-numerics.md §5, §8`.
       ✓ Landed 2026-05-30 (BigInt-backed _Decimal, all rounding modes, _arith
       operator routing, _dispatch methods; node conformance 6 tests, suite 1142).
-- [ ] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
+- [x] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
       table, per-org overridable), `Money`, `RoundingMode`, cent-preserving
       `allocate`/`distribute`, `format`/`parse`. Cross-backend tests. Spec:
-      `docs/exact-numerics.md §6`.
+      `docs/exact-numerics.md §6`. ✓ Landed 2026-05-30 (runtime/std/money.ssc;
+      7 interpreter tests + JVM/JS conformance; allocation preserves cents).
 - [ ] **v1.64.7-numerics-sugar** *(optional)* - Suffix literals `123n`/`12.34m`,
       oversized-int auto-promotion, `money"…"` interpolator — via the preprocessor
       pass. Spec: `docs/exact-numerics.md §4.2, §7`.
