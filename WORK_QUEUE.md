@@ -559,7 +559,7 @@ ScalaScript's own registry work stays queued.
   required (new SPI): `docs/cli-command-spi.md §plugin-commands`. Larger,
   design-first effort.
 
-- [ ] **cli-main-helper-split** — Main.scala is ~8,900 lines of shared helpers now
+- [x] **cli-main-helper-split** — Main.scala is ~8,900 lines of shared helpers now
   that command logic moved to classes. Extract cohesive helper clusters (build
   pipeline, synthetic-request/render helpers, artifact IO) into focused files.
   Lower priority — diminishing navigational return; helpers are genuinely shared
