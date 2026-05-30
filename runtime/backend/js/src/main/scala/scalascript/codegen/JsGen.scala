@@ -2543,11 +2543,148 @@ function wsConnect(url, extraHeaders, protocols) {
 """
 
 private val JsRuntimePart2a: String = """
+// ── Exact numerics (v1.64): BigInt is native; Decimal is BigInt-backed ──────
+// A Decimal is { _type:'_Decimal', u: bigint, s: int } with value = u * 10^-s.
+const RoundingMode = { UP:'UP', DOWN:'DOWN', CEILING:'CEILING', FLOOR:'FLOOR',
+  HALF_UP:'HALF_UP', HALF_DOWN:'HALF_DOWN', HALF_EVEN:'HALF_EVEN', UNNECESSARY:'UNNECESSARY' };
+function _pow10(n) { return 10n ** BigInt(n); }
+function _mkDec(u, s) { return { _type:'_Decimal', u: u, s: s }; }
+function Decimal(a, b) {
+  if (b !== undefined) return _mkDec(BigInt(a), Number(b));
+  if (typeof a === 'bigint') return _mkDec(a, 0);
+  if (a && a._type === '_Decimal') return a;
+  if (typeof a === 'number') {
+    if (!Number.isInteger(a)) throw new Error("Decimal: refusing to build from a non-integer Number (inexact). Use Decimal(\"…\").");
+    return _mkDec(BigInt(a), 0);
+  }
+  if (typeof a === 'string') {
+    const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(a.trim());
+    if (!m) throw new Error("Decimal: not a valid number: '" + a + "'");
+    const frac = m[3] || '', digits = ((m[2]||'0') + frac).replace(/^0+(?=\d)/, '');
+    const u = BigInt(digits === '' ? '0' : digits) * (m[1] === '-' ? -1n : 1n);
+    return _mkDec(u, frac.length);
+  }
+  throw new Error("Decimal: cannot build from " + a);
+}
+const BigDecimal = Decimal;
+function _decShow(d) {
+  const neg = d.u < 0n;
+  let digits = (neg ? -d.u : d.u).toString();
+  if (d.s <= 0) return (neg ? '-' : '') + digits + '0'.repeat(-d.s);
+  if (digits.length <= d.s) digits = '0'.repeat(d.s - digits.length + 1) + digits;
+  const point = digits.length - d.s;
+  return (neg ? '-' : '') + digits.slice(0, point) + '.' + digits.slice(point);
+}
+function _decAlign(x, y) {
+  if (x.s === y.s) return [x.u, y.u, x.s];
+  if (x.s > y.s)  return [x.u, y.u * _pow10(x.s - y.s), x.s];
+  return [x.u * _pow10(y.s - x.s), y.u, y.s];
+}
+function _decAdd(x, y) { const [a,b,s] = _decAlign(x,y); return _mkDec(a+b, s); }
+function _decSub(x, y) { const [a,b,s] = _decAlign(x,y); return _mkDec(a-b, s); }
+function _decMul(x, y) { return _mkDec(x.u * y.u, x.s + y.s); }
+function _decCmp(x, y) { const [a,b] = _decAlign(x,y); return a < b ? -1 : a > b ? 1 : 0; }
+// Round num/den to an integer per a java.math.RoundingMode name.
+function _divRound(num, den, mode) {
+  const neg = (num < 0n) !== (den < 0n);
+  let n = num < 0n ? -num : num, d = den < 0n ? -den : den;
+  let q = n / d; const r = n % d;
+  if (r !== 0n) {
+    const twice = r * 2n; let up = false;
+    switch (mode) {
+      case 'UP': up = true; break;
+      case 'DOWN': up = false; break;
+      case 'CEILING': up = !neg; break;
+      case 'FLOOR': up = neg; break;
+      case 'HALF_UP': up = twice >= d; break;
+      case 'HALF_DOWN': up = twice > d; break;
+      case 'HALF_EVEN': up = twice > d || (twice === d && (q % 2n) === 1n); break;
+      case 'UNNECESSARY': throw new Error('Rounding necessary');
+      default: throw new Error('bad RoundingMode: ' + mode);
+    }
+    if (up) q += 1n;
+  }
+  return neg ? -q : q;
+}
+function _decSetScale(d, scale, mode) {
+  if (scale >= d.s) return _mkDec(d.u * _pow10(scale - d.s), scale);
+  return _mkDec(_divRound(d.u, _pow10(d.s - scale), mode), scale);
+}
+function _decDivide(x, y, scale, mode) {
+  const e = scale - x.s + y.s;
+  const num = e >= 0 ? x.u * _pow10(e) : x.u;
+  const den = e >= 0 ? y.u : y.u * _pow10(-e);
+  return _mkDec(_divRound(num, den, mode), scale);
+}
+// Bare Decimal `/` — HALF_EVEN to 34 significant digits (≈ Java DECIMAL128),
+// trailing zeros trimmed. Prefer the explicit divide(scale, mode) for money.
+function _decDivBare(x, y) {
+  if (y.u === 0n) throw new Error('Decimal division by zero');
+  // pick a scale giving ~34 significant digits in the result
+  const xd = (x.u < 0n ? -x.u : x.u).toString().length;
+  const yd = (y.u < 0n ? -y.u : y.u).toString().length;
+  const scale = Math.max(34 - xd + yd + (x.s - y.s), x.s - y.s, 0) + 1;
+  let r = _decDivide(x, y, scale, 'HALF_EVEN');
+  // trim trailing zeros (keep at least scale 0)
+  while (r.s > 0 && r.u % 10n === 0n) r = _mkDec(r.u / 10n, r.s - 1);
+  return r;
+}
+// Coerce a JS value to BigInt for mixed BigInt arithmetic.
+function _toBig(v) {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number' && Number.isInteger(v)) return BigInt(v);
+  throw new Error('cannot use ' + _show(v) + ' as an integer');
+}
+// Coerce to Decimal; integer-valued Numbers/BigInt widen, fractional Numbers error.
+function _toDec(v) {
+  if (v && v._type === '_Decimal') return v;
+  if (typeof v === 'bigint') return Decimal(v);
+  if (typeof v === 'number') {
+    if (!Number.isInteger(v)) throw new Error('cannot mix Decimal and a fractional Number — convert explicitly');
+    return Decimal(v);
+  }
+  throw new Error('cannot use ' + _show(v) + ' as a Decimal');
+}
+// Arithmetic/comparison dispatch for operands that may be BigInt/Decimal.
+// Emitted by codegen only when operands are not both statically Int.
+function _arith(op, a, b) {
+  // String concatenation keeps priority (matches the interpreter's `a + show(b)`).
+  if (op === '+' && (typeof a === 'string' || typeof b === 'string'))
+    return (typeof a === 'string' ? a : _show(a)) + (typeof b === 'string' ? b : _show(b));
+  const aDec = a && a._type === '_Decimal', bDec = b && b._type === '_Decimal';
+  if (aDec || bDec) {
+    const x = _toDec(a), y = _toDec(b);
+    switch (op) {
+      case '+': return _decAdd(x,y); case '-': return _decSub(x,y); case '*': return _decMul(x,y);
+      case '/': return _decDivBare(x,y);
+      case '<': return _decCmp(x,y) < 0;  case '>': return _decCmp(x,y) > 0;
+      case '<=': return _decCmp(x,y) <= 0; case '>=': return _decCmp(x,y) >= 0;
+      case '==': return _decCmp(x,y) === 0; case '!=': return _decCmp(x,y) !== 0;
+    }
+  }
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const x = _toBig(a), y = _toBig(b);
+    switch (op) {
+      case '+': return x+y; case '-': return x-y; case '*': return x*y; case '/': return x/y; case '%': return x%y;
+      case '<': return x<y; case '>': return x>y; case '<=': return x<=y; case '>=': return x>=y;
+      case '==': return x===y; case '!=': return x!==y;
+    }
+  }
+  switch (op) {
+    case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b; case '%': return a % b;
+    case '<': return a < b; case '>': return a > b; case '<=': return a <= b; case '>=': return a >= b;
+    case '==': return a === b; case '!=': return a !== b;
+  }
+  throw new Error('bad _arith op: ' + op);
+}
+
 function _show(v) {
   if (v === undefined) return '()';
   if (v === null) return 'null';
   if (typeof v === 'boolean') return String(v);
   if (typeof v === 'number') return String(v);
+  if (typeof v === 'bigint') return v.toString();
+  if (v && v._type === '_Decimal') return _decShow(v);
   if (typeof v === 'string') return v;
   if (Array.isArray(v)) {
     if (v._isTuple) return '(' + v.map(_show).join(', ') + ')';
@@ -2872,6 +3009,65 @@ function _tupleConcat(a, b) {
 }
 
 function _dispatch(obj, method, args) {
+  // Exact numerics (v1.64): Decimal (object), BigInt (native), and the
+  // toBigInt/toDecimal conversions on plain Numbers.
+  if (obj && obj._type === '_Decimal') {
+    switch (method) {
+      case 'scale': return obj.s;
+      case 'precision': { const t = (obj.u < 0n ? -obj.u : obj.u).toString(); return obj.u === 0n ? 1 : t.length; }
+      case 'toBigInt': return obj.s <= 0 ? obj.u * _pow10(-obj.s) : obj.u / _pow10(obj.s);
+      case 'toInt': case 'toLong': { const b = obj.s <= 0 ? obj.u * _pow10(-obj.s) : obj.u / _pow10(obj.s); return Number(b); }
+      case 'toDouble': return Number(_decShow(obj));
+      case 'toDecimal': return obj;
+      case 'toString': return _decShow(obj);
+      case 'abs': return _mkDec(obj.u < 0n ? -obj.u : obj.u, obj.s);
+      case 'negate': return _mkDec(-obj.u, obj.s);
+      case 'signum': return obj.u < 0n ? -1 : obj.u > 0n ? 1 : 0;
+      case 'isZero': return obj.u === 0n;
+      case 'setScale': return _decSetScale(obj, Number(args[0]), args[1] === undefined ? 'HALF_UP' : args[1]);
+      case 'round': return _decSetScale(obj, 0, args[0] === undefined ? 'HALF_UP' : args[0]);
+      case 'divide': return args.length >= 3 ? _decDivide(obj, _toDec(args[0]), Number(args[1]), args[2])
+                                             : _decDivide(obj, _toDec(args[0]), obj.s, args[1]);
+      case 'pow': { let r = _mkDec(1n, 0); for (let i = 0; i < Number(args[0]); i++) r = _decMul(r, obj); return r; }
+      case 'min': return _decCmp(obj, _toDec(args[0])) <= 0 ? obj : _toDec(args[0]);
+      case 'max': return _decCmp(obj, _toDec(args[0])) >= 0 ? obj : _toDec(args[0]);
+      case 'compareTo': return _decCmp(obj, _toDec(args[0]));
+      case '+': return _decAdd(obj, _toDec(args[0]));
+      case '-': return _decSub(obj, _toDec(args[0]));
+      case '*': return _decMul(obj, _toDec(args[0]));
+      case '/': return _decDivBare(obj, _toDec(args[0]));
+    }
+  }
+  if (typeof obj === 'bigint') {
+    switch (method) {
+      case 'toInt': case 'toLong': return Number(obj);
+      case 'toBigInt': return obj;
+      case 'toDecimal': return Decimal(obj);
+      case 'toDouble': return Number(obj);
+      case 'toString': return obj.toString();
+      case 'abs': return obj < 0n ? -obj : obj;
+      case 'negate': return -obj;
+      case 'signum': case 'sign': return obj < 0n ? -1 : obj > 0n ? 1 : 0;
+      case 'isEven': return (obj & 1n) === 0n;
+      case 'isOdd': return (obj & 1n) === 1n;
+      case 'pow': { let r = 1n; for (let i = 0; i < Number(args[0]); i++) r *= obj; return r; }
+      case 'gcd': { let a = obj < 0n ? -obj : obj, b = _toBig(args[0]); b = b < 0n ? -b : b; while (b) { [a, b] = [b, a % b]; } return a; }
+      case 'mod': { const m = _toBig(args[0]); const r = obj % m; return r < 0n ? r + (m < 0n ? -m : m) : r; }
+      case 'min': { const o = _toBig(args[0]); return obj < o ? obj : o; }
+      case 'max': { const o = _toBig(args[0]); return obj > o ? obj : o; }
+      case '+': return obj + _toBig(args[0]);
+      case '-': return obj - _toBig(args[0]);
+      case '*': return obj * _toBig(args[0]);
+      case '/': return obj / _toBig(args[0]);
+      case '%': return obj % _toBig(args[0]);
+    }
+  }
+  if (typeof obj === 'number') {
+    switch (method) {
+      case 'toBigInt': return _toBig(obj);
+      case 'toDecimal': return Decimal(obj);
+    }
+  }
   if (Array.isArray(obj)) {
     switch(method) {
       case 'head': return obj[0];
@@ -10475,9 +10671,13 @@ class JsGen(
             s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
           case "*" =>
             if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
-            else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : ($lhsJs) * ($rhsJs))"
-          case "==" => s"($lhsJs === $rhsJs)"
-          case "!=" => s"($lhsJs !== $rhsJs)"
+            else s"(typeof ($lhsJs) === 'string' ? ($lhsJs).repeat($rhsJs) : _arith('*', $lhsJs, $rhsJs))"
+          // Exact numerics: value-based `==` for Decimal/BigInt when operands
+          // aren't both statically Int (then native === is correct and faster).
+          case "==" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) => s"($lhsJs === $rhsJs)"
+          case "!=" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) => s"($lhsJs !== $rhsJs)"
+          case "==" => s"_arith('==', $lhsJs, $rhsJs)"
+          case "!=" => s"_arith('!=', $lhsJs, $rhsJs)"
           case "&&" => s"($lhsJs && $rhsJs)"
           case "||" => s"($lhsJs || $rhsJs)"
           case "to" =>
@@ -10488,6 +10688,13 @@ class JsGen(
             s"_dispatch($lhsJs, 'until', [$rhsJs])"
           case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
             s"Math.trunc($lhsJs / $rhsJs)"
+          // Exact numerics (v1.64): when operands aren't both statically Int,
+          // route arithmetic/comparison through _arith so BigInt/Decimal work
+          // (native JS `+` throws on BigInt+Number and can't add Decimal objects).
+          // `+` keeps string-concat semantics (handled inside _arith's number path).
+          case "+" | "-" | "/" | "%" | "<" | ">" | "<=" | ">="
+              if !(isIntExpr(lhs) && args.headOption.exists(isIntExpr)) =>
+            s"_arith('${op.value}', $lhsJs, $rhsJs)"
           case other => s"($lhsJs $other $rhsJs)"
       }
 

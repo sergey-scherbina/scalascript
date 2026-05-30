@@ -38,9 +38,11 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
       vs interpreter. Spec: `docs/exact-numerics.md §5, §8`.
       ✓ Landed 2026-05-30 (preamble aliases + extensions + _binOp; scala-cli
       compile-run conformance, 4 tests, byte-identical to interpreter).
-- [ ] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
+- [x] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
       helper (BigInt-backed, capability-gated in preamble); ops; node-run
       conformance vs interpreter/JVM. Spec: `docs/exact-numerics.md §5, §8`.
+      ✓ Landed 2026-05-30 (BigInt-backed _Decimal, all rounding modes, _arith
+      operator routing, _dispatch methods; node conformance 6 tests, suite 1142).
 - [ ] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
       table, per-org overridable), `Money`, `RoundingMode`, cent-preserving
       `allocate`/`distribute`, `format`/`parse`. Cross-backend tests. Spec:
