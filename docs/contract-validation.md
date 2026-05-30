@@ -8,6 +8,7 @@ OpenAPI and GraphQL. No `ssc check-contract` command is implemented yet.
 - [`docs/graphql.md`](graphql.md)
 - [`docs/typed-route-clients.md`](typed-route-clients.md)
 - [`docs/data-mapping.md`](data-mapping.md)
+- [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md)
 
 ---
 
@@ -40,6 +41,8 @@ The shared platform should:
 The first implementation must stay practical: it should reuse the existing
 OpenAPI generator, GraphQL plugin, typed route client metadata, and typed data
 mapping codecs before adding new abstractions.
+The planned compiler-side feed for those checks is the structured type evidence
+roadmap in [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
 ## 2. Non-goals
 

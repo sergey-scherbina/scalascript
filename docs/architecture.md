@@ -116,6 +116,14 @@ The typer performs:
 - Type checking
 - Exhaustiveness checking for matches
 
+Current implementation note: some exported summaries and route/schema metadata
+still fall back to `Any` when the local typer cannot prove a shape. The planned
+tightening pass is specified in
+[`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md); it keeps
+`Any` as an explicit dynamic boundary while carrying structured type evidence
+through exported symbols, routes/remotes, schemas, typed data mapping, Spark,
+and plugins.
+
 **Typed IR:**
 
 ```scala

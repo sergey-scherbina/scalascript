@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — typer real-type roadmap specified
+
+- **typer-real-types-roadmap-spec** — Added
+  [`docs/typer-real-types-roadmap.md`](docs/typer-real-types-roadmap.md),
+  defining the planned type-evidence pipeline for reducing accidental `Any` in
+  exported symbols, interfaces, routes/remotes, OpenAPI/GraphQL schemas, typed
+  data codecs, Dataset/Spark mapping, and plugin metadata. README, docs index,
+  architecture, typed data, route clients, OpenAPI, GraphQL, contract validation,
+  queue, and backlog now link the planned work.
+
 ## 2026-05-30 — contract validation platform specified
 
 - **contract-validation-spec** — Added

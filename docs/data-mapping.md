@@ -5,6 +5,11 @@ layer for SQL databases, browser storage, client/server object stores, property
 graphs, RDF graphs, `Dataset[T]`/MapReduce, Apache Spark, and future persistence
 or data-processing backends.
 
+Companion: [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md)
+defines the planned shared type-evidence pipeline that should feed these codecs
+instead of each store rediscovering case-class, enum, field, nullability, and
+generic shapes independently.
+
 ## Goals
 
 - Make ordinary ScalaScript case classes and ADTs easy to persist and load from

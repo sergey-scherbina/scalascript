@@ -37,11 +37,16 @@ the contracts are explicit.
       [`docs/contract-validation.md`](docs/contract-validation.md) with shared
       IR, diagnostics, protocol-specific checks, profiles/overlays/imports,
       planned CLI, baseline policy, phases, tests, and open questions.
-- [ ] **typer-real-types-roadmap-spec** - Spec first. Plan the next type-system
+- [x] **typer-real-types-roadmap-spec** - Spec first. Plan the next type-system
       tightening pass that reduces `Any` in exported symbols/IR and carries real
       types through case classes, enums, method return types, generic calls,
       typed routes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin
-      metadata.
+      metadata. ✓ Landed 2026-05-30: added
+      [`docs/typer-real-types-roadmap.md`](docs/typer-real-types-roadmap.md)
+      with canonical type evidence, schema type shapes, exported/interface
+      metadata, route/remote/client evidence, schema consumers, typed-data /
+      Dataset / Spark convergence, plugin metadata, phases, tests, and open
+      questions.
 - [ ] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact
       rules, short opt-in `ssc bench`/JMH smoke command, and documentation for

@@ -15,6 +15,7 @@ semantics.
 - [`docs/future-protocols.md §3`](future-protocols.md)
 - [`docs/openapi.md`](openapi.md)
 - [`docs/contract-validation.md`](contract-validation.md)
+- [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md)
 - Future AsyncAPI/realtime transport spec for WebSocket/SSE event streams
 
 ---
@@ -363,6 +364,12 @@ GraphQL is strongly typed; ScalaScript should use that instead of stopping at
 Typed mode should reject missing required fields, wrong nullability, invalid
 enum values, custom scalar parse failures, and GraphQL `Int` values outside the
 allowed range before invoking user business logic when possible.
+
+The planned shared source of these ScalaScript-side shapes is
+[`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md): GraphQL
+should consume structured type evidence for products, enums, ADTs, generics,
+functions, effects, and explicit dynamic boundaries instead of parsing ad hoc
+type-name strings.
 
 Dynamic mode stays available:
 

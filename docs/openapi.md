@@ -16,6 +16,7 @@ compatibility target for now, while planning selectable 3.2 output.
 - [`docs/future-protocols.md §4`](future-protocols.md)
 - [`docs/graphql.md`](graphql.md)
 - [`docs/contract-validation.md`](contract-validation.md)
+- [`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md)
 - Future AsyncAPI spec for WebSocket/SSE routes
 
 ---
@@ -521,7 +522,9 @@ Manual `openApiRegisterSchema` is the supported path until auto-derivation lands
 
 Automatically derive named schemas for case classes, enums, sealed traits;
 support field-level constraint annotations (`@minLength`, `@format`, etc.),
-recursive types via `$ref`, and schema examples/docs.
+recursive types via `$ref`, and schema examples/docs. The planned source of
+truth for those shapes is the structured type-evidence pipeline in
+[`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md).
 
 ### Phase 7 — Typed request/response contracts
 

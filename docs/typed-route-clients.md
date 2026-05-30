@@ -372,6 +372,11 @@ as `requestType` instead of defaulting to `"Any"`.  Source parsed as a `Term`
 Still planned for Phase 5: structured diagnostic API instead of stderr +
 comments for path-param validation warnings.
 
+Also planned: move request/response metadata from legacy type-name strings
+toward structured `SType` / type-evidence records described in
+[`docs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md), while keeping
+the existing `requestType` / `responseType` fields as compatibility fallbacks.
+
 ### Phase 6 — Advanced Shapes
 
 Add auth/header parameters, streaming responses, SSE/WebSocket subscriptions,
