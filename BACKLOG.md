@@ -105,7 +105,7 @@ the contracts are explicit.
       concat — same proven cross-object-init mechanism as p2. Verify byte-identical
       via compile + JsGen JS codegen suites. Defer giant `JsRuntimeAsyncA`/`AsyncB`
       to a final phase (p4).
-- [ ] **jsgen-split-p4** - Final phase of the `JsGen.scala` preamble-string
+- [x] **jsgen-split-p4** _(landed 2026-05-30)_ - Final phase of the `JsGen.scala` preamble-string
       extraction. Move the two giant async-runtime `val`s — `JsRuntimeAsyncA`,
       `JsRuntimeAsyncB` — each into its own `JsRuntimeAsync*.scala` (top-level `val`
       in `package scalascript.codegen`). The `lazy val JsRuntimeAsync = AsyncA +
