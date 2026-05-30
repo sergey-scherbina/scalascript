@@ -516,6 +516,18 @@ scala-cli bench/run.sc
 See [`bench/README.md`](bench/README.md) for the workload list, methodology,
 and a sample results table.
 
+Quick non-blocking smoke checks are available for perf-sensitive changes:
+
+```bash
+ssc bench --smoke
+scripts/perf-smoke.sh --jmh   # opt-in short JMH smoke
+```
+
+The checked-in workflow and baseline policy live in
+[`bench/perf-manifest.yaml`](bench/perf-manifest.yaml) and
+[`bench/README.md`](bench/README.md). Raw JMH/runtime outputs are ignored; only
+curated summaries should be promoted into tracked baseline files.
+
 ### Watch reload benchmark
 
 `ssc watch-bench` measures the same parse-cache, incremental typer, and
@@ -697,6 +709,7 @@ ssc run-jvm file.ssc          # same as above (backward-compat alias)
 ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
 ssc watch file.ssc            # watch mode (re-run on change)
 ssc watch-bench file.ssc      # benchmark watch reload cycles on a temp copy
+ssc bench --smoke             # quick interpreter-only benchmark wiring smoke
 ssc check file.ssc            # type-check only (parse + typer, no codegen); exit 0=clean 1=type-err 2=parse-err 3=notfound
 ssc check --json file.ssc     # structured JSON diagnostics
 ssc check --quiet file.ssc    # no output, exit code only (for pre-commit hooks)

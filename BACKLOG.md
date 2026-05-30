@@ -55,10 +55,14 @@ the contracts are explicit.
       metadata, route/remote/client evidence, schema consumers, typed-data /
       Dataset / Spark convergence, plugin metadata, phases, tests, and open
       questions.
-- [ ] **perf-regression-guard** - Add a lightweight performance regression
+- [x] **perf-regression-guard** - Add a lightweight performance regression
       workflow: benchmark manifest, baseline policy, ignored/generated artifact
       rules, short opt-in `ssc bench`/JMH smoke command, and documentation for
-      informational vs CI-blocking runs.
+      informational vs CI-blocking runs. ✓ Landed 2026-05-30:
+      `ssc bench --smoke`, optional `--target-ms/--require-target`,
+      `scripts/perf-smoke.sh --jmh`, `bench/perf-manifest.yaml`,
+      `bench/README.md`, baseline policy docs, and ignored raw benchmark
+      outputs.
 - [ ] **cli-main-helper-split-p2** - Continue behavior-preserving extraction from
       `tools/cli/.../Main.scala` after the command/repl split. Target cohesive
       helper clusters first: build/compile pipeline helpers, synthetic request /

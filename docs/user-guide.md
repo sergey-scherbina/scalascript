@@ -114,6 +114,11 @@ ssc watch-bench --cycles 10 --target-ms 100 --require-target examples/rest-api.s
 The output includes warm-up, p50, and max cycle times. `--require-target`
 exits non-zero when the max cycle exceeds the target.
 
+For a quick execution benchmark smoke, use `ssc bench --smoke`. It runs the
+checked-in `bench/corpus/hello-world.ssc` workload through the interpreter only;
+add `--target-ms N --require-target` only on a pinned local or dedicated
+performance runner.
+
 ### REPL
 
 ```bash

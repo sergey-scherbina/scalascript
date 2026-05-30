@@ -7713,6 +7713,9 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *    --no-js            skip JS backend
  *    --warmup N         warmup iterations per backend (default 2)
  *    --reps N           measured iterations per backend (default 7)
+ *    --smoke            quick interpreter-only smoke over bench/corpus/hello-world.ssc
+ *    --target-ms N      optional p50 threshold for measured backends
+ *    --require-target   exit non-zero when any measured backend exceeds --target-ms
  *    --baseline         write results to bench/BASELINE_RUNTIME.md
  *  }}}
  */
@@ -7722,7 +7725,7 @@ final class BenchCmd extends CliCommand:
   override def category = "Run & develop"
   def run(args: List[String]): Unit =
     if args.isEmpty then
-      System.err.println("Usage: ssc bench [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>")
+      System.err.println("Usage: ssc bench [--smoke] [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--target-ms N] [--require-target] [--baseline] <file.ssc>")
       System.exit(1)
 
     var runInterp  = true
@@ -7730,8 +7733,19 @@ final class BenchCmd extends CliCommand:
     var runJs      = true
     var warmup     = 2
     var reps       = 7
+    var smoke      = false
     var writeBase  = false
+    var targetMs: Option[Long] = None
+    var requireTarget = false
+    var warmupExplicit = false
+    var repsExplicit   = false
     var fileArg: Option[String] = None
+
+    def parseTarget(raw: String): Long = raw.toLongOption.getOrElse {
+      System.err.println(s"bench: invalid --target-ms value: $raw")
+      System.exit(1)
+      0L
+    }
 
     val arr = args.toArray
     var i   = 0
@@ -7740,20 +7754,57 @@ final class BenchCmd extends CliCommand:
         case "--no-interp"               => runInterp = false; i += 1
         case "--no-jvm"                  => runJvm    = false; i += 1
         case "--no-js"                   => runJs     = false; i += 1
+        case "--smoke"                   => smoke = true; i += 1
         case "--baseline"                => writeBase = true;  i += 1
-        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); i += 2
-        case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); i += 2
-        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); i += 1
-        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7);   i += 1
+        case "--require-target"          => requireTarget = true; i += 1
+        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); warmupExplicit = true; i += 2
+        case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); repsExplicit = true; i += 2
+        case "--target-ms" if i+1 < arr.length => targetMs = Some(parseTarget(arr(i+1))); i += 2
+        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); warmupExplicit = true; i += 1
+        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7); repsExplicit = true; i += 1
+        case s if s.startsWith("--target-ms=") => targetMs = Some(parseTarget(s.stripPrefix("--target-ms="))); i += 1
         case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
         case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
 
-    val file = fileArg.getOrElse {
-      System.err.println("bench: no file specified"); System.exit(1); ""
-    }
-    val path = os.Path(file, os.pwd)
+    if smoke then
+      if !warmupExplicit then warmup = 0
+      if !repsExplicit then reps = 1
+      runJvm = false
+      runJs = false
+
+    if warmup < 0 || reps <= 0 then
+      System.err.println("bench: --warmup must be >= 0 and --reps must be positive")
+      System.exit(1)
+    if !runInterp && !runJvm && !runJs then
+      System.err.println("bench: at least one backend must be enabled")
+      System.exit(1)
+    if requireTarget && targetMs.isEmpty then
+      System.err.println("bench: --require-target requires --target-ms N")
+      System.exit(1)
+
+    def findRepoRoot(start: os.Path): Option[os.Path] =
+      var cur = if os.isDir(start) then start else start / os.up
+      var done = false
+      while !done do
+        if os.exists(cur / "build.sbt") && os.exists(cur / "bench" / "corpus") then return Some(cur)
+        val parent = cur / os.up
+        if parent == cur then done = true else cur = parent
+      None
+
+    val path = fileArg match
+      case Some(file) => os.Path(file, os.pwd)
+      case None if smoke =>
+        findRepoRoot(os.pwd).map(_ / "bench" / "corpus" / "hello-world.ssc").getOrElse {
+          System.err.println("bench: --smoke could not find bench/corpus/hello-world.ssc from the current directory")
+          System.exit(1)
+          os.pwd / "bench" / "corpus" / "hello-world.ssc"
+        }
+      case None =>
+        System.err.println("bench: no file specified")
+        System.exit(1)
+        os.pwd / "missing.ssc"
     if !os.exists(path) then
-      System.err.println(s"bench: file not found: $file"); System.exit(1)
+      System.err.println(s"bench: file not found: $path"); System.exit(1)
 
     // Check tool availability
     val jvmAvail = runJvm && JvmBytecode.scalaCliAvailable
@@ -7877,9 +7928,21 @@ final class BenchCmd extends CliCommand:
     println(s"Date: ${java.time.Instant.now()}")
     println(s"Hardware: $hw")
     println(s"Notes: warmup=$warmup reps=$reps; interpreter times are in-process (no JVM startup)")
+    targetMs.foreach { limit =>
+      val exceeded = List(
+        "interpreter" -> ti.filter(_ > limit),
+        "jvm"         -> tj.filter(_ > limit),
+        "js"          -> ts.filter(_ > limit)
+      ).collect { case (name, Some(ms)) => s"$name=${ms}ms" }
+      if exceeded.isEmpty then println(s"Target: <= ${limit}ms p50 (met)")
+      else
+        val msg = s"Target: <= ${limit}ms p50 (exceeded: ${exceeded.mkString(", ")})"
+        if requireTarget then System.err.println(msg) else println(msg)
+        if requireTarget then System.exit(1)
+    }
 
     if writeBase then
-      val baseDir = os.Path(file, os.pwd) / os.up / os.up / "bench"
+      val baseDir = findRepoRoot(path).map(_ / "bench").getOrElse(path / os.up / os.up / "bench")
       val outPath = baseDir / "BASELINE_RUNTIME.md"
       if os.exists(baseDir) then
         val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"

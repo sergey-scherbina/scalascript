@@ -29,6 +29,11 @@ sbt cli/stage          # build the ssc CLI first
 ./bench.sh --baseline  # same, writes bench/BASELINE.md
 ./bench.sh arith-loop recursion-fib  # specific workloads
 
+# Quick non-blocking smoke checks
+ssc bench --smoke
+ssc bench --smoke --target-ms 250 --require-target
+scripts/perf-smoke.sh --jmh
+
 # JMH microbenchmarks (interpreter internals)
 sbt "interpreterBench/Jmh/run"
 sbt "interpreterBench/Jmh/run -i 5 -wi 3 -f 1 .*arithLoop.*"
@@ -39,6 +44,11 @@ sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json"
 ```
 
 ### Corpus workloads (`bench/corpus/`)
+
+Workflow manifest and baseline policy: [`bench/perf-manifest.yaml`](../bench/perf-manifest.yaml)
+and [`bench/README.md`](../bench/README.md). Default benchmark runs are
+informational. They become blocking only when a caller passes an explicit target
+gate such as `--require-target --target-ms N`.
 
 | File | Tests |
 |---|---|

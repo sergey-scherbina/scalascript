@@ -51,6 +51,10 @@ project/project/
 # JMH profiler / per-benchmark output directories
 runtime/backend/interpreter-bench/scalascript.bench.*/
 lang/core-bench/scalascript.bench.*/
+bench/BASELINE_RUNTIME.md
+bench/jmh-results*.json
+bench/jmh-smoke*.json
+bench/*.jfr
 
 # Node (for JS backend tooling)
 node_modules/

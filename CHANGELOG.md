@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — lightweight perf regression guard added
+
+- **perf-regression-guard** — Added a checked-in performance workflow manifest,
+  benchmark README, ignored raw runtime/JMH outputs, `ssc bench --smoke` with
+  optional `--target-ms/--require-target`, and `scripts/perf-smoke.sh --jmh` for
+  an opt-in short JMH smoke. README, docs/performance, user guide, baseline
+  policy, queue, and backlog now distinguish informational runs from explicit
+  blocking gates.
+
 ## 2026-05-30 — typer real-type roadmap specified
 
 - **typer-real-types-roadmap-spec** — Added
