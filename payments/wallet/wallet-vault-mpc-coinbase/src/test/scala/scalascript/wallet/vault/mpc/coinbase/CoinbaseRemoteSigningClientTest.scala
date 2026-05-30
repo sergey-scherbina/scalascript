@@ -37,6 +37,10 @@ class CoinbaseRemoteSigningClientTest extends AnyFunSuite with Matchers with Bef
   @volatile private var lastApiKeyHeader   = ""
   @volatile private var lastTimestamp      = ""
   @volatile private var lastSig            = ""
+  // Captured only for the POST that creates the signing request, so the
+  // verifiability test isn't clobbered by the subsequent poll GET.
+  @volatile private var lastPostTimestamp  = ""
+  @volatile private var lastPostSig        = ""
 
   private val portfolioId = "port-42"
   private val cannedSig: Array[Byte] = Array[Byte](0xde.toByte, 0xad.toByte, 0xbe.toByte, 0xef.toByte)
@@ -59,7 +63,10 @@ class CoinbaseRemoteSigningClientTest extends AnyFunSuite with Matchers with Bef
     lastTimestamp    = Option(ex.getRequestHeaders.getFirst("X-CB-ACCESS-TIMESTAMP")).getOrElse("")
     lastSig          = Option(ex.getRequestHeaders.getFirst("X-CB-ACCESS-SIGNATURE")).getOrElse("")
     val body = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
-    if method == "POST" then lastSignBody = body
+    if method == "POST" then
+      lastSignBody      = body
+      lastPostTimestamp = lastTimestamp
+      lastPostSig       = lastSig
 
     (method, path) match
       case ("GET", p) if p == s"/v1/portfolios/$portfolioId" =>
@@ -151,11 +158,11 @@ class CoinbaseRemoteSigningClientTest extends AnyFunSuite with Matchers with Bef
     mode = "complete"
     Await.result(client().sign("wallet-1", Curve.Secp256k1, "m", Array[Byte](2), HashAlgo.None), 3.seconds)
     val sigPath = s"/v1/portfolios/$portfolioId/signing_requests"
-    val message = s"${lastTimestamp}POST$sigPath$lastSignBody"
+    val message = s"${lastPostTimestamp}POST$sigPath$lastSignBody"
     val jSig    = java.security.Signature.getInstance("SHA256withECDSA")
     jSig.initVerify(testKeyPair.getPublic)
     jSig.update(message.getBytes("UTF-8"))
-    jSig.verify(Base64.getDecoder.decode(lastSig)) shouldBe true
+    jSig.verify(Base64.getDecoder.decode(lastPostSig)) shouldBe true
 
   test("pending request polls until completed"):
     mode = "pending-then-complete"
@@ -210,7 +217,7 @@ class CoinbaseRemoteSigningClientTest extends AnyFunSuite with Matchers with Bef
     CoinbaseWire.parseSigningRequestStatus(ujson.Obj(
       "status"    -> "SIGNED",
       "signature" -> ujson.Obj("value" -> "deadbeef"),
-    )) shouldBe Right(Some(Array[Byte](0xde.toByte, 0xad.toByte, 0xbe.toByte, 0xef.toByte)))
+    )).map(_.map(_.toSeq)) shouldBe Right(Some(Seq[Byte](0xde.toByte, 0xad.toByte, 0xbe.toByte, 0xef.toByte)))
 
   test("CoinbaseWire.parseSigningRequestStatus — PENDING returns None"):
     CoinbaseWire.parseSigningRequestStatus(ujson.Obj("status" -> "PENDING")) shouldBe Right(None)

@@ -1,9 +1,9 @@
 package scalascript.wallet.vault.mpc.lit
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.http.HttpRequest
 import java.time.Duration
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 import scalascript.crypto.{Curve, HashAlgo}
 import scalascript.wallet.vault.mpc.*
 
@@ -57,14 +57,6 @@ class LitRemoteSigningClient(
         userAgent       = options.userAgent,
       ),
     ):
-
-  private val http =
-    HttpClient.newBuilder()
-      .connectTimeout(Duration.ofMillis(options.timeoutMs))
-      .build()
-
-  private val trimmedBase =
-    if baseUrl.endsWith("/") then baseUrl.dropRight(1) else baseUrl
 
   override def health(): Future[Boolean] =
     send(buildGet("/health"))
@@ -121,16 +113,6 @@ class LitRemoteSigningClient(
       .POST(HttpRequest.BodyPublishers.ofString(bodyStr))
       .build()
 
-  private def send(req: HttpRequest): Future[HttpResponse[String]] =
-    val p = Promise[HttpResponse[String]]()
-    http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).whenComplete { (resp, err) =>
-      if err != null then p.failure(err) else p.success(resp)
-    }
-    p.future
-
-  private def truncated(s: String): String =
-    if s.length <= 200 then s else s.take(200) + "..."
-
 object LitWire:
   def pkpSignBody(
     pkpPublicKey: String,
@@ -186,7 +168,4 @@ object LitWire:
     case Curve.P256      => "P256"
     case other           => throw UnsupportedOperationException(s"Lit Protocol does not support $other")
 
-  def unhex(s: String): Array[Byte] =
-    val clean = if s.startsWith("0x") then s.drop(2) else s
-    require(clean.length % 2 == 0, s"Invalid hex length: ${clean.length}")
-    clean.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
+  export MpcSerialization.unhex

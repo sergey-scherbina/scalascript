@@ -1,12 +1,12 @@
 package scalascript.wallet.vault.mpc.coinbase
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.http.HttpRequest
 import java.security.{KeyFactory, Signature}
 import java.security.spec.PKCS8EncodedKeySpec
 import java.time.Duration
 import java.util.Base64
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 import scalascript.crypto.{Curve, HashAlgo}
 import scalascript.wallet.vault.mpc.*
 
@@ -40,14 +40,6 @@ class CoinbaseRemoteSigningClient(
         userAgent       = options.userAgent,
       ),
     ):
-
-  private val http =
-    HttpClient.newBuilder()
-      .connectTimeout(Duration.ofMillis(options.timeoutMs))
-      .build()
-
-  private val trimmedBase =
-    if baseUrl.endsWith("/") then baseUrl.dropRight(1) else baseUrl
 
   private val privateKey = CoinbaseAuth.privateKeyFromPem(privateKeyPem)
 
@@ -133,34 +125,6 @@ class CoinbaseRemoteSigningClient(
         .POST(HttpRequest.BodyPublishers.ofString(body))
         .build()
     else b.GET().build()
-
-  private def send(req: HttpRequest): Future[HttpResponse[String]] =
-    val p = Promise[HttpResponse[String]]()
-    http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).whenComplete { (resp, err) =>
-      if err != null then p.failure(err) else p.success(resp)
-    }
-    p.future
-
-  private def sleep(ms: Long): Future[Unit] =
-    val p = Promise[Unit]()
-    CoinbaseRemoteSigningClient.scheduler.schedule(
-      new Runnable { def run(): Unit = p.success(()) },
-      ms,
-      java.util.concurrent.TimeUnit.MILLISECONDS,
-    )
-    p.future
-
-  private def truncated(s: String): String =
-    if s.length <= 200 then s else s.take(200) + "..."
-
-object CoinbaseRemoteSigningClient:
-  private val scheduler: java.util.concurrent.ScheduledExecutorService =
-    val tf = new java.util.concurrent.ThreadFactory:
-      def newThread(r: Runnable): Thread =
-        val t = Thread(r, "coinbase-mpc-poll-scheduler")
-        t.setDaemon(true)
-        t
-    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(tf)
 
 object CoinbaseAuth:
   def sign(
@@ -250,10 +214,4 @@ object CoinbaseWire:
     case Curve.P256      => "P256"
     case other           => throw UnsupportedOperationException(s"Coinbase MPC does not support $other")
 
-  def hex(bytes: Array[Byte]): String =
-    bytes.map(b => f"${b & 0xff}%02x").mkString
-
-  def unhex(s: String): Array[Byte] =
-    val clean = if s.startsWith("0x") then s.drop(2) else s
-    require(clean.length % 2 == 0, s"Invalid hex length: ${clean.length}")
-    clean.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
+  export MpcSerialization.{hex, unhex}

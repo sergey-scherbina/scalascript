@@ -1,12 +1,12 @@
 package scalascript.wallet.vault.mpc.zengo
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.http.HttpRequest
 import java.security.MessageDigest
 import javax.crypto.Mac
 import java.time.Duration
 import java.util.Base64
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 import scalascript.crypto.{Curve, HashAlgo}
 import scalascript.wallet.vault.mpc.*
 
@@ -52,14 +52,6 @@ class ZenGoRemoteSigningClient(
         userAgent       = options.userAgent,
       ),
     ):
-
-  private val http =
-    HttpClient.newBuilder()
-      .connectTimeout(Duration.ofMillis(options.timeoutMs))
-      .build()
-
-  private val trimmedBase =
-    if baseUrl.endsWith("/") then baseUrl.dropRight(1) else baseUrl
 
   override def health(): Future[Boolean] =
     send(buildGet("/v1/health"))
@@ -135,33 +127,6 @@ class ZenGoRemoteSigningClient(
         .build()
     else b.GET().build()
 
-  private def send(req: HttpRequest): Future[HttpResponse[String]] =
-    val p = Promise[HttpResponse[String]]()
-    http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).whenComplete { (resp, err) =>
-      if err != null then p.failure(err) else p.success(resp)
-    }
-    p.future
-
-  private def sleep(ms: Long): Future[Unit] =
-    val p = Promise[Unit]()
-    ZenGoRemoteSigningClient.scheduler.schedule(
-      new Runnable { def run(): Unit = p.success(()) },
-      ms,
-      java.util.concurrent.TimeUnit.MILLISECONDS,
-    )
-    p.future
-
-  private def truncated(s: String): String =
-    if s.length <= 200 then s else s.take(200) + "..."
-
-object ZenGoRemoteSigningClient:
-  private val scheduler: java.util.concurrent.ScheduledExecutorService =
-    java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
-      val t = Thread(r, "zengo-mpc-poll-scheduler")
-      t.setDaemon(true)
-      t
-    }
-
 object ZenGoAuth:
   /** HMAC-SHA256 message: `timestamp|METHOD|path|sha256hex(body)` */
   def sign(secretKey: String, timestamp: Long, method: String, path: String, body: String): String =
@@ -226,10 +191,4 @@ object ZenGoWire:
     case Curve.P256      => "ECDSA_P256"
     case other           => throw UnsupportedOperationException(s"ZenGo X does not support $other")
 
-  def hex(bytes: Array[Byte]): String =
-    bytes.map(b => f"${b & 0xff}%02x").mkString
-
-  def unhex(s: String): Array[Byte] =
-    val clean = if s.startsWith("0x") then s.drop(2) else s
-    require(clean.length % 2 == 0, s"Invalid hex length: ${clean.length}")
-    clean.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
+  export MpcSerialization.{hex, unhex}

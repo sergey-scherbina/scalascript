@@ -22,6 +22,18 @@ object MpcSerialization:
   def b64decode(s: String): Array[Byte] =
     decoder.decode(s)
 
+  // ─── Hex ────────────────────────────────────────────────────────────
+
+  /** Lower-case, unprefixed hex encoding. */
+  def hex(bytes: Array[Byte]): String =
+    bytes.map(b => f"${b & 0xff}%02x").mkString
+
+  /** Decode hex, tolerating a leading `0x`. Requires an even length. */
+  def unhex(s: String): Array[Byte] =
+    val clean = if s.startsWith("0x") then s.drop(2) else s
+    require(clean.length % 2 == 0, s"Invalid hex length: ${clean.length}")
+    clean.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
+
   // ─── Curve naming ───────────────────────────────────────────────────
   //
   // Wire names follow the most common provider conventions

@@ -58,12 +58,12 @@ class HttpRemoteSigningClient(
 
   @volatile private var token: String = initialToken
 
-  private val http: HttpClient =
+  protected val http: HttpClient =
     HttpClient.newBuilder()
       .connectTimeout(Duration.ofMillis(options.timeoutMs))
       .build()
 
-  private val trimmedBase: String =
+  protected val trimmedBase: String =
     if baseUrl.endsWith("/") then baseUrl.dropRight(1) else baseUrl
 
   /** Drop the cached bearer token. After this, all subsequent calls
@@ -94,8 +94,10 @@ class HttpRemoteSigningClient(
     ).build()
 
   /** Send `req` async via the JDK client. Wraps the resulting
-   *  `CompletableFuture[HttpResponse[String]]` in a Scala `Future`. */
-  private def send(req: HttpRequest): Future[HttpResponse[String]] =
+   *  `CompletableFuture[HttpResponse[String]]` in a Scala `Future`.
+   *  `protected` so provider subclasses reuse this transport instead of
+   *  re-deriving their own JDK-client plumbing. */
+  protected def send(req: HttpRequest): Future[HttpResponse[String]] =
     val p = Promise[HttpResponse[String]]()
     val cf = http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
     cf.whenComplete { (resp, err) =>
@@ -177,7 +179,7 @@ class HttpRemoteSigningClient(
   // Promise-based sleep, runs the resume on the global scheduler then
   // continues on `ec`. Tiny single-thread executor avoids spinning a
   // dedicated thread per poll.
-  private def sleep(ms: Long): Future[Unit] =
+  protected def sleep(ms: Long): Future[Unit] =
     val p = Promise[Unit]()
     HttpRemoteSigningClient.scheduler.schedule(
       new Runnable { def run(): Unit = p.success(()) },
@@ -186,7 +188,7 @@ class HttpRemoteSigningClient(
     )
     p.future
 
-  private def truncated(s: String): String =
+  protected def truncated(s: String): String =
     if s.length <= 200 then s else s.substring(0, 200) + "…"
 
 object HttpRemoteSigningClient:
