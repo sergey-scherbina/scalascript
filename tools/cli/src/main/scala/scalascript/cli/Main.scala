@@ -83,67 +83,12 @@ import scalascript.codegen.SparkBackend
   else dispatchCommand(args)
 
 private def dispatchCommand(args: List[String]): Unit =
-  args.head match
-    case "parse"               => parseCommand(args.tail)
-    case "check"               => checkCommand(args.tail)
-    case "run"                 => runCommand(args.tail)
-    case "watch"               => watchCommand(args.tail)
-    case "watch-bench"         => watchBenchCommand(args.tail)
-    case "repl"                => replCommand(args.tail)
-    case "emit-js"             => emitJsCommand(args.tail)
-    case "emit-wasm"           => emitWasmCommand(args.tail)
-    case "emit-openapi"        => emitOpenapiCommand(args.tail)
-    case "emit-spa"            => emitSpaCommand(args.tail)
-    case "emit-scala"          => emitScalaCommand(args.tail)
-    case "emit-spark"          => emitSparkCommand(args.tail)
-    case "submit"              => submitCommand(args.tail)
-    case "emit-wc"             => emitWcCommand(args.tail)
-    // v2.0 separate-compilation commands
-    case "emit-interface"      => emitInterfaceCommand(args.tail)
-    case "emit-ir"             => emitIrCommand(args.tail)
-    case "run-jvm"             => runJvmCommand(args.tail)
-    case "run-js"              => runJsCommand(args.tail)
-    case "compile-jvm"         => compileJvmCommand(args.tail)
-    case "compile-js"          => compileJsCommand(args.tail)
-    case "compile-runtime"     => compileRuntimeCommand(args.tail)
-    case "check-with-iface"    => checkWithInterfaceCommand(args.tail)
-    case "link"                => linkCommand(args.tail)
-    case "generate-facade"     => generateFacadeCommand(args.tail)
-    case "info"                => infoCommand(args.tail)
-    case "clean"               => cleanCommand(args.tail)
-    case "verify"              => verifyCommand(args.tail)
-    case "check-compat"        => checkCompatCommand(args.tail)
-    case "deps"                => depsCommand(args.tail)
-    case "deploy"              => deployCommand(args.tail)
-    case "package"             => packageCommand(args.tail)
-    case "publish"             => publishCommand(args.tail)
-    case "serve"               => serveCommand(args.tail)
-    case "render"              => renderCommand(args.tail)
-    case "build"               => buildCommand(args.tail)
-    case "bundle"              => bundleCommand(args.tail)
-    case "new"                 => newCommand(args.tail)
-    case "plugin"              => pluginCommand(args.tail)
-    case "install"             =>
-      // No args or --prefix flag → install ssc itself; otherwise → plugin install shortcut.
-      if args.tail.isEmpty || args.tail.headOption.contains("--prefix") then selfInstallCommand(args.tail)
-      else pluginInstall(args.tail)
-    case "lock"                => lockCommand(args.tail)
-    case "update"              => updateCommand(args.tail)
-    case "search"              => registrySearchCommand(args.tail)
-    case "add"                 => registryAddCommand(args.tail)
-    case "test"                => testCommand(args.tail)
-    case "preview"             => previewCommand(args.tail)
-    case "fmt"                 => fmtCommand(args.tail)
-    case "bench"               => benchCommand(args.tail)
-    case "profile"             => profileCommand(args.tail)
-    case "lsp"                 => lspCommand(args.tail)
-    case "debug"               => DebugCommand.run(args.tail)
-    case "cluster"             => clusterCommand(args.tail)
-    case "oauth"               => OAuthCli.run(args.tail)
-    case "toolchain"           => ToolchainCommand.run(args.tail)
-    case "help" | "--help" | "-h" => printUsage()
-    case "--list-backends"     => println(BackendRegistry.describe)
-    case cmd                   => scriptCommand(cmd, args.tail)
+  val token = args.head
+  // Registry-driven dispatch (docs/cli-command-spi.md). Unknown tokens fall
+  // through to scriptCommand, which runs a named project script if defined.
+  CommandRegistry.lookup(token) match
+    case Some(cmd) => cmd.run(args.tail)
+    case None      => scriptCommand(token, args.tail)
 
 /** Read stdin as a YAML secrets document and load the flattened key→value
  *  map into [[scalascript.sql.SopsSecrets]].
@@ -3452,7 +3397,7 @@ private case class WatchBenchConfig(
     requireTarget: Boolean = false
 )
 
-private def watchBenchCommand(args: List[String]): Unit =
+private[cli] def watchBenchCommand(args: List[String]): Unit =
   if args.isEmpty then
     System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
     System.exit(1)
@@ -9262,7 +9207,7 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *    --baseline         write results to bench/BASELINE_RUNTIME.md
  *  }}}
  */
-private def benchCommand(args: List[String]): Unit =
+private[cli] def benchCommand(args: List[String]): Unit =
   if args.isEmpty then
     System.err.println("Usage: ssc bench [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>")
     System.exit(1)
