@@ -49,6 +49,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   avoid short-lived `Option` chains in their hot field lookup paths.
   Path optic `getOption`, `set`, and traversal modify paths now carry absence
   with the interpreter's existing null sentinel instead of transient `Option`s.
+  `Traversal.getAll` field and map-key steps now avoid `Option.map/getOrElse`
+  dispatch chains while preserving absent-field behavior.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
