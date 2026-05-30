@@ -468,17 +468,17 @@ private[interpreter] object EffectHandlers:
       val emitted = Value.ListV(buf.toList)
       if errorMsg.isDefined then
         // Return a Source that fails on first pull by wrapping in a failed source if available.
-        interp.globals.get("Source.failed") match
-          case Some(fn) =>
-            try interp.invoke(fn, Value.StringV(errorMsg.get) :: Nil)
-            catch case _: Throwable => emitted
-          case None => emitted
+        val failedFn = interp.globals.getOrElse("Source.failed", null)
+        if failedFn != null then
+          try interp.invoke(failedFn, Value.StringV(errorMsg.get) :: Nil)
+          catch case _: Throwable => emitted
+        else emitted
       else
-        interp.globals.get("Source.from") match
-          case Some(fn) =>
-            try interp.invoke(fn, emitted :: Nil)
-            catch case _: Throwable => emitted
-          case None => emitted
+        val fromFn = interp.globals.getOrElse("Source.from", null)
+        if fromFn != null then
+          try interp.invoke(fromFn, emitted :: Nil)
+          catch case _: Throwable => emitted
+        else emitted
 
     def finish(bodyResult: Value): Computation =
       Pure(Value.TupleV(makeSource() :: bodyResult :: Nil))

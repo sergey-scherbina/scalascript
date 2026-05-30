@@ -51,6 +51,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   with the interpreter's existing null sentinel instead of transient `Option`s.
   `Traversal.getAll` field and map-key steps now avoid `Option.map/getOrElse`
   dispatch chains while preserving absent-field behavior.
+  Stream effect finalization now resolves `Source.from` / `Source.failed` with
+  direct global lookups.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
