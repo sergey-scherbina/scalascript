@@ -19,15 +19,15 @@ private[interpreter] object BuiltinsRuntime:
     // to give the ServiceLoader a chance to register it.
     def globalOrStub(name: String): Value =
       Value.NativeFnV(name, args =>
-        interp.globals.get(name) match
-          case Some(fn) => interp.callValue(fn, args, Map.empty)
-          case None if interp._pluginsLoaded =>
-            throw InterpretError(s"'$name' requires a plugin that is not loaded")
-          case None =>
-            interp.ensurePluginsLoaded()
-            interp.globals.get(name) match
-              case Some(fn) => interp.callValue(fn, args, Map.empty)
-              case None     => throw InterpretError(s"'$name' requires a plugin that is not loaded")
+        val fn = interp.globals.getOrElse(name, null)
+        if fn != null then interp.callValue(fn, args, Map.empty)
+        else if interp._pluginsLoaded then
+          throw InterpretError(s"'$name' requires a plugin that is not loaded")
+        else
+          interp.ensurePluginsLoaded()
+          val fn2 = interp.globals.getOrElse(name, null)
+          if fn2 != null then interp.callValue(fn2, args, Map.empty)
+          else throw InterpretError(s"'$name' requires a plugin that is not loaded")
       )
 
     // Phase 2 lazy loading: install only the built-in interpreter intrinsics
@@ -260,16 +260,15 @@ private[interpreter] object BuiltinsRuntime:
               // Locate the close member: works on case-class instances
               // (InstanceV.fields("close")) and on plain Map literals
               // (MapV with key "close") alike.
-              val closeOpt: Option[Value] = res match
-                case Value.InstanceV(_, fields) => fields.get("close")
-                case Value.MapV(m)              => m.get(Value.StringV("close"))
-                case _                          => None
+              val closeFn: Value | Null = res match
+                case Value.InstanceV(_, fields) => fields.getOrElse("close", null)
+                case Value.MapV(m)              => m.getOrElse(Value.StringV("close"), null)
+                case _                          => null
               try Computation.run(interp.callValue1(block, res, Map.empty))
               finally
-                closeOpt.foreach { closeFn =>
+                if closeFn != null then
                   try { Computation.run(interp.callValue(closeFn, Nil, Map.empty)); () }
                   catch case _: Throwable => ()
-                }
             case _ => throw InterpretError("Using.resource(r) { r => block }")
           }))
         case _ => throw InterpretError("Using.resource(r) { r => block }")
@@ -294,9 +293,9 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("McpSchema") = Value.InstanceV("McpSchema", Map(
       "derived" -> Value.NativeFnV("McpSchema.derived", {
         case List(Value.InstanceV("Mirror", mfields)) =>
-          val fieldNames: List[String] = mfields.get("fields") match
-            case Some(Value.ListV(xs)) => xs.collect { case Value.StringV(s) => s }
-            case _                     => Nil
+          val fieldNames: List[String] = mfields.getOrElse("fields", null) match
+            case Value.ListV(xs) => xs.collect { case Value.StringV(s) => s }
+            case _               => Nil
           val properties = Value.MapV(fieldNames.map(n =>
             (Value.StringV(n): Value) -> (Value.EmptyMap: Value)
           ).toMap)

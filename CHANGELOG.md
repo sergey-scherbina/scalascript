@@ -22,7 +22,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   non-pure continuations in `if`, assignment, and list count now construct
   `FlatMap` directly instead of re-checking through `.flatMap`. Pattern-match
   cache lookup now happens before scrutinee evaluation, so pure scrutinees avoid
-  an extra continuation.
+  an extra continuation. Plugin and stdlib helper lookups in `globalOrStub`,
+  `Using.resource`, `McpSchema.derived`, derives fallback, and `Storage.get`
+  now use null-sentinel map access instead of temporary `Option` wrappers.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
