@@ -211,6 +211,7 @@ final class DapSession(conn: Socket):
   private def valueToDap(name: String, v: IValue): Value =
     val (display, typeName) = v match
       case IValue.IntV(n)            => (n.toString, "Int")
+      case IValue.BigIntV(n)         => (n.toString, "BigInt")
       case IValue.DoubleV(d)         =>
         val s = if d == d.toLong.toDouble then d.toLong.toString else d.toString
         (s, "Double")
