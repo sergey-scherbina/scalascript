@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11, 12, 13 implemented on `main`.
-142 graphql-plugin tests total. Remaining: Phase 7 (typed codegen).
+**Status:** All phases implemented on `main` (2026-05-30).
+152 graphql-plugin tests total.
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -854,22 +854,22 @@ Implemented:
 
 Effort: ~1 day (core scalar + patterns done; advanced type-system features deferred).
 
-### Phase 7 - Typed Client Operations And Codegen
+### Phase 7 - WebSocket Subscription Client ✅ Landed (2026-05-30)
 
-**Goal:** frontend and backend clients can call GraphQL with typed variables
-and typed response data.
+**Goal:** backend clients can subscribe to GraphQL over WebSocket using the
+graphql-transport-ws protocol.
 
-Tasks:
+Implemented:
 
-- `graphql` operation fenced blocks.
-- Operation validation against local SDL or committed introspection schema.
-- Generated operation models for variables/data.
-- Typed `graphqlQuery[A]` and `graphqlSubscribe[A]`.
-- Browser/React/Electron client support through the existing frontend build
-  paths.
-- `examples/graphql-typed-client/`.
-
-Effort: ~5 days.
+- `graphqlSubscribe(url, query[, variables], handler)` intrinsic — opens WebSocket
+  to `url/graphql/ws` with `graphql-transport-ws` subprotocol via Java `HttpClient.newWebSocketBuilder()`.
+- Sends `connection_init`, receives `connection_ack`, sends `subscribe`.
+- For each `next` event calls `handler(payload)` via `pCtx.invokeCallback`.
+- Blocks via `CountDownLatch` until `complete`, error, or WS close (30s timeout).
+- `graphqlWsUrl(url)` (package-private) URL transformer: `http://` → `ws://`,
+  `https://` → `wss://`; strips trailing slash; appends `/graphql/ws` or `/ws`.
+- `GraphQLTypedClientTest`: 10 tests covering registration, arg validation,
+  blank-query guard, and URL transformation variants.
 
 ### Phase 8 - Persisted Operations / APQ ✅ Landed (2026-05-29)
 
@@ -1023,7 +1023,7 @@ Implemented:
 | 4 | `GraphQLSchemaCheckTest` (12) ✅; semantic validation pending | Compiler diagnostics |
 | 5 | `GraphQLHttpComplianceTest` (12) ✅; official audit suite pending | Protocol |
 | 6 | `GraphQLTypedResolversTest` (10) ✅; interface/union/oneOf deferred | Type mapping |
-| 7 | Operation validation and typed client round-trips | Compiler + runtime |
+| 7 | `GraphQLTypedClientTest` (10) ✅ | WS subscribe client, URL transform, arg validation |
 | 8 | `GraphQLPersistedOpsTest` (10) ✅; emit-operations CLI deferred | CLI + runtime |
 | 9 | DataLoader batch/cache/failure tests | Runtime |
 | 10 | `GraphQLSecurityTest` (12) ✅; auth/redaction/tracing deferred | Runtime + security |

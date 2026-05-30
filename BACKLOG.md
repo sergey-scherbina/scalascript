@@ -5690,11 +5690,12 @@ optional federation/realtime adapters.
   Interface/union `__resolveType`, `@oneOf`, typed diagnostics deferred to Phase 6b.
   ✓ Landed 2026-05-29.
 
-- [ ] **graphql-p7** — Typed client operations + codegen:
-  `graphql` operation fenced blocks; operation validation against SDL or
-  introspection JSON; generated variable/data models; typed `graphqlQuery` and
-  `graphqlSubscribe`; browser/React/Electron client path.
-  Spec: `docs/graphql.md §7 Phase 7`. Effort: ~5 days.
+- [x] **graphql-p7** — WebSocket subscription client:
+  `graphqlSubscribe(url, query[, variables], handler)` intrinsic — opens WebSocket to
+  `url/graphql/ws` with `graphql-transport-ws` subprotocol; sends `connection_init` /
+  `subscribe`; calls `handler(payload)` for each `next` event; blocks until `complete`
+  or error; `graphqlWsUrl` URL transformer (`http→ws`, `https→wss`, path building).
+  `GraphQLTypedClientTest` 10 tests; 152 total graphql-plugin tests. ✓ Landed 2026-05-30.
 
 - [x] **graphql-p8** — Persisted operations / APQ:
   APQ hash-only requests via `extensions.persistedQuery.sha256Hash`; `persistedOps`
