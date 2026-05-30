@@ -20,7 +20,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   Compound assignment (`x += e` and siblings) now uses an all-pure path when
   the variable read, RHS, and infix operation complete synchronously. Known
   non-pure continuations in `if`, assignment, and list count now construct
-  `FlatMap` directly instead of re-checking through `.flatMap`.
+  `FlatMap` directly instead of re-checking through `.flatMap`. Pattern-match
+  cache lookup now happens before scrutinee evaluation, so pure scrutinees avoid
+  an extra continuation.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

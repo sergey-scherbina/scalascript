@@ -845,15 +845,17 @@ private[interpreter] object EvalRuntime:
       }))
 
     // Match / pattern match — compiled and cached per AST identity to avoid
-    // per-call Option/List allocations in the matchPat hot path.
+    // per-call Option/List allocations in the matchPat hot path. Cache lookup
+    // happens before scrutinee eval so the Pure path avoids a continuation.
     case t: Term.Match =>
-      eval(t.expr, env, interp).flatMap { scrutV =>
-        var compiled = interp.matchCache.get(t)
-        if compiled == null then
-          compiled = PatternRuntime.compileMatch(t, interp)
-          interp.matchCache.put(t, compiled)
-        compiled.run(scrutV, env, interp)
-      }
+      var compiled = interp.matchCache.get(t)
+      if compiled == null then
+        compiled = PatternRuntime.compileMatch(t, interp)
+        interp.matchCache.put(t, compiled)
+      val compiledM = compiled
+      eval(t.expr, env, interp) match
+        case Pure(scrutV) => compiledM.run(scrutV, env, interp)
+        case exprC        => FlatMap(exprC, scrutV => compiledM.run(scrutV, env, interp))
 
     // Tuple  (a, b, ...)
     // Fast paths for 2- and 3-tuples avoid the intermediate List[Computation]
