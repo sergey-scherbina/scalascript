@@ -16,8 +16,8 @@ Required by the `busi` accounting project. Work top-to-bottom; v1.64.1 depends o
 the spec, codegen phases depend on the interpreter phases, Money depends on
 Decimal landing on every backend.
 
-- [ ] **v1.64.0-exact-numerics-spec** — Spec + backlog/work-queue. `docs/exact-numerics.md` (drafted 2026-05-30, pending commit).
-- [ ] **v1.64.1-bigint-interpreter** — `Value.BigIntV`, `BigInt(...)` ctor, arithmetic/methods/tower in `DispatchRuntime`, show/serialize, tests. Spec `§4-5,§7`.
+- [x] **v1.64.0-exact-numerics-spec** — Spec + backlog/work-queue. `docs/exact-numerics.md`. ✓ Landed 2026-05-30.
+- [x] **v1.64.1-bigint-interpreter** — `Value.BigIntV`, `BigInt(...)` ctor, arithmetic/methods/tower in `DispatchRuntime`, show/serialize, tests. Spec `§4-5,§7`. ✓ Landed 2026-05-30: `BigIntV(BigInt)` in `Value`, `BigInt(int|string|bigint)` builtin, `+ - * / % < > <= >= == !=` with Int↔BigInt widening, `dispatchBigInt` methods (pow/abs/gcd/signum/isEven/isProbablePrime/min/max/mod/toInt/toLong/toBigInt/toDouble), `Int.toBigInt`, `bi` wire tag in `ValueSerializer`; 9 tests, full interpreter suite green (1117).
 - [ ] **v1.64.2-decimal-interpreter** — `Value.DecimalV`, construction, exact `+-*`, `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised hashing, serialize, tests. Spec `§4.4-4.7`.
 - [ ] **v1.64.3-numerics-typer** — register types, numeric tower, Decimal↔Double type error, inference. Spec `§4.3`.
 - [ ] **v1.64.4-numerics-jvm-codegen** — lower to `scala.math.BigInt`/`BigDecimal`, map ops, cross-backend conformance. Spec `§5,§8`.

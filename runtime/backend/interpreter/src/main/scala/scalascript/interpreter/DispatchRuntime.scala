@@ -45,6 +45,7 @@ private[interpreter] object DispatchRuntime:
       case Value.OptionV(opt)      => dispatchOption(recv, if opt == null then None else Some(opt), name, args, env, interp)
       case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
       case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
+      case Value.BigIntV(b)        => dispatchBigInt(b, name, args, env, interp)
       case Value.CharV(c)          => dispatchChar(c, name, args, env, interp)
       case Value.BoolV(b)          => dispatchBool(recv, b, name, args, env, interp)
       case Value.TupleV(es)        => dispatchTuple(es, name, args, env, interp)
@@ -1874,6 +1875,7 @@ private[interpreter] object DispatchRuntime:
       case "toDouble"  => Pure(Value.doubleV(n.toDouble))
       case "toLong"    => Pure(recv)
       case "toInt"     => Pure(recv)
+      case "toBigInt"  => Pure(Value.BigIntV(BigInt(n)))
       case "toFloat"   => Pure(Value.doubleV(n.toDouble))
       case "toByte"    => Computation.pureIntV(n.toByte.toLong)
       case "toShort"   => Computation.pureIntV(n.toShort.toLong)
@@ -1912,6 +1914,54 @@ private[interpreter] object DispatchRuntime:
             while i >= n do { list = Value.intV(i) :: list; i -= 1 }
             Pure(Value.ListV(list))
         case _                   => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
+  // ── BigInt (exact-numerics v1.64) ─────────────────────────────────────────────
+
+  private def dispatchBigInt(n: BigInt, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.BigIntV(n)
+    def asBig(v: Value): BigInt = v match
+      case Value.BigIntV(b) => b
+      case Value.IntV(i)    => BigInt(i)
+      case other            => throw InterpretError(s"BigInt.$name: expected an integer, got ${Value.show(other)}")
+    name match
+      case "toInt"      => Computation.pureIntV(n.toLong)
+      case "toLong"     => Computation.pureIntV(n.toLong)
+      case "toBigInt"   => Pure(recv)
+      case "toDouble"   => Pure(Value.doubleV(n.toDouble))
+      case "toFloat"    => Pure(Value.doubleV(n.toDouble))
+      case "toString"   => Pure(Value.StringV(n.toString))
+      case "abs"        => Pure(Value.BigIntV(n.abs))
+      case "negate"     => Pure(Value.BigIntV(-n))
+      case "sign"       => Computation.pureIntV(n.signum.toLong)
+      case "signum"     => Computation.pureIntV(n.signum.toLong)
+      case "isEven"     => Computation.pureBool(!n.testBit(0))
+      case "isOdd"      => Computation.pureBool(n.testBit(0))
+      case "bitLength"  => Computation.pureIntV(n.bitLength.toLong)
+      case "pow"        => args match
+        case List(Value.IntV(e)) => Pure(Value.BigIntV(n.pow(e.toInt)))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "gcd"        => args match
+        case List(a)             => Pure(Value.BigIntV(n.gcd(asBig(a))))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "min"        => args match
+        case List(a)             => Pure(Value.BigIntV(n.min(asBig(a))))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "max"        => args match
+        case List(a)             => Pure(Value.BigIntV(n.max(asBig(a))))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "mod"        => args match
+        case List(a)             => Pure(Value.BigIntV(n.mod(asBig(a))))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "isProbablePrime" => args match
+        case List(Value.IntV(c)) => Computation.pureBool(n.isProbablePrime(c.toInt))
+        case Nil                 => Computation.pureBool(n.isProbablePrime(20))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
+      case "+" => args match { case List(a) => Pure(Value.BigIntV(n + asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "-" => args match { case List(a) => Pure(Value.BigIntV(n - asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "*" => args match { case List(a) => Pure(Value.BigIntV(n * asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "/" => args match { case List(a) => Pure(Value.BigIntV(n / asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
+      case "%" => args match { case List(a) => Pure(Value.BigIntV(n % asBig(a))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case _ => dispatchFallback(recv, name, args, env, interp)
 
   // ── Double ──────────────────────────────────────────────────────────────────
@@ -2229,6 +2279,9 @@ private[interpreter] object DispatchRuntime:
         case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a + b))
         case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a + b))
         case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a + b))
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a + b))
+        case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a + BigInt(b)))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) + b))
         case (Value.StringV(a), b)                => Pure(Value.StringV(a + Value.show(b)))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "-" => (lhs, rhs) match
@@ -2236,12 +2289,18 @@ private[interpreter] object DispatchRuntime:
         case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a - b))
         case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a - b))
         case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a - b))
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a - b))
+        case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a - BigInt(b)))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) - b))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "*" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a * b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a * b))
         case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a * b))
         case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a * b))
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a * b))
+        case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a * BigInt(b)))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) * b))
         case (Value.StringV(a), Value.IntV(n))    => Pure(Value.StringV(a * n.toInt))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "/" => (lhs, rhs) match
@@ -2249,27 +2308,51 @@ private[interpreter] object DispatchRuntime:
         case (Value.DoubleV(a), Value.DoubleV(b)) => Pure(Value.doubleV(a / b))
         case (Value.IntV(a),    Value.DoubleV(b)) => Pure(Value.doubleV(a / b))
         case (Value.DoubleV(a), Value.IntV(b))    => Pure(Value.doubleV(a / b))
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a / b))
+        case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a / BigInt(b)))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) / b))
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "%" => (lhs, rhs) match
         case (Value.IntV(a), Value.IntV(b)) => Computation.pureIntV(a % b)
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Pure(Value.BigIntV(a % b))
+        case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a % BigInt(b)))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) % b))
         case _                              => dispatch(lhs, op, args, env, interp)
-      case "==" => Computation.pureBool(lhs == rhs)
-      case "!=" => Computation.pureBool(lhs != rhs)
+      case "==" => (lhs, rhs) match
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a == BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) == b)
+        case _                                    => Computation.pureBool(lhs == rhs)
+      case "!=" => (lhs, rhs) match
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a != BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) != b)
+        case _                                    => Computation.pureBool(lhs != rhs)
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a < b)
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a < BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) < b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a > b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a > b)
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a > b)
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a > BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) > b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "<=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a <= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a <= b)
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a <= b)
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a <= BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) <= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case ">=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a >= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a >= b)
+        case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a >= b)
+        case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a >= BigInt(b))
+        case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) >= b)
         case _                                    => dispatch(lhs, op, args, env, interp)
       case "&&" => (lhs, rhs) match
         case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)

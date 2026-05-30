@@ -103,6 +103,20 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
     interp.globals("Nil")  = Value.EmptyList
 
+    // ── BigInt constructor (exact-numerics v1.64) ───────────────────────
+    // `BigInt(123)`, `BigInt("123456789012345678901234567890")`, BigInt(bigIntV).
+    interp.globals("BigInt") = Value.NativeFnV("BigInt", {
+      case List(Value.IntV(n))     => Pure(Value.BigIntV(BigInt(n)))
+      case List(Value.BigIntV(n))  => Pure(Value.BigIntV(n))
+      case List(Value.StringV(s))  =>
+        try Pure(Value.BigIntV(BigInt(s.trim)))
+        catch case _: NumberFormatException =>
+          throw InterpretError(s"BigInt: not a valid integer: '$s'")
+      case List(Value.DoubleV(d)) if d == d.toLong.toDouble => Pure(Value.BigIntV(BigInt(d.toLong)))
+      case List(other)             => throw InterpretError(s"BigInt: cannot build from ${Value.show(other)}")
+      case _                       => throw InterpretError("BigInt requires exactly one argument")
+    })
+
     // ── Exception constructors ────────────────────────────────────────
     // Allow `throw RuntimeException("msg")` and `try ... catch { case e: ... }`
     // in ScalaScript code.  Each factory produces an InstanceV so field access

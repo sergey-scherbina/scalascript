@@ -214,6 +214,9 @@ final class MutableEnvView(m: scala.collection.mutable.Map[String, Value])
 enum Value:
   case IntV(v: Long)
   case DoubleV(v: Double)
+  /** Arbitrary-precision signed integer (exact-numerics v1.64). Produced by
+   *  the `BigInt(...)` built-in and by Int→BigInt widening in arithmetic. */
+  case BigIntV(v: BigInt)
   case StringV(v: String)
   case BoolV(v: Boolean)
   case CharV(v: Char)
@@ -318,6 +321,7 @@ object Value:
   def show(v: Value): String = v match
     case IntV(n)              => n.toString
     case DoubleV(d)           => if d == d.toLong.toDouble then d.toLong.toString else d.toString
+    case BigIntV(n)           => n.toString
     case StringV(s)           => s
     case BoolV(b)             => b.toString
     case CharV(c)             => c.toString

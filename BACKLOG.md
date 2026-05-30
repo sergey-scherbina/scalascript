@@ -15,15 +15,15 @@ with correct rounding and cent-preserving allocation. v1.64 adds `BigInt`,
 `Decimal`/`BigDecimal`, a safe numeric tower (no silent Decimal↔Double mixing),
 and a `Money`/`Currency` std library — identical across interpreter, JVM, and JS.
 
-- [ ] **v1.64.0-exact-numerics-spec** - Canonical spec and backlog. Adds
+- [x] **v1.64.0-exact-numerics-spec** - Canonical spec and backlog. Adds
       `docs/exact-numerics.md`: `BigInt`/`Decimal` types, construction, numeric
       tower + Decimal/Double guard, division/rounding context, numeric `==` with
       normalised hashing, string serialization, JS `_Decimal` helper plan, and a
-      `Money`/`Currency`/`RoundingMode`/allocation std library.
-- [ ] **v1.64.1-bigint-interpreter** - `Value.BigIntV(BigInt)`, `BigInt(...)`
+      `Money`/`Currency`/`RoundingMode`/allocation std library. ✓ Landed 2026-05-30.
+- [x] **v1.64.1-bigint-interpreter** - `Value.BigIntV(BigInt)`, `BigInt(...)`
       constructor in `BuiltinsRuntime`, arithmetic + methods + Int↔BigInt tower in
       `DispatchRuntime`, `show`/serialize, tests. Spec: `docs/exact-numerics.md
-      §4-5, §7`.
+      §4-5, §7`. ✓ Landed 2026-05-30 (9 tests; full interpreter suite green).
 - [ ] **v1.64.2-decimal-interpreter** - `Value.DecimalV(BigDecimal)`,
       construction (`Decimal("…")`, `Decimal(n, scale)`), exact `+-*`,
       `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised
