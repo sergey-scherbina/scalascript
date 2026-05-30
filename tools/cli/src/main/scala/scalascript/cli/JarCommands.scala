@@ -22,7 +22,7 @@ object SscJarMain:
     val tmp = java.nio.file.Files.createTempFile("ssc-jar-", ".ssc")
     tmp.toFile.deleteOnExit()
     java.nio.file.Files.writeString(tmp, content)
-    runCommand(tmp.toString :: argv.toList)
+    CommandRegistry.dispatch("run", tmp.toString :: argv.toList)
 
 // ─── Thin-JAR launcher (Scala, lives in lib/ssc.jar) ────────────────────────
 
@@ -47,7 +47,7 @@ object SscThinLauncher:
     val tmp = java.nio.file.Files.createTempFile("ssc-jar-", suffix)
     tmp.toFile.deleteOnExit()
     java.nio.file.Files.write(tmp, bytes)
-    runCommand(tmp.toString :: argv.toList)
+    CommandRegistry.dispatch("run", tmp.toString :: argv.toList)
 
 // ─── Thin-JAR build ──────────────────────────────────────────────────────────
 

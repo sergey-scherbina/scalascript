@@ -505,7 +505,7 @@ def serveCommand(args: List[String]): Unit =
   // `ssc serve file.ssc` — run a .ssc server script with hot-reload.
   // `ssc serve [port] [dir]` — serve static files from a directory.
   args.headOption match
-    case Some(f) if f.endsWith(".ssc") => watchCommand(args)
+    case Some(f) if f.endsWith(".ssc") => CommandRegistry.dispatch("watch", args)
     case _ =>
       val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
       val dir  = args.drop(1).headOption.getOrElse(".")
@@ -1134,7 +1134,7 @@ private def buildProjectFileCommand(
       val oldOut = System.out
       val buf    = new java.io.ByteArrayOutputStream
       System.setOut(new java.io.PrintStream(buf))
-      try emitJsCommand(List(projectFile.toString))
+      try CommandRegistry.dispatch("emit-js", List(projectFile.toString))
       finally System.setOut(oldOut)
       os.write.over(outJs, buf.toByteArray)
       println(s"→ ${displayPath(outJs)}")
@@ -1407,35 +1407,24 @@ private[cli] def findProjectSsc(): Option[os.Path] =
  *  not declared, so `ssc somefile.ssc` continues to work as before. */
 private def scriptCommand(cmd: String, extraArgs: List[String]): Unit =
   findProjectSsc() match
-    case None => runCommand(cmd :: extraArgs)
+    case None => CommandRegistry.dispatch("run", cmd :: extraArgs)
     case Some(sscFile) =>
       val scripts =
         scala.util.Try(scalascript.parser.Parser.parse(os.read(sscFile)).manifest)
           .toOption.flatten.map(_.scripts).getOrElse(Map.empty)
       scripts.get(cmd) match
-        case None => runCommand(cmd :: extraArgs)
+        case None => CommandRegistry.dispatch("run", cmd :: extraArgs)
         case Some(scriptStr) =>
           val parts = scriptStr.trim.split("\\s+").toList.filterNot(_.isEmpty)
           parts match
             case Nil => ()
             case subCmd :: rest =>
               val cmdArgs = rest ::: sscFile.toString :: extraArgs
-              subCmd match
-                case "run"     => runCommand(cmdArgs)
-                case "watch"   => watchCommand(cmdArgs)
-                case "build"   => buildCommand(cmdArgs)
-                case "serve"   => serveCommand(cmdArgs)
-                case "test"    => testCommand(cmdArgs)
-                case "check"   => checkCommand(cmdArgs)
-                case "fmt"     => fmtCommand(cmdArgs)
-                case "bundle"  => bundleCommand(cmdArgs)
-                case "preview" => previewCommand(cmdArgs)
-                case "emit-js" => emitJsCommand(cmdArgs)
-                case other     =>
-                  System.err.println(
-                    s"ssc: script '$cmd' maps to unknown subcommand '$other'\n" +
-                    s"  Defined in: $sscFile")
-                  System.exit(1)
+              if !CommandRegistry.dispatch(subCmd, cmdArgs) then
+                System.err.println(
+                  s"ssc: script '$cmd' maps to unknown subcommand '$subCmd'\n" +
+                  s"  Defined in: $sscFile")
+                System.exit(1)
 
 /** `ssc install [--prefix <dir>]` — install ssc to a system prefix (default: `~/.local`).
  *  Copies `bin/lib/` (JARs) and `std/` from the current installation root to
