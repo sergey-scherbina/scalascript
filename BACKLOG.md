@@ -111,6 +111,16 @@ the contracts are explicit.
       in `package scalascript.codegen`). The `lazy val JsRuntimeAsync = AsyncA +
       AsyncB` combinator stays in `JsGen` (method-time access). Verify byte-identical
       via compile + JsGen JS codegen suites. Completes the preamble-string split.
+- [ ] **jvmgen-split-p1** - Behavior-preserving preamble-string extraction from the
+      9.5k-line `JvmGen.scala` (now the largest codegen file), mirroring the proven
+      `jsgen-split` pattern. Phase 1, pure non-interpolated `stripMargin` preamble
+      `val`s → dedicated `JvmRuntime*.scala` in `package scalascript.codegen`:
+      `swingTypedRouteClientRuntime` → `JvmRuntimeSwingClient` (keeps the
+      `TypedJsonCodecRuntime` import for its mid-string `.jvmFacade` concat),
+      `preamble` → `JvmRuntimePreamble`, `mutualTcoRuntime` → `JvmRuntimeMutualTco`.
+      Extract as `object X { val source = … }`; update the 5 reference sites to
+      `X.source`. Verify emitted JVM source byte-identical via compile + JvmGen
+      suites. Defer string helpers + genExpr/genStat clusters to a follow-up phase.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
