@@ -212,6 +212,7 @@ final class DapSession(conn: Socket):
     val (display, typeName) = v match
       case IValue.IntV(n)            => (n.toString, "Int")
       case IValue.BigIntV(n)         => (n.toString, "BigInt")
+      case IValue.DecimalV(d)        => (d.toString, "Decimal")
       case IValue.DoubleV(d)         =>
         val s = if d == d.toLong.toDouble then d.toLong.toString else d.toString
         (s, "Double")
