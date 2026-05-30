@@ -15,5 +15,17 @@ trait CliCommand:
   /** One-line summary for `ssc help`. May be empty during incremental migration. */
   def summary: String = ""
 
+  /** Grouping bucket for `ssc help`, e.g. "Run & develop". Commands with the
+   *  same category are listed together; see `Help.categoryOrder`. */
+  def category: String = "Other"
+
+  /** Extra indented lines shown under the command in `ssc help` (typically
+   *  `Flags: …`). Empty for commands whose summary says it all. */
+  def details: List[String] = Nil
+
+  /** True for commands that shouldn't appear in the `ssc help` listing
+   *  (alias-only or meta tokens like `--list-backends`). */
+  def hidden: Boolean = false
+
   /** Execute with the post-subcommand argument list (i.e. `args.tail`). */
   def run(args: List[String]): Unit

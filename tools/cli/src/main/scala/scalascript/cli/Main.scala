@@ -444,204 +444,62 @@ private[cli] def loadSidecarConfig(sscPath: os.Path): Option[scalascript.config.
   else Some(loaded.reduce((a, b) => a.deepMerge(b)))
 
 def printUsage(): Unit =
-  println("""
-    |ScalaScript (ssc)
-    |
-    |Usage: ssc <command> [options] <files...>
-    |
-    |Commands:
-    |  render                 Render a single .ssc as static HTML — runs the file
-    |                         in headless mode (serve() is a no-op), invokes the
-    |                         registered handler for a path (default `/`), and
-    |                         prints the response body.
-    |  build                  Batch-render every .ssc in a directory (or --incremental
-    |                         for separate-compilation artifact build).  Each file's
-    |                         literal GET routes become files under <out-dir>
-    |                         (default `dist/`); `/` → index.html, `/about` →
-    |                         about.html.  Files without GET routes are skipped.
-    |  bundle                  Pack one or more .ssc files + their transitive .ssc
-    |                         imports into a .sscpkg zip archive.  External imports
-    |                         (above the entry directory) are flattened into
-    |                         `_external/` with path references rewritten.
-    |  new <name> --template plugin
-    |                         Create a ScalaScript community plugin starter project.
-    |  install [--prefix <dir>]
-    |                         Install ssc to a system prefix (default: ~/.local).
-    |                         Copies runtime libs and std/ to <prefix>/lib/ssc/,
-    |                         writes a launcher to <prefix>/bin/ssc.
-    |                         Pass a plugin path/name to install a .sscpkg instead:
-    |                           ssc install <path|name>  (shortcut for ssc plugin install)
-    |  plugin <sub>           Manage installed .sscpkg plugins:
-    |    install <path|name>    Install a .sscpkg from a local path, HTTPS URL, or registry name
-    |    list                   List installed plugins
-    |    uninstall <id>         Remove an installed plugin by id
-    |    check <id>             Verify SPI-version compatibility
-    |    pack <dir>             Pack a plugin source tree into a .sscpkg archive
-    |    registry list          List entries in ~/.scalascript/registry.yaml
-    |    registry add <id> <url> [desc]  Add/update a registry entry
-    |    registry remove <id>   Remove a registry entry
-    |    registry search <q>    Search registry by id or description
-    |  run                    Execute .ssc via tree-walking interpreter (default)
-    |                         Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>  (overrides frontmatter frontend:)
-    |                                --backend jvm-rest with --frontend electron starts split JVM REST + Electron mode
-    |                                --target desktop-jvm starts split JVM REST + Electron mode
-    |                                --mode server starts only the JVM backend/server
-    |                                --mode client --frontend electron --server-url <url> starts only the Electron client
-    |                                --mode client --frontend <react|solid|vue|custom> --server-url <url> starts a local browser preview
-    |                                --transport <http|in-process> selects full-stack transport; in-process uses interpreter dispatch (no HTTP socket)
-    |                                --host <addr> / --port <n> controls web preview bind address/port; server mode uses --port for simple serve(port)
-    |                                --open-browser / --no-open-browser controls browser auto-open for web preview
-    |  watch                  Run .ssc and re-run on every file change
-    |                         Flags: --frontend <custom|react|solid|vue|swing>  (overrides frontmatter frontend:)
-    |  watch-bench            Benchmark one watch reload cycle on a temp copy
-    |                         Flags: --cycles <n>, --target-ms <n>, --require-target
-    |  repl                   Start interactive REPL (blank line runs, :quit exits)
-    |  compile                Compile and run .ssc on JVM via scala-cli
-    |                         Flags: --server-backend <jdk|jetty|netty>
-    |                                (picks the HttpServerSpi impl — defaults to jdk;
-    |                                 jetty/netty auto-add the //> using dep directive)
-    |  package [flags] <f>    Package .ssc via scala-cli package (see flags below)
-    |  emit-scala             Print generated Scala 3 script to stdout
-    |  emit-openapi           Export OpenAPI 3.1 JSON/YAML without starting a server
-    |                         Flags: --format <json|yaml>, -o <file>, --title <s>,
-    |                                --version <v>, --server <url> (repeatable)
-    |  emit-spark             Print generated Scala 3 + Spark program to stdout (Phase 1: local)
-    |  submit                 Package .ssc as a Spark fat JAR and launch via spark-submit
-    |                         Flags: --spark-master <url>, --spark-version <v>, --dry-run
-    |                         Pass extra spark-submit args after `--` (e.g. --executor-memory 4g)
-    |  emit-js                Transpile .ssc to JavaScript (Node server) and print to stdout
-    |                         Flags: --no-tree-shake  (emit all symbols; skip dead-code elimination)
-    |                                --stats          (print tree-shaking summary to stderr)
-    |  emit-wasm              Compile .ssc scala/scalascript blocks to WebAssembly via Scala.js (writes .wasm + .js)
-    |  emit-spa               Wrap .ssc as a browser SPA (HTML + embedded JS) and print to stdout
-    |                         Flags: --frontend <custom|react|solid|vue>
-    |                                (picks the FrontendFrameworkSpi impl — defaults to first-found;
-    |                                 controls which framework SPI downstream codegen targets)
-    |  emit-wc                Emit each component object as a W3C Custom Element bundle
-    |  emit-interface         Extract module interface to .scim artifact (v2.0)
-    |  emit-ir                Emit normalised module IR to .scir artifact (v2.0)
-    |  run-jvm                Compile .ssc via JvmGen and run immediately via scala-cli
-    |  run-js                 Compile .ssc via JsGen and run immediately via node
-    |  compile-jvm            Emit JVM-backend cached Scala source to .scjvm artifact (v2.0)
-    |  compile-js             Emit JS-backend cached JS source to .scjs artifact (v2.0)
-    |  check-with-iface       Type-check .ssc consuming pre-compiled .scim interfaces (v2.0)
-    |  link                   Link .scim/.scir artifact pairs into a merged module (v2.0)
-    |  generate-facade <dir> [-o <outDir>]
-    |                         Read .scim artifacts; emit Scala 3 facade sources (v2.0 interop Tier 3)
-    |  info <artifact>        Inspect a .scim/.scir/.scjvm/.scjs file (envelope + key fields)
-    |                         Pass --json to dump the full envelope as pretty-printed JSON
-    |  clean <dir>            Remove stale v2.0 artifacts whose source .ssc no longer exists.
-    |                         Flags: --dry-run (print, don't delete), --all (wipe everything).
-    |  verify <artifact-dir>  Health-check every v2.0 artifact in a directory.
-    |                         Validates envelope, sourceHash shape, cross-refs, and runtime
-    |                         coverage.  Flags: --strict (also re-hash source files),
-    |                         --src-dir <dir> (default: artifact-dir/..), --json.
-    |  check-compat <old.ssclib> <new.ssclib>
-    |                         Compare public .scim interfaces and fail on removed/changed symbols.
-    |  serve                  Start HTTP server serving .ssc files as web pages
-    |  parse                  Parse .ssc files and print AST
-    |  check                  Type-check .ssc files (parse + typer only; no codegen)
-    |                         Flags: --json (structured JSON output)
-    |                                --quiet (no output; exit code only — for CI hooks)
-    |                                --watch (re-check on file change; Ctrl-C to stop)
-    |                                --iface-dir <dir> / -I <dir> (pre-compiled .scim interfaces)
-    |                         Exit codes: 0=clean, 1=type errors, 2=parse errors, 3=file not found
-    |                         Accepts files or directories (recursively checks *.ssc)
-    |  test <file(s)>         Run component unit tests — each test is (name, () => Boolean).
-    |                         Prints PASS/FAIL per test; exits non-zero on any failure.
-    |                         Tests are functions registered with test(name, thunk) in the
-    |                         file, or in a sibling *-test.ssc file.
-    |  preview <file>         Open a browser preview page showing each component variant
-    |                         declared in the front-matter variants: list.  Storybook-lite.
-    |  lock <file>            Pin all URL/dep imports in ssc.lock (SHA-256 integrity)
-    |  lock check <file>      Verify all URL/dep imports match ssc.lock
-    |  update [<file>] [--strict-deps]
-    |                         Re-resolve all dep: imports transitively; write ssc-lock.yaml.
-    |                         --strict-deps  Error on version conflicts (default: latest-wins).
-    |  fmt [--check|--stdout] <file(s)>
-    |                         Format .ssc files in-place (default).
-    |                         --check  Exit non-zero if any file needs formatting (CI mode).
-    |                         --stdout Print formatted output to stdout (single file only).
-    |  profile [--top N] [--output <profile.json>] <file.ssc>
-    |                         Run with lightweight call-level profiling; print top-N
-    |                         hotspots by wall time.  --top defaults to 20.
-    |  lsp                    Run the Language Server Protocol server over stdio (v2.0)
-    |  run   --frontend electron <f>     Compile .ssc and open in an Electron desktop window
-    |  run-jvm --frontend swing <f>      Compile and launch the JDK-only Swing desktop frontend
-    |  run-jvm --frontend javafx <f>     Compile and launch the OpenJFX desktop frontend
-    |  build --target desktop <f>        Generate Electron bundle; run npm run build to package
-    |  build --target ios <f>             Generate SwiftUI iOS Swift package
-    |  build --target macos <f>          Generate SwiftUI macOS Swift package
-    |  package --target macos <f>        Generate Swift package + run swift build (ready-to-run binary)
-    |  package --target ios <f>          Archive + export signed .ipa (requires Xcode + Apple Developer)
-    |    --export-method <m>            distribution method: development|ad-hoc|enterprise|app-store (default: development)
-    |    --team-id <id>                 Apple Developer Team ID (or set SSC_TEAM_ID env var)
-    |  package --target macos --distribution <f>  Codesign + notarize + DMG (requires Developer ID cert)
-    |    --no-dmg                       Skip DMG creation (produce signed .app only)
-    |    --no-notarize                  Skip notarization (useful for internal distribution)
-    |  publish --target ios <f>         Upload to TestFlight or App Store via fastlane
-    |    --testflight                   Upload to TestFlight
-    |    --appstore                     Submit to App Store
-    |    --fastlane                     Use existing Fastfile instead of generating one
-    |    --api-key-path <p>            App Store Connect API key path (.p8) or APP_STORE_CONNECT_API_KEY_PATH env
-    |    --submit-for-review            Auto-submit for review after upload (App Store only)
-    |    --release-notes <text>        What's new text for TestFlight
-    |  publish --target macos <f>      Upload to Mac App Store via fastlane
-    |    --appstore                     Submit to Mac App Store
-    |    --fastlane                     Use existing Fastfile
-    |    --submit-for-review            Auto-submit for review
-    |  run   --target macos <f>          Build SwiftUI macOS app and launch it
-    |  run   --target ios <f>            Build + boot iOS Simulator + install + launch
-    |  run   --target ios --device <f>  Build + deploy to USB device via ios-deploy
-    |    --device-id <udid>             Target specific device (default: first connected)
-    |    --console / --no-console       Stream app logs and block (default: --console)
-    |    --rebuild / --no-rebuild       Force full rebuild vs incremental (default: --no-rebuild)
-    |  toolchain <sub>        Manage native/desktop/mobile build toolchains:
-    |    check  [--target <t>]  Detect installed tools (all targets or a specific one)
-    |    install [--target <t>] Auto-install missing tools via Coursier/Homebrew/mise/apt
-    |    list   [--target <t>]  Print installed tools and their versions
-    |    Targets: web, desktop, mobile-android, ios, macos,
-    |             desktop-linux, desktop-windows, all
-    |  help                   Show this help message
-    |
-    |Package flags (passed through to scala-cli package):
-    |  --lib                  Pack a library source tree into a .ssclib ZIP archive
-    |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest ssclib-manifest.yaml] [--precompile]
-    |                           Reads <dir>/ssclib-manifest.yaml; falls back to a generated manifest.
-    |                           --jvm-glue <jar>  JVM glue JAR packed at jvm/glue.jar in the archive
-    |                           --js-glue <js>    JS glue script packed at js/glue.js in the archive
-    |  --assembly             Fat JAR with all dependencies bundled
-    |  --standalone           Self-contained binary (like the ssc binary itself)
-    |  --native               GraalVM native image (requires native-image)
-    |  -o, --output <path>    Output file (default: input filename without .ssc)
-    |  --force, -f            Overwrite existing output
-    |  (any other scala-cli package flag is forwarded as-is)
-    |
-    |Compiler diagnostic flags:
-    |  --Ystats               Print per-phase compiler timing table after each build
-    |
-    |Logging flags:
-    |  --quiet                                  Silence third-party library logs (sets SLF4J threshold to error)
-    |  --logs.defaultLevel=<level>              ssc logger root level (warn|info|debug|error; default: warn)
-    |  --logs.<name>.level=<level>              Per-logger level, e.g. --logs.scalascript.server.level=info
-    |  --logs.logFile=System.out                Write ssc logs to stdout instead of stderr
-    |  Any --logs.KEY=VALUE maps to -Dscalascript.logger.KEY=VALUE
-    |  Third-party lib SLF4J level: edit simplelogger.properties on the classpath
-    |
-    |Examples:
-    |  ssc examples/hello.ssc
-    |  ssc compile examples/hello.ssc
-    |  ssc package examples/hello.ssc
-    |  ssc package --assembly examples/hello.ssc
-    |  ssc package --assembly -o hello.jar examples/hello.ssc
-    |  ssc package --standalone -o hello examples/hello.ssc
-    |  ssc emit-scala examples/hello.ssc
-    |  ssc emit-js examples/hello.ssc | node
-    |  ssc emit-spa examples/spa-demo.ssc > spa.html  # open spa.html in a browser
-    |  ssc emit-wc  examples/wc-card.ssc  > card.js   # use as <card-component title="…">…</card-component>
-    |  ssc serve 8080
-    |  ssc parse examples/typeclass.ssc
-    |""".stripMargin)
+  val header =
+    """ScalaScript (ssc)
+      |
+      |Usage: ssc <command> [options] <files...>""".stripMargin
+  // Platform targets + flag/logging/example sections are curated prose; the
+  // per-command "Commands" listing above is generated from the registry.
+  val tail =
+    """
+      |Platform targets:
+      |  run     --frontend electron <f>   Compile .ssc and open in an Electron desktop window
+      |  run-jvm --frontend swing <f>      Launch the JDK-only Swing desktop frontend
+      |  run-jvm --frontend javafx <f>     Launch the OpenJFX desktop frontend
+      |  build   --target desktop <f>      Generate an Electron bundle (npm run build to package)
+      |  build   --target ios|macos <f>    Generate a SwiftUI Swift package
+      |  package --target macos <f>        Swift package + swift build (ready-to-run binary)
+      |  package --target ios <f>          Archive + export signed .ipa (Xcode + Apple Developer)
+      |    --export-method <m>             development|ad-hoc|enterprise|app-store (default: development)
+      |    --team-id <id>                  Apple Developer Team ID (or SSC_TEAM_ID)
+      |  package --target macos --distribution <f>  Codesign + notarize + DMG (Developer ID cert)
+      |    --no-dmg / --no-notarize        Signed .app only / skip notarization
+      |  publish --target ios|macos <f>    Upload to TestFlight / App Store via fastlane
+      |    --testflight | --appstore       Destination; --submit-for-review to auto-submit
+      |    --api-key-path <p>              App Store Connect API key (.p8) or APP_STORE_CONNECT_API_KEY_PATH
+      |  run     --target macos <f>        Build the SwiftUI macOS app and launch it
+      |  run     --target ios [--device] <f>  Build + boot Simulator (or deploy to USB device)
+      |
+      |Package flags (passed through to scala-cli package):
+      |  --lib                  Pack a library source tree into a .ssclib ZIP archive
+      |                           ssc package --lib [<dir>] [-o my-lib-1.0.ssclib] [--manifest …] [--precompile]
+      |                           --jvm-glue <jar> / --js-glue <js>  glue packed in the archive
+      |  --assembly             Fat JAR with all dependencies bundled
+      |  --standalone           Self-contained binary (like the ssc binary itself)
+      |  --native               GraalVM native image (requires native-image)
+      |  -o, --output <path>    Output file (default: input filename without .ssc)
+      |  --force, -f            Overwrite existing output
+      |  (any other scala-cli package flag is forwarded as-is)
+      |
+      |Compiler diagnostic flags:
+      |  --Ystats               Print per-phase compiler timing table after each build
+      |
+      |Logging flags:
+      |  --quiet                       Silence third-party library logs (SLF4J -> error)
+      |  --logs.defaultLevel=<level>   ssc logger root level (warn|info|debug|error; default: warn)
+      |  --logs.<name>.level=<level>   Per-logger level, e.g. --logs.scalascript.server.level=info
+      |  --logs.logFile=System.out     Write ssc logs to stdout instead of stderr
+      |  Any --logs.KEY=VALUE maps to -Dscalascript.logger.KEY=VALUE
+      |
+      |Examples:
+      |  ssc examples/hello.ssc
+      |  ssc compile examples/hello.ssc
+      |  ssc package --assembly -o hello.jar examples/hello.ssc
+      |  ssc emit-js examples/hello.ssc | node
+      |  ssc emit-spa examples/spa-demo.ssc > spa.html
+      |  ssc serve 8080
+      |""".stripMargin
+  println(header + "\n" + Help.renderCommands() + tail)
 
 def serveCommand(args: List[String]): Unit =
   // `ssc serve file.ssc` — run a .ssc server script with hot-reload.

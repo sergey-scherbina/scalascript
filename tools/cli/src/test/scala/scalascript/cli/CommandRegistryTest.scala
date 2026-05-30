@@ -38,3 +38,24 @@ class CommandRegistryTest extends AnyFunSuite with Matchers:
 
   test("unknown token does not resolve (falls through to script dispatch)"):
     CommandRegistry.lookup("definitely-not-a-command") shouldBe None
+
+  test("every listed command carries help metadata"):
+    val missing = CommandRegistry.all
+      .filterNot(_.hidden)
+      .filter(c => c.summary.trim.isEmpty)
+      .map(_.name)
+    missing shouldBe empty
+
+  test("every command category is in the help ordering"):
+    val unknown = CommandRegistry.all
+      .filterNot(_.hidden)
+      .map(_.category)
+      .distinct
+      .filterNot(Help.categoryOrder.contains)
+    unknown shouldBe empty
+
+  test("rendered help lists a representative command under its group"):
+    val help = Help.renderCommands()
+    help should include ("Run & develop:")
+    help should include ("build")
+    help should include ("emit-js")
