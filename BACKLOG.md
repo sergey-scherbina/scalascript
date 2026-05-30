@@ -4,6 +4,47 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
+
+Spec: [`docs/exact-numerics.md`](docs/exact-numerics.md).
+
+ScalaScript's runtime has only `IntV(Long)` / `DoubleV(Double)` — no
+arbitrary-precision integer and no exact decimal. Accounting, finance, and
+business code (driving the `busi` project) need both, plus a `Money` library
+with correct rounding and cent-preserving allocation. v1.64 adds `BigInt`,
+`Decimal`/`BigDecimal`, a safe numeric tower (no silent Decimal↔Double mixing),
+and a `Money`/`Currency` std library — identical across interpreter, JVM, and JS.
+
+- [ ] **v1.64.0-exact-numerics-spec** - Canonical spec and backlog. Adds
+      `docs/exact-numerics.md`: `BigInt`/`Decimal` types, construction, numeric
+      tower + Decimal/Double guard, division/rounding context, numeric `==` with
+      normalised hashing, string serialization, JS `_Decimal` helper plan, and a
+      `Money`/`Currency`/`RoundingMode`/allocation std library.
+- [ ] **v1.64.1-bigint-interpreter** - `Value.BigIntV(BigInt)`, `BigInt(...)`
+      constructor in `BuiltinsRuntime`, arithmetic + methods + Int↔BigInt tower in
+      `DispatchRuntime`, `show`/serialize, tests. Spec: `docs/exact-numerics.md
+      §4-5, §7`.
+- [ ] **v1.64.2-decimal-interpreter** - `Value.DecimalV(BigDecimal)`,
+      construction (`Decimal("…")`, `Decimal(n, scale)`), exact `+-*`,
+      `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised
+      `hashCode`, serialize, tests. Spec: `docs/exact-numerics.md §4.4-4.7`.
+- [ ] **v1.64.3-numerics-typer** - Register `BigInt`/`Decimal`/`BigDecimal`/
+      `RoundingMode`; implement the numeric tower; raise the **Decimal↔Double**
+      type error; inference rules. Spec: `docs/exact-numerics.md §4.3`.
+- [ ] **v1.64.4-numerics-jvm-codegen** - Lower `BigInt`→`scala.math.BigInt`,
+      `Decimal`→`scala.math.BigDecimal`; map all ops; cross-backend conformance
+      vs interpreter. Spec: `docs/exact-numerics.md §5, §8`.
+- [ ] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
+      helper (BigInt-backed, capability-gated in preamble); ops; node-run
+      conformance vs interpreter/JVM. Spec: `docs/exact-numerics.md §5, §8`.
+- [ ] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
+      table, per-org overridable), `Money`, `RoundingMode`, cent-preserving
+      `allocate`/`distribute`, `format`/`parse`. Cross-backend tests. Spec:
+      `docs/exact-numerics.md §6`.
+- [ ] **v1.64.7-numerics-sugar** *(optional)* - Suffix literals `123n`/`12.34m`,
+      oversized-int auto-promotion, `money"…"` interpolator — via the preprocessor
+      pass. Spec: `docs/exact-numerics.md §4.2, §7`.
+
 ## Distributed Runtime (v1.63 planned)
 
 Spec: [`docs/distributed-runtime.md`](docs/distributed-runtime.md).

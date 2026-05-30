@@ -8,6 +8,25 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Exact Numerics — v1.64
+
+Spec: `docs/exact-numerics.md`. Adds `BigInt`, `Decimal`/`BigDecimal`, a safe
+numeric tower, and a `Money`/`Currency` std library across all three backends.
+Required by the `busi` accounting project. Work top-to-bottom; v1.64.1 depends on
+the spec, codegen phases depend on the interpreter phases, Money depends on
+Decimal landing on every backend.
+
+- [ ] **v1.64.0-exact-numerics-spec** — Spec + backlog/work-queue. `docs/exact-numerics.md` (drafted 2026-05-30, pending commit).
+- [ ] **v1.64.1-bigint-interpreter** — `Value.BigIntV`, `BigInt(...)` ctor, arithmetic/methods/tower in `DispatchRuntime`, show/serialize, tests. Spec `§4-5,§7`.
+- [ ] **v1.64.2-decimal-interpreter** — `Value.DecimalV`, construction, exact `+-*`, `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised hashing, serialize, tests. Spec `§4.4-4.7`.
+- [ ] **v1.64.3-numerics-typer** — register types, numeric tower, Decimal↔Double type error, inference. Spec `§4.3`.
+- [ ] **v1.64.4-numerics-jvm-codegen** — lower to `scala.math.BigInt`/`BigDecimal`, map ops, cross-backend conformance. Spec `§5,§8`.
+- [ ] **v1.64.5-numerics-js-codegen** — native `BigInt` + capability-gated `_Decimal` helper, node conformance. Spec `§5,§8`.
+- [ ] **v1.64.6-money-stdlib** — `runtime/std/money/`: `Currency`/`Money`/`RoundingMode`, configurable currency table, cent-preserving `allocate`, format/parse, tests. Spec `§6`.
+- [ ] **v1.64.7-numerics-sugar** *(optional)* — suffix literals `123n`/`12.34m`, oversized-int auto-promotion, `money"…"` interpolator (preprocessor). Spec `§4.2,§7`.
+
+---
+
 ## Distributed Runtime — v1.63
 
 - [x] **v1.63.0-distributed-runtime-spec** — Canonical spec and backlog for local/remote/distributed runtime support. Merges `docs/placement-and-remoting.md` and `docs/arch-local-distributed-cluster.md` into `docs/distributed-runtime.md`; keeps operation names like `users.get`, code identity, handler/source/behavior registries, worker bundles, cluster CLI/front matter, and dynamic-code roadmap, while adopting `! Async`, `BasicStreamOps`, typed `ActorRef[M]`, `Cluster`, `SeedResolver`, and cluster-aware deploy phases. Updated with `docs/cluster-operations.md` details for token rotation, persistent cluster config, rolling upgrades, multi-region lowering, and HPA/autoscale. ✓ Landed 2026-05-28.
