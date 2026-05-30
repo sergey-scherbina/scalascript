@@ -17,6 +17,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `intersect`, `diff`, `count`, `collect`, and `span` now bypass the generic
   `arg :: Nil` fallback. `List.takeWhile`, `dropWhile`, and `sortWith` now
   have working one-argument interpreter dispatch with regression coverage.
+  Compound assignment (`x += e` and siblings) now uses an all-pure path when
+  the variable read, RHS, and infix operation complete synchronously.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

@@ -624,11 +624,23 @@ private[interpreter] object EvalRuntime:
            !BlockRuntime.isCompareOp(op.value) =>
       val baseOp = op.value.init
       if argClause.values.lengthCompare(1) == 0 then
+        val lhsC = eval(lhs, env, interp)
         val rhsC = eval(argClause.values.head, env, interp)
-        eval(lhs, env, interp).flatMap { lhsV =>
-          rhsC.flatMap { rv =>
-            interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
-              interp.globals(lhs.value) = newV; Computation.PureUnit } } }
+        @inline def applyInfix(lhsV: Value, rv: Value): Computation =
+          interp.infix2(lhsV, baseOp, rv, env) match
+            case Pure(newV) =>
+              interp.globals(lhs.value) = newV
+              Computation.PureUnit
+            case c =>
+              FlatMap(c, { newV =>
+                interp.globals(lhs.value) = newV
+                Computation.PureUnit
+              })
+        (lhsC, rhsC) match
+          case (Pure(lhsV), Pure(rv)) => applyInfix(lhsV, rv)
+          case (Pure(lhsV), _)        => FlatMap(rhsC, rv => applyInfix(lhsV, rv))
+          case (_, Pure(rv))          => FlatMap(lhsC, lhsV => applyInfix(lhsV, rv))
+          case _                      => FlatMap(lhsC, lhsV => FlatMap(rhsC, rv => applyInfix(lhsV, rv)))
       else
         eval(lhs, env, interp).flatMap { lhsV =>
           val argComps = argClause.values.map(eval(_, env, interp))
