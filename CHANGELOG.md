@@ -41,6 +41,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   request bodies, and PID serialization now use the same direct field lookup.
   Actor PID send, monitor/link, registry, scheduling, seed-resolution, and
   actor-group delivery paths now avoid the same temporary `Option` wrappers.
+  Actor receive-loop dispatch now avoids boxing the matched computation before
+  returning it to the scheduler.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

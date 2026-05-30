@@ -2761,9 +2761,9 @@ private[interpreter] trait ActorInterp:
     val mb = rt.mailboxes(id)
     while !mb.isEmpty do
       val msg = mb.peek()
-      var matched: Option[Computation] = None
+      var matched: Computation = null
       val it = cases.iterator
-      while matched.isEmpty && it.hasNext do
+      while matched == null && it.hasNext do
         val c = it.next()
         val extEnv = PatternRuntime.matchPat(c.pat, msg, env, this)
         if extEnv != null then
@@ -2774,15 +2774,14 @@ private[interpreter] trait ActorInterp:
           }
           if guardOk then
             val body = eval(c.body, extEnv)
-            matched = Some(
+            matched =
               if wrapSome then body.flatMap(v =>
                 k(Value.InstanceV("Some", Map("value" -> v))))
               else body.flatMap(k)
-            )
-      if matched.isDefined then
+      if matched != null then
         mb.poll()
         resumeBlockedSender(rt, id)
-        return matched
+        return Some(matched)
       // Dead letter: discard the head and try the next.
       out.println(s"[dead-letter] actor=$id msg=${Value.show(msg)}")
       mb.poll()
