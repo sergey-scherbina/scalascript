@@ -10,7 +10,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   from `perf/interpreter-opt`: direct `FrameMap.foreachEntry` iteration plus
   cheaper `FrameMapN.flat`, and direct-match `Option.map` / `Option.flatMap` /
   `Option.filter` / one-arg `fold` / `toRight` / `toLeft` paths adapted to
-  the current null-sentinel `OptionV` representation.
+  the current null-sentinel `OptionV` representation. Also added the
+  one-argument `Double.max` / `min` / `pow` / `atan2` dispatch fast path.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
