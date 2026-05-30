@@ -48,6 +48,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   allocates a `zipWithIndex` tuple list just to find the last statement.
   Function and type-method vararg checks now avoid temporary `Option` wrappers
   from `List.lift` on every generic call.
+  Two-field case-class pattern matching now skips field materialization for
+  wildcard-only slots, reducing work in compiled match handlers.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now

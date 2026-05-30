@@ -67,15 +67,19 @@ private[interpreter] object PatternRuntime:
           val v = fields.getOrElse(fo(0), null)
           if v == null then null else FrameMap.one(bname, v, env)
       case 2 =>
-        val v0 = fields.getOrElse(fo(0), null)
-        val v1 = fields.getOrElse(fo(1), null)
-        if v0 == null || v1 == null then null
+        val b0 = bindNames(0)
+        val b1 = bindNames(1)
+        if b0 == null && b1 == null then env
+        else if b0 == null then
+          val v1 = fields.getOrElse(fo(1), null)
+          if v1 == null then null else FrameMap.one(b1, v1, env)
+        else if b1 == null then
+          val v0 = fields.getOrElse(fo(0), null)
+          if v0 == null then null else FrameMap.one(b0, v0, env)
         else
-          val b0 = bindNames(0)
-          val b1 = bindNames(1)
-          if b0 == null && b1 == null then env
-          else if b0 == null then FrameMap.one(b1, v1, env)
-          else if b1 == null then FrameMap.one(b0, v0, env)
+          val v0 = fields.getOrElse(fo(0), null)
+          val v1 = fields.getOrElse(fo(1), null)
+          if v0 == null || v1 == null then null
           else FrameMap.two(b0, v0, b1, v1, env)
       case _ =>
         // General case: collect only non-wildcard bindings
