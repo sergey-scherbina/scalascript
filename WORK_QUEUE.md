@@ -509,7 +509,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **wallet-vault-mpc-lit** — Lit Protocol threshold signing adapter: `payments/wallet/wallet-vault-mpc-lit/` sbt subproject; `LitRemoteSigningClient` extending `HttpRemoteSigningClient`; Lit PKP signing via `POST /web3/pkp/sign` with pre-computed `authSig` (SIWE-style bearer); `GET /health` for health; `GET /web3/pkp/list` for account discovery; `LitOptions(pkpPublicKey, authSig, sigName)`; `LitVault` named constructor; `LitPlugin` ServiceLoader; 14 tests (mock HTTP, authSig header, PKP sign body, signature parsing, poll timeout, curve mapping, ServiceLoader). Spec: `docs/wallet-vault-mpc.md §lit`.
 
-- [ ] **wallet-vault-mpc-zengo** — ZenGo X Enterprise MPC adapter: `payments/wallet/wallet-vault-mpc-zengo/` sbt subproject; `ZenGoRemoteSigningClient` extending `HttpRemoteSigningClient`; HMAC-SHA256 request auth (`X-ZENGO-KEY` + `X-ZENGO-TIMESTAMP` + `X-ZENGO-SIGNATURE` over `timestamp|method|path|sha256(body)`); `GET /v1/health`; `GET /v1/accounts`; `POST /v1/signing/requests` → `GET /v1/signing/requests/{id}` async poll; `ZenGoVault` named constructor; `ZenGoPlugin` ServiceLoader; 14 tests. Spec: `docs/wallet-vault-mpc.md §zengo`.
+- [x] **wallet-vault-mpc-zengo** — ZenGo X Enterprise MPC adapter: `payments/wallet/wallet-vault-mpc-zengo/` sbt subproject; `ZenGoRemoteSigningClient` extending `HttpRemoteSigningClient`; HMAC-SHA256 request auth (`X-ZENGO-KEY` + `X-ZENGO-TIMESTAMP` + `X-ZENGO-SIGNATURE` over `timestamp|method|path|sha256(body)`); `GET /v1/health`; `GET /v1/accounts`; `POST /v1/signing/requests` → `GET /v1/signing/requests/{id}` async poll; `ZenGoVault` named constructor; `ZenGoPlugin` ServiceLoader; 14 tests. Spec: `docs/wallet-vault-mpc.md §zengo`.
 
 ---
 

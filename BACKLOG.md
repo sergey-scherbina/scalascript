@@ -5373,10 +5373,8 @@ device, one seed, per-chain on-device apps; the Vault routes
       `docs/wallet-vault-mpc.md`, `examples/wallet-mpc-fireblocks.ssc`,
       and 16 mock-HTTP/JWT/wire tests.
 - [x] `wallet-vault-mpc-coinbase` — Coinbase Prime MPC adapter. ✓ Landed 2026-05-28.
-- [ ] `wallet-vault-mpc-lit` — Lit Protocol threshold signing adapter.
-      In WORK_QUEUE as `wallet-vault-mpc-lit`.
-- [ ] `wallet-vault-mpc-zengo` — ZenGo X Enterprise MPC adapter.
-      In WORK_QUEUE as `wallet-vault-mpc-zengo`.
+- [x] `wallet-vault-mpc-lit` — Lit Protocol threshold signing adapter. ✓ Landed 2026-05-30.
+- [x] `wallet-vault-mpc-zengo` — ZenGo X Enterprise MPC adapter. ✓ Landed 2026-05-30.
 - [ ] FROST-Ed25519 and future MPC variants — deferred until a concrete
       production use case or partner request arrives.
 

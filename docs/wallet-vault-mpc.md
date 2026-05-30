@@ -246,13 +246,77 @@ val vault = LitVault(
 | `Curve.Ed25519` | `ed25519` |
 | `Curve.P256` | `P256` |
 
+## ZenGo X Enterprise
+
+Module: `payments/wallet/wallet-vault-mpc-zengo/`
+sbt: `walletVaultMpcZengo`
+
+Wraps the ZenGo X Enterprise MPC service behind `RemoteSigningClient`. Every request is
+authenticated with an HMAC-SHA256 per-request signature. The message format is:
+
+```
+timestamp|METHOD|/path|sha256hex(requestBody)
+```
+
+Three headers carry the auth proof: `X-ZENGO-KEY`, `X-ZENGO-TIMESTAMP`, `X-ZENGO-SIGNATURE`.
+
+### Usage
+
+```scala
+import scalascript.wallet.vault.mpc.zengo.*
+
+val vault = ZenGoVault(
+  apiKey    = sys.env("ZENGO_API_KEY"),
+  secretKey = sys.env("ZENGO_SECRET_KEY"),
+  baseUrl   = "https://api.zengo.com/mpc",
+)
+```
+
+### Endpoints
+
+| Operation | Method | Path |
+|---|---|---|
+| Health | `GET` | `/v1/health` |
+| List accounts | `GET` | `/v1/accounts` |
+| Create signing request | `POST` | `/v1/signing/requests` |
+| Poll signing result | `GET` | `/v1/signing/requests/{id}` |
+
+### Signing request body
+
+```json
+{
+  "account_id": "acct-1",
+  "algorithm": "ECDSA_SECP256K1",
+  "derivation_path": "m/44'/60'/0'/0/0",
+  "payload": "deadbeef",
+  "hash_algorithm": "keccak256"
+}
+```
+
+### Signing response (polling)
+
+```json
+{ "status": "SIGNED", "signature": "11223344..." }
+```
+
+Terminal statuses: `SIGNED`, `COMPLETED`, `SUCCESS` (success); `FAILED`, `REJECTED`,
+`CANCELLED`, `ERROR` (failure). All other statuses are polled.
+
+### Curve mapping
+
+| ScalaScript curve | ZenGo algorithm |
+|---|---|
+| `Curve.Secp256k1` | `ECDSA_SECP256K1` |
+| `Curve.Ed25519` | `EDDSA_ED25519` |
+| `Curve.P256` | `ECDSA_P256` |
+
 ## Phases
 
 - Phase 1: shared MPC vault core. Landed in `wallet-vault-mpc`.
 - Phase 2: Fireblocks adapter. Landed 2026-05-28.
 - Phase 3: Coinbase Prime MPC adapter. Landed 2026-05-28.
 - Phase 4: Lit Protocol adapter. Landed 2026-05-30.
-- Phase 5: ZenGo X Enterprise adapter. In progress.
+- Phase 5: ZenGo X Enterprise adapter. Landed 2026-05-30.
 - Phase 6: production credential examples and env-gated provider integration
   tests. Planned; CI will not require live vendor accounts.
 
@@ -268,6 +332,10 @@ val vault = LitVault(
 - Lit Protocol: local `HttpServer` tests for health, PKP list parsing, sign
   body shape, authSig passthrough, signature parsing, error handling, curve
   mapping, and fallback account discovery.
+- ZenGo: local `HttpServer` tests for HMAC-SHA256 auth header shape and
+  correctness, account list decoding, request body fields, async poll loop
+  (immediate and multi-round PENDING), failure statuses, HTTP error handling,
+  deterministic signature generation, and curve mapping.
 - Live integration: env-gated only, using vendor sandbox/preprod credentials
   supplied by the developer or CI secret store.
 
