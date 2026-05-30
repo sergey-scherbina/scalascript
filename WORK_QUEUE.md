@@ -23,6 +23,20 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 - [ ] **perf-regression-guard** — Add a lightweight performance regression workflow: checked-in benchmark manifest/baseline policy, ignored generated artifacts, short opt-in `ssc bench`/JMH smoke command, and docs for when results are informational vs CI-blocking.
 - [ ] **cli-main-helper-split-p2** — Continue behavior-preserving CLI helper extraction after the command/repl split. Target cohesive `Main.scala` clusters first: build/compile pipeline helpers, synthetic-request/render helpers, artifact IO, and install/stage helpers. Keep command behavior and registry contracts unchanged.
 
+## GraphQL JS/Node parity (graphql-js)
+
+JVM/interpreter GraphQL is complete (graphql-p1–p13 in `BACKLOG.md §GraphQL`). The
+`graphql-js` JS/Node backend baseline (query + mutation + nested resolvers + client)
+landed 2026-05-30 under graphql-p2; these bring the JS/Node target to feature parity.
+Each is backed by the `graphql` npm package (plus a small extra dep where noted) and
+verified with a live `node` round-trip. Details in `BACKLOG.md §"GraphQL JS/Node parity"`.
+
+- [ ] **graphql-js-scalars** — Custom scalars on graphql-js (`GraphQL.scalar` → `GraphQLScalarType`), nested object/list output. Mirrors graphql-p6. Node conformance tests.
+- [ ] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js (`GraphQL.dataLoader`, `_load`/`_batchLoad`, per-request dedup cache). Mirrors graphql-p9.
+- [ ] **graphql-js-security** — Security/limits parity (`GraphQL.options`: maxDepth/maxComplexity/maxQueryLength/disableIntrospection) via graphql-js validation rules + body-length guard. Mirrors graphql-p10.
+- [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (`graphql-transport-ws` on `onWebSocket`) + `graphqlSse` text/event-stream. Mirrors graphql-p3/p7/p13. Likely needs `graphql-ws` dep.
+- [ ] **graphql-js-federation** — Apollo Federation v2 subgraph (`graphqlSubgraphMount`/`serveSubgraph`, Federation SDL preamble + `_entities`/`__typename`). Mirrors graphql-p12. Pure-SDL, no extra dep.
+
 ## Exact Numerics — v1.64
 
 Spec: `docs/exact-numerics.md`. Adds `BigInt`, `Decimal`/`BigDecimal`, a safe

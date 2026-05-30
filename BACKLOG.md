@@ -5767,8 +5767,15 @@ optional federation/realtime adapters.
 - [x] **graphql-p2** — Async resolvers + GraphQL client + JS backend:
   `graphqlQuery(url, query[, variables])` dynamic client via `java.net.http.HttpClient`;
   `examples/graphql-client.ssc`. 24 tests total.
-  Remaining: `Future[A]` async resolvers, `graphql-js` JS backend, `Feature.GraphQL`.
-  Partially landed 2026-05-29.
+  `Future[A]` async resolvers landed 2026-05-30 (drive Async effects + unwrap Future).
+  `graphql-js` JS/Node backend baseline + `Feature.GraphQL` landed 2026-05-30: `graphql`
+  fenced blocks → `_registerGraphqlSdl`; `JsRuntimeGraphql` server stack
+  (`graphqlHandler`/`graphqlMount`/`serveGraphQL`) + `graphqlQuery` client over the `graphql`
+  npm package (buildSchema + custom fieldResolver); coordinate-or-bare resolver dispatch with
+  default property fallback; async resolvers awaited; GET rejects mutations; named-arg intrinsic
+  calls lower to options objects; `NodeBackend` emits the `graphql` dep. 8 `NodeBackendGraphqlTest`
+  (incl. live node POST round-trip). Deferred to the JS/Node parity phases below: custom scalars,
+  DataLoader, subscriptions (WS/SSE), federation, security limits.
 
 - [x] **graphql-p3** — Subscriptions over WebSocket (`graphql-transport-ws`):
   Subscription resolver wired into graphql-java `Subscription` type wiring;
@@ -5849,9 +5856,35 @@ optional federation/realtime adapters.
   parse `data:` lines, return `List` of event payloads. `handleSseResult` + `executeRemoteSse`.
   `GraphQLSseTest` 11 tests; 132 total graphql-plugin tests. ✓ Landed 2026-05-30.
 
----
+### GraphQL JS/Node parity (graphql-js) — deferred from graphql-p2
 
-## v1.38 — Payment Request API (browser + server)
+Phases p3–p13 above are implemented for the JVM/interpreter target via `graphql-java`.
+The `graphql-js` JS/Node backend (landed under graphql-p2 baseline) currently covers
+query + mutation + nested-type resolvers + client only. These phases bring the JS/Node
+target to feature parity, each backed by the `graphql` npm package (plus a small extra
+dep where noted) and verified with a live `node` round-trip in `NodeBackendGraphqlTest`.
+
+- [ ] **graphql-js-scalars** — Custom scalars on graphql-js: wire `GraphQL.scalar(name, serialize, coerce)`
+  into the executable schema (graphql-js `GraphQLScalarType` over the `buildSchema` result), nested
+  object output via Maps and list-of-objects via Lists, mirroring graphql-p6. Node conformance tests.
+
+- [ ] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js: `GraphQL.dataLoader(name, batchFn)`
+  with per-request key-deduped cache injected into resolver args (`_load`/`_batchLoad`), mirroring graphql-p9.
+  Use the `dataloader` npm dep or a small inline batcher. Node conformance tests.
+
+- [ ] **graphql-js-security** — Security/limits parity on graphql-js: `GraphQL.options(maxDepth, maxComplexity,
+  maxQueryLength, disableIntrospection)` as the optional 3rd arg to `graphqlHandler`/`graphqlMount`/`serveGraphQL`,
+  enforced via graphql-js validation rules + a body-length guard, mirroring graphql-p10. Node conformance tests.
+
+- [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (graphql-ws) on Node: subscription resolvers
+  returning async iterators, `/graphql/ws` mounted on the existing `onWebSocket` infra with the
+  `graphql-transport-ws` protocol, plus the `graphqlSse` text/event-stream path, mirroring graphql-p3/p7/p13.
+  Likely needs the `graphql-ws` npm dep. Two-process Node round-trip tests.
+
+- [ ] **graphql-js-federation** — Apollo Federation v2 subgraph on graphql-js: `graphqlSubgraphMount` /
+  `serveSubgraph` prepend the Federation v2 SDL preamble (`_Any`/`_FieldSet`, directives, `_Service`,
+  `_entities`/`_Entity`) and wire the `_entities` + `__typename` resolvers, mirroring graphql-p12.
+  Pure-SDL approach (no extra dep). Node conformance tests.
 
 **Status:** Complete
 **Spec:** [`docs/payment-request.md`](docs/payment-request.md)
