@@ -9,32 +9,37 @@ package scalascript.cli
  *  endpoint is registered automatically when the node calls
  *  `startNode(...)`.  Output is a human-readable summary; raw JSON
  *  is available via `--json`. */
-def clusterCommand(args: List[String]): Unit =
-  args match
-    case "status"   :: rest => clusterStatusCommand(rest)
-    case "drain"    :: rest => clusterDrainCommand(rest)
-    case "events"   :: rest => clusterEventsCommand(rest)
-    case "step-down" :: rest => clusterStepDownCommand(rest)
-    case "handlers" :: rest => clusterHandlersCommand(rest)
-    case "run"      :: rest => clusterRunCommand(rest)
-    case "package"  :: rest => clusterPackageCommand(rest)
-    case "stop"     :: rest => clusterStopCommand(rest)
-    case ("help" | "--help" | "-h") :: _ =>
-      println("Usage: ssc cluster <subcommand>")
-      println("  status    <url> [--json] [--token=<t>]            show JSON snapshot")
-      println("  drain     <url> [--off]  [--token=<t>]            toggle drain mode")
-      println("  events    <url> [--since=<ms>] [--token=<t>]      dump events ring")
-      println("  step-down <url> [--token=<t>]                     graceful leader step-down")
-      println("  handlers  --seed <url> [--token=<t>] [--json]     list exported handlers")
-      println("  run       <file.ssc> [--role <r>] [--node-id <id>] [--bind <addr>] [--join <url>]")
-      println("  package   <file.ssc> --out <dist.zip> [--target worker]")
-      println("  stop      --seed <url> [--token=<t>]              drain then step-down")
-      println()
-      println("Auth: --token=<t> or SSC_CLUSTER_TOKEN env.  Sends")
-      println("`Authorization: Bearer <token>` on every request.")
-    case _ =>
-      System.err.println("Usage: ssc cluster {status|drain|events|step-down|handlers|run|package|stop} <url> [opts]")
-      System.exit(2)
+final class ClusterCmd extends CliCommand:
+  def name = "cluster"
+  override def summary = "Inspect or operate a running ssc cluster node"
+  override def category = "Services & tooling"
+  override def details = List("Subs: status | events | drain | step-down | run | package | handlers | stop")
+  def run(args: List[String]): Unit =
+    args match
+      case "status"   :: rest => clusterStatusCommand(rest)
+      case "drain"    :: rest => clusterDrainCommand(rest)
+      case "events"   :: rest => clusterEventsCommand(rest)
+      case "step-down" :: rest => clusterStepDownCommand(rest)
+      case "handlers" :: rest => clusterHandlersCommand(rest)
+      case "run"      :: rest => clusterRunCommand(rest)
+      case "package"  :: rest => clusterPackageCommand(rest)
+      case "stop"     :: rest => clusterStopCommand(rest)
+      case ("help" | "--help" | "-h") :: _ =>
+        println("Usage: ssc cluster <subcommand>")
+        println("  status    <url> [--json] [--token=<t>]            show JSON snapshot")
+        println("  drain     <url> [--off]  [--token=<t>]            toggle drain mode")
+        println("  events    <url> [--since=<ms>] [--token=<t>]      dump events ring")
+        println("  step-down <url> [--token=<t>]                     graceful leader step-down")
+        println("  handlers  --seed <url> [--token=<t>] [--json]     list exported handlers")
+        println("  run       <file.ssc> [--role <r>] [--node-id <id>] [--bind <addr>] [--join <url>]")
+        println("  package   <file.ssc> --out <dist.zip> [--target worker]")
+        println("  stop      --seed <url> [--token=<t>]              drain then step-down")
+        println()
+        println("Auth: --token=<t> or SSC_CLUSTER_TOKEN env.  Sends")
+        println("`Authorization: Bearer <token>` on every request.")
+      case _ =>
+        System.err.println("Usage: ssc cluster {status|drain|events|step-down|handlers|run|package|stop} <url> [opts]")
+        System.exit(2)
 
 private def clusterStepDownCommand(args: List[String]): Unit =
   val (flags, urlOpt) = args.partition(_.startsWith("--"))

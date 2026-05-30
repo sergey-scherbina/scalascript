@@ -63,7 +63,7 @@ class EmitOpenapiCliTest extends AnyFunSuite with Matchers:
     try
       val file = writeApi(dir)
       val out = captureStdout {
-        emitOpenapiCommand(List(file.toString))
+        CommandRegistry.dispatch("emit-openapi", List(file.toString))
       }
       val json = ujson.read(out)
       json("openapi").str shouldBe "3.1.0"
@@ -78,7 +78,7 @@ class EmitOpenapiCliTest extends AnyFunSuite with Matchers:
     try
       val file = writeApi(dir)
       val out = captureStdout {
-        emitOpenapiCommand(List(
+        CommandRegistry.dispatch("emit-openapi", List(
           "--title", "Users API",
           "--version", "2.0.0",
           "--server", "https://api.example.test",
@@ -96,7 +96,7 @@ class EmitOpenapiCliTest extends AnyFunSuite with Matchers:
     try
       val file = writeApi(dir)
       val out = captureStdout {
-        emitOpenapiCommand(List("--format", "yaml", file.toString))
+        CommandRegistry.dispatch("emit-openapi", List("--format", "yaml", file.toString))
       }
       out should include ("openapi: 3.1.0")
       out should include ("\"/users/{id}\":")
@@ -111,7 +111,7 @@ class EmitOpenapiCliTest extends AnyFunSuite with Matchers:
       val file = writeApi(dir)
       val outFile = dir / "openapi.yaml"
       val stdout = captureStdout {
-        emitOpenapiCommand(List("-o", outFile.toString, file.toString))
+        CommandRegistry.dispatch("emit-openapi", List("-o", outFile.toString, file.toString))
       }
       stdout shouldBe ""
       val yaml = os.read(outFile)

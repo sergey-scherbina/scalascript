@@ -504,7 +504,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
         |""".stripMargin.trim)
     val out = java.io.ByteArrayOutputStream()
     Console.withOut(out) {
-      emitSpaCommand(List("--server-url", "http://server.example:8080", app.toString))
+      CommandRegistry.dispatch("emit-spa", List("--server-url", "http://server.example:8080", app.toString))
     }
     val html = out.toString("UTF-8")
     assert(html.contains("globalThis.__sscBackendBaseUrl = \"http://server.example:8080\""))

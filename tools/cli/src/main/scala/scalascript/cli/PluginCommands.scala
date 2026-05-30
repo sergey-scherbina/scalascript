@@ -7,21 +7,27 @@ package scalascript.cli
 
 private def pluginsDir: os.Path = os.home / ".scalascript" / "compiler" / "plugins"
 
-def pluginCommand(args: List[String]): Unit =
-  args match
-    case "install"   :: rest => pluginInstall(rest)
-    case "list"      :: _    => pluginList()
-    case "uninstall" :: rest => pluginUninstall(rest)
-    case "check"     :: rest => pluginCheck(rest)
-    case "pack"      :: rest => pluginPack(rest)
-    case "registry"  :: rest => pluginRegistryCommand(rest)
-    case sub :: _            =>
-      System.err.println(s"Unknown plugin subcommand: '$sub'")
-      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
-      System.exit(1)
-    case Nil =>
-      System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
-      System.exit(1)
+final class PluginCmd extends CliCommand:
+  def name = "plugin"
+  override def summary = "Manage installed .sscpkg plugins"
+  override def category = "Dependencies & plugins"
+  override def details = List("Subs: install | list | uninstall | check | pack | registry")
+  def run(args: List[String]): Unit =
+    args match
+      case "install"   :: rest => pluginInstall(rest)
+      case "list"      :: _    => pluginList()
+      case "uninstall" :: rest => pluginUninstall(rest)
+      case "check"     :: rest => pluginCheck(rest)
+      case "pack"      :: rest => pluginPack(rest)
+      case "registry"  :: rest => pluginRegistryCommand(rest)
+      case sub :: _            =>
+        System.err.println(s"Unknown plugin subcommand: '$sub'")
+        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
+        System.exit(1)
+      case Nil =>
+        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
+        System.exit(1)
+
 /** `ssc plugin install <path-or-url-or-name>` — copy/download a
  *  `.sscpkg` to `~/.scalascript/compiler/plugins/` and print a confirmation.
  *  Short names (e.g. "redis") are resolved via the local registry

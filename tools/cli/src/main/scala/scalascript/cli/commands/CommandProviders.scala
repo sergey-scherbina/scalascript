@@ -84,68 +84,17 @@ final class BuildCmd extends CliCommand:
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = buildCommand(args)
 
-final class BundleCmd extends CliCommand:
-  def name = "bundle"
-  override def summary = "Pack .ssc files + their .ssc imports into a .sscpkg archive"
-  override def category = "Build, bundle & package"
-  def run(args: List[String]): Unit = bundleCommand(args)
-
 final class PackageCmd extends CliCommand:
   def name = "package"
   override def summary = "Package .ssc via scala-cli (see Package flags below)"
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = packageCommand(args)
 
-final class DeployCmd extends CliCommand:
-  def name = "deploy"
-  override def summary = "Deploy to hostings, clouds & Kubernetes-like environments"
-  override def category = "Build, bundle & package"
-  def run(args: List[String]): Unit = deployCommand(args)
-
 final class NewCmd extends CliCommand:
   def name = "new"
   override def summary = "Scaffold a new project (e.g. --template plugin)"
   override def category = "Build, bundle & package"
   def run(args: List[String]): Unit = newCommand(args)
-
-final class EmitScalaCmd extends CliCommand:
-  def name = "emit-scala"
-  override def summary = "Print generated Scala 3 script to stdout"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitScalaCommand(args)
-
-final class EmitJsCmd extends CliCommand:
-  def name = "emit-js"
-  override def summary = "Transpile .ssc to JavaScript (Node) and print to stdout"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --no-tree-shake, --stats")
-  def run(args: List[String]): Unit = emitJsCommand(args)
-
-final class EmitWasmCmd extends CliCommand:
-  def name = "emit-wasm"
-  override def summary = "Compile scala/scalascript blocks to WebAssembly via Scala.js"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitWasmCommand(args)
-
-final class EmitSpaCmd extends CliCommand:
-  def name = "emit-spa"
-  override def summary = "Wrap .ssc as a browser SPA (HTML + embedded JS)"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --frontend <custom|react|solid|vue>")
-  def run(args: List[String]): Unit = emitSpaCommand(args)
-
-final class EmitWcCmd extends CliCommand:
-  def name = "emit-wc"
-  override def summary = "Emit each component as a W3C Custom Element bundle"
-  override def category = "Emit & transpile"
-  def run(args: List[String]): Unit = emitWcCommand(args)
-
-final class EmitOpenapiCmd extends CliCommand:
-  def name = "emit-openapi"
-  override def summary = "Export OpenAPI 3.1 JSON/YAML without starting a server"
-  override def category = "Emit & transpile"
-  override def details = List("Flags: --format <json|yaml>, -o <file>, --title <s>, --version <v>, --server <url>")
-  def run(args: List[String]): Unit = emitOpenapiCommand(args)
 
 final class EmitSparkCmd extends CliCommand:
   def name = "emit-spark"
@@ -265,46 +214,6 @@ final class DepsCmd extends CliCommand:
   override def summary = "Print the resolved import/dependency graph"
   override def category = "Check & inspect"
   def run(args: List[String]): Unit = depsCommand(args)
-
-final class LockCmd extends CliCommand:
-  def name = "lock"
-  override def summary = "Pin URL/dep imports in ssc.lock (SHA-256 integrity)"
-  override def category = "Dependencies & plugins"
-  override def details = List("ssc lock check <file> verifies imports against the lock")
-  def run(args: List[String]): Unit = lockCommand(args)
-
-final class UpdateCmd extends CliCommand:
-  def name = "update"
-  override def summary = "Re-resolve dep: imports transitively; write ssc-lock.yaml"
-  override def category = "Dependencies & plugins"
-  override def details = List("Flags: --strict-deps")
-  def run(args: List[String]): Unit = updateCommand(args)
-
-final class SearchCmd extends CliCommand:
-  def name = "search"
-  override def summary = "Search the plugin registry by id or description"
-  override def category = "Dependencies & plugins"
-  def run(args: List[String]): Unit = registrySearchCommand(args)
-
-final class AddCmd extends CliCommand:
-  def name = "add"
-  override def summary = "Add or update a plugin registry entry"
-  override def category = "Dependencies & plugins"
-  def run(args: List[String]): Unit = registryAddCommand(args)
-
-final class PluginCmd extends CliCommand:
-  def name = "plugin"
-  override def summary = "Manage installed .sscpkg plugins"
-  override def category = "Dependencies & plugins"
-  override def details = List("Subs: install | list | uninstall | check | pack | registry")
-  def run(args: List[String]): Unit = pluginCommand(args)
-
-final class ClusterCmd extends CliCommand:
-  def name = "cluster"
-  override def summary = "Inspect or operate a running ssc cluster node"
-  override def category = "Services & tooling"
-  override def details = List("Subs: status | events | drain | step-down | run | package | handlers | stop")
-  def run(args: List[String]): Unit = clusterCommand(args)
 
 final class LspCmd extends CliCommand:
   def name = "lsp"
