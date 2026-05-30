@@ -365,7 +365,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
                   case Value.StringV(s) => s
                 }.getOrElse("")
                 entities.get(typeName).map { fn =>
-                  ctx.invokeCallback(fn, List(rep)).asInstanceOf[Value]
+                  ctx.invokeCallbackAsync(fn, List(rep)).asInstanceOf[Value]
                 }.getOrElse(Value.NullV)
               case _ => Value.NullV
             })
@@ -460,7 +460,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
                 Value.MapV(baseArgs
                   + (Value.StringV("_load")      -> loadFn)
                   + (Value.StringV("_batchLoad") -> batchLoadFn))
-          valueToJava(ctx.invokeCallback(fn, List(enrichedArgs)).asInstanceOf[Value])
+          valueToJava(ctx.invokeCallbackAsync(fn, List(enrichedArgs)).asInstanceOf[Value])
         )
       }
       wiring.`type`(tw)
@@ -476,7 +476,7 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
           env.getSource[Any] match
             case null =>
               val args: Map[Value, Value] = env.getArguments.asScala.toMap.map { (k, v) => (Value.StringV(k): Value) -> javaToValue(v) }
-              val result = ctx.invokeCallback(fn, List(Value.MapV(args))).asInstanceOf[Value]
+              val result = ctx.invokeCallbackAsync(fn, List(Value.MapV(args))).asInstanceOf[Value]
               val items: List[AnyRef] =
                 if result.isInstanceOf[Value.ListV] then
                   result.asInstanceOf[Value.ListV].items.map(x => valueToJava(x).asInstanceOf[AnyRef])
@@ -1177,6 +1177,8 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     case Value.ListV(items)         => items.map(valueToJava).asJava
     case Value.MapV(m)              =>
       m.map { (k, vv) => valueToJava(k).toString -> valueToJava(vv) }.asJava
+    case Value.InstanceV("Future", fields) =>
+      valueToJava(fields.getOrElse("value", Value.UnitV))
     case Value.InstanceV(_, fields) =>
       fields.map { (k, vv) => k -> valueToJava(vv) }.asJava
     case other                      => String.valueOf(other)

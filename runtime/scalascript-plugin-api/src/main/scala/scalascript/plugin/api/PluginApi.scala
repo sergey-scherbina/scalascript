@@ -157,6 +157,10 @@ trait MountCap extends NativeContextCap:
       mountCtx: Map[String, Any]
   ): Unit = nativeContext.registerMountedRoute(method, path, handler, source, mountCtx)
   def invokeCallback(fn: Any, args: List[Any]): Any = nativeContext.invokeCallback(fn, args)
+  /** Like [[invokeCallback]] but drives `Async` effects to completion and
+   *  unwraps a resulting `Future` to its value — for callbacks that may
+   *  return `Future[A]` or `A ! Async` (e.g. GraphQL resolvers). */
+  def invokeCallbackAsync(fn: Any, args: List[Any]): Any = nativeContext.invokeCallbackAsync(fn, args)
 
 /** Capability for remote handler dispatch — used by `remote-plugin`. */
 trait RemoteCap extends NativeContextCap:

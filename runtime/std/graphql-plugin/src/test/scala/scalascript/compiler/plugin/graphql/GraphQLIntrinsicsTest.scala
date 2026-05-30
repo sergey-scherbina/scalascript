@@ -129,6 +129,36 @@ class GraphQLIntrinsicsTest extends AnyFunSuite:
     )
     assert(json("data")("count").num.toLong == 42L)
 
+  test("graphqlHandler unwraps a Future result from an async resolver"):
+    // A resolver returning the interpreter's eager Future representation
+    // (`InstanceV("Future", { value })`) must serialize to the inner value,
+    // not to `{ "value": ... }`.
+    val json = executeQuery(
+      sdl   = "type Query { user: String! }",
+      query = "{ user }",
+      resolvers = GraphQLResolvers(
+        query = Map("user" -> Value.NativeFnV("user", Computation.pureFn(_ =>
+          Value.InstanceV("Future", Map("value" -> Value.StringV("async-bob")))))),
+        mutation = Map.empty,
+      ),
+    )
+    assert(json("data")("user").str == "async-bob")
+
+  test("graphqlHandler unwraps a Future nested inside a list result"):
+    val json = executeQuery(
+      sdl   = "type Query { names: [String!]! }",
+      query = "{ names }",
+      resolvers = GraphQLResolvers(
+        query = Map("names" -> Value.NativeFnV("names", Computation.pureFn(_ =>
+          Value.ListV(List(
+            Value.InstanceV("Future", Map("value" -> Value.StringV("a"))),
+            Value.StringV("b"),
+          ))))),
+        mutation = Map.empty,
+      ),
+    )
+    assert(json("data")("names").arr.map(_.str).toList == List("a", "b"))
+
   test("graphqlHandler returns boolean field"):
     val json = executeQuery(
       sdl       = "type Query { ok: Boolean! }",

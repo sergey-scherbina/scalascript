@@ -1034,6 +1034,23 @@ class Interpreter(
   def invoke(fn: Value, args: List[Value]): Value =
     Computation.run(callValue(fn, args, Map.empty))
 
+  /** Invoke a callback, driving any `Async` effects it performs to completion
+   *  via the sequential async runtime, and unwrapping a resulting `Future`
+   *  instance to its underlying value.  Used by native code (e.g. GraphQL
+   *  resolvers) that may run user callbacks returning `Future[A]` or
+   *  `A ! Async`.  A plain (non-async) callback behaves exactly like
+   *  [[invoke]]. */
+  def invokeAsync(fn: Value, args: List[Value]): Value =
+    val driven = AsyncRuntime.asyncInterp(callValue(fn, args, Map.empty), this)
+    unwrapFuture(Computation.run(driven))
+
+  /** Unwrap the sequential-driver `Future` representation
+   *  (`InstanceV("Future", { value })`) to its inner value; pass other values
+   *  through unchanged. */
+  private def unwrapFuture(v: Value): Value = v match
+    case Value.InstanceV("Future", fields) => fields.getOrElse("value", Value.UnitV)
+    case other                             => other
+
   /** Install a native function under `name` into the global table.
    *  Used by `InterpreterBackend` to surface `Backend.intrinsics`
    *  entries (`NativeImpl` variant) as callable globals before
@@ -1086,6 +1103,8 @@ class Interpreter(
       override def registerOpenApiDefaults(): Unit = Interpreter.this.registerOpenApiDefaults()
       override def invokeCallback(fn: Any, args: List[Any]): Any =
         Interpreter.this.invoke(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
+      override def invokeCallbackAsync(fn: Any, args: List[Any]): Any =
+        Interpreter.this.invokeAsync(fn.asInstanceOf[Value], args.map(wrapAnyAsValue))
       override def httpBaseUrl: String    = Interpreter.this.httpBaseUrlState
       override def httpTimeoutMs: Long    = Interpreter.this.httpTimeoutMsState
       override def httpMaxRetries: Int    = Interpreter.this.httpMaxRetriesState

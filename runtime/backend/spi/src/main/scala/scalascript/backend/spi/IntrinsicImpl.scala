@@ -97,6 +97,13 @@ trait NativeContext:
   def abortOpenApiDryRun(): Nothing = throw OpenApiDryRun.Sentinel
   // Invoke a user-supplied callback (Value closure/NativeFn) from native code.
   def invokeCallback(fn: Any, args: List[Any]): Any = ()
+  /** Like [[invokeCallback]] but drives any `Async` effects the callback
+   *  performs (`async`/`await`/`delay`/`parallel`) to completion, and unwraps
+   *  a resulting `Future` to its underlying value.  Native code that may run
+   *  user callbacks returning `Future[A]` or `A ! Async` (e.g. GraphQL
+   *  resolvers) should use this instead of [[invokeCallback]].  Defaults to
+   *  [[invokeCallback]] for backends without an async runtime. */
+  def invokeCallbackAsync(fn: Any, args: List[Any]): Any = invokeCallback(fn, args)
   // Outbound HTTP client state — scoped inside httpClient{} blocks.
   def httpBaseUrl: String =
     featureLocalGet(NativeContextFeatureKeys.HttpBaseUrl).collect { case s: String => s }.getOrElse("")
