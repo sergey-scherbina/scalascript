@@ -24,6 +24,26 @@ private[interpreter] object BlockRuntime:
   /** Evaluate a block of statements; effects propagate through statements via flatMap.
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   def evalBlock(stats: List[Stat], env: Env, interp: Interpreter): Computation =
+    // Single-statement block with no declaration: no new scope layer is needed,
+    // so evaluate the lone term directly against the incoming env — no HashMap,
+    // no MutableEnvView. A `Term` is never a `Defn.Val`/`Defn.Var`, so the
+    // declaration-scoping guard below cannot apply. The local copy that the
+    // general path threads exists only to keep *later* statements' reads
+    // consistent — dead in a single-statement block.
+    stats match
+      // Plain `x = e` handled inline rather than via the big `eval` dispatch
+      // (where Term.Assign matches late, behind ~40 special-form cases): eval
+      // only the rhs, then write through to globals exactly as `step` does.
+      case (assign: Term.Assign) :: Nil if assign.lhs.isInstanceOf[Term.Name] =>
+        val x = assign.lhs.asInstanceOf[Term.Name].value
+        return interp.eval(assign.rhs, env) match
+          case Pure(v) => interp.globals(x) = v; Computation.PureUnit
+          case c       => FlatMap(c, { v => interp.globals(x) = v; Computation.PureUnit })
+      // Any other lone term (expression, compound-assign infix, nested block):
+      // the general path already routes these through `eval`, so no extra
+      // dispatch cost — and we still skip the env copy.
+      case (t: Term) :: Nil => return interp.eval(t, env)
+      case _                =>
     // When env is already a MutableEnvView (e.g. the while-loop fast path) and the block
     // has no local declarations (only assignments/expressions), reuse the underlying map
     // and view directly — no new HashMap, no copy.
