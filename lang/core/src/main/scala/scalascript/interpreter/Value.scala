@@ -215,6 +215,7 @@ object FrameMap:
  *  rare in the eval path (only when a `val/var` binding is used as a key). */
 final class MutableEnvView(m: scala.collection.mutable.Map[String, Value])
     extends scala.collection.immutable.AbstractMap[String, Value]:
+  private[interpreter] val underlying: scala.collection.mutable.Map[String, Value] = m
   override def get(key: String): Option[Value]     = m.get(key)
   override def getOrElse[V1 >: Value](key: String, default: => V1): V1 = m.getOrElse(key, default)
   override def contains(key: String): Boolean      = m.contains(key)
