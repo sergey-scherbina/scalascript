@@ -171,7 +171,7 @@ private[interpreter] trait ActorInterp:
     recordEventLog(s"""{"ts":$ts,"type":"ConfigChanged","key":${jsonStr(key)},"value":${jsonStr(value)}}""")
     if !configEventSubs.isEmpty then
       val ev = Value.InstanceV("ConfigChanged",
-        Map("key" -> Value.StringV(key), "value" -> Value.StringV(value)))
+        new IMap.Map2("key", Value.StringV(key), "value", Value.StringV(value)))
       configEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def applyConfigUpdate(key: String, value: String, ts: Long, origin: String): Boolean =
@@ -535,7 +535,7 @@ private[interpreter] trait ActorInterp:
     recordEventLog(s"""{"ts":$ts,"type":"DrainStateChanged","nodeId":${jsonStr(nodeId)},"draining":$draining}""")
     if !drainEventSubs.isEmpty then
       val ev = Value.InstanceV("DrainStateChanged",
-        Map("nodeId" -> Value.StringV(nodeId), "draining" -> Value.boolV(draining)))
+        new IMap.Map2("nodeId", Value.StringV(nodeId), "draining", Value.boolV(draining)))
       drainEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def sendDrainState(target: String => Unit): Unit =
@@ -578,7 +578,7 @@ private[interpreter] trait ActorInterp:
     val ts = System.currentTimeMillis()
     recordEventLog(s"""{"ts":$ts,"type":${jsonStr(tag)},"nodeId":${jsonStr(leaderId)}}""")
     if !leaderEventSubs.isEmpty then
-      val ev = Value.InstanceV(tag, Map("nodeId" -> Value.StringV(leaderId)))
+      val ev = Value.InstanceV(tag, new IMap.Map1("nodeId", Value.StringV(leaderId)))
       leaderEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
   private def broadcastCoordinator(): Unit =
@@ -745,12 +745,9 @@ private[interpreter] trait ActorInterp:
     if !clusterEventSubs.isEmpty then
       val ev =
         if tag == "NodeJoined" then
-          Value.InstanceV("NodeJoined", Map("nodeId" -> Value.StringV(nodeId)))
+          Value.InstanceV("NodeJoined", new IMap.Map1("nodeId", Value.StringV(nodeId)))
         else
-          Value.InstanceV("NodeLeft", Map(
-            "nodeId" -> Value.StringV(nodeId),
-            "reason" -> Value.StringV(reason)
-          ))
+          Value.InstanceV("NodeLeft", new IMap.Map2("nodeId", Value.StringV(nodeId), "reason", Value.StringV(reason)))
       clusterEventQueue.offer(ev)
       val t = schedulerThread; if t != null then t.interrupt()
 
@@ -780,7 +777,7 @@ private[interpreter] trait ActorInterp:
     }
 
   private def mkPid(nodeId: String, localId: Long): Value =
-    Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.intV(localId)))
+    Value.InstanceV("Pid", new IMap.Map2("nodeId", Value.StringV(nodeId), "localId", Value.intV(localId)))
 
   private def spawnRegisteredBehavior(name: String, arg: Value): Either[String, Value] = this.synchronized {
     val rt = actorRt
@@ -2784,7 +2781,7 @@ private[interpreter] trait ActorInterp:
             val body = eval(c.body, extEnv)
             matched =
               if wrapSome then body.flatMap(v =>
-                k(Value.InstanceV("Some", Map("value" -> v))))
+                k(Value.InstanceV("Some", new IMap.Map1("value", v))))
               else body.flatMap(k)
       if matched != null then
         mb.poll()

@@ -59,6 +59,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   mapping SQL result maps into case-class-shaped values.
   Fixed-shape built-in `McpSchema`, HTML raw nodes, `Response`, `Pipeline`, and
   `KeyedStateSpec` values now use direct small immutable map constructors.
+  Actor cluster events, local PIDs, and timeout receive `Some` wrappers now use
+  the same direct small-map construction path.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
