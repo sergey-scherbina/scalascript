@@ -2482,6 +2482,8 @@ private[interpreter] object DispatchRuntime:
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble < b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a < b.toDouble)
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a < b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a < BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) < b)
@@ -2494,6 +2496,8 @@ private[interpreter] object DispatchRuntime:
       case ">" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a > b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a > b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble > b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a > b.toDouble)
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a > b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a > BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) > b)
@@ -2506,6 +2510,8 @@ private[interpreter] object DispatchRuntime:
       case "<=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a <= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a <= b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble <= b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a <= b.toDouble)
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a <= b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a <= BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) <= b)
@@ -2518,6 +2524,8 @@ private[interpreter] object DispatchRuntime:
       case ">=" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a >= b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a >= b)
+        case (Value.IntV(a),    Value.DoubleV(b)) => Computation.pureBool(a.toDouble >= b)
+        case (Value.DoubleV(a), Value.IntV(b))    => Computation.pureBool(a >= b.toDouble)
         case (Value.BigIntV(a), Value.BigIntV(b)) => Computation.pureBool(a >= b)
         case (Value.BigIntV(a), Value.IntV(b))    => Computation.pureBool(a >= BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b)) => Computation.pureBool(BigInt(a) >= b)
