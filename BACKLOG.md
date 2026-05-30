@@ -33,9 +33,11 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
       `RoundingMode`; implement the numeric tower; raise the **Decimal↔Double**
       type error; inference rules. Spec: `docs/exact-numerics.md §4.3`.
       ✓ Landed 2026-05-30 (11 tests; widening Int⊆BigInt⊆Decimal, Decimal⊕Double rejected).
-- [ ] **v1.64.4-numerics-jvm-codegen** - Lower `BigInt`→`scala.math.BigInt`,
+- [x] **v1.64.4-numerics-jvm-codegen** - Lower `BigInt`→`scala.math.BigInt`,
       `Decimal`→`scala.math.BigDecimal`; map all ops; cross-backend conformance
       vs interpreter. Spec: `docs/exact-numerics.md §5, §8`.
+      ✓ Landed 2026-05-30 (preamble aliases + extensions + _binOp; scala-cli
+      compile-run conformance, 4 tests, byte-identical to interpreter).
 - [ ] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
       helper (BigInt-backed, capability-gated in preamble); ops; node-run
       conformance vs interpreter/JVM. Spec: `docs/exact-numerics.md §5, §8`.

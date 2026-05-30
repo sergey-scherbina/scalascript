@@ -5111,6 +5111,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |def _show(v: Any): String = v match
        |  case null      => "null"
        |  case d: Double => if d == d.toLong.toDouble then d.toLong.toString else d.toString
+       |  // Exact numerics (v1.64): plain (non-scientific) rendering, matching
+       |  // the interpreter / JS backends.
+       |  case bd: BigDecimal => bd.bigDecimal.toPlainString
+       |  case bi: BigInt     => bi.toString
        |  case s: String => s
        |  // _Raw HTML nodes (from `raw(...)`, html"...", or DSL tag fns) render
        |  // as their inner string so `println(div(...))` prints the markup.
@@ -5949,6 +5953,58 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    }
        |  case _ => xs
        |
+       |// ── Exact numerics (v1.64): BigInt / Decimal ───────────────────────────
+       |// `Decimal`/`RoundingMode` are ScalaScript names; alias them to the native
+       |// Scala types so emitted `Decimal("1.5")`, `Decimal(123, 2)`, `val x: Decimal`,
+       |// and `RoundingMode.HALF_UP` all resolve.  `BigInt` is already native.
+       |type Decimal = scala.math.BigDecimal
+       |val Decimal = scala.math.BigDecimal
+       |val RoundingMode = scala.math.BigDecimal.RoundingMode
+       |// Conversions + non-native method names, matching the interpreter surface.
+       |extension (n: Int)
+       |  def toBigInt: BigInt      = BigInt(n)
+       |  def toDecimal: BigDecimal = BigDecimal(n)
+       |extension (n: BigInt)
+       |  def toDecimal: BigDecimal = BigDecimal(n)
+       |  def isEven: Boolean       = !n.testBit(0)
+       |  def isOdd: Boolean        = n.testBit(0)
+       |  def negate: BigInt        = -n
+       |extension (d: BigDecimal)
+       |  def toDecimal: BigDecimal = d
+       |  def negate: BigDecimal    = -d
+       |  def isZero: Boolean       = d.signum == 0
+       |  def divide(o: BigDecimal, scale: Int, mode: scala.math.BigDecimal.RoundingMode.Value): BigDecimal =
+       |    BigDecimal(d.bigDecimal.divide(o.bigDecimal, scale, java.math.RoundingMode.valueOf(mode.toString)))
+       |  def roundTo(mode: scala.math.BigDecimal.RoundingMode.Value): BigDecimal = d.setScale(0, mode)
+       |
+       |def _bigIntOp(op: String, x: BigInt, y: BigInt): Any = op match
+       |  case "+" => x + y
+       |  case "-" => x - y
+       |  case "*" => x * y
+       |  case "/" => x / y
+       |  case "%" => x % y
+       |  case "<" => x < y
+       |  case ">" => x > y
+       |  case "<=" => x <= y
+       |  case ">=" => x >= y
+       |  case "==" => x == y
+       |  case "!=" => x != y
+       |  case _ => sys.error(s"Cannot $op on BigInt")
+       |
+       |def _bigDecOp(op: String, x: BigDecimal, y: BigDecimal): Any = op match
+       |  case "+" => x + y
+       |  case "-" => x - y
+       |  case "*" => x * y
+       |  case "/" => x / y
+       |  case "%" => x % y
+       |  case "<" => x < y
+       |  case ">" => x > y
+       |  case "<=" => x <= y
+       |  case ">=" => x >= y
+       |  case "==" => x == y
+       |  case "!=" => x != y
+       |  case _ => sys.error(s"Cannot $op on Decimal")
+       |
        |/** Dynamic binary operator dispatch for CPS contexts where operands are
        | *  typed as `Any`. Mirrors the interpreter's `infix` table. */
        |def _binOp(op: String, a: Any, b: Any): Any = (op, a, b) match
@@ -5985,6 +6041,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  case (">=", x: Int,    y: Int)    => x >= y
        |  case (">=", x: Long,   y: Long)   => x >= y
        |  case (">=", x: Double, y: Double) => x >= y
+       |  // Exact numerics (v1.64): BigInt / BigDecimal with Int/Long/BigInt
+       |  // widening.  Decimal⊕Double is intentionally absent → falls through to
+       |  // the error case (mixing exact and inexact is rejected).
+       |  case (o, x: BigInt, y: BigInt)         => _bigIntOp(o, x, y)
+       |  case (o, x: BigInt, y: Int)            => _bigIntOp(o, x, BigInt(y))
+       |  case (o, x: Int,    y: BigInt)         => _bigIntOp(o, BigInt(x), y)
+       |  case (o, x: BigInt, y: Long)           => _bigIntOp(o, x, BigInt(y))
+       |  case (o, x: Long,   y: BigInt)         => _bigIntOp(o, BigInt(x), y)
+       |  case (o, x: BigDecimal, y: BigDecimal) => _bigDecOp(o, x, y)
+       |  case (o, x: BigDecimal, y: Int)        => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: Int,    y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
+       |  case (o, x: BigDecimal, y: Long)       => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: Long,   y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
+       |  case (o, x: BigDecimal, y: BigInt)     => _bigDecOp(o, x, BigDecimal(y))
+       |  case (o, x: BigInt, y: BigDecimal)     => _bigDecOp(o, BigDecimal(x), y)
        |  // Collection ops — `+`/`-` on Set/Map for membership update,
        |  // `+` on List/Map for cons/insert (CPS dep code uses these
        |  // via _binOp when operands' static types are Any).
