@@ -37,7 +37,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `Map` higher-order single-argument calls now do the same for `foldLeft`,
   `exists`, `forall`, `count`, and `find`. Callable instances, signal handles,
   and response header updates now avoid temporary `Option` wrappers in their
-  hot lookups.
+  hot lookups. Coroutine handles, typed HTTP handler requests, remote-handler
+  request bodies, and PID serialization now use the same direct field lookup.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

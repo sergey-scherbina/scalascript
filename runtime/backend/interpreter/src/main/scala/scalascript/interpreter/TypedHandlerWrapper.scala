@@ -83,12 +83,14 @@ object TypedHandlerWrapper:
   ): Value =
     Value.NativeFnV("typed-handler", Computation.pureFn { args =>
       val reqV        = args.head.asInstanceOf[Value.InstanceV]
-      val pathParams  = extractStringMap(reqV.fields.get("params"))
-      val queryParams = extractStringMap(reqV.fields.get("query"))
-      val headers     = extractStringMap(reqV.fields.get("headers"))
-      val contentType = headers.get("content-type").getOrElse("")
-      val accept      = headers.get("accept").getOrElse("")
-      val bodyStrRaw  = reqV.fields.get("body").collect { case Value.StringV(s) if s.nonEmpty => s }
+      val pathParams  = extractStringMap(reqV.fields.getOrElse("params",  null))
+      val queryParams = extractStringMap(reqV.fields.getOrElse("query",   null))
+      val headers     = extractStringMap(reqV.fields.getOrElse("headers", null))
+      val contentType = headers.getOrElse("content-type", "")
+      val accept      = headers.getOrElse("accept", "")
+      val bodyStrRaw: Option[String] = reqV.fields.getOrElse("body", null) match
+        case Value.StringV(s) if s.nonEmpty => Some(s)
+        case _                              => None
 
       decodeBinaryBody(contentType, bodyStrRaw) match
         case Left(errResp) => errResp
@@ -357,10 +359,10 @@ object TypedHandlerWrapper:
    *  Non-Response values are returned unchanged. */
   private def encodeWireResponse(v: Value, format: String): Value = v match
     case r: Value.InstanceV if r.typeName == "Response" =>
-      val existingHeaders = r.fields.get("headers") match
-        case Some(Value.MapV(m)) => m
-        case _                   => Map.empty[Value, Value]
-      val jsonBody = r.fields.get("body").collect { case Value.StringV(s) => s }.getOrElse("")
+      val existingHeaders = r.fields.getOrElse("headers", null) match
+        case Value.MapV(m) => m
+        case _             => Map.empty[Value, Value]
+      val jsonBody = r.fields.getOrElse("body", null) match { case Value.StringV(s) => s; case _ => "" }
       val env      = WireEnvelope.rpc(format, "response", WireValue.Str(jsonBody))
       val bytesOpt: Option[Array[Byte]] = format match
         case "msgpack" => Some(MsgPackWireCodec.encodeEnvelope(env))
@@ -381,10 +383,10 @@ object TypedHandlerWrapper:
     // Matches "Either[Request, X]" or "Either[Request,X]"
     typeName.startsWith("Either[Request,")
 
-  private def extractStringMap(v: Option[Value]): Map[String, String] = v match
-    case Some(Value.MapV(m)) =>
+  private def extractStringMap(v: Value | Null): Map[String, String] = v match
+    case Value.MapV(m) =>
       m.collect { case (Value.StringV(k), Value.StringV(v)) => k -> v }
-    case Some(Value.InstanceV(_, fields)) =>
+    case Value.InstanceV(_, fields) =>
       fields.collect { case (k, Value.StringV(v)) => k -> v }
     case _ => Map.empty
 

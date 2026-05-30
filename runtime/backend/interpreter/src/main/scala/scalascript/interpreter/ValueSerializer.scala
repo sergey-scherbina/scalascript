@@ -57,8 +57,8 @@ object ValueSerializer:
       writeSeq(vs, sb)
       sb.append("]}")
     case Value.InstanceV("Pid", fields) =>
-      val nodeId  = fields.get("nodeId").collect { case Value.StringV(n) => n }.getOrElse("")
-      val localId = fields.get("localId").collect { case Value.IntV(n) => n }.getOrElse(0L)
+      val nodeId  = fields.getOrElse("nodeId", null) match { case Value.StringV(n) => n; case _ => "" }
+      val localId = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => 0L }
       sb.append("{\"$t\":\"pid\",\"n\":"); writeStr(nodeId, sb)
       sb.append(",\"id\":"); sb.append(localId); sb.append("}")
     case Value.InstanceV(cls, fields) =>
