@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — obsolete core UI ignored tests removed
+
+- **fix/obsolete-core-ui-ignored-tests** — Removed stale ignored
+  `ToolkitDemoValidateTest` and `StdUiSmokeTest` copies from
+  `backendInterpreter`; their active plugin-dependent coverage lives in
+  `backendInterpreterServer`.
+
 ## 2026-05-30 — SQL ignored tests restored
 
 - **fix/remaining-sql-ignored-tests** — Re-enabled the JvmGen SQL runtime
