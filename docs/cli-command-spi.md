@@ -95,10 +95,71 @@ Command functions that providers delegate to are widened from file-private to
 - A registry test asserts: every legacy subcommand token resolves to a
   provider; no duplicate name/alias; `ServiceLoader` discovers the full set.
 
-## Future work
+## Status / done
 
-- Generate `ssc help` output from the registry (`name` + `summary`) instead of
-  the hand-maintained `printUsage`.
-- Move command bodies into their providers; drop the `xxxCommand` shims.
-- Once a command is dependency-light, allow plugin jars to contribute
-  `CliCommand`s (the discovery path already supports it).
+- ✅ `ssc help`'s command listing is generated from the registry
+  (`Help.renderCommands` over `name`/`summary`/`category`/`details`);
+  `printUsage` keeps only the curated static tail (platform targets, package
+  flags, logging, examples).
+- ✅ Command bodies migrated into their `CliCommand` classes — the `xxxCommand`
+  free functions are gone. Only thin adapters remain (`DebugCmd`/`OauthCmd`/
+  `ToolchainCmd` wrap existing objects; `Help`/`ListBackends`/`Install` specials).
+
+## Plugin-provided commands (§plugin-commands) — design, deferred
+
+The discovery path already supports out-of-module providers: any `CliCommand` on
+the classpath with a `META-INF/services/scalascript.cli.CliCommand` entry is
+picked up. The blocker is **coupling, not discovery** — every real command's
+`run` reaches cli-internal helpers (`compileViaBackend`, `expectText`, artifact
+IO, `Routes`, the JvmGen/JsGen pipeline) that are `private[cli]`. A plugin jar
+can't call those, so today a plugin could only contribute a command that does no
+real compiler work.
+
+### Proposed shape (when a consumer exists)
+
+Introduce a stable `CommandContext` — the curated surface a command needs — and
+pass it to `run`:
+
+```scala
+trait CommandContext:
+  def compile(target: String, src: os.Path): CompileResult
+  def expectText(r: CompileResult, what: String): String
+  def libPath: Option[os.Path]
+  def stdout: java.io.PrintStream
+  def stderr: java.io.PrintStream
+  // … only what plugin commands legitimately need, kept small and versioned
+
+trait CliCommand:
+  def name: String
+  // … name/aliases/summary/category/details as today …
+  def run(ctx: CommandContext, args: List[String]): Unit
+```
+
+In-tree commands get `ctx` injected by the launcher; the cli-internal helpers
+move behind a `DefaultCommandContext` in the `cli` module. Plugin commands
+depend only on a small `scalascript-cli-spi` artifact exposing `CliCommand` +
+`CommandContext` (no dependency on Main).
+
+### Migration sketch
+
+1. Extract `scalascript-cli-spi` (traits `CliCommand`, `CommandContext`) as its
+   own module; the cli module depends on it.
+2. Change `run(args)` → `run(ctx, args)`; update all in-tree commands (the
+   context replaces direct `private[cli]` calls).
+3. `DefaultCommandContext` in cli wires the real helpers; dispatch passes it.
+4. `.sscpkg` install puts plugin jars on the classpath → ServiceLoader already
+   finds their `CliCommand`s.
+
+### Why deferred
+
+This is a real SPI surface with a versioning commitment, and changing `run`'s
+signature touches every command. **There is no concrete plugin that needs to
+contribute a command yet**, so building it now would be speculative
+infrastructure — a wide, risky change for zero current benefit. Land it when the
+first real third-party / `std` plugin command appears, so the `CommandContext`
+surface is designed against that command's actual needs rather than guessed.
+
+## Other future work
+
+- Further split Main.scala's remaining shared helper clusters (build pipeline,
+  artifact IO) into focused files — behavior-preserving, low priority.

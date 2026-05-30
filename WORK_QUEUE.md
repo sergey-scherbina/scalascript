@@ -551,13 +551,17 @@ ScalaScript's own registry work stays queued.
   `Value` variants don't break the dap module / CLI compilation. Document the
   trade-off (loses the compiler's "update DAP" nudge) in a one-line comment.
 
-- [ ] **cli-command-context-spi** — Unlock plugin-provided `ssc` subcommands:
+- [~] **cli-command-context-spi** — Unlock plugin-provided `ssc` subcommands:
   extract a stable `CommandContext` (the cli-internal surface commands need —
   `compileViaBackend`, `expectText`, artifact IO, …) so a `CliCommand` no longer
   depends on package-private Main helpers directly. Then `.sscpkg` plugins on the
-  classpath can contribute commands via the existing ServiceLoader path. Spec
-  required (new SPI): `docs/cli-command-spi.md §plugin-commands`. Larger,
-  design-first effort.
+  classpath can contribute commands via the existing ServiceLoader path.
+  **Spec landed**: `docs/cli-command-spi.md §plugin-commands` (CommandContext
+  shape + migration sketch). **Implementation deferred**: no concrete plugin
+  needs to contribute a command yet, so building the SPI now would be speculative
+  (changes `run`'s signature across all commands for zero current consumer).
+  Land it when the first real plugin command appears — design the context
+  against its actual needs.
 
 - [x] **cli-main-helper-split** — Main.scala is ~8,900 lines of shared helpers now
   that command logic moved to classes. Extract cohesive helper clusters (build
