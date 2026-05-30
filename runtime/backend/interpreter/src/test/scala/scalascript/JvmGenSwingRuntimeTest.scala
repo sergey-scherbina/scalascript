@@ -7,7 +7,6 @@ import scalascript.parser.Parser
 import java.nio.file.Files
 import java.nio.file.Path
 
-@org.scalatest.Ignore
 class JvmGenSwingRuntimeTest extends AnyFunSuite:
 
   test("Swing frontend helper launches same-process runtime instead of nested scala-cli"):
@@ -63,10 +62,11 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     )
 
     assert(code.contains("object Messages:"))
-    assert(code.contains("""def create(input: CreateMessage): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input)"""))
-    assert(code.contains("""def list(): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", ())"""))
-    assert(code.contains("""def delete(input: Int): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input)"""))
-    assert(code.contains("_ssc_ui_backend_request(method, url, _ssc_api_body[Req](method, input))"))
+    assert(code.contains("""def create(input: CreateMessage, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Message = _ssc_api_request[CreateMessage, Message]("POST", "/api/messages", input, headers, cancelToken)"""))
+    assert(code.contains("""def list(headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): List[Message] = _ssc_api_request[Unit, List[Message]]("GET", "/api/messages", (), headers, cancelToken)"""))
+    assert(code.contains("""def delete(input: Int, headers: Map[String, String] = Map.empty, cancelToken: _SscCancelToken = null): Unit = _ssc_api_request[Int, Unit]("POST", "/api/messages/delete", input, headers, cancelToken)"""))
+    assert(code.contains("val req = scalascript.backend.spi.BackendRequest(method, url,"))
+    assert(code.contains("_ssc_api_send(req,"))
     assert(code.contains("val created = Messages.create(CreateMessage("))
 
   test("Swing frontend emits iconPath in generated Options when app-icon front matter is set"):

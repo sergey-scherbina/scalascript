@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — Swing JvmGen runtime smoke restored
+
+- **fix/swing-runtime-ignored-test** — Re-enabled
+  `JvmGenSwingRuntimeTest` and updated typed-client assertions for the current
+  headers/cancel-token route-client signature and BackendRequest transport.
+
 ## 2026-05-30 — shard module smoke restored
 
 - **fix/shard-module-ignored-test** — Re-enabled `ShardModuleTest`; the
