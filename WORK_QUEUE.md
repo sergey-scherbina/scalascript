@@ -34,7 +34,7 @@ verified with a live `node` round-trip. Details in `BACKLOG.md §"GraphQL JS/Nod
 - [x] **graphql-js-scalars** — Custom scalars on graphql-js (`GraphQL.scalar` → `GraphQLScalarType`), nested object/list output. Mirrors graphql-p6. Node conformance tests. _(landed 2026-05-30)_
 - [x] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js (`GraphQL.dataLoader`, `_load`/`_batchLoad`, per-request dedup cache). Mirrors graphql-p9. _(landed 2026-05-30)_
 - [x] **graphql-js-security** — Security/limits parity (`GraphQL.options`: maxDepth/maxComplexity/maxQueryLength/disableIntrospection) via graphql-js validation rules + body-length guard. Mirrors graphql-p10. _(landed 2026-05-30)_
-- [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (`graphql-transport-ws` on `onWebSocket`) + `graphqlSse` text/event-stream. Mirrors graphql-p3/p7/p13. Likely needs `graphql-ws` dep.
+- [x] **graphql-js-subscriptions** — Subscriptions over WebSocket (`graphql-transport-ws` on `onWebSocket`) + `graphqlSse` text/event-stream. Mirrors graphql-p3/p7/p13. No extra npm dep — buffered SSE + raw-masked WS client built on `graphql` ^16. _(landed 2026-05-30)_
 - [ ] **graphql-js-federation** — Apollo Federation v2 subgraph (`graphqlSubgraphMount`/`serveSubgraph`, Federation SDL preamble + `_entities`/`__typename`). Mirrors graphql-p12. Pure-SDL, no extra dep.
 
 ## Exact Numerics — v1.64

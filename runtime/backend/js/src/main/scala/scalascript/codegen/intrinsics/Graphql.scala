@@ -16,9 +16,12 @@ import scalascript.ir.QualifiedName
  *  + the `_load` / `_batchLoad` functions injected into resolver args),
  *  security limits (`GraphQL.options`: maxDepth / maxComplexity /
  *  maxQueryLength / disableIntrospection), `graphqlHandler` / `graphqlMount` /
- *  `serveGraphQL`, and the `graphqlQuery` client.  Subscriptions, federation,
- *  and persisted-operation policy are JVM-only for now — the JS runtime omits
- *  them. */
+ *  `serveGraphQL`, the `graphqlQuery` client, and subscriptions — served over
+ *  graphql-transport-ws (`/graphql/ws`, mounted automatically when the resolver
+ *  set declares subscriptions) plus a buffered GraphQL-over-SSE response on
+ *  `POST /graphql` with `Accept: text/event-stream`; the `graphqlSse` /
+ *  `graphqlSubscribe` clients consume them.  Federation and persisted-operation
+ *  policy are JVM-only for now — the JS runtime omits them. */
 val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("GraphQL.schema")     -> RuntimeCall("GraphQL.schema"),
   QualifiedName("GraphQL.resolvers")  -> RuntimeCall("GraphQL.resolvers"),
@@ -29,4 +32,6 @@ val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("graphqlMount")      -> RuntimeCall("graphqlMount"),
   QualifiedName("graphqlHandler")    -> RuntimeCall("graphqlHandler"),
   QualifiedName("graphqlQuery")      -> RuntimeCall("graphqlQuery"),
+  QualifiedName("graphqlSse")        -> RuntimeCall("graphqlSse"),
+  QualifiedName("graphqlSubscribe")  -> RuntimeCall("graphqlSubscribe"),
 )

@@ -165,6 +165,29 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Server with a subscription field.  A subscription resolver returns a List
+   *  (mirroring the JVM, where the value is wrapped in a Publisher emitting one
+   *  event per element); the runtime streams each element as a graphql-ws
+   *  `next` message / SSE `data:` frame.  `counts` emits 1,2,3. */
+  private val subscriptionProgram =
+    """|# GraphQL subscription server
+       |
+       |```graphql
+       |type Query { ping: String! }
+       |type Subscription { counts: Int! }
+       |```
+       |
+       |```scalascript
+       |val resolvers = GraphQL.resolvers(
+       |  query = Map("ping" -> (_ => "pong")),
+       |  subscription = Map(
+       |    "counts" -> (_ => List(1, 2, 3))
+       |  )
+       |)
+       |serveGraphQL(4075, resolvers)
+       |```
+       |""".stripMargin
+
   // ── Codegen-shape unit tests (no node required) ────────────────────────
 
   test("no graphql usage → no package.json artifact"):
@@ -494,3 +517,129 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
     assert(out.contains("maximum complexity"), s"complexity limit not enforced in:\n$out")
     // Body > maxQueryLength 2000 → 413.
     assert(out.contains("LONG:413:"), s"length guard not enforced in:\n$out")
+
+  // ── Subscriptions (graphql-transport-ws + SSE) ─────────────────────────
+
+  test("GraphQL.resolvers carries the subscription option"):
+    val (code, _) = compileToOutputs(subscriptionProgram)
+    assert(code.contains("subscription:"), "expected subscription option in resolvers object")
+    assert(code.contains("type Subscription"), "subscription SDL should be embedded")
+
+  test("subscription runtime wiring is included"):
+    val (code, _) = compileToOutputs(subscriptionProgram)
+    assert(code.contains("function _graphqlApplySubscriptions("))
+    assert(code.contains("_graphqlRunSubscription("))
+    assert(code.contains("function _graphqlHandleWsConnection("))
+    assert(code.contains("_graphqlToAsyncIterable("))
+
+  test("subscription server mounts the graphql-transport-ws route"):
+    val (code, _) = compileToOutputs(subscriptionProgram)
+    assert(code.contains("onWebSocket('/graphql/ws'"), "expected WS upgrade route")
+    assert(code.contains("graphql-transport-ws"), "expected protocol negotiation")
+
+  test("graphqlSse / graphqlSubscribe client runtime is included"):
+    val (code, _) = compileToOutputs(subscriptionProgram)
+    assert(code.contains("async function graphqlSse("))
+    assert(code.contains("async function graphqlSubscribe("))
+
+  test("serveGraphQL streams a subscription over SSE via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(subscriptionProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-sub-sse-test")
+    Files.createDirectories(dir)
+
+    // POST a subscription with Accept: text/event-stream; the buffered SSE body
+    // should carry one `data:` frame per emitted event (counts 1,2,3).
+    val driver =
+      """|setTimeout(() => {
+         |  const http = require('http');
+         |  const body = JSON.stringify({ query: 'subscription { counts }' });
+         |  const r = http.request({
+         |    hostname: 'localhost', port: 4075, path: '/graphql', method: 'POST',
+         |    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream',
+         |               'Content-Length': Buffer.byteLength(body) }
+         |  }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', () => {
+         |    process.stdout.write('CT:' + (res.headers['content-type'] || '') + '\n');
+         |    process.stdout.write('SSE:' + JSON.stringify(b) + '\n'); process.exit(0);
+         |  }); });
+         |  r.on('error', e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |  r.write(body); r.end();
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    assert(out.contains("CT:text/event-stream"), s"wrong content-type in:\n$out")
+    assert(out.contains("\\\"counts\\\":1"), s"missing event 1 in:\n$out")
+    assert(out.contains("\\\"counts\\\":2"), s"missing event 2 in:\n$out")
+    assert(out.contains("\\\"counts\\\":3"), s"missing event 3 in:\n$out")
+
+  test("graphqlSubscribe round-trips a subscription over graphql-transport-ws via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(subscriptionProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-sub-ws-test")
+    Files.createDirectories(dir)
+
+    // The compiled preamble already defines `graphqlSubscribe` (the raw masked
+    // WS client).  Drive it against the program's own /graphql/ws endpoint and
+    // collect the streamed `counts` values.
+    val driver =
+      """|setTimeout(() => {
+         |  const got = [];
+         |  graphqlSubscribe('http://localhost:4075/graphql', 'subscription { counts }', (payload) => {
+         |    got.push(payload.get('counts'));
+         |  }).then(() => {
+         |    process.stdout.write('WS:' + JSON.stringify(got) + '\n'); process.exit(0);
+         |  }).catch(e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    assert(out.contains("WS:[1,2,3]"), s"subscription stream wrong in:\n$out")

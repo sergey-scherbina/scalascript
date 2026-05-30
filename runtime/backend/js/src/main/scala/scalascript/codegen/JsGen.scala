@@ -8316,7 +8316,8 @@ class JsGen(
     val hasGraphql = module.sections.exists(hasGraphqlBlock) ||
                      allText.contains("GraphQL.") || allText.contains("serveGraphQL") ||
                      allText.contains("graphqlMount") || allText.contains("graphqlHandler") ||
-                     allText.contains("graphqlQuery")
+                     allText.contains("graphqlQuery") || allText.contains("graphqlSse") ||
+                     allText.contains("graphqlSubscribe")
     if hasGraphql then { caps += Graphql; caps += HtmlDsl; caps += Jwt; caps += WsServer; caps += Async }
     caps.toSet
 

@@ -5882,10 +5882,11 @@ dep where noted) and verified with a live `node` round-trip in `NodeBackendGraph
   maxQueryLength, disableIntrospection)` as the optional 3rd arg to `graphqlHandler`/`graphqlMount`/`serveGraphQL`,
   enforced via graphql-js validation rules + a body-length guard, mirroring graphql-p10. Node conformance tests. _(landed 2026-05-30)_
 
-- [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (graphql-ws) on Node: subscription resolvers
-  returning async iterators, `/graphql/ws` mounted on the existing `onWebSocket` infra with the
+- [x] **graphql-js-subscriptions** — Subscriptions over WebSocket (graphql-transport-ws) on Node: subscription
+  resolvers returning a List/iterator, `/graphql/ws` auto-mounted on the existing `onWebSocket` infra with the
   `graphql-transport-ws` protocol, plus the `graphqlSse` text/event-stream path, mirroring graphql-p3/p7/p13.
-  Likely needs the `graphql-ws` npm dep. Two-process Node round-trip tests.
+  No `graphql-ws` dep — buffered SSE response + a raw masked RFC-6455 client (`graphqlSubscribe`) on `graphql`
+  ^16's `subscribe`. Node round-trip tests cover both the SSE and WS paths. _(landed 2026-05-30)_
 
 - [ ] **graphql-js-federation** — Apollo Federation v2 subgraph on graphql-js: `graphqlSubgraphMount` /
   `serveSubgraph` prepend the Federation v2 SDL preamble (`_Any`/`_FieldSet`, directives, `_Service`,
