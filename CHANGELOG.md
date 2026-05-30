@@ -53,6 +53,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   Tail-recursive trampolines now snapshot profiler state per current function
   and build stable self/mutual-call environments with `FrameMap` instead of
   `Map.updated ++`, reducing overhead in TCO-heavy benchmarks.
+  Primitive infix expressions whose operands are direct names or literals now
+  bypass subterm `Pure` wrapper creation and the generic infix dispatcher when
+  debugger hooks are disabled, improving tight arithmetic/recursive benchmarks.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now

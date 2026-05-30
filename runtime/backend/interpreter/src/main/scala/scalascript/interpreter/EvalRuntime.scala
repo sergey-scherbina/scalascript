@@ -11,6 +11,98 @@ import Computation.{Pure, FlatMap, Perform}
  */
 private[interpreter] object EvalRuntime:
 
+  private def cachedLiteralValue(lit: Lit, interp: Interpreter): Value | Null =
+    val cached = interp.litCache.get(lit)
+    if cached != null then
+      cached match
+        case Pure(v) => v
+        case _       => null
+    else
+      val c = lit match
+        case Lit.Int(v)     => Computation.pureIntV(v.toLong)
+        case Lit.Long(v)    => Computation.pureIntV(v)
+        case Lit.Double(v)  => Pure(Value.doubleV(v.toString.toDouble))
+        case Lit.Float(v)   => Pure(Value.doubleV(v.toString.toDouble))
+        case Lit.Boolean(v) => Computation.pureBool(v)
+        case _              => null
+      if c == null then null
+      else
+        interp.litCache.put(lit, c)
+        c.asInstanceOf[Pure].value
+
+  private def fastValue(term: Term, env: Env, interp: Interpreter): Value | Null =
+    term match
+      case tn: Term.Name =>
+        env.getOrElse(tn.value, interp.globals.getOrElse(tn.value, null))
+      case lit: Lit =>
+        cachedLiteralValue(lit, interp)
+      case _ => null
+
+  private def fastPrimitiveInfix(lhs: Value, op: String, rhs: Value): Computation | Null =
+    (lhs, rhs) match
+      case (Value.IntV(a), Value.IntV(b)) =>
+        op match
+          case "+"  => Computation.pureIntV(a + b)
+          case "-"  => Computation.pureIntV(a - b)
+          case "*"  => Computation.pureIntV(a * b)
+          case "/"  => Computation.pureIntV(a / b)
+          case "%"  => Computation.pureIntV(a % b)
+          case "<"  => Computation.pureBool(a < b)
+          case ">"  => Computation.pureBool(a > b)
+          case "<=" => Computation.pureBool(a <= b)
+          case ">=" => Computation.pureBool(a >= b)
+          case _    => null
+      case (Value.DoubleV(a), Value.DoubleV(b)) =>
+        op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a < b)
+          case ">"  => Computation.pureBool(a > b)
+          case "<=" => Computation.pureBool(a <= b)
+          case ">=" => Computation.pureBool(a >= b)
+          case "==" => Computation.pureBool(a == b)
+          case "!=" => Computation.pureBool(a != b)
+          case _    => null
+      case (Value.IntV(a), Value.DoubleV(b)) =>
+        op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a.toDouble < b)
+          case ">"  => Computation.pureBool(a.toDouble > b)
+          case "<=" => Computation.pureBool(a.toDouble <= b)
+          case ">=" => Computation.pureBool(a.toDouble >= b)
+          case _    => null
+      case (Value.DoubleV(a), Value.IntV(b)) =>
+        op match
+          case "+"  => Pure(Value.doubleV(a + b))
+          case "-"  => Pure(Value.doubleV(a - b))
+          case "*"  => Pure(Value.doubleV(a * b))
+          case "/"  => Pure(Value.doubleV(a / b))
+          case "<"  => Computation.pureBool(a < b.toDouble)
+          case ">"  => Computation.pureBool(a > b.toDouble)
+          case "<=" => Computation.pureBool(a <= b.toDouble)
+          case ">=" => Computation.pureBool(a >= b.toDouble)
+          case _    => null
+      case (Value.BoolV(a), Value.BoolV(b)) =>
+        op match
+          case "&&" => Computation.pureBool(a && b)
+          case "||" => Computation.pureBool(a || b)
+          case "==" => Computation.pureBool(a == b)
+          case "!=" => Computation.pureBool(a != b)
+          case _    => null
+      case _ => null
+
+  private def fastPrimitiveInfixTerm(lhs: Term, op: String, rhs: Term, env: Env, interp: Interpreter): Computation | Null =
+    val lv = fastValue(lhs, env, interp)
+    if lv == null then null
+    else
+      val rv = fastValue(rhs, env, interp)
+      if rv == null then null else fastPrimitiveInfix(lv, op, rv)
+
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
     // DAP step/breakpoint hook: called for every term so DebugHooks can decide
@@ -682,17 +774,23 @@ private[interpreter] object EvalRuntime:
         case lhs =>
           val argVals = app.argClause.values
           if argVals.lengthCompare(1) == 0 then
-            val lhsC = eval(lhs, env, interp)
-            val rhsC = eval(argVals.head, env, interp)
-            lhsC match
-              case Pure(lv) =>
-                rhsC match
-                  case Pure(rv) => interp.infix2(lv, opStr, rv, env)
-                  case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
-              case _ =>
-                rhsC match
-                  case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
-                  case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
+            val rhsTerm = argVals.head
+            val fast =
+              if interp.debugHooks.isEmpty then fastPrimitiveInfixTerm(lhs, opStr, rhsTerm, env, interp)
+              else null
+            if fast != null then fast
+            else
+              val lhsC = eval(lhs, env, interp)
+              val rhsC = eval(rhsTerm, env, interp)
+              lhsC match
+                case Pure(lv) =>
+                  rhsC match
+                    case Pure(rv) => interp.infix2(lv, opStr, rv, env)
+                    case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
+                case _ =>
+                  rhsC match
+                    case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
+                    case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
           else
             val lhsC     = eval(lhs, env, interp)
             val argComps = argVals.map(eval(_, env, interp))
