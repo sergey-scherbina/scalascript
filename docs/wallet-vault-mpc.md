@@ -177,14 +177,83 @@ Polling response — completed:
 Existing users of `wallet-vault-mpc` do not need changes. The generic
 `HttpRemoteSigningClient` remains available for custom/internal providers.
 Applications that want provider-specific support add the relevant module
-and construct the named vault (`FireblocksVault`, `CoinbaseVault`).
+and construct the named vault (`FireblocksVault`, `CoinbaseVault`, `LitVault`).
+
+## Lit Protocol
+
+Module: `payments/wallet/wallet-vault-mpc-lit/`
+sbt: `walletVaultMpcLit`
+
+Wraps the [Lit Protocol](https://developer.litprotocol.com/) PKP (Programmable Key Pair) signing
+network behind `RemoteSigningClient`. Authentication uses a pre-computed SIWE-style `AuthSig`
+passed as a field in every request body — no request-signing or JWT generation happens
+in this adapter.
+
+### Usage
+
+```scala
+import scalascript.wallet.vault.mpc.lit.*
+
+val authSigJson = """{"sig":"0x...","derivedVia":"web3.eth.personal.sign","signedMessage":"...","address":"0x..."}"""
+val vault = LitVault(
+  baseUrl      = "https://rpc.litprotocol.com",
+  pkpPublicKey = "0x04...",
+  authSig      = authSigJson,
+  options      = LitOptions(sigName = "myApp-sig"),
+)
+```
+
+### Endpoints
+
+| Operation | Method | Path |
+|---|---|---|
+| Health | `GET` | `/health` |
+| List PKPs | `GET` | `/web3/pkp/list?authSig=...` |
+| Sign | `POST` | `/web3/pkp/sign` |
+
+### Sign request body
+
+```json
+{
+  "pkpPublicKey": "0x04...",
+  "toSign": [1, 2, 3, ...],
+  "authSig": { "sig": "0x...", "derivedVia": "web3.eth.personal.sign", ... },
+  "sigName": "sig1",
+  "curve": "K256"
+}
+```
+
+### Sign response
+
+```json
+{
+  "signatures": {
+    "sig1": {
+      "r": "0x...", "s": "0x...", "recid": 0,
+      "signature": "0x<r><s>",
+      "publicKey": "0x04...",
+      "dataSigned": "0x..."
+    }
+  }
+}
+```
+
+### Curve mapping
+
+| ScalaScript curve | Lit curve name |
+|---|---|
+| `Curve.Secp256k1` | `K256` |
+| `Curve.Ed25519` | `ed25519` |
+| `Curve.P256` | `P256` |
 
 ## Phases
 
 - Phase 1: shared MPC vault core. Landed in `wallet-vault-mpc`.
 - Phase 2: Fireblocks adapter. Landed 2026-05-28.
 - Phase 3: Coinbase Prime MPC adapter. Landed 2026-05-28.
-- Phase 4: production credential examples and env-gated provider integration
+- Phase 4: Lit Protocol adapter. Landed 2026-05-30.
+- Phase 5: ZenGo X Enterprise adapter. In progress.
+- Phase 6: production credential examples and env-gated provider integration
   tests. Planned; CI will not require live vendor accounts.
 
 ## Testing Strategy
@@ -196,6 +265,9 @@ and construct the named vault (`FireblocksVault`, `CoinbaseVault`).
   HTTP errors, PEM parsing, and ServiceLoader discovery.
 - Coinbase: local `HttpServer` tests for ECDSA header verification, wallet
   list decoding, request body shape, polling, failure modes, ServiceLoader.
+- Lit Protocol: local `HttpServer` tests for health, PKP list parsing, sign
+  body shape, authSig passthrough, signature parsing, error handling, curve
+  mapping, and fallback account discovery.
 - Live integration: env-gated only, using vendor sandbox/preprod credentials
   supplied by the developer or CI secret store.
 
