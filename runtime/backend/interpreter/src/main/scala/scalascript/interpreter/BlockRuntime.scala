@@ -28,42 +28,46 @@ private[interpreter] object BlockRuntime:
     // has no local declarations (only assignments/expressions), reuse the underlying map
     // and view directly — no new HashMap, no copy.
     // For blocks with Defn.Val/Var we create a fresh layer so declarations stay block-scoped.
-    val (local: mutable.Map[String, Value], localView: MutableEnvView) =
-      if env.isInstanceOf[MutableEnvView] &&
-         !stats.exists { case _: Defn.Val | _: Defn.Var => true; case _ => false }
-      then
-        val mev = env.asInstanceOf[MutableEnvView]
-        (mev.underlying, mev)
-      else env match
-        case fm: FrameMap =>
-          // Only copy env entries that are absent from (or differ from) interp.globals.
-          // These are params and shadowed vals; everything else is already visible via
-          // interp.globals and the Term.Name fallback, so we skip copying it.
-          // Shrinks the frame from O(N_env) to O(N_params + N_stale_closure) — typically 1–5 entries.
-          // Walk only FrameMap local slots to avoid O(|globals|) iteration.
-          // After the FrameMap chain, the terminal parent is either interp.globals
-          // (skip it — huge) or a small closure map (iterate it to capture closures).
-          val b = mutable.HashMap.empty[String, Value]
-          var cur: Map[String, Value] = fm
-          while cur.isInstanceOf[FrameMap] do
-            val fm2 = cur.asInstanceOf[FrameMap]
-            fm2.appendLocalTo(b, interp.globals)
-            cur = fm2.parent
-          // If the terminal parent is the real globals map, skip it.
-          // Otherwise it's a closure HashMap — iterate and capture non-global entries.
-          // IMPORTANT: params already in `b` (from the FrameMap chain above) take
-          // priority — do NOT overwrite them with closure entries that happen to carry
-          // a same-named but semantically-different value (e.g. the HTML `<a>` tag
-          // from a child interpreter's enriched closure overwriting a param named `a`).
-          if cur ne interp.globals then
-            cur.foreachEntry { (k, v) =>
-              if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
-            }
-          (b, new MutableEnvView(b))
-        case _ =>
-          val b2 = mutable.HashMap.empty[String, Value]
-          env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
-          (b2, new MutableEnvView(b2))
+    // Use vars instead of val tuple to avoid the Tuple2 allocation that HotSpot fails to EA
+    // when evalBlock is called 1M times per tight while loop.
+    var local: mutable.Map[String, Value] = null
+    var localView: MutableEnvView = null
+    if env.isInstanceOf[MutableEnvView] &&
+       !stats.exists { case _: Defn.Val | _: Defn.Var => true; case _ => false }
+    then
+      val mev = env.asInstanceOf[MutableEnvView]
+      local = mev.underlying
+      localView = mev
+    else env match
+      case fm: FrameMap =>
+        // Only copy env entries that are absent from (or differ from) interp.globals.
+        // These are params and shadowed vals; everything else is already visible via
+        // interp.globals and the Term.Name fallback, so we skip copying it.
+        // Shrinks the frame from O(N_env) to O(N_params + N_stale_closure) — typically 1–5 entries.
+        // Walk only FrameMap local slots to avoid O(|globals|) iteration.
+        // After the FrameMap chain, the terminal parent is either interp.globals
+        // (skip it — huge) or a small closure map (iterate it to capture closures).
+        val b = mutable.HashMap.empty[String, Value]
+        var cur: Map[String, Value] = fm
+        while cur.isInstanceOf[FrameMap] do
+          val fm2 = cur.asInstanceOf[FrameMap]
+          fm2.appendLocalTo(b, interp.globals)
+          cur = fm2.parent
+        // If the terminal parent is the real globals map, skip it.
+        // Otherwise it's a closure HashMap — iterate and capture non-global entries.
+        // IMPORTANT: params already in `b` (from the FrameMap chain above) take
+        // priority — do NOT overwrite them with closure entries that happen to carry
+        // a same-named but semantically-different value (e.g. the HTML `<a>` tag
+        // from a child interpreter's enriched closure overwriting a param named `a`).
+        if cur ne interp.globals then
+          cur.foreachEntry { (k, v) =>
+            if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
+          }
+        local = b; localView = new MutableEnvView(b)
+      case _ =>
+        val b2 = mutable.HashMap.empty[String, Value]
+        env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
+        local = b2; localView = new MutableEnvView(b2)
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
@@ -97,8 +101,11 @@ private[interpreter] object BlockRuntime:
           // current evalBlock and any enclosing while loop (via freshEnv) see it.
           // This also keeps local in sync, avoiding a stale-read on the next statement
           // without needing a full O(N) refresh scan.
-          case Term.Assign(Term.Name(x), rhs) =>
-            interp.eval(rhs, localView) match
+          // Type-only check on Term.Assign avoids Tuple2 from unapply; then direct
+          // field access on the lhs Term.Name avoids the Some[String] from Name.unapply.
+          case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
+            val x = assign.lhs.asInstanceOf[Term.Name].value
+            interp.eval(assign.rhs, localView) match
               case Pure(v) => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV)
               case c       => FlatMap(c, { v => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV) })
           // Compound assignment inside a block (x += n, x -= n, etc.).
