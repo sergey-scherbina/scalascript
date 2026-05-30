@@ -5868,9 +5868,10 @@ query + mutation + nested-type resolvers + client only. These phases bring the J
 target to feature parity, each backed by the `graphql` npm package (plus a small extra
 dep where noted) and verified with a live `node` round-trip in `NodeBackendGraphqlTest`.
 
-- [ ] **graphql-js-scalars** — Custom scalars on graphql-js: wire `GraphQL.scalar(name, serialize, coerce)`
+- [x] **graphql-js-scalars** — Custom scalars on graphql-js: wire `GraphQL.scalar(name, serialize, coerce)`
   into the executable schema (graphql-js `GraphQLScalarType` over the `buildSchema` result), nested
   object output via Maps and list-of-objects via Lists, mirroring graphql-p6. Node conformance tests.
+  _(landed 2026-05-30; `_graphqlApplyScalars` mutates scalar serialize/parseValue/parseLiteral; live node round-trip)_
 
 - [ ] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js: `GraphQL.dataLoader(name, batchFn)`
   with per-request key-deduped cache injected into resolver args (`_load`/`_batchLoad`), mirroring graphql-p9.

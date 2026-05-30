@@ -56,6 +56,43 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Server exercising a custom scalar (`Tagged`) plus nested-object and
+   *  list-of-object output.  `Tagged.serialize` wraps output in `[...]`;
+   *  `Tagged.coerce` prefixes input with `got:`. */
+  private val scalarProgram =
+    """|# GraphQL scalar server
+       |
+       |```graphql
+       |scalar Tagged
+       |type Author { name: String! }
+       |type Book { title: String! author: Author! }
+       |type Query {
+       |  tag(text: String!): Tagged!
+       |  echo(val: Tagged!): String!
+       |  books: [Book!]!
+       |}
+       |```
+       |
+       |```scalascript
+       |val tagged = GraphQL.scalar("Tagged",
+       |  serialize = (v: String) => "[" + v + "]",
+       |  coerce    = (raw: String) => "got:" + raw
+       |)
+       |val resolvers = GraphQL.resolvers(
+       |  query = Map(
+       |    "tag"   -> (args => args("text")),
+       |    "echo"  -> (args => args("val")),
+       |    "books" -> (_ => List(
+       |      Map("title" -> "A", "author" -> Map("name" -> "X")),
+       |      Map("title" -> "B", "author" -> Map("name" -> "Y"))
+       |    ))
+       |  ),
+       |  scalars = Map("Tagged" -> tagged)
+       |)
+       |serveGraphQL(4072, resolvers)
+       |```
+       |""".stripMargin
+
   // ── Codegen-shape unit tests (no node required) ────────────────────────
 
   test("no graphql usage → no package.json artifact"):
@@ -167,3 +204,75 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
     assert(out.contains("\"hello\":\"world\""), s"missing hello in:\n$out")
     assert(out.contains("\"greet\":\"Hi Bob\""), s"missing greet in:\n$out")
     assert(out.contains("\"shout\":\"hey!\""), s"missing mutation result in:\n$out")
+
+  // ── Custom scalars + nested/list output ────────────────────────────────
+
+  test("GraphQL.scalar lowers to a runtime call + scalars option"):
+    val (code, _) = compileToOutputs(scalarProgram)
+    assert(code.contains("GraphQL.scalar("), "expected scalar call site")
+    assert(code.contains("scalars:"), "expected scalars option in resolvers object")
+
+  test("custom scalar runtime wiring is included"):
+    val (code, _) = compileToOutputs(scalarProgram)
+    assert(code.contains("function _graphqlApplyScalars("))
+    assert(code.contains("scalar:"), "GraphQL.scalar runtime fn")
+
+  test("scalar SDL + nested object types are embedded"):
+    val (code, _) = compileToOutputs(scalarProgram)
+    assert(code.contains("_registerGraphqlSdl("))
+    assert(code.contains("scalar Tagged"))
+    assert(code.contains("type Book"))
+
+  test("serveGraphQL applies scalars + resolves nested/list output via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(scalarProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-scalar-test")
+    Files.createDirectories(dir)
+
+    val driver =
+      """|setTimeout(() => {
+         |  const http = require('http');
+         |  const q = JSON.stringify({
+         |    query: '{ tag(text: "hi") echo(val: "x") books { title author { name } } }'
+         |  });
+         |  const r = http.request({
+         |    hostname: 'localhost', port: 4072, path: '/graphql', method: 'POST',
+         |    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(q) }
+         |  }, res => { let b = ''; res.on('data', c => b += c); res.on('end', () => {
+         |    process.stdout.write('RESULT:' + b + '\n'); process.exit(0);
+         |  }); });
+         |  r.on('error', e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |  r.write(q); r.end();
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    assert(out.contains("\"tag\":\"[hi]\""), s"scalar serialize not applied in:\n$out")
+    assert(out.contains("\"echo\":\"got:x\""), s"scalar coerce not applied in:\n$out")
+    assert(out.contains("\"title\":\"A\""), s"missing list element in:\n$out")
+    assert(out.contains("\"author\":{\"name\":\"X\"}"), s"missing nested object in:\n$out")
+    assert(out.contains("\"name\":\"Y\""), s"missing second list element nested field in:\n$out")

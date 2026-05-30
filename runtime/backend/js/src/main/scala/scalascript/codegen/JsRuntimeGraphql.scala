@@ -12,8 +12,12 @@ package scalascript.codegen
  *    - a resolver receives the field's arguments as a `Map` (NOT the
  *      parent source — same contract as the interpreter / JVM paths);
  *    - fields without a custom resolver fall back to graphql-js default
- *      property resolution from the parent object;
- *    - resolvers may be async (return a Promise) — graphql-js awaits them.
+ *      property resolution from the parent object (nested Maps / objects and
+ *      lists thereof resolve recursively through the same field resolver);
+ *    - resolvers may be async (return a Promise) — graphql-js awaits them;
+ *    - custom scalars declared with `GraphQL.scalar(name, serialize, coerce)`
+ *      and passed via `GraphQL.resolvers(scalars = …)` override the schema's
+ *      `serialize` / `parseValue` / `parseLiteral` (see `_graphqlApplyScalars`).
  *
  *  The runtime integrates with the HTTP runtime (`route` / `_routes` /
  *  `serve`), so capability detection forces `HtmlDsl` + `Async` whenever
@@ -42,8 +46,8 @@ const GraphQL = {
     return { _type: 'GraphQLSchema', sdl: sdl, schema: g.buildSchema(sdl) };
   },
   // GraphQL.resolvers(opts) — opts carries named args { query, mutation,
-  // subscription } (named-arg call sites are lowered to an options object
-  // by dispatchIntrinsicJs).
+  // subscription, scalars } (named-arg call sites are lowered to an options
+  // object by dispatchIntrinsicJs).
   resolvers: function(opts) {
     opts = opts || {};
     return {
@@ -51,9 +55,43 @@ const GraphQL = {
       query:        _graphqlToTable(opts.query),
       mutation:     _graphqlToTable(opts.mutation),
       subscription: _graphqlToTable(opts.subscription),
+      scalars:      _graphqlToTable(opts.scalars),
     };
   },
+  // GraphQL.scalar(name, serialize, coerce) — custom scalar codec.
+  //   serialize : resolver output value -> JSON-serializable value
+  //   coerce    : JSON/literal input value -> resolver value
+  // Accepts both the named-arg shape `(name, { serialize, coerce })` (the
+  // common DSL form, lowered by dispatchIntrinsicJs) and the all-positional
+  // shape `(name, serializeFn, coerceFn)`.
+  scalar: function(name, a, b) {
+    let serialize, coerce;
+    if (a && typeof a === 'object' && (typeof a.serialize === 'function' || typeof a.coerce === 'function')) {
+      serialize = a.serialize; coerce = a.coerce;
+    } else {
+      serialize = a; coerce = b;
+    }
+    return { _type: 'GraphQLScalar', name: name, serialize: serialize, coerce: coerce };
+  },
 };
+
+// Attach custom-scalar serialize/parse behaviour to a built schema.  graphql-js
+// `buildSchema` materialises `scalar Foo` declarations as pass-through
+// `GraphQLScalarType` instances; we override their `serialize` / `parseValue` /
+// `parseLiteral` so resolver outputs and inputs flow through the user codecs.
+function _graphqlApplyScalars(schema, resolvers, g) {
+  const scalars = (resolvers && resolvers.scalars) || {};
+  for (const name of Object.keys(scalars)) {
+    const sc = scalars[name];
+    const t  = schema.getType(name);
+    if (!t || !sc) continue;
+    if (typeof sc.serialize === 'function') t.serialize = function(v) { return sc.serialize(v); };
+    if (typeof sc.coerce === 'function') {
+      t.parseValue   = function(v)   { return sc.coerce(v); };
+      t.parseLiteral = function(ast) { return sc.coerce(g.valueFromASTUntyped(ast)); };
+    }
+  }
+}
 
 // Build the combined coordinate → resolver table and a graphql-js
 // fieldResolver that dispatches custom resolvers and otherwise falls back
@@ -105,6 +143,9 @@ function _graphqlIsMutation(query) {
 // graphqlHandler(schema, resolvers) — return a Request => Promise<Response>
 // handler suitable for manual `route(...)` wiring.
 function graphqlHandler(schema, resolvers) {
+  // Wire any custom scalars into the executable schema once, at handler
+  // construction (not per-request).
+  _graphqlApplyScalars(schema.schema, resolvers, require('graphql'));
   return async function(req) {
     const method = (req && req.method ? String(req.method) : 'POST').toUpperCase();
     let query = null, variables = null, operationName = null;

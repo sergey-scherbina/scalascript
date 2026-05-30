@@ -11,13 +11,14 @@ import scalascript.ir.QualifiedName
  *  is accepted by the JS / Node backends, and `dispatchIntrinsicJs` rewrites
  *  each call site to the named runtime symbol.
  *
- *  Scope: query + mutation + nested-type resolvers, `graphqlHandler` /
- *  `graphqlMount` / `serveGraphQL`, and the `graphqlQuery` client.
- *  Subscriptions, federation, DataLoader and custom scalars are JVM-only
- *  for now — the JS runtime omits them. */
+ *  Scope: query + mutation + nested-type resolvers, custom scalars
+ *  (`GraphQL.scalar`), `graphqlHandler` / `graphqlMount` / `serveGraphQL`,
+ *  and the `graphqlQuery` client.  Subscriptions, federation, DataLoader,
+ *  and security limits are JVM-only for now — the JS runtime omits them. */
 val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("GraphQL.schema")    -> RuntimeCall("GraphQL.schema"),
   QualifiedName("GraphQL.resolvers") -> RuntimeCall("GraphQL.resolvers"),
+  QualifiedName("GraphQL.scalar")    -> RuntimeCall("GraphQL.scalar"),
   QualifiedName("serveGraphQL")      -> RuntimeCall("serveGraphQL"),
   QualifiedName("graphqlMount")      -> RuntimeCall("graphqlMount"),
   QualifiedName("graphqlHandler")    -> RuntimeCall("graphqlHandler"),

@@ -31,7 +31,7 @@ landed 2026-05-30 under graphql-p2; these bring the JS/Node target to feature pa
 Each is backed by the `graphql` npm package (plus a small extra dep where noted) and
 verified with a live `node` round-trip. Details in `BACKLOG.md §"GraphQL JS/Node parity"`.
 
-- [ ] **graphql-js-scalars** — Custom scalars on graphql-js (`GraphQL.scalar` → `GraphQLScalarType`), nested object/list output. Mirrors graphql-p6. Node conformance tests.
+- [x] **graphql-js-scalars** — Custom scalars on graphql-js (`GraphQL.scalar` → `GraphQLScalarType`), nested object/list output. Mirrors graphql-p6. Node conformance tests. _(landed 2026-05-30)_
 - [ ] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js (`GraphQL.dataLoader`, `_load`/`_batchLoad`, per-request dedup cache). Mirrors graphql-p9.
 - [ ] **graphql-js-security** — Security/limits parity (`GraphQL.options`: maxDepth/maxComplexity/maxQueryLength/disableIntrospection) via graphql-js validation rules + body-length guard. Mirrors graphql-p10.
 - [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (`graphql-transport-ws` on `onWebSocket`) + `graphqlSse` text/event-stream. Mirrors graphql-p3/p7/p13. Likely needs `graphql-ws` dep.
