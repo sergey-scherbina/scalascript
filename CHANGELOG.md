@@ -15,7 +15,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   mixed `Int`/`Double` comparison fast paths in `infix2`. List single-arg
   calls for `mkString`, `zip`, `takeRight`, `dropRight`, `splitAt`,
   `intersect`, `diff`, `count`, `collect`, and `span` now bypass the generic
-  `arg :: Nil` fallback.
+  `arg :: Nil` fallback. `List.takeWhile`, `dropWhile`, and `sortWith` now
+  have working one-argument interpreter dispatch with regression coverage.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

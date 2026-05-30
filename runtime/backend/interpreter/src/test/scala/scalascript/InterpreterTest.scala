@@ -648,6 +648,22 @@ def main(): Unit =
     """) shouldBe "1, 2, 3"
   }
 
+  test("list extra one-arg collection methods") {
+    captured("""
+      val xs = List(1, 2, 3, 4, 5)
+      println(xs.takeWhile(x => x < 4).mkString(", "))
+      println(xs.dropWhile(x => x < 3).mkString(", "))
+      println(List(3, 1, 2).sortWith((a, b) => a < b).mkString(", "))
+      val split = xs.splitAt(2)
+      println(split._1.mkString(", "))
+      println(split._2.mkString(", "))
+      println(xs.takeRight(2).mkString(", "))
+      println(xs.dropRight(3).mkString(", "))
+      println(xs.intersect(List(2, 4, 9)).mkString(", "))
+      println(xs.diff(List(2, 5)).mkString(", "))
+    """) shouldBe "1, 2, 3\n3, 4, 5\n1, 2, 3\n1, 2\n3, 4, 5\n4, 5\n1, 2\n2, 4\n1, 3, 4"
+  }
+
   // ── Map methods ──────────────────────────────────────────────────
 
   test("map updated and removed") {

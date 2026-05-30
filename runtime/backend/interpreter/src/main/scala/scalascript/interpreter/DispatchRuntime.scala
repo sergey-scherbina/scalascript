@@ -369,7 +369,20 @@ private[interpreter] object DispatchRuntime:
       case "sortBy"     =>
         dispatchList(ls, "sortBy", arg :: Nil, env, interp)
       case "sortWith"   =>
-        dispatchList(ls, "sortWith", arg :: Nil, env, interp)
+        if ls.isEmpty || ls.tail.isEmpty then Pure(recv)
+        else
+          val arr = ls.toArray
+          java.util.Arrays.sort(arr, (a: Value, b: Value) =>
+            Computation.run(interp.callValue2(arg, a, b, env)) match
+              case Value.BoolV(true) => -1
+              case _                 => 1
+          )
+          var sorted: List[Value] = Nil
+          var i = arr.length - 1
+          while i >= 0 do
+            sorted = arr(i) :: sorted
+            i -= 1
+          Pure(Value.ListV(sorted))
       case "groupBy"    =>
         val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
         var rem = ls
@@ -449,6 +462,52 @@ private[interpreter] object DispatchRuntime:
               rem = rem.tail
             Pure(Value.ListV(buf.toList))
         case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "takeWhile"  =>
+        val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+        var rem = ls
+        while rem.nonEmpty do
+          val h = rem.head
+          interp.callValue1(arg, h, env) match
+            case Pure(Value.BoolV(true)) => buf += h; rem = rem.tail
+            case Pure(_)                 => return Pure(Value.ListV(buf.toList))
+            case c =>
+              val tail = rem.tail
+              return FlatMap(c, {
+                case Value.BoolV(true) =>
+                  buf += h
+                  def loopRest(remaining: List[Value]): Computation = remaining match
+                    case Nil => Pure(Value.ListV(buf.toList))
+                    case hh :: t =>
+                      FlatMap(interp.callValue1(arg, hh, env), {
+                        case Value.BoolV(true) => buf += hh; loopRest(t)
+                        case _                 => Pure(Value.ListV(buf.toList))
+                      })
+                  loopRest(tail)
+                case _ => Pure(Value.ListV(buf.toList))
+              })
+        Pure(Value.ListV(buf.toList))
+      case "dropWhile"  =>
+        var rem = ls
+        while rem.nonEmpty do
+          val h = rem.head
+          interp.callValue1(arg, h, env) match
+            case Pure(Value.BoolV(true)) => rem = rem.tail
+            case Pure(_)                 => return Pure(Value.ListV(rem))
+            case c =>
+              val capturedRem = rem
+              val tail = rem.tail
+              def restLoop(remaining: List[Value]): Computation = remaining match
+                case Nil => Computation.PureEmptyList
+                case hh :: t =>
+                  FlatMap(interp.callValue1(arg, hh, env), {
+                    case Value.BoolV(true) => restLoop(t)
+                    case _                 => Pure(Value.ListV(remaining))
+                  })
+              return FlatMap(c, {
+                case Value.BoolV(true) => restLoop(tail)
+                case _                 => Pure(Value.ListV(capturedRem))
+              })
+        Computation.PureEmptyList
       case _            => dispatchList(ls, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Map. */
