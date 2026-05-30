@@ -163,6 +163,18 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         case _ => throw InterpretError("graphqlQuery(url: String, query: String[, variables: Map])")
     },
 
+    // graphqlSse(url, query) or graphqlSse(url, query, variables)
+    // Posts a GraphQL subscription request with Accept: text/event-stream.
+    // Returns a List of parsed event payloads (each is the response "data" value).
+    QualifiedName("graphqlSse") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(url: String, query: String) =>
+          executeRemoteSse(url, query, Map.empty)
+        case List(url: String, query: String, Value.MapV(vars)) =>
+          executeRemoteSse(url, query, vars.map { (k, v) => valueToJavaForVars(k) -> v })
+        case _ => throw InterpretError("graphqlSse(url: String, query: String[, variables: Map])")
+    },
+
     // GraphQL.printSchema(schema) — return the normalized SDL string.
     // Parses and reprints the SDL via graphql-java SchemaPrinter, normalizing whitespace.
     QualifiedName("GraphQL.printSchema") -> PluginNative.evalLegacy { (_, args) =>
@@ -602,8 +614,9 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
 
     // GraphQL-over-HTTP §7.1: if Accept contains application/graphql-response+json
     // we respond with that type and may return 4xx/5xx status codes on errors.
-    val useGqlCt = acceptsGqlResponseJson(fields)
-    val ct       = if useGqlCt then GQL_RESPONSE_JSON else APP_JSON
+    val useGqlCt  = acceptsGqlResponseJson(fields)
+    val acceptsSse = headerValue(fields, "accept").exists(_.contains("text/event-stream"))
+    val ct         = if useGqlCt then GQL_RESPONSE_JSON else APP_JSON
 
     // Apply body/query-length limit before parsing.
     if opts.maxQueryLength.exists(body.length > _) then
@@ -700,6 +713,12 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     val input  = inputBuilder.build()
     val result = engine.execute(input)
 
+    if acceptsSse then
+      result.getData[Any] match
+        case pub: Publisher[?] =>
+          return handleSseResult(pub.asInstanceOf[Publisher[graphql.ExecutionResult]])
+        case _ => ()
+
     val dataVal = if result.getData[Any] == null then ujson.Null
                   else anyToUJson(result.getData[java.util.Map[String, Any]]())
     val errsArr = result.getErrors.asScala.toList
@@ -734,6 +753,35 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       "status"  -> Value.IntV(status.toLong),
       "body"    -> Value.StringV(ujson.write(respObj)),
       "headers" -> Value.MapV(Map(Value.StringV("Content-Type") -> Value.StringV(ct))),
+    ))
+
+  // ── SSE subscription delivery ─────────────────────────────────────────────
+
+  private def handleSseResult(pub: Publisher[graphql.ExecutionResult]): Value =
+    val body = new StringBuilder()
+    pub.subscribe(new Subscriber[graphql.ExecutionResult]:
+      override def onSubscribe(s: Subscription): Unit = s.request(Long.MaxValue)
+      override def onNext(er: graphql.ExecutionResult): Unit =
+        val dataVal = if er.getData[Any] == null then ujson.Null
+                      else anyToUJson(er.getData[java.util.Map[String, Any]]())
+        val payload = ujson.Obj("data" -> dataVal)
+        val errs    = er.getErrors.asScala.toList
+        if errs.nonEmpty then
+          payload("errors") = ujson.Arr.from(
+            errs.map(e => ujson.Obj("message" -> ujson.Str(e.getMessage))))
+        body.append(s"data: ${ujson.write(payload)}\n\n")
+      override def onError(t: Throwable): Unit =
+        val msg = Option(t.getMessage).getOrElse("Subscription error")
+        body.append(s"data: ${ujson.write(ujson.Obj("errors" -> ujson.Arr(ujson.Obj("message" -> ujson.Str(msg)))))}\n\n")
+      override def onComplete(): Unit = ()
+    )
+    Value.InstanceV("Response", Map(
+      "status"  -> Value.IntV(200L),
+      "body"    -> Value.StringV(body.toString),
+      "headers" -> Value.MapV(Map(
+        Value.StringV("Content-Type")  -> Value.StringV("text/event-stream"),
+        Value.StringV("Cache-Control") -> Value.StringV("no-cache"),
+      )),
     ))
 
   // ── Remote GraphQL client ──────────────────────────────────────────────────
@@ -777,6 +825,42 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     json.obj.get("data") match
       case Some(data) => ujsonToValue(data)
       case None       => Value.NullV
+
+  private def executeRemoteSse(url: String, query: String, vars: Map[String, Value]): Value =
+    import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
+    import java.net.URI
+    import java.time.Duration
+
+    val varJson    = if vars.isEmpty then "{}"
+      else ujson.write(ujson.Obj.from(vars.map { (k, v) => k -> valueToUJson(v) }))
+    val bodyStr    = ujson.write(ujson.Obj(
+      "query"     -> ujson.Str(query),
+      "variables" -> ujson.read(varJson)
+    ))
+    val timeout    = Duration.ofSeconds(30)
+    val client     = JHttpClient.newBuilder().connectTimeout(timeout).build()
+    val graphqlUrl = if url.endsWith("/graphql") then url else url.stripSuffix("/") + "/graphql"
+    val request    = HttpRequest.newBuilder()
+      .uri(URI.create(graphqlUrl))
+      .timeout(timeout)
+      .header("Content-Type", "application/json")
+      .header("Accept", "text/event-stream")
+      .POST(HttpRequest.BodyPublishers.ofString(bodyStr))
+      .build()
+
+    val response = try client.send(request, HttpResponse.BodyHandlers.ofString())
+      catch case e: Exception => throw InterpretError(s"graphqlSse: network error: ${e.getMessage}")
+
+    val events = response.body().split("\n\n").toList
+      .flatMap { block =>
+        block.linesIterator.collectFirst {
+          case line if line.startsWith("data: ") =>
+            scala.util.Try(ujson.read(line.stripPrefix("data: "))).toOption
+        }.flatten
+      }
+      .map(ujsonToValue)
+
+    Value.ListV(events)
 
   private def valueToJavaForVars(v: Value): String = v match
     case Value.StringV(s) => s
