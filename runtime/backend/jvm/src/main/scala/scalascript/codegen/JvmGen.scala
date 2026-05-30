@@ -3,6 +3,7 @@ package scalascript.codegen
 import scalascript.ast.*
 import scalascript.transform.{DirectAnorm, DirectTypeUtils, EffectAnalysis}
 import scalascript.sql.js.SqlRuntimeJsEmit
+import scalascript.codegen.JvmGenStringUtils.*
 import scala.collection.mutable
 import scala.meta.*
 
@@ -1750,9 +1751,6 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     else if name.startsWith("Windows") then "win"
     else "linux"
 
-  private def escapeStringLit(s: String): String =
-    s.replace("\\", "\\\\").replace("\"", "\\\"")
-
   private def openApiResponseTypes(apiClients: List[ApiClientDecl]): Map[(String, String), String] =
     apiClients
       .flatMap(_.endpoints)
@@ -1903,32 +1901,6 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           }
           sb.append("\n")
       }
-
-  /** Wrap `s` as a properly-escaped Scala double-quoted string literal,
-   *  safe for embedding in emitted `.sc` source. */
-  private def scalaStringLiteral(s: String): String =
-    "\"" + s
-      .replace("\\", "\\\\")
-      .replace("\"", "\\\"")
-      .replace("\n", "\\n")
-      .replace("\r", "\\r")
-      .replace("\t", "\\t")
-      + "\""
-
-  /** Escape a string for inclusion in a double-quoted JS literal inside
-   *  the emitted client-SQL JS bundle. */
-  private def jsLitForClientSql(s: String): String =
-    val sb = StringBuilder("\"")
-    s.foreach {
-      case '\\' => sb.append("\\\\")
-      case '"'  => sb.append("\\\"")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
-      case c    => sb.append(c)
-    }
-    sb.append("\"").toString
 
   /** Build the JS content for `_ssc_client_sql_js`.
    *
