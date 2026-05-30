@@ -63,6 +63,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   the same direct small-map construction path.
   Future, Signal, serialized Pid, and typed-handler Either wrappers now avoid
   tuple/array allocation from the generic `Map(...)` factory.
+  Parametric-given factory markers and synthetic opaque-type companions now use
+  direct small-map constructors in statement execution.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

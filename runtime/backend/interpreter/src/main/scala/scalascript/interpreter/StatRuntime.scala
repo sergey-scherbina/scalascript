@@ -281,7 +281,7 @@ private[interpreter] object StatRuntime:
             if explicitName.nonEmpty then
               // Build a partially-applied marker so the name resolves to something.
               // Callers that say `using listOrd` supply a concrete type context.
-              val partialInst = Value.InstanceV(typeKey, Map("__factory__" -> Value.True))
+              val partialInst = Value.InstanceV(typeKey, new IMap.Map1("__factory__", Value.True))
               env(explicitName) = partialInst
           else
             // Concrete (non-parametric) given: evaluate immediately and store.
@@ -347,7 +347,7 @@ private[interpreter] object StatRuntime:
         // unapply: wrap value in Some(...)
         val unapplyFn = Value.NativeFnV(s"$typeName.unapply",
           args => Pure(Value.InstanceV("Some", new IMap.Map1("value", args.headOption.getOrElse(Value.UnitV)))))
-        env(typeName) = Value.InstanceV(typeName, Map("apply" -> applyFn, "unapply" -> unapplyFn))
+        env(typeName) = Value.InstanceV(typeName, new IMap.Map2("apply", applyFn, "unapply", unapplyFn))
 
     case _ => () // type aliases, imports, exports, etc.
 
