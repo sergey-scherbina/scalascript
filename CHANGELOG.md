@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — interpreter FrameMap and Option hot-path follow-up
+
+- **perf/interpreter-framemap-option-hotpaths** — Ported two more safe slices
+  from `perf/interpreter-opt`: direct `FrameMap.foreachEntry` iteration plus
+  cheaper `FrameMapN.flat`, and direct-match `Option.map` / `Option.flatMap`
+  paths adapted to the current null-sentinel `OptionV` representation.
+
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
 - **fix/ws-load10k-env-gate** — Removed the last ScalaTest `@Ignore` from
