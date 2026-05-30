@@ -6,6 +6,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **cli-bundle-http-plugin** - Bundle `httpPlugin` + `wsPlugin` into the CLI
+      (Compile scope) so `ssc run` resolves `route`/`serve`/`serveAsync`/`httpPost`
+      via ServiceLoader. Previously they were `% Test`, so the assembled
+      `ssc.jar` lacked them. ✓ Landed 2026-05-30 (verified live; assembly clean).
+
 - [x] **import-transitive-helpers** - Fix: an imported module's exported
       function could not resolve its own internal helpers or the names it
       imported-but-did-not-re-export (resolved against the importer's globals at
