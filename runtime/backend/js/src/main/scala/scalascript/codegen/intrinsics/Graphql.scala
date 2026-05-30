@@ -12,13 +12,16 @@ import scalascript.ir.QualifiedName
  *  each call site to the named runtime symbol.
  *
  *  Scope: query + mutation + nested-type resolvers, custom scalars
- *  (`GraphQL.scalar`), `graphqlHandler` / `graphqlMount` / `serveGraphQL`,
- *  and the `graphqlQuery` client.  Subscriptions, federation, DataLoader,
- *  and security limits are JVM-only for now — the JS runtime omits them. */
+ *  (`GraphQL.scalar`), per-request DataLoader batching (`GraphQL.dataLoader`
+ *  + the `_load` / `_batchLoad` functions injected into resolver args),
+ *  `graphqlHandler` / `graphqlMount` / `serveGraphQL`, and the `graphqlQuery`
+ *  client.  Subscriptions, federation, and security limits are JVM-only for
+ *  now — the JS runtime omits them. */
 val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
-  QualifiedName("GraphQL.schema")    -> RuntimeCall("GraphQL.schema"),
-  QualifiedName("GraphQL.resolvers") -> RuntimeCall("GraphQL.resolvers"),
-  QualifiedName("GraphQL.scalar")    -> RuntimeCall("GraphQL.scalar"),
+  QualifiedName("GraphQL.schema")     -> RuntimeCall("GraphQL.schema"),
+  QualifiedName("GraphQL.resolvers")  -> RuntimeCall("GraphQL.resolvers"),
+  QualifiedName("GraphQL.scalar")     -> RuntimeCall("GraphQL.scalar"),
+  QualifiedName("GraphQL.dataLoader") -> RuntimeCall("GraphQL.dataLoader"),
   QualifiedName("serveGraphQL")      -> RuntimeCall("serveGraphQL"),
   QualifiedName("graphqlMount")      -> RuntimeCall("graphqlMount"),
   QualifiedName("graphqlHandler")    -> RuntimeCall("graphqlHandler"),

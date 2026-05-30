@@ -93,6 +93,49 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Server exercising a per-request DataLoader.  The batch fn embeds the
+   *  number of keys it received (`/batchN`) into each value so a single
+   *  coalesced batch call is observable: `_load` triggers a 1-key call
+   *  (`/batch1`); `_batchLoad` over 3 keys triggers ONE 3-key call (`/batch3`).
+   *  Two isolated loaders keep the result independent of field-resolution
+   *  order (a shared loader would let whichever field runs first back-fill
+   *  the per-request cache for the other — correct dedup, but non-deterministic
+   *  for this assertion). */
+  private val loaderProgram =
+    """|# GraphQL DataLoader server
+       |
+       |```graphql
+       |type Query {
+       |  user(id: Int!): String!
+       |  users(ids: [Int!]!): [String!]!
+       |}
+       |```
+       |
+       |```scalascript
+       |val oneLoader = GraphQL.dataLoader("one", (keys =>
+       |  Map(7 -> ("U7/batch" + keys.size))
+       |))
+       |val manyLoader = GraphQL.dataLoader("many", (keys =>
+       |  Map(
+       |    1 -> ("U1/batch" + keys.size),
+       |    2 -> ("U2/batch" + keys.size),
+       |    3 -> ("U3/batch" + keys.size)
+       |  )
+       |))
+       |val resolvers = GraphQL.resolvers(
+       |  query = Map(
+       |    "user"  -> (args => args("_load")("one", args("id"))),
+       |    "users" -> (args => {
+       |      val m = args("_batchLoad")("many", args("ids"))
+       |      args("ids").map(id => m(id))
+       |    })
+       |  ),
+       |  loaders = Map("one" -> oneLoader, "many" -> manyLoader)
+       |)
+       |serveGraphQL(4073, resolvers)
+       |```
+       |""".stripMargin
+
   // ── Codegen-shape unit tests (no node required) ────────────────────────
 
   test("no graphql usage → no package.json artifact"):
@@ -276,3 +319,70 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
     assert(out.contains("\"title\":\"A\""), s"missing list element in:\n$out")
     assert(out.contains("\"author\":{\"name\":\"X\"}"), s"missing nested object in:\n$out")
     assert(out.contains("\"name\":\"Y\""), s"missing second list element nested field in:\n$out")
+
+  // ── Per-request DataLoader ─────────────────────────────────────────────
+
+  test("GraphQL.dataLoader lowers to a runtime call + loaders option"):
+    val (code, _) = compileToOutputs(loaderProgram)
+    assert(code.contains("GraphQL.dataLoader("), "expected dataLoader call site")
+    assert(code.contains("loaders:"), "expected loaders option in resolvers object")
+
+  test("DataLoader runtime wiring is included"):
+    val (code, _) = compileToOutputs(loaderProgram)
+    assert(code.contains("function _GraphqlDataLoaderCtx("))
+    assert(code.contains("dataLoader:"), "GraphQL.dataLoader runtime fn")
+    assert(code.contains(".prototype.batchLoad"))
+
+  test("serveGraphQL coalesces a request's keys into one batch call via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(loaderProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-loader-test")
+    Files.createDirectories(dir)
+
+    val driver =
+      """|setTimeout(() => {
+         |  const http = require('http');
+         |  const q = JSON.stringify({
+         |    query: '{ a: user(id: 7) batch: users(ids: [1, 2, 3]) }'
+         |  });
+         |  const r = http.request({
+         |    hostname: 'localhost', port: 4073, path: '/graphql', method: 'POST',
+         |    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(q) }
+         |  }, res => { let b = ''; res.on('data', c => b += c); res.on('end', () => {
+         |    process.stdout.write('RESULT:' + b + '\n'); process.exit(0);
+         |  }); });
+         |  r.on('error', e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |  r.write(q); r.end();
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    // Single-key load → batch fn saw 1 key.
+    assert(out.contains("\"a\":\"U7/batch1\""), s"single-key _load wrong in:\n$out")
+    // 3-key batchLoad → ONE batch call saw all 3 keys (proves coalescing).
+    assert(out.contains("\"batch\":[\"U1/batch3\",\"U2/batch3\",\"U3/batch3\"]"),
+      s"batch coalescing not observed in:\n$out")

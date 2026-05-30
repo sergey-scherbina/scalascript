@@ -5873,9 +5873,10 @@ dep where noted) and verified with a live `node` round-trip in `NodeBackendGraph
   object output via Maps and list-of-objects via Lists, mirroring graphql-p6. Node conformance tests.
   _(landed 2026-05-30; `_graphqlApplyScalars` mutates scalar serialize/parseValue/parseLiteral; live node round-trip)_
 
-- [ ] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js: `GraphQL.dataLoader(name, batchFn)`
+- [x] **graphql-js-dataloader** — Per-request DataLoader/batching on graphql-js: `GraphQL.dataLoader(name, batchFn)`
   with per-request key-deduped cache injected into resolver args (`_load`/`_batchLoad`), mirroring graphql-p9.
-  Use the `dataloader` npm dep or a small inline batcher. Node conformance tests.
+  _(landed 2026-05-30; inline `_GraphqlDataLoaderCtx` batcher — no extra npm dep — sync or async batchFn;
+  fresh cache per request via `contextValue._dlCtx`; live node round-trip proves 3-key batch coalescing)_
 
 - [ ] **graphql-js-security** — Security/limits parity on graphql-js: `GraphQL.options(maxDepth, maxComplexity,
   maxQueryLength, disableIntrospection)` as the optional 3rd arg to `graphqlHandler`/`graphqlMount`/`serveGraphQL`,

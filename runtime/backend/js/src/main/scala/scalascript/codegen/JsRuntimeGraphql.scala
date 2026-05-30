@@ -17,7 +17,11 @@ package scalascript.codegen
  *    - resolvers may be async (return a Promise) — graphql-js awaits them;
  *    - custom scalars declared with `GraphQL.scalar(name, serialize, coerce)`
  *      and passed via `GraphQL.resolvers(scalars = …)` override the schema's
- *      `serialize` / `parseValue` / `parseLiteral` (see `_graphqlApplyScalars`).
+ *      `serialize` / `parseValue` / `parseLiteral` (see `_graphqlApplyScalars`);
+ *    - per-request DataLoaders declared with `GraphQL.dataLoader(name, batchFn)`
+ *      and passed via `GraphQL.resolvers(loaders = …)` are reachable inside a
+ *      resolver through the `_load(name, key)` / `_batchLoad(name, keys)`
+ *      functions injected into its argument Map (see `_GraphqlDataLoaderCtx`).
  *
  *  The runtime integrates with the HTTP runtime (`route` / `_routes` /
  *  `serve`), so capability detection forces `HtmlDsl` + `Async` whenever
@@ -46,8 +50,8 @@ const GraphQL = {
     return { _type: 'GraphQLSchema', sdl: sdl, schema: g.buildSchema(sdl) };
   },
   // GraphQL.resolvers(opts) — opts carries named args { query, mutation,
-  // subscription, scalars } (named-arg call sites are lowered to an options
-  // object by dispatchIntrinsicJs).
+  // subscription, scalars, loaders } (named-arg call sites are lowered to an
+  // options object by dispatchIntrinsicJs).
   resolvers: function(opts) {
     opts = opts || {};
     return {
@@ -56,6 +60,7 @@ const GraphQL = {
       mutation:     _graphqlToTable(opts.mutation),
       subscription: _graphqlToTable(opts.subscription),
       scalars:      _graphqlToTable(opts.scalars),
+      loaders:      _graphqlToTable(opts.loaders),
     };
   },
   // GraphQL.scalar(name, serialize, coerce) — custom scalar codec.
@@ -72,6 +77,14 @@ const GraphQL = {
       serialize = a; coerce = b;
     }
     return { _type: 'GraphQLScalar', name: name, serialize: serialize, coerce: coerce };
+  },
+  // GraphQL.dataLoader(name, batchFn) — register a per-request-cached
+  // DataLoader.  `batchFn : List[K] => Map[K, V]` receives an Array of keys
+  // and returns a Map (may be async / return a Promise).  Resolvers reach the
+  // loader through the `_load(name, key)` / `_batchLoad(name, keys)` functions
+  // injected into their argument Map (see `_graphqlFieldResolver`).
+  dataLoader: function(name, batchFn) {
+    return { _type: 'GraphQLDataLoader', name: name, batchFn: batchFn };
   },
 };
 
@@ -93,6 +106,57 @@ function _graphqlApplyScalars(schema, resolvers, g) {
   }
 }
 
+// Per-request DataLoader cache.  Deduplicates repeated key fetches within one
+// request and coalesces a request's keys into a single batch-function call.
+// Mirrors the JVM (`graphql-java`) DataLoaderContext semantics:
+//   - `load(name, key)` returns the value for one key; the FIRST load for an
+//     uncached key invokes the batch fn with `[key]` and back-fills the cache
+//     with every entry the batch returns;
+//   - `batchLoad(name, keys)` invokes the batch fn ONCE for all uncached keys
+//     and returns a Map of key → value for the requested keys.
+// A synchronous batch fn yields synchronous results (matching the JVM, so a
+// resolver can index the returned Map directly); a batch fn that returns a
+// Promise yields a Promise — which graphql-js awaits.
+function _GraphqlDataLoaderCtx(specs) {
+  this.specs = specs || {};
+  this.cache = new Map();   // loaderName -> Map(key -> value)
+}
+_GraphqlDataLoaderCtx.prototype._spec = function(name) {
+  const s = this.specs[name];
+  if (!s) throw new Error("Unknown DataLoader: '" + name + "'");
+  return s;
+};
+_GraphqlDataLoaderCtx.prototype._cacheFor = function(name) {
+  let c = this.cache.get(name);
+  if (!c) { c = new Map(); this.cache.set(name, c); }
+  return c;
+};
+_GraphqlDataLoaderCtx.prototype.load = function(name, key) {
+  const spec = this._spec(name);
+  const c    = this._cacheFor(name);
+  if (c.has(key)) return c.get(key);
+  const fill = res => {
+    if (res instanceof Map) {
+      for (const [k, v] of res) c.set(k, v);
+      return c.has(key) ? c.get(key) : null;
+    }
+    c.set(key, res);
+    return res;
+  };
+  const res = spec.batchFn([key]);
+  return (res && typeof res.then === 'function') ? res.then(fill) : fill(res);
+};
+_GraphqlDataLoaderCtx.prototype.batchLoad = function(name, keys) {
+  const spec     = this._spec(name);
+  const c        = this._cacheFor(name);
+  const uncached = keys.filter(k => !c.has(k));
+  const collect  = () => new Map(keys.map(k => [k, c.has(k) ? c.get(k) : null]));
+  if (uncached.length === 0) return collect();
+  const fill = res => { if (res instanceof Map) for (const [k, v] of res) c.set(k, v); return collect(); };
+  const res = spec.batchFn(uncached);
+  return (res && typeof res.then === 'function') ? res.then(fill) : fill(res);
+};
+
 // Build the combined coordinate → resolver table and a graphql-js
 // fieldResolver that dispatches custom resolvers and otherwise falls back
 // to default property resolution.
@@ -107,6 +171,13 @@ function _graphqlFieldResolver(resolvers, g) {
       const m = new Map();
       const a = args || {};
       for (const k of Object.keys(a)) m.set(k, a[k]);
+      // Inject DataLoader accessors bound to the per-request cache (when any
+      // loaders are registered) — same contract as the JVM backend.
+      const dl = context && context._dlCtx;
+      if (dl) {
+        m.set('_load',      function(ln, key)  { return dl.load(ln, key); });
+        m.set('_batchLoad', function(ln, keys) { return dl.batchLoad(ln, keys); });
+      }
       return fn(m);
     }
     // Default resolution — read the field off the parent. Support both
@@ -123,11 +194,14 @@ function _graphqlFieldResolver(resolvers, g) {
 // Returns a Promise of the { data, errors } execution result object.
 async function _graphqlExecute(built, resolvers, query, variables, operationName) {
   const g = require('graphql');
+  // Fresh DataLoader cache per request (only when loaders are registered).
+  const dlCtx = (resolvers.loaders && Object.keys(resolvers.loaders).length > 0)
+    ? new _GraphqlDataLoaderCtx(resolvers.loaders) : null;
   return g.graphql({
     schema:         built.schema,
     source:         query,
     rootValue:      {},
-    contextValue:   {},
+    contextValue:   { _dlCtx: dlCtx },
     variableValues: variables || undefined,
     operationName:  operationName || undefined,
     fieldResolver:  _graphqlFieldResolver(resolvers, g),
