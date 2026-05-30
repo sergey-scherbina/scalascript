@@ -480,11 +480,15 @@ private[interpreter] object EvalRuntime:
             val arg1C = argTerms.head match
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
               case other               => eval(other, env, interp)
-            (qualC, arg1C) match
-              case (Pure(qv), Pure(av)) => DispatchRuntime.dispatch1(qv, method, av, env, interp)
-              case (Pure(qv), _)        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
-              case (_, Pure(av))        => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
-              case _                    => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
+            qualC match
+              case Pure(qv) =>
+                arg1C match
+                  case Pure(av) => DispatchRuntime.dispatch1(qv, method, av, env, interp)
+                  case _        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+              case _ =>
+                arg1C match
+                  case Pure(av) => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+                  case _        => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
           else if argTerms.lengthCompare(2) == 0 then
             // 2-arg fast path: avoids extractPureValues ArrayBuffer + argComps List allocation.
             val arg1C = argTerms.head match
@@ -493,20 +497,24 @@ private[interpreter] object EvalRuntime:
             val arg2C = argTerms(1) match
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
               case other               => eval(other, env, interp)
-            (qualC, arg1C, arg2C) match
-              case (Pure(qv), Pure(av1), Pure(av2)) =>
-                DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)
-              case (Pure(qv), Pure(av1), _) =>
-                FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
-              case (Pure(qv), _, Pure(av2)) =>
-                FlatMap(arg1C, av1 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
-              case (Pure(qv), _, _) =>
-                FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)))
-              case (_, Pure(av1), Pure(av2)) =>
-                FlatMap(qualC, qv => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
+            qualC match
+              case Pure(qv) =>
+                arg1C match
+                  case Pure(av1) =>
+                    arg2C match
+                      case Pure(av2) => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)
+                      case _         => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
+                  case _ =>
+                    arg2C match
+                      case Pure(av2) => FlatMap(arg1C, av1 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
+                      case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)))
               case _ =>
-                FlatMap(qualC, qv =>
-                  FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))))
+                arg1C match
+                  case Pure(av1) if arg2C.isInstanceOf[Pure] =>
+                    FlatMap(qualC, qv => DispatchRuntime.dispatch2(qv, method, av1, arg2C.asInstanceOf[Pure].value, env, interp))
+                  case _ =>
+                    FlatMap(qualC, qv =>
+                      FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))))
           else
             val argComps = argTerms.map {
               case Term.Assign(_, rhs) => eval(rhs, env, interp)
@@ -591,24 +599,40 @@ private[interpreter] object EvalRuntime:
           else if allArgTerms.lengthCompare(1) == 0 then
             // Single-arg fast path: avoid extractPureValues ArrayBuffer+toList for the
             // most common call shape: f(x) with one pure arg.
+            // Nested match instead of (funC, arg1C) match to avoid Tuple2 allocation.
             val arg1C = eval(allArgTerms.head, env, interp)
-            (funC, arg1C) match
-              case (Pure(fv), Pure(av)) => interp.callValue1(fv, av, env)
-              case (Pure(fv), _)        => FlatMap(arg1C, av => interp.callValue1(fv, av, env))
-              case (_, Pure(av))        => FlatMap(funC, fv => interp.callValue1(fv, av, env))
-              case _                    => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
+            funC match
+              case Pure(fv) =>
+                arg1C match
+                  case Pure(av) => interp.callValue1(fv, av, env)
+                  case _        => FlatMap(arg1C, av => interp.callValue1(fv, av, env))
+              case _ =>
+                arg1C match
+                  case Pure(av) => FlatMap(funC, fv => interp.callValue1(fv, av, env))
+                  case _        => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
           else if allArgTerms.lengthCompare(2) == 0 then
             // Two-arg fast path: f(a, b) — second most common shape.
             // Uses callValue (not callValue2) to preserve TCO for recursive named functions.
+            // Nested match instead of (funC, arg1C, arg2C) match to avoid Tuple3 allocation.
             val arg1C = eval(allArgTerms.head, env, interp)
             val arg2C = eval(allArgTerms(1),   env, interp)
-            (funC, arg1C, arg2C) match
-              case (Pure(fv), Pure(av1), Pure(av2)) => interp.callValue(fv, av1 :: av2 :: Nil, env)
-              case (Pure(fv), Pure(av1), _)         => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))
-              case (Pure(fv), _, Pure(av2))         => FlatMap(arg1C, av1 => interp.callValue(fv, av1 :: av2 :: Nil, env))
-              case (Pure(fv), _, _)                 => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env)))
-              case (_, Pure(av1), Pure(av2))        => FlatMap(funC, fv => interp.callValue(fv, av1 :: av2 :: Nil, env))
-              case _                                => FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))))
+            funC match
+              case Pure(fv) =>
+                arg1C match
+                  case Pure(av1) =>
+                    arg2C match
+                      case Pure(av2) => interp.callValue(fv, av1 :: av2 :: Nil, env)
+                      case _         => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+                  case _ =>
+                    arg2C match
+                      case Pure(av2) => FlatMap(arg1C, av1 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+                      case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env)))
+              case _ =>
+                arg1C match
+                  case Pure(av1) if arg2C.isInstanceOf[Pure] =>
+                    FlatMap(funC, fv => interp.callValue(fv, av1 :: arg2C.asInstanceOf[Pure].value :: Nil, env))
+                  case _ =>
+                    FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))))
           else
             val argComps = allArgTerms.map(eval(_, env, interp))
             val argVsPos = extractPureValues(argComps)
@@ -721,11 +745,15 @@ private[interpreter] object EvalRuntime:
     case Term.Interpolate(Term.Name("s"), List(p0: Lit.String, p1: Lit.String, p2: Lit.String), List(a1: Term, a2: Term)) =>
       val pre = p0.value; val mid = p1.value; val suf = p2.value
       val c1 = eval(a1, env, interp); val c2 = eval(a2, env, interp)
-      (c1, c2) match
-        case (Pure(v1), Pure(v2)) => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))
-        case (Pure(v1), _)        => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
-        case (_, Pure(v2))        => FlatMap(c1, v1 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
-        case _                    => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))))
+      c1 match
+        case Pure(v1) =>
+          c2 match
+            case Pure(v2) => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))
+            case _        => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
+        case _ =>
+          c2 match
+            case Pure(v2) => FlatMap(c1, v1 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf)))
+            case _        => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.StringV(pre + Value.show(v1) + mid + Value.show(v2) + suf))))
 
     // String interpolation s"..." / f"..." / md"..." / html"..." / css"..."
     case Term.Interpolate(Term.Name(prefix), parts, args)
@@ -863,24 +891,41 @@ private[interpreter] object EvalRuntime:
     // Tuple  (a, b, ...)
     // Fast paths for 2- and 3-tuples avoid the intermediate List[Computation]
     // allocation that evalArgs creates for all-Pure cases.
+    // Nested match instead of (c1, c2) match to avoid Tuple2/Tuple3 allocation.
     case Term.Tuple(List(e1: Term, e2: Term)) =>
       val c1 = eval(e1, env, interp); val c2 = eval(e2, env, interp)
-      (c1, c2) match
-        case (Pure(v1), Pure(v2)) => Pure(Value.TupleV(v1 :: v2 :: Nil))
-        case (Pure(v1), _)        => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
-        case (_, Pure(v2))        => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
-        case _                    => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil))))
+      c1 match
+        case Pure(v1) =>
+          c2 match
+            case Pure(v2) => Pure(Value.TupleV(v1 :: v2 :: Nil))
+            case _        => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
+        case _ =>
+          c2 match
+            case Pure(v2) => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
+            case _        => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil))))
     case Term.Tuple(List(e1: Term, e2: Term, e3: Term)) =>
       val c1 = eval(e1, env, interp); val c2 = eval(e2, env, interp); val c3 = eval(e3, env, interp)
-      (c1, c2, c3) match
-        case (Pure(v1), Pure(v2), Pure(v3)) => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))
-        case (Pure(v1), Pure(v2), _)        => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
-        case (Pure(v1), _, Pure(v3))        => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
-        case (_, Pure(v2), Pure(v3))        => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
-        case (Pure(v1), _, _)               => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
-        case (_, Pure(v2), _)               => FlatMap(c1, v1 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
-        case (_, _, Pure(v3))               => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
-        case _                              => FlatMap(c1, v1 => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))))
+      c1 match
+        case Pure(v1) =>
+          c2 match
+            case Pure(v2) =>
+              c3 match
+                case Pure(v3) => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))
+                case _        => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+            case _ =>
+              c3 match
+                case Pure(v3) => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+                case _        => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+        case _ =>
+          c2 match
+            case Pure(v2) =>
+              c3 match
+                case Pure(v3) => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))
+                case _        => FlatMap(c1, v1 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+            case _ =>
+              c3 match
+                case Pure(v3) => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil))))
+                case _        => FlatMap(c1, v1 => FlatMap(c2, v2 => FlatMap(c3, v3 => Pure(Value.TupleV(v1 :: v2 :: v3 :: Nil)))))
     case Term.Tuple(elems) =>
       evalArgs(elems, env, interp)(vs => Pure(Value.TupleV(vs)))
 
