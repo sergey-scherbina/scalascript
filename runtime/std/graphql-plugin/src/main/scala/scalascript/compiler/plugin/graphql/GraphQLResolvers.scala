@@ -26,3 +26,11 @@ case class GraphQLResolvers(
   scalars:      Map[String, ScalarCodec]     = Map.empty,
   loaders:      Map[String, DataLoaderSpec]  = Map.empty,
 )
+
+/** Entity resolvers for Apollo Federation v2 subgraph support.
+ *
+ *  keys are GraphQL type names (e.g. "Product", "User");
+ *  values are resolver functions `representation: Map => Value`
+ *  where the representation map contains `__typename` plus the `@key` fields.
+ */
+case class GraphQLFederationEntities(entities: Map[String, Value])

@@ -212,6 +212,38 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
           })
         case _ => throw InterpretError("GraphQL.diffSchemas(sdlA: String, sdlB: String)")
     },
+
+    // GraphQL.entityResolvers(entities) — Apollo Federation v2 entity resolver map.
+    // entities: Map[typeName, representation => Value]
+    // The representation map contains __typename plus the @key fields.
+    QualifiedName("GraphQL.entityResolvers") -> PluginNative.evalLegacy { (_, args) =>
+      val entities = args.headOption match
+        case Some(Value.MapV(m)) =>
+          m.collect { case (Value.StringV(k), fn) => k -> fn }.toMap
+        case _ => Map.empty[String, Value]
+      Value.Foreign("GraphQLFederationEntities", GraphQLFederationEntities(entities))
+    },
+
+    // graphqlSubgraphMount(resolvers[, entityResolvers][, opts])
+    // Like graphqlMount but adds Apollo Federation v2 subgraph support:
+    // _service { sdl } and _entities resolvers, federation directive definitions.
+    QualifiedName("graphqlSubgraphMount") -> PluginNative.evalLegacy { (ctx, args) =>
+      val (res, entities, opts) = parseFederationArgs(args)
+      mountFederatedGraphQL(ctx, res, entities, opts)
+      Value.UnitV
+    },
+
+    // serveSubgraph(port, resolvers[, entityResolvers][, opts])
+    // Like serveGraphQL but adds Apollo Federation v2 subgraph support.
+    QualifiedName("serveSubgraph") -> PluginNative.evalLegacy { (ctx, args) =>
+      val port = args.headOption.collect { case Value.IntV(n) => n.toLong }.getOrElse(
+        throw InterpretError("serveSubgraph: first arg must be port: Int"))
+      val (res, entities, opts) = parseFederationArgs(args.tail)
+      mountFederatedGraphQL(ctx, res, entities, opts)
+      ctx.registerHealthDefaults()
+      ctx.startServer(port.toInt, ".")
+      Value.UnitV
+    },
   )
 
   // ── Internal helpers ───────────────────────────────────────────────────────
@@ -245,6 +277,95 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
       val wsH = wsHandlerValue(engine, ctx)
       ctx.registerWsRoute("/graphql/ws", Nil, List("graphql-transport-ws"), 0, 0, wsH)
 
+  // ── Apollo Federation v2 subgraph helpers ─────────────────────────────────
+
+  private val FED_SCALARS_AND_DIRECTIVES =
+    """
+      |scalar _Any
+      |scalar _FieldSet
+      |
+      |directive @key(fields: _FieldSet!, resolvable: Boolean) repeatable on OBJECT | INTERFACE
+      |directive @external on FIELD_DEFINITION | OBJECT
+      |directive @requires(fields: _FieldSet!) on FIELD_DEFINITION
+      |directive @provides(fields: _FieldSet!) on FIELD_DEFINITION
+      |directive @shareable repeatable on FIELD_DEFINITION | OBJECT
+      |directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+      |directive @override(from: String!) on FIELD_DEFINITION
+      |directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA
+      |
+      |type _Service {
+      |  sdl: String!
+      |}
+      |""".stripMargin
+
+  private def buildFederationSdl(userSdl: String, entityTypes: Set[String]): String =
+    val sb = new StringBuilder(FED_SCALARS_AND_DIRECTIVES)
+    sb.append(userSdl)
+    sb.append("\nextend type Query {\n  _service: _Service!\n}\n")
+    if entityTypes.nonEmpty then
+      val union = entityTypes.toList.sorted.mkString(" | ")
+      sb.append(s"\nunion _Entity = $union\n")
+      sb.append("extend type Query {\n  _entities(representations: [_Any!]!): [_Entity]!\n}\n")
+    sb.toString
+
+  private def parseFederationArgs(
+    args: List[Any]
+  ): (GraphQLResolvers, Map[String, Value], GraphQLOpts) =
+    val res = args.headOption.collect {
+      case Value.Foreign("GraphQLResolvers", r: GraphQLResolvers) => r
+    }.getOrElse(throw InterpretError("federation mount: first arg must be GraphQLResolvers"))
+    val remaining = args.tail
+    val (entities, optsArg) = remaining.headOption match
+      case Some(Value.Foreign("GraphQLFederationEntities", e: GraphQLFederationEntities)) =>
+        (e.entities, remaining.tail.headOption)
+      case other => (Map.empty[String, Value], other)
+    val opts = optsArg.collect {
+      case Value.Foreign("GraphQLOptions", o: GraphQLOpts) => o
+    }.getOrElse(GraphQLOpts.default)
+    (res, entities, opts)
+
+  private def mountFederatedGraphQL(
+    ctx:      PluginContext,
+    res:      GraphQLResolvers,
+    entities: Map[String, Value],
+    opts:     GraphQLOpts,
+  ): Unit =
+    val userSdl = runner.registeredSdl.getOrElse(
+      throw InterpretError("No graphql SDL registered — add a ```graphql block before graphqlSubgraphMount"))
+    val fedSdl  = buildFederationSdl(userSdl, entities.keySet)
+
+    // Inject _service and _entities into the query resolver map.
+    val serviceResolver: Value = Value.NativeFnV("graphql.fed._service", Computation.pureFn { _ =>
+      Value.MapV(Map(Value.StringV("sdl") -> Value.StringV(userSdl)))
+    })
+    val extraQuery: Map[String, Value] =
+      if entities.isEmpty then Map("_service" -> serviceResolver)
+      else
+        val entitiesResolver: Value = Value.NativeFnV("graphql.fed._entities", Computation.pureFn {
+          case List(Value.MapV(args)) =>
+            val reps = args.get(Value.StringV("representations")).collect {
+              case Value.ListV(items) => items
+            }.getOrElse(Nil)
+            Value.ListV(reps.map {
+              case rep @ Value.MapV(m) =>
+                val typeName = m.get(Value.StringV("__typename")).collect {
+                  case Value.StringV(s) => s
+                }.getOrElse("")
+                entities.get(typeName).map { fn =>
+                  ctx.invokeCallback(fn, List(rep)).asInstanceOf[Value]
+                }.getOrElse(Value.NullV)
+              case _ => Value.NullV
+            })
+          case _ => Value.ListV(Nil)
+        })
+        Map("_service" -> serviceResolver, "_entities" -> entitiesResolver)
+
+    val enhancedRes = res.copy(query = res.query ++ extraQuery)
+    val engine = buildEngine(fedSdl, enhancedRes, ctx, opts, entities.keySet, federationMode = true)
+    val h = handlerValue(engine, opts, res.loaders, ctx)
+    ctx.registerRoute("POST", "/graphql", h)
+    ctx.registerRoute("GET",  "/graphql", h)
+
   // Parse a resolver key into (typeName, fieldName).
   // Plain keys ("hello") use the provided defaultType.
   // Schema coordinate keys ("Query.user", "User.posts") supply the type explicitly.
@@ -252,9 +373,28 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
     val dot = key.indexOf('.')
     if dot < 0 then (defaultType, key) else (key.substring(0, dot), key.substring(dot + 1))
 
-  private def buildEngine(sdl: String, res: GraphQLResolvers, ctx: PluginContext, opts: GraphQLOpts): graphql.GraphQL =
+  private val FED_SCALAR_COERCING: Coercing[Any, Any] = new Coercing[Any, Any]:
+    override def serialize(o: Any)    = o
+    override def parseValue(o: Any)   = o
+    override def parseLiteral(o: Any) = o.toString
+
+  private def buildEngine(
+    sdl:             String,
+    res:             GraphQLResolvers,
+    ctx:             PluginContext,
+    opts:            GraphQLOpts,
+    entityTypeNames: Set[String] = Set.empty,
+    federationMode:  Boolean     = false,
+  ): graphql.GraphQL =
     val typeReg = new SchemaParser().parse(sdl)
     val wiring  = RuntimeWiring.newRuntimeWiring()
+
+    // Federation v2 requires passthrough coercings for _Any and _FieldSet scalars.
+    // Without them, graphql-java throws a NPE when validating @key directive arguments.
+    if federationMode then
+      for name <- List("_Any", "_FieldSet") do
+        val st = GraphQLScalarType.newScalar().name(name).coercing(FED_SCALAR_COERCING).build()
+        wiring.scalar(st)
 
     // Register custom scalars before building type wiring.
     res.scalars.foreach { (name, codec) =>
@@ -336,6 +476,20 @@ class GraphQLIntrinsics(runner: GraphQLJvmBlockRunner):
         )
       }
       wiring.`type`(subTw)
+
+    // Federation v2: register _Entity union TypeResolver so graphql-java can resolve
+    // entity objects by __typename field in the returned Java Map.
+    if entityTypeNames.nonEmpty then
+      wiring.`type`(TypeRuntimeWiring.newTypeWiring("_Entity")
+        .typeResolver { env =>
+          val obj = env.getObject.asInstanceOf[Any]
+          if obj.isInstanceOf[java.util.Map[?, ?]] then
+            val m        = obj.asInstanceOf[java.util.Map[?, ?]]
+            val typeName = Option(m.get("__typename")).map(_.toString).getOrElse("")
+            env.getSchema.getObjectType(typeName)
+          else null
+        }
+      )
 
     val schema  = new SchemaGenerator().makeExecutableSchema(typeReg, wiring.build())
     val builder = GraphQL.newGraphQL(schema)
