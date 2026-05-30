@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — interpreter-server test overlap cleanup
+
+- **fix/interpreter-server-test-overlap** — Removed the duplicate
+  `HttpClientTest` copy from `backendInterpreterServer` now that HTTP plugin
+  coverage lives in `backendInterpreterPluginTests`, and made the active
+  toolkit-demo validation run in headless emit-only mode so it does not bind
+  or hang on port 8080.
+
 ## 2026-05-30 — ignored interpreter tests restored
 
 - **fix/ignored-interpreter-tests** — Re-enabled the coordinator conformance
