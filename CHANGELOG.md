@@ -28,7 +28,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   Actor system messages and interpreter HTTP response helpers now use direct
   small immutable map constructors for fixed-shape values. User interpolator
   and `summon` / `summonInline` lookups now use null-sentinel direct lookup on
-  the common path.
+  the common path. Ordinary user instance dispatch now skips plugin-bridge
+  fallback checks, and single-argument extension dispatch uses the direct
+  two-argument call helper.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
