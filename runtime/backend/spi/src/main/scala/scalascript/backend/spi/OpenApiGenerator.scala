@@ -35,6 +35,9 @@ object OpenApiGenerator:
     case class  RefNode(name: String)                                                extends SchemaNode
     case class  NullableNode(inner: SchemaNode)                                      extends SchemaNode
     case class  OneOfNode(options: List[SchemaNode])                                 extends SchemaNode
+    /** A string enum (`{"type":"string","enum":[...]}`), e.g. a ScalaScript enum
+     *  whose cases are all parameterless. */
+    case class  EnumNode(values: List[String])                                       extends SchemaNode
 
     /** Derive a [[SchemaNode]] from a ScalaScript / Scala type-name string.
      *
@@ -374,6 +377,8 @@ object OpenApiGenerator:
       sb.append("}").toString
     case SchemaNode.OneOfNode(options)  =>
       "{\"oneOf\":[" + options.map(schemaNodeToJson).mkString(",") + "]}"
+    case SchemaNode.EnumNode(values)    =>
+      "{\"type\":\"string\",\"enum\":[" + values.map(jsonStr).mkString(",") + "]}"
 
   // ── Utility ──────────────────────────────────────────────────────────────────
 
@@ -546,6 +551,10 @@ object OpenApiGenerator:
           sb.append(s"${indent}  - ")
           appendYamlSchemaNode(sb, "", opt)
         }
+      case SchemaNode.EnumNode(values) =>
+        sb.append(s"${indent}type: string\n")
+        sb.append(s"${indent}enum:\n")
+        values.foreach(v => sb.append(s"${indent}  - ${yamlStr(v)}\n"))
 
   private def appendYamlResponseFromNode(sb: StringBuilder, node: SchemaNode): Unit =
     sb.append("      responses:\n")

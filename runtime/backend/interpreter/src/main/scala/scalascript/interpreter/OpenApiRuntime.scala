@@ -33,7 +33,7 @@ object OpenApiRuntime:
       "_openapi.json",
       Computation.pureFn { _ =>
         val json = generateOpenApiJson(registry, openApiSecuritySchemes(interp), OpenApiOptions(),
-                                      Map.empty, openApiSchemaComponents(interp))
+                                      Map.empty, deriveSchemaComponents(interp))
         jsonResponse(json)
       }
     )
@@ -96,6 +96,80 @@ object OpenApiRuntime:
         m.collect { case (k: String, v: SchemaNode) => k -> v }.toMap[String, SchemaNode]
       }
       .getOrElse(Map.empty[String, SchemaNode])
+
+  /** Phase 6 — auto-derive `components.schemas` from program type declarations.
+   *
+   *  Seeds from the type names referenced by registered routes (handler param
+   *  types) and by manually-registered schemas, then walks the interpreter's
+   *  type-declaration maps to build a [[SchemaNode]] for each, following nested
+   *  `$ref`s to a fixpoint.  Manually-registered schemas (via
+   *  `openApiRegisterSchema`) take precedence over derived ones.
+   *
+   *   - case class           → `ObjNode` (fields as properties; non-Option,
+   *                            no-default fields are `required`)
+   *   - enum, all cases bare → `EnumNode` (string enum of case names)
+   *   - sealed parent / enum
+   *     with payload cases    → `OneOfNode` of `RefNode` per case
+   */
+  def deriveSchemaComponents(interp: Interpreter): Map[String, SchemaNode] =
+    val manual = openApiSchemaComponents(interp)
+
+    val seeds = scala.collection.mutable.LinkedHashSet.empty[String]
+    interp.routeRegistry.all.foreach { entry =>
+      val pathParams = OpenApiGenerator.extractPathParams(entry.path)
+      val (queryParams, bodyParams) = extractHandlerParams(entry.handler, pathParams, entry.method)
+      (queryParams ++ bodyParams).foreach { case (_, t) =>
+        collectNodeRefs(SchemaNode.fromTypeName(t), seeds)
+      }
+    }
+    manual.values.foreach(collectNodeRefs(_, seeds))
+
+    val derived = scala.collection.mutable.Map.empty[String, SchemaNode]
+    val queue   = scala.collection.mutable.Queue.from(seeds)
+    while queue.nonEmpty do
+      val name = queue.dequeue()
+      if !derived.contains(name) && !manual.contains(name) then
+        deriveType(name, interp).foreach { node =>
+          derived(name) = node
+          val refs = scala.collection.mutable.LinkedHashSet.empty[String]
+          collectNodeRefs(node, refs)
+          refs.foreach(queue.enqueue)
+        }
+
+    derived.toMap ++ manual
+
+  /** Collect every component name referenced by a [[SchemaNode]] (recursively). */
+  private def collectNodeRefs(node: SchemaNode, acc: scala.collection.mutable.Set[String]): Unit =
+    node match
+      case SchemaNode.RefNode(name)       => acc += name
+      case SchemaNode.NullableNode(inner) => collectNodeRefs(inner, acc)
+      case SchemaNode.ArrNode(items)      => collectNodeRefs(items, acc)
+      case SchemaNode.OneOfNode(options)  => options.foreach(collectNodeRefs(_, acc))
+      case SchemaNode.ObjNode(props, _)   => props.values.foreach(collectNodeRefs(_, acc))
+      case _                              => ()
+
+  /** Derive a single named type from the interpreter's type-declaration maps.
+   *  Returns `None` for unknown types (the `$ref` is then left dangling, as
+   *  before this phase). */
+  private def deriveType(name: String, interp: Interpreter): Option[SchemaNode] =
+    val children = interp.parentTypes.collect { case (c, p) if p == name => c }.toList.sorted
+    if children.nonEmpty then
+      val payloadCases = children.filter(interp.typeFieldOrder.contains)
+      if payloadCases.isEmpty then Some(SchemaNode.EnumNode(children))
+      else Some(SchemaNode.OneOfNode(children.map(SchemaNode.RefNode(_))))
+    else interp.typeFieldOrder.get(name).map { fields =>
+      val fieldTypes = interp.typeFieldTypes.getOrElse(name, fields.map(_ => ""))
+      val schemas    = interp.typeFieldSchemas.getOrElse(name, Nil)
+      val props = fields.zip(fieldTypes.padTo(fields.length, "")).map {
+        case (f, t) => f -> SchemaNode.fromTypeName(t)
+      }.toMap
+      val required = fields.zip(fieldTypes.padTo(fields.length, "")).collect {
+        case (f, t)
+          if !t.trim.startsWith("Option[")
+          && schemas.find(_.fieldName == f).flatMap(_.default).isEmpty => f
+      }
+      SchemaNode.ObjNode(props, required)
+    }
 
   private def openApiRoutes(
       registry:      RouteRegistry,

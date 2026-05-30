@@ -253,3 +253,81 @@ class OpenApiRuntimeTest extends AnyFunSuite with Matchers with BeforeAndAfterEa
     yaml should include ("components:")
     yaml should include ("schemas:")
     yaml should include ("Product:")
+
+  // ── Phase 6: schema auto-derivation ───────────────────────────────────
+
+  test("deriveSchemaComponents builds ObjNode from a case class referenced by a route"):
+    interp.typeFieldOrder("User") = List("id", "name")
+    interp.typeFieldTypes("User") = List("Int", "String")
+    reg.register("POST", "/users", funHandler(List("user"), List("User")), interp)
+    val schemas = OpenApiRuntime.deriveSchemaComponents(interp)
+    schemas("User") shouldBe SchemaNode.ObjNode(
+      props    = Map("id" -> SchemaNode.IntNode, "name" -> SchemaNode.StrNode),
+      required = List("id", "name")
+    )
+
+  test("Option fields are nullable and not required"):
+    interp.typeFieldOrder("Account") = List("id", "nickname")
+    interp.typeFieldTypes("Account") = List("Int", "Option[String]")
+    reg.register("POST", "/accounts", funHandler(List("a"), List("Account")), interp)
+    val obj = OpenApiRuntime.deriveSchemaComponents(interp)("Account").asInstanceOf[SchemaNode.ObjNode]
+    obj.required shouldBe List("id")
+    obj.props("nickname") shouldBe SchemaNode.NullableNode(SchemaNode.StrNode)
+
+  test("nested type references are derived recursively"):
+    interp.typeFieldOrder("Order") = List("id", "customer")
+    interp.typeFieldTypes("Order") = List("Int", "Customer")
+    interp.typeFieldOrder("Customer") = List("email")
+    interp.typeFieldTypes("Customer") = List("String")
+    reg.register("POST", "/orders", funHandler(List("o"), List("Order")), interp)
+    val schemas = OpenApiRuntime.deriveSchemaComponents(interp)
+    schemas.keySet should contain allOf ("Order", "Customer")
+    schemas("Order").asInstanceOf[SchemaNode.ObjNode].props("customer") shouldBe SchemaNode.RefNode("Customer")
+
+  test("an enum with only parameterless cases derives a string EnumNode"):
+    interp.parentTypes("Red")   = "Color"
+    interp.parentTypes("Green") = "Color"
+    interp.parentTypes("Blue")  = "Color"
+    interp.typeFieldOrder("Paint") = List("color")
+    interp.typeFieldTypes("Paint") = List("Color")
+    reg.register("POST", "/paint", funHandler(List("p"), List("Paint")), interp)
+    OpenApiRuntime.deriveSchemaComponents(interp)("Color") shouldBe
+      SchemaNode.EnumNode(List("Blue", "Green", "Red"))
+
+  test("a sum type with payload cases derives a OneOfNode of refs"):
+    interp.parentTypes("Circle") = "Shape"
+    interp.parentTypes("Square") = "Shape"
+    interp.typeFieldOrder("Circle") = List("radius")
+    interp.typeFieldTypes("Circle") = List("Double")
+    interp.typeFieldOrder("Square") = List("side")
+    interp.typeFieldTypes("Square") = List("Double")
+    interp.typeFieldOrder("Drawing") = List("shape")
+    interp.typeFieldTypes("Drawing") = List("Shape")
+    reg.register("POST", "/draw", funHandler(List("d"), List("Drawing")), interp)
+    val schemas = OpenApiRuntime.deriveSchemaComponents(interp)
+    schemas("Shape") shouldBe SchemaNode.OneOfNode(
+      List(SchemaNode.RefNode("Circle"), SchemaNode.RefNode("Square"))
+    )
+    schemas("Circle").asInstanceOf[SchemaNode.ObjNode].props("radius") shouldBe SchemaNode.NumNode
+
+  test("manually-registered schema takes precedence over a derived one"):
+    interp.typeFieldOrder("User") = List("id")
+    interp.typeFieldTypes("User") = List("Int")
+    val manual = SchemaNode.ObjNode(props = Map("custom" -> SchemaNode.StrNode))
+    interp.nativeFeatureSet(
+      scalascript.backend.spi.NativeContextFeatureKeys.OpenApiSchemaComponents,
+      Map("User" -> manual)
+    )
+    reg.register("POST", "/users", funHandler(List("user"), List("User")), interp)
+    OpenApiRuntime.deriveSchemaComponents(interp)("User") shouldBe manual
+
+  test("derived schemas surface in the live /_openapi.json document"):
+    interp.typeFieldOrder("User") = List("id", "name")
+    interp.typeFieldTypes("User") = List("Int", "String")
+    reg.register("POST", "/users", funHandler(List("user"), List("User")), interp)
+    OpenApiRuntime.registerOpenApiDefaults(interp)
+    val handler = reg.all.find(e => e.method == "GET" && e.path == "/_openapi.json").get.handler
+    val resp = Computation.run(interp.callValue(handler, List(Value.UnitV), Map.empty))
+    val body = resp.asInstanceOf[Value.InstanceV].fields("body").asInstanceOf[Value.StringV].v
+    val json = parseJson(body)
+    json("components")("schemas")("User")("properties")("name")("type").str shouldBe "string"

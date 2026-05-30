@@ -211,6 +211,7 @@ private[interpreter] object StatRuntime:
             bindNullaryCase(caseName)
           else
             interp.typeFieldOrder(caseName) = paramNames
+            interp.typeFieldTypes(caseName) = ecParams.map(p => p.decltpe.fold("String")(interp.typeToString))
             interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
             if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
             interp.parentTypes(caseName) = enumName

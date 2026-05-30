@@ -178,3 +178,14 @@ class OpenApiGeneratorTest extends AnyFunSuite with Matchers:
     yaml should include ("components:")
     yaml should include ("schemas:")
     yaml should include ("Tag:")
+
+  test("EnumNode renders as a string enum in JSON"):
+    OpenApiGenerator.schemaNodeToJson(SchemaNode.EnumNode(List("Red", "Green", "Blue"))) shouldBe
+      "{\"type\":\"string\",\"enum\":[\"Red\",\"Green\",\"Blue\"]}"
+
+  test("EnumNode renders as a string enum in YAML"):
+    val schemas = Map("Color" -> SchemaNode.EnumNode(List("Red", "Green")))
+    val yaml = OpenApiGenerator.generateYaml(List(OpenApiRoute("GET", "/c")), schemaComponents = schemas)
+    yaml should include ("type: string")
+    yaml should include ("enum:")
+    yaml should include ("- Red")
