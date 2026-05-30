@@ -16,6 +16,38 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
       Spec: [`docs/std-root-resolution.md`](docs/std-root-resolution.md).
       ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` (override → libPath →
       jar-dir/std → dev walk-up → `~/.scalascript/std`), 8 unit tests.
+- [x] **quality-roadmap-and-jmh-ignore** - Added the quality/contract/type-system
+      follow-up queue and ignored generated JMH per-benchmark output directories
+      (`runtime/backend/interpreter-bench/scalascript.bench.*/`,
+      `lang/core-bench/scalascript.bench.*/`) so local benchmark runs do not
+      leave shared `main` visibly dirty. ✓ Landed 2026-05-30.
+
+## Quality / Contracts / Type System
+
+These items come from the 2026-05-30 project-state review. They are intentionally
+ordered to reduce risk: spec and hygiene first, broad implementation only after
+the contracts are explicit.
+
+- [ ] **contract-validation-spec** - Spec first. Define a shared contract
+      validation model for OpenAPI and GraphQL drift checks: route/resolver
+      signature ↔ schema compatibility, request and response bodies, typed
+      errors/status codes, visibility/profile filtering, imported/overlayed
+      contracts, CLI commands, CI/test strategy, and how warnings vs hard
+      failures are configured.
+- [ ] **typer-real-types-roadmap-spec** - Spec first. Plan the next type-system
+      tightening pass that reduces `Any` in exported symbols/IR and carries real
+      types through case classes, enums, method return types, generic calls,
+      typed routes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin
+      metadata.
+- [ ] **perf-regression-guard** - Add a lightweight performance regression
+      workflow: benchmark manifest, baseline policy, ignored/generated artifact
+      rules, short opt-in `ssc bench`/JMH smoke command, and documentation for
+      informational vs CI-blocking runs.
+- [ ] **cli-main-helper-split-p2** - Continue behavior-preserving extraction from
+      `tools/cli/.../Main.scala` after the command/repl split. Target cohesive
+      helper clusters first: build/compile pipeline helpers, synthetic request /
+      render helpers, artifact IO, and install/stage helpers. Keep command
+      behavior and `CliCommand` registry contracts unchanged.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 

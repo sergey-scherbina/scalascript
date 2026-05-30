@@ -48,6 +48,10 @@ build/
 project/target/
 project/project/
 
+# JMH profiler / per-benchmark output directories
+runtime/backend/interpreter-bench/scalascript.bench.*/
+lang/core-bench/scalascript.bench.*/
+
 # Node (for JS backend tooling)
 node_modules/
 npm-debug.log

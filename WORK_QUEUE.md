@@ -12,6 +12,14 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 - [x] **enum-value-support** — Scala 3 `enum` cases usable as values (bare + qualified refs, matching, `EnumName.values`) across all backends. Spec `docs/enum-values.md`. ✓ Landed 2026-05-30: fixed `Defn.RepeatedEnumCase` (comma-separated `case A, B`) being dropped in `StatRuntime` (interpreter) and `JsGen` (JS), and JS now emits an `EnumName` companion with `values`; JVM already native. 11 tests (interpreter forms + interpreter/JVM/JS cross-backend conformance); suite green (1167).
 - [x] **std-root-resolution** — well-known std root so external projects (e.g. `busi`) resolve bare `std/…` imports with zero config. Spec `docs/std-root-resolution.md`. ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` discovery chain — `ssc.std.path` / `SSC_STD_PATH` override → `libPath` → `<jarDir>/std` → dev walk-up for ancestor `runtime/std` → `~/.scalascript/std`; pure & unit-tested (8 tests, precedence + missing-candidate + filesystem-root guard). Unblocks busi's `import std/money.ssc` (dev jar finds `<repo>/runtime/std` automatically).
+- [x] **quality-roadmap-and-jmh-ignore** — Add the next quality roadmap tasks to this queue/backlog and ignore generated JMH per-benchmark output directories so shared `main` does not look dirty after local benchmark runs. ✓ Landed 2026-05-30.
+
+## Quality / Contracts / Type System
+
+- [ ] **contract-validation-spec** — Spec first: define a shared contract-validation model for OpenAPI + GraphQL drift checks. Cover route/resolver signature ↔ schema compatibility, request/response body validation, typed errors/status codes, profile filtering, imported/overlayed contracts, CLI commands, and CI/test strategy. Implementation follows after the spec lands.
+- [ ] **typer-real-types-roadmap-spec** — Spec first: plan the next tightening pass that reduces `Any` in exported symbols/IR and carries real types through case classes, enums, method return types, generic calls, typed routes, OpenAPI/GraphQL schemas, Dataset/Spark mapping, and plugin metadata.
+- [ ] **perf-regression-guard** — Add a lightweight performance regression workflow: checked-in benchmark manifest/baseline policy, ignored generated artifacts, short opt-in `ssc bench`/JMH smoke command, and docs for when results are informational vs CI-blocking.
+- [ ] **cli-main-helper-split-p2** — Continue behavior-preserving CLI helper extraction after the command/repl split. Target cohesive `Main.scala` clusters first: build/compile pipeline helpers, synthetic-request/render helpers, artifact IO, and install/stage helpers. Keep command behavior and registry contracts unchanged.
 
 ## Exact Numerics — v1.64
 

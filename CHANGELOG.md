@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — quality roadmap queued and JMH output ignored
+
+- **quality-roadmap-and-jmh-ignore** — Added a new Quality / Contracts / Type
+  System queue/backlog section for contract validation, real-type propagation,
+  performance regression guarding, and the next CLI helper split. Ignored JMH
+  per-benchmark output directories so local benchmark runs do not leave shared
+  `main` visibly dirty.
+
 ## 2026-05-30 — interpreter FrameMap and Option hot-path follow-up
 
 - **perf/interpreter-framemap-option-hotpaths** — Ported two more safe slices
