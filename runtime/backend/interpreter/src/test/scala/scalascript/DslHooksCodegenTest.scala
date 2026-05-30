@@ -30,6 +30,9 @@ class DslHooksCodegenTest extends AnyFunSuite with Matchers with BeforeAndAfterA
   override def beforeAll(): Unit =
     InterpolatorRegistry.register(SqlInterpolator)
 
+  override def afterAll(): Unit =
+    InterpolatorRegistry.unregister(SqlInterpolator.name)
+
   private def module(code: String) =
     Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
 

@@ -680,7 +680,7 @@ lazy val compilerBench = project
 // compile as a separate module behind InterpreterServerSupport.
 lazy val backendInterpreterServer = project
   .in(file("runtime/backend/interpreter-server"))
-  .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test)
+  .dependsOn(backendInterpreter, httpPlugin % Test, wsPlugin % Test, frontendPlugin % Test, sqlPlugin % Test, frontendReact % Test, fetchPlugin % Test)
   .settings(
     name := "scalascript-backend-interpreter-server",
     libraryDependencies ++= Seq(scalatestTest),

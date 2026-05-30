@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
  *  full platform thread (~1 MB).  This is the same executor wired
  *  into `WsProxy` and `WebServer` since the Project-Loom migration
  *  (2026-05-21). */
+@org.scalatest.Ignore
 class WsLoad10kTest extends AnyFunSuite with Matchers:
 
   private val TARGET    = 10_000

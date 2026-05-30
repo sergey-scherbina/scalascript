@@ -19,6 +19,7 @@ object InterpolatorRegistry:
   private val registry = TrieMap.empty[String, InterpolatorImpl]
 
   def register(impl: InterpolatorImpl): Unit = registry(impl.name) = impl
+  def unregister(name: String): Unit = registry.remove(name)
   def lookup(name: String): Option[InterpolatorImpl] = registry.get(name)
   def all: Iterable[InterpolatorImpl] = registry.values
 
