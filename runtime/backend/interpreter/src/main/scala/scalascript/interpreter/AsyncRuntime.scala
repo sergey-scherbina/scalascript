@@ -133,8 +133,8 @@ private[interpreter] object AsyncRuntime:
       case _ => throw InterpretError("Async.async(thunk)")
     case "await" => args match
       case List(Value.InstanceV("Future", fields)) =>
-        fields.get("_parId") match
-          case Some(Value.IntV(fid)) =>
+        fields.getOrElse("_parId", null) match
+          case Value.IntV(fid) =>
             val fut = interp.parallelFutures.remove(fid)
             if fut == null then throw InterpretError("Async.await: stale Future")
             resume(fut.get())

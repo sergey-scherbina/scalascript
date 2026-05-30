@@ -45,6 +45,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   returning it to the scheduler.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
+  ActorGroup state operations, `Async.await`, and optic composition helpers now
+  avoid short-lived `Option` chains in their hot field lookup paths.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
