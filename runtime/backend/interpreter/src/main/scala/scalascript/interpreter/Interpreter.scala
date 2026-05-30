@@ -29,7 +29,8 @@ private[interpreter] enum DirectMonadTag:
 private[interpreter] case class TcoInfo(
   tailTargets:   Set[String],
   isSelfTailRec: Boolean,
-  noNonTailSelf: Boolean
+  noNonTailSelf: Boolean,
+  hasSelfNameRef: Boolean
 )
 
 private[interpreter] case class RestartableHandle(

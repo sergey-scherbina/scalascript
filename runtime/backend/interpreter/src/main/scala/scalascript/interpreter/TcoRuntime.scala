@@ -11,7 +11,7 @@ import Computation.{Pure, FlatMap, Perform}
 private[interpreter] object TcoRuntime:
 
   // Singleton returned for every unnamed lambda — avoids allocation + cache pollution.
-  private val noTcoInfo = TcoInfo(Set.empty, isSelfTailRec = false, noNonTailSelf = false)
+  private val noTcoInfo = TcoInfo(Set.empty, isSelfTailRec = false, noNonTailSelf = false, hasSelfNameRef = false)
 
   def tcoInfoFor(f: Value.FunV, interp: Interpreter): TcoInfo =
     if f.name.isEmpty then noTcoInfo
@@ -22,7 +22,8 @@ private[interpreter] object TcoRuntime:
         val targets = tailCallTargets(f.body, f.name, tailPos = true)
         val selfTR  = callsInTailPos(f.body, f.name)
         val noNTS   = !hasNonTailSelfCall(f.body, f.name, tailPos = true)
-        val info    = TcoInfo(targets, selfTR, noNTS)
+        val selfRef = containsSelfNameRef(f.body, f.name)
+        val info    = TcoInfo(targets, selfTR, noNTS, selfRef)
         interp.tcoCache.put(f.body, info)
         info
 
@@ -218,3 +219,8 @@ private[interpreter] object TcoRuntime:
     tree match
       case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
       case t => t.children.exists(anywhereContainsSelfCall(_, fname))
+
+  private def containsSelfNameRef(tree: Tree, fname: String): Boolean =
+    tree match
+      case Term.Name(`fname`) => true
+      case t                  => t.children.exists(containsSelfNameRef(_, fname))

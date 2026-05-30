@@ -30,7 +30,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   and `summon` / `summonInline` lookups now use null-sentinel direct lookup on
   the common path. Ordinary user instance dispatch now skips plugin-bridge
   fallback checks, and single-argument extension dispatch uses the direct
-  two-argument call helper.
+  two-argument call helper. Type-method calls now avoid allocating a self-ref
+  native function when the method body never references its own name.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
