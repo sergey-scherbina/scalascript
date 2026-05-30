@@ -55,6 +55,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   direct global lookups.
   Cluster seed resolution and Source / RemoteSource / ReactiveSignal bridge
   dispatch now use direct global or field lookup paths.
+  Typed row projection now avoids temporary `Option`/sequence allocations while
+  mapping SQL result maps into case-class-shaped values.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

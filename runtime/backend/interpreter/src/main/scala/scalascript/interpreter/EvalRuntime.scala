@@ -1162,33 +1162,35 @@ private[interpreter] object EvalRuntime:
 
   private def projectTypedRow(typeName: String, row: Value, interp: Interpreter): Value = row match
     case Value.MapV(entries) =>
-      val fields = interp.typeFieldOrder.get(typeName) match
-        case Some(order) =>
-          val schemas = interp.typeFieldSchemas.getOrElse(typeName,
-            order.map(name => TypeFieldSchema(name, name, Nil, None, key = false)))
-          if interp.rejectUnknownTypes.contains(typeName) then
-            val known = schemas.iterator.flatMap(_.storageNames).map(_.toLowerCase(java.util.Locale.ROOT)).toSet
-            entries.keys.collectFirst {
-              case Value.StringV(k) if !known.contains(k.toLowerCase(java.util.Locale.ROOT)) => k
-            }.foreach(name => throw InterpretError(s"$$.$name: unknown column '$name'"))
-          schemas.map { schema =>
-            schema.fieldName -> lookupRowField(entries, schema)
-          }.toMap
-        case None =>
-          entries.collect { case (Value.StringV(k), v) => k -> v }
+      val order = interp.typeFieldOrder.getOrElse(typeName, null)
+      val fields = if order != null then
+        val schemas = interp.typeFieldSchemas.getOrElse(typeName,
+          order.map(name => TypeFieldSchema(name, name, Nil, None, key = false)))
+        if interp.rejectUnknownTypes.contains(typeName) then
+          val known = schemas.iterator.flatMap(_.storageNames).map(_.toLowerCase(java.util.Locale.ROOT)).toSet
+          entries.keys.collectFirst {
+            case Value.StringV(k) if !known.contains(k.toLowerCase(java.util.Locale.ROOT)) => k
+          }.foreach(name => throw InterpretError(s"$$.$name: unknown column '$name'"))
+        schemas.map { schema =>
+          schema.fieldName -> lookupRowField(entries, schema)
+        }.toMap
+      else
+        entries.collect { case (Value.StringV(k), v) => k -> v }
       Value.InstanceV(typeName, fields)
     case other => other
 
   private def lookupRowField(entries: Map[Value, Value], schema: TypeFieldSchema): Value =
-    schema.storageNames.iterator
-      .flatMap(name =>
-        entries.get(Value.StringV(name))
-          .orElse(entries.collectFirst { case (Value.StringV(k), v) if k.equalsIgnoreCase(name) => v })
-      )
-      .toSeq
-      .headOption
-      .orElse(schema.default)
-      .getOrElse(Value.NullV)
+    val snIt = schema.storageNames.iterator
+    while snIt.hasNext do
+      val name = snIt.next()
+      val exact = entries.getOrElse(Value.StringV(name), null)
+      if exact != null then return exact
+      val entIt = entries.iterator
+      while entIt.hasNext do
+        entIt.next() match
+          case (Value.StringV(k), v) if k.equalsIgnoreCase(name) => return v
+          case _ =>
+    schema.default.getOrElse(Value.NullV)
 
   private def restoreHttpClientState(
       interp: Interpreter,
