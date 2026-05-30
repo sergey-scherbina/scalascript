@@ -14,6 +14,7 @@ semantics.
 **Companions:**
 - [`docs/future-protocols.md §3`](future-protocols.md)
 - [`docs/openapi.md`](openapi.md)
+- [`docs/contract-validation.md`](contract-validation.md)
 - Future AsyncAPI/realtime transport spec for WebSocket/SSE event streams
 
 ---
@@ -605,6 +606,10 @@ Diff behavior:
 
 Contract tests should execute declared operations against local handlers using
 fixtures before requiring a real network server.
+
+The shared OpenAPI/GraphQL validation command model, diagnostic format, profile
+rules, overlays/import checks, and compatibility policy are specified in
+[`docs/contract-validation.md`](contract-validation.md).
 
 ---
 

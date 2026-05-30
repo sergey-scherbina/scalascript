@@ -15,6 +15,7 @@ compatibility target for now, while planning selectable 3.2 output.
 **Companions:**
 - [`docs/future-protocols.md §4`](future-protocols.md)
 - [`docs/graphql.md`](graphql.md)
+- [`docs/contract-validation.md`](contract-validation.md)
 - Future AsyncAPI spec for WebSocket/SSE routes
 
 ---
@@ -535,7 +536,8 @@ internal filtering, and leak checks.
 ### Phase 9 — Validation and compatibility diff
 
 Add `check-openapi`, `emit-openapi --validate`, and `diff-openapi` with
-breaking/non-breaking classification.
+breaking/non-breaking classification. The shared diagnostic and policy model is
+specified in [`docs/contract-validation.md`](contract-validation.md).
 
 ### Phase 10 — `import-openapi`
 

@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — contract validation platform specified
+
+- **contract-validation-spec** — Added
+  [`docs/contract-validation.md`](docs/contract-validation.md), defining the
+  planned shared OpenAPI/GraphQL validation model: route/resolver source checks,
+  type-shape compatibility, diagnostics, profile leak checks, overlays/imports,
+  CLI commands, compatibility diffs, baselines, contract tests, and rollout
+  phases. README, docs index, OpenAPI/GraphQL specs, user guide, queue, and
+  backlog now mark it as planned and not implemented yet.
+
 ## 2026-05-30 — quality roadmap queued and JMH output ignored
 
 - **quality-roadmap-and-jmh-ignore** — Added a new Quality / Contracts / Type

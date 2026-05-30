@@ -841,6 +841,12 @@ ssc emit-openapi api.ssc --title "Users API" --version 2.0.0 --server https://ap
 `route(...)` registrations, `@openapi(...)` metadata, and `openApiSecurity(...)`
 declarations have been collected.
 
+Planned, not implemented yet: a shared contract-validation command family will
+check OpenAPI and GraphQL contracts against ScalaScript route/resolver source,
+typed request/response shapes, status/error metadata, profiles, and overlays.
+See [`docs/contract-validation.md`](contract-validation.md) for the planned
+model.
+
 Per-route operation metadata can be attached to the next `route(...)` call with
 `@openapi(...)`:
 

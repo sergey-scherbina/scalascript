@@ -28,12 +28,15 @@ These items come from the 2026-05-30 project-state review. They are intentionall
 ordered to reduce risk: spec and hygiene first, broad implementation only after
 the contracts are explicit.
 
-- [ ] **contract-validation-spec** - Spec first. Define a shared contract
+- [x] **contract-validation-spec** - Spec first. Define a shared contract
       validation model for OpenAPI and GraphQL drift checks: route/resolver
       signature ↔ schema compatibility, request and response bodies, typed
       errors/status codes, visibility/profile filtering, imported/overlayed
       contracts, CLI commands, CI/test strategy, and how warnings vs hard
-      failures are configured.
+      failures are configured. ✓ Landed 2026-05-30: added
+      [`docs/contract-validation.md`](docs/contract-validation.md) with shared
+      IR, diagnostics, protocol-specific checks, profiles/overlays/imports,
+      planned CLI, baseline policy, phases, tests, and open questions.
 - [ ] **typer-real-types-roadmap-spec** - Spec first. Plan the next type-system
       tightening pass that reduces `Any` in exported symbols/IR and carries real
       types through case classes, enums, method return types, generic calls,

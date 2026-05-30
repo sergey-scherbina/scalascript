@@ -118,6 +118,7 @@ document by topic.
 
 - [openapi.md](openapi.md) — OpenAPI contract platform
 - [graphql.md](graphql.md) — GraphQL contract platform
+- [contract-validation.md](contract-validation.md) — Shared OpenAPI/GraphQL contract validation plan
 - [oauth.md](oauth.md) — OAuth 2.1 + OIDC
 - [mcp.md](mcp.md) — Model Context Protocol support
 - [future-protocols.md](future-protocols.md) — Future web-services protocols
