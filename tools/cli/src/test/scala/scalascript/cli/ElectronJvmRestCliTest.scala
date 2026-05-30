@@ -157,7 +157,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runElectronJvmRestDevHook = (path, backend) => calls += ((path, backend))
-      runCommand(List(app.toString))
+      CommandRegistry.dispatch("run", List(app.toString))
       assert(calls.toList == List((app, "jdk")))
     finally
       runElectronJvmRestDevHook = oldHook
@@ -172,7 +172,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags(target = Some("desktop-jvm")))
       runElectronJvmRestDevHook = (path, backend) => calls += ((path, backend))
-      runCommand(List(app.toString))
+      CommandRegistry.dispatch("run", List(app.toString))
       assert(calls.toList == List((app, "jdk")))
     finally
       runElectronJvmRestDevHook = oldHook
@@ -214,7 +214,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
       runJvmServerHook = (path, backend, bind) => calls += ((path, backend, bind))
-      runCommand(List("--mode", "server", app.toString))
+      CommandRegistry.dispatch("run", List("--mode", "server", app.toString))
       assert(calls.toList == List((app, "jdk", RunBindOptions())))
     finally
       runJvmServerHook = oldHook
@@ -298,7 +298,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
       runJvmServerHook = (_, _, bind) => calls += bind
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "server",
         "--host", "127.0.0.1",
         "--port", "49997",
@@ -328,7 +328,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags(backend = Some("jvm")))
       runJvmServerHook = (_, _, bind) => calls += bind
-      runCommand(List("--mode", "server", app.toString))
+      CommandRegistry.dispatch("run", List("--mode", "server", app.toString))
       assert(calls.toList == List(RunBindOptions(host = "127.0.0.1", port = Some(49996))))
     finally
       runJvmServerHook = oldHook
@@ -343,7 +343,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runElectronClientDevHook = (path, serverUrl) => calls += ((path, serverUrl))
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--frontend", "electron",
         "--server-url", "http://server.example:8080",
@@ -363,7 +363,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runWebClientPreviewHook = (path, frontend, serverUrl, bind) => calls += ((path, frontend, serverUrl, bind))
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--frontend", "react",
         "--server-url", "http://server.example:8080",
@@ -383,7 +383,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runWebClientPreviewHook = (_, _, _, bind) => calls += bind
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--frontend", "react",
         "--server-url", "http://server.example:8080",
@@ -405,7 +405,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runWebClientPreviewHook = (_, _, _, bind) => calls += bind.openBrowser
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--frontend", "react",
         "--server-url", "http://server.example:8080",
@@ -436,7 +436,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runWebClientPreviewHook = (_, frontend, _, bind) => calls += ((frontend, bind.openBrowser))
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--server-url", "http://server.example:8080",
         app.toString
@@ -466,7 +466,7 @@ class ElectronJvmRestCliTest extends AnyFunSuite:
     try
       ActiveFlags.set(GlobalFlags())
       runWebClientPreviewHook = (_, _, _, bind) => calls += bind
-      runCommand(List(
+      CommandRegistry.dispatch("run", List(
         "--mode", "client",
         "--server-url", "http://server.example:8080",
         app.toString

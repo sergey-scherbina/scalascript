@@ -38,8 +38,8 @@ class TypedRouteDistributedExampleCliTest extends AnyFunSuite:
       runJvmServerHook = (path, backend, bind) => serverCalls += ((path, backend, bind))
       runWebClientPreviewHook = (path, frontend, serverUrl, bind) => webCalls += ((path, frontend, serverUrl, bind))
 
-      runCommand(List("--mode", "server", "--host", "0.0.0.0", "--port", "49155", app.toString))
-      runCommand(List("--mode", "client", "--frontend", "react", "--server-url", "http://server.example:49155", app.toString))
+      CommandRegistry.dispatch("run", List("--mode", "server", "--host", "0.0.0.0", "--port", "49155", app.toString))
+      CommandRegistry.dispatch("run", List("--mode", "client", "--frontend", "react", "--server-url", "http://server.example:49155", app.toString))
 
       assert(serverCalls.toList == List((app, "jdk", RunBindOptions(host = "0.0.0.0", port = Some(49155)))))
       assert(webCalls.toList == List((app, "react", "http://server.example:49155", RunBindOptions(host = "0.0.0.0", port = Some(49155)))))

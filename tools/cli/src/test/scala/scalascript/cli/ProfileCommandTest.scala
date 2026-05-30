@@ -47,7 +47,7 @@ class ProfileCommandTest extends AnyFunSuite:
     val savedOut = System.out
     System.setOut(ps)
     try
-      Console.withOut(ps)(profileCommand(args.toList))
+      Console.withOut(ps)(CommandRegistry.dispatch("profile", args.toList))
     finally
       ps.flush()
       System.setOut(savedOut)

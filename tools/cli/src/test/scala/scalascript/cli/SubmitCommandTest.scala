@@ -42,7 +42,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+      scalascript.cli.CommandRegistry.dispatch("submit", List("--dry-run", ssc.toString))
     }
     assert(out.contains("scala-cli --power package"),
       s"missing package argv, got:\n$out")
@@ -59,7 +59,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List(
+      scalascript.cli.CommandRegistry.dispatch("submit", List(
         "--dry-run",
         "--spark-master", "spark://prod.example.com:7077",
         ssc.toString
@@ -75,7 +75,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp, frontMatter = "spark-master: yarn")
     val out = captureStdout {
-      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+      scalascript.cli.CommandRegistry.dispatch("submit", List("--dry-run", ssc.toString))
     }
     assert(out.contains("--master yarn"), s"expected yarn from front-matter, got:\n$out")
   }
@@ -84,7 +84,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp, frontMatter = "spark-master: yarn")
     val out = captureStdout {
-      scalascript.cli.submitCommand(List(
+      scalascript.cli.CommandRegistry.dispatch("submit", List(
         "--dry-run", "--spark-master", "local[4]", ssc.toString
       ))
     }
@@ -97,7 +97,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List(
+      scalascript.cli.CommandRegistry.dispatch("submit", List(
         "--dry-run", "--spark-version", "3.5.1", ssc.toString
       ))
     }
@@ -111,7 +111,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List(
+      scalascript.cli.CommandRegistry.dispatch("submit", List(
         "--dry-run", "--spark-master", "yarn", ssc.toString,
         "--", "--executor-memory", "4g", "--num-executors", "8"
       ))
@@ -127,7 +127,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List(
+      scalascript.cli.CommandRegistry.dispatch("submit", List(
         "--dry-run", "--spark-master", "yarn", ssc.toString
       ))
     }
@@ -141,7 +141,7 @@ class SubmitCommandTest extends AnyFunSuite:
     val tmp = os.temp.dir()
     val ssc = writeFixture(tmp, frontMatter = "spark-app-name: My ETL Pipeline (prod)")
     val out = captureStdout {
-      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+      scalascript.cli.CommandRegistry.dispatch("submit", List("--dry-run", ssc.toString))
     }
     val sourceLine = out.linesIterator.find(_.startsWith("# source:")).getOrElse(
       fail(s"submit dry-run did not print source path, got:\n$out")
@@ -166,7 +166,7 @@ class SubmitCommandTest extends AnyFunSuite:
         |  spark.executor.cores: 2""".stripMargin
     val ssc = writeFixture(tmp, frontMatter = fm)
     val out = captureStdout {
-      scalascript.cli.submitCommand(List("--dry-run", ssc.toString))
+      scalascript.cli.CommandRegistry.dispatch("submit", List("--dry-run", ssc.toString))
     }
     // Pull the source path out of the "# source: ..." marker the
     // dry-run header prints, then read it.  Independent of hash

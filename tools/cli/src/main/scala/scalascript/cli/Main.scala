@@ -501,15 +501,19 @@ def printUsage(): Unit =
       |""".stripMargin
   println(header + "\n" + Help.renderCommands() + tail)
 
-def serveCommand(args: List[String]): Unit =
-  // `ssc serve file.ssc` — run a .ssc server script with hot-reload.
-  // `ssc serve [port] [dir]` — serve static files from a directory.
-  args.headOption match
-    case Some(f) if f.endsWith(".ssc") => CommandRegistry.dispatch("watch", args)
-    case _ =>
-      val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
-      val dir  = args.drop(1).headOption.getOrElse(".")
-      scalascript.server.WebServer.start(port, dir, System.out)
+final class ServeCmd extends CliCommand:
+  def name = "serve"
+  override def summary = "Start an HTTP server serving .ssc files as web pages"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    // `ssc serve file.ssc` — run a .ssc server script with hot-reload.
+    // `ssc serve [port] [dir]` — serve static files from a directory.
+    args.headOption match
+      case Some(f) if f.endsWith(".ssc") => CommandRegistry.dispatch("watch", args)
+      case _ =>
+        val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
+        val dir  = args.drop(1).headOption.getOrElse(".")
+        scalascript.server.WebServer.start(port, dir, System.out)
 
 /** `ssc render <file> [path]` — runs the .ssc file in headless mode
  *  (skipping the blocking `serve(port)` call), then invokes the
@@ -517,35 +521,39 @@ def serveCommand(args: List[String]): Unit =
  *  request and prints the response body to stdout.  Useful for
  *  generating static HTML from a server-style `.ssc` page without
  *  booting an HTTP listener. */
-def renderCommand(args: List[String]): Unit =
-  import scalascript.interpreter.Interpreter
-  import scalascript.server.Routes
-  if args.isEmpty then
-    System.err.println("Usage: ssc render <file.ssc> [path]")
-    System.exit(1)
-  val file = args.head
-  val path = args.drop(1).headOption.getOrElse("/")
-  val absPath = os.Path(file, os.pwd)
-  if !os.exists(absPath) then
-    System.err.println(s"Error: File not found: $file"); System.exit(1)
-  // Clear any leftover state from a previous render in the same process.
-  Routes.clear()
-  // A null PrintStream eats `println(...)` output from setup code so it
-  // doesn't pollute the rendered HTML on stdout.
-  val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
-  val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up), headless = true)
-  try interp.run(scalascript.parser.Parser.parse(os.read(absPath)))
-  catch case e: Exception =>
-    System.err.println(s"Error running ${file}: ${e.getMessage}")
-    System.exit(1)
-  Routes.matchRequest("GET", path) match
-    case Some((entry, params)) =>
-      val req = syntheticRequest("GET", path, params)
-      val result = entry.interpreter.invoke(entry.handler, List(req))
-      System.out.print(extractResponseBody(result))
-    case None =>
-      System.err.println(s"No GET route registered for $path in $file")
+final class RenderCmd extends CliCommand:
+  def name = "render"
+  override def summary = "Render a single .ssc to static HTML via its registered handler"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    import scalascript.interpreter.Interpreter
+    import scalascript.server.Routes
+    if args.isEmpty then
+      System.err.println("Usage: ssc render <file.ssc> [path]")
       System.exit(1)
+    val file = args.head
+    val path = args.drop(1).headOption.getOrElse("/")
+    val absPath = os.Path(file, os.pwd)
+    if !os.exists(absPath) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    // Clear any leftover state from a previous render in the same process.
+    Routes.clear()
+    // A null PrintStream eats `println(...)` output from setup code so it
+    // doesn't pollute the rendered HTML on stdout.
+    val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+    val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up), headless = true)
+    try interp.run(scalascript.parser.Parser.parse(os.read(absPath)))
+    catch case e: Exception =>
+      System.err.println(s"Error running ${file}: ${e.getMessage}")
+      System.exit(1)
+    Routes.matchRequest("GET", path) match
+      case Some((entry, params)) =>
+        val req = syntheticRequest("GET", path, params)
+        val result = entry.interpreter.invoke(entry.handler, List(req))
+        System.out.print(extractResponseBody(result))
+      case None =>
+        System.err.println(s"No GET route registered for $path in $file")
+        System.exit(1)
 
 /** Build a minimal `Request` instance for a static render.  Headers /
  *  cookies / session / files are all empty — handlers that need them
@@ -1223,144 +1231,148 @@ private def buildSingleFileSite(sscFile: os.Path, outDir: os.Path): Unit =
  *
  *  Directory mode (legacy): when the first positional is a *directory*, walk
  *  it for `.ssc` pages and render static HTML (old `ssc build <src-dir>`). */
-def buildCommand(args: List[String]): Unit =
-  // v2.0: --incremental flag routes to separate-compilation build orchestrator.
-  if args.contains("--incremental") then
-    val rest = args.filterNot(_ == "--incremental")
-    incrementalBuildCommand(rest)
-    return
-
-  // Parse --target and --out flags, collect remaining positionals.
-  var targetFlag: Option[String] = None
-  var outFlag:    Option[String] = None
-  val positional = scala.collection.mutable.ListBuffer.empty[String]
-  val remaining  = args.iterator
-  while remaining.hasNext do
-    remaining.next() match
-      case "--target" if remaining.hasNext => targetFlag = Some(remaining.next())
-      case "--out"    if remaining.hasNext => outFlag    = Some(remaining.next())
-      case other                           => positional += other
-
-  // Resolve project file from first positional or auto-discover.
-  val projectFile: Option[os.Path] = positional.headOption match
-    case Some(arg) =>
-      val p = os.Path(arg, os.pwd)
-      if os.exists(p) && os.isFile(p) && p.ext == "ssc" then
-        Some(p)   // explicit .ssc file
-      else if !os.exists(p) || os.isFile(p) then
-        // Bare name (no extension or unknown extension): look for <arg>.ssc
-        val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
-        if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
-      else None   // it's a directory → fall through to legacy dir mode
-    case None =>
-      findProjectSsc()
-
-  projectFile match
-    case Some(pf) =>
-      val outDir    = os.Path(outFlag.getOrElse("target/build"), os.pwd)
-      val effective = targetFlag.orElse(ActiveFlags.current.target)
-      buildProjectFileCommand(pf, effective, outDir)
+final class BuildCmd extends CliCommand:
+  def name = "build"
+  override def summary = "Batch-render a directory's .ssc to <out-dir> (or --incremental artifacts)"
+  override def category = "Build, bundle & package"
+  def run(args: List[String]): Unit =
+    // v2.0: --incremental flag routes to separate-compilation build orchestrator.
+    if args.contains("--incremental") then
+      val rest = args.filterNot(_ == "--incremental")
+      incrementalBuildCommand(rest)
       return
-    case None => // fall through to legacy dir mode
 
-  // ─── Legacy directory mode ────────────────────────────────────────
-  import scalascript.interpreter.Interpreter
-  import scalascript.server.Routes
-  if positional.isEmpty then
-    System.err.println("Usage: ssc build [<name|name.ssc>] [--target ssc|jvm|js|web] [--out <dir>]  |  ssc build <src-dir>")
-    System.exit(1)
-  val srcArg = positional.head
-  val outArg = positional.drop(1).headOption.orElse(outFlag).getOrElse("dist")
-  val srcDir = os.Path(srcArg, os.pwd)
-  val outDir = os.Path(outArg, os.pwd)
-  if !os.exists(srcDir) || !os.isDir(srcDir) then
-    System.err.println(s"Error: $srcArg is not a directory"); System.exit(1)
-  os.makeDir.all(outDir)
+    // Parse --target and --out flags, collect remaining positionals.
+    var targetFlag: Option[String] = None
+    var outFlag:    Option[String] = None
+    val positional = scala.collection.mutable.ListBuffer.empty[String]
+    val remaining  = args.iterator
+    while remaining.hasNext do
+      remaining.next() match
+        case "--target" if remaining.hasNext => targetFlag = Some(remaining.next())
+        case "--out"    if remaining.hasNext => outFlag    = Some(remaining.next())
+        case other                           => positional += other
 
-  // Directories that hold non-page `.ssc` content (imported modules,
-  // tooling output, caches) — recursed for assets but never walked for
-  // page rendering.  `components` is the convention for module imports;
-  // the others are standard build / tool dirs.
-  val skipDirs = Set("components", "target", "node_modules", "dist", "out", ".scala-build")
-  def isSkipped(p: os.Path): Boolean =
-    skipDirs.contains(p.last) || p.last.startsWith(".")
+    // Resolve project file from first positional or auto-discover.
+    val projectFile: Option[os.Path] = positional.headOption match
+      case Some(arg) =>
+        val p = os.Path(arg, os.pwd)
+        if os.exists(p) && os.isFile(p) && p.ext == "ssc" then
+          Some(p)   // explicit .ssc file
+        else if !os.exists(p) || os.isFile(p) then
+          // Bare name (no extension or unknown extension): look for <arg>.ssc
+          val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
+          if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
+        else None   // it's a directory → fall through to legacy dir mode
+      case None =>
+        findProjectSsc()
 
-  // Recursive walk for `.ssc` files; subdirectories are walked into
-  // *unless* they're in the skip set, so a layout like
-  //     src/pages/index.ssc
-  //     src/pages/blog/post.ssc
-  //     src/components/card.ssc       (skipped — non-page)
-  // produces  dist/pages/index.html and dist/pages/blog/post.html
-  // (component module is imported by the pages, not rendered).
-  val files = os.walk(srcDir, skip = isSkipped)
-    .filter(p => os.isFile(p) && p.ext == "ssc")
-    .sorted
+    projectFile match
+      case Some(pf) =>
+        val outDir    = os.Path(outFlag.getOrElse("target/build"), os.pwd)
+        val effective = targetFlag.orElse(ActiveFlags.current.target)
+        buildProjectFileCommand(pf, effective, outDir)
+        return
+      case None => // fall through to legacy dir mode
 
-  var rendered = 0
-  var skipped  = 0
-  var failed   = 0
-  // Track which output paths have already been written so the user sees
-  // a warning when two source files claim the same URL (e.g. both
-  // declaring `GET /`) — last write wins, but it's almost always a bug.
-  val written = scala.collection.mutable.Map.empty[String, String]
+    // ─── Legacy directory mode ────────────────────────────────────────
+    import scalascript.interpreter.Interpreter
+    import scalascript.server.Routes
+    if positional.isEmpty then
+      System.err.println("Usage: ssc build [<name|name.ssc>] [--target ssc|jvm|js|web] [--out <dir>]  |  ssc build <src-dir>")
+      System.exit(1)
+    val srcArg = positional.head
+    val outArg = positional.drop(1).headOption.orElse(outFlag).getOrElse("dist")
+    val srcDir = os.Path(srcArg, os.pwd)
+    val outDir = os.Path(outArg, os.pwd)
+    if !os.exists(srcDir) || !os.isDir(srcDir) then
+      System.err.println(s"Error: $srcArg is not a directory"); System.exit(1)
+    os.makeDir.all(outDir)
 
-  for file <- files do
-    // Display path is relative to srcDir so nested page files stay
-    // legible (`pages/blog/post.ssc` rather than just `post.ssc`).
-    val srcRel = file.relativeTo(srcDir).toString
-    Routes.clear()
-    val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
-    val interp  = Interpreter(out = nullOut, baseDir = Some(file / os.up), headless = true)
-    val ok =
-      try { interp.run(scalascript.parser.Parser.parse(os.read(file))); true }
-      catch case e: Exception =>
-        System.err.println(s"  [fail] $srcRel: ${e.getMessage}")
-        failed += 1
-        false
-    if ok then
-      val literalGets = Routes.all.filter { e =>
-        e.method == "GET" && e.pathPattern.forall(_.isInstanceOf[Routes.Segment.Literal])
-      }
-      if literalGets.isEmpty then
-        skipped += 1
-      else
-        for entry <- literalGets do
-          val req    = syntheticRequest("GET", entry.path, Map.empty)
-          val result = entry.interpreter.invoke(entry.handler, List(req))
-          val body   = extractResponseBody(result)
-          val out    = outPathFor(outDir, entry.path)
-          os.makeDir.all(out / os.up)
-          val key = out.toString
-          written.get(key).foreach { prior =>
-            System.err.println(
-              s"  [warn] $key overwritten by $srcRel ${entry.path} (was ${prior})"
-            )
-          }
-          os.write.over(out, body)
-          written(key) = s"$srcRel ${entry.path}"
-          println(s"  $srcRel ${entry.path} → ${displayPath(out)}")
-          rendered += 1
+    // Directories that hold non-page `.ssc` content (imported modules,
+    // tooling output, caches) — recursed for assets but never walked for
+    // page rendering.  `components` is the convention for module imports;
+    // the others are standard build / tool dirs.
+    val skipDirs = Set("components", "target", "node_modules", "dist", "out", ".scala-build")
+    def isSkipped(p: os.Path): Boolean =
+      skipDirs.contains(p.last) || p.last.startsWith(".")
 
-  // Asset pipeline: mirror every non-.ssc file under `src-dir` into
-  // `out-dir`, preserving relative paths.  Walks recursively so
-  // subdirectory assets (icons under `assets/`, fonts under `fonts/`,
-  // etc.) make it to the build.  `components/` IS walked here — a
-  // component module may sit next to its icon — even though the page
-  // walker skips it.  Tooling / build-output dirs are skipped.
-  val assetSkipDirs = Set("target", "node_modules", "dist", "out", ".scala-build")
-  var copied = 0
-  os.walk(srcDir, skip = p => assetSkipDirs.contains(p.last) || p.last.startsWith(".")).foreach { p =>
-    if os.isFile(p) && p.ext != "ssc" then
-      val rel  = p.relativeTo(srcDir)
-      val dest = outDir / rel
-      os.makeDir.all(dest / os.up)
-      os.copy.over(p, dest)
-      copied += 1
-  }
+    // Recursive walk for `.ssc` files; subdirectories are walked into
+    // *unless* they're in the skip set, so a layout like
+    //     src/pages/index.ssc
+    //     src/pages/blog/post.ssc
+    //     src/components/card.ssc       (skipped — non-page)
+    // produces  dist/pages/index.html and dist/pages/blog/post.html
+    // (component module is imported by the pages, not rendered).
+    val files = os.walk(srcDir, skip = isSkipped)
+      .filter(p => os.isFile(p) && p.ext == "ssc")
+      .sorted
 
-  println()
-  println(s"Done: $rendered rendered, $skipped skipped, $copied assets, $failed failed")
-  if failed > 0 then System.exit(1)
+    var rendered = 0
+    var skipped  = 0
+    var failed   = 0
+    // Track which output paths have already been written so the user sees
+    // a warning when two source files claim the same URL (e.g. both
+    // declaring `GET /`) — last write wins, but it's almost always a bug.
+    val written = scala.collection.mutable.Map.empty[String, String]
+
+    for file <- files do
+      // Display path is relative to srcDir so nested page files stay
+      // legible (`pages/blog/post.ssc` rather than just `post.ssc`).
+      val srcRel = file.relativeTo(srcDir).toString
+      Routes.clear()
+      val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+      val interp  = Interpreter(out = nullOut, baseDir = Some(file / os.up), headless = true)
+      val ok =
+        try { interp.run(scalascript.parser.Parser.parse(os.read(file))); true }
+        catch case e: Exception =>
+          System.err.println(s"  [fail] $srcRel: ${e.getMessage}")
+          failed += 1
+          false
+      if ok then
+        val literalGets = Routes.all.filter { e =>
+          e.method == "GET" && e.pathPattern.forall(_.isInstanceOf[Routes.Segment.Literal])
+        }
+        if literalGets.isEmpty then
+          skipped += 1
+        else
+          for entry <- literalGets do
+            val req    = syntheticRequest("GET", entry.path, Map.empty)
+            val result = entry.interpreter.invoke(entry.handler, List(req))
+            val body   = extractResponseBody(result)
+            val out    = outPathFor(outDir, entry.path)
+            os.makeDir.all(out / os.up)
+            val key = out.toString
+            written.get(key).foreach { prior =>
+              System.err.println(
+                s"  [warn] $key overwritten by $srcRel ${entry.path} (was ${prior})"
+              )
+            }
+            os.write.over(out, body)
+            written(key) = s"$srcRel ${entry.path}"
+            println(s"  $srcRel ${entry.path} → ${displayPath(out)}")
+            rendered += 1
+
+    // Asset pipeline: mirror every non-.ssc file under `src-dir` into
+    // `out-dir`, preserving relative paths.  Walks recursively so
+    // subdirectory assets (icons under `assets/`, fonts under `fonts/`,
+    // etc.) make it to the build.  `components/` IS walked here — a
+    // component module may sit next to its icon — even though the page
+    // walker skips it.  Tooling / build-output dirs are skipped.
+    val assetSkipDirs = Set("target", "node_modules", "dist", "out", ".scala-build")
+    var copied = 0
+    os.walk(srcDir, skip = p => assetSkipDirs.contains(p.last) || p.last.startsWith(".")).foreach { p =>
+      if os.isFile(p) && p.ext != "ssc" then
+        val rel  = p.relativeTo(srcDir)
+        val dest = outDir / rel
+        os.makeDir.all(dest / os.up)
+        os.copy.over(p, dest)
+        copied += 1
+    }
+
+    println()
+    println(s"Done: $rendered rendered, $skipped skipped, $copied assets, $failed failed")
+    if failed > 0 then System.exit(1)
 
 private[cli] def displayPath(p: os.Path): String =
   val cwd = os.pwd.toString
@@ -1376,20 +1388,24 @@ private[cli] def outPathFor(outDir: os.Path, urlPath: String): os.Path =
     val withExt = segs.init :+ (segs.last + ".html")
     outDir / os.SubPath(withExt.mkString("/"))
 
-def newCommand(args: List[String]): Unit =
-  args match
-    case name :: rest =>
-      try
-        val opts = NewProject.parseOptions(rest)
-        val dir = NewProject.create(name, opts.template, opts.outputDir)
-        println(s"Created ${opts.template} project: $dir")
-      catch
-        case e: Exception =>
-          System.err.println(s"ssc new: ${e.getMessage}")
-          System.exit(1)
-    case Nil =>
-      System.err.println("Usage: ssc new <name> [--template app|lib|plugin] [--output-dir <dir>]")
-      System.exit(1)
+final class NewCmd extends CliCommand:
+  def name = "new"
+  override def summary = "Scaffold a new project (e.g. --template plugin)"
+  override def category = "Build, bundle & package"
+  def run(args: List[String]): Unit =
+    args match
+      case name :: rest =>
+        try
+          val opts = NewProject.parseOptions(rest)
+          val dir = NewProject.create(name, opts.template, opts.outputDir)
+          println(s"Created ${opts.template} project: $dir")
+        catch
+          case e: Exception =>
+            System.err.println(s"ssc new: ${e.getMessage}")
+            System.exit(1)
+      case Nil =>
+        System.err.println("Usage: ssc new <name> [--template app|lib|plugin] [--output-dir <dir>]")
+        System.exit(1)
 
 /** Find the "project" `.ssc` file for the current directory.
  *  Prefers a file whose stem matches the directory name (`myapp/myapp.ssc`);
@@ -1524,15 +1540,19 @@ private[cli] def relativeArchivePath(fromDir: String, target: String): String =
   // optional but matches what the user typically writes for siblings.
   if rel.startsWith("../") || rel.contains("/") then rel else "./" + rel
 
-def parseCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- args do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then println(s"Error: File not found: $file")
-    else
-      println(s"=== Parsing: $file ===")
-      try   printModule(Parser.parse(os.read(path)))
-      catch case e: Exception => println(s"Parse error: ${e.getMessage}")
+final class ParseCmd extends CliCommand:
+  def name = "parse"
+  override def summary = "Parse .ssc files and print the AST"
+  override def category = "Check & inspect"
+  def run(args: List[String]): Unit =
+    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    for file <- args do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then println(s"Error: File not found: $file")
+      else
+        println(s"=== Parsing: $file ===")
+        try   printModule(Parser.parse(os.read(path)))
+        catch case e: Exception => println(s"Parse error: ${e.getMessage}")
 
 /** Load a [[scalascript.ast.Module]] from an `.ssc` source or a pre-compiled
  *  `.sscc` binary.  `.sscc` files skip markdown/YAML/scalameta parsing;
@@ -1548,283 +1568,288 @@ private def loadModule(path: os.Path): scalascript.ast.Module =
   else
     Parser.parse(os.read(path))
 
-def runCommand(args: List[String]): Unit =
-  if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  // `--spark-version <v>` and `--spark-master <url>` plumb into
-  // BackendOptions.extra("sparkVersion") / ("sparkMaster") respectively,
-  // consumed by SparkBackend.compile.  Stripped here before file dispatch
-  // so they don't get treated as paths.
-  var sparkVersionFlag:  Option[String] = None
-  var sparkMasterFlag:   Option[String] = None
-  var frontendFlag:      Option[String] = None
-  var targetFlag:        Option[String] = None
-  var modeFlag:          Option[String] = None
-  var serverUrlFlag:     Option[String] = None
-  var transportFlag:     Option[BackendTransportKind] = None
-  var hostFlag:          Option[String] = None
-  var portFlag:          Option[Int] = None
-  var openBrowserFlag:   Option[Boolean] = None
-  var serverBackendFlag: String         = "jdk"
-  var consoleFlag:       Boolean        = true   // --console / --no-console
-  var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
-  var deviceFlag:        Boolean        = false  // --device
-  var deviceIdFlag:      Option[String] = None   // --device-id <udid>
-  val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--spark-version"    if it.hasNext => sparkVersionFlag  = Some(it.next())
-      case "--spark-master"     if it.hasNext => sparkMasterFlag   = Some(it.next())
-      case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
-      case "--target"           if it.hasNext => targetFlag        = Some(it.next())
-      case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
-      case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
-      case "--transport"        if it.hasNext => transportFlag     = Some(parseTransportFlag("run --transport", it.next()))
-      case "--host"             if it.hasNext => hostFlag          = Some(it.next())
-      case "--port"             if it.hasNext => portFlag          = Some(parsePortFlag("run --port", it.next()))
-      case "--open-browser"                  => openBrowserFlag    = Some(true)
-      case "--no-open-browser"               => openBrowserFlag    = Some(false)
-      case flag if flag.startsWith("--open-browser=") =>
-        openBrowserFlag = parseBooleanFlag("run --open-browser", flag.drop("--open-browser=".length))
-      case "--console"                   => consoleFlag  = true
-      case "--no-console"                => consoleFlag  = false
-      case "--rebuild"                   => rebuildFlag  = true
-      case "--no-rebuild"                => rebuildFlag  = false
-      case "--device"                    => deviceFlag   = true
-      case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
-      case "--frontend"         if it.hasNext =>
-        val name = it.next()
-        if !validFrontendNames(name) then
-          System.err.println(s"run: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
-          System.exit(1)
-        frontendFlag = Some(name)
-      case f => fileArgs += f
+final class RunCmd extends CliCommand:
+  def name = "run"
+  override def summary = "Execute .ssc via the tree-walking interpreter (the default runner)"
+  override def category = "Run & develop"
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser")
+  def run(args: List[String]): Unit =
+    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    // `--spark-version <v>` and `--spark-master <url>` plumb into
+    // BackendOptions.extra("sparkVersion") / ("sparkMaster") respectively,
+    // consumed by SparkBackend.compile.  Stripped here before file dispatch
+    // so they don't get treated as paths.
+    var sparkVersionFlag:  Option[String] = None
+    var sparkMasterFlag:   Option[String] = None
+    var frontendFlag:      Option[String] = None
+    var targetFlag:        Option[String] = None
+    var modeFlag:          Option[String] = None
+    var serverUrlFlag:     Option[String] = None
+    var transportFlag:     Option[BackendTransportKind] = None
+    var hostFlag:          Option[String] = None
+    var portFlag:          Option[Int] = None
+    var openBrowserFlag:   Option[Boolean] = None
+    var serverBackendFlag: String         = "jdk"
+    var consoleFlag:       Boolean        = true   // --console / --no-console
+    var rebuildFlag:       Boolean        = false  // --rebuild / --no-rebuild
+    var deviceFlag:        Boolean        = false  // --device
+    var deviceIdFlag:      Option[String] = None   // --device-id <udid>
+    val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--spark-version"    if it.hasNext => sparkVersionFlag  = Some(it.next())
+        case "--spark-master"     if it.hasNext => sparkMasterFlag   = Some(it.next())
+        case "--server-backend"   if it.hasNext => serverBackendFlag = it.next()
+        case "--target"           if it.hasNext => targetFlag        = Some(it.next())
+        case "--mode"             if it.hasNext => modeFlag          = Some(it.next())
+        case "--server-url"       if it.hasNext => serverUrlFlag     = Some(it.next())
+        case "--transport"        if it.hasNext => transportFlag     = Some(parseTransportFlag("run --transport", it.next()))
+        case "--host"             if it.hasNext => hostFlag          = Some(it.next())
+        case "--port"             if it.hasNext => portFlag          = Some(parsePortFlag("run --port", it.next()))
+        case "--open-browser"                  => openBrowserFlag    = Some(true)
+        case "--no-open-browser"               => openBrowserFlag    = Some(false)
+        case flag if flag.startsWith("--open-browser=") =>
+          openBrowserFlag = parseBooleanFlag("run --open-browser", flag.drop("--open-browser=".length))
+        case "--console"                   => consoleFlag  = true
+        case "--no-console"                => consoleFlag  = false
+        case "--rebuild"                   => rebuildFlag  = true
+        case "--no-rebuild"                => rebuildFlag  = false
+        case "--device"                    => deviceFlag   = true
+        case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
+        case "--frontend"         if it.hasNext =>
+          val name = it.next()
+          if !validFrontendNames(name) then
+            System.err.println(s"run: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+            System.exit(1)
+          frontendFlag = Some(name)
+        case f => fileArgs += f
 
-  val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
-  val runMode = modeFlag.map(_.trim.toLowerCase)
-  runMode match
-    case Some("server") =>
-      ActiveFlags.current.backend match
-        case Some(backend) if backend != "jvm" && backend != "jvm-rest" =>
-          System.err.println(s"run --mode server requires --backend jvm or --backend jvm-rest, got '$backend'")
+    val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
+    val runMode = modeFlag.map(_.trim.toLowerCase)
+    runMode match
+      case Some("server") =>
+        ActiveFlags.current.backend match
+          case Some(backend) if backend != "jvm" && backend != "jvm-rest" =>
+            System.err.println(s"run --mode server requires --backend jvm or --backend jvm-rest, got '$backend'")
+            System.exit(1)
+          case _ =>
+            for file <- fileArgs.toList do
+              val path = os.Path(file, os.pwd)
+              validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
+              val bind = bindOptions(path, hostFlag, portFlag, None)
+              runJvmServerHook(path, serverBackendFlag, bind)
+            return
+      case Some("client") =>
+        for file <- fileArgs.toList do
+          val path = os.Path(file, os.pwd)
+          validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
+        val serverUrl = serverUrlFlag.getOrElse {
+          System.err.println("run --mode client requires --server-url <url>")
           System.exit(1)
-        case _ =>
-          for file <- fileArgs.toList do
-            val path = os.Path(file, os.pwd)
-            validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
-            val bind = bindOptions(path, hostFlag, portFlag, None)
-            runJvmServerHook(path, serverBackendFlag, bind)
-          return
-    case Some("client") =>
-      for file <- fileArgs.toList do
-        val path = os.Path(file, os.pwd)
-        validateRunTransport(path, runMode, serverUrlFlag, transportFlag)
-      val serverUrl = serverUrlFlag.getOrElse {
-        System.err.println("run --mode client requires --server-url <url>")
+          throw new AssertionError()
+        }
+        for file <- fileArgs.toList do
+          val path = os.Path(file, os.pwd)
+          val manifestFrontend =
+            scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework)).getOrElse(None)
+          val selectedFrontend = frontendFlag.orElse(manifestFrontend)
+          val bind = bindOptions(path, hostFlag, portFlag, openBrowserFlag)
+          if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
+            runElectronClientDevHook(path, serverUrl)
+          else if selectedFrontend.exists(browserFrontendNames) then
+            runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, bind)
+          else
+            System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
+            System.exit(1)
+        return
+      case Some("fullstack") => ()
+      case Some(other) =>
+        System.err.println(s"run: unknown --mode '$other', valid: server, client, fullstack")
         System.exit(1)
-        throw new AssertionError()
-      }
+      case None => ()
+
+    for file <- fileArgs.toList do
+      validateRunTransport(os.Path(file, os.pwd), runMode, serverUrlFlag, transportFlag)
+
+    if runRequestsSwingFrontend(frontendFlag, fileArgs.toList) then
+      rejectInterpreterSwingRun()
+
+    // --target jvm: compile via JvmGen → scala-cli → execute
+    if targetSelection.contains("jvm") then
       for file <- fileArgs.toList do
-        val path = os.Path(file, os.pwd)
-        val manifestFrontend =
-          scala.util.Try(loadModule(path).manifest.flatMap(_.frontendFramework)).getOrElse(None)
-        val selectedFrontend = frontendFlag.orElse(manifestFrontend)
-        val bind = bindOptions(path, hostFlag, portFlag, openBrowserFlag)
-        if targetRequestsElectron(targetSelection) || selectedFrontend.contains("electron") then
-          runElectronClientDevHook(path, serverUrl)
-        else if selectedFrontend.exists(browserFrontendNames) then
-          runWebClientPreviewHook(path, selectedFrontend.get, serverUrl, bind)
-        else
-          System.err.println("run --mode client requires --frontend electron, react, solid, vue, or custom")
-          System.exit(1)
+        runJvmViaScalaCli(os.Path(file, os.pwd), serverBackendFlag, "run --target jvm")
       return
-    case Some("fullstack") => ()
-    case Some(other) =>
-      System.err.println(s"run: unknown --mode '$other', valid: server, client, fullstack")
+
+    // --target macos / desktop-macos: build Swift package + swift build + launch binary
+    if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
+      val outDir = os.Path("target/build", os.pwd) / "macos"
+      for file <- fileArgs.toList do
+        val sscFile = os.Path(file, os.pwd)
+        val appName = swiftAppName(
+          scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
+        )
+        val binary = outDir / ".build" / "debug" / appName
+        val needsBuild = rebuildFlag || !os.exists(binary) ||
+          os.mtime(sscFile) > os.mtime(binary)
+        if needsBuild then
+          buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
+        else
+          println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
+        if !os.exists(binary) then
+          System.err.println(s"swift build did not produce ${displayPath(binary)}")
+          System.exit(1)
+        println(s"  Launching $appName...")
+        if consoleFlag then
+          os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+        else
+          os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
+      return
+
+    // --target ios / mobile-ios: Simulator (default) or real device (--device)
+    if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
+      if deviceFlag then
+        val outDir = os.Path("target/build", os.pwd) / "ios-device"
+        for file <- fileArgs.toList do
+          runSwiftUIIosDevice(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag, deviceIdFlag)
+      else
+        val outDir = os.Path("target/build", os.pwd) / "ios"
+        for file <- fileArgs.toList do
+          runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
+      return
+
+    val noExplicitRunMode =
+      targetSelection.isEmpty && frontendFlag.isEmpty && ActiveFlags.current.backend.isEmpty
+    if noExplicitRunMode && fileArgs.nonEmpty then
+      val files = fileArgs.toList
+      val shouldRunDefault = files.forall { file =>
+        val path = os.Path(file, os.pwd)
+        os.exists(path) &&
+          scala.util.Try(shouldDefaultToElectronJvmRest(loadModule(path), os.read(path))).getOrElse(false)
+      }
+      if shouldRunDefault then
+        for file <- files do
+          runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
+        return
+
+    // --target desktop / desktop-electron / desktop-jvm, or --frontend electron → Electron dev-run
+    val isElectronRun =
+      targetRequestsElectron(targetSelection) ||
+      frontendFlag.contains("electron")
+    val isJvmRestRun = targetRequestsElectronJvmRest(targetSelection, ActiveFlags.current.backend)
+    if isJvmRestRun && !isElectronRun then
+      System.err.println("run --backend jvm-rest currently requires --frontend electron, --target desktop, or --target desktop-jvm")
       System.exit(1)
-    case None => ()
-
-  for file <- fileArgs.toList do
-    validateRunTransport(os.Path(file, os.pwd), runMode, serverUrlFlag, transportFlag)
-
-  if runRequestsSwingFrontend(frontendFlag, fileArgs.toList) then
-    rejectInterpreterSwingRun()
-
-  // --target jvm: compile via JvmGen → scala-cli → execute
-  if targetSelection.contains("jvm") then
-    for file <- fileArgs.toList do
-      runJvmViaScalaCli(os.Path(file, os.pwd), serverBackendFlag, "run --target jvm")
-    return
-
-  // --target macos / desktop-macos: build Swift package + swift build + launch binary
-  if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
-    val outDir = os.Path("target/build", os.pwd) / "macos"
-    for file <- fileArgs.toList do
-      val sscFile = os.Path(file, os.pwd)
-      val appName = swiftAppName(
-        scala.util.Try(Parser.parse(os.read(sscFile)).manifest.flatMap(_.name)).toOption.flatten
-      )
-      val binary = outDir / ".build" / "debug" / appName
-      val needsBuild = rebuildFlag || !os.exists(binary) ||
-        os.mtime(sscFile) > os.mtime(binary)
-      if needsBuild then
-        buildSwiftUIPackage(sscFile, outDir, "macos", runSwiftBuild = true)
-      else
-        println(s"  Skipping build (no .ssc changes). Use --rebuild to force.")
-      if !os.exists(binary) then
-        System.err.println(s"swift build did not produce ${displayPath(binary)}")
-        System.exit(1)
-      println(s"  Launching $appName...")
-      if consoleFlag then
-        os.proc(binary).call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
-      else
-        os.proc(binary).spawn(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir)
-    return
-
-  // --target ios / mobile-ios: Simulator (default) or real device (--device)
-  if targetSelection.exists(t => t == "ios" || t == "mobile-ios") then
-    if deviceFlag then
-      val outDir = os.Path("target/build", os.pwd) / "ios-device"
+    if isElectronRun && isJvmRestRun then
       for file <- fileArgs.toList do
-        runSwiftUIIosDevice(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag, deviceIdFlag)
-    else
-      val outDir = os.Path("target/build", os.pwd) / "ios"
-      for file <- fileArgs.toList do
-        runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, consoleFlag, rebuildFlag)
-    return
-
-  val noExplicitRunMode =
-    targetSelection.isEmpty && frontendFlag.isEmpty && ActiveFlags.current.backend.isEmpty
-  if noExplicitRunMode && fileArgs.nonEmpty then
-    val files = fileArgs.toList
-    val shouldRunDefault = files.forall { file =>
-      val path = os.Path(file, os.pwd)
-      os.exists(path) &&
-        scala.util.Try(shouldDefaultToElectronJvmRest(loadModule(path), os.read(path))).getOrElse(false)
-    }
-    if shouldRunDefault then
-      for file <- files do
         runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
       return
+    if isElectronRun then
+      for file <- fileArgs.toList do
+        runElectronDev(os.Path(file, os.pwd))
+      return
 
-  // --target desktop / desktop-electron / desktop-jvm, or --frontend electron → Electron dev-run
-  val isElectronRun =
-    targetRequestsElectron(targetSelection) ||
-    frontendFlag.contains("electron")
-  val isJvmRestRun = targetRequestsElectronJvmRest(targetSelection, ActiveFlags.current.backend)
-  if isJvmRestRun && !isElectronRun then
-    System.err.println("run --backend jvm-rest currently requires --frontend electron, --target desktop, or --target desktop-jvm")
-    System.exit(1)
-  if isElectronRun && isJvmRestRun then
+    frontendFlag.foreach(applyFrontendBackend)
+    val backendId = ActiveFlags.current.backend.getOrElse("int")
     for file <- fileArgs.toList do
-      runElectronJvmRestDevHook(os.Path(file, os.pwd), serverBackendFlag)
-    return
-  if isElectronRun then
-    for file <- fileArgs.toList do
-      runElectronDev(os.Path(file, os.pwd))
-    return
-
-  frontendFlag.foreach(applyFrontendBackend)
-  val backendId = ActiveFlags.current.backend.getOrElse("int")
-  for file <- fileArgs.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
-    else
-      try
-        // Load config: frontmatter < sidecar files < fenced blocks < -Dscalascript.* < CLI flags.
-        // ConfigRegistry.setSidecar merges system props automatically as the top layer.
-        val sidecarCv = loadSidecarConfig(path)
-        scalascript.config.ConfigRegistry.setSidecar(sidecarCv.getOrElse(scalascript.config.ConfigValue.empty))
-        if frontendFlag.isEmpty then
-          scalascript.config.ConfigRegistry.getSidecar
-            .flatMap(_.get("frontend").flatMap(_.getString))
-            .filter(validFrontendNames)
-            .foreach(applyFrontendBackend)
-        val module = loadModule(path)
-        val effectiveBackend =
-          if backendId == "int" then
-            // Check front-matter `backend:` for a per-file default.
-            module.manifest.flatMap(_.raw.get("backend"))
-              .collect { case s: String => s }
-              .getOrElse("int")
-          else backendId
-        // Spark version resolution lives at the CLI layer because the
-        // front-matter `raw` map is dropped by Normalize — we read it
-        // here while we still hold the ast.Module, then thread it
-        // through BackendOptions.extra to the SPI backend.
-        val extras: Map[String, String] =
-          if effectiveBackend == "spark" then
-            val version =
-              sparkVersionFlag
-                .orElse(
-                  module.manifest.flatMap(_.raw.get("spark-version"))
-                    .collect { case s: String => s }
-                )
-                .getOrElse(SparkGen.DefaultVersion)
-            val master =
-              sparkMasterFlag
-                .orElse(
-                  module.manifest.flatMap(_.raw.get("spark-master"))
-                    .collect { case s: String => s }
-                )
-                .getOrElse(SparkGen.DefaultMaster)
-            // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
-            // slice 3): read the YAML map, encode into a single
-            // BackendOptions.extra string entry under "sparkConfig".
-            // SparkBackend.compile decodes and forwards to SparkGen
-            // which emits one `.config(k, v)` per pair.
-            val configMap = module.manifest
-              .flatMap(_.raw.get("spark-config"))
-              .map(SparkBackend.fromYamlMap)
-              .getOrElse(Map.empty)
-            // `spark-app-name:` front-matter override for the Spark UI
-            // / driver / executor log name (Phase C.3 slice 4).
-            val appName = module.manifest
-              .flatMap(_.raw.get("spark-app-name"))
-              .collect { case s: String => s }
-            // Phase G.2 — `spark-hive-metastore:` (Thrift URI) and
-            // `spark-warehouse:` (path) keys.  Both read here from
-            // the raw YAML map before Normalize strips it; both
-            // threaded through BackendOptions.extra as single
-            // strings.  Either key alone is enough to trigger the
-            // Hive wiring on the SparkSession (catalogImplementation
-            // = hive + enableHiveSupport + spark-hive_2.13 dep).
-            val hiveMetastore = module.manifest
-              .flatMap(_.raw.get("spark-hive-metastore"))
-              .collect { case s: String => s }
-            val warehouse = module.manifest
-              .flatMap(_.raw.get("spark-warehouse"))
-              .collect { case s: String => s }
-            val base = Map("sparkVersion" -> version, "sparkMaster" -> master)
-            val withConfig =
-              if configMap.isEmpty then base
-              else base + (SparkBackend.SparkConfigOption ->
-                           SparkBackend.encodeSparkConfig(configMap))
-            val withAppName = appName.fold(withConfig)(n => withConfig + (SparkBackend.SparkAppNameOption -> n))
-            val withHive    = hiveMetastore.fold(withAppName)(uri => withAppName + (SparkBackend.SparkHiveMetastoreOption -> uri))
-            warehouse.fold(withHive)(p => withHive + (SparkBackend.SparkWarehouseOption -> p))
-          else Map.empty
-        val frontendName = frontendFlag.orElse(
-          module.manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s }
-        )
-        val extrasWithFrontend = frontendName.fold(extras)(n => extras + ("frontendName" -> n))
-        compileViaBackend(effectiveBackend, path, extrasWithFrontend) match
-          case CompileResult.Executed(stdout, stderr, exit) =>
-            if stdout.nonEmpty then print(stdout)
-            if stderr.nonEmpty then System.err.print(stderr)
-            if exit != 0 then System.exit(exit)
-          case CompileResult.TextOutput(code, _, _) =>
-            // Non-interpreter backends produce text — print it to stdout.
-            println(code)
-          case CompileResult.Failed(diags)        =>
-            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
-          case other =>
-            System.err.println(s"Unexpected result: ${other.getClass.getSimpleName}")
-            System.exit(1)
-      catch case e: Exception =>
-        System.err.println(s"Runtime error: ${e.getMessage}")
-        System.exit(1)
-      finally scalascript.config.ConfigRegistry.clearSidecar()
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      else
+        try
+          // Load config: frontmatter < sidecar files < fenced blocks < -Dscalascript.* < CLI flags.
+          // ConfigRegistry.setSidecar merges system props automatically as the top layer.
+          val sidecarCv = loadSidecarConfig(path)
+          scalascript.config.ConfigRegistry.setSidecar(sidecarCv.getOrElse(scalascript.config.ConfigValue.empty))
+          if frontendFlag.isEmpty then
+            scalascript.config.ConfigRegistry.getSidecar
+              .flatMap(_.get("frontend").flatMap(_.getString))
+              .filter(validFrontendNames)
+              .foreach(applyFrontendBackend)
+          val module = loadModule(path)
+          val effectiveBackend =
+            if backendId == "int" then
+              // Check front-matter `backend:` for a per-file default.
+              module.manifest.flatMap(_.raw.get("backend"))
+                .collect { case s: String => s }
+                .getOrElse("int")
+            else backendId
+          // Spark version resolution lives at the CLI layer because the
+          // front-matter `raw` map is dropped by Normalize — we read it
+          // here while we still hold the ast.Module, then thread it
+          // through BackendOptions.extra to the SPI backend.
+          val extras: Map[String, String] =
+            if effectiveBackend == "spark" then
+              val version =
+                sparkVersionFlag
+                  .orElse(
+                    module.manifest.flatMap(_.raw.get("spark-version"))
+                      .collect { case s: String => s }
+                  )
+                  .getOrElse(SparkGen.DefaultVersion)
+              val master =
+                sparkMasterFlag
+                  .orElse(
+                    module.manifest.flatMap(_.raw.get("spark-master"))
+                      .collect { case s: String => s }
+                  )
+                  .getOrElse(SparkGen.DefaultMaster)
+              // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3
+              // slice 3): read the YAML map, encode into a single
+              // BackendOptions.extra string entry under "sparkConfig".
+              // SparkBackend.compile decodes and forwards to SparkGen
+              // which emits one `.config(k, v)` per pair.
+              val configMap = module.manifest
+                .flatMap(_.raw.get("spark-config"))
+                .map(SparkBackend.fromYamlMap)
+                .getOrElse(Map.empty)
+              // `spark-app-name:` front-matter override for the Spark UI
+              // / driver / executor log name (Phase C.3 slice 4).
+              val appName = module.manifest
+                .flatMap(_.raw.get("spark-app-name"))
+                .collect { case s: String => s }
+              // Phase G.2 — `spark-hive-metastore:` (Thrift URI) and
+              // `spark-warehouse:` (path) keys.  Both read here from
+              // the raw YAML map before Normalize strips it; both
+              // threaded through BackendOptions.extra as single
+              // strings.  Either key alone is enough to trigger the
+              // Hive wiring on the SparkSession (catalogImplementation
+              // = hive + enableHiveSupport + spark-hive_2.13 dep).
+              val hiveMetastore = module.manifest
+                .flatMap(_.raw.get("spark-hive-metastore"))
+                .collect { case s: String => s }
+              val warehouse = module.manifest
+                .flatMap(_.raw.get("spark-warehouse"))
+                .collect { case s: String => s }
+              val base = Map("sparkVersion" -> version, "sparkMaster" -> master)
+              val withConfig =
+                if configMap.isEmpty then base
+                else base + (SparkBackend.SparkConfigOption ->
+                             SparkBackend.encodeSparkConfig(configMap))
+              val withAppName = appName.fold(withConfig)(n => withConfig + (SparkBackend.SparkAppNameOption -> n))
+              val withHive    = hiveMetastore.fold(withAppName)(uri => withAppName + (SparkBackend.SparkHiveMetastoreOption -> uri))
+              warehouse.fold(withHive)(p => withHive + (SparkBackend.SparkWarehouseOption -> p))
+            else Map.empty
+          val frontendName = frontendFlag.orElse(
+            module.manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s }
+          )
+          val extrasWithFrontend = frontendName.fold(extras)(n => extras + ("frontendName" -> n))
+          compileViaBackend(effectiveBackend, path, extrasWithFrontend) match
+            case CompileResult.Executed(stdout, stderr, exit) =>
+              if stdout.nonEmpty then print(stdout)
+              if stderr.nonEmpty then System.err.print(stderr)
+              if exit != 0 then System.exit(exit)
+            case CompileResult.TextOutput(code, _, _) =>
+              // Non-interpreter backends produce text — print it to stdout.
+              println(code)
+            case CompileResult.Failed(diags)        =>
+              diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+            case other =>
+              System.err.println(s"Unexpected result: ${other.getClass.getSimpleName}")
+              System.exit(1)
+        catch case e: Exception =>
+          System.err.println(s"Runtime error: ${e.getMessage}")
+          System.exit(1)
+        finally scalascript.config.ConfigRegistry.clearSidecar()
 
 private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purpose: String): Unit =
   if !os.exists(sscFile) then
@@ -2276,26 +2301,30 @@ private def waitForTcpReady(
   if !ready then
     throw new RuntimeException(s"JVM backend did not become ready on $host:$port within ${timeoutMs}ms")
 
-def replCommand(@annotation.unused args: List[String]): Unit =
-  import scala.io.StdIn
-  val interp = Interpreter()
-  interp.run(Parser.parse("# REPL\n"))   // initialise builtins, no code runs
-  val dbgHooks = ReplDebugHooks()
-  interp.setDebugSourceFile("<repl>")
-  interp.setDebugHooks(Some(dbgHooks.mkHooks()))
-  System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
-  var running = true
-  // Global REPL setting: include handler deserialization details in 400 errors.
-  // Read by replHandleMount for typed handler wrapping (Phase 7).
-  var errorDetails: Boolean = true
-  // Tracks the port the HTTP server is currently listening on (None = stopped).
-  val serverPort = new java.util.concurrent.atomic.AtomicReference[Option[Int]](None)
-  while running do
-    Option(StdIn.readLine("ssc> ")) match
-      case None | Some(":quit" | ":q" | ":exit") => running = false
-      case Some(":help" | ":h") =>
-        System.err.println(
-          """|ScalaScript REPL
+final class ReplCmd extends CliCommand:
+  def name = "repl"
+  override def summary = "Start an interactive REPL (blank line runs, :quit exits)"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    import scala.io.StdIn
+    val interp = Interpreter()
+    interp.run(Parser.parse("# REPL\n"))   // initialise builtins, no code runs
+    val dbgHooks = ReplDebugHooks()
+    interp.setDebugSourceFile("<repl>")
+    interp.setDebugHooks(Some(dbgHooks.mkHooks()))
+    System.err.println("ScalaScript REPL  (:help for commands, :quit to exit, blank line to run)")
+    var running = true
+    // Global REPL setting: include handler deserialization details in 400 errors.
+    // Read by replHandleMount for typed handler wrapping (Phase 7).
+    var errorDetails: Boolean = true
+    // Tracks the port the HTTP server is currently listening on (None = stopped).
+    val serverPort = new java.util.concurrent.atomic.AtomicReference[Option[Int]](None)
+    while running do
+      Option(StdIn.readLine("ssc> ")) match
+        case None | Some(":quit" | ":q" | ":exit") => running = false
+        case Some(":help" | ":h") =>
+          System.err.println(
+            """|ScalaScript REPL
              |
              |Input:
              |  Type code and press Enter to add a line.
@@ -2342,50 +2371,50 @@ def replCommand(@annotation.unused args: List[String]): Unit =
              |  :print <expr>       — evaluate expression in current frame
              |  :quit      :q       — abort snippet, return to ssc>
              |""".stripMargin)
-      case Some(":reset") =>
-        interp.run(Parser.parse("# REPL\n"))
-        System.err.println("[reset] interpreter cleared")
-      case Some(s) if s.startsWith(":set ") =>
-        replHandleSet(s.trim, { v => errorDetails = v })
-      case Some(s) if s == ":serve" || s.startsWith(":serve ") =>
-        replHandleServe(s.trim, serverPort, interp)
-      case Some(s) if s == ":stop" || s == ":stop --keep-routes" =>
-        replHandleStop(s.trim, serverPort)
-      case Some(":clear") =>
-        scalascript.server.Routes.clear()
-        System.err.println("Routes cleared.")
-      case Some(s) if s.startsWith(":mount ") =>
-        replHandleMount(s.trim, interp, errorDetails)
-      case Some(s) if s.startsWith(":load ") =>
-        replHandleLoad(s.trim, interp)
-      case Some(s) if s.startsWith(":reload ") =>
-        replHandleReload(s.trim, interp)
-      case Some(s) if s.startsWith(":unmount ") =>
-        replHandleUnmount(s.trim)
-      case Some(":routes") =>
-        replHandleRoutes()
-      case Some(s) if s == ":http" || s.startsWith(":http ") =>
-        replHandleHttp(s.trim, serverPort)
-      case Some(s) if s == ":call" || s.startsWith(":call ") =>
-        replHandleCall(s.trim, interp)
-      case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
-      case Some(":step")                          =>
-        dbgHooks.enableStepIn()
-        System.err.println("[step] step-in enabled — enter your snippet")
-      case Some(first) =>
-        val lines = scala.collection.mutable.ArrayBuffer(first)
-        var more = true
-        while more do
-          Option(StdIn.readLine("   | ")) match
-            case None | Some("") => more = false
-            case Some(next)      => lines += next
-        val code = lines.mkString("\n").trim
-        if code.nonEmpty then
-          if dbgHooks.isDebugActive then
-            runReplSnippetDebug(code, interp, dbgHooks)
-          else
-            try   interp.runSnippet(code)
-            catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
+        case Some(":reset") =>
+          interp.run(Parser.parse("# REPL\n"))
+          System.err.println("[reset] interpreter cleared")
+        case Some(s) if s.startsWith(":set ") =>
+          replHandleSet(s.trim, { v => errorDetails = v })
+        case Some(s) if s == ":serve" || s.startsWith(":serve ") =>
+          replHandleServe(s.trim, serverPort, interp)
+        case Some(s) if s == ":stop" || s == ":stop --keep-routes" =>
+          replHandleStop(s.trim, serverPort)
+        case Some(":clear") =>
+          scalascript.server.Routes.clear()
+          System.err.println("Routes cleared.")
+        case Some(s) if s.startsWith(":mount ") =>
+          replHandleMount(s.trim, interp, errorDetails)
+        case Some(s) if s.startsWith(":load ") =>
+          replHandleLoad(s.trim, interp)
+        case Some(s) if s.startsWith(":reload ") =>
+          replHandleReload(s.trim, interp)
+        case Some(s) if s.startsWith(":unmount ") =>
+          replHandleUnmount(s.trim)
+        case Some(":routes") =>
+          replHandleRoutes()
+        case Some(s) if s == ":http" || s.startsWith(":http ") =>
+          replHandleHttp(s.trim, serverPort)
+        case Some(s) if s == ":call" || s.startsWith(":call ") =>
+          replHandleCall(s.trim, interp)
+        case Some(s) if s.startsWith(":break")      => replHandleBreak(s.trim, dbgHooks)
+        case Some(":step")                          =>
+          dbgHooks.enableStepIn()
+          System.err.println("[step] step-in enabled — enter your snippet")
+        case Some(first) =>
+          val lines = scala.collection.mutable.ArrayBuffer(first)
+          var more = true
+          while more do
+            Option(StdIn.readLine("   | ")) match
+              case None | Some("") => more = false
+              case Some(next)      => lines += next
+          val code = lines.mkString("\n").trim
+          if code.nonEmpty then
+            if dbgHooks.isDebugActive then
+              runReplSnippetDebug(code, interp, dbgHooks)
+            else
+              try   interp.runSnippet(code)
+              catch case e: Exception => System.err.println(s"Error: ${e.getMessage}")
 
 /** Handle `:serve [port]` in the REPL.
  *  Starts WebServer in a background virtual thread (non-blocking).
@@ -3075,166 +3104,171 @@ def replPrintDebugHelp(): Unit =
        |    :quit     | :q      — stop and return to REPL""".stripMargin
   )
 
-def watchCommand(args: List[String]): Unit =
-  import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
-  import scala.jdk.CollectionConverters.*
-  if args.isEmpty then { println("Error: No file specified"); System.exit(1) }
-  // Parse --frontend flag (same as runCommand; flag overrides frontmatter)
-  val it = args.iterator
-  var fileArg:     Option[String] = None
-  var frontendArg: Option[String] = None
-  while it.hasNext do
-    val a = it.next()
-    if a == "--frontend" && it.hasNext then
-      val name = it.next()
-      if validFrontendNames(name) then frontendArg = Some(name)
-      else { System.err.println(s"watch: unknown --frontend '$name'"); System.exit(1) }
-    else if !a.startsWith("-") && fileArg.isEmpty then fileArg = Some(a)
-  val file    = fileArg.getOrElse { println("Error: No file specified"); System.exit(1); "" }
-  val absPath = Paths.get(file).toAbsolutePath.normalize
-  val dir     = absPath.getParent
-  val osPath  = os.Path(absPath)
-  // Apply frontend: CLI flag wins; fall back to frontmatter `frontend:` key.
-  frontendArg match
-    case Some(name) => applyFrontendBackend(name)
-    case None =>
-      ParseCache.getOrParse(osPath).manifest
-        .flatMap(_.raw.get("frontend"))
-        .collect { case s: String => s }
-        .filter(validFrontendNames)
-        .foreach(applyFrontendBackend)
+final class WatchCmd extends CliCommand:
+  def name = "watch"
+  override def summary = "Run .ssc and re-run on every file change"
+  override def category = "Run & develop"
+  override def details = List("Flags: --frontend <custom|react|solid|vue|swing>")
+  def run(args: List[String]): Unit =
+    import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
+    import scala.jdk.CollectionConverters.*
+    if args.isEmpty then { println("Error: No file specified"); System.exit(1) }
+    // Parse --frontend flag (same as runCommand; flag overrides frontmatter)
+    val it = args.iterator
+    var fileArg:     Option[String] = None
+    var frontendArg: Option[String] = None
+    while it.hasNext do
+      val a = it.next()
+      if a == "--frontend" && it.hasNext then
+        val name = it.next()
+        if validFrontendNames(name) then frontendArg = Some(name)
+        else { System.err.println(s"watch: unknown --frontend '$name'"); System.exit(1) }
+      else if !a.startsWith("-") && fileArg.isEmpty then fileArg = Some(a)
+    val file    = fileArg.getOrElse { println("Error: No file specified"); System.exit(1); "" }
+    val absPath = Paths.get(file).toAbsolutePath.normalize
+    val dir     = absPath.getParent
+    val osPath  = os.Path(absPath)
+    // Apply frontend: CLI flag wins; fall back to frontmatter `frontend:` key.
+    frontendArg match
+      case Some(name) => applyFrontendBackend(name)
+      case None =>
+        ParseCache.getOrParse(osPath).manifest
+          .flatMap(_.raw.get("frontend"))
+          .collect { case s: String => s }
+          .filter(validFrontendNames)
+          .foreach(applyFrontendBackend)
 
-  // ── Hot-reload state ─────────────────────────────────────────────────
-  // `isServerFile` is set to true on first run if the source contains a
-  // top-level `serve(` call.  Once true, subsequent reloads use headless
-  // mode so the already-running server port is not rebound; only the
-  // route table is refreshed.
-  var isServerFile  = false
-  // Whether the server has already been started (bound port + blocking thread).
-  var serverStarted = false
-  // Section snapshots from the previous type-check run, enabling incremental
-  // re-checking: only sections whose content hash changed are re-typed.
-  var prevTyperSnapshots: List[SectionSnapshot] = Nil
+    // ── Hot-reload state ─────────────────────────────────────────────────
+    // `isServerFile` is set to true on first run if the source contains a
+    // top-level `serve(` call.  Once true, subsequent reloads use headless
+    // mode so the already-running server port is not rebound; only the
+    // route table is refreshed.
+    var isServerFile  = false
+    // Whether the server has already been started (bound port + blocking thread).
+    var serverStarted = false
+    // Section snapshots from the previous type-check run, enabling incremental
+    // re-checking: only sections whose content hash changed are re-typed.
+    var prevTyperSnapshots: List[SectionSnapshot] = Nil
 
-  // ── Incremental interpreter state (non-server mode only) ─────────────
-  // Reusing the same Interpreter across cycles lets us skip re-running
-  // unchanged sections.  Checkpoints(i) = interpreter state before section i.
-  // Length = module.sections.length + 1 after each run.
-  // Server files are excluded: route-table mutations live outside `globals`,
-  // so checkpoint restore would leave stale routes in scalascript.server.Routes.
-  var theInterp: Interpreter = null
-  var interpCheckpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
+    // ── Incremental interpreter state (non-server mode only) ─────────────
+    // Reusing the same Interpreter across cycles lets us skip re-running
+    // unchanged sections.  Checkpoints(i) = interpreter state before section i.
+    // Length = module.sections.length + 1 after each run.
+    // Server files are excluded: route-table mutations live outside `globals`,
+    // so checkpoint restore would leave stale routes in scalascript.server.Routes.
+    var theInterp: Interpreter = null
+    var interpCheckpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
 
-  def timestamp(): String =
-    val now = java.time.LocalTime.now()
-    f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
+    def timestamp(): String =
+      val now = java.time.LocalTime.now()
+      f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
 
-  def runOnce(headless: Boolean): Unit =
-    try
-      val module      = ParseCache.getOrParse(osPath)
-      val oldSnaps    = prevTyperSnapshots
-      // Incremental type-check: re-type only sections whose hash changed.
-      val (typed, newSnaps) = Typer.typeCheckIncrementalModule(module, oldSnaps)
-      // Section-level diff: which sections were added / modified / removed?
-      val diff = SectionDiff.compute(oldSnaps, newSnaps)
-      prevTyperSnapshots = newSnaps
-      if typed.errors.nonEmpty then
-        typed.errors.foreach(e => System.err.println(s"[${timestamp()}] type: ${e.show}"))
-      // Skip interpreter re-run on false-positive watch events (editor touched
-      // mtime without changing content — ParseCache already de-duped the parse,
-      // and SectionDiff confirms nothing actually changed).
-      if diff.isEmpty && oldSnaps.nonEmpty then
-        System.err.println(s"[${timestamp()}] (no section changes — skipping re-run)")
-        return
-      if !diff.isEmpty && oldSnaps.nonEmpty then
-        System.err.println(s"[${timestamp()}] changed: ${diff.show}")
-      if headless then
-        // Server hot-reload: full re-run on a fresh interpreter so the route
-        // table is rebuilt cleanly (Routes.clear + new headless Interpreter).
-        scalascript.server.Routes.clear()
-        val hi = Interpreter(baseDir = Some(osPath / os.up), headless = true)
-        frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
-          .foreach(n => hi.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
-        hi.run(module)
-      else if theInterp != null && interpCheckpoints.nonEmpty then
-        // Incremental path: find first changed section and re-run only from there.
-        val prevHashes = oldSnaps.map(_.sectionHash)
-        val currHashes = newSnaps.map(_.sectionHash)
-        val firstChanged = currHashes.zipWithIndex.collectFirst {
-          case (h, i) if prevHashes.lift(i).forall(_ != h) => i
-        }.getOrElse(module.sections.length)
-        val skipped = module.sections.length - (module.sections.length - firstChanged)
-        val t0 = System.nanoTime()
-        interpCheckpoints = theInterp.runSectionsIncremental(
-          module.sections, firstChanged, interpCheckpoints
-        )
-        val ms = (System.nanoTime() - t0) / 1_000_000
-        if skipped > 0 then
-          System.err.println(
-            s"[${timestamp()}] incremental: skipped $skipped/${module.sections.length} sections (${ms}ms)"
+    def runOnce(headless: Boolean): Unit =
+      try
+        val module      = ParseCache.getOrParse(osPath)
+        val oldSnaps    = prevTyperSnapshots
+        // Incremental type-check: re-type only sections whose hash changed.
+        val (typed, newSnaps) = Typer.typeCheckIncrementalModule(module, oldSnaps)
+        // Section-level diff: which sections were added / modified / removed?
+        val diff = SectionDiff.compute(oldSnaps, newSnaps)
+        prevTyperSnapshots = newSnaps
+        if typed.errors.nonEmpty then
+          typed.errors.foreach(e => System.err.println(s"[${timestamp()}] type: ${e.show}"))
+        // Skip interpreter re-run on false-positive watch events (editor touched
+        // mtime without changing content — ParseCache already de-duped the parse,
+        // and SectionDiff confirms nothing actually changed).
+        if diff.isEmpty && oldSnaps.nonEmpty then
+          System.err.println(s"[${timestamp()}] (no section changes — skipping re-run)")
+          return
+        if !diff.isEmpty && oldSnaps.nonEmpty then
+          System.err.println(s"[${timestamp()}] changed: ${diff.show}")
+        if headless then
+          // Server hot-reload: full re-run on a fresh interpreter so the route
+          // table is rebuilt cleanly (Routes.clear + new headless Interpreter).
+          scalascript.server.Routes.clear()
+          val hi = Interpreter(baseDir = Some(osPath / os.up), headless = true)
+          frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
+            .foreach(n => hi.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
+          hi.run(module)
+        else if theInterp != null && interpCheckpoints.nonEmpty then
+          // Incremental path: find first changed section and re-run only from there.
+          val prevHashes = oldSnaps.map(_.sectionHash)
+          val currHashes = newSnaps.map(_.sectionHash)
+          val firstChanged = currHashes.zipWithIndex.collectFirst {
+            case (h, i) if prevHashes.lift(i).forall(_ != h) => i
+          }.getOrElse(module.sections.length)
+          val skipped = module.sections.length - (module.sections.length - firstChanged)
+          val t0 = System.nanoTime()
+          interpCheckpoints = theInterp.runSectionsIncremental(
+            module.sections, firstChanged, interpCheckpoints
           )
-      else
-        // First run for non-server file: run everything and record checkpoints.
-        val interp = Interpreter(baseDir = Some(osPath / os.up), headless = false)
-        frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
-          .foreach(n => interp.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
-        theInterp = interp
-        interpCheckpoints = interp.runWithCheckpoints(module)
-    catch
-      case e: Exception =>
-        System.err.println(s"[${timestamp()}] Error: ${e.getMessage}")
+          val ms = (System.nanoTime() - t0) / 1_000_000
+          if skipped > 0 then
+            System.err.println(
+              s"[${timestamp()}] incremental: skipped $skipped/${module.sections.length} sections (${ms}ms)"
+            )
+        else
+          // First run for non-server file: run everything and record checkpoints.
+          val interp = Interpreter(baseDir = Some(osPath / os.up), headless = false)
+          frontendArg.orElse(ParseCache.getOrParse(osPath).manifest.flatMap(_.raw.get("frontend")).collect { case s: String => s })
+            .foreach(n => interp.injectGlobal("_ssc_frontend_name", scalascript.interpreter.Value.StringV(n)))
+          theInterp = interp
+          interpCheckpoints = interp.runWithCheckpoints(module)
+      catch
+        case e: Exception =>
+          System.err.println(s"[${timestamp()}] Error: ${e.getMessage}")
 
-  // Detect whether the raw source contains a `serve(` call so we can
-  // choose the right reload strategy without modifying the AST pipeline.
-  def detectServerFile(): Boolean =
-    try
-      val src = os.read(osPath)
-      // Match `serve(` that is not inside a line comment.  Simple heuristic:
-      // strip everything after `//` on each line, then look for `serve(`.
-      src.linesIterator.exists { line =>
-        val stripped = line.replaceAll("//.*", "").trim
-        stripped.contains("serve(")
+    // Detect whether the raw source contains a `serve(` call so we can
+    // choose the right reload strategy without modifying the AST pipeline.
+    def detectServerFile(): Boolean =
+      try
+        val src = os.read(osPath)
+        // Match `serve(` that is not inside a line comment.  Simple heuristic:
+        // strip everything after `//` on each line, then look for `serve(`.
+        src.linesIterator.exists { line =>
+          val stripped = line.replaceAll("//.*", "").trim
+          stripped.contains("serve(")
+        }
+      catch case _: Exception => false
+
+    System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
+
+    // ── First run ────────────────────────────────────────────────────────
+    isServerFile = detectServerFile()
+    System.err.println(
+      s"[${timestamp()}] Running ${absPath.getFileName}" +
+      (if isServerFile then " (server mode — hot reload enabled)" else "") + "..."
+    )
+    if isServerFile then
+      // Start the server on a background thread so the watch loop can continue.
+      val t = Thread(() => runOnce(headless = false))
+      t.setDaemon(false)
+      t.start()
+      serverStarted = true
+      // Give the server a moment to bind before we start watching.
+      Thread.sleep(500)
+    else
+      runOnce(headless = false)
+
+    // ── Watch loop ───────────────────────────────────────────────────────
+    val watcher = FileSystems.getDefault.newWatchService()
+    dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
+    while true do
+      val key     = watcher.take()
+      val changed = key.pollEvents().asScala.exists { ev =>
+        ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
       }
-    catch case _: Exception => false
-
-  System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
-
-  // ── First run ────────────────────────────────────────────────────────
-  isServerFile = detectServerFile()
-  System.err.println(
-    s"[${timestamp()}] Running ${absPath.getFileName}" +
-    (if isServerFile then " (server mode — hot reload enabled)" else "") + "..."
-  )
-  if isServerFile then
-    // Start the server on a background thread so the watch loop can continue.
-    val t = Thread(() => runOnce(headless = false))
-    t.setDaemon(false)
-    t.start()
-    serverStarted = true
-    // Give the server a moment to bind before we start watching.
-    Thread.sleep(500)
-  else
-    runOnce(headless = false)
-
-  // ── Watch loop ───────────────────────────────────────────────────────
-  val watcher = FileSystems.getDefault.newWatchService()
-  dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
-  while true do
-    val key     = watcher.take()
-    val changed = key.pollEvents().asScala.exists { ev =>
-      ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
-    }
-    if changed then
-      // Small debounce: editors often fire two ENTRY_MODIFY events in
-      // quick succession (content write + metadata update).
-      Thread.sleep(50)
-      System.err.println(s"\n[2J[H[${timestamp()}] Reloading ${absPath.getFileName}...")
-      if isServerFile && serverStarted then
-        runOnce(headless = true)
-        System.err.println(s"[${timestamp()}] Routes reloaded.")
-      else
-        runOnce(headless = false)
-    key.reset()
+      if changed then
+        // Small debounce: editors often fire two ENTRY_MODIFY events in
+        // quick succession (content write + metadata update).
+        Thread.sleep(50)
+        System.err.println(s"\n[2J[H[${timestamp()}] Reloading ${absPath.getFileName}...")
+        if isServerFile && serverStarted then
+          runOnce(headless = true)
+          System.err.println(s"[${timestamp()}] Routes reloaded.")
+        else
+          runOnce(headless = false)
+      key.reset()
 
 private case class WatchBenchConfig(
     file:          String = "",
@@ -3243,111 +3277,115 @@ private case class WatchBenchConfig(
     requireTarget: Boolean = false
 )
 
-private[cli] def watchBenchCommand(args: List[String]): Unit =
-  if args.isEmpty then
-    System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
-    System.exit(1)
-  var cfg = WatchBenchConfig()
-  var i   = 0
-  def nextValue(flag: String): String =
-    if i + 1 >= args.length then
-      System.err.println(s"watch-bench: missing value for $flag")
+final class WatchBenchCmd extends CliCommand:
+  def name = "watch-bench"
+  override def summary = "Benchmark one watch reload cycle on a temp copy"
+  override def category = "Run & develop"
+  override def details = List("Flags: --cycles <n>, --target-ms <n>, --require-target")
+  def run(args: List[String]): Unit =
+    if args.isEmpty then
+      System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
       System.exit(1)
-    i += 1
-    args(i)
-  while i < args.length do
-    args(i) match
-      case "--cycles" =>
-        cfg = cfg.copy(cycles = nextValue("--cycles").toInt)
-      case "--target-ms" =>
-        cfg = cfg.copy(targetMs = nextValue("--target-ms").toLong)
-      case "--require-target" =>
-        cfg = cfg.copy(requireTarget = true)
-      case s if !s.startsWith("-") && cfg.file.isEmpty =>
-        cfg = cfg.copy(file = s)
-      case other =>
-        System.err.println(s"watch-bench: unknown argument: $other")
+    var cfg = WatchBenchConfig()
+    var i   = 0
+    def nextValue(flag: String): String =
+      if i + 1 >= args.length then
+        System.err.println(s"watch-bench: missing value for $flag")
         System.exit(1)
-    i += 1
-  if cfg.file.isEmpty then
-    System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
-    System.exit(1)
-  if cfg.cycles < 1 then
-    System.err.println("watch-bench: --cycles must be positive")
-    System.exit(1)
+      i += 1
+      args(i)
+    while i < args.length do
+      args(i) match
+        case "--cycles" =>
+          cfg = cfg.copy(cycles = nextValue("--cycles").toInt)
+        case "--target-ms" =>
+          cfg = cfg.copy(targetMs = nextValue("--target-ms").toLong)
+        case "--require-target" =>
+          cfg = cfg.copy(requireTarget = true)
+        case s if !s.startsWith("-") && cfg.file.isEmpty =>
+          cfg = cfg.copy(file = s)
+        case other =>
+          System.err.println(s"watch-bench: unknown argument: $other")
+          System.exit(1)
+      i += 1
+    if cfg.file.isEmpty then
+      System.err.println("Usage: ssc watch-bench [--cycles N] [--target-ms N] [--require-target] <file.ssc>")
+      System.exit(1)
+    if cfg.cycles < 1 then
+      System.err.println("watch-bench: --cycles must be positive")
+      System.exit(1)
 
-  val srcPath = os.Path(java.nio.file.Paths.get(cfg.file).toAbsolutePath.normalize)
-  if !os.exists(srcPath) then
-    System.err.println(s"watch-bench: file not found: ${cfg.file}")
-    System.exit(1)
+    val srcPath = os.Path(java.nio.file.Paths.get(cfg.file).toAbsolutePath.normalize)
+    if !os.exists(srcPath) then
+      System.err.println(s"watch-bench: file not found: ${cfg.file}")
+      System.exit(1)
 
-  val tmpDir  = os.temp.dir(prefix = "ssc-watch-bench-", deleteOnExit = true)
-  val tmpFile = tmpDir / srcPath.last
-  os.copy(srcPath, tmpFile)
-  ParseCache.clear()
+    val tmpDir  = os.temp.dir(prefix = "ssc-watch-bench-", deleteOnExit = true)
+    val tmpFile = tmpDir / srcPath.last
+    os.copy(srcPath, tmpFile)
+    ParseCache.clear()
 
-  def isServerSource(): Boolean =
-    os.read(tmpFile).linesIterator.exists { line =>
-      line.replaceAll("//.*", "").contains("serve(")
-    }
+    def isServerSource(): Boolean =
+      os.read(tmpFile).linesIterator.exists { line =>
+        line.replaceAll("//.*", "").contains("serve(")
+      }
 
-  def mutate(cycle: Int): Unit =
-    val marker = s"// watch-bench-cycle-$cycle"
-    val src    = os.read(tmpFile)
-    val idx    = src.lastIndexOf("```")
-    val next =
-      if idx >= 0 then src.take(idx) + marker + "\n" + src.drop(idx)
-      else src + s"\n# Watch Bench $cycle\n```scala\n$marker\n```\n"
-    os.write.over(tmpFile, next)
+    def mutate(cycle: Int): Unit =
+      val marker = s"// watch-bench-cycle-$cycle"
+      val src    = os.read(tmpFile)
+      val idx    = src.lastIndexOf("```")
+      val next =
+        if idx >= 0 then src.take(idx) + marker + "\n" + src.drop(idx)
+        else src + s"\n# Watch Bench $cycle\n```scala\n$marker\n```\n"
+      os.write.over(tmpFile, next)
 
-  var prevSnapshots: List[SectionSnapshot] = Nil
-  var interp: Interpreter = null
-  var checkpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
-  val serverMode = isServerSource()
-  def benchInterpreter(headless: Boolean): Interpreter =
-    Interpreter(
-      out = new java.io.PrintStream(java.io.ByteArrayOutputStream(), true, "UTF-8"),
-      baseDir = Some(tmpFile / os.up),
-      headless = headless
-    )
+    var prevSnapshots: List[SectionSnapshot] = Nil
+    var interp: Interpreter = null
+    var checkpoints: Vector[scalascript.interpreter.InterpCheckpoint] = Vector.empty
+    val serverMode = isServerSource()
+    def benchInterpreter(headless: Boolean): Interpreter =
+      Interpreter(
+        out = new java.io.PrintStream(java.io.ByteArrayOutputStream(), true, "UTF-8"),
+        baseDir = Some(tmpFile / os.up),
+        headless = headless
+      )
 
-  def reloadOnce(cold: Boolean): Long =
-    val t0 = System.nanoTime()
-    val module = ParseCache.getOrParse(tmpFile)
-    val (typed, newSnapshots) = Typer.typeCheckIncrementalModule(module, prevSnapshots)
-    val oldSnapshots = prevSnapshots
-    prevSnapshots = newSnapshots
-    if typed.errors.nonEmpty then
-      typed.errors.foreach(e => System.err.println(s"watch-bench type: ${e.show}"))
-    if serverMode then
-      scalascript.server.Routes.clear()
-      benchInterpreter(headless = true).run(module)
-    else if cold || interp == null || checkpoints.isEmpty then
-      interp = benchInterpreter(headless = false)
-      checkpoints = interp.runWithCheckpoints(module)
-    else
-      val prevHashes = oldSnapshots.map(_.sectionHash)
-      val currHashes = newSnapshots.map(_.sectionHash)
-      val firstChanged = currHashes.zipWithIndex.collectFirst {
-        case (h, idx) if prevHashes.lift(idx).forall(_ != h) => idx
-      }.getOrElse(module.sections.length)
-      checkpoints = interp.runSectionsIncremental(module.sections, firstChanged, checkpoints)
-    (System.nanoTime() - t0) / 1_000_000L
+    def reloadOnce(cold: Boolean): Long =
+      val t0 = System.nanoTime()
+      val module = ParseCache.getOrParse(tmpFile)
+      val (typed, newSnapshots) = Typer.typeCheckIncrementalModule(module, prevSnapshots)
+      val oldSnapshots = prevSnapshots
+      prevSnapshots = newSnapshots
+      if typed.errors.nonEmpty then
+        typed.errors.foreach(e => System.err.println(s"watch-bench type: ${e.show}"))
+      if serverMode then
+        scalascript.server.Routes.clear()
+        benchInterpreter(headless = true).run(module)
+      else if cold || interp == null || checkpoints.isEmpty then
+        interp = benchInterpreter(headless = false)
+        checkpoints = interp.runWithCheckpoints(module)
+      else
+        val prevHashes = oldSnapshots.map(_.sectionHash)
+        val currHashes = newSnapshots.map(_.sectionHash)
+        val firstChanged = currHashes.zipWithIndex.collectFirst {
+          case (h, idx) if prevHashes.lift(idx).forall(_ != h) => idx
+        }.getOrElse(module.sections.length)
+        checkpoints = interp.runSectionsIncremental(module.sections, firstChanged, checkpoints)
+      (System.nanoTime() - t0) / 1_000_000L
 
-  val warmMs = reloadOnce(cold = true)
-  val samples = (1 to cfg.cycles).map { cycle =>
-    mutate(cycle)
-    val ms = reloadOnce(cold = false)
-    println(s"cycle $cycle: ${ms}ms")
-    ms
-  }.toVector.sorted
-  val p50 = samples(samples.length / 2)
-  val max = samples.last
-  println(s"watch-bench: file=${srcPath.last} mode=${if serverMode then "server" else "script"} warm=${warmMs}ms p50=${p50}ms max=${max}ms target=${cfg.targetMs}ms")
-  if cfg.requireTarget && max > cfg.targetMs then
-    System.err.println(s"watch-bench: max ${max}ms exceeded target ${cfg.targetMs}ms")
-    System.exit(1)
-
+    val warmMs = reloadOnce(cold = true)
+    val samples = (1 to cfg.cycles).map { cycle =>
+      mutate(cycle)
+      val ms = reloadOnce(cold = false)
+      println(s"cycle $cycle: ${ms}ms")
+      ms
+    }.toVector.sorted
+    val p50 = samples(samples.length / 2)
+    val max = samples.last
+    println(s"watch-bench: file=${srcPath.last} mode=${if serverMode then "server" else "script"} warm=${warmMs}ms p50=${p50}ms max=${max}ms target=${cfg.targetMs}ms")
+    if cfg.requireTarget && max > cfg.targetMs then
+      System.err.println(s"watch-bench: max ${max}ms exceeded target ${cfg.targetMs}ms")
+      System.exit(1)
 
 /** `ssc emit-spark [--spark-version <v>] <file.ssc> [-o <file.scala>]`
  *
@@ -3373,62 +3411,66 @@ private[cli] def watchBenchCommand(args: List[String]): Unit =
  *  Phase 1: `master("local[*]")` is hardcoded.
  *  Phase 2: `--spark-master` flag + `ssc submit` for cluster submission.
  */
-def emitSparkCommand(args: List[String]): Unit =
-  var outputArg:       Option[String] = None
-  var sparkVersionArg: Option[String] = None
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" if it.hasNext              => outputArg = Some(it.next())
-      case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
-      case f                               => files += f
-  if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
-  for file <- files do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
-    else
-      try
-        val module = Parser.parse(os.read(path))
-        // Version resolution: CLI flag > front-matter > default.
-        val sparkVersion =
-          sparkVersionArg
-            .orElse(
-              module.manifest.flatMap(_.raw.get("spark-version"))
-                .collect { case s: String => s }
-            )
-            .getOrElse(SparkGen.DefaultVersion)
-        // Pull the `spark-master` and `spark-config:` front-matter so the
-        // emitted source matches `ssc run --backend spark` and `ssc submit`
-        // for the same input.  `emit-spark` has no CLI master flag of its
-        // own — the front-matter is the only override path here.
-        val sparkMaster = module.manifest.flatMap(_.raw.get("spark-master"))
-          .collect { case s: String => s }
-          .getOrElse(SparkGen.DefaultMaster)
-        val sparkConfig = module.manifest
-          .flatMap(_.raw.get("spark-config"))
-          .map(SparkBackend.fromYamlMap)
-          .getOrElse(Map.empty[String, String])
-        val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
-          .collect { case s: String => s }
-          .getOrElse(SparkGen.DefaultAppName)
-        val code = SparkGen.generate(
-          module,
-          baseDir      = Some(path / os.up),
-          sparkVersion = sparkVersion,
-          sparkMaster  = sparkMaster,
-          extraConfig  = sparkConfig,
-          appName      = appName
-        )
-        outputArg match
-          case Some("-") | None => println(code)
-          case Some(out)        =>
-            val outPath = os.Path(out, os.pwd)
-            os.write.over(outPath, code)
-            System.err.println(s"Spark source written to $out")
-      catch case e: Exception =>
-        System.err.println(s"Spark generation error: ${e.getMessage}")
-        System.exit(1)
+final class EmitSparkCmd extends CliCommand:
+  def name = "emit-spark"
+  override def summary = "Print generated Scala 3 + Spark program to stdout"
+  override def category = "Emit & transpile"
+  def run(args: List[String]): Unit =
+    var outputArg:       Option[String] = None
+    var sparkVersionArg: Option[String] = None
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" if it.hasNext              => outputArg = Some(it.next())
+        case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
+        case f                               => files += f
+    if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    for file <- files do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      else
+        try
+          val module = Parser.parse(os.read(path))
+          // Version resolution: CLI flag > front-matter > default.
+          val sparkVersion =
+            sparkVersionArg
+              .orElse(
+                module.manifest.flatMap(_.raw.get("spark-version"))
+                  .collect { case s: String => s }
+              )
+              .getOrElse(SparkGen.DefaultVersion)
+          // Pull the `spark-master` and `spark-config:` front-matter so the
+          // emitted source matches `ssc run --backend spark` and `ssc submit`
+          // for the same input.  `emit-spark` has no CLI master flag of its
+          // own — the front-matter is the only override path here.
+          val sparkMaster = module.manifest.flatMap(_.raw.get("spark-master"))
+            .collect { case s: String => s }
+            .getOrElse(SparkGen.DefaultMaster)
+          val sparkConfig = module.manifest
+            .flatMap(_.raw.get("spark-config"))
+            .map(SparkBackend.fromYamlMap)
+            .getOrElse(Map.empty[String, String])
+          val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
+            .collect { case s: String => s }
+            .getOrElse(SparkGen.DefaultAppName)
+          val code = SparkGen.generate(
+            module,
+            baseDir      = Some(path / os.up),
+            sparkVersion = sparkVersion,
+            sparkMaster  = sparkMaster,
+            extraConfig  = sparkConfig,
+            appName      = appName
+          )
+          outputArg match
+            case Some("-") | None => println(code)
+            case Some(out)        =>
+              val outPath = os.Path(out, os.pwd)
+              os.write.over(outPath, code)
+              System.err.println(s"Spark source written to $out")
+        catch case e: Exception =>
+          System.err.println(s"Spark generation error: ${e.getMessage}")
+          System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc submit  —  Apache Spark backend, cluster submission (v1.25 § 9.5 B.2)
@@ -3462,90 +3504,95 @@ def emitSparkCommand(args: List[String]): Unit =
  *  [[SparkSubmit.submitCommand]]) — that's how users pass
  *  `--executor-memory 4g`, `--num-executors 8`, `--deploy-mode cluster`,
  *  etc., without ScalaScript needing a per-flag model. */
-def submitCommand(args: List[String]): Unit =
-  var sparkVersionArg: Option[String] = None
-  var sparkMasterArg:  Option[String] = None
-  var dryRun:          Boolean        = false
-  val files          = scala.collection.mutable.ArrayBuffer.empty[String]
-  val extraSparkArgs = scala.collection.mutable.ArrayBuffer.empty[String]
-  var pastSeparator  = false
-  val it = args.iterator
-  while it.hasNext do
-    val a = it.next()
-    if pastSeparator then extraSparkArgs += a
-    else a match
-      case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
-      case "--spark-master"  if it.hasNext => sparkMasterArg  = Some(it.next())
-      case "--dry-run"                     => dryRun = true
-      case "--"                            => pastSeparator = true
-      case f                               => files += f
-  if files.isEmpty then
-    System.err.println("Usage: ssc submit <file.ssc> [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]")
-    System.exit(1)
-  if files.size > 1 then
-    System.err.println(s"Error: ssc submit accepts one .ssc file, got ${files.size}")
-    System.exit(1)
-  val file = files.head
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"Error: File not found: $file")
-    System.exit(1)
-  try
-    val module = Parser.parse(os.read(path))
-    val sparkVersion =
-      sparkVersionArg
-        .orElse(module.manifest.flatMap(_.raw.get("spark-version")).collect { case s: String => s })
-        .getOrElse(SparkGen.DefaultVersion)
-    val sparkMaster =
-      sparkMasterArg
-        .orElse(module.manifest.flatMap(_.raw.get("spark-master")).collect { case s: String => s })
-        .getOrElse(SparkGen.DefaultMaster)
-    // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3 slice 3):
-    // baked into the SparkSession.builder so the same configs apply
-    // whether the user runs `ssc run --backend spark` or submits the
-    // fat JAR via `spark-submit` from the cluster side.
-    val sparkConfig = module.manifest
-      .flatMap(_.raw.get("spark-config"))
-      .map(SparkBackend.fromYamlMap)
-      .getOrElse(Map.empty[String, String])
-    val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
-      .collect { case s: String => s }
-      .getOrElse(SparkGen.DefaultAppName)
-    val code = SparkGen.generate(
-      module,
-      baseDir      = Some(path / os.up),
-      sparkVersion = sparkVersion,
-      sparkMaster  = sparkMaster,
-      extraConfig  = sparkConfig,
-      appName      = appName
-    )
-    val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
-    val srcPath = os.Path(s"/tmp/ssc-spark-$hash.scala")
-    val jarPath = os.Path(s"/tmp/ssc-spark-$hash.jar")
-    os.write.over(srcPath, code)
-    val pkgCmd    = SparkSubmit.packageCommand(srcPath, jarPath, sparkVersion)
-    val submitCmd = SparkSubmit.submitCommand(
-      jar            = jarPath,
-      master         = sparkMaster,
-      extraSparkArgs = extraSparkArgs.toList
-    )
-    if dryRun then
-      println(s"# Spark $sparkVersion (master=$sparkMaster)")
-      println(s"# source: $srcPath")
-      println(pkgCmd.mkString(" "))
-      println(submitCmd.mkString(" "))
-    else
-      System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — packaging: $srcPath → $jarPath")
-      val pkgExit = scala.sys.process.Process(pkgCmd).!
-      if pkgExit != 0 then
-        System.err.println(s"[spark] scala-cli package failed (exit $pkgExit)")
-        System.exit(pkgExit)
-      System.err.println(s"[spark] submitting → $sparkMaster")
-      val submitExit = scala.sys.process.Process(submitCmd).!
-      if submitExit != 0 then System.exit(submitExit)
-  catch case e: Exception =>
-    System.err.println(s"ssc submit error: ${e.getMessage}")
-    System.exit(1)
+final class SubmitCmd extends CliCommand:
+  def name = "submit"
+  override def summary = "Package .ssc as a Spark fat JAR and launch via spark-submit"
+  override def category = "Emit & transpile"
+  override def details = List("Flags: --spark-master <url>, --spark-version <v>, --dry-run")
+  def run(args: List[String]): Unit =
+    var sparkVersionArg: Option[String] = None
+    var sparkMasterArg:  Option[String] = None
+    var dryRun:          Boolean        = false
+    val files          = scala.collection.mutable.ArrayBuffer.empty[String]
+    val extraSparkArgs = scala.collection.mutable.ArrayBuffer.empty[String]
+    var pastSeparator  = false
+    val it = args.iterator
+    while it.hasNext do
+      val a = it.next()
+      if pastSeparator then extraSparkArgs += a
+      else a match
+        case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
+        case "--spark-master"  if it.hasNext => sparkMasterArg  = Some(it.next())
+        case "--dry-run"                     => dryRun = true
+        case "--"                            => pastSeparator = true
+        case f                               => files += f
+    if files.isEmpty then
+      System.err.println("Usage: ssc submit <file.ssc> [--spark-master <url>] [--spark-version <v>] [--dry-run] [-- <extra spark-submit args>]")
+      System.exit(1)
+    if files.size > 1 then
+      System.err.println(s"Error: ssc submit accepts one .ssc file, got ${files.size}")
+      System.exit(1)
+    val file = files.head
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file")
+      System.exit(1)
+    try
+      val module = Parser.parse(os.read(path))
+      val sparkVersion =
+        sparkVersionArg
+          .orElse(module.manifest.flatMap(_.raw.get("spark-version")).collect { case s: String => s })
+          .getOrElse(SparkGen.DefaultVersion)
+      val sparkMaster =
+        sparkMasterArg
+          .orElse(module.manifest.flatMap(_.raw.get("spark-master")).collect { case s: String => s })
+          .getOrElse(SparkGen.DefaultMaster)
+      // `spark-config:` front-matter map (v1.25 § 9.5 Phase C.3 slice 3):
+      // baked into the SparkSession.builder so the same configs apply
+      // whether the user runs `ssc run --backend spark` or submits the
+      // fat JAR via `spark-submit` from the cluster side.
+      val sparkConfig = module.manifest
+        .flatMap(_.raw.get("spark-config"))
+        .map(SparkBackend.fromYamlMap)
+        .getOrElse(Map.empty[String, String])
+      val appName = module.manifest.flatMap(_.raw.get("spark-app-name"))
+        .collect { case s: String => s }
+        .getOrElse(SparkGen.DefaultAppName)
+      val code = SparkGen.generate(
+        module,
+        baseDir      = Some(path / os.up),
+        sparkVersion = sparkVersion,
+        sparkMaster  = sparkMaster,
+        extraConfig  = sparkConfig,
+        appName      = appName
+      )
+      val hash    = java.lang.Integer.toHexString(code.hashCode & 0x7fffffff)
+      val srcPath = os.Path(s"/tmp/ssc-spark-$hash.scala")
+      val jarPath = os.Path(s"/tmp/ssc-spark-$hash.jar")
+      os.write.over(srcPath, code)
+      val pkgCmd    = SparkSubmit.packageCommand(srcPath, jarPath, sparkVersion)
+      val submitCmd = SparkSubmit.submitCommand(
+        jar            = jarPath,
+        master         = sparkMaster,
+        extraSparkArgs = extraSparkArgs.toList
+      )
+      if dryRun then
+        println(s"# Spark $sparkVersion (master=$sparkMaster)")
+        println(s"# source: $srcPath")
+        println(pkgCmd.mkString(" "))
+        println(submitCmd.mkString(" "))
+      else
+        System.err.println(s"[spark] Spark $sparkVersion (master=$sparkMaster) — packaging: $srcPath → $jarPath")
+        val pkgExit = scala.sys.process.Process(pkgCmd).!
+        if pkgExit != 0 then
+          System.err.println(s"[spark] scala-cli package failed (exit $pkgExit)")
+          System.exit(pkgExit)
+        System.err.println(s"[spark] submitting → $sparkMaster")
+        val submitExit = scala.sys.process.Process(submitCmd).!
+        if submitExit != 0 then System.exit(submitExit)
+    catch case e: Exception =>
+      System.err.println(s"ssc submit error: ${e.getMessage}")
+      System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc emit-interface  —  v2.0 separate compilation
@@ -3563,43 +3610,47 @@ def submitCommand(args: List[String]): Unit =
  *
  *  v2.0 / Stage 2.
  */
-def emitInterfaceCommand(args: List[String]): Unit =
-  var outputArg: Option[String] = None
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
-      case f => files += f
+final class EmitInterfaceCmd extends CliCommand:
+  def name = "emit-interface"
+  override def summary = "Extract module interface to a .scim artifact"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var outputArg: Option[String] = None
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+        case f => files += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc emit-interface <file.ssc> [-o <file.scim>]")
-    System.exit(1)
-
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"Error: File not found: $file"); System.exit(1)
-    try
-      val sourceBytes = os.read.bytes(path)
-      val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
-      val iface       = InterfaceExtractor.extract(module, sourceBytes)
-      val json        = ArtifactIO.writeInterface(iface)
-      outputArg match
-        case Some("-") => println(json)
-        case Some(out) =>
-          val outPath = os.Path(out, os.pwd)
-          ArtifactIO.writeInterfaceFile(iface, outPath)
-          println(s"Interface written to $outPath")
-        case None =>
-          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scim")
-          ArtifactIO.writeInterfaceFile(iface, outPath)
-          println(s"Interface written to ${outPath.relativeTo(os.pwd)}")
-    catch case e: Exception =>
-      System.err.println(s"emit-interface error: ${e.getMessage}")
+    if files.isEmpty then
+      System.err.println("Usage: ssc emit-interface <file.ssc> [-o <file.scim>]")
       System.exit(1)
+
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"Error: File not found: $file"); System.exit(1)
+      try
+        val sourceBytes = os.read.bytes(path)
+        val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+        if reportCodeBlockParseErrors(module, file) then
+          System.exit(1)
+        val iface       = InterfaceExtractor.extract(module, sourceBytes)
+        val json        = ArtifactIO.writeInterface(iface)
+        outputArg match
+          case Some("-") => println(json)
+          case Some(out) =>
+            val outPath = os.Path(out, os.pwd)
+            ArtifactIO.writeInterfaceFile(iface, outPath)
+            println(s"Interface written to $outPath")
+          case None =>
+            val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scim")
+            ArtifactIO.writeInterfaceFile(iface, outPath)
+            println(s"Interface written to ${outPath.relativeTo(os.pwd)}")
+      catch case e: Exception =>
+        System.err.println(s"emit-interface error: ${e.getMessage}")
+        System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc emit-ir  —  v2.0 separate compilation
@@ -3617,48 +3668,52 @@ def emitInterfaceCommand(args: List[String]): Unit =
  *
  *  v2.0 / Stage 3.
  */
-def emitIrCommand(args: List[String]): Unit =
-  var outputArg: Option[String] = None
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
-      case f => files += f
+final class EmitIrCmd extends CliCommand:
+  def name = "emit-ir"
+  override def summary = "Emit normalised module IR to a .scir artifact"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var outputArg: Option[String] = None
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+        case f => files += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc emit-ir <file.ssc> [-o <file.scir>]")
-    System.exit(1)
-
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"Error: File not found: $file"); System.exit(1)
-    try
-      val sourceBytes = os.read.bytes(path)
-      val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
-      val ir          = Normalize(module)
-      val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-      val moduleName  = module.manifest.flatMap(_.name)
-      val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
-      val json        = ArtifactIO.writeIr(ir, pkg, moduleName, sourceHash)
-      outputArg match
-        case Some("-") => println(json)
-        case Some(out) =>
-          val outPath = os.Path(out, os.pwd)
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"IR artifact written to $outPath")
-        case None =>
-          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scir")
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"IR artifact written to ${outPath.relativeTo(os.pwd)}")
-    catch case e: Exception =>
-      System.err.println(s"emit-ir error: ${e.getMessage}")
+    if files.isEmpty then
+      System.err.println("Usage: ssc emit-ir <file.ssc> [-o <file.scir>]")
       System.exit(1)
+
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"Error: File not found: $file"); System.exit(1)
+      try
+        val sourceBytes = os.read.bytes(path)
+        val module      = Parser.parse(new String(sourceBytes, "UTF-8"))
+        if reportCodeBlockParseErrors(module, file) then
+          System.exit(1)
+        val ir          = Normalize(module)
+        val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+        val moduleName  = module.manifest.flatMap(_.name)
+        val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
+        val json        = ArtifactIO.writeIr(ir, pkg, moduleName, sourceHash)
+        outputArg match
+          case Some("-") => println(json)
+          case Some(out) =>
+            val outPath = os.Path(out, os.pwd)
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"IR artifact written to $outPath")
+          case None =>
+            val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scir")
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"IR artifact written to ${outPath.relativeTo(os.pwd)}")
+      catch case e: Exception =>
+        System.err.println(s"emit-ir error: ${e.getMessage}")
+        System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc compile-jvm  —  v2.0 JVM-backend incremental codegen cache
@@ -3691,94 +3746,98 @@ private def compileJvmAndCache(
   }.recover { case e => System.err.println(s"[warn] artifact write failed: $e") }
   source
 
-def runJvmCommand(args: List[String]): Unit =
-  if args.isEmpty then
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
-    System.exit(1)
-  var jvmFrontendFlag: Option[String] = None
-  var jvmTransportFlag: Option[BackendTransportKind] = None
-  var jvmFileArg:      Option[String] = None
-  val jvmIt = args.iterator
-  while jvmIt.hasNext do
-    jvmIt.next() match
-      case "--frontend" if jvmIt.hasNext =>
-        val name = jvmIt.next()
-        if !validFrontendNames(name) then
-          System.err.println(s"run-jvm: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
-          System.exit(1)
-        jvmFrontendFlag = Some(name)
-      case "--transport" if jvmIt.hasNext =>
-        jvmTransportFlag = Some(parseTransportFlag("run-jvm --transport", jvmIt.next()))
-      case f => jvmFileArg = Some(f)
-  val file = jvmFileArg.getOrElse {
-    System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
-    System.exit(1); ""
-  }
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"Error: File not found: $file"); System.exit(1)
-
-  // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
-  // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
-  // invalidated by a SHA-256 mismatch against the current source bytes.
-  // --frontend CLI flag or sidecar config frontend: key bypass the cache.
-  import scalascript.artifact.ModuleGraph
-  val artDir    = AutoResolve.defaultArtifactDir(path)
-  val baseName  = path.last.stripSuffix(".ssc")
-  val scjvmPath = artDir / (baseName + ".scjvm")
-  // Load config for run-jvm: frontmatter < sidecar files < -Dscalascript.* < CLI flag.
-  val jvmSidecar = loadSidecarConfig(path)
-  scalascript.config.ConfigRegistry.setSidecar(jvmSidecar.getOrElse(scalascript.config.ConfigValue.empty))
-  val sidecarFrontend = scalascript.config.ConfigRegistry.getSidecar
-    .flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames)
-  // CLI flag beats all; system props beat sidecar files; both beat frontmatter.
-  val frontendOverride = jvmFrontendFlag.orElse(sidecarFrontend)
-  val transport = resolveRunTransport(path, jvmTransportFlag).fold(
-    message =>
-      System.err.println(s"run-jvm: $message")
+final class RunJvmCmd extends CliCommand:
+  def name = "run-jvm"
+  override def summary = "Compile via JvmGen and run immediately via scala-cli"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    if args.isEmpty then
+      System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
       System.exit(1)
-      None,
-    identity
-  )
-  validateRunJvmTransportSelection(frontendOverride, transport).left.foreach { message =>
-    System.err.println(message)
-    System.exit(1)
-  }
-  if !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
-    System.exit(1)
-  val raw =
-    if frontendOverride.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
-      JvmArtifactIO.readJvmFile(scjvmPath) match
-        case Right(art) => art.scalaSource
-        case Left(_)    => compileJvmAndCache(path, baseName, scjvmPath)
-    else
-      compileJvmAndCache(path, baseName, scjvmPath, frontendOverride)
+    var jvmFrontendFlag: Option[String] = None
+    var jvmTransportFlag: Option[BackendTransportKind] = None
+    var jvmFileArg:      Option[String] = None
+    val jvmIt = args.iterator
+    while jvmIt.hasNext do
+      jvmIt.next() match
+        case "--frontend" if jvmIt.hasNext =>
+          val name = jvmIt.next()
+          if !validFrontendNames(name) then
+            System.err.println(s"run-jvm: unknown --frontend '$name', valid: ${validFrontendNames.mkString(", ")}")
+            System.exit(1)
+          jvmFrontendFlag = Some(name)
+        case "--transport" if jvmIt.hasNext =>
+          jvmTransportFlag = Some(parseTransportFlag("run-jvm --transport", jvmIt.next()))
+        case f => jvmFileArg = Some(f)
+    val file = jvmFileArg.getOrElse {
+      System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
+      System.exit(1); ""
+    }
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
 
-  val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
-  val source = jarsDir match
-    case Some(jars) => patchLocalSscDeps(raw, jars)
-    case None       => raw
-  val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
-  try
-    val sub = os.proc("scala-cli", "run", tmp, "--server=false")
-      .spawn(stdout = os.Inherit, stderr = os.Inherit)
-    // Kill the entire scala-cli process tree on JVM shutdown so the server
-    // doesn't linger after Ctrl+C or SIGTERM.
-    def killTree(ph: ProcessHandle): Unit =
-      ph.descendants().forEach(killTree(_))
-      ph.destroyForcibly()
-    val hook = new Thread(() => killTree(sub.wrapped.toHandle))
-    Runtime.getRuntime.addShutdownHook(hook)
-    sub.waitFor()
-    Runtime.getRuntime.removeShutdownHook(hook)
-    val exitCode = sub.wrapped.exitValue()
-    if exitCode != 0 then System.exit(exitCode)
-  catch
-    case _: IllegalStateException => () // shutdown already in progress — process tree killed by hook
-    case e: Exception =>
-      System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
+    // Artifact cache: skip JvmGen codegen when the .scjvm artifact is fresh.
+    // The artifact is stored in <file-dir>/.ssc-artifacts/<name>.scjvm and is
+    // invalidated by a SHA-256 mismatch against the current source bytes.
+    // --frontend CLI flag or sidecar config frontend: key bypass the cache.
+    import scalascript.artifact.ModuleGraph
+    val artDir    = AutoResolve.defaultArtifactDir(path)
+    val baseName  = path.last.stripSuffix(".ssc")
+    val scjvmPath = artDir / (baseName + ".scjvm")
+    // Load config for run-jvm: frontmatter < sidecar files < -Dscalascript.* < CLI flag.
+    val jvmSidecar = loadSidecarConfig(path)
+    scalascript.config.ConfigRegistry.setSidecar(jvmSidecar.getOrElse(scalascript.config.ConfigValue.empty))
+    val sidecarFrontend = scalascript.config.ConfigRegistry.getSidecar
+      .flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames)
+    // CLI flag beats all; system props beat sidecar files; both beat frontmatter.
+    val frontendOverride = jvmFrontendFlag.orElse(sidecarFrontend)
+    val transport = resolveRunTransport(path, jvmTransportFlag).fold(
+      message =>
+        System.err.println(s"run-jvm: $message")
+        System.exit(1)
+        None,
+      identity
+    )
+    validateRunJvmTransportSelection(frontendOverride, transport).left.foreach { message =>
+      System.err.println(message)
       System.exit(1)
+    }
+    if !JvmBytecode.scalaCliAvailable then
+      System.err.println(s"run-jvm: ${JvmBytecode.scalaCliMissingMessage}")
+      System.exit(1)
+    val raw =
+      if frontendOverride.isEmpty && !ModuleGraph.isJvmStale(path, artDir) then
+        JvmArtifactIO.readJvmFile(scjvmPath) match
+          case Right(art) => art.scalaSource
+          case Left(_)    => compileJvmAndCache(path, baseName, scjvmPath)
+      else
+        compileJvmAndCache(path, baseName, scjvmPath, frontendOverride)
+
+    val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
+    val source = jarsDir match
+      case Some(jars) => patchLocalSscDeps(raw, jars)
+      case None       => raw
+    val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
+    try
+      val sub = os.proc("scala-cli", "run", tmp, "--server=false")
+        .spawn(stdout = os.Inherit, stderr = os.Inherit)
+      // Kill the entire scala-cli process tree on JVM shutdown so the server
+      // doesn't linger after Ctrl+C or SIGTERM.
+      def killTree(ph: ProcessHandle): Unit =
+        ph.descendants().forEach(killTree(_))
+        ph.destroyForcibly()
+      val hook = new Thread(() => killTree(sub.wrapped.toHandle))
+      Runtime.getRuntime.addShutdownHook(hook)
+      sub.waitFor()
+      Runtime.getRuntime.removeShutdownHook(hook)
+      val exitCode = sub.wrapped.exitValue()
+      if exitCode != 0 then System.exit(exitCode)
+    catch
+      case _: IllegalStateException => () // shutdown already in progress — process tree killed by hook
+      case e: Exception =>
+        System.err.println(s"run-jvm: scala-cli invocation failed: ${e.getMessage}")
+        System.exit(1)
 
 /** Replace `//> using (lib|dep) "io.scalascript::artifact:version"` lines
  *  with `//> using jar <jarsDir>/artifact_3-version.jar` so that run-jvm
@@ -3822,77 +3881,81 @@ private def runNodeAndWait(cmd: Seq[String], cwd: Option[os.Path]): Unit =
       proc.destroy()
       System.exit(1)
 
-def runJsCommand(args: List[String]): Unit =
-  if args.isEmpty then
-    System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
-    System.exit(1)
-  var jsFrontendFlag: Option[String] = None
-  var jsFileArg:      Option[String] = None
-  val jsIt = args.iterator
-  while jsIt.hasNext do
-    jsIt.next() match
-      case "--frontend" if jsIt.hasNext =>
-        val name = jsIt.next()
-        if !browserFrontendNames(name) then
-          System.err.println(s"run-js: unknown --frontend '$name', valid: ${browserFrontendNames.mkString(", ")}")
-          System.exit(1)
-        jsFrontendFlag = Some(name)
-      case f => jsFileArg = Some(f)
-  val file = jsFileArg.getOrElse {
-    System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
-    System.exit(1); ""
-  }
-  // Node.js execution doesn't use FrontendFrameworks (browser-side concern),
-  // but we accept the flag for consistency.
-  jsFrontendFlag.foreach(applyFrontendBackend)
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"Error: File not found: $file"); System.exit(1)
-  val nodeAvailable = scala.util.Try {
-    os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
-  }.getOrElse(false)
-  if !nodeAvailable then
-    System.err.println("run-js: node not found on PATH"); System.exit(1)
-  // Detect capabilities to build the runtime preamble, then compile user code.
-  val module  = Parser.parse(os.read(path))
-  val baseDir = Some(path / os.up)
-  val caps    = JsGen.detectCapabilities(module, baseDir)
-  val runtime = JsGen.generateRuntime(caps)
-  val result  = compileViaBackend("js", path)
-  val effectiveFrontendName: Option[String] =
-    jsFrontendFlag
-      .orElse(loadSidecarConfig(path).flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames))
-      .orElse(module.manifest.flatMap(_.frontendFramework))
-  result match
-    case CompileResult.Failed(diags) =>
-      diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
-    case CompileResult.TextOutput(userCode, _, sources) =>
-      val frontendInit = effectiveFrontendName.fold("")(n => s"_ssc_frontend_name = '${n.replace("'", "\\'")}'; // injected by ssc\n")
-      val bundle  = runtime + "\n" + frontendInit + userCode
-      val pkgJson = sources.collectFirst { case scalascript.backend.spi.SourceArtifact("package.json", c) => c }
-      pkgJson match
-        case None =>
-          // No npm deps — write single temp file and run directly.
-          val tmp = os.temp(bundle, suffix = ".cjs", deleteOnExit = true)
-          runNodeAndWait(Seq("node", tmp.toString), cwd = None)
-        case Some(pkg) =>
-          // SQL deps present — set up a temp work dir, npm install, then run.
-          val npmAvailable = scala.util.Try {
-            os.proc("npm", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
-          }.getOrElse(false)
-          if !npmAvailable then
-            System.err.println("run-js: npm not found on PATH (required for sql blocks)"); System.exit(1)
-          val workDir = os.temp.dir(deleteOnExit = true)
-          os.write(workDir / "main.cjs", bundle)
-          os.write(workDir / "package.json", pkg)
-          val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent")
-            .call(cwd = workDir, check = false, stdout = os.Pipe, stderr = os.Pipe)
-          if inst.exitCode != 0 then
-            System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
+final class RunJsCmd extends CliCommand:
+  def name = "run-js"
+  override def summary = "Compile via JsGen and run immediately via node"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    if args.isEmpty then
+      System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
+      System.exit(1)
+    var jsFrontendFlag: Option[String] = None
+    var jsFileArg:      Option[String] = None
+    val jsIt = args.iterator
+    while jsIt.hasNext do
+      jsIt.next() match
+        case "--frontend" if jsIt.hasNext =>
+          val name = jsIt.next()
+          if !browserFrontendNames(name) then
+            System.err.println(s"run-js: unknown --frontend '$name', valid: ${browserFrontendNames.mkString(", ")}")
             System.exit(1)
-          runNodeAndWait(Seq("node", "main.cjs"), cwd = Some(workDir))
-    case other =>
-      System.err.println(s"run-js: unexpected compile result ${other.getClass.getSimpleName}"); System.exit(1)
+          jsFrontendFlag = Some(name)
+        case f => jsFileArg = Some(f)
+    val file = jsFileArg.getOrElse {
+      System.err.println("Usage: ssc run-js [--frontend <custom|react|solid|vue>] <file.ssc>")
+      System.exit(1); ""
+    }
+    // Node.js execution doesn't use FrontendFrameworks (browser-side concern),
+    // but we accept the flag for consistency.
+    jsFrontendFlag.foreach(applyFrontendBackend)
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
+    val nodeAvailable = scala.util.Try {
+      os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+    }.getOrElse(false)
+    if !nodeAvailable then
+      System.err.println("run-js: node not found on PATH"); System.exit(1)
+    // Detect capabilities to build the runtime preamble, then compile user code.
+    val module  = Parser.parse(os.read(path))
+    val baseDir = Some(path / os.up)
+    val caps    = JsGen.detectCapabilities(module, baseDir)
+    val runtime = JsGen.generateRuntime(caps)
+    val result  = compileViaBackend("js", path)
+    val effectiveFrontendName: Option[String] =
+      jsFrontendFlag
+        .orElse(loadSidecarConfig(path).flatMap(_.get("frontend").flatMap(_.getString)).filter(validFrontendNames))
+        .orElse(module.manifest.flatMap(_.frontendFramework))
+    result match
+      case CompileResult.Failed(diags) =>
+        diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+      case CompileResult.TextOutput(userCode, _, sources) =>
+        val frontendInit = effectiveFrontendName.fold("")(n => s"_ssc_frontend_name = '${n.replace("'", "\\'")}'; // injected by ssc\n")
+        val bundle  = runtime + "\n" + frontendInit + userCode
+        val pkgJson = sources.collectFirst { case scalascript.backend.spi.SourceArtifact("package.json", c) => c }
+        pkgJson match
+          case None =>
+            // No npm deps — write single temp file and run directly.
+            val tmp = os.temp(bundle, suffix = ".cjs", deleteOnExit = true)
+            runNodeAndWait(Seq("node", tmp.toString), cwd = None)
+          case Some(pkg) =>
+            // SQL deps present — set up a temp work dir, npm install, then run.
+            val npmAvailable = scala.util.Try {
+              os.proc("npm", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+            }.getOrElse(false)
+            if !npmAvailable then
+              System.err.println("run-js: npm not found on PATH (required for sql blocks)"); System.exit(1)
+            val workDir = os.temp.dir(deleteOnExit = true)
+            os.write(workDir / "main.cjs", bundle)
+            os.write(workDir / "package.json", pkg)
+            val inst = os.proc("npm", "install", "--no-audit", "--no-fund", "--silent")
+              .call(cwd = workDir, check = false, stdout = os.Pipe, stderr = os.Pipe)
+            if inst.exitCode != 0 then
+              System.err.println(s"run-js: npm install failed:\n${inst.out.text()}${inst.err.text()}")
+              System.exit(1)
+            runNodeAndWait(Seq("node", "main.cjs"), cwd = Some(workDir))
+      case other =>
+        System.err.println(s"run-js: unexpected compile result ${other.getClass.getSimpleName}"); System.exit(1)
 
 /** `ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>]`
  *
@@ -3912,246 +3975,250 @@ def runJsCommand(args: List[String]): Unit =
  *
  *  v2.0 — JVM incremental codegen cache.
  */
-def compileJvmCommand(args: List[String]): Unit =
-  var outputArg:    Option[String]  = None
-  var ifaceDir:     Option[os.Path] = None
-  var artifactDir:  Option[os.Path] = None
-  var noAutoDeps:   Boolean         = false
-  var bytecode:     Boolean         = false
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
-      case "--iface-dir" | "-I" if it.hasNext =>
-        ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case "--artifact-dir" if it.hasNext =>
-        artifactDir = Some(os.Path(it.next(), os.pwd))
-      case "--no-auto-deps" => noAutoDeps = true
-      case "--bytecode"     => bytecode = true
-      case f => files += f
+final class CompileJvmCmd extends CliCommand:
+  def name = "compile-jvm"
+  override def summary = "Emit JVM-backend cached Scala source to .scjvm"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var outputArg:    Option[String]  = None
+    var ifaceDir:     Option[os.Path] = None
+    var artifactDir:  Option[os.Path] = None
+    var noAutoDeps:   Boolean         = false
+    var bytecode:     Boolean         = false
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+        case "--iface-dir" | "-I" if it.hasNext =>
+          ifaceDir = Some(os.Path(it.next(), os.pwd))
+        case "--artifact-dir" if it.hasNext =>
+          artifactDir = Some(os.Path(it.next(), os.pwd))
+        case "--no-auto-deps" => noAutoDeps = true
+        case "--bytecode"     => bytecode = true
+        case f => files += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps] [--bytecode]")
-    System.exit(1)
-
-  // `--bytecode` is opt-in.  When requested, scala-cli must be on PATH —
-  // fail loudly rather than silently downgrade to source-only.
-  if bytecode && !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"compile-jvm: ${JvmBytecode.scalaCliMissingMessage}")
-    System.exit(1)
-
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"Error: File not found: $file"); System.exit(1)
-    try
-      // ── Auto-resolve transitive local-path imports ────────────────────
-      //
-      // Walk `Content.Import` edges from the target, parse each, build a
-      // DAG, topo-sort, and recursively compile every dep that's stale
-      // (missing or SHA-256-mismatched `.scim` / `.scjvm`).  Dependency
-      // artifacts are written to the artifact-dir (defaults to
-      // `<target-dir>/.ssc-artifacts/`).  `--no-auto-deps` reproduces
-      // the pre-v2.0 behaviour: don't touch deps; rely on `--iface-dir`.
-      val effectiveArtifactDir: os.Path =
-        artifactDir.getOrElse:
-          ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
-
-      val autoResolvedIfaceDir: Option[os.Path] =
-        if noAutoDeps then ifaceDir
-        else
-          val resolution = AutoResolve.resolve(path)
-          if resolution.cycles.nonEmpty then
-            System.err.println("compile-jvm: circular dependencies detected:")
-            resolution.cycles.foreach { cycle =>
-              System.err.println("  " + cycle.map(_.last).mkString(" → "))
-            }
-            System.exit(1)
-          // The target itself appears in `orderedNodes`; only deps
-          // need pre-compilation.
-          val deps = resolution.orderedNodes.filter(_.path != path)
-          if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
-          for dep <- deps do
-            val baseName = dep.path.last.stripSuffix(".ssc")
-            val scimPath = effectiveArtifactDir / (baseName + ".scim")
-            val scjvmPath = effectiveArtifactDir / (baseName + ".scjvm")
-            // When --bytecode is set, a dep is fresh only when its .scjvm
-            // also has a non-empty classBundle.  Otherwise auto-resolve
-            // wouldn't see that an older source-only artifact must be
-            // re-compiled with bytecode this round.
-            val scimFresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir)
-            val scjvmFresh =
-              AutoResolve.isScjvmFresh(dep, effectiveArtifactDir) &&
-              (!bytecode || scjvmHasClassBundle(scjvmPath))
-            val fresh = scimFresh && scjvmFresh
-            if !fresh then
-              compileJvmDepInto(dep, effectiveArtifactDir, scimPath, scjvmPath, bytecode)
-          // Either return the explicit --iface-dir (so its `.scim`
-          // files participate too) or our newly populated artifact dir.
-          // When the user gave both flags, --iface-dir wins for
-          // resolution but deps still land in --artifact-dir.
-          Some(ifaceDir.getOrElse(effectiveArtifactDir))
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse.  Without this, the typer would emit the opaque
-      // "Failed to parse scalascript code block" — useless for bisecting.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
-
-      // v2.0 Phase 5 — discover and stage pre-compiled artifacts shipped
-      // alongside any `dep:` imports' cached `.ssc`.  Each `.sscpkg` built
-      // with `--with-artifacts` carries a `.ssc-artifacts/<basename>.<ext>`
-      // sibling; when found, copy it into the consumer's artifact dir so
-      // the typer + linker pick it up without re-parsing the dep source.
-      // No-op when no dep: imports or no artifacts ship — source-parse
-      // path still works.
-      val precompiledDeps =
-        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjvm"))
-      if precompiledDeps.nonEmpty then
-        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
-        println(s"compile-jvm: staged pre-compiled dep artifacts ($summary)")
-
-      // Pre-load interfaces from the iface dir (auto-resolved or
-      // user-supplied) for type-checking the target.
-      val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-        autoResolvedIfaceDir match
-          case None => Map.empty
-          case Some(dir) =>
-            if !os.isDir(dir) then
-              // No interfaces to load (e.g. the target has no deps and we
-              // never created the dir).  Fall through to an empty map.
-              Map.empty
-            else
-              os.list(dir).filter(_.ext == "scim").flatMap { p =>
-                ArtifactIO.readInterfaceFile(p) match
-                  case Right(iface) =>
-                    val alias = p.last.stripSuffix(".scim")
-                    List(alias -> iface)
-                  case Left(err) =>
-                    System.err.println(s"  [warn] skipping ${p.last}: $err")
-                    Nil
-              }.toMap
-
-      // Type-check (optionally against pre-compiled interfaces).  Errors are
-      // surfaced as a non-zero exit code so the build orchestrator can stop
-      // before producing a stale `.scjvm`.
-      val typed =
-        if interfaces.isEmpty then Typer.typeCheck(module)
-        else Typer.typeCheckWithInterfaces(module, interfaces)
-      if typed.hasErrors then
-        typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
-        System.exit(1)
-
-      // Run the JVM backend codegen on THIS module.
-      //
-      //  - Source-only mode (no --bytecode): emit the legacy full-source
-      //    (preamble + user code) for the textual link path.
-      //  - Bytecode mode (--bytecode): emit user code ONLY with an
-      //    `import _ssc_runtime.*` prefix, so the shared runtime
-      //    classBundle from `_runtime.scjvm-runtime` covers the helpers.
-      val baseDir     = Some(path / os.up)
-      // In bytecode mode we also need the generated→original .ssc line
-      // map so `link --source-map` can build a JSR-45 SMAP.  The
-      // source-only path doesn't need it (no `.class` files are produced
-      // here for SMAP injection at link time).
-      val (scalaSource, userLineMap): (String, Map[Int, Int]) =
-        if bytecode then JvmGen.generateUserOnlyWithLineMap(module, baseDir)
-        else            (JvmGen.generate(module, baseDir), Map.empty[Int, Int])
-      val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-      val moduleName  = module.manifest.flatMap(_.name)
-      val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
-
-      // Detect this module's capability set up front — needed in bytecode
-      // mode to decide whether the shared runtime artifact must be
-      // regenerated.
-      val moduleCaps: Set[String] =
-        if !bytecode then Set.empty
-        else JvmGen.detectCapabilities(module, baseDir).map(JvmGen.Capability.encode)
-
-      // Best-effort import discovery: collect `Content.Import` paths and
-      // front-matter `dependencies:` aliases.  Used by the linker as a hint
-      // for cross-module FQN resolution.  Not load-bearing for the textual
-      // MVP — the produced source already contains every name it needs.
-      val rawImports = collectImports(module.sections)
-      val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
-      val imports    = (rawImports ++ depAliases).distinct.toList
-
-      val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
-
-      // ── Optional bytecode bundle ─────────────────────────────────────
-      //
-      // When --bytecode is set, drive scala-cli on the user-only Scala
-      // source produced above.  Two new responsibilities versus pre-Phase-2:
-      //
-      //  1. Ensure `_runtime.scjvm-runtime` covers the UNION of this
-      //     module's capabilities and any already-present deps'
-      //     capabilities — regenerating when missing or out-of-date.
-      //  2. Pass the runtime classBundle as part of scala-cli's classpath
-      //     so the wildcard-imported helpers resolve at compile time.
-      val classBundleOpt: Option[String] =
-        if !bytecode then None
-        else
-          // Compute artifact dir for the runtime.  The `.scjvm-runtime`
-          // must sit next to the `.scjvm` files so `linkJvmFromBytecode`
-          // can find it.  Pick the directory of `-o <foo.scjvm>` when
-          // provided, otherwise fall back to the resolved iface/artifact
-          // dir, otherwise the source's parent dir.
-          val rtDir: os.Path = outputArg match
-            case Some(out) if out.endsWith(".scjvm") =>
-              val outAbs = os.Path(out, os.pwd)
-              os.makeDir.all(outAbs / os.up)
-              outAbs / os.up
-            case _ =>
-              autoResolvedIfaceDir.getOrElse(path / os.up)
-          val depCaps   = unionDepCapabilities(rtDir)
-          val unionCaps = depCaps ++ moduleCaps
-          try
-            ensureRuntimeArtifact(rtDir, unionCaps)
-          catch case e: Throwable =>
-            System.err.println(s"compile-jvm --bytecode: ${e.getMessage}")
-            System.exit(1)
-
-          val depClasspathDir = Some(extractDepBundlesForCompile(rtDir))
-          try
-            JvmBytecode.compileAndPack(scalaSource, depClasspathDir.toList, scriptName = moduleId) match
-              case Right(b64) => Some(b64)
-              case Left(err)  =>
-                System.err.println(s"compile-jvm --bytecode: $err")
-                System.exit(1)
-                None // unreachable; appeases the type checker
-          finally
-            depClasspathDir.foreach(d => scala.util.Try(os.remove.all(d)))
-
-      // Stringify the line map for upickle (Map[String, Int] round-trips
-      // cleanly; Map[Int, Int] would land as a 2-element array).
-      val lineMapStr: Map[String, Int] = userLineMap.map { (g, o) => g.toString -> o }
-      val json = JvmArtifactIO.writeJvm(
-        moduleId, pkg, moduleName, sourceHash, scalaSource, imports,
-        classBundleOpt, moduleCaps.toList.sorted,
-        sectionHashes = Map.empty,
-        lineMap       = lineMapStr)
-      outputArg match
-        case Some("-") => println(json)
-        case Some(out) =>
-          val outPath = os.Path(out, os.pwd)
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"JVM artifact written to $outPath" +
-            (if classBundleOpt.isDefined then s" (with classBundle: ${classBundleOpt.get.length} b64 chars)" else ""))
-        case None =>
-          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjvm")
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"JVM artifact written to ${outPath.relativeTo(os.pwd)}" +
-            (if classBundleOpt.isDefined then s" (with classBundle: ${classBundleOpt.get.length} b64 chars)" else ""))
-    catch case e: Exception =>
-      System.err.println(s"compile-jvm error: ${e.getMessage}")
+    if files.isEmpty then
+      System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps] [--bytecode]")
       System.exit(1)
+
+    // `--bytecode` is opt-in.  When requested, scala-cli must be on PATH —
+    // fail loudly rather than silently downgrade to source-only.
+    if bytecode && !JvmBytecode.scalaCliAvailable then
+      System.err.println(s"compile-jvm: ${JvmBytecode.scalaCliMissingMessage}")
+      System.exit(1)
+
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"Error: File not found: $file"); System.exit(1)
+      try
+        // ── Auto-resolve transitive local-path imports ────────────────────
+        //
+        // Walk `Content.Import` edges from the target, parse each, build a
+        // DAG, topo-sort, and recursively compile every dep that's stale
+        // (missing or SHA-256-mismatched `.scim` / `.scjvm`).  Dependency
+        // artifacts are written to the artifact-dir (defaults to
+        // `<target-dir>/.ssc-artifacts/`).  `--no-auto-deps` reproduces
+        // the pre-v2.0 behaviour: don't touch deps; rely on `--iface-dir`.
+        val effectiveArtifactDir: os.Path =
+          artifactDir.getOrElse:
+            ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
+
+        val autoResolvedIfaceDir: Option[os.Path] =
+          if noAutoDeps then ifaceDir
+          else
+            val resolution = AutoResolve.resolve(path)
+            if resolution.cycles.nonEmpty then
+              System.err.println("compile-jvm: circular dependencies detected:")
+              resolution.cycles.foreach { cycle =>
+                System.err.println("  " + cycle.map(_.last).mkString(" → "))
+              }
+              System.exit(1)
+            // The target itself appears in `orderedNodes`; only deps
+            // need pre-compilation.
+            val deps = resolution.orderedNodes.filter(_.path != path)
+            if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
+            for dep <- deps do
+              val baseName = dep.path.last.stripSuffix(".ssc")
+              val scimPath = effectiveArtifactDir / (baseName + ".scim")
+              val scjvmPath = effectiveArtifactDir / (baseName + ".scjvm")
+              // When --bytecode is set, a dep is fresh only when its .scjvm
+              // also has a non-empty classBundle.  Otherwise auto-resolve
+              // wouldn't see that an older source-only artifact must be
+              // re-compiled with bytecode this round.
+              val scimFresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir)
+              val scjvmFresh =
+                AutoResolve.isScjvmFresh(dep, effectiveArtifactDir) &&
+                (!bytecode || scjvmHasClassBundle(scjvmPath))
+              val fresh = scimFresh && scjvmFresh
+              if !fresh then
+                compileJvmDepInto(dep, effectiveArtifactDir, scimPath, scjvmPath, bytecode)
+            // Either return the explicit --iface-dir (so its `.scim`
+            // files participate too) or our newly populated artifact dir.
+            // When the user gave both flags, --iface-dir wins for
+            // resolution but deps still land in --artifact-dir.
+            Some(ifaceDir.getOrElse(effectiveArtifactDir))
+
+        val sourceBytes = os.read.bytes(path)
+        val src         = new String(sourceBytes, "UTF-8")
+        val module      = Parser.parse(src)
+
+        // Bail out early with a structured diagnostic if any scalascript block
+        // failed to parse.  Without this, the typer would emit the opaque
+        // "Failed to parse scalascript code block" — useless for bisecting.
+        if reportCodeBlockParseErrors(module, file) then
+          System.exit(1)
+
+        // v2.0 Phase 5 — discover and stage pre-compiled artifacts shipped
+        // alongside any `dep:` imports' cached `.ssc`.  Each `.sscpkg` built
+        // with `--with-artifacts` carries a `.ssc-artifacts/<basename>.<ext>`
+        // sibling; when found, copy it into the consumer's artifact dir so
+        // the typer + linker pick it up without re-parsing the dep source.
+        // No-op when no dep: imports or no artifacts ship — source-parse
+        // path still works.
+        val precompiledDeps =
+          stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjvm"))
+        if precompiledDeps.nonEmpty then
+          val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+          println(s"compile-jvm: staged pre-compiled dep artifacts ($summary)")
+
+        // Pre-load interfaces from the iface dir (auto-resolved or
+        // user-supplied) for type-checking the target.
+        val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+          autoResolvedIfaceDir match
+            case None => Map.empty
+            case Some(dir) =>
+              if !os.isDir(dir) then
+                // No interfaces to load (e.g. the target has no deps and we
+                // never created the dir).  Fall through to an empty map.
+                Map.empty
+              else
+                os.list(dir).filter(_.ext == "scim").flatMap { p =>
+                  ArtifactIO.readInterfaceFile(p) match
+                    case Right(iface) =>
+                      val alias = p.last.stripSuffix(".scim")
+                      List(alias -> iface)
+                    case Left(err) =>
+                      System.err.println(s"  [warn] skipping ${p.last}: $err")
+                      Nil
+                }.toMap
+
+        // Type-check (optionally against pre-compiled interfaces).  Errors are
+        // surfaced as a non-zero exit code so the build orchestrator can stop
+        // before producing a stale `.scjvm`.
+        val typed =
+          if interfaces.isEmpty then Typer.typeCheck(module)
+          else Typer.typeCheckWithInterfaces(module, interfaces)
+        if typed.hasErrors then
+          typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
+          System.exit(1)
+
+        // Run the JVM backend codegen on THIS module.
+        //
+        //  - Source-only mode (no --bytecode): emit the legacy full-source
+        //    (preamble + user code) for the textual link path.
+        //  - Bytecode mode (--bytecode): emit user code ONLY with an
+        //    `import _ssc_runtime.*` prefix, so the shared runtime
+        //    classBundle from `_runtime.scjvm-runtime` covers the helpers.
+        val baseDir     = Some(path / os.up)
+        // In bytecode mode we also need the generated→original .ssc line
+        // map so `link --source-map` can build a JSR-45 SMAP.  The
+        // source-only path doesn't need it (no `.class` files are produced
+        // here for SMAP injection at link time).
+        val (scalaSource, userLineMap): (String, Map[Int, Int]) =
+          if bytecode then JvmGen.generateUserOnlyWithLineMap(module, baseDir)
+          else            (JvmGen.generate(module, baseDir), Map.empty[Int, Int])
+        val pkg         = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+        val moduleName  = module.manifest.flatMap(_.name)
+        val sourceHash  = InterfaceExtractor.sha256(sourceBytes)
+
+        // Detect this module's capability set up front — needed in bytecode
+        // mode to decide whether the shared runtime artifact must be
+        // regenerated.
+        val moduleCaps: Set[String] =
+          if !bytecode then Set.empty
+          else JvmGen.detectCapabilities(module, baseDir).map(JvmGen.Capability.encode)
+
+        // Best-effort import discovery: collect `Content.Import` paths and
+        // front-matter `dependencies:` aliases.  Used by the linker as a hint
+        // for cross-module FQN resolution.  Not load-bearing for the textual
+        // MVP — the produced source already contains every name it needs.
+        val rawImports = collectImports(module.sections)
+        val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+        val imports    = (rawImports ++ depAliases).distinct.toList
+
+        val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
+
+        // ── Optional bytecode bundle ─────────────────────────────────────
+        //
+        // When --bytecode is set, drive scala-cli on the user-only Scala
+        // source produced above.  Two new responsibilities versus pre-Phase-2:
+        //
+        //  1. Ensure `_runtime.scjvm-runtime` covers the UNION of this
+        //     module's capabilities and any already-present deps'
+        //     capabilities — regenerating when missing or out-of-date.
+        //  2. Pass the runtime classBundle as part of scala-cli's classpath
+        //     so the wildcard-imported helpers resolve at compile time.
+        val classBundleOpt: Option[String] =
+          if !bytecode then None
+          else
+            // Compute artifact dir for the runtime.  The `.scjvm-runtime`
+            // must sit next to the `.scjvm` files so `linkJvmFromBytecode`
+            // can find it.  Pick the directory of `-o <foo.scjvm>` when
+            // provided, otherwise fall back to the resolved iface/artifact
+            // dir, otherwise the source's parent dir.
+            val rtDir: os.Path = outputArg match
+              case Some(out) if out.endsWith(".scjvm") =>
+                val outAbs = os.Path(out, os.pwd)
+                os.makeDir.all(outAbs / os.up)
+                outAbs / os.up
+              case _ =>
+                autoResolvedIfaceDir.getOrElse(path / os.up)
+            val depCaps   = unionDepCapabilities(rtDir)
+            val unionCaps = depCaps ++ moduleCaps
+            try
+              ensureRuntimeArtifact(rtDir, unionCaps)
+            catch case e: Throwable =>
+              System.err.println(s"compile-jvm --bytecode: ${e.getMessage}")
+              System.exit(1)
+
+            val depClasspathDir = Some(extractDepBundlesForCompile(rtDir))
+            try
+              JvmBytecode.compileAndPack(scalaSource, depClasspathDir.toList, scriptName = moduleId) match
+                case Right(b64) => Some(b64)
+                case Left(err)  =>
+                  System.err.println(s"compile-jvm --bytecode: $err")
+                  System.exit(1)
+                  None // unreachable; appeases the type checker
+            finally
+              depClasspathDir.foreach(d => scala.util.Try(os.remove.all(d)))
+
+        // Stringify the line map for upickle (Map[String, Int] round-trips
+        // cleanly; Map[Int, Int] would land as a 2-element array).
+        val lineMapStr: Map[String, Int] = userLineMap.map { (g, o) => g.toString -> o }
+        val json = JvmArtifactIO.writeJvm(
+          moduleId, pkg, moduleName, sourceHash, scalaSource, imports,
+          classBundleOpt, moduleCaps.toList.sorted,
+          sectionHashes = Map.empty,
+          lineMap       = lineMapStr)
+        outputArg match
+          case Some("-") => println(json)
+          case Some(out) =>
+            val outPath = os.Path(out, os.pwd)
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"JVM artifact written to $outPath" +
+              (if classBundleOpt.isDefined then s" (with classBundle: ${classBundleOpt.get.length} b64 chars)" else ""))
+          case None =>
+            val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjvm")
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"JVM artifact written to ${outPath.relativeTo(os.pwd)}" +
+              (if classBundleOpt.isDefined then s" (with classBundle: ${classBundleOpt.get.length} b64 chars)" else ""))
+      catch case e: Exception =>
+        System.err.println(s"compile-jvm error: ${e.getMessage}")
+        System.exit(1)
 
 /** `ssc compile-runtime --capabilities <comma-sep> [--artifact-dir <dir>]`
  *
@@ -4169,55 +4236,59 @@ def compileJvmCommand(args: List[String]): Unit =
  *
  *  Special value `all` requests every known capability (useful when
  *  pre-baking a "kitchen-sink" runtime for distribution). */
-def compileRuntimeCommand(args: List[String]): Unit =
-  var capsArg:     Option[String]  = None
-  var artifactDir: Option[os.Path] = None
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--capabilities" if it.hasNext   => capsArg     = Some(it.next())
-      case "--artifact-dir" if it.hasNext   => artifactDir = Some(os.Path(it.next(), os.pwd))
-      case other =>
-        System.err.println(s"compile-runtime: unrecognised argument '$other'")
-        System.exit(1)
+final class CompileRuntimeCmd extends CliCommand:
+  def name = "compile-runtime"
+  override def summary = "Emit the cached backend runtime artifact"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var capsArg:     Option[String]  = None
+    var artifactDir: Option[os.Path] = None
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--capabilities" if it.hasNext   => capsArg     = Some(it.next())
+        case "--artifact-dir" if it.hasNext   => artifactDir = Some(os.Path(it.next(), os.pwd))
+        case other =>
+          System.err.println(s"compile-runtime: unrecognised argument '$other'")
+          System.exit(1)
 
-  // `--backend <id>` is a GLOBAL flag stripped by `GlobalFlags.parse`
-  // before the command handler sees its args; read it from the active
-  // flags snapshot instead.  Defaults to "jvm" to preserve the existing
-  // pre-v2.0-Phase-2 CLI shape.
-  val backend = ActiveFlags.current.backend.getOrElse("jvm")
+    // `--backend <id>` is a GLOBAL flag stripped by `GlobalFlags.parse`
+    // before the command handler sees its args; read it from the active
+    // flags snapshot instead.  Defaults to "jvm" to preserve the existing
+    // pre-v2.0-Phase-2 CLI shape.
+    val backend = ActiveFlags.current.backend.getOrElse("jvm")
 
-  if backend != "jvm" && backend != "js" then
-    System.err.println(s"compile-runtime: --backend must be 'jvm' or 'js'; got '$backend'")
-    System.exit(1)
-
-  // scala-cli is only needed for the JVM backend — JS is source-only.
-  if backend == "jvm" && !JvmBytecode.scalaCliAvailable then
-    System.err.println(s"compile-runtime: ${JvmBytecode.scalaCliMissingMessage}")
-    System.exit(1)
-
-  val caps: Set[String] = capsArg.map(_.trim) match
-    case None | Some("") =>
-      System.err.println("compile-runtime: --capabilities is required " +
-        "(or pass --capabilities all for the full preamble)")
+    if backend != "jvm" && backend != "js" then
+      System.err.println(s"compile-runtime: --backend must be 'jvm' or 'js'; got '$backend'")
       System.exit(1)
-      Set.empty
-    case Some("all") =>
-      if backend == "jvm" then JvmGen.Capability.all.map(JvmGen.Capability.encode)
-      else                     JsGen.Capability.all.map(JsGen.Capability.encode)
-    case Some(csv) =>
-      csv.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
 
-  val dir = artifactDir.getOrElse(os.pwd)
-  try
-    val path =
-      if backend == "jvm" then ensureRuntimeArtifact(dir, caps)
-      else                     ensureJsRuntimeArtifact(dir, caps)
-    println(s"Shared $backend runtime written to $path " +
-      s"(capabilities: ${caps.toList.sorted.mkString(", ")})")
-  catch case e: Throwable =>
-    System.err.println(s"compile-runtime: ${e.getMessage}")
-    System.exit(1)
+    // scala-cli is only needed for the JVM backend — JS is source-only.
+    if backend == "jvm" && !JvmBytecode.scalaCliAvailable then
+      System.err.println(s"compile-runtime: ${JvmBytecode.scalaCliMissingMessage}")
+      System.exit(1)
+
+    val caps: Set[String] = capsArg.map(_.trim) match
+      case None | Some("") =>
+        System.err.println("compile-runtime: --capabilities is required " +
+          "(or pass --capabilities all for the full preamble)")
+        System.exit(1)
+        Set.empty
+      case Some("all") =>
+        if backend == "jvm" then JvmGen.Capability.all.map(JvmGen.Capability.encode)
+        else                     JsGen.Capability.all.map(JsGen.Capability.encode)
+      case Some(csv) =>
+        csv.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
+
+    val dir = artifactDir.getOrElse(os.pwd)
+    try
+      val path =
+        if backend == "jvm" then ensureRuntimeArtifact(dir, caps)
+        else                     ensureJsRuntimeArtifact(dir, caps)
+      println(s"Shared $backend runtime written to $path " +
+        s"(capabilities: ${caps.toList.sorted.mkString(", ")})")
+    catch case e: Throwable =>
+      System.err.println(s"compile-runtime: ${e.getMessage}")
+      System.exit(1)
 
 /** Compile a single dependency module into `.scim` + `.scjvm` artifacts
  *  living in `artifactDir`.  Used by `compile-jvm` auto-resolution to
@@ -4516,176 +4587,180 @@ private def ensureJsRuntimeArtifact(
  *
  *  v2.0 — JS incremental codegen cache.
  */
-def compileJsCommand(args: List[String]): Unit =
-  var outputArg:   Option[String]  = None
-  var ifaceDir:    Option[os.Path] = None
-  var artifactDir: Option[os.Path] = None
-  var noAutoDeps:  Boolean         = false
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
-      case "--iface-dir" | "-I" if it.hasNext =>
-        ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case "--artifact-dir" if it.hasNext =>
-        artifactDir = Some(os.Path(it.next(), os.pwd))
-      case "--no-auto-deps" => noAutoDeps = true
-      case f => files += f
+final class CompileJsCmd extends CliCommand:
+  def name = "compile-js"
+  override def summary = "Emit JS-backend cached JS source to .scjs"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var outputArg:   Option[String]  = None
+    var ifaceDir:    Option[os.Path] = None
+    var artifactDir: Option[os.Path] = None
+    var noAutoDeps:  Boolean         = false
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext => outputArg = Some(it.next())
+        case "--iface-dir" | "-I" if it.hasNext =>
+          ifaceDir = Some(os.Path(it.next(), os.pwd))
+        case "--artifact-dir" if it.hasNext =>
+          artifactDir = Some(os.Path(it.next(), os.pwd))
+        case "--no-auto-deps" => noAutoDeps = true
+        case f => files += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps]")
-    System.exit(1)
-
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"Error: File not found: $file"); System.exit(1)
-    try
-      // ── Auto-resolve transitive local-path imports ────────────────────
-      // (See `compile-jvm` for the design.  Same shape, `.scjs` instead
-      // of `.scjvm` for the backend cache.)
-      val effectiveArtifactDir: os.Path =
-        artifactDir.getOrElse:
-          ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
-
-      val autoResolvedIfaceDir: Option[os.Path] =
-        if noAutoDeps then ifaceDir
-        else
-          val resolution = AutoResolve.resolve(path)
-          if resolution.cycles.nonEmpty then
-            System.err.println("compile-js: circular dependencies detected:")
-            resolution.cycles.foreach { cycle =>
-              System.err.println("  " + cycle.map(_.last).mkString(" → "))
-            }
-            System.exit(1)
-          val deps = resolution.orderedNodes.filter(_.path != path)
-          if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
-          for dep <- deps do
-            val baseName = dep.path.last.stripSuffix(".ssc")
-            val scimPath = effectiveArtifactDir / (baseName + ".scim")
-            val scjsPath = effectiveArtifactDir / (baseName + ".scjs")
-            val fresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir) &&
-                        AutoResolve.isScjsFresh(dep, effectiveArtifactDir)
-            if !fresh then
-              compileJsDepInto(dep, effectiveArtifactDir, scimPath, scjsPath)
-          Some(ifaceDir.getOrElse(effectiveArtifactDir))
-
-      val sourceBytes = os.read.bytes(path)
-      val src         = new String(sourceBytes, "UTF-8")
-      val module      = Parser.parse(src)
-
-      // Bail out early with a structured diagnostic if any scalascript block
-      // failed to parse — same rationale as compile-jvm.
-      if reportCodeBlockParseErrors(module, file) then
-        System.exit(1)
-
-      // v2.0 Phase 5 — stage pre-compiled artifacts shipped alongside any
-      // `dep:` imports' cached `.ssc`.  See `compileJvmCommand` for the
-      // detailed rationale.  Discovered `.scim` + `.scjs` end up in the
-      // effective artifact dir; the typer + linker pick them up directly.
-      val precompiledDeps =
-        stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjs"))
-      if precompiledDeps.nonEmpty then
-        val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
-        println(s"compile-js: staged pre-compiled dep artifacts ($summary)")
-
-      // Pre-load interfaces from the iface dir (auto-resolved or
-      // user-supplied) for type-checking the target.
-      val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-        autoResolvedIfaceDir match
-          case None => Map.empty
-          case Some(dir) =>
-            if !os.isDir(dir) then Map.empty
-            else
-              os.list(dir).filter(_.ext == "scim").flatMap { p =>
-                ArtifactIO.readInterfaceFile(p) match
-                  case Right(iface) =>
-                    val alias = p.last.stripSuffix(".scim")
-                    List(alias -> iface)
-                  case Left(err) =>
-                    System.err.println(s"  [warn] skipping ${p.last}: $err")
-                    Nil
-              }.toMap
-
-      // Type-check (optionally against pre-compiled interfaces).  Errors are
-      // surfaced as a non-zero exit code so the build orchestrator can stop
-      // before producing a stale `.scjs`.
-      val typed =
-        if interfaces.isEmpty then Typer.typeCheck(module)
-        else Typer.typeCheckWithInterfaces(module, interfaces)
-      if typed.hasErrors then
-        typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
-        System.exit(1)
-
-      // Run the JS backend codegen on THIS module only (no merged dep code).
-      // v2.0 Phase 2: emit user-code-only JS (no preamble).  The shared
-      // runtime preamble is persisted once per artifact dir as
-      // `_runtime.scjs-runtime` and concatenated at link time.
-      val baseDir   = Some(path / os.up)
-      val jsSource  = JsGen.generateUserOnly(module, baseDir)
-      val pkg       = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-      val moduleName = module.manifest.flatMap(_.name)
-      val sourceHash = InterfaceExtractor.sha256(sourceBytes)
-
-      // Best-effort import discovery: collect `Content.Import` paths and
-      // front-matter `dependencies:` aliases.  Used by the linker as a hint
-      // for cross-module FQN resolution.  Not load-bearing for the textual
-      // MVP — the produced source already contains every name it needs.
-      val rawImports = collectImports(module.sections)
-      val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
-      val imports    = (rawImports ++ depAliases).distinct.toList
-
-      val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
-
-      // The `.scjs-runtime` lands in the SAME directory as the `.scjs`
-      // it accompanies — the linker picks it up by scanning the artifact
-      // dirs.  When the user passes `-o some/path/a.scjs`, the runtime
-      // belongs in `some/path/`; otherwise the runtime sits next to the
-      // source file (default `-o` resolves there).  Auto-resolved deps
-      // landed in `effectiveArtifactDir` and the dep's `.scjs` files are
-      // already there, so the runtime covers them too when that dir is
-      // the eventual output dir.
-      val runtimeDir: os.Path = outputArg match
-        case Some("-")                              => effectiveArtifactDir
-        case Some(out) if out.endsWith(".scjs")     =>
-          val outPath = os.Path(out, os.pwd)
-          outPath / os.up
-        case Some(_)                                => effectiveArtifactDir
-        case None                                   => path / os.up
-
-      // v2.0 Phase 2 — detect capabilities for THIS module, then ensure
-      // the shared runtime artifact in the artifact dir covers the union
-      // across all `.scjs` files seen so far (existing + this module).
-      val moduleCaps: Set[String] =
-        JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
-
-      val json = JsArtifactIO.writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, moduleCaps.toList.sorted)
-      outputArg match
-        case Some("-") => println(json)
-        case Some(out) =>
-          val outPath = os.Path(out, os.pwd)
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"JS artifact written to $outPath")
-        case None =>
-          val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjs")
-          os.makeDir.all(outPath / os.up)
-          os.write.over(outPath, json)
-          println(s"JS artifact written to ${outPath.relativeTo(os.pwd)}")
-
-      // Ensure the shared runtime AFTER writing this module's `.scjs` so
-      // `unionDepCapabilitiesJs(runtimeDir)` sees this module's caps too.
-      val depCaps   = unionDepCapabilitiesJs(runtimeDir) ++
-                      unionDepCapabilitiesJs(effectiveArtifactDir)
-      val unionCaps = depCaps ++ moduleCaps
-      try ensureJsRuntimeArtifact(runtimeDir, unionCaps)
-      catch case e: Throwable =>
-        System.err.println(s"compile-js: shared runtime regeneration failed: ${e.getMessage}")
-        System.exit(1)
-    catch case e: Exception =>
-      System.err.println(s"compile-js error: ${e.getMessage}")
+    if files.isEmpty then
+      System.err.println("Usage: ssc compile-js <file.ssc> [-o <file.scjs>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps]")
       System.exit(1)
+
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"Error: File not found: $file"); System.exit(1)
+      try
+        // ── Auto-resolve transitive local-path imports ────────────────────
+        // (See `compile-jvm` for the design.  Same shape, `.scjs` instead
+        // of `.scjvm` for the backend cache.)
+        val effectiveArtifactDir: os.Path =
+          artifactDir.getOrElse:
+            ifaceDir.getOrElse(AutoResolve.defaultArtifactDir(path))
+
+        val autoResolvedIfaceDir: Option[os.Path] =
+          if noAutoDeps then ifaceDir
+          else
+            val resolution = AutoResolve.resolve(path)
+            if resolution.cycles.nonEmpty then
+              System.err.println("compile-js: circular dependencies detected:")
+              resolution.cycles.foreach { cycle =>
+                System.err.println("  " + cycle.map(_.last).mkString(" → "))
+              }
+              System.exit(1)
+            val deps = resolution.orderedNodes.filter(_.path != path)
+            if deps.nonEmpty then os.makeDir.all(effectiveArtifactDir)
+            for dep <- deps do
+              val baseName = dep.path.last.stripSuffix(".ssc")
+              val scimPath = effectiveArtifactDir / (baseName + ".scim")
+              val scjsPath = effectiveArtifactDir / (baseName + ".scjs")
+              val fresh = AutoResolve.isScimFresh(dep, effectiveArtifactDir) &&
+                          AutoResolve.isScjsFresh(dep, effectiveArtifactDir)
+              if !fresh then
+                compileJsDepInto(dep, effectiveArtifactDir, scimPath, scjsPath)
+            Some(ifaceDir.getOrElse(effectiveArtifactDir))
+
+        val sourceBytes = os.read.bytes(path)
+        val src         = new String(sourceBytes, "UTF-8")
+        val module      = Parser.parse(src)
+
+        // Bail out early with a structured diagnostic if any scalascript block
+        // failed to parse — same rationale as compile-jvm.
+        if reportCodeBlockParseErrors(module, file) then
+          System.exit(1)
+
+        // v2.0 Phase 5 — stage pre-compiled artifacts shipped alongside any
+        // `dep:` imports' cached `.ssc`.  See `compileJvmCommand` for the
+        // detailed rationale.  Discovered `.scim` + `.scjs` end up in the
+        // effective artifact dir; the typer + linker pick them up directly.
+        val precompiledDeps =
+          stagePrecompiledDepArtifacts(module, path, effectiveArtifactDir, List("scim", "scjs"))
+        if precompiledDeps.nonEmpty then
+          val summary = precompiledDeps.toList.sortBy(_._1).map((e, n) => s"$n $e").mkString(", ")
+          println(s"compile-js: staged pre-compiled dep artifacts ($summary)")
+
+        // Pre-load interfaces from the iface dir (auto-resolved or
+        // user-supplied) for type-checking the target.
+        val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+          autoResolvedIfaceDir match
+            case None => Map.empty
+            case Some(dir) =>
+              if !os.isDir(dir) then Map.empty
+              else
+                os.list(dir).filter(_.ext == "scim").flatMap { p =>
+                  ArtifactIO.readInterfaceFile(p) match
+                    case Right(iface) =>
+                      val alias = p.last.stripSuffix(".scim")
+                      List(alias -> iface)
+                    case Left(err) =>
+                      System.err.println(s"  [warn] skipping ${p.last}: $err")
+                      Nil
+                }.toMap
+
+        // Type-check (optionally against pre-compiled interfaces).  Errors are
+        // surfaced as a non-zero exit code so the build orchestrator can stop
+        // before producing a stale `.scjs`.
+        val typed =
+          if interfaces.isEmpty then Typer.typeCheck(module)
+          else Typer.typeCheckWithInterfaces(module, interfaces)
+        if typed.hasErrors then
+          typed.errors.foreach(e => System.err.println(s"  Error: ${e.msg}"))
+          System.exit(1)
+
+        // Run the JS backend codegen on THIS module only (no merged dep code).
+        // v2.0 Phase 2: emit user-code-only JS (no preamble).  The shared
+        // runtime preamble is persisted once per artifact dir as
+        // `_runtime.scjs-runtime` and concatenated at link time.
+        val baseDir   = Some(path / os.up)
+        val jsSource  = JsGen.generateUserOnly(module, baseDir)
+        val pkg       = module.manifest.flatMap(_.pkg).getOrElse(Nil)
+        val moduleName = module.manifest.flatMap(_.name)
+        val sourceHash = InterfaceExtractor.sha256(sourceBytes)
+
+        // Best-effort import discovery: collect `Content.Import` paths and
+        // front-matter `dependencies:` aliases.  Used by the linker as a hint
+        // for cross-module FQN resolution.  Not load-bearing for the textual
+        // MVP — the produced source already contains every name it needs.
+        val rawImports = collectImports(module.sections)
+        val depAliases = module.manifest.toList.flatMap(_.dependencies.keys)
+        val imports    = (rawImports ++ depAliases).distinct.toList
+
+        val moduleId = moduleName.getOrElse(path.last.stripSuffix(".ssc"))
+
+        // The `.scjs-runtime` lands in the SAME directory as the `.scjs`
+        // it accompanies — the linker picks it up by scanning the artifact
+        // dirs.  When the user passes `-o some/path/a.scjs`, the runtime
+        // belongs in `some/path/`; otherwise the runtime sits next to the
+        // source file (default `-o` resolves there).  Auto-resolved deps
+        // landed in `effectiveArtifactDir` and the dep's `.scjs` files are
+        // already there, so the runtime covers them too when that dir is
+        // the eventual output dir.
+        val runtimeDir: os.Path = outputArg match
+          case Some("-")                              => effectiveArtifactDir
+          case Some(out) if out.endsWith(".scjs")     =>
+            val outPath = os.Path(out, os.pwd)
+            outPath / os.up
+          case Some(_)                                => effectiveArtifactDir
+          case None                                   => path / os.up
+
+        // v2.0 Phase 2 — detect capabilities for THIS module, then ensure
+        // the shared runtime artifact in the artifact dir covers the union
+        // across all `.scjs` files seen so far (existing + this module).
+        val moduleCaps: Set[String] =
+          JsGen.detectCapabilities(module, baseDir).map(JsGen.Capability.encode)
+
+        val json = JsArtifactIO.writeJs(moduleId, pkg, moduleName, sourceHash, jsSource, imports, moduleCaps.toList.sorted)
+        outputArg match
+          case Some("-") => println(json)
+          case Some(out) =>
+            val outPath = os.Path(out, os.pwd)
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"JS artifact written to $outPath")
+          case None =>
+            val outPath = path / os.up / (path.last.stripSuffix(".ssc") + ".scjs")
+            os.makeDir.all(outPath / os.up)
+            os.write.over(outPath, json)
+            println(s"JS artifact written to ${outPath.relativeTo(os.pwd)}")
+
+        // Ensure the shared runtime AFTER writing this module's `.scjs` so
+        // `unionDepCapabilitiesJs(runtimeDir)` sees this module's caps too.
+        val depCaps   = unionDepCapabilitiesJs(runtimeDir) ++
+                        unionDepCapabilitiesJs(effectiveArtifactDir)
+        val unionCaps = depCaps ++ moduleCaps
+        try ensureJsRuntimeArtifact(runtimeDir, unionCaps)
+        catch case e: Throwable =>
+          System.err.println(s"compile-js: shared runtime regeneration failed: ${e.getMessage}")
+          System.exit(1)
+      catch case e: Exception =>
+        System.err.println(s"compile-js error: ${e.getMessage}")
+        System.exit(1)
 
 /** Compile a single dependency module into `.scim` + `.scjs` artifacts
  *  living in `artifactDir`.  Mirror of `compileJvmDepInto`. */
@@ -4751,49 +4826,53 @@ private def compileJsDepInto(
  *  in addition to the sorted list.
  *
  *  v2.0 — dep-graph introspection. */
-def depsCommand(args: List[String]): Unit =
-  var graphMode = false
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  args.foreach {
-    case "--graph" => graphMode = true
-    case f         => files += f
-  }
-  if files.length != 1 then
-    System.err.println("Usage: ssc deps <file.ssc> [--graph]")
-    System.exit(1)
-
-  val path = os.Path(files.head, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"deps: file not found: ${files.head}")
-    System.exit(1)
-
-  val resolution =
-    try AutoResolve.resolve(path)
-    catch case e: Exception =>
-      System.err.println(s"deps: ${e.getMessage}")
-      System.exit(1); throw e
-
-  if resolution.cycles.nonEmpty then
-    System.err.println(s"deps: ${resolution.cycles.length} cycle(s) detected:")
-    resolution.cycles.foreach { cycle =>
-      System.err.println(s"  ${cycle.map(_.last).mkString(" → ")}")
+final class DepsCmd extends CliCommand:
+  def name = "deps"
+  override def summary = "Print the resolved import/dependency graph"
+  override def category = "Check & inspect"
+  def run(args: List[String]): Unit =
+    var graphMode = false
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    args.foreach {
+      case "--graph" => graphMode = true
+      case f         => files += f
     }
-    System.exit(1)
+    if files.length != 1 then
+      System.err.println("Usage: ssc deps <file.ssc> [--graph]")
+      System.exit(1)
 
-  // Topo-sorted list, target last (deps come first).
-  println(s"target: $path")
-  println(s"resolved ${resolution.orderedNodes.length} module(s) in topo order:")
-  resolution.orderedNodes.foreach { node =>
-    val marker = if node.path == path then " (target)" else ""
-    println(s"  ${node.path}$marker")
-  }
-  if graphMode then
-    println(s"\nedges:")
-    resolution.orderedNodes.foreach { node =>
-      node.depPaths.foreach { dep =>
-        println(s"  ${node.path.last} → ${dep.last}")
+    val path = os.Path(files.head, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"deps: file not found: ${files.head}")
+      System.exit(1)
+
+    val resolution =
+      try AutoResolve.resolve(path)
+      catch case e: Exception =>
+        System.err.println(s"deps: ${e.getMessage}")
+        System.exit(1); throw e
+
+    if resolution.cycles.nonEmpty then
+      System.err.println(s"deps: ${resolution.cycles.length} cycle(s) detected:")
+      resolution.cycles.foreach { cycle =>
+        System.err.println(s"  ${cycle.map(_.last).mkString(" → ")}")
       }
+      System.exit(1)
+
+    // Topo-sorted list, target last (deps come first).
+    println(s"target: $path")
+    println(s"resolved ${resolution.orderedNodes.length} module(s) in topo order:")
+    resolution.orderedNodes.foreach { node =>
+      val marker = if node.path == path then " (target)" else ""
+      println(s"  ${node.path}$marker")
     }
+    if graphMode then
+      println(s"\nedges:")
+      resolution.orderedNodes.foreach { node =>
+        node.depPaths.foreach { dep =>
+          println(s"  ${node.path.last} → ${dep.last}")
+        }
+      }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc clean <artifact-dir>  —  v2.0 artifact garbage collector
@@ -4825,137 +4904,142 @@ def depsCommand(args: List[String]): Unit =
  *
  *  v2.0 Phase 3 follow-up — artifact GC for users who manually
  *  manage their artifact dirs without re-running a full `build`. */
-def cleanCommand(args: List[String]): Unit =
-  var dryRun = false
-  var all    = false
-  val dirs   = scala.collection.mutable.ArrayBuffer.empty[String]
-  args.foreach {
-    case "--dry-run" => dryRun = true
-    case "--all"     => all    = true
-    case d           => dirs += d
-  }
-  if dirs.isEmpty then
-    System.err.println("Usage: ssc clean <dir> [--dry-run] [--all]")
-    System.err.println("  Default: remove artifacts whose source .ssc no longer exists in <dir>/..")
-    System.err.println("  --dry-run  Print actions; don't delete.")
-    System.err.println("  --all      Remove every v2.0 artifact (incl. runtimes) under <dir>.")
-    System.exit(1)
-  if dirs.length > 1 then
-    System.err.println(
-      s"Warning: ssc clean currently processes a single directory; ignoring ${dirs.length - 1} extra path(s).")
+final class CleanCmd extends CliCommand:
+  def name = "clean"
+  override def summary = "Remove stale v2.0 artifacts"
+  override def category = "Separate compilation (v2.0)"
+  override def details = List("Flags: --dry-run, --all")
+  def run(args: List[String]): Unit =
+    var dryRun = false
+    var all    = false
+    val dirs   = scala.collection.mutable.ArrayBuffer.empty[String]
+    args.foreach {
+      case "--dry-run" => dryRun = true
+      case "--all"     => all    = true
+      case d           => dirs += d
+    }
+    if dirs.isEmpty then
+      System.err.println("Usage: ssc clean <dir> [--dry-run] [--all]")
+      System.err.println("  Default: remove artifacts whose source .ssc no longer exists in <dir>/..")
+      System.err.println("  --dry-run  Print actions; don't delete.")
+      System.err.println("  --all      Remove every v2.0 artifact (incl. runtimes) under <dir>.")
+      System.exit(1)
+    if dirs.length > 1 then
+      System.err.println(
+        s"Warning: ssc clean currently processes a single directory; ignoring ${dirs.length - 1} extra path(s).")
 
-  val dir = os.Path(dirs.head, os.pwd)
-  if !os.exists(dir) then
-    System.err.println(s"clean: directory not found: $dir")
-    System.exit(1)
-  if !os.isDir(dir) then
-    System.err.println(s"clean: not a directory: $dir")
-    System.exit(1)
+    val dir = os.Path(dirs.head, os.pwd)
+    if !os.exists(dir) then
+      System.err.println(s"clean: directory not found: $dir")
+      System.exit(1)
+    if !os.isDir(dir) then
+      System.err.println(s"clean: not a directory: $dir")
+      System.exit(1)
 
-  // The v2.0 artifact extensions we manage.  Two flavours:
-  //  - Per-module artifacts (keyed by <moduleId>.scXX → look for
-  //    <moduleId>.ssc in `srcDir`).
-  //  - Runtime artifacts (".scjvm-runtime", ".scjs-runtime") — keyed
-  //    by capability set, not source; only --all touches them.
-  val moduleExts  = Set("scim", "scir", "scjvm", "scjs")
-  val runtimeExts = Set("scjvm-runtime", "scjs-runtime")
+    // The v2.0 artifact extensions we manage.  Two flavours:
+    //  - Per-module artifacts (keyed by <moduleId>.scXX → look for
+    //    <moduleId>.ssc in `srcDir`).
+    //  - Runtime artifacts (".scjvm-runtime", ".scjs-runtime") — keyed
+    //    by capability set, not source; only --all touches them.
+    val moduleExts  = Set("scim", "scir", "scjvm", "scjs")
+    val runtimeExts = Set("scjvm-runtime", "scjs-runtime")
 
-  val srcDir = dir / os.up
+    val srcDir = dir / os.up
 
-  // Walk dir non-recursively — artifacts live in a flat dir per the
-  // conventional layout (build → `artifacts/`).  Recursive walk would
-  // surprise users who symlink a `src/` tree under `artifacts/`.
-  val entries =
-    if !os.isDir(dir) then Nil
-    else os.list(dir).filter(p => os.isFile(p)).toList.sortBy(_.last)
+    // Walk dir non-recursively — artifacts live in a flat dir per the
+    // conventional layout (build → `artifacts/`).  Recursive walk would
+    // surprise users who symlink a `src/` tree under `artifacts/`.
+    val entries =
+      if !os.isDir(dir) then Nil
+      else os.list(dir).filter(p => os.isFile(p)).toList.sortBy(_.last)
 
-  /** True when `path` looks like a per-module artifact (e.g. `foo.scjvm`,
-   *  not `_runtime.scjvm-runtime`). */
-  def isModuleArtifact(path: os.Path): Boolean =
-    val name = path.last
-    moduleExts.exists(ext => name.endsWith("." + ext)) &&
-      !runtimeExts.exists(ext => name.endsWith("." + ext))
+    /** True when `path` looks like a per-module artifact (e.g. `foo.scjvm`,
+     *  not `_runtime.scjvm-runtime`). */
+    def isModuleArtifact(path: os.Path): Boolean =
+      val name = path.last
+      moduleExts.exists(ext => name.endsWith("." + ext)) &&
+        !runtimeExts.exists(ext => name.endsWith("." + ext))
 
-  def isRuntimeArtifact(path: os.Path): Boolean =
-    val name = path.last
-    runtimeExts.exists(ext => name.endsWith("." + ext))
+    def isRuntimeArtifact(path: os.Path): Boolean =
+      val name = path.last
+      runtimeExts.exists(ext => name.endsWith("." + ext))
 
-  /** Strip the artifact extension off `name` to recover the module id
-   *  (`foo.scjvm` → `foo`, `bar.scim` → `bar`).  Returns None for non-
-   *  artifact filenames. */
-  def moduleIdOf(name: String): Option[String] =
-    moduleExts.collectFirst {
-      case ext if name.endsWith("." + ext) => name.stripSuffix("." + ext)
+    /** Strip the artifact extension off `name` to recover the module id
+     *  (`foo.scjvm` → `foo`, `bar.scim` → `bar`).  Returns None for non-
+     *  artifact filenames. */
+    def moduleIdOf(name: String): Option[String] =
+      moduleExts.collectFirst {
+        case ext if name.endsWith("." + ext) => name.stripSuffix("." + ext)
+      }
+
+    /** True when a `<moduleId>.ssc` exists somewhere we can find it.  We
+     *  check the conventional `<dir>/..` first, then `<dir>` itself (in
+     *  case the user keeps sources next to artifacts), then a recursive
+     *  walk of `<dir>/..` as a last resort — modulo skipping `<dir>` to
+     *  avoid loops. */
+    def sourceExists(moduleId: String): Boolean =
+      val target = moduleId + ".ssc"
+      // Cheap checks first.
+      if os.exists(srcDir / target) then true
+      else if os.exists(dir / target) then true
+      else
+        // Recursive fallback under srcDir; cap the walk so a huge tree
+        // doesn't make `clean` painful.  Skip the artifact dir itself.
+        val cap = 5000
+        val it  = os.walk(srcDir, skip = p => p == dir, maxDepth = 6).iterator
+        var seen = 0
+        var found = false
+        while it.hasNext && !found && seen < cap do
+          val p = it.next()
+          seen += 1
+          if p.last == target && os.isFile(p) then found = true
+        found
+
+    // Stage 1 — classify every entry.
+    sealed trait Action
+    case object Remove extends Action  // artifact is stale → delete
+    case object Keep   extends Action  // artifact is fresh → leave alone
+    case object Skip   extends Action  // not an artifact we manage
+
+    case class Decision(path: os.Path, action: Action, reason: String)
+
+    val decisions = entries.map { p =>
+      val name = p.last
+      val isMod = isModuleArtifact(p)
+      val isRt  = isRuntimeArtifact(p)
+      if !isMod && !isRt then Decision(p, Skip, "not a v2.0 artifact")
+      else if all then
+        Decision(p, Remove,
+          if isRt then "runtime artifact (--all)"
+          else        "module artifact (--all)")
+      else if isRt then
+        Decision(p, Keep, "runtime artifact — only removed with --all")
+      else
+        moduleIdOf(name) match
+          case None     => Decision(p, Skip, "unrecognised artifact name")
+          case Some(id) =>
+            if sourceExists(id) then
+              Decision(p, Keep, s"source $id.ssc exists")
+            else
+              Decision(p, Remove, s"source $id.ssc no longer exists")
     }
 
-  /** True when a `<moduleId>.ssc` exists somewhere we can find it.  We
-   *  check the conventional `<dir>/..` first, then `<dir>` itself (in
-   *  case the user keeps sources next to artifacts), then a recursive
-   *  walk of `<dir>/..` as a last resort — modulo skipping `<dir>` to
-   *  avoid loops. */
-  def sourceExists(moduleId: String): Boolean =
-    val target = moduleId + ".ssc"
-    // Cheap checks first.
-    if os.exists(srcDir / target) then true
-    else if os.exists(dir / target) then true
-    else
-      // Recursive fallback under srcDir; cap the walk so a huge tree
-      // doesn't make `clean` painful.  Skip the artifact dir itself.
-      val cap = 5000
-      val it  = os.walk(srcDir, skip = p => p == dir, maxDepth = 6).iterator
-      var seen = 0
-      var found = false
-      while it.hasNext && !found && seen < cap do
-        val p = it.next()
-        seen += 1
-        if p.last == target && os.isFile(p) then found = true
-      found
+    // Stage 2 — apply (or pretend to).  Print one line per non-Skip action.
+    val toRemove = decisions.filter(_.action == Remove)
+    toRemove.foreach { d =>
+      val tag = if dryRun then "DRY-RUN" else "REMOVE"
+      println(s"$tag ${d.path.last}  (${d.reason})")
+      if !dryRun then
+        try os.remove(d.path)
+        catch case e: Throwable =>
+          System.err.println(s"clean: failed to remove ${d.path.last}: ${e.getMessage}")
+    }
 
-  // Stage 1 — classify every entry.
-  sealed trait Action
-  case object Remove extends Action  // artifact is stale → delete
-  case object Keep   extends Action  // artifact is fresh → leave alone
-  case object Skip   extends Action  // not an artifact we manage
-
-  case class Decision(path: os.Path, action: Action, reason: String)
-
-  val decisions = entries.map { p =>
-    val name = p.last
-    val isMod = isModuleArtifact(p)
-    val isRt  = isRuntimeArtifact(p)
-    if !isMod && !isRt then Decision(p, Skip, "not a v2.0 artifact")
-    else if all then
-      Decision(p, Remove,
-        if isRt then "runtime artifact (--all)"
-        else        "module artifact (--all)")
-    else if isRt then
-      Decision(p, Keep, "runtime artifact — only removed with --all")
-    else
-      moduleIdOf(name) match
-        case None     => Decision(p, Skip, "unrecognised artifact name")
-        case Some(id) =>
-          if sourceExists(id) then
-            Decision(p, Keep, s"source $id.ssc exists")
-          else
-            Decision(p, Remove, s"source $id.ssc no longer exists")
-  }
-
-  // Stage 2 — apply (or pretend to).  Print one line per non-Skip action.
-  val toRemove = decisions.filter(_.action == Remove)
-  toRemove.foreach { d =>
-    val tag = if dryRun then "DRY-RUN" else "REMOVE"
-    println(s"$tag ${d.path.last}  (${d.reason})")
-    if !dryRun then
-      try os.remove(d.path)
-      catch case e: Throwable =>
-        System.err.println(s"clean: failed to remove ${d.path.last}: ${e.getMessage}")
-  }
-
-  val keptCount    = decisions.count(_.action == Keep)
-  val skippedCount = decisions.count(_.action == Skip)
-  val removedCount = toRemove.size
-  val verb         = if dryRun then "would remove" else "removed"
-  println(s"Summary: $verb $removedCount; kept $keptCount; skipped $skippedCount (non-artifact files).")
+    val keptCount    = decisions.count(_.action == Keep)
+    val skippedCount = decisions.count(_.action == Skip)
+    val removedCount = toRemove.size
+    val verb         = if dryRun then "would remove" else "removed"
+    println(s"Summary: $verb $removedCount; kept $keptCount; skipped $skippedCount (non-artifact files).")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc info <artifact>  —  v2.0 artifact envelope inspector
@@ -4976,70 +5060,75 @@ def cleanCommand(args: List[String]): Unit =
  *    1 — magic / abiVersion mismatch (artifact corruption or ABI bump)
  *
  *  v2.0 — artifact introspection. */
-def infoCommand(args: List[String]): Unit =
-  var jsonMode     = false
-  var sectionsMode = false
-  var registryArg: Option[String] = None
-  val files        = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it2          = args.iterator
-  while it2.hasNext do
-    it2.next() match
-      case "--json"                       => jsonMode     = true
-      case "--sections"                   => sectionsMode = true
-      case "--registry" if it2.hasNext   => registryArg  = Some(it2.next())
-      case f                             => files        += f
-  if files.isEmpty then
-    System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections] [--registry <url>]")
-    System.err.println("  Registry: ssc info io.example/lib")
-    System.err.println("  Artifact: ssc info <file>.scim  (supported: .scim, .scir, .scjvm, .scjs)")
-    System.exit(1)
+final class InfoCmd extends CliCommand:
+  def name = "info"
+  override def summary = "Inspect a .scim/.scir/.scjvm/.scjs artifact"
+  override def category = "Separate compilation (v2.0)"
+  override def details = List("Flags: --json (dump the full envelope)")
+  def run(args: List[String]): Unit =
+    var jsonMode     = false
+    var sectionsMode = false
+    var registryArg: Option[String] = None
+    val files        = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it2          = args.iterator
+    while it2.hasNext do
+      it2.next() match
+        case "--json"                       => jsonMode     = true
+        case "--sections"                   => sectionsMode = true
+        case "--registry" if it2.hasNext   => registryArg  = Some(it2.next())
+        case f                             => files        += f
+    if files.isEmpty then
+      System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections] [--registry <url>]")
+      System.err.println("  Registry: ssc info io.example/lib")
+      System.err.println("  Artifact: ssc info <file>.scim  (supported: .scim, .scir, .scjvm, .scjs)")
+      System.exit(1)
 
-  // If first arg looks like a registry name (<group>/<artifact>), dispatch to registry info.
-  val firstArg = files.head
-  if firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
-    import scalascript.imports.RegistryClient
-    val url     = RegistryClient.effectiveUrl(registryArg)
-    val entries = RegistryClient.load(url, refresh = registryArg.isDefined)
-    entries.find(_.name == firstArg) match
-      case None =>
-        System.err.println(s"Package '${firstArg}' not found in registry.")
-        System.err.println(s"Run 'ssc search' to browse available packages.")
-        System.exit(1)
-      case Some(e) =>
-        print(RegistryClient.formatInfo(e))
-    return
+    // If first arg looks like a registry name (<group>/<artifact>), dispatch to registry info.
+    val firstArg = files.head
+    if firstArg.contains('/') && !Set("scim", "scir", "scjvm", "scjs").contains(firstArg.split('.').lastOption.getOrElse("")) then
+      import scalascript.imports.RegistryClient
+      val url     = RegistryClient.effectiveUrl(registryArg)
+      val entries = RegistryClient.load(url, refresh = registryArg.isDefined)
+      entries.find(_.name == firstArg) match
+        case None =>
+          System.err.println(s"Package '${firstArg}' not found in registry.")
+          System.err.println(s"Run 'ssc search' to browse available packages.")
+          System.exit(1)
+        case Some(e) =>
+          print(RegistryClient.formatInfo(e))
+      return
 
-  // Single-argument MVP — process the first file only.  Multiple files
-  // are reserved for a follow-up; pre-warn if the user passed more.
-  if files.length > 1 then
-    System.err.println(
-      s"Warning: ssc info currently inspects a single artifact; ignoring ${files.length - 1} extra path(s).")
+    // Single-argument MVP — process the first file only.  Multiple files
+    // are reserved for a follow-up; pre-warn if the user passed more.
+    if files.length > 1 then
+      System.err.println(
+        s"Warning: ssc info currently inspects a single artifact; ignoring ${files.length - 1} extra path(s).")
 
-  val file = files.head
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"info: file not found: $file")
-    System.exit(1)
+    val file = files.head
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"info: file not found: $file")
+      System.exit(1)
 
-  val ext = path.ext
-  if !Set("scim", "scir", "scjvm", "scjs").contains(ext) then
-    System.err.println(
-      s"info: unsupported extension '.$ext' — expected .scim, .scir, .scjvm, or .scjs")
-    System.exit(1)
+    val ext = path.ext
+    if !Set("scim", "scir", "scjvm", "scjs").contains(ext) then
+      System.err.println(
+        s"info: unsupported extension '.$ext' — expected .scim, .scir, .scjvm, or .scjs")
+      System.exit(1)
 
-  try
-    val raw     = os.read(path)
-    val bytes   = os.read.bytes(path)
-    val fileSize = bytes.length
-    ext match
-      case "scim"  => printScimInfo(path, raw, fileSize, jsonMode, sectionsMode)
-      case "scir"  => printScirInfo(path, raw, fileSize, jsonMode, sectionsMode)
-      case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode, sectionsMode)
-      case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode, sectionsMode)
-      case _       => () // unreachable — extension already validated above
-  catch case e: Exception =>
-    System.err.println(s"info: ${e.getMessage}")
-    System.exit(1)
+    try
+      val raw     = os.read(path)
+      val bytes   = os.read.bytes(path)
+      val fileSize = bytes.length
+      ext match
+        case "scim"  => printScimInfo(path, raw, fileSize, jsonMode, sectionsMode)
+        case "scir"  => printScirInfo(path, raw, fileSize, jsonMode, sectionsMode)
+        case "scjvm" => printScjvmInfo(path, raw, fileSize, jsonMode, sectionsMode)
+        case "scjs"  => printScjsInfo(path, raw, fileSize, jsonMode, sectionsMode)
+        case _       => () // unreachable — extension already validated above
+    catch case e: Exception =>
+      System.err.println(s"info: ${e.getMessage}")
+      System.exit(1)
 
 private def printScimInfo(path: os.Path, json: String, fileSize: Long, jsonMode: Boolean, sectionsMode: Boolean = false): Unit =
   ArtifactIO.readInterface(json) match
@@ -5228,52 +5317,57 @@ private def printScjsInfo(path: os.Path, json: String, fileSize: Long, jsonMode:
  *  emits a parseable JSON document `{ dir, artifacts: [...], summary: {...} }`.
  *
  *  v2.0 Phase 3 — operational health check. */
-def verifyCommand(args: List[String]): Unit =
-  var artifactDirArg: Option[String] = None
-  var srcDirArg:      Option[String] = None
-  var strict:         Boolean        = false
-  var jsonMode:       Boolean        = false
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--src-dir" if it.hasNext => srcDirArg = Some(it.next())
-      case "--strict"                => strict = true
-      case "--json"                  => jsonMode = true
-      case other if other.startsWith("--") =>
-        System.err.println(s"verify: unrecognised argument '$other'")
-        System.exit(1)
-      case other =>
-        if artifactDirArg.isDefined then
-          System.err.println(s"verify: unexpected extra argument '$other'")
+final class VerifyCmd extends CliCommand:
+  def name = "verify"
+  override def summary = "Health-check v2.0 artifacts in a directory"
+  override def category = "Separate compilation (v2.0)"
+  override def details = List("Flags: --strict, --src-dir <dir>, --json")
+  def run(args: List[String]): Unit =
+    var artifactDirArg: Option[String] = None
+    var srcDirArg:      Option[String] = None
+    var strict:         Boolean        = false
+    var jsonMode:       Boolean        = false
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--src-dir" if it.hasNext => srcDirArg = Some(it.next())
+        case "--strict"                => strict = true
+        case "--json"                  => jsonMode = true
+        case other if other.startsWith("--") =>
+          System.err.println(s"verify: unrecognised argument '$other'")
           System.exit(1)
-        artifactDirArg = Some(other)
+        case other =>
+          if artifactDirArg.isDefined then
+            System.err.println(s"verify: unexpected extra argument '$other'")
+            System.exit(1)
+          artifactDirArg = Some(other)
 
-  if artifactDirArg.isEmpty then
-    System.err.println("Usage: ssc verify <artifact-dir> [--src-dir <dir>] [--strict] [--json]")
-    System.exit(1)
+    if artifactDirArg.isEmpty then
+      System.err.println("Usage: ssc verify <artifact-dir> [--src-dir <dir>] [--strict] [--json]")
+      System.exit(1)
 
-  val artifactDir = os.Path(artifactDirArg.get, os.pwd)
-  if !os.exists(artifactDir) then
-    System.err.println(s"verify: artifact-dir not found: $artifactDir")
-    System.exit(1)
-  if !os.isDir(artifactDir) then
-    System.err.println(s"verify: not a directory: $artifactDir")
-    System.exit(1)
+    val artifactDir = os.Path(artifactDirArg.get, os.pwd)
+    if !os.exists(artifactDir) then
+      System.err.println(s"verify: artifact-dir not found: $artifactDir")
+      System.exit(1)
+    if !os.isDir(artifactDir) then
+      System.err.println(s"verify: not a directory: $artifactDir")
+      System.exit(1)
 
-  val srcDir = srcDirArg.map(os.Path(_, os.pwd)).getOrElse(artifactDir / os.up)
-  // Source dir is allowed to be missing; freshness checks just degrade to WARN.
+    val srcDir = srcDirArg.map(os.Path(_, os.pwd)).getOrElse(artifactDir / os.up)
+    // Source dir is allowed to be missing; freshness checks just degrade to WARN.
 
-  val (rows, summary) = runVerify(artifactDir, srcDir, strict)
+    val (rows, summary) = runVerify(artifactDir, srcDir, strict)
 
-  if jsonMode then
-    println(VerifyReport.toJson(artifactDir, rows, summary))
-  else
-    VerifyReport.printPlain(artifactDir, rows, summary)
+    if jsonMode then
+      println(VerifyReport.toJson(artifactDir, rows, summary))
+    else
+      VerifyReport.printPlain(artifactDir, rows, summary)
 
-  // Exit code policy: any FAIL → 1.  With --strict, any WARN also → 1.
-  val shouldFail =
-    summary.fail > 0 || (strict && summary.warn > 0)
-  if shouldFail then System.exit(1)
+    // Exit code policy: any FAIL → 1.  With --strict, any WARN also → 1.
+    val shouldFail =
+      summary.fail > 0 || (strict && summary.warn > 0)
+    if shouldFail then System.exit(1)
 
 /** Per-artifact verify outcome. */
 private case class VerifyRow(
@@ -5999,23 +6093,27 @@ private def ssclibInterfaceBytes(label: String, sourceBytes: Array[Byte]): Array
 case class CompatReport(removed: List[String], changed: List[String]):
   def isCompatible: Boolean = removed.isEmpty && changed.isEmpty
 
-def checkCompatCommand(args: List[String]): Unit =
-  if args.length != 2 then
-    System.err.println("Usage: ssc check-compat <old.ssclib> <new.ssclib>")
-    System.exit(1)
-  val oldPath = os.Path(args(0), os.pwd)
-  val newPath = os.Path(args(1), os.pwd)
-  try
-    val report = checkSsclibCompat(oldPath, newPath)
-    if report.isCompatible then
-      println(s"Compatible: ${oldPath.last} -> ${newPath.last}")
-    else
-      report.removed.foreach(s => println(s"REMOVED $s"))
-      report.changed.foreach(s => println(s"CHANGED $s"))
+final class CheckCompatCmd extends CliCommand:
+  def name = "check-compat"
+  override def summary = "Compare public .scim interfaces; fail on breaking changes"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    if args.length != 2 then
+      System.err.println("Usage: ssc check-compat <old.ssclib> <new.ssclib>")
       System.exit(1)
-  catch case e: RuntimeException =>
-    System.err.println(s"check-compat: ${e.getMessage}")
-    System.exit(1)
+    val oldPath = os.Path(args(0), os.pwd)
+    val newPath = os.Path(args(1), os.pwd)
+    try
+      val report = checkSsclibCompat(oldPath, newPath)
+      if report.isCompatible then
+        println(s"Compatible: ${oldPath.last} -> ${newPath.last}")
+      else
+        report.removed.foreach(s => println(s"REMOVED $s"))
+        report.changed.foreach(s => println(s"CHANGED $s"))
+        System.exit(1)
+    catch case e: RuntimeException =>
+      System.err.println(s"check-compat: ${e.getMessage}")
+      System.exit(1)
 
 def checkSsclibCompat(oldPath: os.Path, newPath: os.Path): CompatReport =
   val oldSymbols = publicSsclibSymbols(oldPath)
@@ -6071,99 +6169,103 @@ private def readSsclibInterfaces(path: os.Path): Map[String, scalascript.ir.Modu
         case Left(err)    => throw RuntimeException(s"${path.last}: generated $name interface unreadable: $err")
     }.toMap
 
-def packageCommand(args: List[String]): Unit =
-  if args.contains("--lib") then
-    return packageLib(args.filterNot(_ == "--lib"))
-  val compiled = args.contains("--compiled")
-  val rest     = args.filterNot(_ == "--compiled")
+final class PackageCmd extends CliCommand:
+  def name = "package"
+  override def summary = "Package .ssc via scala-cli (see Package flags below)"
+  override def category = "Build, bundle & package"
+  def run(args: List[String]): Unit =
+    if args.contains("--lib") then
+      return packageLib(args.filterNot(_ == "--lib"))
+    val compiled = args.contains("--compiled")
+    val rest     = args.filterNot(_ == "--compiled")
 
-  // Parse --target, --out, --export-method, --team-id, --distribution, --dmg/--no-dmg, --notarize/--no-notarize, positionals
-  var targetFlag:       Option[String] = None
-  var outFlag:          Option[String] = None
-  var exportMethodFlag: String         = "development"
-  var teamIdFlag:       Option[String] = None
-  var distributionFlag: Boolean        = false
-  var dmgFlag:          Boolean        = true
-  var notarizeFlag:     Boolean        = true
-  val positional = scala.collection.mutable.ListBuffer.empty[String]
-  val it = rest.iterator
-  while it.hasNext do
-    it.next() match
-      case "--target"        if it.hasNext => targetFlag       = Some(it.next())
-      case "--out"           if it.hasNext => outFlag          = Some(it.next())
-      case "--export-method" if it.hasNext => exportMethodFlag = it.next()
-      case "--team-id"       if it.hasNext => teamIdFlag       = Some(it.next())
-      case "--distribution"               => distributionFlag  = true
-      case "--no-dmg"                     => dmgFlag           = false
-      case "--dmg"                        => dmgFlag           = true
-      case "--no-notarize"                => notarizeFlag      = false
-      case "--notarize"                   => notarizeFlag      = true
-      case other                          => positional += other
+    // Parse --target, --out, --export-method, --team-id, --distribution, --dmg/--no-dmg, --notarize/--no-notarize, positionals
+    var targetFlag:       Option[String] = None
+    var outFlag:          Option[String] = None
+    var exportMethodFlag: String         = "development"
+    var teamIdFlag:       Option[String] = None
+    var distributionFlag: Boolean        = false
+    var dmgFlag:          Boolean        = true
+    var notarizeFlag:     Boolean        = true
+    val positional = scala.collection.mutable.ListBuffer.empty[String]
+    val it = rest.iterator
+    while it.hasNext do
+      it.next() match
+        case "--target"        if it.hasNext => targetFlag       = Some(it.next())
+        case "--out"           if it.hasNext => outFlag          = Some(it.next())
+        case "--export-method" if it.hasNext => exportMethodFlag = it.next()
+        case "--team-id"       if it.hasNext => teamIdFlag       = Some(it.next())
+        case "--distribution"               => distributionFlag  = true
+        case "--no-dmg"                     => dmgFlag           = false
+        case "--dmg"                        => dmgFlag           = true
+        case "--no-notarize"                => notarizeFlag      = false
+        case "--notarize"                   => notarizeFlag      = true
+        case other                          => positional += other
 
-  val projectFile: Option[os.Path] = positional.headOption match
-    case Some(arg) =>
-      val p = os.Path(arg, os.pwd)
-      if os.exists(p) && os.isFile(p) && p.ext == "ssc" then Some(p)
-      else if !os.exists(p) || os.isFile(p) then
-        val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
-        if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
-      else None
-    case None => findProjectSsc()
+    val projectFile: Option[os.Path] = positional.headOption match
+      case Some(arg) =>
+        val p = os.Path(arg, os.pwd)
+        if os.exists(p) && os.isFile(p) && p.ext == "ssc" then Some(p)
+        else if !os.exists(p) || os.isFile(p) then
+          val candidate = os.Path(arg.stripSuffix(".ssc") + ".ssc", os.pwd)
+          if os.exists(candidate) && os.isFile(candidate) then Some(candidate) else None
+        else None
+      case None => findProjectSsc()
 
-  // Legacy scala-cli mode: explicit .ssc file + --compiled flag
-  if compiled then
-    val sscPath = projectFile.getOrElse {
-      System.err.println("ssc package --compiled: no project file found"); System.exit(1); ???
-    }
-    val sscFiles = List(sscPath)
-    val scalaCliFlags = positional.drop(1).toList
-    for path <- sscFiles do
-      if !os.exists(path) then { System.err.println(s"Error: File not found: $path"); System.exit(1) }
-      else
-        try
-          val script = expectText(compileViaBackend("jvm", path), "package")
-          val tmp    = os.temp(script, suffix = ".sc")
-          try
-            val hasOutput = scalaCliFlags.exists(f => f == "-o" || f == "--output")
-            val outputFlags =
-              if hasOutput then Nil
-              else List("--output", path.last.stripSuffix(".ssc"))
-            val result = os.proc(
-              "scala-cli", "--power", "package", tmp,
-              "--server=false",
-              outputFlags,
-              scalaCliFlags
-            ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
-            if result.exitCode != 0 then System.exit(result.exitCode)
-          finally os.remove(tmp)
-        catch case e: Exception =>
-          System.err.println(s"Package error: ${e.getMessage}")
-          System.exit(1)
-    return
-
-  // Project-file mode (default)
-  projectFile match
-    case None =>
-      System.err.println("ssc package: no project file found (pass a name, name.ssc, or run from a project directory)")
-      System.exit(1)
-    case Some(pf) =>
-      val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(pf)).manifest).toOption.flatten
-      val name     = manifest.flatMap(_.name).getOrElse(pf.last.stripSuffix(".ssc"))
-      val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
-      val targets  = effectiveTarget.map(List(_))
-        .orElse(manifest.map(_.targets).filter(_.nonEmpty))
-        .getOrElse(List("ssc"))
-      val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
-      os.makeDir.all(outDir)
-
-      println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
-      for t <- targets do
-        if t == "ios" || t == "mobile-ios" then
-          packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
-        else if (t == "macos" || t == "desktop-macos") && distributionFlag then
-          packageMacosDistribution(pf, outDir / t, teamIdFlag, dmg = dmgFlag, notarize = notarizeFlag)
+    // Legacy scala-cli mode: explicit .ssc file + --compiled flag
+    if compiled then
+      val sscPath = projectFile.getOrElse {
+        System.err.println("ssc package --compiled: no project file found"); System.exit(1); ???
+      }
+      val sscFiles = List(sscPath)
+      val scalaCliFlags = positional.drop(1).toList
+      for path <- sscFiles do
+        if !os.exists(path) then { System.err.println(s"Error: File not found: $path"); System.exit(1) }
         else
-          buildProjectFileCommand(pf, Some(t), outDir, fat = true)
+          try
+            val script = expectText(compileViaBackend("jvm", path), "package")
+            val tmp    = os.temp(script, suffix = ".sc")
+            try
+              val hasOutput = scalaCliFlags.exists(f => f == "-o" || f == "--output")
+              val outputFlags =
+                if hasOutput then Nil
+                else List("--output", path.last.stripSuffix(".ssc"))
+              val result = os.proc(
+                "scala-cli", "--power", "package", tmp,
+                "--server=false",
+                outputFlags,
+                scalaCliFlags
+              ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
+              if result.exitCode != 0 then System.exit(result.exitCode)
+            finally os.remove(tmp)
+          catch case e: Exception =>
+            System.err.println(s"Package error: ${e.getMessage}")
+            System.exit(1)
+      return
+
+    // Project-file mode (default)
+    projectFile match
+      case None =>
+        System.err.println("ssc package: no project file found (pass a name, name.ssc, or run from a project directory)")
+        System.exit(1)
+      case Some(pf) =>
+        val manifest = scala.util.Try(scalascript.parser.Parser.parse(os.read(pf)).manifest).toOption.flatten
+        val name     = manifest.flatMap(_.name).getOrElse(pf.last.stripSuffix(".ssc"))
+        val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
+        val targets  = effectiveTarget.map(List(_))
+          .orElse(manifest.map(_.targets).filter(_.nonEmpty))
+          .getOrElse(List("ssc"))
+        val outDir   = os.Path(outFlag.getOrElse("target/package"), os.pwd)
+        os.makeDir.all(outDir)
+
+        println(s"Packaging $name  targets: ${targets.mkString(", ")}  →  ${displayPath(outDir)}/")
+        for t <- targets do
+          if t == "ios" || t == "mobile-ios" then
+            packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
+          else if (t == "macos" || t == "desktop-macos") && distributionFlag then
+            packageMacosDistribution(pf, outDir / t, teamIdFlag, dmg = dmgFlag, notarize = notarizeFlag)
+          else
+            buildProjectFileCommand(pf, Some(t), outDir, fat = true)
 
 /** `ssc publish --target ios [--testflight|--appstore] [--fastlane] [--api-key-path <p>]
  *    [--submit-for-review] [--release-notes <text>] [<project.ssc>]`
@@ -6171,59 +6273,63 @@ def packageCommand(args: List[String]): Unit =
  *  Uploads an iOS app to TestFlight or App Store via fastlane.
  *  By default, generates a `Fastfile` in the project directory then invokes fastlane.
  *  `--fastlane` skips generation and uses the existing `Fastfile`. */
-def publishCommand(args: List[String]): Unit =
-  var targetFlag:          Option[String] = None
-  var testflightFlag:      Boolean        = false
-  var appstoreFlag:        Boolean        = false
-  var fastlaneFlag:        Boolean        = false
-  var apiKeyPathFlag:      Option[String] = None
-  var submitForReviewFlag: Boolean        = false
-  var releaseNotesFlag:    Option[String] = None
-  val positional = scala.collection.mutable.ListBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--target"           if it.hasNext => targetFlag       = Some(it.next())
-      case "--api-key-path"     if it.hasNext => apiKeyPathFlag   = Some(it.next())
-      case "--release-notes"    if it.hasNext => releaseNotesFlag = Some(it.next())
-      case "--testflight"                     => testflightFlag   = true
-      case "--appstore"                       => appstoreFlag     = true
-      case "--fastlane"                       => fastlaneFlag     = true
-      case "--submit-for-review"              => submitForReviewFlag = true
-      case other                              => positional += other
+final class PublishCmd extends CliCommand:
+  def name = "publish"
+  override def summary = "Publish artifacts (TestFlight/App Store per --target)"
+  override def category = "Dependencies & plugins"
+  def run(args: List[String]): Unit =
+    var targetFlag:          Option[String] = None
+    var testflightFlag:      Boolean        = false
+    var appstoreFlag:        Boolean        = false
+    var fastlaneFlag:        Boolean        = false
+    var apiKeyPathFlag:      Option[String] = None
+    var submitForReviewFlag: Boolean        = false
+    var releaseNotesFlag:    Option[String] = None
+    val positional = scala.collection.mutable.ListBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--target"           if it.hasNext => targetFlag       = Some(it.next())
+        case "--api-key-path"     if it.hasNext => apiKeyPathFlag   = Some(it.next())
+        case "--release-notes"    if it.hasNext => releaseNotesFlag = Some(it.next())
+        case "--testflight"                     => testflightFlag   = true
+        case "--appstore"                       => appstoreFlag     = true
+        case "--fastlane"                       => fastlaneFlag     = true
+        case "--submit-for-review"              => submitForReviewFlag = true
+        case other                              => positional += other
 
-  val projectFile = positional.headOption match
-    case Some(arg) =>
-      val p = os.Path(arg, os.pwd)
-      if os.exists(p) && p.ext == "ssc" then p
-      else { System.err.println(s"ssc publish: file not found: $arg"); System.exit(1); ??? }
-    case None => findProjectSsc().getOrElse {
-      System.err.println("ssc publish: no project file found"); System.exit(1); ???
-    }
+    val projectFile = positional.headOption match
+      case Some(arg) =>
+        val p = os.Path(arg, os.pwd)
+        if os.exists(p) && p.ext == "ssc" then p
+        else { System.err.println(s"ssc publish: file not found: $arg"); System.exit(1); ??? }
+      case None => findProjectSsc().getOrElse {
+        System.err.println("ssc publish: no project file found"); System.exit(1); ???
+      }
 
-  val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
+    val effectiveTarget = targetFlag.orElse(ActiveFlags.current.target)
 
-  effectiveTarget match
-    case Some("ios") | Some("mobile-ios") =>
-      if !testflightFlag && !appstoreFlag then
-        System.err.println("ssc publish --target ios: specify --testflight or --appstore")
+    effectiveTarget match
+      case Some("ios") | Some("mobile-ios") =>
+        if !testflightFlag && !appstoreFlag then
+          System.err.println("ssc publish --target ios: specify --testflight or --appstore")
+          System.exit(1)
+        val lane = if appstoreFlag then "appstore" else "testflight"
+        publishIosFastlane(
+          projectFile, lane, fastlaneFlag, apiKeyPathFlag,
+          submitForReviewFlag, releaseNotesFlag
+        )
+      case Some("macos") | Some("desktop-macos") =>
+        if !appstoreFlag then
+          System.err.println("ssc publish --target macos: specify --appstore")
+          System.exit(1)
+        publishMacosFastlane(projectFile, fastlaneFlag, apiKeyPathFlag, submitForReviewFlag)
+      case Some(t) =>
+        System.err.println(s"ssc publish: unsupported target '$t'  (valid: ios, macos)")
         System.exit(1)
-      val lane = if appstoreFlag then "appstore" else "testflight"
-      publishIosFastlane(
-        projectFile, lane, fastlaneFlag, apiKeyPathFlag,
-        submitForReviewFlag, releaseNotesFlag
-      )
-    case Some("macos") | Some("desktop-macos") =>
-      if !appstoreFlag then
-        System.err.println("ssc publish --target macos: specify --appstore")
+      case None =>
+        System.err.println("ssc publish: --target is required  (valid: ios, macos)")
         System.exit(1)
-      publishMacosFastlane(projectFile, fastlaneFlag, apiKeyPathFlag, submitForReviewFlag)
-    case Some(t) =>
-      System.err.println(s"ssc publish: unsupported target '$t'  (valid: ios, macos)")
-      System.exit(1)
-    case None =>
-      System.err.println("ssc publish: --target is required  (valid: ios, macos)")
-      System.exit(1)
 
 /** `ssc publish --target ios` implementation via fastlane.
  *
@@ -6475,71 +6581,75 @@ private def generateMacosFastfile(appName: String, submitForReview: Boolean): St
       |end
       |""".stripMargin
 
-def testCommand(args: List[String]): Unit =
-  import scalascript.interpreter.{Interpreter, Value, Computation}
+final class TestCmd extends CliCommand:
+  def name = "test"
+  override def summary = "Run component unit tests; non-zero exit on any failure"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    import scalascript.interpreter.{Interpreter, Value, Computation}
 
-  if args.isEmpty then
-    System.err.println("Usage: ssc test <file.ssc> [<file.ssc>...]")
-    System.exit(1)
+    if args.isEmpty then
+      System.err.println("Usage: ssc test <file.ssc> [<file.ssc>...]")
+      System.exit(1)
 
-  val files = args.flatMap { f =>
-    val p = os.Path(f, os.pwd)
-    if !os.exists(p) then
-      System.err.println(s"Error: File not found: $f"); System.exit(1); Nil
-    else List(p)
-  }
+    val files = args.flatMap { f =>
+      val p = os.Path(f, os.pwd)
+      if !os.exists(p) then
+        System.err.println(s"Error: File not found: $f"); System.exit(1); Nil
+      else List(p)
+    }
 
-  var totalPassed = 0
-  var totalFailed = 0
+    var totalPassed = 0
+    var totalFailed = 0
 
-  for file <- files do
-    println(s"\n  ${file.last}")
+    for file <- files do
+      println(s"\n  ${file.last}")
 
-    // Collect (name, thunk) pairs registered via test(name, thunk) calls.
-    val tests = scala.collection.mutable.ArrayBuffer.empty[(String, Value)]
+      // Collect (name, thunk) pairs registered via test(name, thunk) calls.
+      val tests = scala.collection.mutable.ArrayBuffer.empty[(String, Value)]
 
-    // Create interpreter and inject the `test` builtin via injectGlobal BEFORE
-    // calling run().  initBuiltins() (called inside run) doesn't touch "test"
-    // so the injection survives and user code can call test(...) at top level.
-    val interp = Interpreter(out = System.out, baseDir = Some(file / os.up))
-    interp.injectGlobal("test",
-      Value.NativeFnV("test", Computation.pureFn {
-        case List(Value.StringV(name), thunk) =>
-          tests += (name -> thunk)
-          Value.UnitV
-        case _ =>
-          Value.UnitV
-      })
-    )
+      // Create interpreter and inject the `test` builtin via injectGlobal BEFORE
+      // calling run().  initBuiltins() (called inside run) doesn't touch "test"
+      // so the injection survives and user code can call test(...) at top level.
+      val interp = Interpreter(out = System.out, baseDir = Some(file / os.up))
+      interp.injectGlobal("test",
+        Value.NativeFnV("test", Computation.pureFn {
+          case List(Value.StringV(name), thunk) =>
+            tests += (name -> thunk)
+            Value.UnitV
+          case _ =>
+            Value.UnitV
+        })
+      )
 
-    try interp.run(scalascript.parser.Parser.parse(os.read(file)))
-    catch case e: Exception =>
-      System.err.println(s"  [error] ${e.getMessage}")
-      totalFailed += 1
+      try interp.run(scalascript.parser.Parser.parse(os.read(file)))
+      catch case e: Exception =>
+        System.err.println(s"  [error] ${e.getMessage}")
+        totalFailed += 1
 
-    // Execute each registered test thunk and report.
-    for (name, thunk) <- tests do
-      val result =
-        try
-          interp.invoke(thunk, Nil) match
-            case Value.BoolV(true)  => Right(true)
-            case Value.BoolV(false) => Right(false)
-            case other              => Left(s"expected Boolean, got ${Value.show(other)}")
-        catch case e: Exception => Left(e.getMessage)
-      result match
-        case Right(true)  =>
-          println(s"    PASS  $name")
-          totalPassed += 1
-        case Right(false) =>
-          println(s"    FAIL  $name")
-          totalFailed += 1
-        case Left(msg)    =>
-          println(s"    FAIL  $name  ($msg)")
-          totalFailed += 1
+      // Execute each registered test thunk and report.
+      for (name, thunk) <- tests do
+        val result =
+          try
+            interp.invoke(thunk, Nil) match
+              case Value.BoolV(true)  => Right(true)
+              case Value.BoolV(false) => Right(false)
+              case other              => Left(s"expected Boolean, got ${Value.show(other)}")
+          catch case e: Exception => Left(e.getMessage)
+        result match
+          case Right(true)  =>
+            println(s"    PASS  $name")
+            totalPassed += 1
+          case Right(false) =>
+            println(s"    FAIL  $name")
+            totalFailed += 1
+          case Left(msg)    =>
+            println(s"    FAIL  $name  ($msg)")
+            totalFailed += 1
 
-  println()
-  println(s"Results: $totalPassed passed, $totalFailed failed")
-  if totalFailed > 0 then System.exit(1)
+    println()
+    println(s"Results: $totalPassed passed, $totalFailed failed")
+    if totalFailed > 0 then System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc preview <file>  —  v0.9 Storybook-lite browser preview
@@ -6573,119 +6683,123 @@ def testCommand(args: List[String]): Unit =
  *  If `variants:` is absent the page shows one "default" section rendering
  *  every component with no arguments.
  */
-def previewCommand(args: List[String]): Unit =
-  import scalascript.interpreter.{Interpreter, Value}
-  import scalascript.ast.{Content, Lang}
-  import scala.meta.Defn
-  import scala.jdk.CollectionConverters.*
+final class PreviewCmd extends CliCommand:
+  def name = "preview"
+  override def summary = "Open a browser preview of each front-matter component variant"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    import scalascript.interpreter.{Interpreter, Value}
+    import scalascript.ast.{Content, Lang}
+    import scala.meta.Defn
+    import scala.jdk.CollectionConverters.*
 
-  if args.isEmpty then
-    System.err.println("Usage: ssc preview <file.ssc>")
-    System.exit(1)
+    if args.isEmpty then
+      System.err.println("Usage: ssc preview <file.ssc>")
+      System.exit(1)
 
-  val file    = args.head
-  val absPath = os.Path(file, os.pwd)
-  if !os.exists(absPath) then
-    System.err.println(s"Error: File not found: $file"); System.exit(1)
+    val file    = args.head
+    val absPath = os.Path(file, os.pwd)
+    if !os.exists(absPath) then
+      System.err.println(s"Error: File not found: $file"); System.exit(1)
 
-  // Parse the module to extract front-matter and component shapes.
-  val module   = scalascript.parser.Parser.parse(os.read(absPath))
-  val title    = module.manifest.flatMap(_.name).getOrElse(absPath.last.stripSuffix(".ssc"))
-  val rawFM    = module.manifest.map(_.raw).getOrElse(Map.empty)
+    // Parse the module to extract front-matter and component shapes.
+    val module   = scalascript.parser.Parser.parse(os.read(absPath))
+    val title    = module.manifest.flatMap(_.name).getOrElse(absPath.last.stripSuffix(".ssc"))
+    val rawFM    = module.manifest.map(_.raw).getOrElse(Map.empty)
 
-  // Parse `variants:` from front-matter.
-  // Each entry: {name: String, args: {key: value, …}}
-  case class Variant(label: String, args: Map[String, String])
+    // Parse `variants:` from front-matter.
+    // Each entry: {name: String, args: {key: value, …}}
+    case class Variant(label: String, args: Map[String, String])
 
-  val variants: List[Variant] = rawFM.get("variants").collect {
-    case xs: java.util.List[?] =>
-      xs.asScala.toList.flatMap {
-        case m: java.util.Map[?, ?] =>
-          val mm = m.asScala.toMap.map((k, v) => k.toString -> v)
-          val label = mm.get("name").map(_.toString).getOrElse("default")
-          val argMap = mm.get("args").collect {
-            case am: java.util.Map[?, ?] =>
-              am.asScala.toMap.map((k, v) => k.toString -> v.toString)
-          }.getOrElse(Map.empty)
-          Some(Variant(label, argMap))
-        case _ => None
-      }
-  }.getOrElse(Nil)
-
-  val effectiveVariants =
-    if variants.isEmpty then List(Variant("default", Map.empty))
-    else variants
-
-  // Detect component objects (same detection as emit-wc).
-  val components = scala.collection.mutable.ArrayBuffer.empty[WcComponent]
-  module.sections.foreach { section =>
-    section.content.foreach {
-      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
-        cb.tree.foreach { node =>
-          scalascript.ast.ScalaNode.fold(node) {
-            case d: Defn.Object => detectWcComponent(d, components)
-            case scala.meta.Source(stats) =>
-              stats.foreach {
-                case d: Defn.Object => detectWcComponent(d, components)
-                case _              => ()
-              }
-            case _ => ()
-          }
+    val variants: List[Variant] = rawFM.get("variants").collect {
+      case xs: java.util.List[?] =>
+        xs.asScala.toList.flatMap {
+          case m: java.util.Map[?, ?] =>
+            val mm = m.asScala.toMap.map((k, v) => k.toString -> v)
+            val label = mm.get("name").map(_.toString).getOrElse("default")
+            val argMap = mm.get("args").collect {
+              case am: java.util.Map[?, ?] =>
+                am.asScala.toMap.map((k, v) => k.toString -> v.toString)
+            }.getOrElse(Map.empty)
+            Some(Variant(label, argMap))
+          case _ => None
         }
-      case _ => ()
-    }
-  }
+    }.getOrElse(Nil)
 
-  // Run the file to get live component instances.
-  val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
-  val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up))
-  try interp.run(module)
-  catch case e: Exception =>
-    System.err.println(s"Error running $file: ${e.getMessage}"); System.exit(1)
+    val effectiveVariants =
+      if variants.isEmpty then List(Variant("default", Map.empty))
+      else variants
 
-  // Snapshot the globals after execution (all objects are InstanceV in the interpreter).
-  val interpGlobals = interp.exportedGlobals
-
-  // Collect CSS from component objects.
-  val allCss = components.flatMap { c =>
-    interpGlobals.get(c.name).collect {
-      case Value.InstanceV(_, fields) => fields.get("css").collect { case Value.StringV(css) => css }
-    }.flatten
-  }.mkString("\n")
-
-  // Render each variant for each component.
-  def renderVariant(comp: WcComponent, variant: Variant): String =
-    interpGlobals.get(comp.name) match
-      case Some(obj) =>
-        val renderFn = obj match
-          case Value.InstanceV(_, fields) => fields.get("render")
-          case _                          => None
-        renderFn match
-          case Some(fn) =>
-            val argVals = comp.params.map { p =>
-              variant.args.get(p).map(Value.StringV.apply).getOrElse(Value.EmptyStr)
+    // Detect component objects (same detection as emit-wc).
+    val components = scala.collection.mutable.ArrayBuffer.empty[WcComponent]
+    module.sections.foreach { section =>
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            scalascript.ast.ScalaNode.fold(node) {
+              case d: Defn.Object => detectWcComponent(d, components)
+              case scala.meta.Source(stats) =>
+                stats.foreach {
+                  case d: Defn.Object => detectWcComponent(d, components)
+                  case _              => ()
+                }
+              case _ => ()
             }
-            try Value.show(interp.invoke(fn, argVals))
-            catch case e: Exception => s"<em>render error: ${e.getMessage}</em>"
-          case None => s"<em>${comp.name} has no render method</em>"
-      case None => s"<em>${comp.name} not found</em>"
+          }
+        case _ => ()
+      }
+    }
 
-  // Build the preview HTML page.
-  val variantSections = effectiveVariants.map { variant =>
-    val rendered = components.map { comp =>
-      val html = renderVariant(comp, variant)
-      s"""<div class="component-box">
+    // Run the file to get live component instances.
+    val nullOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream)
+    val interp  = Interpreter(out = nullOut, baseDir = Some(absPath / os.up))
+    try interp.run(module)
+    catch case e: Exception =>
+      System.err.println(s"Error running $file: ${e.getMessage}"); System.exit(1)
+
+    // Snapshot the globals after execution (all objects are InstanceV in the interpreter).
+    val interpGlobals = interp.exportedGlobals
+
+    // Collect CSS from component objects.
+    val allCss = components.flatMap { c =>
+      interpGlobals.get(c.name).collect {
+        case Value.InstanceV(_, fields) => fields.get("css").collect { case Value.StringV(css) => css }
+      }.flatten
+    }.mkString("\n")
+
+    // Render each variant for each component.
+    def renderVariant(comp: WcComponent, variant: Variant): String =
+      interpGlobals.get(comp.name) match
+        case Some(obj) =>
+          val renderFn = obj match
+            case Value.InstanceV(_, fields) => fields.get("render")
+            case _                          => None
+          renderFn match
+            case Some(fn) =>
+              val argVals = comp.params.map { p =>
+                variant.args.get(p).map(Value.StringV.apply).getOrElse(Value.EmptyStr)
+              }
+              try Value.show(interp.invoke(fn, argVals))
+              catch case e: Exception => s"<em>render error: ${e.getMessage}</em>"
+            case None => s"<em>${comp.name} has no render method</em>"
+        case None => s"<em>${comp.name} not found</em>"
+
+    // Build the preview HTML page.
+    val variantSections = effectiveVariants.map { variant =>
+      val rendered = components.map { comp =>
+        val html = renderVariant(comp, variant)
+        s"""<div class="component-box">
          |  <div class="component-label">${comp.name}</div>
          |  <div class="component-render">$html</div>
          |</div>""".stripMargin
-    }.mkString("\n")
-    s"""<section class="variant-section">
+      }.mkString("\n")
+      s"""<section class="variant-section">
        |  <h2 class="variant-heading">${variant.label}</h2>
        |  <div class="component-row">$rendered</div>
        |</section>""".stripMargin
-  }.mkString("\n")
+    }.mkString("\n")
 
-  val html = s"""<!doctype html>
+    val html = s"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -6724,37 +6838,37 @@ def previewCommand(args: List[String]): Unit =
 </body>
 </html>"""
 
-  // Start a one-shot HTTP server on a free port, then open the browser.
-  val serverSocket = java.net.ServerSocket(0)
-  val port         = serverSocket.getLocalPort
-  val url          = s"http://localhost:$port"
+    // Start a one-shot HTTP server on a free port, then open the browser.
+    val serverSocket = java.net.ServerSocket(0)
+    val port         = serverSocket.getLocalPort
+    val url          = s"http://localhost:$port"
 
-  System.err.println(s"Preview: $url")
-  System.err.println("(browser will open automatically; Ctrl+C to stop)")
+    System.err.println(s"Preview: $url")
+    System.err.println("(browser will open automatically; Ctrl+C to stop)")
 
-  // Open browser in background.
-  val os_name = sys.props.getOrElse("os.name", "").toLowerCase
-  val openCmd =
-    if os_name.contains("mac") then List("open", url)
-    else if os_name.contains("linux") then List("xdg-open", url)
-    else List("cmd", "/c", "start", url)
-  scala.util.Try(Runtime.getRuntime.exec(openCmd.toArray))
+    // Open browser in background.
+    val os_name = sys.props.getOrElse("os.name", "").toLowerCase
+    val openCmd =
+      if os_name.contains("mac") then List("open", url)
+      else if os_name.contains("linux") then List("xdg-open", url)
+      else List("cmd", "/c", "start", url)
+    scala.util.Try(Runtime.getRuntime.exec(openCmd.toArray))
 
-  // Serve the page on each connection until the user hits Ctrl+C.
-  // (Single-shot: serve one response then exit.)
-  val conn     = serverSocket.accept()
-  val in       = java.io.BufferedReader(java.io.InputStreamReader(conn.getInputStream))
-  // Drain the HTTP request headers.
-  var line = in.readLine()
-  while line != null && line.nonEmpty do line = in.readLine()
-  val out2     = conn.getOutputStream
-  val bodyBytes = html.getBytes("UTF-8")
-  val response = s"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bodyBytes.length}\r\nConnection: close\r\n\r\n"
-  out2.write(response.getBytes("UTF-8"))
-  out2.write(bodyBytes)
-  out2.flush()
-  conn.close()
-  serverSocket.close()
+    // Serve the page on each connection until the user hits Ctrl+C.
+    // (Single-shot: serve one response then exit.)
+    val conn     = serverSocket.accept()
+    val in       = java.io.BufferedReader(java.io.InputStreamReader(conn.getInputStream))
+    // Drain the HTTP request headers.
+    var line = in.readLine()
+    while line != null && line.nonEmpty do line = in.readLine()
+    val out2     = conn.getOutputStream
+    val bodyBytes = html.getBytes("UTF-8")
+    val response = s"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bodyBytes.length}\r\nConnection: close\r\n\r\n"
+    out2.write(response.getBytes("UTF-8"))
+    out2.write(bodyBytes)
+    out2.flush()
+    conn.close()
+    serverSocket.close()
 
 /** `ssc check [--iface-dir <dir>] <file.ssc> [...]`
  *
@@ -6887,180 +7001,185 @@ private def checkResultsToJson(results: List[CheckResult]): String =
   if results.length == 1 then resultToJson(results.head)
   else "[" + results.map(resultToJson).mkString(",\n ") + "]"
 
-def checkCommand(args: List[String]): Unit =
-  import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
-  import scala.jdk.CollectionConverters.*
+final class CheckCmd extends CliCommand:
+  def name = "check"
+  override def summary = "Type-check .ssc (parse + typer; no codegen)"
+  override def category = "Check & inspect"
+  override def details = List("Flags: --json, --quiet, --watch, --iface-dir <dir>", "Exit codes: 0 clean, 1 type errors, 2 parse errors, 3 file not found")
+  def run(args: List[String]): Unit =
+    import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
+    import scala.jdk.CollectionConverters.*
 
-  var ifaceDir:         Option[os.Path] = None
-  var jsonMode:         Boolean         = false
-  var quietMode:        Boolean         = false
-  var watchMode:        Boolean         = false
-  var strictNamespaces: Boolean         = false
-  val inputs = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--iface-dir" | "-I" if it.hasNext =>
-        ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case "--json"              => jsonMode         = true
-      case "--quiet"             => quietMode        = true
-      case "--watch"             => watchMode        = true
-      case "--strict-namespaces" => strictNamespaces = true
-      case f                     => inputs += f
+    var ifaceDir:         Option[os.Path] = None
+    var jsonMode:         Boolean         = false
+    var quietMode:        Boolean         = false
+    var watchMode:        Boolean         = false
+    var strictNamespaces: Boolean         = false
+    val inputs = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--iface-dir" | "-I" if it.hasNext =>
+          ifaceDir = Some(os.Path(it.next(), os.pwd))
+        case "--json"              => jsonMode         = true
+        case "--quiet"             => quietMode        = true
+        case "--watch"             => watchMode        = true
+        case "--strict-namespaces" => strictNamespaces = true
+        case f                     => inputs += f
 
-  if inputs.isEmpty then
-    if !quietMode then
-      System.err.println(
-        "Usage: ssc check [--iface-dir <dir>] [--json] [--quiet] [--watch] [--strict-namespaces] <file.ssc|dir/> [...]"
-      )
-    System.exit(1)
-
-  // ── Load interface files ─────────────────────────────────────────────────
-  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-    ifaceDir match
-      case None => Map.empty
-      case Some(dir) =>
-        if !os.isDir(dir) then
-          if !quietMode then
-            System.err.println(s"ssc check: --iface-dir '$dir' is not a directory")
-          System.exit(1)
-        os.list(dir).filter(_.ext == "scim").flatMap { p =>
-          ArtifactIO.readInterfaceFile(p) match
-            case Right(iface) =>
-              List(p.last.stripSuffix(".scim") -> iface)
-            case Left(err) =>
-              if !quietMode then
-                System.err.println(s"ssc check: [warn] skipping interface ${p.last}: $err")
-              Nil
-        }.toMap
-
-  // ── Collect plugin built-in names ─────────────────────────────────────
-  val pluginBuiltins: Set[String] =
-    BackendRegistry.inProcess
-      .flatMap(_.intrinsics.keys)
-      .flatMap { qn =>
-        val full = qn.value
-        full :: full.split('.').headOption.toList
-      }
-      .toSet
-
-  // ── Expand inputs: files + directories ───────────────────────────────
-  def expandInputs(inList: List[String]): List[String] =
-    inList.flatMap { inp =>
-      val p = os.Path(inp, os.pwd)
-      if os.isDir(p) then collectSscFiles(p).map(_.toString)
-      else List(inp)
-    }
-
-  // ── Exit code helper ─────────────────────────────────────────────────
-  def exitCodeFor(results: List[CheckResult]): Int =
-    if      results.exists(_.missing)                                           then 3
-    else if results.exists(r => !r.missing && r.errors.exists(!_.isWarning))   then 1
-    else if results.exists(_.parseErrors)                                       then 2
-    else                                                                             0
-
-  // ── Watch mode ────────────────────────────────────────────────────────
-  if watchMode then
-    // In watch mode we only support a single file argument.
-    val rawFile = inputs.headOption.getOrElse:
-      if !quietMode then System.err.println("ssc check --watch: expected a file argument")
-      System.exit(1); ""
-    val absPath   = Paths.get(rawFile).toAbsolutePath.normalize
-    val dir       = absPath.getParent
-    val displayF  = rawFile
-
-    def timestamp(): String =
-      val now = java.time.LocalTime.now()
-      f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
-
-    def runOnce(): Unit =
-      val t0       = System.currentTimeMillis()
-      val result   = checkOneFile(displayF, interfaces, pluginBuiltins, strictNamespaces)
-      val elapsed  = System.currentTimeMillis() - t0
-      val ts       = timestamp()
+    if inputs.isEmpty then
       if !quietMode then
-        if jsonMode then
-          println(s"[$ts] " + checkResultsToJson(List(result)))
-        else if result.ok then
-          println(s"[$ts] ${absPath.getFileName}: OK (${elapsed}ms)")
-        else
-          val nerrs = result.errors.size + (if result.parseErrors then 1 else 0)
-          System.err.println(s"[$ts] ${absPath.getFileName}: $nerrs error(s)")
-          if result.missing then
-            System.err.println(s"[$ts] ${result.file}: error: file not found")
-          else if result.parseErrors then
-            val path = os.Path(displayF, os.pwd)
-            try { val m = Parser.parse(os.read(path)); reportCodeBlockParseErrors(m, displayF) }
-            catch case e: Exception => System.err.println(s"$displayF: error: ${e.getMessage}")
-          else
-            result.errors.foreach { e =>
-              val loc = e.span.map(s => s"$displayF:${s.start.line}:${s.start.column}").getOrElse(displayF)
-              System.err.println(s"[$ts] $loc: error: ${e.msg}")
-            }
+        System.err.println(
+          "Usage: ssc check [--iface-dir <dir>] [--json] [--quiet] [--watch] [--strict-namespaces] <file.ssc|dir/> [...]"
+        )
+      System.exit(1)
 
-    if !quietMode then
-      System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
-    runOnce()
+    // ── Load interface files ─────────────────────────────────────────────────
+    val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+      ifaceDir match
+        case None => Map.empty
+        case Some(dir) =>
+          if !os.isDir(dir) then
+            if !quietMode then
+              System.err.println(s"ssc check: --iface-dir '$dir' is not a directory")
+            System.exit(1)
+          os.list(dir).filter(_.ext == "scim").flatMap { p =>
+            ArtifactIO.readInterfaceFile(p) match
+              case Right(iface) =>
+                List(p.last.stripSuffix(".scim") -> iface)
+              case Left(err) =>
+                if !quietMode then
+                  System.err.println(s"ssc check: [warn] skipping interface ${p.last}: $err")
+                Nil
+          }.toMap
 
-    val watcher = FileSystems.getDefault.newWatchService()
-    dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
-    try
-      while true do
-        val key     = watcher.take()
-        val changed = key.pollEvents().asScala.exists { ev =>
-          ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
+    // ── Collect plugin built-in names ─────────────────────────────────────
+    val pluginBuiltins: Set[String] =
+      BackendRegistry.inProcess
+        .flatMap(_.intrinsics.keys)
+        .flatMap { qn =>
+          val full = qn.value
+          full :: full.split('.').headOption.toList
         }
-        if changed then
-          Thread.sleep(50) // debounce
-          runOnce()
-        key.reset()
-    catch case _: InterruptedException => () // Ctrl-C
-    return
+        .toSet
 
-  // ── Normal (one-shot) mode ────────────────────────────────────────────
-  val fileList = expandInputs(inputs.toList)
-  if fileList.isEmpty then
-    if !quietMode then System.err.println("ssc check: no .ssc files found")
-    System.exit(1)
-  // checkOneFile is stateless (new Typer per call, immutable inputs), so safe to parallelize.
-  val results: List[CheckResult] =
-    if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces))
-    else
-      val nCores = Runtime.getRuntime.availableProcessors().max(1)
-      val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(fileList.size))
-      try
-        val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces)))
-        tasks.map(_.get())
-      finally pool.shutdown()
-  if !quietMode then
-    if jsonMode then
-      println(checkResultsToJson(results))
-    else
-      results.foreach { r =>
-        if r.missing then
-          System.err.println(s"${r.file}: error: file not found")
-        else if r.parseErrors then
-          val path = os.Path(r.file, os.pwd)
-          try
-            val module = Parser.parse(os.read(path))
-            reportCodeBlockParseErrors(module, r.file)
-          catch case e: Exception =>
-            System.err.println(s"${r.file}: error: ${e.getMessage}")
-        else if r.errors.nonEmpty then
-          r.errors.foreach { e =>
-            val location = e.span match
-              case Some(s) => s"${r.file}:${s.start.line}:${s.start.column}"
-              case None    => r.file
-            val label = if e.isWarning then "warning" else "error"
-            System.err.println(s"$location: $label: ${e.msg}")
-          }
-          if r.errors.forall(_.isWarning) then println(s"${r.file}: OK (with warnings)")
-        else
-          println(s"${r.file}: OK")
+    // ── Expand inputs: files + directories ───────────────────────────────
+    def expandInputs(inList: List[String]): List[String] =
+      inList.flatMap { inp =>
+        val p = os.Path(inp, os.pwd)
+        if os.isDir(p) then collectSscFiles(p).map(_.toString)
+        else List(inp)
       }
-      val errCount = results.count(r => r.missing || r.parseErrors || r.errors.exists(!_.isWarning))
-      if errCount > 1 then System.err.println(s"$errCount errors found.")
-  System.exit(exitCodeFor(results))
+
+    // ── Exit code helper ─────────────────────────────────────────────────
+    def exitCodeFor(results: List[CheckResult]): Int =
+      if      results.exists(_.missing)                                           then 3
+      else if results.exists(r => !r.missing && r.errors.exists(!_.isWarning))   then 1
+      else if results.exists(_.parseErrors)                                       then 2
+      else                                                                             0
+
+    // ── Watch mode ────────────────────────────────────────────────────────
+    if watchMode then
+      // In watch mode we only support a single file argument.
+      val rawFile = inputs.headOption.getOrElse:
+        if !quietMode then System.err.println("ssc check --watch: expected a file argument")
+        System.exit(1); ""
+      val absPath   = Paths.get(rawFile).toAbsolutePath.normalize
+      val dir       = absPath.getParent
+      val displayF  = rawFile
+
+      def timestamp(): String =
+        val now = java.time.LocalTime.now()
+        f"${now.getHour}%02d:${now.getMinute}%02d:${now.getSecond}%02d"
+
+      def runOnce(): Unit =
+        val t0       = System.currentTimeMillis()
+        val result   = checkOneFile(displayF, interfaces, pluginBuiltins, strictNamespaces)
+        val elapsed  = System.currentTimeMillis() - t0
+        val ts       = timestamp()
+        if !quietMode then
+          if jsonMode then
+            println(s"[$ts] " + checkResultsToJson(List(result)))
+          else if result.ok then
+            println(s"[$ts] ${absPath.getFileName}: OK (${elapsed}ms)")
+          else
+            val nerrs = result.errors.size + (if result.parseErrors then 1 else 0)
+            System.err.println(s"[$ts] ${absPath.getFileName}: $nerrs error(s)")
+            if result.missing then
+              System.err.println(s"[$ts] ${result.file}: error: file not found")
+            else if result.parseErrors then
+              val path = os.Path(displayF, os.pwd)
+              try { val m = Parser.parse(os.read(path)); reportCodeBlockParseErrors(m, displayF) }
+              catch case e: Exception => System.err.println(s"$displayF: error: ${e.getMessage}")
+            else
+              result.errors.foreach { e =>
+                val loc = e.span.map(s => s"$displayF:${s.start.line}:${s.start.column}").getOrElse(displayF)
+                System.err.println(s"[$ts] $loc: error: ${e.msg}")
+              }
+
+      if !quietMode then
+        System.err.println(s"[${timestamp()}] Watching ${absPath.getFileName}... (Ctrl+C to stop)")
+      runOnce()
+
+      val watcher = FileSystems.getDefault.newWatchService()
+      dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY)
+      try
+        while true do
+          val key     = watcher.take()
+          val changed = key.pollEvents().asScala.exists { ev =>
+            ev.context().asInstanceOf[java.nio.file.Path].getFileName == absPath.getFileName
+          }
+          if changed then
+            Thread.sleep(50) // debounce
+            runOnce()
+          key.reset()
+      catch case _: InterruptedException => () // Ctrl-C
+      return
+
+    // ── Normal (one-shot) mode ────────────────────────────────────────────
+    val fileList = expandInputs(inputs.toList)
+    if fileList.isEmpty then
+      if !quietMode then System.err.println("ssc check: no .ssc files found")
+      System.exit(1)
+    // checkOneFile is stateless (new Typer per call, immutable inputs), so safe to parallelize.
+    val results: List[CheckResult] =
+      if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces))
+      else
+        val nCores = Runtime.getRuntime.availableProcessors().max(1)
+        val pool   = new java.util.concurrent.ForkJoinPool(nCores.min(fileList.size))
+        try
+          val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces)))
+          tasks.map(_.get())
+        finally pool.shutdown()
+    if !quietMode then
+      if jsonMode then
+        println(checkResultsToJson(results))
+      else
+        results.foreach { r =>
+          if r.missing then
+            System.err.println(s"${r.file}: error: file not found")
+          else if r.parseErrors then
+            val path = os.Path(r.file, os.pwd)
+            try
+              val module = Parser.parse(os.read(path))
+              reportCodeBlockParseErrors(module, r.file)
+            catch case e: Exception =>
+              System.err.println(s"${r.file}: error: ${e.getMessage}")
+          else if r.errors.nonEmpty then
+            r.errors.foreach { e =>
+              val location = e.span match
+                case Some(s) => s"${r.file}:${s.start.line}:${s.start.column}"
+                case None    => r.file
+              val label = if e.isWarning then "warning" else "error"
+              System.err.println(s"$location: $label: ${e.msg}")
+            }
+            if r.errors.forall(_.isWarning) then println(s"${r.file}: OK (with warnings)")
+          else
+            println(s"${r.file}: OK")
+        }
+        val errCount = results.count(r => r.missing || r.parseErrors || r.errors.exists(!_.isWarning))
+        if errCount > 1 then System.err.println(s"$errCount errors found.")
+    System.exit(exitCodeFor(results))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ssc link  —  v2.0 separate compilation
@@ -7091,159 +7210,163 @@ def checkCommand(args: List[String]): Unit =
  *
  *  v2.0 / Stage 5.
  */
-def linkCommand(args: List[String]): Unit =
-  import scalascript.artifact.Linker
-  var outputArg:        Option[String] = None
-  var backendArg:       Option[String] = None
-  var bytecode:         Boolean        = false
-  var sourceMap:        Boolean        = false
-  var emitScalaFacade:  Boolean        = false
-  val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "-o" | "--output" if it.hasNext  => outputArg  = Some(it.next())
-      case "--backend"       if it.hasNext  => backendArg = Some(it.next())
-      case "--bytecode"                     => bytecode = true
-      case "--source-map" | "--source-maps" => sourceMap = true
-      case "--emit-scala-facade"            => emitScalaFacade = true
-      case d                                => artifactDirs += d
+final class LinkCmd extends CliCommand:
+  def name = "link"
+  override def summary = "Link .scim/.scir artifact pairs into a merged module"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    import scalascript.artifact.Linker
+    var outputArg:        Option[String] = None
+    var backendArg:       Option[String] = None
+    var bytecode:         Boolean        = false
+    var sourceMap:        Boolean        = false
+    var emitScalaFacade:  Boolean        = false
+    val artifactDirs = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "-o" | "--output" if it.hasNext  => outputArg  = Some(it.next())
+        case "--backend"       if it.hasNext  => backendArg = Some(it.next())
+        case "--bytecode"                     => bytecode = true
+        case "--source-map" | "--source-maps" => sourceMap = true
+        case "--emit-scala-facade"            => emitScalaFacade = true
+        case d                                => artifactDirs += d
 
-  if artifactDirs.isEmpty then
-    System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode] [--source-map] [--emit-scala-facade]")
-    System.exit(1)
-
-  // `--emit-scala-facade` only makes sense paired with `--bytecode` on the
-  // JVM backend — the facade `.class` files need a host JAR.  Fail fast
-  // with a clear message instead of silently producing nothing.
-  if emitScalaFacade && (!bytecode || backendArg.exists(_ != "jvm")) then
-    System.err.println("link: --emit-scala-facade requires `--backend jvm --bytecode`")
-    System.exit(1)
-
-  // ── JVM cached-source mode ───────────────────────────────────────────────
-  // If --backend jvm and the artifact dir(s) contain .scjvm files, take the
-  // textual-concat path.  This bypasses the IR linker and the JvmGen
-  // re-emission, splicing the per-module Scala 3 source strings directly.
-  //
-  // When --bytecode is ALSO set, take the bytecode-level path instead:
-  // require every .scjvm to carry a classBundle and pack them into a JAR
-  // directly (no scala-cli at link time).
-  val bid = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
-  if bid == "jvm" then
-    val scjvmFiles = artifactDirs.toList.flatMap { dir =>
-      val p = os.Path(dir, os.pwd)
-      if !os.isDir(p) then Nil
-      else os.list(p).filter(_.ext == "scjvm").toList.sorted
-    }
-    if scjvmFiles.nonEmpty then
-      if bytecode then
-        linkJvmFromBytecode(scjvmFiles, outputArg, sourceMap, emitScalaFacade)
-      else
-        linkJvmFromScjvm(scjvmFiles, outputArg)
-      return
-  // Fall through to standard IR-link mode if no .scjvm files were found.
-
-  // ── JS cached-source mode ────────────────────────────────────────────────
-  // If --backend js and the artifact dir(s) contain .scjs files, take the
-  // textual-concat path.  This bypasses the IR linker and the JsGen
-  // re-emission, splicing the per-module JS source strings directly and
-  // deduplicating the shared runtime preamble via longest-common-prefix.
-  if bid == "js" then
-    val scjsFiles = artifactDirs.toList.flatMap { dir =>
-      val p = os.Path(dir, os.pwd)
-      if !os.isDir(p) then Nil
-      else os.list(p).filter(_.ext == "scjs").toList.sorted
-    }
-    // v2.0 Phase 2 — discover any `_runtime.scjs-runtime` artifacts
-    // sitting next to the `.scjs` files.  Multiple dirs may each carry
-    // one; we union their preambles by capability set at link time.
-    val runtimeFiles = artifactDirs.toList.flatMap { dir =>
-      val p = os.Path(dir, os.pwd)
-      if !os.isDir(p) then Nil
-      else os.list(p).filter(_.last.endsWith(".scjs-runtime")).toList.sorted
-    }
-    if scjsFiles.nonEmpty then
-      linkJsFromScjs(scjsFiles, runtimeFiles, outputArg, sourceMap)
-      return
-  // Fall through to standard IR-link mode if no .scjs files were found.
-
-  // Collect all (interface, ir) pairs from the specified directories.
-  val allModules = scala.collection.mutable.ArrayBuffer.empty[Linker.CompiledModule]
-  var hasError = false
-
-  for dir <- artifactDirs.toList do
-    val dirPath = os.Path(dir, os.pwd)
-    if !os.isDir(dirPath) then
-      System.err.println(s"link: '$dir' is not a directory"); hasError = true
-    else
-      val scimFiles = os.list(dirPath).filter(_.ext == "scim").sorted
-      for scimPath <- scimFiles do
-        val scirPath = scimPath / os.up / (scimPath.last.stripSuffix(".scim") + ".scir")
-        ArtifactIO.readInterfaceFile(scimPath) match
-          case Left(err) =>
-            System.err.println(s"link: failed to read ${scimPath.last}: $err")
-            hasError = true
-          case Right(iface) =>
-            if !os.exists(scirPath) then
-              System.err.println(s"link: no matching .scir for ${scimPath.last}")
-              hasError = true
-            else
-              ArtifactIO.readIrFile(scirPath) match
-                case Left(err) =>
-                  System.err.println(s"link: failed to read ${scirPath.last}: $err")
-                  hasError = true
-                case Right((nm, _, _, _)) =>
-                  allModules += Linker.CompiledModule(iface, nm)
-
-  if hasError then System.exit(1)
-  if allModules.isEmpty then
-    System.err.println("link: no artifact pairs found")
-    System.exit(1)
-
-  // Detect cross-module name collisions and warn.
-  val collisions = Linker.detectCollisions(allModules.toList)
-  if collisions.nonEmpty then
-    System.err.println(s"link: ${collisions.length} name collision(s) detected (FQN mangling applied):")
-    collisions.foreach { (name, pkgs) =>
-      System.err.println(s"  '$name' exported by: ${pkgs.map(_.mkString(".")).mkString(", ")}")
-    }
-
-  val linked = Linker.link(allModules.toList)
-  println(s"Linked ${allModules.size} module(s) → ${linked.sections.length} section(s)")
-
-  // Composite hash: SHA-256 of input artifact hashes joined in load order.
-  // Deterministic and reproducible; consumers can use it for staleness checks.
-  val composedHash =
-    val combined = allModules.map(_.iface.sourceHash).mkString("\n")
-    InterfaceExtractor.sha256(combined.getBytes("UTF-8"))
-
-  outputArg match
-    case Some(out) if out.endsWith(".scir") =>
-      val outPath    = os.Path(out, os.pwd)
-      ArtifactIO.writeIrFile(linked, Nil, None, composedHash, outPath)
-      println(s"Linked IR written to $outPath")
-    case Some("-") =>
-      val json = ArtifactIO.writeIr(linked, Nil, None, composedHash)
-      println(json)
-    case Some(out) =>
-      System.err.println(s"link: -o output must end with .scir or be '-', got: $out")
+    if artifactDirs.isEmpty then
+      System.err.println("Usage: ssc link <artifact-dir> [-o <output>] [--backend <id>] [--bytecode] [--source-map] [--emit-scala-facade]")
       System.exit(1)
-    case None =>
-      // No output path: compile and execute via backend.
-      val backend = resolveBackend(bid)
-      val opts    = BackendOptions()
-      val diags   = scalascript.validate.CapabilityCheck.validate(linked, backend.capabilities, bid)
-      if diags.nonEmpty then
-        diags.foreach(d => System.err.println(s"[error] $d"))
+
+    // `--emit-scala-facade` only makes sense paired with `--bytecode` on the
+    // JVM backend — the facade `.class` files need a host JAR.  Fail fast
+    // with a clear message instead of silently producing nothing.
+    if emitScalaFacade && (!bytecode || backendArg.exists(_ != "jvm")) then
+      System.err.println("link: --emit-scala-facade requires `--backend jvm --bytecode`")
+      System.exit(1)
+
+    // ── JVM cached-source mode ───────────────────────────────────────────────
+    // If --backend jvm and the artifact dir(s) contain .scjvm files, take the
+    // textual-concat path.  This bypasses the IR linker and the JvmGen
+    // re-emission, splicing the per-module Scala 3 source strings directly.
+    //
+    // When --bytecode is ALSO set, take the bytecode-level path instead:
+    // require every .scjvm to carry a classBundle and pack them into a JAR
+    // directly (no scala-cli at link time).
+    val bid = backendArg.orElse(ActiveFlags.current.backend).getOrElse("int")
+    if bid == "jvm" then
+      val scjvmFiles = artifactDirs.toList.flatMap { dir =>
+        val p = os.Path(dir, os.pwd)
+        if !os.isDir(p) then Nil
+        else os.list(p).filter(_.ext == "scjvm").toList.sorted
+      }
+      if scjvmFiles.nonEmpty then
+        if bytecode then
+          linkJvmFromBytecode(scjvmFiles, outputArg, sourceMap, emitScalaFacade)
+        else
+          linkJvmFromScjvm(scjvmFiles, outputArg)
+        return
+    // Fall through to standard IR-link mode if no .scjvm files were found.
+
+    // ── JS cached-source mode ────────────────────────────────────────────────
+    // If --backend js and the artifact dir(s) contain .scjs files, take the
+    // textual-concat path.  This bypasses the IR linker and the JsGen
+    // re-emission, splicing the per-module JS source strings directly and
+    // deduplicating the shared runtime preamble via longest-common-prefix.
+    if bid == "js" then
+      val scjsFiles = artifactDirs.toList.flatMap { dir =>
+        val p = os.Path(dir, os.pwd)
+        if !os.isDir(p) then Nil
+        else os.list(p).filter(_.ext == "scjs").toList.sorted
+      }
+      // v2.0 Phase 2 — discover any `_runtime.scjs-runtime` artifacts
+      // sitting next to the `.scjs` files.  Multiple dirs may each carry
+      // one; we union their preambles by capability set at link time.
+      val runtimeFiles = artifactDirs.toList.flatMap { dir =>
+        val p = os.Path(dir, os.pwd)
+        if !os.isDir(p) then Nil
+        else os.list(p).filter(_.last.endsWith(".scjs-runtime")).toList.sorted
+      }
+      if scjsFiles.nonEmpty then
+        linkJsFromScjs(scjsFiles, runtimeFiles, outputArg, sourceMap)
+        return
+    // Fall through to standard IR-link mode if no .scjs files were found.
+
+    // Collect all (interface, ir) pairs from the specified directories.
+    val allModules = scala.collection.mutable.ArrayBuffer.empty[Linker.CompiledModule]
+    var hasError = false
+
+    for dir <- artifactDirs.toList do
+      val dirPath = os.Path(dir, os.pwd)
+      if !os.isDir(dirPath) then
+        System.err.println(s"link: '$dir' is not a directory"); hasError = true
+      else
+        val scimFiles = os.list(dirPath).filter(_.ext == "scim").sorted
+        for scimPath <- scimFiles do
+          val scirPath = scimPath / os.up / (scimPath.last.stripSuffix(".scim") + ".scir")
+          ArtifactIO.readInterfaceFile(scimPath) match
+            case Left(err) =>
+              System.err.println(s"link: failed to read ${scimPath.last}: $err")
+              hasError = true
+            case Right(iface) =>
+              if !os.exists(scirPath) then
+                System.err.println(s"link: no matching .scir for ${scimPath.last}")
+                hasError = true
+              else
+                ArtifactIO.readIrFile(scirPath) match
+                  case Left(err) =>
+                    System.err.println(s"link: failed to read ${scirPath.last}: $err")
+                    hasError = true
+                  case Right((nm, _, _, _)) =>
+                    allModules += Linker.CompiledModule(iface, nm)
+
+    if hasError then System.exit(1)
+    if allModules.isEmpty then
+      System.err.println("link: no artifact pairs found")
+      System.exit(1)
+
+    // Detect cross-module name collisions and warn.
+    val collisions = Linker.detectCollisions(allModules.toList)
+    if collisions.nonEmpty then
+      System.err.println(s"link: ${collisions.length} name collision(s) detected (FQN mangling applied):")
+      collisions.foreach { (name, pkgs) =>
+        System.err.println(s"  '$name' exported by: ${pkgs.map(_.mkString(".")).mkString(", ")}")
+      }
+
+    val linked = Linker.link(allModules.toList)
+    println(s"Linked ${allModules.size} module(s) → ${linked.sections.length} section(s)")
+
+    // Composite hash: SHA-256 of input artifact hashes joined in load order.
+    // Deterministic and reproducible; consumers can use it for staleness checks.
+    val composedHash =
+      val combined = allModules.map(_.iface.sourceHash).mkString("\n")
+      InterfaceExtractor.sha256(combined.getBytes("UTF-8"))
+
+    outputArg match
+      case Some(out) if out.endsWith(".scir") =>
+        val outPath    = os.Path(out, os.pwd)
+        ArtifactIO.writeIrFile(linked, Nil, None, composedHash, outPath)
+        println(s"Linked IR written to $outPath")
+      case Some("-") =>
+        val json = ArtifactIO.writeIr(linked, Nil, None, composedHash)
+        println(json)
+      case Some(out) =>
+        System.err.println(s"link: -o output must end with .scir or be '-', got: $out")
         System.exit(1)
-      backend.compile(linked, opts) match
-        case CompileResult.Executed(_, _, exit) => if exit != 0 then System.exit(exit)
-        case CompileResult.TextOutput(code, _, _) => println(code)
-        case CompileResult.Failed(diags) =>
-          diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
-        case other =>
-          System.err.println(s"link: unexpected result ${other.getClass.getSimpleName}")
+      case None =>
+        // No output path: compile and execute via backend.
+        val backend = resolveBackend(bid)
+        val opts    = BackendOptions()
+        val diags   = scalascript.validate.CapabilityCheck.validate(linked, backend.capabilities, bid)
+        if diags.nonEmpty then
+          diags.foreach(d => System.err.println(s"[error] $d"))
           System.exit(1)
+        backend.compile(linked, opts) match
+          case CompileResult.Executed(_, _, exit) => if exit != 0 then System.exit(exit)
+          case CompileResult.TextOutput(code, _, _) => println(code)
+          case CompileResult.Failed(diags) =>
+            diags.foreach(d => System.err.println(s"[error] $d")); System.exit(1)
+          case other =>
+            System.err.println(s"link: unexpected result ${other.getClass.getSimpleName}")
+            System.exit(1)
 
 /** Link a set of `.scjvm` artifacts by textually concatenating their
  *  `scalaSource` strings (in path-sorted order) into a single Scala 3 source.
@@ -8186,70 +8309,74 @@ private def longestCommonPrefix(xs: List[String]): String =
  *
  *  v2.0 / Stage 4.
  */
-def checkWithInterfaceCommand(args: List[String]): Unit =
-  var ifaceDir: Option[os.Path] = None
-  val files = scala.collection.mutable.ArrayBuffer.empty[String]
-  val it = args.iterator
-  while it.hasNext do
-    it.next() match
-      case "--iface-dir" | "-I" if it.hasNext =>
-        ifaceDir = Some(os.Path(it.next(), os.pwd))
-      case f => files += f
+final class CheckWithIfaceCmd extends CliCommand:
+  def name = "check-with-iface"
+  override def summary = "Type-check consuming pre-compiled .scim interfaces"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var ifaceDir: Option[os.Path] = None
+    val files = scala.collection.mutable.ArrayBuffer.empty[String]
+    val it = args.iterator
+    while it.hasNext do
+      it.next() match
+        case "--iface-dir" | "-I" if it.hasNext =>
+          ifaceDir = Some(os.Path(it.next(), os.pwd))
+        case f => files += f
 
-  if files.isEmpty then
-    System.err.println("Usage: ssc check-with-iface [--iface-dir <dir>] <file.ssc> [...]")
-    System.exit(1)
+    if files.isEmpty then
+      System.err.println("Usage: ssc check-with-iface [--iface-dir <dir>] <file.ssc> [...]")
+      System.exit(1)
 
-  // Load all .scim files from the interface directory (if specified).
-  val interfaces: Map[String, scalascript.ir.ModuleInterface] =
-    ifaceDir match
-      case None => Map.empty
-      case Some(dir) =>
-        if !os.isDir(dir) then
-          System.err.println(s"check-with-iface: --iface-dir '$dir' is not a directory")
-          System.exit(1)
-        os.list(dir).filter(_.ext == "scim").flatMap { p =>
-          ArtifactIO.readInterfaceFile(p) match
-            case Right(iface) =>
-              val alias = p.last.stripSuffix(".scim")
-              System.err.println(s"  [iface] loaded $alias from ${p.last}")
-              List(alias -> iface)
-            case Left(err) =>
-              System.err.println(s"  [warn] skipping ${p.last}: $err")
-              Nil
-        }.toMap
+    // Load all .scim files from the interface directory (if specified).
+    val interfaces: Map[String, scalascript.ir.ModuleInterface] =
+      ifaceDir match
+        case None => Map.empty
+        case Some(dir) =>
+          if !os.isDir(dir) then
+            System.err.println(s"check-with-iface: --iface-dir '$dir' is not a directory")
+            System.exit(1)
+          os.list(dir).filter(_.ext == "scim").flatMap { p =>
+            ArtifactIO.readInterfaceFile(p) match
+              case Right(iface) =>
+                val alias = p.last.stripSuffix(".scim")
+                System.err.println(s"  [iface] loaded $alias from ${p.last}")
+                List(alias -> iface)
+              case Left(err) =>
+                System.err.println(s"  [warn] skipping ${p.last}: $err")
+                Nil
+          }.toMap
 
-  var hasErrors = false
-  for file <- files.toList do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      println(s"Error: File not found: $file"); hasErrors = true
-    else
-      println(s"=== Type checking (with interfaces): $file ===")
-      try
-        val module = Parser.parse(os.read(path))
-        if reportCodeBlockParseErrors(module, file) then
-          hasErrors = true
-        else
-          // `check-with-iface` runs the typer in strict mode so that
-          // references to undefined names — names that resolve to neither
-          // the consumer's own defs, any imported `.scim`, nor the builtin
-          // prelude — surface as type errors with a non-zero exit code.
-          // Other entry points (`compile`, `emit-interface`, `emit-ir`)
-          // remain permissive for backward compatibility.
-          val typed =
-            if interfaces.isEmpty then Typer.typeCheckStrict(module)
-            else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
-          if typed.hasErrors then
+    var hasErrors = false
+    for file <- files.toList do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        println(s"Error: File not found: $file"); hasErrors = true
+      else
+        println(s"=== Type checking (with interfaces): $file ===")
+        try
+          val module = Parser.parse(os.read(path))
+          if reportCodeBlockParseErrors(module, file) then
             hasErrors = true
-            typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
           else
-            println("OK")
-            println(typed.show)
-      catch case e: Exception =>
-        hasErrors = true
-        System.err.println(s"Error: ${e.getMessage}")
-  if hasErrors then System.exit(1)
+            // `check-with-iface` runs the typer in strict mode so that
+            // references to undefined names — names that resolve to neither
+            // the consumer's own defs, any imported `.scim`, nor the builtin
+            // prelude — surface as type errors with a non-zero exit code.
+            // Other entry points (`compile`, `emit-interface`, `emit-ir`)
+            // remain permissive for backward compatibility.
+            val typed =
+              if interfaces.isEmpty then Typer.typeCheckStrict(module)
+              else Typer.typeCheckWithInterfaces(module, interfaces, strict = true)
+            if typed.hasErrors then
+              hasErrors = true
+              typed.errors.foreach(e => System.err.println(s"  Error: ${e.show}"))
+            else
+              println("OK")
+              println(typed.show)
+        catch case e: Exception =>
+          hasErrors = true
+          System.err.println(s"Error: ${e.getMessage}")
+    if hasErrors then System.exit(1)
 
 def printModule(module: Module): Unit =
   println("Module:")
@@ -8263,41 +8390,46 @@ def printModule(module: Module): Unit =
 
 // ─── fmt command ────────────────────────────────────────────────────────────
 
-def fmtCommand(args: List[String]): Unit =
-  val checkMode  = args.contains("--check")
-  val stdoutMode = args.contains("--stdout")
-  val files      = args.filterNot(a => a == "--check" || a == "--stdout")
+final class FmtCmd extends CliCommand:
+  def name = "fmt"
+  override def summary = "Format .ssc files in place"
+  override def category = "Run & develop"
+  override def details = List("Flags: --check (CI mode), --stdout (single file)")
+  def run(args: List[String]): Unit =
+    val checkMode  = args.contains("--check")
+    val stdoutMode = args.contains("--stdout")
+    val files      = args.filterNot(a => a == "--check" || a == "--stdout")
 
-  if files.isEmpty then
-    System.err.println("ssc fmt: no files specified")
-    System.exit(1)
-
-  if stdoutMode && files.length > 1 then
-    System.err.println("ssc fmt --stdout: only one file allowed")
-    System.exit(1)
-
-  var anyNeedsFormatting = false
-
-  for file <- files do
-    val path = os.Path(file, os.pwd)
-    if !os.exists(path) then
-      System.err.println(s"ssc fmt: file not found: $file")
+    if files.isEmpty then
+      System.err.println("ssc fmt: no files specified")
       System.exit(1)
-    val source    = os.read(path)
-    val formatted = Formatter.format(source)
-    if stdoutMode then
-      print(formatted)
-    else if checkMode then
-      if formatted != source then
-        System.err.println(s"$file: needs formatting")
-        anyNeedsFormatting = true
-    else
-      if formatted != source then
-        os.write.over(path, formatted)
-        println(s"formatted: $file")
 
-  if checkMode && anyNeedsFormatting then
-    System.exit(1)
+    if stdoutMode && files.length > 1 then
+      System.err.println("ssc fmt --stdout: only one file allowed")
+      System.exit(1)
+
+    var anyNeedsFormatting = false
+
+    for file <- files do
+      val path = os.Path(file, os.pwd)
+      if !os.exists(path) then
+        System.err.println(s"ssc fmt: file not found: $file")
+        System.exit(1)
+      val source    = os.read(path)
+      val formatted = Formatter.format(source)
+      if stdoutMode then
+        print(formatted)
+      else if checkMode then
+        if formatted != source then
+          System.err.println(s"$file: needs formatting")
+          anyNeedsFormatting = true
+      else
+        if formatted != source then
+          os.write.over(path, formatted)
+          println(s"formatted: $file")
+
+    if checkMode && anyNeedsFormatting then
+      System.exit(1)
 
 /** `ssc profile [--top N] [--output <file.json>] <file.ssc>`
  *
@@ -8386,171 +8518,175 @@ private[cli] def timed[A](name: String)(body: => A): (A, PhaseResult) =
  *    --baseline         write results to bench/BASELINE_RUNTIME.md
  *  }}}
  */
-private[cli] def benchCommand(args: List[String]): Unit =
-  if args.isEmpty then
-    System.err.println("Usage: ssc bench [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>")
-    System.exit(1)
+final class BenchCmd extends CliCommand:
+  def name = "bench"
+  override def summary = "Benchmark .ssc execution time"
+  override def category = "Run & develop"
+  def run(args: List[String]): Unit =
+    if args.isEmpty then
+      System.err.println("Usage: ssc bench [--no-interp] [--no-jvm] [--no-js] [--warmup N] [--reps N] [--baseline] <file.ssc>")
+      System.exit(1)
 
-  var runInterp  = true
-  var runJvm     = true
-  var runJs      = true
-  var warmup     = 2
-  var reps       = 7
-  var writeBase  = false
-  var fileArg: Option[String] = None
+    var runInterp  = true
+    var runJvm     = true
+    var runJs      = true
+    var warmup     = 2
+    var reps       = 7
+    var writeBase  = false
+    var fileArg: Option[String] = None
 
-  val arr = args.toArray
-  var i   = 0
-  while i < arr.length do
-    arr(i) match
-      case "--no-interp"               => runInterp = false; i += 1
-      case "--no-jvm"                  => runJvm    = false; i += 1
-      case "--no-js"                   => runJs     = false; i += 1
-      case "--baseline"                => writeBase = true;  i += 1
-      case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); i += 2
-      case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); i += 2
-      case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); i += 1
-      case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7);   i += 1
-      case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
-      case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
+    val arr = args.toArray
+    var i   = 0
+    while i < arr.length do
+      arr(i) match
+        case "--no-interp"               => runInterp = false; i += 1
+        case "--no-jvm"                  => runJvm    = false; i += 1
+        case "--no-js"                   => runJs     = false; i += 1
+        case "--baseline"                => writeBase = true;  i += 1
+        case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(2); i += 2
+        case "--reps"   if i+1 < arr.length => reps   = arr(i+1).toIntOption.getOrElse(7); i += 2
+        case s if s.startsWith("--warmup=") => warmup = s.stripPrefix("--warmup=").toIntOption.getOrElse(2); i += 1
+        case s if s.startsWith("--reps=")   => reps   = s.stripPrefix("--reps=").toIntOption.getOrElse(7);   i += 1
+        case f if !f.startsWith("-")     => fileArg = Some(f); i += 1
+        case other => System.err.println(s"bench: unknown flag $other"); System.exit(1)
 
-  val file = fileArg.getOrElse {
-    System.err.println("bench: no file specified"); System.exit(1); ""
-  }
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"bench: file not found: $file"); System.exit(1)
+    val file = fileArg.getOrElse {
+      System.err.println("bench: no file specified"); System.exit(1); ""
+    }
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"bench: file not found: $file"); System.exit(1)
 
-  // Check tool availability
-  val jvmAvail = runJvm && JvmBytecode.scalaCliAvailable
-  if runJvm && !jvmAvail then
-    System.err.println("[warn] scala-cli not found — skipping JVM backend")
-  val nodeAvail = runJs && scala.util.Try {
-    os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
-  }.getOrElse(false)
-  if runJs && !nodeAvail then
-    System.err.println("[warn] node not found — skipping JS backend")
+    // Check tool availability
+    val jvmAvail = runJvm && JvmBytecode.scalaCliAvailable
+    if runJvm && !jvmAvail then
+      System.err.println("[warn] scala-cli not found — skipping JVM backend")
+    val nodeAvail = runJs && scala.util.Try {
+      os.proc("node", "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
+    }.getOrElse(false)
+    if runJs && !nodeAvail then
+      System.err.println("[warn] node not found — skipping JS backend")
 
-  // Locate the running ssc.jar via class-source URL, falling back to SSC_JAR env.
-  val sscJarPath: String = sys.env.getOrElse("SSC_JAR", {
-    val src = classOf[scalascript.interpreter.Interpreter].getProtectionDomain.getCodeSource
-    if src != null then
-      val u = src.getLocation
-      if u.getProtocol == "file" then java.nio.file.Paths.get(u.toURI).toString
+    // Locate the running ssc.jar via class-source URL, falling back to SSC_JAR env.
+    val sscJarPath: String = sys.env.getOrElse("SSC_JAR", {
+      val src = classOf[scalascript.interpreter.Interpreter].getProtectionDomain.getCodeSource
+      if src != null then
+        val u = src.getLocation
+        if u.getProtocol == "file" then java.nio.file.Paths.get(u.toURI).toString
+        else "ssc"
       else "ssc"
-    else "ssc"
-  })
-  val sscCmd: Seq[String] =
-    if sscJarPath == "ssc" then Seq("ssc")
-    else Seq("java", "-jar", sscJarPath)
+    })
+    val sscCmd: Seq[String] =
+      if sscJarPath == "ssc" then Seq("ssc")
+      else Seq("java", "-jar", sscJarPath)
 
-  // Measure wall-clock median for a subprocess command (warmup + reps).
-  // Uses ProcessBuilder with stdin from /dev/null and output discarded to avoid
-  // pipe-inheritance hangs when the subprocess itself spawns grandchildren
-  // (e.g. ssc run-jvm → scala-cli → JVM).
-  def timeSubproc(cmd: Seq[String], warmupN: Int, repsN: Int): Option[Long] =
-    def runOnce(): Int =
-      val pb = new java.lang.ProcessBuilder(cmd*)
-      pb.redirectInput(new java.io.File("/dev/null"))
-      pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
-      pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-      scala.util.Try(pb.start().waitFor()).getOrElse(1)
-    for _ <- 1 to warmupN do runOnce()
-    val times = scala.collection.mutable.ArrayBuffer.empty[Long]
-    for _ <- 1 to repsN do
-      val t0 = System.nanoTime()
-      val rc = runOnce()
-      val ms = (System.nanoTime() - t0) / 1_000_000L
-      if rc == 0 then times += ms
-    if times.isEmpty then None
-    else
-      val sorted = times.sorted
-      Some(sorted(sorted.length / 2))
+    // Measure wall-clock median for a subprocess command (warmup + reps).
+    // Uses ProcessBuilder with stdin from /dev/null and output discarded to avoid
+    // pipe-inheritance hangs when the subprocess itself spawns grandchildren
+    // (e.g. ssc run-jvm → scala-cli → JVM).
+    def timeSubproc(cmd: Seq[String], warmupN: Int, repsN: Int): Option[Long] =
+      def runOnce(): Int =
+        val pb = new java.lang.ProcessBuilder(cmd*)
+        pb.redirectInput(new java.io.File("/dev/null"))
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        scala.util.Try(pb.start().waitFor()).getOrElse(1)
+      for _ <- 1 to warmupN do runOnce()
+      val times = scala.collection.mutable.ArrayBuffer.empty[Long]
+      for _ <- 1 to repsN do
+        val t0 = System.nanoTime()
+        val rc = runOnce()
+        val ms = (System.nanoTime() - t0) / 1_000_000L
+        if rc == 0 then times += ms
+      if times.isEmpty then None
+      else
+        val sorted = times.sorted
+        Some(sorted(sorted.length / 2))
 
-  // Measure interpreter in-process (no startup overhead).
-  def timeInterp(repsN: Int, warmupN: Int): Option[Long] =
-    val module = scalascript.parser.Parser.parse(os.read(path))
-    val nullOut = new java.io.PrintStream(java.io.OutputStream.nullOutputStream(), false, "UTF-8")
-    for _ <- 1 to warmupN do
-      try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
-      catch case _: Throwable => ()
-    val times = new Array[Long](repsN)
-    for i <- 0 until repsN do
-      val t0 = System.nanoTime()
-      try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
-      catch case _: Throwable => ()
-      times(i) = (System.nanoTime() - t0) / 1_000_000L
-    java.util.Arrays.sort(times)
-    Some(times(repsN / 2))
+    // Measure interpreter in-process (no startup overhead).
+    def timeInterp(repsN: Int, warmupN: Int): Option[Long] =
+      val module = scalascript.parser.Parser.parse(os.read(path))
+      val nullOut = new java.io.PrintStream(java.io.OutputStream.nullOutputStream(), false, "UTF-8")
+      for _ <- 1 to warmupN do
+        try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
+        catch case _: Throwable => ()
+      val times = new Array[Long](repsN)
+      for i <- 0 until repsN do
+        val t0 = System.nanoTime()
+        try scalascript.interpreter.Interpreter(out = nullOut, baseDir = Some(path / os.up), headless = true).run(module)
+        catch case _: Throwable => ()
+        times(i) = (System.nanoTime() - t0) / 1_000_000L
+      java.util.Arrays.sort(times)
+      Some(times(repsN / 2))
 
-  val name = path.last.stripSuffix(".ssc")
-  println(s"\nssc bench — $name")
-  println("=" * 60)
-  println(s"Warmup: $warmup  Reps: $reps")
-  println()
+    val name = path.last.stripSuffix(".ssc")
+    println(s"\nssc bench — $name")
+    println("=" * 60)
+    println(s"Warmup: $warmup  Reps: $reps")
+    println()
 
-  println("Running...")
+    println("Running...")
 
-  val ti: Option[Long] = if runInterp then
-    print(s"  interpreter... ")
-    val r = timeInterp(reps, warmup)
-    println(r.fold("ERR")(n => s"${n}ms"))
-    r
-  else None
+    val ti: Option[Long] = if runInterp then
+      print(s"  interpreter... ")
+      val r = timeInterp(reps, warmup)
+      println(r.fold("ERR")(n => s"${n}ms"))
+      r
+    else None
 
-  val tj: Option[Long] = if jvmAvail then
-    print(s"  jvm (subprocess)... ")
-    val r = timeSubproc(sscCmd ++ Seq("run-jvm", path.toString), warmup, reps)
-    println(r.fold("ERR")(n => s"${n}ms"))
-    r
-  else None
+    val tj: Option[Long] = if jvmAvail then
+      print(s"  jvm (subprocess)... ")
+      val r = timeSubproc(sscCmd ++ Seq("run-jvm", path.toString), warmup, reps)
+      println(r.fold("ERR")(n => s"${n}ms"))
+      r
+    else None
 
-  val ts: Option[Long] = if nodeAvail then
-    print(s"  js (subprocess)... ")
-    val r = timeSubproc(sscCmd ++ Seq("run-js", path.toString), warmup, reps)
-    println(r.fold("ERR")(n => s"${n}ms"))
-    r
-  else None
+    val ts: Option[Long] = if nodeAvail then
+      print(s"  js (subprocess)... ")
+      val r = timeSubproc(sscCmd ++ Seq("run-js", path.toString), warmup, reps)
+      println(r.fold("ERR")(n => s"${n}ms"))
+      r
+    else None
 
-  // Build markdown table
-  val sb = new StringBuilder
-  var header = "| Backend | p50 ms |"
-  var sep    = "|---|---:|"
-  if ti.isDefined && (tj.isDefined || ts.isDefined) then
-    header += " vs Interpreter |"
-    sep    += "---:|"
-  sb.append("\n")
-  sb.append(header).append("\n")
-  sb.append(sep).append("\n")
+    // Build markdown table
+    val sb = new StringBuilder
+    var header = "| Backend | p50 ms |"
+    var sep    = "|---|---:|"
+    if ti.isDefined && (tj.isDefined || ts.isDefined) then
+      header += " vs Interpreter |"
+      sep    += "---:|"
+    sb.append("\n")
+    sb.append(header).append("\n")
+    sb.append(sep).append("\n")
 
-  def row(label: String, ms: Option[Long], base: Option[Long]): String =
-    val msStr = ms.fold("ERR")(n => s"$n")
-    val ratioStr = (ms, base) match
-      case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
-        f" ${m.toDouble / b.toDouble}%.2fx |"
-      case _ if tj.isDefined || ts.isDefined => " — |"
-      case _ => ""
-    s"| $label | $msStr |$ratioStr"
+    def row(label: String, ms: Option[Long], base: Option[Long]): String =
+      val msStr = ms.fold("ERR")(n => s"$n")
+      val ratioStr = (ms, base) match
+        case (Some(m), Some(b)) if b > 0 && (tj.isDefined || ts.isDefined) =>
+          f" ${m.toDouble / b.toDouble}%.2fx |"
+        case _ if tj.isDefined || ts.isDefined => " — |"
+        case _ => ""
+      s"| $label | $msStr |$ratioStr"
 
-  if runInterp then sb.append(row("Interpreter (in-process)", ti, ti)).append("\n")
-  if jvmAvail  then sb.append(row("JvmGen + scala-cli", tj, ti)).append("\n")
-  if nodeAvail then sb.append(row("JsGen + node", ts, ti)).append("\n")
+    if runInterp then sb.append(row("Interpreter (in-process)", ti, ti)).append("\n")
+    if jvmAvail  then sb.append(row("JvmGen + scala-cli", tj, ti)).append("\n")
+    if nodeAvail then sb.append(row("JsGen + node", ts, ti)).append("\n")
 
-  val table = sb.result()
-  println(table)
+    val table = sb.result()
+    println(table)
 
-  val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
-  println(s"Date: ${java.time.Instant.now()}")
-  println(s"Hardware: $hw")
-  println(s"Notes: warmup=$warmup reps=$reps; interpreter times are in-process (no JVM startup)")
+    val hw = s"${System.getProperty("os.name")} ${System.getProperty("os.arch")}, JVM ${System.getProperty("java.version")}"
+    println(s"Date: ${java.time.Instant.now()}")
+    println(s"Hardware: $hw")
+    println(s"Notes: warmup=$warmup reps=$reps; interpreter times are in-process (no JVM startup)")
 
-  if writeBase then
-    val baseDir = os.Path(file, os.pwd) / os.up / os.up / "bench"
-    val outPath = baseDir / "BASELINE_RUNTIME.md"
-    if os.exists(baseDir) then
-      val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
-      os.write.over(outPath, content)
-      println(s"\nBaseline written to ${outPath}")
+    if writeBase then
+      val baseDir = os.Path(file, os.pwd) / os.up / os.up / "bench"
+      val outPath = baseDir / "BASELINE_RUNTIME.md"
+      if os.exists(baseDir) then
+        val content = s"# Runtime Benchmark Baseline\n\nFile: `$name.ssc`  \nDate: ${java.time.Instant.now()}  \nWarmup: $warmup  Reps: $reps\n$table\nHardware: $hw\n"
+        os.write.over(outPath, content)
+        println(s"\nBaseline written to ${outPath}")
 
 /** `ssc profile <file.ssc> [options]` — instrument each compiler phase and
  *  report wall-clock time, heap allocation delta, optional flame-graph JSON
@@ -8564,183 +8700,188 @@ private[cli] def benchCommand(args: List[String]): Unit =
  *    --runs=N           average over N runs (default: 1)
  *  }}}
  */
-def profileCommand(args: List[String]): Unit =
-  import scalascript.interpreter.Profiler
-  var topN:      Int            = Int.MaxValue
-  var jsonOut:   String         = "profile.json"
-  var writeJson: Boolean        = false
-  var compareFile: Option[String] = None
-  var numRuns:   Int            = 1
-  var files:     List[String]   = Nil
+final class ProfileCmd extends CliCommand:
+  def name = "profile"
+  override def summary = "Run with call-level profiling; print top-N hotspots"
+  override def category = "Run & develop"
+  override def details = List("Flags: --top N (default 20), --output <profile.json>")
+  def run(args: List[String]): Unit =
+    import scalascript.interpreter.Profiler
+    var topN:      Int            = Int.MaxValue
+    var jsonOut:   String         = "profile.json"
+    var writeJson: Boolean        = false
+    var compareFile: Option[String] = None
+    var numRuns:   Int            = 1
+    var files:     List[String]   = Nil
 
-  val arr = args.toArray
-  var i   = 0
-  while i < arr.length do
-    arr(i) match
-      // --top=N  or  --top N
-      case s if s.startsWith("--top=") =>
-        topN = s.stripPrefix("--top=").toIntOption.getOrElse {
-          System.err.println("--top requires an integer argument"); System.exit(1); Int.MaxValue
+    val arr = args.toArray
+    var i   = 0
+    while i < arr.length do
+      arr(i) match
+        // --top=N  or  --top N
+        case s if s.startsWith("--top=") =>
+          topN = s.stripPrefix("--top=").toIntOption.getOrElse {
+            System.err.println("--top requires an integer argument"); System.exit(1); Int.MaxValue
+          }
+          i += 1
+        case "--top" if i + 1 < arr.length =>
+          topN = arr(i + 1).toIntOption.getOrElse {
+            System.err.println("--top requires an integer argument"); System.exit(1); Int.MaxValue
+          }
+          i += 2
+        // --out=<file>  or  --output <file>
+        case s if s.startsWith("--out=") =>
+          jsonOut = s.stripPrefix("--out="); writeJson = true; i += 1
+        case "--out" if i + 1 < arr.length =>
+          jsonOut = arr(i + 1); writeJson = true; i += 2
+        case "--output" if i + 1 < arr.length =>
+          jsonOut = arr(i + 1); writeJson = true; i += 2
+        // --compare=<file>  or  --compare <file>
+        case s if s.startsWith("--compare=") =>
+          compareFile = Some(s.stripPrefix("--compare=")); i += 1
+        case "--compare" if i + 1 < arr.length =>
+          compareFile = Some(arr(i + 1)); i += 2
+        // --runs=N  or  --runs N
+        case s if s.startsWith("--runs=") =>
+          numRuns = s.stripPrefix("--runs=").toIntOption.getOrElse {
+            System.err.println("--runs requires an integer argument"); System.exit(1); 1
+          }
+          i += 1
+        case "--runs" if i + 1 < arr.length =>
+          numRuns = arr(i + 1).toIntOption.getOrElse {
+            System.err.println("--runs requires an integer argument"); System.exit(1); 1
+          }
+          i += 2
+        case f =>
+          files = files :+ f; i += 1
+
+    if files.isEmpty then
+      System.err.println(
+        "Usage: ssc profile <file.ssc> [--top=N] [--out=profile.json] [--compare=baseline.json] [--runs=N]"
+      )
+      System.exit(1)
+
+    val file = files.head
+    val path = os.Path(file, os.pwd)
+    if !os.exists(path) then
+      System.err.println(s"ssc profile: file not found: $file")
+      System.exit(3)
+
+    // ── Run pipeline N times, collecting per-run phase lists ─────────────────
+
+    /** Run the full parse→typecheck→normalize pipeline once and return the
+     *  list of `PhaseResult`s. */
+    def runOnce(): List[PhaseResult] =
+      val source = os.read(path)
+
+      val (module, parseResult) =
+        timed("parse") { scalascript.parser.Parser.parse(source) }
+
+      val (_, typeckResult) =
+        timed("typecheck") { scalascript.typer.Typer.typeCheck(module) }
+
+      val (ir, normResult) =
+        timed("normalize") { scalascript.transform.Normalize(module) }
+
+      // Choose codegen phase based on --backend flag (default: jvm).
+      val backendId = ActiveFlags.current.backend.getOrElse("jvm")
+      val codegenResult: PhaseResult =
+        if backendId == "js" then
+          timed("js-codegen") {
+            scalascript.codegen.JsGen.generate(module, Some(path / os.up), Map.empty)
+          }._2
+        else
+          timed("jvm-codegen") {
+            scalascript.codegen.JvmGen.generate(module, Some(path / os.up), Map.empty)
+          }._2
+
+      val (_, linkResult) =
+        timed("link") {
+          // "link" represents output writing / bytecode linking.
+          // We measure the normalized IR serialization as a proxy when no
+          // separate linker step is present.
+          ir.hashCode()
         }
-        i += 1
-      case "--top" if i + 1 < arr.length =>
-        topN = arr(i + 1).toIntOption.getOrElse {
-          System.err.println("--top requires an integer argument"); System.exit(1); Int.MaxValue
-        }
-        i += 2
-      // --out=<file>  or  --output <file>
-      case s if s.startsWith("--out=") =>
-        jsonOut = s.stripPrefix("--out="); writeJson = true; i += 1
-      case "--out" if i + 1 < arr.length =>
-        jsonOut = arr(i + 1); writeJson = true; i += 2
-      case "--output" if i + 1 < arr.length =>
-        jsonOut = arr(i + 1); writeJson = true; i += 2
-      // --compare=<file>  or  --compare <file>
-      case s if s.startsWith("--compare=") =>
-        compareFile = Some(s.stripPrefix("--compare=")); i += 1
-      case "--compare" if i + 1 < arr.length =>
-        compareFile = Some(arr(i + 1)); i += 2
-      // --runs=N  or  --runs N
-      case s if s.startsWith("--runs=") =>
-        numRuns = s.stripPrefix("--runs=").toIntOption.getOrElse {
-          System.err.println("--runs requires an integer argument"); System.exit(1); 1
-        }
-        i += 1
-      case "--runs" if i + 1 < arr.length =>
-        numRuns = arr(i + 1).toIntOption.getOrElse {
-          System.err.println("--runs requires an integer argument"); System.exit(1); 1
-        }
-        i += 2
-      case f =>
-        files = files :+ f; i += 1
 
-  if files.isEmpty then
-    System.err.println(
-      "Usage: ssc profile <file.ssc> [--top=N] [--out=profile.json] [--compare=baseline.json] [--runs=N]"
-    )
-    System.exit(1)
+      List(parseResult, typeckResult, normResult, codegenResult, linkResult)
 
-  val file = files.head
-  val path = os.Path(file, os.pwd)
-  if !os.exists(path) then
-    System.err.println(s"ssc profile: file not found: $file")
-    System.exit(3)
+    val allRuns: List[List[PhaseResult]] =
+      (1 to numRuns).toList.map(_ => runOnce())
 
-  // ── Run pipeline N times, collecting per-run phase lists ─────────────────
+    // ── Aggregate multiple runs into one list (min/avg/max per phase) ─────────
 
-  /** Run the full parse→typecheck→normalize pipeline once and return the
-   *  list of `PhaseResult`s. */
-  def runOnce(): List[PhaseResult] =
-    val source = os.read(path)
+    // For N=1 just use that single run's values directly.
+    // For N>1 build a merged list where wallMs = avg.
+    val phaseNames: List[String] = allRuns.head.map(_.name)
 
-    val (module, parseResult) =
-      timed("parse") { scalascript.parser.Parser.parse(source) }
-
-    val (_, typeckResult) =
-      timed("typecheck") { scalascript.typer.Typer.typeCheck(module) }
-
-    val (ir, normResult) =
-      timed("normalize") { scalascript.transform.Normalize(module) }
-
-    // Choose codegen phase based on --backend flag (default: jvm).
-    val backendId = ActiveFlags.current.backend.getOrElse("jvm")
-    val codegenResult: PhaseResult =
-      if backendId == "js" then
-        timed("js-codegen") {
-          scalascript.codegen.JsGen.generate(module, Some(path / os.up), Map.empty)
-        }._2
-      else
-        timed("jvm-codegen") {
-          scalascript.codegen.JvmGen.generate(module, Some(path / os.up), Map.empty)
-        }._2
-
-    val (_, linkResult) =
-      timed("link") {
-        // "link" represents output writing / bytecode linking.
-        // We measure the normalized IR serialization as a proxy when no
-        // separate linker step is present.
-        ir.hashCode()
+    val aggregated: List[PhaseResult] =
+      phaseNames.map { name =>
+        val matching = allRuns.flatMap(_.find(_.name == name))
+        val wallVals  = matching.map(_.wallMs)
+        val allocVals = matching.map(_.allocBytes)
+        val wallAvg   = if wallVals.isEmpty then 0L else wallVals.sum / wallVals.size
+        val allocAvg  = if allocVals.isEmpty then 0L else allocVals.sum / allocVals.size
+        PhaseResult(name, wallAvg, allocAvg)
       }
 
-    List(parseResult, typeckResult, normResult, codegenResult, linkResult)
+    val wallMin: Map[String, Long] =
+      if numRuns <= 1 then Map.empty
+      else phaseNames.map(name =>
+        name -> allRuns.flatMap(_.find(_.name == name)).map(_.wallMs).minOption.getOrElse(0L)
+      ).toMap
 
-  val allRuns: List[List[PhaseResult]] =
-    (1 to numRuns).toList.map(_ => runOnce())
+    val wallMax: Map[String, Long] =
+      if numRuns <= 1 then Map.empty
+      else phaseNames.map(name =>
+        name -> allRuns.flatMap(_.find(_.name == name)).map(_.wallMs).maxOption.getOrElse(0L)
+      ).toMap
 
-  // ── Aggregate multiple runs into one list (min/avg/max per phase) ─────────
+    val totalWallMs   = aggregated.map(_.wallMs).sum
+    val totalAllocBytes = aggregated.map(_.allocBytes).sum
 
-  // For N=1 just use that single run's values directly.
-  // For N>1 build a merged list where wallMs = avg.
-  val phaseNames: List[String] = allRuns.head.map(_.name)
+    // ── Print human-readable table ────────────────────────────────────────────
 
-  val aggregated: List[PhaseResult] =
-    phaseNames.map { name =>
-      val matching = allRuns.flatMap(_.find(_.name == name))
-      val wallVals  = matching.map(_.wallMs)
-      val allocVals = matching.map(_.allocBytes)
-      val wallAvg   = if wallVals.isEmpty then 0L else wallVals.sum / wallVals.size
-      val allocAvg  = if allocVals.isEmpty then 0L else allocVals.sum / allocVals.size
-      PhaseResult(name, wallAvg, allocAvg)
-    }
+    val visiblePhases =
+      if topN == Int.MaxValue then aggregated
+      else aggregated.sortBy(-_.wallMs).take(topN)
 
-  val wallMin: Map[String, Long] =
-    if numRuns <= 1 then Map.empty
-    else phaseNames.map(name =>
-      name -> allRuns.flatMap(_.find(_.name == name)).map(_.wallMs).minOption.getOrElse(0L)
-    ).toMap
-
-  val wallMax: Map[String, Long] =
-    if numRuns <= 1 then Map.empty
-    else phaseNames.map(name =>
-      name -> allRuns.flatMap(_.find(_.name == name)).map(_.wallMs).maxOption.getOrElse(0L)
-    ).toMap
-
-  val totalWallMs   = aggregated.map(_.wallMs).sum
-  val totalAllocBytes = aggregated.map(_.allocBytes).sum
-
-  // ── Print human-readable table ────────────────────────────────────────────
-
-  val visiblePhases =
-    if topN == Int.MaxValue then aggregated
-    else aggregated.sortBy(-_.wallMs).take(topN)
-
-  println()
-  if numRuns > 1 then
-    println(f"${"Phase"}%-20s  ${"Wall (ms)"}%10s  ${"Alloc (MB)"}%10s  ${"min/avg/max (ms)"}%s")
-    println("─" * 72)
-    for ph <- visiblePhases do
-      val allocMb = ph.allocBytes / 1_000_000.0
-      val minMs   = wallMin.getOrElse(ph.name, ph.wallMs)
-      val maxMs   = wallMax.getOrElse(ph.name, ph.wallMs)
-      println(f"${ph.name}%-20s  ${ph.wallMs}%10d  $allocMb%10.1f  $minMs/${ ph.wallMs }/$maxMs")
-    println("─" * 72)
-    println(f"${"total"}%-20s  ${totalWallMs}%10d  ${totalAllocBytes / 1_000_000.0}%10.1f")
-  else
-    println(f"${"Phase"}%-20s  ${"Wall (ms)"}%10s  ${"Alloc (MB)"}%10s")
-    println("─" * 45)
-    for ph <- visiblePhases do
-      val allocMb = ph.allocBytes / 1_000_000.0
-      println(f"${ph.name}%-20s  ${ph.wallMs}%10d  $allocMb%10.1f")
-    println("─" * 45)
-    println(f"${"total"}%-20s  ${totalWallMs}%10d  ${totalAllocBytes / 1_000_000.0}%10.1f")
-
-  // ── --top=N summary (sorted by wallMs) ────────────────────────────────────
-
-  if topN < Int.MaxValue then
     println()
-    println(s"Top $topN hottest phases:")
-    aggregated.sortBy(-_.wallMs).take(topN).zipWithIndex.foreach { case (ph, idx) =>
-      println(f"  ${idx + 1}. ${ph.name}%-16s ${ph.wallMs} ms")
-    }
+    if numRuns > 1 then
+      println(f"${"Phase"}%-20s  ${"Wall (ms)"}%10s  ${"Alloc (MB)"}%10s  ${"min/avg/max (ms)"}%s")
+      println("─" * 72)
+      for ph <- visiblePhases do
+        val allocMb = ph.allocBytes / 1_000_000.0
+        val minMs   = wallMin.getOrElse(ph.name, ph.wallMs)
+        val maxMs   = wallMax.getOrElse(ph.name, ph.wallMs)
+        println(f"${ph.name}%-20s  ${ph.wallMs}%10d  $allocMb%10.1f  $minMs/${ ph.wallMs }/$maxMs")
+      println("─" * 72)
+      println(f"${"total"}%-20s  ${totalWallMs}%10d  ${totalAllocBytes / 1_000_000.0}%10.1f")
+    else
+      println(f"${"Phase"}%-20s  ${"Wall (ms)"}%10s  ${"Alloc (MB)"}%10s")
+      println("─" * 45)
+      for ph <- visiblePhases do
+        val allocMb = ph.allocBytes / 1_000_000.0
+        println(f"${ph.name}%-20s  ${ph.wallMs}%10d  $allocMb%10.1f")
+      println("─" * 45)
+      println(f"${"total"}%-20s  ${totalWallMs}%10d  ${totalAllocBytes / 1_000_000.0}%10.1f")
 
-  // ── Write flame-graph JSON ────────────────────────────────────────────────
+    // ── --top=N summary (sorted by wallMs) ────────────────────────────────────
 
-  val timestamp = java.time.Instant.now().toString
-  val phasesJson = aggregated.map { ph =>
-    s"""    {"name":"${ph.name}","wallMs":${ph.wallMs},"allocBytes":${ph.allocBytes}}"""
-  }.mkString(",\n")
-  val flameJson =
-    s"""{
+    if topN < Int.MaxValue then
+      println()
+      println(s"Top $topN hottest phases:")
+      aggregated.sortBy(-_.wallMs).take(topN).zipWithIndex.foreach { case (ph, idx) =>
+        println(f"  ${idx + 1}. ${ph.name}%-16s ${ph.wallMs} ms")
+      }
+
+    // ── Write flame-graph JSON ────────────────────────────────────────────────
+
+    val timestamp = java.time.Instant.now().toString
+    val phasesJson = aggregated.map { ph =>
+      s"""    {"name":"${ph.name}","wallMs":${ph.wallMs},"allocBytes":${ph.allocBytes}}"""
+    }.mkString(",\n")
+    val flameJson =
+      s"""{
        |  "version": "ssc-profile/1.0",
        |  "file": "${path.last}",
        |  "timestamp": "$timestamp",
@@ -8753,70 +8894,73 @@ def profileCommand(args: List[String]): Unit =
        |}
        |""".stripMargin
 
-  if writeJson then
-    val outPath = os.Path(jsonOut, os.pwd)
-    os.write.over(outPath, flameJson)
-    println(s"\nProfile written to $jsonOut")
+    if writeJson then
+      val outPath = os.Path(jsonOut, os.pwd)
+      os.write.over(outPath, flameJson)
+      println(s"\nProfile written to $jsonOut")
 
-  // ── --compare=<baseline> ──────────────────────────────────────────────────
+    // ── --compare=<baseline> ──────────────────────────────────────────────────
 
-  compareFile.foreach { baselineFile =>
-    val baselinePath = os.Path(baselineFile, os.pwd)
-    if !os.exists(baselinePath) then
-      System.err.println(s"ssc profile --compare: baseline file not found: $baselineFile")
-      System.exit(1)
+    compareFile.foreach { baselineFile =>
+      val baselinePath = os.Path(baselineFile, os.pwd)
+      if !os.exists(baselinePath) then
+        System.err.println(s"ssc profile --compare: baseline file not found: $baselineFile")
+        System.exit(1)
 
-    // Minimal JSON parser: extract phases array.
-    val baselineJson = os.read(baselinePath)
-    val baselinePhases: Map[String, Long] =
-      // Parse {"name":"...","wallMs":N,...} entries from "phases":[...] array.
-      val phaseBlockRegex = """\{"name":"([^"]+)","wallMs":(\d+)""".r
-      phaseBlockRegex.findAllMatchIn(baselineJson).map { m =>
-        m.group(1) -> m.group(2).toLong
-      }.toMap
+      // Minimal JSON parser: extract phases array.
+      val baselineJson = os.read(baselinePath)
+      val baselinePhases: Map[String, Long] =
+        // Parse {"name":"...","wallMs":N,...} entries from "phases":[...] array.
+        val phaseBlockRegex = """\{"name":"([^"]+)","wallMs":(\d+)""".r
+        phaseBlockRegex.findAllMatchIn(baselineJson).map { m =>
+          m.group(1) -> m.group(2).toLong
+        }.toMap
 
-    if baselinePhases.isEmpty then
-      System.err.println(s"ssc profile --compare: could not parse phases from $baselineFile")
-      System.exit(1)
+      if baselinePhases.isEmpty then
+        System.err.println(s"ssc profile --compare: could not parse phases from $baselineFile")
+        System.exit(1)
 
-    println()
-    println(f"${"Phase"}%-20s  ${"Baseline (ms)"}%14s  ${"Current (ms)"}%13s  ${"Delta"}%s")
-    println("─" * 62)
-    var hasRegression = false
-    for ph <- aggregated do
-      baselinePhases.get(ph.name) match
-        case None =>
-          println(f"${ph.name}%-20s  ${"N/A"}%14s  ${ph.wallMs}%13d  (new)")
-        case Some(base) =>
-          val delta    = ph.wallMs - base
-          val pctDouble = if base == 0 then 0.0 else delta.toDouble / base * 100.0
-          val pct      = f"${if pctDouble >= 0 then "+" else ""}$pctDouble%.0f%%"
-          val warn     = if pctDouble > 10.0 then " ⚠" else ""
-          if pctDouble > 10.0 then hasRegression = true
-          println(f"${ph.name}%-20s  $base%14d  ${ph.wallMs}%13d  $pct$warn")
-    if hasRegression then
       println()
-      println("⚠ Regressions detected (>10% slower than baseline).")
-  }
+      println(f"${"Phase"}%-20s  ${"Baseline (ms)"}%14s  ${"Current (ms)"}%13s  ${"Delta"}%s")
+      println("─" * 62)
+      var hasRegression = false
+      for ph <- aggregated do
+        baselinePhases.get(ph.name) match
+          case None =>
+            println(f"${ph.name}%-20s  ${"N/A"}%14s  ${ph.wallMs}%13d  (new)")
+          case Some(base) =>
+            val delta    = ph.wallMs - base
+            val pctDouble = if base == 0 then 0.0 else delta.toDouble / base * 100.0
+            val pct      = f"${if pctDouble >= 0 then "+" else ""}$pctDouble%.0f%%"
+            val warn     = if pctDouble > 10.0 then " ⚠" else ""
+            if pctDouble > 10.0 then hasRegression = true
+            println(f"${ph.name}%-20s  $base%14d  ${ph.wallMs}%13d  $pct$warn")
+      if hasRegression then
+        println()
+        println("⚠ Regressions detected (>10% slower than baseline).")
+    }
 
-  // Keep legacy Profiler.renderTable for backward compatibility when --top is small.
-  if topN <= 20 && topN != Int.MaxValue then
-    println()
-    System.out.print(Profiler.renderTable(topN))
+    // Keep legacy Profiler.renderTable for backward compatibility when --top is small.
+    if topN <= 20 && topN != Int.MaxValue then
+      println()
+      System.out.print(Profiler.renderTable(topN))
 
 /** `ssc lsp` — run the Language Server Protocol server over stdio.
  *
  *  No options for now.  Reads framed JSON-RPC from stdin, writes to stdout,
  *  logs to stderr.  Exits with the JSON-RPC negotiated exit code (0 if
  *  `shutdown` preceded `exit`, 1 otherwise). */
-def lspCommand(args: List[String]): Unit =
-  import scalascript.cli.lsp.LspServer
-  // Currently unused — reserved for future flags (`--log-file <path>`,
-  // `--artifact-dir <dir>`, …).  Ignored silently in MVP.
-  val _ = args
-  val code = LspServer.runStdio()
-  System.exit(code)
-
+final class LspCmd extends CliCommand:
+  def name = "lsp"
+  override def summary = "Run the Language Server Protocol server over stdio"
+  override def category = "Services & tooling"
+  def run(args: List[String]): Unit =
+    import scalascript.cli.lsp.LspServer
+    // Currently unused — reserved for future flags (`--log-file <path>`,
+    // `--artifact-dir <dir>`, …).  Ignored silently in MVP.
+    val _ = args
+    val code = LspServer.runStdio()
+    System.exit(code)
 
 def printSection(s: Section, indent: Int): Unit =
   val prefix = "  " * indent
@@ -8847,54 +8991,57 @@ def printSection(s: Section, indent: Int): Unit =
  *
  *  Exits 0 even when no facade is emitted (identity-mapped Tier-5
  *  artifacts produce no file — that's expected, not an error). */
-def generateFacadeCommand(args: List[String]): Unit =
-  var artifactDir: Option[String] = None
-  var outputDir:   Option[String] = None
-  var rest = args
-  while rest.nonEmpty do
-    rest.head match
-      case "-o" | "--output" =>
-        rest = rest.tail
-        if rest.isEmpty then
-          System.err.println("generate-facade: -o requires a directory argument")
-          System.exit(1)
-        outputDir = Some(rest.head)
-        rest = rest.tail
-      case flag if flag.startsWith("-") =>
-        System.err.println(s"generate-facade: unknown flag $flag")
-        System.err.println("Usage: ssc generate-facade <artifactDir> [-o <outputDir>]")
-        System.exit(1)
-      case dir =>
-        if artifactDir.isDefined then
-          System.err.println("generate-facade: too many positional arguments")
+final class GenerateFacadeCmd extends CliCommand:
+  def name = "generate-facade"
+  override def summary = "Emit Scala 3 facade sources from .scim artifacts"
+  override def category = "Separate compilation (v2.0)"
+  def run(args: List[String]): Unit =
+    var artifactDir: Option[String] = None
+    var outputDir:   Option[String] = None
+    var rest = args
+    while rest.nonEmpty do
+      rest.head match
+        case "-o" | "--output" =>
+          rest = rest.tail
+          if rest.isEmpty then
+            System.err.println("generate-facade: -o requires a directory argument")
+            System.exit(1)
+          outputDir = Some(rest.head)
+          rest = rest.tail
+        case flag if flag.startsWith("-") =>
+          System.err.println(s"generate-facade: unknown flag $flag")
           System.err.println("Usage: ssc generate-facade <artifactDir> [-o <outputDir>]")
           System.exit(1)
-        artifactDir = Some(dir)
-        rest = rest.tail
+        case dir =>
+          if artifactDir.isDefined then
+            System.err.println("generate-facade: too many positional arguments")
+            System.err.println("Usage: ssc generate-facade <artifactDir> [-o <outputDir>]")
+            System.exit(1)
+          artifactDir = Some(dir)
+          rest = rest.tail
 
-  if artifactDir.isEmpty then
-    System.err.println("Usage: ssc generate-facade <artifactDir> [-o <outputDir>]")
-    System.err.println("  Read .scim artifacts from <artifactDir>, emit Scala 3 facade sources.")
-    System.err.println("  Outputs to <outputDir> (default: current directory).")
-    System.exit(1)
+    if artifactDir.isEmpty then
+      System.err.println("Usage: ssc generate-facade <artifactDir> [-o <outputDir>]")
+      System.err.println("  Read .scim artifacts from <artifactDir>, emit Scala 3 facade sources.")
+      System.err.println("  Outputs to <outputDir> (default: current directory).")
+      System.exit(1)
 
-  val artPath = os.Path(java.nio.file.Paths.get(artifactDir.get).toAbsolutePath)
-  val outPath = os.Path(java.nio.file.Paths.get(outputDir.getOrElse(".")).toAbsolutePath)
+    val artPath = os.Path(java.nio.file.Paths.get(artifactDir.get).toAbsolutePath)
+    val outPath = os.Path(java.nio.file.Paths.get(outputDir.getOrElse(".")).toAbsolutePath)
 
-  if !os.exists(artPath) || !os.isDir(artPath) then
-    System.err.println(s"generate-facade: artifact directory not found: $artPath")
-    System.exit(1)
+    if !os.exists(artPath) || !os.isDir(artPath) then
+      System.err.println(s"generate-facade: artifact directory not found: $artPath")
+      System.exit(1)
 
-  os.makeDir.all(outPath)
+    os.makeDir.all(outPath)
 
-  val sources = scalascript.interop.facade.FacadeGenerator.generate(artPath)
-  if sources.isEmpty then
-    // Tier-5 identity artifacts produce no facade — this is normal.
-    System.err.println("[ssc] generate-facade: no legacy facade entries found; nothing written.")
-  else
-    for (relPath, content) <- sources.toList.sortBy(_._1) do
-      val target = outPath / os.RelPath(relPath)
-      os.makeDir.all(target / os.up)
-      os.write.over(target, content)
-      System.err.println(s"[ssc] generate-facade: wrote ${outPath.relativeTo(os.pwd)}/${relPath}")
-
+    val sources = scalascript.interop.facade.FacadeGenerator.generate(artPath)
+    if sources.isEmpty then
+      // Tier-5 identity artifacts produce no facade — this is normal.
+      System.err.println("[ssc] generate-facade: no legacy facade entries found; nothing written.")
+    else
+      for (relPath, content) <- sources.toList.sortBy(_._1) do
+        val target = outPath / os.RelPath(relPath)
+        os.makeDir.all(target / os.up)
+        os.write.over(target, content)
+        System.err.println(s"[ssc] generate-facade: wrote ${outPath.relativeTo(os.pwd)}/${relPath}")
