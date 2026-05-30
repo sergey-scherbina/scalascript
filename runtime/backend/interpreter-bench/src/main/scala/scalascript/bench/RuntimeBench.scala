@@ -260,17 +260,19 @@ private def jsServerScript(n: Int): String =
       |const rl = readline.createInterface({ input: process.stdin, terminal: false });
       |rl.on('line', (line) => {
       |  const cmd = line.trim();
+      |  let _sink = 0;
       |  const t0 = performance.now();
       |  for (let iter = 0; iter < N; iter++) {
       |    switch (cmd) {
-      |      case 'arith_loop':    bench_arithLoop(); break;
-      |      case 'fib':           bench_fib(30); break;
-      |      case 'tco':           bench_tco(100000, 0); break;
-      |      case 'pattern_match': bench_patternMatch(); break;
+      |      case 'arith_loop':    _sink += bench_arithLoop(); break;
+      |      case 'fib':           _sink += bench_fib(30); break;
+      |      case 'tco':           _sink += bench_tco(100000, 0); break;
+      |      case 'pattern_match': _sink += bench_patternMatch(); break;
       |    }
       |  }
       |  const ns = BigInt(Math.round((performance.now() - t0) * 1e6));
       |  process.stdout.write(ns.toString() + '\\n');
+      |  if (_sink === -999999999999) process.stderr.write('sink\\n');
       |});
       |""".stripMargin
 
@@ -283,12 +285,15 @@ private def jvmServerScript(n: Int): String =
       |
       |def bench_arithLoop(): Int =
       |  var i = 0; var sum = 0
-      |  while i < 1000000 do sum = sum + i; i = i + 1
+      |  while i < 1000000 do
+      |    sum = sum + i
+      |    i = i + 1
       |  sum
       |
       |def bench_fib(n: Int): Int =
       |  if n <= 1 then n else bench_fib(n - 1) + bench_fib(n - 2)
       |
+      |@annotation.tailrec
       |def bench_tco(n: Int, acc: Int): Int =
       |  if n <= 0 then acc else bench_tco(n - 1, acc + n)
       |
@@ -320,17 +325,19 @@ private def jvmServerScript(n: Int): String =
       |var line = reader.readLine()
       |while line != null do
       |  val t0 = System.nanoTime()
+      |  var _sink: Long = 0L
       |  var iter = 0
       |  while iter < N do
-      |    line.trim() match
-      |      case "arith_loop"    => bench_arithLoop()
-      |      case "fib"           => bench_fib(30)
-      |      case "tco"           => bench_tco(100000, 0)
-      |      case "pattern_match" => bench_patternMatch()
-      |      case _               => ()
+      |    _sink += (line.trim() match
+      |      case "arith_loop"    => bench_arithLoop().toLong
+      |      case "fib"           => bench_fib(30).toLong
+      |      case "tco"           => bench_tco(100000, 0).toLong
+      |      case "pattern_match" => (bench_patternMatch() * 1e6).toLong
+      |      case _               => 0L)
       |    iter = iter + 1
       |  val ns = System.nanoTime() - t0
       |  println(ns)
+      |  if _sink == -999999999999L then System.err.println("sink")
       |  System.out.flush()
       |  line = reader.readLine()
       |""".stripMargin
