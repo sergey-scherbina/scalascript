@@ -51,9 +51,22 @@ class JvmDirectDriverTest extends AnyFunSuite:
   /** Is scala-cli available?  Used to gate the comparative-perf test. */
   private def scalaCliAvailable: Boolean = JvmBytecode.scalaCliAvailable
 
+  /** The in-process driver needs the staged compiler classloader
+   *  (`<ssc.lib.path>/bin/lib/compiler/jars/`), populated by `sbt cli/stage`.
+   *  Absent in a plain `sbt test` run, so the driver tests cancel rather than
+   *  fail — mirrors `CompilerLoader`'s own preconditions. */
+  private def compilerDriverAvailable: Boolean =
+    scalascript.imports.ImportResolver.libPath
+      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+
+  private def requireCompilerDriver(): Unit =
+    if !compilerDriverAvailable then
+      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping in-process driver test")
+
   // ── 1. In-process driver compiles + produces a non-empty classBundle ─
 
   test("Scala3Driver compiles a small fixture in-process"):
+    requireCompilerDriver()
     val t0 = System.nanoTime()
     val result = JvmBytecode.compileAndPackDirect(
       scalaSource   = smallSource,
@@ -94,6 +107,7 @@ class JvmDirectDriverTest extends AnyFunSuite:
   // ── 2. Direct path and scala-cli path produce structurally-identical bundles ─
 
   test("Scala3Driver and scala-cli produce a structurally compatible classBundle"):
+    requireCompilerDriver()
     if !scalaCliAvailable then
       cancel("scala-cli not on PATH — can't compare against subprocess path")
 
@@ -137,6 +151,7 @@ class JvmDirectDriverTest extends AnyFunSuite:
   // ── 3. Wall-clock comparison (advisory, never fails on regression) ──
 
   test("Scala3Driver is faster than scala-cli on a small fixture (advisory log only)"):
+    requireCompilerDriver()
     if !scalaCliAvailable then
       cancel("scala-cli not on PATH — can't compare timings")
 

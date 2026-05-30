@@ -536,7 +536,7 @@ ScalaScript's own registry work stays queued.
 
 ## CLI improvements (post command-SPI)
 
-- [ ] **cli-gate-flaky-tests** — The 4 chronically-red `cli` tests fail on clean
+- [x] **cli-gate-flaky-tests** — The 4 chronically-red `cli` tests fail on clean
   main all session: `JvmDirectDriverTest` (×3 — in-process Scala3 compiler driver)
   and `TypedRouteDistributedExampleCliTest` ("renders SPA with raw JS"). They are
   environment-dependent, not regressions. First confirm the root cause (missing
