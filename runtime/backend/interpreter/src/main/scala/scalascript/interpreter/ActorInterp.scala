@@ -1471,8 +1471,6 @@ private[interpreter] trait ActorInterp:
         case Perform(eff, op, _) =>
           throw InterpretError(s"Unhandled effect inside actor: $eff.$op")
 
-        case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
-
         case FlatMap(sub, f) => sub match
           case Pure(v) =>
             current = f(v)
@@ -1484,7 +1482,6 @@ private[interpreter] trait ActorInterp:
               case Left(_)     => return ActorStep.Suspend
           case Perform(eff, op, _) =>
             throw InterpretError(s"Unhandled effect inside actor: $eff.$op")
-          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
     throw InterpretError("unreachable")
 
   /** Handle one Actor effect op.

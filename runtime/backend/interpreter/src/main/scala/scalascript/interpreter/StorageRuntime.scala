@@ -55,7 +55,6 @@ private[interpreter] object StorageRuntime:
         case Perform("Storage", op, args) =>
           current = dispatch(op, args, v => Pure(v))
         case Perform(_, _, _) => return current
-        case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
         case FlatMap(sub, f) => sub match
           case Pure(v)          => current = f(v)
           case FlatMap(s2, g)   => current = FlatMap(s2, x => FlatMap(g(x), f))
@@ -63,7 +62,6 @@ private[interpreter] object StorageRuntime:
             current = dispatch(op, args, v => run(f(v), state, path))
           case Perform(_, _, _) =>
             return FlatMap(sub, v => run(f(v), state, path))
-          case Computation.TailRec(_) => throw InterpretError("TailRec escaped trampoline")
     throw InterpretError("unreachable")
 
   private def load(

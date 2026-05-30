@@ -73,9 +73,10 @@ private[interpreter] object TcoRuntime:
                   }): Value)
               }
             }.toMap
-            // Self-tail-call: return Computation.TailRec instead of throwing.
-            // Avoids JVM throw/catch overhead on every tail-recursive iteration.
-            val selfTco = Value.NativeFnV(curFun.name, a => Computation.TailRec(a))
+            val selfTco = Value.NativeFnV(curFun.name, a => {
+              interp.tailCallSig.args = a
+              throw interp.tailCallSig
+            })
             envStable     = curFun.closure.updated(curFun.name, selfTco) ++ mutualEntries
             envStableFor  = curFun
           val callEnv: Env = curFun.params match
@@ -89,43 +90,48 @@ private[interpreter] object TcoRuntime:
               FrameMap.of(names, vals, envStable)
           current = interp.eval(curFun.body, callEnv)
         // Inner step loop — re-associate FlatMaps and step Pure short-circuits.
-        // TailRec breaks the inner loop and restarts the outer loop (no exception needed).
-        var innerDone = false
-        while !innerDone do
+        // Exits via `return` inside the match; the condition stays `true`.
+        while true do
           current match
-            case Pure(_)                  => return current
-            case Perform(_, _, _)         => return current
-            case Computation.TailRec(newArgs) =>
-              if Profiler.enabled && curFun.name.nonEmpty then Profiler.record(curFun.name, 0L)
-              curArgs   = newArgs
-              current   = null
-              innerDone = true
+            case Pure(_)              => return current
+            case Perform(_, _, _)     => return current
             case FlatMap(sub, k) => sub match
               case Pure(v)               => current = k(v)
-              case Computation.TailRec(newArgs) =>
-                // TailRec in FlatMap.sub position: drop the continuation k (tail call semantics)
-                if Profiler.enabled && curFun.name.nonEmpty then Profiler.record(curFun.name, 0L)
-                curArgs   = newArgs
-                current   = null
-                innerDone = true
               case Perform(eff, op, a)   =>
                 val funSnapshot  = curFun
                 val argsSnapshot = curArgs
+                // Compute `k(v)` lazily inside a try so a TailCall thrown by
+                // a tail-recursive self-call in `k`'s body re-enters the
+                // trampoline rather than escaping. Without this the resume
+                // continuation evaluates `k(v)` eagerly as a strict argument
+                // to tcoTrampoline and any TailCall it throws falls through
+                // both the outer trampoline's try (already exited) and the
+                // re-entry's try (not yet armed).
                 return FlatMap(Perform(eff, op, a), v =>
                   try tcoTrampoline(funSnapshot, argsSnapshot, k(v), interp)
-                  catch case mc: MutualTailCall =>
-                    val next = mc.f
-                    if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
-                      tcoTrampoline(next, mc.args, null, interp)
-                    else interp.callFun(next, mc.args))
+                  catch
+                    case tc: TailCall       => tcoTrampoline(funSnapshot, tc.args, null, interp)
+                    case mc: MutualTailCall =>
+                      val next = mc.f
+                      if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
+                        tcoTrampoline(next, mc.args, null, interp)
+                      else interp.callFun(next, mc.args))
               case FlatMap(sub2, g)      =>
                 current = FlatMap(sub2, x => FlatMap(g(x), k))
       catch
         case r: ReturnSignal    => return Pure(r.value)
+        case tc: TailCall       =>
+          // Each TailCall is one additional recursive invocation.
+          if Profiler.enabled && curFun.name.nonEmpty then
+            Profiler.record(curFun.name, 0L)
+          curArgs = tc.args
+          current = null
         case mc: MutualTailCall =>
           val next = mc.f
           if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
-            if Profiler.enabled && next.name.nonEmpty then Profiler.record(next.name, 0L)
+            // Mutual tail call counts as one call to `next`.
+            if Profiler.enabled && next.name.nonEmpty then
+              Profiler.record(next.name, 0L)
             curFun  = next
             curArgs = mc.args
             current = null
@@ -143,14 +149,14 @@ private[interpreter] object TcoRuntime:
     var current: Computation = c
     while true do
       current match
-        case Pure(_)                  => return current
-        case Perform(_, _, _)         => return current
-        case Computation.TailRec(_)   => return current
+        case Pure(_)             => return current
+        case Perform(_, _, _)    => return current
         case FlatMap(sub, f) => sub match
-          case Pure(v)                    => current = f(v)
-          case Perform(eff, op, args)     => return FlatMap(Perform(eff, op, args), f)
-          case Computation.TailRec(_)     => return current
-          case FlatMap(sub2, g)           => current = FlatMap(sub2, x => FlatMap(g(x), f))
+          case Pure(v)              => current = f(v)
+          case Perform(eff, op, args) =>
+            return FlatMap(Perform(eff, op, args), f)
+          case FlatMap(sub2, g)     =>
+            current = FlatMap(sub2, x => FlatMap(g(x), f))
     throw InterpretError("unreachable")
 
   /** True if `fname` appears in a tail position of `tree`. */

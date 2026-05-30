@@ -281,7 +281,8 @@ private[interpreter] object CallRuntime:
           FrameMap.of(names, arr, withSelf)
       val frameName  = if f.name.nonEmpty then f.name else "<anon>"
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
-      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      val absDocLine = interp.debugBlockDocLine + relLine
+      interp.callStackPush(frameName, interp.debugSourceFile, absDocLine)
       val profiling = Profiler.enabled
       val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
       val result =
@@ -367,7 +368,8 @@ private[interpreter] object CallRuntime:
           FrameMap.of(names, arr, base)
       val frameName  = if fn.name.nonEmpty then fn.name else "<anon>"
       val relLine    = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
-      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+      val absDocLine = interp.debugBlockDocLine + relLine
+      interp.callStackPush(frameName, interp.debugSourceFile, absDocLine)
       val profiling = Profiler.enabled
       val t0 = if profiling && fn.name.nonEmpty then System.nanoTime() else 0L
       val result =
@@ -404,7 +406,7 @@ private[interpreter] object CallRuntime:
       if Profiler.enabled && fn.name.nonEmpty then Profiler.record(fn.name, 0L)
       TcoRuntime.tcoTrampoline(fn.copy(closure = base), arg :: Nil, null, interp)
     else
-      val callEnv = FrameMap.one(fn.params.head, arg, base)
+      val callEnv   = FrameMap.one(fn.params.head, arg, base)
       val frameName = if fn.name.nonEmpty then fn.name else "<anon>"
       val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
       interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
