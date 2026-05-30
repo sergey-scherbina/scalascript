@@ -485,7 +485,7 @@ def printUsage(): Unit =
       |  (any other scala-cli package flag is forwarded as-is)
       |
       |Compiler diagnostic flags:
-      |  --Ystats               Print per-phase compiler timing table after each build
+      |  --Ystats               Print per-phase compiler timing table after each build/check
       |
       |Logging flags:
       |  --quiet                       Silence third-party library logs (SLF4J -> error)
@@ -5896,7 +5896,8 @@ private def checkOneFile(
     return CheckResult(file, parseErrors = false, errors = Nil, elapsedMs = 0L, missing = true)
   val t0 = System.currentTimeMillis()
   try
-    val module = Parser.parse(os.read(path))
+    val src    = os.read(path)
+    val module = CompileStats.time("parse") { Parser.parse(src) }
     // Collect code-block parse errors (structural, with position).
     var hasParseError = false
     def walkSection(s: scalascript.ast.Section): Unit =
@@ -5912,11 +5913,12 @@ private def checkOneFile(
       val elapsed = System.currentTimeMillis() - t0
       CheckResult(file, parseErrors = true, errors = Nil, elapsedMs = elapsed)
     else
-      val typed =
+      val typed = CompileStats.time("typer") {
         if interfaces.isEmpty then Typer.typeCheckStrict(module, pluginBuiltins)
         else if strictNamespaces then
           Typer.typeCheckStrictNamespaces(module, interfaces)
         else Typer.typeCheckWithInterfaces(module, interfaces, strict = true, pluginBuiltins)
+      }
       val elapsed = System.currentTimeMillis() - t0
       CheckResult(file, parseErrors = false, errors = typed.errors, elapsedMs = elapsed)
   catch case e: Exception =>
@@ -6115,6 +6117,7 @@ final class CheckCmd extends CliCommand:
     if fileList.isEmpty then
       if !quietMode then System.err.println("ssc check: no .ssc files found")
       System.exit(1)
+    if ActiveFlags.current.yStats then CompileStats.enable()
     // checkOneFile is stateless (new Typer per call, immutable inputs), so safe to parallelize.
     val results: List[CheckResult] =
       if fileList.sizeIs <= 1 then fileList.map(f => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces))
@@ -6125,6 +6128,7 @@ final class CheckCmd extends CliCommand:
           val tasks = fileList.map(f => pool.submit[CheckResult](() => checkOneFile(f, interfaces, pluginBuiltins, strictNamespaces)))
           tasks.map(_.get())
         finally pool.shutdown()
+    CompileStats.printAndReset()
     if !quietMode then
       if jsonMode then
         println(checkResultsToJson(results))
