@@ -4,6 +4,14 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Tooling
+
+- [x] **std-root-resolution** - Well-known standard-library root so external
+      projects resolve bare `std/…` imports with no `ssc.std.path` config.
+      Spec: [`docs/std-root-resolution.md`](docs/std-root-resolution.md).
+      ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` (override → libPath →
+      jar-dir/std → dev walk-up → `~/.scalascript/std`), 8 unit tests.
+
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
 Spec: [`docs/exact-numerics.md`](docs/exact-numerics.md).

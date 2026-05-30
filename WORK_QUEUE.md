@@ -8,6 +8,10 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## Tooling
+
+- [x] **std-root-resolution** — well-known std root so external projects (e.g. `busi`) resolve bare `std/…` imports with zero config. Spec `docs/std-root-resolution.md`. ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` discovery chain — `ssc.std.path` / `SSC_STD_PATH` override → `libPath` → `<jarDir>/std` → dev walk-up for ancestor `runtime/std` → `~/.scalascript/std`; pure & unit-tested (8 tests, precedence + missing-candidate + filesystem-root guard). Unblocks busi's `import std/money.ssc` (dev jar finds `<repo>/runtime/std` automatically).
+
 ## Exact Numerics — v1.64
 
 Spec: `docs/exact-numerics.md`. Adds `BigInt`, `Decimal`/`BigDecimal`, a safe

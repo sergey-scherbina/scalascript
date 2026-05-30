@@ -40,16 +40,62 @@ object ImportResolver:
       .map(s => os.Path(s, os.pwd))
       .filter(os.exists)
 
+  /** Directory of the running `ssc.jar` (or the classes dir in a dev/sbt run).
+   *  Derived from the code source location; `None` if it can't be determined. */
+  private[imports] def jarDir: Option[os.Path] =
+    try
+      val loc = getClass.getProtectionDomain.getCodeSource.getLocation
+      if loc == null then None
+      else
+        val p = os.Path(java.nio.file.Paths.get(loc.toURI))
+        Some(if os.isFile(p) then p / os.up else p)
+    catch case _: Throwable => None
+
+  /** Pure, testable std-root discovery (see `docs/std-root-resolution.md §3`).
+   *  Returns the directory that *contains* a `std/` subdirectory.  First
+   *  existing candidate wins:
+   *    1. `ssc.std.path`  (override)
+   *    2. `$SSC_STD_PATH`  (override)
+   *    3. `libPath`  (`ssc.lib.path` / `$SSC_LIB_PATH`)
+   *    4. `<jarDir>` when it has a `std/`  (packaged release)
+   *    5. nearest ancestor of `jarDir` containing `runtime/std` → `<ancestor>/runtime`  (dev tree)
+   *    6. `<home>/.scalascript` when it has a `std/`  (per-user install) */
+  private[imports] def discoverStdRoot(
+      prop:   Option[String],
+      env:    Option[String],
+      lib:    Option[os.Path],
+      jar:    Option[os.Path],
+      home:   os.Path
+  ): Option[os.Path] =
+    def existing(p: os.Path): Option[os.Path] = if os.exists(p) then Some(p) else None
+    def hasStd(root: os.Path): Boolean = os.exists(root / "std")
+    def devWalkUp(start: os.Path): Option[os.Path] =
+      var cur = start
+      var found: Option[os.Path] = None
+      var continue = true
+      while continue && found.isEmpty do
+        if os.exists(cur / "runtime" / "std") then found = Some(cur / "runtime")
+        else if cur.segmentCount == 0 then continue = false  // reached filesystem root
+        else cur = cur / os.up
+      found
+    prop.map(s => os.Path(s, os.pwd)).flatMap(existing)
+      .orElse(env.map(s => os.Path(s, os.pwd)).flatMap(existing))
+      .orElse(lib)
+      .orElse(jar.filter(hasStd))
+      .orElse(jar.flatMap(devWalkUp))
+      .orElse(existing(home / ".scalascript").filter(hasStd))
+
   /** Separate root searched for stdlib imports (`std/foo.ssc`).
-   *  Defaults to `libPath` so installed releases need no extra property.
-   *  The dev launcher sets `-Dssc.std.path=<root>/runtime` so that
-   *  `std/ui/primitives.ssc` resolves as `runtime/std/ui/primitives.ssc`
-   *  without affecting the `bin/lib/jars/` lookup that uses `libPath`. */
+   *  See `discoverStdRoot` for the full precedence; `ssc.std.path` remains the
+   *  authoritative override, so existing launchers/tests are unaffected. */
   val stdPath: Option[os.Path] =
-    sys.props.get("ssc.std.path")
-      .map(s => os.Path(s, os.pwd))
-      .filter(os.exists)
-      .orElse(libPath)
+    discoverStdRoot(
+      sys.props.get("ssc.std.path"),
+      sys.env.get("SSC_STD_PATH"),
+      libPath,
+      jarDir,
+      os.home
+    )
 
   def resolve(rawPath: String, baseDir: os.Path): os.Path =
     resolve(rawPath, baseDir, Map.empty, lockPath = None)
