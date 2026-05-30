@@ -696,6 +696,17 @@ def main(): Unit =
     """) shouldBe "true\nfalse"
   }
 
+  test("map higher-order single-arg methods") {
+    captured("""
+      val m = Map("a" -> 1, "b" -> 2, "c" -> 3)
+      println(m.count((k, v) => v > 1))
+      println(m.exists((k, v) => k == "b" && v == 2))
+      println(m.forall((k, v) => v > 0))
+      println(m.find((k, v) => k == "c").isDefined)
+      println(m.foldLeft(0)((acc, entry) => acc + entry._2))
+    """) shouldBe "2\ntrue\ntrue\ntrue\n6"
+  }
+
   // ── Option methods ───────────────────────────────────────────────
 
   test("option map and flatMap") {

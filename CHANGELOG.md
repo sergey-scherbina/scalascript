@@ -34,6 +34,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   native function when the method body never references its own name. Lambda
   parameter names and type annotations are cached per AST parameter clause.
   More single-argument `String` operations now stay on the direct dispatch path.
+  `Map` higher-order single-argument calls now do the same for `foldLeft`,
+  `exists`, `forall`, `count`, and `find`.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
