@@ -10,6 +10,20 @@ import Computation.Pure
  */
 private[interpreter] object CallRuntime:
 
+  private def paramTypeAt(paramTypes: List[String], idx: Int): String | Null =
+    if idx < 0 then null
+    else
+      var rest = paramTypes
+      var i = idx
+      while i > 0 && rest.nonEmpty do
+        rest = rest.tail
+        i -= 1
+      if i == 0 && rest.nonEmpty then rest.head else null
+
+  private def isVarargParam(paramTypes: List[String], idx: Int): Boolean =
+    val t = paramTypeAt(paramTypes, idx)
+    t != null && t.endsWith("*")
+
   def callValue(fn: Value, args: List[Value], env: Env, interp: Interpreter): Computation = fn match
     case f: Value.FunV      => callFun(f, args, interp)
     case f: Value.NativeFnV => f.f(args)
@@ -118,9 +132,7 @@ private[interpreter] object CallRuntime:
         val posIter = positionals.iterator
         // Index of the last regular (non-using) param; that's where vararg would live.
         val lastRegularIdx = f.params.length - 1 - f.usingParams.length
-        val lastRegularIsVararg =
-          lastRegularIdx >= 0 &&
-          f.paramTypes.lift(lastRegularIdx).exists(_.endsWith("*"))
+        val lastRegularIsVararg = isVarargParam(f.paramTypes, lastRegularIdx)
         for i <- slots.indices do
           if slots(i) == null && posIter.hasNext then
             if lastRegularIsVararg && i == lastRegularIdx then
@@ -183,8 +195,7 @@ private[interpreter] object CallRuntime:
         elems
       case _ => args
     // True when the last regular parameter is varargs (type ends with "*").
-    val lastIsVararg = f.params.nonEmpty &&
-      f.paramTypes.lift(f.params.length - 1 - f.usingParams.length).exists(_.endsWith("*"))
+    val lastIsVararg = isVarargParam(f.paramTypes, f.params.length - 1 - f.usingParams.length)
     def packVarargs(rawArgs: List[Value]): List[Value] =
       if !lastIsVararg || rawArgs.length < f.params.length - 1 then rawArgs
       else
@@ -201,7 +212,9 @@ private[interpreter] object CallRuntime:
             v match
               case Value.InstanceV(_, fs) if fs.contains("__factory__") =>
                 val usingIdx = i - regularCount
-                val typeKey  = f.usingParams.lift(usingIdx).map(_._2).getOrElse("")
+                val typeKey =
+                  if usingIdx >= 0 && usingIdx < f.usingParams.length then f.usingParams(usingIdx)._2
+                  else ""
                 if typeKey.nonEmpty then
                   GivenRuntime.resolveGiven(typeKey, regularVals, f.closure, interp).getOrElse(v)
                 else v
@@ -335,8 +348,7 @@ private[interpreter] object CallRuntime:
     else
       // Normal path: build call env directly on top of `base`.
       // vararg / usingParam logic is the same as callFun.
-      val lastIsVararg = fn.params.nonEmpty &&
-        fn.paramTypes.lift(fn.params.length - 1 - fn.usingParams.length).exists(_.endsWith("*"))
+      val lastIsVararg = isVarargParam(fn.paramTypes, fn.params.length - 1 - fn.usingParams.length)
       def packVarargs(rawArgs: List[Value]): List[Value] =
         if !lastIsVararg || rawArgs.length < fn.params.length - 1 then rawArgs
         else

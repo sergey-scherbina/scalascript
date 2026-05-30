@@ -46,6 +46,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   Named one- and two-argument function fast paths now reuse the interpreter's
   cached self-closure frame, and top-level/block statement execution no longer
   allocates a `zipWithIndex` tuple list just to find the last statement.
+  Function and type-method vararg checks now avoid temporary `Option` wrappers
+  from `List.lift` on every generic call.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now
