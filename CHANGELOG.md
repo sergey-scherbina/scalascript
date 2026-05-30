@@ -26,7 +26,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `Using.resource`, `McpSchema.derived`, derives fallback, and `Storage.get`
   now use null-sentinel map access instead of temporary `Option` wrappers.
   Actor system messages and interpreter HTTP response helpers now use direct
-  small immutable map constructors for fixed-shape values.
+  small immutable map constructors for fixed-shape values. User interpolator
+  and `summon` / `summonInline` lookups now use null-sentinel direct lookup on
+  the common path.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

@@ -773,8 +773,9 @@ private[interpreter] object EvalRuntime:
         val scExts = interp.extensions.getOrElse("StringContext", null)
         val extFn = if scExts != null then scExts.getOrElse(prefix, null) else null
         val fn: Value = if extFn != null then extFn
-          else env.get(prefix).orElse(interp.globals.get(prefix))
-               .getOrElse(interp.located(s"Unknown interpolator '$prefix': not in scope"))
+          else
+            val fv = env.getOrElse(prefix, interp.globals.getOrElse(prefix, null))
+            if fv != null then fv else interp.located(s"Unknown interpolator '$prefix': not in scope")
         interp.callValue2(fn, sc, Value.ListV(argVs), env)
       }
 
@@ -996,23 +997,24 @@ private[interpreter] object EvalRuntime:
         case (Term.Name("summon"), List(typeArg)) =>
           val key = interp.typeToString(typeArg.asInstanceOf[scala.meta.Type])
           // 1. Direct lookup in env / interp.globals
-          val direct = env.get(key).orElse(interp.globals.get(key))
-          val found = direct.orElse {
-            // 2. For generic keys like "Show[A]" try:
-            //    a) resolveGiven (infers concrete type from regular args if any)
-            //    b) scan env for a synthetic context-bound param "A$TC"
-            GivenRuntime.resolveGiven(key, Nil, env, interp).orElse {
-              // key shape: "TC[A]" — look for env entry "A$TC"
-              val tcEnd = key.indexOf('[')
-              if tcEnd > 0 then
-                val tc     = key.substring(0, tcEnd)
-                val typeArg = key.substring(tcEnd + 1, key.length - 1).trim
-                val syntheticName = s"${typeArg}$$${tc}"
-                env.get(syntheticName)
-              else None
-            }
-          }
-          Pure(found.getOrElse(interp.located(s"No given instance for '$key'")))
+          val direct = env.getOrElse(key, interp.globals.getOrElse(key, null))
+          val found: Value | Null =
+            if direct != null then direct
+            else
+              // 2. For generic keys like "Show[A]" try:
+              //    a) resolveGiven (infers concrete type from regular args if any)
+              //    b) scan env for a synthetic context-bound param "A$TC"
+              GivenRuntime.resolveGiven(key, Nil, env, interp) match
+                case Some(v) => v
+                case None =>
+                  val tcEnd = key.indexOf('[')
+                  if tcEnd > 0 then
+                    val tc         = key.substring(0, tcEnd)
+                    val typeArgStr = key.substring(tcEnd + 1, key.length - 1).trim
+                    env.getOrElse(s"${typeArgStr}$$${tc}", null)
+                  else null
+          if found != null then Pure(found)
+          else Pure(interp.located(s"No given instance for '$key'"))
 
         // Prism[Outer, Variant] — focus on a single sum-type variant.
         case (Term.Name("Prism"), List(_, variantType)) =>
@@ -1028,8 +1030,12 @@ private[interpreter] object EvalRuntime:
         // compiletime.summonInline[TC[T]] — look up a given instance
         case (Term.Select(Term.Name("compiletime"), Term.Name("summonInline")), List(typeArg)) =>
           val key = interp.typeToString(typeArg.asInstanceOf[scala.meta.Type])
-          val found = env.get(key).orElse(interp.globals.get(key)).orElse(GivenRuntime.resolveGiven(key, Nil, env, interp))
-          Pure(found.getOrElse(interp.located(s"No given instance for '$key' (summonInline)")))
+          val fv = env.getOrElse(key, interp.globals.getOrElse(key, null))
+          val found: Value | Null =
+            if fv != null then fv
+            else GivenRuntime.resolveGiven(key, Nil, env, interp).orNull
+          if found != null then Pure(found)
+          else Pure(interp.located(s"No given instance for '$key' (summonInline)"))
 
         // Mirror.of[T] — runtime view of the same product/sum metadata used by derives.
         case (Term.Select(Term.Name("Mirror"), Term.Name("of")), List(typeArg)) =>
