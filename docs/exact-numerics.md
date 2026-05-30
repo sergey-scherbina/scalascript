@@ -207,8 +207,12 @@ the existing suite.
   (capability-gated); ops; node-run conformance vs interpreter/JVM.
 - **v1.64.6 — Money std lib:** `Currency`/`Money`/`RoundingMode`, configurable
   currency table, **allocation**, format/parse. Tests across backends.
-- **v1.64.7 — Sugar (optional):** suffix literals `123n`/`12.34m`, oversized-int
-  auto-promotion, `money"…"` interpolator — via preprocessor.
+- **v1.64.7 — Sugar (optional):** ✅ suffix literals `123n` → `BigInt("123")`,
+  `12.34m` → `Decimal("12.34")`, and oversized-int auto-promotion (integer
+  literal > `Long.MaxValue` → `BigInt("…")`) — implemented as the
+  `numeric-literals` preprocessor (priority 15), so they work on every backend
+  uniformly. The `money"…"` interpolator is **deferred** to the Money std lib
+  (it belongs with `Currency`/locale parsing, not the core literal lexer).
 
 **Gate:** v1.64.1–v1.64.6 are required for `busi`. v1.64.7 is ergonomics.
 

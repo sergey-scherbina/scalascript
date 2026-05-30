@@ -1502,6 +1502,99 @@ object Parser:
   private def preprocessForScala(code: String): String =
     PreprocessorRegistry.applyAll(code)
 
+  private val _longMax = BigInt("9223372036854775807")
+
+  private def isHexDigit(c: Char): Boolean =
+    c.isDigit || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+
+  /** exact-numerics v1.64.7 — numeric-literal sugar.  Rewrites, outside of
+   *  strings/char-literals/comments:
+   *   - `123n`      → `BigInt("123")`
+   *   - `12.34m`    → `Decimal("12.34")`   (also `5m` → `Decimal("5")`)
+   *   - an integer literal too large for `Long` → `BigInt("…")` (auto-promote)
+   *  Plain `Int`/`Long`/`Double`/`Float` literals, hex/binary, `1.toString`,
+   *  `t._1`, `1_000`, identifiers like `x1`, and literal text inside strings or
+   *  comments are left untouched.  Underscores are stripped from the emitted
+   *  string argument. */
+  private[parser] def preprocessNumericLiterals(code: String): String =
+    if !code.exists(c => c == 'n' || c == 'm' || c.isDigit) then return code
+    val n  = code.length
+    val sb = new StringBuilder(n + 16)
+    var i  = 0
+    def isIdentPart(c: Char): Boolean = c.isLetterOrDigit || c == '_' || c == '$'
+    while i < n do
+      val c = code.charAt(i)
+      // ── skip block comment ──
+      if c == '/' && i + 1 < n && code.charAt(i + 1) == '*' then
+        val end = code.indexOf("*/", i + 2)
+        val to  = if end < 0 then n else end + 2
+        sb.append(code.substring(i, to)); i = to
+      // ── skip line comment ──
+      else if c == '/' && i + 1 < n && code.charAt(i + 1) == '/' then
+        var j = i + 2
+        while j < n && code.charAt(j) != '\n' do j += 1
+        sb.append(code.substring(i, j)); i = j
+      // ── skip triple-quoted string ──
+      else if c == '"' && i + 2 < n && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
+        val end = code.indexOf("\"\"\"", i + 3)
+        val to  = if end < 0 then n else end + 3
+        sb.append(code.substring(i, to)); i = to
+      // ── skip single-quoted string (with escapes) ──
+      else if c == '"' then
+        sb.append(c); var j = i + 1
+        while j < n && code.charAt(j) != '"' do
+          if code.charAt(j) == '\\' && j + 1 < n then { sb.append(code.charAt(j)); sb.append(code.charAt(j + 1)); j += 2 }
+          else { sb.append(code.charAt(j)); j += 1 }
+        if j < n then { sb.append('"'); j += 1 }
+        i = j
+      // ── skip char literal ──
+      else if c == '\'' && i + 1 < n then
+        var j = i + 1
+        sb.append(c)
+        if code.charAt(j) == '\\' && j + 1 < n then { sb.append(code.charAt(j)); sb.append(code.charAt(j + 1)); j += 2 }
+        else { sb.append(code.charAt(j)); j += 1 }
+        if j < n && code.charAt(j) == '\'' then { sb.append('\''); j += 1 }
+        i = j
+      // ── numeric literal start: a digit not preceded by an identifier char ──
+      else if c.isDigit && (i == 0 || !isIdentPart(code.charAt(i - 1))) then
+        var j = i
+        if c == '0' && j + 1 < n && (code.charAt(j + 1) == 'x' || code.charAt(j + 1) == 'X' ||
+                                     code.charAt(j + 1) == 'b' || code.charAt(j + 1) == 'B') then
+          j += 2
+          while j < n && (isHexDigit(code.charAt(j)) || code.charAt(j) == '_') do j += 1
+          if j < n && (code.charAt(j) == 'L' || code.charAt(j) == 'l') then j += 1
+          sb.append(code.substring(i, j)); i = j
+        else
+          while j < n && (code.charAt(j).isDigit || code.charAt(j) == '_') do j += 1
+          var isDecimal = false
+          if j + 1 < n && code.charAt(j) == '.' && code.charAt(j + 1).isDigit then
+            isDecimal = true; j += 1
+            while j < n && (code.charAt(j).isDigit || code.charAt(j) == '_') do j += 1
+          if j < n && (code.charAt(j) == 'e' || code.charAt(j) == 'E') then
+            var k = j + 1
+            if k < n && (code.charAt(k) == '+' || code.charAt(k) == '-') then k += 1
+            if k < n && code.charAt(k).isDigit then
+              isDecimal = true; j = k
+              while j < n && code.charAt(j).isDigit do j += 1
+          val raw    = code.substring(i, j)
+          val digits = raw.replace("_", "")
+          val suffix = if j < n then code.charAt(j) else ' '
+          val suffixIsBoundary = j + 1 >= n || !isIdentPart(code.charAt(j + 1))
+          if suffix == 'n' && !isDecimal && suffixIsBoundary then
+            sb.append("BigInt(\"").append(digits).append("\")"); i = j + 1
+          else if suffix == 'm' && suffixIsBoundary then
+            sb.append("Decimal(\"").append(digits).append("\")"); i = j + 1
+          else if suffix == 'L' || suffix == 'l' || suffix == 'f' || suffix == 'F' ||
+                  suffix == 'd' || suffix == 'D' then
+            sb.append(code.substring(i, j + 1)); i = j + 1
+          else if !isDecimal && BigInt(digits) > _longMax then
+            sb.append("BigInt(\"").append(digits).append("\")"); i = j
+          else
+            sb.append(raw); i = j
+      else
+        sb.append(c); i += 1
+    sb.toString
+
   /** Re-parse a scalascript code-block body to a scalameta `ScalaNode`.
    *
    *  Public so `transform.Denormalize` can rebuild the AST trees that

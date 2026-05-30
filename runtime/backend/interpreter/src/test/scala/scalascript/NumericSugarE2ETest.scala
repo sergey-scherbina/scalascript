@@ -1,0 +1,74 @@
+package scalascript
+
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers
+import scalascript.codegen.{JsGen, JvmGen}
+import scalascript.interpreter.Interpreter
+import scalascript.parser.Parser
+
+import java.nio.charset.StandardCharsets
+import scala.io.Source
+
+/** exact-numerics v1.64.7 — literal sugar end-to-end: `123n`/`12.34m`/oversized
+ *  integers flow through parse → eval and produce BigInt/Decimal, identically
+ *  across interpreter, JVM, and JS. */
+class NumericSugarE2ETest extends AnyFunSuite with Matchers:
+
+  private def module(code: String) =
+    Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
+
+  private def interp(code: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(ps).run(module(code))
+    ps.flush(); buf.toString.trim
+
+  private def has(cmd: String): Boolean =
+    try ProcessBuilder(cmd, "--version").start().waitFor() == 0 catch case _: Throwable => false
+  private def runProc(cmd: String*): String =
+    val p = ProcessBuilder(cmd*).start()
+    val out = Source.fromInputStream(p.getInputStream).mkString
+    val err = Source.fromInputStream(p.getErrorStream).mkString
+    if p.waitFor() != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+
+  test("interpreter: n / m suffixes and oversized ints"):
+    interp("""
+      println(2n.pow(100))
+      println(12.34m + 1)
+      println(9223372036854775808 + 1)
+      println(0.1m + 0.2m)
+      println(1_000_000_000_000_000_000_000n * 2)
+    """) shouldBe
+      "1267650600228229401496703205376\n13.34\n9223372036854775809\n0.3\n2000000000000000000000"
+
+  test("n / m produce the exact BigInt / Decimal types"):
+    interp("""
+      println(5n + 5n)
+      println(2.50m * 2)
+      println(2.50m == Decimal("2.5"))
+    """) shouldBe "10\n5.00\ntrue"
+
+  test("JVM conformance for literal sugar"):
+    assume(has("scala-cli"), "scala-cli not available")
+    val code = """
+      println(2n.pow(64))
+      println(12.34m + 1)
+      println(9223372036854775808 + 1)
+    """
+    val tmp = java.io.File.createTempFile("ssc-sugar-", ".sc"); tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath,
+      ("//> using scala 3.8.3\n" + JvmGen.generate(module(code))).getBytes(StandardCharsets.UTF_8))
+    runProc("scala-cli", "run", tmp.getAbsolutePath) shouldBe interp(code)
+
+  test("JS conformance for literal sugar"):
+    assume(has("node"), "node not available")
+    val code = """
+      println(2n.pow(64))
+      println(12.34m + 1)
+      println(0.1m + 0.2m)
+    """
+    val tmp = java.io.File.createTempFile("ssc-sugar-", ".cjs"); tmp.deleteOnExit()
+    val rt  = JsGen.generateRuntime(JsGen.Capability.all)
+    java.nio.file.Files.write(tmp.toPath,
+      (rt + "\n" + JsGen.generate(module(code))).getBytes(StandardCharsets.UTF_8))
+    runProc("node", tmp.getAbsolutePath) shouldBe interp(code)

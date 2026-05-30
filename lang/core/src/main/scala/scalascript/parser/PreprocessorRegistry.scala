@@ -44,6 +44,11 @@ object PreprocessorRegistry:
       override def apply(s: String) = Parser.preprocessInlineImports(s)
     })
     register(new Preprocessor {
+      override val name     = "numeric-literals"
+      override val priority = 15
+      override def apply(s: String) = Parser.preprocessNumericLiterals(s)
+    })
+    register(new Preprocessor {
       override val name     = "list-literals"
       override val priority = 20
       override def apply(s: String) = Parser.preprocessListLiterals(s)
