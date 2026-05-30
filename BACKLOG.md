@@ -86,7 +86,7 @@ the contracts are explicit.
       Emitted JS must stay byte-identical; verify via `node` round-trip + existing
       JS codegen tests. Heavier `genExpr` / `genStat` clusters deferred to a
       follow-up phase.
-- [ ] **jsgen-split-p2** - Phase 2 of the `JsGen.scala` preamble-string extraction.
+- [x] **jsgen-split-p2** _(landed 2026-05-30)_ - Phase 2 of the `JsGen.scala` preamble-string extraction.
       Move the self-contained domain runtime-preamble `val`s — `JsRuntimeOptics`,
       `JsRuntimeSignals`, `JsRuntimeIndexedDb`, `JsRuntimeV14Effects`,
       `JsRuntimeBrowserPatch` — each into its own `JsRuntime<Name>.scala` (top-level
