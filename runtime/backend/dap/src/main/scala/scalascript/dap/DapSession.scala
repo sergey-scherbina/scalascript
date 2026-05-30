@@ -209,7 +209,10 @@ final class DapSession(conn: Socket):
 
   /** Convert one (name, Value) pair to a DAP Variable JSON object. */
   private def valueToDap(name: String, v: IValue): Value =
-    val (display, typeName) = v match
+    // Scrutinee widened to Any so the trailing fallback stays reachable: the
+    // interpreter Value enum gains variants often, and an exhaustive match here
+    // would break the -Werror build (and the CLI) on each addition.
+    val (display, typeName) = (v: Any) match
       case IValue.IntV(n)            => (n.toString, "Int")
       case IValue.BigIntV(n)         => (n.toString, "BigInt")
       case IValue.DecimalV(d)        => (d.toString, "Decimal")
@@ -237,6 +240,10 @@ final class DapSession(conn: Socket):
       case IValue.DocV(_)            => ("<doc>", "Doc")
       case IValue.MarkupV(_)         => ("<markup>", "Markup")
       case IValue.Foreign(t, _)      => (s"<foreign:$t>", t)
+      // Fallback for Value variants added after this match was written.
+      // Trade-off: a nicer per-type label would be better, but a generic
+      // correct rendering beats breaking the build on every new variant.
+      case _                         => (IValue.show(v), v.getClass.getSimpleName.stripSuffix("V"))
     Obj(
       "name"               -> Str(name),
       "value"              -> Str(display),

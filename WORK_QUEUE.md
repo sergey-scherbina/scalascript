@@ -544,7 +544,7 @@ ScalaScript's own registry work stays queued.
   (`assume(...)` / cancel) so `cli/test` is green-means-green. If any failure is a
   real regression, fix instead of gating. Goal: 0 spurious failures in `cli/test`.
 
-- [ ] **dap-value-exhaustiveness** — `DapSession.valueToDap`'s match over the
+- [x] **dap-value-exhaustiveness** — `DapSession.valueToDap`'s match over the
   interpreter `Value` enum has broken the `-Werror` build twice this session as
   concurrent commits added `BigIntV` then `DecimalV`. Add a resilient fallback
   (e.g. `case other => (IValue.show(other), other.getClass.getSimpleName)`) so new
