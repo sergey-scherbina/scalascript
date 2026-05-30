@@ -339,6 +339,7 @@ class JvmGen(
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
     if usesHttpServer then sb.append(serveRuntime)
+    else sb.append(stubServeRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
     if blocksUseDataset(blocks)                                                      then sb.append(JvmRuntimeDataset)
 
@@ -6380,6 +6381,30 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  instead of constructing its own accept loop.  Wire-equivalent
    *  to the interpreter's S1b flow (`WebServer.start` →
    *  `HttpServerBackends.current().start(port, tls, handler)`). */
+  // Stub definitions for symbols referenced by the always-included actor and Http-effect
+  // runtimes (commonRuntime, effectsRuntime) when no HTTP server is needed.
+  // Without these, scripts that don't use serve/route/websocket still fail to compile
+  // because the actor cluster and Http-effect handler reference _routes/route/onWebSocket.
+  // Stub definitions for symbols referenced by the always-included actor and Http-effect
+  // runtimes (commonRuntime, effectsRuntime) when no HTTP server is needed.
+  // Request/Response/StreamResponse are already defined in commonRuntime; only the
+  // server dispatch functions (_routes, route, onWebSocket, _httpDoRequest) need stubs.
+  private val stubServeRuntime: String =
+    """|
+       |// ── stub serve runtime (no HTTP server) ──────────────────────────────────────
+       |// No-op stubs for route/onWebSocket/_routes/_httpDoRequest so the actor and
+       |// Http-effect runtimes compile in scripts that don't use serve()/WebSockets.
+       |private case class _SscRouteEntry(method: String, path: String)
+       |private val _routes = scala.collection.mutable.ArrayBuffer.empty[_SscRouteEntry]
+       |private def route(method: String, path: String)(handler: Request => Any): Unit =
+       |  _routes.append(_SscRouteEntry(method, path))
+       |private trait _SscWs { def send(t: String): Unit; def recv(): Option[String] }
+       |private def onWebSocket(path: String)(handler: _SscWs => Unit): Unit = ()
+       |private def _httpDoRequest(method: String, url: String, body: String,
+       |    headers: Map[String, String]): Any =
+       |  sys.error("Http effect requires a serve runtime; call runHttp{} or add serve()")
+       |""".stripMargin
+
   private val serveRuntime: String =
     val spiHeader =
       "\n// ── runtime-server-spi (inlined from classpath resources) ────────────\n" +
