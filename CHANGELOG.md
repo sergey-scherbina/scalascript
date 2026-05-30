@@ -12,7 +12,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `Option.filter` / one-arg `fold` / `toRight` / `toLeft` paths adapted to
   the current null-sentinel `OptionV` representation. Also added the
   one-argument `Double.max` / `min` / `pow` / `atan2` dispatch fast path and
-  mixed `Int`/`Double` comparison fast paths in `infix2`.
+  mixed `Int`/`Double` comparison fast paths in `infix2`. List single-arg
+  calls for `mkString`, `zip`, `takeRight`, `dropRight`, `splitAt`,
+  `intersect`, and `diff` now bypass the generic `arg :: Nil` fallback.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

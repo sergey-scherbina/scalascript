@@ -326,6 +326,62 @@ private[interpreter] object DispatchRuntime:
                 loopRest(tail)
               })
         Pure(Value.MapV(groups.iterator.map((k, buf) => k -> Value.ListV(buf.toList)).toMap))
+      case "mkString"   => arg match
+        case Value.StringV(sep) => Pure(Value.StringV(ls.iterator.map(Value.show).mkString(sep)))
+        case _                  => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "zip"        => arg match
+        case Value.ListV(other) =>
+          val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
+          var as = ls
+          var bs = other
+          while as.nonEmpty && bs.nonEmpty do
+            buf += Value.TupleV(as.head :: bs.head :: Nil)
+            as = as.tail
+            bs = bs.tail
+          Pure(Value.ListV(buf.toList))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "takeRight"  => arg match
+        case Value.IntV(n) =>
+          if n >= ls.length then Pure(recv)
+          else if n <= 0 then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.takeRight(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "dropRight"  => arg match
+        case Value.IntV(n) =>
+          if n <= 0 then Pure(recv)
+          else if n >= ls.length then Computation.PureEmptyList
+          else Pure(Value.ListV(ls.dropRight(n.toInt)))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "splitAt"    => arg match
+        case Value.IntV(n) =>
+          val (a, b) = ls.splitAt(n.toInt)
+          Pure(Value.TupleV(Value.ListV(a) :: Value.ListV(b) :: Nil))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "intersect"  => arg match
+        case Value.ListV(other) =>
+          if ls.isEmpty || other.isEmpty then Computation.PureEmptyList
+          else
+            val otherSet = other.toSet
+            val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length.min(other.length))
+            var rem = ls
+            while rem.nonEmpty do
+              if otherSet.contains(rem.head) then buf += rem.head
+              rem = rem.tail
+            Pure(Value.ListV(buf.toList))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
+      case "diff"       => arg match
+        case Value.ListV(other) =>
+          if ls.isEmpty then Computation.PureEmptyList
+          else if other.isEmpty then Pure(recv)
+          else
+            val otherSet = other.toSet
+            val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+            var rem = ls
+            while rem.nonEmpty do
+              if !otherSet.contains(rem.head) then buf += rem.head
+              rem = rem.tail
+            Pure(Value.ListV(buf.toList))
+        case _ => dispatchList(ls, name, arg :: Nil, env, interp)
       case _            => dispatchList(ls, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for Map. */
