@@ -6,6 +6,12 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **interpreter-set-support** - Add a real `Set` to the interpreter
+      (`Value.SetV`): `Set(...)` constructor, set ops (contains/+/-/++/&/--/
+      subsetOf/…), `List.toSet` returns a Set, deterministic `show`, value
+      equality, wire serialization. 8 tests; suite green (1184).
+      ✓ Landed 2026-05-30. (Interpreter scope; JS/JVM codegen untouched.)
+
 - [x] **cli-bundle-http-plugin** - Bundle `httpPlugin` + `wsPlugin` into the CLI
       (Compile scope) so `ssc run` resolves `route`/`serve`/`serveAsync`/`httpPost`
       via ServiceLoader. Previously they were `% Test`, so the assembled

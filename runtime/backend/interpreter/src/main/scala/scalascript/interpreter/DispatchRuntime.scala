@@ -42,6 +42,7 @@ private[interpreter] object DispatchRuntime:
       case Value.StringV(s)        => dispatchString(recv, s, name, args, env, interp)
       case Value.ListV(ls)         => dispatchList(ls, name, args, env, interp)
       case Value.MapV(m)           => dispatchMap(m, name, args, env, interp)
+      case Value.SetV(s)           => dispatchSet(s, name, args, env, interp)
       case Value.OptionV(opt)      => dispatchOption(recv, if opt == null then None else Some(opt), name, args, env, interp)
       case Value.IntV(n)           => dispatchInt(n, name, args, env, interp)
       case Value.DoubleV(d)        => dispatchDouble(d, name, args, env, interp)
@@ -1312,6 +1313,55 @@ private[interpreter] object DispatchRuntime:
         val ext = extensionDispatch(recv, name, args, env, interp)
         if ext != null then ext else interp.located(s"No method '$name' on Boolean")
 
+  // ── Set ─────────────────────────────────────────────────────────────────────
+
+  private def dispatchSet(s: Set[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    val recv = Value.SetV(s)
+    def asSet(v: Value): Set[Value] = v match
+      case Value.SetV(o)  => o
+      case Value.ListV(o) => o.toSet
+      case other          => Set(other)
+    name match
+      case "contains" | "apply" => args match
+        case List(x) => Computation.pureBool(s.contains(x))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "size"     => Computation.pureIntV(s.size.toLong)
+      case "isEmpty"  => Computation.pureBool(s.isEmpty)
+      case "nonEmpty" => Computation.pureBool(s.nonEmpty)
+      case "incl" | "+" => args match
+        case List(x) => Pure(Value.SetV(s + x))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "excl" | "-" => args match
+        case List(x) => Pure(Value.SetV(s - x))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "union" | "++" | "|" => args match
+        case List(o) => Pure(Value.SetV(s ++ asSet(o)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "diff" | "--" | "&~" => args match
+        case List(o) => Pure(Value.SetV(s -- asSet(o)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "intersect" | "&" => args match
+        case List(o) => Pure(Value.SetV(s & asSet(o)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "subsetOf" => args match
+        case List(o) => Computation.pureBool(s.subsetOf(asSet(o)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "toList" | "toSeq" | "toVector" => Pure(Value.ListV(s.toList))
+      case "toSet"     => Pure(recv)
+      case "head"      => if s.isEmpty then interp.located("head of empty Set") else Pure(s.head)
+      case "headOption" => Pure(Value.optionV(s.headOption))
+      // Higher-order and rendering ops: reuse the List dispatch over `toList`,
+      // re-wrapping the collection-returning ones back into a Set.
+      case "map" | "filter" | "filterNot" =>
+        dispatchList(s.toList, name, args, env, interp).map {
+          case Value.ListV(xs) => Value.SetV(xs.toSet)
+          case other           => other
+        }
+      case "foreach" | "exists" | "forall" | "foldLeft" | "find" | "count" |
+           "mkString" | "isEmpty" | "max" | "min" | "sum" =>
+        dispatchList(s.toList, name, args, env, interp)
+      case _ => dispatchFallback(recv, name, args, env, interp)
+
   // ── List ────────────────────────────────────────────────────────────────────
 
   private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
@@ -1361,7 +1411,7 @@ private[interpreter] object DispatchRuntime:
               i -= 1
             Pure(Value.ListV(result))
       case "toList"       => Pure(recv)
-      case "toSet"        => Pure(Value.ListV(ls.distinct))
+      case "toSet"        => Pure(Value.SetV(ls.toSet))
       case "flatten"      =>
         val flatBuf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var flatRem = ls
@@ -2982,6 +3032,8 @@ private[interpreter] object DispatchRuntime:
           if b.isEmpty then Pure(lhs)
           else if a.isEmpty then Pure(rhs)
           else Pure(Value.ListV(a ++ b))
+        case (Value.SetV(a), Value.SetV(b))       => Pure(Value.SetV(a ++ b))
+        case (Value.SetV(a), Value.ListV(b))      => Pure(Value.SetV(a ++ b.toSet))
         case (Value.TupleV(as), Value.TupleV(bs)) => Pure(Value.TupleV(as ++ bs))
         case (Value.TupleV(_),  Value.UnitV)      => Pure(lhs)
         case (Value.TupleV(as), _)                => Pure(Value.TupleV(as :+ rhs))

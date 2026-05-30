@@ -98,6 +98,12 @@ private[interpreter] object BuiltinsRuntime:
       "empty"    -> Value.EmptyList,
       "apply"    -> listNative
     ))
+    // Set constructor: `Set(a, b)`, `Set[T]()`, `Set.empty`.
+    val setNative = Value.NativeFnV("Set", args => Pure(Value.SetV(args.toSet)))
+    interp.globals("Set") = Value.InstanceV("Set", Map(
+      "empty" -> Value.SetV(Set.empty),
+      "apply" -> setNative
+    ))
     // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
     interp.globals("None") = Value.NoneV
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(v)); case _ => throw InterpretError("Some requires exactly one argument") })

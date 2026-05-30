@@ -271,6 +271,9 @@ enum Value:
   case OptionV(inner: Value | Null)
   case TupleV(elems: List[Value])
   case MapV(entries: Map[Value, Value])
+  /** An unordered, deduplicated collection. `Set(...)` builds one; `toSet`
+   *  produces one from a list. Element identity is `Value` equality. */
+  case SetV(items: Set[Value])
   case DocV(parts: List[Value])
   /** Parsed XML document produced by a fenced ` ```xml ` block.
    *  The `doc` value is the root `Markup.Doc` from `markup-core`. */
@@ -350,6 +353,9 @@ object Value:
     case OptionV(null)        => "None"
     case OptionV(v)           => s"Some(${show(v)})"
     case TupleV(elems)        => elems.iterator.map(show).mkString("(", ", ", ")")
+    case SetV(items)          =>
+      // sorted for deterministic rendering (a set is unordered)
+      items.iterator.map(show).toList.sorted.mkString("Set(", ", ", ")")
     case MapV(m)              =>
       if m.isEmpty then "Map()"
       else m.iterator.map { case (k, v) => s"${show(k)} -> ${show(v)}" }.mkString("Map(", ", ", ")")

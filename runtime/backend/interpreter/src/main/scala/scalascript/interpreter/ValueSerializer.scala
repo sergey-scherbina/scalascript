@@ -58,6 +58,10 @@ object ValueSerializer:
       sb.append("{\"$t\":\"tp\",\"v\":[")
       writeSeq(vs, sb)
       sb.append("]}")
+    case Value.SetV(vs) =>
+      sb.append("{\"$t\":\"set\",\"v\":[")
+      writeSeq(vs.toList, sb)
+      sb.append("]}")
     case Value.InstanceV("Pid", fields) =>
       val nodeId  = fields.getOrElse("nodeId", null) match { case Value.StringV(n) => n; case _ => "" }
       val localId = fields.getOrElse("localId", null) match { case Value.IntV(n) => n; case _ => 0L }
@@ -135,6 +139,9 @@ object ValueSerializer:
           case "tp" =>
             val items = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }
             Value.TupleV(items.map(fromParsed))
+          case "set" =>
+            val items = any("v") match { case Some(Value.ListV(vs)) => vs; case _ => Nil }
+            Value.SetV(items.map(fromParsed).toSet)
           case "pid" =>
             val nodeId  = str("n").getOrElse("")
             val localId = any("id") match
