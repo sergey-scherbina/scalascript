@@ -29,9 +29,10 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
       `divide`/MathContext, `setScale`/rounding, numeric `==` + normalised
       `hashCode`, serialize, tests. Spec: `docs/exact-numerics.md §4.4-4.7`.
       ✓ Landed 2026-05-30 (14 tests; Decimal⊕Double rejected; full suite green, 1131).
-- [ ] **v1.64.3-numerics-typer** - Register `BigInt`/`Decimal`/`BigDecimal`/
+- [x] **v1.64.3-numerics-typer** - Register `BigInt`/`Decimal`/`BigDecimal`/
       `RoundingMode`; implement the numeric tower; raise the **Decimal↔Double**
       type error; inference rules. Spec: `docs/exact-numerics.md §4.3`.
+      ✓ Landed 2026-05-30 (11 tests; widening Int⊆BigInt⊆Decimal, Decimal⊕Double rejected).
 - [ ] **v1.64.4-numerics-jvm-codegen** - Lower `BigInt`→`scala.math.BigInt`,
       `Decimal`→`scala.math.BigDecimal`; map all ops; cross-backend conformance
       vs interpreter. Spec: `docs/exact-numerics.md §5, §8`.

@@ -202,6 +202,11 @@ class Typer(
     s.define(Symbol("Array",   SType.Function(List(SType.Any), SType.Named("Array",  List(SType.Any))), SymbolKind.Def))
     s.define(Symbol("Right",   SType.Function(List(SType.Any), SType.Named("Either", List(SType.Any, SType.Any))), SymbolKind.Def))
     s.define(Symbol("Left",    SType.Function(List(SType.Any), SType.Named("Either", List(SType.Any, SType.Any))), SymbolKind.Def))
+    // Exact-numeric constructors (v1.64) — return BigInt / Decimal so the
+    // numeric tower and the Decimal⊕Double guard fire at type-check time.
+    s.define(Symbol("BigInt",     SType.Function(List(SType.Any), SType.BigInt),  SymbolKind.Def))
+    s.define(Symbol("Decimal",    SType.Function(List(SType.Any), SType.Decimal), SymbolKind.Def))
+    s.define(Symbol("BigDecimal", SType.Function(List(SType.Any), SType.Decimal), SymbolKind.Def))
     // Standard objects / namespaces
     s.define(Symbol("math",    SType.Named("math", Nil), SymbolKind.Object))
     s.define(Symbol("scala",   SType.Named("scala", Nil), SymbolKind.Object))
@@ -915,6 +920,11 @@ class Typer(
     // Numeric widening: Int literal is valid where Long or Double is expected
     (actual == SType.Int  && (expected == SType.Long || expected == SType.Double)) ||
     (actual == SType.Long && expected == SType.Double) ||
+    // Exact-numeric widening (v1.64): Int ⊆ BigInt ⊆ Decimal. Note Decimal is
+    // deliberately NOT compatible with Double (exact vs inexact, §4.3).
+    (actual == SType.Int    && (expected == SType.BigInt || expected == SType.Decimal)) ||
+    (actual == SType.Long   && (expected == SType.BigInt || expected == SType.Decimal)) ||
+    (actual == SType.BigInt && expected == SType.Decimal) ||
     // Generic type application compatibility:
     //  - Raw type (no args) is assignable to its parameterised form: Box ≤ Box[T]
     //  - Named(n, [Nothing, ...]) is assignable to Named(n, _): Option[Nothing] ≤ Option[T]
@@ -963,6 +973,24 @@ class Typer(
       case (SType.Double, op2, SType.Int)    if isArith(op2) => SType.Double
       case (SType.Long,   op2, SType.Int)    if isArith(op2) => SType.Long
       case (SType.Int,    op2, SType.Long)   if isArith(op2) => SType.Long
+      // Exact numerics (v1.64): BigInt and Decimal arithmetic + widening tower.
+      case (SType.BigInt,  op2, SType.BigInt)             if isArith(op2) => SType.BigInt
+      case (SType.BigInt,  op2, SType.Int | SType.Long)   if isArith(op2) => SType.BigInt
+      case (SType.Int | SType.Long, op2, SType.BigInt)    if isArith(op2) => SType.BigInt
+      case (SType.Decimal, op2, SType.Decimal)            if isArith(op2) => SType.Decimal
+      case (SType.Decimal, op2, SType.Int | SType.Long | SType.BigInt) if isArith(op2) => SType.Decimal
+      case (SType.Int | SType.Long | SType.BigInt, op2, SType.Decimal)  if isArith(op2) => SType.Decimal
+      // Decimal ⊕ Double / BigInt ⊕ Double are deliberate errors (§4.3) —
+      // mixing exact and inexact silently loses precision. Convert explicitly.
+      case (l, op2, r)
+          if isArith(op2) &&
+             ((l == SType.Decimal || l == SType.BigInt) && r == SType.Double ||
+              (r == SType.Decimal || r == SType.BigInt) && l == SType.Double) =>
+        errors += TypeError(
+          s"cannot mix ${l.show} and ${r.show} in '$op2' — convert explicitly (.toDouble or .toDecimal)",
+          posToSpan(pos)
+        )
+        SType.Error(s"${l.show} $op2 ${r.show}")
       // String concat
       case (SType.String, "+", _)  => SType.String
       case (_, "+", SType.String)  => SType.String
@@ -1028,7 +1056,8 @@ class Typer(
 
   private def isArith(op: String): Boolean = Set("+", "-", "*", "/", "%").contains(op)
   private def isNumericOrString(t: SType): Boolean =
-    t == SType.Int || t == SType.Long || t == SType.Double || t == SType.String
+    t == SType.Int || t == SType.Long || t == SType.Double ||
+    t == SType.BigInt || t == SType.Decimal || t == SType.String
 
   /** Expand a type alias if `name` is registered in `typeAliases`.
    *  For a parameterized alias `type Opt[A] = Option[A]`, `args` holds the
@@ -1116,6 +1145,8 @@ class Typer(
     case "Long"    => SType.Long
     case "Double"  => SType.Double
     case "Float"   => SType.Double
+    case "BigInt"  => SType.BigInt
+    case "Decimal" | "BigDecimal" => SType.Decimal
     case "String"  => SType.String
     case "Boolean" => SType.Boolean
     case "Char"    => SType.Char

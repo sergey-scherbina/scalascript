@@ -242,6 +242,9 @@ object SType:
   val Int: SType     = Named("Int", Nil)
   val Long: SType    = Named("Long", Nil)
   val Double: SType  = Named("Double", Nil)
+  // Exact numerics (v1.64): arbitrary-precision integer / decimal.
+  val BigInt: SType  = Named("BigInt", Nil)
+  val Decimal: SType = Named("Decimal", Nil)
   val String: SType  = Named("String", Nil)
   val Char: SType    = Named("Char", Nil)
   val Any: SType     = Named("Any", Nil)
