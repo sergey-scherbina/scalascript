@@ -65,6 +65,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   tuple/array allocation from the generic `Map(...)` factory.
   Parametric-given factory markers and synthetic opaque-type companions now use
   direct small-map constructors in statement execution.
+  Validation/Either wrappers, user interpolator `StringContext`, Dataset empty
+  errors, and restartable exception shims now use direct one-field map values.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

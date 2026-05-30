@@ -1,5 +1,6 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, FlatMap, Perform}
 
@@ -186,7 +187,7 @@ private[interpreter] object EffectsRuntime:
           interp.restartableStack().pollFirst()
           val msg = Option(t.getMessage).getOrElse(t.getClass.getSimpleName)
           doneChan.put(Left(Value.InstanceV("RuntimeException",
-            Map("message" -> Value.StringV(msg)))))
+            new IMap.Map1("message", Value.StringV(msg)))))
     }
 
     @annotation.tailrec

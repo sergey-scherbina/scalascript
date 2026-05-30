@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scalascript.transform.DirectTypeUtils
 import scala.collection.mutable
+import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, FlatMap, Perform}
 
@@ -298,9 +299,9 @@ private[interpreter] object EvalRuntime:
               buf.map { (k, v) => Value.StringV(k) -> Value.StringV(v) }
             )
           )
-          Pure(Value.InstanceV("Left", Map("value" -> errMap)))
+          Pure(Value.InstanceV("Left", new IMap.Map1("value", errMap)))
         else
-          Pure(Value.InstanceV("Right", Map("value" -> result)))
+          Pure(Value.InstanceV("Right", new IMap.Map1("value", result)))
       }
 
     // ── bench(name) { body } / bench(name, warmup, reps) { body } ───────────
@@ -769,7 +770,7 @@ private[interpreter] object EvalRuntime:
     case Term.Interpolate(Term.Name(prefix), parts, args) =>
       evalArgs(args.map(_.asInstanceOf[Term]), env, interp) { argVs =>
         val partVals = parts.map(p => Value.StringV(p.asInstanceOf[Lit.String].value))
-        val sc = Value.InstanceV("StringContext", Map("parts" -> Value.ListV(partVals)))
+        val sc = Value.InstanceV("StringContext", new IMap.Map1("parts", Value.ListV(partVals)))
         val scExts = interp.extensions.getOrElse("StringContext", null)
         val extFn = if scExts != null then scExts.getOrElse(prefix, null) else null
         val fn: Value = if extFn != null then extFn
@@ -1067,7 +1068,7 @@ private[interpreter] object EvalRuntime:
 
     case t: Term.Throw =>
       eval(t.expr, env, interp).flatMap { v =>
-        if interp._insideDirectBlock.get() then Pure(Value.InstanceV("Left", Map("value" -> v)))
+        if interp._insideDirectBlock.get() then Pure(Value.InstanceV("Left", new IMap.Map1("value", v)))
         else
           // v1.16: check for an active restartable frame on interp thread.
           // If present, suspend the body and let the handler decide.
@@ -1109,7 +1110,7 @@ private[interpreter] object EvalRuntime:
             // into a ScalaScript InstanceV so catch patterns can match it.
             val exTypeName = th.getClass.getSimpleName
             val msg = Option(th.getMessage).getOrElse(exTypeName)
-            tryCatch(Value.InstanceV(exTypeName, Map("message" -> Value.StringV(msg))), th)
+            tryCatch(Value.InstanceV(exTypeName, new IMap.Map1("message", Value.StringV(msg))), th)
       t.finallyp match
         case Some(f) => Computation.run(eval(f, env, interp))
         case None    =>
