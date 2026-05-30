@@ -1,5 +1,7 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
+
 /** Value ↔ JSON serialization for the distributed actor wire protocol.
  *
  *  Wire types:
@@ -139,7 +141,7 @@ object ValueSerializer:
               case Some(Value.IntV(n))    => n
               case Some(Value.DoubleV(d)) => d.toLong
               case _                      => 0L
-            Value.InstanceV("Pid", Map("nodeId" -> Value.StringV(nodeId), "localId" -> Value.intV(localId)))
+            Value.InstanceV("Pid", new IMap.Map2("nodeId", Value.StringV(nodeId), "localId", Value.intV(localId)))
           case "o"  =>
             val cls = str("cls").getOrElse("")
             val fs  = any("f") match

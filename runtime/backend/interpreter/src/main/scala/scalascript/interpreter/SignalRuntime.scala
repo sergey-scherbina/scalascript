@@ -1,5 +1,6 @@
 package scalascript.interpreter
 
+import scala.collection.immutable.{Map => IMap}
 import scala.collection.mutable
 import Computation.Pure
 
@@ -23,7 +24,7 @@ private[interpreter] object SignalRuntime:
     interp.reactiveCounter += 1; interp.reactiveCounter
 
   private def signalInstance(id: Long): Value.InstanceV =
-    Value.InstanceV("Signal", Map("id" -> Value.intV(id)))
+    Value.InstanceV("Signal", new IMap.Map1("id", Value.intV(id)))
 
   private def makeSignal(interp: Interpreter, init: Value): Value.InstanceV =
     val id = freshReactiveId(interp)

@@ -61,6 +61,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   `KeyedStateSpec` values now use direct small immutable map constructors.
   Actor cluster events, local PIDs, and timeout receive `Some` wrappers now use
   the same direct small-map construction path.
+  Future, Signal, serialized Pid, and typed-handler Either wrappers now avoid
+  tuple/array allocation from the generic `Map(...)` factory.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
