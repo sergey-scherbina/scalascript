@@ -4,6 +4,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — JS WebSocket runtime smoke restored
+
+- **fix/jsgen-ws-ignored-test** — Re-enabled `JsGenWsTest` and restored the
+  Node JS runtime's public `serve(port[, tls])` alias so `JsHttpIntrinsics`
+  no longer emits calls to an undefined runtime symbol.
+
 ## 2026-05-30 — Swing JvmGen runtime smoke restored
 
 - **fix/swing-runtime-ignored-test** — Re-enabled
