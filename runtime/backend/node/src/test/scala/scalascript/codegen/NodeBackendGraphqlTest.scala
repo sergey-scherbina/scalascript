@@ -136,6 +136,35 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Server with security limits via `GraphQL.options`.  maxDepth=5,
+   *  maxComplexity=8 (field count), maxQueryLength=2000, introspection off —
+   *  chosen so each limit can be tripped by exactly one crafted query while a
+   *  simple query still succeeds. */
+  private val securityProgram =
+    """|# GraphQL security-limits server
+       |
+       |```graphql
+       |type Node { id: Int! name: String! child: Node! }
+       |type Query { ping: String! root: Node! }
+       |```
+       |
+       |```scalascript
+       |val resolvers = GraphQL.resolvers(
+       |  query = Map(
+       |    "ping" -> (_ => "pong"),
+       |    "root" -> (_ => Map("id" -> 1, "name" -> "r", "child" -> Map("id" -> 2, "name" -> "c")))
+       |  )
+       |)
+       |val limits = GraphQL.options(
+       |  maxDepth             = 5,
+       |  maxComplexity        = 8,
+       |  maxQueryLength       = 2000,
+       |  disableIntrospection = true
+       |)
+       |serveGraphQL(4074, resolvers, limits)
+       |```
+       |""".stripMargin
+
   // ── Codegen-shape unit tests (no node required) ────────────────────────
 
   test("no graphql usage → no package.json artifact"):
@@ -386,3 +415,82 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
     // 3-key batchLoad → ONE batch call saw all 3 keys (proves coalescing).
     assert(out.contains("\"batch\":[\"U1/batch3\",\"U2/batch3\",\"U3/batch3\"]"),
       s"batch coalescing not observed in:\n$out")
+
+  // ── Security limits (GraphQL.options) ──────────────────────────────────
+
+  test("GraphQL.options lowers to a runtime call + 3rd serveGraphQL arg"):
+    val (code, _) = compileToOutputs(securityProgram)
+    assert(code.contains("GraphQL.options("), "expected options call site")
+    assert(code.contains("disableIntrospection:"), "expected named options lowered to object")
+
+  test("security limit runtime wiring is included"):
+    val (code, _) = compileToOutputs(securityProgram)
+    assert(code.contains("function _graphqlLimitRules("))
+    assert(code.contains("options:"), "GraphQL.options runtime fn")
+    assert(code.contains("NoSchemaIntrospectionCustomRule"))
+
+  test("serveGraphQL enforces depth / complexity / introspection / length via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(securityProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-security-test")
+    Files.createDirectories(dir)
+
+    val driver =
+      """|setTimeout(() => {
+         |  const http = require('http');
+         |  const post = (tag, body, cb) => {
+         |    const r = http.request({
+         |      hostname: 'localhost', port: 4074, path: '/graphql', method: 'POST',
+         |      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+         |    }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', () => cb(tag + ':' + res.statusCode + ':' + b)); });
+         |    r.on('error', e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |    r.write(body); r.end();
+         |  };
+         |  const ok      = JSON.stringify({ query: '{ ping }' });
+         |  const deep    = JSON.stringify({ query: '{ root { child { child { child { child { child { name } } } } } } }' });
+         |  const intro   = JSON.stringify({ query: '{ __schema { queryType { name } } }' });
+         |  const complex = JSON.stringify({ query: '{ root { id name child { id name child { id name } } } }' });
+         |  const long    = JSON.stringify({ query: '#' + 'x'.repeat(2100) + '\n{ ping }' });
+         |  post('OK', ok, a => post('DEEP', deep, b => post('INTRO', intro, c =>
+         |    post('COMPLEX', complex, d => post('LONG', long, e => {
+         |      process.stdout.write(a + '\n' + b + '\n' + c + '\n' + d + '\n' + e + '\n');
+         |      process.exit(0);
+         |    })))));
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    // Valid query within all limits succeeds.
+    assert(out.contains("OK:200:") && out.contains("\"ping\":\"pong\""), s"valid query failed in:\n$out")
+    // Depth 7 > maxDepth 5 → rejected.
+    assert(out.contains("maximum depth"), s"depth limit not enforced in:\n$out")
+    // Introspection disabled → __schema rejected.
+    assert(out.contains("introspection"), s"introspection not blocked in:\n$out")
+    // 9 fields > maxComplexity 8 → rejected.
+    assert(out.contains("maximum complexity"), s"complexity limit not enforced in:\n$out")
+    // Body > maxQueryLength 2000 → 413.
+    assert(out.contains("LONG:413:"), s"length guard not enforced in:\n$out")

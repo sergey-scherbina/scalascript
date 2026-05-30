@@ -5878,9 +5878,9 @@ dep where noted) and verified with a live `node` round-trip in `NodeBackendGraph
   _(landed 2026-05-30; inline `_GraphqlDataLoaderCtx` batcher — no extra npm dep — sync or async batchFn;
   fresh cache per request via `contextValue._dlCtx`; live node round-trip proves 3-key batch coalescing)_
 
-- [ ] **graphql-js-security** — Security/limits parity on graphql-js: `GraphQL.options(maxDepth, maxComplexity,
+- [x] **graphql-js-security** — Security/limits parity on graphql-js: `GraphQL.options(maxDepth, maxComplexity,
   maxQueryLength, disableIntrospection)` as the optional 3rd arg to `graphqlHandler`/`graphqlMount`/`serveGraphQL`,
-  enforced via graphql-js validation rules + a body-length guard, mirroring graphql-p10. Node conformance tests.
+  enforced via graphql-js validation rules + a body-length guard, mirroring graphql-p10. Node conformance tests. _(landed 2026-05-30)_
 
 - [ ] **graphql-js-subscriptions** — Subscriptions over WebSocket (graphql-ws) on Node: subscription resolvers
   returning async iterators, `/graphql/ws` mounted on the existing `onWebSocket` infra with the
