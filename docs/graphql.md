@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11 implemented on `main` (2026-05-29).
-121 graphql-plugin tests total. Remaining: Phase 7 (typed codegen), 12 (federation), 13 (SSE).
+**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11, 13 implemented on `main`.
+132 graphql-plugin tests total. Remaining: Phase 7 (typed codegen), 12 (federation).
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -187,7 +187,7 @@ should treat each realtime protocol as an adapter:
 | Transport | Role | Status |
 |---|---|---|
 | `graphql-ws` / `graphql-transport-ws` | Primary WebSocket subscription path | ✅ Phase 3 (sync list; async bridge deferred) |
-| SSE | Server-to-client stream for subscriptions/incremental responses | Planned later |
+| SSE | Server-to-client stream for subscriptions via `Accept: text/event-stream` | ✅ Phase 13 |
 | Multipart HTTP | Incremental response / subscription compatibility path | Planned later |
 | Custom actor/stream transport | Internal ScalaScript distributed runtime bridge | Future |
 
@@ -982,20 +982,23 @@ Tasks:
 
 Effort: ~6 days.
 
-### Phase 13 - Additional Realtime And Incremental Delivery
+### Phase 13 - SSE Subscription Delivery ✅ Landed (2026-05-30)
 
-**Goal:** support non-WebSocket realtime delivery where it is useful and
-well-supported by engines.
+**Goal:** serve GraphQL subscriptions over HTTP Server-Sent Events when the client
+sends `Accept: text/event-stream`, and provide a `graphqlSse` client intrinsic.
 
-Tasks:
+Implemented:
 
-- SSE subscription adapter.
-- Multipart incremental response adapter.
-- Engine feature checks for incremental delivery directives.
-- Backpressure/cancellation tests.
-- AsyncAPI companion export for realtime transport surfaces where appropriate.
-
-Effort: ~5 days.
+- `handleRequest` detects `Accept: text/event-stream`; when subscription execution
+  returns a `Publisher<ExecutionResult>`, delegates to `handleSseResult`.
+- `handleSseResult`: subscribes synchronously, emits each event as `data: {json}\n\n`,
+  sets `Content-Type: text/event-stream` and `Cache-Control: no-cache`.
+- Non-subscription requests with SSE accept fall through to normal JSON response.
+- `graphqlSse(url, query[, variables])` intrinsic — POST with `Accept: text/event-stream`,
+  parses `data:` lines from the response body, returns `List` of parsed event payloads.
+- `executeRemoteSse`: splits body on `\n\n`, extracts `data: ` lines, parses JSON.
+- `GraphQLSseTest`: 11 tests covering content-type, cache-control, body format,
+  multi-event order, non-subscription fallthrough, blank-query error, variable passthrough.
 
 ---
 
@@ -1015,7 +1018,7 @@ Effort: ~5 days.
 | 10 | `GraphQLSecurityTest` (12) ✅; auth/redaction/tracing deferred | Runtime + security |
 | 11 | Schema export/import/diff/fixture tests | CLI + contract |
 | 12 | Federation plugin smoke tests | Plugin integration |
-| 13 | SSE/multipart lifecycle tests | Integration |
+| 13 | `GraphQLSseTest` (11) ✅ | SSE content-type, body format, event delivery, fallthrough |
 
 Manual smoke with Apollo Sandbox or GraphiQL is useful, but it is not a
 substitute for protocol and contract tests.

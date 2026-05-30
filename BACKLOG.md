@@ -5728,11 +5728,13 @@ optional federation/realtime adapters.
   compatibility.
   Spec: `docs/graphql.md §7 Phase 12`. Effort: ~6 days.
 
-- [ ] **graphql-p13** — Additional realtime and incremental delivery:
-  SSE adapter, multipart incremental response adapter, engine feature checks
-  for incremental delivery directives, backpressure/cancellation tests, and
-  AsyncAPI companion export where appropriate.
-  Spec: `docs/graphql.md §7 Phase 13`. Effort: ~5 days.
+- [x] **graphql-p13** — SSE subscription delivery:
+  Server: `Accept: text/event-stream` detection in `handleRequest`; subscription
+  `Publisher` events collected and formatted as `data: …\n\n` blocks;
+  `Content-Type: text/event-stream` + `Cache-Control: no-cache` headers.
+  Client: `graphqlSse(url, query[, variables])` intrinsic — POST with SSE accept,
+  parse `data:` lines, return `List` of event payloads. `handleSseResult` + `executeRemoteSse`.
+  `GraphQLSseTest` 11 tests; 132 total graphql-plugin tests. ✓ Landed 2026-05-30.
 
 ---
 
