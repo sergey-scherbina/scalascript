@@ -56,7 +56,9 @@ private[interpreter] object EvalRuntime:
     // scan (ensurePluginsLoaded) so scripts like `hello.ssc` that never touch
     // a plugin never pay the cost.  After plugins load we re-check globals; if
     // still missing, the name is genuinely undefined.
-    case Term.Name(name) =>
+    // Type-only check avoids Term.Name.unapply which allocates Some(name).
+    case tn: Term.Name =>
+      val name = tn.value
       val v = env.getOrElse(name, interp.globals.getOrElse(name, null))
       if v != null then Pure(v)
       else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
@@ -463,7 +465,8 @@ private[interpreter] object EvalRuntime:
                   DispatchRuntime.dispatch(qualV, "query", argVals, env, interp).map(projectTypedRows(typeName, _, interp))
                 )
               )
-        case Term.Select(qual, Term.Name(method)) =>
+        case Term.Select(qual, methodName: Term.Name) =>
+          val method   = methodName.value
           val qualC    = eval(qual, env, interp)
           val argTerms = app.argClause.values
           // Named args (Term.Assign) must evaluate only the RHS; the full
@@ -677,14 +680,15 @@ private[interpreter] object EvalRuntime:
                   interp.threadValues(argComps)(argVs => interp.infix(lhsV, opStr, argVs, env)))
 
     // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
-    case Term.Select(_, Term.Name("!")) =>
+    case Term.Select(_, sn: Term.Name) if sn.value == "!" =>
       interp.located("'.!' can only appear in expression position directly inside a direct[M] block body; not inside lambdas or nested blocks")
 
     // Field / method selection: a.b  (no-arg call)
-    case Term.Select(qual, name) =>
+    case Term.Select(qual, sn: Term.Name) =>
+      val method = sn.value
       eval(qual, env, interp) match
-        case Pure(qualV) => DispatchRuntime.dispatch(qualV, name.value, Nil, env, interp)
-        case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, name.value, Nil, env, interp))
+        case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
+        case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
 
     // Block { stmts; expr }
     case Term.Block(stats) =>
