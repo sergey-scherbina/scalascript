@@ -88,6 +88,8 @@ bin/http.ssc
 
 ## Documentation
 
+> Full categorized index of all docs: **[docs/README.md](docs/README.md)**.
+
 **Getting started**
 
 | | |
