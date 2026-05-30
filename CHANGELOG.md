@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-05-30 — SQL ignored tests restored
+
+- **fix/remaining-sql-ignored-tests** — Re-enabled the JvmGen SQL runtime
+  scala-cli smoke tests, moved SQL examples/conformance interpreter coverage
+  into `backendInterpreterPluginTests` where the SQL plugin is available, and
+  updated conformance capture paths to `tests/conformance/...`.
+
 ## 2026-05-30 — interpreter-server test overlap cleanup
 
 - **fix/interpreter-server-test-overlap** — Removed the duplicate

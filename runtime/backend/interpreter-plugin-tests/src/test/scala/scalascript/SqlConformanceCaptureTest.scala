@@ -15,12 +15,11 @@ import scalascript.parser.Parser
  *  these tests — and runs under plain `sbt test` without external
  *  tooling, so the regression net stays cheap to enforce on every
  *  PR. */
-@org.scalatest.Ignore
 class SqlConformanceCaptureTest extends AnyFunSuite {
 
   private def runConformance(name: String): Unit = {
-    val src      = os.read(TestPaths.repoRoot / "conformance" / s"$name.ssc")
-    val expected = os.read(TestPaths.repoRoot / "conformance" / "expected" / s"$name.txt").stripTrailing()
+    val src      = os.read(TestPaths.repoRoot / "tests" / "conformance" / s"$name.ssc")
+    val expected = os.read(TestPaths.repoRoot / "tests" / "conformance" / "expected" / s"$name.txt").stripTrailing()
     val buf = java.io.ByteArrayOutputStream()
     val ps  = java.io.PrintStream(buf, true)
     Interpreter(ps).run(Parser.parse(src))

@@ -22,7 +22,6 @@ import scalascript.parser.Parser
  *
  *  Skipped (not failed) when `scala-cli` is unavailable on PATH so
  *  CI environments without it keep working. */
-@org.scalatest.Ignore
 class JvmGenSqlRuntimeTest extends AnyFunSuite {
 
   private lazy val hasScalaCli: Boolean =
