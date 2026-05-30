@@ -305,8 +305,8 @@ private[interpreter] object BuiltinsRuntime:
             (Value.StringV("properties"): Value) -> (properties:              Value),
             (Value.StringV("required"):   Value) -> (required:                Value)
           ))
-          Pure(Value.InstanceV("McpSchema", Map("schema" -> schemaV)))
-        case _ => Pure(Value.InstanceV("McpSchema", Map("schema" -> Value.EmptyMap)))
+          Pure(Value.InstanceV("McpSchema", new IMap.Map1("schema", schemaV)))
+        case _ => Pure(Value.InstanceV("McpSchema", new IMap.Map1("schema", Value.EmptyMap)))
       })
     ))
 
@@ -460,10 +460,10 @@ private[interpreter] object BuiltinsRuntime:
                 if hv == null then "" else Value.show(hv)
               case v => Value.show(v)
             val shadow = s"<template shadowrootmode=\"open\"><style>$css</style>$innerHtml</template>"
-            Value.InstanceV("_Raw", Map("html" -> Value.StringV(s"<$tagStr-component>$shadow</$tagStr-component>")))
+            Value.InstanceV("_Raw", new IMap.Map1("html", Value.StringV(s"<$tagStr-component>$shadow</$tagStr-component>")))
           }
         else
-          Pure(Value.InstanceV("_Raw", Map("html" ->
+          Pure(Value.InstanceV("_Raw", new IMap.Map1("html",
             Value.StringV(s"<$tagStr-component></$tagStr-component>"))))
       case _ => Computation.PureUnit
     })
@@ -476,7 +476,7 @@ private[interpreter] object BuiltinsRuntime:
     // a _Raw HTML node so it composes with html"..." without re-escaping.
 
     def attrKey(htmlName: String): Value.InstanceV =
-      Value.InstanceV("AttrKey", Map("name" -> Value.StringV(htmlName)))
+      Value.InstanceV("AttrKey", new IMap.Map1("name", Value.StringV(htmlName)))
 
     // Attribute keys live under an `attr` namespace to avoid clobbering
     // very common user-side bindings like `name`, `id`, `title`, `value`.
@@ -507,7 +507,7 @@ private[interpreter] object BuiltinsRuntime:
     ))
 
     def htmlNode(s: String): Value.InstanceV =
-      Value.InstanceV("_Raw", Map("html" -> Value.StringV(s)))
+      Value.InstanceV("_Raw", new IMap.Map1("html", Value.StringV(s)))
 
     /** Render a single child node: trusted html (_Raw) passes through,
      *  Lists flatten so `xs.map(li)` composes naturally inside a parent
@@ -565,8 +565,8 @@ private[interpreter] object BuiltinsRuntime:
 
     // raw(s) marks a string as pre-escaped HTML so html"..." doesn't re-escape.
     nativeP("raw") {
-      case List(Value.StringV(s)) => Value.InstanceV("_Raw", Map("html" -> Value.StringV(s)))
-      case List(v)                => Value.InstanceV("_Raw", Map("html" -> Value.StringV(Value.show(v))))
+      case List(Value.StringV(s)) => Value.InstanceV("_Raw", new IMap.Map1("html", Value.StringV(s)))
+      case List(v)                => Value.InstanceV("_Raw", new IMap.Map1("html", Value.StringV(Value.show(v))))
       case _                      => throw InterpretError("raw(s)")
     }
 
@@ -587,7 +587,7 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("Response") = Value.InstanceV("Response", Map(
       "apply"              -> Value.NativeFnV("Response.apply", {
         case List(status, headers, body) =>
-          Pure(Value.InstanceV("Response", Map("status" -> status, "headers" -> headers, "body" -> body)))
+          Pure(Value.InstanceV("Response", new IMap.Map3("status", status, "headers", headers, "body", body)))
         case _ => throw InterpretError("Response(status, headers, body) expects 3 arguments")
       }),
       "html"               -> globalOrStub("Response.html"),
@@ -791,7 +791,7 @@ private[interpreter] object BuiltinsRuntime:
     }
     // v2.1.1 DStreams — assemble companions from individual DStream.* intrinsics
     interp.globals.get("Pipeline.create").foreach { createFn =>
-      interp.globals("Pipeline") = Value.InstanceV("Pipeline", Map("create" -> createFn))
+      interp.globals("Pipeline") = Value.InstanceV("Pipeline", new IMap.Map1("create", createFn))
     }
     interp.globals.get("InMemory.source").foreach { sourceFn =>
       interp.globals("InMemory") = Value.InstanceV("InMemory", Map(
@@ -896,7 +896,7 @@ private[interpreter] object BuiltinsRuntime:
     }
     // v2.1.7 — KeyedStateSpec companion
     interp.globals.get("KeyedStateSpec.value").foreach { valueFn =>
-      interp.globals("KeyedStateSpec") = Value.InstanceV("KeyedStateSpec", Map("value" -> valueFn))
+      interp.globals("KeyedStateSpec") = Value.InstanceV("KeyedStateSpec", new IMap.Map1("value", valueFn))
     }
     // v2.1.8 — SideInput + OutputTag companions
     interp.globals.get("SideInput.of").foreach { ofFn =>
