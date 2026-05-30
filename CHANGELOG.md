@@ -33,6 +33,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   two-argument call helper. Type-method calls now avoid allocating a self-ref
   native function when the method body never references its own name. Lambda
   parameter names and type annotations are cached per AST parameter clause.
+  More single-argument `String` operations now stay on the direct dispatch path.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 

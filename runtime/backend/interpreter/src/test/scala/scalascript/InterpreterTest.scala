@@ -554,10 +554,13 @@ def main(): Unit =
       println("abc".filter(c => c.toString != "b"))
       println("abcde".takeWhile(c => c.toString != "d"))
       println("abcde".dropWhile(c => c.toString != "c"))
+      println("abcde".count(c => c.toString != "d"))
+      println("abcde".exists(c => c.toString == "d"))
+      println("abcde".forall(c => c.toString != "z"))
       var acc = ""
       "ab".foreach(c => acc = acc + c.toString)
       println(acc)
-    """) shouldBe "ABC\nac\nabc\ncde\nab"
+    """) shouldBe "ABC\nac\nabc\ncde\n4\ntrue\ntrue\nab"
   }
 
   test("string toList and zipWithIndex") {

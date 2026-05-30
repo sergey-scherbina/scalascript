@@ -779,6 +779,75 @@ private[interpreter] object DispatchRuntime:
                 case _                 => Pure(Value.StringV(s.substring(i)))
               })
         Computation.PureEmptyStr
+      case "count"       =>
+        var i = 0; var acc = 0L
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(Value.BoolV(true)) => acc += 1L; i += 1
+            case Pure(_)                 => i += 1
+            case c =>
+              val start = i + 1; val acc0 = acc
+              def restLoop(j: Int, cnt: Long): Computation =
+                if j >= s.length then Computation.pureIntV(cnt)
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), {
+                  case Value.BoolV(true) => restLoop(j + 1, cnt + 1L)
+                  case _                 => restLoop(j + 1, cnt)
+                })
+              return FlatMap(c, {
+                case Value.BoolV(true) => restLoop(start, acc0 + 1L)
+                case _                 => restLoop(start, acc0)
+              })
+        Computation.pureIntV(acc)
+      case "exists"      =>
+        var i = 0
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(Value.BoolV(true)) => return Computation.PureTrue
+            case Pure(_)                 => i += 1
+            case c =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Computation.PureFalse
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), {
+                  case Value.BoolV(true) => Computation.PureTrue
+                  case _                 => restLoop(j + 1)
+                })
+              return FlatMap(c, {
+                case Value.BoolV(true) => Computation.PureTrue
+                case _                 => restLoop(start)
+              })
+        Computation.PureFalse
+      case "forall"      =>
+        var i = 0
+        while i < s.length do
+          interp.callValue1(arg, Value.charV(s.charAt(i)), env) match
+            case Pure(Value.BoolV(false)) => return Computation.PureFalse
+            case Pure(_)                  => i += 1
+            case c =>
+              val start = i + 1
+              def restLoop(j: Int): Computation =
+                if j >= s.length then Computation.PureTrue
+                else FlatMap(interp.callValue1(arg, Value.charV(s.charAt(j)), env), {
+                  case Value.BoolV(false) => Computation.PureFalse
+                  case _                  => restLoop(j + 1)
+                })
+              return FlatMap(c, {
+                case Value.BoolV(false) => Computation.PureFalse
+                case _                  => restLoop(start)
+              })
+        Computation.PureTrue
+      case "stripPrefix" => arg match
+        case Value.StringV(t) => Pure(if s.startsWith(t) then Value.StringV(s.substring(t.length)) else recv)
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "stripSuffix" => arg match
+        case Value.StringV(t) => Pure(if s.endsWith(t) then Value.StringV(s.substring(0, s.length - t.length)) else recv)
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "matches"     => arg match
+        case Value.StringV(regex) => Computation.pureBool(s.matches(regex))
+        case _                    => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "substring"   => arg match
+        case Value.IntV(a) => Pure(Value.StringV(s.substring(a.toInt.max(0).min(s.length))))
+        case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case _             => dispatchString(recv, s, name, arg :: Nil, env, interp)
 
   /** 1-arg fast path for InstanceV: field access and class method call. */
