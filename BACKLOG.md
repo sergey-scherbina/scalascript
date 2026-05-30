@@ -63,11 +63,19 @@ the contracts are explicit.
       `scripts/perf-smoke.sh --jmh`, `bench/perf-manifest.yaml`,
       `bench/README.md`, baseline policy docs, and ignored raw benchmark
       outputs.
-- [ ] **cli-main-helper-split-p2** - Continue behavior-preserving extraction from
-      `tools/cli/.../Main.scala` after the command/repl split. Target cohesive
-      helper clusters first: build/compile pipeline helpers, synthetic request /
-      render helpers, artifact IO, and install/stage helpers. Keep command
-      behavior and `CliCommand` registry contracts unchanged.
+- [x] **cli-main-helper-split-p2** _(landed 2026-05-30)_ - Behavior-preserving
+      extraction from `tools/cli/.../Main.scala`: synthetic-request / render
+      helpers → `RenderHelpers.scala`, artifact-info printers →
+      `ArtifactInfoPrinters.scala`. Call sites import `.*` to stay unqualified;
+      command behavior + `CliCommand` registry contracts unchanged.
+- [ ] **cli-main-helper-split-p3** - Continue behavior-preserving extraction from
+      `tools/cli/.../Main.scala`. Remaining cohesive clusters: build/compile
+      pipeline helpers (`compileJvmAndCache` / `compileJvmDepInto` /
+      `ensureRuntimeArtifact` / JS runtime-artifact + dep-capability helpers /
+      `extractDepBundlesForCompile`) and install/stage helpers
+      (`selfInstallCommand` / `scriptCommand` / `stagePrecompiledDepArtifacts` /
+      `packageLib`). Higher coupling — move the dependency cluster together.
+      Keep command behavior and `CliCommand` registry contracts unchanged.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
