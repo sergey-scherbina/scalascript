@@ -188,6 +188,33 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  /** Apollo Federation v2 subgraph.  `User` is an entity keyed on `id`; the
+   *  entity resolver rebuilds a `User` from a representation.  Exercises the
+   *  `_service { sdl }` and `_entities(representations:)` federation fields. */
+  private val federationProgram =
+    """|# GraphQL federation subgraph
+       |
+       |```graphql
+       |type User @key(fields: "id") {
+       |  id: Int!
+       |  name: String!
+       |}
+       |type Query { me: User! }
+       |```
+       |
+       |```scalascript
+       |val resolvers = GraphQL.resolvers(
+       |  query = Map(
+       |    "me" -> (_ => Map("__typename" -> "User", "id" -> 1, "name" -> "Ann"))
+       |  )
+       |)
+       |val entities = GraphQL.entityResolvers(Map(
+       |  "User" -> (rep => Map("__typename" -> "User", "id" -> rep("id"), "name" -> ("User#" + rep("id"))))
+       |))
+       |serveSubgraph(4076, resolvers, entities)
+       |```
+       |""".stripMargin
+
   // ── Codegen-shape unit tests (no node required) ────────────────────────
 
   test("no graphql usage → no package.json artifact"):
@@ -643,3 +670,84 @@ class NodeBackendGraphqlTest extends AnyFunSuite:
     val code2 = run.waitFor()
     assert(code2 == 0, s"node run failed (exit $code2):\n$out")
     assert(out.contains("WS:[1,2,3]"), s"subscription stream wrong in:\n$out")
+
+  // ── Federation v2 subgraph ─────────────────────────────────────────────
+
+  test("federation intrinsics lower to runtime call sites"):
+    val (code, _) = compileToOutputs(federationProgram)
+    assert(code.contains("GraphQL.entityResolvers("), "expected entityResolvers call site")
+    assert(code.contains("serveSubgraph("), "expected serveSubgraph call site")
+
+  test("federation runtime wiring is included"):
+    val (code, _) = compileToOutputs(federationProgram)
+    assert(code.contains("function graphqlSubgraphMount("))
+    assert(code.contains("function _graphqlBuildFederationSdl("))
+    assert(code.contains("function _graphqlApplyEntityUnion("))
+    assert(code.contains("entityResolvers:"), "GraphQL.entityResolvers runtime fn")
+    assert(code.contains("directive @key("), "federation SDL preamble")
+
+  test("federation subgraph SDL (@key) is embedded"):
+    val (code, _) = compileToOutputs(federationProgram)
+    assert(code.contains("_registerGraphqlSdl("))
+    assert(code.contains("@key(fields: \\\"id\\\")") || code.contains("@key"), s"expected @key in embedded SDL")
+
+  test("serveSubgraph answers _service + _entities via node"):
+    assume(hasNode, "node not available")
+    assume(hasNpm, "npm not available")
+    val (code, sources) = compileToOutputs(federationProgram)
+    val pkg = packageJson(sources)
+
+    val dir = Path.of(sys.props.getOrElse("user.dir", "."))
+      .resolve("target/node-backend-graphql-federation-test")
+    Files.createDirectories(dir)
+
+    // Query _service { sdl } (must echo the USER SDL, not the federated one),
+    // then _entities for two User representations passed via variables.
+    val driver =
+      """|setTimeout(() => {
+         |  const http = require('http');
+         |  const post = (tag, body, cb) => {
+         |    const r = http.request({
+         |      hostname: 'localhost', port: 4076, path: '/graphql', method: 'POST',
+         |      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+         |    }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', () => cb(tag + ':' + b)); });
+         |    r.on('error', e => { process.stdout.write('ERR:' + e.message + '\n'); process.exit(1); });
+         |    r.write(body); r.end();
+         |  };
+         |  const svc = JSON.stringify({ query: '{ _service { sdl } }' });
+         |  const ent = JSON.stringify({
+         |    query: 'query($r:[_Any!]!){ _entities(representations:$r){ ... on User { id name } } }',
+         |    variables: { r: [ { __typename: 'User', id: 1 }, { __typename: 'User', id: 2 } ] }
+         |  });
+         |  post('SVC', svc, a => post('ENT', ent, b => {
+         |    process.stdout.write(a + '\n' + b + '\n'); process.exit(0);
+         |  }));
+         |}, 700);
+         |""".stripMargin
+
+    Files.writeString(dir.resolve("main.cjs"), code + "\n" + driver, StandardCharsets.UTF_8)
+    Files.writeString(dir.resolve("package.json"), pkg, StandardCharsets.UTF_8)
+
+    val stamp     = dir.resolve(".npm-install-stamp")
+    val pkgMtime  = Files.getLastModifiedTime(dir.resolve("package.json")).toMillis
+    val installed = Files.exists(dir.resolve("node_modules")) &&
+                    Files.exists(stamp) &&
+                    Files.getLastModifiedTime(stamp).toMillis >= pkgMtime
+    if !installed then
+      val inst = ProcessBuilder("npm", "install", "--no-audit", "--no-fund", "--silent")
+        .directory(dir.toFile).redirectErrorStream(true).start()
+      val instOut  = new String(inst.getInputStream.readAllBytes(), "UTF-8")
+      val instCode = inst.waitFor()
+      assert(instCode == 0, s"npm install failed (exit $instCode):\n$instOut")
+      Files.writeString(stamp, "ok")
+
+    val run = ProcessBuilder("node", "main.cjs")
+      .directory(dir.toFile).redirectErrorStream(true).start()
+    val out  = new String(run.getInputStream.readAllBytes(), "UTF-8")
+    val code2 = run.waitFor()
+    assert(code2 == 0, s"node run failed (exit $code2):\n$out")
+    // _service.sdl echoes the user SDL (User type with @key), not the preamble.
+    assert(out.contains("type User") && out.contains("@key"), s"_service sdl wrong in:\n$out")
+    // _entities resolved both representations by __typename.
+    assert(out.contains("\"name\":\"User#1\""), s"entity 1 not resolved in:\n$out")
+    assert(out.contains("\"name\":\"User#2\""), s"entity 2 not resolved in:\n$out")

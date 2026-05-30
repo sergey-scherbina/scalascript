@@ -114,6 +114,14 @@ const GraphQL = {
       disableIntrospection: o.disableIntrospection === true,
     };
   },
+  // GraphQL.entityResolvers(entities) — Apollo Federation v2 entity resolver
+  // map, passed as the (optional) entity-resolvers arg to `serveSubgraph` /
+  // `graphqlSubgraphMount`.  `entities : Map[typeName, representation => Value]`;
+  // each resolver receives a representation Map (`__typename` + the `@key`
+  // fields) and returns the resolved entity.  Mirrors the JVM intrinsic.
+  entityResolvers: function(entities) {
+    return { _type: 'GraphQLFederationEntities', entities: _graphqlToTable(entities) };
+  },
 };
 
 // Build the validation rules implied by a GraphQLOptions object: introspection
@@ -616,6 +624,123 @@ function serveGraphQL(port, resolvers, optsOrTls, tls) {
   if (optsOrTls && optsOrTls._type === 'GraphQLOptions') opts = optsOrTls;
   else tlsCfg = optsOrTls;
   graphqlMount(resolvers, opts);
+  return serve(port, tlsCfg);
+}
+
+// ── Apollo Federation v2 subgraph support ────────────────────────────────────
+
+// Federation v2 scalars + directive definitions + the `_Service` type.  These
+// must be present in the SDL handed to `buildSchema` so `@key` / `@external` /
+// etc. annotations on user types parse cleanly.  Mirrors the JVM preamble.
+const _GRAPHQL_FED_PREAMBLE =
+  'scalar _Any\n' +
+  'scalar _FieldSet\n' +
+  '\n' +
+  'directive @key(fields: _FieldSet!, resolvable: Boolean) repeatable on OBJECT | INTERFACE\n' +
+  'directive @external on FIELD_DEFINITION | OBJECT\n' +
+  'directive @requires(fields: _FieldSet!) on FIELD_DEFINITION\n' +
+  'directive @provides(fields: _FieldSet!) on FIELD_DEFINITION\n' +
+  'directive @shareable repeatable on FIELD_DEFINITION | OBJECT\n' +
+  'directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION\n' +
+  'directive @override(from: String!) on FIELD_DEFINITION\n' +
+  'directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA\n' +
+  '\n' +
+  'type _Service {\n  sdl: String!\n}\n';
+
+// Assemble the federated SDL: preamble + user SDL + the `_service` query
+// extension, and (when entity types are present) the `_Entity` union and the
+// `_entities` query extension.  Matches the JVM `buildFederationSdl`.
+function _graphqlBuildFederationSdl(userSdl, entityTypeNames) {
+  let sdl = _GRAPHQL_FED_PREAMBLE + userSdl + '\nextend type Query {\n  _service: _Service!\n}\n';
+  if (entityTypeNames.length > 0) {
+    const union = entityTypeNames.slice().sort().join(' | ');
+    sdl += '\nunion _Entity = ' + union + '\n';
+    sdl += 'extend type Query {\n  _entities(representations: [_Any!]!): [_Entity]!\n}\n';
+  }
+  return sdl;
+}
+
+// Read `__typename` off a resolved entity, whether it's a ScalaScript Map or a
+// plain object — used by the `_Entity` union's resolveType and the `_entities`
+// representation dispatch.
+function _graphqlTypename(obj) {
+  if (obj instanceof Map) return obj.get('__typename');
+  if (obj && typeof obj === 'object') return obj.__typename;
+  return undefined;
+}
+
+// Register the `_Entity` union's type resolver on a built federated schema so
+// graphql-js can pick the concrete object type for each resolved entity by its
+// `__typename`.  Mirrors the JVM `_Entity` TypeResolver.
+function _graphqlApplyEntityUnion(schema, g) {
+  const t = schema.getType('_Entity');
+  if (t) t.resolveType = function(obj) { return _graphqlTypename(obj) || null; };
+}
+
+// graphqlSubgraphMount(resolvers[, entityResolvers][, opts]) — like
+// `graphqlMount` but adds Federation v2 subgraph support: a `_service { sdl }`
+// field returning the *user* SDL and (when entity resolvers are supplied) an
+// `_entities(representations:)` resolver dispatching each representation to the
+// matching entity resolver by `__typename`.  The 2nd/3rd args are discriminated
+// by `_type` (`GraphQLFederationEntities` vs `GraphQLOptions`).
+function graphqlSubgraphMount(resolvers, a, b) {
+  if (_graphqlSdl == null) {
+    throw new Error('No graphql SDL registered — add a ```graphql block before graphqlSubgraphMount');
+  }
+  let entities = {}, opts = null;
+  for (const arg of [a, b]) {
+    if (arg && arg._type === 'GraphQLFederationEntities') entities = arg.entities || {};
+    else if (arg && arg._type === 'GraphQLOptions')        opts = arg;
+  }
+  const userSdl   = _graphqlSdl;
+  const entityKeys = Object.keys(entities);
+  const fedSdl    = _graphqlBuildFederationSdl(userSdl, entityKeys);
+
+  // Inject _service (+ _entities) into the query resolver table.
+  const serviceResolver = function() { return new Map([['sdl', userSdl]]); };
+  const extraQuery = { '_service': serviceResolver };
+  if (entityKeys.length > 0) {
+    extraQuery['_entities'] = function(args) {
+      const reps = args instanceof Map ? args.get('representations') : null;
+      const list = Array.isArray(reps) ? reps : [];
+      return list.map(function(rep) {
+        // Representations arrive as plain `_Any` objects; convert to a
+        // ScalaScript Map so the entity resolver can index `rep("id")`.
+        const m = _jsonConvert(rep);
+        const typeName = _graphqlTypename(m);
+        const fn = entities[typeName];
+        return (typeof fn === 'function') ? fn(m) : null;
+      });
+    };
+  }
+  const fedResolvers = GraphQL.resolvers({
+    query:        Object.assign({}, resolvers.query, extraQuery),
+    mutation:     resolvers.mutation,
+    subscription: resolvers.subscription,
+    scalars:      resolvers.scalars,
+    loaders:      resolvers.loaders,
+  });
+
+  // Build the federated schema, wire the _Entity union resolver, and reuse the
+  // standard handler (scalars / subscriptions wiring happen inside it).
+  const built = GraphQL.schema(fedSdl);
+  _graphqlApplyEntityUnion(built.schema, require('graphql'));
+  const handler = graphqlHandler(built, fedResolvers, opts);
+  route('POST', '/graphql')(handler);
+  route('GET',  '/graphql')(handler);
+}
+
+// serveSubgraph(port, resolvers[, entityResolvers][, opts][, tls]) — mount a
+// Federation v2 subgraph + start an HTTP server.  Like `serveGraphQL`, a 3rd/4th
+// arg that is neither a GraphQLFederationEntities nor a GraphQLOptions is treated
+// as the `tls` config.
+function serveSubgraph(port, resolvers, a, b, tls) {
+  let tlsCfg = tls;
+  for (const arg of [a, b]) {
+    if (arg && (arg._type === 'GraphQLFederationEntities' || arg._type === 'GraphQLOptions')) continue;
+    if (arg !== undefined && arg !== null && tlsCfg === undefined) tlsCfg = arg;
+  }
+  graphqlSubgraphMount(resolvers, a, b);
   return serve(port, tlsCfg);
 }
 

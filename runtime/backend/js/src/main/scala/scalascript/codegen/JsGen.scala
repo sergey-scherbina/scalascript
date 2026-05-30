@@ -8317,7 +8317,8 @@ class JsGen(
                      allText.contains("GraphQL.") || allText.contains("serveGraphQL") ||
                      allText.contains("graphqlMount") || allText.contains("graphqlHandler") ||
                      allText.contains("graphqlQuery") || allText.contains("graphqlSse") ||
-                     allText.contains("graphqlSubscribe")
+                     allText.contains("graphqlSubscribe") || allText.contains("serveSubgraph") ||
+                     allText.contains("graphqlSubgraphMount")
     if hasGraphql then { caps += Graphql; caps += HtmlDsl; caps += Jwt; caps += WsServer; caps += Async }
     caps.toSet
 

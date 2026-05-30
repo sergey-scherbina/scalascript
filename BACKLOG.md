@@ -5888,7 +5888,7 @@ dep where noted) and verified with a live `node` round-trip in `NodeBackendGraph
   No `graphql-ws` dep — buffered SSE response + a raw masked RFC-6455 client (`graphqlSubscribe`) on `graphql`
   ^16's `subscribe`. Node round-trip tests cover both the SSE and WS paths. _(landed 2026-05-30)_
 
-- [ ] **graphql-js-federation** — Apollo Federation v2 subgraph on graphql-js: `graphqlSubgraphMount` /
+- [x] **graphql-js-federation** _(landed 2026-05-30)_ — Apollo Federation v2 subgraph on graphql-js: `graphqlSubgraphMount` /
   `serveSubgraph` prepend the Federation v2 SDL preamble (`_Any`/`_FieldSet`, directives, `_Service`,
   `_entities`/`_Entity`) and wire the `_entities` + `__typename` resolvers, mirroring graphql-p12.
   Pure-SDL approach (no extra dep). Node conformance tests.

@@ -20,8 +20,11 @@ import scalascript.ir.QualifiedName
  *  graphql-transport-ws (`/graphql/ws`, mounted automatically when the resolver
  *  set declares subscriptions) plus a buffered GraphQL-over-SSE response on
  *  `POST /graphql` with `Accept: text/event-stream`; the `graphqlSse` /
- *  `graphqlSubscribe` clients consume them.  Federation and persisted-operation
- *  policy are JVM-only for now — the JS runtime omits them. */
+ *  `graphqlSubscribe` clients consume them.  Apollo Federation v2 subgraphs are
+ *  supported via `GraphQL.entityResolvers` + `graphqlSubgraphMount` /
+ *  `serveSubgraph` (federation SDL preamble, `_service { sdl }`, and
+ *  `_entities` / `__typename` resolution).  Persisted-operation policy is
+ *  JVM-only for now — the JS runtime omits it. */
 val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("GraphQL.schema")     -> RuntimeCall("GraphQL.schema"),
   QualifiedName("GraphQL.resolvers")  -> RuntimeCall("GraphQL.resolvers"),
@@ -34,4 +37,7 @@ val JsGraphqlIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("graphqlQuery")      -> RuntimeCall("graphqlQuery"),
   QualifiedName("graphqlSse")        -> RuntimeCall("graphqlSse"),
   QualifiedName("graphqlSubscribe")  -> RuntimeCall("graphqlSubscribe"),
+  QualifiedName("GraphQL.entityResolvers") -> RuntimeCall("GraphQL.entityResolvers"),
+  QualifiedName("graphqlSubgraphMount")    -> RuntimeCall("graphqlSubgraphMount"),
+  QualifiedName("serveSubgraph")           -> RuntimeCall("serveSubgraph"),
 )
