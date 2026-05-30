@@ -617,51 +617,64 @@ private[interpreter] object EvalRuntime:
               FlatMap(funC, fv =>
                 interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
 
-    // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
-    // Desugar: read current value, apply base-op, write back to interp.globals.
-    case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
-        if op.value.lengthIs > 1 && op.value.last == '=' &&
-           !BlockRuntime.isCompareOp(op.value) =>
-      val baseOp = op.value.init
-      if argClause.values.lengthCompare(1) == 0 then
-        val rhsC = eval(argClause.values.head, env, interp)
-        eval(lhs, env, interp).flatMap { lhsV =>
-          rhsC.flatMap { rv =>
-            interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
-              interp.globals(lhs.value) = newV; Computation.PureUnit } } }
-      else
-        eval(lhs, env, interp).flatMap { lhsV =>
-          val argComps = argClause.values.map(eval(_, env, interp))
-          interp.threadValues(argComps) { argVs =>
-            interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
-              interp.globals(lhs.value) = newV
-              Computation.PureUnit
+    // Infix operators — handles both plain binary (a + b) and compound
+    // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
+    // Term.ApplyInfix.After_4_6_0.unapply, which allocates a Tuple4 even for
+    // binary ops where the compound-assignment guard then fails (~10 % of CPU
+    // time on tight arithmetic loops).  The op-suffix check is a cheap char
+    // test; the unapply is only needed if we actually take the compound path.
+    case app: Term.ApplyInfix =>
+      val opStr = app.op.value
+      app.lhs match
+        // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
+        // Guard: operator ends with '=' but is not a comparison operator.
+        case lhsName: Term.Name
+            if opStr.length > 1 && opStr.last == '=' && !BlockRuntime.isCompareOp(opStr) =>
+          val baseOp   = opStr.init
+          val argVals  = app.argClause.values
+          if argVals.lengthCompare(1) == 0 then
+            val rhsC = eval(argVals.head, env, interp)
+            eval(lhsName, env, interp).flatMap { lhsV =>
+              rhsC.flatMap { rv =>
+                interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
+                  interp.globals(lhsName.value) = newV; Computation.PureUnit } } }
+          else
+            eval(lhsName, env, interp).flatMap { lhsV =>
+              val argComps = argVals.map(eval(_, env, interp))
+              interp.threadValues(argComps) { argVs =>
+                interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
+                  interp.globals(lhsName.value) = newV
+                  Computation.PureUnit
+                }
+              }
             }
-          }
-        }
-
-    // Infix operators: a op b
-    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      // Binary fast path: single rhs arg (covers all arithmetic/comparison).
-      // Avoids argComps list, extractPureValues ArrayBuffer, and infix List wrap.
-      if argClause.values.lengthCompare(1) == 0 then
-        val lhsC = eval(lhs, env, interp)
-        val rhsC = eval(argClause.values.head, env, interp)
-        (lhsC, rhsC) match
-          case (Pure(lv), Pure(rv)) => interp.infix2(lv, op.value, rv, env)
-          case (Pure(lv), _)        => FlatMap(rhsC, rv => interp.infix2(lv, op.value, rv, env))
-          case (_, Pure(rv))        => FlatMap(lhsC, lv => interp.infix2(lv, op.value, rv, env))
-          case _                    => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, op.value, rv, env)))
-      else
-        val lhsC     = eval(lhs, env, interp)
-        val argComps = argClause.values.map(eval(_, env, interp))
-        val argVsInfix = extractPureValues(argComps)
-        lhsC match
-          case Pure(lhsV) if argVsInfix != null =>
-            interp.infix(lhsV, op.value, argVsInfix, env)
-          case _ =>
-            FlatMap(lhsC, lhsV =>
-              interp.threadValues(argComps)(argVs => interp.infix(lhsV, op.value, argVs, env)))
+        // Plain binary infix: a op b (all arithmetic, comparison, string ops …)
+        // Binary fast path: single rhs arg (covers all arithmetic/comparison).
+        // Nested match instead of (lhsC, rhsC) match to avoid Tuple2 allocation.
+        case lhs =>
+          val argVals = app.argClause.values
+          if argVals.lengthCompare(1) == 0 then
+            val lhsC = eval(lhs, env, interp)
+            val rhsC = eval(argVals.head, env, interp)
+            lhsC match
+              case Pure(lv) =>
+                rhsC match
+                  case Pure(rv) => interp.infix2(lv, opStr, rv, env)
+                  case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
+              case _ =>
+                rhsC match
+                  case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
+                  case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
+          else
+            val lhsC     = eval(lhs, env, interp)
+            val argComps = argVals.map(eval(_, env, interp))
+            val argVsInfix = extractPureValues(argComps)
+            lhsC match
+              case Pure(lhsV) if argVsInfix != null =>
+                interp.infix(lhsV, opStr, argVsInfix, env)
+              case _ =>
+                FlatMap(lhsC, lhsV =>
+                  interp.threadValues(argComps)(argVs => interp.infix(lhsV, opStr, argVs, env)))
 
     // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
     case Term.Select(_, Term.Name("!")) =>
