@@ -121,6 +121,14 @@ the contracts are explicit.
       Extract as `object X { val source = … }`; update the 5 reference sites to
       `X.source`. Verify emitted JVM source byte-identical via compile + JvmGen
       suites. Defer string helpers + genExpr/genStat clusters to a follow-up phase.
+- [ ] **jvmgen-split-p2** - Phase 2 of the `JvmGen.scala` split: extract the three
+      pure self-contained string-escaping helpers — `escapeStringLit`,
+      `scalaStringLiteral`, `jsLitForClientSql` (all `String => String`, no instance
+      state) — into a `JvmGenStringUtils` object (own file in `package
+      scalascript.codegen`), mirroring `JsGenStringUtils` from jsgen-split-p1. Add
+      `import JvmGenStringUtils.*` so the ~35 call sites stay unqualified. Verify
+      emitted JVM source byte-identical via compile + JvmGen suites. Defer
+      genExpr/genStat clusters to a follow-up phase.
 
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
