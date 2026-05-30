@@ -111,7 +111,7 @@ the contracts are explicit.
       in `package scalascript.codegen`). The `lazy val JsRuntimeAsync = AsyncA +
       AsyncB` combinator stays in `JsGen` (method-time access). Verify byte-identical
       via compile + JsGen JS codegen suites. Completes the preamble-string split.
-- [ ] **jvmgen-split-p1** - Behavior-preserving preamble-string extraction from the
+- [x] **jvmgen-split-p1** _(landed 2026-05-30)_ - Behavior-preserving preamble-string extraction from the
       9.5k-line `JvmGen.scala` (now the largest codegen file), mirroring the proven
       `jsgen-split` pattern. Phase 1, pure non-interpolated `stripMargin` preamble
       `val`s → dedicated `JvmRuntime*.scala` in `package scalascript.codegen`:
