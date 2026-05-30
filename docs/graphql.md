@@ -1,7 +1,7 @@
 # GraphQL contract platform - spec
 
-**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11, 13 implemented on `main`.
-132 graphql-plugin tests total. Remaining: Phase 7 (typed codegen), 12 (federation).
+**Status:** Phases 1, 2 (partial), 3, 4, 5, 6, 8, 9, 10, 11, 12, 13 implemented on `main`.
+142 graphql-plugin tests total. Remaining: Phase 7 (typed codegen).
 
 **External references:** as of 2026-05-29, `https://spec.graphql.org/` lists
 GraphQL **September 2025** as the latest released GraphQL specification and a
@@ -968,19 +968,30 @@ added-field/removed-field, change map keys.
 
 Effort: ~4 days.
 
-### Phase 12 - Federation, Stitching, And Gateway Plugins
+### Phase 12 - Apollo Federation V2 Subgraph ✅ Landed (2026-05-30)
 
-**Goal:** larger deployments can compose multiple GraphQL services without
-putting federation into the base plugin.
+**Goal:** larger deployments can compose multiple GraphQL services; subgraph provides
+`_service { sdl }` and `_entities` for the gateway without a separate runtime library.
 
-Tasks:
+Implemented:
 
-- `runtime/std/graphql-federation-plugin/` optional plugin.
-- Federation v2 directive passthrough and subgraph SDL export.
-- Gateway/stitching exploration document.
-- Compatibility with typed resolver coordinates and schema diffing.
-
-Effort: ~6 days.
+- `GraphQLFederationEntities` case class: `Map[typeName, representation => Value]`.
+- `GraphQL.entityResolvers(entities)` intrinsic → `Foreign("GraphQLFederationEntities", …)`.
+- `graphqlSubgraphMount(resolvers[, entityResolvers][, opts])` — mounts `/graphql` with
+  full Federation v2 SDL preamble: `scalar _Any`, `scalar _FieldSet`, directives
+  `@key`, `@external`, `@requires`, `@provides`, `@shareable`, `@inaccessible`,
+  `@override`, `@tag`; `type _Service { sdl: String! }`; `extend type Query { _service }`.
+- `serveSubgraph(port, resolvers[, entityResolvers][, opts])` — same + `startServer`.
+- `_service { sdl }` resolver returns the original registered SDL (before federation wrapping).
+- When entity resolvers are provided: builds `union _Entity = T1 | T2 | …`,
+  adds `extend type Query { _entities(representations: [_Any!]!): [_Entity]! }`,
+  and dispatches by `__typename` to registered entity functions.
+- `FED_SCALAR_COERCING`: passthrough `Coercing` for `_Any`/`_FieldSet` so
+  `@key(fields: "…")` directive argument validation doesn't NPE.
+- `_Entity` TypeResolver reads `__typename` from Java Map to resolve concrete type.
+- `buildEngine` gains `federationMode: Boolean` and `entityTypeNames: Set[String]` parameters.
+- `GraphQLFederationTest`: 10 tests covering intrinsic registration, route registration,
+  `_service sdl`, `@key` passthrough, regular query, entity resolver dispatch.
 
 ### Phase 13 - SSE Subscription Delivery ✅ Landed (2026-05-30)
 
@@ -1017,7 +1028,7 @@ Implemented:
 | 9 | DataLoader batch/cache/failure tests | Runtime |
 | 10 | `GraphQLSecurityTest` (12) ✅; auth/redaction/tracing deferred | Runtime + security |
 | 11 | Schema export/import/diff/fixture tests | CLI + contract |
-| 12 | Federation plugin smoke tests | Plugin integration |
+| 12 | `GraphQLFederationTest` (10) ✅ | Subgraph mount, _service sdl, @key passthrough, entity dispatch |
 | 13 | `GraphQLSseTest` (11) ✅ | SSE content-type, body format, event delivery, fallthrough |
 
 Manual smoke with Apollo Sandbox or GraphiQL is useful, but it is not a

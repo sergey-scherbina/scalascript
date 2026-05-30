@@ -5722,11 +5722,15 @@ optional federation/realtime adapters.
   `test-graphql`, profile-aware schema export/diff, operation fixture tests.
   Spec: `docs/graphql.md §7 Phase 11`. Effort: ~4 days. Landed 2026-05-29 (14 tests).
 
-- [ ] **graphql-p12** — Federation/stitching/gateway plugins:
-  optional `graphql-federation-plugin`, Federation v2 directive passthrough,
-  subgraph SDL export, gateway/stitching design notes, typed coordinate
-  compatibility.
-  Spec: `docs/graphql.md §7 Phase 12`. Effort: ~6 days.
+- [x] **graphql-p12** — Apollo Federation v2 subgraph support:
+  `GraphQLFederationEntities` case class; `GraphQL.entityResolvers(entities)` intrinsic;
+  `graphqlSubgraphMount(resolvers[, entityResolvers][, opts])` and `serveSubgraph(port, ...)`
+  intrinsics that prepend Federation v2 SDL preamble (`scalar _Any/_FieldSet`, all federation
+  directives, `type _Service`, `extend type Query { _service }`, optional `_Entity` union +
+  `_entities`); passthrough `Coercing` for `_Any`/`_FieldSet` so `@key` arguments validate;
+  `_Entity` TypeResolver reads `__typename` from entity Map; `buildEngine` gains
+  `federationMode` + `entityTypeNames` parameters. `GraphQLFederationTest` 10 tests;
+  142 total graphql-plugin tests. ✓ Landed 2026-05-30.
 
 - [x] **graphql-p13** — SSE subscription delivery:
   Server: `Accept: text/event-stream` detection in `handleRequest`; subscription
