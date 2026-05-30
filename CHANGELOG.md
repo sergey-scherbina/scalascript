@@ -8,8 +8,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 - **perf/interpreter-framemap-option-hotpaths** — Ported two more safe slices
   from `perf/interpreter-opt`: direct `FrameMap.foreachEntry` iteration plus
-  cheaper `FrameMapN.flat`, and direct-match `Option.map` / `Option.flatMap`
-  paths adapted to the current null-sentinel `OptionV` representation.
+  cheaper `FrameMapN.flat`, and direct-match `Option.map` / `Option.flatMap` /
+  `Option.filter` paths adapted to the current null-sentinel `OptionV`
+  representation.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
