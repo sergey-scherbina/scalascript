@@ -190,33 +190,51 @@ private[interpreter] object StatRuntime:
     case d: Defn.Enum =>
       val enumName = d.name.value
       val caseFields = mutable.Map.empty[String, Value]
+      // Parameterless cases, in declaration order, for `EnumName.values`.
+      val enumValues = mutable.ListBuffer.empty[Value]
       val ctorEnv = envView
+      /** Bind a parameterless enum case as a singleton value, reachable both
+       *  bare (`Debit`) and qualified (`Side.Debit`), and matchable. */
+      def bindNullaryCase(caseName: String): Unit =
+        interp.parentTypes(caseName) = enumName
+        val v = Value.InstanceV(caseName, Map.empty)
+        env(caseName) = v
+        caseFields(caseName) = v
+        enumValues += v
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
           val ecParams      = ec.ctor.paramClauses.flatMap(_.values).toList
           val paramNames    = ecParams.map(_.name.value)
           val paramDefaults = ecParams.map(_.default)
-          if paramNames.nonEmpty then interp.typeFieldOrder(caseName) = paramNames
-          if paramNames.nonEmpty then
+          if paramNames.isEmpty then
+            bindNullaryCase(caseName)
+          else
+            interp.typeFieldOrder(caseName) = paramNames
             interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
-          if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
-          interp.parentTypes(caseName) = enumName
-          val enumFallbackCtor: List[Value] => Computation = args => {
-            val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-            Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
-          }
-          val noEnumDefaults = paramDefaults.forall(_.isEmpty)
-          val v: Value =
-            if paramNames.isEmpty then Value.InstanceV(caseName, Map.empty)
-            else if noEnumDefaults then
-              Value.NativeFnV(caseName, args =>
-                constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor))
-            else Value.NativeFnV(caseName, enumFallbackCtor)
-          env(caseName) = v
-          caseFields(caseName) = v
+            if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
+            interp.parentTypes(caseName) = enumName
+            val enumFallbackCtor: List[Value] => Computation = args => {
+              val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
+              Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
+            }
+            val noEnumDefaults = paramDefaults.forall(_.isEmpty)
+            val v: Value =
+              if noEnumDefaults then
+                Value.NativeFnV(caseName, args =>
+                  constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor))
+              else Value.NativeFnV(caseName, enumFallbackCtor)
+            env(caseName) = v
+            caseFields(caseName) = v
+        // `case A, B, C` (comma-separated parameterless cases) parses as a
+        // RepeatedEnumCase, not individual EnumCases — previously dropped.
+        case rec: Defn.RepeatedEnumCase =>
+          rec.cases.foreach(nm => bindNullaryCase(nm.value))
         case _ => ()
       }
+      // `EnumName.values` — declaration-ordered parameterless cases.
+      if !caseFields.contains("values") then
+        caseFields("values") = Value.ListV(enumValues.toList)
       env(enumName) = Value.InstanceV(enumName, caseFields.toMap)
 
     case d: Defn.Trait =>

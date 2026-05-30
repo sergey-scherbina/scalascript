@@ -6,6 +6,11 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **enum-value-support** - Scala 3 `enum` cases usable as values (bare +
+      qualified references, matching, `EnumName.values`) on all backends.
+      Spec: [`docs/enum-values.md`](docs/enum-values.md). ✓ Landed 2026-05-30:
+      handle `Defn.RepeatedEnumCase` in interpreter + JS codegen, JS emits an
+      enum companion; 11 tests incl. JVM/JS cross-backend conformance.
 - [x] **std-root-resolution** - Well-known standard-library root so external
       projects resolve bare `std/…` imports with no `ssc.std.path` config.
       Spec: [`docs/std-root-resolution.md`](docs/std-root-resolution.md).

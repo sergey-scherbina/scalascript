@@ -10,6 +10,7 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Tooling
 
+- [x] **enum-value-support** — Scala 3 `enum` cases usable as values (bare + qualified refs, matching, `EnumName.values`) across all backends. Spec `docs/enum-values.md`. ✓ Landed 2026-05-30: fixed `Defn.RepeatedEnumCase` (comma-separated `case A, B`) being dropped in `StatRuntime` (interpreter) and `JsGen` (JS), and JS now emits an `EnumName` companion with `values`; JVM already native. 11 tests (interpreter forms + interpreter/JVM/JS cross-backend conformance); suite green (1167).
 - [x] **std-root-resolution** — well-known std root so external projects (e.g. `busi`) resolve bare `std/…` imports with zero config. Spec `docs/std-root-resolution.md`. ✓ Landed 2026-05-30: `ImportResolver.discoverStdRoot` discovery chain — `ssc.std.path` / `SSC_STD_PATH` override → `libPath` → `<jarDir>/std` → dev walk-up for ancestor `runtime/std` → `~/.scalascript/std`; pure & unit-tested (8 tests, precedence + missing-candidate + filesystem-root guard). Unblocks busi's `import std/money.ssc` (dev jar finds `<repo>/runtime/std` automatically).
 
 ## Exact Numerics — v1.64

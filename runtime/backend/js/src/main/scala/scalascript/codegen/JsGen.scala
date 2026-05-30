@@ -9354,21 +9354,35 @@ class JsGen(
       line(s"const ${d.name.value} = ${genObjectAsExpr(d)};")
 
     case d: Defn.Enum =>
+      val enumName = d.name.value
+      val allCases = scala.collection.mutable.ListBuffer.empty[String]
+      val nullary  = scala.collection.mutable.ListBuffer.empty[String]
+      def emitNullary(caseName: String): Unit =
+        line(s"const $caseName = {_type: '$caseName'};")
+        line(jsTypedJsonRegisterProduct(caseName, Nil, None))
+        allCases += caseName; nullary += caseName
       d.templ.body.stats.foreach {
         case ec: Defn.EnumCase =>
           val caseName = ec.name.value
           val paramVals = ec.ctor.paramClauses.flatMap(_.values)
           val params = paramVals.map(_.name.value)
-          if params.isEmpty then
-            line(s"const $caseName = {_type: '$caseName'};")
-            line(jsTypedJsonRegisterProduct(caseName, Nil, None))
+          if params.isEmpty then emitNullary(caseName)
           else
             val paramsStr = paramListWithDefaults(paramVals)
             val fields = params.map(p => s"$p: $p").mkString(", ")
             line(s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }")
             line(jsTypedJsonRegisterProduct(caseName, params, caseName))
+            allCases += caseName
+        // `case A, B` (comma-separated parameterless cases) → RepeatedEnumCase.
+        case rec: Defn.RepeatedEnumCase =>
+          rec.cases.foreach(nm => emitNullary(nm.value))
         case _ => ()
       }
+      // Companion: qualified `EnumName.Case` refs + `EnumName.values` (the
+      // parameterless cases, in declaration order).
+      val members = allCases.map(c => s"$c: $c").mkString(", ")
+      val sep     = if members.isEmpty then "" else ", "
+      line(s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };")
 
     case _: Defn.Trait => () // erased
 
@@ -9532,23 +9546,33 @@ class JsGen(
         decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
         names += typeName
       case d: Defn.Enum =>
+        val enumName = d.name.value
+        val allCases = scala.collection.mutable.ListBuffer.empty[String]
+        val nullary  = scala.collection.mutable.ListBuffer.empty[String]
+        def emitNullary(caseName: String): Unit =
+          decls += s"const $caseName = {_type: '$caseName'};"
+          decls += jsTypedJsonRegisterProduct(caseName, Nil, None)
+          names += caseName; allCases += caseName; nullary += caseName
         d.templ.body.stats.foreach {
           case ec: Defn.EnumCase =>
             val caseName  = ec.name.value
             val paramVals = ec.ctor.paramClauses.flatMap(_.values)
             val params    = paramVals.map(_.name.value)
-            if params.isEmpty then
-              decls += s"const $caseName = {_type: '$caseName'};"
-              decls += jsTypedJsonRegisterProduct(caseName, Nil, None)
-              names += caseName
+            if params.isEmpty then emitNullary(caseName)
             else
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
               decls += s"function $caseName($paramsStr) { return {_type: '$caseName', $fields}; }"
               decls += jsTypedJsonRegisterProduct(caseName, params, caseName)
-              names += caseName
+              names += caseName; allCases += caseName
+          case rec: Defn.RepeatedEnumCase =>
+            rec.cases.foreach(nm => emitNullary(nm.value))
           case _ => ()
         }
+        val members = allCases.map(c => s"$c: $c").mkString(", ")
+        val sep     = if members.isEmpty then "" else ", "
+        decls += s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };"
+        names += enumName
       case _ => ()
     }
     val body = decls.mkString(" ")
