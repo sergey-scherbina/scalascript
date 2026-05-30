@@ -7626,7 +7626,7 @@ class JsGen(
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
-    private[codegen] val reachableNames: Option[Set[String]] = None):
+    private[codegen] val reachableNames: Option[Set[String]] = None) extends JsGenAnalysisQueries:
   import scala.meta.*
 
   private[codegen] val sb = StringBuilder()
@@ -7661,10 +7661,10 @@ class JsGen(
   // fname → set of all group members (populated by analyzeMutualRecursion before emit)
   private var mutualGroups: Map[String, Set[String]] = Map.empty
   // Effect operations declared in the module, as "Eff.op" strings.
-  private val effectOps: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  private[codegen] val effectOps: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
   // Functions that transitively perform effects — emitted in CPS form so callers
   // get a Free value (Pure plain value or Perform node) and can compose them.
-  private val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+  private[codegen] val effectfulFuns: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
   // Effect object names that carry the `val __multiShot__ = true` marker.
   private val multiShotEffects: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
   // Maps summon key "TC_A" → local param name "A$TC" for context-bound params
@@ -8592,27 +8592,6 @@ class JsGen(
       }.nonEmpty
     }
 
-  private def containsAwaitClient(tree: scala.meta.Tree): Boolean =
-    tree.collect {
-      case Term.Apply.After_4_6_0(Term.Name("awaitClient"), _) => ()
-    }.nonEmpty
-
-  private def isAwaitClientExpr(t: Term): Boolean = t match
-    case Term.Apply.After_4_6_0(Term.Name("awaitClient"), _) => true
-    case _ => false
-
-  // True when 2+ generators all use awaitClient — safe to lower to sequential awaits.
-  private def enumeratorsNeedAsyncFor(enums: List[Enumerator]): Boolean =
-    val generators = enums.collect { case Enumerator.Generator(_, rhs) => rhs }
-    generators.length >= 2 && generators.forall(isAwaitClientExpr)
-
-  /** True if `Eff.op` is a declared effect operation. */
-  private def isEffectOpRef(eff: String, op: String): Boolean =
-    effectOps.contains(s"$eff.$op")
-
-  /** True if `name` resolves to an effectful function. */
-  private def isEffectfulFun(name: String): Boolean =
-    effectfulFuns.contains(name)
 
   /** Walk the module in document order, grouping consecutive same-type blocks into
    *  Segment values.  ScalaScript blocks are transpiled to JS; scala blocks are
@@ -9498,35 +9477,6 @@ class JsGen(
       line(s"return ${genExpr(other)};")
 
   // Returns true if term contains a call to fname NOT in tail position.
-  private def hasNonTailSelfCall(term: Term, fname: String, tailPos: Boolean): Boolean =
-    import scala.meta.*
-    term match
-      case Term.Apply.After_4_6_0(Term.Name(`fname`), argClause) =>
-        if tailPos then argClause.values.collect { case t: Term => t }
-                                        .exists(hasNonTailSelfCall(_, fname, tailPos = false))
-        else true
-      case t: Term.If =>
-        hasNonTailSelfCall(t.cond,  fname, tailPos = false) ||
-        hasNonTailSelfCall(t.thenp, fname, tailPos = tailPos) ||
-        hasNonTailSelfCall(t.elsep, fname, tailPos = tailPos)
-      case Term.Block(stats) =>
-        stats.dropRight(1).exists {
-          case t: Term => hasNonTailSelfCall(t, fname, tailPos = false)
-          case _       => false
-        } || stats.lastOption.exists {
-          case t: Term => hasNonTailSelfCall(t, fname, tailPos = tailPos)
-          case _       => false
-        }
-      case t: Term.Match =>
-        hasNonTailSelfCall(t.expr, fname, tailPos = false) ||
-        t.casesBlock.cases.exists(c => hasNonTailSelfCall(c.body, fname, tailPos = tailPos))
-      case other =>
-        anywhereContainsSelfCall(other, fname)
-
-  private def anywhereContainsSelfCall(tree: scala.meta.Tree, fname: String): Boolean =
-    tree match
-      case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
-      case t => t.children.exists(anywhereContainsSelfCall(_, fname))
 
   private def genFunctionBody(stats: List[Stat]): Unit =
     if stats.isEmpty then
