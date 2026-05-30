@@ -198,6 +198,83 @@ private[interpreter] object EvalRuntime:
               Computation.PureUnit
           case _ => null
 
+  // Head names of the special-form `Term.Apply` cases handled below (effect
+  // runners, `validate`, `bench`, `receive`, `Focus`, …). A plain application
+  // `f(args)` whose head is a `Term.Name` NOT in this set can skip the entire
+  // special-form scan and go straight to generic call dispatch — that linear
+  // scan was the dominant self-cost of `eval` on hot recursive calls (JFR).
+  private val reservedApplyHeads: Set[String] = Set(
+    "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
+    "runActors", "runAsync", "runAsyncParallel", "runAuthWith", "runCache", "runCacheBypass",
+    "runClock", "runClockAt", "runEnv", "runEnvWith", "runEphemeralStorage", "runHttp",
+    "runHttpStub", "runLogger", "runLoggerJson", "runLoggerToList", "runRandom",
+    "runRandomSeeded", "runRetry", "runRetryNoSleep", "runState", "runStorage", "runStream",
+    "runTx", "timeout", "validate", "Focus")
+
+  /** Generic positional/named call dispatch for `f(args...)`, shared by the
+   *  plain-application fast path and the `case _` fallthrough of `app.fun`. */
+  private def evalPlainApply(app: Term.Apply, env: Env, interp: Interpreter): Computation =
+    // Flatten nested Apply nodes so that curried calls like `f(a)(using b)`
+    // are collected into a single `interp.callValue(f, [a, b])` invocation.
+    val (baseFun, allArgTerms) = collectApplyArgs(app)
+    val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
+    val funC     = eval(baseFun, env, interp)
+    if hasNamedArgs then
+      val namedComps = allArgTerms.map {
+        case Term.Assign(Term.Name(n), rhs) => (Some(n), eval(rhs, env, interp))
+        case other                          => (None,    eval(other, env, interp))
+      }
+      val comps = namedComps.map(_._2)
+      funC match
+        case Pure(fv) if comps.forall(_.isInstanceOf[Pure]) =>
+          val namedVals = namedComps.map { case (k, Pure(v)) => (k, v); case (k, _) => (k, Value.UnitV) }
+          CallRuntime.callValueNamed(fv, namedVals, env, interp)
+        case _ =>
+          FlatMap(funC, fv =>
+            interp.threadValues(comps)(argVals =>
+              CallRuntime.callValueNamed(fv, namedComps.map(_._1).zip(argVals), env, interp)))
+    else if allArgTerms.lengthCompare(1) == 0 then
+      val arg1C = eval(allArgTerms.head, env, interp)
+      funC match
+        case Pure(fv) =>
+          arg1C match
+            case Pure(av) => interp.callValue1(fv, av, env)
+            case _        => FlatMap(arg1C, av => interp.callValue1(fv, av, env))
+        case _ =>
+          arg1C match
+            case Pure(av) => FlatMap(funC, fv => interp.callValue1(fv, av, env))
+            case _        => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
+    else if allArgTerms.lengthCompare(2) == 0 then
+      val arg1C = eval(allArgTerms.head, env, interp)
+      val arg2C = eval(allArgTerms(1),   env, interp)
+      funC match
+        case Pure(fv) =>
+          arg1C match
+            case Pure(av1) =>
+              arg2C match
+                case Pure(av2) => interp.callValue(fv, av1 :: av2 :: Nil, env)
+                case _         => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+            case _ =>
+              arg2C match
+                case Pure(av2) => FlatMap(arg1C, av1 => interp.callValue(fv, av1 :: av2 :: Nil, env))
+                case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env)))
+        case _ =>
+          arg1C match
+            case Pure(av1) if arg2C.isInstanceOf[Pure] =>
+              FlatMap(funC, fv => interp.callValue(fv, av1 :: arg2C.asInstanceOf[Pure].value :: Nil, env))
+            case _ =>
+              FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))))
+    else
+      val argComps = allArgTerms.map(eval(_, env, interp))
+      val argVsPos = extractPureValues(argComps)
+      if argVsPos != null then
+        funC match
+          case Pure(fv) => interp.callValue(fv, argVsPos, env)
+          case _        => FlatMap(funC, fv => interp.callValue(fv, argVsPos, env))
+      else
+        FlatMap(funC, fv =>
+          interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
+
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
     // DAP step/breakpoint hook: called for every term so DebugHooks can decide
@@ -253,6 +330,17 @@ private[interpreter] object EvalRuntime:
       else
         interp.ensurePluginsLoaded()
         Pure(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
+
+    // Fast path: plain application `f(args)` where the head is a user-level
+    // `Term.Name` that is NOT a reserved special form. Skips the ~40
+    // special-form `Term.Apply` cases below — a linear scan that dominated
+    // eval's self-time on hot recursive calls (e.g. fib). Curried calls
+    // (head is itself an Apply) and method calls (head is a Select) fall
+    // through to the full match unchanged.
+    case app: Term.Apply if (app.fun match
+          case n: Term.Name => !reservedApplyHeads.contains(n.value)
+          case _            => false) =>
+      evalPlainApply(app, env, interp)
 
     // Special form: handle(body) { case Eff.op(args, resume) => ... }
     case Term.Apply.After_4_6_0(
@@ -760,77 +848,7 @@ private[interpreter] object EvalRuntime:
             FlatMap(qualC, qualV =>
               interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
         case _ =>
-          // Flatten nested Apply nodes so that curried calls like `f(a)(using b)`
-          // are collected into a single `interp.callValue(f, [a, b])` invocation.
-          // This is needed so that explicitly-supplied `using` arguments are
-          // combined with regular arguments before `callFun` decides whether to
-          // auto-resolve given instances.
-          val (baseFun, allArgTerms) = collectApplyArgs(app)
-          val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
-          val funC     = eval(baseFun, env, interp)
-          // Collect (Option[argName], Computation) pairs to preserve name info
-          // when any named arg is present.  Pure positional calls take the fast path.
-          if hasNamedArgs then
-            val namedComps = allArgTerms.map {
-              case Term.Assign(Term.Name(n), rhs) => (Some(n), eval(rhs, env, interp))
-              case other                          => (None,    eval(other, env, interp))
-            }
-            val comps = namedComps.map(_._2)
-            funC match
-              case Pure(fv) if comps.forall(_.isInstanceOf[Pure]) =>
-                val namedVals = namedComps.map { case (k, Pure(v)) => (k, v); case (k, _) => (k, Value.UnitV) }
-                CallRuntime.callValueNamed(fv, namedVals, env, interp)
-              case _ =>
-                FlatMap(funC, fv =>
-                  interp.threadValues(comps)(argVals =>
-                    CallRuntime.callValueNamed(fv, namedComps.map(_._1).zip(argVals), env, interp)))
-          else if allArgTerms.lengthCompare(1) == 0 then
-            // Single-arg fast path: avoid extractPureValues ArrayBuffer+toList for the
-            // most common call shape: f(x) with one pure arg.
-            // Nested match instead of (funC, arg1C) match to avoid Tuple2 allocation.
-            val arg1C = eval(allArgTerms.head, env, interp)
-            funC match
-              case Pure(fv) =>
-                arg1C match
-                  case Pure(av) => interp.callValue1(fv, av, env)
-                  case _        => FlatMap(arg1C, av => interp.callValue1(fv, av, env))
-              case _ =>
-                arg1C match
-                  case Pure(av) => FlatMap(funC, fv => interp.callValue1(fv, av, env))
-                  case _        => FlatMap(funC, fv => FlatMap(arg1C, av => interp.callValue1(fv, av, env)))
-          else if allArgTerms.lengthCompare(2) == 0 then
-            // Two-arg fast path: f(a, b) — second most common shape.
-            // Uses callValue (not callValue2) to preserve TCO for recursive named functions.
-            // Nested match instead of (funC, arg1C, arg2C) match to avoid Tuple3 allocation.
-            val arg1C = eval(allArgTerms.head, env, interp)
-            val arg2C = eval(allArgTerms(1),   env, interp)
-            funC match
-              case Pure(fv) =>
-                arg1C match
-                  case Pure(av1) =>
-                    arg2C match
-                      case Pure(av2) => interp.callValue(fv, av1 :: av2 :: Nil, env)
-                      case _         => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))
-                  case _ =>
-                    arg2C match
-                      case Pure(av2) => FlatMap(arg1C, av1 => interp.callValue(fv, av1 :: av2 :: Nil, env))
-                      case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env)))
-              case _ =>
-                arg1C match
-                  case Pure(av1) if arg2C.isInstanceOf[Pure] =>
-                    FlatMap(funC, fv => interp.callValue(fv, av1 :: arg2C.asInstanceOf[Pure].value :: Nil, env))
-                  case _ =>
-                    FlatMap(funC, fv => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => interp.callValue(fv, av1 :: av2 :: Nil, env))))
-          else
-            val argComps = allArgTerms.map(eval(_, env, interp))
-            val argVsPos = extractPureValues(argComps)
-            if argVsPos != null then
-              funC match
-                case Pure(fv) => interp.callValue(fv, argVsPos, env)
-                case _        => FlatMap(funC, fv => interp.callValue(fv, argVsPos, env))
-            else
-              FlatMap(funC, fv =>
-                interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
+          evalPlainApply(app, env, interp)
 
     // Infix operators — handles both plain binary (a + b) and compound
     // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
