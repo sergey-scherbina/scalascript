@@ -43,6 +43,9 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   actor-group delivery paths now avoid the same temporary `Option` wrappers.
   Actor receive-loop dispatch now avoids boxing the matched computation before
   returning it to the scheduler.
+  Named one- and two-argument function fast paths now reuse the interpreter's
+  cached self-closure frame, and top-level/block statement execution no longer
+  allocates a `zipWithIndex` tuple list just to find the last statement.
   Built-in HTML rendering and `attr := value` dispatch now use direct field
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now

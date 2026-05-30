@@ -268,9 +268,11 @@ private[interpreter] object SectionRuntime:
         .orElse(exported.get(name))
 
   def execBlockStats(stats: List[Stat], interp: Interpreter): Unit =
-    stats.zipWithIndex.foreach { (s, i) =>
-      interp.execStat(s, interp.globals, printResult = i == stats.length - 1)
-    }
+    var rest = stats
+    while rest.nonEmpty do
+      val stat = rest.head
+      rest = rest.tail
+      interp.execStat(stat, interp.globals, printResult = rest.isEmpty)
 
   def execBlock(node: ScalaNode, interp: Interpreter): Unit =
     ScalaNode.fold(node) {
