@@ -76,7 +76,7 @@ the contracts are explicit.
       (`selfInstallCommand` / `scriptCommand` / `stagePrecompiledDepArtifacts` /
       `packageLib`). Higher coupling — move the dependency cluster together.
       Keep command behavior and `CliCommand` registry contracts unchanged.
-- [ ] **jsgen-split-p1** - Behavior-preserving extraction from the 12k-line
+- [x] **jsgen-split-p1** _(landed 2026-05-30)_ - Behavior-preserving extraction from the 12k-line
       `runtime/backend/js/.../codegen/JsGen.scala`, mirroring the established
       `JsRuntime*.scala` (preamble strings) + `intrinsics/*.scala` (per-intrinsic
       codegen) split. Phase 1 leaf clusters: (a) large embedded runtime-preamble
