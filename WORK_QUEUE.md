@@ -530,6 +530,37 @@ ScalaScript's own registry work stays queued.
 
 - [x] **wallet-vault-mpc-zengo** — ZenGo X Enterprise MPC adapter: `payments/wallet/wallet-vault-mpc-zengo/` sbt subproject; `ZenGoRemoteSigningClient` extending `HttpRemoteSigningClient`; HMAC-SHA256 request auth (`X-ZENGO-KEY` + `X-ZENGO-TIMESTAMP` + `X-ZENGO-SIGNATURE` over `timestamp|method|path|sha256(body)`); `GET /v1/health`; `GET /v1/accounts`; `POST /v1/signing/requests` → `GET /v1/signing/requests/{id}` async poll; `ZenGoVault` named constructor; `ZenGoPlugin` ServiceLoader; 14 tests. Spec: `docs/wallet-vault-mpc.md §zengo`.
 
+## CLI improvements (post command-SPI)
+
+- [ ] **cli-gate-flaky-tests** — The 4 chronically-red `cli` tests fail on clean
+  main all session: `JvmDirectDriverTest` (×3 — in-process Scala3 compiler driver)
+  and `TypedRouteDistributedExampleCliTest` ("renders SPA with raw JS"). They are
+  environment-dependent, not regressions. First confirm the root cause (missing
+  scala-cli / driver classpath), then env-gate them like the WS load tests
+  (`assume(...)` / cancel) so `cli/test` is green-means-green. If any failure is a
+  real regression, fix instead of gating. Goal: 0 spurious failures in `cli/test`.
+
+- [ ] **dap-value-exhaustiveness** — `DapSession.valueToDap`'s match over the
+  interpreter `Value` enum has broken the `-Werror` build twice this session as
+  concurrent commits added `BigIntV` then `DecimalV`. Add a resilient fallback
+  (e.g. `case other => (IValue.show(other), other.getClass.getSimpleName)`) so new
+  `Value` variants don't break the dap module / CLI compilation. Document the
+  trade-off (loses the compiler's "update DAP" nudge) in a one-line comment.
+
+- [ ] **cli-command-context-spi** — Unlock plugin-provided `ssc` subcommands:
+  extract a stable `CommandContext` (the cli-internal surface commands need —
+  `compileViaBackend`, `expectText`, artifact IO, …) so a `CliCommand` no longer
+  depends on package-private Main helpers directly. Then `.sscpkg` plugins on the
+  classpath can contribute commands via the existing ServiceLoader path. Spec
+  required (new SPI): `docs/cli-command-spi.md §plugin-commands`. Larger,
+  design-first effort.
+
+- [ ] **cli-main-helper-split** — Main.scala is ~8,900 lines of shared helpers now
+  that command logic moved to classes. Extract cohesive helper clusters (build
+  pipeline, synthetic-request/render helpers, artifact IO) into focused files.
+  Lower priority — diminishing navigational return; helpers are genuinely shared
+  infra; behavior-preserving extraction only.
+
 ---
 
 > Finish a task: remove `.work/active/<slug>.claim`, mark `[x]` here — same push.
