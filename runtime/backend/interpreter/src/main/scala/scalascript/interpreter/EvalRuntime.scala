@@ -342,6 +342,102 @@ private[interpreter] object EvalRuntime:
           case _            => false) =>
       evalPlainApply(app, env, interp)
 
+    // ── Hot non-Apply terms, hoisted above the ~40 special-form `Term.Apply`
+    //    cases below.  These types (ApplyInfix, If, Block, Match) are siblings
+    //    of Term.Apply under Term, so their relative order with the Apply cases
+    //    is irrelevant to semantics — but placing them first means recursive
+    //    workloads (fib: If + 4×ApplyInfix per call; arith loops: ApplyInfix
+    //    per iteration; pattern matching: Match) no longer pay ~40 failing
+    //    instanceof/extractor checks on every visit.  JFR showed eval's own
+    //    match body dominating self-time on these workloads.
+
+    // Infix operators — handles both plain binary (a + b) and compound
+    // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
+    // Term.ApplyInfix.After_4_6_0.unapply, which allocates a Tuple4 even for
+    // binary ops where the compound-assignment guard then fails.
+    case app: Term.ApplyInfix =>
+      val opStr = app.op.value
+      app.lhs match
+        // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
+        case lhsName: Term.Name
+            if opStr.length > 1 && opStr.last == '=' && !BlockRuntime.isCompareOp(opStr) =>
+          val baseOp   = opStr.init
+          val argVals  = app.argClause.values
+          if argVals.lengthCompare(1) == 0 then
+            val rhsC = eval(argVals.head, env, interp)
+            eval(lhsName, env, interp).flatMap { lhsV =>
+              rhsC.flatMap { rv =>
+                interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
+                  interp.globals(lhsName.value) = newV; Computation.PureUnit } } }
+          else
+            eval(lhsName, env, interp).flatMap { lhsV =>
+              val argComps = argVals.map(eval(_, env, interp))
+              interp.threadValues(argComps) { argVs =>
+                interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
+                  interp.globals(lhsName.value) = newV
+                  Computation.PureUnit
+                }
+              }
+            }
+        // Plain binary infix: a op b
+        case lhs =>
+          val argVals = app.argClause.values
+          if argVals.lengthCompare(1) == 0 then
+            val rhsTerm = argVals.head
+            val fast =
+              if interp.debugHooks.isEmpty then fastPrimitiveInfixTerm(lhs, opStr, rhsTerm, env, interp)
+              else null
+            if fast != null then fast
+            else
+              val lhsC = eval(lhs, env, interp)
+              val rhsC = eval(rhsTerm, env, interp)
+              lhsC match
+                case Pure(lv) =>
+                  rhsC match
+                    case Pure(rv) => interp.infix2(lv, opStr, rv, env)
+                    case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
+                case _ =>
+                  rhsC match
+                    case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
+                    case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
+          else
+            val lhsC     = eval(lhs, env, interp)
+            val argComps = argVals.map(eval(_, env, interp))
+            val argVsInfix = extractPureValues(argComps)
+            lhsC match
+              case Pure(lhsV) if argVsInfix != null =>
+                interp.infix(lhsV, opStr, argVsInfix, env)
+              case _ =>
+                FlatMap(lhsC, lhsV =>
+                  interp.threadValues(argComps)(argVs => interp.infix(lhsV, opStr, argVs, env)))
+
+    // if/then/else
+    case t: Term.If =>
+      eval(t.cond, env, interp) match
+        case Pure(Value.BoolV(true))  => eval(t.thenp, env, interp)
+        case Pure(Value.BoolV(false)) => eval(t.elsep, env, interp)
+        case Pure(other)              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
+        case condC                    => FlatMap(condC, {
+          case Value.BoolV(true)  => eval(t.thenp, env, interp)
+          case Value.BoolV(false) => eval(t.elsep, env, interp)
+          case other              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
+        })
+
+    // Block { stmts; expr }
+    case Term.Block(stats) =>
+      BlockRuntime.evalBlock(stats, env, interp)
+
+    // Pattern match — compiled-matcher cache keyed by the Term.Match node.
+    case t: Term.Match =>
+      var compiled = interp.matchCache.get(t)
+      if compiled == null then
+        compiled = PatternRuntime.compileMatch(t, interp)
+        interp.matchCache.put(t, compiled)
+      val compiledM = compiled
+      eval(t.expr, env, interp) match
+        case Pure(scrutV) => compiledM.run(scrutV, env, interp)
+        case exprC        => FlatMap(exprC, scrutV => compiledM.run(scrutV, env, interp))
+
     // Special form: handle(body) { case Eff.op(args, resume) => ... }
     case Term.Apply.After_4_6_0(
       Term.Apply.After_4_6_0(Term.Name("handle"), bodyArgClause),
@@ -850,71 +946,6 @@ private[interpreter] object EvalRuntime:
         case _ =>
           evalPlainApply(app, env, interp)
 
-    // Infix operators — handles both plain binary (a + b) and compound
-    // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
-    // Term.ApplyInfix.After_4_6_0.unapply, which allocates a Tuple4 even for
-    // binary ops where the compound-assignment guard then fails (~10 % of CPU
-    // time on tight arithmetic loops).  The op-suffix check is a cheap char
-    // test; the unapply is only needed if we actually take the compound path.
-    case app: Term.ApplyInfix =>
-      val opStr = app.op.value
-      app.lhs match
-        // Compound assignment: x += e, x -= e, x *= e, x /= e, x %= e
-        // Guard: operator ends with '=' but is not a comparison operator.
-        case lhsName: Term.Name
-            if opStr.length > 1 && opStr.last == '=' && !BlockRuntime.isCompareOp(opStr) =>
-          val baseOp   = opStr.init
-          val argVals  = app.argClause.values
-          if argVals.lengthCompare(1) == 0 then
-            val rhsC = eval(argVals.head, env, interp)
-            eval(lhsName, env, interp).flatMap { lhsV =>
-              rhsC.flatMap { rv =>
-                interp.infix2(lhsV, baseOp, rv, env).flatMap { newV =>
-                  interp.globals(lhsName.value) = newV; Computation.PureUnit } } }
-          else
-            eval(lhsName, env, interp).flatMap { lhsV =>
-              val argComps = argVals.map(eval(_, env, interp))
-              interp.threadValues(argComps) { argVs =>
-                interp.infix(lhsV, baseOp, argVs, env).flatMap { newV =>
-                  interp.globals(lhsName.value) = newV
-                  Computation.PureUnit
-                }
-              }
-            }
-        // Plain binary infix: a op b (all arithmetic, comparison, string ops …)
-        // Binary fast path: single rhs arg (covers all arithmetic/comparison).
-        // Nested match instead of (lhsC, rhsC) match to avoid Tuple2 allocation.
-        case lhs =>
-          val argVals = app.argClause.values
-          if argVals.lengthCompare(1) == 0 then
-            val rhsTerm = argVals.head
-            val fast =
-              if interp.debugHooks.isEmpty then fastPrimitiveInfixTerm(lhs, opStr, rhsTerm, env, interp)
-              else null
-            if fast != null then fast
-            else
-              val lhsC = eval(lhs, env, interp)
-              val rhsC = eval(rhsTerm, env, interp)
-              lhsC match
-                case Pure(lv) =>
-                  rhsC match
-                    case Pure(rv) => interp.infix2(lv, opStr, rv, env)
-                    case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
-                case _ =>
-                  rhsC match
-                    case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
-                    case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
-          else
-            val lhsC     = eval(lhs, env, interp)
-            val argComps = argVals.map(eval(_, env, interp))
-            val argVsInfix = extractPureValues(argComps)
-            lhsC match
-              case Pure(lhsV) if argVsInfix != null =>
-                interp.infix(lhsV, opStr, argVsInfix, env)
-              case _ =>
-                FlatMap(lhsC, lhsV =>
-                  interp.threadValues(argComps)(argVs => interp.infix(lhsV, opStr, argVs, env)))
-
     // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
     case Term.Select(_, sn: Term.Name) if sn.value == "!" =>
       interp.located("'.!' can only appear in expression position directly inside a direct[M] block body; not inside lambdas or nested blocks")
@@ -925,24 +956,6 @@ private[interpreter] object EvalRuntime:
       eval(qual, env, interp) match
         case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
         case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
-
-    // Block { stmts; expr }
-    case Term.Block(stats) =>
-      BlockRuntime.evalBlock(stats, env, interp)
-
-    // if/then/else
-    case t: Term.If =>
-      eval(t.cond, env, interp) match
-        // Fast path: cond evaluated eagerly to a pure BoolV (the typical
-        // case after pure-value shortcuts kick in). Skip the FlatMap.
-        case Pure(Value.BoolV(true))  => eval(t.thenp, env, interp)
-        case Pure(Value.BoolV(false)) => eval(t.elsep, env, interp)
-        case Pure(other)              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
-        case condC                    => FlatMap(condC, {
-          case Value.BoolV(true)  => eval(t.thenp, env, interp)
-          case Value.BoolV(false) => eval(t.elsep, env, interp)
-          case other              => interp.located(s"if condition must be Boolean, got ${Value.show(other)}")
-        })
 
     // Fast path: s"${expr}" or s"prefix${expr}suffix" — 1-arg s-interpolation.
     // Avoids: 2 List allocations (cast map + evalArgs map), threadValues,
@@ -1095,19 +1108,6 @@ private[interpreter] object EvalRuntime:
           case vs      => Value.TupleV(vs)
         compiledPF.run(arg, env, interp)
       }))
-
-    // Match / pattern match — compiled and cached per AST identity to avoid
-    // per-call Option/List allocations in the matchPat hot path. Cache lookup
-    // happens before scrutinee eval so the Pure path avoids a continuation.
-    case t: Term.Match =>
-      var compiled = interp.matchCache.get(t)
-      if compiled == null then
-        compiled = PatternRuntime.compileMatch(t, interp)
-        interp.matchCache.put(t, compiled)
-      val compiledM = compiled
-      eval(t.expr, env, interp) match
-        case Pure(scrutV) => compiledM.run(scrutV, env, interp)
-        case exprC        => FlatMap(exprC, scrutV => compiledM.run(scrutV, env, interp))
 
     // Tuple  (a, b, ...)
     // Fast paths for 2- and 3-tuples avoid the intermediate List[Computation]
