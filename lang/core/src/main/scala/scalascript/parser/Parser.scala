@@ -947,9 +947,13 @@ object Parser:
    *  by indentation) to use `__extern__` as a stub right-hand side.
    *
    *  Original: Stage 5+/A.6 (Б-1); class/object forms added 2026-05-19. */
+  private val externDefPat   = """^(\s*)extern\s+def\s+(.+)$""".r
+  private val externTypePat  = """^(\s*)extern\s+(class|object|trait)\s+(.+?:)\s*$""".r
+  // Body-less member (no `=`, doesn't end with a brace/colon) — needs a stub.
+  private val bodylessDefPat = """^(\s*)def\s+(.+)$""".r
+  private val bodylessValPat = """^(\s*)val\s+([^=]+):\s*([^=].*)$""".r
   private[parser] def preprocessExtern(code: String): String =
-    val externDefPat   = """^(\s*)extern\s+def\s+(.+)$""".r
-    val externTypePat  = """^(\s*)extern\s+(class|object|trait)\s+(.+?:)\s*$""".r
+    if !code.contains("extern") then return code
     val lines = code.linesIterator.toArray
     if !lines.exists(l =>
          externDefPat.findFirstIn(l).isDefined ||
@@ -966,10 +970,6 @@ object Parser:
     def indentOf(s: String): Int = s.takeWhile(_ == ' ').length
     def isInsideExternBlock(ind: Int): Boolean =
       externBlockIndents.headOption.exists(decl => ind > decl)
-
-    // Body-less member (no `=`, doesn't end with a brace/colon) — needs a stub.
-    val bodylessDefPat = """^(\s*)def\s+(.+)$""".r
-    val bodylessValPat = """^(\s*)val\s+([^=]+):\s*([^=].*)$""".r
 
     var i = 0
     while i < lines.length do
@@ -1234,8 +1234,10 @@ object Parser:
 
     if changed then out.toString else code
 
+  private val slashImportPat = """^(\s*import\s+)([A-Za-z_][\w]*(?:/[A-Za-z_][\w]*)+)(\.\{.*|\..*|\s*$)""".r
   private[parser] def preprocessSlashImports(code: String): String =
-    val importPat = """^(\s*import\s+)([A-Za-z_][\w]*(?:/[A-Za-z_][\w]*)+)(\.\{.*|\..*|\s*$)""".r
+    if !code.contains("import") then return code
+    val importPat = slashImportPat
     val lines = code.linesIterator.toArray
     if !lines.exists(l => l.startsWith("import ") || l.matches("""^\s+import\s.*""")) then
       return code
@@ -1253,7 +1255,15 @@ object Parser:
           out.append(line).append('\n')
     if changed then out.toString else code
 
+  // Match a single-line list-form import:
+  //   leading whitespace, `[Names...]`, `(path)` where path ends in `.ssc`,
+  //   contains a scheme (`://`), or starts with `dep:`.
+  private val inlineImportSingle = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*\]\(\s*([^)]+)\s*\)\s*$""".r
+  // Match the start of a multi-line list-form import: opening `[` with names
+  // but no closing `]` on the same line.
+  private val inlineImportMulti  = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*,\s*$""".r
   private[parser] def preprocessInlineImports(code: String): String =
+    if !code.contains("](") then return code
     val lines = code.linesIterator.toArray
     // Quick reject: only inspect files that actually contain a `]( ... .ssc)` or
     // `]( dep:` etc.  Cheap pre-filter.
@@ -1261,13 +1271,8 @@ object Parser:
       return code
     val result = new StringBuilder()
 
-    // Match a single-line list-form import:
-    //   leading whitespace, `[Names...]`, `(path)` where path ends in `.ssc`,
-    //   contains a scheme (`://`), or starts with `dep:`.
-    val singleLine = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*\]\(\s*([^)]+)\s*\)\s*$""".r
-    // Match the start of a multi-line list-form import: opening `[` with names
-    // but no closing `]` on the same line.
-    val multiStart  = """^(\s*)\[\s*([A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?(?:\s*,\s*[A-Za-z_][\w]*(?:\s+as\s+[A-Za-z_][\w]*)?)*)\s*,\s*$""".r
+    val singleLine = inlineImportSingle
+    val multiStart = inlineImportMulti
 
     var i = 0
     while i < lines.length do
@@ -1311,8 +1316,10 @@ object Parser:
     result.toString
 
   // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
+  private val effectLinePat = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
   private[parser] def preprocessEffects(code: String): String =
-    val effectLine = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\s+extends\s+\S+)?\s*:""".r
+    if !code.contains("effect") then return code
+    val effectLine = effectLinePat
     val lines = code.linesIterator.toArray
     if !lines.exists(l => effectLine.findFirstIn(l).isDefined) then return code
     val result = new StringBuilder()
@@ -1345,8 +1352,10 @@ object Parser:
           i += 1
     result.toString
 
+  private val remoteDefPat = """^(\s*)remote\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""".r
   private[parser] def preprocessRemoteDefs(code: String): String =
-    val remoteDef = """^(\s*)remote\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""".r
+    if !code.contains("remote") then return code
+    val remoteDef = remoteDefPat
     val lines = code.linesIterator.toArray
     if !lines.exists(l => remoteDef.findFirstIn(l).isDefined) then return code
     lines.map {

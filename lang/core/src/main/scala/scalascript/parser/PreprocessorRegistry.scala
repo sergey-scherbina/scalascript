@@ -15,7 +15,15 @@ object PreprocessorRegistry:
 
   private[parser] val registry: TrieMap[String, Preprocessor] = TrieMap.empty
 
-  def register(p: Preprocessor): Unit = registry(p.name) = p
+  // Cache the priority-sorted view; `applyAll` runs per code-block (hot path),
+  // so re-sorting the registry on every call is pure waste. Invalidated on
+  // every `register` (registration happens at init / plugin-load, not on the
+  // hot path).
+  @volatile private var sortedCache: Array[Preprocessor] = Array.empty
+
+  def register(p: Preprocessor): Unit =
+    registry(p.name) = p
+    sortedCache = registry.values.toArray.sortBy(x => (x.priority, x.name))
 
   def lookup(name: String): Option[Preprocessor] = registry.get(name)
 
@@ -25,7 +33,11 @@ object PreprocessorRegistry:
 
   /** Apply all registered preprocessors in priority order to `source`. */
   def applyAll(source: String): String =
-    all.foldLeft(source)((s, p) => p.apply(s))
+    val ps = sortedCache
+    var s = source
+    var i = 0
+    while i < ps.length do { s = ps(i).apply(s); i += 1 }
+    s
 
   /** Register all preprocessors from an already-loaded backend. */
   def registerFrom(b: scalascript.backend.spi.Backend): Unit =
