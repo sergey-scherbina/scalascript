@@ -39,6 +39,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   and response header updates now avoid temporary `Option` wrappers in their
   hot lookups. Coroutine handles, typed HTTP handler requests, remote-handler
   request bodies, and PID serialization now use the same direct field lookup.
+  Actor PID send, monitor/link, registry, scheduling, seed-resolution, and
+  actor-group delivery paths now avoid the same temporary `Option` wrappers.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
