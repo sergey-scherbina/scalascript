@@ -5340,8 +5340,8 @@ device, one seed, per-chain on-device apps; the Vault routes
       CLA=0xD7, INS=0x10 GET_EXTENDED_PUBLIC_KEY, INS=0x21 SIGN_TX;
       CIP-8 COSE_Sign1 Sig_Structure (hand-rolled CBOR); 11 tests.
       ✓ Landed 2026-05-27 (`19ad76cd`).
-- [ ] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
-      Nano X / Stax. Deferred.
+- [x] Optional `wallet-vault-ledger-bluetooth-js` — WebBLE for
+      Nano X / Stax. ✓ Landed 2026-05-27.
 - [x] `wallet-vault-trezor` — `TrezorEthVault` + `TrezorBridge` + `TrezorSession` + `MockTrezorBridge`; 29 tests.
       ✓ Landed 2026-05-28.
 
@@ -5372,14 +5372,13 @@ device, one seed, per-chain on-device apps; the Vault routes
       `FireblocksVault`, `FireblocksPlugin` ServiceLoader discovery,
       `docs/wallet-vault-mpc.md`, `examples/wallet-mpc-fireblocks.ssc`,
       and 16 mock-HTTP/JWT/wire tests.
-- [ ] Remaining curve/vendor-specific MPC protocol modules — **deferred**.
-      Coinbase MPC, ZenGo/Web3Auth/Lit Protocol, and the FROST-Ed25519
-      family ship their own SDK semantics. Plan is one provider-specific
-      adapter module per vendor (for example `wallet-vault-mpc-coinbase`)
-      that subclasses or composes the shared `HttpRemoteSigningClient` and
-      bundles vendor-mandated request decoration (HMAC/JWT signing,
-      idempotency keys, polling cadence) — kept out of `wallet-vault-mpc`
-      so the trait surface stays vendor-neutral.
+- [x] `wallet-vault-mpc-coinbase` — Coinbase Prime MPC adapter. ✓ Landed 2026-05-28.
+- [ ] `wallet-vault-mpc-lit` — Lit Protocol threshold signing adapter.
+      In WORK_QUEUE as `wallet-vault-mpc-lit`.
+- [ ] `wallet-vault-mpc-zengo` — ZenGo X Enterprise MPC adapter.
+      In WORK_QUEUE as `wallet-vault-mpc-zengo`.
+- [ ] FROST-Ed25519 and future MPC variants — deferred until a concrete
+      production use case or partner request arrives.
 
 ---
 
