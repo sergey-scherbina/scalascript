@@ -464,6 +464,12 @@ object Computation:
    *  Using flatMap(wrapSomeC) instead of map(wrapSome) saves the `v => Pure(f(v))` lambda. */
   val wrapSomeC: Value => Computation = v => Pure(Value.OptionV(v))
 
+  /** Cached Computation continuation for Option.flatMap: normalise any Value to OptionV. */
+  val wrapOptionC: Value => Computation = {
+    case o: Value.OptionV => Pure(o)
+    case other            => Pure(Value.OptionV(other))
+  }
+
   /** Run computation c and discard its result (return Unit).  Avoids one lambda allocation
    *  vs `.map(_ => Value.UnitV)` or `.flatMap(_ => PureUnit)`. */
   def mapUnit(c: Computation): Computation = c match

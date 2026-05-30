@@ -424,13 +424,15 @@ private[interpreter] object DispatchRuntime:
       case "contains"  => Computation.pureBool(opt.contains(arg))
       case "map"       => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).map(Computation.wrapSome)
+        case Some(v) => interp.callValue1(arg, v, env) match
+          case Pure(rv) => Pure(Value.OptionV(rv))
+          case c        => FlatMap(c, Computation.wrapSomeC)
       case "flatMap"   => opt match
         case None    => Computation.PureNone
-        case Some(v) => interp.callValue1(arg, v, env).map {
-          case o: Value.OptionV => o
-          case other            => Value.OptionV(other)
-        }
+        case Some(v) => interp.callValue1(arg, v, env) match
+          case Pure(o: Value.OptionV) => Pure(o)
+          case Pure(other)            => Pure(Value.OptionV(other))
+          case c                      => FlatMap(c, Computation.wrapOptionC)
       case "filter"    => opt match
         case None    => Computation.PureNone
         case Some(v) => interp.callValue1(arg, v, env).map {
@@ -1769,15 +1771,17 @@ private[interpreter] object DispatchRuntime:
       case "map"       => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).map(Computation.wrapSome)
+          case Some(v) => interp.callValue1(f, v, env) match
+            case Pure(rv) => Pure(Value.OptionV(rv))
+            case c        => FlatMap(c, Computation.wrapSomeC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "flatMap"   => args match
         case List(f) => opt match
           case None    => Computation.PureNone
-          case Some(v) => interp.callValue1(f, v, env).map {
-            case o: Value.OptionV => o
-            case other            => Value.OptionV(other)
-          }
+          case Some(v) => interp.callValue1(f, v, env) match
+            case Pure(o: Value.OptionV) => Pure(o)
+            case Pure(other)            => Pure(Value.OptionV(other))
+            case c                      => FlatMap(c, Computation.wrapOptionC)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "filter"    => args match
         case List(f) => opt match
