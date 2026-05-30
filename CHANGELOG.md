@@ -47,6 +47,8 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
   lookups for `_Raw`, `Attr`, component `css`/`render`, and `AttrKey`.
   ActorGroup state operations, `Async.await`, and optic composition helpers now
   avoid short-lived `Option` chains in their hot field lookup paths.
+  Path optic `getOption`, `set`, and traversal modify paths now carry absence
+  with the interpreter's existing null sentinel instead of transient `Option`s.
 
 ## 2026-05-30 — WebSocket 10k load test made explicit
 
