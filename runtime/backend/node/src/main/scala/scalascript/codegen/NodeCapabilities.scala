@@ -31,7 +31,8 @@ val NodeCapabilities: Capabilities = Capabilities(
     Feature.Crypto,
     Feature.McpServer,
     Feature.McpClient,
-    Feature.Dataset
+    Feature.Dataset,
+    Feature.GraphQL
   ),
   outputs        = Set(OutputKind.JavaScriptSource),
   options        = Set("optimizationLevel", "emitAssertions"),
@@ -39,9 +40,10 @@ val NodeCapabilities: Capabilities = Capabilities(
   // v1.27 Phase 4 — sql blocks compile via backend-sql-runtime-js
   // (sql.js + DuckDB-Wasm).  The emitted `.mjs` plus the companion
   // `package.json` (in the CompileResult's `sources` list) form a
-  // ready-to-`npm install` artifact.
+  // ready-to-`npm install` artifact.  `graphql` blocks lower to
+  // `_registerGraphqlSdl(...)` and pull in the `graphql` npm dep.
   blockLanguages = Set(
     scalascript.ast.Lang.Node, scalascript.ast.Lang.NodeShort,
-    scalascript.ast.Lang.Sql,
+    scalascript.ast.Lang.Sql, scalascript.ast.Lang.Graphql,
   )
 )

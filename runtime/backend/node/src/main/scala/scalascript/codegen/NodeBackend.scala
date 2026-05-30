@@ -48,7 +48,8 @@ class NodeBackend extends Backend:
     // flush is no longer needed since lines write through eagerly.
     val parts      = List(jsRuntime, NodePrintlnWriteThrough, gluePrefix, js).filter(_.nonEmpty)
     val code       = parts.mkString("\n")
-    val sources    = emitPackageJson(module) ++ emitNodeMain()
+    val usesGraphql = caps.contains(JsGen.Capability.Graphql)
+    val sources    = emitPackageJson(module, usesGraphql) ++ emitNodeMain()
     CompileResult.TextOutput(code = code, language = "javascript", sources = sources)
 
   /** v1.27 Phase 4 — when the module has any sql block, ship a
@@ -59,21 +60,25 @@ class NodeBackend extends Backend:
    *  module has sql blocks but no `databases:` (relying on
    *  `@sscBrowserSqlConnection` annotation override), ship both —
    *  the override path can connect to any provider. */
-  private def emitPackageJson(module: ir.NormalizedModule): List[SourceArtifact] =
-    if !hasSqlBlock(module) then Nil
+  private def emitPackageJson(module: ir.NormalizedModule, usesGraphql: Boolean): List[SourceArtifact] =
+    if !hasSqlBlock(module) && !usesGraphql then Nil
     else
       val refs = referencedProviders(module)
       // Stable ordered list of npm deps + version pins.  Pin shape
       // mirrors `ProviderId.npmVersionRange`.
       import scalascript.sql.js.ProviderId
       val pinned = scala.collection.mutable.LinkedHashMap.empty[String, String]
-      if refs.contains(ProviderId.SqlJs)      then pinned += ProviderId.SqlJs.npmPackage      -> ProviderId.SqlJs.npmVersionRange
-      if refs.contains(ProviderId.SqliteWasm) then pinned += ProviderId.SqliteWasm.npmPackage -> ProviderId.SqliteWasm.npmVersionRange
-      if refs.contains(ProviderId.DuckDbWasm) then
-        pinned += ProviderId.DuckDbWasm.npmPackage -> ProviderId.DuckDbWasm.npmVersionRange
-        // DuckDB-Wasm's Node code path needs `web-worker` over
-        // `node:worker_threads` (sql-runtime.mjs imports it explicitly).
-        pinned += "web-worker" -> "^1.5.0"
+      if hasSqlBlock(module) then
+        if refs.contains(ProviderId.SqlJs)      then pinned += ProviderId.SqlJs.npmPackage      -> ProviderId.SqlJs.npmVersionRange
+        if refs.contains(ProviderId.SqliteWasm) then pinned += ProviderId.SqliteWasm.npmPackage -> ProviderId.SqliteWasm.npmVersionRange
+        if refs.contains(ProviderId.DuckDbWasm) then
+          pinned += ProviderId.DuckDbWasm.npmPackage -> ProviderId.DuckDbWasm.npmVersionRange
+          // DuckDB-Wasm's Node code path needs `web-worker` over
+          // `node:worker_threads` (sql-runtime.mjs imports it explicitly).
+          pinned += "web-worker" -> "^1.5.0"
+      // GraphQL runtime is backed by the `graphql` npm package
+      // (buildSchema + graphql()).  Pin to the v16 LTS line.
+      if usesGraphql then pinned += "graphql" -> "^16.8.0"
       val depsJson =
         if pinned.isEmpty then "{}"
         else pinned.map { case (k, v) => s"""    "$k": "$v"""" }.mkString("{\n", ",\n", "\n  }")

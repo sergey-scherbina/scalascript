@@ -128,9 +128,11 @@ object JsGen:
     case object Optics    extends Capability  // `JsRuntimeOptics` — Lens/Optional/Traversal/Prism
     case object Signals   extends Capability  // `JsRuntimeSignals` — reactive signals
     case object IndexedDb extends Capability  // `JsRuntimeIndexedDb` — client-side storage
+    case object Graphql   extends Capability  // `JsRuntimeGraphql` — GraphQL server + client
 
     val all: Set[Capability] = Set(Core, Async, Effects, Mcp, Dataset, Payment,
-                                   HtmlDsl, Jwt, WsServer, Optics, Signals, IndexedDb)
+                                   HtmlDsl, Jwt, WsServer, Optics, Signals, IndexedDb,
+                                   Graphql)
 
     /** Encode a capability as a stable, persistence-safe string.
      *  These strings appear in `.scjs-runtime` envelopes — do not rename. */
@@ -147,6 +149,7 @@ object JsGen:
       case Optics    => "optics"
       case Signals   => "signals"
       case IndexedDb => "indexeddb"
+      case Graphql   => "graphql"
 
     def decode(s: String): Option[Capability] = s match
       case "core"      => Some(Core)
@@ -161,6 +164,7 @@ object JsGen:
       case "optics"    => Some(Optics)
       case "signals"   => Some(Signals)
       case "indexeddb" => Some(IndexedDb)
+      case "graphql"   => Some(Graphql)
       case _           => None
 
   /** Inspect `module` and return the capability set its emitted JS would
@@ -239,6 +243,13 @@ object JsGen:
     if caps.contains(Capability.Payment) then
       sb.append(JsRuntimePayment)
       if !JsRuntimePayment.endsWith("\n") then sb.append('\n')
+    // GraphQL runtime references `route` (Part1b) / `serve` (Part1d) /
+    // `_mkResp` / `_jsonConvert` (defined above), so it is appended last.
+    // Capability detection forces HtmlDsl + WsServer + Async whenever Graphql
+    // is present, so those parts are emitted.
+    if caps.contains(Capability.Graphql) then
+      sb.append(JsRuntimeGraphql)
+      if !JsRuntimeGraphql.endsWith("\n") then sb.append('\n')
     sb.toString
 
   /** Emit user code only — no runtime preamble.  In JS this is a synonym
@@ -8293,6 +8304,20 @@ class JsGen(
     // IndexedDb — client-side IndexedDB storage
     val hasIndexedDb = allText.contains("IndexedDb.")
     if hasIndexedDb then caps += IndexedDb
+    // GraphQL — `JsRuntimeGraphql`.  Triggered by a `graphql` fenced block or
+    // by any of the server/client intrinsics.  The runtime mounts on the full
+    // HTTP server stack, which spans `route` (Part1b/HtmlDsl), `_mkRequest`'s
+    // auth helpers `_bearerFromAuth` / `jwtVerify` (Part1c/Jwt), and `serve` /
+    // `_ssc_http_serve` (Part1d/WsServer); resolvers run async.  Force all of
+    // HtmlDsl + Jwt + WsServer + Async whenever GraphQL is used.
+    def hasGraphqlBlock(s: Section): Boolean =
+      s.content.exists { case cb: Content.CodeBlock => Lang.isGraphql(cb.lang); case _ => false } ||
+      s.subsections.exists(hasGraphqlBlock)
+    val hasGraphql = module.sections.exists(hasGraphqlBlock) ||
+                     allText.contains("GraphQL.") || allText.contains("serveGraphQL") ||
+                     allText.contains("graphqlMount") || allText.contains("graphqlHandler") ||
+                     allText.contains("graphqlQuery")
+    if hasGraphql then { caps += Graphql; caps += HtmlDsl; caps += Jwt; caps += WsServer; caps += Async }
     caps.toSet
 
   /** Emit `route(method, path)(handler)` registrations for every
@@ -8837,6 +8862,9 @@ class JsGen(
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           flushScala()
           genStringBlock(cb, s)
+        case cb: Content.CodeBlock if Lang.isGraphql(cb.lang) =>
+          flushScala()
+          genGraphqlBlock(cb)
         case imp: Content.Import =>
           flushScala()
           genImport(imp)
@@ -8888,11 +8916,20 @@ class JsGen(
         genStringBlock(cb, section)
       case cb: Content.CodeBlock if Lang.isSql(cb.lang) =>
         genSqlBlock(cb, section)
+      case cb: Content.CodeBlock if Lang.isGraphql(cb.lang) =>
+        genGraphqlBlock(cb)
       case imp: Content.Import =>
         genImport(imp)
       case _ => ()
     }
     section.subsections.foreach(genSection)
+
+  /** Emit a `graphql` fenced block as a `_registerGraphqlSdl(<sdl>)` call.
+   *  The SDL string is stashed in the runtime so `graphqlMount` /
+   *  `serveGraphQL` can build the schema later (mirrors the interpreter's
+   *  `GraphQLJvmBlockRunner.registerSdl`). */
+  private def genGraphqlBlock(cb: Content.CodeBlock): Unit =
+    line(s"_registerGraphqlSdl(${jsStringLit(cb.source.stripTrailing)});")
 
   /** v1.27 Phase 3 — emit a `sql` fenced block as a `_sqlBlock_<n>`
    *  `const` initialised by `await SqlRuntimeJs.execute(...)`.
@@ -9947,7 +9984,20 @@ class JsGen(
     val qn = scalascript.ir.QualifiedName(fname)
     intrinsics.get(qn).map {
       case scalascript.backend.spi.RuntimeCall(target) =>
-        s"$target(${argClause.values.map(genExpr).mkString(", ")})"
+        // Named args (`f(name = expr)`) lower to a trailing options object
+        // `{ name: expr, ... }` after the positionals.  Positional-only
+        // calls are unaffected.  The runtime intrinsic reads the options
+        // object (e.g. `GraphQL.resolvers({ query, mutation })`).
+        val (named, positional) = argClause.values.partition(_.isInstanceOf[Term.Assign])
+        val posJs = positional.map(genExpr)
+        val argsJs =
+          if named.isEmpty then posJs
+          else
+            val obj = named.collect {
+              case Term.Assign(Term.Name(n), rhs) => s"$n: ${genExpr(rhs)}"
+            }.mkString("{", ", ", "}")
+            posJs :+ obj
+        s"$target(${argsJs.mkString(", ")})"
       case scalascript.backend.spi.InlineCode(emit) =>
         val irArgs = argClause.values.map(termToIrJs)
         val ctx    = JsEmitContext

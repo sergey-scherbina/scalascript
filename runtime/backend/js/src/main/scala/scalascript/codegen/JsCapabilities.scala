@@ -35,7 +35,8 @@ val JsCapabilities: Capabilities = Capabilities(
     Feature.McpClient,
     Feature.Dataset,
     Feature.PaymentRequest,
-    Feature.Streams
+    Feature.Streams,
+    Feature.GraphQL
   ),
   outputs        = Set(OutputKind.JavaScriptSource),
   options        = Set("optimizationLevel", "emitAssertions", "target"),
@@ -43,7 +44,8 @@ val JsCapabilities: Capabilities = Capabilities(
   // v1.27 Phase 3 — sql blocks compile via `backend-sql-runtime-js`
   // (sql.js + DuckDB-Wasm).  Declaring the lang here disables the
   // generic `UnknownBlockLanguage("sql")` diagnostic on the JS target.
-  blockLanguages = Set(scalascript.ast.Lang.Sql)
+  // `graphql` blocks lower to `_registerGraphqlSdl(...)` (JsRuntimeGraphql).
+  blockLanguages = Set(scalascript.ast.Lang.Sql, scalascript.ast.Lang.Graphql)
 )
 
 /** Stage 5+/A.3 — `RuntimeCall` intrinsics surfaced as JS `const`
@@ -69,3 +71,4 @@ val JsIntrinsics: Map[QualifiedName, IntrinsicImpl] =
     ++ JsMcpIntrinsics      // v1.17     — MCP:       intrinsics/Mcp.scala
     ++ JsDatasetIntrinsics  // v1.21     — Dataset:   intrinsics/Dataset.scala
     ++ JsPaymentIntrinsics  // v1.38     — Payment:   intrinsics/Payment.scala
+    ++ JsGraphqlIntrinsics  // graphql   — GraphQL:   intrinsics/Graphql.scala
