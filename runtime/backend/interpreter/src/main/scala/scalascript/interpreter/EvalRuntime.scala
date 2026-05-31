@@ -211,6 +211,23 @@ private[interpreter] object EvalRuntime:
     // are collected into a single `interp.callValue(f, [a, b])` invocation.
     val (baseFun, allArgTerms) = collectApplyArgs(app)
     val hasNamedArgs = allArgTerms.exists(_.isInstanceOf[Term.Assign])
+    // Pure-free fast lane: name/literal head + name/literal args (no named args,
+    // no debug hooks). Reads head and args as Values with no Pure wrappers and
+    // dispatches directly; any non-fast operand falls through to the monadic
+    // path below. callValue/callValue1 are the same calls the slow path makes.
+    if !hasNamedArgs && interp.debugHooks.isEmpty then
+      val fv = fastValue(baseFun, env, interp)
+      if fv != null then
+        allArgTerms match
+          case one :: Nil =>
+            val av = fastValue(one, env, interp)
+            if av != null then return interp.callValue1(fv, av, env)
+          case a :: b :: Nil =>
+            val av1 = fastValue(a, env, interp)
+            if av1 != null then
+              val av2 = fastValue(b, env, interp)
+              if av2 != null then return interp.callValue(fv, av1 :: av2 :: Nil, env)
+          case _ => ()
     val funC     = eval(baseFun, env, interp)
     if hasNamedArgs then
       val namedComps = allArgTerms.map {
@@ -384,17 +401,36 @@ private[interpreter] object EvalRuntime:
               else null
             if fast != null then fast
             else
-              val lhsC = eval(lhs, env, interp)
-              val rhsC = eval(rhsTerm, env, interp)
-              lhsC match
-                case Pure(lv) =>
-                  rhsC match
-                    case Pure(rv) => interp.infix2(lv, opStr, rv, env)
-                    case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
-                case _ =>
-                  rhsC match
-                    case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
-                    case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
+              // Pure-free operand reads: a name/literal operand is fetched as a
+              // Value with no Pure wrapper; only operands that may be effectful
+              // (calls, blocks, …) take the monadic eval path. Names/literals are
+              // side-effect-free reads, so evaluation order is preserved.
+              val lvFast = fastValue(lhs, env, interp)
+              val rvFast = fastValue(rhsTerm, env, interp)
+              if lvFast != null && rvFast != null then
+                interp.infix2(lvFast, opStr, rvFast, env)
+              else if lvFast != null then
+                val rhsC = eval(rhsTerm, env, interp)
+                rhsC match
+                  case Pure(rv) => interp.infix2(lvFast, opStr, rv, env)
+                  case _        => FlatMap(rhsC, rv => interp.infix2(lvFast, opStr, rv, env))
+              else if rvFast != null then
+                val lhsC = eval(lhs, env, interp)
+                lhsC match
+                  case Pure(lv) => interp.infix2(lv, opStr, rvFast, env)
+                  case _        => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rvFast, env))
+              else
+                val lhsC = eval(lhs, env, interp)
+                val rhsC = eval(rhsTerm, env, interp)
+                lhsC match
+                  case Pure(lv) =>
+                    rhsC match
+                      case Pure(rv) => interp.infix2(lv, opStr, rv, env)
+                      case _        => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env))
+                  case _ =>
+                    rhsC match
+                      case Pure(rv) => FlatMap(lhsC, lv => interp.infix2(lv, opStr, rv, env))
+                      case _        => FlatMap(lhsC, lv => FlatMap(rhsC, rv => interp.infix2(lv, opStr, rv, env)))
           else
             val lhsC     = eval(lhs, env, interp)
             val argComps = argVals.map(eval(_, env, interp))
@@ -430,7 +466,11 @@ private[interpreter] object EvalRuntime:
         compiled = PatternRuntime.compileMatch(t, interp)
         interp.matchCache.put(t, compiled)
       val compiledM = compiled
-      eval(t.expr, env, interp) match
+      // Pure-free scrutinee read: a plain name/literal scrutinee (the common case)
+      // is fetched as a Value with no throwaway Pure wrapper.
+      val fastScrut = fastValue(t.expr, env, interp)
+      if fastScrut != null then compiledM.run(fastScrut, env, interp)
+      else eval(t.expr, env, interp) match
         case Pure(scrutV) => compiledM.run(scrutV, env, interp)
         case exprC        => FlatMap(exprC, scrutV => compiledM.run(scrutV, env, interp))
 
