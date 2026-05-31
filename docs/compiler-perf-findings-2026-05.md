@@ -124,9 +124,50 @@ deliberately not worth pursuing**:
 - The typer is 1.3% — not worth touching.
 - The preprocessor chain is now hoisted/guarded/cached.
 
-The only genuinely-untouched area is **Phase 4 (memory footprint)** — dropping
-`Module.sourceText` after typing, packing `Position` into a `Long`, nulling
-the scalameta tree after lowering. Its value is unknown without a `-prof gc`
-allocation profile and would help GC pressure on large projects, not the parse
-wall. **Recommend: do not invent further hot-path work; pursue Phase 4 only if
-a GC/allocation profile justifies it.**
+The only genuinely-untouched area was **Phase 4 (memory footprint)**, which the
+profile below now settles.
+
+## 7. Phase 4 (memory) — measured, NOT justified
+
+Profiled the parse path over the 74 `std/` modules (warm JVM, 8 warmup + 30
+measured iters; transient via `ThreadMXBean.getCurrentThreadAllocatedBytes`,
+retained via `System.gc()` + `Runtime` used-heap delta while holding the
+parsed `Module`s):
+
+```
+transient alloc  91.47 MB / parse-all (74 modules)   ≈ 1.24 MB/module churn
+retained total   10.06 MB  (199 blocks, 173 with scalameta tree)
+  sourceText       0.58 MB   ( 5.8%)   ← Phase 4a target
+  block sources    0.50 MB   ( 5.0%)
+  AST+trees(rest)  8.98 MB   (89.2%)   ← Phase 4c target (scalameta trees)
+```
+
+Verdict on each roadmap item:
+
+- **4a (drop `Module.sourceText` after typing)** — saves 0.58 MB of 10 MB
+  (5.8%). Marginal, and the field is consumed by diagnostics across the
+  pipeline; lifetime-shortening adds plumbing for a rounding-error win.
+- **4b (pack `Position` into a `Long`)** — `Position` lives inside the 8.98 MB
+  AST bucket, but that bucket is dominated by the 173 scalameta trees, not by
+  our `Position` nodes. Sub-percent win for an opaque-type refactor touching
+  every span constructor.
+- **4c (null scalameta tree after lowering)** — the only sizeable lever
+  (≈9 MB, 89%). But the tree is *required* through IR lowering and by the LSP
+  for hover/definition; it can only be dropped after lowering in build-only
+  paths, and even then 10 MB total / 136 KB per module is not pressing at this
+  corpus size. Would only matter for projects ~100× larger.
+- **4d/4e (sentinel ints, lazy YAML)** — micro; not visible in the profile.
+
+The retained working set is ~136 KB/module — trivial. The real memory signal is
+the 91 MB/parse-all **transient** churn, dominated by scalameta's own parser
+allocation (intrinsic, third-party) plus the preprocessor string rewrites we
+already optimized in §5. No allocation hotspot in our code remains.
+
+## 8. Bottom line
+
+**The compiler-perf roadmap is complete.** Phases 1–3 were already shipped or
+deliberately skipped (§6); Phase 4 is now measured and not justified (§7).
+Parsing is the 98% wall and is intrinsic scalameta cost — already single-pass
+and parallelized. No further hot-path work should be invented without a new,
+concrete signal (e.g. a real large-project build showing GC pause time, which
+would re-open 4c specifically).
