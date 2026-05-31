@@ -10,6 +10,8 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Tooling
 
+- [x] **wire-option-char** — `ValueSerializer` (and thus `toWire`/`fromWire`) didn't handle `Option`/`Char`/`null`, so serializing a record with `Option` fields threw. ✓ Landed 2026-05-31: added `some`/`none`/`c`/`null` wire tags; 3 tests (incl. the busi Account shape with Option fields); suite green (1191).
+
 - [x] **ssc-value-wire** — expose the interpreter wire serializer to `.ssc` as `toWire(value): String` / `fromWire(s): Value`, so programs can persist arbitrary values (case classes/enums, List/Map/Set/Tuple/Option, BigInt/Decimal). ✓ Landed 2026-05-31: 2 builtins over `ValueSerializer`; 4 round-trip tests incl. nested records and an event-log shape; suite green (1188). Unblocks busi Phase 7 (durable event log).
 
 - [x] **interpreter-set-support** — the interpreter had no `Set`: `Set(...)`/`Set[T]()` was `Undefined` and `toSet` faked a deduped `List`. ✓ Landed 2026-05-30: added `Value.SetV(Set[Value])`, a `Set` constructor (`Set(...)`/`Set.empty`/`Set[T]()`), `dispatchSet` (contains/+/-/++/--/&/union/intersect/diff/subsetOf/size/isEmpty/nonEmpty/toList/head + map/filter→Set and foldLeft/exists/forall/foreach/mkString via List), `++`/`+`/`-` operators, sorted deterministic `show`, value-equality, and `"set"` wire tag; `List.toSet` now returns a real Set. 8 tests; full interpreter suite green (1184). (Interpreter scope; JS/JVM `Set` codegen unaffected.)
