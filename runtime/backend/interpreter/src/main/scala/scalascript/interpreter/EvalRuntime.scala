@@ -419,8 +419,9 @@ private[interpreter] object EvalRuntime:
         })
 
     // Block { stmts; expr }
-    case Term.Block(stats) =>
-      BlockRuntime.evalBlock(stats, env, interp)
+    // Type test (not Term.Block(stats) extractor) to avoid a per-eval Some alloc.
+    case t: Term.Block =>
+      BlockRuntime.evalBlock(t.stats, env, interp)
 
     // Pattern match — compiled-matcher cache keyed by the Term.Match node.
     case t: Term.Match =>
@@ -1049,7 +1050,11 @@ private[interpreter] object EvalRuntime:
       Pure(env.getOrElse(s"_$$${i}", interp.located("Unexpected _")))
 
     // Lambda  x => body  or  (x, y) => body
-    case Term.Function.After_4_6_0(paramClause, body) =>
+    // Type test (not the After_4_6_0 extractor) to avoid a per-eval Some+Tuple2;
+    // this case is hit once per foreach/map call in a hot loop.
+    case t: Term.Function =>
+      val paramClause = t.paramClause
+      val body        = t.body
       // Drop only the keys whose env value still matches the live interp.globals —
       // those are top-level bindings that the lambda should re-read from
       // `interp.globals` at call time (so a `var` reassigned later is visible).
