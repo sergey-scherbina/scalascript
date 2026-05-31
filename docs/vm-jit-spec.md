@@ -103,6 +103,15 @@ Register allocation: params occupy `r0..r(arity-1)`; locals and temporaries get
 fresh ascending slots via a bump counter. `numRegs` = high-water mark. No reuse
 in v0 (simple; frames are small).
 
+**Destination-passing.** Expressions compile via `compileInto(term, dst)`, which
+emits the result straight into a caller-chosen register. Call arguments are
+written directly into their slot in the contiguous arg window, both `if`
+branches write the same result register, and `val`/`var`/assignment write the
+bound register in place. This removes the extra `MOVE` a return-a-register
+scheme emits at every use site — cutting the hot dispatch loop's instruction
+count (measured: `recursionFib` −12% end-to-end; self-tail-call loops are
+byte-identical and unaffected).
+
 Anything else — method calls, doubles, pattern matches, captured free
 variables other than self, effects — makes the compiler return `None`.
 

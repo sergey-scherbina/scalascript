@@ -149,29 +149,38 @@ object VmCompiler:
         case _ => None
 
     // Compile an expression, returning the register holding its Long result.
+    // A bare name reuses its existing register (no copy); everything else is
+    // emitted straight into a fresh register via destination-passing.
     private def compileExpr(t: Term): Int = t match
-      case Lit.Int(v)  => val r = freshReg(); emit(CONST, r, constSlot(v.toLong), 0); r
-      case Lit.Long(v) => val r = freshReg(); emit(CONST, r, constSlot(v), 0); r
+      case n: Term.Name => locals.getOrElse(n.value, bail())
+      case _            => val r = freshReg(); compileInto(t, r); r
+
+    // Compile `t`, emitting its Long result directly into register `dst`. This
+    // destination-passing form avoids the extra MOVE that a return-a-register
+    // scheme needs at every use site (call args, if-branches, assignments),
+    // cutting the instruction count of the hot VM dispatch loop.
+    private def compileInto(t: Term, dst: Int): Unit = t match
+      case Lit.Int(v)  => emit(CONST, dst, constSlot(v.toLong), 0)
+      case Lit.Long(v) => emit(CONST, dst, constSlot(v), 0)
 
       case n: Term.Name =>
-        locals.getOrElse(n.value, bail())
+        val r = locals.getOrElse(n.value, bail())
+        if r != dst then emit(MOVE, dst, r, 0)
 
       case app: Term.ApplyInfix if app.argClause.values.lengthCompare(1) == 0 =>
         val opc = opcodeFor(app.op.value)
         val lr  = compileExpr(app.lhs)
         val rr  = compileExpr(app.argClause.values.head)
-        val d   = freshReg(); emit(opc, d, lr, rr); d
+        emit(opc, dst, lr, rr)
 
       case t: Term.If =>
         val cr  = compileExpr(t.cond)
         val jf  = emit(JF, cr, -1, 0)            // patch to else-start
-        val res = freshReg()
-        val tr  = compileExpr(t.thenp); emit(MOVE, res, tr, 0)
+        compileInto(t.thenp, dst)
         val jmp = emit(JMP, -1, 0, 0)            // patch to end
         bs(jf) = ops.length                      // JF else-target: else-branch starts here
-        val er  = compileExpr(t.elsep); emit(MOVE, res, er, 0)
+        compileInto(t.elsep, dst)
         as(jmp) = ops.length                     // end
-        res
 
       // call to self or another compilable integer function
       case app: Term.Apply =>
@@ -183,14 +192,13 @@ object VmCompiler:
             val argBase = freshRegs(args.length)
             var i = 0
             while i < args.length do
-              val ar = compileExpr(args(i))
-              emit(MOVE, argBase + i, ar, 0)
+              compileInto(args(i), argBase + i)   // emit each arg straight into its slot
               i += 1
-            val d = freshReg(); emit(CALL, d, argBase, slot); d
+            emit(CALL, dst, argBase, slot)
           case None => bail()
 
       case Term.Block(stats) =>
-        compileStats(stats)
+        compileStatsInto(stats, dst)
 
       case Term.While(cond, body) =>
         val start = ops.length
@@ -199,7 +207,7 @@ object VmCompiler:
         compileStmt(body)
         emit(JMP, start, 0, 0)
         bs(jf) = ops.length
-        val r = freshReg(); emit(CONST, r, constSlot(0L), 0); r  // while ⇒ unit ⇒ 0
+        emit(CONST, dst, constSlot(0L), 0)       // while ⇒ unit ⇒ 0
 
       case _ => bail()
 
@@ -245,29 +253,31 @@ object VmCompiler:
         case _            => false)
 
     // A statement whose value may be discarded (loop bodies, non-final stmts).
+    // `val`/`var` get a stable home register written directly by compileInto;
+    // assignments write straight into the bound register — no extra MOVE.
     private def compileStmt(t: Tree): Unit = t match
       case Defn.Val(_, List(Pat.Var(nm: Term.Name)), _, rhs) =>
-        val r = compileExpr(rhs); locals(nm.value) = bindReg(r)
+        val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
       case Defn.Var.After_4_7_2(_, List(Pat.Var(nm)), _, rhs) =>
-        val r = compileExpr(rhs); locals(nm.value) = bindReg(r)
+        val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
       case Term.Assign(nm: Term.Name, rhs) =>
         val dst = locals.getOrElse(nm.value, bail())
-        val r   = compileExpr(rhs); emit(MOVE, dst, r, 0)
+        compileInto(rhs, dst)
       case Term.Block(stats) => compileStats(stats); ()
       case e: Term            => compileExpr(e); ()
       case _                  => bail()
-
-    // A `val x = e` should give `x` a stable home register. compileExpr may have
-    // produced its result in a temp; move it into a fresh dedicated slot so later
-    // reassignments (var) and reads are consistent.
-    private def bindReg(src: Int): Int =
-      val home = freshReg(); emit(MOVE, home, src, 0); home
 
     private def compileStats(stats: List[Stat]): Int =
       if stats.isEmpty then bail()
       var rest = stats
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
       compileExpr(rest.head.asInstanceOf[Term])
+
+    private def compileStatsInto(stats: List[Stat], dst: Int): Unit =
+      if stats.isEmpty then bail()
+      var rest = stats
+      while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
+      compileInto(rest.head.asInstanceOf[Term], dst)
 
     /** Emit the instruction stream; callee shells are resolved later by [[Ctx]]. */
     def buildInstructions(): Unit =
