@@ -37,7 +37,13 @@ private[interpreter] object CallRuntime:
   /** Single-argument fast path: avoids allocating List(arg) on every map/filter/forEach call.
    *  For simple 1-param FunV (no varargs, no using, no defaults, no TCO) builds
    *  the call env directly.  Falls back to callValue(fn, List(arg), env, interp) otherwise. */
-  def callValue1(fn: Value, arg: Value, env: Env, interp: Interpreter): Computation = fn match
+  def callValue1(fn: Value, arg: Value, env: Env, interp: Interpreter): Computation =
+    val jit = fn match
+      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun1(f, arg)
+      case _             => null
+    if jit != null then jit else callValue1Slow(fn, arg, env, interp)
+
+  private def callValue1Slow(fn: Value, arg: Value, env: Env, interp: Interpreter): Computation = fn match
     case f: Value.FunV if
         f.params.length == 1 &&
         f.usingParams.isEmpty &&
@@ -66,7 +72,13 @@ private[interpreter] object CallRuntime:
   /** Two-argument fast path: avoids allocating List(a, b) on foldLeft/foldRight/reduceLeft calls.
    *  For simple 2-param FunV (no varargs, no using, no defaults, no TCO) builds the call env
    *  with FrameMap.two directly.  Falls back to callValue(fn, List(a, b), env, interp) otherwise. */
-  def callValue2(fn: Value, a: Value, b: Value, env: Env, interp: Interpreter): Computation = fn match
+  def callValue2(fn: Value, a: Value, b: Value, env: Env, interp: Interpreter): Computation =
+    val jit = fn match
+      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun2(f, a, b)
+      case _             => null
+    if jit != null then jit else callValue2Slow(fn, a, b, env, interp)
+
+  private def callValue2Slow(fn: Value, a: Value, b: Value, env: Env, interp: Interpreter): Computation = fn match
     case f: Value.FunV if
         f.params.length == 2 &&
         f.usingParams.isEmpty &&
@@ -189,6 +201,10 @@ private[interpreter] object CallRuntime:
       case _ => interp.located(s"Not callable: ${Value.show(fn)}")
 
   def callFun(f: Value.FunV, args: List[Value], interp: Interpreter): Computation =
+    val info = TcoRuntime.tcoInfoFor(f, interp)
+    val jit = scalascript.interpreter.vm.JitRuntime.tryRunList(
+      f, args, eager = info.isSelfTailRec || info.tailTargets.nonEmpty)
+    if jit != null then return jit
     val tupledArgs = args match
       case List(Value.TupleV(elems))
         if f.params.length > 1 && elems.length == f.params.length =>
@@ -271,7 +287,6 @@ private[interpreter] object CallRuntime:
         else applyDefaults(f.params, f.defaults, withUsing, interp.closureWithSelfFor(f), interp)
       else
         applyDefaults(f.params, f.defaults, tupledArgs, interp.closureWithSelfFor(f), interp)
-    val info      = TcoRuntime.tcoInfoFor(f, interp)
     val hasMutualTail = info.tailTargets.nonEmpty && info.tailTargets.exists { n =>
       val gv = interp.globals.getOrElse(n, null)
       val v  = if gv != null then gv else f.closure.getOrElse(n, null)

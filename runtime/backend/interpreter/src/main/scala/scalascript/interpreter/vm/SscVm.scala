@@ -82,13 +82,16 @@ object SscVm:
       pc += 1
     0L // unreachable
 
+  /** Thrown when the frame stack is too small. Callers (JitRuntime) catch
+   *  this, grow the backing array, and retry from the top. A distinct type
+   *  so genuine VM errors are never mistaken for a recoverable overflow. */
+  final class FrameOverflow(val need: Int) extends RuntimeException
+
   // Frames live in a per-run Array[Long]; deep recursion can exceed the
-  // initial size. v0 sizes generously and bounds-checks defensively. (A
-  // real implementation would grow the array; here we fail loudly instead
-  // of silently corrupting — the benchmark sizes correctly up front.)
+  // initial size. We bounds-check defensively and signal FrameOverflow so
+  // the caller can grow the array rather than silently corrupting memory.
   private def ensureCapacity(stack: Array[Long], need: Int): Unit =
-    if need > stack.length then
-      throw new RuntimeException(s"SscVm frame stack overflow: need $need, have ${stack.length}")
+    if need > stack.length then throw new FrameOverflow(need)
 
   /** Allocate a frame stack large enough for `depth` frames of `fn`,
    *  place `args` at the base, and run. Convenience entry for tests/bench. */

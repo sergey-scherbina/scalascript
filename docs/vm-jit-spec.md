@@ -1,7 +1,8 @@
 # Hot-spot bytecode VM + run-time JIT for the interpreter — spec & POC
 
-Status: **proof-of-concept** (v0, benchmark-only). Not wired into the
-production call path yet.
+Status: **wired into production** (v0). The VM is invoked automatically from
+the live interpreter call path via `JitRuntime` (§6); §7b has end-to-end
+numbers. Disable with `SSC_JIT=off`.
 
 ## 1. Motivation
 
@@ -100,24 +101,37 @@ in v0 (simple; frames are small).
 Anything else — method calls, doubles, pattern matches, captured free
 variables other than self, effects — makes the compiler return `None`.
 
-## 6. Run-time integration (planned; not in v0)
+## 6. Run-time integration (IMPLEMENTED)
 
-v0 is exercised directly by the JMH benchmark (`VmJitBench`): it pulls the
-parsed `fib` closure out of `interp.globalsView`, compiles it, and times the VM
-against the tree-walker. The production wiring (a later phase) is:
+Wired into the live interpreter via `JitRuntime`
+(`runtime/backend/interpreter/.../vm/JitRuntime.scala`):
 
-1. Add a `callCount` to `Value.FunV` (or a side table keyed by FunV identity).
-2. In `CallRuntime.callValue*`, increment on entry; when it crosses a threshold
-   (e.g. 1000) **and** the function is not yet compiled, attempt
-   `VmCompiler.compile`. Cache `Option[CompiledFn]` (so a failed compile is not
-   retried).
-3. On subsequent calls, if a `CompiledFn` exists and all args are `IntV`,
-   execute on the VM and wrap the `Long` result back into `Value.intV`.
-   Otherwise tree-walk.
+1. **Side table, identity-keyed.** `Value.FunV` is a Scala 3 enum case and
+   cannot carry mutable state, so per-closure JIT state lives in a synchronized
+   `IdentityHashMap[FunV, Entry]`. `Entry` holds `calls`, the compiled
+   `CompiledFn|Null`, and a `disabled` flag. Identity keying avoids structural
+   equality over the function's AST body.
+2. **Warm-up + compile.** `CallRuntime.callValue1/callValue2/callFun` call
+   `JitRuntime.tryRun{1,2,List}` on entry. Each counts calls; at `threshold`
+   (default 8, `SSC_JIT_THRESHOLD`) it attempts `VmCompiler.compile` once. A
+   failed compile sets `disabled` so it is never retried. Anonymous lambdas
+   (`name.isEmpty`) early-out — never cached, never compiled.
+3. **Guarded execution.** The VM runs only when the function is compiled **and**
+   every argument is `IntV`. The `Long` result is wrapped via
+   `Computation.pureIntV`. A `FrameOverflow` grows the thread-local stack and
+   retries; any other `Throwable` returns `null` → caller tree-walks. Because
+   the compiled subset is pure, re-running on the tree-walker is value-identical.
+4. **Concurrency.** The frame stack is a `ThreadLocal[Array[Long]]`, so
+   concurrent actor calls cannot corrupt each other. The `calls` counter races
+   benignly (a lost increment only delays compile by one call).
 
-Because the VM only ever runs functions the compiler accepted, and the result
-is value-identical, this is transparent — a pure speedup with a guaranteed
-fallback. The threshold ensures cold/one-shot functions never pay compile cost.
+Disable globally with `SSC_JIT=off`.
+
+**Known limitation (follow-up):** the identity cache holds strong refs to FunV
+keys. Named top-level `def`s are long-lived so this is bounded in practice, and
+anonymous/per-request lambdas are excluded entirely — but a long-running process
+that mints many distinct *named* closures would accumulate entries. A weak
+identity map is the eventual fix.
 
 ## 7. Verification
 
@@ -160,9 +174,34 @@ already exists for AOT). The point of v0 is proven: a hot-spot VM removes the
 bulk of tree-walking overhead while remaining a transparent, fall-back-safe
 add-on.
 
+## 7b. Results (production wiring, measured 2026-05-31)
+
+End-to-end through the live interpreter (`JitRuntime` wired into
+`CallRuntime`, §6) — the program is run unmodified; the JIT triggers itself.
+`InterpreterBench` (JMH, 3 warmup + 5 measured iters, 1 fork), A/B on the same
+warm machine, baseline = `SSC_JIT=off`:
+
+```
+Benchmark                      JIT off       JIT on     Speedup
+InterpreterBench.recursionFib  7311.4 ms     37.0 ms    198×
+InterpreterBench.recursionTco   269.8 ms      0.97 ms   278×
+```
+
+- **`fib(30)`: 198× end-to-end**, matching the §7a direct-VM result — the
+  warm-up (8 internal self-calls before compile) is negligible against ~2.7 M
+  recursive calls, all of which then run on the VM.
+- **`sumTco(100000)`: 278×**, now *faster than the JVM-codegen backend*
+  (`jvmGen_recursionTco` ≈ 2.27 ms) — the whole tail loop compiles to a single
+  VM loop and runs in one `exec`. This required eager compilation for
+  self-tail-recursive functions: the trampoline loops internally, so such a
+  function enters `callFun` only once and would otherwise never reach the
+  call-count threshold (§6.2).
+- **No regression**: full `backendInterpreter` suite (1196 tests) green with the
+  JIT enabled. All non-integer / effectful / one-shot code is untouched.
+
 ## 8. Explicitly out of scope (v0)
 
 Doubles/strings/objects/collections; effect operations; pattern matching;
-closures captured as values; mutual recursion detection; deoptimization;
-on-stack replacement; the production call-path wiring (§6). These are follow-ups
-gated on v0 showing a worthwhile speedup.
+closures captured as values; mutual recursion compilation; deoptimization;
+on-stack replacement; a weak-identity JIT cache (§6 known limitation). These
+are follow-ups; the production call-path wiring (§6) is now done.
