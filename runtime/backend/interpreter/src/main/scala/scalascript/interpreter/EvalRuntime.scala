@@ -103,7 +103,58 @@ private[interpreter] object EvalRuntime:
         else
           val rv = fastPrimitiveValue(argClause.values.head, env, interp)
           if rv == null then null else fastPrimitiveInfixValue(lv, op.value, rv)
+      // Direct-style call of a pure match-bodied function (e.g. `area(s)`):
+      // folds the call to a bare Value so an enclosing pure expression such as
+      // `total + area(s)` needs no Pure wrapper for the call result and no
+      // FlatMap to thread it. Bails (null) for anything outside the pure subset.
+      case app: Term.Apply =>
+        pureCallValue(app, env, interp)
       case _ => fastValue(term, env, interp)
+
+  /** Evaluate `f(x)`/`f(x, y)` to a bare Value when `f` is a simple, pure,
+   *  match-bodied user function and the matched arm folds to a Value — with no
+   *  `Computation`/`Pure` allocation and no call-stack push (a pure arm cannot
+   *  raise a located error). Returns null to fall back to the monadic call path,
+   *  which preserves effects, TCO/JIT, error traces, and Match-failure reporting.
+   *  Targets the ADT-pattern-match allocation floor. */
+  private def pureCallValue(app: Term.Apply, env: Env, interp: Interpreter): Value | Null =
+    if interp.debugHooks.nonEmpty then return null
+    val fun = app.fun
+    if fun.isInstanceOf[Term.Apply] then return null   // curried call → monadic
+    val fv = fastValue(fun, env, interp)
+    if !fv.isInstanceOf[Value.FunV] then return null
+    val f    = fv.asInstanceOf[Value.FunV]
+    val body = f.body
+    if !body.isInstanceOf[Term.Match] then return null
+    val mt = body.asInstanceOf[Term.Match]
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.valueCapable then return null
+    // Function-shape guards (mirror callValue1Slow/callValue2Slow): exact arity,
+    // no using-params, no throws-wrapping, no defaults, no varargs.
+    if f.usingParams.nonEmpty || f.returnsThrows then return null
+    if f.defaults.nonEmpty && f.defaults.exists(_.nonEmpty) then return null
+    if f.paramTypes.exists(_.endsWith("*")) then return null
+    val args     = app.argClause.values
+    val nparams  = f.params.length
+    if nparams != args.length || nparams < 1 || nparams > 2 then return null
+    val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+    val callEnv: Env =
+      if nparams == 1 then
+        val a = fastPrimitiveValue(args.head, env, interp)
+        if a == null then return null
+        FrameMap.one(f.params.head, a, withSelf)
+      else
+        val a = fastPrimitiveValue(args.head, env, interp)
+        if a == null then return null
+        val b = fastPrimitiveValue(args(1), env, interp)
+        if b == null then return null
+        FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
+    val scrut = fastValue(mt.expr, callEnv, interp)
+    if scrut == null then return null
+    compiled.runValue(scrut, callEnv)
 
   private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
 

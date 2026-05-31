@@ -9,9 +9,22 @@ private[interpreter] object PatternRuntime:
   /** Compiled form of a single `Term.Match` case list.
    *  Each handler returns a `Computation` on success or `null` on no-match.
    *  The while-loop avoids `Option` allocations in the hot dispatch path. */
+  /** Sentinel returned by a value-handler when its pattern matched but the body
+   *  could not be folded to a bare Value at run time (e.g. a name resolved to a
+   *  non-numeric value). It tells `runValue` to abandon the value path for the
+   *  whole match — the caller then re-evaluates monadically, which is correct
+   *  because no side effect has been observed on the value path. */
+  private val NeedMonadic: AnyRef = new AnyRef
+
   final class CompiledMatch(
-    private val handlers: Array[(Value, Env) => Computation | Null]
+    private val handlers:  Array[(Value, Env) => Computation | Null],
+    private val vhandlers: Array[(Value, Env) => AnyRef | Null] | Null
   ):
+    /** True when every arm is guard-free with a pure (thunk-foldable) body and a
+     *  fast-path pattern — so `runValue` can yield the result with no Computation
+     *  allocation. Computed once at compile time. */
+    def valueCapable: Boolean = vhandlers != null
+
     def run(scrutV: Value, env: Env, interp: Interpreter): Computation =
       var i = 0
       while i < handlers.length do
@@ -20,17 +33,49 @@ private[interpreter] object PatternRuntime:
         i += 1
       interp.located(s"Match failure: ${Value.show(scrutV)}")
 
+    /** Direct-style match: returns the arm's result Value with no `Pure`
+     *  wrapper, or null to signal "fall back to monadic `run`" (no arm matched,
+     *  or a matched body could not be value-folded). Only valid when
+     *  `valueCapable`; callers must check first. */
+    def runValue(scrutV: Value, env: Env): Value | Null =
+      val vh = vhandlers
+      if vh == null then return null
+      var i = 0
+      while i < vh.length do
+        val r = vh(i)(scrutV, env)
+        if r != null then
+          return if r eq NeedMonadic then null else r.asInstanceOf[Value]
+        i += 1
+      null
+
   /** Compile a Term.Match into a cached handler array.
    *  Called once per match expression (keyed by AST node identity).
    *  Falls back to the generic matchPat for complex patterns. */
   def compileMatch(t: scala.meta.Term.Match, interp: Interpreter): CompiledMatch =
-    val handlers = t.casesBlock.cases.map(compileCase(_, interp)).toArray
-    new CompiledMatch(handlers)
+    val cases    = t.casesBlock.cases
+    val handlers = cases.map(compileCase(_, interp)).toArray
+    new CompiledMatch(handlers, buildValueHandlers(cases, interp))
 
   /** Compile a Term.PartialFunction into a cached handler array (same machinery). */
   def compilePF(t: scala.meta.Term.PartialFunction, interp: Interpreter): CompiledMatch =
     val handlers = t.cases.map(compileCase(_, interp)).toArray
-    new CompiledMatch(handlers)
+    new CompiledMatch(handlers, buildValueHandlers(t.cases, interp))
+
+  /** Build the value-handler array, or null if any arm is not value-capable
+   *  (has a guard, an effectful/complex body, or a pattern outside the fast set). */
+  private def buildValueHandlers(
+    cases: List[Case], interp: Interpreter
+  ): Array[(Value, Env) => AnyRef | Null] | Null =
+    val vh = new Array[(Value, Env) => AnyRef | Null](cases.length)
+    var rest = cases
+    var i = 0
+    while rest.nonEmpty do
+      val h = valueHandlerFor(rest.head, interp)
+      if h == null then return null
+      vh(i) = h
+      i += 1
+      rest = rest.tail
+    vh
 
   private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
     cond match
@@ -333,6 +378,78 @@ private[interpreter] object PatternRuntime:
           if r != null then r else rhsH(scrutV, env)
 
       case _ => fallbackCase(c, interp)
+
+  /** Value-returning twin of a single arm's handler, or null when the arm is not
+   *  value-capable (guarded, non-thunk body, or a pattern outside the fast set).
+   *  Returns: a `Value` on match+fold, `NeedMonadic` on match-but-cannot-fold,
+   *  or null on no-match (try the next arm). Mirrors `compileCase`'s pattern
+   *  logic exactly so semantics never diverge. */
+  private def valueHandlerFor(c: Case, interp: Interpreter): ((Value, Env) => AnyRef | Null) | Null =
+    if c.cond.nonEmpty then return null
+    val bodyThunk = compileExpr(c.body, interp)
+    if bodyThunk == null then return null
+    val bt = bodyThunk
+    c.pat match
+      case Pat.Wildcard() =>
+        (_, env) =>
+          val v = bt(env); if v != null then v else NeedMonadic
+
+      case Pat.Var(n) =>
+        val name = n.value
+        (scrutV, env) =>
+          val v = bt(FrameMap.one(name, scrutV, env)); if v != null then v else NeedMonadic
+
+      case lit: Lit =>
+        val litV = compileLit(lit)
+        (scrutV, env) =>
+          if scrutV == litV then { val v = bt(env); if v != null then v else NeedMonadic }
+          else null
+
+      case Pat.Extract.After_4_6_0(fn, argClause) =>
+        val typeName: String | Null = fn match
+          case Term.Name(n)                 => n
+          case Term.Select(_, Term.Name(n)) => n
+          case _                            => null
+        val argPats   = argClause.values.toArray
+        val allSimple = argPats.forall(p => p.isInstanceOf[Pat.Var] || p.isInstanceOf[Pat.Wildcard])
+        if typeName == null || !allSimple then null
+        else
+          val bindNames: Array[String | Null] = argPats.map {
+            case Pat.Var(nn) => nn.value
+            case _           => null
+          }
+          var fieldOrderCache: Array[String] = null
+          val tn = typeName
+          (scrutV, env) =>
+            scrutV match
+              case ov: Value.OptionV if ov.inner != null && tn == "Some" && bindNames.length == 1 =>
+                val bname  = bindNames(0)
+                val patEnv = if bname == null then env else FrameMap.one(bname, ov.inner, env)
+                val v = bt(patEnv); if v != null then v else NeedMonadic
+              case Value.NoneV if tn == "None" && bindNames.isEmpty =>
+                val v = bt(env); if v != null then v else NeedMonadic
+              case Value.InstanceV(t, fields) if t == tn =>
+                if fieldOrderCache == null then
+                  fieldOrderCache = interp.typeFieldOrder
+                    .getOrElse(tn, fields.keys.toList)
+                    .toArray
+                val fo = fieldOrderCache
+                if bindNames.length != fo.length then null
+                else
+                  val patEnv = buildPatEnv(fo, bindNames, fields, env)
+                  if patEnv == null then null
+                  else { val v = bt(patEnv); if v != null then v else NeedMonadic }
+              case _ => null
+
+      case Pat.Alternative(lhs, rhs) =>
+        val lh = valueHandlerFor(c.copy(pat = lhs), interp)
+        val rh = valueHandlerFor(c.copy(pat = rhs), interp)
+        if lh == null || rh == null then null
+        else
+          (scrutV, env) =>
+            val r = lh(scrutV, env); if r != null then r else rh(scrutV, env)
+
+      case _ => null
 
   private def fallbackCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
     if c.cond.isEmpty then
