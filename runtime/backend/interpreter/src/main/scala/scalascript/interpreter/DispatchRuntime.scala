@@ -2866,6 +2866,62 @@ private[interpreter] object DispatchRuntime:
         case _ => null
       case _ => null
 
+  /** Value-returning twin of `numericFast`: same operand/operator coverage, but
+   *  yields the raw `Value` (or null) with no Computation wrapper. Lets pure-body
+   *  thunks (PatternRuntime.compileExpr) fold nested arithmetic entirely in
+   *  Value-space without allocating a throwaway Pure per sub-expression. Kept as
+   *  a parallel match (not delegated to/from `numericFast`) because routing the
+   *  Computation path through here would allocate a redundant intermediate IntV
+   *  for out-of-pool results — measurably regressing arithLoop. */
+  private[interpreter] def numericFastValue(lhs: Value, op: String, rhs: Value): Value | Null =
+    lhs match
+      case Value.IntV(a) => rhs match
+        case Value.IntV(b) => op match
+          case "+"  => Value.intV(a + b)
+          case "-"  => Value.intV(a - b)
+          case "*"  => Value.intV(a * b)
+          case "/"  => Value.intV(a / b)
+          case "%"  => Value.intV(a % b)
+          case "<"  => Value.boolV(a < b)
+          case ">"  => Value.boolV(a > b)
+          case "<=" => Value.boolV(a <= b)
+          case ">=" => Value.boolV(a >= b)
+          case _    => null
+        case Value.DoubleV(b) => op match
+          case "+"  => Value.doubleV(a + b)
+          case "-"  => Value.doubleV(a - b)
+          case "*"  => Value.doubleV(a * b)
+          case "/"  => Value.doubleV(a / b)
+          case "<"  => Value.boolV(a.toDouble < b)
+          case ">"  => Value.boolV(a.toDouble > b)
+          case "<=" => Value.boolV(a.toDouble <= b)
+          case ">=" => Value.boolV(a.toDouble >= b)
+          case _    => null
+        case _ => null
+      case Value.DoubleV(a) => rhs match
+        case Value.DoubleV(b) => op match
+          case "+"  => Value.doubleV(a + b)
+          case "-"  => Value.doubleV(a - b)
+          case "*"  => Value.doubleV(a * b)
+          case "/"  => Value.doubleV(a / b)
+          case "<"  => Value.boolV(a < b)
+          case ">"  => Value.boolV(a > b)
+          case "<=" => Value.boolV(a <= b)
+          case ">=" => Value.boolV(a >= b)
+          case _    => null
+        case Value.IntV(b) => op match
+          case "+"  => Value.doubleV(a + b)
+          case "-"  => Value.doubleV(a - b)
+          case "*"  => Value.doubleV(a * b)
+          case "/"  => Value.doubleV(a / b)
+          case "<"  => Value.boolV(a < b.toDouble)
+          case ">"  => Value.boolV(a > b.toDouble)
+          case "<=" => Value.boolV(a <= b.toDouble)
+          case ">=" => Value.boolV(a >= b.toDouble)
+          case _    => null
+        case _ => null
+      case _ => null
+
   /** Infix fast path: rhs already extracted. args is created lazily (rhs :: Nil) only in the
    *  fallback dispatch path, so arithmetic/comparison fast paths pay zero allocation. */
   def infix2(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =

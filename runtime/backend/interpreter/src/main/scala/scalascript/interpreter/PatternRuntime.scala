@@ -87,9 +87,7 @@ private[interpreter] object PatternRuntime:
               val rv = rf(env)
               if rv == null then null
               else
-                DispatchRuntime.numericFast(lv, opStr, rv) match
-                  case Pure(v) => v
-                  case _       => null)
+                DispatchRuntime.numericFastValue(lv, opStr, rv))
     case _ => null
 
   /** Wrap a fast-path Value in a Pure, reusing the pooled Pure instances for
