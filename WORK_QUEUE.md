@@ -10,6 +10,8 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Tooling
 
+- [x] **cli-bundle-frontend** — bundle `frontendPlugin` + `fetchPlugin` into the CLI (Compile) so `ssc run` resolves the std/ui frontend externs (`signal`/`lower`/`emit`) and `fetch`. Previously `% Test`, so frontend programs failed with `'signal' not found`. ✓ Landed 2026-05-31: std-ui smoke now emits index.html+app.js and prints `smoke:ok` via the jar; assembly clean; busi domain regression-green. (frontendReact was already Compile.)
+
 - [x] **wire-option-char** — `ValueSerializer` (and thus `toWire`/`fromWire`) didn't handle `Option`/`Char`/`null`, so serializing a record with `Option` fields threw. ✓ Landed 2026-05-31: added `some`/`none`/`c`/`null` wire tags; 3 tests (incl. the busi Account shape with Option fields); suite green (1191).
 
 - [x] **ssc-value-wire** — expose the interpreter wire serializer to `.ssc` as `toWire(value): String` / `fromWire(s): Value`, so programs can persist arbitrary values (case classes/enums, List/Map/Set/Tuple/Option, BigInt/Decimal). ✓ Landed 2026-05-31: 2 builtins over `ValueSerializer`; 4 round-trip tests incl. nested records and an event-log shape; suite green (1188). Unblocks busi Phase 7 (durable event log).

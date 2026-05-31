@@ -6,6 +6,9 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **cli-bundle-frontend** - Bundle frontendPlugin + fetchPlugin in the CLI
+      (Compile) so `ssc run` can run std/ui frontends + fetch. ✓ Landed 2026-05-31.
+
 - [x] **ssc-value-wire** - Expose the interpreter wire serializer to `.ssc`
       as `toWire`/`fromWire` (persist arbitrary values incl. case classes, Set,
       Decimal). 4 tests; suite green (1188). ✓ Landed 2026-05-31.
