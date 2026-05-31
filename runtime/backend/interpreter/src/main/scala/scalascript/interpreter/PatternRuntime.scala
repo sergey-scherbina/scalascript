@@ -59,6 +59,71 @@ private[interpreter] object PatternRuntime:
     case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" => true
     case _                                                     => false
 
+  private def isArithOp(op: String): Boolean = op match
+    case "+" | "-" | "*" | "/" | "%" => true
+    case _                           => false
+
+  // ── Primitive-double body compilation ──────────────────────────────────────
+  // A case body that is pure arithmetic and contains a Double literal (e.g.
+  // `3.14159 * r * r`, `0.5 * b * h`) is Double-typed in Scala — every Int
+  // operand promotes — so we can fold the whole expression in unboxed `double`
+  // space and box the result exactly once, eliding the intermediate `DoubleV`
+  // (and its `Computation` threading) that the per-sub-expression value path
+  // allocates. Bodies without a Double literal keep the Int/Value path so Int
+  // arithmetic stays Int-typed.
+
+  private sealed trait DExpr
+  private final case class DConst(d: Double)                 extends DExpr
+  private final case class DName(name: String)               extends DExpr
+  private final case class DBin(op: Char, l: DExpr, r: DExpr) extends DExpr
+
+  /** Stackless control signal: a name in a double-arithmetic body resolved to a
+   *  non-numeric value (or was undefined) at run time. The thunk catches this
+   *  and falls back to the full evaluator, so semantics are never altered. */
+  private object NotDouble extends scala.util.control.ControlThrowable
+
+  private def containsDoubleLit(t: Term): Boolean = t match
+    case Lit.Double(_) => true
+    case Term.ApplyInfix.After_4_6_0(l, _, _, ac) if ac.values.lengthCompare(1) == 0 =>
+      containsDoubleLit(l) || containsDoubleLit(ac.values.head)
+    case _ => false
+
+  /** Compile a pure arithmetic term into a `DExpr` tree, or null if any part is
+   *  outside the supported subset (calls, blocks, comparisons, …). */
+  private def compileDExpr(t: Term): DExpr | Null = t match
+    case Lit.Double(v) => DConst(v.toString.toDouble)
+    case Lit.Int(v)    => DConst(v.toDouble)
+    case Lit.Long(v)   => DConst(v.toDouble)
+    case tn: Term.Name => DName(tn.value)
+    case Term.ApplyInfix.After_4_6_0(l, op, _, ac)
+        if ac.values.lengthCompare(1) == 0 && isArithOp(op.value) =>
+      val lf = compileDExpr(l)
+      if lf == null then null
+      else
+        val rf = compileDExpr(ac.values.head)
+        if rf == null then null else DBin(op.value.charAt(0), lf, rf)
+    case _ => null
+
+  private def evalD(e: DExpr, env: Env, interp: Interpreter): Double = e match
+    case DConst(d)  => d
+    case DName(name) =>
+      val v  = env.getOrElse(name, null)
+      val rv = if v != null then v else interp.globals.getOrElse(name, null)
+      rv match
+        case Value.DoubleV(d) => d
+        case Value.IntV(n)    => n.toDouble
+        case _                => throw NotDouble
+    case DBin(op, l, r) =>
+      val a = evalD(l, env, interp)
+      val b = evalD(r, env, interp)
+      op match
+        case '+' => a + b
+        case '-' => a - b
+        case '*' => a * b
+        case '/' => a / b
+        case '%' => a % b
+        case _   => throw NotDouble
+
   /** Compile a guard-free, side-effect-free case body into a `ValThunk`,
    *  eliminating per-call AST re-dispatch and Computation-monad threading.
    *  Handles the pure subset: literals, name lookups, and nested primitive
@@ -70,7 +135,21 @@ private[interpreter] object PatternRuntime:
       (_ => v)
     case tn: Term.Name =>
       val name = tn.value
-      (env => env.getOrElse(name, interp.globals.getOrElse(name, null)))
+      // Two getOrElse calls with `null` literal defaults rather than nesting the
+      // globals lookup inside the env default: a by-name default holding a method
+      // call (`interp.globals.getOrElse(...)`) allocates a Function0 capturing
+      // `interp`+`name` on every lookup, even on the common env-hit path.
+      (env =>
+        val v = env.getOrElse(name, null)
+        if v != null then v else interp.globals.getOrElse(name, null))
+    case ai @ Term.ApplyInfix.After_4_6_0(_, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 && isArithOp(op.value)
+           && containsDoubleLit(ai) && compileDExpr(ai) != null =>
+      // Double-typed arithmetic body: fold in unboxed `double`, box once.
+      val de = compileDExpr(ai).asInstanceOf[DExpr]
+      (env =>
+        try Value.doubleV(evalD(de, env, interp))
+        catch case NotDouble => null)
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 && isFastOp(op.value) =>
       val opStr = op.value
