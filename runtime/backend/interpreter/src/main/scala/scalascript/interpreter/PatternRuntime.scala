@@ -49,6 +49,57 @@ private[interpreter] object PatternRuntime:
     case Lit.Null()     => Value.NullV
     case _              => Value.NullV
 
+  /** A compiled pure expression: maps an env to a Value, or null when the
+   *  expression cannot be evaluated on the fast path at runtime (e.g. an
+   *  undefined name or a non-numeric operand) — the caller then falls back
+   *  to the full `interp.eval`. */
+  private type ValThunk = Env => Value | Null
+
+  private def isFastOp(op: String): Boolean = op match
+    case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" => true
+    case _                                                     => false
+
+  /** Compile a guard-free, side-effect-free case body into a `ValThunk`,
+   *  eliminating per-call AST re-dispatch and Computation-monad threading.
+   *  Handles the pure subset: literals, name lookups, and nested primitive
+   *  Int/Double arithmetic & comparisons. Returns null for anything outside
+   *  the subset (calls, blocks, ifs, …), so the body keeps using `interp.eval`. */
+  private def compileExpr(term: Term, interp: Interpreter): ValThunk | Null = term match
+    case lit: Lit =>
+      val v = compileLit(lit)
+      (_ => v)
+    case tn: Term.Name =>
+      val name = tn.value
+      (env => env.getOrElse(name, interp.globals.getOrElse(name, null)))
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 && isFastOp(op.value) =>
+      val opStr = op.value
+      val lf    = compileExpr(lhs, interp)
+      if lf == null then null
+      else
+        val rf = compileExpr(argClause.values.head, interp)
+        if rf == null then null
+        else
+          (env =>
+            val lv = lf(env)
+            if lv == null then null
+            else
+              val rv = rf(env)
+              if rv == null then null
+              else
+                DispatchRuntime.numericFast(lv, opStr, rv) match
+                  case Pure(v) => v
+                  case _       => null)
+    case _ => null
+
+  /** Wrap a fast-path Value in a Pure, reusing the pooled Pure instances for
+   *  small ints and booleans so the thunk path does not regress allocation
+   *  versus the pooled `Computation.pureIntV` the full evaluator would hit. */
+  private def pureOf(v: Value): Computation = v match
+    case Value.IntV(n)  => Computation.pureIntV(n)
+    case Value.BoolV(b) => Computation.pureBool(b)
+    case _              => Pure(v)
+
   /** Build the pattern env from precomputed field order and binding names.
    *  Returns null if any required field is missing from `fields`. */
   private def buildPatEnv(
@@ -109,14 +160,25 @@ private[interpreter] object PatternRuntime:
    *  Simple patterns (Extract with Var/Wildcard args, Wildcard, Var, Lit) get
    *  fast-path compilation.  Complex patterns fall back to `matchPat`. */
   private def compileCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
+    // Pre-compile a guard-free pure body once; runBody uses the thunk when it
+    // applies and falls back to the full evaluator otherwise (incl. all guarded
+    // cases, where bodyThunk is null).
+    val bodyThunk: ValThunk | Null = if c.cond.isEmpty then compileExpr(c.body, interp) else null
+    def runBody(e: Env): Computation =
+      val bt = bodyThunk
+      if bt != null then
+        val v = bt(e)
+        if v != null then pureOf(v) else interp.eval(c.body, e)
+      else interp.eval(c.body, e)
+
     c.pat match
 
       case Pat.Wildcard() =>
         if c.cond.isEmpty then
-          (_, env) => interp.eval(c.body, env)
+          (_, env) => runBody(env)
         else
           (_, env) =>
-            if evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+            if evalGuard(c.cond, env, interp) then runBody(env)
             else null
 
       case Pat.Var(n) =>
@@ -124,21 +186,21 @@ private[interpreter] object PatternRuntime:
         if c.cond.isEmpty then
           (scrutV, env) =>
             val patEnv = FrameMap.one(name, scrutV, env)
-            interp.eval(c.body, patEnv)
+            runBody(patEnv)
         else
           (scrutV, env) =>
             val patEnv = FrameMap.one(name, scrutV, env)
-            if evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+            if evalGuard(c.cond, patEnv, interp) then runBody(patEnv)
             else null
 
       case lit: Lit =>
         val litV = compileLit(lit)
         if c.cond.isEmpty then
           (scrutV, env) =>
-            if scrutV == litV then interp.eval(c.body, env) else null
+            if scrutV == litV then runBody(env) else null
         else
           (scrutV, env) =>
-            if scrutV == litV && evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+            if scrutV == litV && evalGuard(c.cond, env, interp) then runBody(env)
             else null
 
       case Pat.Extract.After_4_6_0(fn, argClause) =>
@@ -164,10 +226,10 @@ private[interpreter] object PatternRuntime:
                 val v = ov.inner
                 val bname = bindNames(0)
                 val patEnv = if bname == null then env else FrameMap.one(bname, v, env)
-                if noGuard || evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                if noGuard || evalGuard(c.cond, patEnv, interp) then runBody(patEnv)
                 else null
               case Value.NoneV if tn == "None" && bindNames.isEmpty =>
-                if noGuard || evalGuard(c.cond, env, interp) then interp.eval(c.body, env)
+                if noGuard || evalGuard(c.cond, env, interp) then runBody(env)
                 else null
               case Value.InstanceV(t, fields) if t == tn =>
                 if fieldOrderCache == null then
@@ -179,7 +241,7 @@ private[interpreter] object PatternRuntime:
                 else
                   val patEnv = buildPatEnv(fo, bindNames, fields, env)
                   if patEnv == null then null
-                  else if noGuard || evalGuard(c.cond, patEnv, interp) then interp.eval(c.body, patEnv)
+                  else if noGuard || evalGuard(c.cond, patEnv, interp) then runBody(patEnv)
                   else null
               case _ => null
         else

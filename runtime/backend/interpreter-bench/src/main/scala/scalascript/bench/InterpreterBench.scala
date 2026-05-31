@@ -70,6 +70,44 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // Wide ADT (12 constructors) with Int case bodies — exercises pure-body
+  // compilation across many constructors without Double-boxing noise.
+  private val modPatternMatchWide: Module = src(
+    """sealed trait Op
+      |case class A(x: Int) extends Op
+      |case class B(x: Int) extends Op
+      |case class C(x: Int) extends Op
+      |case class D(x: Int) extends Op
+      |case class E(x: Int) extends Op
+      |case class F(x: Int) extends Op
+      |case class G(x: Int) extends Op
+      |case class H(x: Int) extends Op
+      |case class I(x: Int) extends Op
+      |case class J(x: Int) extends Op
+      |case class K(x: Int) extends Op
+      |case class L(x: Int) extends Op
+      |def eval(o: Op): Int = o match
+      |  case A(x) => x + 1
+      |  case B(x) => x + 2
+      |  case C(x) => x + 3
+      |  case D(x) => x + 4
+      |  case E(x) => x + 5
+      |  case F(x) => x + 6
+      |  case G(x) => x + 7
+      |  case H(x) => x + 8
+      |  case I(x) => x + 9
+      |  case J(x) => x + 10
+      |  case K(x) => x + 11
+      |  case L(x) => x + 12
+      |val ops = List(A(1), B(1), C(1), D(1), E(1), F(1), G(1), H(1), I(1), J(1), K(1), L(1))
+      |var total = 0
+      |var i = 0
+      |while i < 50000 do
+      |  ops.foreach(o => { total = total + eval(o) })
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val modEffectPure: Module = src(
     """def compute(n: Int): Int ! Logger =
       |  var acc = 0
@@ -109,6 +147,10 @@ class InterpreterBench:
   @Benchmark
   def patternMatchHeavy(): Unit =
     Interpreter(devNull).runSections(modPatternMatch)
+
+  @Benchmark
+  def patternMatchWide(): Unit =
+    Interpreter(devNull).runSections(modPatternMatchWide)
 
   @Benchmark
   def effectPure(): Unit =
