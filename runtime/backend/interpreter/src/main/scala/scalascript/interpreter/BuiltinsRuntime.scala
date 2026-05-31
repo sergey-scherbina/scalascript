@@ -699,6 +699,18 @@ private[interpreter] object BuiltinsRuntime:
         Pure(Value.StringV(new String(bytes, java.nio.charset.StandardCharsets.UTF_8)))
       case _ => throw InterpretError("readFile(path: String): String")
     })
+    // Value ⇄ string serialization (the interpreter wire format).  Handles
+    // primitives, BigInt/Decimal, List/Map/Set/Tuple/Option, and case-class /
+    // enum InstanceVs — enough to persist a whole event log.  Functions cannot
+    // be serialized.
+    interp.globals("toWire") = Value.NativeFnV("toWire", {
+      case List(v) => Pure(Value.StringV(ValueSerializer.serialize(v)))
+      case _       => throw InterpretError("toWire(value): String")
+    })
+    interp.globals("fromWire") = Value.NativeFnV("fromWire", {
+      case List(Value.StringV(s)) => Pure(ValueSerializer.deserialize(s))
+      case _                      => throw InterpretError("fromWire(s: String): Value")
+    })
     interp.globals("deleteFile") = Value.NativeFnV("deleteFile", {
       case List(Value.StringV(path)) =>
         java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(path))

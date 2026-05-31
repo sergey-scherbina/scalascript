@@ -6,6 +6,10 @@ Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Tooling
 
+- [x] **ssc-value-wire** - Expose the interpreter wire serializer to `.ssc`
+      as `toWire`/`fromWire` (persist arbitrary values incl. case classes, Set,
+      Decimal). 4 tests; suite green (1188). ✓ Landed 2026-05-31.
+
 - [x] **interpreter-set-support** - Add a real `Set` to the interpreter
       (`Value.SetV`): `Set(...)` constructor, set ops (contains/+/-/++/&/--/
       subsetOf/…), `List.toSet` returns a Set, deterministic `show`, value

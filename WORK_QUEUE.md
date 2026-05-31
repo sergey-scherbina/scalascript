@@ -10,6 +10,8 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ## Tooling
 
+- [x] **ssc-value-wire** — expose the interpreter wire serializer to `.ssc` as `toWire(value): String` / `fromWire(s): Value`, so programs can persist arbitrary values (case classes/enums, List/Map/Set/Tuple/Option, BigInt/Decimal). ✓ Landed 2026-05-31: 2 builtins over `ValueSerializer`; 4 round-trip tests incl. nested records and an event-log shape; suite green (1188). Unblocks busi Phase 7 (durable event log).
+
 - [x] **interpreter-set-support** — the interpreter had no `Set`: `Set(...)`/`Set[T]()` was `Undefined` and `toSet` faked a deduped `List`. ✓ Landed 2026-05-30: added `Value.SetV(Set[Value])`, a `Set` constructor (`Set(...)`/`Set.empty`/`Set[T]()`), `dispatchSet` (contains/+/-/++/--/&/union/intersect/diff/subsetOf/size/isEmpty/nonEmpty/toList/head + map/filter→Set and foldLeft/exists/forall/foreach/mkString via List), `++`/`+`/`-` operators, sorted deterministic `show`, value-equality, and `"set"` wire tag; `List.toSet` now returns a real Set. 8 tests; full interpreter suite green (1184). (Interpreter scope; JS/JVM `Set` codegen unaffected.)
 
 - [x] **cli-bundle-http-plugin** — `ssc run` couldn't resolve `route`/`serve`/`serveAsync`/`httpPost`: the http plugin was ServiceLoader-registered but `cli` depended on it only at `% Test`, so the assembled `ssc.jar` didn't bundle it. ✓ Landed 2026-05-30: moved `httpPlugin` + `wsPlugin` to Compile scope on `cli` (matching `graphPlugin`/`deployPlugin`); ServiceLoader auto-loads them in `ssc run`. Verified live (serveAsync + httpPost round-trip), assembly clean, `cli/Test/compile` green, functional smoke (plain run + all busi phases) green. `BackendRegistryTest` unaffected (subsetOf; http/ws spiVersion 0.1.0).
