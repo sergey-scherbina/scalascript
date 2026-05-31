@@ -68,13 +68,40 @@ private[interpreter] object EvalRuntime:
       val rv = fastPrimitiveValue(rhs, env, interp)
       if rv == null then null else fastPrimitiveInfix(lv, op, rv)
 
+  /** Value-returning twin of `fastPrimitiveInfix`: same coverage, but yields the
+   *  raw `Value` (or null) with no `Pure` wrapper. The hot while-assign loop only
+   *  needs the Value, so this avoids allocating one throwaway `Pure` per infix
+   *  per iteration (≈3 per arithLoop step). Mirrors `fastPrimitiveInfix` exactly:
+   *  `numericFastValue` first, then the Double-eq / Bool cases it leaves out. */
+  private def fastPrimitiveInfixValue(lhs: Value, op: String, rhs: Value): Value | Null =
+    val nf = DispatchRuntime.numericFastValue(lhs, op, rhs)
+    if nf != null then nf
+    else lhs match
+      case Value.DoubleV(a) => rhs match
+        case Value.DoubleV(b) => op match
+          case "==" => Value.boolV(a == b)
+          case "!=" => Value.boolV(a != b)
+          case _    => null
+        case _ => null
+      case Value.BoolV(a) => rhs match
+        case Value.BoolV(b) => op match
+          case "&&" => Value.boolV(a && b)
+          case "||" => Value.boolV(a || b)
+          case "==" => Value.boolV(a == b)
+          case "!=" => Value.boolV(a != b)
+          case _    => null
+        case _ => null
+      case _ => null
+
   private def fastPrimitiveValue(term: Term, env: Env, interp: Interpreter): Value | Null =
     term match
       case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
           if argClause.values.lengthCompare(1) == 0 =>
-        fastPrimitiveInfixTerm(lhs, op.value, argClause.values.head, env, interp) match
-          case Pure(v) => v
-          case _       => null
+        val lv = fastPrimitiveValue(lhs, env, interp)
+        if lv == null then null
+        else
+          val rv = fastPrimitiveValue(argClause.values.head, env, interp)
+          if rv == null then null else fastPrimitiveInfixValue(lv, op.value, rv)
       case _ => fastValue(term, env, interp)
 
   private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
