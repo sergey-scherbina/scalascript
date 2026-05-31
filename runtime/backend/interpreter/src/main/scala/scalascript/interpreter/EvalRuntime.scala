@@ -163,6 +163,164 @@ private[interpreter] object EvalRuntime:
     catch
       case scala.util.control.NonFatal(_) => null
 
+  // ── Unboxed-long fast path for integer while-assign loops ───────────────
+  // A while-loop whose body is only `name = <int-arith>` assignments and whose
+  // condition is an integer comparison runs entirely in unboxed `long` slots,
+  // boxing each var back to a pooled IntV only once on loop exit. This removes
+  // the per-iteration IntV allocation that JFR showed is ~99% of arithLoop's
+  // bytes (counter vars escape the −2048..16383 intV pool almost immediately).
+  private sealed abstract class LExpr:
+    def eval(slots: Array[Long]): Long
+  private final class LConst(v: Long) extends LExpr:
+    def eval(slots: Array[Long]): Long = v
+  private final class LVar(idx: Int) extends LExpr:
+    def eval(slots: Array[Long]): Long = slots(idx)
+  private final class LBin(op: Int, l: LExpr, r: LExpr) extends LExpr:
+    def eval(slots: Array[Long]): Long =
+      val a = l.eval(slots); val b = r.eval(slots)
+      op match
+        case 0 => a + b
+        case 1 => a - b
+        case 2 => a * b
+        case 3 => a / b
+        case _ => a % b
+  private sealed abstract class LCond:
+    def eval(slots: Array[Long]): Boolean
+  private final class LCmp(op: Int, l: LExpr, r: LExpr) extends LCond:
+    def eval(slots: Array[Long]): Boolean =
+      val a = l.eval(slots); val b = r.eval(slots)
+      op match
+        case 0 => a < b
+        case 1 => a <= b
+        case 2 => a > b
+        case 3 => a >= b
+        case 4 => a == b
+        case _ => a != b
+  private final class LAnd(l: LCond, r: LCond) extends LCond:
+    def eval(slots: Array[Long]): Boolean = l.eval(slots) && r.eval(slots)
+  private final class LOr(l: LCond, r: LCond) extends LCond:
+    def eval(slots: Array[Long]): Boolean = l.eval(slots) || r.eval(slots)
+
+  /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
+   *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
+   *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
+   *  the caller has already confirmed the loop condition is true on entry. */
+  private def tryLongWhileAssign(t: Term.While, body: FastAssignBody, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
+    val slotOfName = mutable.LinkedHashMap.empty[String, Int]
+    // Slot index for an int-valued name, or -1 (bail). Registers on first use.
+    def slotOf(name: String): Int =
+      slotOfName.get(name) match
+        case Some(i) => i
+        case None =>
+          frameView.getOrElse(name, null) match
+            case Value.IntV(_) =>
+              val i = slotOfName.size
+              slotOfName(name) = i
+              i
+            case _ => -1
+    def compileExpr(term: Term): LExpr | Null = term match
+      case Lit.Int(v)  => new LConst(v.toLong)
+      case Lit.Long(v) => new LConst(v)
+      case tn: Term.Name =>
+        val s = slotOf(tn.value)
+        if s < 0 then null else new LVar(s)
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        val code = op.value match
+          case "+" => 0
+          case "-" => 1
+          case "*" => 2
+          case "/" => 3
+          case "%" => 4
+          case _   => -1
+        if code < 0 then null
+        else
+          val l = compileExpr(lhs)
+          if l == null then null
+          else
+            val r = compileExpr(argClause.values.head)
+            if r == null then null else new LBin(code, l, r)
+      case _ => null
+    def compileCond(term: Term): LCond | Null = term match
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        op.value match
+          case "&&" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LAnd(l, r)
+          case "||" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LOr(l, r)
+          case other =>
+            val code = other match
+              case "<"  => 0
+              case "<=" => 1
+              case ">"  => 2
+              case ">=" => 3
+              case "==" => 4
+              case "!=" => 5
+              case _    => -1
+            if code < 0 then null
+            else
+              val l = compileExpr(lhs)
+              if l == null then null
+              else
+                val r = compileExpr(argClause.values.head)
+                if r == null then null else new LCmp(code, l, r)
+      case _ => null
+
+    // Register assigned names (must already be int-valued vars), then compile.
+    var k = 0
+    while k < body.names.length do
+      if slotOf(body.names(k)) < 0 then return null
+      k += 1
+    val rhsL = new Array[LExpr](body.rhs.length)
+    var j = 0
+    while j < body.rhs.length do
+      val c = compileExpr(body.rhs(j))
+      if c == null then return null
+      rhsL(j) = c
+      j += 1
+    val condL = compileCond(t.expr)
+    if condL == null then return null
+    // Initial slot values (every registered name was checked int-valued).
+    val slots = new Array[Long](slotOfName.size)
+    val it = slotOfName.iterator
+    while it.hasNext do
+      val (nm, idx) = it.next()
+      frameView.getOrElse(nm, null) match
+        case Value.IntV(v) => slots(idx) = v
+        case _             => return null
+    val assignSlot = new Array[Int](body.names.length)
+    var a = 0
+    while a < body.names.length do
+      assignSlot(a) = slotOfName(body.names(a))
+      a += 1
+    // Run in unboxed long space (condition already true on entry → do-while).
+    var running = true
+    while running do
+      var i = 0
+      while i < rhsL.length do
+        slots(assignSlot(i)) = rhsL(i).eval(slots)
+        i += 1
+      running = condL.eval(slots)
+    // Box final values of assigned vars back into env + globals (once).
+    val local = frameView.underlying
+    var w = 0
+    while w < body.names.length do
+      val nm = body.names(w)
+      val v  = Value.intV(slots(assignSlot(w)))
+      local(nm) = v
+      interp.globals(nm) = v
+      w += 1
+    Computation.PureUnit
+
   private def tryFastWhileAssign(t: Term.While, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
     if interp.debugHooks.nonEmpty then null
     else
@@ -172,7 +330,9 @@ private[interpreter] object EvalRuntime:
         fastPrimitiveValue(t.expr, frameView, interp) match
           case Value.BoolV(false) => Computation.PureUnit
           case Value.BoolV(true) =>
-            if previewFastAssignIteration(body, t.expr, frameView, interp) == null then null
+            val longLoop = tryLongWhileAssign(t, body, frameView, interp)
+            if longLoop != null then longLoop
+            else if previewFastAssignIteration(body, t.expr, frameView, interp) == null then null
             else
               val local = frameView.underlying
               var running = true
