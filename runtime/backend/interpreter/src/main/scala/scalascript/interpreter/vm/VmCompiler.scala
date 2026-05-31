@@ -10,26 +10,74 @@ import SscVm.*
  *  Returns `None` on any unsupported construct — the caller then falls back to
  *  the tree-walking interpreter, so this can never change semantics.
  *
- *  v0 supports self-recursion only; mutually-recursive compiled functions are a
- *  follow-up (the callPool slot is already general).
+ *  Supports self-recursion (compiled to a loop in tail position) and calls to
+ *  *other* integer functions, including mutual recursion. Callees are resolved
+ *  through a caller-supplied `resolve` function and compiled on demand into the
+ *  same [[Ctx]], so a cyclic call graph terminates (each function compiled once).
  */
 object VmCompiler:
+
+  /** Max supported arity. The VM `CALL` copies `arity` registers; the only cost
+   *  of a higher cap is slightly larger frames. */
+  final val MaxArity = 8
 
   private final class Bail extends RuntimeException
 
   private val intTypes = Set("Int", "Long", "")
 
-  def compile(fn: Value.FunV): Option[CompiledFn] =
-    // All declared param types must be integer (empty = untyped, allowed in v0).
-    val typesOk = fn.paramTypes.isEmpty ||
-      fn.paramTypes.forall(t => intTypes.contains(t.trim))
-    if !typesOk || fn.usingParams.nonEmpty || fn.defaults.exists(_.isDefined) then None
-    else
-      try Some(new Builder(fn).build())
-      catch case _: Bail => None
+  /** A name resolver: given the function currently being compiled and a free
+   *  name appearing in its body, return the `FunV` that name refers to (a
+   *  sibling/top-level function), or `null` if it is not a compilable function
+   *  reference. Self-references are handled by name-match and do NOT go through
+   *  this resolver, so it is only consulted for calls to *other* functions. */
+  type Resolve = (Value.FunV, String) => Value.FunV | Null
+
+  private val noResolve: Resolve = (_, _) => null
+
+  /** Self-recursion only (no sibling calls). Used by tests/bench. */
+  def compile(fn: Value.FunV): Option[CompiledFn] = compile(fn, noResolve)
+
+  /** Compile `fn`, resolving calls to other functions via `resolve`. */
+  def compile(fn: Value.FunV, resolve: Resolve): Option[CompiledFn] =
+    try Some(new Ctx(resolve).compileFn(fn))
+    catch case _: Bail => None
+
+  private def bail(): Nothing = throw new Bail
+
+  private def typeGateOk(fn: Value.FunV): Boolean =
+    val typesOk = fn.paramTypes.isEmpty || fn.paramTypes.forall(t => intTypes.contains(t.trim))
+    typesOk && fn.usingParams.isEmpty && !fn.defaults.exists(_.isDefined)
+
+  // ── shared compilation context (handles cyclic call graphs) ──────
+  private final class Ctx(resolve: Resolve):
+    // Shells registered BEFORE their callPool is filled, so a cycle (f→g→f)
+    // resolves to the in-progress shell instead of recompiling forever.
+    private val building = new java.util.IdentityHashMap[Value.FunV, CompiledFn]()
+
+    def compileFn(fn: Value.FunV): CompiledFn =
+      val existing = building.get(fn)
+      if existing != null then existing
+      else
+        if !typeGateOk(fn) then bail()
+        val b = new Builder(fn, this)
+        b.buildInstructions()
+        val shell = new CompiledFn(
+          name = fn.name, arity = b.arityOf, numRegs = b.maxRegOf,
+          op = b.opArr, a = b.aArr, b = b.bArr, c = b.cArr,
+          constPool = b.constArr, callPool = new Array[CompiledFn](b.callees.length)
+        )
+        building.put(fn, shell)            // register before filling — breaks cycles
+        var i = 0
+        while i < b.callees.length do
+          shell.callPool(i) = compileFn(b.callees(i))
+          i += 1
+        shell
+
+    def resolveName(owner: Value.FunV, name: String): Value.FunV | Null =
+      resolve(owner, name)
 
   // ── per-function compilation state ───────────────────────────────
-  private final class Builder(fn: Value.FunV):
+  private final class Builder(fn: Value.FunV, ctx: Ctx):
     private val ops   = mutable.ArrayBuffer.empty[Int]
     private val as    = mutable.ArrayBuffer.empty[Int]
     private val bs    = mutable.ArrayBuffer.empty[Int]
@@ -39,7 +87,26 @@ object VmCompiler:
     private var nextReg = 0
     private var maxReg  = 0
 
-    private def bail(): Nothing = throw new Bail
+    // Callees referenced by CALL, in slot order; deduped by identity.
+    val callees = mutable.ArrayBuffer.empty[Value.FunV]
+    private val calleeSlot = new java.util.IdentityHashMap[Value.FunV, Integer]()
+
+    def arityOf: Int  = fn.params.length
+    def maxRegOf: Int = maxReg
+    def opArr: Array[Int]    = ops.toArray
+    def aArr: Array[Int]     = as.toArray
+    def bArr: Array[Int]     = bs.toArray
+    def cArr: Array[Int]     = cs.toArray
+    def constArr: Array[Long] = consts.toArray
+
+    private def slotFor(callee: Value.FunV): Int =
+      val s = calleeSlot.get(callee)
+      if s != null then s.intValue
+      else
+        val n = callees.length
+        callees += callee
+        calleeSlot.put(callee, Integer.valueOf(n))
+        n
 
     private def freshReg(): Int =
       val r = nextReg; nextReg += 1
@@ -66,6 +133,21 @@ object VmCompiler:
       case "==" => EQ;  case "!=" => NE
       case _    => bail()
 
+    /** Resolve `app.fun` to a compilable callee, or None.
+     *  Order mirrors the interpreter: a local/param of that name shadows any
+     *  function (and a local holds a Long, not something callable → bail);
+     *  then the function's own name (self); then a sibling via the resolver. */
+    private def callTarget(app: Term.Apply): Option[Value.FunV] =
+      app.fun match
+        case n: Term.Name =>
+          val nm = n.value
+          if locals.contains(nm) then None
+          else if fn.name.nonEmpty && nm == fn.name then Some(fn)
+          else ctx.resolveName(fn, nm) match
+            case f: Value.FunV => Some(f)
+            case null          => None
+        case _ => None
+
     // Compile an expression, returning the register holding its Long result.
     private def compileExpr(t: Term): Int = t match
       case Lit.Int(v)  => val r = freshReg(); emit(CONST, r, constSlot(v.toLong), 0); r
@@ -91,17 +173,21 @@ object VmCompiler:
         as(jmp) = ops.length                     // end
         res
 
-      // self-recursive call: f(args), arity 1 or 2 in v0
-      case app: Term.Apply if isSelfCall(app) =>
-        val args = app.argClause.values
-        if args.lengthCompare(fn.params.length) != 0 then bail()
-        val argBase = freshRegs(args.length)
-        var i = 0
-        while i < args.length do
-          val ar = compileExpr(args(i))
-          emit(MOVE, argBase + i, ar, 0)
-          i += 1
-        val d = freshReg(); emit(CALL, d, argBase, 0 /* self in callPool */); d
+      // call to self or another compilable integer function
+      case app: Term.Apply =>
+        callTarget(app) match
+          case Some(callee) =>
+            val args = app.argClause.values
+            if args.lengthCompare(callee.params.length) != 0 then bail()
+            val slot    = slotFor(callee)
+            val argBase = freshRegs(args.length)
+            var i = 0
+            while i < args.length do
+              val ar = compileExpr(args(i))
+              emit(MOVE, argBase + i, ar, 0)
+              i += 1
+            val d = freshReg(); emit(CALL, d, argBase, slot); d
+          case None => bail()
 
       case Term.Block(stats) =>
         compileStats(stats)
@@ -119,8 +205,11 @@ object VmCompiler:
 
     // Compile `t` in TAIL position: every path ends in either a RET or a
     // jump back to instruction 0 (a self-tail-call turned into a loop). This
-    // gives constant host-stack depth for tail recursion — the same shape the
-    // JVM backend produces, and what makes deep `sumTco` not overflow.
+    // gives constant host-stack depth for self-tail recursion — the same shape
+    // the JVM backend produces, and what makes deep `sumTco` not overflow.
+    // Tail calls to *other* functions go through compileExpr (a CALL + RET);
+    // pathologically deep mutual tail recursion may overflow the host stack and
+    // safely fall back to the tree-walker.
     private def compileTail(t: Term): Unit = t match
       case ti: Term.If =>
         val cr = compileExpr(ti.cond)
@@ -129,7 +218,7 @@ object VmCompiler:
         bs(jf) = ops.length
         compileTail(ti.elsep)        // else-branch self-terminates
 
-      case app: Term.Apply if isSelfCall(app) =>
+      case app: Term.Apply if isSelfTailCall(app) =>
         val args = app.argClause.values
         if args.lengthCompare(fn.params.length) != 0 then bail()
         // Evaluate every arg into a temp BEFORE overwriting the param regs,
@@ -150,9 +239,9 @@ object VmCompiler:
       case other =>
         val r = compileExpr(other); emit(RET, r, 0, 0)
 
-    private def isSelfCall(app: Term.Apply): Boolean =
+    private def isSelfTailCall(app: Term.Apply): Boolean =
       fn.name.nonEmpty && (app.fun match
-        case n: Term.Name => n.value == fn.name
+        case n: Term.Name => n.value == fn.name && !locals.contains(n.value)
         case _            => false)
 
     // A statement whose value may be discarded (loop bodies, non-final stmts).
@@ -180,18 +269,11 @@ object VmCompiler:
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
       compileExpr(rest.head.asInstanceOf[Term])
 
-    def build(): CompiledFn =
-      // params occupy r0..r(arity-1)
+    /** Emit the instruction stream; callee shells are resolved later by [[Ctx]]. */
+    def buildInstructions(): Unit =
       val arity = fn.params.length
-      if arity < 1 || arity > 2 then bail()
+      if arity < 1 || arity > MaxArity then bail()
       var i = 0
-      while i < arity do { locals(fn.params(i)) = i; i += 1 }
+      while i < arity do { locals(fn.params(i)) = i; i += 1 }   // params occupy r0..r(arity-1)
       nextReg = arity; maxReg = arity
       compileTail(fn.body)           // emits RET / loop on every path
-      val self = new CompiledFn(
-        name = fn.name, arity = arity, numRegs = maxReg,
-        op = ops.toArray, a = as.toArray, b = bs.toArray, c = cs.toArray,
-        constPool = consts.toArray, callPool = Array.ofDim[CompiledFn](1)
-      )
-      self.callPool(0) = self  // v0: only self-recursion
-      self

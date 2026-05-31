@@ -39,7 +39,7 @@ private[interpreter] object CallRuntime:
    *  the call env directly.  Falls back to callValue(fn, List(arg), env, interp) otherwise. */
   def callValue1(fn: Value, arg: Value, env: Env, interp: Interpreter): Computation =
     val jit = fn match
-      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun1(f, arg)
+      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun1(f, arg, interp)
       case _             => null
     if jit != null then jit else callValue1Slow(fn, arg, env, interp)
 
@@ -74,7 +74,7 @@ private[interpreter] object CallRuntime:
    *  with FrameMap.two directly.  Falls back to callValue(fn, List(a, b), env, interp) otherwise. */
   def callValue2(fn: Value, a: Value, b: Value, env: Env, interp: Interpreter): Computation =
     val jit = fn match
-      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun2(f, a, b)
+      case f: Value.FunV => scalascript.interpreter.vm.JitRuntime.tryRun2(f, a, b, interp)
       case _             => null
     if jit != null then jit else callValue2Slow(fn, a, b, env, interp)
 
@@ -203,7 +203,7 @@ private[interpreter] object CallRuntime:
   def callFun(f: Value.FunV, args: List[Value], interp: Interpreter): Computation =
     val info = TcoRuntime.tcoInfoFor(f, interp)
     val jit = scalascript.interpreter.vm.JitRuntime.tryRunList(
-      f, args, eager = info.isSelfTailRec || info.tailTargets.nonEmpty)
+      f, args, interp, eager = info.isSelfTailRec || info.tailTargets.nonEmpty)
     if jit != null then return jit
     val tupledArgs = args match
       case List(Value.TupleV(elems))

@@ -1,6 +1,6 @@
 package scalascript.interpreter.vm
 
-import scalascript.interpreter.{Value, Computation}
+import scalascript.interpreter.{Value, Computation, Interpreter}
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
  *
@@ -58,7 +58,7 @@ object JitRuntime:
    *  warm-up threshold is reached. When `eager`, compile on the first call —
    *  used for self-tail-recursive functions, whose single `callFun` entry
    *  already represents the whole hot loop (the VM compiles TCO to a loop). */
-  private def hotCompiled(f: Value.FunV, eager: Boolean): SscVm.CompiledFn | Null =
+  private def hotCompiled(f: Value.FunV, interp: Interpreter, eager: Boolean): SscVm.CompiledFn | Null =
     val e = entryFor(f)
     val c = e.compiled
     if c != null then return c
@@ -70,9 +70,22 @@ object JitRuntime:
         if e.compiled != null then e.compiled
         else if e.disabled then null
         else
-          VmCompiler.compile(f) match
+          VmCompiler.compile(f, resolverFor(interp)) match
             case Some(cf) => e.compiled = cf; cf
             case None     => e.disabled = true; null
+
+  /** Build a [[VmCompiler.Resolve]] that maps a free name in `owner`'s body to
+   *  the [[Value.FunV]] it refers to: first the lexical closure, then the
+   *  interpreter globals. Returns null for anything that is not a function
+   *  (the compiler then bails on that call site and falls back to tree-walk). */
+  private def resolverFor(interp: Interpreter): VmCompiler.Resolve =
+    (owner: Value.FunV, name: String) =>
+      owner.closure.get(name) match
+        case Some(fv: Value.FunV) => fv
+        case _ =>
+          interp.globals.get(name) match
+            case Some(fv: Value.FunV) => fv
+            case _                    => null
 
   // ── thread-local growable frame stack ────────────────────────────
   private val tlStack = new ThreadLocal[Array[Long]]:
@@ -97,11 +110,11 @@ object JitRuntime:
     0L // unreachable
 
   /** 1-arg entry. Returns a Pure(IntV) computation if JITted, else null. */
-  def tryRun1(f: Value.FunV, arg: Value, eager: Boolean = false): Computation | Null =
+  def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty || f.params.length != 1 then null
     else arg match
       case Value.IntV(x) =>
-        val cf = hotCompiled(f, eager)
+        val cf = hotCompiled(f, interp, eager)
         if cf == null then null
         else
           try Computation.pureIntV(runVm(cf, Array(x)))
@@ -109,22 +122,39 @@ object JitRuntime:
       case _ => null
 
   /** 2-arg entry. Returns a Pure(IntV) computation if JITted, else null. */
-  def tryRun2(f: Value.FunV, a: Value, b: Value, eager: Boolean = false): Computation | Null =
+  def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty || f.params.length != 2 then null
     else (a, b) match
       case (Value.IntV(x), Value.IntV(y)) =>
-        val cf = hotCompiled(f, eager)
+        val cf = hotCompiled(f, interp, eager)
         if cf == null then null
         else
           try Computation.pureIntV(runVm(cf, Array(x, y)))
           catch case _: Throwable => null
       case _ => null
 
-  /** List-arg entry used by the general `callFun` path. Handles arity 1–2.
-   *  `eager` is set for self-tail-recursive callers (see [[hotCompiled]]). */
-  def tryRunList(f: Value.FunV, args: List[Value], eager: Boolean = false): Computation | Null =
+  /** List-arg entry used by the general `callFun` path. Handles any arity the
+   *  compiler supports ([[VmCompiler.MaxArity]]), provided every argument is an
+   *  `IntV`. `eager` is set for self-tail-recursive callers (see
+   *  [[hotCompiled]]). */
+  def tryRunList(f: Value.FunV, args: List[Value], interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty then null
-    else args match
-      case (a: Value.IntV) :: Nil                     => tryRun1(f, a, eager)
-      case (a: Value.IntV) :: (b: Value.IntV) :: Nil  => tryRun2(f, a, b, eager)
-      case _                                          => null
+    else
+      val n = args.length
+      if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
+      else
+        val xs = new Array[Long](n)
+        var rest = args
+        var i = 0
+        var ok = true
+        while ok && (rest ne Nil) do
+          rest.head match
+            case Value.IntV(x) => xs(i) = x; i += 1; rest = rest.tail
+            case _             => ok = false
+        if !ok then null
+        else
+          val cf = hotCompiled(f, interp, eager)
+          if cf == null then null
+          else
+            try Computation.pureIntV(runVm(cf, xs))
+            catch case _: Throwable => null

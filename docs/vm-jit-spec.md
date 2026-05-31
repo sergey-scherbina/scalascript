@@ -68,12 +68,14 @@ CALL    a, b, t       reg[a] = exec(fn=callPool[t], window starting at reg[b])
 RET     a             return reg[a]
 ```
 
-`CALL` references a callee `CompiledFn` via a per-function `callPool`
-(v0 only ever resolves self-recursion, but the slot is general so mutually
-recursive compiled functions work once detection is added). Arguments must be
-laid out in a **contiguous register window** `[b, b+arity)`; the compiler
-guarantees this by moving each argument into consecutive temp registers
-immediately before the `CALL`.
+`CALL` references a callee `CompiledFn` via a per-function `callPool`. Self-calls
+resolve to the function itself; calls to *other* integer functions (siblings /
+top-level `def`s, including mutually recursive ones) resolve through a
+caller-supplied name resolver and are compiled on demand into the same
+compilation context, so a cyclic call graph terminates (each function compiled
+once). Arguments must be laid out in a **contiguous register window**
+`[b, b+arity)`; the compiler guarantees this by moving each argument into
+consecutive temp registers immediately before the `CALL`.
 
 ## 5. Compilation (`VmCompiler`)
 
@@ -87,8 +89,11 @@ Supported `Term` subset (v0):
 - `Term.Name` referring to a param or a `val`/`var` local → register read
 - `Term.ApplyInfix` with one arg and op in `+ - * / % < <= > >= == !=` → binary op
 - `Term.If` (as an expression) → `JF`/`JMP` with branch merge into a result reg
-- `Term.Apply(Term.Name(self), args)` where `self` is the function's own name,
-  arity 1 or 2 → `CALL` to self
+- `Term.Apply(Term.Name(f), args)` where `f` is the function's own name (self,
+  compiled to a TCO loop in tail position) **or** another compilable integer
+  function reachable via the name resolver (sibling / mutual recursion) →
+  `CALL`. A param/local of the same name shadows the function and bails.
+  Supported arity is 1..`MaxArity` (8).
 - `Term.Block(stats)` → compile leading `val`/`var`/assign/`while` statements,
   final statement is the result expression
 - `Term.While(cond, body)` → back-edge `JF`/`JMP` (enables `arithLoop`)
@@ -196,12 +201,17 @@ InterpreterBench.recursionTco   269.8 ms      0.97 ms   278×
   self-tail-recursive functions: the trampoline loops internally, so such a
   function enters `callFun` only once and would otherwise never reach the
   call-count threshold (§6.2).
-- **No regression**: full `backendInterpreter` suite (1196 tests) green with the
+- **No regression**: full `backendInterpreter` suite (1199 tests) green with the
   JIT enabled. All non-integer / effectful / one-shot code is untouched.
 
 ## 8. Explicitly out of scope (v0)
 
 Doubles/strings/objects/collections; effect operations; pattern matching;
-closures captured as values; mutual recursion compilation; deoptimization;
-on-stack replacement; a weak-identity JIT cache (§6 known limitation). These
-are follow-ups; the production call-path wiring (§6) is now done.
+closures captured as values; `Boolean`-typed params/return (needs a return-type
+flag — `FunV` has none today); deoptimization; on-stack replacement; a
+weak-identity JIT cache (§6 known limitation). These are follow-ups; the
+production call-path wiring (§6) is done.
+
+**Now in scope (coverage broadening, 2026-05-31):** arbitrary integer arity
+(1..8); calls to other integer functions, including mutual recursion, compiled
+on demand through a name resolver (§4, §5).
