@@ -44,12 +44,23 @@ recursion costs a base-pointer bump, not an allocation. This is the
 
 ## 3. Value model (v0)
 
-POC handles **`Long`-typed integer functions only**. Every register holds a
-`Long`. Booleans are `0`/`1`. This covers `fib`, `sumTco`, and `arithLoop`
-(all `Int`/`Long`). Doubles, strings, objects, closures-as-values, and effects
-are explicitly **out of scope for v0** — the compiler bails (returns `None`)
-and the caller falls back to the tree-walker. No semantic change is possible
-because an un-compilable function is never compiled.
+Every register holds a `Long`. Booleans are `0`/`1`. Integer functions store
+their values directly; **`Double`/`Float` functions store the IEEE-754 bits**
+(`doubleToRawLongBits`) in the same `Long` register and operate on them via the
+typed `F*` opcodes (§4), with `I2D` promoting an int register to double bits.
+This covers `fib`, `sumTco`, `arithLoop` (int) and double hot loops like a
+`Double`-accumulating tail recursion (~280× over tree-walk, measured 2026-05-31).
+Strings, objects, closures-as-values, and effects remain **out of scope** — the
+compiler bails (returns `None`) and the caller falls back to the tree-walker. No
+semantic change is possible because an un-compilable function is never compiled.
+
+The compiler tracks a per-register `Int`/`Double` type and classifies each
+function's domain up front (a `Double`/`Float` param or a double literal in the
+body). The actual return type is re-derived from the `RET` leaves and must agree
+with that classification, and mixed-domain returns or branches bail — so a
+misclassification falls back to the tree-walker, never miswraps a value. The JIT
+bridge marshals each argument per a `paramIsDouble` flag on `CompiledFn` and
+wraps the raw result as `IntV`/`DoubleV` per `retIsDouble`.
 
 ## 4. Instruction set (v0)
 
@@ -63,6 +74,9 @@ MOVE    a, b          reg[a] = reg[b]
 ADD/SUB/MUL/DIV/MOD a,b,c   reg[a] = reg[b] (op) reg[c]
 LT/LE/GT/GE/EQ/NE   a,b,c   reg[a] = (reg[b] cmp reg[c]) ? 1 : 0
 ADDI/SUBI/.../NEI   a,b,c   reg[a] = reg[b] (op) constPool[c]   (immediate RHS)
+FADD/FSUB/.../FMOD  a,b,c   reg[a] = bits( dbl(reg[b]) (op) dbl(reg[c]) )  (double)
+FLT/FLE/.../FNE     a,b,c   reg[a] = (dbl(reg[b]) cmp dbl(reg[c])) ? 1 : 0
+I2D     a, b          reg[a] = bits( (double) reg[b] )   (int→double promote)
 JMP     t             pc = t
 JF      a, t          if reg[a] == 0 then pc = t      (jump-if-false)
 CALL    a, b, t       reg[a] = exec(fn=callPool[t], window starting at reg[b])
@@ -80,15 +94,18 @@ consecutive temp registers immediately before the `CALL`.
 
 ## 5. Compilation (`VmCompiler`)
 
-Input: a `Value.FunV` whose params are all `Int`/`Long` and whose body is in
-the supported subset. Output: `Option[CompiledFn]` — `None` on any
-unsupported node (safe fallback).
+Input: a `Value.FunV` whose params are all `Int`/`Long`/`Double`/`Float` and
+whose body is in the supported subset. Output: `Option[CompiledFn]` — `None` on
+any unsupported node (safe fallback).
 
 Supported `Term` subset (v0):
 
 - `Lit.Int` / `Lit.Long`  → `CONST`
+- `Lit.Double` → `CONST` of the IEEE-754 bits; promotes its operations to `F*`
 - `Term.Name` referring to a param or a `val`/`var` local → register read
-- `Term.ApplyInfix` with one arg and op in `+ - * / % < <= > >= == !=` → binary op
+- `Term.ApplyInfix` with one arg and op in `+ - * / % < <= > >= == !=` → binary
+  op; chooses int or double (`F*`) opcodes by operand type and `I2D`-promotes a
+  mixed int/double pair
 - `Term.If` (as an expression) → `JF`/`JMP` with branch merge into a result reg
 - `Term.Apply(Term.Name(f), args)` where `f` is the function's own name (self,
   compiled to a TCO loop in tail position) **or** another compilable integer
@@ -223,7 +240,7 @@ InterpreterBench.recursionTco   269.8 ms      0.97 ms   278×
 
 ## 8. Explicitly out of scope (v0)
 
-Doubles/strings/objects/collections; effect operations; pattern matching;
+Strings/objects/collections; effect operations; pattern matching;
 closures captured as values; `Boolean`-typed params/return (needs a return-type
 flag — `FunV` has none today); deoptimization; on-stack replacement; a
 weak-identity JIT cache (§6 known limitation). These are follow-ups; the
@@ -231,4 +248,6 @@ production call-path wiring (§6) is done.
 
 **Now in scope (coverage broadening, 2026-05-31):** arbitrary integer arity
 (1..8); calls to other integer functions, including mutual recursion, compiled
-on demand through a name resolver (§4, §5).
+on demand through a name resolver (§4, §5); **`Double`/`Float` arithmetic,
+ordering and Int→Double promotion** (typed `F*` opcodes + `I2D`, double-bits
+register model), including double-domain self-tail and sibling calls.

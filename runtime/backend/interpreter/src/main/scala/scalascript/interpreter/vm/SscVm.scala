@@ -1,5 +1,7 @@
 package scalascript.interpreter.vm
 
+import java.lang as jl
+
 /** Proof-of-concept register-based bytecode VM for hot integer functions.
  *  See docs/vm-jit-spec.md. v0 handles `Long`-typed functions only; every
  *  register holds a `Long`, booleans are 0/1. Not wired into the production
@@ -39,6 +41,23 @@ object SscVm:
   final val GEI   = 25
   final val EQI   = 26
   final val NEI   = 27
+  // Double-typed arithmetic & ordering. Registers still hold a `Long`, but for
+  // these opcodes the bits are interpreted as an IEEE-754 double via
+  // `longBitsToDouble`. Comparisons write a 0/1 `Long` (a boolean), exactly like
+  // their integer counterparts, so JF/branching is type-agnostic.
+  final val FADD  = 28
+  final val FSUB  = 29
+  final val FMUL  = 30
+  final val FDIV  = 31
+  final val FMOD  = 32
+  final val FLT   = 33
+  final val FLE   = 34
+  final val FGT   = 35
+  final val FGE   = 36
+  final val FEQ   = 37
+  final val FNE   = 38
+  // Promote an int-holding register to double bits: dst = bits(double(b)).
+  final val I2D   = 39
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -52,7 +71,14 @@ object SscVm:
     val b:         Array[Int],
     val c:         Array[Int],
     val constPool: Array[Long],
-    val callPool:  Array[CompiledFn]
+    val callPool:  Array[CompiledFn],
+    // True when the function's result register holds double bits (see I2D /
+    // F* opcodes). Lets the JIT bridge wrap the raw `Long` in DoubleV vs IntV.
+    val retIsDouble: Boolean = false,
+    // Per-parameter domain: paramIsDouble(i) is true when register i is read by
+    // double opcodes. The JIT bridge uses this to marshal each incoming Value
+    // into the correct raw `Long` (int) or double-bits representation.
+    val paramIsDouble: Array[Boolean] = Array.empty
   )
 
   /** Execute `fn` with a frame window based at `base` in shared `stack`.
@@ -89,6 +115,18 @@ object SscVm:
         case GEI   => stack(base + a(pc)) = if stack(base + b(pc)) >= k(c(pc)) then 1L else 0L
         case EQI   => stack(base + a(pc)) = if stack(base + b(pc)) == k(c(pc)) then 1L else 0L
         case NEI   => stack(base + a(pc)) = if stack(base + b(pc)) != k(c(pc)) then 1L else 0L
+        case FADD  => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(jl.Double.longBitsToDouble(stack(base + b(pc))) + jl.Double.longBitsToDouble(stack(base + c(pc))))
+        case FSUB  => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(jl.Double.longBitsToDouble(stack(base + b(pc))) - jl.Double.longBitsToDouble(stack(base + c(pc))))
+        case FMUL  => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(jl.Double.longBitsToDouble(stack(base + b(pc))) * jl.Double.longBitsToDouble(stack(base + c(pc))))
+        case FDIV  => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(jl.Double.longBitsToDouble(stack(base + b(pc))) / jl.Double.longBitsToDouble(stack(base + c(pc))))
+        case FMOD  => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(jl.Double.longBitsToDouble(stack(base + b(pc))) % jl.Double.longBitsToDouble(stack(base + c(pc))))
+        case FLT   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) <  jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case FLE   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) <= jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case FGT   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) >  jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case FGE   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) >= jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case FEQ   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) == jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case FNE   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) != jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
+        case I2D   => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(stack(base + b(pc)).toDouble)
         case JMP   => pc = a(pc); pc -= 1  // -1 cancels the trailing pc += 1
         case JF    =>
           if stack(base + a(pc)) == 0L then { pc = b(pc); pc -= 1 }

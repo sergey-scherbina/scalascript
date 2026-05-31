@@ -4,6 +4,7 @@ import scala.meta.*
 import scala.collection.mutable
 import scalascript.interpreter.Value
 import SscVm.*
+import java.lang as jl
 
 /** Compiles a `Value.FunV` whose params are all integer-typed and whose body
  *  is in the supported subset (see docs/vm-jit-spec.md §5) into a [[CompiledFn]].
@@ -23,7 +24,15 @@ object VmCompiler:
 
   private final class Bail extends RuntimeException
 
-  private val intTypes = Set("Int", "Long", "")
+  /** Static type of a register's contents. The VM stack is `Long`-typed; for a
+   *  `TDouble` register the bits are an IEEE-754 double (see SscVm F* opcodes).
+   *  Booleans are represented as `TInt` (0/1), matching the int comparison ops. */
+  private enum VmType:
+    case TInt, TDouble
+  import VmType.*
+
+  private val intTypes    = Set("Int", "Long", "")
+  private val doubleTypes = Set("Double", "Float")
 
   /** A name resolver: given the function currently being compiled and a free
    *  name appearing in its body, return the `FunV` that name refers to (a
@@ -45,7 +54,8 @@ object VmCompiler:
   private def bail(): Nothing = throw new Bail
 
   private def typeGateOk(fn: Value.FunV): Boolean =
-    val typesOk = fn.paramTypes.isEmpty || fn.paramTypes.forall(t => intTypes.contains(t.trim))
+    val typesOk = fn.paramTypes.isEmpty ||
+      fn.paramTypes.forall(t => { val tt = t.trim; intTypes.contains(tt) || doubleTypes.contains(tt) })
     typesOk && fn.usingParams.isEmpty && !fn.defaults.exists(_.isDefined)
 
   // ── shared compilation context (handles cyclic call graphs) ──────
@@ -64,7 +74,8 @@ object VmCompiler:
         val shell = new CompiledFn(
           name = fn.name, arity = b.arityOf, numRegs = b.maxRegOf,
           op = b.opArr, a = b.aArr, b = b.bArr, c = b.cArr,
-          constPool = b.constArr, callPool = new Array[CompiledFn](b.callees.length)
+          constPool = b.constArr, callPool = new Array[CompiledFn](b.callees.length),
+          retIsDouble = b.retIsDoubleOf, paramIsDouble = b.paramIsDoubleOf
         )
         building.put(fn, shell)            // register before filling — breaks cycles
         var i = 0
@@ -87,12 +98,40 @@ object VmCompiler:
     private var nextReg = 0
     private var maxReg  = 0
 
+    // Static type of each register's contents. Drives int-vs-double opcode
+    // selection and int→double promotion. Defaults to TInt for any register
+    // not explicitly recorded (the all-integer path needs no entries).
+    private val regType = mutable.HashMap.empty[Int, VmType]
+    private def typeOf(r: Int): VmType = regType.getOrElse(r, TInt)
+    private def setType(r: Int, t: VmType): Unit =
+      if t == TDouble then regType(r) = t else regType.remove(r)
+
+    // Whether this function operates in the double domain. Decided up-front by a
+    // syntactic scan (a Double/Float param, or a double literal anywhere in the
+    // body). Used to type self-recursive call results, which would otherwise be
+    // circular. The actual return type is re-derived from the RET leaves and must
+    // agree (see buildInstructions) — so a misclassification bails, never miswraps.
+    private val fnIsDouble: Boolean =
+      val paramDouble = fn.paramTypes.exists(t => doubleTypes.contains(t.trim))
+      paramDouble || fn.body.collect {
+        case _: Lit.Double => ()
+      }.nonEmpty
+
+    // Unified type of every value reaching a RET. None until the first leaf.
+    private var retType: Option[VmType] = None
+    private def unifyRet(t: VmType): Unit = retType match
+      case None             => retType = Some(t)
+      case Some(prev) if prev == t => ()
+      case _                => bail()   // mixed Int/Double returns — fall back
+    def retIsDoubleOf: Boolean = retType.contains(TDouble)
+
     // Callees referenced by CALL, in slot order; deduped by identity.
     val callees = mutable.ArrayBuffer.empty[Value.FunV]
     private val calleeSlot = new java.util.IdentityHashMap[Value.FunV, Integer]()
 
     def arityOf: Int  = fn.params.length
     def maxRegOf: Int = maxReg
+    def paramIsDoubleOf: Array[Boolean] = Array.tabulate(fn.params.length)(i => typeOf(i) == TDouble)
     def opArr: Array[Int]    = ops.toArray
     def aArr: Array[Int]     = as.toArray
     def bArr: Array[Int]     = bs.toArray
@@ -133,6 +172,38 @@ object VmCompiler:
       case "==" => EQ;  case "!=" => NE
       case _    => bail()
 
+    /** Double-domain opcode for `op`. Comparisons reuse the F* compare ops, which
+     *  still write a 0/1 boolean into an (int-typed) register. */
+    private def fopcodeFor(op: String): Int = op match
+      case "+"  => FADD; case "-"  => FSUB; case "*" => FMUL
+      case "/"  => FDIV; case "%"  => FMOD
+      case "<"  => FLT;  case "<=" => FLE; case ">" => FGT; case ">=" => FGE
+      case "==" => FEQ;  case "!=" => FNE
+      case _    => bail()
+
+    private def isCmp(op: String): Boolean = op match
+      case "<" | "<=" | ">" | ">=" | "==" | "!=" => true
+      case _                                     => false
+
+    /** Return a register holding `r` as double bits: `r` itself if already
+     *  double-typed, else a fresh register with an I2D promotion emitted. */
+    private def asDouble(r: Int): Int =
+      if typeOf(r) == TDouble then r
+      else
+        val d = freshReg(); emit(I2D, d, r, 0); setType(d, TDouble); d
+
+    /** Emit `lr op rr` into `dst`, choosing int or double opcodes by operand
+     *  type and promoting the int side on a mixed pair. Returns the result type
+     *  (TInt for any comparison or all-int arithmetic; TDouble otherwise). */
+    private def emitArith(op: String, dst: Int, lr: Int, rr: Int): VmType =
+      if typeOf(lr) == TDouble || typeOf(rr) == TDouble then
+        emit(fopcodeFor(op), dst, asDouble(lr), asDouble(rr))
+        val rt = if isCmp(op) then TInt else TDouble
+        setType(dst, rt); rt
+      else
+        emit(opcodeFor(op), dst, lr, rr)
+        setType(dst, TInt); TInt
+
     /** Immediate-RHS opcode for `op` (operand `c` is a constPool index). */
     private def opcodeImmFor(op: String): Int = op match
       case "+"  => ADDI; case "-"  => SUBI; case "*" => MULI
@@ -169,40 +240,63 @@ object VmCompiler:
       case n: Term.Name => locals.getOrElse(n.value, bail())
       case _            => val r = freshReg(); compileInto(t, r); r
 
-    // Compile `t`, emitting its Long result directly into register `dst`. This
-    // destination-passing form avoids the extra MOVE that a return-a-register
-    // scheme needs at every use site (call args, if-branches, assignments),
-    // cutting the instruction count of the hot VM dispatch loop.
-    private def compileInto(t: Term, dst: Int): Unit = t match
-      case Lit.Int(v)  => emit(CONST, dst, constSlot(v.toLong), 0)
-      case Lit.Long(v) => emit(CONST, dst, constSlot(v), 0)
+    /** Whether `callee` operates in the double domain — same syntactic scan as
+     *  [[fnIsDouble]]. For a self-call this is the function's own classification. */
+    private def calleeIsDouble(callee: Value.FunV): Boolean =
+      if callee eq fn then fnIsDouble
+      else callee.paramTypes.exists(t => doubleTypes.contains(t.trim)) ||
+           callee.body.collect { case _: Lit.Double => () }.nonEmpty
+
+    private def calleeParamType(callee: Value.FunV, i: Int): VmType =
+      if i < callee.paramTypes.length && doubleTypes.contains(callee.paramTypes(i).trim) then TDouble else TInt
+
+    // Compile `t`, emitting its result directly into register `dst`, and return
+    // the static type written there. Destination-passing avoids the extra MOVE a
+    // return-a-register scheme needs at every use site (call args, if-branches,
+    // assignments), cutting the instruction count of the hot VM dispatch loop.
+    private def compileInto(t: Term, dst: Int): VmType = t match
+      case Lit.Int(v)    => emit(CONST, dst, constSlot(v.toLong), 0); setType(dst, TInt); TInt
+      case Lit.Long(v)   => emit(CONST, dst, constSlot(v), 0); setType(dst, TInt); TInt
+      case Lit.Double(v) =>
+        emit(CONST, dst, constSlot(jl.Double.doubleToRawLongBits(v.toString.toDouble)), 0)
+        setType(dst, TDouble); TDouble
 
       case n: Term.Name =>
         val r = locals.getOrElse(n.value, bail())
         if r != dst then emit(MOVE, dst, r, 0)
+        val ty = typeOf(r); setType(dst, ty); ty
 
       case app: Term.ApplyInfix if app.argClause.values.lengthCompare(1) == 0 =>
         val rhs = app.argClause.values.head
+        val op  = app.op.value
         intLiteral(rhs) match
-          case Some(v) =>                          // fold literal RHS into an immediate op
+          case Some(v) =>
             val lr = compileExpr(app.lhs)
-            emit(opcodeImmFor(app.op.value), dst, lr, constSlot(v))
+            if typeOf(lr) == TInt then                 // fold literal RHS into an immediate op
+              emit(opcodeImmFor(op), dst, lr, constSlot(v))
+              setType(dst, TInt); TInt
+            else                                        // double lhs: promote the int literal
+              val rr = freshReg()
+              emit(CONST, rr, constSlot(jl.Double.doubleToRawLongBits(v.toDouble)), 0)
+              setType(rr, TDouble)
+              emitArith(op, dst, lr, rr)
           case None =>
-            val opc = opcodeFor(app.op.value)
-            val lr  = compileExpr(app.lhs)
-            val rr  = compileExpr(rhs)
-            emit(opc, dst, lr, rr)
+            val lr = compileExpr(app.lhs)
+            val rr = compileExpr(rhs)
+            emitArith(op, dst, lr, rr)
 
       case t: Term.If =>
         val cr  = compileExpr(t.cond)
         val jf  = emit(JF, cr, -1, 0)            // patch to else-start
-        compileInto(t.thenp, dst)
+        val tT  = compileInto(t.thenp, dst)
         val jmp = emit(JMP, -1, 0, 0)            // patch to end
         bs(jf) = ops.length                      // JF else-target: else-branch starts here
-        compileInto(t.elsep, dst)
+        val eT  = compileInto(t.elsep, dst)
         as(jmp) = ops.length                     // end
+        if tT != eT then bail()                  // mixed-type branches → tree-walk
+        setType(dst, tT); tT
 
-      // call to self or another compilable integer function
+      // call to self or another compilable function (int or double domain)
       case app: Term.Apply =>
         callTarget(app) match
           case Some(callee) =>
@@ -212,9 +306,15 @@ object VmCompiler:
             val argBase = freshRegs(args.length)
             var i = 0
             while i < args.length do
-              compileInto(args(i), argBase + i)   // emit each arg straight into its slot
+              val aT   = compileInto(args(i), argBase + i)   // emit each arg straight into its slot
+              val want = calleeParamType(callee, i)
+              if want == TDouble && aT == TInt then
+                emit(I2D, argBase + i, argBase + i, 0); setType(argBase + i, TDouble)
+              else if want == TInt && aT == TDouble then bail()
               i += 1
             emit(CALL, dst, argBase, slot)
+            val rt = if calleeIsDouble(callee) then TDouble else TInt
+            setType(dst, rt); rt
           case None => bail()
 
       case Term.Block(stats) =>
@@ -228,6 +328,7 @@ object VmCompiler:
         emit(JMP, start, 0, 0)
         bs(jf) = ops.length
         emit(CONST, dst, constSlot(0L), 0)       // while ⇒ unit ⇒ 0
+        setType(dst, TInt); TInt
 
       case _ => bail()
 
@@ -250,10 +351,17 @@ object VmCompiler:
         val args = app.argClause.values
         if args.lengthCompare(fn.params.length) != 0 then bail()
         // Evaluate every arg into a temp BEFORE overwriting the param regs,
-        // since args (e.g. `acc + n`) read the current params.
+        // since args (e.g. `acc + n`) read the current params. Promote an int
+        // arg to double when the param register is double-typed (and bail on the
+        // reverse, which would silently reinterpret double bits as an int).
         val tmp = new Array[Int](args.length)
         var i = 0
-        while i < args.length do { tmp(i) = compileExpr(args(i)); i += 1 }
+        while i < args.length do
+          var r = compileExpr(args(i))
+          val want = typeOf(i)                       // param reg i's fixed type
+          if want == TDouble && typeOf(r) == TInt then r = asDouble(r)
+          else if want == TInt && typeOf(r) == TDouble then bail()
+          tmp(i) = r; i += 1
         i = 0
         while i < args.length do { emit(MOVE, i, tmp(i), 0); i += 1 } // params = r0..r(n-1)
         emit(JMP, 0, 0, 0)           // loop to start
@@ -265,7 +373,7 @@ object VmCompiler:
         compileTail(rest.head.asInstanceOf[Term])
 
       case other =>
-        val r = compileExpr(other); emit(RET, r, 0, 0)
+        val r = compileExpr(other); unifyRet(typeOf(r)); emit(RET, r, 0, 0)
 
     private def isSelfTailCall(app: Term.Apply): Boolean =
       fn.name.nonEmpty && (app.fun match
@@ -282,7 +390,9 @@ object VmCompiler:
         val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
       case Term.Assign(nm: Term.Name, rhs) =>
         val dst = locals.getOrElse(nm.value, bail())
-        compileInto(rhs, dst)
+        val old = typeOf(dst)
+        val nt  = compileInto(rhs, dst)
+        if nt != old then bail()            // a var must not change numeric domain
       case Term.Block(stats) => compileStats(stats); ()
       case e: Term            => compileExpr(e); ()
       case _                  => bail()
@@ -293,7 +403,7 @@ object VmCompiler:
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
       compileExpr(rest.head.asInstanceOf[Term])
 
-    private def compileStatsInto(stats: List[Stat], dst: Int): Unit =
+    private def compileStatsInto(stats: List[Stat], dst: Int): VmType =
       if stats.isEmpty then bail()
       var rest = stats
       while rest.tail.nonEmpty do { compileStmt(rest.head); rest = rest.tail }
@@ -304,6 +414,14 @@ object VmCompiler:
       val arity = fn.params.length
       if arity < 1 || arity > MaxArity then bail()
       var i = 0
-      while i < arity do { locals(fn.params(i)) = i; i += 1 }   // params occupy r0..r(arity-1)
+      while i < arity do
+        locals(fn.params(i)) = i                         // params occupy r0..r(arity-1)
+        if i < fn.paramTypes.length && doubleTypes.contains(fn.paramTypes(i).trim) then
+          setType(i, TDouble)
+        i += 1
       nextReg = arity; maxReg = arity
       compileTail(fn.body)           // emits RET / loop on every path
+      // The up-front double classification must agree with the actual return
+      // type derived from the RET leaves; otherwise self-call results were typed
+      // wrong. Bail (→ tree-walk) rather than risk a miswrapped value.
+      if fnIsDouble && !retIsDoubleOf then bail()

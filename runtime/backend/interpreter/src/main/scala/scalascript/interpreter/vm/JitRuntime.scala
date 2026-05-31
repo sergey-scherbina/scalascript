@@ -1,6 +1,7 @@
 package scalascript.interpreter.vm
 
 import scalascript.interpreter.{Value, Computation, Interpreter}
+import java.lang as jl
 
 /** Run-time JIT bridge between the tree-walking interpreter and [[SscVm]].
  *
@@ -109,52 +110,73 @@ object JitRuntime:
         tlStack.set(stack)
     0L // unreachable
 
-  /** 1-arg entry. Returns a Pure(IntV) computation if JITted, else null. */
-  def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 1 then null
-    else arg match
-      case Value.IntV(x) =>
-        val cf = hotCompiled(f, interp, eager)
-        if cf == null then null
-        else
-          try Computation.pureIntV(runVm(cf, Array(x)))
-          catch case _: Throwable => null
-      case _ => null
+  private def isNumeric(v: Value): Boolean = v match
+    case _: Value.IntV | _: Value.DoubleV => true
+    case _                                => false
 
-  /** 2-arg entry. Returns a Pure(IntV) computation if JITted, else null. */
-  def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 2 then null
-    else (a, b) match
-      case (Value.IntV(x), Value.IntV(y)) =>
-        val cf = hotCompiled(f, interp, eager)
-        if cf == null then null
+  /** Marshal one Value into the raw `Long` the VM register expects, given whether
+   *  that param is double-typed. Returns null on a type the VM can't represent in
+   *  that domain (e.g. a Double passed to an int param). */
+  private def marshal(v: Value, wantDouble: Boolean): jl.Long | Null = v match
+    case Value.IntV(x)    => if wantDouble then jl.Double.doubleToRawLongBits(x.toDouble) else x
+    case Value.DoubleV(d) => if wantDouble then jl.Double.doubleToRawLongBits(d) else null
+    case _                => null
+
+  /** Wrap a raw VM result in the right Value, per the compiled return domain. */
+  private def wrap(cf: SscVm.CompiledFn, raw: Long): Computation =
+    if cf.retIsDouble then Computation.Pure(Value.doubleV(jl.Double.longBitsToDouble(raw)))
+    else Computation.pureIntV(raw)
+
+  /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
+  def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
+    if !enabled || f.name.isEmpty || f.params.length != 1 || !isNumeric(arg) then null
+    else
+      val cf = hotCompiled(f, interp, eager)
+      if cf == null then null
+      else
+        val a0 = marshal(arg, cf.paramIsDouble.length > 0 && cf.paramIsDouble(0))
+        if a0 == null then null
         else
-          try Computation.pureIntV(runVm(cf, Array(x, y)))
+          try wrap(cf, runVm(cf, Array(a0.longValue)))
           catch case _: Throwable => null
-      case _ => null
+
+  /** 2-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
+  def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
+    if !enabled || f.name.isEmpty || f.params.length != 2 || !isNumeric(a) || !isNumeric(b) then null
+    else
+      val cf = hotCompiled(f, interp, eager)
+      if cf == null then null
+      else
+        val a0 = marshal(a, cf.paramIsDouble.length > 0 && cf.paramIsDouble(0))
+        val a1 = marshal(b, cf.paramIsDouble.length > 1 && cf.paramIsDouble(1))
+        if a0 == null || a1 == null then null
+        else
+          try wrap(cf, runVm(cf, Array(a0.longValue, a1.longValue)))
+          catch case _: Throwable => null
 
   /** List-arg entry used by the general `callFun` path. Handles any arity the
-   *  compiler supports ([[VmCompiler.MaxArity]]), provided every argument is an
-   *  `IntV`. `eager` is set for self-tail-recursive callers (see
-   *  [[hotCompiled]]). */
+   *  compiler supports ([[VmCompiler.MaxArity]]), provided every argument is
+   *  numeric (Int or Double). `eager` is set for self-tail-recursive callers
+   *  (see [[hotCompiled]]). */
   def tryRunList(f: Value.FunV, args: List[Value], interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty then null
     else
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
+      else if !args.forall(isNumeric) then null
       else
-        val xs = new Array[Long](n)
-        var rest = args
-        var i = 0
-        var ok = true
-        while ok && (rest ne Nil) do
-          rest.head match
-            case Value.IntV(x) => xs(i) = x; i += 1; rest = rest.tail
-            case _             => ok = false
-        if !ok then null
+        val cf = hotCompiled(f, interp, eager)
+        if cf == null then null
         else
-          val cf = hotCompiled(f, interp, eager)
-          if cf == null then null
+          val xs = new Array[Long](n)
+          var rest = args
+          var i = 0
+          var ok = true
+          while ok && (rest ne Nil) do
+            val m = marshal(rest.head, i < cf.paramIsDouble.length && cf.paramIsDouble(i))
+            if m == null then ok = false
+            else { xs(i) = m.longValue; i += 1; rest = rest.tail }
+          if !ok then null
           else
-            try Computation.pureIntV(runVm(cf, xs))
+            try wrap(cf, runVm(cf, xs))
             catch case _: Throwable => null

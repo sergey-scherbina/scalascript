@@ -39,10 +39,18 @@ class VmJitBench:
       |  if n <= 0 then acc else sumTco(n - 1, acc + n)
       |sumTco(1000000, 0)""".stripMargin)
 
+  // Double-domain hot loop (exercises FADD + the I2D-free double fast path).
+  private val dsumModule = module(
+    """def dsum(n: Int, acc: Double): Double =
+      |  if n <= 0 then acc else dsum(n - 1, acc + 0.5)
+      |dsum(1000000, 0.0)""".stripMargin)
+
   // Compile the closures once, the way a run-time JIT would after the function
   // crosses the hot-call threshold.
   private var fibFn: SscVm.CompiledFn = _
   private var tcoFn: SscVm.CompiledFn = _
+  private var dsumFn: SscVm.CompiledFn = _
+  private val zeroBits = java.lang.Double.doubleToRawLongBits(0.0)
 
   @Setup
   def setup(): Unit =
@@ -55,11 +63,15 @@ class VmJitBench:
       "def fib(n: Int): Int =\n  if n <= 1 then n else fib(n - 1) + fib(n - 2)")).get
     tcoFn = VmCompiler.compile(closure("sumTco",
       "def sumTco(n: Int, acc: Int): Int =\n  if n <= 0 then acc else sumTco(n - 1, acc + n)")).get
+    dsumFn = VmCompiler.compile(closure("dsum",
+      "def dsum(n: Int, acc: Double): Double =\n  if n <= 0 then acc else dsum(n - 1, acc + 0.5)")).get
 
     // Correctness guard: the VM must agree with the known results, else the
     // speed numbers below are meaningless.
     require(SscVm.run(fibFn, Array(30L)) == 832040L, "fib VM result wrong")
     require(SscVm.run(tcoFn, Array(1000000L, 0L)) == 500000500000L, "sumTco VM result wrong")
+    require(java.lang.Double.longBitsToDouble(SscVm.run(dsumFn, Array(1000000L, zeroBits))) == 500000.0,
+      "dsum VM result wrong")
 
   @Benchmark
   def treeWalkFib(): Unit = Interpreter(devNull).runSections(fibModule)
@@ -72,3 +84,9 @@ class VmJitBench:
 
   @Benchmark
   def vmTco(): Long = SscVm.run(tcoFn, Array(1000000L, 0L))
+
+  @Benchmark
+  def treeWalkDsum(): Unit = Interpreter(devNull).runSections(dsumModule)
+
+  @Benchmark
+  def vmDsum(): Long = SscVm.run(dsumFn, Array(1000000L, zeroBits))

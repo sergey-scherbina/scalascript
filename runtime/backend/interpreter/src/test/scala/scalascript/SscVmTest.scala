@@ -99,9 +99,50 @@ class SscVmTest extends AnyFunSuite with Matchers:
     SscVm.run(cfn.get, Array(0L))  shouldBe 1L
   }
 
-  test("bails (None) on unsupported double-typed function") {
+  // ── Double-domain support (raw VM result is double *bits*) ──────────
+  private def asD(raw: Long): Double = java.lang.Double.longBitsToDouble(raw)
+  private def bitsOf(d: Double): Long = java.lang.Double.doubleToRawLongBits(d)
+
+  test("compiles and runs a double-typed arithmetic function") {
     val f = funOf("h", """def h(x: Double): Double = x * 2.0""")
-    VmCompiler.compile(f) shouldBe None
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsDouble shouldBe true
+    cfn.get.paramIsDouble shouldBe Array(true)
+    asD(SscVm.run(cfn.get, Array(bitsOf(3.5)))) shouldBe 7.0
+    asD(SscVm.run(cfn.get, Array(bitsOf(-1.25)))) shouldBe -2.5
+  }
+
+  test("promotes an Int param into the double domain (Int -> Double)") {
+    val f = funOf("scale", """def scale(x: Int): Double = x * 1.5""")
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsDouble shouldBe true
+    cfn.get.paramIsDouble shouldBe Array(false)   // x is Int — caller passes a raw int
+    asD(SscVm.run(cfn.get, Array(4L))) shouldBe 6.0
+    asD(SscVm.run(cfn.get, Array(10L))) shouldBe 15.0
+  }
+
+  test("compiles a tail-recursive double accumulator") {
+    val f = funOf("dsum",
+      """def dsum(n: Int, acc: Double): Double =
+        |  if n <= 0 then acc else dsum(n - 1, acc + 0.5)""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsDouble shouldBe true
+    cfn.get.paramIsDouble shouldBe Array(false, true)
+    asD(SscVm.run(cfn.get, Array(4L, bitsOf(0.0)))) shouldBe 2.0
+    asD(SscVm.run(cfn.get, Array(100L, bitsOf(1.0)))) shouldBe 51.0
+  }
+
+  test("double comparison drives a branch") {
+    val f = funOf("clamp",
+      """def clamp(x: Double): Double = if x > 10.0 then 10.0 else x""".stripMargin)
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    cfn.get.retIsDouble shouldBe true
+    asD(SscVm.run(cfn.get, Array(bitsOf(3.5)))) shouldBe 3.5
+    asD(SscVm.run(cfn.get, Array(bitsOf(42.0)))) shouldBe 10.0
   }
 
   test("bails (None) on unsupported string operations") {
