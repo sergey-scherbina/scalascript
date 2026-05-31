@@ -33,7 +33,8 @@ private[interpreter] object EvalRuntime:
   private def fastValue(term: Term, env: Env, interp: Interpreter): Value | Null =
     term match
       case tn: Term.Name =>
-        env.getOrElse(tn.value, interp.globals.getOrElse(tn.value, null))
+        val ev = env.getOrElse(tn.value, null)
+        if ev != null then ev else interp.globals.getOrElse(tn.value, null)
       case lit: Lit =>
         cachedLiteralValue(lit, interp)
       case _ => null
@@ -316,7 +317,9 @@ private[interpreter] object EvalRuntime:
     // Type-only check avoids Term.Name.unapply which allocates Some(name).
     case tn: Term.Name =>
       val name = tn.value
-      val v = env.getOrElse(name, interp.globals.getOrElse(name, null))
+      // null-default lookups (not by-name getOrElse) to avoid a Function0 thunk per name.
+      val ev = env.getOrElse(name, null)
+      val v = if ev != null then ev else interp.globals.getOrElse(name, null)
       if v != null then Pure(v)
       else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
       else
@@ -1073,7 +1076,17 @@ private[interpreter] object EvalRuntime:
           b.toMap
         case _ =>
           if env eq interp.globals then Map.empty
-          else env.filter { case (k, v) => interp.globals.getOrElse(k, null) != v }
+          else
+            // foreachEntry (not .filter) so we never allocate a Tuple2 per entry;
+            // builder stays null until a genuine capture appears, so the common
+            // all-globals case (empty closure) allocates nothing.
+            var b: scala.collection.mutable.HashMap[String, Value] = null
+            env.foreachEntry { (k, v) =>
+              if interp.globals.getOrElse(k, null) != v then
+                if b == null then b = new scala.collection.mutable.HashMap[String, Value]
+                b(k) = v
+            }
+            if b == null then Map.empty else b.toMap
       // Extract and cache lambda parameter metadata once per AST node. Typed
       // handler mounting reads paramTypes, with empty string for unannotated params.
       var paramInfo = interp.paramInfoCache.get(paramClause)
