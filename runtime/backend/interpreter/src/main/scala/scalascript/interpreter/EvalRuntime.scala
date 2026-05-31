@@ -990,8 +990,8 @@ private[interpreter] object EvalRuntime:
         // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
         // to intercept BEFORE the generic eval path, otherwise Term.Assign
         // would fall into the var-assignment case and mutate interp.globals.
-        case Term.Select(qual, Term.Name("copy")) =>
-          OpticsRuntime.evalCopy(qual, app.argClause.values, env, interp)
+        case sel: Term.Select if sel.name.value == "copy" =>
+          OpticsRuntime.evalCopy(sel.qual, app.argClause.values, env, interp)
         // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
         // Inspect the lambda body at AST level to extract a field-access
         // chain, then synthesise a Lens value with get / set / modify /
@@ -1033,9 +1033,9 @@ private[interpreter] object EvalRuntime:
                   DispatchRuntime.dispatch(qualV, "query", argVals, env, interp).map(projectTypedRows(typeName, _, interp))
                 )
               )
-        case Term.Select(qual, methodName: Term.Name) =>
-          val method   = methodName.value
-          val qualC    = eval(qual, env, interp)
+        case sel: Term.Select =>
+          val method   = sel.name.value
+          val qualC    = eval(sel.qual, env, interp)
           val argTerms = app.argClause.values
           // Named args (Term.Assign) must evaluate only the RHS; the full
           // Term.Assign path at line 2338 treats them as var-assignments and
