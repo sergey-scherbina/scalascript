@@ -133,6 +133,20 @@ object VmCompiler:
       case "==" => EQ;  case "!=" => NE
       case _    => bail()
 
+    /** Immediate-RHS opcode for `op` (operand `c` is a constPool index). */
+    private def opcodeImmFor(op: String): Int = op match
+      case "+"  => ADDI; case "-"  => SUBI; case "*" => MULI
+      case "/"  => DIVI; case "%"  => MODI
+      case "<"  => LTI;  case "<=" => LEI; case ">" => GTI; case ">=" => GEI
+      case "==" => EQI;  case "!=" => NEI
+      case _    => bail()
+
+    /** The literal `Long` value of `t` if it is an integer literal, else None. */
+    private def intLiteral(t: Term): Option[Long] = t match
+      case Lit.Int(v)  => Some(v.toLong)
+      case Lit.Long(v) => Some(v)
+      case _           => None
+
     /** Resolve `app.fun` to a compilable callee, or None.
      *  Order mirrors the interpreter: a local/param of that name shadows any
      *  function (and a local holds a Long, not something callable → bail);
@@ -168,10 +182,16 @@ object VmCompiler:
         if r != dst then emit(MOVE, dst, r, 0)
 
       case app: Term.ApplyInfix if app.argClause.values.lengthCompare(1) == 0 =>
-        val opc = opcodeFor(app.op.value)
-        val lr  = compileExpr(app.lhs)
-        val rr  = compileExpr(app.argClause.values.head)
-        emit(opc, dst, lr, rr)
+        val rhs = app.argClause.values.head
+        intLiteral(rhs) match
+          case Some(v) =>                          // fold literal RHS into an immediate op
+            val lr = compileExpr(app.lhs)
+            emit(opcodeImmFor(app.op.value), dst, lr, constSlot(v))
+          case None =>
+            val opc = opcodeFor(app.op.value)
+            val lr  = compileExpr(app.lhs)
+            val rr  = compileExpr(rhs)
+            emit(opc, dst, lr, rr)
 
       case t: Term.If =>
         val cr  = compileExpr(t.cond)

@@ -62,6 +62,7 @@ CONST   a, k          reg[a] = constPool[k]
 MOVE    a, b          reg[a] = reg[b]
 ADD/SUB/MUL/DIV/MOD a,b,c   reg[a] = reg[b] (op) reg[c]
 LT/LE/GT/GE/EQ/NE   a,b,c   reg[a] = (reg[b] cmp reg[c]) ? 1 : 0
+ADDI/SUBI/.../NEI   a,b,c   reg[a] = reg[b] (op) constPool[c]   (immediate RHS)
 JMP     t             pc = t
 JF      a, t          if reg[a] == 0 then pc = t      (jump-if-false)
 CALL    a, b, t       reg[a] = exec(fn=callPool[t], window starting at reg[b])
@@ -111,6 +112,13 @@ bound register in place. This removes the extra `MOVE` a return-a-register
 scheme emits at every use site — cutting the hot dispatch loop's instruction
 count (measured: `recursionFib` −12% end-to-end; self-tail-call loops are
 byte-identical and unaffected).
+
+**Immediate-RHS ops.** When an infix op's right operand is an integer literal,
+the compiler emits the `*I` variant (`SUBI`, `LEI`, …) whose `c` operand is a
+constPool index, folding away the `CONST` that would otherwise load the literal
+into a register. This pays off most in tight call-free loops: `recursionTco`
+(`n <= 0`, `n - 1`) measured −24% end-to-end. `recursionFib` is neutral — it is
+dominated by `CALL`/recursion overhead, so arithmetic folding barely moves it.
 
 Anything else — method calls, doubles, pattern matches, captured free
 variables other than self, effects — makes the compiler return `None`.

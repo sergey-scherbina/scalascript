@@ -25,6 +25,20 @@ object SscVm:
   final val JF    = 14
   final val CALL  = 15
   final val RET   = 16
+  // Immediate-RHS variants: operand `c` is a constPool index, not a register.
+  // Emitted when an infix op has a literal right-hand side, folding the CONST
+  // that would otherwise load the literal into a register first.
+  final val ADDI  = 17
+  final val SUBI  = 18
+  final val MULI  = 19
+  final val DIVI  = 20
+  final val MODI  = 21
+  final val LTI   = 22
+  final val LEI   = 23
+  final val GTI   = 24
+  final val GEI   = 25
+  final val EQI   = 26
+  final val NEI   = 27
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -64,6 +78,17 @@ object SscVm:
         case GE    => stack(base + a(pc)) = if stack(base + b(pc)) >= stack(base + c(pc)) then 1L else 0L
         case EQ    => stack(base + a(pc)) = if stack(base + b(pc)) == stack(base + c(pc)) then 1L else 0L
         case NE    => stack(base + a(pc)) = if stack(base + b(pc)) != stack(base + c(pc)) then 1L else 0L
+        case ADDI  => stack(base + a(pc)) = stack(base + b(pc)) + k(c(pc))
+        case SUBI  => stack(base + a(pc)) = stack(base + b(pc)) - k(c(pc))
+        case MULI  => stack(base + a(pc)) = stack(base + b(pc)) * k(c(pc))
+        case DIVI  => stack(base + a(pc)) = stack(base + b(pc)) / k(c(pc))
+        case MODI  => stack(base + a(pc)) = stack(base + b(pc)) % k(c(pc))
+        case LTI   => stack(base + a(pc)) = if stack(base + b(pc)) <  k(c(pc)) then 1L else 0L
+        case LEI   => stack(base + a(pc)) = if stack(base + b(pc)) <= k(c(pc)) then 1L else 0L
+        case GTI   => stack(base + a(pc)) = if stack(base + b(pc)) >  k(c(pc)) then 1L else 0L
+        case GEI   => stack(base + a(pc)) = if stack(base + b(pc)) >= k(c(pc)) then 1L else 0L
+        case EQI   => stack(base + a(pc)) = if stack(base + b(pc)) == k(c(pc)) then 1L else 0L
+        case NEI   => stack(base + a(pc)) = if stack(base + b(pc)) != k(c(pc)) then 1L else 0L
         case JMP   => pc = a(pc); pc -= 1  // -1 cancels the trailing pc += 1
         case JF    =>
           if stack(base + a(pc)) == 0L then { pc = b(pc); pc -= 1 }
