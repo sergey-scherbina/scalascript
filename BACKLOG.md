@@ -95,16 +95,19 @@ the contracts are explicit.
       to `private[cli] def`, bodies byte-identical. `CheckCompatCmd`/`PackageCmd`
       stay in Main. Main drops 289 lines; `cli/compile` clean;
       `SsclibPackageCliTest` + `CommandRegistryTest` green (10).
-- [ ] **cli-main-helper-split-p4** - Continue behavior-preserving extraction:
-      the build/compile pipeline cluster from `Main.scala` — `compileJvmAndCache`,
-      `compileJvmDepInto`, `compileJsDepInto`, `ensureRuntimeArtifact`,
-      `ensureJsRuntimeArtifact`, `unionDepCapabilities`, `unionDepCapabilitiesJs`,
-      `extractDepBundlesForCompile`, `stagePrecompiledDepArtifacts`. Higher
-      coupling: these share the file-scoped `collectImports` (11 refs) — widen it
-      to `private[cli]` (or move it alongside) so both Main and the extracted
-      cluster resolve it. Move the dependency cluster together into a
-      `BuildPipeline.scala`. Keep command behavior + `CliCommand` registry
-      contracts unchanged; verify via `cli/compile` + CLI build/incremental tests.
+- [x] **cli-main-helper-split-p4** _(landed 2026-05-31)_ - Behavior-preserving
+      extraction of the build/compile pipeline cluster from `Main.scala` into
+      `BuildPipeline.scala` — `compileJvmAndCache`, `compileJvmDepInto`,
+      `scjvmHasClassBundle`, `extractDepBundlesForCompile`, `unionDepCapabilities`,
+      `ensureRuntimeArtifact`, `unionDepCapabilitiesJs`, `ensureJsRuntimeArtifact`,
+      `compileJsDepInto`, `collectImports` (the 11-ref shared helper),
+      `stagePrecompiledDepArtifacts`. Relocated as top-level package-level defs in
+      `scalascript.cli`; file-scoped `private def`s widened to `private[cli] def`,
+      bodies byte-identical; imports `RenderHelpers.*` for `reportCodeBlockParseErrors`.
+      `CliCommand` classes stay in Main and call them unqualified. Main drops 410
+      lines; `cli/compile` clean; relocation verified byte-identical against
+      origin/main. Integration suites blocked by concurrent-session JVM contention —
+      relied on compile + byte-identity for this pure-relocation refactor.
 - [x] **jsgen-split-p1** _(landed 2026-05-30)_ - Behavior-preserving extraction from the 12k-line
       `runtime/backend/js/.../codegen/JsGen.scala`, mirroring the established
       `JsRuntime*.scala` (preamble strings) + `intrinsics/*.scala` (per-intrinsic
