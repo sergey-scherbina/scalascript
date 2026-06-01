@@ -19,19 +19,25 @@ bearer-token API. Resume via the standard claim/worktree flow.
 - [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
   real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
   attrs; `fetchTableView` also takes `headers`. All emitters updated.
-- [ ] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
-  `en(k)` instead of the map value. Root cause confirmed: `TcoRuntime.tcoTrampoline`
-  replaces mutual-tail-call targets (like `en`, found in tail pos at `case None =>
-  en(k)`) with `MutualTailCall`-throwing stubs. When `en(k)` also appears as a
-  *non-tail* argument in `m.getOrElse(k, en(k))`, the stub escapes argument
-  evaluation and the trampoline jumps to `en` — discarding the pending map lookup.
-  WIP fix in worktree `feature/interp-getOrElse-fn-default`: added
-  `appearsAsCallInNonTailPos` helper + filter in `mutualEntries` construction, but
-  test still fails (`Undefined: loc`) — deeper issue in env setup under the
-  trampoline when `mutualEntries` becomes empty. Repro:
-  `def t(loc,k)=nested.get(loc) match { case Some(m)=>m.getOrElse(k,en(k)); case None=>en(k) }`
-  — `t("en","k")` returns `en(k)` (WRONG). Zero product impact (busi i18n uses
-  `if contains then getOrElse else` workaround).
+- [x] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
+  `en(k)` instead of the map value. Root cause: `TcoRuntime.tcoTrampoline`
+  replaces mutual-tail-call targets (like `en`, found in tail pos at `case None
+  => en(k)`) with `MutualTailCall`-throwing stubs. When `en(k)` also appears as
+  a *non-tail* argument in `m.getOrElse(k, en(k))`, the stub escapes argument
+  evaluation and the trampoline jumps to `en` — discarding the pending map
+  lookup. ✓ Landed 2026-06-02: added `appearsAsCallInNonTailPos(curFun.body,
+  name)` filter in `mutualEntries` construction — any tail-call target that
+  ALSO appears as a `Term.Apply` callee in a non-tail position is skipped from
+  the stub installation, so it resolves to the original FunV everywhere and
+  argument evaluation works correctly. New regression test
+  `map.getOrElse with fn-call default in match arm returns map value` (1205-test
+  suite green in both FASTTIER on AND off modes). The earlier WIP attempt's
+  `Undefined: loc` symptom was an unrelated artifact of untyped `def t(loc, k)`
+  syntax in the original repro; with typed params (`def t(loc: String, k: String)`)
+  the filter alone produces the correct result. Recursive cluster sanity:
+  `recursionFib` 28.3 ms / `recursionTco` 993 µs / `recursiveEval` 31.4 ms — all
+  within historical baseline (the filter runs only on `envStable` rebuild,
+  i.e. once per `curFun` transition, not per iter).
 
 ## Tooling
 

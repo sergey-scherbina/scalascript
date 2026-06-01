@@ -74,16 +74,28 @@ private[interpreter] object TcoRuntime:
               if targets.isEmpty then selfEnv
               else
                 val mutualEntries: Map[String, Value] = targets.flatMap { name =>
-                  (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
-                    case fn: Value.FunV =>
-                      name -> (Value.NativeFnV(name, a => {
-                        interp.mutualTailCallSig.f    = fn
-                        interp.mutualTailCallSig.args = a
-                        throw interp.mutualTailCallSig
-                      }): Value)
-                  }
+                  // CORRECTNESS GUARD: skip targets that also appear as a Term.Apply
+                  // callee in a non-tail position. Replacing them with a stub that
+                  // throws MutualTailCall would cause the throw to escape from
+                  // argument evaluation, bypassing the pending enclosing method
+                  // call. Concretely, `m.getOrElse(k, en(k))` evaluates `en(k)`
+                  // EAGERLY to a Value: if `en` resolves to the stub, the throw
+                  // jumps to `en` before `m.getOrElse` runs and the trampoline
+                  // returns en's result instead of the map lookup result.
+                  // (Bug repro: `map.getOrElse with fn-call default in match arm`).
+                  if appearsAsCallInNonTailPos(curFun.body, name) then None
+                  else
+                    (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
+                      case fn: Value.FunV =>
+                        name -> (Value.NativeFnV(name, a => {
+                          interp.mutualTailCallSig.f    = fn
+                          interp.mutualTailCallSig.args = a
+                          throw interp.mutualTailCallSig
+                        }): Value)
+                    }
                 }.toMap
-                FrameMap.fromMap(mutualEntries, selfEnv)
+                if mutualEntries.isEmpty then selfEnv
+                else FrameMap.fromMap(mutualEntries, selfEnv)
             envStableFor  = curFun
           val callEnv: Env = curFun.params match
             case Nil               => envStable
@@ -226,6 +238,34 @@ private[interpreter] object TcoRuntime:
     tree match
       case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
       case t => t.children.exists(anywhereContainsSelfCall(_, fname))
+
+  /** True iff `target` is invoked (as the callee of a `Term.Apply`) somewhere
+   *  in `tree` that is NOT a tail position. Used by `tcoTrampoline` to skip
+   *  installing the MutualTailCall stub for any target that also appears in a
+   *  non-tail call site — otherwise the stub's throw would escape from
+   *  argument evaluation and bypass the pending enclosing call (e.g.
+   *  `m.getOrElse(k, en(k))` would jump to `en` before `m.getOrElse` runs). */
+  private def appearsAsCallInNonTailPos(tree: Tree, target: String): Boolean =
+    def go(t: Tree, tailPos: Boolean): Boolean = t match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        // The callee position itself is "tail" only when this Apply is a tail
+        // expression of its surrounding scope. The args are always non-tail.
+        (!tailPos && n == target) ||
+        argClause.values.exists(go(_, false))
+      case ti: Term.If =>
+        go(ti.cond, false) || go(ti.thenp, tailPos) || go(ti.elsep, tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).exists(go(_, false)) ||
+        stats.lastOption.exists(go(_, tailPos))
+      case tm: Term.Match =>
+        go(tm.expr, false) ||
+        tm.casesBlock.cases.exists(c => go(c.body, tailPos))
+      case other =>
+        // Any node we don't recognise as a tail-position carrier propagates
+        // tail-ness as `false` to its children (conservative — over-skips
+        // rather than over-installs the stub).
+        other.children.exists(go(_, false))
+    go(tree, tailPos = true)
 
   private def containsSelfNameRef(tree: Tree, fname: String): Boolean =
     tree match

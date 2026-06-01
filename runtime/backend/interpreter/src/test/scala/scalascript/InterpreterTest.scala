@@ -1310,3 +1310,31 @@ def main(): Unit =
          |""".stripMargin
     capturedDoc(src) shouldBe "if (a < b && b > c) { /* 42 */ }"
   }
+
+  // ── Bug repro: getOrElse with function-call default in a match arm where
+  //    the same fn also appears in a sibling tail position. ────────────────
+  //
+  // Root cause: TcoRuntime's mutual-tail-call analysis sees `en` in tail
+  // position at `case None => en(k)` and installs a NativeFnV stub that
+  // throws MutualTailCall. The SAME stub then also resolves `en` in the
+  // sibling arm's `m.getOrElse(k, en(k))` where `en(k)` is NOT a tail call
+  // (it's just the default value argument of getOrElse). Evaluating it
+  // throws, escapes argument evaluation, and the trampoline jumps to `en`
+  // before `m.getOrElse` runs — discarding the map lookup.
+  test("map.getOrElse with fn-call default in match arm returns map value") {
+    // `en("hello")` returns "fb:hello" — distinguishable from the map's
+    // "hello" -> "Hello", so a buggy run (where `en(k)` is invoked via the
+    // mutual-tail-call stub and replaces the whole match result) yields
+    // "fb:hello" instead of the correct map lookup "Hello".
+    captured("""
+      val nested = Map("en" -> Map("hello" -> "Hello", "world" -> "World"))
+      def en(k: String): String = "fb:" + k
+      def t(loc: String, k: String): String = nested.get(loc) match {
+        case Some(m) => m.getOrElse(k, en(k))
+        case None    => en(k)
+      }
+      println(t("en", "hello"))
+      println(t("en", "world"))
+      println(t("fr",  "hello"))
+    """) shouldBe "Hello\nWorld\nfb:hello"
+  }
