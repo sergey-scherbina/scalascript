@@ -8,6 +8,39 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 
 ---
 
+## busi-driven follow-ups (open)
+
+These surfaced building the `busi` app (sibling repo) against an RBAC-gated,
+bearer-token API. Resume via the standard claim/worktree flow.
+
+- [ ] **ui-fetch-auth-v1** — Add optional request headers to `fetchAction` /
+  `fetchActionClear` so the browser can send `Authorization: Bearer <token>`
+  (busi's authed "post entry"). Spec: [`docs/ui-fetch-auth.md`](docs/ui-fetch-auth.md).
+  Cross-backend: `runtime/std/ui/primitives.ssc` (extern def),
+  `runtime/std/frontend-plugin/.../FrontendIntrinsics.scala`,
+  `runtime/backend/js/.../JsRuntimeSignals.scala` (descriptor + `renderBody`
+  `data-ssc-fetch-headers` attr + click `fetch(url,{…,headers})`),
+  `runtime/backend/jvm/.../JvmGen.scala`. Header value read at **request time**
+  from a `Signal` (token arrives after login), never captured statically.
+  Back-compat: default empty. Tests: interpreter snapshot unaffected + JS emit
+  golden (headers in the `fetch` call) + node `--check`.
+- [ ] **ui-fetch-auth-v2** — Implement `fetchUrlSignal`'s GET (currently a JS
+  stub `return Signal('')` — no fetch) on mount + on `refreshTick`, with the
+  same headers support, plus headers on `fetchTableView`. Unblocks authed
+  **live reads** (the busi dashboard's balance display). Per `docs/ui-fetch-auth.md`
+  §"Phasing v2". Depends on **ui-fetch-auth-v1**.
+- [ ] **interp-getOrElse-fn-default** — Bug: a function whose body is a `match`,
+  where a case-arm body in **tail position** is a method call whose argument is
+  itself a function call (e.g. `m.getOrElse(k, en(k))`), returns the inner
+  call's value instead of the method result. Triggers **only** when the 2nd arg
+  is a non-`Pure` Computation; literal defaults, inline matches, and larger
+  enclosing expressions all work. In the recently perf-optimized function-call /
+  compiled-`match` fast path (A1/A2 fast-tier, `EvalRuntime`/`PatternRuntime`) —
+  fix carefully with instrumentation + full `backendInterpreter` test run. Repro:
+  `def t(loc,k)=nested.get(loc) match { case Some(m)=>m.getOrElse(k,en(k)); case None=>en(k) }`
+  — `t("en","k")` returns `en(k)` (WRONG). Zero product impact (busi i18n uses a
+  `if contains then getOrElse else` workaround).
+
 ## Tooling
 
 - [x] **cli-bundle-frontend** — bundle `frontendPlugin` + `fetchPlugin` into the CLI (Compile) so `ssc run` resolves the std/ui frontend externs (`signal`/`lower`/`emit`) and `fetch`. Previously `% Test`, so frontend programs failed with `'signal' not found`. ✓ Landed 2026-05-31: std-ui smoke now emits index.html+app.js and prints `smoke:ok` via the jar; assembly clean; busi domain regression-green. (frontendReact was already Compile.)
