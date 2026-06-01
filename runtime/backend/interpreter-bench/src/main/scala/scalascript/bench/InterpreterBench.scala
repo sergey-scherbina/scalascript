@@ -108,6 +108,31 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // Recursive ADT tree-walk: a classic expression evaluator dispatching over
+  // constructors and recursing into children — the canonical interpreter
+  // workload (and the target of VM 2a). The tree is built once; the loop only
+  // measures the recursive `eval`, not construction.
+  private val modRecursiveEval: Module = src(
+    """sealed trait Expr
+      |case class Num(n: Int) extends Expr
+      |case class Add(l: Expr, r: Expr) extends Expr
+      |case class Mul(l: Expr, r: Expr) extends Expr
+      |def eval(e: Expr): Int = e match
+      |  case Num(n)    => n
+      |  case Add(l, r) => eval(l) + eval(r)
+      |  case Mul(l, r) => eval(l) * eval(r)
+      |def build(d: Int): Expr =
+      |  if d <= 0 then Num(1)
+      |  else Add(build(d - 1), Mul(build(d - 1), Num(2)))
+      |val tree = build(8)
+      |var total = 0
+      |var i = 0
+      |while i < 1000 do
+      |  total = total + eval(tree)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val modEffectPure: Module = src(
     """def compute(n: Int): Int ! Logger =
       |  var acc = 0
@@ -151,6 +176,10 @@ class InterpreterBench:
   @Benchmark
   def patternMatchWide(): Unit =
     Interpreter(devNull).runSections(modPatternMatchWide)
+
+  @Benchmark
+  def recursiveEval(): Unit =
+    Interpreter(devNull).runSections(modRecursiveEval)
 
   @Benchmark
   def effectPure(): Unit =

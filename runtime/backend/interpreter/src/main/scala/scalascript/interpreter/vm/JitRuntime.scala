@@ -71,7 +71,7 @@ object JitRuntime:
         if e.compiled != null then e.compiled
         else if e.disabled then null
         else
-          VmCompiler.compile(f, resolverFor(interp)) match
+          VmCompiler.compile(f, resolverFor(interp), metaFor(interp)) match
             case Some(cf) => e.compiled = cf; cf
             case None     => e.disabled = true; null
 
@@ -88,26 +88,47 @@ object JitRuntime:
             case Some(fv: Value.FunV) => fv
             case _                    => null
 
+  /** Build an ADT-constructor metadata lookup from the interpreter's recorded
+   *  field order + field types, for `match` field extraction in [[VmCompiler]]. */
+  private def metaFor(interp: Interpreter): VmCompiler.Meta =
+    (ctor: String) =>
+      interp.typeFieldOrder.get(ctor) match
+        case Some(names) =>
+          val types = interp.typeFieldTypes.getOrElse(ctor, names.map(_ => "String"))
+          (names, types)
+        case None => null
+
   // ── thread-local growable frame stack ────────────────────────────
+  // Dual-bank: a `Long` stack for numeric registers and a parallel `AnyRef`
+  // stack for ref registers (VM 2a). Both banks are kept the same length so the
+  // VM's single bounds check (on the Long stack) covers both.
   private val tlStack = new ThreadLocal[Array[Long]]:
     override def initialValue(): Array[Long] = new Array[Long](64 * 1024)
+  private val tlRefStack = new ThreadLocal[Array[AnyRef]]:
+    override def initialValue(): Array[AnyRef] = new Array[AnyRef](64 * 1024)
 
-  /** Run `cf` with `args` on the thread-local stack, growing on overflow.
+  private val NoArgs = new Array[Long](0)
+  private val NoRefs = new Array[AnyRef](0)
+
+  /** Run `cf` with numeric `args` (placed in the Long bank) and `refArgs`
+   *  (placed in the ref bank) on the thread-local stacks, growing on overflow.
    *  Returns the Long result; propagates non-overflow throwables to the caller
    *  (which treats them as "fall back to tree-walk"). */
-  private def runVm(cf: SscVm.CompiledFn, args: Array[Long]): Long =
-    var stack = tlStack.get()
+  private def runVm(cf: SscVm.CompiledFn, args: Array[Long], refArgs: Array[AnyRef]): Long =
     while true do
-      val need = cf.numRegs.max(1) + cf.arity + 16
-      if stack.length < need then
-        stack = new Array[Long](need * 2)
-        tlStack.set(stack)
+      var stack = tlStack.get()
+      var refs  = tlRefStack.get()
+      val need  = cf.numRegs.max(1) + cf.arity + 16
+      if stack.length < need then { stack = new Array[Long](need * 2); tlStack.set(stack) }
+      if refs.length < stack.length then { refs = new Array[AnyRef](stack.length); tlRefStack.set(refs) }
       var i = 0
       while i < args.length do { stack(i) = args(i); i += 1 }
-      try return SscVm.exec(cf, stack, 0)
+      i = 0
+      while i < refArgs.length do { refs(i) = refArgs(i); i += 1 }
+      try return SscVm.exec(cf, stack, refs, 0)
       catch case fo: SscVm.FrameOverflow =>
-        stack = new Array[Long](fo.need * 2 + 16)
-        tlStack.set(stack)
+        val sz = fo.need * 2 + 16
+        tlStack.set(new Array[Long](sz)); tlRefStack.set(new Array[AnyRef](sz))
     0L // unreachable
 
   private def isNumeric(v: Value): Boolean = v match
@@ -127,56 +148,74 @@ object JitRuntime:
     if cf.retIsDouble then Computation.Pure(Value.doubleV(jl.Double.longBitsToDouble(raw)))
     else Computation.pureIntV(raw)
 
-  /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
+  private def isRefParam(cf: SscVm.CompiledFn, i: Int): Boolean =
+    i < cf.paramIsRef.length && cf.paramIsRef(i)
+
+  /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
+   *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
+   *  VM 2a) — the param domain is decided by the compiled function. */
   def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 1 || !isNumeric(arg) then null
+    if !enabled || f.name.isEmpty || f.params.length != 1 then null
     else
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
+      else if isRefParam(cf, 0) then
+        arg match
+          case inst: Value.InstanceV =>
+            try wrap(cf, runVm(cf, NoArgs, Array[AnyRef](inst)))
+            catch case _: Throwable => null
+          case _ => null
+      else if !isNumeric(arg) then null
       else
         val a0 = marshal(arg, cf.paramIsDouble.length > 0 && cf.paramIsDouble(0))
         if a0 == null then null
         else
-          try wrap(cf, runVm(cf, Array(a0.longValue)))
+          try wrap(cf, runVm(cf, Array(a0.longValue), NoRefs))
           catch case _: Throwable => null
 
   /** 2-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null. */
   def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
-    if !enabled || f.name.isEmpty || f.params.length != 2 || !isNumeric(a) || !isNumeric(b) then null
+    if !enabled || f.name.isEmpty || f.params.length != 2 then null
     else
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
-      else
-        val a0 = marshal(a, cf.paramIsDouble.length > 0 && cf.paramIsDouble(0))
-        val a1 = marshal(b, cf.paramIsDouble.length > 1 && cf.paramIsDouble(1))
-        if a0 == null || a1 == null then null
-        else
-          try wrap(cf, runVm(cf, Array(a0.longValue, a1.longValue)))
-          catch case _: Throwable => null
+      else marshalAndRun(cf, List(a, b))
 
   /** List-arg entry used by the general `callFun` path. Handles any arity the
-   *  compiler supports ([[VmCompiler.MaxArity]]), provided every argument is
-   *  numeric (Int or Double). `eager` is set for self-tail-recursive callers
-   *  (see [[hotCompiled]]). */
+   *  compiler supports ([[VmCompiler.MaxArity]]). Each argument is marshalled
+   *  per the compiled param domain: numeric → Long bank, InstanceV → ref bank.
+   *  `eager` is set for self-tail-recursive callers (see [[hotCompiled]]). */
   def tryRunList(f: Value.FunV, args: List[Value], interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty then null
     else
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
-      else if !args.forall(isNumeric) then null
       else
         val cf = hotCompiled(f, interp, eager)
-        if cf == null then null
-        else
-          val xs = new Array[Long](n)
-          var rest = args
-          var i = 0
-          var ok = true
-          while ok && (rest ne Nil) do
-            val m = marshal(rest.head, i < cf.paramIsDouble.length && cf.paramIsDouble(i))
-            if m == null then ok = false
-            else { xs(i) = m.longValue; i += 1; rest = rest.tail }
-          if !ok then null
-          else
-            try wrap(cf, runVm(cf, xs))
-            catch case _: Throwable => null
+        if cf == null then null else marshalAndRun(cf, args)
+
+  /** Marshal `args` into the numeric + ref banks per the compiled param domains,
+   *  run, and wrap. Returns null if any arg cannot be represented in its param's
+   *  domain (→ caller falls back to tree-walk). */
+  private def marshalAndRun(cf: SscVm.CompiledFn, args: List[Value]): Computation | Null =
+    val n  = args.length
+    val xs = new Array[Long](n)
+    val rs = new Array[AnyRef](n)
+    var anyRef = false
+    var ok   = true
+    var i    = 0
+    var rest = args
+    while ok && (rest ne Nil) do
+      val v = rest.head
+      if isRefParam(cf, i) then
+        v match
+          case inst: Value.InstanceV => rs(i) = inst; anyRef = true
+          case _                     => ok = false
+      else
+        val m = marshal(v, i < cf.paramIsDouble.length && cf.paramIsDouble(i))
+        if m == null then ok = false else xs(i) = m.longValue
+      i += 1; rest = rest.tail
+    if !ok then null
+    else
+      try wrap(cf, runVm(cf, xs, if anyRef then rs else NoRefs))
+      catch case _: Throwable => null

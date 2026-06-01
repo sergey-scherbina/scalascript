@@ -1,6 +1,7 @@
 package scalascript.interpreter.vm
 
 import java.lang as jl
+import scalascript.interpreter.Value
 
 /** Proof-of-concept register-based bytecode VM for hot integer functions.
  *  See docs/vm-jit-spec.md. v0 handles `Long`-typed functions only; every
@@ -58,6 +59,25 @@ object SscVm:
   final val FNE   = 38
   // Promote an int-holding register to double bits: dst = bits(double(b)).
   final val I2D   = 39
+  // ── ref-value opcodes (VM 2a): operate on the parallel ref bank ──────
+  // Registers are dual-bank: every index `r` addresses both a `Long` cell
+  // (`stack`) and an `AnyRef` cell (`refStack`). Numeric opcodes use `stack`;
+  // these use `refStack`. MOVE and CALL copy BOTH banks so a ref flows through
+  // a register move transparently.
+  //
+  // ISTAG dst, b, c: dst(int) = 1 if refStack(b) is an InstanceV whose typeName
+  //   == strPool(c), else 0. Lets a `match` dispatch on the constructor tag.
+  final val ISTAG = 40
+  // GETFI dst, b, c: dst(num) = numeric field strPool(c) of the InstanceV in
+  //   refStack(b). IntV → its Long; DoubleV → its double-bits (the compiler sets
+  //   dst's static type from the declared field type, so later opcodes agree).
+  final val GETFI = 41
+  // GETFR dst, b, c: refStack(dst) = ref field strPool(c) of refStack(b).
+  final val GETFR = 42
+  // MFAIL: no case matched a compiled `match`. Throws so the JIT bridge falls
+  //   back to the tree-walker, which recomputes (pure subset) and raises the
+  //   same MatchError. Never reached for an exhaustive sealed match.
+  final val MFAIL = 43
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -78,21 +98,29 @@ object SscVm:
     // Per-parameter domain: paramIsDouble(i) is true when register i is read by
     // double opcodes. The JIT bridge uses this to marshal each incoming Value
     // into the correct raw `Long` (int) or double-bits representation.
-    val paramIsDouble: Array[Boolean] = Array.empty
+    val paramIsDouble: Array[Boolean] = Array.empty,
+    // Per-parameter ref flag: paramIsRef(i) is true when param i holds a ref
+    // value (an InstanceV) marshalled into the ref bank rather than a numeric.
+    val paramIsRef: Array[Boolean] = Array.empty,
+    // String pool backing ISTAG (constructor tags) and GETFI/GETFR (field names).
+    val strPool: Array[String] = Array.empty
   )
 
   /** Execute `fn` with a frame window based at `base` in shared `stack`.
    *  Arguments must already sit at stack(base .. base+arity-1).
    *  Returns the function's `Long` result. Recurses on CALL using a window
    *  bumped past the current frame — no per-call heap allocation. */
-  def exec(fn: CompiledFn, stack: Array[Long], base: Int): Long =
+  def exec(fn: CompiledFn, stack: Array[Long], refStack: Array[AnyRef], base: Int): Long =
     val op = fn.op; val a = fn.a; val b = fn.b; val c = fn.c
     val k  = fn.constPool
+    val sp = fn.strPool
     var pc = 0
     while true do
       (op(pc): @annotation.switch) match
         case CONST => stack(base + a(pc)) = k(b(pc))
-        case MOVE  => stack(base + a(pc)) = stack(base + b(pc))
+        case MOVE  =>
+          stack(base + a(pc))    = stack(base + b(pc))
+          refStack(base + a(pc)) = refStack(base + b(pc))
         case ADD   => stack(base + a(pc)) = stack(base + b(pc)) + stack(base + c(pc))
         case SUB   => stack(base + a(pc)) = stack(base + b(pc)) - stack(base + c(pc))
         case MUL   => stack(base + a(pc)) = stack(base + b(pc)) * stack(base + c(pc))
@@ -127,6 +155,20 @@ object SscVm:
         case FEQ   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) == jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
         case FNE   => stack(base + a(pc)) = if jl.Double.longBitsToDouble(stack(base + b(pc))) != jl.Double.longBitsToDouble(stack(base + c(pc))) then 1L else 0L
         case I2D   => stack(base + a(pc)) = jl.Double.doubleToRawLongBits(stack(base + b(pc)).toDouble)
+        case ISTAG =>
+          stack(base + a(pc)) = refStack(base + b(pc)) match
+            case inst: Value.InstanceV if inst.typeName == sp(c(pc)) => 1L
+            case _                                                   => 0L
+        case GETFI =>
+          val inst = refStack(base + b(pc)).asInstanceOf[Value.InstanceV]
+          stack(base + a(pc)) = inst.fields(sp(c(pc))) match
+            case Value.IntV(x)    => x
+            case Value.DoubleV(d) => jl.Double.doubleToRawLongBits(d)
+            case other            => throw new RuntimeException(s"GETFI: non-numeric field ${other}")
+        case GETFR =>
+          val inst = refStack(base + b(pc)).asInstanceOf[Value.InstanceV]
+          refStack(base + a(pc)) = inst.fields(sp(c(pc))).asInstanceOf[AnyRef]
+        case MFAIL => throw new RuntimeException("VM match: no case matched")
         case JMP   => pc = a(pc); pc -= 1  // -1 cancels the trailing pc += 1
         case JF    =>
           if stack(base + a(pc)) == 0L then { pc = b(pc); pc -= 1 }
@@ -134,13 +176,16 @@ object SscVm:
           val callee  = fn.callPool(c(pc))
           val argBase = base + b(pc)
           val newBase = base + fn.numRegs
-          // copy the contiguous arg window into the callee's r0..r(arity-1)
+          // copy the contiguous arg window into the callee's r0..r(arity-1).
+          // Copy BOTH banks: a register is numeric xor ref, but copying the
+          // unused cell is harmless and keeps CALL type-agnostic.
           var i = 0
           while i < callee.arity do
-            stack(newBase + i) = stack(argBase + i)
+            stack(newBase + i)    = stack(argBase + i)
+            refStack(newBase + i) = refStack(argBase + i)
             i += 1
           ensureCapacity(stack, newBase + callee.numRegs)
-          stack(base + a(pc)) = exec(callee, stack, newBase)
+          stack(base + a(pc)) = exec(callee, stack, refStack, newBase)
         case RET   => return stack(base + a(pc))
       pc += 1
     0L // unreachable
@@ -159,7 +204,21 @@ object SscVm:
   /** Allocate a frame stack large enough for `depth` frames of `fn`,
    *  place `args` at the base, and run. Convenience entry for tests/bench. */
   def run(fn: CompiledFn, args: Array[Long], maxDepth: Int = 4096): Long =
-    val stack = new Array[Long](fn.numRegs.max(1) * (maxDepth + 1) + 16)
+    val size  = fn.numRegs.max(1) * (maxDepth + 1) + 16
+    val stack = new Array[Long](size)
+    val refs  = new Array[AnyRef](size)
     var i = 0
     while i < args.length do { stack(i) = args(i); i += 1 }
-    exec(fn, stack, 0)
+    exec(fn, stack, refs, 0)
+
+  /** Ref-aware convenience entry: numeric args in `args`, ref args (by register
+   *  index) in `refArgs`. Used by tests/bench for functions taking ADT params. */
+  def runRef(fn: CompiledFn, args: Array[Long], refArgs: Array[AnyRef], maxDepth: Int = 4096): Long =
+    val size  = fn.numRegs.max(1) * (maxDepth + 1) + 16
+    val stack = new Array[Long](size)
+    val refs  = new Array[AnyRef](size)
+    var i = 0
+    while i < args.length do { stack(i) = args(i); i += 1 }
+    i = 0
+    while i < refArgs.length do { refs(i) = refArgs(i); i += 1 }
+    exec(fn, stack, refs, 0)

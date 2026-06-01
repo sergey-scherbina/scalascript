@@ -149,3 +149,65 @@ class SscVmTest extends AnyFunSuite with Matchers:
     val f = funOf("s", """def s(x: Int): String = "n=" + x""")
     VmCompiler.compile(f) shouldBe None
   }
+
+  // ── ref-value support: recursive ADT evaluator (VM 2a) ──────────────
+  test("compiles and runs a recursive ADT tree evaluator") {
+    val interp = interpOf(
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def eval(e: Expr): Int = e match
+        |  case Num(n)    => n
+        |  case Add(l, r) => eval(l) + eval(r)
+        |  case Mul(l, r) => eval(l) * eval(r)""".stripMargin)
+    val eval = interp.globalsView("eval").asInstanceOf[Value.FunV]
+    val meta: VmCompiler.Meta = {
+      case "Num" => (List("n"), List("Int"))
+      case "Add" => (List("l", "r"), List("Expr", "Expr"))
+      case "Mul" => (List("l", "r"), List("Expr", "Expr"))
+      case _     => null
+    }
+    val cfn = VmCompiler.compile(eval, globalsResolve(interp), meta)
+    cfn shouldBe defined
+    cfn.get.paramIsRef shouldBe Array(true)
+    // Add(Num(2), Mul(Num(3), Num(4))) = 2 + (3 * 4) = 14
+    def num(n: Int)            = Value.InstanceV("Num", Map("n" -> Value.intV(n.toLong)))
+    def add(l: Value, r: Value) = Value.InstanceV("Add", Map("l" -> l, "r" -> r))
+    def mul(l: Value, r: Value) = Value.InstanceV("Mul", Map("l" -> l, "r" -> r))
+    val tree = add(num(2), mul(num(3), num(4)))
+    SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](tree)) shouldBe 14L
+    // Single leaf
+    SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](num(42))) shouldBe 42L
+  }
+
+  /** Run `code` through the full interpreter, returning trimmed stdout — so the
+   *  live JIT bridge (warm-up, compile, VM execution + tree-walk fallback) is
+   *  exercised end to end, not just the compiler. */
+  private def captured(code: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    Interpreter(ps).run(Parser.parse(s"# T\n\n```scala\n$code\n```\n"))
+    ps.flush(); buf.toString.trim
+
+  test("end-to-end: recursive ADT eval is JIT-compiled and stays correct") {
+    // eval(tree) is called 1000× → crosses the warm-up threshold → compiles to
+    // the ref-value VM, recursing internally. total must equal 1000 * 14.
+    val out = captured(
+      """sealed trait Expr
+        |case class Num(n: Int) extends Expr
+        |case class Add(l: Expr, r: Expr) extends Expr
+        |case class Mul(l: Expr, r: Expr) extends Expr
+        |def eval(e: Expr): Int = e match
+        |  case Num(n)    => n
+        |  case Add(l, r) => eval(l) + eval(r)
+        |  case Mul(l, r) => eval(l) * eval(r)
+        |val tree = Add(Num(2), Mul(Num(3), Num(4)))
+        |var total = 0
+        |var i = 0
+        |while i < 1000 do
+        |  total = total + eval(tree)
+        |  i = i + 1
+        |println(total)""".stripMargin)
+    out shouldBe "14000"
+  }
