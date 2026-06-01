@@ -141,20 +141,34 @@ private[interpreter] object EvalRuntime:
     val nparams  = f.params.length
     if nparams != args.length || nparams < 1 || nparams > 2 then return null
     val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
-    val callEnv: Env =
-      if nparams == 1 then
-        val a = fastPrimitiveValue(args.head, env, interp)
-        if a == null then return null
-        FrameMap.one(f.params.head, a, withSelf)
+    if nparams == 1 then
+      val a = fastPrimitiveValue(args.head, env, interp)
+      if a == null then return null
+      val paramName = f.params.head
+      // When every arm is slot-based (binds via v0/v1, no pattern FrameMap), the
+      // scrutinee is exactly the parameter, and no arm body reads the parameter as
+      // a free name, the param FrameMap is dead weight: pass the arg straight in as
+      // the scrutinee and the closure as the env. The free-name check is required
+      // for correctness — if a body read `paramName`, dropping the frame could
+      // resolve it to a shadowed outer binding instead of the argument.
+      val freeNames = compiled.slotFreeNames
+      if compiled.allSlot && freeNames != null && !freeNames.contains(paramName)
+         && (mt.expr match { case Term.Name(nm) => nm == paramName; case _ => false }) then
+        compiled.runValue(a, withSelf)
       else
-        val a = fastPrimitiveValue(args.head, env, interp)
-        if a == null then return null
-        val b = fastPrimitiveValue(args(1), env, interp)
-        if b == null then return null
-        FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
-    val scrut = fastValue(mt.expr, callEnv, interp)
-    if scrut == null then return null
-    compiled.runValue(scrut, callEnv)
+        val callEnv = FrameMap.one(paramName, a, withSelf)
+        val scrut   = fastValue(mt.expr, callEnv, interp)
+        if scrut == null then return null
+        compiled.runValue(scrut, callEnv)
+    else
+      val a = fastPrimitiveValue(args.head, env, interp)
+      if a == null then return null
+      val b = fastPrimitiveValue(args(1), env, interp)
+      if b == null then return null
+      val callEnv = FrameMap.two(f.params.head, a, f.params(1), b, withSelf)
+      val scrut   = fastValue(mt.expr, callEnv, interp)
+      if scrut == null then return null
+      compiled.runValue(scrut, callEnv)
 
   private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
 

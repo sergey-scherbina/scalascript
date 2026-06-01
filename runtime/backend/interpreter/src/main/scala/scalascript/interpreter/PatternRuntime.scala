@@ -18,7 +18,12 @@ private[interpreter] object PatternRuntime:
 
   final class CompiledMatch(
     private val handlers:  Array[(Value, Env) => Computation | Null],
-    private val vhandlers: Array[(Value, Env) => AnyRef | Null] | Null
+    private val vhandlers: Array[(Value, Env) => AnyRef | Null] | Null,
+    val allSlot:           Boolean,
+    /** Union of free names read across all value-handler bodies, or null if any
+     *  arm had an unknown shape. Lets a caller verify a name (e.g. the function
+     *  parameter) is never read before dropping its env frame. */
+    val slotFreeNames:     Set[String] | Null
   ):
     /** True when every arm is guard-free with a pure (thunk-foldable) body and a
      *  fast-path pattern — so `runValue` can yield the result with no Computation
@@ -54,28 +59,39 @@ private[interpreter] object PatternRuntime:
   def compileMatch(t: scala.meta.Term.Match, interp: Interpreter): CompiledMatch =
     val cases    = t.casesBlock.cases
     val handlers = cases.map(compileCase(_, interp)).toArray
-    new CompiledMatch(handlers, buildValueHandlers(cases, interp))
+    buildCompiled(handlers, cases, interp)
 
   /** Compile a Term.PartialFunction into a cached handler array (same machinery). */
   def compilePF(t: scala.meta.Term.PartialFunction, interp: Interpreter): CompiledMatch =
     val handlers = t.cases.map(compileCase(_, interp)).toArray
-    new CompiledMatch(handlers, buildValueHandlers(t.cases, interp))
+    buildCompiled(handlers, t.cases, interp)
 
-  /** Build the value-handler array, or null if any arm is not value-capable
-   *  (has a guard, an effectful/complex body, or a pattern outside the fast set). */
-  private def buildValueHandlers(
-    cases: List[Case], interp: Interpreter
-  ): Array[(Value, Env) => AnyRef | Null] | Null =
-    val vh = new Array[(Value, Env) => AnyRef | Null](cases.length)
+  /** A value-handler plus whether it is fully frame-free (slot-based) and the set
+   *  of free names its body reads (names resolved via `env`, i.e. not pattern
+   *  bindings). `freeNames == null` means "unknown shape" — treat conservatively. */
+  private final class VHandler(
+    val fn: (Value, Env) => AnyRef | Null, val slot: Boolean, val freeNames: Set[String] | Null
+  )
+
+  private def buildCompiled(
+    handlers: Array[(Value, Env) => Computation | Null], cases: List[Case], interp: Interpreter
+  ): CompiledMatch =
+    val n  = cases.length
+    val vh = new Array[(Value, Env) => AnyRef | Null](n)
+    var allSlot = true
+    var free: Set[String] | Null = Set.empty
     var rest = cases
     var i = 0
     while rest.nonEmpty do
       val h = valueHandlerFor(rest.head, interp)
-      if h == null then return null
-      vh(i) = h
+      if h == null then return new CompiledMatch(handlers, null, false, null)
+      vh(i) = h.fn
+      allSlot &&= h.slot
+      if free != null then
+        if h.freeNames == null then free = null else free = free ++ h.freeNames
       i += 1
       rest = rest.tail
-    vh
+    new CompiledMatch(handlers, vh, allSlot, free)
 
   private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
     cond match
@@ -168,6 +184,131 @@ private[interpreter] object PatternRuntime:
         case '/' => a / b
         case '%' => a % b
         case _   => throw NotDouble
+    case _ => throw NotDouble   // slot nodes never reach the env-keyed evalD
+
+  // ── Slot-aware pure body compilation (array-slot env) ───────────────────────
+  // A pure, guard-free case body whose free variables are exactly the pattern
+  // bindings (plus globals/closure) is compiled to take those bindings as direct
+  // arguments — `v0`, `v1` in pattern field order — rather than reading them from
+  // a heap-allocated `FrameMap`. This removes the per-binding frame allocation
+  // (and, on the pure-call path, the function-param frame too): the JVM call
+  // frame *is* the slot array. Free names fall back to `env` (the function
+  // closure / globals). Returns null for anything outside the supported subset.
+
+  /** Bound locals passed positionally (`v0`/`v1`, unused = null); free names via env. */
+  private type SlotBody = (Value, Value, Env) => Value | Null
+
+  // Slot variants of DExpr for the unboxed-double fold. DSlot reads a bound local
+  // by index; DFreeName reads a free name from env/globals.
+  private final case class DSlot(idx: Int)        extends DExpr
+  private final case class DFreeName(name: String) extends DExpr
+
+  private def slotToD(v: Value | Null): Double = v match
+    case Value.DoubleV(d) => d
+    case Value.IntV(n)    => n.toDouble
+    case _                => throw NotDouble
+
+  private def compileSlotD(t: Term, n0: String | Null, n1: String | Null): DExpr | Null = t match
+    case Lit.Double(v) => DConst(v.toString.toDouble)
+    case Lit.Int(v)    => DConst(v.toDouble)
+    case Lit.Long(v)   => DConst(v.toDouble)
+    case tn: Term.Name =>
+      val name = tn.value
+      if name == n0 then DSlot(0)
+      else if name == n1 then DSlot(1)
+      else DFreeName(name)
+    case Term.ApplyInfix.After_4_6_0(l, op, _, ac)
+        if ac.values.lengthCompare(1) == 0 && isArithOp(op.value) =>
+      val lf = compileSlotD(l, n0, n1)
+      if lf == null then null
+      else
+        val rf = compileSlotD(ac.values.head, n0, n1)
+        if rf == null then null else DBin(op.value.charAt(0), lf, rf)
+    case _ => null
+
+  private def evalSlotD(e: DExpr, v0: Value, v1: Value, env: Env, interp: Interpreter): Double = e match
+    case DConst(d)       => d
+    case DSlot(0)        => slotToD(v0)
+    case DSlot(_)        => slotToD(v1)
+    case DFreeName(name) =>
+      val v  = env.getOrElse(name, null)
+      slotToD(if v != null then v else interp.globals.getOrElse(name, null))
+    case DBin(op, l, r) =>
+      val a = evalSlotD(l, v0, v1, env, interp)
+      val b = evalSlotD(r, v0, v1, env, interp)
+      op match
+        case '+' => a + b
+        case '-' => a - b
+        case '*' => a * b
+        case '/' => a / b
+        case '%' => a % b
+        case _   => throw NotDouble
+    case _ => throw NotDouble   // env-keyed DName never appears in the slot fold
+
+  /** Value-returning slot compiler for the non-double subset: literals, slot/free
+   *  name reads, and nested Int/Double/comparison infix. Returns null outside it. */
+  private def compileSlotVal(t: Term, n0: String | Null, n1: String | Null, interp: Interpreter): SlotBody | Null =
+    t match
+      case lit: Lit =>
+        val v = compileLit(lit)
+        (_, _, _) => v
+      case tn: Term.Name =>
+        val name = tn.value
+        if name == n0 then (v0, _, _) => v0
+        else if name == n1 then (_, v1, _) => v1
+        else
+          (_, _, env) =>
+            val v = env.getOrElse(name, null)
+            if v != null then v else interp.globals.getOrElse(name, null)
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac)
+          if ac.values.lengthCompare(1) == 0 && isFastOp(op.value) =>
+        val opStr = op.value
+        val lf    = compileSlotVal(lhs, n0, n1, interp)
+        if lf == null then null
+        else
+          val rf = compileSlotVal(ac.values.head, n0, n1, interp)
+          if rf == null then null
+          else
+            (v0, v1, env) =>
+              val lv = lf(v0, v1, env)
+              if lv == null then null
+              else
+                val rv = rf(v0, v1, env)
+                if rv == null then null else DispatchRuntime.numericFastValue(lv, opStr, rv)
+      case _ => null
+
+  /** Compile a pure body into a `SlotBody`, or null if outside the subset.
+   *  `n0`/`n1` name the (≤2) bound locals in pattern field order. */
+  private def compileSlotBody(term: Term, n0: String | Null, n1: String | Null, interp: Interpreter): SlotBody | Null =
+    term match
+      case ai @ Term.ApplyInfix.After_4_6_0(_, op, _, ac)
+          if ac.values.lengthCompare(1) == 0 && isArithOp(op.value) && containsDoubleLit(ai) =>
+        val de = compileSlotD(ai, n0, n1)
+        if de == null then null
+        else
+          (v0, v1, env) =>
+            try Value.doubleV(evalSlotD(de, v0, v1, env, interp))
+            catch case NotDouble => null
+      case _ => compileSlotVal(term, n0, n1, interp)
+
+  /** Free names (env-resolved, i.e. neither slot `n0`/`n1` nor literals) read by a
+   *  slot body. Returns null for shapes outside the slot subset. Mirrors the
+   *  structure `compileSlotBody`/`compileSlotVal`/`compileSlotD` accept so the two
+   *  never disagree on what a body can reference. */
+  private def slotFreeNames(t: Term, n0: String | Null, n1: String | Null): Set[String] | Null =
+    t match
+      case _: Lit => Set.empty
+      case tn: Term.Name =>
+        val nm = tn.value
+        if nm == n0 || nm == n1 then Set.empty else Set(nm)
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, ac)
+          if ac.values.lengthCompare(1) == 0 && (isArithOp(op.value) || isFastOp(op.value)) =>
+        val ls = slotFreeNames(lhs, n0, n1)
+        if ls == null then null
+        else
+          val rs = slotFreeNames(ac.values.head, n0, n1)
+          if rs == null then null else ls ++ rs
+      case _ => null
 
   /** Compile a guard-free, side-effect-free case body into a `ValThunk`,
    *  eliminating per-call AST re-dispatch and Computation-monad threading.
@@ -384,29 +525,42 @@ private[interpreter] object PatternRuntime:
    *  Returns: a `Value` on match+fold, `NeedMonadic` on match-but-cannot-fold,
    *  or null on no-match (try the next arm). Mirrors `compileCase`'s pattern
    *  logic exactly so semantics never diverge. */
-  private def valueHandlerFor(c: Case, interp: Interpreter): ((Value, Env) => AnyRef | Null) | Null =
+  private def valueHandlerFor(c: Case, interp: Interpreter): VHandler | Null =
     if c.cond.nonEmpty then return null
-    val bodyThunk = compileExpr(c.body, interp)
-    if bodyThunk == null then return null
-    val bt = bodyThunk
     c.pat match
       case Pat.Wildcard() =>
-        (_, env) =>
-          val v = bt(env); if v != null then v else NeedMonadic
+        val body = compileSlotBody(c.body, null, null, interp)
+        if body == null then null
+        else
+          val fn: (Value, Env) => AnyRef | Null =
+            (_, env) =>
+              val v = body(null, null, env); if v != null then v else NeedMonadic
+          new VHandler(fn, true, slotFreeNames(c.body, null, null))
 
       case Pat.Var(n) =>
         val name = n.value
-        (scrutV, env) =>
-          val v = bt(FrameMap.one(name, scrutV, env)); if v != null then v else NeedMonadic
+        val body = compileSlotBody(c.body, name, null, interp)
+        if body == null then null
+        else
+          val fn: (Value, Env) => AnyRef | Null =
+            (scrutV, env) =>
+              val v = body(scrutV, null, env); if v != null then v else NeedMonadic
+          new VHandler(fn, true, slotFreeNames(c.body, name, null))
 
       case lit: Lit =>
         val litV = compileLit(lit)
-        (scrutV, env) =>
-          if scrutV == litV then { val v = bt(env); if v != null then v else NeedMonadic }
-          else null
+        val body = compileSlotBody(c.body, null, null, interp)
+        if body == null then null
+        else
+          val fn: (Value, Env) => AnyRef | Null =
+            (scrutV, env) =>
+              if scrutV == litV then
+                val v = body(null, null, env); if v != null then v else NeedMonadic
+              else null
+          new VHandler(fn, true, slotFreeNames(c.body, null, null))
 
-      case Pat.Extract.After_4_6_0(fn, argClause) =>
-        val typeName: String | Null = fn match
+      case Pat.Extract.After_4_6_0(fn0, argClause) =>
+        val typeName: String | Null = fn0 match
           case Term.Name(n)                 => n
           case Term.Select(_, Term.Name(n)) => n
           case _                            => null
@@ -418,38 +572,92 @@ private[interpreter] object PatternRuntime:
             case Pat.Var(nn) => nn.value
             case _           => null
           }
-          var fieldOrderCache: Array[String] = null
-          val tn = typeName
-          (scrutV, env) =>
-            scrutV match
-              case ov: Value.OptionV if ov.inner != null && tn == "Some" && bindNames.length == 1 =>
-                val bname  = bindNames(0)
-                val patEnv = if bname == null then env else FrameMap.one(bname, ov.inner, env)
-                val v = bt(patEnv); if v != null then v else NeedMonadic
-              case Value.NoneV if tn == "None" && bindNames.isEmpty =>
-                val v = bt(env); if v != null then v else NeedMonadic
-              case Value.InstanceV(t, fields) if t == tn =>
-                if fieldOrderCache == null then
-                  fieldOrderCache = interp.typeFieldOrder
-                    .getOrElse(tn, fields.keys.toList)
-                    .toArray
-                val fo = fieldOrderCache
-                if bindNames.length != fo.length then null
-                else
-                  val patEnv = buildPatEnv(fo, bindNames, fields, env)
-                  if patEnv == null then null
-                  else { val v = bt(patEnv); if v != null then v else NeedMonadic }
-              case _ => null
+          // Field positions of the actual (non-wildcard) bindings, in field order.
+          val bindPos = bindNames.indices.filter(bindNames(_) != null).toArray
+          if bindPos.length <= 2 then
+            // Slot path: pass the (≤2) bound field values directly as v0/v1; no
+            // pattern FrameMap is built. n0/n1 name those slots for the body.
+            val p0 = if bindPos.length >= 1 then bindPos(0) else -1
+            val p1 = if bindPos.length >= 2 then bindPos(1) else -1
+            val n0 = if p0 >= 0 then bindNames(p0) else null
+            val n1 = if p1 >= 0 then bindNames(p1) else null
+            val body = compileSlotBody(c.body, n0, n1, interp)
+            if body == null then null
+            else
+              var fieldOrderCache: Array[String] = null
+              val tn = typeName
+              val fn: (Value, Env) => AnyRef | Null =
+                (scrutV, env) =>
+                  scrutV match
+                    case ov: Value.OptionV if ov.inner != null && tn == "Some" && bindNames.length == 1 =>
+                      val v0 = if p0 == 0 then ov.inner else null
+                      val v = body(v0, null, env); if v != null then v else NeedMonadic
+                    case Value.NoneV if tn == "None" && bindNames.isEmpty =>
+                      val v = body(null, null, env); if v != null then v else NeedMonadic
+                    case Value.InstanceV(t, fields) if t == tn =>
+                      if fieldOrderCache == null then
+                        fieldOrderCache = interp.typeFieldOrder
+                          .getOrElse(tn, fields.keys.toList)
+                          .toArray
+                      val fo = fieldOrderCache
+                      if bindNames.length != fo.length then null
+                      else
+                        val v0 = if p0 >= 0 then fields.getOrElse(fo(p0), null) else null
+                        val v1 = if p1 >= 0 then fields.getOrElse(fo(p1), null) else null
+                        // A bound field missing from the instance means no match
+                        // (parity with buildPatEnv), not a fold failure.
+                        if (p0 >= 0 && v0 == null) || (p1 >= 0 && v1 == null) then null
+                        else
+                          val v = body(v0, v1, env); if v != null then v else NeedMonadic
+                    case _ => null
+              new VHandler(fn, true, slotFreeNames(c.body, n0, n1))
+          else
+            frameValueHandler(c, typeName, bindNames, interp)
 
       case Pat.Alternative(lhs, rhs) =>
         val lh = valueHandlerFor(c.copy(pat = lhs), interp)
         val rh = valueHandlerFor(c.copy(pat = rhs), interp)
         if lh == null || rh == null then null
         else
-          (scrutV, env) =>
-            val r = lh(scrutV, env); if r != null then r else rh(scrutV, env)
+          val lf = lh.fn; val rf = rh.fn
+          val fn: (Value, Env) => AnyRef | Null =
+            (scrutV, env) =>
+              val r = lf(scrutV, env); if r != null then r else rf(scrutV, env)
+          val fns =
+            if lh.freeNames == null || rh.freeNames == null then null
+            else lh.freeNames ++ rh.freeNames
+          new VHandler(fn, lh.slot && rh.slot, fns)
 
       case _ => null
+
+  /** Value-handler for an Extract pattern with >2 bindings: cannot use the ≤2
+   *  slot machinery, so it builds a pattern FrameMap (env-keyed `compileExpr`
+   *  body). `slot = false` so the caller keeps the function-param frame. */
+  private def frameValueHandler(
+    c: Case, typeName: String, bindNames: Array[String | Null], interp: Interpreter
+  ): VHandler | Null =
+    val bodyThunk = compileExpr(c.body, interp)
+    if bodyThunk == null then null
+    else
+      val bt = bodyThunk
+      var fieldOrderCache: Array[String] = null
+      val tn = typeName
+      val fn: (Value, Env) => AnyRef | Null =
+        (scrutV, env) =>
+          scrutV match
+            case Value.InstanceV(t, fields) if t == tn =>
+              if fieldOrderCache == null then
+                fieldOrderCache = interp.typeFieldOrder
+                  .getOrElse(tn, fields.keys.toList)
+                  .toArray
+              val fo = fieldOrderCache
+              if bindNames.length != fo.length then null
+              else
+                val patEnv = buildPatEnv(fo, bindNames, fields, env)
+                if patEnv == null then null
+                else { val v = bt(patEnv); if v != null then v else NeedMonadic }
+            case _ => null
+      new VHandler(fn, false, null)
 
   private def fallbackCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
     if c.cond.isEmpty then
