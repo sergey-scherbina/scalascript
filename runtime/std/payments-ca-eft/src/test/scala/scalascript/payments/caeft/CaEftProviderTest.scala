@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import java.time.LocalDate
-import scala.jdk.CollectionConverters.*
 
 class CaEftProviderTest extends AnyFunSuite:
 
@@ -500,9 +499,8 @@ class CaEftProviderTest extends AnyFunSuite:
     finally server.stop(0)
 
   test("cancelTransfer for CA_EFT throws BankRailsCancelError"):
-    val (server, port) = startServer(jsonHandler("{}"))
+    val (server, _) = startServer(jsonHandler("{}"))
     try
-      val provider = CaEftProvider(testConfig(port))
       // Seed an EFT transfer in local store
       val eftResp  = """{"fileId":"EFT-CANT-CANCEL","status":"submitted"}"""
       val eftServer2 = startServer(jsonHandler(eftResp))
