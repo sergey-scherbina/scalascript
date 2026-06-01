@@ -1794,13 +1794,25 @@ gated on same-session A/B + full suite green with the gate off AND on.
       off JVM today) toward ~100×+. Spike one int-fib shape end-to-end behind
       the existing `SSC_JIT` gate before broadening. C-opt (profile-gated):
       array-indexed ADT field access (needs an `InstanceV` ordered-array repr).
-- [ ] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
+- [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at
       the escape boundary. Targets the `patternMatch` foreach floor (**1173×
       off JVM** — the dominant idiomatic-interpreter gap), which per-function
       codegen (Phase C) cannot touch because the cost is the foreach driver +
       closure + boxed accumulator threaded through `Computation`, not the call.
+      **2026-06-01: heavy-double sub-target landed** behind `SSC_FASTTIER` /
+      `-Dssc.fasttier=on` gate. New `PatternRuntime.CompiledMatch.runValueDouble`
+      (raw-double parallel of `runValue` via a `dhandlers` array) + new
+      `FastTier.tryDoubleAccumForeach` (recognizes
+      `xs.foreach(s => acc = acc + fn(s))` with Double accumulator). Same-session
+      A/B JMH (2 forks × 5 iters): `patternMatchHeavy` 491.250 → **240.195 ms/op
+      (−51.1%, 2.04×)**, `alloc.rate.norm` 28.24 MB → **9.04 MB/op (−68.0%)**;
+      full 1204-test `backendInterpreter` suite green with gate off AND on;
+      `Wide` unaffected (Int accumulator outside scope). See
+      [`docs/vm-jit-next.md §"Phase D — Update 2026-06-01"`](docs/vm-jit-next.md).
+      Remaining: Int-accumulator path (Wide), broader closure shapes, pure-call
+      direct-style ABI (A4 proper).
 
 ## v1.55 — First-class XML / Generic Markup
 

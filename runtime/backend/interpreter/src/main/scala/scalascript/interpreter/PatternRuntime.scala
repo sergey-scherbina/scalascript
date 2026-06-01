@@ -16,9 +16,29 @@ private[interpreter] object PatternRuntime:
    *  because no side effect has been observed on the value path. */
   private val NeedMonadic: AnyRef = new AnyRef
 
+  /** Sentinel "no match" return for a `dhandler` (the raw-double arm). A NaN
+   *  with payload `0xDEADBEEF` — distinguishable from any NaN user arithmetic
+   *  can produce (HotSpot canonicalises NaNs from finite IEEE-754 ops to
+   *  `0x7FF8000000000000L`). Carried as a `Double` constant so arms return
+   *  without allocating; the dispatcher recovers the bit pattern via
+   *  `doubleToRawLongBits` and compares against `NaNMissBits`. */
+  private val NaNMissBits: Long = 0x7FFDEADBEEFDEADBL
+  private val NaNMiss: Double   = java.lang.Double.longBitsToDouble(NaNMissBits)
+
   final class CompiledMatch(
     private val handlers:  Array[(Value, Env) => Computation | Null],
     private val vhandlers: Array[(Value, Env) => AnyRef | Null] | Null,
+    /** Raw-double parallel of vhandlers: each arm matches the same shape; on
+     *  match the body's value is folded to a primitive `double` and returned;
+     *  on no-match the handler returns `NaNMiss` (a sentinel NaN bit pattern
+     *  the body's arithmetic cannot produce). Populated only when every arm
+     *  body folds via `compileSlotD` (the pure double arithmetic that already
+     *  runs unboxed inside `compileSlotBody` before its terminal
+     *  `Value.doubleV` box). When non-null, `runValueDouble` exposes the
+     *  unboxed result so callers can skip the `DoubleV` allocation. Throws
+     *  `NotDouble` if a body cannot fold (env name not numeric); caller
+     *  catches and falls back to monadic. */
+    private val dhandlers: Array[(Value, Env) => Double] | Null,
     val allSlot:           Boolean,
     /** Union of free names read across all value-handler bodies, or null if any
      *  arm had an unknown shape. Lets a caller verify a name (e.g. the function
@@ -29,6 +49,10 @@ private[interpreter] object PatternRuntime:
      *  fast-path pattern — so `runValue` can yield the result with no Computation
      *  allocation. Computed once at compile time. */
     def valueCapable: Boolean = vhandlers != null
+
+    /** True when every arm folds to a pure double arithmetic expression
+     *  (so `runValueDouble` is safe). Implies `valueCapable`. */
+    def doubleCapable: Boolean = dhandlers != null
 
     def run(scrutV: Value, env: Env, interp: Interpreter): Computation =
       var i = 0
@@ -53,6 +77,27 @@ private[interpreter] object PatternRuntime:
         i += 1
       null
 
+    /** Raw-double direct-style match. Returns the matched arm's body folded to
+     *  a primitive `double`. Throws `NotDouble` (control-flow signal) when no
+     *  arm matches, when a matched arm cannot fold to a double at runtime (a
+     *  non-numeric free-name lookup), or when the match shape is not double
+     *  -capable. Caller catches and falls back to the monadic path; semantics
+     *  preserved because the double path has no observable side effects.
+     *
+     *  No-match dispatch uses the `NaNMiss` sentinel (a specific NaN bit
+     *  pattern with payload `0xDEADBEEFL` — the user code's `+`/`*`/etc. cannot
+     *  produce this pattern from finite operands; any NaN it does produce is
+     *  the canonical `0x7FF8000000000000L`). */
+    def runValueDouble(scrutV: Value, env: Env): Double =
+      val dh = dhandlers
+      if dh == null then throw NotDouble
+      var i = 0
+      while i < dh.length do
+        val r = dh(i)(scrutV, env)
+        if java.lang.Double.doubleToRawLongBits(r) != NaNMissBits then return r
+        i += 1
+      throw NotDouble
+
   /** Compile a Term.Match into a cached handler array.
    *  Called once per match expression (keyed by AST node identity).
    *  Falls back to the generic matchPat for complex patterns. */
@@ -66,11 +111,17 @@ private[interpreter] object PatternRuntime:
     val handlers = t.cases.map(compileCase(_, interp)).toArray
     buildCompiled(handlers, t.cases, interp)
 
-  /** A value-handler plus whether it is fully frame-free (slot-based) and the set
+  /** A value-handler plus whether it is fully frame-free (slot-based), the set
    *  of free names its body reads (names resolved via `env`, i.e. not pattern
-   *  bindings). `freeNames == null` means "unknown shape" — treat conservatively. */
+   *  bindings), and an optional raw-double parallel handler. `freeNames == null`
+   *  means "unknown shape" — treat conservatively. `dfn != null` means the body
+   *  folds to a primitive `double` (see `compileSlotDoubleBody`); the parallel
+   *  arm returns `NaNMiss` on no-match. */
   private final class VHandler(
-    val fn: (Value, Env) => AnyRef | Null, val slot: Boolean, val freeNames: Set[String] | Null
+    val fn:        (Value, Env) => AnyRef | Null,
+    val dfn:       ((Value, Env) => Double) | Null,
+    val slot:      Boolean,
+    val freeNames: Set[String] | Null
   )
 
   private def buildCompiled(
@@ -78,20 +129,23 @@ private[interpreter] object PatternRuntime:
   ): CompiledMatch =
     val n  = cases.length
     val vh = new Array[(Value, Env) => AnyRef | Null](n)
-    var allSlot = true
+    val dh = new Array[(Value, Env) => Double](n)
+    var allSlot     = true
+    var allDouble   = true
     var free: Set[String] | Null = Set.empty
     var rest = cases
     var i = 0
     while rest.nonEmpty do
       val h = valueHandlerFor(rest.head, interp)
-      if h == null then return new CompiledMatch(handlers, null, false, null)
+      if h == null then return new CompiledMatch(handlers, null, null, false, null)
       vh(i) = h.fn
+      if h.dfn != null then dh(i) = h.dfn else allDouble = false
       allSlot &&= h.slot
       if free != null then
         if h.freeNames == null then free = null else free = free ++ h.freeNames
       i += 1
       rest = rest.tail
-    new CompiledMatch(handlers, vh, allSlot, free)
+    new CompiledMatch(handlers, vh, if allDouble then dh else null, allSlot, free)
 
   private def evalGuard(cond: Option[Term], env: Env, interp: Interpreter): Boolean =
     cond match
@@ -290,6 +344,19 @@ private[interpreter] object PatternRuntime:
             try Value.doubleV(evalSlotD(de, v0, v1, env, interp))
             catch case NotDouble => null
       case _ => compileSlotVal(term, n0, n1, interp)
+
+  /** Parallel to `compileSlotBody` returning the raw `double` result instead of
+   *  boxing into `Value.doubleV`. Accepts arms whose body folds via
+   *  `compileSlotD` regardless of whether a Double literal appears — the
+   *  decision to read every name as a `double` (via `slotToD`) lives at the
+   *  call site, which only invokes this when the caller statically expects a
+   *  double result (e.g. an `acc + fn(s)` accumulator). Returns null when the
+   *  body is outside the arith-fold subset. Throws `NotDouble` at run time if
+   *  a free name resolves to a non-numeric value. */
+  private def compileSlotDoubleBody(term: Term, n0: String | Null, n1: String | Null, interp: Interpreter): ((Value, Value, Env) => Double) | Null =
+    val de = compileSlotD(term, n0, n1)
+    if de == null then null
+    else (v0, v1, env) => evalSlotD(de, v0, v1, env, interp)
 
   /** Free names (env-resolved, i.e. neither slot `n0`/`n1` nor literals) read by a
    *  slot body. Returns null for shapes outside the slot subset. Mirrors the
@@ -535,7 +602,10 @@ private[interpreter] object PatternRuntime:
           val fn: (Value, Env) => AnyRef | Null =
             (_, env) =>
               val v = body(null, null, env); if v != null then v else NeedMonadic
-          new VHandler(fn, true, slotFreeNames(c.body, null, null))
+          val dbody = compileSlotDoubleBody(c.body, null, null, interp)
+          val dfn: ((Value, Env) => Double) | Null =
+            if dbody == null then null else (_, env) => dbody(null, null, env)
+          new VHandler(fn, dfn, true, slotFreeNames(c.body, null, null))
 
       case Pat.Var(n) =>
         val name = n.value
@@ -545,7 +615,10 @@ private[interpreter] object PatternRuntime:
           val fn: (Value, Env) => AnyRef | Null =
             (scrutV, env) =>
               val v = body(scrutV, null, env); if v != null then v else NeedMonadic
-          new VHandler(fn, true, slotFreeNames(c.body, name, null))
+          val dbody = compileSlotDoubleBody(c.body, name, null, interp)
+          val dfn: ((Value, Env) => Double) | Null =
+            if dbody == null then null else (scrutV, env) => dbody(scrutV, null, env)
+          new VHandler(fn, dfn, true, slotFreeNames(c.body, name, null))
 
       case lit: Lit =>
         val litV = compileLit(lit)
@@ -557,7 +630,12 @@ private[interpreter] object PatternRuntime:
               if scrutV == litV then
                 val v = body(null, null, env); if v != null then v else NeedMonadic
               else null
-          new VHandler(fn, true, slotFreeNames(c.body, null, null))
+          val dbody = compileSlotDoubleBody(c.body, null, null, interp)
+          val dfn: ((Value, Env) => Double) | Null =
+            if dbody == null then null
+            else (scrutV, env) =>
+              if scrutV == litV then dbody(null, null, env) else NaNMiss
+          new VHandler(fn, dfn, true, slotFreeNames(c.body, null, null))
 
       case Pat.Extract.After_4_6_0(fn0, argClause) =>
         val typeName: String | Null = fn0 match
@@ -610,7 +688,37 @@ private[interpreter] object PatternRuntime:
                         else
                           val v = body(v0, v1, env); if v != null then v else NeedMonadic
                     case _ => null
-              new VHandler(fn, true, slotFreeNames(c.body, n0, n1))
+              val dbody = compileSlotDoubleBody(c.body, n0, n1, interp)
+              val dfn: ((Value, Env) => Double) | Null =
+                if dbody == null then null
+                else
+                  // Mirror the fn match shape exactly so semantics stay aligned.
+                  // The fieldOrderCache is per-VHandler — share via closure.
+                  val tn2 = tn
+                  val p0c = p0
+                  val p1c = p1
+                  val bnLen = bindNames.length
+                  (scrutV, env) =>
+                    scrutV match
+                      case ov: Value.OptionV if ov.inner != null && tn2 == "Some" && bnLen == 1 =>
+                        val v0 = if p0c == 0 then ov.inner else null
+                        dbody(v0, null, env)
+                      case Value.NoneV if tn2 == "None" && bnLen == 0 =>
+                        dbody(null, null, env)
+                      case Value.InstanceV(t, fields) if t == tn2 =>
+                        if fieldOrderCache == null then
+                          fieldOrderCache = interp.typeFieldOrder
+                            .getOrElse(tn2, fields.keys.toList)
+                            .toArray
+                        val fo = fieldOrderCache
+                        if bnLen != fo.length then NaNMiss
+                        else
+                          val v0 = if p0c >= 0 then fields.getOrElse(fo(p0c), null) else null
+                          val v1 = if p1c >= 0 then fields.getOrElse(fo(p1c), null) else null
+                          if (p0c >= 0 && v0 == null) || (p1c >= 0 && v1 == null) then NaNMiss
+                          else dbody(v0, v1, env)
+                      case _ => NaNMiss
+              new VHandler(fn, dfn, true, slotFreeNames(c.body, n0, n1))
           else
             frameValueHandler(c, typeName, bindNames, interp)
 
@@ -623,10 +731,18 @@ private[interpreter] object PatternRuntime:
           val fn: (Value, Env) => AnyRef | Null =
             (scrutV, env) =>
               val r = lf(scrutV, env); if r != null then r else rf(scrutV, env)
+          val ldfn = lh.dfn; val rdfn = rh.dfn
+          val dfn: ((Value, Env) => Double) | Null =
+            if ldfn == null || rdfn == null then null
+            else
+              (scrutV, env) =>
+                val r = ldfn(scrutV, env)
+                if java.lang.Double.doubleToRawLongBits(r) == NaNMissBits then rdfn(scrutV, env)
+                else r
           val fns =
             if lh.freeNames == null || rh.freeNames == null then null
             else lh.freeNames ++ rh.freeNames
-          new VHandler(fn, lh.slot && rh.slot, fns)
+          new VHandler(fn, dfn, lh.slot && rh.slot, fns)
 
       case _ => null
 
@@ -657,7 +773,12 @@ private[interpreter] object PatternRuntime:
                 if patEnv == null then null
                 else { val v = bt(patEnv); if v != null then v else NeedMonadic }
             case _ => null
-      new VHandler(fn, false, null)
+      // >2 binding patterns require a pattern FrameMap (not slot-based), which
+      // the raw-double path cannot serve without re-introducing the boxing it
+      // exists to avoid. Keep dfn = null so callers fall back to the monadic
+      // path for these arms — the compileSlotDoubleBody guard is the contract
+      // surface, not the env shape.
+      new VHandler(fn, null, false, null)
 
   private def fallbackCase(c: Case, interp: Interpreter): (Value, Env) => Computation | Null =
     if c.cond.isEmpty then

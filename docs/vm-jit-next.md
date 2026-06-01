@@ -133,6 +133,54 @@ cross-boundary threading is left, and it is invasive.
 **Gating:** as Phase C, on `patternMatchHeavy` + `patternMatchWide`; full suite
 green with the fast-tier gate off AND on; spot-check identical output off vs on.
 
+### Phase D — Update 2026-06-01: Heavy-double sub-target landed
+
+A first sub-slice of Phase D shipped behind the `SSC_FASTTIER` /
+`-Dssc.fasttier=on` gate, targeting the dominant
+`xs.foreach(s => acc = acc + fn(s))` shape with a `Double` accumulator
+(`patternMatchHeavy`'s exact form). Implementation:
+
+- `PatternRuntime.CompiledMatch` gained a parallel `dhandlers` array and a
+  `runValueDouble(scrutV, env): Double` that returns the matched arm's body
+  folded directly to a primitive `double`. Built when every arm's body is
+  `compileSlotD`-foldable (the existing unboxed-double slot evaluator); arms
+  signal "no match" via a `NaNMiss` sentinel bit pattern and bail via the
+  existing `NotDouble` `ControlThrowable`.
+- New `FastTier.scala` recognizes the closure shape on AST identity (`acc =
+  acc + fn(paramName)`), resolves `fn` from `closure.closure` or
+  `interp.globals` (the empty-closure A1 path leaves global names in globals),
+  reads `acc` initial value as a primitive `double` from `interp.globals`
+  (since `Term.Assign` always targets globals — `EvalRuntime` line ~1403),
+  iterates the list reading raw `double` from `runValueDouble`, and writes
+  the accumulator back exactly once. Same-session A/B JMH, 2 forks × 5 iters:
+
+  | Bench | Baseline | Spike | Δ |
+  |---|---|---|---|
+  | `patternMatchHeavy` time | 491.250 ± 10.043 ms | **240.195 ± 1.262 ms** | **−51.1%** (2.04×) |
+  | `patternMatchHeavy` `alloc.rate.norm` | 28,236,753 B/op | **9,036,046 B/op** | **−68.0%** |
+  | `patternMatchWide` time | 627.423 ms | 634.091 ms | +1.1% (noise) |
+  | `patternMatchWide` `alloc.rate.norm` | 28,233,144 B/op | 28,234,187 B/op | noise |
+
+  Full 1,204-test `backendInterpreter` suite green with the gate off AND on.
+  `Wide` is intentionally outside this slice's scope: its accumulator is `Int`
+  (`var total = 0`), so the spike returns `null` and falls through to the
+  standard `foreachReusing` path — no regression.
+
+**Remaining Phase D work:**
+
+- **Int-accumulator path** — extend `FastTier` and `PatternRuntime` with a
+  `runValueLong` parallel to `runValueDouble`, closing the `patternMatchWide`
+  gap. Same shape detection; same gate. Lower priority — Heavy was the
+  dominant 1173× target.
+- **Broader closure shapes** — multi-statement closure bodies (e.g.
+  `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, foreach over Set
+  / Map / Option, accumulator declared inside a nested block (resolution via
+  closure-env instead of globals).
+- **Pure-call direct-style runner (A4 proper)** — generalize the raw-double
+  bridge to a typed unboxed-result call ABI for the whole pure compilable
+  subset, not just the foreach-accumulator shape. Would also help any
+  `xs.map(area).sum`-style code.
+
 ---
 
 ## Methodology (both phases)

@@ -97,6 +97,12 @@ private[interpreter] object CallRuntime:
   def foreachReusing(ls: List[Value], f: Value.FunV, env: Env, interp: Interpreter): Computation =
     if !isSimple1ParamFun(f, interp) then
       return Computation.foreachSequence(ls, item => callValue1(f, item, env, interp))
+    // Tier-2b fast path: `xs.foreach(s => acc = acc + fn(s))` with a Double
+    // accumulator and a slot-double-compilable `fn`. `SSC_FASTTIER` gates the
+    // whole path; the analyzer caches per closure-body AST identity, so a
+    // miss is one IdentityHashMap lookup + a reference compare.
+    val ft = FastTier.tryDoubleAccumForeach(ls, f, interp)
+    if ft != null then return ft
     val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
     val frame = new ReusableFrame1(f.params.head, withSelf)
     var rem = ls
