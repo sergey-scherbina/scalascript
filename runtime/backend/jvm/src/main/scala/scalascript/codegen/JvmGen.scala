@@ -189,6 +189,15 @@ class JvmGen(
   // Maps resolved path → pkg segments so the alias generator can qualify names
   // even when a file was already inlined (diamond import case).
   private val importedPkgs  = mutable.Map.empty[String, List[String]]
+  // Maps a package path (e.g. "std.money") → the TYPE-like exported names
+  // (capitalised exports: types, enums, case classes/objects) of the module
+  // that defines it.  A Markdown import only lists *value* bindings, so a dep
+  // that uses a sibling module's TYPE in a signature (e.g. ledger's
+  // `: Map[String, Money]`) would have an unresolved `Money` in generated
+  // Scala.  The alias generator pulls these in alongside the listed values so
+  // the type resolves — mirroring the interpreter, where a dependency's
+  // module-level names are merged into the importer's scope.
+  private val importedTypeExports = mutable.Map.empty[String, List[String]]
 
   // ─── Strategy D, Step 2 — dep-mode CPS fixpoint state ─────────────
   //
@@ -2042,10 +2051,16 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     import scala.meta.{dialects, *}
     if pkg.nonEmpty then
       val pkgPath = pkg.mkString(".")
-      val specs   = bindings.map { b => b.alias match
+      val boundNames = bindings.map(_.name).toSet
+      val valueSpecs = bindings.map { b => b.alias match
         case None    => b.name
         case Some(a) => s"${b.name} as $a"
-      }.mkString(", ")
+      }
+      // Pull in the dep's TYPE-like exports that the import list omits, so
+      // type annotations referring to them resolve in generated Scala.
+      val typeSpecs = importedTypeExports.getOrElse(pkgPath, Nil)
+        .filterNot(boundNames.contains)
+      val specs = (valueSpecs ++ typeSpecs).mkString(", ")
       val src   = s"import $pkgPath.{$specs}"
       val input = Input.VirtualFile("<import-aliases>", src)
       dialects.Scala3(input).parse[Source].toOption.map(s => JvmGen.Block(ScalaNode(s), src))
@@ -2079,8 +2094,22 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val importedModule = Parser.parse(os.read(resolved))
       val pkg = importedModule.manifest.flatMap(_.pkg).getOrElse(Nil)
       importedPkgs(key) = pkg
+      // Record the dep's TYPE-like exports (capitalised) under its pkg path so
+      // aliasBlock can import them alongside the listed value bindings.
+      if pkg.nonEmpty then
+        val pkgPath  = pkg.mkString(".")
+        val typeExps = importedModule.manifest.toList.flatMap(_.exports)
+          .filter(n => n.nonEmpty && n.charAt(0).isUpper)
+        importedTypeExports(pkgPath) =
+          (importedTypeExports.getOrElse(pkgPath, Nil) ++ typeExps).distinct
       val nested = new JvmGen(Some(resolved / os.up), lockPath = lockPath)
       nested.importedFiles ++= importedFiles
+      // Propagate pkg/type-export knowledge so a TRANSITIVE import of an
+      // already-inlined package module (e.g. ledger → std/money) still takes
+      // the early-return path with a non-empty pkg, and so its alias line is
+      // emitted with the right qualifier and type names.
+      nested.importedPkgs       ++= importedPkgs
+      nested.importedTypeExports ++= importedTypeExports
       // Apply the bare-actor-name rewrite to dep blocks before they enter
       // the main emit pipeline. Without this, code like `def healthCheck =
       // { val me = self(); pid ! msg }` lands verbatim inside the eventual
@@ -2093,6 +2122,11 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // Strategy D's dep-mode CPS emit (Step 3) via the existing
       // `emitCpsExpr` / `emitReceiveMatcher` infrastructure.
       val rawBlocks = nested.collectBlocks(importedModule.sections)
+      // Merge back what the nested run inlined, so siblings/parents see the
+      // same already-inlined set, pkgs, and type-exports.
+      importedFiles       ++= nested.importedFiles
+      importedPkgs        ++= nested.importedPkgs
+      importedTypeExports ++= nested.importedTypeExports
       val rewrittenBlocks = rawBlocks.map(qualifyBareActorCallsInBlock)
       // Strategy D, Step 2 — index every Defn.Def in this dep (top-level
       // or nested in object/class) so the fixpoint can analyse its body.
