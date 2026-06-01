@@ -101,8 +101,11 @@ private[interpreter] object CallRuntime:
     // accumulator and a slot-double-compilable `fn`. `SSC_FASTTIER` gates the
     // whole path; the analyzer caches per closure-body AST identity, so a
     // miss is one IdentityHashMap lookup + a reference compare.
-    val ft = FastTier.tryDoubleAccumForeach(ls, f, interp)
-    if ft != null then return ft
+    val ftD = FastTier.tryDoubleAccumForeach(ls, f, interp)
+    if ftD != null then return ftD
+    // Long-typed parallel — same shape, `Int` accumulator (e.g. wide bench).
+    val ftL = FastTier.tryLongAccumForeach(ls, f, interp)
+    if ftL != null then return ftL
     val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
     val frame = new ReusableFrame1(f.params.head, withSelf)
     var rem = ls

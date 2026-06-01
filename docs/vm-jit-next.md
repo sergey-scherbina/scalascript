@@ -166,17 +166,49 @@ A first sub-slice of Phase D shipped behind the `SSC_FASTTIER` /
   (`var total = 0`), so the spike returns `null` and falls through to the
   standard `foreachReusing` path — no regression.
 
+### Phase D — Update 2026-06-01 (b): Wide-long sub-target landed
+
+The `Int`-accumulator sub-target shipped same day, mirroring the double path:
+
+- `PatternRuntime.CompiledMatch` gained `lhandlers: Array[(Value, Env) => Long]`
+  and `runValueLong` (raw-`Long` arm dispatch). Sentinel for no-match:
+  `LongMiss = Long.MinValue` (the user's `+`/`*`/etc. on case-class `Int`
+  fields almost never produce this exact value; a pathological overflow falls
+  back to the monadic path for that one element — correctness preserved).
+- New `compileSlotLongBody` reuses the existing `DExpr` AST but evaluates via
+  a new `evalSlotI` that throws `NotDouble` (the shared slot-eval bail signal)
+  if a name resolves to `DoubleV` (the Long path refuses to demote precision).
+  Bodies containing a Double literal are explicitly rejected by
+  `containsDoubleLit` so `x + 0.5` stays Double-typed.
+- `FastTier.tryLongAccumForeach` mirrors `tryDoubleAccumForeach` — same
+  closure-shape detector, but the accumulator must be `IntV` in
+  `interp.globals` and write-back uses `Value.intV(acc)` (which hits the
+  cached `_intVPool` for any small result, eliding even the boundary box).
+
+Same-session A/B JMH (2 forks × 5 iters):
+
+| Bench | Baseline | Spike | Δ |
+|---|---|---|---|
+| `patternMatchHeavy` time | 492.745 ± 4.224 ms | **241.789 ± 1.008 ms** | **−50.9%** (2.04×) |
+| `patternMatchHeavy` `alloc.rate.norm` | 28,237,334 B/op | **9,036,546 B/op** | **−68.0%** |
+| `patternMatchWide` time | 630.089 ± 4.228 ms | **138.259 ± 0.924 ms** | **−78.1%** (4.56×) |
+| `patternMatchWide` `alloc.rate.norm` | 28,236,350 B/op | **4,315,930 B/op** | **−84.7%** |
+
+Full 1,204-test `backendInterpreter` suite green with the gate off AND on.
+
+The `Wide` gain is larger than `Heavy` because the Long path leans entirely
+on HotSpot's primitive `Long` arithmetic, and `Value.intV` hits the cached
+`_intVPool` for the small accumulator results — even the boundary write-back
+allocation is gone. The 12-arm dispatch is in a `while` over an
+`Array[Long-returning function]` that HotSpot tracks well.
+
 **Remaining Phase D work:**
 
-- **Int-accumulator path** — extend `FastTier` and `PatternRuntime` with a
-  `runValueLong` parallel to `runValueDouble`, closing the `patternMatchWide`
-  gap. Same shape detection; same gate. Lower priority — Heavy was the
-  dominant 1173× target.
 - **Broader closure shapes** — multi-statement closure bodies (e.g.
-  `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, foreach over Set
-  / Map / Option, accumulator declared inside a nested block (resolution via
-  closure-env instead of globals).
-- **Pure-call direct-style runner (A4 proper)** — generalize the raw-double
+  `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, `foreach` over
+  `Set`/`Map`/`Option`, accumulator declared inside a nested block
+  (resolution via closure-env instead of globals).
+- **Pure-call direct-style runner (A4 proper)** — generalize the raw-prim
   bridge to a typed unboxed-result call ABI for the whole pure compilable
   subset, not just the foreach-accumulator shape. Would also help any
   `xs.map(area).sum`-style code.

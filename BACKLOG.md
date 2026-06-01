@@ -1801,18 +1801,23 @@ gated on same-session A/B + full suite green with the gate off AND on.
       off JVM** — the dominant idiomatic-interpreter gap), which per-function
       codegen (Phase C) cannot touch because the cost is the foreach driver +
       closure + boxed accumulator threaded through `Computation`, not the call.
-      **2026-06-01: heavy-double sub-target landed** behind `SSC_FASTTIER` /
-      `-Dssc.fasttier=on` gate. New `PatternRuntime.CompiledMatch.runValueDouble`
-      (raw-double parallel of `runValue` via a `dhandlers` array) + new
-      `FastTier.tryDoubleAccumForeach` (recognizes
-      `xs.foreach(s => acc = acc + fn(s))` with Double accumulator). Same-session
-      A/B JMH (2 forks × 5 iters): `patternMatchHeavy` 491.250 → **240.195 ms/op
-      (−51.1%, 2.04×)**, `alloc.rate.norm` 28.24 MB → **9.04 MB/op (−68.0%)**;
-      full 1204-test `backendInterpreter` suite green with gate off AND on;
-      `Wide` unaffected (Int accumulator outside scope). See
+      **2026-06-01: heavy-double + wide-long sub-targets BOTH landed** behind
+      `SSC_FASTTIER` / `-Dssc.fasttier=on` gate. New
+      `PatternRuntime.CompiledMatch.runValueDouble` (raw-double parallel of
+      `runValue` via `dhandlers`) and `runValueLong` (raw-long parallel via
+      `lhandlers`) + new `FastTier.tryDoubleAccumForeach` /
+      `tryLongAccumForeach` (recognize `xs.foreach(s => acc = acc + fn(s))`
+      with `Double` or `Int` accumulator, slot-arith-foldable `fn`).
+      Same-session A/B JMH (2 forks × 5 iters):
+        - `patternMatchHeavy` 492.745 → **241.789 ms/op (−50.9%, 2.04×)**;
+          `alloc.rate.norm` 28.24 MB → **9.04 MB/op (−68.0%)**.
+        - `patternMatchWide`  630.089 → **138.259 ms/op (−78.1%, 4.56×)**;
+          `alloc.rate.norm` 28.24 MB → **4.32 MB/op (−84.7%)**.
+      Full 1204-test `backendInterpreter` suite green with gate off AND on. See
       [`docs/vm-jit-next.md §"Phase D — Update 2026-06-01"`](docs/vm-jit-next.md).
-      Remaining: Int-accumulator path (Wide), broader closure shapes, pure-call
-      direct-style ABI (A4 proper).
+      Remaining Phase D scope: broader closure shapes (multi-stmt blocks,
+      2-param closures, foreach over Set/Map/Option), pure-call direct-style
+      ABI (A4 proper) covering `xs.map(f).sum`-style code.
 
 ## v1.55 — First-class XML / Generic Markup
 
