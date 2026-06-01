@@ -553,6 +553,16 @@ class Interpreter(
       java.util.IdentityHashMap[scala.meta.Term.ParamClause, (List[String], List[String])] =
     java.util.IdentityHashMap()
 
+  /** Cache of `Pure(FunV)` for lambda literals that capture nothing — i.e. whose
+   *  closure is empty because every free name resolves to `globals` at call time.
+   *  Such a `FunV` is invariant across evaluations of the same AST node (lexical
+   *  scoping fixes the free-var set, and an empty closure re-reads globals live),
+   *  so a lambda re-evaluated in a tight loop (e.g. `xs.foreach(s => …)` inside a
+   *  `while`) need not rebuild the FunV — or even walk the env — each iteration.
+   *  Only empty-closure results are stored: a genuine capture differs per call. */
+  private[interpreter] val emptyClosureFunCache: java.util.IdentityHashMap[scala.meta.Term.Function, Computation] =
+    java.util.IdentityHashMap()
+
   private[interpreter] def closureWithSelfFor(f: Value.FunV): Env =
     if f.name.isEmpty then f.closure
     else

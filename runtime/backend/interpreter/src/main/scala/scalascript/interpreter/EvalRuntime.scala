@@ -1318,6 +1318,10 @@ private[interpreter] object EvalRuntime:
     // Type test (not the After_4_6_0 extractor) to avoid a per-eval Some+Tuple2;
     // this case is hit once per foreach/map call in a hot loop.
     case t: Term.Function =>
+      // Fast path: a previously-seen lambda node whose closure was empty yields an
+      // invariant FunV — return the cached Pure(FunV) without walking the env.
+      val cachedFun = interp.emptyClosureFunCache.get(t)
+      if cachedFun != null then return cachedFun
       val paramClause = t.paramClause
       val body        = t.body
       // Drop only the keys whose env value still matches the live interp.globals —
@@ -1367,7 +1371,9 @@ private[interpreter] object EvalRuntime:
         )
         interp.paramInfoCache.put(paramClause, paramInfo)
       val (paramNames, paramTypes) = paramInfo
-      Pure(Value.FunV(paramNames, body, closure, paramTypes = paramTypes))
+      val result = Pure(Value.FunV(paramNames, body, closure, paramTypes = paramTypes))
+      if closure.isEmpty then interp.emptyClosureFunCache.put(t, result)
+      result
 
     // Partial function  { case pat => body; ... }  — e.g. xs.map { case (k, v) => ... }
     // Compiled and cached per AST node so matchPat/Option allocations happen once, not per call.
