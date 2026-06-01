@@ -50,14 +50,14 @@ private[interpreter] object BlockRuntime:
     // For blocks with Defn.Val/Var we create a fresh layer so declarations stay block-scoped.
     // Use vars instead of val tuple to avoid the Tuple2 allocation that HotSpot fails to EA
     // when evalBlock is called 1M times per tight while loop.
-    var local: mutable.Map[String, Value] = null
-    var localView: MutableEnvView = null
+    var localVar: mutable.Map[String, Value] = null
+    var localViewVar: MutableEnvView = null
     if env.isInstanceOf[MutableEnvView] &&
        !stats.exists { case _: Defn.Val | _: Defn.Var => true; case _ => false }
     then
       val mev = env.asInstanceOf[MutableEnvView]
-      local = mev.underlying
-      localView = mev
+      localVar = mev.underlying
+      localViewVar = mev
     else env match
       case fm: FrameMap =>
         // Only copy env entries that are absent from (or differ from) interp.globals.
@@ -83,11 +83,17 @@ private[interpreter] object BlockRuntime:
           cur.foreachEntry { (k, v) =>
             if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
           }
-        local = b; localView = new MutableEnvView(b)
+        localVar = b; localViewVar = new MutableEnvView(b)
       case _ =>
         val b2 = mutable.HashMap.empty[String, Value]
         env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
-        local = b2; localView = new MutableEnvView(b2)
+        localVar = b2; localViewVar = new MutableEnvView(b2)
+    // Effectively-final aliases: `step` (and its FlatMap continuations) close over
+    // these. As `val`s they are captured by reference without `ObjectRef` boxing —
+    // capturing the `var`s above forced a per-block `ObjectRef.create` (JFR: ~9% of
+    // patternMatch allocations) on every multi-statement block in a hot loop.
+    val local     = localVar
+    val localView = localViewVar
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
