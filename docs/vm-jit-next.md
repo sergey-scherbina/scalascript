@@ -1,0 +1,151 @@
+# Interpreter performance — next optimization phases
+
+Successor to [`vm-jit-spec.md`](vm-jit-spec.md). That spec covers the shipped
+register VM (`SscVm`) + run-time JIT (`JitRuntime`): integer/double functions,
+self/mutual recursion, and **VM 2a** (ref-values + ADT `match`, the recursive
+ADT-eval workload — 36.8× faster, 170× less allocation on
+`InterpreterBench.recursiveEval`).
+
+This doc scopes what is left, why the easy levers are exhausted, and the two
+large phases that remain. Both are gated on explicit go-ahead; each is a
+multi-day project, not a localized patch.
+
+## Where we are (measured 2026-06-01)
+
+`RuntimeBench` cross-backend, `SSC_JIT` on, µs/op (lower is faster):
+
+| Workload | Interpreter | JS (node) | JVM | Interp ÷ JVM |
+|---|---|---|---|---|
+| arithLoop | 3,125 | 1,367 | 292 | 10.7× |
+| recursionTco | 1,173 | 125 | 29 | 40× |
+| recursionFib | 32,797 | 4,967 | 1,507 | 22× |
+| patternMatch (foreach) | 745,197 | 1,344 | 635 | **1173×** |
+
+Two clusters remain off the native backends:
+
+1. **Recursive / call-heavy code** (fib, tco, recursiveEval) — already JITted;
+   22–40× off JVM. The gap is the **register-VM interpretation overhead** (the
+   `while`/`switch`/array-index dispatch loop in `SscVm.exec`), not anything in
+   the bodies.
+2. **The foreach-accumulator** (`patternMatch`) — 1173× off JVM. It never
+   enters the JIT: `List.foreach` + a closure + a boxed `Value` accumulator
+   threaded through the free-monad `Computation`. This is the architectural
+   tree-walk floor.
+
+## Why the localized levers are exhausted
+
+Documented in [`memory project_vm_jit`] and the spec's optimization log. The
+honest, measured findings:
+
+- **VM micro-ops on the recursive path are done.** Destination-passing and
+  immediate-RHS opcodes shipped; the explicit-call-stack `exec` rewrite was a
+  proven non-win (−4% fib but +25% tco regression — HotSpot already optimizes
+  the recursive `exec`). Packing op/a/b/c into one Long regressed tco ~40%.
+- **String-interning of ctor tags / field names (2026-06-01): NON-WIN,
+  reverted.** A JFR of `recursiveEval` attributed ~23% to `String.equals`
+  (ISTAG tag tests + `Map1/Map2` field-key compares). Interning both sides to
+  hit the identity short-circuit produced **identical** deterministic
+  `gc.alloc.rate.norm` and time-neutral results within noise. Lesson: on
+  3-char ctor names even full content compares are cheap; the sampler
+  over-attributed to a hot leaf. The real cost is the **`exec` dispatch loop
+  itself** (194/~290 execution samples).
+- **The foreach floor is structural**, confirmed both by a stub experiment and
+  by per-class allocation profiles: a VM that compiles only `area` cannot touch
+  the `List.foreach` + closure + `Computation.run` threading around it.
+
+**Conclusion:** no remaining surgical patch moves either cluster. Closing the
+gap needs one of the two phases below.
+
+---
+
+## Phase C — Bytecode codegen JIT (targets the recursive cluster)
+
+**Goal:** emit real JVM bytecode for the compilable subset instead of
+interpreting register bytecode in `SscVm.exec`. Removes the dispatch-loop
+overhead entirely; recursive workloads (fib/tco/recursiveEval) approach the
+JVM-codegen backend (~100×+ over tree-walk; recursiveEval from 36.8× toward
+the fib/tco regime).
+
+**Why this is the lever:** profiling shows the recursive cluster is bound by
+`exec` interpretation, not body cost. The only way to remove an interpreter
+loop is to not have one — generate a `MethodHandle`/class whose body *is* the
+function, so HotSpot JITs it as ordinary Java code.
+
+**Design sketch:**
+- Reuse `VmCompiler`'s front half unchanged — the type lattice (TInt/TDouble/
+  TRef), the bail-to-tree-walk gate, the `Meta`/`Resolve` resolvers, the ADT
+  match shape. Only the back end changes: instead of emitting `op/a/b/c`
+  arrays, emit bytecode.
+- Two candidate back ends, pick by spike:
+  - **ASM** (`org.ow2.asm`): generate a `final class` per `CompiledFn` with a
+    `static long apply(long a0, …)` (numeric) plus `Object`-typed slots for ref
+    params. Most control, a real dependency, more code.
+  - **`java.lang.invoke` / `MethodHandles`**: assemble from combinators. Less
+    raw code but combinator trees can themselves carry overhead — spike before
+    committing.
+- Keep the dual representation: numeric values stay raw `long`/double-bits;
+  refs are `Object` (`InstanceV`). ADT `match` becomes a `typeName`-keyed branch
+  + field reads (still `Map.apply`, or see Phase C-opt below).
+- Recursion = ordinary JVM method calls (self-call → the same generated method;
+  HotSpot inlines/optimizes). Self-tail-recursion can stay a generated loop.
+- **Safety contract identical to today:** anything unsupported bails to
+  tree-walk at compile time; any runtime throwable falls back and recomputes
+  (the subset is side-effect-free, so re-running is observationally identical).
+  `SSC_JIT=off` disables.
+
+**C-opt (only if a profile after C still shows field access hot):** resolve
+ADT field access to an array index at codegen time. Requires giving `InstanceV`
+an ordered `Array[Value]` (or unboxed parallel arrays) alongside/instead of its
+`Map[String,Value]` — an interpreter-wide representation change, so do it only
+on profile evidence, as its own sub-phase.
+
+**Risks:** bytecode generation is intricate (stack-map frames, verifier);
+generated-class lifecycle/GC; a new build dependency (ASM). Mitigate by
+spiking one function shape (int fib) end-to-end behind the existing gate before
+broadening.
+
+**Gating:** same-session back-to-back A/B on `recursionFib`/`recursionTco`/
+`recursiveEval` ranked by time (+ `gc.alloc.rate.norm` as the deterministic
+guard); full `backendInterpreter/test` green with `SSC_JIT` on AND off; never
+ship a non-win.
+
+## Phase D — Tier-2b foreach rearchitecture (targets the foreach floor)
+
+**Goal:** close the 1173×-off-JVM `patternMatch` gap — the un-JIT-able
+`xs.foreach(x => acc = acc + f(x))` shape that dominates idiomatic interpreter
+code.
+
+This is the **gated fast-tier** from the binary-strolling-river plan (A3/A4):
+unboxed numeric slots + a Computation-free direct-style runner for the pure
+compilable subset, boxing to `Value` only at the boundary where a value escapes
+to a non-compiled context. Parts A1 (closure cells) and A2 (slot frames)
+shipped; A3/A4 are the remainder.
+
+**Why it is its own phase:** the cost is *around* the call (the foreach driver,
+the closure, the boxed accumulator threaded through `Computation`), not inside
+it — so Phase C's per-function codegen does **not** help here. It needs the
+interpreter's value/effect threading to carry unboxed values across call
+boundaries for the pure subset, with the monadic path retained for effectful
+bodies. Prior incremental Stage A/B attacks on this were proven non-wins and
+reverted because the match body was already DExpr-folded; only the
+cross-boundary threading is left, and it is invasive.
+
+**Gating:** as Phase C, on `patternMatchHeavy` + `patternMatchWide`; full suite
+green with the fast-tier gate off AND on; spot-check identical output off vs on.
+
+---
+
+## Methodology (both phases)
+
+Carry the project's hard-won rules:
+- Noisy machine — trust only **same-session back-to-back A/B** (stash baseline →
+  bench → restore → bench). Rank by deterministic `gc.alloc.rate.norm`; for
+  CPU-bound wins (Phase C) rank by time but require many iters/forks and treat
+  wide error bars as "no signal."
+- **Never ship a non-win.** Honest scoping over busywork.
+- **Profile before declaring a floor, and profile before optimizing** — but
+  cross-check JFR sampled weights against the deterministic alloc metric (a
+  sampler can over-attribute to a hot leaf or point at a runtime-dead line).
+- Per phase: commit (no `Co-Authored-By` trailer) → `git fetch origin &&
+  git rebase origin/main` → full `backendInterpreter/test` (~1204 green) →
+  ff-merge `git push origin HEAD:main`.

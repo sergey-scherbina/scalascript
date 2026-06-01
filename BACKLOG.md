@@ -1776,6 +1776,32 @@ Effect runners described uniformly as `Out(E) ++ (R,)`. See `docs/tuple-monoid.m
 **v1.61.6** — Preamble sub-capabilities: Core → Console/HtmlDsl/Optics/IndexedDb/Jwt/Json. Target: ≥80% bundle reduction for Hello World.
 **v1.61.7** — Memory: `IntV/DoubleV` pools, `TupleV → Array[Value]`, `FunV` split, `Span` sidecar, binary `.scim`/`.scjvm`. Target: ≥50% allocation rate reduction.
 
+## Interpreter performance — next phases (post VM 2a)
+
+**Status: spec landed 2026-06-01.** See [`docs/vm-jit-next.md`](docs/vm-jit-next.md).
+Successor to the shipped register-VM JIT (`docs/vm-jit-spec.md`) and VM 2a
+(ref-values + ADT match; recursiveEval 36.8× / 170× less alloc). All localized
+micro-ops are exhausted (measured — string-interning ctor tags/fields was a
+proven non-win, reverted 2026-06-01; the recursive cluster is bound by the
+`SscVm.exec` dispatch loop, not body cost). Two large phases remain, each
+gated on same-session A/B + full suite green with the gate off AND on.
+
+- [ ] **vm-bytecode-jit (Phase C)** — emit real JVM bytecode (ASM or
+      `MethodHandles`) for the compilable subset instead of interpreting
+      register bytecode in `SscVm.exec`, removing the dispatch-loop overhead.
+      Reuses `VmCompiler`'s type lattice / bail gate / resolvers; only the back
+      end changes. Targets the recursive cluster (fib/tco/recursiveEval, 22–40×
+      off JVM today) toward ~100×+. Spike one int-fib shape end-to-end behind
+      the existing `SSC_JIT` gate before broadening. C-opt (profile-gated):
+      array-indexed ADT field access (needs an `InstanceV` ordered-array repr).
+- [ ] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
+      binary-strolling-river gated fast-tier: unboxed numeric slots + a
+      Computation-free direct-style runner for the pure subset, boxing only at
+      the escape boundary. Targets the `patternMatch` foreach floor (**1173×
+      off JVM** — the dominant idiomatic-interpreter gap), which per-function
+      codegen (Phase C) cannot touch because the cost is the foreach driver +
+      closure + boxed accumulator threaded through `Computation`, not the call.
+
 ## v1.55 — First-class XML / Generic Markup
 
 **Status: spec landed 2026-05-27.**  See `/Users/sergiy/.claude/plans/majestic-napping-moonbeam.md`.
