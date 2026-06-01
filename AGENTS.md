@@ -3,6 +3,32 @@
 > This file is the durable memory of pre-code design decisions.
 > Every new Claude Code session should read it first.
 
+## MANDATORY: first action in every session
+
+Before any file read, planning, or write — verify whether you are in a worktree.
+
+```bash
+cat .git 2>/dev/null | head -1
+```
+
+| Output | Meaning | Action |
+|--------|---------|--------|
+| `gitdir: /path/.git/worktrees/NAME` | ✓ in a worktree | continue |
+| file missing or `.git` is a directory | ✗ in shared main | **create a worktree right now** |
+
+If you are **not** in a worktree — create one before doing anything else:
+
+```bash
+BRANCH="feature/your-task-name"
+WT="/Users/sergiy/work/my/scalascript/.claude/worktrees/$BRANCH"
+git -C /Users/sergiy/work/my/scalascript fetch origin
+git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/main
+```
+
+Then do all work from `$WT`. Details and common traps — in §"Workflow for parallel agents" below.
+
+---
+
 ## What this project is
 
 ScalaScript is a meta-programming / specification language with extension `.ssc` that:
