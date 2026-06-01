@@ -1829,9 +1829,24 @@ gated on same-session A/B + full suite green with the gate off AND on.
       pre-existing `pureCallValueMatch`); `recursionFib/Tco/recursiveEval`,
       `arithLoop`, `tupleMonoid`, `effectPure` all within noise of pre-A4.
       Full 1204-test suite green with gate off AND on.
+      **2026-06-02 follow-up: `LApply` LExpr variant landed.** Extending
+      `tryLongWhileAssign`'s `compileExpr` to fold 1-param pure-bodied
+      function calls (e.g. `f(i)`) directly into the unboxed-Long while loop:
+      new `LApply` LExpr subclass + new `PatternRuntime.compileSlotLongFn1`
+      (raw-`Long`-arg variant of `compileSlotLongBody` — `DSlot(0)` reads the
+      arg directly without `IntV` boxing). Re-resolves the function from
+      `interp.globals` per call and checks `fn.body eq expectedBody` for
+      mid-loop reassignment correctness; bails via `PatternRuntime.NotDouble`
+      ControlThrowable caught in `tryLongWhileAssign`. Same-session A/B (2
+      forks × 5 iters, stash → bench → pop → bench):
+        - `pureCallSum` time: 119.332 → **12.369 ms/op (−89.6%, 9.65×)**
+        - `pureCallSum` `alloc.rate.norm`: 71,247,179 → **24,030,942 B/op (−66.3%)**
+      **Cumulative from pre-Phase D baseline**: pureCallSum 2541 → 12.4 ms
+      (**205× speedup**); now only ~22× off the JVM backend (from 4540× off).
+      All other benches unchanged; full suite green in both modes.
       Remaining Phase D scope: broader closure shapes (multi-stmt blocks,
-      2-param closures, foreach over Set/Map/Option). The 1-param non-Match
-      pure-call gap is now closed.
+      2-param closures, foreach over Set/Map/Option). Both the 1-param non-
+      Match pure-call gap AND the in-while-loop pure-call gap are now closed.
 
 ## v1.55 — First-class XML / Generic Markup
 

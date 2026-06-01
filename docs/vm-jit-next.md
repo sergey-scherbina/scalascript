@@ -244,18 +244,65 @@ per-call `Pure` wrapper and the param-frame allocation. The remaining 71 MB
 alloc is mostly the outer-loop `i = i + 1` IntV+Pure overhead that the
 non-tryLongWhileAssign path still pays (mixed apply+assign while body).
 
+### Phase D — Update 2026-06-02 (b): LApply in-loop fn-call inlining
+
+The A4 slice (this same day) cut `pureCallSum` from 2541 ms → 119 ms by
+making `pureCallValue` direct-style-Value-return any pure non-Match body.
+The residual 71 MB was the outer-loop `i = i + 1` IntV+Pure overhead because
+`tryLongWhileAssign` bails when any RHS contains a `Term.Apply` (the
+`total = total + f(i)` couldn't compile to LExpr).
+
+This slice fixes that by extending `EvalRuntime`'s LExpr ADT with a new
+`LApply` variant and teaching `tryLongWhileAssign`'s `compileExpr` to fold
+1-param pure-bodied function calls inline:
+
+- New `PatternRuntime.compileSlotLongFn1(body, paramName, interp): (Long,
+  Env) => Long` — raw-`Long`-arg variant of `compileSlotLongBody` reusing
+  the existing `DExpr` AST. `DSlot(0)` is read as the arg directly (no
+  `IntV` boxing); other slots throw `NotDouble` (1-param only). Free names
+  still go through `slotToL`.
+- New `LApply` LExpr subclass holds the compiled `slotFn`, the fn's name,
+  and a reference to the fn's `body` AST node as `expectedBody`. At eval
+  time it re-resolves `interp.globals.getOrElse(fnName, null)` (so a
+  user-reassigned `f` is observed correctly) and bails with
+  `PatternRuntime.NotDouble` if `fn.body ne expectedBody`. The cost per
+  call is one `HashMap.getOrElse` + one `eq` check + one delegated
+  `slotFn(arg, fn.closure)` call — no allocation.
+- `tryLongWhileAssign`'s hot loop now runs inside `try/catch
+  PatternRuntime.NotDouble => null`, so a reassignment bail returns to
+  the value-space loop. The `ControlThrowable` is stackless; the cost is
+  paid only on the bail path, not the steady-state loop.
+
+Same-session A/B JMH (2 forks × 5 iters, stash → bench → pop → bench):
+
+| Bench | Baseline (post-A4) | Spike (post-LApply) | Δ |
+|---|---|---|---|
+| `pureCallSum` time | 119.332 ± 3.413 ms | **12.369 ± 0.394 ms** | **−89.6%** (9.65×) |
+| `pureCallSum` `alloc.rate.norm` | 71,247,179 B/op | **24,030,942 B/op** | **−66.3%** |
+
+**Cumulative from pre-Phase D baseline**: `pureCallSum` 2541 ms → **12.4 ms**
+(**205× speedup**). The interpreter is now ~22× off the JVM-codegen backend
+on this shape (vs ~4540× before Phase D).
+
+`patternMatchHeavy`/`Wide`, `arithLoop`, `recursionFib`/`Tco`/`recursiveEval`,
+`tupleMonoid`, `effectPure` all within noise of pre-LApply. Full 1204-test
+`backendInterpreter/test` suite green with `SSC_FASTTIER` off AND on.
+`recursionTco` measured 0.984 ms in this sanity run — back to the historical
+~0.99 ms baseline, confirming the earlier "TCO +17%" from the day before was
+machine noise (concurrent build daemons), not a regression from any Phase D
+landing.
+
 **Remaining Phase D work:**
 
 - **Broader closure shapes** — multi-statement closure bodies (e.g.
   `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, `foreach` over
   `Set`/`Map`/`Option`, accumulator declared inside a nested block
   (resolution via closure-env instead of globals).
-- **Mixed apply+assign while bodies** — currently `tryLongWhileAssign` bails
-  if a block has non-`Assign` stmts (the patternMatch outer-while is
-  `{foreach_apply, i_assign}`). Generalizing it to accept leading pure
-  applies (e.g. FastTier-handled foreach) + trailing long-assigns would
-  remove the per-iter `i = i + 1` IntV+Pure overhead. Targets `pureCallSum`'s
-  residual ~71 MB and `patternMatchHeavy`/`Wide`'s residual 4–9 MB.
+- **2-param `LApply`** — current `LApply` is 1-param only (`compileSlotLongFn1`
+  uses `DSlot(0)` for the arg, `DSlot(_)` throws). A 2-param variant
+  (`compileSlotLongFn2(body, n0, n1)` reusing `DSlot(0)`/`DSlot(1)` for both
+  args) would cover `g(x, y)`-shaped pure-bodied calls inside a long-while
+  loop.
 
 ---
 

@@ -302,6 +302,31 @@ private[interpreter] object EvalRuntime:
   private final class LOr(l: LCond, r: LCond) extends LCond:
     def eval(slots: Array[Long]): Boolean = l.eval(slots) || r.eval(slots)
 
+  /** Raw-Long inlined function call. Folds `f(x)` (a 1-param pure-bodied
+   *  function whose body is in the `compileSlotD` arith subset) into the
+   *  enclosing `tryLongWhileAssign` loop without boxing the arg or result.
+   *
+   *  At runtime: re-resolves `fnName` from `interp.globals` per call (so a
+   *  user re-binding `f` mid-loop is observed correctly) and checks the
+   *  current `fn.body eq expectedBody` — if the function was reassigned to a
+   *  new body, throws `PatternRuntime.NotDouble` so `tryLongWhileAssign`
+   *  catches and bails to tree-walk. */
+  private final class LApply(
+    argL:         LExpr,
+    fnName:       String,
+    expectedBody: Term,
+    slotFn:       (Long, Env) => Long,
+    interp:       Interpreter
+  ) extends LExpr:
+    def eval(slots: Array[Long]): Long =
+      val arg = argL.eval(slots)
+      val fnV = interp.globals.getOrElse(fnName, null)
+      fnV match
+        case fn: Value.FunV if fn.body eq expectedBody =>
+          slotFn(arg, fn.closure)
+        case _ =>
+          throw PatternRuntime.NotDouble
+
   /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
    *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
    *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
@@ -341,6 +366,30 @@ private[interpreter] object EvalRuntime:
           else
             val r = compileExpr(argClause.values.head)
             if r == null then null else new LBin(code, l, r)
+      // 1-param pure-bodied function call: `f(x)` where `f` is a top-level def
+      // whose body is in the `compileSlotD` arith subset (e.g. `def f(x) = x + 1`).
+      // Resolve `f` at compile time from `interp.globals`, compile its body to a
+      // `(Long, Env) => Long` thunk via `compileSlotLongFn1`, and wrap as `LApply`.
+      // At eval time, `LApply` re-resolves `f` to handle reassignment.
+      case ap: Term.Apply =>
+        ap.fun match
+          case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
+            val argTerm = ap.argClause.values.head
+            val argL    = compileExpr(argTerm)
+            if argL == null then null
+            else
+              interp.globals.getOrElse(fnName.value, null) match
+                case fn: Value.FunV
+                    if fn.params.length == 1
+                       && fn.usingParams.isEmpty
+                       && !fn.returnsThrows
+                       && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
+                       && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
+                  val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
+                  if slotFn == null then null
+                  else new LApply(argL, fnName.value, fn.body, slotFn, interp)
+                case _ => null
+          case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
       case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
@@ -404,23 +453,31 @@ private[interpreter] object EvalRuntime:
       assignSlot(a) = slotOfName(body.names(a))
       a += 1
     // Run in unboxed long space (condition already true on entry → do-while).
-    var running = true
-    while running do
-      var i = 0
-      while i < rhsL.length do
-        slots(assignSlot(i)) = rhsL(i).eval(slots)
-        i += 1
-      running = condL.eval(slots)
-    // Box final values of assigned vars back into env + globals (once).
-    val local = frameView.underlying
-    var w = 0
-    while w < body.names.length do
-      val nm = body.names(w)
-      val v  = Value.intV(slots(assignSlot(w)))
-      local(nm) = v
-      interp.globals(nm) = v
-      w += 1
-    Computation.PureUnit
+    // The try/catch handles a rare `LApply` runtime bail (a function was
+    // reassigned mid-loop so its body no longer matches the compiled `DExpr`):
+    // throw `NotDouble` lands here, returns null, caller falls back to the
+    // value-space loop. ControlThrowable is stackless so the cost is minimal
+    // and pays only on bail, not the steady-state path.
+    try
+      var running = true
+      while running do
+        var i = 0
+        while i < rhsL.length do
+          slots(assignSlot(i)) = rhsL(i).eval(slots)
+          i += 1
+        running = condL.eval(slots)
+      // Box final values of assigned vars back into env + globals (once).
+      val local = frameView.underlying
+      var w = 0
+      while w < body.names.length do
+        val nm = body.names(w)
+        val v  = Value.intV(slots(assignSlot(w)))
+        local(nm) = v
+        interp.globals(nm) = v
+        w += 1
+      Computation.PureUnit
+    catch
+      case PatternRuntime.NotDouble => null
 
   private def tryFastWhileAssign(t: Term.While, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
     if interp.debugHooks.nonEmpty then null

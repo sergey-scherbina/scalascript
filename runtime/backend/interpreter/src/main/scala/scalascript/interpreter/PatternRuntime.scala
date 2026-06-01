@@ -236,8 +236,11 @@ private[interpreter] object PatternRuntime:
 
   /** Stackless control signal: a name in a double-arithmetic body resolved to a
    *  non-numeric value (or was undefined) at run time. The thunk catches this
-   *  and falls back to the full evaluator, so semantics are never altered. */
-  private object NotDouble extends scala.util.control.ControlThrowable
+   *  and falls back to the full evaluator, so semantics are never altered.
+   *  Visibility widened to `private[interpreter]` so that `EvalRuntime.LApply`
+   *  (the raw-Long LExpr function call) can bail through the same control-flow
+   *  signal when a function is reassigned mid-loop. */
+  private[interpreter] object NotDouble extends scala.util.control.ControlThrowable
 
   private def containsDoubleLit(t: Term): Boolean = t match
     case Lit.Double(_) => true
@@ -418,6 +421,42 @@ private[interpreter] object PatternRuntime:
       val de = compileSlotD(term, n0, n1)
       if de == null then null
       else (v0, v1, env) => evalSlotI(de, v0, v1, env, interp)
+
+  /** Raw-Long-arg variant of `compileSlotLongBody` for the `EvalRuntime.LApply`
+   *  path: instead of taking the arg as a `Value` slot and re-boxing through
+   *  `IntV`, the resulting fn takes a primitive `Long` directly. Used by
+   *  `tryLongWhileAssign` to compile `f(x)` calls inside an unboxed-long
+   *  while-loop body without per-call `IntV` allocation. Returns null when the
+   *  body is outside the arith-fold subset; throws `NotDouble` at run time if
+   *  a free name resolves to non-`IntV`. */
+  private[interpreter] def compileSlotLongFn1(body: Term, paramName: String, interp: Interpreter): ((Long, Env) => Long) | Null =
+    if containsDoubleLit(body) then null
+    else
+      val de = compileSlotD(body, paramName, null)
+      if de == null then null
+      else (arg, env) => evalSlotILongArg(de, arg, env, interp)
+
+  /** 1-param Long-arg slot evaluator. The `DSlot(0)` case returns `arg`
+   *  directly (no `Value` boxing); other slots bail (this is a 1-param-only
+   *  evaluator). Free names still require an `IntV` lookup. */
+  private def evalSlotILongArg(e: DExpr, arg: Long, env: Env, interp: Interpreter): Long = e match
+    case DConst(d)       => d.toLong   // containsDoubleLit guard rules out Double lits
+    case DSlot(0)        => arg
+    case DSlot(_)        => throw NotDouble   // > 0 not supported in 1-param fn
+    case DFreeName(name) =>
+      val v  = env.getOrElse(name, null)
+      slotToL(if v != null then v else interp.globals.getOrElse(name, null))
+    case DBin(op, l, r) =>
+      val a = evalSlotILongArg(l, arg, env, interp)
+      val b = evalSlotILongArg(r, arg, env, interp)
+      op match
+        case '+' => a + b
+        case '-' => a - b
+        case '*' => a * b
+        case '/' => a / b
+        case '%' => a % b
+        case _   => throw NotDouble
+    case _ => throw NotDouble
 
   /** Long-typed slot evaluator. Reuses the `DExpr` AST tree compiled by
    *  `compileSlotD`. Names resolve via `slotToL` which accepts only `IntV`
