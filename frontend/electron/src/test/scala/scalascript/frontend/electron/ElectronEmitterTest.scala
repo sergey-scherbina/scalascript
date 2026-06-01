@@ -28,10 +28,10 @@ class ElectronEmitterTest extends AnyFunSuite with Matchers:
     js should include ("nodeIntegration: false")
   }
 
-  test("mainJs has macOS activate / quit logic") {
+  test("mainJs has activate / quit-on-window-close logic") {
     val js = ElectronEmitter.mainJs("App")
     js should include ("'activate'")
-    js should include ("process.platform !== 'darwin'")
+    js should include ("'window-all-closed'")
     js should include ("app.quit()")
   }
 

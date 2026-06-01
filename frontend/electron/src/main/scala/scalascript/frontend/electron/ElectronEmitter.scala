@@ -12,8 +12,8 @@ object ElectronEmitter:
 
   /** Electron main process script.
    *
-   *  Creates a BrowserWindow (1200×800), loads `index.html`, and
-   *  handles macOS activate / window-all-closed lifecycle. */
+   *  Creates a BrowserWindow (1200×800), loads `index.html`, handles
+   *  macOS `activate`, and quits the app when the last window closes. */
   def mainJs(
     displayName: String,
     width:       Int                = 1200,
@@ -59,7 +59,7 @@ object ElectronEmitter:
        |})
        |
        |app.on('window-all-closed', () => {
-       |  if (process.platform !== 'darwin') app.quit()
+       |  app.quit()
        |})
        |""".stripMargin
 
