@@ -458,6 +458,39 @@ private[interpreter] object PatternRuntime:
         case _   => throw NotDouble
     case _ => throw NotDouble
 
+  /** 2-param Long-arg variant of `compileSlotLongFn1`. Body's `n0` slot reads
+   *  `arg0`, `n1` slot reads `arg1`. Used by `EvalRuntime.LApply2` to inline
+   *  `g(x, y)` calls into an unboxed-Long while loop without boxing either
+   *  arg or result. */
+  private[interpreter] def compileSlotLongFn2(body: Term, n0: String, n1: String, interp: Interpreter): ((Long, Long, Env) => Long) | Null =
+    if containsDoubleLit(body) then null
+    else
+      val de = compileSlotD(body, n0, n1)
+      if de == null then null
+      else (a0, a1, env) => evalSlotILongArg2(de, a0, a1, env, interp)
+
+  /** 2-param Long-arg slot evaluator. `DSlot(0)` → arg0, `DSlot(1)` → arg1,
+   *  free names go through `slotToL`. Higher slot indices bail. */
+  private def evalSlotILongArg2(e: DExpr, a0: Long, a1: Long, env: Env, interp: Interpreter): Long = e match
+    case DConst(d)       => d.toLong
+    case DSlot(0)        => a0
+    case DSlot(1)        => a1
+    case DSlot(_)        => throw NotDouble
+    case DFreeName(name) =>
+      val v  = env.getOrElse(name, null)
+      slotToL(if v != null then v else interp.globals.getOrElse(name, null))
+    case DBin(op, l, r) =>
+      val a = evalSlotILongArg2(l, a0, a1, env, interp)
+      val b = evalSlotILongArg2(r, a0, a1, env, interp)
+      op match
+        case '+' => a + b
+        case '-' => a - b
+        case '*' => a * b
+        case '/' => a / b
+        case '%' => a % b
+        case _   => throw NotDouble
+    case _ => throw NotDouble
+
   /** Long-typed slot evaluator. Reuses the `DExpr` AST tree compiled by
    *  `compileSlotD`. Names resolve via `slotToL` which accepts only `IntV`
    *  (Double would lose precision — bail to monadic via `NotDouble`). */

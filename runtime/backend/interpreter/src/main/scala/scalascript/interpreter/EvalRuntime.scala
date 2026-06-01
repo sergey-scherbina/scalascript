@@ -390,6 +390,26 @@ private[interpreter] object EvalRuntime:
         case _ =>
           throw PatternRuntime.NotDouble
 
+  /** 2-arg parallel of `LApply`. Folds `g(x, y)` into the enclosing unboxed-
+   *  Long loop without boxing either arg or result. */
+  private final class LApply2(
+    arg0L:        LExpr,
+    arg1L:        LExpr,
+    fnName:       String,
+    expectedBody: Term,
+    slotFn:       (Long, Long, Env) => Long,
+    interp:       Interpreter
+  ) extends LExpr:
+    def eval(slots: Array[Long]): Long =
+      val a0 = arg0L.eval(slots)
+      val a1 = arg1L.eval(slots)
+      val fnV = interp.globals.getOrElse(fnName, null)
+      fnV match
+        case fn: Value.FunV if fn.body eq expectedBody =>
+          slotFn(a0, a1, fn.closure)
+        case _ =>
+          throw PatternRuntime.NotDouble
+
   /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
    *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
    *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
@@ -452,6 +472,25 @@ private[interpreter] object EvalRuntime:
                   if slotFn == null then null
                   else new LApply(argL, fnName.value, fn.body, slotFn, interp)
                 case _ => null
+          // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
+          case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
+            val arg0L = compileExpr(ap.argClause.values.head)
+            if arg0L == null then null
+            else
+              val arg1L = compileExpr(ap.argClause.values(1))
+              if arg1L == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
+                      if fn.params.length == 2
+                         && fn.usingParams.isEmpty
+                         && !fn.returnsThrows
+                         && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
+                         && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
+                    val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
+                    if slotFn == null then null
+                    else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
+                  case _ => null
           case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
@@ -608,6 +647,25 @@ private[interpreter] object EvalRuntime:
                   if slotFn == null then null
                   else new LApply(argL, fnName.value, fn.body, slotFn, interp)
                 case _ => null
+          // 2-arg parallel: `g(x, y)` where `g` is a pure 2-param fn.
+          case fnName: Term.Name if ap.argClause.values.lengthCompare(2) == 0 =>
+            val arg0L = compileExpr(ap.argClause.values.head)
+            if arg0L == null then null
+            else
+              val arg1L = compileExpr(ap.argClause.values(1))
+              if arg1L == null then null
+              else
+                interp.globals.getOrElse(fnName.value, null) match
+                  case fn: Value.FunV
+                      if fn.params.length == 2
+                         && fn.usingParams.isEmpty
+                         && !fn.returnsThrows
+                         && (fn.defaults.isEmpty || fn.defaults.forall(_.isEmpty))
+                         && (fn.paramTypes.length < 2 || !fn.paramTypes(1).endsWith("*")) =>
+                    val slotFn = PatternRuntime.compileSlotLongFn2(fn.body, fn.params.head, fn.params(1), interp)
+                    if slotFn == null then null
+                    else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
+                  case _ => null
           case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match

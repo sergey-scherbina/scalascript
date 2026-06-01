@@ -170,6 +170,20 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // 2-param parallel of `pureCallSum` — exercises the LApply2 raw-Long arg
+  // inlining inside `tryLongWhileAssign`. `g(x, y) = x + y` keeps the body in
+  // the `compileSlotD` arith subset; both args read as raw Long via DSlot(0)
+  // / DSlot(1), result stays in the unboxed-Long while loop.
+  private val modPureCallSum2: Module = src(
+    """def g(x: Int, y: Int): Int = x + y
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + g(i, i)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -209,3 +223,7 @@ class InterpreterBench:
   @Benchmark
   def pureCallSum(): Unit =
     Interpreter(devNull).runSections(modPureCallSum)
+
+  @Benchmark
+  def pureCallSum2(): Unit =
+    Interpreter(devNull).runSections(modPureCallSum2)
