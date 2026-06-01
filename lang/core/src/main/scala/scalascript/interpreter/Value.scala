@@ -220,6 +220,12 @@ final class MutableEnvView(m: scala.collection.mutable.Map[String, Value])
   override def getOrElse[V1 >: Value](key: String, default: => V1): V1 = m.getOrElse(key, default)
   override def contains(key: String): Boolean      = m.contains(key)
   override def iterator: Iterator[(String, Value)] = m.iterator
+  // Delegate to the backing map's foreachEntry. The default AbstractMap impl
+  // routes through `iterator`, boxing a Tuple2 per entry; `mutable.HashMap`
+  // overrides foreachEntry to walk its node table directly with no Tuple2. This
+  // matters on the closure-capture path (a literal closure built inside a loop
+  // walks its whole env every iteration to find genuine captures).
+  override def foreachEntry[U](f: (String, Value) => U): Unit = m.foreachEntry(f)
   override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
     (m.toMap: Map[String, Value]).updated(key, value).asInstanceOf[Map[String, V1]]
   override def removed(key: String): Map[String, Value] = m.toMap.removed(key)
