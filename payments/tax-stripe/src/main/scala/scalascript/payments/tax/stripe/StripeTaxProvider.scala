@@ -59,7 +59,7 @@ class StripeTaxProvider(config: StripeTaxConfig) extends TaxProvider:
       parseQuote(body, req)
     }.recoverWith {
       case e: TaxError => Future.failed(e)
-      case e           => Future.failed(TaxError.TaxCalculationFailed(e.getMessage, e))
+      case e           => Future.failed(TaxError.TaxProviderError(e.getMessage, e))
     }
 
   def validateTaxId(taxId: String, country: String)(using ExecutionContext): Future[TaxIdValidation] =

@@ -4,7 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scalascript.payments.tax.*
 import scalascript.payments.money.{Money, Currency}
-import scala.concurrent.{Future, ExecutionContext, Await}
+import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.global
 
