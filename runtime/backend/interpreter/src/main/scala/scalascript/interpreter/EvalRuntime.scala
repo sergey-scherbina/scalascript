@@ -578,6 +578,15 @@ private[interpreter] object EvalRuntime:
           case n: Term.Name => !reservedApplyHeads.contains(n.value)
           case _            => false) =>
       evalPlainApply(app, env, interp)
+    // Method calls (`recv.m(args)`) have a `Term.Select` head, which no
+    // special-form `Term.Apply` case below can match (every one has a
+    // `Term.Name` or curried-`Term.Apply` head). Route them straight to the
+    // general handler, skipping the ~40 special-form extractor checks — each
+    // would otherwise call `Term.Apply.unapply`, allocating a Some+Tuple2 per
+    // method call (JFR: ~8% of patternMatch allocations).
+    case app: Term.Apply if app.fun.isInstanceOf[Term.Select] =>
+      evalApplyGeneral(app, env, interp)
+
 
     // ── Hot non-Apply terms, hoisted above the ~40 special-form `Term.Apply`
     //    cases below.  These types (ApplyInfix, If, Block, Match) are siblings
@@ -1050,162 +1059,7 @@ private[interpreter] object EvalRuntime:
     // already-built Computations so placeholderIdx and other eval-time state
     // is observed correctly.
     case app: Term.Apply =>
-      app.fun match
-        // ── .copy(field = value, ...) on an InstanceV ────────────────
-        // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
-        // to intercept BEFORE the generic eval path, otherwise Term.Assign
-        // would fall into the var-assignment case and mutate interp.globals.
-        case sel: Term.Select if sel.name.value == "copy" =>
-          OpticsRuntime.evalCopy(sel.qual, app.argClause.values, env, interp)
-        // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
-        // Inspect the lambda body at AST level to extract a field-access
-        // chain, then synthesise a Lens value with get / set / modify /
-        // andThen. Done at AST level because the placeholder lambda is
-        // otherwise erased to an opaque NativeFnV.
-        case ta: Term.ApplyType if OpticsRuntime.isFocusName(ta.fun) =>
-          OpticsRuntime.evalFocus(app.argClause.values, interp)
-        case Term.Name("Focus") =>
-          OpticsRuntime.evalFocus(app.argClause.values, interp)
-        // ── direct[M] { stmts } — v1.8 do-notation sugar ─────────────
-        case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) =>
-          val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
-          DirectTypeUtils.validateDirectTypeArg(typeArg)
-          val tag = BlockRuntime.extractDirectMonadTag(typeArgClause.values)
-          app.argClause.values match
-            case List(block: Term.Block) => BlockRuntime.evalDirectBlock(block.stats, env, tag, interp)
-            case List(single: Term)      => eval(single, env, interp)
-            case _                       => interp.located("direct[M] expects a single block argument")
-        // Db.query[T](...) — the interpreter intrinsic returns row maps;
-        // preserve the erased type argument here and project each row map into
-        // the registered case-class runtime shape so `ssc run` mirrors JvmGen.
-        case Term.ApplyType.After_4_6_0(
-              Term.Select(Term.Name("Db"), Term.Name("query")),
-              typeArgClause
-            ) if typeArgClause.values.nonEmpty =>
-          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
-          val qualC = eval(Term.Name("Db"), env, interp)
-          val argComps = app.argClause.values.map {
-            case Term.Assign(_, rhs) => eval(rhs, env, interp)
-            case other               => eval(other, env, interp)
-          }
-          val argVsQ = extractPureValues(argComps)
-          qualC match
-            case Pure(qualV) if argVsQ != null =>
-              DispatchRuntime.dispatch(qualV, "query", argVsQ, env, interp).map(projectTypedRows(typeName, _, interp))
-            case _ =>
-              FlatMap(qualC, qualV =>
-                interp.threadValues(argComps)(argVals =>
-                  DispatchRuntime.dispatch(qualV, "query", argVals, env, interp).map(projectTypedRows(typeName, _, interp))
-                )
-              )
-        case sel: Term.Select =>
-          val method   = sel.name.value
-          val qualC    = eval(sel.qual, env, interp)
-          val argTerms = app.argClause.values
-          // Named args (Term.Assign) must evaluate only the RHS; the full
-          // Term.Assign path at line 2338 treats them as var-assignments and
-          // returns UnitV, destroying the actual value.
-          if argTerms.isEmpty then
-            qualC match
-              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
-              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
-          else if argTerms.lengthCompare(1) == 0 then
-            val arg1C = argTerms.head match
-              case Term.Assign(_, rhs) => eval(rhs, env, interp)
-              case other               => eval(other, env, interp)
-            qualC match
-              case Pure(qv) =>
-                arg1C match
-                  case Pure(av) => DispatchRuntime.dispatch1(qv, method, av, env, interp)
-                  case _        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
-              case _ =>
-                arg1C match
-                  case Pure(av) => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
-                  case _        => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
-          else if argTerms.lengthCompare(2) == 0 then
-            // 2-arg fast path: avoids extractPureValues ArrayBuffer + argComps List allocation.
-            val arg1C = argTerms.head match
-              case Term.Assign(_, rhs) => eval(rhs, env, interp)
-              case other               => eval(other, env, interp)
-            val arg2C = argTerms(1) match
-              case Term.Assign(_, rhs) => eval(rhs, env, interp)
-              case other               => eval(other, env, interp)
-            qualC match
-              case Pure(qv) =>
-                arg1C match
-                  case Pure(av1) =>
-                    arg2C match
-                      case Pure(av2) => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)
-                      case _         => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
-                  case _ =>
-                    arg2C match
-                      case Pure(av2) => FlatMap(arg1C, av1 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
-                      case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)))
-              case _ =>
-                arg1C match
-                  case Pure(av1) if arg2C.isInstanceOf[Pure] =>
-                    FlatMap(qualC, qv => DispatchRuntime.dispatch2(qv, method, av1, arg2C.asInstanceOf[Pure].value, env, interp))
-                  case _ =>
-                    FlatMap(qualC, qv =>
-                      FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))))
-          else
-            val argComps = argTerms.map {
-              case Term.Assign(_, rhs) => eval(rhs, env, interp)
-              case other               => eval(other, env, interp)
-            }
-            val argVsS = extractPureValues(argComps)
-            if argVsS != null then
-              qualC match
-                case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp)
-                case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp))
-            else
-              FlatMap(qualC, qualV =>
-                interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
-        // ── remoteStub[Api](baseUrl) / Remote.stub[Api](baseUrl) ─────────────
-        // Pass the erased type-name as a second argument so RemoteIntrinsics
-        // can look up the stored abstract method list and build per-method
-        // NativeFnV entries that POST to {baseUrl}/{methodName}.
-        case Term.ApplyType.After_4_6_0(Term.Name("remoteStub"), typeArgClause)
-            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
-          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
-          val baseUrlC = eval(app.argClause.values.head, env, interp)
-          baseUrlC.flatMap { baseUrlV =>
-            interp.callValue2(
-              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
-              baseUrlV, Value.StringV(typeName), env)
-          }
-        case Term.ApplyType.After_4_6_0(
-              Term.Select(Term.Name("Remote"), Term.Name("stub")), typeArgClause)
-            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
-          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
-          val baseUrlC = eval(app.argClause.values.head, env, interp)
-          baseUrlC.flatMap { baseUrlV =>
-            interp.callValue2(
-              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
-              baseUrlV, Value.StringV(typeName), env)
-          }
-        // ── obj.method[T](args) — type args erased, dispatch with actual args
-        // Mirrors the bare Term.Select(qual, method) path above so that
-        // type-parameterised method calls like `Dataset.of[Int]()` reach
-        // the dispatcher with the right argument list (otherwise the
-        // standalone `Dataset.of` would auto-call as a no-arg NativeFnV
-        // and then the outer `()` would fail on the resulting value).
-        case Term.ApplyType.After_4_6_0(Term.Select(qual, Term.Name(method)), _) =>
-          val qualC    = eval(qual, env, interp)
-          val argComps = app.argClause.values.map {
-            case Term.Assign(_, rhs) => eval(rhs, env, interp)
-            case other               => eval(other, env, interp)
-          }
-          val argVsT = extractPureValues(argComps)
-          if argVsT != null then
-            qualC match
-              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp)
-              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp))
-          else
-            FlatMap(qualC, qualV =>
-              interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
-        case _ =>
-          evalPlainApply(app, env, interp)
+      evalApplyGeneral(app, env, interp)
 
     // '.!' outside a direct block (or inside a lambda/block in a direct block) — error
     case Term.Select(_, sn: Term.Name) if sn.value == "!" =>
@@ -1683,6 +1537,168 @@ private[interpreter] object EvalRuntime:
    *  sub-term evaluation into a FlatMap continuation would observe a wrong index
    *  later. After interp call all sub-Computations are fully built; only the final
    *  composition (the FlatMap chain) is interpreted lazily. */
+  /** General `Term.Apply` dispatch: `.copy`, Focus/direct/Db.query/remoteStub
+   *  intrinsics, method calls (`recv.m(args)` via the `Term.Select` arm), and the
+   *  bare function-value fallback. Shared by the catch-all `Term.Apply` case and
+   *  the hoisted `Term.Select`-head fast path above. */
+  private def evalApplyGeneral(app: Term.Apply, env: Env, interp: Interpreter): Computation =
+      app.fun match
+        // ── .copy(field = value, ...) on an InstanceV ────────────────
+        // Named args arrive as Term.Assign(Term.Name(field), rhs); we have
+        // to intercept BEFORE the generic eval path, otherwise Term.Assign
+        // would fall into the var-assignment case and mutate interp.globals.
+        case sel: Term.Select if sel.name.value == "copy" =>
+          OpticsRuntime.evalCopy(sel.qual, app.argClause.values, env, interp)
+        // ── Focus[T](_.a.b) / Focus(_.a.b) — Monocle-style lens ──────
+        // Inspect the lambda body at AST level to extract a field-access
+        // chain, then synthesise a Lens value with get / set / modify /
+        // andThen. Done at AST level because the placeholder lambda is
+        // otherwise erased to an opaque NativeFnV.
+        case ta: Term.ApplyType if OpticsRuntime.isFocusName(ta.fun) =>
+          OpticsRuntime.evalFocus(app.argClause.values, interp)
+        case Term.Name("Focus") =>
+          OpticsRuntime.evalFocus(app.argClause.values, interp)
+        // ── direct[M] { stmts } — v1.8 do-notation sugar ─────────────
+        case Term.ApplyType.After_4_6_0(Term.Name("direct"), typeArgClause) =>
+          val typeArg = typeArgClause.values.headOption.getOrElse(Type.Name("?"))
+          DirectTypeUtils.validateDirectTypeArg(typeArg)
+          val tag = BlockRuntime.extractDirectMonadTag(typeArgClause.values)
+          app.argClause.values match
+            case List(block: Term.Block) => BlockRuntime.evalDirectBlock(block.stats, env, tag, interp)
+            case List(single: Term)      => eval(single, env, interp)
+            case _                       => interp.located("direct[M] expects a single block argument")
+        // Db.query[T](...) — the interpreter intrinsic returns row maps;
+        // preserve the erased type argument here and project each row map into
+        // the registered case-class runtime shape so `ssc run` mirrors JvmGen.
+        case Term.ApplyType.After_4_6_0(
+              Term.Select(Term.Name("Db"), Term.Name("query")),
+              typeArgClause
+            ) if typeArgClause.values.nonEmpty =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val qualC = eval(Term.Name("Db"), env, interp)
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env, interp)
+            case other               => eval(other, env, interp)
+          }
+          val argVsQ = extractPureValues(argComps)
+          qualC match
+            case Pure(qualV) if argVsQ != null =>
+              DispatchRuntime.dispatch(qualV, "query", argVsQ, env, interp).map(projectTypedRows(typeName, _, interp))
+            case _ =>
+              FlatMap(qualC, qualV =>
+                interp.threadValues(argComps)(argVals =>
+                  DispatchRuntime.dispatch(qualV, "query", argVals, env, interp).map(projectTypedRows(typeName, _, interp))
+                )
+              )
+        case sel: Term.Select =>
+          val method   = sel.name.value
+          val qualC    = eval(sel.qual, env, interp)
+          val argTerms = app.argClause.values
+          // Named args (Term.Assign) must evaluate only the RHS; the full
+          // Term.Assign path at line 2338 treats them as var-assignments and
+          // returns UnitV, destroying the actual value.
+          if argTerms.isEmpty then
+            qualC match
+              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
+              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
+          else if argTerms.lengthCompare(1) == 0 then
+            val arg1C = argTerms.head match
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            qualC match
+              case Pure(qv) =>
+                arg1C match
+                  case Pure(av) => DispatchRuntime.dispatch1(qv, method, av, env, interp)
+                  case _        => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+              case _ =>
+                arg1C match
+                  case Pure(av) => FlatMap(qualC, qv => DispatchRuntime.dispatch1(qv, method, av, env, interp))
+                  case _        => FlatMap(qualC, qv => FlatMap(arg1C, av => DispatchRuntime.dispatch1(qv, method, av, env, interp)))
+          else if argTerms.lengthCompare(2) == 0 then
+            // 2-arg fast path: avoids extractPureValues ArrayBuffer + argComps List allocation.
+            val arg1C = argTerms.head match
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            val arg2C = argTerms(1) match
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            qualC match
+              case Pure(qv) =>
+                arg1C match
+                  case Pure(av1) =>
+                    arg2C match
+                      case Pure(av2) => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)
+                      case _         => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
+                  case _ =>
+                    arg2C match
+                      case Pure(av2) => FlatMap(arg1C, av1 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))
+                      case _         => FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp)))
+              case _ =>
+                arg1C match
+                  case Pure(av1) if arg2C.isInstanceOf[Pure] =>
+                    FlatMap(qualC, qv => DispatchRuntime.dispatch2(qv, method, av1, arg2C.asInstanceOf[Pure].value, env, interp))
+                  case _ =>
+                    FlatMap(qualC, qv =>
+                      FlatMap(arg1C, av1 => FlatMap(arg2C, av2 => DispatchRuntime.dispatch2(qv, method, av1, av2, env, interp))))
+          else
+            val argComps = argTerms.map {
+              case Term.Assign(_, rhs) => eval(rhs, env, interp)
+              case other               => eval(other, env, interp)
+            }
+            val argVsS = extractPureValues(argComps)
+            if argVsS != null then
+              qualC match
+                case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp)
+                case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsS, env, interp))
+            else
+              FlatMap(qualC, qualV =>
+                interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+        // ── remoteStub[Api](baseUrl) / Remote.stub[Api](baseUrl) ─────────────
+        // Pass the erased type-name as a second argument so RemoteIntrinsics
+        // can look up the stored abstract method list and build per-method
+        // NativeFnV entries that POST to {baseUrl}/{methodName}.
+        case Term.ApplyType.After_4_6_0(Term.Name("remoteStub"), typeArgClause)
+            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val baseUrlC = eval(app.argClause.values.head, env, interp)
+          baseUrlC.flatMap { baseUrlV =>
+            interp.callValue2(
+              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
+              baseUrlV, Value.StringV(typeName), env)
+          }
+        case Term.ApplyType.After_4_6_0(
+              Term.Select(Term.Name("Remote"), Term.Name("stub")), typeArgClause)
+            if typeArgClause.values.nonEmpty && app.argClause.values.sizeIs == 1 =>
+          val typeName = interp.typeToString(typeArgClause.values.head.asInstanceOf[scala.meta.Type])
+          val baseUrlC = eval(app.argClause.values.head, env, interp)
+          baseUrlC.flatMap { baseUrlV =>
+            interp.callValue2(
+              interp.globals.getOrElse("remoteStub", interp.located("remoteStub not found")),
+              baseUrlV, Value.StringV(typeName), env)
+          }
+        // ── obj.method[T](args) — type args erased, dispatch with actual args
+        // Mirrors the bare Term.Select(qual, method) path above so that
+        // type-parameterised method calls like `Dataset.of[Int]()` reach
+        // the dispatcher with the right argument list (otherwise the
+        // standalone `Dataset.of` would auto-call as a no-arg NativeFnV
+        // and then the outer `()` would fail on the resulting value).
+        case Term.ApplyType.After_4_6_0(Term.Select(qual, Term.Name(method)), _) =>
+          val qualC    = eval(qual, env, interp)
+          val argComps = app.argClause.values.map {
+            case Term.Assign(_, rhs) => eval(rhs, env, interp)
+            case other               => eval(other, env, interp)
+          }
+          val argVsT = extractPureValues(argComps)
+          if argVsT != null then
+            qualC match
+              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp)
+              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, argVsT, env, interp))
+          else
+            FlatMap(qualC, qualV =>
+              interp.threadValues(argComps)(argVals => DispatchRuntime.dispatch(qualV, method, argVals, env, interp)))
+        case _ =>
+          evalPlainApply(app, env, interp)
+
   private def evalArgs(args: List[Term], env: Env, interp: Interpreter)(k: List[Value] => Computation): Computation =
     val argComps = args.map(eval(_, env, interp))
     interp.threadValues(argComps)(k)
