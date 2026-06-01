@@ -124,14 +124,6 @@ private[interpreter] object EvalRuntime:
     val fv = fastValue(fun, env, interp)
     if !fv.isInstanceOf[Value.FunV] then return null
     val f    = fv.asInstanceOf[Value.FunV]
-    val body = f.body
-    if !body.isInstanceOf[Term.Match] then return null
-    val mt = body.asInstanceOf[Term.Match]
-    var compiled = interp.matchCache.get(mt)
-    if compiled == null then
-      compiled = PatternRuntime.compileMatch(mt, interp)
-      interp.matchCache.put(mt, compiled)
-    if !compiled.valueCapable then return null
     // Function-shape guards (mirror callValue1Slow/callValue2Slow): exact arity,
     // no using-params, no throws-wrapping, no defaults, no varargs.
     if f.usingParams.nonEmpty || f.returnsThrows then return null
@@ -140,17 +132,26 @@ private[interpreter] object EvalRuntime:
     val args     = app.argClause.values
     val nparams  = f.params.length
     if nparams != args.length || nparams < 1 || nparams > 2 then return null
+    val body = f.body
+    if body.isInstanceOf[Term.Match] then
+      pureCallValueMatch(f, body.asInstanceOf[Term.Match], args, env, interp, nparams)
+    else
+      pureCallValueGeneric(f, body, args, env, interp, nparams)
+
+  /** Direct-style match-bodied path — the original `pureCallValue` core. */
+  private def pureCallValueMatch(
+    f: Value.FunV, mt: Term.Match, args: List[Term], env: Env, interp: Interpreter, nparams: Int
+  ): Value | Null =
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.valueCapable then return null
     val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
     if nparams == 1 then
       val a = fastPrimitiveValue(args.head, env, interp)
       if a == null then return null
       val paramName = f.params.head
-      // When every arm is slot-based (binds via v0/v1, no pattern FrameMap), the
-      // scrutinee is exactly the parameter, and no arm body reads the parameter as
-      // a free name, the param FrameMap is dead weight: pass the arg straight in as
-      // the scrutinee and the closure as the env. The free-name check is required
-      // for correctness — if a body read `paramName`, dropping the frame could
-      // resolve it to a shadowed outer binding instead of the argument.
       val freeNames = compiled.slotFreeNames
       if compiled.allSlot && freeNames != null && !freeNames.contains(paramName)
          && (mt.expr match { case Term.Name(nm) => nm == paramName; case _ => false }) then
@@ -169,6 +170,41 @@ private[interpreter] object EvalRuntime:
       val scrut   = fastValue(mt.expr, callEnv, interp)
       if scrut == null then return null
       compiled.runValue(scrut, callEnv)
+
+  /** A4 (Tier-2b pure-call) generalization: direct-style runner for any
+   *  function whose body is in `PatternRuntime.compileSlotBody`'s supported
+   *  subset (literals, name lookups, primitive arith / comparison) — not just
+   *  `Term.Match`. Compile-time-cached by AST identity in `interp.pureBodyCache`.
+   *  Returns the result as a bare `Value`; the param slot is passed positionally
+   *  (`v0`/`v1`) so no per-call `FrameMap.one`/`two` is allocated. Bails to
+   *  null for any unsupported body shape — the caller (`fastPrimitiveValue` /
+   *  the monadic path) handles those.
+   */
+  private def pureCallValueGeneric(
+    f: Value.FunV, body: Term, args: List[Term], env: Env, interp: Interpreter, nparams: Int
+  ): Value | Null =
+    val cached = interp.pureBodyCache.get(body)
+    val slotBody: PatternRuntime.SlotBody =
+      if cached != null then
+        if cached eq PatternRuntime.PureBodyMiss then return null
+        cached.asInstanceOf[PatternRuntime.SlotBody]
+      else
+        val n0 = f.params.head
+        val n1: String | Null = if nparams >= 2 then f.params(1) else null
+        val sb = PatternRuntime.compileSlotBody(body, n0, n1, interp)
+        interp.pureBodyCache.put(body, if sb == null then PatternRuntime.PureBodyMiss else sb.asInstanceOf[AnyRef])
+        if sb == null then return null else sb
+    val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+    if nparams == 1 then
+      val a = fastPrimitiveValue(args.head, env, interp)
+      if a == null then return null
+      slotBody(a, null, withSelf)
+    else
+      val a = fastPrimitiveValue(args.head, env, interp)
+      if a == null then return null
+      val b = fastPrimitiveValue(args(1), env, interp)
+      if b == null then return null
+      slotBody(a, b, withSelf)
 
   private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
 

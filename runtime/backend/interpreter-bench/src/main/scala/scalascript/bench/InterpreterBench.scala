@@ -153,6 +153,23 @@ class InterpreterBench:
       |last""".stripMargin
   )
 
+  // Pure non-match-bodied 1-param function called in a tight loop with an Int
+  // accumulator — exercises the A4 (Tier-2b pure-call) target. `pureCallValue`
+  // historically only direct-style-ran match-bodied funcs; A4 generalizes that
+  // to any pure compilable body (here just `x + 1`) via
+  // `PatternRuntime.compileExpr`/`compileExprSlot1`, returning the result as
+  // a bare `Value` so the enclosing `total + f(i)` skips the per-call `Pure`
+  // wrapper and the param-frame allocation.
+  private val modPureCallSum: Module = src(
+    """def f(x: Int): Int = x + 1
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + f(i)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -188,3 +205,7 @@ class InterpreterBench:
   @Benchmark
   def tupleMonoid(): Unit =
     Interpreter(devNull).runSections(modTupleMonoid)
+
+  @Benchmark
+  def pureCallSum(): Unit =
+    Interpreter(devNull).runSections(modPureCallSum)

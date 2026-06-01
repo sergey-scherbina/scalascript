@@ -202,16 +202,60 @@ on HotSpot's primitive `Long` arithmetic, and `Value.intV` hits the cached
 allocation is gone. The 12-arm dispatch is in a `while` over an
 `Array[Long-returning function]` that HotSpot tracks well.
 
+### Phase D — Update 2026-06-02: A4 pure-call generalization landed
+
+Before this slice, `EvalRuntime.pureCallValue` only direct-style-ran
+`Term.Match`-bodied functions. A4 generalizes the same direct-style-Value
+return to any function whose body is in `PatternRuntime.compileSlotBody`'s
+supported subset (literals, name lookups, primitive Int/Double arithmetic,
+comparisons).
+
+- `pureCallValue` split into `pureCallValueMatch` (the existing match path,
+  unchanged) and a new `pureCallValueGeneric`. The generic path looks up the
+  function body in `interp.pureBodyCache` (an `IdentityHashMap[Term, AnyRef]`
+  keyed by the body's AST node — stable across `FunV` rebuilds since the AST
+  is immutable; sentinel `PatternRuntime.PureBodyMiss` distinguishes "tried
+  and bailed" from "not yet tried"). On a hit it invokes the cached
+  `SlotBody` directly with the args passed positionally as `v0`/`v1` — no
+  per-call `FrameMap.one`/`two`, no `Pure` wrapper.
+- `PatternRuntime.compileSlotBody` and its supporting `SlotBody` type
+  widened to `private[interpreter]`. No code duplication — the same compiler
+  serves match-arm slot bodies and pure non-match function bodies.
+
+New `InterpreterBench.pureCallSum` exercises the exact shape A4 targets:
+`def f(x: Int): Int = x + 1; var total = 0; while i < 1_000_000 do total =
+total + f(i); i = i + 1`. Clean same-session A/B JMH (2 forks × 5 iters,
+stash-baseline → bench → pop → bench):
+
+| Bench | Baseline | Spike | Δ |
+|---|---|---|---|
+| `pureCallSum` time | 2541.089 ± 23.366 ms | **118.850 ± 1.093 ms** | **−95.3%** (21.4×) |
+| `pureCallSum` `alloc.rate.norm` | 134,731,016 B/op | **71,247,169 B/op** | **−47.1%** |
+
+`patternMatchHeavy`/`Wide` unchanged (they hit `pureCallValueMatch`, not the
+new generic path). `recursionFib`/`Tco`/`recursiveEval`/`arithLoop`/
+`tupleMonoid`/`effectPure` all within noise. Full 1204-test suite green
+with gate off AND on.
+
+The 21× speedup is on the same order as switching from interpreter to JIT —
+because for `f(x) = x + 1` we essentially WERE doing JIT-quality work (the
+SlotBody returns IntV directly via `numericFastValue`), eliminating both the
+per-call `Pure` wrapper and the param-frame allocation. The remaining 71 MB
+alloc is mostly the outer-loop `i = i + 1` IntV+Pure overhead that the
+non-tryLongWhileAssign path still pays (mixed apply+assign while body).
+
 **Remaining Phase D work:**
 
 - **Broader closure shapes** — multi-statement closure bodies (e.g.
   `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, `foreach` over
   `Set`/`Map`/`Option`, accumulator declared inside a nested block
   (resolution via closure-env instead of globals).
-- **Pure-call direct-style runner (A4 proper)** — generalize the raw-prim
-  bridge to a typed unboxed-result call ABI for the whole pure compilable
-  subset, not just the foreach-accumulator shape. Would also help any
-  `xs.map(area).sum`-style code.
+- **Mixed apply+assign while bodies** — currently `tryLongWhileAssign` bails
+  if a block has non-`Assign` stmts (the patternMatch outer-while is
+  `{foreach_apply, i_assign}`). Generalizing it to accept leading pure
+  applies (e.g. FastTier-handled foreach) + trailing long-assigns would
+  remove the per-iter `i = i + 1` IntV+Pure overhead. Targets `pureCallSum`'s
+  residual ~71 MB and `patternMatchHeavy`/`Wide`'s residual 4–9 MB.
 
 ---
 

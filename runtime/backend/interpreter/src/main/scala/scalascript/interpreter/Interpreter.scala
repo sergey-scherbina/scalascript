@@ -535,6 +535,17 @@ class Interpreter(
   private[interpreter] val pfCache: java.util.IdentityHashMap[scala.meta.Term.PartialFunction, PatternRuntime.CompiledMatch] =
     java.util.IdentityHashMap()
 
+  /** Cache of compiled pure function bodies (the A4 Tier-2b pure-call target).
+   *  Value is either a `PatternRuntime.SlotBody` (the cached compiled body) or
+   *  the `PatternRuntime.PureBodyMiss` sentinel (tried, body outside the
+   *  fast-path subset). Keyed by AST node identity — function body terms are
+   *  stable across `FunV` rebuilds since the AST is immutable. Lets
+   *  `EvalRuntime.pureCallValue` fold pure non-`Match`-bodied 1- or 2-param
+   *  function calls (e.g. `def f(x: Int): Int = x + 1`) directly to a `Value`,
+   *  skipping the per-call `Pure` wrapper and the param `FrameMap` allocation. */
+  private[interpreter] val pureBodyCache: java.util.IdentityHashMap[scala.meta.Term, AnyRef] =
+    java.util.IdentityHashMap()
+
   /** Cache of `closure.updated(name, f)` per FunV — the self-ref binding
    *  is identical on every invocation of the same closure, so we save
    *  one HashMap.updated allocation per call. */

@@ -1815,9 +1815,23 @@ gated on same-session A/B + full suite green with the gate off AND on.
           `alloc.rate.norm` 28.24 MB → **4.32 MB/op (−84.7%)**.
       Full 1204-test `backendInterpreter` suite green with gate off AND on. See
       [`docs/vm-jit-next.md §"Phase D — Update 2026-06-01"`](docs/vm-jit-next.md).
+      **2026-06-02: A4 (pure-call direct-style) sub-target ALSO landed** —
+      generalized `EvalRuntime.pureCallValue` (previously match-bodied only) to
+      run any function whose body is in `PatternRuntime.compileSlotBody`'s
+      subset (lits / names / primitive Int+Double arith / comparison) directly
+      to a `Value`, no `Pure` wrapper and no per-call `FrameMap` (params passed
+      positionally as `v0`/`v1`). Cached by AST identity in
+      `interp.pureBodyCache`. New `InterpreterBench.pureCallSum`
+      (`def f(x: Int): Int = x + 1` called 1M times) clean A/B:
+        - time:                **2541.089 → 118.850 ms/op (−95.3%, 21.4×)**
+        - `alloc.rate.norm`:  134.7 MB → **71.2 MB/op (−47.1%)**
+      `patternMatchHeavy`/`Wide` unchanged (their match-bodied path is the
+      pre-existing `pureCallValueMatch`); `recursionFib/Tco/recursiveEval`,
+      `arithLoop`, `tupleMonoid`, `effectPure` all within noise of pre-A4.
+      Full 1204-test suite green with gate off AND on.
       Remaining Phase D scope: broader closure shapes (multi-stmt blocks,
-      2-param closures, foreach over Set/Map/Option), pure-call direct-style
-      ABI (A4 proper) covering `xs.map(f).sum`-style code.
+      2-param closures, foreach over Set/Map/Option). The 1-param non-Match
+      pure-call gap is now closed.
 
 ## v1.55 — First-class XML / Generic Markup
 

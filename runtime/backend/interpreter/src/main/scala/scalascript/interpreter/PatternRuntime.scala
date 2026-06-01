@@ -292,7 +292,12 @@ private[interpreter] object PatternRuntime:
   // closure / globals). Returns null for anything outside the supported subset.
 
   /** Bound locals passed positionally (`v0`/`v1`, unused = null); free names via env. */
-  private type SlotBody = (Value, Value, Env) => Value | Null
+  private[interpreter] type SlotBody = (Value, Value, Env) => Value | Null
+
+  /** Sentinel for the pure-body cache (EvalRuntime.pureCallValue): "tried to
+   *  compile, body is not in the fast-path subset". A separate AnyRef so the
+   *  IdentityHashMap distinguishes "not yet tried" (null) from "tried, bail". */
+  private[interpreter] val PureBodyMiss: AnyRef = new AnyRef
 
   // Slot variants of DExpr for the unboxed-double fold. DSlot reads a bound local
   // by index; DFreeName reads a free name from env/globals.
@@ -375,7 +380,7 @@ private[interpreter] object PatternRuntime:
 
   /** Compile a pure body into a `SlotBody`, or null if outside the subset.
    *  `n0`/`n1` name the (≤2) bound locals in pattern field order. */
-  private def compileSlotBody(term: Term, n0: String | Null, n1: String | Null, interp: Interpreter): SlotBody | Null =
+  private[interpreter] def compileSlotBody(term: Term, n0: String | Null, n1: String | Null, interp: Interpreter): SlotBody | Null =
     term match
       case ai @ Term.ApplyInfix.After_4_6_0(_, op, _, ac)
           if ac.values.lengthCompare(1) == 0 && isArithOp(op.value) && containsDoubleLit(ai) =>
