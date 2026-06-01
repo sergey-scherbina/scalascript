@@ -27,9 +27,7 @@ class NumericJsConformanceTest extends AnyFunSuite with Matchers:
     ps.flush()
     buf.toString.trim
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(code: String): String =
     val js  = JsRuntime + "\n" + JsGen.generate(module(code))
@@ -39,7 +37,7 @@ class NumericJsConformanceTest extends AnyFunSuite with Matchers:
     val proc = ProcessBuilder("node", tmp.getAbsolutePath).start()
     val out  = Source.fromInputStream(proc.getInputStream).mkString
     val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok   = proc.waitFor()
+    val ok   = ProcTestUtil.awaitExit(proc)
     if ok != 0 then fail(s"node run failed ($ok):\n$err")
     out.trim
 

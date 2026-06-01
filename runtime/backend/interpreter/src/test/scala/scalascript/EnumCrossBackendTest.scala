@@ -38,13 +38,12 @@ class EnumCrossBackendTest extends AnyFunSuite with Matchers:
     val ps  = java.io.PrintStream(buf, true)
     Interpreter(ps).run(module); ps.flush(); buf.toString.trim
 
-  private def has(cmd: String): Boolean =
-    try ProcessBuilder(cmd, "--version").start().waitFor() == 0 catch case _: Throwable => false
+  private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
   private def runProc(cmd: String*): String =
     val p = ProcessBuilder(cmd*).start()
     val out = Source.fromInputStream(p.getInputStream).mkString
     val err = Source.fromInputStream(p.getErrorStream).mkString
-    if p.waitFor() != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
+    if ProcTestUtil.awaitExit(p) != 0 then fail(s"${cmd.head} failed:\n$err"); out.trim
 
   test("interpreter result is the expected baseline"):
     interp() shouldBe "Dr\nCr\n2"

@@ -268,9 +268,7 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
 
   // ── Run-via-scala-cli tests ────────────────────────────────────────
 
-  private lazy val hasScalaCli: Boolean =
-    try ProcessBuilder("scala-cli", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private lazy val hasScalaCli: Boolean = ProcTestUtil.commandOk("scala-cli")
 
   private def compileWithScalaCli(code: String): Int =
     val sc = jvmCode(code)
@@ -283,7 +281,7 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
       .redirectError(err)
       .redirectOutput(ProcessBuilder.Redirect.DISCARD)
       .start()
-    val exitCode = proc.waitFor()
+    val exitCode = ProcTestUtil.awaitExit(proc)
     if exitCode != 0 then
       val msg = scala.io.Source.fromFile(err).mkString
       println(s"scala-cli compile failed for ${tmp.getAbsolutePath}:\n$msg")

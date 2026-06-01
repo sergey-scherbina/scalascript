@@ -39,14 +39,13 @@ class MoneyCrossBackendTest extends AnyFunSuite with Matchers:
     Interpreter(ps).run(Parser.parse(moduleSrc))
     ps.flush(); buf.toString.trim
 
-  private def has(cmd: String): Boolean =
-    try ProcessBuilder(cmd, "--version").start().waitFor() == 0 catch case _: Throwable => false
+  private def has(cmd: String): Boolean = ProcTestUtil.commandOk(cmd)
 
   private def runProc(cmd: String*): String =
     val proc = ProcessBuilder(cmd*).start()
     val out  = Source.fromInputStream(proc.getInputStream).mkString
     val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    if proc.waitFor() != 0 then fail(s"${cmd.head} failed:\n$err")
+    if ProcTestUtil.awaitExit(proc) != 0 then fail(s"${cmd.head} failed:\n$err")
     out.trim
 
   test("money.ssc — JVM output matches the interpreter"):

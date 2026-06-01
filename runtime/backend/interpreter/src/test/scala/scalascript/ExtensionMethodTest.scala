@@ -160,9 +160,7 @@ class ExtensionMethodTest extends AnyFunSuite with Matchers:
 
   // ── JS execution via node ─────────────────────────────────────────────────
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(code: String): String =
     val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
@@ -174,7 +172,7 @@ class ExtensionMethodTest extends AnyFunSuite with Matchers:
       .redirectErrorStream(true)
       .start()
     val out = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   test("JsGen: no-arg extension on User case class runs correctly via node"):

@@ -24,9 +24,7 @@ import scalascript.parser.Parser
  *  CI environments without it keep working. */
 class JvmGenSqlRuntimeTest extends AnyFunSuite {
 
-  private lazy val hasScalaCli: Boolean =
-    try ProcessBuilder("scala-cli", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private lazy val hasScalaCli: Boolean = ProcTestUtil.commandOk("scala-cli")
 
   /** Path to the freshly-built `scalascript-backend-sql-runtime` JAR,
    *  injected via `Test / resourceGenerators` in `build.sbt`. */
@@ -84,7 +82,7 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
     val proc = pb.start()
     val out  = new String(proc.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
     val err  = new String(proc.getErrorStream.readAllBytes(), StandardCharsets.UTF_8)
-    val code = proc.waitFor()
+    val code = ProcTestUtil.awaitExit(proc)
     (code, out, err)
 
   // ── Tests ───────────────────────────────────────────────────────────

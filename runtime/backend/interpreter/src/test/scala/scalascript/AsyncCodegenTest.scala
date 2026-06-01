@@ -53,9 +53,7 @@ class AsyncCodegenTest extends AnyFunSuite with Matchers:
 
   // ── JvmGen run-via-scala-cli tests ───────────────────────────────────
 
-  private lazy val hasScalaCli: Boolean =
-    try ProcessBuilder("scala-cli", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private lazy val hasScalaCli: Boolean = ProcTestUtil.commandOk("scala-cli")
 
   private def runJvm(code: String): String =
     val sc = jvmCode(code)
@@ -66,7 +64,7 @@ class AsyncCodegenTest extends AnyFunSuite with Matchers:
       .redirectError(ProcessBuilder.Redirect.DISCARD)
       .start()
     val out = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   test("JvmGen: runAsync sequential await"):
@@ -100,9 +98,7 @@ class AsyncCodegenTest extends AnyFunSuite with Matchers:
 
   // ── JsGen run-via-node tests ─────────────────────────────────────────
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(code: String): String =
     val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
@@ -114,7 +110,7 @@ class AsyncCodegenTest extends AnyFunSuite with Matchers:
       .redirectErrorStream(true)
       .start()
     val out = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   test("JsGen: runAsync sequential await"):

@@ -102,11 +102,7 @@ serve(__PORT__)
       tmp.delete()
   }
 
-  private def hasNode: Boolean =
-    try
-      val p = ProcessBuilder("node", "--version").redirectErrorStream(true).start()
-      p.waitFor(); p.exitValue() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = scalascript.ProcTestUtil.commandOk("node")
 
   private def pickFreePort(): Int =
     val s = ServerSocket(0)

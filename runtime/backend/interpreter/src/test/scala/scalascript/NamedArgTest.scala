@@ -48,9 +48,7 @@ class NamedArgTest extends AnyFunSuite with Matchers:
   private def moduleOf(code: String) =
     Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(code: String): String =
     val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
@@ -62,7 +60,7 @@ class NamedArgTest extends AnyFunSuite with Matchers:
       .redirectErrorStream(true)
       .start()
     val out   = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   // ─── Interpreter: basic named args ────────────────────────────────

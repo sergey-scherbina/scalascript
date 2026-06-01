@@ -14,9 +14,7 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
   private def module(code: String) =
     Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(code: String): String =
     val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
@@ -28,7 +26,7 @@ class JsGenUsingTest extends AnyFunSuite with Matchers:
       .redirectErrorStream(true)
       .start()
     val out   = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   // ── explicit using (already worked before v1.13) ─────────────────────
@@ -185,11 +183,7 @@ class JsGenReservedParamTest extends AnyFunSuite with Matchers:
     js should include ("add")
 
   test("reserved-keyword params do not cause a JS syntax error at parse time"):
-    assume(
-      try { ProcessBuilder("node", "--version").start().waitFor() == 0 }
-      catch case _: Throwable => false,
-      "node not available"
-    )
+    assume(ProcTestUtil.commandOk("node"), "node not available")
     val js = generate("def foo(default: Int): Int = default + 1\nprintln(foo(42))")
     val tmp = java.io.File.createTempFile("ssc-reserved-", ".cjs")
     tmp.deleteOnExit()
@@ -197,4 +191,4 @@ class JsGenReservedParamTest extends AnyFunSuite with Matchers:
       (JsRuntime + "\n" + js).getBytes(java.nio.charset.StandardCharsets.UTF_8))
     val proc = ProcessBuilder("node", "--check", tmp.getAbsolutePath)
       .redirectErrorStream(true).start()
-    proc.waitFor() shouldBe 0
+    ProcTestUtil.awaitExit(proc) shouldBe 0

@@ -9,9 +9,7 @@ import scala.io.Source
 
 class JsGenIndexedDbTest extends AnyFunSuite:
 
-  private def hasNode: Boolean =
-    try ProcessBuilder("node", "--version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
   private def runJs(js: String): String =
     val tmp = java.io.File.createTempFile("ssc-indexeddb-", ".cjs")
@@ -21,7 +19,7 @@ class JsGenIndexedDbTest extends AnyFunSuite:
       .redirectErrorStream(true)
       .start()
     val out = Source.fromInputStream(proc.getInputStream).mkString
-    proc.waitFor()
+    ProcTestUtil.awaitExit(proc)
     out.trim
 
   private val source =

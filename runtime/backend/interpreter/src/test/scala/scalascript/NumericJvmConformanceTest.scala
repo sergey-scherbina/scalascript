@@ -26,9 +26,7 @@ class NumericJvmConformanceTest extends AnyFunSuite with Matchers:
     ps.flush()
     buf.toString.trim
 
-  private def hasScalaCli: Boolean =
-    try ProcessBuilder("scala-cli", "version").start().waitFor() == 0
-    catch case _: Throwable => false
+  private def hasScalaCli: Boolean = ProcTestUtil.commandOk("scala-cli", "version")
 
   private def runJvm(code: String): String =
     val scala = JvmGen.generate(module(code))
@@ -43,7 +41,7 @@ class NumericJvmConformanceTest extends AnyFunSuite with Matchers:
     val proc = ProcessBuilder("scala-cli", "run", tmp.getAbsolutePath).start()
     val out  = Source.fromInputStream(proc.getInputStream).mkString
     val err  = Source.fromInputStream(proc.getErrorStream).mkString
-    val ok   = proc.waitFor()
+    val ok   = ProcTestUtil.awaitExit(proc)
     if ok != 0 then fail(s"scala-cli run failed ($ok):\n$err")
     out.trim
 
