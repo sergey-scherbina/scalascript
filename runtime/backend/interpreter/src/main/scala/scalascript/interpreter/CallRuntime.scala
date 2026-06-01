@@ -2,7 +2,7 @@ package scalascript.interpreter
 
 import scala.meta.*
 import scala.collection.immutable.{Map => IMap}
-import Computation.Pure
+import Computation.{Pure, FlatMap, PureUnit}
 
 /** Call helpers: callValue, callFun (with TCO + factory stubs + defaults),
  *  callValueNamed (named-arg reordering), typeToString, isThrowsType,
@@ -55,19 +55,64 @@ private[interpreter] object CallRuntime:
         (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty }) =>
       val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
       val callEnv:  Env = FrameMap.one(f.params.head, arg, withSelf)
-      val frameName = if f.name.nonEmpty then f.name else "<anon>"
-      val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
-      interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
-      val profiling = Profiler.enabled
-      val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
-      val result =
-        try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
-        catch case r: ReturnSignal => Pure(r.value)
-      if profiling && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
-      if interp.callStackNonEmpty then interp.callStackPop()
-      result
+      runBody1(f, callEnv, interp)
     case f: Value.NativeFnV => f.f(arg :: Nil)
     case _ => callValue(fn, arg :: Nil, env, interp)
+
+  /** Evaluate a simple 1-param FunV body against an already-prepared call env.
+   *  Shared by `callValue1Slow` (which builds a fresh `FrameMap.one`) and the
+   *  reused-frame iteration fast path (`foreachReusing`). Pushes/pops the call
+   *  stack and converts a non-local `return` into `Pure(value)`, mirroring the
+   *  prior inline logic exactly. */
+  private[interpreter] def runBody1(f: Value.FunV, callEnv: Env, interp: Interpreter): Computation =
+    val frameName = if f.name.nonEmpty then f.name else "<anon>"
+    val relLine   = if interp.currentSpanLine >= 0 then interp.currentSpanLine + 1 else 0
+    interp.callStackPush(frameName, interp.debugSourceFile, interp.debugBlockDocLine + relLine)
+    val profiling = Profiler.enabled
+    val t0 = if profiling && f.name.nonEmpty then System.nanoTime() else 0L
+    val result =
+      try TcoRuntime.runUntilSuspension(interp.eval(f.body, callEnv))
+      catch case r: ReturnSignal => Pure(r.value)
+    if profiling && f.name.nonEmpty then Profiler.record(f.name, System.nanoTime() - t0)
+    if interp.callStackNonEmpty then interp.callStackPop()
+    result
+
+  /** True when `f` is a simple 1-param FunV that `callValue1Slow` handles on its
+   *  non-allocating fast path — so its body can run against a `ReusableFrame1`. */
+  private[interpreter] def isSimple1ParamFun(f: Value.FunV, interp: Interpreter): Boolean =
+    f.params.length == 1 &&
+    f.usingParams.isEmpty &&
+    !f.returnsThrows &&
+    (f.defaults.isEmpty || f.defaults.head.isEmpty) &&
+    (f.paramTypes.isEmpty || !f.paramTypes.head.endsWith("*")) &&
+    (f.name.isEmpty || { val i = TcoRuntime.tcoInfoFor(f, interp); !i.isSelfTailRec && i.tailTargets.isEmpty })
+
+  /** `xs.foreach(f)` with a single reused frame instead of a `FrameMap1` per
+   *  element. For a simple 1-param `FunV` whose body returns `Pure` on every
+   *  element, one `ReusableFrame1` is mutated across the whole sequence — safe
+   *  because a `Pure` result can retain the env only via a by-value closure
+   *  snapshot (see `ReusableFrame1`). The first non-`Pure` result (a deferred
+   *  effect that may close over the frame) bails: the frame is left untouched and
+   *  the remaining elements run through the allocating `foreachSequence` path. */
+  def foreachReusing(ls: List[Value], f: Value.FunV, env: Env, interp: Interpreter): Computation =
+    if !isSimple1ParamFun(f, interp) then
+      return Computation.foreachSequence(ls, item => callValue1(f, item, env, interp))
+    val withSelf: Env = if f.name.nonEmpty then interp.closureWithSelfFor(f) else f.closure
+    val frame = new ReusableFrame1(f.params.head, withSelf)
+    var rem = ls
+    while rem.nonEmpty do
+      val item = rem.head
+      // JITted bodies run compiled code and never touch the frame; keep that path.
+      val jit = scalascript.interpreter.vm.JitRuntime.tryRun1(f, item, interp)
+      val r =
+        if jit != null then jit
+        else { frame.v1 = item; runBody1(f, frame, interp) }
+      r match
+        case Pure(_) => rem = rem.tail
+        case comp =>
+          val tail = rem.tail
+          return FlatMap(comp, _ => Computation.foreachSequence(tail, it => callValue1(f, it, env, interp)))
+    PureUnit
 
   /** Two-argument fast path: avoids allocating List(a, b) on foldLeft/foldRight/reduceLeft calls.
    *  For simple 2-param FunV (no varargs, no using, no defaults, no TCO) builds the call env

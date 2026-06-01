@@ -162,7 +162,9 @@ private[interpreter] object DispatchRuntime:
       case "map"        => Computation.mapSequence(ls, item => interp.callValue1(arg, item, env))
       case "filter"     => Computation.filterSequence(ls, item => interp.callValue1(arg, item, env))
       case "filterNot"  => Computation.filterNotSequence(ls, item => interp.callValue1(arg, item, env))
-      case "foreach"    => Computation.foreachSequence(ls, item => interp.callValue1(arg, item, env))
+      case "foreach"    => arg match
+        case f: Value.FunV => CallRuntime.foreachReusing(ls, f, env, interp)
+        case _             => Computation.foreachSequence(ls, item => interp.callValue1(arg, item, env))
       case "flatMap"    =>
         val buf = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
         var rem = ls
