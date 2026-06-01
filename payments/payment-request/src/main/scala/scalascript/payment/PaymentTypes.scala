@@ -1,5 +1,7 @@
 package scalascript.payment
 
+import scala.annotation.nowarn
+
 /** Shared types for Payment Request API — used by both the JVM server
  *  implementation and the interpreter mock. */
 
@@ -7,6 +9,7 @@ package scalascript.payment
 @deprecated("Use scalascript.payments.money.Money for type-safe fiat amounts", since = "1.53.1")
 case class Amount(currency: String, value: String)
 
+@nowarn("cat=deprecation")
 case class PaymentItem(label: String, amount: Amount, pending: Boolean = false)
 
 enum CardNetwork:
@@ -24,6 +27,7 @@ enum ShippingType:
 enum PaymentComplete:
   case Success, Fail, Unknown
 
+@nowarn("cat=deprecation")
 case class ShippingOption(
   id:       String,
   label:    String,

@@ -168,19 +168,19 @@ distribution shape.
   `serveRuntimePart1` / `Part1b` / `Part2` strings deleted.  ~0.5 day.
 
 **Trade-offs.**
-- + Loses **all** the string-template friction (manual `|`-prefix,
+- - Loses **all** the string-template friction (manual `|`-prefix,
   64 KB literal limit, no type checking, no IDE support, no refactor
   tooling).
-- + Codegen runtime becomes a first-class Scala module with full
+- - Codegen runtime becomes a first-class Scala module with full
   type-checking at *our* build time, IDE support, refactor tooling,
   and (with Phase E in place) unit tests.
-- + Generated scripts remain **self-contained** — the runtime source
+- - Generated scripts remain **self-contained** — the runtime source
   is still inlined as text, just sourced from real `.scala` files
   rather than from `"""|..."""` strings.
-- + Zero distribution change: ssc is still a fat jar with zero
+- - Zero distribution change: ssc is still a fat jar with zero
   external runtime deps; users still don't need Internet to run a
   generated script after `ssc compile`.
-- + Zero version-compatibility surface — runtime ships embedded in
+- - Zero version-compatibility surface — runtime ships embedded in
   ssc; every ssc release carries its own runtime; no "user pinned
   v0.3 of the runtime against ssc v0.5" failure mode.
 - − scala-cli still recompiles the runtime from source per user-script
@@ -216,9 +216,9 @@ per-VT-per-connection (matching the codegen).  Add a coarse-grained
    semantics as today.
 
 **Trade-offs.**
-- + One `WebSocket` class instead of two.  Heartbeat, outbox, slot
+- - One `WebSocket` class instead of two.  Heartbeat, outbox, slot
   reservation, close handshake all live in one place.
-- + JDK 21+ virtual threads remove the historical "NIO is faster" gap
+- - JDK 21+ virtual threads remove the historical "NIO is faster" gap
   for the interpreter.
 - − Interpreter under WS load now has one VT per connection plus an
   executor.  Lock contention on `Interpreter.lock` becomes the
@@ -257,10 +257,10 @@ one library (Netty or Jetty) that supports all three out of the box.
    not a different dispatch model.
 
 **Trade-offs.**
-- + ~700 LOC of `TlsProxy` + `WsProxy` deletes.
-- + No more "internal HttpServer on 127.0.0.1" detour.  Direct WS
+- - ~700 LOC of `TlsProxy` + `WsProxy` deletes.
+- - No more "internal HttpServer on 127.0.0.1" detour.  Direct WS
   upgrade on the public socket regardless of TLS.
-- + HTTP/2 + HTTP/3 + ALPN come for free (Jetty/Netty handle them).
+- - HTTP/2 + HTTP/3 + ALPN come for free (Jetty/Netty handle them).
 - − **External runtime dependency** Jetty (~3 MB) — currently we have
   zero external deps at runtime.  ssc binary size grows.
 - − Generated scala-cli scripts now pull Jetty.  See Option A's
@@ -296,9 +296,9 @@ closure to the codegen-side runtime's `_routes.add`.  There's then
    `Routes.scala`, `WsRoutes.scala` all delete.
 
 **Trade-offs.**
-- + Eliminates the entire **reason** for Phase 2 to exist.  One
+- - Eliminates the entire **reason** for Phase 2 to exist.  One
   runtime, one set of bugs to fix, one set of perf to tune.
-- + Interpreter perf for HTTP/WS becomes codegen perf (much faster
+- - Interpreter perf for HTTP/WS becomes codegen perf (much faster
   for hot routes — no Value boxing/unboxing per call).
 - − Loses immediate-eval semantics inside route handlers: handler
   bodies are compiled at registration time, not interpreted line by
@@ -334,10 +334,10 @@ first (`HttpHelpers`, `WsReassembler`, `WsRateLimiter`, `WsHandshake`,
 `HttpDispatchLoop`).
 
 **Trade-offs.**
-- + No risk, no behaviour change, only confidence gain.
-- + Unblocks the strategic moves: A/B/C/D each touch large surfaces;
+- - No risk, no behaviour change, only confidence gain.
+- - Unblocks the strategic moves: A/B/C/D each touch large surfaces;
   having a fast test suite means we ship them with safety.
-- + Catches regressions that conformance suites only catch slowly.
+- - Catches regressions that conformance suites only catch slowly.
 - − Real time investment with no immediate user-visible benefit.
 
 **Effort.**  ~1–2 days for the table-driven helpers.  ~3–5 days for

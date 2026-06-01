@@ -10,19 +10,26 @@
 // Usage: scala-cli conformance/run.sc [conformance-dir]
 //   conformance-dir defaults to the directory of this script
 
+// Find the repo root by walking up from cwd looking for build.sbt.
+def repoRoot: os.Path =
+  Iterator.iterate(os.pwd)(_ / os.up)
+    .takeWhile(p => p != p / os.up)
+    .find(p => os.exists(p / "build.sbt"))
+    .getOrElse(os.pwd)
+
 val dir: os.Path =
   args.filterNot(_ == "--").headOption match
     case Some(p) => os.Path(p, os.pwd)
-    case None    => os.pwd / "conformance"
+    case None    => repoRoot / "tests" / "conformance"
 
 val expectedDir = dir / "expected"
-val sscBin      = dir / os.up / "bin" / "ssc"
+val sscBin      = repoRoot / "bin" / "ssc"
 
-// Requires the pre-built launcher. Build with `bash scripts/install.sh ./bin/ssc`
+// Requires the pre-built launcher. Build with `bash install.sh --dev`
 // (which produces cli/target/scala-3.8.3/ssc.jar via sbt-assembly and writes
 // bin/ssc as a tiny java -jar wrapper).
 if !os.exists(sscBin) then
-  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash scripts/install.sh ./bin/ssc")
+  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash install.sh --dev")
   System.exit(2)
 
 def ssc(args: String*): os.proc =

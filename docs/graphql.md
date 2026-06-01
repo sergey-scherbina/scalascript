@@ -1022,7 +1022,7 @@ Implemented:
 - Non-subscription requests with SSE accept fall through to normal JSON response.
 - `graphqlSse(url, query[, variables])` intrinsic — POST with `Accept: text/event-stream`,
   parses `data:` lines from the response body, returns `List` of parsed event payloads.
-- `executeRemoteSse`: splits body on `\n\n`, extracts `data: ` lines, parses JSON.
+- `executeRemoteSse`: splits body on `\n\n`, extracts `data:` lines, parses JSON.
 - `GraphQLSseTest`: 11 tests covering content-type, cache-control, body format,
   multi-event order, non-subscription fallthrough, blank-query error, variable passthrough.
 

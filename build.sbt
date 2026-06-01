@@ -2026,6 +2026,7 @@ lazy val walletVaultLedgerJs = project
 lazy val walletVaultLedgerBluetoothJs = project
   .in(file("payments/wallet/vault-ledger-bluetooth-js"))
   .enablePlugins(ScalaJSPlugin)
+  .dependsOn(walletSpiJs, cryptoSpiJs, blockchainSpiJs)
   .settings(
     name := "scalascript-wallet-vault-ledger-bluetooth-js",
     libraryDependencies ++= Seq(

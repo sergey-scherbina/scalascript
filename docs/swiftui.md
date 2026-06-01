@@ -97,6 +97,7 @@ def emit(module): EmittedSpa  // throws — web SPA not supported
 `ReactiveSignal[T]` → `@State private var <id>: <Type> = <initial>`
 
 Type inference:
+
 | ScalaScript initial type | Swift type |
 |---|---|
 | `Boolean` | `Bool` |

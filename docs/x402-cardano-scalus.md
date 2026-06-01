@@ -302,7 +302,7 @@ the base, with all 5 purposes overridden defensively.
 
 The upickle 3.3.1 → 4.4.2 bump (commit `b736c5a6`) unblocked the
 Scalus library dependency, and the validator source (`X402EscrowScript`
-+ `EscrowDatum` + `EscrowRedeemer`) now type-checks against Scalus 0.15.1
+- `EscrowDatum` + `EscrowRedeemer`) now type-checks against Scalus 0.15.1
 in our build. Design lessons applied:
 
 - Single-purpose validator written as plain
@@ -317,7 +317,7 @@ in our build. Design lessons applied:
 But a **harder blocker** surfaced when trying to actually compile the
 validator to UPLC:
 
-7. **Scalus compiler plugin requires Scala 3.3.7 internal dotty APIs.**
+1. **Scalus compiler plugin requires Scala 3.3.7 internal dotty APIs.**
    `PlutusV3.compile(...)` is not a library method — it's intercepted
    by the `scalus-plugin` compiler plugin. The plugin (latest 0.16.0)
    was built against Scala 3.3.7 and references

@@ -194,7 +194,7 @@ All phases merged to `origin/main` per AGENTS.md rule 3.
 
   - `RUN_SPARK_INTEGRATION=1` gates `scala-cli compile` against
     real Spark `_2.13` JARs — same as the Phase E smoke tests.  F.2
-    + F.3 examples added here.
+    - F.3 examples added here.
   - `RUN_SPARK_KAFKA=1` (new) gates the Kafka smoke test.  Requires
     a running Kafka broker on `localhost:9092` with topics
     `ssc-streaming-in` and `ssc-streaming-out` pre-provisioned.

@@ -1,12 +1,10 @@
 package scalascript.payments.caeft
 
-import scalascript.payments.bankrails.*
-import scalascript.payments.money.{Money, Currency}
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest as JHttpRequest, HttpResponse as JHttpResponse}
 import java.net.http.HttpResponse.BodyHandlers
 import java.nio.charset.StandardCharsets
-import java.time.{Duration, Instant, LocalDate}
+import java.time.{Duration, LocalDate}
 import java.time.format.DateTimeFormatter
 
 /** Canada EFT / Interac e-Transfer configuration.

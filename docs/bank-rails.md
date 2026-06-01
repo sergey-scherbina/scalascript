@@ -639,7 +639,7 @@ examples/
 
 All four adapter subprojects follow the 2-file + META-INF layout established in
 `runtime/std/payments-stripe/` (a single `<Rail>Provider.scala` + `<Rail>Intrinsics.scala`
-+ `META-INF/services/scalascript.payments.BankRailsProvider`).
+- `META-INF/services/scalascript.payments.BankRailsProvider`).
 
 ---
 
@@ -807,27 +807,27 @@ future milestone.
 Production SEPA and ACH require sponsorship / direct FI connectivity.  Should the spec
 assume all adapters use an aggregator API (Modern Treasury, Column, Stripe) and note
 direct-connect as an extension, or specify both paths from the start?
-_Recommended resolution: aggregator-first.  Direct EBICS / FedLine connectivity is an
-extension; mark as `@experimental` in the adapter._
+*Recommended resolution: aggregator-first.  Direct EBICS / FedLine connectivity is an
+extension; mark as `@experimental` in the adapter.*
 
 **Q2 — Mandate provisioning API**
 Modern Treasury and Column expose mandate creation APIs (POST /mandates).  Should
 `BankRailsProvider` gain `createMandate` / `cancelMandate` methods in v1.54.1, or keep
 mandate setup out-of-band?
-_Recommended resolution: out-of-band for v1.54.1; add a `MandateProvisioningExtension`
-optional mixin in a v1.54.1.x follow-up if demand emerges._
+*Recommended resolution: out-of-band for v1.54.1; add a `MandateProvisioningExtension`
+optional mixin in a v1.54.1.x follow-up if demand emerges.*
 
 **Q3 — Pix QR code generation**
 QR code image generation requires a dependency (ZXing or similar).  Should it be in the
 core SPI or in a separate `pix-qr-plugin`?
-_Recommended resolution: separate optional subproject `runtime/std/payments-pix-qr/` to
-avoid pulling ZXing into the base adapter._
+*Recommended resolution: separate optional subproject `runtime/std/payments-pix-qr/` to
+avoid pulling ZXing into the base adapter.*
 
 **Q4 — FedNow Request for Payment (RfP)**
 RfP (payee-initiated payment request) is a FedNow feature with a distinct message flow.
 Should it be in v1.54.4 or deferred?
-_Recommended resolution: defer to v1.54.4.x.  pacs.008 credit transfer covers the primary
-use case (payer-initiated push payments)._
+*Recommended resolution: defer to v1.54.4.x.  pacs.008 credit transfer covers the primary
+use case (payer-initiated push payments).*
 
 ---
 

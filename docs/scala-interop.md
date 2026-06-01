@@ -20,7 +20,7 @@ Status:
   JAR directly via `scala-cli run --jar lib.jar --scala 3.8.3` —
   no facade `.class` files, no plugin, no manual demangling.
 - **Tier 3** ✓ landed — `sbt-scalascript-interop` plugin + Mill
-  + scala-cli documentation (2026-05-27).  See §6 for the full API.
+  - scala-cli documentation (2026-05-27).  See §6 for the full API.
 
 Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 
@@ -553,7 +553,7 @@ Tier 1 lands.
 
 Comparable language ecosystems:
 - **Kotlin → Java interop**: Kotlin generates `@JvmName` annotations
-  + companion-object facade `.class` files.  Tier 1's `scalaFacade` is
+  - companion-object facade `.class` files.  Tier 1's `scalaFacade` is
   the analogue, but the consumer-side facade is generated externally
   instead of bundled.
 - **Clojure → Java interop**: `gen-class` + `:methods` declaration in

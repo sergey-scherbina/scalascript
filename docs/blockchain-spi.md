@@ -99,7 +99,7 @@ blockchain-cardano        # CIP-8, lovelace, native assets
 ```
 
 Cross-compile model mirrors `runtime-server-spi` / `runtime-server-jvm`
-+ `runtime-server-jvm-jetty` / `-netty`. Discovery via
+- `runtime-server-jvm-jetty` / `-netty`. Discovery via
 `ServiceLoader` on JVM, static registry on Scala.js (open question §13.1
 in `wallet-spi.md` applies here too — resolved once for both SPIs).
 

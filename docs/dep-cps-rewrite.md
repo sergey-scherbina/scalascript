@@ -385,7 +385,7 @@ count: 34 → **36 passed**, 6 → 3 pending.  Canary
    `_dispatch(cluster, "healthCheck", List(...))`, the named arg
    `timeoutMs = 1000` would land inside `List(...)` and Scala
    would reject it (List has no such param).  Strip the
-   `name = ` prefix conservatively (only when LHS looks like
+   `name =` prefix conservatively (only when LHS looks like
    an identifier).  Runtime reflection is positional anyway.
 
 4. **`depTypeNames` registry** + dep-type **qualification** in

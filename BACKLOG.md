@@ -202,14 +202,14 @@ and a `Money`/`Currency` std library — identical across interpreter, JVM, and 
 - [x] **v1.64.5-numerics-js-codegen** - Native JS `BigInt`; `_Decimal` runtime
       helper (BigInt-backed, capability-gated in preamble); ops; node-run
       conformance vs interpreter/JVM. Spec: `docs/exact-numerics.md §5, §8`.
-      ✓ Landed 2026-05-30 (BigInt-backed _Decimal, all rounding modes, _arith
+      ✓ Landed 2026-05-30 (BigInt-backed _Decimal, all rounding modes,_arith
       operator routing, _dispatch methods; node conformance 6 tests, suite 1142).
 - [x] **v1.64.6-money-stdlib** - `runtime/std/money/`: `Currency` (ISO 4217
       table, per-org overridable), `Money`, `RoundingMode`, cent-preserving
       `allocate`/`distribute`, `format`/`parse`. Cross-backend tests. Spec:
       `docs/exact-numerics.md §6`. ✓ Landed 2026-05-30 (runtime/std/money.ssc;
       7 interpreter tests + JVM/JS conformance; allocation preserves cents).
-- [x] **v1.64.7-numerics-sugar** *(optional)* - Suffix literals `123n`/`12.34m`,
+- [x] **v1.64.7-numerics-sugar** _(optional)_ - Suffix literals `123n`/`12.34m`,
       oversized-int auto-promotion, `money"…"` interpolator — via the preprocessor
       pass. Spec: `docs/exact-numerics.md §4.2, §7`. ✓ Landed 2026-05-30:
       `numeric-literals` preprocessor (14 unit + 4 e2e/cross-backend tests).
@@ -757,25 +757,25 @@ and the "deflation" benefit on the three large codegens.
 Every code generator hardcodes platform intrinsics as match arms on
 `Term.Name`:
 
-  - `backend-jvm/JvmGen.scala`     — 4500 LOC, ~⅓ is HTTP/WS/auth
+- `backend-jvm/JvmGen.scala`     — 4500 LOC, ~⅓ is HTTP/WS/auth
     inlined match cases.
-  - `backend-js/JsGen.scala`       — 5400 LOC, similar split.
-  - `backend-interpreter/Interpreter.scala` — 4500 LOC, dozens of
+- `backend-js/JsGen.scala`       — 5400 LOC, similar split.
+- `backend-interpreter/Interpreter.scala` — 4500 LOC, dozens of
     `nativeP("route")` / `nativeP("onWebSocket")` / … blocks.
 
 Costs of this shape:
 
-  - Adding a platform primitive touches three files.
-  - No cross-backend parity check at build time; conformance suite
+- Adding a platform primitive touches three files.
+- No cross-backend parity check at build time; conformance suite
     catches misses post-hoc.
-  - Individual intrinsics aren't independently testable.
-  - Third-party platform extensions impossible — the code lives
+- Individual intrinsics aren't independently testable.
+- Third-party platform extensions impossible — the code lives
     inside `core/`, not in plugins.
 
 ### What the SPI followups deliver
 
 Stages already designed and planned in `docs/spi-followups-plan.md`
-+ `docs/spi-intrinsics-design.md`:
+- `docs/spi-intrinsics-design.md`:
 
   - **5+/A.4 — per-call-site `ExternCall` dispatch.**  ✅ **LANDED** (2026-05-18).
     Achieved via AST-level `dispatchIntrinsic` / `dispatchIntrinsicJs` in
@@ -823,18 +823,18 @@ out-of-tree plugin path is one ServiceLoader-discovery wire-up.
 
 Remaining UX/distribution work (not blocking the SPI mechanism):
 
-  - **Package format** (`.sscpkg` archive with manifest + sources +
+- **Package format** (`.sscpkg` archive with manifest + sources +
     optional pre-compiled IR) — ✅ **LANDED** (2026-05-21).
-  - **Plugin resolver** — ✅ **LANDED** (2026-05-21): `pkg:` URI in
+- **Plugin resolver** — ✅ **LANDED** (2026-05-21): `pkg:` URI in
     `ImportResolver` + `BackendRegistry.findInstalledPkg` + auto-download
     via `LocalRegistry`.  `ssc install` shortcut also landed.
-  - **Registry** — local registry (`~/.scalascript/registry.yaml`) with
+- **Registry** — local registry (`~/.scalascript/registry.yaml`) with
     pre-seeded entries landed.  Remote registry (`registry.scalascript.io`)
     deferred; no concrete demand yet.
 
   Post-migration follow-ons (not blocking; tracked in `docs/intrinsics-migration.md` §11):
 
-  - **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
+- **Plugin test harness** — ✅ **LANDED (2026-05-26)**:
     `runtime/backend/test-utils` now provides `TestInterpreter(plugins =
     List(...))`, explicit plugin installation on `Interpreter`, and a harness
     self-test. Follow-up landed 2026-05-26: legacy std-plugin-backed
@@ -844,21 +844,21 @@ Remaining UX/distribution work (not blocking the SPI mechanism):
     `frontendPlugin`, `swingPlugin`, `httpPlugin`, `authPlugin`, `oauthPlugin`, `wsPlugin`, `mcpPlugin`, and `sqlPlugin` now have
     isolated `src/test` suites via `testUtils % Test`. Remaining plugin-family
     suites have been migrated; the separate `sql {}` fenced-block dispatch refactor remains tracked below.
-  - **Examples `pkg:` sweep** — ✅ **LANDED (2026-05-26)**: created `runtime/std/auth.ssc` (extern declarations for all auth-plugin intrinsics: CSRF, cookie, bcrypt, JWT, TOTP, WebAuthn, rate-limit, oauth client helpers); added `[route, serve, Response, Request](std/http.ssc)` import lines to 22 HTTP-using examples; added targeted `[csrfToken, …](std/auth.ssc)` imports to 4 auth-using examples (auth-demo, auth-full, oauth-demo, webauthn-demo).
-  - **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
+- **Examples `pkg:` sweep** — ✅ **LANDED (2026-05-26)**: created `runtime/std/auth.ssc` (extern declarations for all auth-plugin intrinsics: CSRF, cookie, bcrypt, JWT, TOTP, WebAuthn, rate-limit, oauth client helpers); added `[route, serve, Response, Request](std/http.ssc)` import lines to 22 HTTP-using examples; added targeted `[csrfToken, …](std/auth.ssc)` imports to 4 auth-using examples (auth-demo, auth-full, oauth-demo, webauthn-demo).
+- **Jdbc `runSqlBlock` refactor** — ✅ **LANDED (2026-05-26)**:
     `Backend.sqlBlockRunner` + `SqlBlockContext` route plain `sql` fenced
     blocks through `sqlPlugin`; `SectionRuntime` only binds block results.
     Follow-up landed: `transaction` fenced blocks now route through the same
     plugin runner via `SqlBlockRunner.runTransaction`.
-  - **`NativeContext` state-bag** — ✅ **LANDED (2026-05-26)**:
+- **`NativeContext` state-bag** — ✅ **LANDED (2026-05-26)**:
     `NativeContext` now exposes shared `feature*` and scoped `featureLocal*`
     state APIs. HTTP client config keys route through feature-local storage;
     existing named methods remain compatible.
-  - **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
+- **`interpreter-server` extraction** — ✅ **LANDED (2026-05-26)**:
     socket/server runtime moved to `runtime/backend/interpreter-server` as
     `backendInterpreterServer` behind `InterpreterServerSupport`. `Routes` /
     `WsRoutes` remain in interpreter core pending a smaller route-registry SPI.
-  - **Route-registry SPI** — ✅ **LANDED (2026-05-26)**:
+- **Route-registry SPI** — ✅ **LANDED (2026-05-26)**:
     `RouteRegistry` trait added to `interpreter` core; `Routes` extends it;
     `Interpreter.routeRegistry` field injected into `InterpreterHttpHandler`,
     `WebServer.start`, and `InterpreterServerSupportImpl` — decouples HTTP
@@ -971,7 +971,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/final-tagless.md`](docs/final-tagless.md).
      Closes carryover items 1 + 4 from v1.1.  Unlocks idiomatic FT
      across `runtime/std/*` and unblocks v1.14 `derives` + v1.15 `throws`.
- 19. **v1.15 — Checked errors via `throws`** ✓ Landed.
+ 20. **v1.15 — Checked errors via `throws`** ✓ Landed.
      **Higher priority than v1.14** — closes the everyday
      error-handling story; prerequisite for many real apps.
      Dual-encoding: canonical `infix type throws[A, E] = Either[E, A]`
@@ -985,7 +985,7 @@ unblocks downstream features as early as possible.
      per-backend.  Full design in
      [`docs/error-handling.md`](docs/error-handling.md).  Depends on
      v1.8 ✓ (direct-syntax) + v1.13 (`using` + cross-file traits).
- 20. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** ✓ Landed.
+ 21. **v1.14 — Metaprogramming MVP (`inline` + `derives`)** ✓ Landed.
      weeks).
      `inline def`/`val`/`if`/`match` + `compiletime.summonInline`
      compile-time evaluator, plus Tier 1 `derives` recipes for
@@ -994,7 +994,7 @@ unblocks downstream features as early as possible.
      Full design in [`docs/metaprogramming.md`](docs/metaprogramming.md).
      User-defined macros (`quoted.Expr`) explicitly out of scope —
      deferred to v2.x.  Depends on v1.13 (`Mirror` resolution).
- 21. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
+ 22. **v1.17 — MCP support (client + server)** ✓ Landed (Phases 1–7);
      v1.17.1 hardening ✓ Landed; v1.17.2 SSE/JS ✓ Landed;
      v1.17.3 prompts/JVM ✓ Landed; v1.17.4-min Http/Ws/JVM (minimal
      wiring, echo placeholder) ✓ Landed; v1.17.4-runtime consolidation
@@ -1002,8 +1002,8 @@ unblocks downstream features as early as possible.
      pure helpers + POJO HTTP model + RequestBuilder / ResponseWriter
      / StreamResponseWriter + StaticAssetServer + WsHandshake /
      Reassembler / RateLimiter + HttpDispatchLoop + WsFrameDispatch
-     + HttpHelpers.{parseCookieHeader, readHttpHead, parseHttpHead}
-     + TlsProxy migration, 29 inlined files) + Phase 3 (Option A:
+     - HttpHelpers.{parseCookieHeader, readHttpHead, parseHttpHead}
+     - TlsProxy migration, 29 inlined files) + Phase 3 (Option A:
      serveRuntime out of string templates — 4 real .scala files in
      a new runtime-server-jvm module, ~1750 LOC migrated from the
      """|..."""  template) + Option B (interpreter WS to per-VT
@@ -1108,7 +1108,7 @@ unblocks downstream features as early as possible.
      `OAuthGuard.check(headers, validator, requiredScopes?, realm?)`
      returns `GuardDecision { Allow(claims) | Deny(routeOutcome) }`;
      401 carries WWW-Authenticate; 403 carries `insufficient_scope`
-     + the required-scope list (so clients know what to request).
+     - the required-scope list (so clients know what to request).
      Script API: `oauth.guard(authServer, scopes?)(handler)` curries
      into a `req => Response` wrapped handler; alternative
      `oauth.guardWithValidator(validatorFn, scopes?)(handler)` for
@@ -1186,7 +1186,7 @@ unblocks downstream features as early as possible.
        - **`scalascript.oauth.OAuthClient`** — client-side OAuth SDK
          covering all three roles' Client half: `discoverAs(issuer)`
          / `discoverRs(resourceUrl)` metadata lookups; `freshPkce()`
-         + `authorizationUrl(...)` for the auth-code+PKCE flow;
+         - `authorizationUrl(...)` for the auth-code+PKCE flow;
          `exchangeAuthorizationCode / refresh / clientCredentials`
          token endpoints; `TokenHolder` with lazy auto-refresh when
          the cached token is within `refreshLeadSeconds` of expiry.
@@ -1211,7 +1211,7 @@ unblocks downstream features as early as possible.
          the "token issued for RS-A used at RS-B" attack.  Accepts
          both string and array forms of `aud` per RFC 7519 §4.1.3.
        - **OIDC `nonce` claim** round-trip: `AuthorizationRequest`
-         + `/authorize` route + `AuthorizationCodeRecord` carry it
+         - `/authorize` route + `AuthorizationCodeRecord` carry it
          from the authorize step to the AS's nonce side-map; OIDC
          `mintIdToken` pulls it out + embeds in the id_token —
          defeats id_token replay against a different request.
@@ -1391,12 +1391,12 @@ unblocks downstream features as early as possible.
          Corrupt lines are skipped (resilient to partial writes).
        - `JsonLineTokenStore(path, graveyardCap = 10_000)` — same
          pattern across 8 event kinds:
-           * `code.save` / `code.consume` (auth codes; one-shot
+           - `code.save` / `code.consume` (auth codes; one-shot
              consumption persists across restart)
-           * `refresh.save` / `refresh.revoke` (rotation history;
+           - `refresh.save` / `refresh.revoke` (rotation history;
              revoked tokens auto-populate the graveyard on replay
              so reuse detection still trips post-restart)
-           * `access.revoke` / `family.revoke` (deny lists for the
+           - `access.revoke` / `family.revoke` (deny lists for the
              RFC 7009 + reuse-detection paths)
        - End-to-end test: register a client + mint a token via one
          AS instance, drop the AS, recreate from the same files,
@@ -1431,7 +1431,7 @@ unblocks downstream features as early as possible.
        **(#2) `examples/oidc-login-flow.ssc`** — complete OIDC
        login walk-through: PKCE + state CSRF + /authorize redirect +
        /token exchange + /userinfo bearer call + id_token signature
-       + claim verification.  Two pre-registered users; manual curl
+       - claim verification.  Two pre-registered users; manual curl
        recipe; JVM-side `validateIdToken` snippet.
 
        **(#3) Three MCP server templates** —
@@ -1453,13 +1453,13 @@ unblocks downstream features as early as possible.
      sender-constrained tokens); PAR (RFC 9126 Pushed
      Authorization Requests); MTLS client auth (RFC 8705 —
      depends on ALPN / client-cert chains).
- 22. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
- 23. **v1.19 — URL / dep imports** ✓ Landed.
+ 23. **v1.18 — `package` keyword + std layout migration** ✓ Landed (all phases, 2026-05-19).
+ 24. **v1.19 — URL / dep imports** ✓ Landed.
      `[X](https://...)` URL fetch + `[X](dep:org/lib:1.2)`
      resolver, both with `ssc.lock` SHA-256 integrity-check.
      `ssc lock` / `ssc lock check` CLI.  Central registry
      deferred to v1.19.x.
- 24. **v1.20 — DSL primitives + `runtime/std/parsing`** ✓ Landed (all sub-versions).
+ 25. **v1.20 — DSL primitives + `runtime/std/parsing`** ✓ Landed (all sub-versions).
      User-defined string interpolators cross-backend +
      parser-combinator library (`runtime/std/parsing/*`) + AST/pretty-
      printer helpers (`runtime/std/dsl/*`).  Reified-by-default; Parser
@@ -1468,22 +1468,22 @@ unblocks downstream features as early as possible.
      [`docs/dsl.md`](docs/dsl.md).
      v1.20.1 (parser error recovery), v1.20.2 (indentation-aware),
      v1.20.3 (multi-pass pipeline) — all landed.  See CHANGELOG v1.20.
- 25. **v1.21 — Local map-reduce (`Dataset[T]`)** ✓ Landed.
+ 26. **v1.21 — Local map-reduce (`Dataset[T]`)** ✓ Landed.
      Lazy `Dataset[T]` fluent API with sequential + parallel
      local execution (v1.3 Async.parallel on JVM; sequential
      fallback on JS pending v1.3 Node parallel).  Streaming
      via v1.10 generators.  Full design in
      [`docs/mapreduce.md`](docs/mapreduce.md).
- 26. **v1.22 — Distributed map-reduce** ✓ Landed.
+ 27. **v1.22 — Distributed map-reduce** ✓ Landed.
      Same `Dataset[T]` API, distributed via v1.6 distributed
      actors.  Coordinator-dispatched partitions, named-handler
      registry (no closure serialisation), coordinator-mediated
      shuffle, configurable failure handling.  Closure
      serialisation + worker-to-worker shuffle in v1.22.x.
- 27. **Cluster management** ✓ Landed in v1.23.
+ 28. **Cluster management** ✓ Landed in v1.23.
      Shipped: membership view + events + per-link + cluster-wide
      Phi-accrual failure detection + `std.cluster.Cluster.*` wrapper
-     + Bully leader election (with auto re-elect) + auto-reconnect
+     - Bully leader election (with auto re-elect) + auto-reconnect
      on outbound link drops + periodic gossip re-discovery + cluster
      config distribution (LWW per key, snapshot on handshake) +
      rolling-restart drain protocol + cluster metrics aggregation
@@ -1495,11 +1495,11 @@ unblocks downstream features as early as possible.
      share `electLeader` / `currentLeader` / `subscribeLeaderEvents`;
      see [`docs/cluster-raft.md`](docs/cluster-raft.md) for the
      unified API and per-protocol algorithms.
- 28. **6+/C — HostCallback dispatcher** (~1 week).
+ 29. **6+/C — HostCallback dispatcher** (~1 week).
      Stage 6+/C from spi-followups-plan.md.  Unblocks the first
      out-of-process (.NET / WASM) backend MVP.  Parked because no
      such backend is in flight.
- 29. **v2.0 — Separate compilation** — MVP + post-MVP hardening ✓ Landed
+ 30. **v2.0 — Separate compilation** — MVP + post-MVP hardening ✓ Landed
      (2026-05-19): artifact format, `InterfaceExtractor` (with
      `exports:` filtering + package-wrapped object walk), `ArtifactIO`,
      `InterfaceScope` (real type parser), `Linker` (FQN rewrite, 7 e2e
@@ -1520,10 +1520,10 @@ here for prioritisation, not pending work.
 
 If two contributors:
 
-  - **One** drives the SPI critical path: 1 → 2 → 3 → 5 → 8.
-  - **Other** does v1.5 functional features 4 → 6 → 7 in parallel
+- **One** drives the SPI critical path: 1 → 2 → 3 → 5 → 8.
+- **Other** does v1.5 functional features 4 → 6 → 7 in parallel
     after SPI 5+/A.4/A.5 land.
-  - v1.6 Phase 2 and v1.5 Tier 4/5 can interleave anywhere they fit.
+- v1.6 Phase 2 and v1.5 Tier 4/5 can interleave anywhere they fit.
 
 ### When the order changes
 
@@ -1546,7 +1546,7 @@ component pack, REST middleware, layout kit — without vendoring its
 files into their own tree.  The steps are ordered so each one is
 useful in isolation and unblocks the next.
 
-1. **Registry** *(future)*.  Central index (`registry.scalascript.io`)
+1. **Registry** _(future)_.  Central index (`registry.scalascript.io`)
    with semver resolution, lock file (`ssc.lock`), publish/yank
    workflow.  Weeks of work; only worth opening once the surface
    above is well-trodden.  Out of scope for v0.7.
@@ -2067,7 +2067,7 @@ Phase 3 / operational hardening (landed 2026-05-19):
   additive-friendly on payload."
 - **`ssc verify <dir>`**: operational health-check command. Walks
   artifact dir, validates envelope + ABI + sourceHash shape + cross-refs
-  + runtime coverage.  `--strict` adds source-freshness check;
+  - runtime coverage.  `--strict` adds source-freshness check;
   `--json` for machine-readable CI output.  Output uses `[OK]/[WARN]/[FAIL]`
   markers (safer than ✓/⚠/✗ glyphs in non-UTF8 terminals).
 
@@ -2156,7 +2156,7 @@ honesty-pass round addressed the most-impactful ones (all five
 landed, 50+ new tests, 546 core + ~75 CLI subprocess green):
 
 1. **LSP positional accuracy** — `ExportedSymbol` gets `definitionLine`
-   + `definitionColumn` fields populated by `InterfaceExtractor` from
+   - `definitionColumn` fields populated by `InterfaceExtractor` from
    scalameta positions; `Content.CodeBlock` gets `lineOffset` populated
    by `Parser` from CommonMark line numbers.  LSP cross-module
    go-to-definition stops returning `(0,0)`; multi-block hover/definition
@@ -2231,7 +2231,7 @@ What landed:
   mangling and cross-module collision detection.
 - `core/artifact/ModuleGraph.scala`: Kahn's topo-sort of `.ssc` files;
   `isStale` compares SHA-256 source hash vs artifact.
-- `core/typer/Typer.scala`: `Typer(importedInterfaces)` constructor + 
+- `core/typer/Typer.scala`: `Typer(importedInterfaces)` constructor +
   `Typer.typeCheckWithInterfaces` factory — backward-compatible.
 - `cli/Main.scala`: six new commands — `emit-interface`, `emit-ir`,
   `check-with-iface`, `link`, and `build --incremental`.
@@ -2280,7 +2280,7 @@ Stage 5.3 / typer / JVM-incremental (landed 2026-05-19):
   the linker finds the longest common whole-line prefix and emits it once.
   Real bytecode-level mangling is Phase 2.
 - `ssc build --incremental --backend jvm <dir>` — emits `.scim` + `.scir`
-  + `.scjvm` per stale module; SHA-256 staleness check makes the build
+  - `.scjvm` per stale module; SHA-256 staleness check makes the build
   truly incremental (untouched modules skip codegen).
 
 Auto-resolve for per-module compile (landed 2026-05-19):
@@ -2370,11 +2370,11 @@ representation.
 
 ### Prerequisites
 
-  - Stage 5+/B + 5+/D (intrinsic-module extraction) **landed** —
+- Stage 5+/B + 5+/D (intrinsic-module extraction) **landed** —
     otherwise the "modules" concept is fragmented between SourceLanguage
     plugins, Backend plugins, and embedded platform code.
-  - SPI v0.1 IR serialisation **shipped** — already done (Stage 2).
-  - Real motivating use case — at least one third-party package
+- SPI v0.1 IR serialisation **shipped** — already done (Stage 2).
+- Real motivating use case — at least one third-party package
     that benefits from being distributed pre-compiled.
 
 ### Why deferred
@@ -2383,10 +2383,10 @@ Single-program compilation is the dominant scenario today; the
 existing whole-tree compile is fast enough for the size of programs
 we see.  Separate compilation pays off when:
 
-  - A package ecosystem emerges (multiple third-party `.sscpkg`s
+- A package ecosystem emerges (multiple third-party `.sscpkg`s
     in active use).
-  - Build times exceed comfort (>30s incremental).
-  - IDE / language-server demand emerges.
+- Build times exceed comfort (>30s incremental).
+- IDE / language-server demand emerges.
 
 None of these are true in 2026.  Tracked here so the conversation
 isn't restarted from scratch when one becomes true; the design
@@ -2436,7 +2436,7 @@ that uses them lands.
 Things noticed in passing while landing other work — not blocking, but
 worth a separate fix when somebody has cycles.
 
-- ~~**v1.22 distributed-* conformance tests fail on JVM**~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `docs/dep-cps-rewrite.md`.
+- ~~__v1.22 distributed-_ conformance tests fail on JVM_*~~  ✓ **Landed (2026-05-20)** — dep-block CPS rewriting (Steps 0–7) landed on `feature/dep-cps`; all six tests (`distributed-{map,shuffle,failure-retry,failure-partial,heterogeneous}` + `cluster-connect`) now PASS [JVM]. Root cause was dep-block effect primitives bypassing the CPS rewriter; fixed via `analyzeDepEffectfulness` fixpoint + `cpsBody` parameter threading through the emit path. Full design history in `docs/dep-cps-rewrite.md`.
 
 - ~~**`actors-process-info.ssc` JVM compile failures (Term.Match pattern-bind)**~~  ✓ **Landed (2026-05-20)** — `emitCpsExpr` `Term.Match` arm was not registering `Pat.Var` names in `anyBoundNames`, so `case Some(info) => info.links.length` emitted `info.links` directly on an `Any`-typed scrutinee binding, causing Scala compile errors. Fix: collect `Pat.Var` names per case arm and wrap with `withAnyBoundNames(...)` (mirrors the identical treatment in the `Term.PartialFunction` arm). Also fixed: `import actors.ProcessInfo` dropped via `sscDepModulePrefixes`; `_dispatch` Map key-access fallback for `processInfo`'s `Map[String,Any]` return; `object Overflow` added to runtime preamble; `_FlatMap((), senderK)` deferred resume in `_resumeBlockedSender` so `Block`-overflow sender continuation runs in its own scheduler turn (fixes `actors-bounded-mailbox.ssc` output ordering).
 
@@ -2760,7 +2760,7 @@ re-evaluate only changed sections and their dependents.
 Phase 1 (capability groups): JS runtime preamble was emitted unconditionally
 into every single-file output.  Partitioned into named capability groups
 (Core, Async, Effects, Mcp, Dataset) and wired up `JsGen.detectCapabilities`
-+ `JsGen.generateRuntime` in the single-file emit paths.
+- `JsGen.generateRuntime` in the single-file emit paths.
 
 Phase 2 (worklist dead-code elimination, 2026-05-27): `TreeShaker` worklist
 reachability analysis starting from `@main`, manifest `exports`, and
@@ -2837,7 +2837,7 @@ fast-path.
 reusing the `DebugHooks` / `BreakpointRegistry` infrastructure from the DAP
 debugger (v1.29).  The interpreter runs on a background virtual thread; when
 it hits a breakpoint or step stop it blocks and the REPL main thread enters a
-`(debug) ` sub-prompt.
+`(debug)` sub-prompt.
 
 - [x] `ReplDebugHooks` — breakpoints, step modes (StepIn/StepOver/StepOut),
       `stoppedQueue` + `suspendLatch` threading model; `mkHooks(): DebugHooks`
@@ -3264,7 +3264,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > that chain `spark.read.schema(schemaOf[T]).options(opts.toMap).X(path).as[T]`
 > so a case-class declaration IS the schema specification — closes C.3)
 > all landed.  CLI side: `--describe-backend` also grew `capabilities.options`
-> + `capabilities.blockLanguages` lines so the Spark surface is fully
+> - `capabilities.blockLanguages` lines so the Spark surface is fully
 > discoverable from the command line.
 > v1.25 § 9.5 milestone is now complete end-to-end (Phases A, B.1, B.2, C.1,
 > C.2, all of C.3, plus Phase D — `@SqlFn` UDF bridge from `scalascript`
@@ -3297,7 +3297,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   `summonInline[AgnosticEncoder[t]]` for each field; nested products
 >   land as Spark `struct` columns.  Verified end-to-end with
 >   `examples/spark-nested-demo.ssc` (`Person` with `Option[Int]` age
->   + nested `Address`).
+>   - nested `Address`).
 > - ✓ Collection fields (`Seq[T]`, `List[T]`, `Vector[T]`, `Set[T]`,
 >   `Array[T]`, `Map[K, V]`) via `AgnosticEncoders.IterableEncoder` /
 >   `ArrayEncoder` / `MapEncoder`.  `containsNull` /
@@ -3316,7 +3316,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   makes the function callable from sql blocks") now actually works
 >   end-to-end on Scala 3 + Spark `_2.13`.  Limitations: only `def`
 >   form is recognised; generic return types degrade to `StringType`
->   + `// TODO`.  Verified with `examples/spark-udf-demo.ssc`.
+>   - `// TODO`.  Verified with `examples/spark-udf-demo.ssc`.
 > - ✓ Tuple-as-field — `Mirror.ProductOf[(A, B, …)]` is auto-synth'd
 >   by Scala 3 since tuples are products, so the existing
 >   `aenc_Product[T <: Product]` given handles tuples as case-class
@@ -3479,7 +3479,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   (path) keys threaded through `BackendOptions.extra` into
 >   `SparkGen`.  Emits `.config("spark.sql.catalogImplementation",
 >   "hive")` + `.config("spark.hadoop.hive.metastore.uris", "<uri>")`
->   + `.config("spark.sql.warehouse.dir", "<path>")` +
+>   - `.config("spark.sql.warehouse.dir", "<path>")` +
 >   `.enableHiveSupport()` on the builder when either key is set
 >   (or when `enableHiveSupport()` appears in user code).
 >   Auto-adds `org.apache.spark:spark-hive_2.13:<sparkVersion>` as
@@ -3515,7 +3515,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   the caller doesn't care whether the table sits in the metastore
 >   or was registered five lines earlier as a temp view.  Lands with
 >   `examples/spark-hive-demo.ssc` (combines G.2 warehouse front-matter
->   + G.3 @TempView annotation + G.4 fromTable read in one end-to-end
+>   - G.3 @TempView annotation + G.4 fromTable read in one end-to-end
 >   round trip via Spark's embedded derby metastore — no external Hive
 >   service required) and an opt-in smoke test gated by
 >   `RUN_SPARK_INTEGRATION=1 && RUN_SPARK_HIVE=1`.  3 new SparkGenTest
@@ -3542,7 +3542,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 > all work end-to-end without any front-matter or CLI override.
 > Detection is regex-driven on import-header substrings, same shape
 > as the Streaming / Lakehouse tracks — purely additive over Phase E
-> + F + Lakehouse L.2.
+> - F + Lakehouse L.2.
 >
 > Full plan: [`docs/spark-mllib.md`](docs/spark-mllib.md).
 >
@@ -3622,7 +3622,7 @@ Thin `backend-wasm-contract/` layer on top of `backend-wasm/` for Near or Polkad
 >   `RUN_SPARK_INTEGRATION=1 RUN_SPARK_MLLIB=1`.  Verified locally
 >   under Scala 3.7.1 + Spark 4.0.0 + JDK 21 — generated source
 >   resolves, type-checks, and preserves the `model.write.overwrite().save`
->   + `PipelineModel.load` calls bit-identically.  Documented
+>   - `PipelineModel.load` calls bit-identically.  Documented
 >   caveats in the example: save() writes a directory tree (not a
 >   single file), cross-Spark-major load is MLlib's own concern,
 >   custom non-stock components must implement `MLWritable` /
@@ -3701,33 +3701,33 @@ Same source, same semantics, different scale.
 
 **Phase 2 — Cluster submission (~1 week): ✓ LANDED (2026-05-19)**
 
-5. ✓ `ssc submit file.ssc --spark-master spark://host:7077` packages the job
+1. ✓ `ssc submit file.ssc --spark-master spark://host:7077` packages the job
    as a fat JAR via `scala-cli --power package --assembly` and calls
    `spark-submit --master <url> --class runSparkJob <jar>`.
-6. ✓ Support `--spark-master yarn` / `--spark-master k8s://...` — argv pinned
+2. ✓ Support `--spark-master yarn` / `--spark-master k8s://...` — argv pinned
    in `SparkSubmit.submitCommand` tests across all four master URL shapes
    (`local[*]`, `spark://`, `yarn`, `k8s://`).
-7. ✓ `--` separator after the file passes extra args through to `spark-submit`
+3. ✓ `--` separator after the file passes extra args through to `spark-submit`
    verbatim — `--executor-memory`, `--num-executors`, `--deploy-mode cluster`,
    etc.  Verified in `SubmitCommandTest`.
-8. ✓ `--dry-run` prints the argv that would be invoked without shelling out;
+4. ✓ `--dry-run` prints the argv that would be invoked without shelling out;
    used by shell integration tests and useful for users inspecting what
    `ssc submit` is about to do.
 
 **Phase 3 — Spark SQL and DataFrames (~1 week): ✓ LANDED (2026-05-19)**
 
-7. ✓ Expose `DataFrame` as `Dataset[Row]` with a typed schema — `DataFrame`
+1. ✓ Expose `DataFrame` as `Dataset[Row]` with a typed schema — `DataFrame`
    and `Row` widened into the emitted `sparkImports`, `_sqlBlock_<N>: DataFrame`
    bindings from sql blocks, typed `fromXAs[T : Encoder]` cousins of the
    readers return real `Dataset[T]`.
-8. ✓ Case-class declarations map to Spark `StructType` via
+2. ✓ Case-class declarations map to Spark `StructType` via
    `Dataset.schemaOf[T : Encoder] = summon[Encoder[T]].schema`.  This
    subsumes the original "map `runtime/std/parsing` schemas" goal: case classes
    are the canonical schema declaration in Scala, and Spark's existing
    Encoder mechanism already derives the StructType from them — a custom
    parser-combinator → StructType layer would have been wasted work
    duplicating Spark's own derivation.
-9. ✓ Inline SQL via `sql` fenced blocks — see Phase C.1 / C.2 above.
+3. ✓ Inline SQL via `sql` fenced blocks — see Phase C.1 / C.2 above.
    String-interpolated `sql"..."` was the original sketch; the fenced-
    block path turned out cleaner (whole-block parameterisation via the
    shared `SqlBindRewriter`, alias-able by section).
@@ -4188,7 +4188,7 @@ today).
       table; used by future Phase 4/5 backends to decide which npm
       deps to emit.
 - [x] Tests:
-      * 12 dispatch + enum-surface cases (`ProviderIdTest`).
+      *12 dispatch + enum-surface cases (`ProviderIdTest`).
       * 13 emit cases (`SqlRuntimeJsEmitTest`): resource load,
         registry-init JS shape for empty / single / full / multi
         entries, `${env:NAME}` preservation, jsString escapes, full
@@ -4228,7 +4228,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
       (annotation override path, populated by future-Phase 6 codegen)
       first; falls back to `_ssc_sql_registry.connect(dbName ?? "default")`.
 - [x] Bundle preamble — `sql-runtime.mjs` source inlined verbatim
-      (with `export ` stripped so names land at script-level scope),
+      (with `export` stripped so names land at script-level scope),
       followed by `const SqlRuntimeJs = { execute, ConnectionRegistry,
       ... }` namespace alias.  User body wrapped in
       `(async () => { ... })().catch(...)` — required for the per-
@@ -4244,7 +4244,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
       pulls in `SqlRuntimeJsEmit` for codegen + the bundled .mjs
       classpath resource.
 - [x] Tests: `JsGenSqlBlockTest` (12 cases) — no-sql passthrough,
-      preamble emission, `export ` stripping, async IIFE wrap,
+      preamble emission, `export` stripping, async IIFE wrap,
       empty/populated registry, `${env:NAME}` preservation,
       per-block `_sqlBlock_<N>` emission with / without binds,
       sequential numbering, section alias (first-only, second
@@ -4286,7 +4286,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
       Phase 6 — until then, `jdbc:` URLs surface a runtime
       `UnsupportedJdbcUrl` from `sql-runtime.mjs`.
 - [x] `NodeBackendSqlTest` (8 cases):
-      * 5 unit cases — no-sql passthrough; sqlite-only deps; duckdb-
+      *5 unit cases — no-sql passthrough; sqlite-only deps; duckdb-
         only deps (+ web-worker); both providers; no-databases-declared
         fallback (lists everything).
       * 3 end-to-end cases — sqlite in-memory CRUD, DuckDB
@@ -4304,7 +4304,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
 - [x] `WasmBackend.emitJsShim` — when sql blocks are present, the
       `Segmented` result gains three assets mirroring NodeBackend's
       package-json emit:
-      * `Segment.Asset("sql-runtime.mjs", …)` — bundled JS runtime via
+      *`Segment.Asset("sql-runtime.mjs", …)` — bundled JS runtime via
         `SqlRuntimeJsEmit.runtimeSource`.
       * `Segment.Asset("sql-registry.mjs", …)` — per-module registry
         init derived from `manifest.databases`.
@@ -5064,7 +5064,7 @@ that registers itself through the Stage 1 cross-platform
 **Not yet implemented on JS** (raise `UnsupportedOperationException`):
 HD derivation (`deriveMaster` / `deriveChild`), PBKDF2, Argon2id,
 AES-GCM. PBKDF2 / Argon2id / AES-GCM land in Stage 5 (encrypted vault
-+ SubtleCrypto adapter). HD derivation lands when the first JS-side
+- SubtleCrypto adapter). HD derivation lands when the first JS-side
 strategy module needs it (Stage 3 or 4).
 
 ### Stage 3 — Strategy + connector cross-compile ✓ Landed (2026-05-20)
@@ -5723,7 +5723,7 @@ wraps existing contract. 16 tests (lifecycle, cooperative close, dispute path, p
 
 `HydraNodeClient` trait — Java 11 `java.net.http.WebSocket` live impl + in-process `StubHydraNodeClient`.
 `HydraMessage` — `HydraServerMsg` (HeadIsOpen, TxValid, TxInvalid, HeadIsClosed, HeadIsFinalized, …)
-+ `HydraClientMsg` (NewTx, Close, Fanout) with JSON parsing/serialisation.
+- `HydraClientMsg` (NewTx, Close, Fanout) with JSON parsing/serialisation.
 `HydraChannel` — payer-side `pay()` (NewTx → waits TxValid via Promise), payee-side `receive()`
 (waits TxValid for txId from receipt), `settle()` (Close → HeadIsClosed → Fanout → HeadIsFinalized).
 `HydraHeadProvider` — opens channel against a connected Hydra node; `stub()` helper for tests.

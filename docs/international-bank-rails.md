@@ -324,6 +324,7 @@ the same `idempotencyKey` arrives after submission, rather than double-submittin
 Each adapter's `WebhookReceiver[BankRailsEvent]` maps incoming payloads to the cases in §4.5.
 
 ### SWIFT (v1.55.1)
+
 | Event case | Trigger |
 |------------|---------|
 | `SwiftMt103Booked` | MT910/MT940 confirmation from correspondent bank |
@@ -334,6 +335,7 @@ Each adapter's `WebhookReceiver[BankRailsEvent]` maps incoming payloads to the c
 Webhook auth: `X-SWIFT-Signature` HMAC-SHA256 over raw body using shared secret agreed at aggregator on-boarding.
 
 ### SEPA Instant (v1.55.2)
+
 | Event case | Trigger |
 |------------|---------|
 | `SctInstSettled` | pacs.002 `ACCC` from TIPS/RT1 acknowledgment via aggregator |
@@ -342,6 +344,7 @@ Webhook auth: `X-SWIFT-Signature` HMAC-SHA256 over raw body using shared secret 
 Webhook auth: same `X-SEPA-Signature: sha256=<hex>` scheme as SEPA CT (reuses `SepaWebhookReceiver` logic).
 
 ### UK FPS (v1.55.3)
+
 | Event case | Trigger |
 |------------|---------|
 | `UkFpsAccepted` | `Accepted` status notification from Pay.UK scheme via aggregator |
@@ -351,6 +354,7 @@ Webhook auth: same `X-SEPA-Signature: sha256=<hex>` scheme as SEPA CT (reuses `S
 Webhook auth: `X-FPS-Signature: sha256=<hex>` HMAC-SHA256.
 
 ### UK BACS DD (v1.55.4)
+
 | Event case | Trigger |
 |------------|---------|
 | `BacsDdSubmitted` | Aggregator confirms file accepted into BACS cycle |
@@ -361,6 +365,7 @@ Webhook auth: `X-FPS-Signature: sha256=<hex>` HMAC-SHA256.
 Webhook auth: `X-BACS-Signature` HMAC-SHA256.
 
 ### UK CHAPS (v1.55.5)
+
 | Event case | Trigger |
 |------------|---------|
 | `ChapsSettled` | pacs.002 `ACCC` from BoE / aggregator |
@@ -369,6 +374,7 @@ Webhook auth: `X-BACS-Signature` HMAC-SHA256.
 Webhook auth: `X-CHAPS-Signature: sha256=<hex>`.
 
 ### India UPI (v1.55.6)
+
 | Event case | Trigger |
 |------------|---------|
 | `UpiCollectInitiated` | UPI Collect request sent; payer has not yet approved |
@@ -378,6 +384,7 @@ Webhook auth: `X-CHAPS-Signature: sha256=<hex>`.
 Webhook auth: RSA-SHA256 signature over raw body using NPCI / aggregator public key.
 
 ### Japan Zengin (v1.55.7)
+
 | Event case | Trigger |
 |------------|---------|
 | `ZenginSettled` | Transfer confirmed settled by Zengin system (via aggregator callback) |
@@ -386,6 +393,7 @@ Webhook auth: RSA-SHA256 signature over raw body using NPCI / aggregator public 
 Webhook auth: HMAC-SHA256 `X-Zengin-Signature`.
 
 ### Singapore PayNow (v1.55.8)
+
 | Event case | Trigger |
 |------------|---------|
 | `PayNowSettled` | Settlement confirmation from FAST/PayNow network via aggregator |
@@ -816,7 +824,7 @@ runtime/std/
 
 Each new subproject follows the v1.54 four-file layout:
 `<Rail>Plugin.scala` + `<Rail>Provider.scala` + `<Rail>WebhookReceiver.scala`
-+ one wire-format helper, plus `src/main/resources/META-INF/services/scalascript.backend.spi.Backend`.
+- one wire-format helper, plus `src/main/resources/META-INF/services/scalascript.backend.spi.Backend`.
 
 SCT Inst is the exception — it extends `runtime/std/payments-sepa/` rather than requiring a
 new subproject, because it uses the same PAIN.001/pacs.008 schema and aggregator endpoint.

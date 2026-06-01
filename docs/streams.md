@@ -988,7 +988,7 @@ are no blockers.
 **Implementation sequence:**
 
 - **v1.51.1** immediately after spec sign-off (plugin scaffolding + interpreter
-  + JVM `Source` core).
+  - JVM `Source` core).
 - **v1.51.2** and **v1.51.3** can run in parallel after v1.51.1 lands (JS
   backend and combining operators are independent work streams).
 - **v1.51.4** and **v1.51.5** follow sequentially.

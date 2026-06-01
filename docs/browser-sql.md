@@ -308,7 +308,7 @@ New sbt module mirroring `backend-sql-runtime`.
       prepends to every bundle that contains sql blocks (engine
       imports, helper functions).  Mirrors `JvmGen.emitSqlRegistry`.
 - [ ] Tests via `node --test`:
-      * 10 sql.js cases — in-memory CREATE/INSERT/SELECT, every bind
+      *10 sql.js cases — in-memory CREATE/INSERT/SELECT, every bind
         type, `Row` shape, statement-type detection, multi-row order,
         case-insensitive name lookup, `toMap`, null binds, BLOB
         round-trip, error path.
@@ -334,7 +334,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
       `_ssc_sql_connections` (annotation path) first, falls back to
       `_ssc_sql_registry.connect(dbName ?? "default")`.
 - [ ] Bundle preamble — when any sql block exists, JsGen prepends:
-      * the `sql-runtime.mjs` source verbatim, and
+      *the `sql-runtime.mjs` source verbatim, and
       * an `await` gate that wraps user-script body in `(async () =>
         { ... })()` (Node ≥ 14.8 and modern browsers support
         top-level `await`; the IIFE wrapper avoids needing it).
@@ -350,7 +350,7 @@ Mirrors JvmGen Phase 6.C, adapted for async.
 - [ ] `NodeCapabilities.blockLanguages += Lang.Sql`.
 - [ ] `NodeBackend.emitDeps` — when sql blocks are present, emit
       `package.json` `dependencies` entries:
-      * `"sql.js": "^1.10.3"`
+      *`"sql.js": "^1.10.3"`
       * `"@duckdb/duckdb-wasm": "^1.28.0"`
       Only the providers actually referenced (computed from
       `manifest.databases` URL prefixes) are listed.  Module with

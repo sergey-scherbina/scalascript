@@ -106,7 +106,7 @@ Seed list is the floor; gossip optional for self-healing.
 Strongly skewed by the security model.  For
 trusted-deployment (single-team, single-network) auto-join
 is fine.  For multi-tenant / untrusted networks, quorum
-+ auth.
+- auth.
 
 ### 3.3 Leader election
 

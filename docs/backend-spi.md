@@ -564,10 +564,10 @@ into hierarchical capability buckets — a baseline flag covers the
 package's core operations, sub-flags layer on optional extensions:
 
 - `HttpServer` (baseline: `route`, `serve`, `Request`, `Response`)
-  + `HttpServerStreaming` (`Response.stream`, streaming request body)
-  + `HttpServerMultipart` (`Request.files`, multipart parsing).
+  - `HttpServerStreaming` (`Response.stream`, streaming request body)
+  - `HttpServerMultipart` (`Request.files`, multipart parsing).
 - `WebSocketsServer` (baseline: `onWebSocket`, `send`, `recv`, `close`)
-  + `WebSocketsServerExtras` (per-route caps, rate limit, auth hook,
+  - `WebSocketsServerExtras` (per-route caps, rate limit, auth hook,
   `ws.id` / `ws.subprotocol` / `ws.user`).
 - `WebSocketsClient` (`connectWebSocket`).
 - Same shape for `HttpClient` / `HttpClientStreaming`, `Crypto*`, etc.

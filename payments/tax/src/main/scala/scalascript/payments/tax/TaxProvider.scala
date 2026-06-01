@@ -1,6 +1,5 @@
 package scalascript.payments.tax
 
-import scalascript.payments.money.{Money, Currency}
 import scala.concurrent.{Future, ExecutionContext}
 
 /** SPI for tax calculation and validation.

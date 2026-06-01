@@ -51,6 +51,7 @@ in the MILESTONES spec but are not yet in the code.  The current
 signals.
 
 ### handleActorOp (interpreter): implemented ops
+
 `spawn`, `self`, `send`, `receive`, `receive_t`, `exit`.
 Missing: `link`, `monitor`, `demonitor`, `trap_exit`.
 

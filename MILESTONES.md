@@ -13,6 +13,7 @@
 ## Quick status (2026-05-28)
 
 ### In progress
+
 - v1.57.1-payment-rails-australia-npp — Australia NPP/PayID adapter
 - v1.57.2-payment-rails-canada-eft — Canada Interac e-Transfer + EFT adapter
 - v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE adapter
@@ -20,6 +21,7 @@
 - graph-storage-fullstack — Phase 6: graph query REST routes + client-side cache example
 
 ### Recently completed
+
 - v1.63.0-distributed-runtime-spec — canonical distributed runtime spec merging placement/remoting, local/distributed cluster lifecycle, and cluster operations ✓ (2026-05-28)
 - v1.62.0-distributed-wire-spec — opt-in JSON/MsgPack/CBOR internal distributed wire protocol spec + backlog ✓ (2026-05-28)
 - v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE, 44 tests ✓ (2026-05-27)

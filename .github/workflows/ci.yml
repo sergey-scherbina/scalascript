@@ -46,7 +46,7 @@ jobs:
           power: true
 
       - name: Validate front-matter
-        run: ./scripts/validate-frontmatter.scala
+        run: ./tools/scripts/validate-frontmatter.scala
 
       - name: Check example files exist
         run: |
@@ -83,10 +83,10 @@ jobs:
         uses: sbt/setup-sbt@v1
 
       - name: Build ssc launcher (sbt-assembly)
-        run: bash scripts/install.sh ./bin/ssc
+        run: bash install.sh --dev
 
       - name: Run conformance tests
-        run: scala-cli conformance/run.sc
+        run: scala-cli tests/conformance/run.sc
 
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc

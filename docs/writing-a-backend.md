@@ -2,10 +2,10 @@
 
 A walk-through for third-party backend authors.  Two shapes:
 
-  - **In-process JAR** — JVM-only.  ~30 lines of Scala + one
+- **In-process JAR** — JVM-only.  ~30 lines of Scala + one
     `META-INF/services` entry.  Distributed as a JAR, attached via
     `ssc --plugin <jar>`.  This document.
-  - **Out-of-process subprocess** — any language that can read JSON
+- **Out-of-process subprocess** — any language that can read JSON
     on stdin.  See [`backend-spi-protocol.md`](backend-spi-protocol.md)
     for the wire spec and `examples/plugins/canned-backend/` for a
     50-line bash worked example.
@@ -124,20 +124,20 @@ instead of the default interpreter.
 
 When you're ready for real work:
 
-  - **Read the IR** via `module.sections` and `module.manifest`.
+- **Read the IR** via `module.sections` and `module.manifest`.
     `Content.CodeBlock(source, body, span)` holds each scalascript
     block; `body` is the lowered IR (populated once Stage 5+/A lands —
     until then re-parse `source` if you need scalameta).
     `Content.EmbeddedBlock(language, source, span)` is for `html` /
     `css` / future plugin-owned dialects.
-  - **Capabilities are mandatory.**  Add every `Feature` enum value
+- **Capabilities are mandatory.**  Add every `Feature` enum value
     your backend genuinely supports.  `CapabilityCheck` runs before
     `compile` and short-circuits with `Diagnostic.Unsupported` if
     you under-declare.
-  - **Failure shape.**  Return
+- **Failure shape.**  Return
     `CompileResult.Failed(List(Diagnostic.Generic(msg, source)))`
     rather than throwing — core's CLI / serve mode renders the list.
-  - **Diagnostics enums.**  `Diagnostic.Unsupported(feature, backendId)`,
+- **Diagnostics enums.**  `Diagnostic.Unsupported(feature, backendId)`,
     `Diagnostic.UnknownIntrinsic(name, backendId)`,
     `Diagnostic.UnknownBlockLanguage(language)`, and
     `Diagnostic.Generic(message, source)` cover every diagnostic core
@@ -145,16 +145,16 @@ When you're ready for real work:
 
 ## 6. Idiomatic patterns
 
-  - **Lazy initialisation** — `BackendRegistry` calls your no-arg
+- **Lazy initialisation** — `BackendRegistry` calls your no-arg
     constructor lazily on first lookup.  Don't do expensive work in
     the constructor; do it in `compile` (or memoise per session for
     `InteractiveBackend`).
-  - **Reuse `Denormalize`** if you want to delegate to existing
+- **Reuse `Denormalize`** if you want to delegate to existing
     AST-consuming code: `scalascript.transform.Denormalize(ir)`
     returns an `ast.Module` with the scalameta trees re-parsed.
     The four bundled backends use this shim today; Stage 5+/A
     replaces it with IR-native traversal.
-  - **`acceptedSources` is the negotiation point** with
+- **`acceptedSources` is the negotiation point** with
     `SourceLanguage` plugins.  If you declare `"html"` you must be
     able to embed the IR fragments the `html` plugin emits.
 

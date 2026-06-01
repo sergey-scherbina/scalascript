@@ -298,12 +298,12 @@ See [`docs/writing-a-backend.md`](writing-a-backend.md) for a
 step-by-step walk-through of a no-op backend in under 100 lines.
 Two distribution shapes:
 
-  - **In-process JAR.**  Implement `Backend` in any JVM language,
+- **In-process JAR.**  Implement `Backend` in any JVM language,
     drop a `META-INF/services/scalascript.backend.spi.Backend` entry
     listing your class, attach the JAR via `--plugin <jar>` (or
     place it on the bundled classpath).  Worked example:
     `examples/plugins/hello-backend/`.
-  - **Subprocess.**  Any language that can read newline-delimited
+- **Subprocess.**  Any language that can read newline-delimited
     JSON.  Drop a `plugin.yaml` under `~/.scalascript/compiler/plugins/`;
     `SubprocessBackend` wraps the process and routes
     `Backend.compile` over stdio.  Worked example:

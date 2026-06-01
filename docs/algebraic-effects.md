@@ -337,7 +337,7 @@ Both APIs coexist. The trade-off is documented in §2 and this section.
 | `throws[A, E] = Either[E, A]` | **Separate concern.** `throws` is a return-channel type (the value is wrapped in `Either`); effects are about *side operations* the function may invoke. Do not conflate. A function can be `A ! Logger throws DbError` — error in the return channel, log in the effect row. |
 | `Async[A]` | `Async` is itself an effect in the new model — performing it means "schedule this on the async runtime". Wrapping: `def fetch(url: String): Response ! Async`. The `runAsync` runner discharges `Async` from the row. |
 | `Coroutine[Y, R]` | The low-level primitive beneath one-shot effects. One-shot effect handlers *are* coroutines; the type system does not expose this — it's a codegen detail. |
-| `Free[F, A]` | The substrate beneath multi-shot effects. `Computation = Pure | Perform | FlatMap` is an instance of `Free`. The `Free[F, A]` in `runtime/std/free.ssc` is a user-facing variant for custom program-as-data interpreters, separate from the internal `Computation` ADT. |
+| `Free[F, A]` | The substrate beneath multi-shot effects. `Computation = Pure | Perform | FlatMap` is an instance of `Free`. The`Free[F, A]` in `runtime/std/free.ssc` is a user-facing variant for custom program-as-data interpreters, separate from the internal `Computation` ADT. |
 | `MonadError[F, E]` | Orthogonal. `MonadError` is a typeclass over monads that can fail; effects are a separate tracking layer. Both can be used together. |
 
 ---

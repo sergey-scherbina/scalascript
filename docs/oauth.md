@@ -7,36 +7,36 @@ decoupled from MCP, reusable by any HTTP service.
 
 This document covers:
 
-  - [The big picture](#the-big-picture)
-  - [Authorization Server (AS)](#authorization-server-as)
-  - [Resource Server (RS) with `oauth.guard`](#resource-server-rs-with-oauthguard)
-  - [OpenID Connect (OIDC)](#openid-connect-oidc)
-  - [Production hardening — RSA + JWKS](#production-hardening--rsa--jwks)
-  - [MCP integration](#mcp-integration)
-  - [Architecture map](#architecture-map)
-  - [Spec compliance](#spec-compliance)
+- [The big picture](#the-big-picture)
+- [Authorization Server (AS)](#authorization-server-as)
+- [Resource Server (RS) with `oauth.guard`](#resource-server-rs-with-oauthguard)
+- [OpenID Connect (OIDC)](#openid-connect-oidc)
+- [Production hardening — RSA + JWKS](#production-hardening--rsa--jwks)
+- [MCP integration](#mcp-integration)
+- [Architecture map](#architecture-map)
+- [Spec compliance](#spec-compliance)
 
 ## The big picture
 
 OAuth divides responsibilities across three roles:
 
-  - **Authorization Server (AS)** — issues tokens.  Knows clients,
+- **Authorization Server (AS)** — issues tokens.  Knows clients,
     users (indirectly, via your UI), grants.
-  - **Resource Server (RS)** — serves the actual API.  Accepts bearer
+- **Resource Server (RS)** — serves the actual API.  Accepts bearer
     tokens, decides whether to honour each request.
-  - **Client** — third-party app that asks the user "may I act on
+- **Client** — third-party app that asks the user "may I act on
     your behalf?" and presents the resulting token to the RS.
 
 The packages map cleanly to these roles:
 
-  - `scalascript.oauth.AuthServer`        — the AS
-  - `scalascript.oauth.OAuthGuard`        — the RS SDK
-  - `scalascript.oauth.OAuthRoutes`       — pure HTTP handlers (any
+- `scalascript.oauth.AuthServer`        — the AS
+- `scalascript.oauth.OAuthGuard`        — the RS SDK
+- `scalascript.oauth.OAuthRoutes`       — pure HTTP handlers (any
                                             framework)
-  - `scalascript.oidc.OidcServer`         — composes AS with an
+- `scalascript.oidc.OidcServer`         — composes AS with an
                                             OIDC IdP layer
-  - `scalascript.interpreter.intrinsics.OAuthHttp`
-  - `scalascript.interpreter.intrinsics.OidcHttp`
+- `scalascript.interpreter.intrinsics.OAuthHttp`
+- `scalascript.interpreter.intrinsics.OidcHttp`
                                            — adapters that install
                                              all routes on the
                                              ScalaScript WebServer
@@ -147,11 +147,11 @@ grant_type=urn:ietf:params:oauth:grant-type:passkey
 
 What the AS verifies (out-of-scope items in italics):
 
-  - credentialId is registered → maps to `(subject, publicKey, alg)`
-  - challenge was issued by this AS + hasn't been consumed yet
-  - signature checks against the stored public key for the supplied
+- credentialId is registered → maps to `(subject, publicKey, alg)`
+- challenge was issued by this AS + hasn't been consumed yet
+- signature checks against the stored public key for the supplied
     `signedData` (RS256 or ES256 supported)
-  - *origin / rpId verification is the caller's job* — they vary per
+- *origin / rpId verification is the caller's job* — they vary per
     deployment; we just verify the cryptographic signature
 
 Tokens minted by the passkey grant carry the user's subject (the one
@@ -201,9 +201,9 @@ validated bearer token (subject + scopes + extra JWT claims).
 
 Failure modes the guard handles:
 
-  - Missing/malformed `Authorization` header → **401 invalid_request**
-  - Expired/tampered/revoked token           → **401 invalid_token**
-  - Token scopes don't cover required        → **403 insufficient_scope**
+- Missing/malformed `Authorization` header → **401 invalid_request**
+- Expired/tampered/revoked token           → **401 invalid_token**
+- Token scopes don't cover required        → **403 insufficient_scope**
     (response includes the required scopes in `WWW-Authenticate` so
      the client knows what to request)
 
@@ -257,10 +257,10 @@ serve(8080)
 
 Scope-driven claim disclosure on `id_token` + `/userinfo`:
 
-  - `openid`   → `sub` (always)
-  - `profile`  → `name`, `picture`, `locale`, `preferred_username`
-  - `email`    → `email`, `email_verified`
-  - `extra` claims (custom roles/groups) are emitted unconditionally
+- `openid`   → `sub` (always)
+- `profile`  → `name`, `picture`, `locale`, `preferred_username`
+- `email`    → `email`, `email_verified`
+- `extra` claims (custom roles/groups) are emitted unconditionally
 
 ## Production hardening — RSA + JWKS
 
@@ -269,10 +269,10 @@ secret.  Fine for single-process services and tests.
 
 For multi-service production, switch to RS256 (RSA-SHA256):
 
-  - AS holds a private key, signs tokens
-  - AS publishes the **public** key at `/.well-known/jwks.json`
-  - Resource servers fetch the public key, validate locally
-  - Compromising one RS doesn't compromise the AS
+- AS holds a private key, signs tokens
+- AS publishes the **public** key at `/.well-known/jwks.json`
+- Resource servers fetch the public key, validate locally
+- Compromising one RS doesn't compromise the AS
 
 ### From a script
 

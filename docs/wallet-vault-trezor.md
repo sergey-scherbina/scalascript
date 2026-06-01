@@ -100,6 +100,7 @@ Request: `POST /call/<session>` with body
 Response: `{"type": "Features", "message": { "initialized": true, ... }}`.
 
 Key messages:
+
 | Type | Direction | Purpose |
 |------|-----------|---------|
 | `Initialize` | → device | Start session, get device info |

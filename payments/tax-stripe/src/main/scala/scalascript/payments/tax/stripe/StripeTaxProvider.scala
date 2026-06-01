@@ -3,7 +3,7 @@ package scalascript.payments.tax.stripe
 import scalascript.payments.tax.*
 import scalascript.payments.money.{Money, Currency}
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest as JHttpRequest, HttpResponse}
+import java.net.http.{HttpClient, HttpRequest as JHttpRequest}
 import java.net.http.HttpResponse.BodyHandlers
 import java.nio.charset.StandardCharsets
 import java.time.Duration
@@ -118,7 +118,7 @@ class StripeTaxProvider(config: StripeTaxConfig) extends TaxProvider:
     val currency = req.currency
 
     // Parse per-line items from "line_items": { "data": [...] }
-    val taxedLines = req.lineItems.zip(parseLineItems(body, req.lineItems.length, currency))
+    val taxedLines = req.lineItems.zip(parseLineItems(body, req.lineItems.length))
       .map { case (orig, taxAmt) =>
         TaxedLineItem(
           description = orig.description,
@@ -141,7 +141,7 @@ class StripeTaxProvider(config: StripeTaxConfig) extends TaxProvider:
       providerQuoteId = quoteId
     )
 
-  private def parseLineItems(body: String, count: Int, currency: Currency): List[Long] =
+  private def parseLineItems(body: String, count: Int): List[Long] =
     // Extract tax amounts from line_items.data[].amount_tax
     val pattern = """"amount_tax"\s*:\s*(\d+)""".r
     val amounts = pattern.findAllMatchIn(body).map(_.group(1).toLong).toList

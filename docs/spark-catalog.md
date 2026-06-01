@@ -292,7 +292,7 @@ view.
   `Encoder[T]` machinery as `Dataset.fromParquetAs[T]` /
   `Dataset.fromJsonAs[T]` / `Dataset.fromCsvAs[T]`.  Identical
   resolution path — primitives + case classes + Option + nested
-  + collections all work.
+  - collections all work.
 
 - **Phase F (streaming)** — streaming DataFrames can be registered
   as temp views; the `@TempView` annotation doesn't care.  Spark's

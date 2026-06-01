@@ -575,7 +575,7 @@ top of the JVM client.
 
 - The four-function block from §3.6.
 - The classic ZK leader-election recipe (lowest-suffix sibling
-  + watch the predecessor on loss).
+  - watch the predecessor on loss).
 - Wires through `useExternalCoordinator` per
   [`cluster-raft.md`](cluster-raft.md) §6.
 

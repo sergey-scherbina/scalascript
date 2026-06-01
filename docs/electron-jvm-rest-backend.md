@@ -143,7 +143,7 @@ The split mode should be opt-in. Existing commands keep their behavior.
 The generalized client/server mode adds a third shape that is not
 Electron-specific:
 
-3. **Distributed frontend client + JVM REST server.** The JVM server can run as
+1. **Distributed frontend client + JVM REST server.** The JVM server can run as
    a backend-only process on one machine. Any generated frontend client can run
    elsewhere and use `--server-url` / generated config to call the backend.
 

@@ -1404,7 +1404,7 @@ the JVM backend includes `scala` blocks as-is alongside its
 The Spark target sits at the high-volume end of the same `Dataset[T]`
 abstraction (v1.21) that drives the interpreter's in-process map-reduce.
 A module with `backend: spark` in its front-matter compiles to Scala 3
-+ Spark source that `scala-cli` then runs with the right
+- Spark source that `scala-cli` then runs with the right
 `org.apache.spark::spark-{core,sql}:<version>` dependencies — no Spark
 JARs on the ScalaScript sbt classpath, no compile-time coupling.
 

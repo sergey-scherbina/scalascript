@@ -98,14 +98,14 @@ class TaxJarProvider(config: TaxJarConfig) extends TaxProvider:
     val currency      = req.currency
     val scale         = math.pow(10, Currency.minorUnitsPower(currency)).toLong
     val amtToCollect  = extractDecimal(body, "\"amount_to_collect\"").getOrElse(BigDecimal(0))
-    val totalTaxMinor = (amtToCollect * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact
+    val totalTaxMinor = (amtToCollect * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact
 
     val preTaxMinor = req.lineItems.foldLeft(0L)(_ + _.amount.minorUnits)
 
     // Per-line tax: breakdown.line_items[].tax_collectable
     val lineTaxPattern = """"tax_collectable"\s*:\s*([\d.]+)""".r
     val allMatches     = lineTaxPattern.findAllMatchIn(body).map { m =>
-      (BigDecimal(m.group(1)) * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact
+      (BigDecimal(m.group(1)) * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact
     }.toList
     // First occurrence is the top-level field; per-line ones follow
     val lineTaxes = if allMatches.length > 1 then allMatches.drop(1) else Nil
@@ -129,9 +129,9 @@ class TaxJarProvider(config: TaxJarConfig) extends TaxProvider:
     val countyTax = extractDecimal(body, "\"county_tax_collectable\"")
     val cityTax   = extractDecimal(body, "\"city_tax_collectable\"")
     List(
-      stateTax.map  { v => JurisdictionTax("State",  "state",  BigDecimal(0), Money((v * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact, currency)) },
-      countyTax.map { v => JurisdictionTax("County", "county", BigDecimal(0), Money((v * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact, currency)) },
-      cityTax.map   { v => JurisdictionTax("City",   "city",   BigDecimal(0), Money((v * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact, currency)) },
+      stateTax.map  { v => JurisdictionTax("State",  "state",  BigDecimal(0), Money((v * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact, currency)) },
+      countyTax.map { v => JurisdictionTax("County", "county", BigDecimal(0), Money((v * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact, currency)) },
+      cityTax.map   { v => JurisdictionTax("City",   "city",   BigDecimal(0), Money((v * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact, currency)) },
     ).flatten.filter(_.taxAmount.minorUnits > 0)
 
   // ── Tax ID format validation ───────────────────────────────────────────

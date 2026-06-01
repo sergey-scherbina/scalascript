@@ -21,7 +21,7 @@ val jsscBin  = root / "bin" / "jssc"
 val ssccBin  = root / "bin" / "sscc"
 
 if !os.exists(sscBin) then
-  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash scripts/install.sh ./bin/ssc")
+  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash install.sh --dev")
   System.exit(2)
 
 case class Run(out: String, code: Int, err: String)

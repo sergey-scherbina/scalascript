@@ -43,9 +43,11 @@ SELECT * FROM users WHERE age > 18
 
 // 4. Front-matter declarative — works today
 ---
+
 route:
   GET /api/users -> listUsers
 ---
+
 ```
 
 What's **missing**:
@@ -260,7 +262,7 @@ val both:     Set[A]     = a union b
 val merged:   Map[K, V]  = m1 |+| m2  // semigroup combine, post-v1.13
 ```
 
-`extension (a: Foo) def `<symbolic>`(b: Bar): Result`
+`extension (a: Foo) def`<symbolic>`(b: Bar): Result`
 declares the symbolic operator.  Standard Scala 3.
 Operators on DSL-values follow the same reified rule as
 §3.2 — they return new DSL values, not execute.

@@ -104,7 +104,7 @@
 > ```
 >
 > Total estimated work to a functional std.http MVP: 5+/A.4 (~1-2 days)
-> + 5+/A.5 (~1-2 days) + 5+/B (~3-5 days) = ~1.5 weeks.  Direct syntax
+> - 5+/A.5 (~1-2 days) + 5+/B (~3-5 days) = ~1.5 weeks.  Direct syntax
 > (6+/A) and HostCallback (6+/C) add ~2-3 weeks each but don't block
 > std.http or std.ws.
 >
@@ -254,11 +254,11 @@ JvmGen's emit pass, on hitting an `ExternCall`, looks up
 and inlines the result.  `RuntimeCall` keeps the alias-prepend path
 for trivial intrinsics.
 
-  - Pro: it's the spec's design (§8).
-  - Pro: zero workaround leftover after — `nowMillis` migrates to
+- Pro: it's the spec's design (§8).
+- Pro: zero workaround leftover after — `nowMillis` migrates to
     `InlineCode` later if its overhead matters; today's alias still
     works.
-  - Con: requires JvmGen and JsGen to consume `ir.NormalizedModule`
+- Con: requires JvmGen and JsGen to consume `ir.NormalizedModule`
     (or at least its `Extern` nodes) directly, not just the
     `Denormalize`d AST view they use today.  ~1 iteration of plumbing
     per backend.
@@ -269,12 +269,12 @@ Each backend ships a `_runtimeRoute(method, path, handler)`-style helper
 in its preamble; the intrinsic table maps `std.http.route` → that
 helper.
 
-  - Pro: smaller plumbing change — no IR consumption in codegens.
-  - Con: the helpers ARE the inlined target source; just packaged as
+- Pro: smaller plumbing change — no IR consumption in codegens.
+- Con: the helpers ARE the inlined target source; just packaged as
     runtime functions instead of emit callbacks.  Lossy when call
     sites benefit from inlining (constant folding `method` / `path`
     at compile time).
-  - Con: helper layer adds an indirection on every HTTP call — small
+- Con: helper layer adds an indirection on every HTTP call — small
     but real overhead for hot paths.
 
 **C. Move existing JvmGen / JsGen HTTP emission verbatim into
@@ -284,10 +284,10 @@ JvmGen.scala lines ~3320-3380 becomes an `InlineCode.emit(args, ctx)`
 closure registered under `std.ws.onWebSocket`.  Same target source;
 just dispatched via the intrinsic map instead of pattern matching.
 
-  - Pro: zero behaviour change.  Mechanical refactor.  Conformance
+- Pro: zero behaviour change.  Mechanical refactor.  Conformance
     suite is the regression net.
-  - Pro: keeps existing call-site inlining and constant folding.
-  - Con: still requires the codegens to walk IR (option A's plumbing
+- Pro: keeps existing call-site inlining and constant folding.
+- Con: still requires the codegens to walk IR (option A's plumbing
     issue) — there's no shortcut.
 
 ### Recommended
@@ -323,7 +323,7 @@ plumbing changes.
 What stays open:
 
 - **`EmitContext` shape** — minimum viable is just the output buffer
-  + a fresh-name supplier; everything else can be threaded through
+  - a fresh-name supplier; everything else can be threaded through
   closures.  Pin exact fields at Step 1.
 - **Round-trip stability of `ExternCall` through Denormalize** —
   JvmGen and JsGen currently process the `Denormalize`d AST view, not
@@ -373,22 +373,22 @@ v0.8).  Backends suspend the handler virtual-thread (Loom) or its
 single-thread continuation (interpreter / Node-via-worker) when they
 detect peer disconnect.
 
-  - Pro: zero API change; existing user code untouched.
-  - Pro: same Async-effect surface for HTTP, WS, file I/O, future DB.
-  - Con: Node still needs `worker_threads` for real blocking I/O —
+- Pro: zero API change; existing user code untouched.
+- Pro: same Async-effect surface for HTTP, WS, file I/O, future DB.
+- Con: Node still needs `worker_threads` for real blocking I/O —
     same blocker as v1.3 stage 2 (`runAsyncParallel` on Node).
-  - Con: backpressure on streaming responses (v1.5 Tier 4 #11) needs
+- Con: backpressure on streaming responses (v1.5 Tier 4 #11) needs
     a `Stream` effect on top — not just a sync return.
 
 **B. Make handlers return `Future[Response]` (or `Async[Response]`).**
 Explicit async surface: handler builds a computation, runtime drives it.
 
-  - Pro: maps cleanly onto Node / WASM / .NET native async.
-  - Pro: backpressure is just "the Future hasn't completed yet".
-  - Con: breaks every existing `route("GET", …) { req => Response(…) }`
+- Pro: maps cleanly onto Node / WASM / .NET native async.
+- Pro: backpressure is just "the Future hasn't completed yet".
+- Con: breaks every existing `route("GET", …) { req => Response(…) }`
     call site.  Migration: implicit lift from sync `Response` to
     `Async(Response)` — same trick Scala 3 has for `Future.successful`.
-  - Con: two-handler-shape problem when WS handlers run a `while
+- Con: two-handler-shape problem when WS handlers run a `while
     !ws.isClosed` loop — that's procedural, not Async-shaped.
 
 **C. Hybrid: sync handler, side-channel for cancellation/backpressure.**
@@ -397,10 +397,10 @@ the handler can poll (`req.cancelled: Boolean` / `req.onCancel { … }`).
 Streaming via `Response.stream(write => …)` where `write` blocks /
 suspends naturally.
 
-  - Pro: API stays familiar; new primitives are opt-in.
-  - Con: two ways to express "give up early" — `req.cancelled` check
+- Pro: API stays familiar; new primitives are opt-in.
+- Con: two ways to express "give up early" — `req.cancelled` check
     vs Async-effect's `cancelled` — risk of divergence.
-  - Con: not a unified story for HTTP + WS + DB + FS.
+- Con: not a unified story for HTTP + WS + DB + FS.
 
 ### Recommended
 
@@ -473,11 +473,11 @@ extern def connectWebSocket(url: String, handler: WebSocket => Unit): Unit  // c
 // WebSocket type shared; send/recv/close shared on both sides.
 ```
 
-  - Pro: `WebSocket` value is the same shape on both sides — `send`,
+- Pro: `WebSocket` value is the same shape on both sides — `send`,
     `recv`, `close`, `onMessage`, `onClose`, `id`, `subprotocol`,
     `user`.  All already in place after v1.0.
-  - Pro: one capability flag (`Feature.WebSockets`) gates both.
-  - Con: a backend with WS-server-only (or client-only) capability
+- Pro: one capability flag (`Feature.WebSockets`) gates both.
+- Con: a backend with WS-server-only (or client-only) capability
     has to declare partial coverage — see [hole #4](#4-partial-feature-coverage).
 
 **B. Two packages `std.ws.server` / `std.ws.client`** with shared `WebSocket` in `std.ws`.
@@ -493,10 +493,10 @@ package std.ws.client
 extern def connectWebSocket(url: String, handler: WebSocket => Unit): Unit
 ```
 
-  - Pro: separate feature flags (`WebSocketsServer`, `WebSocketsClient`)
+- Pro: separate feature flags (`WebSocketsServer`, `WebSocketsClient`)
     — a browser-target backend has WS *client* only, never server.
     Symmetrically a CLI tool might want client only, no server.
-  - Con: longer qualified names; users `[onWebSocket](std.ws.server)`
+- Con: longer qualified names; users `[onWebSocket](std.ws.server)`
     is uglier than `[onWebSocket](std.ws)`.
 
 ### Recommended
@@ -566,15 +566,15 @@ If we land `std.http` / `std.ws` extraction (5+/B, 5+/D) before
 Pick the cheapest possible: `std.io.println(s)` or `std.sys.nowMillis()`.
 Plumbing pieces:
 
-  - Wire format for callback request / response (json or msgpack,
+- Wire format for callback request / response (json or msgpack,
     same as existing stdio protocol).
-  - Dispatcher in core: `HostDispatcher` that receives
+- Dispatcher in core: `HostDispatcher` that receives
     `{call: "std.io.println", args: ["hello"]}` and runs the matching
     in-process implementation (JVM call to `System.out`).
-  - Subprocess-side: when a `.NET` backend hits an `ExternCall` whose
+- Subprocess-side: when a `.NET` backend hits an `ExternCall` whose
     intrinsic is `HostCallback`, it sends the request and awaits the
     response.
-  - Round-trip test: a stub subprocess backend calls `println` and
+- Round-trip test: a stub subprocess backend calls `println` and
     sees output in core's stdout.
 
 Estimated: ~1 iteration (1 day) for the trivial intrinsic; subsequent
@@ -585,11 +585,11 @@ Land `std.http` / `std.ws` extraction (5+/B–D) JVM/Node/Interpreter
 only; `HostCallback` waits until the first `.NET` or `WASM` MVP
 appears.
 
-  - Pro: less speculative work.
-  - Con: when .NET/WASM lands, it ships with no HTTP/WS — degraded
+- Pro: less speculative work.
+- Con: when .NET/WASM lands, it ships with no HTTP/WS — degraded
     backend that can compile pure-Scala code only.  Bad first
     impression.
-  - Con: schema for the wire format remains unproven; first .NET MVP
+- Con: schema for the wire format remains unproven; first .NET MVP
     discovers the gaps the hard way.
 
 ### Recommended
@@ -652,19 +652,19 @@ This bites early-stage backends.  Examples:
 Backend missing one intrinsic → can't declare the feature → can't
 compile programs that use the package.
 
-  - Pro: zero ambiguity; user knows exactly what works.
-  - Con: blocks every early-stage backend until it reaches full
+- Pro: zero ambiguity; user knows exactly what works.
+- Con: blocks every early-stage backend until it reaches full
     parity.  Realistically — that's months of work for .NET/WASM.
 
 **B. Per-intrinsic capability check.**
 Drop feature flags; each `extern def` is independently checked.  A
 backend's `Backend.intrinsics` map *is* the capability declaration.
 
-  - Pro: maximum granularity; backends ship MVP packages incrementally.
-  - Con: capability-check error messages get noisy ("missing
+- Pro: maximum granularity; backends ship MVP packages incrementally.
+- Con: capability-check error messages get noisy ("missing
     `std.http.Response.stream`, missing `std.http.req.files`, …" —
     20 lines per `std.http`-using program).
-  - Con: language-feature flags (`PatternMatching`, etc.) still
+- Con: language-feature flags (`PatternMatching`, etc.) still
     need the all-or-nothing semantic; mixing two models is ugly.
 
 **C. Hierarchical features.**
@@ -681,13 +681,13 @@ enum Feature:
 Backends declare the subset they implement.  Capability check is
 still set-membership.
 
-  - Pro: clearer error messages ("backend X does not declare
+- Pro: clearer error messages ("backend X does not declare
     `HttpServerStreaming` — needed for `Response.stream(...)` at
     line 42").
-  - Pro: roadmap for an early backend is explicit — "ship
+- Pro: roadmap for an early backend is explicit — "ship
     `HttpServer` first, add `HttpServerStreaming` next".
-  - Con: more flag values to maintain (~3-5 per package).
-  - Con: where to draw the lines is judgment — exposes design
+- Con: more flag values to maintain (~3-5 per package).
+- Con: where to draw the lines is judgment — exposes design
     decisions to bikeshed.
 
 ### Recommended

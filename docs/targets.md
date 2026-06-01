@@ -281,11 +281,11 @@ every `${expr}` is rewritten to a JDBC `?` bind parameter by the
 shared `transform/SqlBindRewriter`, with no string-substitution
 escape hatch.  Two backends consume the same rewriter:
 
-  - **Interpreter / JVM** — `SqlBindRewriter.rewriteJdbc` → JDBC
+- **Interpreter / JVM** — `SqlBindRewriter.rewriteJdbc` → JDBC
     `PreparedStatement` via `scalascript.sql.SqlRuntime.execute`.
     H2 + SQLite drivers ship bundled; Postgres / MySQL / Oracle /
     MSSQL come in via `dep:` front-matter imports.
-  - **Spark** — `SqlBindRewriter.rewriteSparkSql` → named
+- **Spark** — `SqlBindRewriter.rewriteSparkSql` → named
     `:bind<N>` placeholders consumed by `spark.sql(text, args)`.
 
 Connection resolution on the JVM/Interpreter path: front-matter
@@ -313,27 +313,27 @@ Full spec: [`docs/browser-sql.md`](browser-sql.md).
 
 Differences from the JVM/Interpreter path:
 
-  - **Electron renderer caveat.**  `sqlite:<path>` in Electron does not write a
+- **Electron renderer caveat.**  `sqlite:<path>` in Electron does not write a
     real file from renderer code; see [`electron-sql.md`](electron-sql.md).
 
-  - **Async-by-construction.**  Browser SQL engines load asynchronously
+- **Async-by-construction.**  Browser SQL engines load asynchronously
     (WASM init + worker spin-up).  Every `sql` block compiles to
     `await SqlRuntimeJs.execute(...)`; the bundle's user body is
     wrapped in an async IIFE so the await is legal in classic-script
     and ESM contexts alike.
-  - **`<sectionId>.sql` shape.**  Same alias convention as
+- **`<sectionId>.sql` shape.**  Same alias convention as
     JvmGen — the first `sql` block per section binds the result to
     `<sectionId>.sql`.  Result shape:
     `{ kind: 'rows', rows: Row[] }` for SELECTs,
     `{ kind: 'update', count: number }` for DML/DDL.  Rows are
     callable: `row("col")` (case-insensitive name), `row(0)`
     (position), `row.toMap()`.
-  - **NodeBackend `package.json` artifact.**  When a module has any
+- **NodeBackend `package.json` artifact.**  When a module has any
     sql block, NodeBackend ships a companion `package.json` alongside
     `main.cjs`.  Deps are gated on actually-referenced providers
     (`sql.js`, `@duckdb/duckdb-wasm`, `web-worker`); modules that
     use only one provider don't carry the other's npm dep.
-  - **`jdbc:` URL gating.**  `Diagnostic.UnsupportedJdbcUrl(db, url,
+- **`jdbc:` URL gating.**  `Diagnostic.UnsupportedJdbcUrl(db, url,
     backend)` fires at validate time for JS-family targets carrying a
     `jdbc:` URL — the diagnostic message points the user at the JVM
     target or at a different URL scheme.  JVM-family targets are

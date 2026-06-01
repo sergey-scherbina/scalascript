@@ -29,7 +29,7 @@ Companion specs: [`docs/arch-distribution.md`](arch-distribution.md),
 - Binary compatibility enforcement (MiMa-style) — deferred to v2.x (Phase 5).
 - Closing the `std/` privilege gap (community libraries calling Java/JS) —
   covered by [`docs/arch-ffi.md`](arch-ffi.md) (Tier 1 `@jvm`/`@js` annotations
-  + Tier 2 `glue.jar` in `.ssclib`).
+  - Tier 2 `glue.jar` in `.ssclib`).
 - Circular dependency resolution — cycles are a hard error.
 - Package signing / provenance (out of scope for v1.x).
 

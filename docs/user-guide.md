@@ -2716,7 +2716,7 @@ return TkNode                            (pure)                       or bundle
 3. **`serve(view: View, port: Int)`** — starts the HTTP server; the React emitter
    compiles `View` to React hooks + JSX, served at `/`.
    **`emit(view: View, outDir: String)`** — writes a self-contained `index.html`
-   + `app.js` bundle to `outDir` for static hosting.
+   - `app.js` bundle to `outDir` for static hosting.
 
 ---
 

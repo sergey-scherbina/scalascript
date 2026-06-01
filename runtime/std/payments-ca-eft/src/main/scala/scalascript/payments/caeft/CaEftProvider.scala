@@ -116,7 +116,7 @@ class CaEftProvider(config: CaEftConfig) extends BankRailsProvider:
       reference = req.reference,
       status    = BankTransferStatus.Pending,
       createdAt = Instant.now(),
-      metadata  = req.metadata + ("recipientType" -> recipientType, "recipient" -> recipient),
+      metadata  = req.metadata ++ List("recipientType" -> recipientType, "recipient" -> recipient),
     )
     transfers.put(req.idempotencyKey, transfer)
     transfers.put(transferId, transfer)

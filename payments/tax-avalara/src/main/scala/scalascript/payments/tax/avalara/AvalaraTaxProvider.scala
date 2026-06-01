@@ -134,14 +134,14 @@ class AvalaraTaxProvider(config: AvalaraConfig) extends TaxProvider:
 
     // Convert totalTax (decimal) to minor units
     val scale         = math.pow(10, Currency.minorUnitsPower(currency)).toLong
-    val totalTaxMinor = (totalTaxStr * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact
+    val totalTaxMinor = (totalTaxStr * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact
 
     val preTaxMinor   = req.lineItems.foldLeft(0L)(_ + _.amount.minorUnits)
 
     // Parse per-line tax from "lines" array
     val lineTaxPattern = """"taxCalculated"\s*:\s*([\d.]+)""".r
     val lineTaxes      = lineTaxPattern.findAllMatchIn(body).map { m =>
-      (BigDecimal(m.group(1)) * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact
+      (BigDecimal(m.group(1)) * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact
     }.toList
 
     val taxedLines = req.lineItems.zipWithIndex.map { case (item, i) =>
@@ -168,7 +168,7 @@ class AvalaraTaxProvider(config: AvalaraConfig) extends TaxProvider:
     val names    = jurisPattern.findAllMatchIn(body).map(_.group(1)).toList
     val types    = jurisType.findAllMatchIn(body).map(_.group(1).toLowerCase).toList
     val amounts  = taxAmtPattern.findAllMatchIn(body).map { m =>
-      (BigDecimal(m.group(1)) * scale).setScale(0, java.math.RoundingMode.HALF_EVEN).toLongExact
+      (BigDecimal(m.group(1)) * scale).setScale(0, BigDecimal.RoundingMode.HALF_EVEN).toLongExact
     }.toList
     names.zip(types).zip(amounts).map { case ((name, level), amt) =>
       JurisdictionTax(name, level, BigDecimal(0), Money(amt, currency))

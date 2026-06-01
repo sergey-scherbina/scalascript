@@ -1,9 +1,7 @@
 package scalascript.payments.mxspei
 
 import scalascript.payments.bankrails.*
-import scalascript.payments.money.{Money, Currency}
 import scalascript.payments.webhook.WebhookReceiver
-import java.time.Instant
 
 /** Mexico SPEI BankRailsProvider adapter.
  *

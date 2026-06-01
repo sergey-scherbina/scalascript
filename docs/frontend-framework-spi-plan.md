@@ -209,7 +209,7 @@ Better to let each backend emit idiomatic code for its framework.
 
 - Tiny in-house runtime in Scala-compiled JS.  Lifecycle-less
   components, manual DOM updates via the existing `route()` model
-  + a tiny "update this fragment" API.
+  - a tiny "update this fragment" API.
 - Bundle size: ~3 KB.
 - For users who want zero external JS deps (matches ssc's current
   "no external runtime deps" pattern on the JVM side).

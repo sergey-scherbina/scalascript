@@ -47,23 +47,27 @@ left untouched.  Only `JvmIntrinsics` / `JsIntrinsics` receive new
 ## Stages
 
 ### Stage A — prereq (folded into Iter 1)  ✅ DONE 2026-05-18
+
 - [x] Extend `NativeContext` in `backend-spi/IntrinsicImpl.scala`
 - [x] Extract `registerHealthDefaults()` to class-level private method in `Interpreter.scala`
 - [x] Extend anonymous `NativeContext` in `installNativeIntrinsics`
 
 ### Iter 1 — route()  ✅ DONE 2026-05-18
+
 - [x] Remove `nativeP("route")` from `Interpreter.initBuiltins`
 - [x] Add `QualifiedName("route") -> NativeImpl(...)` to `HttpIntrinsics`
 - [x] Add `QualifiedName("route") -> RuntimeCall("route")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
 - [x] Tests green (123/123)
 
 ### Iter 2 — serve()  ✅ DONE 2026-05-18
+
 - [x] Remove `nativeP("serve")` from `Interpreter.initBuiltins`
 - [x] Add `QualifiedName("serve") -> NativeImpl(...)` to `HttpIntrinsics`
 - [x] Add `QualifiedName("serve") -> RuntimeCall("serve")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
 - [x] Tests green
 
 ### Iter 3 — stop()  ✅ DONE 2026-05-18
+
 - [x] Add `QualifiedName("stop") -> NativeImpl((_, _) => ())` to `HttpIntrinsics`
 - [x] Add `QualifiedName("stop") -> RuntimeCall("stop")` to `JvmHttpIntrinsics` / `JsHttpIntrinsics`
 - [x] Add `def stop(): Unit = ()` to JVM serveRuntime preamble
@@ -71,17 +75,20 @@ left untouched.  Only `JvmIntrinsics` / `JsIntrinsics` receive new
 - [x] Tests green
 
 ### Iter 4 — std/http.ssc Request / Response  ✅ DONE 2026-05-18
+
 - [x] Replaced TODO-stub comment with proper case class declarations
 - [x] Fields: `method`, `path`, `headers`, `body`, `form`, `files`, `cookies`, `session`, `json`
 - [x] Existing tests pass without changes
 
 ### Iter 5 — extract to intrinsics/ files  ✅ DONE 2026-05-18
+
 - [x] `backend-interpreter/.../intrinsics/Http.scala` — `HttpIntrinsics` (NativeImpl)
 - [x] `backend-jvm/.../intrinsics/Http.scala` — `JvmHttpIntrinsics` (RuntimeCall)
 - [x] `backend-js/.../intrinsics/Http.scala` — `JsHttpIntrinsics` (RuntimeCall)
 - [x] Capabilities files use `++ HttpIntrinsics` / `++ JvmHttpIntrinsics` / `++ JsHttpIntrinsics`
 
 ### Iter 6 — MILESTONES.md  ✅ DONE 2026-05-18
+
 - [x] SPI 5+/B marked as landed
 - [x] SPI 5+/D noted as next step
 

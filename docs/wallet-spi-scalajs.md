@@ -27,7 +27,7 @@ cross-compile projects. This document describes how that lands.
   layout (`shared/` + `jvm/` + `js/`); the `xxxCross.jvm` /
   `xxxCross.js` accessors give us the per-platform sbt projects.
 - **One source tree per module, two platforms.** Shared SPI traits
-  + value classes live in `shared/src/main/scala/`. Platform-specific
+  - value classes live in `shared/src/main/scala/`. Platform-specific
   glue (the ServiceLoader-based registries in crypto-spi / blockchain-spi
   today) moves into `jvm/src/main/scala/` with the Scala.js equivalent
   (static registry-only — see §4.2) landing in `js/src/main/scala/` as
@@ -516,7 +516,7 @@ resolve).
 Status: **landed 2026-05-20**; JS persistence landed 2026-05-27.
 
 Stage 5 does two things in one slice: it lights up the deferred KDF
-+ AEAD primitives in the Stage-2 noble backend, and cross-compiles the
+- AEAD primitives in the Stage-2 noble backend, and cross-compiles the
 encrypted vault on top of them.  The result is a shared, platform-
 neutral `EncryptedLocalVault` that runs identically on JVM + JS, plus
 a JVM-only `EncryptedLocalVaultFs` wrapper that keeps the original
@@ -575,7 +575,7 @@ a JVM-only `EncryptedLocalVaultFs` wrapper that keeps the original
 - Tests:
   - `shared/src/test/scala/.../Bip39TestBase.scala` — 14 tests
     (wordlist sanity + entropy↔mnemonic + checksum + PBKDF2-HMAC-SHA512
-    + Trezor seed vector).  Per-platform subclass
+    - Trezor seed vector).  Per-platform subclass
     (`jvm/src/test/.../Bip39Test.scala` / `js/src/test/.../Bip39Test.scala`)
     registers BouncyCastle (auto via `ServiceLoader`) / noble
     (explicit `CryptoBackend.register(...)` in `beforeAll`).

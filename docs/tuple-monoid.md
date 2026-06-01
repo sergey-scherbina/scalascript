@@ -255,34 +255,34 @@ the parenthesized expression `(A)`.  This is needed for `Out(State[S]) = (S,)`.
    - After parsing a tuple type, check for `++` token and recurse
    - Emit `SType.tupleConcat(left, right)` → flat `Tuple`
 
-4. **Unifier**: `solve(Tuple(Nil), t)` and `solve(t, Tuple(Nil))` → `t` 
+4. **Unifier**: `solve(Tuple(Nil), t)` and `solve(t, Tuple(Nil))` → `t`
    (unit absorption); existing `(Tuple(e1), Tuple(e2)) if e1.length == e2.length`
    stays unchanged
 
 ### Track 2 — Value level
 
-5. **`Value.UnitV` → `Value.TupleV(Nil)` unification**
+1. **`Value.UnitV` → `Value.TupleV(Nil)` unification**
    - Make `Value.UnitV` a `val` that is `Value.TupleV(Nil)`, or keep the case
      object and pattern-match both in `++` dispatch
    - Either way: `TupleV(Nil) == UnitV` structurally
 
-6. **`++` on tuples in interpreter** (`DispatchRuntime.scala`)
+2. **`++` on tuples in interpreter** (`DispatchRuntime.scala`)
    ```scala
    case (TupleV(as), "++", List(TupleV(bs))) => Pure(TupleV(as ++ bs))
    case (TupleV(as), "++", List(v))           => Pure(TupleV(as :+ v))
    case (v,          "++", List(TupleV(bs)))  => Pure(TupleV(v +: bs))
    ```
 
-7. **`++` in JS codegen** (`JsGen.scala`)
+3. **`++` in JS codegen** (`JsGen.scala`)
    - Tuple concat lowers to array spread: `[...a, ...b]` with `_isTuple = true`
 
-8. **`++` in JVM codegen** (`JvmGen.scala`)
+4. **`++` in JVM codegen** (`JvmGen.scala`)
    - Lower to `(a._1, ..., a._n, b._1, ..., b._m)` or via `_TupleConcat` helper
 
 ### Track 3 — Extern declarations and runtime spec
 
-9. **`streams.ssc`** — add `++` to tuple extern API docs
-10. **`algebraic-effects.md`** — add §"Unified runner signature" with the
+1. **`streams.ssc`** — add `++` to tuple extern API docs
+2. **`algebraic-effects.md`** — add §"Unified runner signature" with the
     `Out(E) ++ (R,)` table
 
 ### Out of scope for v1.60

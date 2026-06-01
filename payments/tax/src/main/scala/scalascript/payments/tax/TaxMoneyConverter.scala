@@ -1,6 +1,6 @@
 package scalascript.payments.tax
 
-import scalascript.payments.money.{Money, Currency}
+import scalascript.payments.money.Money
 import scala.concurrent.{Future, ExecutionContext}
 
 /** Convenience wrapper that runs a tax calculation and returns the total tax amount.

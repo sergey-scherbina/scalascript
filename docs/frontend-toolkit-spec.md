@@ -3,10 +3,10 @@
 This document specifies a **high-level declarative UI toolkit** that
 sits on top of the framework-agnostic `frontend-core` SPI.
 
-  - **Low level** (already exists): `View.Element("div", attrs,
+- **Low level** (already exists): `View.Element("div", attrs,
     events, children)`, `Signal[T]`, `Component[P]`, four backends
     (Custom / React / Vue / Solid).  Reactivity primitives.
-  - **High level** (this spec): `Stack { Text("Hello"); Button(...) }`
+- **High level** (this spec): `Stack { Text("Hello"); Button(...) }`
     — semantic widgets.  No HTML / CSS literals in user code.  Same
     user-facing surface lowers to any backend.
 
@@ -317,7 +317,7 @@ case class SpacingScale(
 ```
 
 The toolkit ships **one reference theme** (neutral, accessible, light
-+ dark variants).  Apps swap with one call:
+- dark variants).  Apps swap with one call:
 
 ```scala
 App(theme = Theme.darkOcean) {
@@ -340,13 +340,13 @@ View.Element("button",
 
 Built-in.  Every widget that needs ARIA emits it:
 
-  - `Button` → `role="button"`, `aria-disabled` when disabled
-  - `Checkbox` → `role="checkbox"`, `aria-checked`, paired `<label>`
-  - `Modal` → `role="dialog"`, `aria-modal`, focus trap, ESC handler
-  - `Tabs` → `role="tablist"`, `role="tab"`, `aria-selected`,
+- `Button` → `role="button"`, `aria-disabled` when disabled
+- `Checkbox` → `role="checkbox"`, `aria-checked`, paired `<label>`
+- `Modal` → `role="dialog"`, `aria-modal`, focus trap, ESC handler
+- `Tabs` → `role="tablist"`, `role="tab"`, `aria-selected`,
     arrow-key navigation
-  - `Alert` → `role="alert"` (or `role="status"` for low-priority)
-  - `TextField` → `<label for="..."` ↔ `id="..."` binding,
+- `Alert` → `role="alert"` (or `role="status"` for low-priority)
+- `TextField` → `<label for="..."` ↔ `id="..."` binding,
     `aria-invalid` when validation fails, `aria-describedby` on the
     helper text
 
@@ -428,10 +428,10 @@ TextField(value = email, label = "Email", error = emailError)
 
 `Form` is the most opinionated widget.  It centralises:
 
-  - submit handling (form-level + per-field validation gates it)
-  - per-field error rendering (drives `TextField.error` automatically)
-  - keyboard semantics (Enter submits the focused field's form)
-  - disabled-while-submitting state
+- submit handling (form-level + per-field validation gates it)
+- per-field error rendering (drives `TextField.error` automatically)
+- keyboard semantics (Enter submits the focused field's form)
+- disabled-while-submitting state
 
 ```scala
 Form { form =>
@@ -458,52 +458,52 @@ Form { form =>
 
 Core widgets enough for a real CRUD form:
 
-  - Layout: `Stack`, `Box`, `Grid`, `Spacer`, `Divider`, `Center`
-  - Typography: `Heading`, `Text`, `Paragraph`, `Link`, `Code`
-  - Input: `Button`, `TextField`, `TextArea`, `Checkbox`, `Switch`,
+- Layout: `Stack`, `Box`, `Grid`, `Spacer`, `Divider`, `Center`
+- Typography: `Heading`, `Text`, `Paragraph`, `Link`, `Code`
+- Input: `Button`, `TextField`, `TextArea`, `Checkbox`, `Switch`,
     `RadioGroup`, `Select`, `Form`
-  - Display: `Image`, `Icon`, `Badge`, `Alert`, `Spinner`, `Progress`
-  - Containers: `Card`, `Modal`, `Tabs`
-  - State: `Show`, `For`, `Async`, `Empty`
-  - Theme: one reference + dark variant + token API
+- Display: `Image`, `Icon`, `Badge`, `Alert`, `Spinner`, `Progress`
+- Containers: `Card`, `Modal`, `Tabs`
+- State: `Show`, `For`, `Async`, `Empty`
+- Theme: one reference + dark variant + token API
 
 ### v2 — landed in Phase B+ / Phase B++
 
-  - **Forms + validation** — `Form`, `FormField[T]`, `FormContext`,
+- **Forms + validation** — `Form`, `FormField[T]`, `FormContext`,
     `Validators` (required, minLength, maxLength, pattern, email, and).
-  - **Routing** — `Router`, `Route`, `Link` with `:name` params, query
-    + trailing-slash normalisation, SPA + plain-anchor link modes.
-  - **v2 widget pack** — `Slider`, `Tabs`, `Modal`, `Drawer`,
+- **Routing** — `Router`, `Route`, `Link` with `:name` params, query
+  - trailing-slash normalisation, SPA + plain-anchor link modes.
+- **v2 widget pack** — `Slider`, `Tabs`, `Modal`, `Drawer`,
     `Tooltip`, `Badge`, `Avatar`, `Icon`, `Spinner`, `Progress`.
-  - **Table** — typed `Table[T]` with click-to-sort, ARIA, caption,
+- **Table** — typed `Table[T]` with click-to-sort, ARIA, caption,
     empty-state slot.  (Filtering + pagination still caller-side via
     pre-sliced `Signal[Seq[T]]`; virtualisation deferred.)
-  - **FormInputs pack** — `Select[T]`, `RadioGroup[T]`, `Textarea`,
+- **FormInputs pack** — `Select[T]`, `RadioGroup[T]`, `Textarea`,
     `DatePicker`, `NumberInput`.
 
 ### Still deferred to a later iteration
 
-  - `ColorPicker`, `TimePicker`, multi-select, combobox/autocomplete,
+- `ColorPicker`, `TimePicker`, multi-select, combobox/autocomplete,
     file upload.
-  - `Table` v2: filtering UI, pagination control, virtualisation,
+- `Table` v2: filtering UI, pagination control, virtualisation,
     column resize/reorder.
-  - `Tree`, `Accordion`, `Sheet`, `Popover`.
-  - Nested-route lazy loading.
-  - `Toast` / `Notification` queue.
-  - Animations + transitions (CSS-only is OK in user code today).
-  - i18n integration (RTL + locale-aware formatters — see decision §5).
-  - DnD primitives.
+- `Tree`, `Accordion`, `Sheet`, `Popover`.
+- Nested-route lazy loading.
+- `Toast` / `Notification` queue.
+- Animations + transitions (CSS-only is OK in user code today).
+- i18n integration (RTL + locale-aware formatters — see decision §5).
+- DnD primitives.
 
 ## Spec compliance — what the SPI promises the toolkit
 
 The toolkit assumes only `View` + `Signal` + `Component` from the
 SPI.  No backend-specific behaviour is encoded.  In particular:
 
-  - `For[T]` works regardless of whether the backend re-renders or
+- `For[T]` works regardless of whether the backend re-renders or
     fine-grain-patches.
-  - `Show` works regardless of whether the backend swaps the
+- `Show` works regardless of whether the backend swaps the
     subtree or re-renders.
-  - `EventHandler.Simple` and `EventHandler.WithEvent` are the only
+- `EventHandler.Simple` and `EventHandler.WithEvent` are the only
     handler shapes the toolkit produces — backends already handle
     both per the SPI contract.
 
@@ -833,17 +833,17 @@ serve(lower(tree, Theme.default), 8080)
    native `element()` can lower them to JS-side event logic.  Decide
    the exact shape when Phase 7c begins.
 
-3. **Router / location hash** — `Router` needs a signal bound to
+2. **Router / location hash** — `Router` needs a signal bound to
    `window.location.hash`.  Options: (a) `signal("__location__", "")`
    with a magic name the React backend hard-wires to `hashchange`, or
    (b) add a `hashSignal()` extern def.  Decide at Phase 7e.
 
-4. **CSS string parity** — `.ssc` widget impls produce CSS strings via
+3. **CSS string parity** — `.ssc` widget impls produce CSS strings via
    string interpolation; the Scala `Toolkit.lower` produces the same
    strings.  Emit both through the React backend and diff before
    deleting the Scala layer; fix any divergence first.
 
-5. **`ToolkitDsl.scala` clean-up** — an earlier session added 20+
+4. **`ToolkitDsl.scala` clean-up** — an earlier session added 20+
    intrinsics to `ToolkitDsl.scala` as a prototype.  That file must be
    deleted and its registrations removed from
    `InterpreterCapabilities.scala` and `BuiltinsRuntime.scala` during
@@ -863,7 +863,7 @@ serve(lower(tree, Theme.default), 8080)
      Phase B; Modal/Drawer/Tabs/Tooltip/Badge/Avatar/Icon/Spinner/
      Progress landed in Phase B+ via the Widgets v2 pack.
   5. **Phase 5 ✓ Theme + reference theme + dark variant**.  `Theme.default`
-     + `Theme.dark` ship; every widget reads colour / spacing /
+     - `Theme.dark` ship; every widget reads colour / spacing /
      typography / radius / shadow tokens through `Theme`.
   6. **Phase 6 ✓ Routing + data widgets**.  Phase B+ added `Router`,
      `Route`, `Link`, `Table` with click-to-sort.  Phase B++ added
@@ -1013,9 +1013,9 @@ code keeps working.
 
 ## Status
 
-  - Spec: this doc.  Open questions resolved.
-  - Phase 2: shipped (frontend-toolkit module + 25 tests, v1.18 Phase B).
-  - Phases 3–6: shipped (Forms, Widgets v2, Routing, Data display).
-  - Phase 7: next (reference app + remaining deferred widgets).
-  - Phase 8: planned (pure `.ssc` rewrite — see "Target architecture"
+- Spec: this doc.  Open questions resolved.
+- Phase 2: shipped (frontend-toolkit module + 25 tests, v1.18 Phase B).
+- Phases 3–6: shipped (Forms, Widgets v2, Routing, Data display).
+- Phase 7: next (reference app + remaining deferred widgets).
+- Phase 8: planned (pure `.ssc` rewrite — see "Target architecture"
     section above).

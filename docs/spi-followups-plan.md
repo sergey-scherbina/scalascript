@@ -207,12 +207,12 @@ declare `Feature.HttpServer`.
 
 Same pattern as 5+/C, one package per iteration:
 
-  - **5+/D.1** `std.ws` — `accept` / `send` / `recv` / `close`,
+- **5+/D.1** `std.ws` — `accept` / `send` / `recv` / `close`,
     framing helpers, `WsRoom`.
-  - **5+/D.2** `std.auth` — `hashPassword` / `signJwt` /
+- **5+/D.2** `std.auth` — `hashPassword` / `signJwt` /
     `verifyJwt` / `csrfToken` / OAuth helpers.
-  - **5+/D.3** `std.fs` — `os.read` / `os.write` / `os.list`.
-  - **5+/D.4** `std.crypto` — primitives wrapping platform JCE / `crypto`.
+- **5+/D.3** `std.fs` — `os.read` / `os.write` / `os.list`.
+- **5+/D.4** `std.crypto` — primitives wrapping platform JCE / `crypto`.
 
 By end of 5+/D, `core` is genuinely free of platform-specific code:
 all calls to platform APIs flow through `Backend.intrinsics`.

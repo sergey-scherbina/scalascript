@@ -9,7 +9,7 @@ Design spec for a pluggable HTTP/WS server backend.  Three
 implementations:
 
 - **`Jdk`** (default) — current code: JDK `com.sun.net.httpserver.HttpServer`
-  + custom blocking ServerSocket + per-VT proxy demux + custom
+  - custom blocking ServerSocket + per-VT proxy demux + custom
   `WebSocket` class.  Zero external runtime deps.
 - **`Jetty`** (optional) — Jetty 12.  HTTP + HTTPS + HTTP/2 + WS in one
   managed stack.  ~3 MB external dep.
@@ -533,7 +533,7 @@ resolve if `runtime-server-jvm-jetty` isn't on the classpath.
   bang-for-buck; widely-used).  ~1-2 days.
 - **Phase F3** — HTTP/2 impl in Jetty + Netty (Jetty needs
   HTTP2ServerConnectionFactory + ALPN; Netty needs Http2FrameCodec
-  + Http2MultiplexHandler).  ~3-4 days.
+  - Http2MultiplexHandler).  ~3-4 days.
 - **Phase F4** — HTTP/3 impl in Netty (incubator artifact; QUIC
   handler).  ~1 week.
 - **Phase F5** — Server push (HTTP/2 push promises).  ~2-3 days.
