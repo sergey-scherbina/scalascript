@@ -206,7 +206,7 @@ object TaxJarProvider:
       Jurisdiction(s"US-$code", name, "state")
     }
 
-  private val usStates = List(
+  private lazy val usStates = List(
     "AL" -> "Alabama", "AK" -> "Alaska", "AZ" -> "Arizona", "AR" -> "Arkansas",
     "CA" -> "California", "CO" -> "Colorado", "CT" -> "Connecticut",
     "DE" -> "Delaware", "FL" -> "Florida", "GA" -> "Georgia",
