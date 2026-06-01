@@ -334,14 +334,16 @@ private[solid] object SolidEmitter:
         }
         null
 
-      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick) =>
+      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick, hOpt) =>
         registerSignal(tick)
+        hOpt.foreach(registerSignal)
         if !signals.contains(tableId) then signals.update(tableId, "[]")
-        val setRows  = setterName(tableId)
-        val setTick  = setterName(tick.id)
-        val urlJs    = jsString(fetchUrl)
-        val delUrlJs = jsString(deleteUrl)
-        val tickName = tick.id
+        val setRows   = setterName(tableId)
+        val setTick   = setterName(tick.id)
+        val urlJs     = jsString(fetchUrl)
+        val delUrlJs  = jsString(deleteUrl)
+        val tickName  = tick.id
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
         val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
         val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
         val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit")
@@ -360,8 +362,8 @@ private[solid] object SolidEmitter:
         statements += s"const $th2Var = document.createElement('th'); $th2Var.setAttribute('style', $thStyle); $th2Var.textContent = ''; $trHVar.appendChild($th2Var);"
         statements += s"$theadVar.appendChild($trHVar); $tableVar.appendChild($theadVar);"
         statements += s"const $tbodyVar = document.createElement('tbody'); $tableVar.appendChild($tbodyVar);"
-        statements += s"fetch($urlJs).then(r => r.json()).then(data => $setRows(data));"
-        statements += s"createEffect(() => { const t = $tickName(); if (t > 0) fetch($urlJs).then(r => r.json()).then(data => $setRows(data)); });"
+        statements += s"fetch($urlJs$headersJs).then(r => r.json()).then(data => $setRows(data));"
+        statements += s"createEffect(() => { const t = $tickName(); if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => $setRows(data)); });"
         statements += s"createEffect(() => {"
         statements += s"  while ($tbodyVar.firstChild) $tbodyVar.removeChild($tbodyVar.firstChild);"
         statements += s"  for (const row of $tableId()) {"
@@ -369,7 +371,7 @@ private[solid] object SolidEmitter:
         statements += s"    const td1 = document.createElement('td'); td1.setAttribute('style', $tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);"
         statements += s"    const td2 = document.createElement('td'); td2.setAttribute('style', $tdStyle);"
         statements += s"    const btn = document.createElement('button'); btn.setAttribute('style', $btnStyle); btn.textContent = 'Delete';"
-        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)}).then(r => r.text()).then(_ => $setTick(t => t + 1)));"
+        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)$headersJs}).then(r => r.text()).then(_ => $setTick(t => t + 1)));"
         statements += s"    td2.appendChild(btn); tr.appendChild(td2); $tbodyVar.appendChild(tr);"
         statements += s"  }"
         statements += s"});"
@@ -770,16 +772,18 @@ private[solid] object SolidEmitter:
           registerList(list)
           val setter = setterName(list.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
           registerSignal(body)
           registerSignal(tick)
-          val setTick  = setterName(tick.id)
-          val setBody  = setterName(body.id)
-          val urlJs    = jsString(url)
-          val methodJs = jsString(method)
-          val clearJs  = if clearBody then s" $setBody('');" else ""
+          hOpt.foreach(registerSignal)
+          val setTick   = setterName(tick.id)
+          val setBody   = setterName(body.id)
+          val urlJs     = jsString(url)
+          val methodJs  = jsString(method)
+          val clearJs   = if clearBody then s" $setBody('');" else ""
+          val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
-            s"fetch($urlJs, {method: $methodJs, body: ${body.id}()})" +
+            s"fetch($urlJs, {method: $methodJs, body: ${body.id}()$headersJs})" +
             s".then(r => r.text()).then(_ => { $setTick(t => t + 1);$clearJs }));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template.  Capture

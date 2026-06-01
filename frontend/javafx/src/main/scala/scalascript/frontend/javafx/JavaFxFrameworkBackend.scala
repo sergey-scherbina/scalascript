@@ -428,7 +428,7 @@ private object JavaFxEmitter:
       case EventHandler.IncrementSignal(signal, _)  => addSignal(acc, signal)
       case EventHandler.ToggleSignal(signal)        => addSignal(acc, signal)
       case EventHandler.InputChange(signal)         => addSignal(acc, signal)
-      case EventHandler.FetchAction(_, _, body, tick, _) => addSignal(addSignal(acc, body), tick)
+      case EventHandler.FetchAction(_, _, body, tick, _, _) => addSignal(addSignal(acc, body), tick)
       case _ => acc
 
   private def addSignal(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =

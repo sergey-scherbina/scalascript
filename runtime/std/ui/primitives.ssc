@@ -25,6 +25,7 @@ exports:
   - incSignal
   - fetchActionClear
   - fetchTableView
+  - emptyHeaders
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -82,20 +83,30 @@ extern def emit(tree: View, outDir: String): Unit
 extern def serve(tree: View, port: Int): Unit
 
 // ── Fetch primitives (std/ui-fetch-plugin) ───────────────────────────────
+// emptyHeaders — default no-op headers Signal; value is always "".
+extern def emptyHeaders: Signal[String]
+
 // fetchUrlSignal — GET url on mount + whenever refreshTick increments.
-extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int]): Signal[String]
+// headers: JSON-object Signal read at fetch time (e.g. {"Authorization":"Bearer …"}).
+extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
+                          headers: Signal[String] = emptyHeaders): Signal[String]
 
 // fetchAction — on click: POST/PUT/DELETE url with body signal value,
 // then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
-extern def fetchAction(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int]): EventHandler
+// headers: JSON-object Signal read at click time.
+extern def fetchAction(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
+                       headers: Signal[String] = emptyHeaders): EventHandler
 
 // incSignal — on click: increment an Int signal by 1.
 extern def incSignal(s: Signal[Int]): EventHandler
 
 // fetchActionClear — like fetchAction but resets the body signal to "" on success.
-extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int]): EventHandler
+extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
+                            headers: Signal[String] = emptyHeaders): EventHandler
 
 // fetchTableView — reactive table driven by a JSON array endpoint.
 // React emitter: fetches fetchUrl on mount + on tick, renders rows with per-row Delete buttons.
-extern def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Signal[Int]): View
+// headers: JSON-object Signal read at fetch time and at delete time.
+extern def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Signal[Int],
+                          headers: Signal[String] = emptyHeaders): View
 ```

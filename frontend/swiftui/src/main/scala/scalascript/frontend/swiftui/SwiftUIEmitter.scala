@@ -401,7 +401,7 @@ object SwiftUIEmitter:
             s"${pad}// RemoveSelfFromList: use inside ForSignal for index-based removal on ${list.id}"
       case EventHandler.InputChange(signal) =>
         s"${pad}// InputChange handled by TextField binding on $$${signal.id}"
-      case EventHandler.FetchAction(method, url, _, _, _) =>
+      case EventHandler.FetchAction(method, url, _, _, _, _) =>
         s"""${pad}// FetchAction ${method.toUpperCase}: ${swiftString(url)}"""
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         s"${pad}// closure action (not serializable into generated Swift source)"

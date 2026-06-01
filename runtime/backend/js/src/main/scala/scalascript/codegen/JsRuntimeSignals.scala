@@ -166,9 +166,12 @@ function _ssc_ui_renderBody(view) {
           else if (h._type === '_InputChange' && h.s) { collectSig(h.s); aStr += ` data-ssc-change="${h.s.id}"`; }
           else if ((h._type === '_FetchAction' || h._type === '_FetchActionClear') && h.url) {
             if (h.body) collectSig(h.body); if (h.tick) collectSig(h.tick);
+            if (h.headers) collectSig(h.headers);
             const bId = (h.body && h.body.id) ? h.body.id : '';
             const tId = (h.tick && h.tick.id) ? h.tick.id : '';
+            const hId = (h.headers && h.headers.id != null) ? String(h.headers.id) : '';
             aStr += ` data-ssc-fetch-method="${_esc(h.method||'POST')}" data-ssc-fetch-url="${_esc(h.url)}" data-ssc-fetch-body="${_esc(bId)}" data-ssc-fetch-tick="${_esc(tId)}"`;
+            if (hId) aStr += ` data-ssc-fetch-headers="${_esc(hId)}"`;
             if (h._type === '_FetchActionClear') aStr += ` data-ssc-fetch-clear="1"`;
           }
         }
@@ -180,7 +183,19 @@ function _ssc_ui_renderBody(view) {
         collectSig(v.sig);
         const id  = v.sig && v.sig.id;
         const txt = _escT(v.sig && v.sig.get ? String(v.sig.get()) : '');
-        return id ? `<span data-ssc-text="${id}">${txt}</span>` : txt;
+        if (!id) return txt;
+        const fg = v.sig && v.sig._fetchGet;
+        if (fg) {
+          if (fg.tick) collectSig(fg.tick);
+          if (fg.headers) collectSig(fg.headers);
+          const fgTick = (fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
+          const fgHdr  = (fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
+          let fgAttrs = ` data-ssc-fetch-get-url="${_esc(fg.url)}"`;
+          if (fgTick) fgAttrs += ` data-ssc-fetch-get-tick="${_esc(fgTick)}"`;
+          if (fgHdr)  fgAttrs += ` data-ssc-fetch-get-headers="${_esc(fgHdr)}"`;
+          return `<span data-ssc-text="${id}"${fgAttrs}>${txt}</span>`;
+        }
+        return `<span data-ssc-text="${id}">${txt}</span>`;
       }
       case '_ShowSignal': {
         collectSig(v.cond);
@@ -196,8 +211,12 @@ function _ssc_ui_renderBody(view) {
       case '_Fragment':      return (v.children || []).map(walk).join('');
       case '_FetchTableView': {
         if (v.tick) collectSig(v.tick);
-        const ftTick = (v.tick && v.tick.id) ? v.tick.id : '';
-        return `<div data-ssc-fetch-table="${_esc(v.fetchUrl)}" data-ssc-fetch-delete="${_esc(v.deleteUrl||'')}" data-ssc-fetch-tick="${_esc(ftTick)}" style="overflow-x:auto"></div>`;
+        if (v.headers) collectSig(v.headers);
+        const ftTick = (v.tick && v.tick.id != null) ? String(v.tick.id) : '';
+        const ftHdr  = (v.headers && v.headers.id != null) ? String(v.headers.id) : '';
+        let ftAttrs = `data-ssc-fetch-table="${_esc(v.fetchUrl)}" data-ssc-fetch-delete="${_esc(v.deleteUrl||'')}" data-ssc-fetch-tick="${_esc(ftTick)}"`;
+        if (ftHdr) ftAttrs += ` data-ssc-fetch-headers="${_esc(ftHdr)}"`;
+        return `<div ${ftAttrs} style="overflow-x:auto"></div>`;
       }
       default: return '';
     }
@@ -251,14 +270,20 @@ function _ssc_ui_mount(sigs) {
   });
   // fetch action buttons (fetchAction / fetchActionClear)
   document.querySelectorAll('[data-ssc-fetch-url]').forEach(function(el) {
-    var method = el.getAttribute('data-ssc-fetch-method') || 'POST';
-    var url    = el.getAttribute('data-ssc-fetch-url');
-    var bodyId = el.getAttribute('data-ssc-fetch-body');
-    var tickId = el.getAttribute('data-ssc-fetch-tick');
-    var clear  = el.getAttribute('data-ssc-fetch-clear');
+    var method    = el.getAttribute('data-ssc-fetch-method') || 'POST';
+    var url       = el.getAttribute('data-ssc-fetch-url');
+    var bodyId    = el.getAttribute('data-ssc-fetch-body');
+    var tickId    = el.getAttribute('data-ssc-fetch-tick');
+    var headersId = el.getAttribute('data-ssc-fetch-headers');
+    var clear     = el.getAttribute('data-ssc-fetch-clear');
     el.addEventListener('click', function() {
       var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
-      fetch(url, {method: method, body: body})
+      var opts = {method: method, body: body};
+      if (headersId) {
+        var hs = _sv[headersId];
+        if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
+      }
+      fetch(url, opts)
         .then(function(r) { return r.text(); })
         .then(function() {
           if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1);
@@ -271,11 +296,18 @@ function _ssc_ui_mount(sigs) {
     var fetchUrl  = container.getAttribute('data-ssc-fetch-table');
     var deleteUrl = container.getAttribute('data-ssc-fetch-delete');
     var tickId    = container.getAttribute('data-ssc-fetch-tick');
+    var headersId = container.getAttribute('data-ssc-fetch-headers');
     var cs = window.getComputedStyle(container);
     var fs = cs.fontSize; var ff = cs.fontFamily;
     var thStyle  = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827;font-size:'+fs+';font-family:'+ff;
     var tdStyle  = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle;font-size:'+fs+';font-family:'+ff;
     var btnStyle = 'background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff;
+    function getHeaders() {
+      if (!headersId) return undefined;
+      var hs = _sv[headersId];
+      if (!hs) return undefined;
+      try { return JSON.parse(hs); } catch(_e) { return undefined; }
+    }
     function renderTable(rows) {
       container.innerHTML = '';
       var tbl = document.createElement('table');
@@ -292,16 +324,39 @@ function _ssc_ui_mount(sigs) {
         var td2 = document.createElement('td'); td2.setAttribute('style', tdStyle);
         var btn = document.createElement('button'); btn.setAttribute('style', btnStyle); btn.textContent = 'Delete';
         btn.addEventListener('click', function() {
-          fetch(deleteUrl, {method: 'POST', body: String(row.id)}).then(function(r) { return r.text(); })
+          var dOpts = {method: 'POST', body: String(row.id)};
+          var dh = getHeaders(); if (dh) dOpts.headers = dh;
+          fetch(deleteUrl, dOpts).then(function(r) { return r.text(); })
             .then(function() { if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1); });
         });
         td2.appendChild(btn); tr.appendChild(td2); tbody.appendChild(tr);
       });
       tbl.appendChild(tbody); container.appendChild(tbl);
     }
-    function doFetch() { fetch(fetchUrl).then(function(r) { return r.json(); }).then(renderTable); }
+    function doFetch() {
+      var fOpts = {};
+      var fh = getHeaders(); if (fh) fOpts.headers = fh;
+      fetch(fetchUrl, fOpts).then(function(r) { return r.json(); }).then(renderTable);
+    }
     doFetch();
     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
+  });
+  // fetchUrlSignal GET — mount + tick-driven re-fetch
+  document.querySelectorAll('[data-ssc-fetch-get-url]').forEach(function(el) {
+    var sigId     = el.getAttribute('data-ssc-text');
+    var url       = el.getAttribute('data-ssc-fetch-get-url');
+    var tickId    = el.getAttribute('data-ssc-fetch-get-tick');
+    var headersId = el.getAttribute('data-ssc-fetch-get-headers');
+    function doGet() {
+      var opts = {};
+      if (headersId) {
+        var hs = _sv[headersId];
+        if (hs) { try { opts.headers = JSON.parse(hs); } catch(_e) {} }
+      }
+      fetch(url, opts).then(function(r) { return r.text(); }).then(function(t) { _set(sigId, t); });
+    }
+    doGet();
+    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
   });
 }
 
@@ -346,9 +401,14 @@ ${extraCss}</style></head><body><div class="ssc-page">${body}</div>${script}</bo
   });
   _ssc_http_serve(port);
 }
-function _ssc_ui_fetchUrlSignal(name, url, tick) { return Signal(''); }
-function _ssc_ui_fetchAction(method, url, body, tick) { return { _type: '_FetchAction', method, url, body, tick }; }
+function _ssc_ui_emptyHeaders() { return Signal(''); }
+function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
+  var sig = Signal('');
+  if (url) sig._fetchGet = { url, tick: tick || null, headers: headers || null };
+  return sig;
+}
+function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
-function _ssc_ui_fetchActionClear(method, url, body, tick) { return { _type: '_FetchActionClear', method, url, body, tick }; }
-function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick) { return { _type: '_FetchTableView', fetchUrl, deleteUrl, tick }; }
+function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
+function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick, headers) { return { _type: '_FetchTableView', fetchUrl, deleteUrl, tick, headers: headers || null }; }
 """

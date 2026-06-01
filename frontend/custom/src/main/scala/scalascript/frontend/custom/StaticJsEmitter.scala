@@ -422,13 +422,15 @@ private[custom] object StaticJsEmitter:
         }
         null
 
-      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick) =>
+      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick, hOpt) =>
         registerSignal(tick)
+        hOpt.foreach(registerSignal)
         if !reactiveSignals.contains(tableId) then reactiveSignals.update(tableId, "[]")
-        val tickJs     = jsString(tick.id)
-        val rowsJs     = jsString(tableId)
-        val urlJs      = jsString(fetchUrl)
-        val delUrlJs   = jsString(deleteUrl)
+        val tickJs    = jsString(tick.id)
+        val rowsJs    = jsString(tableId)
+        val urlJs     = jsString(fetchUrl)
+        val delUrlJs  = jsString(deleteUrl)
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h.id)}].value || '{}')").getOrElse("")
         val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
         val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
         val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:13px")
@@ -451,13 +453,13 @@ private[custom] object StaticJsEmitter:
         statements += s"    const td1 = document.createElement('td'); td1.setAttribute('style', $tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);"
         statements += s"    const td2 = document.createElement('td'); td2.setAttribute('style', $tdStyle);"
         statements += s"    const btn = document.createElement('button'); btn.setAttribute('style', $btnStyle); btn.textContent = 'Delete';"
-        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)}).then(r => r.text()).then(_ => __setSignal($tickJs, __ssc_signals[$tickJs].value + 1)));"
+        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)$headersJs}).then(r => r.text()).then(_ => __setSignal($tickJs, __ssc_signals[$tickJs].value + 1)));"
         statements += s"    td2.appendChild(btn); tr.appendChild(td2); $tbodyVar.appendChild(tr);"
         statements += s"  }"
         statements += s"}"
         statements += s"__ssc_signals[$rowsJs].subs.add($rebuildFn);"
-        statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs).then(r => r.json()).then(data => __setSignal($rowsJs, data)); });"
-        statements += s"fetch($urlJs).then(r => r.json()).then(data => __setSignal($rowsJs, data));"
+        statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, data)); });"
+        statements += s"fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($rowsJs, data));"
         tableVar
 
       // ── P2 semantic View cases ───────────────────────────────────────────────
@@ -880,16 +882,18 @@ private[custom] object StaticJsEmitter:
           val nameJs = jsString(list.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
                         s"__setSignalList($nameJs, []));"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
           registerSignal(body)
           registerSignal(tick)
-          val bodyJs   = jsString(body.id)
-          val tickJs   = jsString(tick.id)
-          val urlJs    = jsString(url)
-          val methodJs = jsString(method)
-          val clearJs  = if clearBody then s" __setSignal($bodyJs, '');" else ""
+          hOpt.foreach(registerSignal)
+          val bodyJs    = jsString(body.id)
+          val tickJs    = jsString(tick.id)
+          val urlJs     = jsString(url)
+          val methodJs  = jsString(method)
+          val clearJs   = if clearBody then s" __setSignal($bodyJs, '');" else ""
+          val headersJs = hOpt.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h.id)}].value || '{}')").getOrElse("")
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
-            s"fetch($urlJs, {method: $methodJs, body: __ssc_signals[$bodyJs].value})" +
+            s"fetch($urlJs, {method: $methodJs, body: __ssc_signals[$bodyJs].value$headersJs})" +
             s".then(r => r.text()).then(_ => { __setSignal($tickJs, __ssc_signals[$tickJs].value + 1);$clearJs }));"
         case EventHandler.RemoveSelfFromList(list) =>
           // A2e.2 — only meaningful inside an item template; outside,

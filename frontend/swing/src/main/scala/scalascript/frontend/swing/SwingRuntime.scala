@@ -207,7 +207,7 @@ object SwingRuntime:
         children.foreach(addTo(parent, _, state))
       case View.Element(_, _, _, children) =>
         children.foreach(addTo(parent, _, state))
-      case View.FetchTable(_, fetchUrl, deleteUrl, tick) =>
+      case View.FetchTable(_, fetchUrl, deleteUrl, tick, _) =>
         parent.add(fetchTable(fetchUrl, deleteUrl, tick, state))
       case View.Show(cond, whenTrue, whenFalse) =>
         addTo(parent, if cond() then whenTrue() else whenFalse(), state)
@@ -287,7 +287,7 @@ object SwingRuntime:
         component.addActionListener(_ => action())
       case EventHandler.WithEvent(action) =>
         component.addActionListener(event => action(event))
-      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody) =>
+      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
         component.addActionListener { _ =>
           state.fetchDispatcher.foreach { dispatcher =>
             val response = dispatcher.request(method, url, state.signalString(body.id))
@@ -464,7 +464,7 @@ object SwingRuntime:
         case EventHandler.IncrementSignal(signal, _)  => add(acc, signal)
         case EventHandler.ToggleSignal(signal)        => add(acc, signal)
         case EventHandler.InputChange(signal)         => add(acc, signal)
-        case EventHandler.FetchAction(_, _, body, onSuccessTick, _) => add(add(acc, body), onSuccessTick)
+        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) => add(add(acc, body), onSuccessTick)
         case _ => acc
     def loop(acc: Map[String, SignalInitial], v: View[?]): Map[String, SignalInitial] =
       v match
@@ -472,7 +472,7 @@ object SwingRuntime:
         case View.Button(_, handler, _, _) => action(acc, handler)
         case View.TextInput(value, _, _, _, _) => add(acc, value)
         case View.Toggle(checked, _, _) => add(acc, checked)
-        case View.FetchTable(_, _, _, tick) => add(acc, tick)
+        case View.FetchTable(_, _, _, tick, _) => add(acc, tick)
         case View.Column(children, _, _, _) => children.foldLeft(acc)(loop)
         case View.Row(children, _, _, _) => children.foldLeft(acc)(loop)
         case View.Stack(children, _) => children.foldLeft(acc)(loop)

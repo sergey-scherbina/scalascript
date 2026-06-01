@@ -367,7 +367,8 @@ enum View[+A]:
    *  @deprecated Use the `fetchTable` toolkit helper instead; this case will be removed in P2
    *  when web renderers are updated to handle the new semantic View cases. */
   @deprecated("Use the fetchTable toolkit helper; View.FetchTable will be removed in P2.", "v0.3")
-  case FetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int]) extends View[Nothing]
+  case FetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int],
+                  headers: Option[ReactiveSignal[String]] = None) extends View[Nothing]
 
   /** Static text node — internal use by web renderers.  Produced by the
    *  toolkit lowering pass; app code should use `View.Text` instead. */
@@ -481,16 +482,18 @@ object EventHandler:
   final case class RemoveSelfFromList[T](list: ReactiveSignalList[T])                                                 extends EventHandler
   final case class InputChange(signal: ReactiveSignal[String])                                                        extends EventHandler
   final case class FetchAction(method: String, url: String, body: ReactiveSignal[String],
-                               onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false)                        extends EventHandler
+                               onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false,
+                               headers: Option[ReactiveSignal[String]] = None)                extends EventHandler
 
 // ── Reactive URL signal ───────────────────────────────────────────────────────
 
 /** Signal backed by a REST GET fetch.
  *  `id` and `tickId` replace `jsName` / `tickJsName` from v0.2. */
 final class FetchUrlSignal(
-    id2:          String,
-    val fetchUrl: String,
-    val tickId:   String
+    id2:           String,
+    val fetchUrl:  String,
+    val tickId:    String,
+    val headersId: Option[String] = None
 ) extends ReactiveSignal[String](id2, "")
 
 // ── Widget ref (formerly DomRef) ──────────────────────────────────────────────

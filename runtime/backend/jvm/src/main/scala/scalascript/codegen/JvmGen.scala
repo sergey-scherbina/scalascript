@@ -8863,29 +8863,43 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |      def hashSignal(): Any =
        |        new scalascript.frontend.ReactiveSignal[String]("__hash__", "")
        |
-       |      def fetchUrlSignal(name: String, url: String, refreshTick: Any): Any =
-       |        new scalascript.frontend.FetchUrlSignal(name, url,
-       |          refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].id)
+       |      def emptyHeaders: Any =
+       |        new scalascript.frontend.ReactiveSignal[String]("__ssc_empty_headers", "")
        |
-       |      def fetchAction(method: String, url: String, body: Any, onSuccessTick: Any): EventHandler =
+       |      def fetchUrlSignal(name: String, url: String, refreshTick: Any, headers: Any = null): Any =
+       |        val _tick = refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers").map(_.id)
+       |        new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
+       |
+       |      def fetchAction(method: String, url: String, body: Any, onSuccessTick: Any, headers: Any = null): EventHandler =
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
        |        scalascript.frontend.EventHandler.FetchAction(method, url,
        |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
-       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]])
+       |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+       |          headers = _hOpt)
        |
        |      def incSignal(s: Any): EventHandler =
        |        scalascript.frontend.EventHandler.IncrementSignal(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], 1)
        |
-       |      def fetchActionClear(method: String, url: String, body: Any, onSuccessTick: Any): EventHandler =
+       |      def fetchActionClear(method: String, url: String, body: Any, onSuccessTick: Any, headers: Any = null): EventHandler =
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
        |        scalascript.frontend.EventHandler.FetchAction(method, url,
        |          body.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
        |          onSuccessTick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
-       |          clearBody = true)
+       |          clearBody = true,
+       |          headers = _hOpt)
        |
-       |      def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Any): View =
+       |      def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Any, headers: Any = null): View =
        |        val _tableJsName = "sscRows_" + fetchUrl.replaceAll("[^A-Za-z0-9]", "_")
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
        |        scalascript.frontend.View.FetchTable(_tableJsName, fetchUrl, deleteUrl,
-       |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]])
+       |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+       |          headers = _hOpt)
        |
        |      def emit(tree: View, outDir: String): Unit =
        |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], outDir)

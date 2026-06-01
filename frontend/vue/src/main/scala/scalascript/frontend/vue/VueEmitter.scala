@@ -127,7 +127,7 @@ private[vue] object VueEmitter:
         items().foreach(item => walk(render(item)))
       case View.ForSignal(_, _, _, itemTemplate) => itemTemplate.foreach(walk)
       case View.Portal(_, children) => children.foreach(walk)
-      case View.FetchTable(_, _, _, tick) => register(tick)
+      case View.FetchTable(_, _, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       // P2
       case View.Column(children, _, _, _)     => children.foreach(walk)
       case View.Row(children, _, _, _)        => children.foreach(walk)
@@ -159,7 +159,7 @@ private[vue] object VueEmitter:
       case EventHandler.IncrementSignal(sig, _)          => register(sig)
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
-      case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
       case _ => ()
     walk(view)
     acc
@@ -357,9 +357,10 @@ private[vue] object VueEmitter:
         else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
       s"h(Teleport, { 'to': $targetJs }$childrenJs)"
 
-    case View.FetchTable(tableId, _, deleteUrl, tick) =>
+    case View.FetchTable(tableId, _, deleteUrl, tick, hOpt) =>
       val tickName   = tick.id
       val delUrlJs   = jsString(deleteUrl)
+      val headersJs  = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
       val thStyle    = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827' }"
       val tdStyle    = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle' }"
       val btnStyle   = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }"
@@ -370,7 +371,7 @@ private[vue] object VueEmitter:
         s"h('tr', { key: String(row.id) }, [" +
         s"h('td', { style: $tdStyle }, String(row.text)), " +
         s"h('td', { style: $tdStyle }, [" +
-        s"h('button', { style: $btnStyle, onClick: () => { fetch($delUrlJs, { method: 'POST', body: String(row.id) }).then(r => r.text()).then(_ => { this.$tickName++; }); } }, 'Delete')" +
+        s"h('button', { style: $btnStyle, onClick: () => { fetch($delUrlJs, { method: 'POST', body: String(row.id)$headersJs }).then(r => r.text()).then(_ => { this.$tickName++; }); } }, 'Delete')" +
         s"])]))"
       s"h('table', { style: $tableStyle }, [" +
         s"h('thead', { style: $theadStyle }, [h('tr', null, [h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, '')])]), " +
@@ -536,9 +537,10 @@ private[vue] object VueEmitter:
         case EventHandler.SetSignalLiteral(sig, v) => s"this.${sig.id} = ${jsLiteral(v)};"
         case EventHandler.IncrementSignal(sig, by) => s"this.${sig.id} = this.${sig.id} + $by;"
         case EventHandler.ToggleSignal(sig)        => s"this.${sig.id} = !this.${sig.id};"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
-          val clear = if clearBody then s" this.${body.id} = '';" else ""
-          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: this.${body.id}}).then(r => r.text()).then(_ => { this.${tick.id}++;$clear });"
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+          val clear     = if clearBody then s" this.${body.id} = '';" else ""
+          val headersJs = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
+          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: this.${body.id}$headersJs}).then(r => r.text()).then(_ => { this.${tick.id}++;$clear });"
         case _ => ""
       val css = StyleUtils.styleToCSS(style)
       val styleField = if css.isEmpty then "null" else s"{ style: ${jsString(css)} }"
@@ -650,11 +652,12 @@ private[vue] object VueEmitter:
           Some(s"${jsString(onKey)}: () => { this.${list.id} = this.${list.id}.filter((_, i) => i !== index); }")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
-      case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
-        val urlJs    = jsString(url)
-        val methodJs = jsString(method)
-        val clearJs  = if clearBody then s" this.${body.id} = '';" else ""
-        Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.id}})" +
+      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+        val urlJs     = jsString(url)
+        val methodJs  = jsString(method)
+        val clearJs   = if clearBody then s" this.${body.id} = '';" else ""
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
+        Some(s"${jsString(onKey)}: () => { fetch($urlJs, {method: $methodJs, body: this.${body.id}$headersJs})" +
           s".then(r => r.text()).then(_ => { this.${tick.id}++;$clearJs }); }")
       case EventHandler.InputChange(signal) =>
         Some(s"'onInput': (e) => { this.${signal.id} = e.target.value; }")

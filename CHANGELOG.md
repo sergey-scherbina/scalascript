@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-01 — ui-fetch-auth v1 + v2
+
+- **ui-fetch-auth-v1** — `fetchAction`/`fetchActionClear` gain optional
+  `headers: Signal[String] = emptyHeaders` param; header value read at click time
+  from `_sv[headersId]` → `JSON.parse` → passed to `fetch()`; `data-ssc-fetch-headers`
+  attr in `renderBody`; all frontend emitters (React/Vue/Solid/Custom/Swing/JavaFX/Swift)
+  updated; interpreter intrinsic handles 4-arg and 5-arg forms.
+- **ui-fetch-auth-v2** — `fetchUrlSignal` performs a real HTTP GET on mount + on
+  `refreshTick` increment (was a stub returning `Signal('')`); `_fetchGet` metadata
+  on the Signal object drives `data-ssc-fetch-get-*` attrs on the text node span;
+  `_ssc_ui_mount` now queries `[data-ssc-fetch-get-url]` and sets up fetch + tick
+  subscription; `fetchTableView` similarly gains `headers`; new
+  `FetchUrlSignal.headersId: Option[String]` field. Example: `examples/fetch-auth.ssc`.
+
 ## 2026-05-30 — lightweight perf regression guard added
 
 - **perf-regression-guard** — Added a checked-in performance workflow manifest,

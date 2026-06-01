@@ -1,0 +1,42 @@
+---
+name: fetch-auth-demo
+version: 1.0.0
+description: |
+  Demonstrates ui-fetch-auth: authed POST via fetchAction (v1)
+  and authed live GET via fetchUrlSignal (v2).
+  Bearer token stored in a Signal, read at request time.
+frontend: react
+---
+
+# Authenticated fetch demo
+
+```scalascript
+val token    = signal("token", "")
+val body     = signal("body", "")
+val tick     = signal("tick", 0)
+
+// headers Signal holds a JSON object; updated after login.
+val authHdr  = signal("authHdr", "")
+
+// v1 — authed mutation: POST /api/items with Authorization header
+val postBtn = fetchActionClear("POST", "/api/items", body, tick, authHdr)
+
+// v2 — authed live read: GET /api/balance, re-fetches on tick increment
+val balance = fetchUrlSignal("balance", "/api/balance", tick, authHdr)
+
+// Login sets the token and updates the headers Signal.
+val loginBtn = fetchActionClear("POST", "/api/login",
+               signal("creds", """{"user":"demo","pass":"demo"}"""),
+               tick,
+               emptyHeaders)   // login itself has no auth header
+
+serve(
+  vstack(
+    text("Authenticated fetch demo"),
+    hstack(textField(body, "Enter item…"), actionButton("Post", postBtn)),
+    text(balance),
+    text(token)
+  ),
+  3000
+)
+```

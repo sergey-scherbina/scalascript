@@ -115,7 +115,7 @@ private[react] object ReactEmitter:
             case EventHandler.IncrementSignal(signal, _)       => register(signal)
             case EventHandler.ToggleSignal(signal)             => register(signal)
             case EventHandler.InputChange(signal)              => register(signal)
-            case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
+            case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
             case _ => ()
         }
         children.foreach(walk)
@@ -149,8 +149,8 @@ private[react] object ReactEmitter:
         // signals they reference still live in the parent component's
         // state.  Walk into them for useState hoisting.
         children.foreach(walk)
-      case View.FetchTable(_, _, _, tick) =>
-        register(tick)
+      case View.FetchTable(_, _, _, tick, hOpt) =>
+        register(tick); hOpt.foreach(register)
       // P2 — new semantic View cases
       case View.Column(children, _, _, _)     => children.foreach(walk)
       case View.Row(children, _, _, _)        => children.foreach(walk)
@@ -185,7 +185,7 @@ private[react] object ReactEmitter:
       case EventHandler.IncrementSignal(sig, _)          => register(sig)
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
-      case EventHandler.FetchAction(_, _, body, tick, _) => register(body); register(tick)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
       case _ => ()
     walk(view)
     acc
@@ -306,7 +306,7 @@ private[react] object ReactEmitter:
         attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
         events.foreach { (_, handler) =>
           handler match
-            case EventHandler.FetchAction(_, _, body, tick, _) => checkSig(body); checkSig(tick)
+            case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
             case EventHandler.SetSignalLiteral(sig, _)      => checkSig(sig)
             case EventHandler.IncrementSignal(sig, _)       => checkSig(sig)
             case EventHandler.ToggleSignal(sig)             => checkSig(sig)
@@ -446,9 +446,10 @@ private[react] object ReactEmitter:
         else s"h(Fragment, null, ${children.map(c => renderView(c, itemCtx)).mkString(", ")})"
       s"ReactDOM.createPortal($childJs, document.querySelector($targetJs))"
 
-    case View.FetchTable(tableId, _, deleteUrl, tick) =>
+    case View.FetchTable(tableId, _, deleteUrl, tick, hOpt) =>
       val setter       = setterName(tick.id)
       val delUrlJs     = jsString(deleteUrl)
+      val headersJs    = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
       val thStyle      = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827', fontSize: 'inherit', fontFamily: 'inherit' }"
       val tdStyle      = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle', fontSize: 'inherit', fontFamily: 'inherit' }"
       val btnStyle     = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }"
@@ -459,7 +460,7 @@ private[react] object ReactEmitter:
         s"h('tr', { key: row.id }, " +
         s"h('td', { style: $tdStyle }, String(row.text)), " +
         s"h('td', { style: $tdStyle }, " +
-        s"h('button', { style: $btnStyle, onClick: () => fetch($delUrlJs, { method: 'POST', body: String(row.id) }).then(r => r.text()).then(_ => $setter(t => t + 1)) }, 'Delete')" +
+        s"h('button', { style: $btnStyle, onClick: () => fetch($delUrlJs, { method: 'POST', body: String(row.id)$headersJs }).then(r => r.text()).then(_ => $setter(t => t + 1)) }, 'Delete')" +
         s")))"
       s"h('table', { style: $tableStyle }, " +
         s"h('thead', { style: $theadStyle }, h('tr', null, h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, ''))), " +
@@ -639,10 +640,11 @@ private[react] object ReactEmitter:
         case EventHandler.SetSignalLiteral(sig, v) => s"${setterName(sig.id)}(${jsLiteral(v)})"
         case EventHandler.IncrementSignal(sig, by) => s"${setterName(sig.id)}(c => c + $by)"
         case EventHandler.ToggleSignal(sig)        => s"${setterName(sig.id)}(c => !c)"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
-          val setTick = setterName(tick.id)
-          val clear   = if clearBody then s" ${setterName(body.id)}('');" else ""
-          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: ${body.id}}).then(r => r.text()).then(_ => { $setTick(t => t + 1);$clear })"
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+          val setTick   = setterName(tick.id)
+          val clear     = if clearBody then s" ${setterName(body.id)}('');" else ""
+          val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
+          s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: ${body.id}$headersJs}).then(r => r.text()).then(_ => { $setTick(t => t + 1);$clear })"
         case _ => ""
       val css = StyleUtils.styleToCSS(style)
       val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
@@ -798,14 +800,15 @@ private[react] object ReactEmitter:
       case EventHandler.InputChange(signal) =>
         val setter = setterName(signal.id)
         Some(s"'onChange': (e) => $setter(e.target.value)")
-      case EventHandler.FetchAction(method, url, body, tick, clearBody) =>
-        val getBody  = body.id
-        val setTick  = setterName(tick.id)
-        val setBody  = setterName(body.id)
-        val urlJs    = jsString(url)
-        val methodJs = jsString(method)
-        val clearJs  = if clearBody then s"; $setBody('')" else ""
-        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody}).then(r => r.text()).then(_ => { $setTick(t => t + 1)$clearJs })")
+      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+        val getBody   = body.id
+        val setTick   = setterName(tick.id)
+        val setBody   = setterName(body.id)
+        val urlJs     = jsString(url)
+        val methodJs  = jsString(method)
+        val clearJs   = if clearBody then s"; $setBody('')" else ""
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
+        Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody$headersJs}).then(r => r.text()).then(_ => { $setTick(t => t + 1)$clearJs })")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

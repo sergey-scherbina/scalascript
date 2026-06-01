@@ -18,16 +18,19 @@ import scalascript.frontend.{View, ReactiveSignal}
  *  (`View.Column`, `View.Button`, etc.) and a proper reactive data-fetching
  *  API so it becomes truly target-agnostic.
  *
- *  @param tableId  stable JS identifier for the row-list signal (must be a
- *                  valid JS identifier: `[A-Za-z_][A-Za-z0-9_]*`)
- *  @param fetchUrl GET endpoint — response must be a JSON array of `{id, text}` objects
+ *  @param tableId   stable JS identifier for the row-list signal (must be a
+ *                   valid JS identifier: `[A-Za-z_][A-Za-z0-9_]*`)
+ *  @param fetchUrl  GET endpoint — response must be a JSON array of `{id, text}` objects
  *  @param deleteUrl POST endpoint — body is the `row.id` string; increments `tick` on success
- *  @param tick     signal that drives re-fetches; increment to trigger a refresh */
+ *  @param tick      signal that drives re-fetches; increment to trigger a refresh
+ *  @param headers   optional Signal[String] holding a JSON-object of request headers (e.g.
+ *                   `{"Authorization":"Bearer …"}`); read at fetch/delete time */
 @nowarn("cat=deprecation")
 def fetchTable(
     tableId:   String,
     fetchUrl:  String,
     deleteUrl: String,
-    tick:      ReactiveSignal[Int]
+    tick:      ReactiveSignal[Int],
+    headers:   Option[ReactiveSignal[String]] = None
 ): View[?] =
-  View.FetchTable(tableId, fetchUrl, deleteUrl, tick)
+  View.FetchTable(tableId, fetchUrl, deleteUrl, tick, headers)

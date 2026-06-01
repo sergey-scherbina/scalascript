@@ -482,7 +482,7 @@ private object SwingEmitter:
       case EventHandler.IncrementSignal(signal, _)  => addSignal(acc, signal)
       case EventHandler.ToggleSignal(signal)        => addSignal(acc, signal)
       case EventHandler.InputChange(signal)         => addSignal(acc, signal)
-      case EventHandler.FetchAction(_, _, body, onSuccessTick, _) =>
+      case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) =>
         addSignal(addSignal(acc, body), onSuccessTick)
       case _ => acc
 

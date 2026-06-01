@@ -1,6 +1,6 @@
 # std/ui fetch: request headers + `fetchUrlSignal` GET
 
-Status: **spec** (implementation tracked separately). Owner: TBD.
+Status: **implemented** (v1 + v2 landed 2026-06-01). Owner: agent.
 
 ## Problem
 

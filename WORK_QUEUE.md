@@ -13,22 +13,12 @@ Start: tell the agent `"работай"` / `"go"`. Status: ask `"статус"` 
 These surfaced building the `busi` app (sibling repo) against an RBAC-gated,
 bearer-token API. Resume via the standard claim/worktree flow.
 
-- [ ] **ui-fetch-auth-v1** — Add optional request headers to `fetchAction` /
-  `fetchActionClear` so the browser can send `Authorization: Bearer <token>`
-  (busi's authed "post entry"). Spec: [`docs/ui-fetch-auth.md`](docs/ui-fetch-auth.md).
-  Cross-backend: `runtime/std/ui/primitives.ssc` (extern def),
-  `runtime/std/frontend-plugin/.../FrontendIntrinsics.scala`,
-  `runtime/backend/js/.../JsRuntimeSignals.scala` (descriptor + `renderBody`
-  `data-ssc-fetch-headers` attr + click `fetch(url,{…,headers})`),
-  `runtime/backend/jvm/.../JvmGen.scala`. Header value read at **request time**
-  from a `Signal` (token arrives after login), never captured statically.
-  Back-compat: default empty. Tests: interpreter snapshot unaffected + JS emit
-  golden (headers in the `fetch` call) + node `--check`.
-- [ ] **ui-fetch-auth-v2** — Implement `fetchUrlSignal`'s GET (currently a JS
-  stub `return Signal('')` — no fetch) on mount + on `refreshTick`, with the
-  same headers support, plus headers on `fetchTableView`. Unblocks authed
-  **live reads** (the busi dashboard's balance display). Per `docs/ui-fetch-auth.md`
-  §"Phasing v2". Depends on **ui-fetch-auth-v1**.
+- [x] **ui-fetch-auth-v1** — ✓ Landed 2026-06-01. `headers: Signal[String] = emptyHeaders`
+  on `fetchAction`/`fetchActionClear`; `data-ssc-fetch-headers` attr + click-time
+  `JSON.parse` in `_ssc_ui_mount`; all backends updated.
+- [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
+  real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
+  attrs; `fetchTableView` also takes `headers`. All emitters updated.
 - [ ] **interp-getOrElse-fn-default** — Bug: a function whose body is a `match`,
   where a case-arm body in **tail position** is a method call whose argument is
   itself a function call (e.g. `m.getOrElse(k, en(k))`), returns the inner
