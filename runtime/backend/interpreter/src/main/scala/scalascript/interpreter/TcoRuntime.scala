@@ -74,16 +74,23 @@ private[interpreter] object TcoRuntime:
               if targets.isEmpty then selfEnv
               else
                 val mutualEntries: Map[String, Value] = targets.flatMap { name =>
-                  (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
-                    case fn: Value.FunV =>
-                      name -> (Value.NativeFnV(name, a => {
-                        interp.mutualTailCallSig.f    = fn
-                        interp.mutualTailCallSig.args = a
-                        throw interp.mutualTailCallSig
-                      }): Value)
-                  }
+                  // Skip targets that also appear in non-tail positions. Replacing
+                  // them with a throwing stub would cause MutualTailCall to escape
+                  // argument evaluation, bypassing pending method calls (e.g.
+                  // m.getOrElse(k, en(k)) would jump to en before the map lookup).
+                  if appearsAsCallInNonTailPos(curFun.body, name) then None
+                  else
+                    (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
+                      case fn: Value.FunV =>
+                        name -> (Value.NativeFnV(name, a => {
+                          interp.mutualTailCallSig.f    = fn
+                          interp.mutualTailCallSig.args = a
+                          throw interp.mutualTailCallSig
+                        }): Value)
+                    }
                 }.toMap
-                FrameMap.fromMap(mutualEntries, selfEnv)
+                if mutualEntries.isEmpty then selfEnv
+                else FrameMap.fromMap(mutualEntries, selfEnv)
             envStableFor  = curFun
           val callEnv: Env = curFun.params match
             case Nil               => envStable
@@ -226,6 +233,25 @@ private[interpreter] object TcoRuntime:
     tree match
       case Term.Apply.After_4_6_0(Term.Name(`fname`), _) => true
       case t => t.children.exists(anywhereContainsSelfCall(_, fname))
+
+  /** True if `target` is invoked (as the callee of Term.Apply) anywhere in `tree`
+   *  that is NOT a tail position. Used to guard the mutual-tail-call stub install. */
+  private def appearsAsCallInNonTailPos(tree: Tree, target: String): Boolean =
+    def go(t: Tree, tailPos: Boolean): Boolean = t match
+      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+        (!tailPos && n == target) ||
+        argClause.values.exists(go(_, false))
+      case ti: Term.If =>
+        go(ti.cond, false) || go(ti.thenp, tailPos) || go(ti.elsep, tailPos)
+      case Term.Block(stats) =>
+        stats.dropRight(1).exists(go(_, false)) ||
+        stats.lastOption.exists(go(_, tailPos))
+      case tm: Term.Match =>
+        go(tm.expr, false) ||
+        tm.casesBlock.cases.exists(c => go(c.body, tailPos))
+      case other =>
+        other.children.exists(go(_, false))
+    go(tree, tailPos = true)
 
   private def containsSelfNameRef(tree: Tree, fname: String): Boolean =
     tree match

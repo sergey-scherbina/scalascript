@@ -1310,3 +1310,19 @@ def main(): Unit =
          |""".stripMargin
     capturedDoc(src) shouldBe "if (a < b && b > c) { /* 42 */ }"
   }
+
+  // ── Bug repro: getOrElse with function-call default in match arm ──────────
+
+  test("map.getOrElse with fn-call default in match arm returns map value") {
+    captured("""
+      val nested = Map("en" -> Map("hello" -> "Hello", "world" -> "World"))
+      def en(k) = Map("hello" -> "Hello", "world" -> "World").getOrElse(k, k)
+      def t(loc, k) = nested.get(loc) match {
+        case Some(m) => m.getOrElse(k, en(k))
+        case None    => en(k)
+      }
+      println(t("en", "hello"))
+      println(t("en", "world"))
+      println(t("fr",  "hello"))
+    """) shouldBe "Hello\nWorld\nHello"
+  }
