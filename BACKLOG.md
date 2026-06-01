@@ -1844,9 +1844,27 @@ gated on same-session A/B + full suite green with the gate off AND on.
       **Cumulative from pre-Phase D baseline**: pureCallSum 2541 → 12.4 ms
       (**205× speedup**); now only ~22× off the JVM backend (from 4540× off).
       All other benches unchanged; full suite green in both modes.
-      Remaining Phase D scope: broader closure shapes (multi-stmt blocks,
-      2-param closures, foreach over Set/Map/Option). Both the 1-param non-
-      Match pure-call gap AND the in-while-loop pure-call gap are now closed.
+      **2026-06-02 (c): mixed apply+assign while bodies landed.** Extended
+      `tryFastWhileAssign` to recognize a body shape of leading
+      `Term.Apply` stmts + trailing `Term.Assign` stmts (the
+      `patternMatchHeavy`/`Wide` outer-while is exactly
+      `{ shapes.foreach(...); i = i + 1 }`). New `collectMixedAssignBody` +
+      `tryMixedLongWhile`: per iter eval each apply via `interp.eval` (FastTier
+      handles `xs.foreach(...)` cheaply) and long-slot the assigns; static
+      check ensures no apply references any slot-assigned name (otherwise
+      slot/frame would go out of sync). Same-session A/B:
+        - `patternMatchHeavy` time: 244.575 → **114.643 ms/op (−53.1%, 2.13×)**
+        - `patternMatchHeavy` `alloc.rate.norm`: 9.04 → **4.09 MB/op (−54.7%)**
+        - `patternMatchWide`  time: 138.989 → **73.436 ms/op (−47.2%, 1.89×)**
+        - `patternMatchWide`  `alloc.rate.norm`: 4.32 → **2.17 MB/op (−49.8%)**
+      All other benches stable (recursionTco 970 µs / arithLoop 2.87 ms /
+      pureCallSum 12.66 ms / recursiveEval 32 ms — all within run-to-run noise).
+      Full 1204-test suite green in both modes.
+      **Cumulative from pre-Phase D**: patternMatchHeavy 491 → **115 ms (4.27×)**,
+      patternMatchWide 630 → **73 ms (8.58×)**, pureCallSum 2541 → 12 ms (205×).
+      Remaining Phase D scope: 2-param `LApply` (`g(x, y)` shapes), broader
+      closure shapes (foreach over Set/Map/Option, multi-stmt closure bodies).
+      All high-value shapes for top-level Int/Double accumulators are now closed.
 
 ## v1.55 — First-class XML / Generic Markup
 

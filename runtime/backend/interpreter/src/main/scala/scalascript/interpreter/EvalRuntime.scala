@@ -248,6 +248,69 @@ private[interpreter] object EvalRuntime:
         new FastAssignBody(names, rhs)
       case _ => null
 
+  /** Body shape for a mixed while-loop: one or more leading no-result `Term.Apply`
+   *  side-effect statements (e.g. `xs.foreach(...)` — handled cheaply when
+   *  `FastTier` recognizes the closure shape) followed by one or more
+   *  `Term.Assign(Term.Name, _)` int-typed updates (e.g. `i = i + 1`). Lets
+   *  `tryMixedLongWhile` run the assigns in unboxed `Long` slot space while
+   *  still threading the side-effect applies through `interp.eval`. */
+  private final class MixedAssignBody(
+    val leadingApplies: Array[Term],
+    val names:          Array[String],
+    val rhs:            Array[Term]
+  )
+
+  /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
+   *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
+   *  (use the plain `collectFastAssignBody` path), no trailing assigns, or any
+   *  unsupported leading stmt. */
+  private def collectMixedAssignBody(body: Term): MixedAssignBody | Null = body match
+    case Term.Block(stats) if stats.nonEmpty =>
+      // `stats` is `List[Stat]`; we narrow each entry to `Term.Apply` or
+      // `Term.Assign` and cast to `Term` (both are Term subtypes).
+      val arr = stats.toArray
+      var firstAssign = 0
+      while firstAssign < arr.length && !arr(firstAssign).isInstanceOf[Term.Assign] do
+        if !arr(firstAssign).isInstanceOf[Term.Apply] then return null
+        firstAssign += 1
+      if firstAssign == 0 || firstAssign == arr.length then return null
+      val applies = new Array[Term](firstAssign)
+      var i = 0
+      while i < firstAssign do
+        applies(i) = arr(i).asInstanceOf[Term.Apply]
+        i += 1
+      val nAssigns = arr.length - firstAssign
+      val names = new Array[String](nAssigns)
+      val rhs   = new Array[Term](nAssigns)
+      var j = 0
+      while j < nAssigns do
+        arr(firstAssign + j) match
+          case a: Term.Assign if a.lhs.isInstanceOf[Term.Name] =>
+            names(j) = a.lhs.asInstanceOf[Term.Name].value
+            rhs(j) = a.rhs
+          case _ => return null
+        j += 1
+      new MixedAssignBody(applies, names, rhs)
+    case _ => null
+
+  /** True if `t` references any `Term.Name` whose value is in `names` (read OR
+   *  write — conservative). Used to verify that the leading applies in
+   *  `MixedAssignBody` do NOT touch any slot-assigned int var: if they did,
+   *  the slot value would go out of sync with the frame between the apply
+   *  (which reads through the frame) and the long-slot assign. */
+  private def applyAccessesNames(t: scala.meta.Tree, names: Set[String]): Boolean =
+    if names.isEmpty then false
+    else
+      var hit = false
+      def visit(tree: scala.meta.Tree): Unit =
+        if hit then ()
+        else
+          tree match
+            case tn: Term.Name if names.contains(tn.value) => hit = true
+            case _ => tree.children.foreach(visit)
+      visit(t)
+      hit
+
   private def previewFastAssignIteration(body: FastAssignBody, cond: Term, env: Env, interp: Interpreter): java.lang.Boolean | Null =
     val overlay = mutable.HashMap.empty[String, Value]
     val preview = new OverlayEnvView(env, overlay)
@@ -479,11 +542,186 @@ private[interpreter] object EvalRuntime:
     catch
       case PatternRuntime.NotDouble => null
 
+  /** Mixed apply+assign variant of `tryLongWhileAssign`. The body is
+   *  `{ apply1; ...; applyN; assign1; ...; assignM }` (see
+   *  `collectMixedAssignBody`): each apply runs via `interp.eval` (typically
+   *  routed through `FastTier` so the side effect is near-free), and the
+   *  trailing int-typed assigns run in unboxed `Long` slot space, just as in
+   *  `tryLongWhileAssign`. Targets the outer-while of `patternMatchHeavy` /
+   *  `patternMatchWide` (`{ shapes.foreach(...); i = i + 1 }`), removing the
+   *  per-iter `IntV` allocation that the value-path falls back to.
+   *
+   *  Safety: requires no leading apply to read or write any slot-assigned
+   *  name (verified once via `applyAccessesNames`). The applies see the env
+   *  through `frameView`, so they observe the entry-state of the slot vars
+   *  for the iteration — but since they don't touch them, the in-loop slot
+   *  values stay authoritative without any per-iter resync. */
+  private def tryMixedLongWhile(t: Term.While, body: MixedAssignBody, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
+    val slotOfName = mutable.LinkedHashMap.empty[String, Int]
+    def slotOf(name: String): Int =
+      slotOfName.get(name) match
+        case Some(i) => i
+        case None =>
+          frameView.getOrElse(name, null) match
+            case Value.IntV(_) =>
+              val i = slotOfName.size
+              slotOfName(name) = i
+              i
+            case _ => -1
+    def compileExpr(term: Term): LExpr | Null = term match
+      case Lit.Int(v)  => new LConst(v.toLong)
+      case Lit.Long(v) => new LConst(v)
+      case tn: Term.Name =>
+        val s = slotOf(tn.value)
+        if s < 0 then null else new LVar(s)
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        val code = op.value match
+          case "+" => 0
+          case "-" => 1
+          case "*" => 2
+          case "/" => 3
+          case "%" => 4
+          case _   => -1
+        if code < 0 then null
+        else
+          val l = compileExpr(lhs)
+          if l == null then null
+          else
+            val r = compileExpr(argClause.values.head)
+            if r == null then null else new LBin(code, l, r)
+      case ap: Term.Apply =>
+        ap.fun match
+          case fnName: Term.Name if ap.argClause.values.lengthCompare(1) == 0 =>
+            val argTerm = ap.argClause.values.head
+            val argL    = compileExpr(argTerm)
+            if argL == null then null
+            else
+              interp.globals.getOrElse(fnName.value, null) match
+                case fn: Value.FunV
+                    if fn.params.length == 1
+                       && fn.usingParams.isEmpty
+                       && !fn.returnsThrows
+                       && (fn.defaults.isEmpty || fn.defaults.head.isEmpty)
+                       && (fn.paramTypes.isEmpty || !fn.paramTypes.head.endsWith("*")) =>
+                  val slotFn = PatternRuntime.compileSlotLongFn1(fn.body, fn.params.head, interp)
+                  if slotFn == null then null
+                  else new LApply(argL, fnName.value, fn.body, slotFn, interp)
+                case _ => null
+          case _ => null
+      case _ => null
+    def compileCond(term: Term): LCond | Null = term match
+      case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+          if argClause.values.lengthCompare(1) == 0 =>
+        op.value match
+          case "&&" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LAnd(l, r)
+          case "||" =>
+            val l = compileCond(lhs)
+            if l == null then null
+            else
+              val r = compileCond(argClause.values.head)
+              if r == null then null else new LOr(l, r)
+          case other =>
+            val code = other match
+              case "<"  => 0
+              case "<=" => 1
+              case ">"  => 2
+              case ">=" => 3
+              case "==" => 4
+              case "!=" => 5
+              case _    => -1
+            if code < 0 then null
+            else
+              val l = compileExpr(lhs)
+              if l == null then null
+              else
+                val r = compileExpr(argClause.values.head)
+                if r == null then null else new LCmp(code, l, r)
+      case _ => null
+
+    // Register assigned names + compile RHSes / cond first so we know the slot set.
+    var k = 0
+    while k < body.names.length do
+      if slotOf(body.names(k)) < 0 then return null
+      k += 1
+    val rhsL = new Array[LExpr](body.rhs.length)
+    var j = 0
+    while j < body.rhs.length do
+      val c = compileExpr(body.rhs(j))
+      if c == null then return null
+      rhsL(j) = c
+      j += 1
+    val condL = compileCond(t.expr)
+    if condL == null then return null
+
+    // Safety: leading applies must NOT reference any slot-assigned name.
+    val slotNameSet = slotOfName.keysIterator.toSet
+    var pi = 0
+    while pi < body.leadingApplies.length do
+      if applyAccessesNames(body.leadingApplies(pi), slotNameSet) then return null
+      pi += 1
+
+    // Initial slot values.
+    val slots = new Array[Long](slotOfName.size)
+    val it = slotOfName.iterator
+    while it.hasNext do
+      val (nm, idx) = it.next()
+      frameView.getOrElse(nm, null) match
+        case Value.IntV(v) => slots(idx) = v
+        case _             => return null
+    val assignSlot = new Array[Int](body.names.length)
+    var a = 0
+    while a < body.names.length do
+      assignSlot(a) = slotOfName(body.names(a))
+      a += 1
+
+    try
+      var running = true
+      while running do
+        // 1. Run leading side-effect applies (FastTier handles the bench shape
+        //    cheaply; any monadic result is `run` to a Value and discarded).
+        var ap = 0
+        while ap < body.leadingApplies.length do
+          Computation.run(interp.eval(body.leadingApplies(ap), frameView))
+          ap += 1
+        // 2. Long-slot assigns.
+        var i = 0
+        while i < rhsL.length do
+          slots(assignSlot(i)) = rhsL(i).eval(slots)
+          i += 1
+        // 3. Cond.
+        running = condL.eval(slots)
+      // Write back final slot values.
+      val local = frameView.underlying
+      var w = 0
+      while w < body.names.length do
+        val nm = body.names(w)
+        val v  = Value.intV(slots(assignSlot(w)))
+        local(nm) = v
+        interp.globals(nm) = v
+        w += 1
+      Computation.PureUnit
+    catch
+      case PatternRuntime.NotDouble => null
+
   private def tryFastWhileAssign(t: Term.While, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
     if interp.debugHooks.nonEmpty then null
     else
       val body = collectFastAssignBody(t.body)
-      if body == null then null
+      if body == null then
+        // Try the mixed apply+assign variant before falling back to monadic.
+        val mixedBody = collectMixedAssignBody(t.body)
+        if mixedBody == null then null
+        else
+          fastPrimitiveValue(t.expr, frameView, interp) match
+            case Value.BoolV(false) => Computation.PureUnit
+            case Value.BoolV(true)  => tryMixedLongWhile(t, mixedBody, frameView, interp)
+            case _                  => null
       else
         fastPrimitiveValue(t.expr, frameView, interp) match
           case Value.BoolV(false) => Computation.PureUnit

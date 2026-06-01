@@ -292,17 +292,65 @@ on this shape (vs ~4540× before Phase D).
 machine noise (concurrent build daemons), not a regression from any Phase D
 landing.
 
+### Phase D — Update 2026-06-02 (c): mixed apply+assign while bodies
+
+`tryFastWhileAssign` previously required all body stmts to be
+`Term.Assign(Term.Name, _)` — `collectFastAssignBody` bailed on anything
+else. The `patternMatchHeavy` / `patternMatchWide` outer-while is
+`{ shapes.foreach(...); i = i + 1 }` (or `ops.foreach(...); i = i + 1`):
+one leading `Term.Apply` followed by one `Term.Assign`. The Apply triggered
+the bail and the whole loop fell to the value-space path, allocating
+per-iter `IntV`+`Pure` wrappers for the int counter and `evalBlock`
+threading overhead.
+
+This slice adds:
+
+- New `MixedAssignBody { leadingApplies, names, rhs }` body shape +
+  `collectMixedAssignBody(body)` that recognizes `Block(apply*, assign+)`.
+- New `tryMixedLongWhile` mirrors `tryLongWhileAssign` but per iter also
+  runs each leading apply via `interp.eval(applyTerm, frameView)` and
+  discards the result (FastTier handles `xs.foreach(...)` shape cheaply,
+  so the side effect is near-free).
+- Safety: a new `applyAccessesNames(tree, names)` AST walker verifies that
+  the leading applies do NOT reference any slot-assigned name. If they
+  did, the apply (which reads through `frameView`, not the long slot) would
+  see stale data, and a long-slot update would not flow back to the apply.
+  The `patternMatch` benches don't read `i` inside the foreach closure, so
+  the check passes; any user code that breaks the assumption falls back to
+  the value-space loop with no semantic change.
+- Hooked in `tryFastWhileAssign`: when `collectFastAssignBody` returns null,
+  try `collectMixedAssignBody` before bailing.
+
+Same-session A/B JMH (2 forks × 5 iters, stash → bench → pop → bench):
+
+| Bench | Baseline | Spike | Δ |
+|---|---|---|---|
+| `patternMatchHeavy` time | 244.575 ± 2.170 ms | **114.643 ± 1.334 ms** | **−53.1%** (2.13×) |
+| `patternMatchHeavy` `alloc.rate.norm` | 9,035,891 B/op | **4,091,085 B/op** | **−54.7%** |
+| `patternMatchWide` time | 138.989 ± 1.005 ms | **73.436 ± 0.644 ms** | **−47.2%** (1.89×) |
+| `patternMatchWide` `alloc.rate.norm` | 4,315,327 B/op | **2,167,647 B/op** | **−49.8%** |
+
+`arithLoop`, `pureCallSum`, `recursionFib`/`Tco`/`recursiveEval`,
+`tupleMonoid`, `effectPure` all within noise. Full 1204-test
+`backendInterpreter/test` suite green with `SSC_FASTTIER` off AND on. The
+2× win exceeded the original 5-15% estimate because the value-space path's
+overhead (the per-iter `evalBlock` Computation threading + the
+`fastPrimitiveValue` non-cached re-walk + the IntV pool miss for `i >
+16383`) added up to ~50% of the iteration cost on these benches, not the
+~10% that just the IntV alloc accounted for.
+
+**Cumulative from pre-Phase D**: `patternMatchHeavy` 491 → **115 ms (4.27×)**,
+`patternMatchWide` 630 → **73 ms (8.58×)**, `pureCallSum` 2541 → 12 ms (205×).
+Cross-backend interpreter-vs-JVM gap on `patternMatch` shape now ~208× off
+(from 1156× off at session start).
+
 **Remaining Phase D work:**
 
-- **Broader closure shapes** — multi-statement closure bodies (e.g.
-  `s => { x = ...; acc = acc + fn(s) }`), 2-param closures, `foreach` over
-  `Set`/`Map`/`Option`, accumulator declared inside a nested block
-  (resolution via closure-env instead of globals).
-- **2-param `LApply`** — current `LApply` is 1-param only (`compileSlotLongFn1`
-  uses `DSlot(0)` for the arg, `DSlot(_)` throws). A 2-param variant
-  (`compileSlotLongFn2(body, n0, n1)` reusing `DSlot(0)`/`DSlot(1)` for both
-  args) would cover `g(x, y)`-shaped pure-bodied calls inside a long-while
-  loop.
+- **Broader closure shapes** — `foreach` over `Set`/`Map`/`Option`,
+  multi-statement closure bodies, 2-param closures, accumulator declared
+  inside a nested block (resolution via closure-env instead of globals).
+- **2-param `LApply`** — `compileSlotLongFn1` is 1-param only; a 2-param
+  variant covers `g(x, y)`-shaped pure-bodied calls inside a long-while.
 
 ---
 
