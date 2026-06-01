@@ -67,7 +67,8 @@ class V2RealStdModulesTest extends AnyFunSuite:
    */
   private val stdDir: Option[os.Path] =
     val cwd = os.pwd
-    def stdUnder(root: os.Path): os.Path = root / "std"
+    def stdCandidates(root: os.Path): List[os.Path] =
+      List(root / "runtime" / "std", root / "std")
     def findCanonicalRepo(p: os.Path): Option[os.Path] =
       val parts = p.segments.toList
       val idx = parts.lastIndexOf(".claude")
@@ -77,10 +78,10 @@ class V2RealStdModulesTest extends AnyFunSuite:
     // Prefer the std/ that lives alongside the running checkout — when the
     // test runs from a worktree, its branch may carry a different std/ than
     // canonical main.
-    val candidates = List(
-      stdUnder(cwd),
-      stdUnder(cwd / os.up)
-    ) ++ findCanonicalRepo(cwd).map(stdUnder).toList
+    val candidates =
+      stdCandidates(cwd) ++
+      stdCandidates(cwd / os.up) ++
+      findCanonicalRepo(cwd).toList.flatMap(stdCandidates)
     candidates.find(os.isDir)
 
   private def requireStdDir(): os.Path = stdDir.getOrElse:
