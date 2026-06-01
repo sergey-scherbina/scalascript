@@ -70,6 +70,7 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+
   // Wide ADT (12 constructors) with Int case bodies — exercises pure-body
   // compilation across many constructors without Double-boxing noise.
   private val modPatternMatchWide: Module = src(
@@ -200,9 +201,39 @@ class InterpreterBench:
   def recursionTco(): Unit =
     Interpreter(devNull).runSections(modTco)
 
+  // `patternMatchHeavy` with a `Set[Shape]` receiver instead of `List[Shape]`.
+  // Verifies that `Set.foreach` routes through `DispatchRuntime.dispatchSet`
+  // → `dispatchList(s.toList, ...)` → `CallRuntime.foreachReusing` → FastTier,
+  // so the foreach-accumulator wins land automatically without any FastTier
+  // changes. Uses `.toSet` (rather than the `Set(...)` ctor) because the
+  // bench harness skips `BuiltinsRuntime.initBuiltins` (which is where the
+  // `Set` companion gets registered) and lazy plugin loading only covers the
+  // intrinsics in `intrinsics/Core.scala` — an unrelated harness gap.
+  private val modPatternMatchSet: Module = src(
+    """sealed trait Shape
+      |case class Circle(r: Double) extends Shape
+      |case class Rect(w: Double, h: Double) extends Shape
+      |case class Triangle(b: Double, h: Double) extends Shape
+      |def area(s: Shape): Double = s match
+      |  case Circle(r)      => 3.14159 * r * r
+      |  case Rect(w, h)     => w * h
+      |  case Triangle(b, h) => 0.5 * b * h
+      |val shapes = List(Circle(1.0), Rect(2.0, 3.0), Triangle(4.0, 5.0)).toSet
+      |var total = 0.0
+      |var i = 0
+      |while i < 100000 do
+      |  shapes.foreach(s => { total = total + area(s) })
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   @Benchmark
   def patternMatchHeavy(): Unit =
     Interpreter(devNull).runSections(modPatternMatch)
+
+  @Benchmark
+  def patternMatchSet(): Unit =
+    Interpreter(devNull).runSections(modPatternMatchSet)
 
   @Benchmark
   def patternMatchWide(): Unit =

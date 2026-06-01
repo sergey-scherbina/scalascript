@@ -1694,8 +1694,15 @@ private[interpreter] object DispatchRuntime:
         case List(f) => Computation.filterNotSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"      => args match
-        case List(f) => Computation.foreachSequence(ls, item => interp.callValue1(f, item, env))
-        case _       => dispatchFallback(recv, name, args, env, interp)
+        // FunV → route through CallRuntime.foreachReusing so FastTier sees the
+        // closure and can specialize accumulator-shaped loops. (Non-FunV
+        // callables — e.g. native fns — keep the generic monadic path.)
+        // Closes a gap that previously made Set.foreach (which routes through
+        // this general dispatchList path) miss FastTier entirely; List.foreach
+        // already routed via `dispatchList1` so was unaffected.
+        case List(f: Value.FunV) => CallRuntime.foreachReusing(ls, f, env, interp)
+        case List(f)             => Computation.foreachSequence(ls, item => interp.callValue1(f, item, env))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "count"        => args match
         case List(f) =>
           var rem = ls; var acc = 0L

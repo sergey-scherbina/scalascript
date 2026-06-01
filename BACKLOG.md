@@ -1862,9 +1862,40 @@ gated on same-session A/B + full suite green with the gate off AND on.
       Full 1204-test suite green in both modes.
       **Cumulative from pre-Phase D**: patternMatchHeavy 491 → **115 ms (4.27×)**,
       patternMatchWide 630 → **73 ms (8.58×)**, pureCallSum 2541 → 12 ms (205×).
-      Remaining Phase D scope: 2-param `LApply` (`g(x, y)` shapes), broader
-      closure shapes (foreach over Set/Map/Option, multi-stmt closure bodies).
-      All high-value shapes for top-level Int/Double accumulators are now closed.
+      **2026-06-02 (d): 2-param `LApply2` landed** (commit `cdf83dcb`). New
+      `PatternRuntime.compileSlotLongFn2` (raw-Long 2-arg variant) + new
+      `LApply2` LExpr; `compileExpr` in both `tryLongWhileAssign` and
+      `tryMixedLongWhile` now recognizes 1- or 2-arg `Term.Apply`. New bench
+      `pureCallSum2` (`g(x,y) = x + y`) clean A/B: time 133.3 → **13.9 ms/op
+      (−89.6%, 9.6×)**, alloc 71.4 → **48.0 MB/op (−32.7%)**.
+      **2026-06-02 (e): Set.foreach (and general-dispatchList foreach) wired
+      to FastTier** (commit pending). Previously `DispatchRuntime.dispatchList`
+      (the generic path used by Set/Map/anything-routed-through-dispatchList)
+      called `Computation.foreachSequence` directly, bypassing
+      `CallRuntime.foreachReusing` and thus FastTier; only `dispatchList1`
+      (the 1-arg List fast path) hit foreachReusing. Single-line fix:
+      `case List(f: FunV) => CallRuntime.foreachReusing(...)` ahead of the
+      generic monadic path. New bench `patternMatchSet`: 404.7 → **147.6 ms/op
+      (−63.5%, 2.74×)** — FastTier wins now land on Set foreach automatically.
+      Other receivers that route through general `dispatchList` foreach pick
+      up the same routing.
+      **Cumulative from pre-Phase D**: patternMatchHeavy 491 → **114 ms (4.31×)**,
+      patternMatchWide 630 → **74 ms (8.51×)**, pureCallSum 2541 → 12 ms (205×),
+      pureCallSum2 (new) 133 → 14 ms (9.6×), patternMatchSet (new) 405 → 148 ms (2.74×).
+      Remaining Phase D scope (lower-value or larger-scope):
+      - **Map.foreach (2-param closure via callEntry)** — requires a parallel
+        2-param FastTier path; medium effort, unclear bench coverage in user code.
+      - **Option.foreach** — single-element, no measurable win expected.
+      - **Multi-stmt closure bodies** (`s => { x = ...; acc = acc + fn(s) }`) —
+        leading side-effect stmts would still go through `interp.eval` per
+        element; saves nothing unless the leading stmts themselves are
+        FastTier-shaped (the LApply / mixed-while gains stack only at the
+        outer while level).
+      - **Nested-scope accumulator** — when `total`/`acc` is in the closure
+        env rather than globals; complex env mechanics, no real workload
+        documented.
+      All concrete high-value Phase D targets shipped; further work needs a
+      specific user workload bench to justify the design risk.
 
 ## v1.55 — First-class XML / Generic Markup
 
