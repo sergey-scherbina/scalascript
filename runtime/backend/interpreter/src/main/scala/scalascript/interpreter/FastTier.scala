@@ -20,16 +20,20 @@ import Computation.PureUnit
  *  of each `fn(item)` via `CompiledMatch.runValueDouble`, and write the boxed
  *  accumulator back to globals exactly once at loop exit.
  *
- *  Gate: env `SSC_FASTTIER=on`. Default off so the existing test suite is
- *  unaffected; the bench A/B runs flip it on. */
+ *  Gate: default **ON** since both heavy-double and wide-long sub-targets
+ *  shipped same-session A/B-proven 2026-06-01 (Heavy −50.9%, Wide −78.1%).
+ *  Opt out via `SSC_FASTTIER=off` or `-Dssc.fasttier=off` if a regression
+ *  needs A/B isolation. */
 private[interpreter] object FastTier:
 
-  /** Gated via env `SSC_FASTTIER=on` (interactive runs) and the parallel
-   *  system property `-Dssc.fasttier=on` (JMH forks — JMH passes -D from
-   *  `-jvmArgsAppend` but does not always propagate the parent's env vars). */
+  /** Default **ON**. Opt out via env `SSC_FASTTIER=off` (interactive) or the
+   *  parallel system property `-Dssc.fasttier=off` (JMH forks / sbt — env
+   *  vars do not always propagate through forks). Off-switch retained so a
+   *  regression can be A/B-isolated without code churn, and so the original
+   *  test-with-and-without-gate methodology stays available. */
   val enabled: Boolean =
-    sys.env.get("SSC_FASTTIER").contains("on") ||
-      sys.props.get("ssc.fasttier").contains("on")
+    !sys.env.get("SSC_FASTTIER").contains("off") &&
+      !sys.props.get("ssc.fasttier").contains("off")
 
   /** Closure shape: `paramName => { accName = accName + fnName(paramName) }`.
    *  `paramName` is implicit (matches the closure's single param). */
