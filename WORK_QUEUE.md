@@ -19,16 +19,18 @@ bearer-token API. Resume via the standard claim/worktree flow.
 - [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
   real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
   attrs; `fetchTableView` also takes `headers`. All emitters updated.
-- [ ] **interp-getOrElse-fn-default** — Bug: a function whose body is a `match`,
-  where a case-arm body in **tail position** is a method call whose argument is
-  itself a function call (e.g. `m.getOrElse(k, en(k))`), returns the inner
-  call's value instead of the method result. Triggers **only** when the 2nd arg
-  is a non-`Pure` Computation; literal defaults, inline matches, and larger
-  enclosing expressions all work. In the recently perf-optimized function-call /
-  compiled-`match` fast path (A1/A2 fast-tier, `EvalRuntime`/`PatternRuntime`) —
-  fix carefully with instrumentation + full `backendInterpreter` test run. Repro:
+- [ ] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
+  `en(k)` instead of the map value. Root cause confirmed: `TcoRuntime.tcoTrampoline`
+  replaces mutual-tail-call targets (like `en`, found in tail pos at `case None =>
+  en(k)`) with `MutualTailCall`-throwing stubs. When `en(k)` also appears as a
+  *non-tail* argument in `m.getOrElse(k, en(k))`, the stub escapes argument
+  evaluation and the trampoline jumps to `en` — discarding the pending map lookup.
+  WIP fix in worktree `feature/interp-getOrElse-fn-default`: added
+  `appearsAsCallInNonTailPos` helper + filter in `mutualEntries` construction, but
+  test still fails (`Undefined: loc`) — deeper issue in env setup under the
+  trampoline when `mutualEntries` becomes empty. Repro:
   `def t(loc,k)=nested.get(loc) match { case Some(m)=>m.getOrElse(k,en(k)); case None=>en(k) }`
-  — `t("en","k")` returns `en(k)` (WRONG). Zero product impact (busi i18n uses a
+  — `t("en","k")` returns `en(k)` (WRONG). Zero product impact (busi i18n uses
   `if contains then getOrElse else` workaround).
 
 ## Tooling
