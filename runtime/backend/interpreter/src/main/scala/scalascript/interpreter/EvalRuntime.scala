@@ -209,6 +209,62 @@ private[interpreter] object EvalRuntime:
 
   private final class FastAssignBody(val names: Array[String], val rhs: Array[Term])
 
+  /** Sentinel stored in `Interpreter.whileJitCache` to indicate a previous
+   *  compile attempt for a while loop failed — avoids re-attempting. */
+  private[interpreter] val WhileJitMiss: AnyRef = new AnyRef
+
+  /** Try to run a `FastAssignBody` while loop via JIT-compiled bytecode.
+   *
+   *  On the first call for a given `Term.While`, attempts to compile the loop
+   *  condition and all-int assigns to a Java `static void run(long[] v)` method
+   *  via `BytecodeJit.tryCompileWhileLong`. Subsequent calls use the cached
+   *  `Method`; a cached `WhileJitMiss` sentinel skips immediately.
+   *
+   *  Precondition: the condition was already found to be true (caller checked).
+   *  The compiled method runs the FULL remaining loop from current slot values.
+   *
+   *  Returns `PureUnit` on success, null to fall back to `tryLongWhileAssign`. */
+  private def tryWhileJit(
+    t:         Term.While,
+    body:      FastAssignBody,
+    frameView: MutableEnvView,
+    interp:    Interpreter
+  ): Computation | Null =
+    val cached = interp.whileJitCache.get(t)
+    val method: java.lang.reflect.Method | Null =
+      if cached != null then
+        if cached eq WhileJitMiss then return null
+        else cached.asInstanceOf[java.lang.reflect.Method]
+      else
+        val m = scalascript.interpreter.vm.BytecodeJit.tryCompileWhileLong(
+          t.expr, body.names, body.rhs
+        )
+        interp.whileJitCache.put(t, if m == null then WhileJitMiss else m.asInstanceOf[AnyRef])
+        m
+    if method == null then return null
+    val n = body.names.length
+    val args = new Array[Long](n)
+    var k = 0
+    while k < n do
+      frameView.getOrElse(body.names(k), null) match
+        case Value.IntV(v) => args(k) = v
+        case _             => return null
+      k += 1
+    try
+      scalascript.interpreter.vm.BytecodeJit.withInterp(interp) {
+        method.invoke(null, args.asInstanceOf[AnyRef])
+      }
+    catch
+      case _: Throwable => return null
+    val local = frameView.underlying
+    k = 0
+    while k < n do
+      val v = Value.intV(args(k))
+      local(body.names(k)) = v
+      interp.globals(body.names(k)) = v
+      k += 1
+    Computation.PureUnit
+
   private final class OverlayEnvView(base: Env, overlay: mutable.HashMap[String, Value])
       extends scala.collection.immutable.AbstractMap[String, Value]:
     override def get(key: String): Option[Value] =
@@ -1034,7 +1090,10 @@ private[interpreter] object EvalRuntime:
             val hoisted = tryHoistedPureWhile(t, body, frameView, interp)
             val longLoop =
               if hoisted != null then hoisted
-              else tryLongWhileAssign(t, body, frameView, interp)
+              else
+                val jit = tryWhileJit(t, body, frameView, interp)
+                if jit != null then jit
+                else tryLongWhileAssign(t, body, frameView, interp)
             if longLoop != null then longLoop
             else if previewFastAssignIteration(body, t.expr, frameView, interp) == null then null
             else
