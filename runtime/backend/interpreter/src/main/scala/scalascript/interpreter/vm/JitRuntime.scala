@@ -262,6 +262,34 @@ object JitRuntime:
         catch case _: Throwable => return null
       wrapBytecodeResult(r, out)
 
+  /** For FastTier: try to get an `ObjToDouble` direct interface for a
+   *  1-param ref → double JIT-compiled function. Returns null when JIT is
+   *  disabled, compilation fails, or the shape doesn't match. No `withInterp`
+   *  wrapper required when called — that's the caller's responsibility (FastTier
+   *  omits it entirely when `slotFreeNames.isEmpty`, since generated code then
+   *  never calls `readGlobalDouble`). */
+  def tryGetObjToDouble(f: Value.FunV, interp: Interpreter): ObjToDouble | Null =
+    if !BytecodeJit.enabled then return null
+    val r = bytecodeFor(f, interp)
+    if r == null then return null
+    if !r.resultIsDouble then return null
+    if r.paramIsRef.length != 1 || !r.paramIsRef(0) then return null
+    r.direct match
+      case d: ObjToDouble => d
+      case _              => null
+
+  /** For FastTier: try to get an `ObjToLong` direct interface for a
+   *  1-param ref → long JIT-compiled function. Parallel to `tryGetObjToDouble`. */
+  def tryGetObjToLong(f: Value.FunV, interp: Interpreter): ObjToLong | Null =
+    if !BytecodeJit.enabled then return null
+    val r = bytecodeFor(f, interp)
+    if r == null then return null
+    if r.resultIsDouble then return null
+    if r.paramIsRef.length != 1 || !r.paramIsRef(0) then return null
+    r.direct match
+      case d: ObjToLong => d
+      case _            => null
+
   /** Bytecode-JIT entry called from `CallRuntime.callFun` BEFORE the
    *  `TcoRuntime.tcoTrampoline` dispatch. Handles the same 1- and 2-param
    *  FunV shapes the existing `tryRun1`/`tryRun2` cover, with the trampoline's
