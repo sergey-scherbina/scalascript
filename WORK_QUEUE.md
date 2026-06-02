@@ -139,9 +139,12 @@ being landed backend by backend.
   dispatch path; legacy `run(args): Unit` remains for the plugin SPI and
   existing commands. Tests: `CommandResultTest` + `CommandRegistryTest` (11).
 
-- [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
-  cleanup around UI bridge/runtime clusters. Require byte-identical generated
-  output or focused snapshot tests before landing.
+- [x] **jvmgen-ui-bridge-split** - ✓ Landed 2026-06-02. Extracted the
+  frontend `std.ui.primitives` generated-source block from `JvmGen.scala` into
+  `JvmRuntimeUiPrimitives.source`, leaving the call site as a direct string
+  append. Verification: `git diff --check`; `emit-scala
+  examples/frontend/dashboard/dashboard.ssc` compared byte-identical against
+  `origin/main` after normalizing absolute `//> using jar` paths.
 
 - [ ] **build-family-registry** - Migrate one repeated `build.sbt` family
   (frontend backends, std runtime plugins, or benchmarks) to a declarative

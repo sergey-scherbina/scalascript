@@ -197,9 +197,11 @@ small and dependency-aware because multiple agents are working in parallel.
       registry dispatch results, and top-level exit-code propagation. `LspCmd`
       is the first migrated command; plugin command SPI stays unchanged. Spec:
       `docs/cli-command-spi.md`.
-- [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
-      cleanup around UI bridge/runtime clusters only where generated output can
-      be proved byte-identical.
+- [x] **jvmgen-ui-bridge-split** - ✓ Landed 2026-06-02. Extracted the
+      frontend `std.ui.primitives` generated-source block from `JvmGen.scala`
+      into `JvmRuntimeUiPrimitives.source`; generated `emit-scala` output for
+      the dashboard frontend example stays byte-identical after normalizing
+      absolute jar paths.
 - [ ] **build-family-registry** - Extend the build registry approach to one
       repeated family such as frontend backends, std runtime plugins, or
       benchmark modules. Spec: `docs/arch-build-registry.md §Phase 4`.

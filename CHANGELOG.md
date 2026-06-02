@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-02 — JvmGen UI bridge split
+
+- **jvmgen-ui-bridge-split** — Extracted the frontend
+  `std.ui.primitives` generated-source block from `JvmGen.scala` into
+  `JvmRuntimeUiPrimitives.source`. Generated Scala for the dashboard frontend
+  example remains byte-identical after normalizing absolute jar directive paths.
+
 ## 2026-06-02 — CLI command result flow
 
 - **cli-command-result-exitcode** — Added internal `ExitCode` /
