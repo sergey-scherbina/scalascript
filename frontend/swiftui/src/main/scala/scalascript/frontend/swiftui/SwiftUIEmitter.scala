@@ -142,10 +142,13 @@ object SwiftUIEmitter:
     val fetchOwnedIds = fetchSigs.flatMap { fs =>
       List(fs.id, fs.id + "_loading", fs.id + "_loaded", fs.id + "_error")
     }.toSet
+    val signalIds      = signals.map(_.id).toSet
+    val fetchTickIds   = fetchSigs.map(_.tickId).distinct.filterNot(signalIds)
+    val fetchTickDecls = fetchTickIds.map(id => s"    @State private var $id: Int = 0").mkString("\n")
     val stateDecls    = emitStateDecls(signals.filterNot(s => fetchOwnedIds(s.id)), indent = 4)
     val fetchState    = emitFetchStateDecls(fetchSigs, indent = 4)
     val dtState       = emitDataTableStateDecls(dtSigs, indent = 4)
-    val allState      = List(stateDecls, fetchState, dtState).filter(_.nonEmpty).mkString("\n")
+    val allState      = List(stateDecls, fetchTickDecls, fetchState, dtState).filter(_.nonEmpty).mkString("\n")
     val body          = emitView(root, indent = 8)
     val fetchMods     = emitFetchModifiers(fetchSigs, indent = 8)
     val dtMods        = emitDataTableModifiers(dtSigs, indent = 8)
@@ -167,9 +170,6 @@ object SwiftUIEmitter:
        |    }
        |$allMethods}
        |
-       |#Preview {
-       |    ContentView()
-       |}
        |""".stripMargin
 
   // ── View emission ─────────────────────────────────────────────────────────
@@ -357,21 +357,24 @@ object SwiftUIEmitter:
         emitView(mobile.orElse(desktop).getOrElse(fallback), indent, ctx)
 
       case View.ModelView(signal, bindingVar, template, style) =>
+        val bv = escapeSwiftIdent(bindingVar)
         val innerBody = emitView(template, indent + 4, ctx)
         emitMods(
-          s"${pad}if let $bindingVar = ${signal.id} {\n$innerBody\n${pad}}",
+          s"${pad}if let $bv = ${signal.id} {\n$innerBody\n${pad}}",
           style, indent)
 
       case View.ForModel(bindingVar, fieldPath, itemVar, template, style) =>
+        val bv       = escapeSwiftIdent(bindingVar)
+        val iv       = escapeSwiftIdent(itemVar)
         val dotPath  = fieldPath.replace('.', '.')
         val innerBody = emitView(template, indent + 4, ctx)
         emitMods(
-          s"${pad}ForEach($bindingVar.$dotPath, id: \\.self) { $itemVar in\n$innerBody\n${pad}}",
+          s"${pad}ForEach(Array($bv.$dotPath.enumerated()), id: \\.offset) { _, $iv in\n$innerBody\n${pad}}",
           style, indent)
 
       case View.ModelText(varName, fieldPath, style) =>
         val dotPath = fieldPath.replace('.', '.')
-        emitMods(s"""${pad}Text("\\($varName.$dotPath)")""", style, indent)
+        emitMods(s"""${pad}Text("\\(${escapeSwiftIdent(varName)}.$dotPath)")""", style, indent)
 
       case dt: View.DataTable =>
         val pad2 = " " * (indent + 4)
@@ -913,6 +916,19 @@ object SwiftUIEmitter:
     name.filter(c => c.isLetterOrDigit || c == '_').capitalize match
       case ""  => "App"
       case str => if str.head.isDigit then s"App$str" else str
+
+  private val swiftKeywords = Set(
+    "as","associatedtype","break","case","catch","class","continue","default","defer",
+    "deinit","do","else","enum","extension","fallthrough","false","fileprivate","for",
+    "func","guard","if","import","in","init","inout","internal","is","lazy","let",
+    "mutating","nil","nonmutating","open","operator","override","package","precedencegroup",
+    "private","protocol","public","repeat","rethrows","return","self","Self","static",
+    "struct","subscript","super","switch","throw","throws","true","try","type","typealias",
+    "var","where","while"
+  )
+
+  private def escapeSwiftIdent(name: String): String =
+    if swiftKeywords.contains(name) then s"`$name`" else name
 
   private def swiftStringLit(value: String): String =
     "\"" + swiftString(value) + "\""

@@ -306,8 +306,11 @@ class JvmGen(
 
     // Frontend SPA — pull in the frontend-core + framework-specific JARs so
     // the UI primitives can reference scalascript.frontend.* types at runtime.
+    val nativeModels = module.manifest.fold(Nil)(_.models)
     if effectiveFrontend.isDefined then
       sb.append(sscJarDirective("scalascript-frontend-core"))
+      if nativeModels.nonEmpty then
+        sb.append(sscJarDirective("scalascript-core"))
       if effectiveFrontend.contains("swing") then
         sb.append(sscJarDirective("scalascript-backend-spi"))
         if apiClients.nonEmpty then
@@ -463,7 +466,8 @@ class JvmGen(
         val webPrimitives = if effectiveFrontend.contains("swiftui") then "" else "\n" + JvmRuntimeUiPrimitives.source
         uiHelperFunctions(
           effectiveFrontend.getOrElse("react"), appIcon,
-          bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion
+          bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion,
+          models = nativeModels
         ) + "\n" + userSrc + webPrimitives
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
@@ -8597,16 +8601,36 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  section so they're defined BEFORE the `import std.ui.primitives.{serve,...}`
    *  line — this ensures `serve(port)` inside `_ssc_ui_serve` resolves to the
    *  preamble's `serve(port: Int, ...)` rather than the opaque-typed wrapper. */
+  private def renderModelFieldType(t: scalascript.ast.ModelFieldType): String =
+    import scalascript.ast.ModelFieldType.*
+    t match
+      case Str          => "scalascript.ast.ModelFieldType.Str"
+      case IntF         => "scalascript.ast.ModelFieldType.IntF"
+      case DblF         => "scalascript.ast.ModelFieldType.DblF"
+      case BoolF        => "scalascript.ast.ModelFieldType.BoolF"
+      case Nested(n)    => s"""scalascript.ast.ModelFieldType.Nested(${scalaStringLiteral(n)})"""
+      case ListOf(i)    => s"scalascript.ast.ModelFieldType.ListOf(${renderModelFieldType(i)})"
+      case Optional(i)  => s"scalascript.ast.ModelFieldType.Optional(${renderModelFieldType(i)})"
+
+  private def renderModelDef(m: scalascript.ast.ModelDef): String =
+    val fields = m.fields.map { f =>
+      s"""scalascript.ast.ModelField(${scalaStringLiteral(f.name)}, ${renderModelFieldType(f.tpe)})"""
+    }.mkString(", ")
+    s"""scalascript.ast.ModelDef(${scalaStringLiteral(m.name)}, List($fields))"""
+
   private def uiHelperFunctions(
     frontendName: String,
     appIcon:      Option[String],
     bundleId:     Option[String],
     displayName:  Option[String],
-    version:      Option[String]
+    version:      Option[String],
+    models:       List[scalascript.ast.ModelDef]
   ): String =
     val bundleIdLit    = escapeStringLit(bundleId.getOrElse("com.example.app"))
     val displayNameLit = escapeStringLit(displayName.getOrElse("ScalaScript App"))
     val versionLit     = escapeStringLit(version.getOrElse("1.0.0"))
+    val modelsLit      = if models.isEmpty then "Nil"
+                         else s"List(${models.map(renderModelDef).mkString(", ")})"
     s"""|
        |// ── UI helpers injected by JvmGen for frontend-framework modules ──────────
        |{
@@ -8645,7 +8669,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |  )
        |  scalascript.frontend.FrontendModule(
        |    List(scalascript.frontend.ComponentDef("App", Nil, _ => view)),
-       |    "App", "/", "", platform, Some(_manifest))
+       |    "App", "/", "", platform, Some(_manifest), $modelsLit)
        |
        |def _ssc_ui_emit_to_dir(view: scalascript.frontend.View[?], dir: String, extraCss: String = ""): Unit =
        |  val _mod     = _ssc_ui_buildModule(view, extraCss)
