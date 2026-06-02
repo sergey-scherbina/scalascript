@@ -573,3 +573,111 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     val found = SwiftUIEmitter.collectFetchSignals(view)
     assert(found.exists(_.id == "items"), s"expected 'items' in $found")
   }
+
+  // ── View.DataTable ────────────────────────────────────────────────────────
+
+  private def makeDataTableView(editable: Boolean = false): (FetchUrlSignal, ReactiveSignal[Int], View.DataTable) =
+    val tick     = ReactiveSignal[Int]("tick", 0)
+    val editTick = ReactiveSignal[Int]("editTick", 0)
+    val signal   = FetchUrlSignal("employees", "/api/employees", tick.id)
+    val editAction: Option[RowActionDef.RowInlineEdit] = if editable then
+      Some(RowActionDef.RowInlineEdit("PUT", "/api/employees/update", "id", editTick))
+    else None
+    val dt: View.DataTable = View.DataTable(
+      signal  = signal,
+      columns = List(
+        FieldColumnDef("Name",       "name"),
+        FieldColumnDef("Department", "department", editAction = editAction)
+      ),
+      actions = List(RowActionDef.RowDelete("/api/employees/delete", "id", tick))
+    )
+    (signal, tick, dt)
+
+  private def cvFor(dt: View.DataTable): String =
+    backend.emitNative(makeModule(dt), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+
+  test("DataTable emits @State row array and List with ForEach") {
+    val (sig, _, dt) = makeDataTableView()
+    val cv = cvFor(dt)
+    assert(cv.contains(s"@State private var ${sig.id}: [[String: Any]] = []"), "row state missing")
+    assert(cv.contains(s"ForEach(Array(${sig.id}.enumerated()), id: \\.offset)"), "ForEach missing")
+  }
+
+  test("DataTable emits header row with column titles") {
+    val (_, _, dt) = makeDataTableView()
+    val cv = cvFor(dt)
+    assert(cv.contains("\"Name\""), "Name header missing")
+    assert(cv.contains("\"Department\""), "Department header missing")
+  }
+
+  test("DataTable emits .task modifier and async load method") {
+    val (sig, _, dt) = makeDataTableView()
+    val cv = cvFor(dt)
+    assert(cv.contains(s".task { await _load_dt_${sig.id}() }"), ".task modifier missing")
+    assert(cv.contains(s"private func _load_dt_${sig.id}() async"), "load method missing")
+    assert(cv.contains("JSONSerialization.jsonObject"), "JSON parse missing")
+    assert(cv.contains(s"${sig.id} = json"), "data assignment missing")
+  }
+
+  test("DataTable emits .onChange for delete tick to trigger re-fetch") {
+    val (_, tick, dt) = makeDataTableView()
+    val cv = cvFor(dt)
+    assert(cv.contains(s".onChange(of: ${tick.id})"), ".onChange for delete tick missing")
+  }
+
+  test("DataTable non-editable column emits Text cell") {
+    val (_, _, dt) = makeDataTableView()
+    val cv = cvFor(dt)
+    assert(cv.contains(s"""_row["name"] as? String"""), "Text cell for name missing")
+  }
+
+  test("DataTable collectDataTableSignals finds DataTable in tree") {
+    val (sig, _, dt) = makeDataTableView()
+    val view = View.Column(List(dt), 8, HAlign.Start, Style())
+    val found = SwiftUIEmitter.collectDataTableSignals(view)
+    assert(found.exists(_.signal.id == sig.id), s"DataTable not collected in: ${found.map(_.signal.id)}")
+  }
+
+  test("DataTable editable column emits TextField with Binding") {
+    val (_, _, dt) = makeDataTableView(editable = true)
+    val cv = cvFor(dt)
+    assert(cv.contains("TextField(\"\", text: Binding("), "TextField Binding missing")
+    assert(cv.contains(".textFieldStyle(.plain)"), ".textFieldStyle missing")
+    assert(cv.contains(".frame(maxWidth: .infinity)"), ".frame missing")
+    assert(cv.contains(".onSubmit"), ".onSubmit missing")
+  }
+
+  test("DataTable edit buffer state declared when editable columns present") {
+    val (sig, _, dt) = makeDataTableView(editable = true)
+    val cv = cvFor(dt)
+    assert(cv.contains(s"@State private var _edit_${sig.id}: [String: String] = [:]"), "edit buffer state missing")
+  }
+
+  test("DataTable edit submit sends PUT with JSON body") {
+    val (_, _, dt) = makeDataTableView(editable = true)
+    val cv = cvFor(dt)
+    assert(cv.contains("\"PUT\""), "method missing")
+    assert(cv.contains("/api/employees/update"), "URL missing")
+    assert(cv.contains("JSONSerialization.data(withJSONObject:"), "JSON body missing")
+    assert(cv.contains("application/json"), "Content-Type missing")
+    assert(cv.contains("editTick += 1"), "tick bump missing")
+  }
+
+  test("DataTable editable re-fetch on editTick change via .onChange") {
+    val (_, _, dt) = makeDataTableView(editable = true)
+    val cv = cvFor(dt)
+    assert(cv.contains(".onChange(of: editTick)"), ".onChange for editTick missing")
+  }
+
+  test("DataTable load method clears edit buffer on reload when editable") {
+    val (sig, _, dt) = makeDataTableView(editable = true)
+    val cv = cvFor(dt)
+    assert(cv.contains(s"_edit_${sig.id} = [:]"), "edit buffer not cleared on reload")
+  }
+
+  test("DataTable non-editable table has no edit buffer state") {
+    val (sig, _, dt) = makeDataTableView(editable = false)
+    val cv = cvFor(dt)
+    assert(!cv.contains(s"_edit_${sig.id}"), "unexpected edit buffer in non-editable table")
+  }

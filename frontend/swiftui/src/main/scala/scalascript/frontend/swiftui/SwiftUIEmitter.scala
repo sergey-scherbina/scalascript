@@ -395,19 +395,29 @@ object SwiftUIEmitter:
               val fieldLit   = swiftStringLit(c.fieldPath.split("\\.").last)
               val idFieldLit = swiftStringLit(ea.idField.split("\\.").last)
               val bufKey     = s"\\(_idx)_${key}"
+              // Fallback for numeric/bool cells: cast to String, then String(describing:)
+              val rawVal     = s"""(_row[$editKey] as? String) ?? String(describing: _row[$editKey] ?? "")"""
+              val hApply     = dt.signal.headersId.map { hid =>
+                s"""${pad4}        if let _hData = $hid.data(using: .utf8),
+                   |${pad4}           let _hDict = try? JSONSerialization.jsonObject(with: _hData) as? [String: String] {
+                   |${pad4}            for (k, v) in _hDict { _req.setValue(v, forHTTPHeaderField: k) }
+                   |${pad4}        }""".stripMargin
+              }.getOrElse("")
+              val hSep = if hApply.nonEmpty then s"\n$hApply" else ""
               s"""${pad4}TextField("", text: Binding(
-                 |${pad4}    get: { $editBuf["$bufKey"] ?? ((_row[$editKey] as? String) ?? "") },
+                 |${pad4}    get: { $editBuf["$bufKey"] ?? ($rawVal) },
                  |${pad4}    set: { $editBuf["$bufKey"] = $$0 }
                  |${pad4}))
                  |${pad4}.textFieldStyle(.plain)
+                 |${pad4}.frame(maxWidth: .infinity)
                  |${pad4}.onSubmit {
-                 |${pad4}    let _val = $editBuf["$bufKey"] ?? ((_row[$editKey] as? String) ?? "")
-                 |${pad4}    let _id  = (_row[$idKey] as? String) ?? ""
+                 |${pad4}    let _val = $editBuf["$bufKey"] ?? ($rawVal)
+                 |${pad4}    let _id  = (_row[$idKey] as? String) ?? String(describing: _row[$idKey] ?? "")
                  |${pad4}    Task { @MainActor in
                  |${pad4}        guard let _url = URL(string: $urlLit) else { return }
                  |${pad4}        var _req = URLRequest(url: _url)
                  |${pad4}        _req.httpMethod = $methodLit
-                 |${pad4}        _req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                 |${pad4}        _req.setValue("application/json", forHTTPHeaderField: "Content-Type")$hSep
                  |${pad4}        _req.httpBody = try? JSONSerialization.data(withJSONObject: [$idFieldLit: _id, $fieldLit: _val])
                  |${pad4}        let _ = try? await URLSession.shared.data(for: _req)
                  |${pad4}        ${ea.onSuccessTick.id} += 1
@@ -870,10 +880,12 @@ object SwiftUIEmitter:
         val fn      = s"_load_dt_${dt.signal.id}"
         val tickIds = scala.collection.mutable.LinkedHashSet(dt.signal.tickId)
         dt.actions.foreach {
-          case RowActionDef.RowDelete(_, _, tick, _)     => tickIds += tick.id
-          case RowActionDef.RowPost(_, _, _, _, tick, _) => tickIds += tick.id
-          case _                                         => ()
+          case RowActionDef.RowDelete(_, _, tick, _)        => tickIds += tick.id
+          case RowActionDef.RowPost(_, _, _, _, tick, _)    => tickIds += tick.id
+          case RowActionDef.RowInlineEdit(_, _, _, tick, _) => tickIds += tick.id
+          case _                                            => ()
         }
+        dt.columns.foreach(c => c.editAction.foreach(ea => tickIds += ea.onSuccessTick.id))
         s"${pad}.task { await $fn() }" ::
           tickIds.map(tid => s"${pad}.onChange(of: $tid) { _, _ in Task { @MainActor in await $fn() } }").toList
       }.mkString("\n")
@@ -885,14 +897,16 @@ object SwiftUIEmitter:
       val pad2 = " " * (indent + 4)
       val pad3 = " " * (indent + 8)
       dts.map { dt =>
-        val hBlock = headersBlock(dt.signal.headersId, "_req", indent + 4)
-        val hSep   = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
-        val fetch  = fetchDataLine(dt.signal.headersId, "_req", indent + 8)
+        val hBlock    = headersBlock(dt.signal.headersId, "_req", indent + 4)
+        val hSep      = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
+        val fetch     = fetchDataLine(dt.signal.headersId, "_req", indent + 8)
+        val hasEditable = dt.columns.exists(_.editAction.isDefined)
+        val clearBuf  = if hasEditable then s"\n${pad3}_edit_${dt.signal.id} = [:]" else ""
         s"""${pad}private func _load_dt_${dt.signal.id}() async {
            |${pad2}guard let _url = URL(string: ${swiftStringLit(dt.signal.fetchUrl)}) else { return }$hSep
            |${pad2}do {
            |$fetch
-           |${pad3}if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+           |${pad3}if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {$clearBuf
            |${pad3}    ${dt.signal.id} = json
            |${pad3}}
            |${pad2}} catch {}
