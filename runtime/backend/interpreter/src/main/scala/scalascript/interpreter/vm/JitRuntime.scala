@@ -37,10 +37,18 @@ object JitRuntime:
   /** Per-closure JIT state. Mutated only under the cache monitor (for the
    *  compile transition) plus a benign racy `calls` increment — `calls` is a
    *  monotone counter whose only effect is crossing `threshold`, and a lost
-   *  update merely delays compilation by one call, never corrupts state. */
+   *  update merely delays compilation by one call, never corrupts state.
+   *
+   *  `bytecodeMh` is the Phase C bytecode-jit method handle (Java source →
+   *  `javax.tools.JavaCompiler` → in-memory class → `MethodHandle`). Populated
+   *  on demand when `SSC_JIT_BYTECODE=on` AND the body is in `BytecodeJit`'s
+   *  pure-int subset. Tried before `SscVm.exec` so the dispatch loop overhead
+   *  is skipped entirely when present. */
   final class Entry:
     @volatile var compiled: SscVm.CompiledFn | Null = null
     @volatile var disabled: Boolean = false
+    @volatile var bytecodeMh: java.lang.invoke.MethodHandle | Null = null
+    @volatile var bytecodeTried: Boolean = false
     var calls: Int = 0
 
   /** Identity-keyed cache. Synchronized: insertions are rare (once per
@@ -151,12 +159,53 @@ object JitRuntime:
   private def isRefParam(cf: SscVm.CompiledFn, i: Int): Boolean =
     i < cf.paramIsRef.length && cf.paramIsRef(i)
 
+  /** Phase C bytecode JIT lookup: ensures the per-FunV `Entry.bytecodeMh` is
+   *  resolved (tried at most once per FunV; the underlying
+   *  `BytecodeJit.tryCompile` caches by body AST so a rebuilt FunV with the
+   *  same body skips re-compilation). Returns the handle or null. */
+  private def bytecodeFor(f: Value.FunV): java.lang.invoke.MethodHandle | Null =
+    if !BytecodeJit.enabled then return null
+    val e = entryFor(f)
+    val mh = e.bytecodeMh
+    if mh != null then return mh
+    if e.bytecodeTried then return null
+    cache.synchronized:
+      if !e.bytecodeTried then
+        e.bytecodeMh   = BytecodeJit.tryCompile(f)
+        e.bytecodeTried = true
+    e.bytecodeMh
+
+  /** Invoke a 1-param bytecode-jitted method handle with a numeric arg. */
+  private def invokeBytecode1(mh: java.lang.invoke.MethodHandle, arg: Value): Computation | Null =
+    val a0 = arg match
+      case Value.IntV(x) => x
+      case _             => return null
+    val r =
+      try mh.invoke(a0).asInstanceOf[Long]
+      catch case _: Throwable => return null
+    Computation.pureIntV(r)
+
+  private def invokeBytecode2(mh: java.lang.invoke.MethodHandle, a: Value, b: Value): Computation | Null =
+    val a0 = a match { case Value.IntV(x) => x; case _ => return null }
+    val b0 = b match { case Value.IntV(x) => x; case _ => return null }
+    val r =
+      try mh.invoke(a0, b0).asInstanceOf[Long]
+      catch case _: Throwable => return null
+    Computation.pureIntV(r)
+
   /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
    *  VM 2a) — the param domain is decided by the compiled function. */
   def tryRun1(f: Value.FunV, arg: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty || f.params.length != 1 then null
     else
+      // Phase C: try the bytecode-jit MH before the register-VM path. Skips
+      // `SscVm.exec`'s opcode dispatch loop entirely when the body is in the
+      // pure-int subset BytecodeJit supports.
+      val bcMh = bytecodeFor(f)
+      if bcMh != null then
+        val r = invokeBytecode1(bcMh, arg)
+        if r != null then return r
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
       else if isRefParam(cf, 0) then
@@ -177,6 +226,10 @@ object JitRuntime:
   def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty || f.params.length != 2 then null
     else
+      val bcMh = bytecodeFor(f)
+      if bcMh != null then
+        val r = invokeBytecode2(bcMh, a, b)
+        if r != null then return r
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
       else marshalAndRun(cf, List(a, b))

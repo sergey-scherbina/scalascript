@@ -1786,7 +1786,7 @@ proven non-win, reverted 2026-06-01; the recursive cluster is bound by the
 `SscVm.exec` dispatch loop, not body cost). Two large phases remain, each
 gated on same-session A/B + full suite green with the gate off AND on.
 
-- [ ] **vm-bytecode-jit (Phase C)** — emit real JVM bytecode (ASM or
+- [~] **vm-bytecode-jit (Phase C)** — emit real JVM bytecode (ASM or
       `MethodHandles`) for the compilable subset instead of interpreting
       register bytecode in `SscVm.exec`, removing the dispatch-loop overhead.
       Reuses `VmCompiler`'s type lattice / bail gate / resolvers; only the back
@@ -1794,6 +1794,26 @@ gated on same-session A/B + full suite green with the gate off AND on.
       off JVM today) toward ~100×+. Spike one int-fib shape end-to-end behind
       the existing `SSC_JIT` gate before broadening. C-opt (profile-gated):
       array-indexed ADT field access (needs an `InstanceV` ordered-array repr).
+      **2026-06-02: spike landed.** `BytecodeJit` compiles pure-int 1- or
+      2-param FunV bodies (Lit + Name + If + ApplyInfix arith/cmp/`&&`/`||`
+      + self-recursive Apply) by walking the AST to Java source, compiling
+      via `javax.tools.JavaCompiler` (no new dependency — JDK-only), loading
+      with a child class loader, and returning a `MethodHandle`. Cached by
+      body AST identity. Hooked at the top of `JitRuntime.tryRun1`/`tryRun2`
+      before the `SscVm.exec` path; null result falls through. Gated via
+      `SSC_JIT_BYTECODE=on` (default OFF for opt-in). Clean A/B JMH (2 forks
+      × 5 iters): `recursionFib` 28.959 → **1.166 ms/op (−96.0%, 24.8×)** —
+      the interpreter is now actually 10% faster than the JVM-codegen backend
+      on this shape (1.17 vs 1.31 ms). All other benches stable; 1205-test
+      suite green in both modes. **`recursionTco` did NOT move** (still 0.98 ms):
+      self-tail-recursive functions go through `TcoRuntime.tcoTrampoline`,
+      not `tryRun1`/`tryRun2`. Hooking the bytecode path into the trampoline
+      (or detecting TCO shape at compile time and emitting a Java while-loop)
+      is a follow-up. **`recursiveEval` did NOT move either**: its `eval(Expr)`
+      body uses ADT `match` on `InstanceV` — outside `BytecodeJit`'s initial
+      pure-int subset; an extended subset covering match + ADT field reads
+      is a follow-up. Both broader subsets are reachable from the same Java-
+      source-emission pattern; deferred to keep this first slice scoped.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at
