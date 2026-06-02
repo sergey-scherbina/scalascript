@@ -47,7 +47,7 @@ object JitRuntime:
   final class Entry:
     @volatile var compiled: SscVm.CompiledFn | Null = null
     @volatile var disabled: Boolean = false
-    @volatile var bytecodeMh: java.lang.invoke.MethodHandle | Null = null
+    @volatile var bytecode: BytecodeJit.Result | Null = null
     @volatile var bytecodeTried: Boolean = false
     var calls: Int = 0
 
@@ -159,39 +159,52 @@ object JitRuntime:
   private def isRefParam(cf: SscVm.CompiledFn, i: Int): Boolean =
     i < cf.paramIsRef.length && cf.paramIsRef(i)
 
-  /** Phase C bytecode JIT lookup: ensures the per-FunV `Entry.bytecodeMh` is
-   *  resolved (tried at most once per FunV; the underlying
-   *  `BytecodeJit.tryCompile` caches by body AST so a rebuilt FunV with the
-   *  same body skips re-compilation). Returns the handle or null. */
-  private def bytecodeFor(f: Value.FunV): java.lang.invoke.MethodHandle | Null =
+  /** Phase C bytecode JIT lookup: resolves `Entry.bytecode` lazily (compile is
+   *  tried at most once per FunV; the underlying `BytecodeJit.tryCompile`
+   *  caches by body AST so a rebuilt FunV with the same body skips compile).
+   *  Returns the `Result` (handle + paramIsRef) or null. */
+  private def bytecodeFor(f: Value.FunV, interp: Interpreter): BytecodeJit.Result | Null =
     if !BytecodeJit.enabled then return null
     val e = entryFor(f)
-    val mh = e.bytecodeMh
-    if mh != null then return mh
+    val r = e.bytecode
+    if r != null then return r
     if e.bytecodeTried then return null
     cache.synchronized:
       if !e.bytecodeTried then
-        e.bytecodeMh   = BytecodeJit.tryCompile(f)
+        e.bytecode     = BytecodeJit.tryCompile(f, interp)
         e.bytecodeTried = true
-    e.bytecodeMh
+    e.bytecode
 
-  /** Invoke a 1-param bytecode-jitted method handle with a numeric arg. */
-  private def invokeBytecode1(mh: java.lang.invoke.MethodHandle, arg: Value): Computation | Null =
-    val a0 = arg match
-      case Value.IntV(x) => x
-      case _             => return null
-    val r =
-      try mh.invoke(a0).asInstanceOf[Long]
-      catch case _: Throwable => return null
-    Computation.pureIntV(r)
+  /** Marshal one Value into the Java arg the bytecode method expects.
+   *  Ref param → the value as `Object` (must be `InstanceV` for the initial
+   *  Match-shape subset; bails otherwise). Int param → the raw `Long`. */
+  private def marshalBytecode(v: Value, isRef: Boolean): AnyRef | Null =
+    if isRef then
+      v match
+        case _: Value.InstanceV => v.asInstanceOf[AnyRef]
+        case _                  => null
+    else
+      v match
+        case Value.IntV(x) => jl.Long.valueOf(x)
+        case _             => null
 
-  private def invokeBytecode2(mh: java.lang.invoke.MethodHandle, a: Value, b: Value): Computation | Null =
-    val a0 = a match { case Value.IntV(x) => x; case _ => return null }
-    val b0 = b match { case Value.IntV(x) => x; case _ => return null }
-    val r =
-      try mh.invoke(a0, b0).asInstanceOf[Long]
+  private def invokeBytecode1(r: BytecodeJit.Result, arg: Value): Computation | Null =
+    val a0 = marshalBytecode(arg, r.paramIsRef(0))
+    if a0 == null then return null
+    val out =
+      try r.mh.invoke(a0).asInstanceOf[Long]
       catch case _: Throwable => return null
-    Computation.pureIntV(r)
+    Computation.pureIntV(out)
+
+  private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value): Computation | Null =
+    val a0 = marshalBytecode(a, r.paramIsRef(0))
+    if a0 == null then return null
+    val b0 = marshalBytecode(b, r.paramIsRef(1))
+    if b0 == null then return null
+    val out =
+      try r.mh.invoke(a0, b0).asInstanceOf[Long]
+      catch case _: Throwable => return null
+    Computation.pureIntV(out)
 
   /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
@@ -202,7 +215,7 @@ object JitRuntime:
       // Phase C: try the bytecode-jit MH before the register-VM path. Skips
       // `SscVm.exec`'s opcode dispatch loop entirely when the body is in the
       // pure-int subset BytecodeJit supports.
-      val bcMh = bytecodeFor(f)
+      val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
         val r = invokeBytecode1(bcMh, arg)
         if r != null then return r
@@ -226,7 +239,7 @@ object JitRuntime:
   def tryRun2(f: Value.FunV, a: Value, b: Value, interp: Interpreter, eager: Boolean = false): Computation | Null =
     if !enabled || f.name.isEmpty || f.params.length != 2 then null
     else
-      val bcMh = bytecodeFor(f)
+      val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
         val r = invokeBytecode2(bcMh, a, b)
         if r != null then return r

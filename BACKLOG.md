@@ -1814,6 +1814,21 @@ gated on same-session A/B + full suite green with the gate off AND on.
       pure-int subset; an extended subset covering match + ADT field reads
       is a follow-up. Both broader subsets are reachable from the same Java-
       source-emission pattern; deferred to keep this first slice scoped.
+      **2026-06-02 (b): ADT-match extension landed.** `BytecodeJit` now also
+      compiles bodies of shape `Term.Match(Term.Name(param), arms)` over an
+      `InstanceV` scrutinee. Per arm: emits a Java `if ("Ctor".equals(tn))
+      { …field reads…; return body; }` cascade ending in a throw. Pattern
+      bindings are classified by usage in the arm body — references that
+      appear as args to the self-recursive call are typed as `Object`
+      (ref-passing), others are extracted as `long` via
+      `((Value.IntV) inst.fields().apply("field")).v()`. Field names come
+      from `interp.typeFieldOrder` (so `tryCompile` now takes `interp`). MH
+      signature picks per-param `Object` vs `long` via the new `Result`
+      record; `JitRuntime` marshals each arg accordingly. New A/B (2 forks
+      × 5 iters): `recursiveEval` 34.634 → **12.663 ms/op (−63.4%, 2.74×)**.
+      `recursionFib` reconfirmed at 1.189 ms; all other benches stable.
+      Full 1205 green in both modes. `recursionTco` still routes through
+      `TcoRuntime.tcoTrampoline` (open follow-up).
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at
