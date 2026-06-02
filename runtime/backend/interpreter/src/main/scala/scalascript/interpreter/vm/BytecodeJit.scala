@@ -319,6 +319,13 @@ object BytecodeJit:
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
     case Lit.Long(v) => s"${v}L"
+    // Direction A.1: single-stmt block (`{ expr }`) unwraps to its inner term.
+    // Mirrors the same treatment in walkLocalSlotCtx; multi-stmt blocks bail
+    // until A.5.
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkLong(inner, ctx)
+        case _           => null
     case tn: Term.Name =>
       // Only int-typed names can be read into a Long expression. Ref-typed
       // names (param scrutinee, ref-classified bindings) cannot.
@@ -379,6 +386,11 @@ object BytecodeJit:
    *  ref-classified name in scope) is supported in the initial slice. */
   private def walkRef(t: Term, ctx: GenCtx): String | Null = t match
     case tn: Term.Name if ctx.isRefName(tn.value) => ctx.resolveLocal(tn.value)
+    // Direction A.1: 1-stmt block unwrap parallel to walkLong.
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkRef(inner, ctx)
+        case _           => null
     case _                                        => null
 
   private def walkBool(t: Term, ctx: GenCtx): String | Null = t match
@@ -407,6 +419,11 @@ object BytecodeJit:
     case Lit.Double(v) => v.toString.toDouble.toString
     case Lit.Int(v)    => s"((double) ${v}L)"
     case Lit.Long(v)   => s"((double) ${v}L)"
+    // Direction A.1: 1-stmt block unwrap parallel to walkLong.
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkDouble(inner, ctx)
+        case _           => null
     case tn: Term.Name =>
       if ctx.isRefName(tn.value) then null
       else
