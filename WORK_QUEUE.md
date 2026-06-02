@@ -127,10 +127,12 @@ being landed backend by backend.
 
 - [x] **typed-models-structural-types** — `ModelPathValidator` in `frontend/core`: walks View tree tracking binding context from `ModelView`/`ForModel`, calls `ModelPathResolver` for every in-scope `ModelText`/`ForModel` path, produces typed `PathError` list. Unbound vars silently skipped. `validateModule` for full-module checks. 14 new tests, all 41 frontendCore tests green.
 
-- [ ] **fetchtable-semantic-lowering** - Replace legacy `View.FetchTable`
-  backend-specific lowering with semantic typed-list/table nodes backed by
-  fetch signals, one backend at a time. Spec:
-  `docs/typed-models-ir.md §Maintenance notes`.
+- [x] **fetchtable-semantic-lowering** — ✓ Landed 2026-06-02. Semantic lowering
+  of deprecated `View.FetchTable` to `ModelView + ForModel(empty fieldPath) +
+  ModelText + Button(DeleteItem)` via `FetchTableLowering.lower()`. React and Vue
+  get full lowering; Solid and Custom get ForModel empty-fieldPath fix +
+  `EventHandler.DeleteItem` support (Solid keeps direct DOM impl to avoid TDZ).
+  262 tests passing across all 5 backends.
 
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced
   internal `ExitCode` / `CommandResult`, `CliCommand.runResult` compatibility
