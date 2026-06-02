@@ -64,7 +64,7 @@ route("POST", "/api/messages/delete") { req =>
 
 [signalText_, rawText](std/ui/reactive.ssc)
 
-[fetchTable](std/ui/display.ssc)
+[fcol, rowDelete, dataTable](std/ui/data.ssc)
 
 ## UI
 
@@ -78,7 +78,9 @@ val tree = vstack(gap = 12)(
   divider(),
   textField(value = message, label = "Message"),
   actionButton(fetchActionClear("POST", "/api/messages", message, refresh), "Save"),
-  fetchTable("/api/messages", "/api/messages/delete", refresh),
+  dataTable(fetchUrl = "/api/messages", tick = refresh,
+    columns = [fcol("Message", "text")],
+    actions = [rowDelete("/api/messages/delete", "id", refresh)]),
   hstack(gap = 4)(
     rawText("Refresh tick: "),
     signalText_(refresh)

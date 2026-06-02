@@ -364,45 +364,79 @@ private[solid] object SolidEmitter:
         }
         null
 
-      case View.FetchTable(tableId, fetchUrl, deleteUrl, tick, hOpt) =>
-        registerSignal(tick)
-        hOpt.foreach(registerSignal)
-        if !signals.contains(tableId) then signals.update(tableId, "[]")
+      case dt: View.DataTable =>
+        registerSignal(dt.signal)
+        dt.actions.foreach {
+          case RowActionDef.RowDelete(_, _, tick, hOpt) => registerSignal(tick); hOpt.foreach(registerSignal)
+          case RowActionDef.RowPost(_, _, _, _, tick, hOpt) => registerSignal(tick); hOpt.foreach(registerSignal)
+          case RowActionDef.RowLink(_, sig, _)           => registerSignal(sig)
+        }
+        val tableId   = dt.signal.id
+        val tickId    = dt.signal.tickId
+        val urlJs     = jsString(dt.signal.fetchUrl)
+        val thStyle   = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
+        val tdStyle   = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
+        val btnStyle  = jsString("background:#2563eb;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit;margin-right:4px")
+        val delStyle  = jsString("background:#ef4444;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit;margin-right:4px")
+        val tableVar  = freshVar()
+        val tbodyVar  = freshVar()
+        val theadVar  = freshVar()
+        val trHVar    = freshVar()
         val setRows   = setterName(tableId)
-        val setTick   = setterName(tick.id)
-        val urlJs     = jsString(fetchUrl)
-        val delUrlJs  = jsString(deleteUrl)
-        val tickName  = tick.id
-        val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
-        val thStyle    = jsString("text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827")
-        val tdStyle    = jsString("padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle")
-        val btnStyle   = jsString("background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:inherit;font-family:inherit")
-        val tableStyle = jsString("border-collapse:collapse;width:100%;font-family:inherit;font-size:inherit")
-        val theadStyle = jsString("background:#f9fafb")
-        val tableVar = freshVar()
-        val tbodyVar = freshVar()
-        val th1Var   = freshVar()
-        val th2Var   = freshVar()
-        val trHVar   = freshVar()
-        val theadVar = freshVar()
-        statements += s"const $tableVar = document.createElement('table'); $tableVar.setAttribute('style', $tableStyle);"
-        statements += s"const $theadVar = document.createElement('thead'); $theadVar.setAttribute('style', $theadStyle);"
+        val hOpt      = dt.signal.headersId.map(hId => s", headers: JSON.parse($hId() || '{}')")
+        val headersJs = hOpt.getOrElse("")
+        statements += s"const $tableVar = document.createElement('table'); $tableVar.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:inherit;font-size:inherit');"
+        statements += s"const $theadVar = document.createElement('thead'); $theadVar.setAttribute('style', 'background:#f9fafb');"
         statements += s"const $trHVar = document.createElement('tr');"
-        statements += s"const $th1Var = document.createElement('th'); $th1Var.setAttribute('style', $thStyle); $th1Var.textContent = 'Task'; $trHVar.appendChild($th1Var);"
-        statements += s"const $th2Var = document.createElement('th'); $th2Var.setAttribute('style', $thStyle); $th2Var.textContent = ''; $trHVar.appendChild($th2Var);"
+        dt.columns.foreach { col =>
+          val thVar = freshVar()
+          statements += s"const $thVar = document.createElement('th'); $thVar.setAttribute('style', $thStyle); $thVar.textContent = ${jsString(col.title)}; $trHVar.appendChild($thVar);"
+        }
+        if dt.actions.nonEmpty then
+          val thActVar = freshVar()
+          statements += s"const $thActVar = document.createElement('th'); $thActVar.setAttribute('style', $thStyle); $trHVar.appendChild($thActVar);"
         statements += s"$theadVar.appendChild($trHVar); $tableVar.appendChild($theadVar);"
         statements += s"const $tbodyVar = document.createElement('tbody'); $tableVar.appendChild($tbodyVar);"
         statements += s"fetch($urlJs$headersJs).then(r => r.json()).then(data => $setRows(data));"
-        statements += s"createEffect(() => { const t = $tickName(); if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => $setRows(data)); });"
+        statements += s"createEffect(() => { const t = $tickId(); if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => $setRows(data)); });"
         statements += s"createEffect(() => {"
         statements += s"  while ($tbodyVar.firstChild) $tbodyVar.removeChild($tbodyVar.firstChild);"
-        statements += s"  for (const row of $tableId()) {"
-        statements += s"    const tr = document.createElement('tr');"
-        statements += s"    const td1 = document.createElement('td'); td1.setAttribute('style', $tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);"
-        statements += s"    const td2 = document.createElement('td'); td2.setAttribute('style', $tdStyle);"
-        statements += s"    const btn = document.createElement('button'); btn.setAttribute('style', $btnStyle); btn.textContent = 'Delete';"
-        statements += s"    btn.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(row.id)$headersJs}).then(r => r.text()).then(_ => $setTick(t => t + 1)));"
-        statements += s"    td2.appendChild(btn); tr.appendChild(td2); $tbodyVar.appendChild(tr);"
+        statements += s"  for (const __row of ($tableId() || [])) {"
+        statements += s"    const __tr = document.createElement('tr');"
+        dt.columns.foreach { col =>
+          val tdVar = freshVar()
+          statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle); $tdVar.textContent = String(__row.${col.fieldPath}); __tr.appendChild($tdVar);"
+        }
+        if dt.actions.nonEmpty then
+          val tdActVar = freshVar()
+          statements += s"    const $tdActVar = document.createElement('td'); $tdActVar.setAttribute('style', $tdStyle);"
+          dt.actions.foreach {
+            case RowActionDef.RowDelete(url, idField, tick, actHOpt) =>
+              val btnVar     = freshVar()
+              val delUrlJs   = jsString(url)
+              val actSetter  = setterName(tick.id)
+              val actHeaders = actHOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
+              statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $delStyle); $btnVar.textContent = 'Delete';"
+              statements += s"    $btnVar.addEventListener('click', () => fetch($delUrlJs, {method: 'POST', body: String(__row.$idField)$actHeaders}).then(r => r.text()).then(_ => $actSetter(t => t + 1)));"
+              statements += s"    $tdActVar.appendChild($btnVar);"
+            case RowActionDef.RowPost(label, method, url, bodyField, tick, actHOpt) =>
+              val btnVar     = freshVar()
+              val actUrlJs   = jsString(url)
+              val actMethod  = jsString(method)
+              val actSetter  = setterName(tick.id)
+              val actHeaders = actHOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
+              statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $btnStyle); $btnVar.textContent = ${jsString(label)};"
+              statements += s"    $btnVar.addEventListener('click', () => fetch($actUrlJs, {method: $actMethod, body: String(__row.$bodyField)$actHeaders}).then(r => r.text()).then(_ => $actSetter(t => t + 1)));"
+              statements += s"    $tdActVar.appendChild($btnVar);"
+            case RowActionDef.RowLink(label, signal, fieldPath) =>
+              val btnVar    = freshVar()
+              val actSetter = setterName(signal.id)
+              statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $btnStyle); $btnVar.textContent = ${jsString(label)};"
+              statements += s"    $btnVar.addEventListener('click', () => $actSetter(String(__row.$fieldPath)));"
+              statements += s"    $tdActVar.appendChild($btnVar);"
+          }
+          statements += s"    __tr.appendChild($tdActVar);"
+        statements += s"    $tbodyVar.appendChild(__tr);"
         statements += s"  }"
         statements += s"});"
         tableVar
@@ -783,10 +817,14 @@ private[solid] object SolidEmitter:
         wrap
 
       case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
-        val forWrap    = freshVar()
         val prevItemVar = currentItemVar
         currentItemVar  = itemVar
-        statements += s"const $forWrap = document.createElement('span'); $forWrap.style.display = 'contents';"
+        val useFragment = isTableElement(template)
+        val forWrap     = freshVar()
+        if useFragment then
+          statements += s"const $forWrap = document.createDocumentFragment();"
+        else
+          statements += s"const $forWrap = document.createElement('span'); $forWrap.style.display = 'contents';"
         val (innerVar, body) = captureStatements(compile(template))
         currentItemVar = prevItemVar
         val listExpr = if fieldPath.isEmpty then bindingVar else s"$bindingVar.$fieldPath"
@@ -877,6 +915,33 @@ private[solid] object SolidEmitter:
           else
             statements +=
               s"// $targetVar: '$eventName' is DeleteItem outside ForModel context — no-op."
+        case EventHandler.ItemAction(method, url, bodyField, tick, hOpt) =>
+          if currentItemVar.nonEmpty then
+            registerSignal(tick)
+            hOpt.foreach(registerSignal)
+            val setter    = setterName(tick.id)
+            val urlJs     = jsString(url)
+            val methodJs  = jsString(method)
+            val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+              s"fetch($urlJs, {method: $methodJs, body: String($currentItemVar.$bodyField)$headersJs})" +
+              s".then(r => r.text()).then(_ => $setter(t => t + 1)));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is ItemAction outside ForModel context — no-op."
+        case EventHandler.SetFieldToSignal(signal, fieldPath) =>
+          if currentItemVar.nonEmpty then
+            registerSignal(signal)
+            val setter = setterName(signal.id)
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter(String($currentItemVar.$fieldPath)));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is SetFieldToSignal outside ForModel context — no-op."
+
+    private val tableElements = Set("table","thead","tbody","tfoot","tr","th","td","col","colgroup","caption")
+    private def isTableElement(v: View[?]): Boolean = v match
+      case View.Element(tag, _, _, _) => tableElements.contains(tag.toLowerCase)
+      case _ => false
 
     /** Empty-branch placeholder for ShowSignal — empty text node. */
     private def placeholderNode(): String =
@@ -918,6 +983,7 @@ private[solid] object SolidEmitter:
       case View.Adaptive(web, _, _, fallback)       => web.foreach(walk); walk(fallback)
       case View.Portal(_, children)                 => children.foreach(walk)
       case View.ForSignal(_, _, _, tmpl)            => tmpl.foreach(walk)
+      case dt: View.DataTable                       => checkSig(dt.signal)
       case _                                        => ()
     walk(view)
     seen.values.toSeq

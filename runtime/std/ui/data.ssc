@@ -1,13 +1,18 @@
 ---
 name: ui-data
 version: 1.0.0
-description: Data widget constructors — table with optional click-to-sort. Returns TkNode; lower with lower.ssc.
+description: Data widget constructors — table with optional click-to-sort, and generalised dataTable. Returns TkNode; lower with lower.ssc.
 package: std.ui.data
 exports:
   - tableCol
   - tableRow
   - table
   - sortableTable
+  - fcol
+  - rowDelete
+  - rowPost
+  - rowLink
+  - dataTable
 ---
 
 # `std.ui.data` — data widget constructors
@@ -18,7 +23,8 @@ exports:
 that set the provided `Signal[String]` to the clicked column's key — the
 caller is responsible for re-building the rows in sorted order.
 
-[TkNode, TableColumn, TableNode](nodes.ssc)
+[TkNode, TableColumn, TableNode, DataTableNode](nodes.ssc)
+[fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, dataTableView, emptyHeaders](primitives.ssc)
 
 ```scalascript
 def tableCol(label: String, key: String): TableColumn = TableColumn(label, key)
@@ -30,4 +36,29 @@ def table(cols: List[TableColumn], rows: List[List[TkNode]]): TkNode =
 
 def sortableTable(sortCol: Any, cols: List[TableColumn], rows: List[List[TkNode]]): TkNode =
   TableNode(cols, rows, sortCol)
+
+// ── DataTable authoring helpers ───────────────────────────────────────────
+// fcol — shorthand for fieldColumn; defines one data column by title + dot-path.
+def fcol(title: String, fieldPath: String, align: String = ""): Any =
+  fieldColumn(title, fieldPath, align)
+
+// rowDelete — per-row Delete action: POSTs item.idField to url, bumps tick.
+def rowDelete(url: String, idField: String, tick: Any,
+              headers: Any = emptyHeaders): Any =
+  rowDeleteAction(url, idField, tick, headers)
+
+// rowPost — per-row custom POST/PUT action.
+def rowPost(label: String, method: String, url: String, bodyField: String,
+            tick: Any, headers: Any = emptyHeaders): Any =
+  rowPostAction(label, method, url, bodyField, tick, headers)
+
+// rowLink — per-row navigate/select: writes item.fieldPath into signal on click.
+def rowLink(label: String, signal: Any, fieldPath: String): Any =
+  rowLinkAction(label, signal, fieldPath)
+
+// dataTable — builds a DataTableNode from a FetchUrlSignal + column/action lists.
+// Lower with lower.ssc; web backends render as <table>, Swing as JTable.
+def dataTable(signal: Any, columns: List[Any],
+              actions: List[Any] = []): TkNode =
+  DataTableNode(signal, columns, actions)
 ```

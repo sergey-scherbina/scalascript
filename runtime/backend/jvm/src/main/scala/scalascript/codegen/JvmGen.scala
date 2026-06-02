@@ -689,7 +689,7 @@ class JvmGen(
     val hasPrimitivesObj = lines.exists(l => l.trim == "object primitives {" || l.contains("object primitives {"))
     if hasPrimitivesObj then
       importBuf.filterInPlace(!_.contains("ui.primitives.{"))
-      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler, signal, element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emit, serve, fetchUrlSignal, fetchAction, incSignal, fetchActionClear, fetchTableView}")
+      importBuf.prepend("  import ui.primitives.{Signal, View, EventHandler, signal, element, textNode, signalText, showSignal, fragment, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emit, serve, fetchUrlSignal, fetchAction, incSignal, fetchActionClear, fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, dataTableView}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
 

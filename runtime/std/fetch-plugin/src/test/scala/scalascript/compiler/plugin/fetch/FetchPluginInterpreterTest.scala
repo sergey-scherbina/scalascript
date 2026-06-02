@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.fetch
 import scala.annotation.nowarn
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.compiler.plugin.frontend.FrontendInterpreterPlugin
-import scalascript.frontend.{EventHandler, FetchUrlSignal, ReactiveSignal, View}
+import scalascript.frontend.{EventHandler, FieldColumnDef, FetchUrlSignal, RowActionDef, View}
 import scalascript.interpreter.Value
 import scalascript.testkit.TestInterpreter
 
@@ -78,18 +78,36 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
         assert(signal.headersId == Some("token"))
       case other => fail(s"expected FetchUrlSignal with headers, got $other")
 
-    val table = interp.eval(
+  test("Fetch plugin builds dataTableView from fieldColumn + rowDeleteAction + rowPostAction"):
+    val result = interp.eval(
       """
-      val tick = signal("refresh", 0)
-      fetchTableView("/api/items", "/api/items/delete", tick)
+      val tick    = signal("tick", 0)
+      val linkSig = signal("selected", "")
+      val sig     = fetchUrlSignal("empRows", "/api/employees", tick)
+      val cols    = [fieldColumn("Name","name"), fieldColumn("Dept","department")]
+      val acts    = [rowDeleteAction("/api/emp/delete", "id", tick),
+                     rowPostAction("Promote", "POST", "/api/emp/promote", "id", tick),
+                     rowLinkAction("Select", linkSig, "id")]
+      dataTableView(sig, cols, acts)
       """
     )
-
-    table match
-      case Value.Foreign("View", View.FetchTable(tableId, fetchUrl, deleteUrl, tick: ReactiveSignal[Int], headers)) =>
-        assert(tableId == "sscRows__api_items")
-        assert(fetchUrl == "/api/items")
-        assert(deleteUrl == "/api/items/delete")
-        assert(tick.id == "refresh")
-        assert(headers.isEmpty)
-      case other => fail(s"expected FetchTable foreign value, got $other")
+    result match
+      case Value.Foreign("View", dt: View.DataTable) =>
+        assert(dt.signal.fetchUrl == "/api/employees")
+        assert(dt.columns.length == 2)
+        assert(dt.columns(0) == FieldColumnDef("Name", "name"))
+        assert(dt.columns(1) == FieldColumnDef("Dept", "department"))
+        assert(dt.actions.length == 3)
+        dt.actions(0) match
+          case RowActionDef.RowDelete(url, idField, _, _) =>
+            assert(url == "/api/emp/delete"); assert(idField == "id")
+          case other => fail(s"expected RowDelete, got $other")
+        dt.actions(1) match
+          case RowActionDef.RowPost(label, method, url, _, _, _) =>
+            assert(label == "Promote"); assert(method == "POST"); assert(url == "/api/emp/promote")
+          case other => fail(s"expected RowPost, got $other")
+        dt.actions(2) match
+          case RowActionDef.RowLink(label, sig, fieldPath) =>
+            assert(label == "Select"); assert(sig.id == "selected"); assert(fieldPath == "id")
+          case other => fail(s"expected RowLink, got $other")
+      case other => fail(s"expected DataTable foreign value, got $other")

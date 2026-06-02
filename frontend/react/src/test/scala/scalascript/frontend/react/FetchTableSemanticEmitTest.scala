@@ -3,7 +3,7 @@ package scalascript.frontend.react
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.frontend.*
 
-class FetchTableSemanticEmitTest extends AnyFunSuite:
+class DataTableEmitTest extends AnyFunSuite:
 
   private def emitJs(root: View[?]): String =
     val app = ComponentDef("App", Nil, _ => root)
@@ -11,9 +11,12 @@ class FetchTableSemanticEmitTest extends AnyFunSuite:
 
   private val tick = new ReactiveSignal[Int]("tick", 0)
 
-  @annotation.nowarn("cat=deprecation")
-  private def makeFetchTable(tableId: String): View.FetchTable =
-    View.FetchTable(tableId, "/api/items", "/api/delete", tick, None)
+  private def makeDataTable(): View.DataTable =
+    View.DataTable(
+      signal  = new FetchUrlSignal("empRows", "/api/employees", tick.id),
+      columns = List(FieldColumnDef("Name", "name"), FieldColumnDef("Dept", "department")),
+      actions = List(RowActionDef.RowDelete("/api/emp/delete", "id", tick))
+    )
 
   // ── ForModel: empty fieldPath fix ──────────────────────────────────────
 
@@ -60,41 +63,73 @@ class FetchTableSemanticEmitTest extends AnyFunSuite:
     assert(js.contains("DeleteItem outside ForModel"), s"got: $js")
   }
 
-  // ── FetchTable semantic lowering ────────────────────────────────────────
+  // ── ItemAction handler ──────────────────────────────────────────────────
 
-  test("FetchTable lowers: ModelView guard emits tableId && h(Fragment, ...)") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
-    assert(js.contains("tasks &&"), s"got: $js")
+  test("ItemAction inside ForModel emits method fetch with item field and bumps tick") {
+    val actTick = new ReactiveSignal[Int]("actTick", 0)
+    val btn = View.Button(
+      label   = View.Text(() => "Promote", Style()),
+      action  = EventHandler.ItemAction("POST", "/api/emp/promote", "id", actTick),
+      enabled = () => true,
+      style   = Style()
+    )
+    val view = View.ForModel("items", "", "row", btn)
+    val js   = emitJs(view)
+    assert(js.contains("fetch('/api/emp/promote', {method: 'POST', body: String(row.id)})"), s"got: $js")
+    assert(js.contains("setActTick(t => t + 1)"), s"got: $js")
   }
 
-  test("FetchTable lowers: ForModel iterates tableId directly (empty fieldPath)") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
-    assert(js.contains("(tasks || []).map((row, _idx) =>"), s"got: $js")
+  // ── SetFieldToSignal handler ────────────────────────────────────────────
+
+  test("SetFieldToSignal inside ForModel emits setter with item field") {
+    val selected = new ReactiveSignal[String]("selected", "")
+    val btn = View.Button(
+      label   = View.Text(() => "Select", Style()),
+      action  = EventHandler.SetFieldToSignal(selected, "id"),
+      enabled = () => true,
+      style   = Style()
+    )
+    val view = View.ForModel("items", "", "row", btn)
+    val js   = emitJs(view)
+    assert(js.contains("setSelected(String(row.id))"), s"got: $js")
   }
 
-  test("FetchTable lowers: ModelText emits String(row.text)") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
-    assert(js.contains("String(row.text)"), s"got: $js")
+  // ── DataTable semantic lowering ─────────────────────────────────────────
+
+  test("DataTable lowers: ModelView guard emits empRows &&") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
+    assert(js.contains("empRows &&"), s"got: $js")
   }
 
-  test("FetchTable lowers: Delete button emits POST fetch with row.id") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
-    assert(js.contains("fetch('/api/delete', {method: 'POST', body: String(row.id)})"), s"got: $js")
+  test("DataTable lowers: ForModel iterates empRows directly (empty fieldPath)") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
+    assert(js.contains("(empRows || []).map((row, _idx) =>"), s"got: $js")
   }
 
-  test("FetchTable lowers: useState([]) + useEffect fetch for initial load") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
-    assert(js.contains("const [tasks, setTasks] = useState([]);"), s"got: $js")
-    assert(js.contains("fetch('/api/items').then(r => r.json())"), s"got: $js")
+  test("DataTable lowers: ModelText emits String(row.name) and String(row.department)") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
+    assert(js.contains("String(row.name)"), s"got: $js")
+    assert(js.contains("String(row.department)"), s"got: $js")
   }
 
-  test("FetchTable lowers: tick signal registered as useState") {
-    val ft = makeFetchTable("tasks")
-    val js = emitJs(ft)
+  test("DataTable lowers: Delete button emits POST fetch with row.id") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
+    assert(js.contains("fetch('/api/emp/delete', {method: 'POST', body: String(row.id)})"), s"got: $js")
+  }
+
+  test("DataTable lowers: useState([]) + useEffect fetch for initial load") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
+    assert(js.contains("const [empRows, setEmpRows] = useState([]);"), s"got: $js")
+    assert(js.contains("fetch('/api/employees').then(r => r.json())"), s"got: $js")
+  }
+
+  test("DataTable lowers: tick signal registered as useState") {
+    val dt = makeDataTable()
+    val js = emitJs(dt)
     assert(js.contains("const [tick, setTick] = useState(0);"), s"got: $js")
   }

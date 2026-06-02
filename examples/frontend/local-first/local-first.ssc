@@ -64,6 +64,7 @@ route("POST", "/api/notes/delete") { req =>
 ## Imports and signals
 
 [signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[fcol, rowDelete, dataTable](std/ui/data.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
 [vstack, hstack, divider](std/ui/layout.ssc)
@@ -85,7 +86,9 @@ val view = lower(defaultTheme(vstack([
     textInput(newNote, "Add a note..."),
     button("Add", fetchActionClear("POST", "/api/notes", newNote, tick))
   ]),
-  fetchTableView("/api/notes", "/api/notes/delete", tick)
+  dataTable(fetchUrl = "/api/notes", tick = tick,
+    columns = [fcol("Note", "text")],
+    actions = [rowDelete("/api/notes/delete", "id", tick)])
 ])))
 
 serve(view, 8080)

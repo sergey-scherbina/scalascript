@@ -24,8 +24,12 @@ exports:
   - fetchAction
   - incSignal
   - fetchActionClear
-  - fetchTableView
   - emptyHeaders
+  - fieldColumn
+  - rowDeleteAction
+  - rowPostAction
+  - rowLinkAction
+  - dataTableView
 ---
 
 # `std.ui.primitives` — UI primitive extern defs
@@ -104,9 +108,23 @@ extern def incSignal(s: Signal[Int]): EventHandler
 extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
                             headers: Signal[String] = emptyHeaders): EventHandler
 
-// fetchTableView — reactive table driven by a JSON array endpoint.
-// React emitter: fetches fetchUrl on mount + on tick, renders rows with per-row Delete buttons.
-// headers: JSON-object Signal read at fetch time and at delete time.
-extern def fetchTableView(fetchUrl: String, deleteUrl: String, tick: Signal[Int],
-                          headers: Signal[String] = emptyHeaders): View
+// ── DataTable primitives ──────────────────────────────────────────────────
+// fieldColumn — descriptor for a data column: title shown in header + dot-path field.
+extern def fieldColumn(title: String, fieldPath: String, align: String = ""): Any
+
+// rowDeleteAction — per-row delete button: POSTs idField value, bumps tick.
+extern def rowDeleteAction(url: String, idField: String, tick: Signal[Int],
+                           headers: Signal[String] = emptyHeaders): Any
+
+// rowPostAction — per-row custom action: POSTs/PUTs bodyField value via method, bumps tick.
+extern def rowPostAction(label: String, method: String, url: String, bodyField: String,
+                         tick: Signal[Int], headers: Signal[String] = emptyHeaders): Any
+
+// rowLinkAction — per-row navigate/select: writes item.fieldPath into signal on click.
+extern def rowLinkAction(label: String, signal: Signal[String], fieldPath: String): Any
+
+// dataTableView — builds a View.DataTable from a FetchUrlSignal + column/action descriptors.
+// Web backends lower to <table><thead><tbody> chrome via DataTableLowering.
+// Swing renders natively as JTable.
+extern def dataTableView(signal: Signal[String], columns: List[Any], actions: List[Any]): View
 ```

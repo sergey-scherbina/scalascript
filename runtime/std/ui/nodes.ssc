@@ -29,7 +29,7 @@ exports:
   - RouteEntry
   - RouterNode
   - LinkNode
-  - FetchTableNode
+  - DataTableNode
 ---
 
 # `std.ui.nodes` — widget ADT
@@ -113,9 +113,11 @@ case class LinkNode(to: String,
                     label: String,
                     current: Any)                        extends TkNode
 
-// FetchTableNode — reactive table fetched from a JSON array endpoint.
-// Lowers to View.FetchTable via fetchTableView extern (React only).
-case class FetchTableNode(fetchUrl: String,
-                          deleteUrl: String,
-                          tick: Any)                     extends TkNode
+// DataTableNode — generalised fetch-backed table with typed columns and per-row actions.
+// Lowers to View.DataTable via dataTableView extern.
+// signal: a FetchUrlSignal; columns: List[FieldColumnDef] opaque as Any;
+// actions: List[RowActionDef] opaque as Any.
+case class DataTableNode(signal:  Any,
+                         columns: List[Any],
+                         actions: List[Any])             extends TkNode
 ```

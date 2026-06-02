@@ -63,7 +63,9 @@ route("POST", "/api/todos/delete") { req =>
 
 [showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
 
-[badge, spinner, signalPre, fetchTable](std/ui/display.ssc)
+[badge, spinner, signalPre](std/ui/display.ssc)
+
+[fcol, rowDelete, dataTable](std/ui/data.ssc)
 
 ```scalascript
 val name      = signal("name",      "Alice")
@@ -110,7 +112,9 @@ val alert = showWhen(submitted,
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
 val newItem     = signal[String]("newItem",   "")
-val todosTable  = fetchTable("/api/todos", "/api/todos/delete", refreshTick)
+val todosTable  = dataTable(fetchUrl = "/api/todos", tick = refreshTick,
+                    columns = [fcol("Task", "text")],
+                    actions = [rowDelete("/api/todos/delete", "id", refreshTick)])
 ```
 
 ## Full tree

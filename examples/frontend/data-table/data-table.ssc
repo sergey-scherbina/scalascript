@@ -1,0 +1,75 @@
+---
+name: data-table-example
+version: 1.0.0
+description: Generalised DataTable — columns + delete + custom POST + select action.
+frontend: react
+---
+
+# data-table example
+
+Demonstrates `dataTable` with typed columns, a per-row Delete action, a custom
+POST action ("Promote"), and a SetFieldToSignal action ("Select").
+
+## Backend
+
+```scalascript
+@side = server
+route("GET", "/api/employees") { _ =>
+  val rows = List(
+    Map("id" -> "1", "name" -> "Alice", "department" -> "Engineering", "salary" -> "120000"),
+    Map("id" -> "2", "name" -> "Bob",   "department" -> "Design",      "salary" -> "95000")
+  )
+  Response.json(rows)
+}
+
+@side = server
+route("POST", "/api/employees/delete") { req =>
+  Response.status(204)
+}
+
+@side = server
+route("POST", "/api/employees/promote") { req =>
+  Response.status(204)
+}
+```
+
+## Imports
+
+[signal, serve, fetchUrlSignal](std/ui/primitives.ssc)
+
+[fcol, rowDelete, rowPost, rowLink, dataTable](std/ui/data.ssc)
+
+[lower](std/ui/lower.ssc)
+
+[defaultTheme](std/ui/theme.ssc)
+
+[vstack, hstack](std/ui/layout.ssc)
+
+[heading, text](std/ui/typography.ssc)
+
+## App
+
+```scalascript
+val tick     = signal[Int]("tick",     0)
+val selected = signal[String]("selected", "")
+val sig      = fetchUrlSignal("employees", "/api/employees", tick)
+
+val empTable = dataTable(
+  fetchUrl = "/api/employees",
+  tick     = tick,
+  columns  = [fcol("Name", "name"), fcol("Department", "department"), fcol("Salary", "salary")],
+  actions  = [
+    rowDelete("/api/employees/delete", "id", tick),
+    rowPost("Promote", "POST", "/api/employees/promote", "id", tick),
+    rowLink("Select", selected, "name")
+  ]
+)
+
+val view = lower(defaultTheme(vstack(gap = 16)(
+  heading("Employee Table", 1),
+  text("Columns driven by dot-path field names; actions per row."),
+  empTable
+)))
+
+serve(view, 8080)
+```

@@ -46,7 +46,7 @@ class JvmGenSwingRuntimeTest extends AnyFunSuite:
     assert(code.contains("""route("POST", "/api/messages/delete")"""))
     assert(code.contains("scalascript-backend-spi"))
     assert(code.contains("fetchActionClear(\"POST\", \"/api/messages\""))
-    assert(code.contains("fetchTable(\"/api/messages\", \"/api/messages/delete\""))
+    assert(code.contains("dataTable("))
     assert(code.contains("private val _ssc_ui_backend_transport: scalascript.backend.spi.BackendTransport"))
     assert(code.contains("_ssc_ui_backend_request(methodRaw, url, body)"))
     assert(code.contains("_ssc_ui_inprocess_fetch(method, url, body)"))

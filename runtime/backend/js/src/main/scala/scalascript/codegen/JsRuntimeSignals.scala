@@ -209,14 +209,18 @@ function _ssc_ui_renderBody(view) {
         return `<span data-ssc-cond="${id}" style="display:contents"><span data-ssc-branch="true"${tStyle}>${tHtml}</span><span data-ssc-branch="false"${fStyle}>${fHtml}</span></span>`;
       }
       case '_Fragment':      return (v.children || []).map(walk).join('');
-      case '_FetchTableView': {
-        if (v.tick) collectSig(v.tick);
-        if (v.headers) collectSig(v.headers);
-        const ftTick = (v.tick && v.tick.id != null) ? String(v.tick.id) : '';
-        const ftHdr  = (v.headers && v.headers.id != null) ? String(v.headers.id) : '';
-        let ftAttrs = `data-ssc-fetch-table="${_esc(v.fetchUrl)}" data-ssc-fetch-delete="${_esc(v.deleteUrl||'')}" data-ssc-fetch-tick="${_esc(ftTick)}"`;
-        if (ftHdr) ftAttrs += ` data-ssc-fetch-headers="${_esc(ftHdr)}"`;
-        return `<div ${ftAttrs} style="overflow-x:auto"></div>`;
+      case '_DataTableView': {
+        if (v.signal) collectSig(v.signal);
+        (v.actions || []).forEach(function(a) {
+          if (a.tick) collectSig(a.tick);
+          if (a.headers) collectSig(a.headers);
+          if (a._type === '_RowLink' && a.signal) collectSig(a.signal);
+        });
+        const dtSigId  = (v.signal && v.signal.id != null) ? String(v.signal.id) : '';
+        const dtUrl    = (v.signal && v.signal._fetchGet) ? _esc(v.signal._fetchGet.url) : '';
+        const dtCols   = _esc(JSON.stringify((v.columns || []).map(function(c) { return {title: c.title, fieldPath: c.fieldPath}; })));
+        const dtActs   = _esc(JSON.stringify((v.actions || []).map(function(a) { return a; })));
+        return `<div data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}" style="overflow-x:auto"></div>`;
       }
       default: return '';
     }
@@ -291,18 +295,25 @@ function _ssc_ui_mount(sigs) {
         });
     });
   });
-  // fetch tables (fetchTableView)
-  document.querySelectorAll('[data-ssc-fetch-table]').forEach(function(container) {
-    var fetchUrl  = container.getAttribute('data-ssc-fetch-table');
-    var deleteUrl = container.getAttribute('data-ssc-fetch-delete');
-    var tickId    = container.getAttribute('data-ssc-fetch-tick');
-    var headersId = container.getAttribute('data-ssc-fetch-headers');
+  // DataTable — generalised fetch-backed table with columns + actions
+  document.querySelectorAll('[data-ssc-datatable]').forEach(function(container) {
+    var sigId   = container.getAttribute('data-ssc-datatable');
+    var fetchUrl = container.getAttribute('data-ssc-datatable-url');
+    var rawCols = container.getAttribute('data-ssc-datatable-cols');
+    var rawActs = container.getAttribute('data-ssc-datatable-acts');
+    var cols, acts;
+    try { cols = JSON.parse(rawCols || '[]'); } catch(_e) { cols = []; }
+    try { acts = JSON.parse(rawActs || '[]'); } catch(_e) { acts = []; }
     var cs = window.getComputedStyle(container);
     var fs = cs.fontSize; var ff = cs.fontFamily;
-    var thStyle  = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827;font-size:'+fs+';font-family:'+ff;
-    var tdStyle  = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle;font-size:'+fs+';font-family:'+ff;
-    var btnStyle = 'background:#ef4444;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff;
-    function getHeaders() {
+    var thStyle = 'text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-weight:600;color:#111827;font-size:'+fs+';font-family:'+ff;
+    var tdStyle = 'padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151;vertical-align:middle;font-size:'+fs+';font-family:'+ff;
+    var btnStyle = 'background:#3b82f6;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff+';margin-right:4px';
+    var delStyle  = 'background:#ef4444;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:'+fs+';font-family:'+ff+';margin-right:4px';
+    function getField(row, path) {
+      return path.split('.').reduce(function(o, k) { return o && o[k]; }, row);
+    }
+    function getHeaders(headersId) {
       if (!headersId) return undefined;
       var hs = _sv[headersId];
       if (!hs) return undefined;
@@ -314,32 +325,65 @@ function _ssc_ui_mount(sigs) {
       tbl.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:'+ff+';font-size:'+fs);
       var thead = document.createElement('thead'); thead.setAttribute('style', 'background:#f9fafb');
       var trH = document.createElement('tr');
-      var th1 = document.createElement('th'); th1.setAttribute('style', thStyle); th1.textContent = 'Task'; trH.appendChild(th1);
-      var th2 = document.createElement('th'); th2.setAttribute('style', thStyle); th2.textContent = ''; trH.appendChild(th2);
+      cols.forEach(function(col) {
+        var th = document.createElement('th'); th.setAttribute('style', thStyle); th.textContent = col.title; trH.appendChild(th);
+      });
+      if (acts.length > 0) { var thA = document.createElement('th'); thA.setAttribute('style', thStyle); trH.appendChild(thA); }
       thead.appendChild(trH); tbl.appendChild(thead);
       var tbody = document.createElement('tbody');
       (rows || []).forEach(function(row) {
         var tr = document.createElement('tr');
-        var td1 = document.createElement('td'); td1.setAttribute('style', tdStyle); td1.textContent = String(row.text); tr.appendChild(td1);
-        var td2 = document.createElement('td'); td2.setAttribute('style', tdStyle);
-        var btn = document.createElement('button'); btn.setAttribute('style', btnStyle); btn.textContent = 'Delete';
-        btn.addEventListener('click', function() {
-          var dOpts = {method: 'POST', body: String(row.id)};
-          var dh = getHeaders(); if (dh) dOpts.headers = dh;
-          fetch(deleteUrl, dOpts).then(function(r) { return r.text(); })
-            .then(function() { if (tickId) _set(tickId, ((_sv[tickId] || 0) | 0) + 1); });
+        cols.forEach(function(col) {
+          var td = document.createElement('td'); td.setAttribute('style', tdStyle);
+          td.textContent = String(getField(row, col.fieldPath) != null ? getField(row, col.fieldPath) : '');
+          tr.appendChild(td);
         });
-        td2.appendChild(btn); tr.appendChild(td2); tbody.appendChild(tr);
+        if (acts.length > 0) {
+          var tdA = document.createElement('td'); tdA.setAttribute('style', tdStyle);
+          acts.forEach(function(act) {
+            (function(r) {
+              var btn = document.createElement('button');
+              if (act._type === '_RowDelete') {
+                btn.setAttribute('style', delStyle); btn.textContent = 'Delete';
+                btn.addEventListener('click', function() {
+                  var dOpts = {method: 'POST', body: String(getField(r, act.idField) || '')};
+                  var dh = getHeaders(act.headers && act.headers.id); if (dh) dOpts.headers = dh;
+                  fetch(act.url, dOpts).then(function(res) { return res.text(); })
+                    .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
+                });
+              } else if (act._type === '_RowPost') {
+                btn.setAttribute('style', btnStyle); btn.textContent = act.label || '';
+                btn.addEventListener('click', function() {
+                  var pOpts = {method: act.method || 'POST', body: String(getField(r, act.bodyField) || '')};
+                  var dh = getHeaders(act.headers && act.headers.id); if (dh) pOpts.headers = dh;
+                  fetch(act.url, pOpts).then(function(res) { return res.text(); })
+                    .then(function() { if (act.tick && act.tick.id) _set(String(act.tick.id), ((_sv[String(act.tick.id)] || 0) | 0) + 1); });
+                });
+              } else if (act._type === '_RowLink') {
+                btn.setAttribute('style', btnStyle); btn.textContent = act.label || '';
+                btn.addEventListener('click', function() {
+                  if (act.signal && act.signal.id) _set(String(act.signal.id), String(getField(r, act.fieldPath) || ''));
+                });
+              }
+              tdA.appendChild(btn);
+            })(row);
+          });
+          tr.appendChild(tdA);
+        }
+        tbody.appendChild(tr);
       });
       tbl.appendChild(tbody); container.appendChild(tbl);
     }
     function doFetch() {
-      var fOpts = {};
-      var fh = getHeaders(); if (fh) fOpts.headers = fh;
-      fetch(fetchUrl, fOpts).then(function(r) { return r.json(); }).then(renderTable);
+      fetch(fetchUrl).then(function(r) { return r.json(); }).then(renderTable);
     }
     doFetch();
-    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doFetch(); });
+    acts.forEach(function(act) {
+      if ((act._type === '_RowDelete' || act._type === '_RowPost') && act.tick && act.tick.id) {
+        var tId = String(act.tick.id);
+        _sub(tId, function(t) { if ((t | 0) > 0) doFetch(); });
+      }
+    });
   });
   // fetchUrlSignal GET — mount + tick-driven re-fetch
   document.querySelectorAll('[data-ssc-fetch-get-url]').forEach(function(el) {
@@ -410,5 +454,9 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
-function _ssc_ui_fetchTableView(fetchUrl, deleteUrl, tick, headers) { return { _type: '_FetchTableView', fetchUrl, deleteUrl, tick, headers: headers || null }; }
+function _ssc_ui_fieldColumn(title, fieldPath, align) { return { title, fieldPath, align: align || '' }; }
+function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField, tick, headers: headers || null }; }
+function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }
+function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }
+function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [] }; }
 """

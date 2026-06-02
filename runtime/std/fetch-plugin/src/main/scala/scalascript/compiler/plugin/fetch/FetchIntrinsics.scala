@@ -4,7 +4,7 @@ import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef}
 import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
@@ -117,24 +117,77 @@ object FetchIntrinsics:
         case _ => throw InterpretError("incSignal(signal)")
     },
 
-    // fetchTableView(fetchUrl, deleteUrl, tick[, headers]): View
-    // Returns a View.FetchTable that the JS runtime lowers to a reactive table
-    // with per-row Delete buttons.  The tableJsName is derived from fetchUrl.
-    QualifiedName("fetchTableView") -> PluginNative.evalLegacy { (_, args) =>
+    // fieldColumn(title, fieldPath[, align]): FieldColumnDef
+    QualifiedName("fieldColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(fetchUrl: String, deleteUrl: String,
+        case List(title: String, fieldPath: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath))
+        case List(title: String, fieldPath: String, align: String) =>
+          Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
+        case _ => throw InterpretError("fieldColumn(title, fieldPath[, align])")
+    },
+
+    // rowDeleteAction(url, idField, tick[, headers]): RowActionDef
+    QualifiedName("rowDeleteAction") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(url: String, idField: String,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          val tableJsName = "sscRows_" + fetchUrl.replaceAll("[^A-Za-z0-9]", "_")
-          Value.Foreign("View",
-            View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick.asInstanceOf[ReactiveSignal[Int]]))
-        case List(fetchUrl: String, deleteUrl: String,
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+        case List(url: String, idField: String,
                   Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
-          val tableJsName = "sscRows_" + fetchUrl.replaceAll("[^A-Za-z0-9]", "_")
           val h = headers.asInstanceOf[ReactiveSignal[String]]
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
+              if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case _ => throw InterpretError("rowDeleteAction(url, idField, tick[, headers])")
+    },
+
+    // rowPostAction(label, method, url, bodyField, tick[, headers]): RowActionDef
+    QualifiedName("rowPostAction") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(label: String, method: String, url: String, bodyField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]]))
+        case List(label: String, method: String, url: String, bodyField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val h = headers.asInstanceOf[ReactiveSignal[String]]
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowPost(label, method, url, bodyField, tick.asInstanceOf[ReactiveSignal[Int]],
+              if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case _ => throw InterpretError("rowPostAction(label, method, url, bodyField, tick[, headers])")
+    },
+
+    // rowLinkAction(label, signal, fieldPath): RowActionDef
+    QualifiedName("rowLinkAction") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(label: String,
+                  Value.Foreign("ReactiveSignal", sig: ReactiveSignal[?]),
+                  fieldPath: String) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowLink(label, sig.asInstanceOf[ReactiveSignal[String]], fieldPath))
+        case _ => throw InterpretError("rowLinkAction(label, signal, fieldPath)")
+    },
+
+    // dataTableView(signal, columns, actions): View
+    // Builds a View.DataTable from a FetchUrlSignal + lists of FieldColumnDef/RowActionDef.
+    QualifiedName("dataTableView") -> PluginNative.evalLegacy { (_, args) =>
+      def toColumns(v: Value): List[FieldColumnDef] = v match
+        case Value.ListV(items) => items.collect {
+          case Value.Foreign("FieldColumnDef", c: FieldColumnDef) => c }
+        case _ => Nil
+      def toActions(v: Value): List[RowActionDef] = v match
+        case Value.ListV(items) => items.collect {
+          case Value.Foreign("RowActionDef", a: RowActionDef) => a }
+        case _ => Nil
+      args match
+        case List(Value.Foreign("ReactiveSignal", sig: FetchUrlSignal),
+                  cols: Value, acts: Value) =>
           Value.Foreign("View",
-            View.FetchTable(tableJsName, fetchUrl, deleteUrl, tick.asInstanceOf[ReactiveSignal[Int]],
-              headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => throw InterpretError("fetchTableView(fetchUrl, deleteUrl, tick[, headers])")
+            View.DataTable(sig, toColumns(cols), toActions(acts)))
+        case _ => throw InterpretError("dataTableView(signal, columns, actions)")
     },
   )

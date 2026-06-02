@@ -363,13 +363,6 @@ enum View[+A]:
   /** DOM portal.  Compile error on non-web targets. */
   case Portal(target: String, children: Seq[View[?]]) extends View[Nothing]
 
-  /** Reactive data table backed by a REST endpoint.
-   *  @deprecated Use the `fetchTable` toolkit helper instead; this case will be removed in P2
-   *  when web renderers are updated to handle the new semantic View cases. */
-  @deprecated("Use the fetchTable toolkit helper; View.FetchTable will be removed in P2.", "v0.3")
-  case FetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int],
-                  headers: Option[ReactiveSignal[String]] = None) extends View[Nothing]
-
   // ── Typed model data binding (v1.66) ────────────────────────────────────────
 
   /** Typed fetch guard — renders `template` only when `signal` has loaded a
@@ -405,6 +398,16 @@ enum View[+A]:
    *  - SwiftUI: `Text(<varName>.<path>)`
    *  - React/Vue/Solid: `<span>{<varName>.<path>}</span>` or plain text node */
   case ModelText(varName: String, fieldPath: String, style: Style = Style()) extends View[Nothing]
+
+  /** Reactive data table with typed columns and per-row actions.  Backed by
+   *  `signal` (a `FetchUrlSignal`, typically `FetchJsonSignal` resolving to a
+   *  JSON array), renders a `<table>` with a header row from `columns` and a
+   *  reactive body row per fetched item.  `actions` add per-row action buttons.
+   *
+   *  Web backends lower this to standard `<table><thead><tbody>` chrome via
+   *  `DataTableLowering`; Swing/JavaFX render it natively (JTable / TableView). */
+  case DataTable(signal: FetchUrlSignal, columns: List[FieldColumnDef],
+                 actions: List[RowActionDef] = Nil, style: Style = Style()) extends View[Nothing]
 
   /** Static text node — internal use by web renderers.  Produced by the
    *  toolkit lowering pass; app code should use `View.Text` instead. */
@@ -526,6 +529,35 @@ object EventHandler:
   final case class DeleteItem(idField: String, deleteUrl: String,
                               onSuccessTick: ReactiveSignal[Int],
                               headers: Option[ReactiveSignal[String]] = None) extends EventHandler
+  /** Custom per-row action — sends the current iteration item's `bodyField`
+   *  value to `url` via `method` (POST/PUT).  Used inside `ForModel`; the row
+   *  object is the current item.  Increments `onSuccessTick` on success. */
+  final case class ItemAction(method: String, url: String, bodyField: String,
+                              onSuccessTick: ReactiveSignal[Int],
+                              headers: Option[ReactiveSignal[String]] = None) extends EventHandler
+  /** Navigate / select — writes the current iteration item's `fieldPath` value
+   *  into `signal`.  Used inside `ForModel` for row-click selection or routing. */
+  final case class SetFieldToSignal(signal: ReactiveSignal[String], fieldPath: String) extends EventHandler
+
+// ── Data-table column / action definitions ────────────────────────────────────
+
+/** A single column in a `View.DataTable` — renders the row's `fieldPath` value
+ *  under the header `title`.  `align` is an optional CSS text-align value. */
+final case class FieldColumnDef(title: String, fieldPath: String, align: Option[String] = None)
+
+/** A per-row action in a `View.DataTable`.  Each lowers to a `View.Button` whose
+ *  `EventHandler` is bound to the current iteration item. */
+enum RowActionDef:
+  /** Delete the row — POSTs `item.idField` to `url`, bumps `onSuccessTick`. */
+  case RowDelete(url: String, idField: String, onSuccessTick: ReactiveSignal[Int],
+                 headers: Option[ReactiveSignal[String]] = None)
+  /** Custom action button labelled `label` — sends `item.bodyField` to `url`
+   *  via `method` (default POST), bumps `onSuccessTick`. */
+  case RowPost(label: String, method: String, url: String, bodyField: String,
+               onSuccessTick: ReactiveSignal[Int],
+               headers: Option[ReactiveSignal[String]] = None)
+  /** Navigate / select button labelled `label` — writes `item.fieldPath` into `signal`. */
+  case RowLink(label: String, signal: ReactiveSignal[String], fieldPath: String)
 
 // ── Codec hint (v1.66) ───────────────────────────────────────────────────────
 
