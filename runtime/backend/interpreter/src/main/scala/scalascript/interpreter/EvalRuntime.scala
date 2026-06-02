@@ -514,6 +514,21 @@ private[interpreter] object EvalRuntime:
                     else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
                   case _ => null
           case _ => null
+      // `p match { case Ctor(a, b) => a + b }` inlined as LMatch:
+      // compiles the match once (cached), bails if not longCapable or if any
+      // arm free-name overlaps a loop-slot (stale data guard).
+      case m: Term.Match =>
+        m.expr match
+          case Term.Name(scrutName) =>
+            var cm = interp.matchCache.get(m)
+            if cm == null then
+              cm = PatternRuntime.compileMatch(m, interp)
+              interp.matchCache.put(m, cm)
+            if !cm.longCapable then null
+            else if cm.slotFreeNames == null then null
+            else if cm.slotFreeNames.exists(slotOfName.contains) then null
+            else new LMatch(scrutName, cm, interp)
+          case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
       case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
@@ -688,6 +703,21 @@ private[interpreter] object EvalRuntime:
                     if slotFn == null then null
                     else new LApply2(arg0L, arg1L, fnName.value, fn.body, slotFn, interp)
                   case _ => null
+          case _ => null
+      // `p match { case Ctor(a, b) => a + b }` inlined as LMatch:
+      // compiles the match once (cached), bails if not longCapable or if any
+      // arm free-name overlaps a loop-slot (stale data guard).
+      case m: Term.Match =>
+        m.expr match
+          case Term.Name(scrutName) =>
+            var cm = interp.matchCache.get(m)
+            if cm == null then
+              cm = PatternRuntime.compileMatch(m, interp)
+              interp.matchCache.put(m, cm)
+            if !cm.longCapable then null
+            else if cm.slotFreeNames == null then null
+            else if cm.slotFreeNames.exists(slotOfName.contains) then null
+            else new LMatch(scrutName, cm, interp)
           case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
