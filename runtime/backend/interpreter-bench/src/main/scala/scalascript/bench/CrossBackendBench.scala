@@ -2,20 +2,16 @@ package scalascript.bench
 
 import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
-import scalascript.interpreter.{Interpreter, InterpretError}
 import scalascript.parser.Parser
 import scalascript.ast.Module
 import scalascript.codegen.{JvmGen, JsGen}
 
-/** JMH codegen benchmarks: measure how long each backend takes to generate
- *  code from a pre-parsed module.  Interpreter benchmarks measure execution
- *  time; JvmGen/JsGen benchmarks measure codegen time (no subprocess).
+/** JMH codegen benchmarks: how long each backend takes to generate code from
+ *  a pre-parsed module. Execution time of each backend lives elsewhere —
+ *  interpreter in `InterpreterBench`, cross-backend execution in `RuntimeBench`.
  *
- *  Run all cross-backend benchmarks:
+ *  Run all codegen benchmarks:
  *    sbt "interpreterBench/Jmh/run .*CrossBackend.*"
- *
- *  Compare codegen vs interpreter for arith-loop:
- *    sbt "interpreterBench/Jmh/run .*arith.*"
  *
  *  Save results:
  *    sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json .*CrossBackend.*"
@@ -107,21 +103,3 @@ class CrossBackendBench:
   @Benchmark
   def jsGen_patternMatch(): Unit =
     JsGen.generateUserOnly(modPatternMatch, None)
-
-  // ── Interpreter execution benchmarks (matching names for comparison) ──
-
-  @Benchmark
-  def interp_arithLoop(): Unit =
-    Interpreter(devNull).runSections(modArithLoop)
-
-  @Benchmark
-  def interp_recursionFib(): Unit =
-    Interpreter(devNull).runSections(modFib)
-
-  @Benchmark
-  def interp_recursionTco(): Unit =
-    Interpreter(devNull).runSections(modTco)
-
-  @Benchmark
-  def interp_patternMatch(): Unit =
-    Interpreter(devNull).runSections(modPatternMatch)

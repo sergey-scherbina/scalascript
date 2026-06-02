@@ -24,7 +24,7 @@ smoke:
     defaultBackends: [interpreter]
     purpose: Verify that the benchmark command still runs quickly in a developer checkout.
   jmh:
-    command: sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff bench/jmh-smoke.json -rf json .*InterpreterBench.interp_arithLoop.*"
+    command: sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*"
     purpose: Compile and execute one representative interpreter JMH benchmark.
     optIn: true
 

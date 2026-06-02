@@ -177,8 +177,13 @@ identity map is the eventual fix.
 - **Correctness**: `SscVmTest` compiles `fib` and `sumTco` from real parsed
   source and asserts VM results equal the known values (`fib(30)=832040`,
   `sumTco(100000,0)=5000050000`) and equal the tree-walker's own result.
-- **Speed**: `VmJitBench` compares `treeWalkFib30` vs `vmFib30` (and the `sumTco`
-  pair) under JMH. Goal for v0: demonstrate ≥ 10× on `fib`.
+- **Speed**: historical `VmJitBench` (deleted 2026-06-02 after `BytecodeJit`
+  superseded `SscVm.exec` on the hot path; see commit history) compared
+  `treeWalkFib30` vs `vmFib30` (and the `sumTco` pair) under JMH. Goal for v0:
+  demonstrate ≥ 10× on `fib`. Equivalent regression coverage today: run
+  `InterpreterBench.recursionFib` with `SSC_JIT_BYTECODE=off` (forces fall-back
+  to `SscVm.exec`) and with both flags off (`SSC_JIT=off SSC_JIT_BYTECODE=off`,
+  pure tree-walk).
 
 ## 7a. Results (v0, measured 2026-05-31)
 
