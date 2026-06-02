@@ -1,0 +1,108 @@
+package scalascript
+
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers
+import scalascript.interpreter.Interpreter
+import scalascript.parser.Parser
+
+/** Regression tests for bugs found in busi (scalascript-issues.md).
+ *  Uses .ssc-style indentation (no extra leading spaces) to match real file parsing. */
+class BugReproTest extends AnyFunSuite with Matchers:
+
+  private def captured(ssc: String): String =
+    val buf = java.io.ByteArrayOutputStream()
+    val ps  = java.io.PrintStream(buf, true)
+    val src = s"# Test\n\n```scalascript\n$ssc\n```\n"
+    val module = Parser.parse(src)
+    Interpreter(ps).run(module)
+    ps.flush()
+    buf.toString.trim
+
+  // ── while-loop: var i += 1 with tuple-list accumulator ───────────────────
+
+  test("while-loop var i advances with simple list") {
+    captured(
+"""var i = 0
+var result = List()
+while i < 3 do
+  result = result :+ i
+  i += 1
+println(result.length)
+println(i)"""
+    ) shouldBe "3\n3"
+  }
+
+  test("while-loop var i advances with tuple accumulation") {
+    captured(
+"""var i = 0
+var result = List()
+while i < 3 do
+  result = result :+ (i, "r" + i)
+  i += 1
+println(result.length)
+println(i)"""
+    ) shouldBe "3\n3"
+  }
+
+  test("while-loop result contains correct values") {
+    captured(
+"""var i = 0
+var result = List()
+while i < 3 do
+  result = result :+ (i, "r" + i)
+  i += 1
+println(result.map(p => p._1.toString + p._2).mkString(","))"""
+    ) shouldBe "0r0,1r1,2r2"
+  }
+
+  // ── multi-line function body: last expression must be returned ────────────
+
+  test("multi-line function: binary expression as last statement") {
+    captured(
+"""def buildJson(x: String): String =
+  val a = "part1"
+  val b = "part2"
+  "{" + a + "," + b + "}"
+println(buildJson("x"))"""
+    ) shouldBe "{part1,part2}"
+  }
+
+  test("multi-line function: call expression as last statement") {
+    captured(
+"""def wrap(items: List[String]): String =
+  val sep = ","
+  items.mkString(sep)
+println(wrap(List("a", "b", "c")))"""
+    ) shouldBe "a,b,c"
+  }
+
+  test("multi-line function: last statement after a flatMap/map chain") {
+    captured(
+"""def report(xs: List[Int]): String =
+  val doubled = xs.map(x => x * 2)
+  doubled.mkString("+")
+println(report(List(1, 2, 3)))"""
+    ) shouldBe "2+4+6"
+  }
+
+  test("tuple construction in while loop body") {
+    captured(
+"""var i = 0
+var result = List()
+while i < 2 do
+  val t = (i, "r" + i)
+  println(t._1)
+  println(t._2)
+  i += 1"""
+    ) shouldBe "0\nr0\n1\nr1"
+  }
+
+  test("append tuple via :+ in while loop") {
+    captured(
+"""var result = List()
+val t = (42, "hello")
+result = result :+ t
+println(result.length)
+println(result(0)._1)"""
+    ) shouldBe "1\n42"
+  }

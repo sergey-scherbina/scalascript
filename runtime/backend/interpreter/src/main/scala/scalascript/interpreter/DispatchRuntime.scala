@@ -2883,7 +2883,11 @@ private[interpreter] object DispatchRuntime:
     InterpretError(s"cannot mix Decimal and Double in '$op' — convert explicitly (.toDouble or .toDecimal)")
 
   def infix(lhs: Value, op: String, args: List[Value], env: Env, interp: Interpreter): Computation =
-    infix2(lhs, op, if args.nonEmpty then args.head else Value.UnitV, env, interp)
+    val rhs = args match
+      case Nil      => Value.UnitV
+      case v :: Nil => v
+      case _        => Value.TupleV(args)   // `a op (b, c)` — scalameta gives 2 args, Scala semantics say it's a tuple
+    infix2(lhs, op, rhs, env, interp)
 
   /** Tuple-free fast path for primitive Int/Double arithmetic and ordering.
    *  Uses nested `lhs match → rhs match` rather than `(lhs, rhs) match` so the
