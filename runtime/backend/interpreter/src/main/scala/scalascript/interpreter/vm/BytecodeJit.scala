@@ -326,6 +326,12 @@ object BytecodeJit:
       b.stats.head match
         case inner: Term => walkLong(inner, ctx)
         case _           => null
+    // Nested `Term.Match` in expression context (e.g. `total + (e match { … })`).
+    // The function body's top-level match is emitted as statements by
+    // `walkMatchBody`; here we need an expression form, so we delegate to
+    // `walkMatchExpr` which wraps the switch in a `LongSupplier` IIFE.
+    case tm: Term.Match =>
+      walkMatchExpr(tm, ctx, ctx.interp)
     case tn: Term.Name =>
       // Only int-typed names can be read into a Long expression. Ref-typed
       // names (param scrutinee, ref-classified bindings) cannot.
@@ -428,6 +434,10 @@ object BytecodeJit:
       b.stats.head match
         case inner: Term => walkDouble(inner, ctx)
         case _           => null
+    // Nested `Term.Match` in Double-typed expression context; mirrors
+    // walkLong's treatment via the DoubleSupplier IIFE.
+    case tm: Term.Match =>
+      walkMatchExpr(tm, ctx, ctx.interp)
     case tn: Term.Name =>
       if ctx.isRefName(tn.value) then null
       else
@@ -537,6 +547,142 @@ object BytecodeJit:
     else
       sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);\n    }")
     sb.toString
+
+  /** Emit a `Term.Match` as a Java switch *expression* (Java 14+) — the
+   *  expression-context parallel of `walkMatchBody`. Used by `walkLong` /
+   *  `walkDouble` when a match is part of a larger expression (e.g.
+   *  `total + (e match { … })` or `1 + (s match { … })`). The result string
+   *  is a valid Java expression that yields `long` or `double` depending on
+   *  `ctx.isDouble`; the inline `switch (…)` produces the value directly,
+   *  no intermediate local needed.
+   *
+   *  Requires Java 14+ (we target JDK 21). Falls back to null (caller bails)
+   *  when:
+   *    - the scrutinee is not a single param Term.Name
+   *    - any arm shape is unsupported (guards, non-Pat.Extract)
+   *    - any arm body fails to compile via walkLong/walkDouble */
+  private def walkMatchExpr(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
+    val scrutName = tm.expr match
+      case n: Term.Name => n.value
+      case _            => return null
+    if !ctx.params.contains(scrutName) then return null
+    val scrutJava = sanitize(scrutName)
+    // Pre-resolve int tags (mirrors walkMatchBody).
+    val cases = tm.casesBlock.cases
+    val casesArr = cases.toArray
+    val armTags = new Array[Int](casesArr.length)
+    var allTagged = true
+    var ai = 0
+    while ai < casesArr.length do
+      val ctorNameOpt = casesArr(ai).pat match
+        case ext: scala.meta.Pat.Extract => ext.fun match
+          case Term.Name(n) => Some(n)
+          case _            => None
+        case _ => None
+      ctorNameOpt match
+        case Some(cn) =>
+          val tag = interp.typeTagMap.getOrElse(cn, 0)
+          if tag == 0 then allTagged = false
+          armTags(ai) = tag
+        case None => allTagged = false
+      ai += 1
+    val sb = new StringBuilder
+    // We need `inst` accessible inside each arm. Wrap the switch expression
+    // in a primitive-typed Supplier IIFE so the outer call site sees a plain
+    // long/double — `java.util.function.{LongSupplier,DoubleSupplier}` avoid
+    // the boxing that a `Function<T, Long>` would incur. HotSpot caches the
+    // lambda via the LambdaMetafactory's stable callsite, so per-call cost is
+    // a single virtual dispatch (~1 ns), small relative to the switch body.
+    val supplierIface = if ctx.isDouble then "java.util.function.DoubleSupplier" else "java.util.function.LongSupplier"
+    val getterMethod  = if ctx.isDouble then "getAsDouble"                       else "getAsLong"
+    sb.append(s"(($supplierIface)(() -> {\n      ")
+    sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n      ")
+    sb.append(s"return ")
+    if allTagged then
+      sb.append("switch (inst.typeTag()) {\n      ")
+    else
+      sb.append("switch (inst.typeName()) {\n      ")
+    var ci = 0
+    var restList = cases
+    while restList.nonEmpty do
+      val arm = walkArmExpr(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
+      if arm == null then return null
+      sb.append(arm)
+      restList = restList.tail
+      ci += 1
+    if allTagged then
+      sb.append("  default -> { throw new RuntimeException(\"BytecodeJit: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+    else
+      sb.append("  default -> { throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+    sb.append(s".$getterMethod()")
+    sb.toString
+
+  /** Expression-form parallel of `walkArm`: emits `case N -> { … yield …; }`
+   *  arrow form for use inside a Java switch *expression*. The bindings and
+   *  arm-body walking logic is the same as `walkArm`; only the framing
+   *  differs (no `return`, must `yield`). */
+  private def walkArmExpr(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
+    if c.cond.nonEmpty then return null
+    c.pat match
+      case ext: scala.meta.Pat.Extract =>
+        val ctorName = ext.fun match
+          case Term.Name(n) => n
+          case _            => return null
+        val argPats = ext.argClause.values.toArray
+        val n       = argPats.length
+        val bindNames = new Array[String](n)
+        var i = 0
+        while i < n do
+          argPats(i) match
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
+            case _                      => return null
+          i += 1
+        val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
+        if fieldOrder.length != n then return null
+        val bindIsRef = new Array[Boolean](n)
+        var bi = 0
+        while bi < n do
+          if bindNames(bi).startsWith("_unused$") then bindIsRef(bi) = false
+          else bindIsRef(bi) = bindingIsRef(c.body, bindNames(bi), ctx.funName)
+          bi += 1
+        val bindingMap = scala.collection.mutable.LinkedHashMap.empty[String, (String, Boolean)]
+        var k = 0
+        while k < n do
+          if !bindNames(k).startsWith("_unused$") then
+            val jvar = sanitize(bindNames(k)) + "_a"
+            bindingMap += (bindNames(k) -> (jvar, bindIsRef(k)))
+          k += 1
+        val newCtx = ctx.withBindings(bindingMap.toMap)
+        val sb = new StringBuilder
+        if intTag > 0 then sb.append(s"      case $intTag -> {\n        ")
+        else               sb.append(s"""      case "${escape(ctorName)}" -> {\n        """)
+        val faVar = s"__fa_${sanitize(ctorName)}"
+        if n > 0 then sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n        ")
+        var fi = 0
+        while fi < n do
+          if !bindNames(fi).startsWith("_unused$") then
+            val (jvar, isRef) = bindingMap(bindNames(fi))
+            val fname = fieldOrder(fi)
+            val readExpr =
+              if n > 0 then s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
+              else          s"""inst.fields().apply("${escape(fname)}")"""
+            if isRef then
+              sb.append(s"""Object $jvar = $readExpr;\n        """)
+            else if ctx.isDouble then
+              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              sb.append(s"""Object $raw = $readExpr;\n        """)
+              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n        """)
+            else
+              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n        """)
+          fi += 1
+        val armBodyJava =
+          if ctx.isDouble then walkDouble(c.body, newCtx)
+          else              walkLong(c.body, newCtx)
+        if armBodyJava == null then return null
+        sb.append(s"yield $armBodyJava;\n      }\n    ")
+        sb.toString
+      case _ => null
 
   /** `intTag > 0` means emit `case $intTag:` (int switch); `intTag == 0` means
    *  emit `case "CtorName":` (String switch fallback). */
