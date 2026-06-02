@@ -167,6 +167,30 @@ verify step. Apply them.
       12.82 ms, patternMatchHeavy 115.2 ms). Full 1205-test suite green
       in both default and `SSC_JIT_BYTECODE=off` modes.
 
+- [ ] **phase-c-bytecode-invokeExact** — `JitRuntime.invokeBytecode1/2`
+      currently uses `r.mh.invoke(arg)` which performs primitive
+      autoboxing on the `long`/`double` return paths. JFR-profile on
+      `recursiveEval` (`docs/interpreter-perf-findings-2026-06.md` §2)
+      showed `java.lang.Long.valueOf` via `sun.invoke.util.ValueConversions.boxLong`
+      as the second-largest allocator on the bytecode-JIT hot path.
+      Fix: specialize `invokeBytecode1/2` into branches by
+      `(paramIsRef, resultIsDouble)` and call `mh.invokeExact(...)` per
+      signature (4–5 cases). Risk: a wrong type ascription throws
+      `WrongMethodTypeException` at runtime — test suite catches but a
+      missed combo would land a regression. Expected win: 1–5%
+      wall-clock + meaningful alloc-rate reduction on every
+      bytecode-JIT'd shape (`recursiveEval`, `recursionFib*`,
+      `recursiveEvalMixed`). JFR-profile after to verify
+      `java.lang.Long` exits the top samples.
+
+- [ ] **fasttier-2arg-callentry** — extend FastTier with
+      `tryDoubleAccumForeachMap` / `tryLongAccumForeachMap` recognizing
+      a 2-arg foreach closure (`(k, v) =>`) and bypassing the entry
+      materialization. Floor bench `mapForeach` already in place
+      (~1.07 µs/callEntry, 87 bytes/callEntry, 43.6 MB/op alloc). Single
+      module change in `FastTier` + hookup in `DispatchRuntime.dispatchMap`
+      "foreach" case. See `docs/interpreter-perf-findings-2026-06.md` §6.
+
 - [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
       ref fns into a single Java class OR add a runtime MH registry
       indexed by fn name. Lower priority — uncommon in practice. Rough

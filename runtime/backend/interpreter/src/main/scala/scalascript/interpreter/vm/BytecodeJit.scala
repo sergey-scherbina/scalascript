@@ -71,9 +71,17 @@ object BytecodeJit:
   def withInterp[A](interp: scalascript.interpreter.Interpreter)(thunk: => A): A =
     val prev = interpTls.get()
     interpTls.set(interp)
+    // Restore via `set(prev)` rather than `remove()` even when `prev == null`:
+    // `remove()` deletes the per-thread ThreadLocalMap.Entry, and the next
+    // outer call's `set(interp)` then re-allocates it. JFR profiling on
+    // `recursiveEval` showed ~10 MB/op of `ThreadLocalMap$Entry` allocations
+    // on this exact path — one Entry per outer bytecode-JIT invocation, of
+    // which there are millions per script. Setting the slot to `null` leaves
+    // the Entry intact with a null value; `readGlobalLong/Double` already
+    // check for `interp == null`, so semantics are preserved. Per-thread
+    // memory cost: ~32 bytes that never shrink — negligible.
     try thunk
-    finally
-      if prev == null then interpTls.remove() else interpTls.set(prev)
+    finally interpTls.set(prev)
 
   /** Called by generated Java code: read a top-level `Int` global by name and
    *  return its `Long` value. Throws `RuntimeException` if the name is
