@@ -53,6 +53,15 @@ private[interpreter] object PatternRuntime:
      *  (env name resolves to non-`IntV`). Null when any arm is outside the
      *  long-fold subset (e.g. arm body has a Double literal or a comparison). */
     private val lhandlers: Array[(Value, Env) => Long] | Null,
+    /** Per-arm ctor type-name for `Pat.Extract` arms (null = catch-all / Var /
+     *  Wildcard / Lit arm). Non-null only when at least one arm is a ctor
+     *  pattern; null field in the array marks a catch-all.  Used by
+     *  `runValueDouble` and `runValueLong` to replace the O(N)-handler-call
+     *  linear scan with a cheap O(N) String-comparison scan — much cheaper
+     *  because a String == on a 5-15 char name is ~3 ns vs a full lambda
+     *  dispatch + InstanceV match + return-sentinel at ~20 ns per failed arm.
+     *  Also used by `runValue` for the same reason. */
+    private val ctorTags:  Array[String | Null] | Null,
     val allSlot:           Boolean,
     /** Union of free names read across all value-handler bodies, or null if any
      *  arm had an unknown shape. Lets a caller verify a name (e.g. the function
@@ -87,6 +96,24 @@ private[interpreter] object PatternRuntime:
     def runValue(scrutV: Value, env: Env): Value | Null =
       val vh = vhandlers
       if vh == null then return null
+      // Fast path for InstanceV scrutinees when ctor tags are known.
+      val ct = ctorTags
+      if ct != null then
+        scrutV match
+          case inst: Value.InstanceV =>
+            val tag = inst.typeName
+            var i = 0
+            while i < ct.length do
+              val t = ct(i)
+              if t == null then               // catch-all arm
+                val r = vh(i)(inst, env)
+                return if r == null || (r eq NeedMonadic) then null else r.asInstanceOf[Value]
+              if t == tag then               // ctor match
+                val r = vh(i)(inst, env)
+                return if r == null || (r eq NeedMonadic) then null else r.asInstanceOf[Value]
+              i += 1
+            return null
+          case _ =>
       var i = 0
       while i < vh.length do
         val r = vh(i)(scrutV, env)
@@ -109,6 +136,24 @@ private[interpreter] object PatternRuntime:
     def runValueDouble(scrutV: Value, env: Env): Double =
       val dh = dhandlers
       if dh == null then throw NotDouble
+      // Fast path: for InstanceV scrutinees, scan ctor tags (cheap String ==)
+      // instead of calling every handler (expensive lambda dispatch per miss).
+      // O(N) comparisons at ~3 ns each vs O(N) handler calls at ~20 ns each —
+      // ~7× cheaper per failed arm; biggest win for wide matches (12+ arms).
+      val ct = ctorTags
+      if ct != null then
+        scrutV match
+          case inst: Value.InstanceV =>
+            val tag = inst.typeName
+            var i = 0
+            while i < ct.length do
+              val t = ct(i)
+              if t == null then return dh(i)(inst, env)  // catch-all arm
+              if t == tag  then return dh(i)(inst, env)  // ctor match
+              i += 1
+            throw NotDouble
+          case _ =>
+      // Linear scan fallback: non-InstanceV scrutinee or no ctor tags in match.
       var i = 0
       while i < dh.length do
         val r = dh(i)(scrutV, env)
@@ -124,6 +169,19 @@ private[interpreter] object PatternRuntime:
     def runValueLong(scrutV: Value, env: Env): Long =
       val lh = lhandlers
       if lh == null then throw NotDouble
+      val ct = ctorTags
+      if ct != null then
+        scrutV match
+          case inst: Value.InstanceV =>
+            val tag = inst.typeName
+            var i = 0
+            while i < ct.length do
+              val t = ct(i)
+              if t == null then return lh(i)(inst, env)  // catch-all arm
+              if t == tag  then return lh(i)(inst, env)  // ctor match
+              i += 1
+            throw NotDouble
+          case _ =>
       var i = 0
       while i < lh.length do
         val r = lh(i)(scrutV, env)
@@ -158,6 +216,16 @@ private[interpreter] object PatternRuntime:
     val freeNames: Set[String] | Null
   )
 
+  /** Extract the ctor type-name for a single case's pattern, or null when the
+   *  pattern is not a simple `Pat.Extract` (wildcard, var, lit, alternative).
+   *  Used to build `ctorTags` for O(N-string-compare) dispatch. */
+  private def armCtorTag(c: Case): String | Null = c.pat match
+    case Pat.Extract.After_4_6_0(fn, _) => fn match
+      case Term.Name(n)                 => n
+      case Term.Select(_, Term.Name(n)) => n
+      case _                            => null
+    case _ => null
+
   private def buildCompiled(
     handlers: Array[(Value, Env) => Computation | Null], cases: List[Case], interp: Interpreter
   ): CompiledMatch =
@@ -165,27 +233,34 @@ private[interpreter] object PatternRuntime:
     val vh = new Array[(Value, Env) => AnyRef | Null](n)
     val dh = new Array[(Value, Env) => Double](n)
     val lh = new Array[(Value, Env) => Long](n)
+    val ct = new Array[String | Null](n)  // ctor tags for fast dispatch
     var allSlot   = true
     var allDouble = true
     var allLong   = true
+    var hasCtorArm = false
     var free: Set[String] | Null = Set.empty
     var rest = cases
     var i = 0
     while rest.nonEmpty do
-      val h = valueHandlerFor(rest.head, interp)
-      if h == null then return new CompiledMatch(handlers, null, null, null, false, null)
+      val c = rest.head
+      val h = valueHandlerFor(c, interp)
+      if h == null then return new CompiledMatch(handlers, null, null, null, null, false, null)
       vh(i) = h.fn
       if h.dfn != null then dh(i) = h.dfn else allDouble = false
       if h.lfn != null then lh(i) = h.lfn else allLong   = false
       allSlot &&= h.slot
       if free != null then
         if h.freeNames == null then free = null else free = free ++ h.freeNames
+      val tag = armCtorTag(c)
+      ct(i) = tag
+      if tag != null then hasCtorArm = true
       i += 1
       rest = rest.tail
     new CompiledMatch(
       handlers, vh,
       if allDouble then dh else null,
       if allLong   then lh else null,
+      if hasCtorArm then ct else null,
       allSlot, free
     )
 
