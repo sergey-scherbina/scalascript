@@ -9,13 +9,15 @@ final class LspCmd extends CliCommand:
   def name = "lsp"
   override def summary = "Run the Language Server Protocol server over stdio"
   override def category = "Services & tooling"
-  def run(args: List[String]): Unit =
+  override def runResult(args: List[String]): CommandResult =
     import scalascript.cli.lsp.LspServer
     // Currently unused; reserved for future flags such as --log-file or
     // --artifact-dir. Ignored silently in the MVP.
     val _ = args
-    val code = LspServer.runStdio()
-    System.exit(code)
+    CommandResult.exit(LspServer.runStdio())
+
+  def run(args: List[String]): Unit =
+    runResult(args).exitNow()
 
 /** `ssc generate-facade <artifactDir> [-o <outputDir>]`
  *

@@ -82,15 +82,18 @@ import ArtifactInfoPrinters.*
   else if args.isEmpty then
     printUsage()
     System.exit(1)
-  else dispatchCommand(args)
+  else
+    dispatchCommand(args).exitIfFailure()
 
-private def dispatchCommand(args: List[String]): Unit =
+private def dispatchCommand(args: List[String]): CommandResult =
   val token = args.head
   // Registry-driven dispatch (docs/cli-command-spi.md). Unknown tokens fall
   // through to scriptCommand, which runs a named project script if defined.
   CommandRegistry.lookup(token) match
-    case Some(cmd) => cmd.run(args.tail)
-    case None      => scriptCommand(token, args.tail)
+    case Some(cmd) => cmd.runResult(args.tail)
+    case None      =>
+      scriptCommand(token, args.tail)
+      CommandResult.Success
 
 /** Read stdin as a YAML secrets document and load the flattened key→value
  *  map into [[scalascript.sql.SopsSecrets]].

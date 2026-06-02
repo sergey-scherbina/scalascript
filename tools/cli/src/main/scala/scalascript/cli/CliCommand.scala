@@ -27,5 +27,19 @@ trait CliCommand:
    *  (alias-only or meta tokens like `--list-backends`). */
   def hidden: Boolean = false
 
-  /** Execute with the post-subcommand argument list (i.e. `args.tail`). */
+  /** Execute with the post-subcommand argument list (i.e. `args.tail`).
+   *
+   *  This compatibility method remains the public command surface while the
+   *  in-tree CLI incrementally migrates to `runResult`.
+   */
   def run(args: List[String]): Unit
+
+  /** Execute and return an internal command result.
+   *
+   *  Existing commands inherit the legacy behavior: call `run(args)` and report
+   *  success if it returns. Commands that no longer need direct `System.exit`
+   *  override this method first; the public command SPI can stay unchanged.
+   */
+  def runResult(args: List[String]): CommandResult =
+    run(args)
+    CommandResult.Success
