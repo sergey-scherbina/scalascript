@@ -538,6 +538,41 @@ private[interpreter] object EvalRuntime:
     catch
       case scala.util.control.NonFatal(_) => null
 
+  /** Array-backed name→slot table used by `tryLongWhileAssign` /
+   *  `tryMixedLongWhile` compile prologues. Replaces the previous
+   *  `mutable.LinkedHashMap[String, Int]` to avoid `Integer` boxing on every
+   *  `get` / `update`, which JFR showed as the top hot frame on
+   *  `instanceFieldAccess` (`BoxesRunTime.boxToInteger <- slotOf$1`).
+   *  Linear scan is faster than a HashMap probe for the small N (≤ 8
+   *  typical) seen in real bench shapes, and zero Int allocations. */
+  private final class SlotTable(initialCapacity: Int = 8):
+    private var names: Array[String] = new Array[String](initialCapacity)
+    private var _size: Int = 0
+    def size: Int = _size
+    /** Linear scan; -1 if absent. */
+    def slotIndex(name: String): Int =
+      var i = 0
+      while i < _size do
+        if names(i) == name then return i
+        i += 1
+      -1
+    /** Register a name; returns its (existing or new) slot index. */
+    def register(name: String): Int =
+      val existing = slotIndex(name)
+      if existing >= 0 then existing
+      else
+        if _size == names.length then
+          val grown = new Array[String](names.length * 2)
+          System.arraycopy(names, 0, grown, 0, _size)
+          names = grown
+        names(_size) = name
+        val i = _size
+        _size += 1
+        i
+    def contains(name: String): Boolean = slotIndex(name) >= 0
+    /** Name at slot index. */
+    def nameAt(idx: Int): String = names(idx)
+
   // ── Unboxed-long fast path for integer while-assign loops ───────────────
   // A while-loop whose body is only `name = <int-arith>` assignments and whose
   // condition is an integer comparison runs entirely in unboxed `long` slots,
@@ -742,18 +777,15 @@ private[interpreter] object EvalRuntime:
    *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
    *  the caller has already confirmed the loop condition is true on entry. */
   private def tryLongWhileAssign(t: Term.While, body: FastAssignBody, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
-    val slotOfName = mutable.LinkedHashMap.empty[String, Int]
+    val slotOfName = new SlotTable()
     // Slot index for an int-valued name, or -1 (bail). Registers on first use.
     def slotOf(name: String): Int =
-      slotOfName.get(name) match
-        case Some(i) => i
-        case None =>
-          frameView.getOrElse(name, null) match
-            case Value.IntV(_) =>
-              val i = slotOfName.size
-              slotOfName(name) = i
-              i
-            case _ => -1
+      val existing = slotOfName.slotIndex(name)
+      if existing >= 0 then existing
+      else
+        frameView.getOrElse(name, null) match
+          case Value.IntV(_) => slotOfName.register(name)
+          case _             => -1
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
       case Lit.Long(v) => new LConst(v)
@@ -885,16 +917,16 @@ private[interpreter] object EvalRuntime:
     if condL == null then return null
     // Initial slot values (every registered name was checked int-valued).
     val slots = new Array[Long](slotOfName.size)
-    val it = slotOfName.iterator
-    while it.hasNext do
-      val (nm, idx) = it.next()
-      frameView.getOrElse(nm, null) match
+    var idx = 0
+    while idx < slotOfName.size do
+      frameView.getOrElse(slotOfName.nameAt(idx), null) match
         case Value.IntV(v) => slots(idx) = v
         case _             => return null
+      idx += 1
     val assignSlot = new Array[Int](body.names.length)
     var a = 0
     while a < body.names.length do
-      assignSlot(a) = slotOfName(body.names(a))
+      assignSlot(a) = slotOfName.slotIndex(body.names(a))
       a += 1
     // Run in unboxed long space (condition already true on entry → do-while).
     // The try/catch handles a rare `LApply` runtime bail (a function was
@@ -944,17 +976,14 @@ private[interpreter] object EvalRuntime:
     interp: Interpreter,
     preResolved: PreResolvedForeach | Null = null
   ): Computation | Null =
-    val slotOfName = mutable.LinkedHashMap.empty[String, Int]
+    val slotOfName = new SlotTable()
     def slotOf(name: String): Int =
-      slotOfName.get(name) match
-        case Some(i) => i
-        case None =>
-          frameView.getOrElse(name, null) match
-            case Value.IntV(_) =>
-              val i = slotOfName.size
-              slotOfName(name) = i
-              i
-            case _ => -1
+      val existing = slotOfName.slotIndex(name)
+      if existing >= 0 then existing
+      else
+        frameView.getOrElse(name, null) match
+          case Value.IntV(_) => slotOfName.register(name)
+          case _             => -1
     def compileExpr(term: Term): LExpr | Null = term match
       case Lit.Int(v)  => new LConst(v.toLong)
       case Lit.Long(v) => new LConst(v)
@@ -1081,7 +1110,13 @@ private[interpreter] object EvalRuntime:
     if condL == null then return null
 
     // Safety: leading applies must NOT reference any slot-assigned name.
-    val slotNameSet = slotOfName.keysIterator.toSet
+    // Build a Set lazily from the SlotTable (small N — direct construction is fine).
+    val slotNameSet: Set[String] =
+      val b = Set.newBuilder[String]
+      var ni = 0
+      while ni < slotOfName.size do
+        b += slotOfName.nameAt(ni); ni += 1
+      b.result()
     var pi = 0
     while pi < body.leadingApplies.length do
       if applyAccessesNames(body.leadingApplies(pi), slotNameSet) then return null
@@ -1089,16 +1124,16 @@ private[interpreter] object EvalRuntime:
 
     // Initial slot values.
     val slots = new Array[Long](slotOfName.size)
-    val it = slotOfName.iterator
-    while it.hasNext do
-      val (nm, idx) = it.next()
-      frameView.getOrElse(nm, null) match
+    var idx = 0
+    while idx < slotOfName.size do
+      frameView.getOrElse(slotOfName.nameAt(idx), null) match
         case Value.IntV(v) => slots(idx) = v
         case _             => return null
+      idx += 1
     val assignSlot = new Array[Int](body.names.length)
     var a = 0
     while a < body.names.length do
-      assignSlot(a) = slotOfName(body.names(a))
+      assignSlot(a) = slotOfName.slotIndex(body.names(a))
       a += 1
 
     try
