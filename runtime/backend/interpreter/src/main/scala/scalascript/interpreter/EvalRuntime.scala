@@ -495,6 +495,88 @@ private[interpreter] object EvalRuntime:
       if scrutV == null then throw PatternRuntime.NotDouble
       cm.runValueLong(scrutV, Map.empty)
 
+  /** Pure-literal-RHS hoist for an all-assign while body that has at least one
+   *  non-int LHS (the var being assigned is something other than an `IntV`,
+   *  e.g. a `TupleV`) whose RHS is a fully-pure-literal expression cached by
+   *  `pureConstCache`. Targets the `tupleMonoid` shape
+   *  `while i < N do { last = (1,2) ++ (3,4); i = i + 1 }`.
+   *
+   *  Strategy: a pure-literal RHS evaluates to the same `Value` on every visit,
+   *  so a single write to the non-int LHS before the loop is observably
+   *  identical to `N` per-iteration writes — the body has only `Term.Assign`
+   *  (no `Term.Apply`), so nothing else can re-mutate that name mid-loop.
+   *  After the hoisted write, the remaining int-slot assigns are forwarded to
+   *  `tryLongWhileAssign` via a synthesised `FastAssignBody` that contains
+   *  only those entries; `tryLongWhileAssign`'s hot path is unchanged.
+   *
+   *  Returns null with no side effects when:
+   *  - every name is already int-slot (tryLongWhileAssign handles it), or
+   *  - any non-int name has a non-pure RHS (the slow path is needed), or
+   *  - no int-slot counter remains (degenerate loop, bail).
+   *
+   *  Precondition: condition is true on entry (same as `tryLongWhileAssign`). */
+  private def tryHoistedPureWhile(
+    t: Term.While,
+    body: FastAssignBody,
+    frameView: MutableEnvView,
+    interp: Interpreter
+  ): Computation | Null =
+    // O(n) pre-scan: if every name is IntV, leave it to tryLongWhileAssign.
+    // Otherwise verify the non-int RHSes are pure — bail if any isn't, so the
+    // value-space loop sees the original body unchanged.
+    var anyNonInt = false
+    var k = 0
+    while k < body.names.length do
+      val v = frameView.getOrElse(body.names(k), null)
+      if !v.isInstanceOf[Value.IntV] then
+        anyNonInt = true
+        if !isPureConstExpr(body.rhs(k)) then return null
+      k += 1
+    if !anyNonInt then return null
+    // Split the body. Pure-cached entries are pre-evaluated now (this also
+    // populates `pureConstCache` as a side effect, so a later visit sees the
+    // value without an extra eval).
+    val intNames = new Array[String](body.names.length)
+    val intRhs   = new Array[Term](body.names.length)
+    var intCount = 0
+    val pureNames  = new Array[String](body.names.length)
+    val pureValues = new Array[Value](body.names.length)
+    var pureCount  = 0
+    var i = 0
+    while i < body.names.length do
+      val nm = body.names(i)
+      val v  = frameView.getOrElse(nm, null)
+      if v.isInstanceOf[Value.IntV] then
+        intNames(intCount) = nm
+        intRhs(intCount) = body.rhs(i)
+        intCount += 1
+      else
+        eval(body.rhs(i), frameView, interp) match
+          case Pure(pv) =>
+            pureNames(pureCount) = nm
+            pureValues(pureCount) = pv
+            pureCount += 1
+          case _ => return null
+      i += 1
+    if intCount == 0 then return null   // no counter slot → degenerate loop
+    // Hoist the pure-cached writes once. The body has no Term.Apply (it's an
+    // all-assign body per `collectFastAssignBody`), so the values can't be
+    // re-mutated mid-loop.
+    val local = frameView.underlying
+    var p = 0
+    while p < pureCount do
+      local(pureNames(p)) = pureValues(p)
+      interp.globals(pureNames(p)) = pureValues(p)
+      p += 1
+    // Compact the int-slot arrays and delegate to tryLongWhileAssign — its hot
+    // path is exactly the original code, so `arithLoop`-class benches don't
+    // pay any extra overhead.
+    val intBody = new FastAssignBody(
+      if intCount == intNames.length then intNames else intNames.take(intCount),
+      if intCount == intRhs.length   then intRhs   else intRhs.take(intCount)
+    )
+    tryLongWhileAssign(t, intBody, frameView, interp)
+
   /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
    *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
    *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
@@ -946,7 +1028,13 @@ private[interpreter] object EvalRuntime:
         fastPrimitiveValue(t.expr, frameView, interp) match
           case Value.BoolV(false) => Computation.PureUnit
           case Value.BoolV(true) =>
-            val longLoop = tryLongWhileAssign(t, body, frameView, interp)
+            // Hoist pure-literal assigns to non-int LHS out of the loop, then
+            // delegate the int-slot subset to tryLongWhileAssign. Returns null
+            // for all-int bodies (the common case) — no overhead added.
+            val hoisted = tryHoistedPureWhile(t, body, frameView, interp)
+            val longLoop =
+              if hoisted != null then hoisted
+              else tryLongWhileAssign(t, body, frameView, interp)
             if longLoop != null then longLoop
             else if previewFastAssignIteration(body, t.expr, frameView, interp) == null then null
             else
