@@ -837,8 +837,9 @@ scripts/coord-status
 ```
 
 It reads `origin/main` for the queue and claims, shows local worktrees,
-flags stale-looking claims, and avoids shell-specific pitfalls in the
-manual commands below.
+flags stale-looking claims, marks pending items that already look occupied by
+live worktrees/branches, and avoids shell-specific pitfalls in the manual
+commands below.
 
 ```bash
 git fetch origin

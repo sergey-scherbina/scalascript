@@ -15,13 +15,83 @@ Shows the authoritative remote queue/claims plus local worktree state:
   - current origin/main commit
   - active .work/active/*.claim files from origin/main
   - live and prunable git worktrees
-  - first unclaimed pending WORK_QUEUE.md item
+  - first pending WORK_QUEUE.md item that looks free to pick
 
 This script is read-only except for `git fetch origin`.
 
 Environment:
   SSC_COORD_REF=origin/main   remote ref to inspect
 EOF
+}
+
+significant_tokens() {
+  printf '%s\n' "$1" |
+    LC_ALL=C tr '[:upper:]' '[:lower:]' |
+    sed -E 's/[^a-z0-9]+/ /g' |
+    tr ' ' '\n' |
+    grep -E '^[a-z0-9]{3,}$' |
+    grep -Ev '^(feature|feat|fix|perf|tooling|cleanup|claim|phase|open|chore|docs|doc|test|tests|bench|jmh|wip|main|green|red)$' |
+    grep -Ev '^[0-9]+$' || true
+}
+
+token_count() {
+  local tokens="$1"
+  local count=0
+  while IFS= read -r token; do
+    [[ -n "$token" ]] || continue
+    count=$((count + 1))
+  done <<<"$tokens"
+  printf '%s\n' "$count"
+}
+
+slug_matches_record() {
+  local slug="$1"
+  local record_tokens="$2"
+  local slug_tokens
+  slug_tokens="$(significant_tokens "$slug")"
+
+  local needed
+  needed="$(token_count "$slug_tokens")"
+  if [[ "$needed" -gt 2 ]]; then
+    needed=2
+  fi
+
+  local matched=0
+  local token
+  while IFS= read -r token; do
+    [[ -n "$token" ]] || continue
+    if printf '%s\n' "$record_tokens" | tr ' ' '\n' | grep -Fxq "$token"; then
+      matched=$((matched + 1))
+      if [[ "$matched" -ge "$needed" ]]; then
+        return 0
+      fi
+    fi
+  done <<<"$slug_tokens"
+  return 1
+}
+
+find_live_match() {
+  local slug="$1"
+
+  if printf '%s\n' "$live_keys" | grep -Fxq "$slug"; then
+    printf 'exact live key match: %s\n' "$slug"
+    return 0
+  fi
+
+  local record
+  while IFS= read -r record; do
+    [[ -n "$record" ]] || continue
+    local record_tokens="${record%%|*}"
+    local rest="${record#*|}"
+    local branch="${rest%%|*}"
+    local wt_dir="${rest#*|}"
+    if slug_matches_record "$slug" "$record_tokens"; then
+      printf '%s (%s)\n' "$branch" "$wt_dir"
+      return 0
+    fi
+  done <<<"$live_records"
+
+  return 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -63,6 +133,7 @@ fi
 echo
 
 live_keys=""
+live_records=""
 print_worktree() {
   local wt_dir="$1"
   local branch="$2"
@@ -83,6 +154,12 @@ print_worktree() {
   live_keys="${live_keys}"$'\n'"${base_name}"
   if [[ "$branch_name" != "(detached)" ]]; then
     live_keys="${live_keys}"$'\n'"${branch_name}"$'\n'"${branch_name//\//+}"
+  fi
+
+  local record_tokens
+  record_tokens="$(printf '%s\n%s\n' "$(significant_tokens "$base_name")" "$(significant_tokens "$branch_name")" | sort -u | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+  if [[ -n "$record_tokens" ]]; then
+    live_records="${live_records}"$'\n'"${record_tokens}|${branch_name}|${wt_dir}"
   fi
 
   local status
@@ -149,12 +226,14 @@ else
 fi
 echo
 
-echo "== next unclaimed WORK_QUEUE.md item =="
+echo "== pending WORK_QUEUE.md item status =="
 queue="$(git -C "$ROOT" show "$REMOTE_REF:WORK_QUEUE.md" 2>/dev/null || true)"
 if [[ -z "$queue" ]]; then
   echo "WORK_QUEUE.md not found on $REMOTE_REF"
 else
   section=""
+  occupied_item=""
+  occupied_reason=""
   next_item=""
   while IFS= read -r line; do
     case "$line" in
@@ -164,17 +243,34 @@ else
       "- [ ] **"*)
         slug="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*\([^*][^*]*\)\*\*.*/\1/p')"
         [[ -n "$slug" ]] || continue
-        if ! printf '%s\n' "$claimed_slugs" | grep -Fxq "$slug"; then
-          desc="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*[^*][^*]*\*\*[[:space:]]*//p')"
-          next_item="${section}: ${slug} ${desc}"
-          break
+        desc="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*[^*][^*]*\*\*[[:space:]]*//p')"
+        if printf '%s\n' "$claimed_slugs" | grep -Fxq "$slug"; then
+          continue
         fi
+        live_match="$(find_live_match "$slug" || true)"
+        if [[ -n "$live_match" ]]; then
+          if [[ -z "$occupied_item" ]]; then
+            occupied_item="${section}: ${slug} ${desc}"
+            occupied_reason="$live_match"
+          fi
+          continue
+        fi
+        next_item="${section}: ${slug} ${desc}"
+        break
         ;;
     esac
   done <<<"$queue"
+  if [[ -n "$occupied_item" ]]; then
+    echo "occupied-looking: $occupied_item"
+    echo "  live worktree/branch match: $occupied_reason"
+  fi
   if [[ -n "$next_item" ]]; then
-    echo "$next_item"
+    echo "next safe-looking: $next_item"
   else
-    echo "no unclaimed pending items found"
+    if [[ -n "$occupied_item" ]]; then
+      echo "no safe-looking unclaimed pending items found"
+    else
+      echo "no unclaimed pending items found"
+    fi
   fi
 fi
