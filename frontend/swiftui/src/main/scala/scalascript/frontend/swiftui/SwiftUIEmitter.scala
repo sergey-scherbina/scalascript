@@ -311,7 +311,7 @@ object SwiftUIEmitter:
         emitView(mobile.orElse(desktop).getOrElse(fallback), indent, ctx)
 
       case other =>
-        s"""${pad}Text("[unsupported: ${other.productPrefix}]")"""
+        s"${pad}// TODO: unsupported IR node: ${other.productPrefix}\n${pad}EmptyView()"
 
   // ── Container helper ──────────────────────────────────────────────────────
 
@@ -477,21 +477,28 @@ object SwiftUIEmitter:
   private[swiftui] def collectFetchSignals(view: View[?]): List[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     def walk(v: View[?]): Unit = v match
-      case View.SignalText(fs: FetchUrlSignal, _)         => seen(fs.id) = fs
-      case View.TextInput(fs: FetchUrlSignal, _, _, _, _) => seen(fs.id) = fs
-      case View.Column(ch, _, _, _)                       => ch.foreach(walk)
-      case View.Row(ch, _, _, _)                          => ch.foreach(walk)
-      case View.Stack(ch, _)                              => ch.foreach(walk)
-      case View.ScrollView(ch, _, _)                      => walk(ch)
-      case View.Fragment(ch)                              => ch.foreach(walk)
-      case View.Show(_, t, f)                             => walk(t()); walk(f())
-      case View.ShowSignal(_, t, f)                       => walk(t); walk(f)
-      case View.For(items, r)                             => items().foreach(i => walk(r(i)))
-      case View.ForSignal(_, _, _, tmpl)                  => tmpl.foreach(walk)
-      case View.Form(ch, _, _)                            => walk(ch)
-      case View.Styled(ch, _)                             => walk(ch)
-      case View.Animated(ch, _, _)                        => walk(ch)
-      case View.Adaptive(web, desk, mob, fb)              =>
+      case View.SignalText(fs: FetchUrlSignal, _)          => seen(fs.id) = fs
+      case View.TextInput(fs: FetchUrlSignal, _, _, _, _)  => seen(fs.id) = fs
+      case View.Column(ch, _, _, _)                        => ch.foreach(walk)
+      case View.Row(ch, _, _, _)                           => ch.foreach(walk)
+      case View.Stack(ch, _)                               => ch.foreach(walk)
+      case View.ScrollView(ch, _, _)                       => walk(ch)
+      case View.Fragment(ch)                               => ch.foreach(walk)
+      case View.Show(_, t, f)                              => walk(t()); walk(f())
+      case View.ShowSignal(_, t, f)                        => walk(t); walk(f)
+      case View.For(items, r)                              => items().foreach(i => walk(r(i)))
+      case View.ForSignal(_, _, _, tmpl)                   => tmpl.foreach(walk)
+      case View.Form(ch, _, _)                             => walk(ch)
+      case View.Styled(ch, _)                              => walk(ch)
+      case View.Animated(ch, _, _)                         => walk(ch)
+      case View.Sheet(ch, _)                               => walk(ch)
+      case View.SafeArea(ch, _)                            => walk(ch)
+      case View.KeyboardAvoiding(ch)                       => walk(ch)
+      case View.TabBar(tabs, _, _)                         => tabs.foreach(t => walk(t.content))
+      case View.NavigationStack(routes, _, _)              => routes.values.foreach(f => walk(f()))
+      case View.LazyList(items, render, _, _)              => items().foreach(i => walk(render(i)))
+      case View.LazyGrid(items, render, _, _, _)           => items().foreach(i => walk(render(i)))
+      case View.Adaptive(web, desk, mob, fb)               =>
         List(web, desk, mob).flatten.foreach(walk); walk(fb)
       case _ => ()
     walk(view)

@@ -175,14 +175,33 @@ that don't declare `frontend: swiftui` are unaffected.
     `ContentView.swift`, `buildScript == "swift build"`, `format == SwiftUIApp`.
   - Total test count: 57.
 
+- **Phase 5 (v1.65.2) ✓ Landed (2026-06-02)** — FetchAction + FetchUrlSignal emit:
+  - `FetchAction` emits `Task { @MainActor in ... URLSession ... }` (GET: `data(from:)`;
+    non-GET: `URLRequest + httpBody`). Increments `onSuccessTick`, optionally clears body.
+  - `FetchUrlSignal` emits `.task { await _load_<id>() }` + `.onChange(of: tickId) { ... }`
+    modifiers on ContentView, plus `private func _load_<id>() async { URLSession... }`.
+  - 5 new `SwiftUIEmitterTest` assertions. Total: 62 tests.
+
+- **Phase 6 (v1.65.3) ✓ Landed (2026-06-02)** — Dashboard smoke test + graceful fallback:
+  - Unsupported IR nodes now emit `// TODO: unsupported IR node: X\nEmptyView()` instead of
+    `Text("[unsupported: X]")` — cleaner and SwiftUI-idiomatic.
+  - `collectFetchSignals` expanded to walk `TabBar`, `NavigationStack`, `LazyList`,
+    `LazyGrid`, `Sheet`, `SafeArea`, `KeyboardAvoiding`.
+  - `examples/frontend/dashboard/dashboard.ssc` — multi-tab dashboard with FetchUrlSignal,
+    ForSignal, TabBar, LazyGrid, Form, Slider, Toggle.
+  - `SwiftUIDashboardSmokeTest` (13 tests): full IR coverage, `swiftc -parse` gate
+    (auto-skip when `swiftc` not on PATH). Total: 75 tests.
+
 ## 6. Testing strategy
 
-- Unit: `SwiftUIEmitterTest` — 49 tests covering View cases, EventHandlers,
-  style modifiers, Package.swift, App entry, platform selection, escape helpers,
-  ForSignal → ForEach, RemoveSelfFromList context tracking, AppModel generation,
-  SignalBridge.
+- Unit: `SwiftUIEmitterTest` — 54 tests covering View cases, EventHandlers (incl.
+  FetchAction GET + POST), FetchUrlSignal, style modifiers, Package.swift, App entry,
+  platform selection, ForSignal → ForEach, RemoveSelfFromList context tracking,
+  AppModel generation, SignalBridge.
 - Pathway: `SwiftUIEmitPathwayTest` — 8 tests; ServiceLoader discovery + full
   emit pathway for iOS and macOS (does not require Swift on CI).
+- Smoke: `SwiftUIDashboardSmokeTest` — 13 tests; complex multi-tab module with all
+  main IR node types; `swiftc -parse` gate (auto-skip when `swiftc` not on PATH).
 - Integration (Phase 2): `ssc build --target mobile-ios` smoke test that
   invokes `swift build` on the generated package (requires Xcode on CI).
 

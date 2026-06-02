@@ -752,8 +752,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **v1.65.2-swiftui-fetch-emit** — `FetchAction` → `Task { @MainActor URLSession }` emit; `FetchUrlSignal` → `onAppear`/`onChange` async load with `@State` companion var. ≥ 4 new `SwiftUIEmitterTest` assertions. ✓ Landed 2026-06-02: GET uses `data(from:)`, POST/PUT/PATCH uses `URLRequest` + `httpBody`; `FetchUrlSignal` emits `.task { await _load_<id>() }` + `.onChange(of: tickId)` modifiers + private async load function; 5 new tests; suite 62 green.
 
-- [ ] **v1.65.3-swiftui-dashboard-smoke** — `ssc emit --frontend swiftui web/dashboard.ssc` → `swiftc -parse` green (skip when `swift` not on PATH). Unsupported IR nodes emit `// TODO: unsupported` rather than crashing.
-  _Context: blocked the `busi` Phase 20 Swift app — had to hand-write Swift. Spec: `docs/swiftui.md §8.5`._
+- [x] **v1.65.3-swiftui-dashboard-smoke** — `ssc emit --frontend swiftui web/dashboard.ssc` → `swiftc -parse` green (skip when `swift` not on PATH). Unsupported IR nodes emit `// TODO: unsupported` rather than crashing. ✓ Landed 2026-06-02: changed catch-all from `Text("[unsupported: X]")` to `// TODO: unsupported IR node: X\nEmptyView()`; expanded `collectFetchSignals` to walk TabBar/NavigationStack/LazyList/LazyGrid/Sheet/SafeArea/KeyboardAvoiding; added `examples/frontend/dashboard/dashboard.ssc`; `SwiftUIDashboardSmokeTest` (13 tests, swiftc-parse gate); suite 75 green.
 
 ## Distribution & Tooling
 

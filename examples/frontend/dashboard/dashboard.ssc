@@ -1,0 +1,79 @@
+#!/usr/bin/env ssc
+---
+name: dashboard
+version: 1.0.0
+frontend: swiftui
+bundle-id: com.example.dashboard
+min-os:
+  ios: "17"
+  macos: "14"
+---
+
+# Dashboard Example
+
+A multi-tab dashboard demonstrating diverse SwiftUI IR node types:
+tabs, navigation, lazy lists, grids, sliders, toggles, and fetch-backed signals.
+
+Compile with: `ssc build --target mobile-ios dashboard.ssc`
+
+```ssc
+val selectedTab  = Signal(0)
+val searchQuery  = Signal("")
+val darkMode     = Signal(false)
+val brightness   = Signal(0.8)
+val items        = SignalList(List("Alpha", "Beta", "Gamma", "Delta"))
+val refreshTick  = Signal(0)
+val statusText   = FetchUrlSignal("statusText", "/api/status", refreshTick)
+
+def settingsView() =
+  Form {
+    Toggle(darkMode,   label = "Dark Mode")
+    Slider(brightness, min = 0.0, max = 1.0, label = "Brightness")
+    TextInput(searchQuery, placeholder = "Search…")
+  }
+
+def listView() =
+  Column(spacing = 0) {
+    Row(spacing = 8) {
+      TextInput(searchQuery, placeholder = "Filter…")
+      Button("Refresh") { refreshTick += 1 }
+    }
+    .padding(8)
+    SignalText(statusText)
+    LazyList(items()) { item =>
+      Row(spacing = 12) {
+        Icon("circle.fill")
+        Text(item)
+        Spacer()
+        Button("Remove") { items.removeWhere(_ == item) }
+      }
+    }
+  }
+
+def gridView() =
+  ScrollView {
+    LazyGrid(items(), columns = 2) { item =>
+      Column(spacing = 4, align = Center) {
+        Icon("square.fill")
+          .style(fontSize = 48)
+        Text(item)
+          .style(foreground = Color.secondary)
+      }
+      .padding(12)
+      .style(background = Color.systemGray6, borderRadius = 12)
+    }
+    .padding(16)
+  }
+
+def view() =
+  NavigationStack {
+    TabView(selection = selectedTab) {
+      listView()
+        .tabItem("Items",  icon = "list.bullet",  tag = 0)
+      gridView()
+        .tabItem("Grid",   icon = "square.grid.2x2", tag = 1)
+      settingsView()
+        .tabItem("Settings", icon = "gear",        tag = 2)
+    }
+  }
+```
