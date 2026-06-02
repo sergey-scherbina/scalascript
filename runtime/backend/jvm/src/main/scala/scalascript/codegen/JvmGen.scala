@@ -463,7 +463,7 @@ class JvmGen(
         uiHelperFunctions(
           effectiveFrontend.getOrElse("react"), appIcon,
           bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion
-        ) + "\n" + userSrc + "\n" + JvmRuntimeUiPrimitives.source
+        ) + "\n" + userSrc + (if effectiveFrontend.contains("swiftui") then "" else "\n" + JvmRuntimeUiPrimitives.source)
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
@@ -8685,87 +8685,90 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |private def _ssc_ui_utf8(value: String): Array[Byte] =
        |  Option(value).getOrElse("").getBytes(java.nio.charset.StandardCharsets.UTF_8)
        |
-       |def _ssc_ui_backend_response(value: Any): scalascript.backend.spi.BackendResponse =
-       |  value match
-       |    case r: Response =>
-       |      scalascript.backend.spi.BackendResponse(
-       |        r.status,
-       |        r.headers,
-       |        _ssc_ui_utf8(r.body)
-       |      )
-       |    case sr: _StreamResponse =>
-       |      val sb = StringBuilder()
-       |      sr.writer(chunk => sb.append(chunk))
-       |      scalascript.backend.spi.BackendResponse(
-       |        sr.status,
-       |        sr.headers,
-       |        _ssc_ui_utf8(sb.toString)
-       |      )
-       |    case other =>
-       |      scalascript.backend.spi.BackendResponse(
-       |        200,
-       |        Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |        _ssc_ui_utf8(_show(other))
-       |      )
-       |
-       |private val _ssc_ui_backend_transport: scalascript.backend.spi.BackendTransport =
-       |  new scalascript.backend.spi.BackendTransport:
-       |    def request(req0: scalascript.backend.spi.BackendRequest): scala.concurrent.Future[scalascript.backend.spi.BackendResponse] =
-       |      val method = req0.method.toUpperCase
-       |      val queryIdx = req0.path.indexOf('?')
-       |      val path = if queryIdx >= 0 then req0.path.take(queryIdx) else req0.path
-       |      val query = if queryIdx >= 0 then _parseQuery(req0.path.drop(queryIdx + 1)) else Map.empty[String, String]
-       |      val segs = path.split('/').toList.filter(_.nonEmpty)
-       |      val body = String(req0.body, java.nio.charset.StandardCharsets.UTF_8)
-       |      val loweredHeaders = req0.headers.map((k, v) => k.toLowerCase -> v)
-       |      val response =
-       |        _routes.iterator
-       |          .filter(_.method == method)
-       |          .flatMap(r => _matchPath(r.pattern, segs).map(params => (r, params)))
-       |          .nextOption() match
-       |            case Some((r, params)) =>
-       |              val req = Request(method, path, params, query, loweredHeaders, body)
-       |              try
-       |                def runHandler(): Any = r.handler(req)
-       |                val chain = _middlewares.reverseIterator.foldLeft(() => runHandler()) { (next, mw) =>
-       |                  () => mw(req, next)
-       |                }
-       |                _ssc_ui_backend_response(chain())
-       |              catch
-       |                case e: RestValidationError =>
-       |                  scalascript.backend.spi.BackendResponse(
-       |                    400,
-       |                    Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |                    _ssc_ui_utf8(e.getMessage)
-       |                  )
-       |                case e: Throwable =>
-       |                  scalascript.backend.spi.BackendResponse(
-       |                    500,
-       |                    Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |                    _ssc_ui_utf8(e.getMessage)
-       |                  )
-       |            case None =>
-       |              scalascript.backend.spi.BackendResponse(
-       |                404,
-       |                Map("Content-Type" -> "text/plain; charset=utf-8"),
-       |                _ssc_ui_utf8("Not Found: " + path)
-       |              )
-       |      scala.concurrent.Future.successful(response)
-       |
-       |def _ssc_ui_backend_request(method: String, url: String, body: String): scalascript.backend.spi.BackendResponse =
-       |  scala.concurrent.Await.result(
-       |    _ssc_ui_backend_transport.request(
-       |      scalascript.backend.spi.BackendRequest(
-       |        method,
-       |        url,
-       |        Map("Content-Type" -> "application/json"),
-       |        _ssc_ui_utf8(body)
-       |      )
-       |    ),
-       |    scala.concurrent.duration.Duration.Inf
-       |  )
-       |
        |""".stripMargin +
+    (if frontendName != "swiftui" then
+      s"""|def _ssc_ui_backend_response(value: Any): scalascript.backend.spi.BackendResponse =
+         |  value match
+         |    case r: Response =>
+         |      scalascript.backend.spi.BackendResponse(
+         |        r.status,
+         |        r.headers,
+         |        _ssc_ui_utf8(r.body)
+         |      )
+         |    case sr: _StreamResponse =>
+         |      val sb = StringBuilder()
+         |      sr.writer(chunk => sb.append(chunk))
+         |      scalascript.backend.spi.BackendResponse(
+         |        sr.status,
+         |        sr.headers,
+         |        _ssc_ui_utf8(sb.toString)
+         |      )
+         |    case other =>
+         |      scalascript.backend.spi.BackendResponse(
+         |        200,
+         |        Map("Content-Type" -> "text/plain; charset=utf-8"),
+         |        _ssc_ui_utf8(_show(other))
+         |      )
+         |
+         |private val _ssc_ui_backend_transport: scalascript.backend.spi.BackendTransport =
+         |  new scalascript.backend.spi.BackendTransport:
+         |    def request(req0: scalascript.backend.spi.BackendRequest): scala.concurrent.Future[scalascript.backend.spi.BackendResponse] =
+         |      val method = req0.method.toUpperCase
+         |      val queryIdx = req0.path.indexOf('?')
+         |      val path = if queryIdx >= 0 then req0.path.take(queryIdx) else req0.path
+         |      val query = if queryIdx >= 0 then _parseQuery(req0.path.drop(queryIdx + 1)) else Map.empty[String, String]
+         |      val segs = path.split('/').toList.filter(_.nonEmpty)
+         |      val body = String(req0.body, java.nio.charset.StandardCharsets.UTF_8)
+         |      val loweredHeaders = req0.headers.map((k, v) => k.toLowerCase -> v)
+         |      val response =
+         |        _routes.iterator
+         |          .filter(_.method == method)
+         |          .flatMap(r => _matchPath(r.pattern, segs).map(params => (r, params)))
+         |          .nextOption() match
+         |            case Some((r, params)) =>
+         |              val req = Request(method, path, params, query, loweredHeaders, body)
+         |              try
+         |                def runHandler(): Any = r.handler(req)
+         |                val chain = _middlewares.reverseIterator.foldLeft(() => runHandler()) { (next, mw) =>
+         |                  () => mw(req, next)
+         |                }
+         |                _ssc_ui_backend_response(chain())
+         |              catch
+         |                case e: RestValidationError =>
+         |                  scalascript.backend.spi.BackendResponse(
+         |                    400,
+         |                    Map("Content-Type" -> "text/plain; charset=utf-8"),
+         |                    _ssc_ui_utf8(e.getMessage)
+         |                  )
+         |                case e: Throwable =>
+         |                  scalascript.backend.spi.BackendResponse(
+         |                    500,
+         |                    Map("Content-Type" -> "text/plain; charset=utf-8"),
+         |                    _ssc_ui_utf8(e.getMessage)
+         |                  )
+         |            case None =>
+         |              scalascript.backend.spi.BackendResponse(
+         |                404,
+         |                Map("Content-Type" -> "text/plain; charset=utf-8"),
+         |                _ssc_ui_utf8("Not Found: " + path)
+         |              )
+         |      scala.concurrent.Future.successful(response)
+         |
+         |def _ssc_ui_backend_request(method: String, url: String, body: String): scalascript.backend.spi.BackendResponse =
+         |  scala.concurrent.Await.result(
+         |    _ssc_ui_backend_transport.request(
+         |      scalascript.backend.spi.BackendRequest(
+         |        method,
+         |        url,
+         |        Map("Content-Type" -> "application/json"),
+         |        _ssc_ui_utf8(body)
+         |      )
+         |    ),
+         |    scala.concurrent.duration.Duration.Inf
+         |  )
+         |
+         |""".stripMargin
+    else "") +
     (if frontendName != "swiftui" then
       s"""|def _ssc_ui_inprocess_fetch(methodRaw: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
          |  val response = _ssc_ui_backend_request(methodRaw, url, body)
