@@ -117,7 +117,7 @@ Type inference:
 | `ClearSignalList(l)` | `l.id.removeAll()` |
 | `RemoveSelfFromList(l)` | `l.id.remove(at: __idx_l.id)` inside `ForSignal`; comment otherwise |
 | `InputChange(s)` | comment (handled by TextField binding) |
-| `FetchAction(m, url, …)` | comment stub (URLSession) |
+| `FetchAction(m, url, …)` | `Task { @MainActor in ... URLSession ... }` (GET: `data(from:)`, non-GET: `URLRequest` + `httpBody`; increments `onSuccessTick`, optionally clears `body`) |
 | `Simple` / `WithEvent` | comment (closure not serializable) |
 
 ### Style modifiers

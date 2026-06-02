@@ -503,3 +503,73 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     val src = SwiftUIEmitter.signalBridgeSwift("MyApp")
     assert(src.contains("@MainActor"))
   }
+
+  // ── FetchAction — GET ─────────────────────────────────────────────────────
+
+  test("FetchAction GET emits Task with URLSession.shared.data(from:)") {
+    val tick = ReactiveSignal[Int]("tick", 0)
+    val body = ReactiveSignal[String]("body", "")
+    val btn = View.Button(
+      label  = View.Text(() => "Refresh", Style()),
+      action = EventHandler.FetchAction("GET", "https://api.example.com/items", body, tick),
+      enabled = () => true,
+      style  = Style()
+    )
+    val cv = backend.emitNative(makeModule(btn), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("Task { @MainActor in"), "expected Task block")
+    assert(cv.contains("URLSession.shared.data(from: _url)"), "expected GET data(from:)")
+    assert(cv.contains("tick += 1"), "expected success tick increment")
+    assert(!cv.contains("httpMethod"), "GET should not set httpMethod")
+  }
+
+  test("FetchAction POST emits Task with URLRequest and httpBody") {
+    val tick = ReactiveSignal[Int]("submitTick", 0)
+    val body = ReactiveSignal[String]("formBody", "{}")
+    val btn = View.Button(
+      label  = View.Text(() => "Submit", Style()),
+      action = EventHandler.FetchAction("POST", "https://api.example.com/submit", body, tick, clearBody = true),
+      enabled = () => true,
+      style  = Style()
+    )
+    val cv = backend.emitNative(makeModule(btn), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("Task { @MainActor in"), "expected Task block")
+    assert(cv.contains("""_req.httpMethod = "POST""""), "expected POST method")
+    assert(cv.contains("_req.httpBody = formBody.data(using: .utf8)"), "expected body binding")
+    assert(cv.contains("submitTick += 1"), "expected success tick increment")
+    assert(cv.contains("""formBody = """""), "expected clearBody reset")
+  }
+
+  // ── FetchUrlSignal — onAppear / onChange ──────────────────────────────────
+
+  test("FetchUrlSignal emits .task and .onChange(of:) modifiers in ContentView") {
+    val fs = FetchUrlSignal("result", "https://api.example.com/data", "refreshTick")
+    val view = View.SignalText(fs, Style())
+    val cv = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains(".task { await _load_result() }"), "expected .task modifier")
+    assert(cv.contains(".onChange(of: refreshTick)"), "expected .onChange modifier")
+  }
+
+  test("FetchUrlSignal emits private async load function in ContentView") {
+    val fs = FetchUrlSignal("result", "https://api.example.com/data", "refreshTick")
+    val view = View.SignalText(fs, Style())
+    val cv = backend.emitNative(makeModule(view), Platform.Mobile(MobileOs.iOS)).get
+      .sources.find(_._1.endsWith("ContentView.swift")).get._2
+    assert(cv.contains("private func _load_result() async"), "expected load function")
+    assert(cv.contains("URLSession.shared.data(from: _url)"), "expected URLSession fetch")
+    assert(cv.contains("""result = String(data: data, encoding: .utf8) ?? """""), "expected result assignment")
+  }
+
+  test("collectFetchSignals finds FetchUrlSignal in view tree") {
+    val fs  = FetchUrlSignal("items", "https://api.example.com/items", "itemTick")
+    val view = View.Column(
+      children = List(View.Text(() => "List", Style()), View.SignalText(fs, Style())),
+      spacing  = 8,
+      align    = HAlign.Start,
+      style    = Style()
+    )
+    val found = SwiftUIEmitter.collectFetchSignals(view)
+    assert(found.exists(_.id == "items"), s"expected 'items' in $found")
+  }
