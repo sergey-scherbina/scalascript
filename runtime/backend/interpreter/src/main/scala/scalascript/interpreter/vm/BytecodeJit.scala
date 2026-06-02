@@ -33,13 +33,20 @@ import scalascript.interpreter.Value
  *  Anything outside the subset returns `null`; the caller falls back to the
  *  register-VM `SscVm.exec` path (which the JitRuntime always has).
  *
- *  Gated via env `SSC_JIT_BYTECODE=on` (or `-Dssc.jit.bytecode=on`); default
- *  OFF until benched as a clean win. */
+ *  Default **ON** since all three Phase C slices (int-arith, ADT match, TCO
+ *  loop emission) shipped same-session A/B-proven 2026-06-02 (recursionFib
+ *  23.8×, recursionTco 33.6×, recursiveEval 2.45×) with the full 1205-test
+ *  suite green in both modes. Opt out via `SSC_JIT_BYTECODE=off` /
+ *  `-Dssc.jit.bytecode=off` if a regression needs A/B isolation. */
 object BytecodeJit:
 
+  /** Default **ON**. Opt out via env `SSC_JIT_BYTECODE=off` or the parallel
+   *  system property `-Dssc.jit.bytecode=off` (JMH forks — `-D` propagates
+   *  through `-jvmArgsAppend`, env vars do not always). The off-switch
+   *  matches the pattern set by `SSC_JIT` and `SSC_FASTTIER`. */
   val enabled: Boolean =
-    sys.env.get("SSC_JIT_BYTECODE").map(_.toLowerCase).contains("on") ||
-      sys.props.get("ssc.jit.bytecode").map(_.toLowerCase).contains("on")
+    !sys.env.get("SSC_JIT_BYTECODE").map(_.toLowerCase).contains("off") &&
+      !sys.props.get("ssc.jit.bytecode").map(_.toLowerCase).contains("off")
 
   /** Compilation result. `paramIsRef(i)` is true when the i-th param is
    *  passed as an `Object` (an `InstanceV`) — used to drive `JitRuntime`'s

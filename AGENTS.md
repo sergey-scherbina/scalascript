@@ -27,6 +27,32 @@ git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/
 
 Then do all work from `$WT`. Details and common traps — in §"Workflow for parallel agents" below.
 
+## MANDATORY: always invoke sbt with an explicit `cd` to the worktree
+
+The harness keeps a persistent shell working directory across `Bash` tool
+calls. If a previous command happened to run from the main repo, a later
+`sbt …` call will silently pick up the **main repo's** `build.sbt` and
+target instead of the worktree — your edits will appear to have no effect,
+benches will measure the wrong code, and tests may pass on stale bytecode.
+
+Always invoke sbt as:
+
+```bash
+cd <absolute-worktree-path> && sbt "…"
+```
+
+Trust the line `set current project to root (in build file:<path>/)` in
+sbt's startup output: if `<path>` is NOT your worktree, the previous shell
+CWD leaked. Re-run with explicit `cd`.
+
+## MANDATORY: write to `AGENTS.md` in English only
+
+Project documentation in `AGENTS.md` is the durable session brief used by
+every agent (and across languages). Keep it consistently in English even
+when the surrounding conversation is in another language. The same rule
+applies to all other shared documentation files (`docs/`, `BACKLOG.md`,
+`docs/vm-jit-next.md`, etc.) unless they are explicitly localised.
+
 ---
 
 ## What this project is
