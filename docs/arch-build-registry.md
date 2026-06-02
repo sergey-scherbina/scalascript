@@ -160,6 +160,19 @@ as a thin compatibility surface through one release.  `PluginManifest` and
 - Remove `isStdPluginInterpreterTest` filter (depends on Theme A Phase 3).
 - Update `docs/plugin-architecture.md` to reflect new shape.
 
+### Phase 4 — Build family registries
+
+The first build registry phase reduced plugin wiring duplication, but
+`build.sbt` still has large repeated families: frontend backends, runtime
+standard plugins, benchmark modules, CLI/plugin packaging, and integration-test
+groups.
+
+Add small family registries only where they remove real duplication. The target
+shape is declarative lists that derive aggregate membership, test dependencies,
+ServiceLoader resource checks, and packaging classpaths from one source of
+truth. Do not introduce a generic build DSL; keep each family close to the
+existing sbt layout so future agents can audit the generated wiring quickly.
+
 ## 6. Testing strategy
 
 - Phase 1: `sbt +test` must be green.  Add a `build.sbt` compile check that
@@ -177,3 +190,6 @@ as a thin compatibility surface through one release.  `PluginManifest` and
    remote list, or should it move to `~/.config/scalascript/`?
 3. Should `sscpkg` discovery scan a user-writable directory (current:
    `~/.scalascript/compiler/plugins/`) or prefer a system-level dir?
+4. Which build family should be migrated first: frontend backends, std runtime
+   plugins, or benchmark modules? Pick the family with the clearest duplicate
+   wiring and smallest test blast radius.

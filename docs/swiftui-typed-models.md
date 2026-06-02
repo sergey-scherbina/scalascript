@@ -38,6 +38,10 @@ view, aging reports, or audit log in any usable form.
   the model at `.ssc` parse time; wrong paths produce a runtime Swift compiler
   error when the emitted package is built with `swift build`).
 
+Cross-backend typed model parity is now tracked separately in
+`docs/typed-models-ir.md`. This SwiftUI document remains the backend-specific
+contract for Swift struct emission, optional state, and SwiftUI view lowering.
+
 ## 4. API
 
 ### 4.1 `@model case class` — typed JSON shape
@@ -500,3 +504,14 @@ without blocking the SwiftUI use case.
    For now: trust that the field is non-optional in the model.
 3. Should depth-based indentation for `ReportLine` be a built-in modifier or
    left to the user's `.ssc` view code?  Left to the user.
+
+## 12. Cross-backend follow-up notes
+
+Use `docs/typed-models-ir.md` as the canonical source for the shared `ModelDef`,
+`FetchJsonSignal`, `CodecHint`, and `ModelView` / `ForModel` / `ModelText`
+contracts. SwiftUI-specific lowering should still use `ModelPathResolver` for
+field paths and identifying keys rather than maintaining a separate heuristic.
+
+The decode contract is attached to `FetchUrlSignal.codec`. Future SwiftUI
+changes should preserve raw-text behavior for `CodecHint.RawText` and route
+typed JSON only through `CodecHint.Json(modelTypeName)`.

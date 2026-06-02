@@ -620,6 +620,19 @@ These aren't blockers for v1, but worth keeping in mind:
    First is more in keeping with the abstract-model goal; second
    is friendlier to existing framework ecosystem.
 
+## Implementation maintenance notes
+
+The current backend emitters have converged on the same operational pattern:
+walk the `View[?]` tree, collect signals/refs/fetches, then lower nodes. Typed
+models make that duplication more visible because `ModelView`, `ForModel`, and
+`ModelText` must be traversed the same way in every backend.
+
+The next behavior-preserving cleanup should add a tiny traversal layer in
+`frontend/core`: one walker over `View[?]` plus callback hooks for signal
+registration, fetch registration, refs, and typed model scopes. Backends can
+adopt it incrementally. The goal is not a new rendering abstraction; it is to
+make future `View` cases harder to miss in collector code.
+
 ## When NOT to build this
 
 - When no user has asked.  The abstract model is the kind of

@@ -163,3 +163,10 @@ surface is designed against that command's actual needs rather than guessed.
 
 - Further split Main.scala's remaining shared helper clusters (build pipeline,
   artifact IO) into focused files — behavior-preserving, low priority.
+- Continue moving leaf command providers out of `Main.scala` when they do not
+  depend on large shared helper clusters. Good candidates are commands with
+  self-contained argument parsing and no dispatch fallback behavior.
+- Introduce an internal `CommandResult` / `ExitCode` return value once the next
+  behavior-preserving split is complete. Today most commands call `System.exit`
+  directly, which makes focused command tests harder than necessary. This is an
+  internal CLI cleanup, not a plugin SPI change.

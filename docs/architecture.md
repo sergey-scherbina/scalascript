@@ -369,3 +369,21 @@ backend-interpreter/        # InteractiveBackend — tree-walking interpreter
 
 cli/                        # ssc command + sbt-assembly fat jar
 ```
+
+## Maintenance Roadmap
+
+The codebase is now broad enough that the next wins are small, conservative
+structure improvements rather than new abstractions.
+
+- CLI: keep extracting self-contained command providers from `Main.scala`.
+  After the leaf providers are split, introduce an internal `CommandResult` /
+  `ExitCode` path so command tests do not need to intercept `System.exit`.
+- Frontend emitters: add a shared `frontend/core` `View[?]` traversal utility
+  for signals, fetches, refs, and typed model scopes. Adopt it one backend at a
+  time to prevent future `View` cases from being missed in collectors.
+- Typed models: finish cross-backend parity from `docs/typed-models-ir.md`,
+  then consider structural field-path validation and semantic table lowering.
+- Code generators: keep splitting giant generated-runtime and bridge clusters
+  only when emitted output can be proved byte-identical.
+- Build definition: extend the existing registry approach to repeated build
+  families where it removes duplicate wiring without hiding sbt behavior.

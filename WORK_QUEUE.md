@@ -96,6 +96,52 @@ bearer-token API. Resume via the standard claim/worktree flow.
   within historical baseline (the filter runs only on `envStable` rebuild,
   i.e. once per `curFun` transition, not per iter).
 
+## Codebase maintenance / architecture hygiene (open)
+
+These are deliberately small slices. Before taking any frontend item, check
+`.work/active/` and `git worktree list`; typed-model frontend work is currently
+being landed backend by backend.
+
+- [x] **codebase-maintenance-roadmap** - ✓ Landed 2026-06-02. Persisted the
+  2026-06-02 architecture hygiene plan in specs, backlog, and queue; restored
+  the missing `docs/typed-models-ir.md` file referenced by v1.66 queue items;
+  extracted the self-contained `LspCmd` and `GenerateFacadeCmd` providers into
+  `tools/cli/.../LspAndFacadeCommands.scala`, leaving ServiceLoader FQCNs
+  unchanged. Verification: `git diff --check`; attempted standard
+  `cd <worktree> && sbt "cli/compile"` after rebasing to current `origin/main`,
+  but it stopped before CLI on unrelated frontend `-Werror` warnings in active
+  typed-model parity work (`frontendSolid`, `frontendCustom`, and JavaFX
+  stale `@nowarn`). Focused verification passed with temporary sbt-session
+  overrides removing `-Werror` only from those frontend deps:
+  `cli/compile` and `cli/testOnly scalascript.cli.CommandRegistryTest` (8 tests).
+
+- [ ] **frontend-view-traversal-core** - Add a shared `frontend/core` traversal
+  helper for `View[?]` and migrate one backend collector first. Do not take this
+  while another active claim is editing the same backend emitter. Spec:
+  `docs/frontend-abstract-model.md §Implementation maintenance notes`.
+
+- [ ] **typed-models-structural-types** - After v1.66 parity lands, validate
+  `ModelText` / `ForModel` paths structurally through `ModelPathResolver` where
+  emitters have enough binding context. Spec: `docs/typed-models-ir.md`.
+
+- [ ] **fetchtable-semantic-lowering** - Replace legacy `View.FetchTable`
+  backend-specific lowering with semantic typed-list/table nodes backed by
+  fetch signals, one backend at a time. Spec:
+  `docs/typed-models-ir.md §Maintenance notes`.
+
+- [ ] **cli-command-result-exitcode** - Introduce an internal `CommandResult` /
+  `ExitCode` flow for CLI commands after leaf providers are split, keeping
+  plugin command SPI work deferred. Spec: `docs/cli-command-spi.md`.
+
+- [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
+  cleanup around UI bridge/runtime clusters. Require byte-identical generated
+  output or focused snapshot tests before landing.
+
+- [ ] **build-family-registry** - Migrate one repeated `build.sbt` family
+  (frontend backends, std runtime plugins, or benchmarks) to a declarative
+  registry that derives aggregate/test/package wiring. Spec:
+  `docs/arch-build-registry.md §Phase 4`.
+
 ## Interpreter perf — Phase C + D continuation (open)
 
 After the 2026-06-02 wins (recursive cluster at JVM-codegen speed,

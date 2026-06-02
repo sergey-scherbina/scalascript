@@ -165,6 +165,40 @@ the contracts are explicit.
       emitted JVM source byte-identical via compile + JvmGen suites. Defer
       genExpr/genStat clusters to a follow-up phase.
 
+## Codebase Maintenance / Architecture Hygiene
+
+These items come from the 2026-06-02 whole-project review. They are intentionally
+small and dependency-aware because multiple agents are working in parallel.
+
+- [x] **codebase-maintenance-roadmap** - ✓ Landed 2026-06-02. Persisted the
+      maintenance plan in the relevant specs, added backlog / queue entries,
+      restored the missing shared typed-models IR spec referenced by the queue,
+      and landed one behavior-preserving CLI leaf-command extraction
+      (`LspCmd` + `GenerateFacadeCmd` out of `Main.scala`). Specs:
+      `docs/architecture.md`, `docs/typed-models-ir.md`,
+      `docs/frontend-abstract-model.md`, `docs/cli-command-spi.md`,
+      `docs/arch-build-registry.md`.
+- [ ] **frontend-view-traversal-core** - Add a small `frontend/core` traversal
+      utility for `View[?]` trees and migrate one backend collector first. Keep
+      emitted output behavior-identical. Spec:
+      `docs/frontend-abstract-model.md §Implementation maintenance notes`.
+- [ ] **typed-models-structural-types** - After v1.66 backend parity, tighten
+      model path validation so `ModelText` / `ForModel` paths fail early against
+      `ModelDef` descriptors where possible. Spec: `docs/typed-models-ir.md`.
+- [ ] **fetchtable-semantic-lowering** - Replace backend-specific `View.FetchTable`
+      lowering with semantic typed-list/table nodes backed by fetch signals, then
+      deprecate the old web-shaped `FetchTable` path backend by backend. Spec:
+      `docs/typed-models-ir.md §Maintenance notes`.
+- [ ] **cli-command-result-exitcode** - Introduce an internal command result /
+      exit-code path after the next leaf command splits, reducing direct
+      `System.exit` usage in command bodies. Spec: `docs/cli-command-spi.md`.
+- [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
+      cleanup around UI bridge/runtime clusters only where generated output can
+      be proved byte-identical.
+- [ ] **build-family-registry** - Extend the build registry approach to one
+      repeated family such as frontend backends, std runtime plugins, or
+      benchmark modules. Spec: `docs/arch-build-registry.md §Phase 4`.
+
 ## Exact Numerics — BigInt, Decimal, Money (v1.64 planned)
 
 Spec: [`docs/exact-numerics.md`](docs/exact-numerics.md).
