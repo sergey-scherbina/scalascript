@@ -619,6 +619,151 @@ object BytecodeJit:
     walk(armBody)
     hit
 
+  // ── while-loop JIT ───────────────────────────────────────────────────────
+
+  /** Try to compile a `tryLongWhileAssign`-shaped while loop to Java bytecode.
+   *
+   *  Generates `static void run(long[] v)`: the hot loop reads/writes slots via
+   *  `v[idx]`, runs until condition is false, returns with final values in `v`.
+   *  Temp variables `t0, t1, …` capture all RHS expressions before updating
+   *  slots, preserving cross-assign ordering.
+   *
+   *  Supported subset (intentionally narrow for v1 — `arithLoop` class):
+   *  - Condition: `Term.ApplyInfix` with `<`, `<=`, `>`, `>=`, `==`, `!=`,
+   *    `&&`, `||`; operands must be slot names or integer literals.
+   *  - Body RHS: `Lit.Int`/`Lit.Long`, slot `Term.Name`, `Term.ApplyInfix`
+   *    with `+`, `-`, `*`, `/`, `%` (Long arithmetic, no free names).
+   *
+   *  Free names (globals) bail — they'd require `withInterp` TLS and
+   *  `readGlobalLong` callbacks. `pureCallSum`-class benches can be handled
+   *  in a follow-up slice after benchmarking the base win. */
+  /** Global cache: `Term` (condition node identity) → compiled `Method` or
+   *  `WhileLongMiss`. Keyed by object identity so the same AST node across
+   *  multiple `Interpreter` instances (e.g. repeated JMH benchmark iterations
+   *  sharing the same pre-parsed `Module`) hits the cache instead of running
+   *  javac every time. */
+  private val whileLongGlobalCache: java.util.IdentityHashMap[Term, AnyRef] =
+    java.util.IdentityHashMap()
+  private val WhileLongMiss: AnyRef = new AnyRef
+
+  def tryCompileWhileLong(
+    cond:  Term,
+    names: Array[String],
+    rhs:   Array[Term]
+  ): java.lang.reflect.Method | Null =
+    if !enabled then return null
+    // Global cache: avoid javac on every Interpreter instance / benchmark iter.
+    val globalCached = whileLongGlobalCache.get(cond)
+    if globalCached eq WhileLongMiss then return null
+    if globalCached != null then return globalCached.asInstanceOf[java.lang.reflect.Method]
+    val condJava = walkLocalBool(cond, names)
+    if condJava == null then return null
+    val rhsJava = new Array[String](names.length)
+    var k = 0
+    while k < names.length do
+      rhsJava(k) = walkLocalSlot(rhs(k), names)
+      if rhsJava(k) == null then return null
+      k += 1
+    val className = s"WhileLong_${Integer.toUnsignedString(System.identityHashCode(cond))}"
+    val sb = new StringBuilder
+    sb.append(s"public final class $className {\n")
+    sb.append(s"  public static void run(long[] v) {\n")
+    // Copy array to named locals so the JVM can register-allocate them.
+    // Sequential semantics: each assign sees the updated value of prior
+    // assigns in the same iteration (matches tryLongWhileAssign behaviour).
+    var i = 0
+    while i < names.length do
+      sb.append(s"    long _v$i = v[$i];\n")
+      i += 1
+    sb.append(s"    while ($condJava) {\n")
+    i = 0
+    while i < names.length do
+      sb.append(s"      _v$i = ${rhsJava(i)};\n")
+      i += 1
+    sb.append("    }\n")
+    i = 0
+    while i < names.length do
+      sb.append(s"    v[$i] = _v$i;\n")
+      i += 1
+    sb.append("  }\n}\n")
+    val source = sb.toString
+    val compiler = ToolProvider.getSystemJavaCompiler
+    if compiler == null then
+      whileLongGlobalCache.put(cond, WhileLongMiss)
+      return null
+    val classBytes = new ByteArrayOutputStream()
+    val javaFile = new SimpleJavaFileObject(URI.create(s"string:///$className.java"), JavaFileObject.Kind.SOURCE):
+      override def getCharContent(ignoreEncodingErrors: Boolean): CharSequence = source
+    val standard = compiler.getStandardFileManager(null, null, null)
+    val fm = new ForwardingJavaFileManager[JavaFileManager](standard):
+      override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
+        new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
+          override def openOutputStream(): OutputStream = classBytes
+    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val ok = try task.call().booleanValue() catch case _: Throwable => false
+    if !ok then
+      whileLongGlobalCache.put(cond, WhileLongMiss)
+      return null
+    val loader = new ClassLoader(classOf[BytecodeJit.type].getClassLoader):
+      override def findClass(name: String): Class[?] =
+        if name == className then
+          val bytes = classBytes.toByteArray
+          defineClass(name, bytes, 0, bytes.length)
+        else super.findClass(name)
+    val cls = try loader.loadClass(className) catch case _: Throwable =>
+      whileLongGlobalCache.put(cond, WhileLongMiss)
+      return null
+    val result =
+      try
+        val m = cls.getMethod("run", classOf[Array[Long]])
+        m.setAccessible(true)
+        m
+      catch case _: Throwable => null
+    whileLongGlobalCache.put(cond, if result == null then WhileLongMiss else result.asInstanceOf[AnyRef])
+    result
+
+  /** Walk a Term to a Java `long` expression using `_v$idx` local variables
+   *  (as declared in the generated method prologue). Supports:
+   *  `Lit.Int`/`Lit.Long`, slot `Term.Name`, `Term.ApplyInfix` with
+   *  `{+, -, *, /, %}`. Returns null for anything outside this subset
+   *  (free names, nested function calls, etc.) — caller bails to LExpr path. */
+  private def walkLocalSlot(t: Term, slots: Array[String]): String | Null = t match
+    case Lit.Int(v)  => s"${v}L"
+    case Lit.Long(v) => s"${v}L"
+    case tn: Term.Name =>
+      var idx = 0
+      while idx < slots.length do
+        if slots(idx) == tn.value then return s"_v$idx"
+        idx += 1
+      null
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      op.value match
+        case "+" | "-" | "*" | "/" | "%" =>
+          val l = walkLocalSlot(lhs, slots); if l == null then return null
+          val r = walkLocalSlot(argClause.values.head, slots); if r == null then return null
+          s"($l ${op.value} $r)"
+        case _ => null
+    case _ => null
+
+  /** Walk a condition Term to a Java boolean expression for the while guard.
+   *  Handles comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) and `&&`/`||`
+   *  over slot-name / literal operands (via `walkLocalSlot`). */
+  private def walkLocalBool(t: Term, slots: Array[String]): String | Null = t match
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      op.value match
+        case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
+          val l = walkLocalSlot(lhs, slots); if l == null then return null
+          val r = walkLocalSlot(argClause.values.head, slots); if r == null then return null
+          s"($l ${op.value} $r)"
+        case "&&" | "||" =>
+          val l = walkLocalBool(lhs, slots); if l == null then return null
+          val r = walkLocalBool(argClause.values.head, slots); if r == null then return null
+          s"($l ${op.value} $r)"
+        case _ => null
+    case _ => null
+
   /** Escape a string for embedding in a Java string literal (only `"` and
    *  `\` need escaping for our pure ASCII identifier-shaped strings). */
   private def escape(s: String): String =
