@@ -332,17 +332,33 @@ verify step. Apply them.
         recursiveEvalMixed: 11.861 → 7.456 ms  (~37%)
       Wide and recursiveEval gain most — arm count amplifies O(1) vs O(N) advantage.
 
-- [ ] **phase-c-mixed-while-jit** — `boxToInteger` = **25% CPU** in
-      `patternMatchHeavy` (JFR 2026-06-02). `slotOf$2` reads the outer
-      loop counter and bound from `LinkedHashMap`, returning a boxed
-      `Integer` that gets unboxed. The outer `while i < n { shapes.foreach(...); i = i+1 }`
-      is handled by `tryMixedLongWhile` which already compiles
-      `i = i+1` to fast `LExpr`, but reads the initial slot indices via
-      a `LinkedHashMap` lookup each iteration. Investigate whether `n`
-      (loop bound) is being re-looked-up per iter via `LName` rather
-      than a pre-resolved slot; if so, cache it in the slot array during
-      `collectMixedAssignBody`. Lower-priority than `phase-c-bytecode-int-tag`
-      (43% vs 25%); profile after int-tag lands to confirm residual.
+- [x] **phase-c-mixed-while-jit** — ✓ Landed 2026-06-02 commit `44c3812c`.
+      `boxToInteger <- slotOf$1` was 44% of CPU on `instanceFieldAccess` JFR
+      (same source as the 25%-on-`patternMatchHeavy` observation that opened
+      this item). Root cause: `mutable.LinkedHashMap[String, Int]` in
+      `tryLongWhileAssign` and `tryMixedLongWhile`'s compile prologues — every
+      `get`/`update` boxed the Int slot index. Replaced with a private
+      Array-backed `SlotTable` (linear scan, no boxing) that exposes
+      `slotIndex` / `register` / `contains` / `nameAt` / `size`. JFR after:
+      `boxToInteger` no longer appears in the top 15 frames. Wall-clock not
+      conclusive under current session noise (arithLoop drifted 0.26 → 0.37 ms
+      in same run), but the eliminated allocator class is the reliable signal.
+
+- [x] **interp-pattern-arm-int-tag-guard** — ✓ Landed 2026-06-02 commit
+      `62b16bb8`. Companion to the JIT-side `phase-c-bytecode-int-tag` work:
+      gives the LMatch / `runValue` / `runValueDouble` / `runValueLong`
+      interpreter paths an Int-tag scan. New `CompiledMatch.ctorTagsInt`
+      array, populated when every non-catch-all arm's ctor name is a
+      registered ADT (`typeTagMap.contains`); `-1` is the catch-all sentinel.
+      Pat.Extract arm closures capture `tn3Tag` and gate on
+      `(tn3Tag != 0 && inst.typeTag == tn3Tag) || inst.typeName == tn3` — the
+      Int compare short-circuits the hot path (Pair/Add/Mul/etc.), the String
+      fallback covers unregistered ctor names (`Some`/`None`) and the rare
+      bare-`Value.InstanceV(...)` constructions (e.g. EffectsRuntime's
+      `RuntimeException`). JFR on `instanceFieldAccess`: `String.equals`
+      dropped 59 → 31 samples (~50% reduction); the remaining 31 are
+      `HashMap$Node.findNode` from the per-iter `globals.getOrElse(scrutName)`
+      lookup — a separate lever (scrutinee invariance caching).
 
 - [ ] **phase-c-bytecode-wider-match** — guards, literal patterns,
       `Pat.Bind`/`Pat.Alternative`, nested matches. Each adds a handful
@@ -350,13 +366,14 @@ verify step. Apply them.
       cleanup work to be done when a bench shows a specific shape
       bailing.
 
-- [ ] **phase-c-bytecode-block-single** (Direction A.1) — every walker
-      in `BytecodeJit.scala` (`walkLong`, `walkDouble`, `walkRef`) bails
-      on `Term.Block` even when it has one statement. Unwrap a
-      1-stmt block to the inner term in each walker (~10 lines × 3
-      walkers). Helps any closure body wrapped in `{ ... }`. Per
-      `noble-discovering-knuth.md` Direction A slice 1. Independent of
-      other slices — single-session win.
+- [x] **phase-c-bytecode-block-single** (Direction A.1) — ✓ Landed 2026-06-02
+      commit `b4eb11f1`. `walkLong` / `walkDouble` / `walkRef` now unwrap
+      `Term.Block(b)` where `b.stats.length == 1` to the inner term, matching
+      the treatment `walkLocalSlotCtx` got in commit `b4ae788c`. Multi-stmt
+      blocks still bail (Direction A.5 — `phase-c-bytecode-block-multistat`).
+      Tests 1204/1205 green (`I18nSsrTest` pre-existing JsGen WIP failure
+      unrelated). No targeted bench moved measurably in this session due to
+      system noise, but the change is correct infrastructure.
 
 - [ ] **phase-c-bytecode-if-in-while** (Direction A.2) — `tryCompileWhileLong`'s
       `walkLocalSlot` / `walkLocalBool` bail on `Term.If` in RHS. Mirror
