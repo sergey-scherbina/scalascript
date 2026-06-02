@@ -187,6 +187,8 @@ const None = {_type: '_None'};
 const _None = {_type: '_None'};
 function Some(v) { return {_type: '_Some', value: v}; }
 function _Some(v) { return {_type: '_Some', value: v}; }
+function Left(v) { return {_type: 'Left', value: v}; }
+function Right(v) { return {_type: 'Right', value: v}; }
 
 const math = {
   sqrt: x => Math.sqrt(x), abs: x => Math.abs(x),
@@ -223,6 +225,7 @@ List.fill     = (n) => (elem) => Array.from({length: n}, () => elem);
 List.tabulate = (n) => (f)    => Array.from({length: n}, (_, i) => f(i));
 List.range    = (from, until, step=1) => { const r=[]; for(let i=from;i<until;i+=step) r.push(i); return r; };
 List.empty    = [];
+const Nil = [];
 
 function _Map(...pairs) {
   const m = new Map();

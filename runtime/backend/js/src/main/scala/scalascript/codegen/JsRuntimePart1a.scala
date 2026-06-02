@@ -67,11 +67,11 @@ function collectJs(...parts) {
     .join('\n');
 }
 
-// i18n runtime — t(key) / setLocale(code) / wc(tag, component, ...args)
+// i18n runtime — _i18n(key) / setLocale(code) / wc(tag, component, ...args)
 let _i18nLocale = 'en';
 let _i18nTable  = {};
 function setLocale(code) { _i18nLocale = code; }
-function t(key) {
+function _i18n(key) {
   const tbl = _i18nTable[_i18nLocale];
   return (tbl && tbl[key] !== undefined) ? tbl[key] : key;
 }
@@ -105,7 +105,10 @@ function scope(scopeName) {
 var _ssc_givens = {};
 // Returns the ScalaScript type name for a runtime value (elem type for arrays).
 function _ssc_typeOf(v) {
-  if (Array.isArray(v)) return v.length > 0 ? _ssc_typeOf(v[0]) : 'Any';
+  if (Array.isArray(v)) {
+    if (v.length === 0) return 'Any';
+    return Array.isArray(v[0]) ? 'List' : _ssc_typeOf(v[0]);
+  }
   if (typeof v === 'number') return (v|0) === v ? 'Int' : 'Double';
   if (typeof v === 'string') return 'String';
   if (typeof v === 'boolean') return 'Boolean';

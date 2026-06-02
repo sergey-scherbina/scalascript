@@ -120,6 +120,9 @@ function _runAsync(bodyFn) { return _runAsyncInner(bodyFn()); }
 // incoming WebSocket frame, or `None` on close.  The outer `async function`
 // keeps the Node.js event loop live while awaiting I/O.
 async function _runAsyncParallelInner(node) {
+  // Nested runAsyncParallel calls return a Promise (no await inside CPS lambdas);
+  // await the Promise to unwrap the actual value before further processing.
+  if (node && typeof node.then === 'function') node = await node;
   while (true) {
     // Right-associate nested _FlatMap nodes to avoid stack growth.
     while (node instanceof _FlatMap && node.sub instanceof _FlatMap) {

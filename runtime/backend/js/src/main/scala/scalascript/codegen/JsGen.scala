@@ -314,7 +314,11 @@ class JsGen(
     // Shared across parent + all child generators to track which import-binding `const` names
     // have been declared.  A module imported transitively (e.g. nodes.ssc pulled in by both
     // primitives.ssc and layout.ssc) must not emit duplicate `const TkNode = …` lines.
-    private[codegen] val declaredBindings: mutable.Set[String] = mutable.Set.empty,
+    // Pre-populated with preamble-defined globals so imports of the same name are skipped
+    // (e.g. `[Left, Right](std/either.ssc)` must not emit `const Left = …` since
+    // `function Left` is already in the preamble and `const` cannot redeclare it).
+    private[codegen] val declaredBindings: mutable.Set[String] =
+      mutable.Set("Left", "Right", "Some", "None", "Nil"),
     // When Some(set), only top-level declarations whose name is in the set are emitted.
     // None means no filtering (tree-shaking disabled — emit everything).
     // Populated by TreeShaker.shake() and threaded from the companion object entry points.
@@ -369,6 +373,9 @@ class JsGen(
   // Functions with 2+ explicit (non-using) parameter clause groups.
   // Call sites for these need flattened args: _call(f, a, b) not _call(_call(f, a), b).
   private val multiParamGroupFns = scala.collection.mutable.Set.empty[String]
+  // Zero-explicit-param defs (def f: T = body). In JS these compile to function f() { return body; }.
+  // When called as f(x), we must generate _call(f(), x) so the returned function gets applied.
+  private val zeroParamFns = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
   // `sqlBlockCounter` / `sqlPerSection`: sequential `_sqlBlock_<n>`
   // names, and per-section "first-only" tracking so only the first
@@ -376,6 +383,10 @@ class JsGen(
   // alias.  Cleared at the start of every `genModule` call.
   private var sqlBlockCounter: Int = 0
   private val sqlPerSection = scala.collection.mutable.Map.empty[String, Int]
+
+  // Typeclass parent map: TC -> List[parentTC], accumulated from all trait declarations.
+  // Used when registering `given` instances to also register under parent TC keys.
+  private val tcParentMap = scala.collection.mutable.Map.empty[String, List[String]]
 
   private def freshTmp(): String =
     tmpIdx += 1
@@ -395,12 +406,14 @@ class JsGen(
   private def collectFuncParamOrders(module: Module): Unit =
     funcParamOrder.clear()
     multiParamGroupFns.clear()
+    zeroParamFns.clear()
     def collectDefs(stats: List[Stat]): Unit = stats.foreach {
       case d: Defn.Def =>
         val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
         if params.nonEmpty then funcParamOrder(d.name.value) = params
         val explicitGroups = d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
         if explicitGroups.size > 1 then multiParamGroupFns += d.name.value
+        if explicitGroups.isEmpty then zeroParamFns += d.name.value
       case _ => ()
     }
     def scanSection(section: Section): Unit =
@@ -571,8 +584,8 @@ class JsGen(
       // these with an equivalent body — the duplicate-assign is
       // intentional and harmless.
       line("if (typeof process !== 'undefined' && process.stdout && typeof _output !== 'undefined') {")
-      line("  _println = function(s) { process.stdout.write(String(s) + '\\n'); };")
-      line("  _print   = function(s) { process.stdout.write(String(s));        };")
+      line("  _println = function(...args) { process.stdout.write(args.map(_show).join(' ') + '\\n'); };")
+      line("  _print   = function(...args) { process.stdout.write(args.map(_show).join(''));         };")
       line("  if (typeof Console !== 'undefined') {")
       line("    Console.println = _println;")
       line("    Console.print   = _print;")
@@ -741,7 +754,11 @@ class JsGen(
                    // time).  Listed explicitly so capability detection picks
                    // them up before the Term-level lowering runs.
                    allText.contains("startNode") || allText.contains("connectNode") ||
-                   allText.contains("joinCluster")
+                   allText.contains("joinCluster") ||
+                   // v1.9 coroutines and v1.10 generators — both live in JsRuntimeAsyncB
+                   allText.contains("coroutineCreate") || allText.contains("coroutineResume") ||
+                   allText.contains("generator {") || allText.contains("generator[") ||
+                   allText.contains("_makeGenerator") || allText.contains("fromGenerator")
     // v1.51.2 streams — Source.* / stream {} / runToList / etc. require the async runtime
     // (_makeAsyncStream uses async function*; terminal ops need await).
     val hasStreams = allText.contains("Source.") || allText.contains("stream {") ||
@@ -786,11 +803,14 @@ class JsGen(
     if hasWsServer then caps += WsServer
     // Optics — Lens/Optional/Traversal/Prism
     val hasOptics = allText.contains("Lens(") || allText.contains("Optional(") ||
-                    allText.contains("Prism(") || allText.contains("Traversal(") ||
-                    allText.contains(".focus")
+                    allText.contains("Prism(") || allText.contains("Prism[") ||
+                    allText.contains("Traversal(") || allText.contains(".focus") ||
+                    allText.contains("Focus[") || allText.contains("_makeLens") ||
+                    allText.contains("indexAt")
     if hasOptics then caps += Optics
     // Signals — reactive signals
-    val hasSignals = allText.contains("signal(") || allText.contains("computed(")
+    val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
+                    allText.contains("computed(") || allText.contains("Computed(")
     if hasSignals then caps += Signals
     // IndexedDb — client-side IndexedDB storage
     val hasIndexedDb = allText.contains("IndexedDb.")
@@ -1157,8 +1177,8 @@ class JsGen(
       // buffered into a `_output` array the outer segment-end flush
       // no longer sees.
       sb.append("if (typeof process !== 'undefined' && process.stdout && typeof _output !== 'undefined') {\n")
-      sb.append("  _println = function(s) { process.stdout.write(String(s) + '\\n'); };\n")
-      sb.append("  _print   = function(s) { process.stdout.write(String(s));        };\n")
+      sb.append("  _println = function(...args) { process.stdout.write(args.map(_show).join(' ') + '\\n'); };\n")
+      sb.append("  _print   = function(...args) { process.stdout.write(args.map(_show).join(''));         };\n")
       sb.append("  if (typeof Console !== 'undefined') {\n")
       sb.append("    Console.println = _println;\n")
       sb.append("    Console.print   = _print;\n")
@@ -1393,10 +1413,9 @@ class JsGen(
           case d: Defn.Class   => reach.contains(d.name.value)
           case d: Defn.Object  => reach.contains(d.name.value)
           case d: Defn.Enum    => reach.contains(d.name.value)
-          case d: Defn.Given   =>
-            val n = d.name.value
-            if n.nonEmpty then reach.contains(n)
-            else true            // anonymous given: always keep (side-effectful registration)
+          case _: Defn.Given   =>
+            // All givens register in _ssc_givens (a global side-effect) → always emit
+            true
           case _: Defn.Trait   => true     // erased anyway; never filtered
           case _: Term         => true     // top-level term/side effect: always keep
           case _               => true     // conservative: keep unknown node kinds
@@ -1500,6 +1519,51 @@ class JsGen(
       val hasDefaults = paramVals.exists(_.default.isDefined)
       val fname       = d.name.value
       val defRenames  = params.collect { case p if jsReservedWords.contains(p) => p -> safeJsParam(p) }.toMap
+      // `using` params: explicit implicit parameter clauses `(using x: TC[T])`.
+      // Emit guards to resolve them at runtime via _resolveGiven + _ssc_typeOf on a hint param.
+      val nonUsingParams = d.paramClauseGroups.flatMap(_.paramClauses).filterNot { pc =>
+        pc.mod match { case Some(_: scala.meta.Mod.Using) => true; case _ => false }
+      }.flatMap(_.values)
+      val usingGuards: List[String] = d.paramClauseGroups.flatMap(_.paramClauses).filter { pc =>
+        pc.mod match { case Some(_: scala.meta.Mod.Using) => true; case _ => false }
+      }.flatMap(_.values).flatMap { pv =>
+        val pname = pv.name.value
+        pv.decltpe.toList.flatMap { tpe =>
+          val guardOpt: Option[String] = tpe match
+            case Type.Apply.After_4_6_0(Type.Name(tc), args) =>
+              // Find a hint param whose type matches the type argument of TC[A]
+              val typeParamName = args.values match
+                case List(Type.Name(n)) => n
+                case _                  => ""
+              // A concrete type: starts uppercase with >1 char (Option, List, Int...).
+              // For concrete type args, use literal key; for type vars (A, F, T...) use runtime.
+              def isConcrete(n: String): Boolean = n.length > 1 && n.head.isUpper
+              val matchingParam = if typeParamName.nonEmpty then
+                nonUsingParams.find { p =>
+                  p.decltpe.exists {
+                    case Type.Name(n) => n == typeParamName
+                    case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n == typeParamName; case _ => false }
+                    case _ => false
+                  }
+                }
+              else None
+              if matchingParam.isDefined then
+                // Type variable matched a non-using param → derive TC arg at runtime
+                val hint = matchingParam.get.name.value
+                Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
+              else if typeParamName.nonEmpty && isConcrete(typeParamName) then
+                // Concrete type argument (e.g. Console[Option]) → use literal key
+                Some(s"""if ($pname === undefined) $pname = _ssc_givens["${tc}_${typeParamName}"] ?? _resolveGiven("${tc}_${typeParamName}");""")
+              else
+                // Type variable without matching param → best-effort with first non-using param
+                val hint = nonUsingParams.headOption.map(_.name.value).getOrElse("undefined")
+                Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
+            case Type.Name(tc) =>
+              Some(s"""if ($pname === undefined) $pname = _ssc_givens["$tc"] || _resolveGiven("$tc");""")
+            case _ => None
+          guardOpt.toList
+        }
+      }
       // Context-bound type params [A: TC] → synthetic JS param "A$TC", summon key "TC_A"
       @annotation.nowarn("msg=deprecated")
       val cbParams: List[(String, String)] =
@@ -1531,24 +1595,25 @@ class JsGen(
           case expr =>
             line(s"function $fname($paramsStr) { return ${genCpsExpr(expr)}; }")
       // Context-bound params: emit plain function with auto-resolve guards; skip TCO
-      else if cbParams.nonEmpty then
+      else if cbParams.nonEmpty || usingGuards.nonEmpty then
         val hintParam = paramVals.headOption.map(_.name.value).getOrElse("undefined")
         val cbGuards = cbParams.map { (pname, skey) =>
           val tcName = skey.takeWhile(_ != '_')
           s"""if ($pname === undefined) $pname = _resolveGiven("${tcName}_" + _ssc_typeOf($hintParam));"""
         }
+        val allGuards = cbGuards ++ usingGuards
         d.body match
           case Term.Block(bodyStats) =>
             line(s"function $fname($paramsStr) {")
             indent += 1
-            cbGuards.foreach(line)
+            allGuards.foreach(line)
             genFunctionBody(bodyStats)
             indent -= 1
             line("}")
           case expr =>
             line(s"function $fname($paramsStr) {")
             indent += 1
-            cbGuards.foreach(line)
+            allGuards.foreach(line)
             line(s"return ${genExpr(expr)};")
             indent -= 1
             line("}")
@@ -1601,9 +1666,26 @@ class JsGen(
       val fields = params.map(p => s"$p: $p").mkString(", ")
       line(s"function $typeName($paramsStr) { return {_type: '$typeName', $fields}; }")
       line(jsTypedJsonRegisterProduct(typeName, params, typeName))
+      // Compile zero-param body methods (e.g. override def toString) as typed extension registrations.
+      val destructure = if params.isEmpty then "" else s"const {${params.mkString(", ")}} = _self; "
+      d.templ.body.stats.foreach {
+        case meth: Defn.Def
+            if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).flatMap(_.values).isEmpty =>
+          val methName = meth.name.value
+          val bodyJs = genExpr(meth.body)
+          line(s"_registerExt('$methName', (_self) => { ${destructure}return $bodyJs; }, '$typeName');")
+        case _ => ()
+      }
 
     case d: Defn.Object =>
-      line(s"const ${d.name.value} = ${genObjectAsExpr(d)};")
+      val objName = d.name.value
+      // If the name is already declared in the preamble (e.g. `Console`), merge via
+      // Object.assign rather than re-declaring with `const` (which is a SyntaxError).
+      val preambleConsts = Set("Console", "attr", "scope")
+      if preambleConsts.contains(objName) then
+        line(s"Object.assign($objName, ${genObjectAsExpr(d)});")
+      else
+        line(s"const $objName = ${genObjectAsExpr(d)};")
 
     case d: Defn.Enum =>
       val enumName = d.name.value
@@ -1636,7 +1718,15 @@ class JsGen(
       val sep     = if members.isEmpty then "" else ", "
       line(s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };")
 
-    case _: Defn.Trait => () // erased
+    case td: Defn.Trait =>
+      // Record parent typeclasses so given registrations can propagate up the hierarchy.
+      val parents = td.templ.inits.flatMap { init =>
+        init.tpe match
+          case Type.Name(n)  => List(n)
+          case ta: Type.Apply => ta.tpe match { case Type.Name(n) => List(n); case _ => Nil }
+          case _             => Nil
+      }
+      if parents.nonEmpty then tcParentMap(td.name.value) = parents
 
     case d: Defn.Given =>
       // given intShow: Show[Int] with { def show(x) = ... }
@@ -1651,30 +1741,36 @@ class JsGen(
         case _                       => ()
       }
       d.templ.inits.headOption.foreach { init =>
-        val typeKeyOpt: Option[String] = init.tpe match
-          case n: Type.Name  => Some(n.value)
-          case ta: Type.Apply =>
-            (ta.tpe match { case n: Type.Name => Some(n.value); case _ => None }).map { tc =>
+        def extractTcArg(tpe: Type): Option[(String, String)] = tpe match
+          case Type.Name(n) => Some(n -> n)
+          case ta: Type.Apply => ta.tpe match
+            case Type.Name(tc) =>
               val arg = ta.argClause.values match
-                case List(n: Type.Name) => n.value
-                case _                  => "_"
-              s"${tc}_${arg}"
-            }
+                case List(Type.Name(n))    => n
+                case List(ta2: Type.Apply) => ta2.tpe match { case Type.Name(n) => n; case _ => "_" }
+                case _                     => "_"
+              Some(tc -> arg)
+            case _ => None
           case _ => None
-        typeKeyOpt.foreach { typeKey =>
+        extractTcArg(init.tpe).foreach { (primaryTc, typeArg) =>
           val members = d.templ.body.stats.collect { case dd: Defn.Def =>
             s"${dd.name.value}: ${genDefAsMethod(dd)}"
           }
           val obj = s"{${members.mkString(", ")}}"
           val explicitName = d.name.value
+          // Compute all typeclass keys transitively (primary + parent TCs)
+          def allTcKeys(tc: String): List[String] =
+            tc :: tcParentMap.getOrElse(tc, Nil).flatMap(allTcKeys)
+          val allKeys = allTcKeys(primaryTc).map(tc => s"${tc}_${typeArg}").distinct
           if explicitName.nonEmpty then
             line(s"const $explicitName = $obj;")
-            // Also register with typeclass key for summon and _ssc_givens
-            line(s"const $typeKey = $explicitName;")
-            line(s"""_ssc_givens["$typeKey"] = $explicitName;""")
+            // Register under primary alias + all parent typeclass keys
+            line(s"const ${primaryTc}_${typeArg} = $explicitName;")
+            allKeys.foreach { key => line(s"""_ssc_givens["$key"] = $explicitName;""") }
           else
-            line(s"const $typeKey = $obj;")
-            line(s"""_ssc_givens["$typeKey"] = $typeKey;""")
+            val primaryKey = s"${primaryTc}_${typeArg}"
+            line(s"const $primaryKey = $obj;")
+            allKeys.foreach { key => line(s"""_ssc_givens["$key"] = $primaryKey;""") }
         }
       }
 
@@ -1743,6 +1839,18 @@ class JsGen(
     val objectName = d.name.value
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
+    // Populate tcParentMap from trait declarations in this object (cross-block accumulation).
+    d.templ.body.stats.foreach {
+      case td: Defn.Trait =>
+        val parents = td.templ.inits.flatMap { init =>
+          init.tpe match
+            case Type.Name(n)  => List(n)
+            case ta: Type.Apply => ta.tpe match { case Type.Name(n) => List(n); case _ => Nil }
+            case _             => Nil
+        }
+        if parents.nonEmpty then tcParentMap(td.name.value) = parents
+      case _ => ()
+    }
     d.templ.body.stats.foreach {
       case dd: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
         val fname = dd.name.value
@@ -1763,9 +1871,38 @@ class JsGen(
       case dd: Defn.Def =>
         val fname = dd.name.value
         val allClauses = dd.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
-        val bodyJs = dd.body match
-          case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
-          case expr                   => genExpr(expr)
+        // Context-bound params for functions inside objects/packages — must be included
+        // in the function signature so that call sites can pass them (or trigger auto-resolve).
+        @annotation.nowarn("msg=deprecated")
+        val objCbParams: List[(String, String)] =
+          dd.paramClauseGroups.flatMap(_.tparamClause.values).flatMap { tp =>
+            tp.cbounds.map { cb =>
+              val tvName = tp.name.value
+              val tcName = cb match
+                case Type.Name(n)   => n
+                case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n; case _ => "?" }
+                case _              => "?"
+              s"${tvName}$$${tcName}" -> s"${tcName}_${tvName}"
+            }
+          }
+        val objCbGuards = objCbParams.map { (pname, skey) =>
+          val tcName = skey.takeWhile(_ != '_')
+          val hintParam = allClauses.flatMap(_.values).headOption.map(_.name.value).getOrElse("undefined")
+          s"""if ($pname === undefined) $pname = _resolveGiven("${tcName}_" + _ssc_typeOf($hintParam));"""
+        }
+        val cbParamsStr = if objCbParams.isEmpty then "" else ", " + objCbParams.map(_._1).mkString(", ")
+        val savedCbMap2 = cbSummonMap.toMap
+        cbSummonMap.clear()
+        objCbParams.foreach { (pname, skey) => cbSummonMap(skey) = pname }
+        val bodyJsRaw = dd.body match
+          case Term.Block(bodyStats) =>
+            if objCbGuards.isEmpty then genBlockAsIife(bodyStats)
+            else s"{ ${objCbGuards.mkString(" ")} return ${genBlockAsIife(bodyStats)}; }"
+          case expr =>
+            if objCbGuards.isEmpty then genExpr(expr)
+            else s"{ ${objCbGuards.mkString(" ")} return ${genExpr(expr)}; }"
+        cbSummonMap.clear()
+        cbSummonMap ++= savedCbMap2
         def clauseSig(params: List[Term.Param]): String =
           if params.nonEmpty && params.last.decltpe.exists(_.isInstanceOf[Type.Repeated]) then
             val nonVararg = params.init
@@ -1774,10 +1911,15 @@ class JsGen(
             else s"(${paramListWithDefaults(nonVararg)}, ...$vararg)"
           else s"(${paramListWithDefaults(params)})"
         if allClauses.length <= 1 then
-          val sig = clauseSig(allClauses.flatMap(_.values))
-          decls += s"const $fname = $sig => $bodyJs;"
+          val baseSig = clauseSig(allClauses.flatMap(_.values))
+          // Append cb params to the signature if present
+          val sig = if cbParamsStr.isEmpty then baseSig
+                    else baseSig match
+                      case s"($inner)" => s"($inner$cbParamsStr)"
+                      case other       => s"($other$cbParamsStr)"
+          decls += s"const $fname = $sig => $bodyJsRaw;"
         else
-          val innerFn = allClauses.init.foldRight(clauseSig(allClauses.last.values) + s" => $bodyJs") {
+          val innerFn = allClauses.init.foldRight(clauseSig(allClauses.last.values) + s" => $bodyJsRaw") {
             (clause, inner) => clauseSig(clause.values) + s" => $inner"
           }
           decls += s"const $fname = $innerFn;"
@@ -1825,6 +1967,51 @@ class JsGen(
         val sep     = if members.isEmpty then "" else ", "
         decls += s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };"
         names += enumName
+      case eg: Defn.ExtensionGroup =>
+        // Top-level extension groups inside packages register into _extensions (global).
+        genStat(eg)
+      case gd: Defn.Given =>
+        // Extension groups inside givens register into _extensions (global side-effect).
+        gd.templ.body.stats.foreach {
+          case eg: Defn.ExtensionGroup => genStat(eg)
+          case _                       => ()
+        }
+        // given intSum: Monoid[Int] with { ... } inside a package object:
+        // define the instance object, register in _ssc_givens (and under parent TC keys too).
+        gd.templ.inits.headOption.foreach { init =>
+          def extractTcAndArg(tpe: Type): Option[(String, String)] = tpe match
+            case Type.Name(n)  => Some(n -> n)
+            case ta: Type.Apply =>
+              ta.tpe match
+                case Type.Name(tc) =>
+                  val arg = ta.argClause.values match
+                    case List(Type.Name(n))    => n
+                    case List(ta2: Type.Apply) => ta2.tpe match { case Type.Name(n) => n; case _ => "_" }
+                    case _                     => "_"
+                  Some(tc -> arg)
+                case _ => None
+            case _ => None
+          extractTcAndArg(init.tpe).foreach { (primaryTc, typeArg) =>
+            val members = gd.templ.body.stats.collect { case dd: Defn.Def =>
+              s"${dd.name.value}: ${genDefAsMethod(dd)}"
+            }
+            val obj = s"{${members.mkString(", ")}}"
+            val explicitName = gd.name.value
+            // Compute all typeclass keys: primary + parent TCs from tcParentMap (cross-block)
+            def allTcKeys(tc: String): List[String] =
+              tc :: tcParentMap.getOrElse(tc, Nil).flatMap(allTcKeys)
+            val allKeys = allTcKeys(primaryTc).map(tc => s"${tc}_${typeArg}").distinct
+            if explicitName.nonEmpty then
+              decls += s"const $explicitName = $obj;"
+              allKeys.foreach { key => decls += s"""_ssc_givens["$key"] = $explicitName;""" }
+              names += explicitName
+            else
+              val primaryKey = s"${primaryTc}_${typeArg}"
+              decls += s"const $primaryKey = $obj;"
+              allKeys.foreach { key => decls += s"""_ssc_givens["$key"] = $primaryKey;""" }
+              names += primaryKey
+          }
+        }
       case _ => ()
     }
     val body = decls.mkString(" ")
@@ -2183,9 +2370,30 @@ class JsGen(
     // a Free tree which _handle can interpret.
     val bodyThunk = s"() => ${genCpsExpr(body)}"
     // Use _handleOneShot when no op belongs to a multi-shot effect.
+    // Also detect implicit multi-shot: if `resume` appears inside a nested lambda
+    // in any handler body, the effect is being used multi-shot regardless of declaration.
+    def resumeInLambda(caseBody: Term, resumeParam: String): Boolean =
+      def check(t: scala.meta.Tree, depth: Int): Boolean = t match
+        case Term.Name(n) if n == resumeParam => depth > 0
+        case _: Term.Function           => t.children.exists(check(_, depth + 1))
+        case _: Term.AnonymousFunction  => t.children.exists(check(_, depth + 1))
+        case _                          => t.children.exists(check(_, depth))
+      check(caseBody, 0)
     val allOneShot = handledOps.forall { opStr =>
       val effName = opStr.stripPrefix("'").takeWhile(_ != '.')
-      !multiShotEffects.contains(effName)
+      if multiShotEffects.contains(effName) then false
+      else
+        // Check if any case for this effect uses resume inside a lambda
+        val resumeUsedMultiShot = cases.exists { c =>
+          c.pat match
+            case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), _), argClause) if eff == effName =>
+              val resumeName = argClause.values.lastOption match
+                case Some(Pat.Var(n)) => n.value
+                case _                => ""
+              resumeName.nonEmpty && resumeInLambda(c.body, resumeName)
+            case _ => false
+        }
+        !resumeUsedMultiShot
     }
     val handleFn = if allOneShot then "_handleOneShot" else "_handle"
     s"$handleFn($bodyThunk, [${handledOps.mkString(", ")}], {${handlerEntries.mkString(", ")}})"
@@ -3070,6 +3278,15 @@ class JsGen(
           case _ => ()
       case _ => ()
 
+    // def f: T => U = x => body — zero-param def returning a function.
+    // _call(f, x) would call f(x) in JS but f has no params, so x is ignored and the lambda is returned.
+    // Fix: generate _call(f(), x) so the inner function receives x.
+    app.fun match
+      case Term.Name(n) if zeroParamFns(n) && app.argClause.values.nonEmpty =>
+        val argsJs = app.argClause.values.map(genExpr).mkString(", ")
+        return s"_call($n(), $argsJs)"
+      case _ => ()
+
     // .copy(field = value, ...) — spread the receiver, override named fields.
     // Intercepted before argVals are computed so Term.Assign doesn't fall into
     // genExpr's `lhs = rhs` path (which would emit a JS assignment expression).
@@ -3392,8 +3609,10 @@ class JsGen(
       s"_runAsync(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
     case Term.Apply.After_4_6_0(Term.Name("runAsyncParallel"), bodyArgClause)
         if bodyArgClause.values.size == 1 =>
-      val awaitPrefix = if usesRunAsyncParallel then "await " else ""
-      s"${awaitPrefix}_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
+      // Inside a CPS body: no `await` — returns a Promise that _runAsyncParallelInner
+      // handles via its thenable check (nested runAsyncParallel produces a sub-Promise
+      // which _FlatMap's sub resolves via `await _runAsyncParallelInner(node.sub)`).
+      s"_runAsyncParallel(() => ${genCpsExpr(bodyArgClause.values.head.asInstanceOf[Term])})"
 
     // Nested storage handlers inside CPS body
     case Term.Apply.After_4_6_0(Term.Name("runStorage"), bodyArgClause)
@@ -3879,6 +4098,8 @@ class JsGen(
         case "Int" | "Long" | "Double" | "Float" | "Number" =>
           s"(typeof $scrutVar === 'number')"
         case "Boolean" => s"(typeof $scrutVar === 'boolean')"
+        case "RuntimeException" | "Exception" | "Throwable" =>
+          s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
         case ""        => "true"    // unknown type — fall through
         case _         => s"($scrutVar && $scrutVar._type === '$typeName')"
       val (innerCond, bindings) = genPattern(scrutVar, inner)

@@ -98,15 +98,29 @@ object TreeShaker:
           // enum cases are included when the enum is reachable
           val caseTrees = d.templ.body.stats.collect { case ec: Defn.EnumCase => ec: Tree }
           declBodies(name) = caseTrees
+          // Also register each parametrized case name so that direct references to
+          // `Circle` / `Square` etc. make the enclosing enum reachable.
+          d.templ.body.stats.collect { case ec: Defn.EnumCase if ec.ctor.paramClauses.exists(_.values.nonEmpty) => ec.name.value }
+            .foreach { caseName =>
+              allDeclared += caseName
+              declBodies(caseName) = List(Term.Name(name))  // case reachability → enum reachability
+            }
         case d: Defn.Given =>
           val explicitName = d.name.value
-          if explicitName.nonEmpty then
+          val hasExtensions = d.templ.body.stats.exists(_.isInstanceOf[Defn.ExtensionGroup])
+          if explicitName.nonEmpty && !hasExtensions then
             allDeclared += explicitName
             val bodies = d.templ.body.stats.collect { case dd: Defn.Def => dd.body: Tree }
             declBodies(explicitName) = bodies
-          // Anonymous givens (key = typeclass name) are always reachable (like side effects)
+            // Named givens also register in _ssc_givens (a global side-effect) — mark reachable
+            // so the registration is emitted even when the name isn't directly referenced.
+            sideEffects ++= bodies
+          // Anonymous givens OR givens with extension groups install global _extensions state
           else
-            sideEffects ++= d.templ.body.stats.collect { case dd: Defn.Def => dd.body: Tree }
+            sideEffects ++= d.templ.body.stats.collect {
+              case dd: Defn.Def          => dd.body: Tree
+              case eg: Defn.ExtensionGroup => eg: Tree
+            }
         case d: Defn.ExtensionGroup =>
           // Extension methods: register each method as a declaration
           // whose reachability depends on the receiver type usage.

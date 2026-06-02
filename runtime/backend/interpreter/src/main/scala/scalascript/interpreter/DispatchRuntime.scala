@@ -1294,6 +1294,30 @@ private[interpreter] object DispatchRuntime:
       case "toUpper" | "toUpperCase" => Pure(Value.charV(c.toUpper))
       case "toLower" | "toLowerCase" => Pure(Value.charV(c.toLower))
       case "asDigit"        => Computation.pureIntV(c.asDigit.toLong)
+      case "<"  => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c < b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt < n.toInt)
+        case _                    => interp.located(s"No method '<' on Char")
+      case ">"  => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c > b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt > n.toInt)
+        case _                    => interp.located(s"No method '>' on Char")
+      case "<=" => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c <= b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt <= n.toInt)
+        case _                    => interp.located(s"No method '<=' on Char")
+      case ">=" => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c >= b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt >= n.toInt)
+        case _                    => interp.located(s"No method '>=' on Char")
+      case "==" | "equals" => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c == b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt == n.toInt)
+        case _                    => Computation.pureBool(false)
+      case "!=" => args match
+        case List(Value.CharV(b)) => Computation.pureBool(c != b)
+        case List(Value.IntV(n))  => Computation.pureBool(c.toInt != n.toInt)
+        case _                    => Computation.pureBool(true)
       case _ =>
         val ext = extensionDispatch(Value.charV(c), name, args, env, interp)
         if ext != null then ext else interp.located(s"No method '$name' on Char")

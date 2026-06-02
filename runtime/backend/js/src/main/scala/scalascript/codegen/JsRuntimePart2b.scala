@@ -2,6 +2,17 @@ package scalascript.codegen
 
 /** JS runtime preamble (part 2b) — see `JsRuntimePart1a`. */
 val JsRuntimePart2b: String = """
+// Sync fallbacks — overridden by JsRuntimeAsyncB when Async capability is present.
+function _seqForeach(arr, fn) { for (const x of arr) fn(x); return undefined; }
+function _seqMap(arr, fn) { return arr.map(fn); }
+function _seqFlatMap(arr, fn) { return arr.flatMap(fn); }
+function _seqFilter(arr, fn, negate) { return arr.filter(x => negate ? !fn(x) : fn(x)); }
+function _seqExists(arr, fn) { return arr.some(fn); }
+function _seqForall(arr, fn) { return arr.every(fn); }
+function _seqFind(arr, fn) { const r = arr.find(fn); return r !== undefined ? {_type:'_Some',value:r} : {_type:'_None'}; }
+function _seqCount(arr, fn) { return arr.filter(fn).length; }
+function _seqFoldLeft(arr, init, fn) { return arr.reduce((acc, x) => fn(acc, x), init); }
+
 function _tupleConcat(a, b) {
   const aArr = Array.isArray(a) ? a : [a];
   const bArr = Array.isArray(b) ? b : [b];
@@ -251,7 +262,13 @@ function _dispatch(obj, method, args) {
     if (method === '!') return !obj;
   }
   if (obj && typeof obj === 'object') {
-    if (method === 'toString') return _show(obj);
+    if (method === 'toString') {
+      if (typeof _extensions !== 'undefined') {
+        const _tsfn = _extensions[_typeOf(obj) + ':toString'];
+        if (_tsfn) return _tsfn(obj);
+      }
+      return _show(obj);
+    }
     if (obj[method] !== undefined) {
       if (typeof obj[method] === 'function') {
         // If args is empty and the function takes args, return the function reference (eta-expansion)
@@ -318,7 +335,7 @@ function _registerExt(method, fn, type) {
   //   _extensions[method]            — legacy method-name lookup with try/catch
   //   _extensions[type + ':' + method] — direct (type, method) lookup
   // When `type` is omitted, only the legacy registry is populated.
-  if (!_extensions[method]) _extensions[method] = [];
+  if (!Object.prototype.hasOwnProperty.call(_extensions, method)) _extensions[method] = [];
   _extensions[method].push(fn);
   if (type) _extensions[type + ':' + method] = fn;
 }

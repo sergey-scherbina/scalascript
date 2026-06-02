@@ -25,6 +25,10 @@ private[interpreter] object CallRuntime:
     t != null && t.endsWith("*")
 
   def callValue(fn: Value, args: List[Value], env: Env, interp: Interpreter): Computation = fn match
+    case f: Value.FunV if f.params.isEmpty && args.nonEmpty =>
+      // def f: A => B = a => body — zero-param def returning a function.
+      // Evaluate f() to get the function value, then apply args to it.
+      FlatMap(callFun(f, Nil, interp), result => callValue(result, args, env, interp))
     case f: Value.FunV      => callFun(f, args, interp)
     case f: Value.NativeFnV => f.f(args)
     case Value.InstanceV(_, fields) =>
