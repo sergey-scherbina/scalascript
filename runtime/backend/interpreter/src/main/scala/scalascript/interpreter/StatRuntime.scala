@@ -16,15 +16,18 @@ private[interpreter] object StatRuntime:
       args: List[Value],
       fallback: List[Value] => Computation
   ): Computation =
+    // Intern typeName so JIT switch(String) uses cached hashCode + identity
+    // check in String.equals (one pointer compare vs content comparison).
+    val itn = typeName.intern()
     paramNames match
       case Nil =>
-        Pure(Value.InstanceV(typeName, Map.empty))
+        Pure(Value.InstanceV(itn, Map.empty))
       case List(p0) if args.length == 1 =>
-        Pure(Value.InstanceV(typeName, new IMap.Map1(p0, args.head)))
+        Pure(Value.InstanceV(itn, new IMap.Map1(p0, args.head)))
       case List(p0, p1) if args.length == 2 =>
-        Pure(Value.InstanceV(typeName, new IMap.Map2(p0, args.head, p1, args(1))))
+        Pure(Value.InstanceV(itn, new IMap.Map2(p0, args.head, p1, args(1))))
       case _ if args.length >= paramNames.length =>
-        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+        Pure(Value.InstanceV(itn, Map.from(paramNames.lazyZip(args))))
       case _ =>
         fallback(args)
 
@@ -156,7 +159,7 @@ private[interpreter] object StatRuntime:
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
+        Pure(Value.InstanceV(typeName.intern(), Map.from(paramNames.lazyZip(filled))))
       }
       val noDefaults = paramDefaults.forall(_.isEmpty)
       env(typeName) = if noDefaults then
@@ -217,7 +220,7 @@ private[interpreter] object StatRuntime:
             interp.parentTypes(caseName) = enumName
             val enumFallbackCtor: List[Value] => Computation = args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
+              Pure(Value.InstanceV(caseName.intern(), Map.from(paramNames.lazyZip(filled))))
             }
             val noEnumDefaults = paramDefaults.forall(_.isEmpty)
             val v: Value =
