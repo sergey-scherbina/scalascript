@@ -410,6 +410,28 @@ private[interpreter] object EvalRuntime:
         case _ =>
           throw PatternRuntime.NotDouble
 
+  /** Inlines a `p match { case Ctor(a, b) => a + b }` expression into the
+   *  enclosing `tryLongWhileAssign` / `tryMixedLongWhile` loop without building
+   *  a FrameMap or a Pure wrapper per iteration.  Preconditions (verified at
+   *  compile time in `compileExpr`):
+   *   - scrutinee is a `Term.Name` whose runtime value lives in `interp.globals`
+   *   - the compiled match is `longCapable` (all arms fold to raw Long)
+   *   - `cm.slotFreeNames` is non-null and doesn't overlap with any loop slot
+   *     name (loop-slot vars live in the Long array, not in globals, so an
+   *     overlap would yield stale data from globals — bail instead)
+   *  At runtime, throws `PatternRuntime.NotDouble` to bail when the scrutinee
+   *  is absent from globals or when `runValueLong` cannot complete (no arm
+   *  matches, or a free-name lookup returns non-IntV). */
+  private final class LMatch(
+    scrutName: String,
+    cm:        PatternRuntime.CompiledMatch,
+    interp:    Interpreter
+  ) extends LExpr:
+    def eval(slots: Array[Long]): Long =
+      val scrutV = interp.globals.getOrElse(scrutName, null)
+      if scrutV == null then throw PatternRuntime.NotDouble
+      cm.runValueLong(scrutV, Map.empty)
+
   /** Tries to run the whole while-assign loop in unboxed `long` space. Returns
    *  `PureUnit` on success (slots boxed back to env+globals on exit), or null to
    *  bail to the Value-space loop (non-int var, unsupported op/term). Precondition:
