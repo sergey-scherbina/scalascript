@@ -1425,6 +1425,8 @@ private[interpreter] object DispatchRuntime:
       case "isEmpty"      => Computation.pureBool(ls.isEmpty)
       case "nonEmpty"     => Computation.pureBool(ls.nonEmpty)
       case "head"         => if ls.isEmpty then interp.located("head on Nil") else Pure(ls.head)
+      case "headOption"   => Pure(Value.optionV(ls.headOption))
+      case "lastOption"   => Pure(Value.optionV(ls.lastOption))
       case "tail"         => if ls.isEmpty then interp.located("tail on Nil") else if ls.tail.isEmpty then Computation.PureEmptyList else Pure(Value.ListV(ls.tail))
       case "last"         => if ls.isEmpty then interp.located("last on Nil") else Pure(ls.last)
       case "init"         => Pure(Value.ListV(ls.init))
@@ -2847,6 +2849,9 @@ private[interpreter] object DispatchRuntime:
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
   private def dispatchFallback(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    // `.asInstanceOf[T]` — ScalaScript's dynamic runtime already has the right
+    // type; the cast is a no-op here (mirrors Scala semantics at runtime).
+    if name == "asInstanceOf" then return Pure(recv)
     // Cross-type ++ cases: bare value on LEFT with TupleV/UnitV on right
     if name == "++" then
       args match

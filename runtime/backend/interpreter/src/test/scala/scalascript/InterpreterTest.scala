@@ -673,6 +673,41 @@ def main(): Unit =
     """) shouldBe "1, 2, 3"
   }
 
+  test("list headOption and lastOption") {
+    captured("""
+      println(List(1, 2, 3).headOption.isDefined)
+      println(List(1, 2, 3).headOption.get)
+      println(Nil.headOption.isDefined)
+      println(List(1, 2, 3).lastOption.get)
+    """) shouldBe "true\n1\nfalse\n3"
+  }
+
+  test("Int Long Double constructors from String") {
+    captured("""
+      println(Int("42"))
+      println(Int("-7"))
+      println(Long("9999"))
+      println(Double("3.14"))
+    """) shouldBe "42\n-7\n9999\n3.14"
+  }
+
+  test("Int constructor from numeric types") {
+    captured("""
+      println(Int(3.7))
+      println(Int(5))
+    """) shouldBe "3\n5"
+  }
+
+  test("asInstanceOf is a no-op at runtime") {
+    captured("""
+      val x: Any = "hello"
+      val s = x.asInstanceOf[String]
+      println(s)
+      val n: Any = 42
+      println(n.asInstanceOf[Int])
+    """) shouldBe "hello\n42"
+  }
+
   test("list extra one-arg collection methods") {
     captured("""
       val xs = List(1, 2, 3, 4, 5)

@@ -109,6 +109,34 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.OptionV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
     interp.globals("Nil")  = Value.EmptyList
 
+    // ── Primitive type constructors ────────────────────────────────────────
+    // `Int("42")` → 42, `Long("9999")` → 9999, `Double("3.14")` → 3.14.
+    // Mirrors Scala's companion `apply`-style idiom; the interpreter has no
+    // implicit numeric coercion so these must be explicit.
+    interp.globals("Int") = Value.NativeFnV("Int", {
+      case List(Value.StringV(s))  =>
+        try Computation.pureIntV(s.trim.toLong)
+        catch case _: NumberFormatException => throw InterpretError(s"Int: not a valid integer: '$s'")
+      case List(Value.IntV(n))     => Computation.pureIntV(n)
+      case List(Value.DoubleV(d))  => Computation.pureIntV(d.toLong)
+      case List(Value.DecimalV(d)) => Computation.pureIntV(d.toLong)
+      case List(Value.BigIntV(b))  => Computation.pureIntV(b.toLong)
+      case List(other)             => throw InterpretError(s"Int: cannot convert ${Value.show(other)}")
+      case _                       => throw InterpretError("Int(value)")
+    })
+    interp.globals("Long") = interp.globals("Int")  // Long and Int share the same boxed IntV
+    interp.globals("Double") = Value.NativeFnV("Double", {
+      case List(Value.StringV(s))  =>
+        try Pure(Value.doubleV(s.trim.toDouble))
+        catch case _: NumberFormatException => throw InterpretError(s"Double: not a valid number: '$s'")
+      case List(Value.IntV(n))     => Pure(Value.doubleV(n.toDouble))
+      case List(Value.DoubleV(d))  => Pure(Value.doubleV(d))
+      case List(Value.DecimalV(d)) => Pure(Value.doubleV(d.toDouble))
+      case List(Value.BigIntV(b))  => Pure(Value.doubleV(b.toDouble))
+      case List(other)             => throw InterpretError(s"Double: cannot convert ${Value.show(other)}")
+      case _                       => throw InterpretError("Double(value)")
+    })
+
     // ── BigInt constructor (exact-numerics v1.64) ───────────────────────
     // `BigInt(123)`, `BigInt("123456789012345678901234567890")`, BigInt(bigIntV).
     interp.globals("BigInt") = Value.NativeFnV("BigInt", {
