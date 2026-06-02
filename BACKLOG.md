@@ -6662,3 +6662,53 @@ ssc toolchain install --target macos  # brew install fastlane
 ```
 
 Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-signing).
+
+---
+
+## v1.65 — `ssc emit --frontend swiftui` pathway
+
+**Status:** Pending.
+**Spec:** [`docs/swiftui.md §8`](docs/swiftui.md#8-v165--ssc-emit---frontend-swiftui-pathway)
+**Depends on:** v1.48 ✓ (`SwiftUIFrameworkBackend` + `SwiftUIEmitter` exist)
+
+Closes the gap between the existing `ssc run --target ios/macos` path (which
+works) and the `ssc emit --frontend swiftui` path (which currently fails with
+"No FrontendFrameworkSpi impl named 'swiftui' on classpath").
+
+The `busi` accounting app (Phase 20) had to be written in hand-crafted Swift
+because this path was unavailable.
+
+### Root cause
+
+`frontend/swiftui/` has no `META-INF/services/scalascript.frontend.FrontendFrameworkSpi`
+file.  `ServiceLoader` never discovers `SwiftUIFrameworkBackend` even though the
+class is on the CLI classpath.  Secondary: `SwiftUIFrameworkBackend.emit()` throws
+instead of routing to `emitNative`, so the CLI emit command fails even if the
+backend were discovered.
+
+### Phases
+
+- [ ] **v1.65.1-swiftui-spi-reg** — Add `META-INF/services` registration for
+  `SwiftUIFrameworkBackend`; fix `emit()` to route through `emitNative` (or fix
+  CLI to detect native-platform backends and call `emitNative` directly);
+  `SwiftUIEmitPathwayTest` asserts `ssc emit --frontend swiftui ios-hello.ssc`
+  produces `ContentView.swift` + `Package.swift` + `<App>App.swift`.
+  _Effort: ~1 day._
+
+- [ ] **v1.65.2-swiftui-fetch-emit** — Replace `FetchAction` stub comment in
+  `SwiftUIEmitter` with real `Task { @MainActor in URLSession … }` emit;
+  implement `FetchUrlSignal` → `onAppear`/`onChange` async load pattern with
+  `@State` companion vars.  ≥ 4 new tests in `SwiftUIEmitterTest`.
+  _Effort: ~1–2 days._
+
+- [ ] **v1.65.3-swiftui-dashboard-smoke** — `ssc emit --frontend swiftui
+  web/dashboard.ssc` produces Swift Package that passes `swiftc -parse
+  Sources/*/ContentView.swift` (skipped when `swift` not on PATH).
+  Unsupported View IR nodes emit `// TODO: unsupported — <NodeType>` comments
+  rather than crashing.  _Effort: ~1 day._
+
+### Out of scope
+
+- HMR / SwiftUI Preview pipeline (deferred post-v1.0)
+- watchOS / tvOS / visionOS targets
+- Kotlin/Compose parity (separate milestone)

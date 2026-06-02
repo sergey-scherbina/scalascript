@@ -176,3 +176,129 @@ that don't declare `frontend: swiftui` are unaffected.
 ## 7. Open questions
 
 *(All Phase 3 open questions resolved.)*
+
+---
+
+## 8. v1.65 — `ssc emit --frontend swiftui` pathway
+
+**Status:** Planned.  **Spec:** this section.
+**Depends on:** v1.48 ✓ (SwiftUIFrameworkBackend + SwiftUIEmitter exist)
+
+### 8.1 Motivation
+
+`ssc emit --frontend swiftui <file.ssc>` currently fails:
+
+```
+No FrontendFrameworkSpi impl named 'swiftui' on classpath.
+```
+
+Root cause: `frontend/swiftui/` has no
+`src/main/resources/META-INF/services/scalascript.frontend.FrontendFrameworkSpi`
+file.  `ServiceLoader` never discovers `SwiftUIFrameworkBackend` even though the
+class is on the CLI classpath (via `cli.dependsOn(..., frontendSwiftUI, ...)`).
+
+Secondary issue: `SwiftUIFrameworkBackend.emit()` throws
+`"swiftui is a native frontend; use emitNative(...)"`.  The `ssc emit` command
+calls `emit()` when the resolved platform is `Platform.Web` (the default for web
+frontends).  For SwiftUI the CLI must route to `emitNative` instead.
+
+Practical impact: the `busi` accounting app (Phase 20) had to be written as
+hand-crafted Swift because the emit pathway was unavailable.
+
+### 8.2 Goals
+
+- `ssc emit --frontend swiftui <file.ssc>` resolves the backend and produces a
+  Swift Package skeleton (Package.swift + ContentView.swift + App entry) in the
+  output directory.
+- `FetchAction` and `FetchUrlSignal` emit idiomatic SwiftUI async network calls
+  (currently stubbed as comments in `SwiftUIEmitter`).
+- `ssc emit --frontend swiftui web/dashboard.ssc` produces output that passes
+  `swiftc -parse <generated>.swift` (parse-only smoke; no Xcode required).
+
+### 8.3 Non-goals
+
+- HMR / SwiftUI Preview pipeline (deferred to post-v1.0 per §2 above).
+- watchOS / tvOS / visionOS targets (separate future milestone).
+- Kotlin/Compose parity (separate milestone).
+
+### 8.4 Architecture
+
+#### Phase 1 — SPI registration + CLI emit routing
+
+Two files change, no new modules:
+
+1. **`frontend/swiftui/src/main/resources/META-INF/services/scalascript.frontend.FrontendFrameworkSpi`**
+   (new file, one line):
+   ```
+   scalascript.frontend.swiftui.SwiftUIFrameworkBackend
+   ```
+
+2. **`SwiftUIFrameworkBackend.emit()`** — replace the `throw` with a delegation
+   to `emitNative(module, Platform.All)`, serializing the resulting `NativeApp`
+   sources into a single `ContentView.swift` string carried in `EmittedSpa.js`
+   (a pragmatic reuse of the SPA envelope for the CLI write path).
+   Alternatively — and preferably — teach the CLI `emit` command to detect
+   non-`Platform.Web` backends via `supportedPlatforms` and call
+   `emitForPlatform` with the backend's primary native platform.
+
+3. **Test**: `SwiftUIEmitPathwayTest` — calls `ssc emit --frontend swiftui
+   examples/frontend/ios-hello/ios-hello.ssc`, asserts output directory contains
+   `ContentView.swift`, `Package.swift`, and `<AppName>App.swift`.
+
+#### Phase 2 — `FetchAction` and `FetchUrlSignal` async emit
+
+`SwiftUIEmitter.emitEventHandler` currently stubs `FetchAction` as a comment:
+
+```scala
+case EventHandler.FetchAction(method, url, _, _, _, _) =>
+  s"""${pad}// FetchAction ${method.toUpperCase}: ${swiftString(url)}"""
+```
+
+Replace with a real emit:
+
+```swift
+Button("Submit") {
+    Task { @MainActor in
+        var req = URLRequest(url: URL(string: "https://api.example.com/submit")!)
+        req.httpMethod = "POST"
+        req.httpBody = formData.data(using: .utf8)
+        _ = try? await URLSession.shared.data(for: req)
+        tick += 1
+    }
+}
+```
+
+`FetchUrlSignal` → `@MainActor` `onAppear` + `onChange(of: tick)` block using
+`URLSession.shared.data(for:)`, decoded with `JSONDecoder`.  The signal field
+stores the decoded value; a `loadingState: Bool` companion `@State` var is
+generated.
+
+#### Phase 3 — `web/dashboard.ssc` smoke test
+
+`ssc emit --frontend swiftui web/dashboard.ssc` must produce output that passes:
+
+```bash
+swiftc -parse <output-dir>/Sources/Dashboard/ContentView.swift
+```
+
+This requires `web/dashboard.ssc` to use only View IR nodes that
+`SwiftUIEmitter` handles.  Any unsupported nodes encountered during the emit must
+produce a `// TODO: unsupported — <NodeType>` comment rather than crashing, so
+the parse test can still pass.
+
+### 8.5 Phases
+
+| Phase | Slug | What ships |
+|-------|------|-----------|
+| 1 | `v1.65.1-swiftui-spi-reg` | META-INF/services + CLI emit routing fix + `SwiftUIEmitPathwayTest` |
+| 2 | `v1.65.2-swiftui-fetch-emit` | `FetchAction` + `FetchUrlSignal` → async URLSession emit |
+| 3 | `v1.65.3-swiftui-dashboard-smoke` | `web/dashboard.ssc` → `swiftc -parse` green |
+
+### 8.6 Testing strategy
+
+- Phase 1: `SwiftUIEmitPathwayTest` — assert CLI emits expected files; existing
+  `SwiftUIEmitterTest` (41 tests) must remain green.
+- Phase 2: extend `SwiftUIEmitterTest` with `FetchAction` + `FetchUrlSignal`
+  golden-output assertions (≥ 4 new tests).
+- Phase 3: `SwiftUIDashboardSmokeTest` — calls `swiftc -parse`; skipped when
+  `swift` not on PATH (macOS CI only).

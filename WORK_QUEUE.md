@@ -740,6 +740,15 @@ ScalaScript's own registry work stays queued.
 
 - [x] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store) (2026-05-26)
 
+- [ ] **v1.65.1-swiftui-spi-reg** — Add `META-INF/services` SPI registration for `SwiftUIFrameworkBackend`; fix `emit()` / CLI emit routing so `ssc emit --frontend swiftui` resolves the backend; `SwiftUIEmitPathwayTest` asserts emitted `ContentView.swift` + `Package.swift` + `<App>App.swift`.
+  _Context: root cause — no `META-INF/services/scalascript.frontend.FrontendFrameworkSpi` file in `frontend/swiftui/`. Spec: `docs/swiftui.md §8`._
+
+- [ ] **v1.65.2-swiftui-fetch-emit** — `FetchAction` → `Task { @MainActor URLSession }` emit; `FetchUrlSignal` → `onAppear`/`onChange` async load with `@State` companion var. ≥ 4 new `SwiftUIEmitterTest` assertions.
+  _Context: currently stubbed as `// FetchAction METHOD: url` comments. Spec: `docs/swiftui.md §8.4`._
+
+- [ ] **v1.65.3-swiftui-dashboard-smoke** — `ssc emit --frontend swiftui web/dashboard.ssc` → `swiftc -parse` green (skip when `swift` not on PATH). Unsupported IR nodes emit `// TODO: unsupported` rather than crashing.
+  _Context: blocked the `busi` Phase 20 Swift app — had to hand-write Swift. Spec: `docs/swiftui.md §8.5`._
+
 ## Distribution & Tooling
 
 - [x] **v1.52.1-deploy-plugin** — `runtime/std/deploy-plugin/` (four-file SPI layout) + `Manifest` AST `deploy`/`groups`/`environments`/`state` fields + `ssc deploy` CLI stub + multi-target orchestrator core (DAG resolver, parallel/sequence/pipeline executor, output→input wiring, failure handler, event stream) + local subprocess adapter + `ssc deploy plan`/`--dry-run`/`envs` + `examples/deploy.ssc`. Spec: `docs/deploy.md §16`. (2026-05-27)
