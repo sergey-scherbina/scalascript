@@ -44,7 +44,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
   `ModelText` as `signal && ...` / `.map(...)` / property access.
   **Spec:** `docs/typed-models-ir.md §React`
 
-- [ ] **v1.66.3-vue-typed-models** — Vue emitter: fix existing mount-fetch parity
+- [x] **v1.66.3-vue-typed-models** — ✓ Landed 2026-06-02. — Vue emitter: fix existing mount-fetch parity
   gap (Vue currently ignores `FetchUrlSignal.fetchUrl` on mount); then typed
   `r.json()` branch; `v-if`/`v-for`/`{{ bs.field }}` for view nodes.
   **Spec:** `docs/typed-models-ir.md §Vue`
