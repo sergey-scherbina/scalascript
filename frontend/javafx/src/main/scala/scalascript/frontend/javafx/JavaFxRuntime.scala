@@ -1,6 +1,7 @@
 package scalascript.frontend.javafx
 
 import scalascript.frontend.*
+import scalascript.frontend.{FetchJsonSignal, JsonDecoder}
 
 import _root_.javafx.application.Application
 import _root_.javafx.application.Platform
@@ -51,7 +52,8 @@ object JavaFxRuntime:
       val bindings:    mutable.Map[String, mutable.Buffer[() => Unit]],
       val fetchDispatcher: Option[FetchDispatcher],
       private val subscribed: mutable.Set[String] = mutable.Set.empty,
-      private val suppressExternalRefresh: mutable.Set[String] = mutable.Set.empty
+      private val suppressExternalRefresh: mutable.Set[String] = mutable.Set.empty,
+      val modelData:   Map[String, Any] = Map.empty
   ):
     private def onUiThread(run: => Unit): Unit =
       try
@@ -101,6 +103,9 @@ object JavaFxRuntime:
     def signalBoolean(id: String): Boolean =
       signals.get(id).collect { case b: Boolean => b }.getOrElse(false)
 
+    def withModel(varName: String, data: Any): RuntimeState =
+      RuntimeState(signals, signalRefs, bindings, fetchDispatcher, subscribed, suppressExternalRefresh, modelData + (varName -> data))
+
   object RuntimeState:
     def from(view: View[?], fetchDispatcher: Option[FetchDispatcher] = None): RuntimeState =
       val collected = collectSignals(view)
@@ -121,6 +126,15 @@ object JavaFxRuntime:
     root.setPadding(Insets(16, 16, 16, 16))
     addTo(root, view, state)
     root
+
+  private[javafx] def buildViewTest(parent: Pane, view: View[?], state: RuntimeState): Unit =
+    addTo(parent, view, state)
+
+  private def modelField(data: Any, path: String): Any =
+    path.split("\\.").foldLeft(data) {
+      case (m: Map[String @unchecked, Any @unchecked], key) => m.getOrElse(key, null)
+      case _ => null
+    }
 
   @nowarn("cat=deprecation")
   def addTo(parent: Pane, view: View[?], state: RuntimeState): Unit =
@@ -196,6 +210,48 @@ object JavaFxRuntime:
         val spacer = Region()
         spacer.setPrefSize(px.toDouble, px.toDouble)
         parent.getChildren.add(spacer)
+      case View.ModelView(signal, bindingVar, template, _) =>
+        val wrapper = VBox()
+        if !state.signals.contains(signal.id) then state.signals.update(signal.id, null)
+        def rebuild(): Unit =
+          wrapper.getChildren.clear()
+          val data = state.signals.getOrElse(signal.id, null)
+          if data != null then
+            val childState = state.withModel(bindingVar, data)
+            addTo(wrapper, template, childState)
+        state.bindings.getOrElseUpdate(signal.id, mutable.Buffer.empty) += (() => rebuild())
+        rebuild()
+        val typeName = signal match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
+        Thread(() =>
+          try state.fetchDispatcher.foreach { dispatcher =>
+            val response = dispatcher.request("GET", signal.fetchUrl, "")
+            if response.status >= 200 && response.status < 300 then
+              val decoded = JsonDecoder.current.decodeString(response.body, typeName)
+              Platform.runLater(() => state.setSignal(signal.id, decoded))
+          } catch case _: Exception => ()
+        ).start()
+        parent.getChildren.add(wrapper)
+
+      case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
+        val data  = state.modelData.getOrElse(bindingVar, null)
+        val items = if data != null then modelField(data, fieldPath) else null
+        val itemList = items match
+          case list: scala.collection.immutable.List[Any @unchecked] => list
+          case seq:  Seq[Any @unchecked]                             => seq.toList
+          case arr:  Array[Any @unchecked]                           => arr.toList
+          case _                                                     => Nil
+        val forPane = VBox()
+        itemList.foreach { item =>
+          val childState = state.withModel(itemVar, item)
+          addTo(forPane, template, childState)
+        }
+        parent.getChildren.add(forPane)
+
+      case View.ModelText(varName, fieldPath, style) =>
+        val data  = state.modelData.getOrElse(varName, null)
+        val value = if data != null then String.valueOf(modelField(data, fieldPath)) else ""
+        parent.getChildren.add(styledNode(Label(value), style))
+
       case other =>
         parent.getChildren.add(Label(s"[unsupported JavaFX view: ${other.productPrefix}]"))
 
@@ -356,5 +412,7 @@ object JavaFxRuntime:
         case View.For(items, render)         => items().foldLeft(acc)((a, i) => loop(a, render(i)))
         case View.Styled(ch, _)              => loop(acc, ch)
         case View.Adaptive(w, d, m, f)       => List(w, d, m).flatten.foldLeft(loop(acc, f))(loop)
+        case View.ModelView(_, _, tmpl, _)   => loop(acc, tmpl)
+        case View.ForModel(_, _, _, tmpl, _) => loop(acc, tmpl)
         case _                               => acc
     loop(Map.empty, view).values.toList.sortBy(_.id)
