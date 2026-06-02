@@ -204,6 +204,19 @@ class InterpreterBench:
       |fibD(30.0)""".stripMargin
   )
 
+  // Double-typed recursive fib whose base case multiplies by a top-level
+  // `val` constant of `Double` type — exercises the BytecodeJit Double-globals
+  // read path (`readGlobalDouble`). Parallel to `modFibMul` (which exercises
+  // the Int-globals path). Before the `phase-c-bytecode-double-globals` slice,
+  // `walkDouble`'s `Term.Name` case bailed on any free name and the fn fell
+  // through to `SscVm.exec`.
+  private val modFibMulD: Module = src(
+    """val mul = 7.0
+      |def fibMulD(n: Double): Double =
+      |  if n <= 1.0 then n * mul else fibMulD(n - 1.0) + fibMulD(n - 2.0)
+      |fibMulD(30.0)""".stripMargin
+  )
+
   // Isolates the InstanceV field-read floor — the cost of one Term.Match
   // dispatch + two HashMap field reads (Pair.a, Pair.b) on a single live
   // InstanceV, in a million-iteration hot loop. Intentionally inline (no
@@ -343,6 +356,10 @@ class InterpreterBench:
   @Benchmark
   def recursionFibD(): Unit =
     Interpreter(devNull).runSections(modFibD)
+
+  @Benchmark
+  def recursionFibMulD(): Unit =
+    Interpreter(devNull).runSections(modFibMulD)
 
   @Benchmark
   def recursiveEvalMixed(): Unit =

@@ -87,6 +87,21 @@ object BytecodeJit:
       case Value.IntV(x) => x
       case _             => throw new RuntimeException(s"BytecodeJit.readGlobalLong: '$name' not an Int")
 
+  /** Double-globals parallel of `readGlobalLong`. Resolves to `DoubleV` only;
+   *  an `IntV` value at runtime throws and the wrapping MH invocation falls
+   *  back to the SscVm.exec / tree-walk path. The compile-time gate in
+   *  `walkDouble` only emits this call when the current `interp.globals`
+   *  resolves the name to `DoubleV`, so the runtime mismatch only occurs if
+   *  the global is reassigned to a non-Double value between compile time and
+   *  call time — a rare shape; safer to bail than to silently widen IntV. */
+  def readGlobalDouble(name: String): Double =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("BytecodeJit.readGlobalDouble: no interp in TLS")
+    val v = interp.globals.getOrElse(name, null)
+    v match
+      case Value.DoubleV(x) => x
+      case _                => throw new RuntimeException(s"BytecodeJit.readGlobalDouble: '$name' not a Double")
+
   /** Cache by FunV body AST identity. Value is a `Result` on hit or the
    *  `BailSentinel` on miss (so we don't re-attempt compilation for the same
    *  body). Synchronized via the cache monitor. */
@@ -350,8 +365,13 @@ object BytecodeJit:
         val local = ctx.resolveLocal(tn.value)
         if local != null then local
         else
-          // Free name → no Double-globals support in the initial slice; bail.
-          null
+          // Free name → resolve as a top-level `Double` global through
+          // `BytecodeJit.readGlobalDouble`. Parallel to `walkLong`'s Int
+          // globals path. Only DoubleV is supported; IntV/other bail.
+          ctx.interp.globals.getOrElse(tn.value, null) match
+            case _: Value.DoubleV =>
+              s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalDouble("${escape(tn.value)}")"""
+            case _ => null
     case ti: Term.If =>
       val c = walkBool(ti.cond, ctx); if c == null then return null
       val a = walkDouble(ti.thenp, ctx); if a == null then return null

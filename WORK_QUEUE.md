@@ -153,11 +153,19 @@ verify step. Apply them.
       bench `recursiveEvalMixed` codifies the guarantee. No code change
       needed.
 
-- [ ] **phase-c-bytecode-double-globals** — emit
-      `BytecodeJit.readGlobalDouble(name)` companion to the existing
-      `readGlobalLong` (commit `7162a155`). Same TLS-interpreter
-      mechanism. Skip if no high-value bench exercises it; consider it
-      after a real workload surfaces.
+- [x] **phase-c-bytecode-double-globals** — ✓ Landed 2026-06-02.
+      `BytecodeJit.readGlobalDouble(name)` parallel to `readGlobalLong`
+      (same TLS-interpreter mechanism), and `walkDouble`'s `Term.Name`
+      free-name case now emits the call when a compile-time
+      `interp.globals` lookup resolves to `DoubleV`. IntV does not widen
+      (deliberate — see the rationale in `readGlobalDouble`'s scaladoc).
+      Bench `recursionFibMulD` (`val mul = 7.0`, recursive Double fib
+      using `mul` in the base case) now matches the existing Int-globals
+      shape: 6.01 ms vs `recursionFibMul` 5.86 ms (parity, within noise),
+      vs off-mode floor 7118.8 ms (~1185×). All other benches stable
+      (recursionFib 1.19 ms, recursionTco 0.032 ms, recursiveEval
+      12.82 ms, patternMatchHeavy 115.2 ms). Full 1205-test suite green
+      in both default and `SSC_JIT_BYTECODE=off` modes.
 
 - [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
       ref fns into a single Java class OR add a runtime MH registry
