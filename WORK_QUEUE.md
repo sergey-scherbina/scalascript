@@ -168,7 +168,7 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 
 | Bench | Current | Notes |
 |---|---|---|
-| `arithLoop` | 2.73 | top-level loop, BytecodeJit doesn't cover; arithLoop and tupleMonoid are NOT current Phase C/D targets |
+| `arithLoop` | **0.283** | while-JIT win: 2.858 → 0.283 ms (10.1×, BytecodeJIT global cache + local-var codegen, JVM parity) |
 | `effectPure` | 0.04 | trivially small |
 | `patternMatchHeavy` | **10** | foreach-hoist win: 113 → 10 ms (11×, pre-resolve list+closure before outer loop) |
 | `patternMatchSet` | **113** | Just landed (commit `8f911f14`); same shape as Heavy but Set receiver |
@@ -190,7 +190,7 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 interp_recursionFib:   1190   vs jvm 1281  (interp 0.93× — FASTER than JVM!)
 interp_recursionTco:     31   vs jvm   24  (interp 1.29× — parity)
 interp_patternMatch:  114610  vs jvm  566  (interp 203× off — main Phase D gap)
-interp_arithLoop:       2717  vs jvm  240  (interp 11.3× off — top-level loop, future)
+interp_arithLoop:        283  vs jvm  274  (interp ~1× — at JVM parity, while-JIT landed)
 ```
 
 ### Methodology for next focused commits
@@ -327,6 +327,20 @@ verify step. Apply them.
       TLS active; bail clears `slot(1)=0L` to signal validity.
       **Result**: `patternMatchHeavy` GC alloc 4.9 MB/op → 1.7 MB/op (−65%); wall-clock ~113 ms
       (CPU-bound — GC not the bottleneck at this alloc rate, as predicted by JFR profile).
+
+- [x] **phase-d-while-jit** — ✓ Landed 2026-06-02.
+      Extends `BytecodeJit` with `tryCompileWhileLong(cond, names, rhs)`:
+      walks the condition via `walkLocalBool` and each RHS via `walkLocalSlot`
+      (both emit `_v$i` local-variable references so HotSpot can register-allocate
+      the slots). Generated Java: prologue copies `long[]` → named locals, tight
+      while loop over locals, epilogue writes back. Sequential-assign semantics
+      preserved (each slot update immediately visible to subsequent assigns).
+      Global `IdentityHashMap[Term, AnyRef]` cache keyed by condition node identity
+      ensures javac runs exactly once per unique while loop across all Interpreter
+      instances (eliminates per-iteration recompilation in JMH benchmarks).
+      Per-interpreter `whileJitCache` acts as secondary fast cache.
+      Hooked between `tryHoistedPureWhile` and `tryLongWhileAssign`.
+      **Result**: `arithLoop` 2.858 → 0.283 ms (10.1×, JVM parity). 1205 tests green.
 
 - [x] **phase-d-foreach-hoist** — ✓ Landed 2026-06-02.
       Pre-resolve list receiver + closure `FunV` once before the outer `while` loop
