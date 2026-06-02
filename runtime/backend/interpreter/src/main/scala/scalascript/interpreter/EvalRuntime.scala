@@ -683,11 +683,21 @@ private[interpreter] object EvalRuntime:
   private final class LMatch(
     scrutName: String,
     cm:        PatternRuntime.CompiledMatch,
-    interp:    Interpreter
+    interp:    Interpreter,
+    /** Snapshot of `interp.globals(scrutName)` taken at compile time when
+     *  the scrutinee is a `val` (immutable for the loop's lifetime). When
+     *  non-null, `eval` skips the per-iter HashMap probe and uses this
+     *  value directly. For `var` scrutinees this is null and the original
+     *  per-iter lookup runs so reassignments within the loop are seen. */
+    cachedScrut: Value | Null = null
   ) extends LExpr:
     def eval(slots: Array[Long]): Long =
-      val scrutV = interp.globals.getOrElse(scrutName, null)
-      if scrutV == null then throw PatternRuntime.NotDouble
+      val scrutV =
+        if cachedScrut ne null then cachedScrut
+        else
+          val v = interp.globals.getOrElse(scrutName, null)
+          if v == null then throw PatternRuntime.NotDouble
+          v
       cm.runValueLong(scrutV, Map.empty)
 
   /** Pure-literal-RHS hoist for an all-assign while body that has at least one
@@ -864,7 +874,16 @@ private[interpreter] object EvalRuntime:
             if !cm.longCapable then null
             else if cm.slotFreeNames == null then null
             else if cm.slotFreeNames.exists(slotOfName.contains) then null
-            else new LMatch(scrutName, cm, interp)
+            else
+              // For `val` scrutinees, snapshot the value once at compile
+              // time — `LMatch.eval` then skips the per-iter HashMap probe.
+              // The valNames registry populated by `StatRuntime.execStat`
+              // tracks names that can't be reassigned.
+              val cached: Value | Null =
+                if interp.valNames.contains(scrutName)
+                then interp.globals.getOrElse(scrutName, null)
+                else null
+              new LMatch(scrutName, cm, interp, cached)
           case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
@@ -1057,7 +1076,16 @@ private[interpreter] object EvalRuntime:
             if !cm.longCapable then null
             else if cm.slotFreeNames == null then null
             else if cm.slotFreeNames.exists(slotOfName.contains) then null
-            else new LMatch(scrutName, cm, interp)
+            else
+              // For `val` scrutinees, snapshot the value once at compile
+              // time — `LMatch.eval` then skips the per-iter HashMap probe.
+              // The valNames registry populated by `StatRuntime.execStat`
+              // tracks names that can't be reassigned.
+              val cached: Value | Null =
+                if interp.valNames.contains(scrutName)
+                then interp.globals.getOrElse(scrutName, null)
+                else null
+              new LMatch(scrutName, cm, interp, cached)
           case _ => null
       case _ => null
     def compileCond(term: Term): LCond | Null = term match
