@@ -41,8 +41,8 @@ if [ "$#" -ne 0 ]; then
     exit 1
 fi
 
-echo "Staging ssc (thin jar + deps) via sbt cli/stage..."
-(cd "$ROOT" && sbt -no-colors cli/stage)
+echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
+(cd "$ROOT" && sbt -no-colors cli/installBin)
 [ -f "$LIB/ssc.jar" ]  || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
 [ -d "$LIB/jars" ]     || { echo "Stage did not produce $LIB/jars/" >&2; exit 1; }
 

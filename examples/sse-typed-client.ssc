@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: sse-typed-client
-version: "0.1"
+version: "0.1.0"
 description: SSE streaming typed route client example (v1.46 Phase 7)
 frontend: swing
 apiClients:

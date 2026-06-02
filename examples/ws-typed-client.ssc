@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: ws-typed-client
-version: "0.1"
+version: "0.1.0"
 description: WebSocket subscription typed route client example (v1.46)
 frontend: swing
 apiClients:

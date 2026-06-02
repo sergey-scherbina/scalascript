@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 title: XSLT Transformation — Markup.Doc transform example (v1.56)
-version: "1.0"
+version: "1.0.0"
 requires: [markup, xslt]
 ---
 

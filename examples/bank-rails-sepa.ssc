@@ -1,6 +1,6 @@
 ---
 title: SEPA Bank Rails — Credit Transfer + Direct Debit
-version: "1.0"
+version: "1.0.0"
 requires: [bank-rails-sepa]
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env ssc
 ---
 name: paginated-typed-client
-version: "0.1"
+version: "0.1.0"
 description: Pagination helpers for typed route clients (v1.46 — listPaged)
 frontend: swing
 apiClients:
