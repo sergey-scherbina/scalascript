@@ -132,7 +132,7 @@ class SwiftUITypedModelsTest extends AnyFunSuite:
     val inner = View.Text(() => "row", Style())
     val view  = View.ForModel("bs", "lines", "line", inner)
     val cv    = contentViewOf(view)
-    assert(cv.contains("ForEach(bs.lines, id: \\.self) { line in"))
+    assert(cv.contains("ForEach(Array(bs.lines.enumerated()), id: \\.offset) { _, line in"))
     assert(cv.contains("""Text("row")"""))
   }
 

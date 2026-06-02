@@ -207,17 +207,17 @@ class SwiftUIModelSmokeTest extends AnyFunSuite:
 
   test("ForModel: ForEach for balance sheet lines") {
     val cv = emitContentView()
-    assert(cv.contains("ForEach(bs.lines"), "ForEach bs.lines")
+    assert(cv.contains("ForEach(Array(bs.lines.enumerated())"), "ForEach bs.lines")
   }
 
   test("ForModel: ForEach for trial balance entries") {
     val cv = emitContentView()
-    assert(cv.contains("ForEach(tb.entries"), "ForEach tb.entries")
+    assert(cv.contains("ForEach(Array(tb.entries.enumerated())"), "ForEach tb.entries")
   }
 
   test("ForModel: ForEach for audit log events") {
     val cv = emitContentView()
-    assert(cv.contains("ForEach(al.events"), "ForEach al.events")
+    assert(cv.contains("ForEach(Array(al.events.enumerated())"), "ForEach al.events")
   }
 
   // ── ModelText ─────────────────────────────────────────────────────────────
