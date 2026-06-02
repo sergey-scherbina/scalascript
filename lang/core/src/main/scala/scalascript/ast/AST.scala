@@ -81,6 +81,11 @@ case class Manifest(
   environments: Map[String, Any] = Map.empty,
   /** Remote state backend config declared in front-matter `state:`. */
   deployState: Map[String, Any] = Map.empty,
+  /** Typed model declarations from `@model case class` / `model case class` in code blocks.
+   *  Each entry is a parsed model descriptor consumed by frontend backends (SwiftUI, React, etc.)
+   *  to emit typed data structs and bind fetch signals to typed views.
+   *  Default `Nil` keeps all existing `Manifest(...)` construction sites source-compatible. */
+  models: List[ModelDef] = Nil,
   span: Option[Span] = None
 )
 
@@ -295,3 +300,41 @@ case class CodeBlockParseError(
   column: Int,
   snippet: String
 )
+
+// ─── Typed model declarations (v1.66) ────────────────────────────
+
+/** Field type for a typed model struct.
+ *  Produced by the parser from `@model case class` field type annotations. */
+enum ModelFieldType:
+  case Str
+  case IntF
+  case DblF
+  case BoolF
+  case Nested(name: String)
+  case ListOf(inner: ModelFieldType)
+  case Optional(inner: ModelFieldType)
+
+object ModelFieldType:
+  /** Convert a Scala type string to a `ModelFieldType`. */
+  def parse(s: String): ModelFieldType = s.trim match
+    case "String"  => Str
+    case "Int"     => IntF
+    case "Double"  => DblF
+    case "Boolean" => BoolF
+    case list if list.startsWith("List[") && list.endsWith("]") =>
+      ListOf(parse(list.substring(5, list.length - 1)))
+    case opt if opt.startsWith("Option[") && opt.endsWith("]") =>
+      Optional(parse(opt.substring(7, opt.length - 1)))
+    case name => Nested(name)
+
+case class ModelField(name: String, tpe: ModelFieldType)
+
+/** A typed model descriptor produced from `@model case class Foo(...)`.
+ *
+ *  `identifyingField` returns the name of the first field that should
+ *  serve as a unique row identity (e.g. `id`, `code`, `seq`, `docId`).
+ *  Backends use this to emit `Identifiable` conformance (SwiftUI) or
+ *  `id: \.field` keys (ForEach / React lists). */
+case class ModelDef(name: String, fields: List[ModelField], span: Option[Span] = None):
+  def identifyingField: Option[String] =
+    fields.map(_.name).find(n => n == "id" || n == "code" || n == "seq" || n == "docId")

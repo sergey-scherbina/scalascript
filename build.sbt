@@ -379,6 +379,7 @@ lazy val runtimeServerJvmNetty = project
 // emit() produces framework-specific JS source.
 lazy val frontendCore = project
   .in(file("frontend/core"))
+  .dependsOn(core)
   .settings(
     name := "scalascript-frontend-core",
     libraryDependencies ++= Seq(scalatestTest),

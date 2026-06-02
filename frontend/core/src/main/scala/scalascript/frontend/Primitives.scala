@@ -370,6 +370,42 @@ enum View[+A]:
   case FetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int],
                   headers: Option[ReactiveSignal[String]] = None) extends View[Nothing]
 
+  // ── Typed model data binding (v1.66) ────────────────────────────────────────
+
+  /** Typed fetch guard — renders `template` only when `signal` has loaded a
+   *  non-null typed value, binding the value under `bindingVar`.
+   *
+   *  Backend lowerings:
+   *  - SwiftUI: `if let <bindingVar> = <signal> { template }`
+   *  - React:   `{signal && (() => { const <bindingVar> = signal; return template; })()}`
+   *  - Vue:     `<template v-if="signal"><slot :signal="signal" /></template>`
+   *  - Solid:   `<Show when={signal()}>{(bs) => template}</Show>` */
+  case ModelView(signal: FetchUrlSignal, bindingVar: String, template: View[?], style: Style = Style()) extends View[Nothing]
+
+  /** Typed iteration — iterates the list at `fieldPath` on `bindingVar`, exposing
+   *  each element as `itemVar` inside `template`.
+   *
+   *  `fieldPath` is a dot-separated path relative to `bindingVar`
+   *  (e.g. `"assets.lines"`).  The id key is inferred from the element model's
+   *  `identifyingField`; backends that need explicit keys fall back to positional
+   *  indexing when no identifying field is present.
+   *
+   *  Backend lowerings:
+   *  - SwiftUI: `ForEach(<bindingVar>.<path>, id: \.<idKey>) { <itemVar> in template }`
+   *  - React:   `{<bindingVar>.<path>.map((<itemVar>) => template)}`
+   *  - Vue:     `<li v-for="<itemVar> in <bindingVar>.<path>" :key="<itemVar>.<idKey>">`
+   *  - Solid:   `<For each={<bindingVar>().<path>}>{(item) => template}</For>` */
+  case ForModel(bindingVar: String, fieldPath: String, itemVar: String, template: View[?], style: Style = Style()) extends View[Nothing]
+
+  /** Renders a scalar model field as text.  `varName` is the binding variable
+   *  established by an enclosing `ModelView` or `ForModel`; `fieldPath` is a
+   *  dot-separated accessor (e.g. `"balance.formatted"`).
+   *
+   *  Backend lowerings:
+   *  - SwiftUI: `Text(<varName>.<path>)`
+   *  - React/Vue/Solid: `<span>{<varName>.<path>}</span>` or plain text node */
+  case ModelText(varName: String, fieldPath: String, style: Style = Style()) extends View[Nothing]
+
   /** Static text node — internal use by web renderers.  Produced by the
    *  toolkit lowering pass; app code should use `View.Text` instead. */
   case TextNode(value: () => String) extends View[Nothing]
@@ -485,16 +521,54 @@ object EventHandler:
                                onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false,
                                headers: Option[ReactiveSignal[String]] = None)                extends EventHandler
 
+// ── Codec hint (v1.66) ───────────────────────────────────────────────────────
+
+/** Describes how a fetch signal decodes its HTTP response body.
+ *  Carried by `FetchUrlSignal` subclasses; backends switch on the codec
+ *  to emit the appropriate decode call (String, JSON parse, form, etc.). */
+sealed trait CodecHint
+object CodecHint:
+  /** Raw text response — current default, preserves legacy behaviour. */
+  case object RawText extends CodecHint
+  /** Typed JSON — decode response to a named model type. */
+  case class  Json(modelTypeName: String) extends CodecHint
+  /** Form-encoded body (future use). */
+  case object FormUrlEncoded extends CodecHint
+  /** Custom codec registered by name; `modelTypeName` is optional. */
+  case class  Custom(name: String, modelTypeName: Option[String] = None) extends CodecHint
+
 // ── Reactive URL signal ───────────────────────────────────────────────────────
 
 /** Signal backed by a REST GET fetch.
- *  `id` and `tickId` replace `jsName` / `tickJsName` from v0.2. */
-final class FetchUrlSignal(
+ *  `id` and `tickId` replace `jsName` / `tickJsName` from v0.2.
+ *  Opened to `sealed` in v1.66 to allow typed subclasses (`FetchJsonSignal`). */
+sealed class FetchUrlSignal(
     id2:           String,
     val fetchUrl:  String,
     val tickId:    String,
     val headersId: Option[String] = None
-) extends ReactiveSignal[String](id2, "")
+) extends ReactiveSignal[String](id2, ""):
+  /** Codec used to decode the HTTP response body.  Default is `RawText`. */
+  def codec: CodecHint = CodecHint.RawText
+
+/** Typed JSON fetch signal.  Like `FetchUrlSignal` but decodes the response
+ *  via a JSON decoder into a named model type (`modelTypeName`).
+ *
+ *  Backends switch on `codec` (`CodecHint.Json`) to emit the typed decode call:
+ *  - SwiftUI: `JSONDecoder().decode(<modelTypeName>.self, from: data)`
+ *  - React/Vue/Solid: `response.json()` stored as a POJO
+ *  - Swing/JavaFX: `JsonDecoder.decode(bytes, modelTypeName)`
+ *
+ *  Companion state ids are `<id>_loading` (Bool), `<id>_loaded` (Bool),
+ *  `<id>_error` (String) — backends emit these automatically. */
+final class FetchJsonSignal(
+    id2:           String,
+    fetchUrl2:     String,
+    tickId2:       String,
+    val modelTypeName: String,
+    headersId2:    Option[String] = None
+) extends FetchUrlSignal(id2, fetchUrl2, tickId2, headersId2):
+  override def codec: CodecHint = CodecHint.Json(modelTypeName)
 
 // ── Widget ref (formerly DomRef) ──────────────────────────────────────────────
 
@@ -539,3 +613,5 @@ enum Capability:
   case BackgroundTasks
   case FileSystem
   case StreamSignalBridge
+  // Typed model data binding (v1.66) — ModelView / ForModel / ModelText + FetchJsonSignal
+  case TypedModels

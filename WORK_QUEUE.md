@@ -19,7 +19,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
 - [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
   real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
   attrs; `fetchTableView` also takes `headers`. All emitters updated.
-- [ ] **v1.66.0-typed-models-ir** — Shared IR foundation (all backends depend on
+- [x] **v1.66.0-typed-models-ir** — ✓ Landed 2026-06-02. Shared IR foundation (all backends depend on
   this). Parser: recognize `@model case class` / `model case class` (mirrors
   `@remote` in `Parser.scala:437`); store `ModelDef`/`ModelFieldDecl`/`ModelFieldType`
   ADT on `Manifest.models`. Frontend IR: un-final `FetchUrlSignal`; add `CodecHint`

@@ -767,6 +767,10 @@ class Interpreter(
       // CLI selection takes precedence; frontmatter is the per-file default.
       if scalascript.frontend.FrontendFrameworks.selectedName.isEmpty then
         m.frontendFramework.foreach(scalascript.frontend.FrontendFrameworks.setBackend)
+      // Thread @model declarations into the NativeContext feature bag so that
+      // FrontendIntrinsics.uiBuildModule can populate FrontendModule.models.
+      if m.models.nonEmpty then
+        nativeFeatureSet("scalascript.frontend.models", m.models)
     }
     // Populate multiShotEffects for one-shot violation checks in evalHandle.
     val allTrees: List[scala.meta.Tree] = module.sections.flatMap { s =>

@@ -1,5 +1,7 @@
 package scalascript.frontend
 
+import scalascript.ast.ModelDef
+
 /** A pluggable frontend-framework backend.
  *
  *  Four production web impls: `custom`, `react`, `solid`, `vue`.
@@ -60,14 +62,19 @@ final case class AppManifest(
 
 /** Framework-agnostic IR consumed by backends.
  *
- *  `targetPlatform` and `appManifest` are new in v0.3 (native platform support). */
+ *  `targetPlatform` and `appManifest` are new in v0.3 (native platform support).
+ *  `models` carries typed model descriptors from `@model case class` declarations
+ *  (v1.66); backends with `Capability.TypedModels` consume this to emit data structs
+ *  and typed fetch wiring.  Default `Nil` keeps all existing construction sites
+ *  source-compatible. */
 final case class FrontendModule(
   components:     List[ComponentDef],
   entryPoint:     String,
   initialRoute:   String,
   extraCss:       String             = "",
   targetPlatform: Platform           = Platform.Web,
-  appManifest:    Option[AppManifest] = None
+  appManifest:    Option[AppManifest] = None,
+  models:         List[ModelDef]     = Nil
 )
 
 /** Lowered component description. */

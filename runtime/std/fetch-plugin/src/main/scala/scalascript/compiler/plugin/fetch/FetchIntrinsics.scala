@@ -4,7 +4,7 @@ import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, EventHandler, View}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View}
 import scalascript.plugin.api.PluginNative
 
 object FetchIntrinsics:
@@ -35,6 +35,27 @@ object FetchIntrinsics:
             new FetchUrlSignal(name, url, tick.id,
               if hId == "__ssc_empty_headers" then None else Some(hId)))
         case _ => throw InterpretError("fetchUrlSignal(name, url, refreshTick[, headers])")
+    },
+
+    // fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers]): Signal[String]
+    // Like fetchUrlSignal but creates a FetchJsonSignal that decodes JSON into a named model type.
+    // The runtime value is still ReactiveSignal[String] (raw JSON text on JVM); backends switch
+    // on FetchJsonSignal.codec to emit the typed decode call.
+    QualifiedName("fetchJsonSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String, url: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  modelTypeName: String) =>
+          Value.Foreign("ReactiveSignal", new FetchJsonSignal(name, url, tick.id, modelTypeName))
+        case List(name: String, url: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  modelTypeName: String,
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val hId = headers.id
+          Value.Foreign("ReactiveSignal",
+            new FetchJsonSignal(name, url, tick.id, modelTypeName,
+              if hId == "__ssc_empty_headers" then None else Some(hId)))
+        case _ => throw InterpretError("fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers])")
     },
 
     // fetchAction(method, url, body, onSuccessTick[, headers]): EventHandler

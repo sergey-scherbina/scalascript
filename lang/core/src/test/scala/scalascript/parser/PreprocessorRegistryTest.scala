@@ -9,24 +9,25 @@ class PreprocessorRegistryTest extends AnyFunSuite with Matchers:
 
   // ── Built-in registrations ──────────────────────────────────────────────
 
-  test("PreprocessorRegistry: all 7 built-in preprocessors are registered") {
+  test("PreprocessorRegistry: all 8 built-in preprocessors are registered") {
     val names = PreprocessorRegistry.all.map(_.name).toSet
     names should contain ("inline-imports")
     names should contain ("list-literals")
     names should contain ("slash-imports")
     names should contain ("remote-defs")
+    names should contain ("model-defs")
     names should contain ("openapi-annotations")
     names should contain ("effects")
     names should contain ("extern")
   }
 
-  test("PreprocessorRegistry: built-in priorities are ordered 10/20/30/40/45/50/60") {
+  test("PreprocessorRegistry: built-in priorities are ordered 10/20/30/40/42/45/50/60") {
     val builtinNames = Set("inline-imports", "list-literals", "slash-imports",
-                            "remote-defs", "openapi-annotations", "effects", "extern")
+                            "remote-defs", "model-defs", "openapi-annotations", "effects", "extern")
     val builtins = PreprocessorRegistry.all.filter(p => builtinNames(p.name))
     val prios = builtins.map(_.priority)
     prios shouldBe prios.sorted
-    prios should contain allOf(10, 20, 30, 40, 45, 50, 60)
+    prios should contain allOf(10, 20, 30, 40, 42, 45, 50, 60)
   }
 
   test("PreprocessorRegistry.lookup: finds registered preprocessor by name") {

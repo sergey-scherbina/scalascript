@@ -4,6 +4,7 @@ import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.interpreter.{InterpretError, Value}
 import scalascript.frontend.{ReactiveSignal, EventHandler, View, AttrValue, FrontendModule, ComponentDef, FrontendFrameworks}
+import scalascript.ast.ModelDef
 import scalascript.plugin.api.PluginNative
 import scalascript.plugin.api.PluginContext
 
@@ -142,12 +143,12 @@ object FrontendIntrinsics:
         case List(Value.Foreign("View", view: View[?]), port) =>
           if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
-          val outDir = uiEmitToTempDir(view, "")
+          val outDir = uiEmitToTempDir(ctx, view, "")
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(Value.Foreign("View", view: View[?]), port, extraCss: String) =>
           if ctx.openApiDryRun then ctx.abortOpenApiDryRun()
           val p      = port match { case n: Long => n.toInt; case _ => 8080 }
-          val outDir = uiEmitToTempDir(view, extraCss)
+          val outDir = uiEmitToTempDir(ctx, view, extraCss)
           if !ctx.headless then ctx.startServer(p, outDir)
         case List(port: Long) =>
           ctx.registerHealthDefaults()
@@ -173,7 +174,7 @@ object FrontendIntrinsics:
     QualifiedName("emit") -> PluginNative.evalLegacy { (ctx, args) =>
       args match
         case List(Value.Foreign("View", view: View[?]), dir: String) =>
-          uiEmitToDir(view, dir, ctx.out)
+          uiEmitToDir(ctx, view, dir, ctx.out)
         case _ => throw InterpretError("emit(tree, outDir)")
     },
 
@@ -210,13 +211,21 @@ object FrontendIntrinsics:
 
   // ── Emit helpers ──────────────────────────────────────────────────────────
 
-  private def uiBuildModule(view: View[?], extraCss: String = ""): FrontendModule =
+  private val ModelsFeatureKey = "scalascript.frontend.models"
+
+  private def contextModels(ctx: scalascript.plugin.api.StorageCap): List[ModelDef] =
+    ctx.featureGet(ModelsFeatureKey).collect { case ms: List[?] =>
+      ms.asInstanceOf[List[ModelDef]]
+    }.getOrElse(Nil)
+
+  private def uiBuildModule(ctx: scalascript.plugin.api.StorageCap, view: View[?], extraCss: String = ""): FrontendModule =
+    val models = contextModels(ctx)
     val app = ComponentDef("App", Nil, _ =>
       View.Element("div", Map("id" -> AttrValue.Str("ui-app")), Map.empty, Seq(view)))
-    FrontendModule(List(app), "App", "/", extraCss)
+    FrontendModule(List(app), "App", "/", extraCss, models = models)
 
-  private def uiEmitToTempDir(view: View[?], extraCss: String): String =
-    val module  = uiBuildModule(view, extraCss)
+  private def uiEmitToTempDir(ctx: scalascript.plugin.api.StorageCap, view: View[?], extraCss: String): String =
+    val module  = uiBuildModule(ctx, view, extraCss)
     val emitted = FrontendFrameworks.current().emit(module)
     val tmpDir  = java.nio.file.Files.createTempDirectory("ssc-ui")
     java.nio.file.Files.writeString(tmpDir.resolve("index.html"), emitted.html)
@@ -225,8 +234,8 @@ object FrontendIntrinsics:
       java.nio.file.Files.writeString(tmpDir.resolve("app.css"), emitted.css)
     tmpDir.toString
 
-  private def uiEmitToDir(view: View[?], dir: String, out: java.io.PrintStream): Unit =
-    val module  = uiBuildModule(view)
+  private def uiEmitToDir(ctx: scalascript.plugin.api.StorageCap, view: View[?], dir: String, out: java.io.PrintStream): Unit =
+    val module  = uiBuildModule(ctx, view)
     val emitted = FrontendFrameworks.current().emit(module)
     val p = java.nio.file.Paths.get(dir)
     java.nio.file.Files.createDirectories(p)

@@ -65,8 +65,9 @@ object Parser:
     // parse here so we don't do it twice.
     val sections = extractSections(doc, mdLineToFileLine, skipInitialParse = pkg.nonEmpty)
     val finalSections = if pkg.isEmpty then sections else sections.map(wrapSectionInPackage(_, pkg))
-    val manifest = mergeSourceRemoteHandlers(manifest0, finalSections)
-    val raw      = Module(manifest, finalSections, sourceText = Some(source))
+    val manifest1 = mergeSourceRemoteHandlers(manifest0, finalSections)
+    val manifest  = mergeSourceModels(manifest1, finalSections)
+    val raw       = Module(manifest, finalSections, sourceText = Some(source))
     validateRemoteRegistries(raw)
     MarkupLiteralLower.lower(RouteDeriver.derive(RemoteClientDeriver.derive(raw)))
 
@@ -419,6 +420,41 @@ object Parser:
       val base = manifest.getOrElse(emptyManifest)
       val existing = base.remoteHandlers.map(_.name).toSet
       Some(base.copy(remoteHandlers = base.remoteHandlers ++ discovered.filterNot(h => existing.contains(h.name))))
+
+  private def mergeSourceModels(manifest: Option[Manifest], sections: List[Section]): Option[Manifest] =
+    val discovered = collectSourceModels(sections)
+    if discovered.isEmpty then manifest
+    else
+      val base = manifest.getOrElse(emptyManifest)
+      val existing = base.models.map(_.name).toSet
+      Some(base.copy(models = base.models ++ discovered.filterNot(m => existing.contains(m.name))))
+
+  private def collectSourceModels(sections: List[Section]): List[ModelDef] =
+    def fromTree(tree: scala.meta.Tree): List[ModelDef] =
+      import scala.meta.*
+      def initName(init: Init): String = init.tpe match
+        case Type.Name(n)                 => n
+        case Type.Select(_, Type.Name(n)) => n
+        case other                        => other.syntax.split('.').lastOption.getOrElse(other.syntax)
+      def modelAnnotation(mods: List[Mod]): Boolean =
+        mods.exists {
+          case Mod.Annot(init) => initName(init) == "model"
+          case _               => false
+        }
+      tree.collect {
+        case d: Defn.Class if modelAnnotation(d.mods) =>
+          val fields = d.ctor.paramClauses.flatMap(_.values).map { param =>
+            val typeStr = param.decltpe.map(_.syntax).getOrElse("String")
+            ModelField(param.name.value, ModelFieldType.parse(typeStr))
+          }
+          ModelDef(d.name.value, fields.toList)
+      }
+    def loop(section: Section): List[ModelDef] =
+      section.content.collect {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.map(node => ScalaNode.fold(node)(fromTree)).getOrElse(Nil)
+      }.flatten ++ section.subsections.flatMap(loop)
+    sections.flatMap(loop)
 
   private def emptyManifest: Manifest =
     Manifest(
@@ -1361,6 +1397,16 @@ object Parser:
     lines.map {
       case remoteDef(indent, name, tail) => s"${indent}@remote(name = \"$name\")\n${indent}def $name$tail"
       case other => other
+    }.mkString("\n")
+
+  private val modelClassPat = """^(\s*)model\s+(case\s+class\b.*)$""".r
+  private[parser] def preprocessModelDefs(code: String): String =
+    if !code.contains("model") then return code
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => modelClassPat.findFirstIn(l).isDefined) then return code
+    lines.map {
+      case modelClassPat(indent, rest) => s"$indent@model\n${indent}$rest"
+      case other                       => other
     }.mkString("\n")
 
   /** arch-meta-v2-p4 — Make the restricted quoted-macro surface parseable
