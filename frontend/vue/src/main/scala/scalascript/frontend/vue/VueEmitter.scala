@@ -653,10 +653,6 @@ private[vue] object VueEmitter:
     case View.Adaptive(web, _, _, fallback) =>
       renderView(web.getOrElse(fallback), itemCtx)
 
-    case View.ModelView(_, _, template, _)   => renderView(template, itemCtx)
-    case View.ForModel(_, _, _, template, _) => renderView(template, itemCtx)
-    case View.ModelText(_, _, _)             => ""
-
   private def renderProps(
       attrs:     Map[String, AttrValue],
       events:    Map[String, EventHandler],

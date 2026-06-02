@@ -261,14 +261,17 @@ private[interpreter] object EvalRuntime:
     val rhs:            Array[Term]
   )
 
-  /** Pre-resolved receiver list and closure FunV for a
+  /** Pre-resolved receiver and closure FunV for a
    *  `receiver.foreach(s => { acc = acc + fn(s) })` leading apply.
    *  Allows `tryMixedLongWhile` to bypass the eval→evalApplyGeneral→dispatch
    *  path (which allocates `Pure(listValue)` per outer iteration) and call
-   *  `tryDoubleAccumForeach` directly. */
+   *  the appropriate `FastTier.tryDoubleAccumForeach*` directly.
+   *  Exactly one of `list` / `set` is non-null per instance — the receiver
+   *  kind discriminator. */
   private final class PreResolvedForeach(
     val applyIdx: Int,
-    val list:     List[Value],
+    val list:     List[Value] | Null,
+    val set:      scala.collection.immutable.Set[Value] | Null,
     val closure:  Value.FunV
   )
 
@@ -331,10 +334,17 @@ private[interpreter] object EvalRuntime:
                   if longAssignNames(k) == recvStr then isAssigned = true
                   k += 1
                 if isAssigned then return null
-                // Resolve the list from globals (immutable for this loop).
+                // Resolve the receiver from globals (immutable for this loop).
+                // Supported kinds: ListV → tryDoubleAccumForeach,
+                // SetV → tryDoubleAccumForeachSet. Anything else bails.
                 val recvV = interp.globals.getOrElse(recvStr, null)
-                if recvV == null || !recvV.isInstanceOf[Value.ListV] then return null
-                val list = recvV.asInstanceOf[Value.ListV].items
+                val listV: List[Value] | Null = recvV match
+                  case lv: Value.ListV => lv.items
+                  case _               => null
+                val setV: scala.collection.immutable.Set[Value] | Null = recvV match
+                  case sv: Value.SetV => sv.items
+                  case _              => null
+                if listV == null && setV == null then return null
                 // Resolve the closure FunV. Check emptyClosureFunCache first;
                 // if missing, evaluate once (which will populate the cache).
                 ta.argClause.values match
@@ -350,7 +360,7 @@ private[interpreter] object EvalRuntime:
                           case Pure(fv: Value.FunV) => fv
                           case _                    => null
                     if funV == null then null
-                    else new PreResolvedForeach(applyIdx, list, funV)
+                    else new PreResolvedForeach(applyIdx, listV, setV, funV)
                   case _ => null
               case _ => null
           case _ => null
@@ -952,9 +962,17 @@ private[interpreter] object EvalRuntime:
         var ap = 0
         while ap < body.leadingApplies.length do
           if useFastForeach && ap == preResolved.applyIdx then
-            if FastTier.tryDoubleAccumForeach(preResolved.list, preResolved.closure, interp) == null then
-              // tryDoubleAccumForeach bailed (NotDouble) — fall back to eval.
-              // The slot is already marked inactive by tryDoubleAccumForeach.
+            // Dispatch to the receiver-typed FastTier method based on the
+            // pre-resolved kind. Exactly one of list/set is non-null per
+            // PreResolvedForeach.
+            val fastResult: Computation | Null =
+              if preResolved.list != null then
+                FastTier.tryDoubleAccumForeach(preResolved.list, preResolved.closure, interp)
+              else
+                FastTier.tryDoubleAccumForeachSet(preResolved.set, preResolved.closure, interp)
+            if fastResult == null then
+              // FastTier bailed (NotDouble) — fall back to eval. The slot is
+              // already marked inactive by the FastTier method.
               useFastForeach = false
               Computation.run(interp.eval(body.leadingApplies(ap), frameView))
           else
