@@ -482,16 +482,19 @@ Target: **8 smoke tests** in `SwiftUIModelSmokeTest`.
 ## 10. Alternatives considered
 
 ### A. Lambda templates (`ModelView(balance) { bs => ... }`)
+
 Requires the ScalaScript interpreter to evaluate templates with a "proxy" object
 that intercepts field access and records paths. Complex to implement correctly
 across all interpreter modes (fast-tier, JVM gen, etc.).  Deferred to a future
 pass once there is demand for non-string field projections.
 
 ### B. JSONPath string queries at runtime
+
 Runtime `JsonQuery("$.assets.lines[*].name", balance)` evaluated in Swift via a
 JSONPath library.  Adds a third-party Swift dependency; harder to type-check.
 
 ### C. React/Vue parity first
+
 Add `@model` to the JS emitters so they decode JSON into typed objects via
 `JSON.parse` + TypeScript interfaces.  Orthogonal; can be added in a follow-up
 without blocking the SwiftUI use case.
