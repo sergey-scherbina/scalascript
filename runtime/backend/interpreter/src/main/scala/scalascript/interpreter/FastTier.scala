@@ -2,6 +2,7 @@ package scalascript.interpreter
 
 import scala.meta.Term
 import Computation.PureUnit
+import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
 
 /** Gated fast-tier (binary-strolling-river plan A3/A4).
  *
@@ -48,6 +49,49 @@ private[interpreter] object FastTier:
    *  loop-resident lambda points at the same Term every iteration). */
   private val shapeCache: java.util.IdentityHashMap[Term, ClosureShape] =
     new java.util.IdentityHashMap[Term, ClosureShape]()
+
+  // ── double-acc slot (avoids per-outer-iter DoubleV writeback) ────────────────
+  // When EvalRuntime wraps an outer mixed-body while that contains a
+  // double-acc foreach (detected by `peekDoubleAccName`), it pre-extracts
+  // the acc bits into a raw-long slot and calls `withAccSlot`. Inside the loop
+  // `tryDoubleAccumForeach`/`Set` read/write the slot instead of globals,
+  // reducing per-outer-iter DoubleV allocation from O(iters) to O(1).
+  //
+  // slot layout: slot(0) = raw double bits; slot(1) = 1L if active, 0L if bailed.
+  // Two separate ThreadLocals avoid wrapper-object allocation on each outer call.
+  private val accSlotTls: ThreadLocal[Array[Long] | Null] = new ThreadLocal[Array[Long] | Null]()
+  private val accNameTls: ThreadLocal[String | Null]      = new ThreadLocal[String | Null]()
+
+  def withAccSlot[A](name: String, slot: Array[Long])(thunk: => A): A =
+    accSlotTls.set(slot)
+    accNameTls.set(name)
+    try thunk finally { accSlotTls.set(null); accNameTls.set(null) }
+
+  /** Peek at a leading foreach `apply` term to detect
+   *  `xs.foreach(s => { acc = acc + fn(s) })` where `acc` is DoubleV in
+   *  globals. Returns the accumulator name or null. AST-only — no eval. */
+  def peekDoubleAccName(apply: Term, interp: Interpreter): String | Null =
+    apply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(_, Term.Name("foreach")) =>
+            ta.argClause.values match
+              case List(fn: Term.Function) =>
+                val pc = fn.paramClause
+                if pc.values.lengthCompare(1) != 0 then null
+                else
+                  val pName = pc.values.head.name.value
+                  if pName.isEmpty then null
+                  else
+                    val shape = analyzeClosure(fn.body, pName)
+                    if shape == null then null
+                    else
+                      interp.globals.getOrElse(shape.accName, null) match
+                        case _: Value.DoubleV => shape.accName
+                        case _                => null
+              case _ => null
+          case _ => null
+      case _ => null
 
   private def analyzeClosure(body: Term, paramName: String): ClosureShape | Null =
     val cached = shapeCache.get(body)
@@ -146,7 +190,12 @@ private[interpreter] object FastTier:
     // (EvalRuntime line ~1403), so a top-level `var total = 0.0` lives there.
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
-    var acc = accV.asInstanceOf[Value.DoubleV].v
+    // Use raw-long slot if EvalRuntime pre-extracted the double-acc for this name.
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else accV.asInstanceOf[Value.DoubleV].v
 
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
 
@@ -155,16 +204,15 @@ private[interpreter] object FastTier:
       while rem.nonEmpty do
         acc = acc + compiled.runValueDouble(rem.head, fnEnv)
         rem = rem.tail
-      // Write back ONCE. doubleV picks pre-cached DoubleZero/DoubleOne if applicable.
-      interp.globals(shape.accName) = Value.doubleV(acc)
+      if useSlot then slot(0) = doubleToRawLongBits(acc)
+      else interp.globals(shape.accName) = Value.doubleV(acc)
       PureUnit
     catch
       case _: scala.util.control.ControlThrowable =>
-        // NotDouble thrown — a free name resolved to a non-numeric value at
-        // runtime (or no arm matched, the canonical NaNMiss path). `globals`
-        // has not been written yet (we only write after the full loop). Return
-        // null so the caller falls back to the standard foreach evaluator;
-        // semantics preserved because the slot-double path is read-only.
+        // NotDouble thrown — bail to standard foreach. Mark slot inactive so
+        // subsequent outer iterations also use the globals path (which the
+        // standard foreach has already updated correctly).
+        if useSlot then slot(1) = 0L
         null
 
   /** Long-typed parallel of `tryDoubleAccumForeach`, for an `Int`-typed
@@ -270,16 +318,23 @@ private[interpreter] object FastTier:
     if freeNames == null || freeNames.contains(fnParam) then return null
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
-    var acc = accV.asInstanceOf[Value.DoubleV].v
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else accV.asInstanceOf[Value.DoubleV].v
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
     try
       val it = set.iterator
       while it.hasNext do
         acc = acc + compiled.runValueDouble(it.next(), fnEnv)
-      interp.globals(shape.accName) = Value.doubleV(acc)
+      if useSlot then slot(0) = doubleToRawLongBits(acc)
+      else interp.globals(shape.accName) = Value.doubleV(acc)
       PureUnit
     catch
-      case _: scala.util.control.ControlThrowable => null
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
 
   /** Long-typed parallel of `tryDoubleAccumForeachSet`. */
   def tryLongAccumForeachSet(

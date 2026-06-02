@@ -5,6 +5,7 @@ import scala.collection.mutable
 import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, FlatMap, Perform}
+import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
 
 /** Expression evaluator: the core `eval(term, env, interp)` dispatch,
  *  plus the `evalArgs`, `collectApplyArgs`, and `threadValues` helpers.
@@ -830,7 +831,31 @@ private[interpreter] object EvalRuntime:
         else
           fastPrimitiveValue(t.expr, frameView, interp) match
             case Value.BoolV(false) => Computation.PureUnit
-            case Value.BoolV(true)  => tryMixedLongWhile(t, mixedBody, frameView, interp)
+            case Value.BoolV(true) =>
+              // Detect a double-acc foreach in the leading applies. If found,
+              // carry the acc in a raw-long slot so tryDoubleAccumForeach writes
+              // slot(0) instead of allocating a DoubleV per outer iteration.
+              var doubleAccName: String | Null = null
+              var pi2 = 0
+              while pi2 < mixedBody.leadingApplies.length && doubleAccName == null do
+                doubleAccName = FastTier.peekDoubleAccName(mixedBody.leadingApplies(pi2), interp)
+                pi2 += 1
+              if doubleAccName != null then
+                val initV = interp.globals.getOrElse(doubleAccName, null)
+                if (initV ne null) && initV.isInstanceOf[Value.DoubleV] then
+                  val slot = Array[Long](
+                    doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v),
+                    1L
+                  )
+                  val r = FastTier.withAccSlot(doubleAccName, slot) {
+                    tryMixedLongWhile(t, mixedBody, frameView, interp)
+                  }
+                  if r != null && slot(1) != 0L then
+                    interp.globals(doubleAccName) =
+                      Value.doubleV(longBitsToDouble(slot(0)))
+                  r
+                else tryMixedLongWhile(t, mixedBody, frameView, interp)
+              else tryMixedLongWhile(t, mixedBody, frameView, interp)
             case _                  => null
       else
         fastPrimitiveValue(t.expr, frameView, interp) match
