@@ -67,7 +67,21 @@ object BytecodeJit:
     }
     result
 
+  /** True iff the body's top-level result is a Boolean (comparison or
+   *  short-circuit). `BytecodeJit` returns `long` from every generated method
+   *  and the caller wraps as `IntV(0|1)` — a Boolean-returning fn would then
+   *  be misrepresented to consumers expecting `BoolV`. Bail in that case so
+   *  the SscVm.exec / tree-walk path handles those correctly. */
+  private def isBoolReturning(t: Term): Boolean = t match
+    case Term.ApplyInfix.After_4_6_0(_, op, _, _) =>
+      val s = op.value
+      s == "<" || s == "<=" || s == ">" || s == ">=" || s == "==" || s == "!=" || s == "&&" || s == "||"
+    case ti: Term.If =>
+      isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
+    case _ => false
+
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): Result | Null =
+    if isBoolReturning(f.body) then return null
     val paramSet = f.params.toSet
     // Per-param ref/int classification. A param is ref when it is the
     // scrutinee of a `Term.Match` body (the top-level match shape) — the only
@@ -91,8 +105,11 @@ object BytecodeJit:
         case tm: Term.Match if paramIsRef.exists(identity) =>
           walkMatchBody(tm, ctx, interp)
         case other =>
-          val e = walkLong(other.asInstanceOf[Term], ctx)
-          if e == null then null else s"return $e;"
+          val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
+          if tco != null then tco
+          else
+            val e = walkLong(other.asInstanceOf[Term], ctx)
+            if e == null then null else s"return $e;"
     if bodyStmts == null then return null
 
     val className = s"GenJit_${sanitize(f.name)}_${System.identityHashCode(f.body)}"
@@ -315,6 +332,74 @@ object BytecodeJit:
         sb.append(s"return $armBodyJava;\n    }\n    ")
         sb.toString
       case _ => null
+
+  /** TCO body emission: `if cond then base else recur(args)` (or vice versa)
+   *  with a self-call in tail position → Java `while (true) { ... }` loop.
+   *  Eliminates the `tcoTrampoline` cost AND the JVM stack growth a naive
+   *  recursive method-call emission would pay.
+   *
+   *  Args are evaluated through temp locals BEFORE param-slot updates so the
+   *  new-arg computation reads the OLD param values (mirrors how the
+   *  trampoline copies args via `TailCall.args` snapshot). */
+  private def tryTcoBody(t: Term, ctx: GenCtx): String | Null = t match
+    case ti: Term.If =>
+      val recArgsT = asSelfRecur(ti.thenp, ctx.funName)
+      val recArgsE = asSelfRecur(ti.elsep, ctx.funName)
+      (recArgsT, recArgsE) match
+        case (Some(_), Some(_)) => null   // both branches recur — no base case visible here
+        case (Some(args), None) =>
+          // `if cond then recur else base` → loop while cond is true.
+          emitTcoLoop(ti.cond, ti.elsep, args, ctx, condInvertsExit = true)
+        case (None, Some(args)) =>
+          // `if cond then base else recur` → loop while cond is false.
+          emitTcoLoop(ti.cond, ti.thenp, args, ctx, condInvertsExit = false)
+        case _ => null
+    case _ => null
+
+  private def asSelfRecur(t: Term, funName: String): Option[List[Term]] = t match
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == funName => Some(ap.argClause.values)
+        case _                                    => None
+    case _ => None
+
+  /** Emit: `while (true) { if (<exitCond>) return <base>;
+   *                        long _t0 = <newArg0>; …;
+   *                        <p0> = _t0; …; }`.
+   *
+   *  `condInvertsExit = true` means the original `cond` selects the recur
+   *  branch (so the exit condition is `!cond`). `false` means `cond` selects
+   *  the base branch (exit is `cond` directly). */
+  private def emitTcoLoop(cond: Term, baseExpr: Term, recurArgs: List[Term], ctx: GenCtx, condInvertsExit: Boolean): String | Null =
+    if recurArgs.length != ctx.paramNames.length then return null
+    val condJava = walkBool(cond, ctx); if condJava == null then return null
+    val baseJava = walkLong(baseExpr, ctx); if baseJava == null then return null
+    val argStrs = new Array[String](recurArgs.length)
+    var i = 0
+    var rem = recurArgs
+    while rem.nonEmpty do
+      val s =
+        if ctx.paramIsRef(i) then walkRef(rem.head, ctx)
+        else walkLong(rem.head, ctx)
+      if s == null then return null
+      argStrs(i) = s
+      i += 1
+      rem = rem.tail
+    val sb = new StringBuilder
+    sb.append("while (true) {\n      ")
+    val exitCond = if condInvertsExit then s"!($condJava)" else condJava
+    sb.append(s"if ($exitCond) return $baseJava;\n      ")
+    var j = 0
+    while j < argStrs.length do
+      val tType = if ctx.paramIsRef(j) then "Object" else "long"
+      sb.append(s"$tType _t$j = ${argStrs(j)};\n      ")
+      j += 1
+    j = 0
+    while j < argStrs.length do
+      sb.append(s"${sanitize(ctx.paramNames(j))} = _t$j;\n      ")
+      j += 1
+    sb.append("}")
+    sb.toString
 
   /** True iff `bindingName` appears as a `Term.Name` arg in a
    *  `Term.Apply(Term.Name(funName), …)` anywhere in `armBody`. Used by

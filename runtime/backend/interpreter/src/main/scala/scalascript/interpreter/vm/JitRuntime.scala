@@ -206,6 +206,20 @@ object JitRuntime:
       catch case _: Throwable => return null
     Computation.pureIntV(out)
 
+  /** Bytecode-JIT entry called from `CallRuntime.callFun` BEFORE the
+   *  `TcoRuntime.tcoTrampoline` dispatch. Handles the same 1- and 2-param
+   *  FunV shapes the existing `tryRun1`/`tryRun2` cover, with the trampoline's
+   *  list-shaped arg convention. Returns null on any miss → caller continues
+   *  with the trampoline. */
+  def tryBytecodeList(f: Value.FunV, args: List[Value], interp: Interpreter): Computation | Null =
+    if !BytecodeJit.enabled || f.name.isEmpty then return null
+    val n = f.params.length
+    if n < 1 || n > 2 || args.length != n then return null
+    val bc = bytecodeFor(f, interp)
+    if bc == null then return null
+    if n == 1 then invokeBytecode1(bc, args.head)
+    else invokeBytecode2(bc, args.head, args(1))
+
   /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
    *  VM 2a) — the param domain is decided by the compiled function. */
@@ -257,6 +271,15 @@ object JitRuntime:
       val n = args.length
       if n < 1 || n > VmCompiler.MaxArity || f.params.length != n then null
       else
+        // Phase C bytecode JIT for 1- or 2-param funcs; bypasses the
+        // SscVm.exec dispatch loop when the body fits its subset
+        // (incl. the TCO `while`-loop pattern from `tryTcoBody`).
+        if (n == 1 || n == 2) && BytecodeJit.enabled then
+          val bc = bytecodeFor(f, interp)
+          if bc != null then
+            val r = if n == 1 then invokeBytecode1(bc, args.head)
+                    else            invokeBytecode2(bc, args.head, args(1))
+            if r != null then return r
         val cf = hotCompiled(f, interp, eager)
         if cf == null then null else marshalAndRun(cf, args)
 

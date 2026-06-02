@@ -1829,6 +1829,25 @@ gated on same-session A/B + full suite green with the gate off AND on.
       `recursionFib` reconfirmed at 1.189 ms; all other benches stable.
       Full 1205 green in both modes. `recursionTco` still routes through
       `TcoRuntime.tcoTrampoline` (open follow-up).
+      **2026-06-02 (c): TCO loop emission landed.** `BytecodeJit.tryTcoBody`
+      detects `Term.If(cond, base, recur(args))` (or vice versa) where the
+      else/then branch is a self-tail-recursive call, and emits a Java
+      `while (true) { if (<exit>) return <base>; long _t0 = …; …; p0 = _t0; … }`
+      loop instead of recursive method calls — eliminates BOTH the trampoline
+      cost AND the JVM stack growth. `CallRuntime.callFun` calls
+      `JitRuntime.tryBytecodeList` before `TcoRuntime.tcoTrampoline`; null
+      falls through. `JitRuntime.tryRunList` ALSO got the bytecode probe so
+      the same path catches eager-compile self-tail-recursive funcs invoked
+      via the general arity-N entry. Also added an `isBoolReturning(body)`
+      guard at the top of `doCompile`: a body whose top-level result is a
+      comparison/short-circuit (`<`/`<=`/`>`/`>=`/`==`/`!=`/`&&`/`||`, or any
+      `Term.If` whose branches end in such) would be mis-wrapped as `IntV(0|1)`
+      instead of `BoolV` — bail so the SscVm path handles those correctly.
+      Clean A/B JMH (2 forks × 5 iters):
+        - `recursionTco`: 1.076 → **0.032 ms/op (−97.0%, 33.6×)** — the
+          interpreter is at native JVM-codegen speed on this shape (24-25 µs).
+        - `recursionFib` reconfirmed at 1.211 ms; `recursiveEval` at 12.81 ms.
+      All other benches stable. Full 1205-test suite green in both modes.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at

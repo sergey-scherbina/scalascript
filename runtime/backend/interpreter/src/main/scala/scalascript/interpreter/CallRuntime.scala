@@ -347,6 +347,12 @@ private[interpreter] object CallRuntime:
       v != null && v.isInstanceOf[Value.FunV]
     }
     if info.noNonTailSelf && (info.isSelfTailRec || hasMutualTail) then
+      // Phase C bytecode JIT: try the BytecodeJit path before the trampoline.
+      // For TCO functions BytecodeJit emits a Java `while` loop (see
+      // BytecodeJit.tryTcoBody), eliminating both the trampoline cost AND the
+      // SscVm.exec dispatch loop. Null falls through to the trampoline.
+      val bcResult = scalascript.interpreter.vm.JitRuntime.tryBytecodeList(f, effArgs, interp)
+      if bcResult != null then return bcResult
       if Profiler.enabled && f.name.nonEmpty then
         Profiler.record(f.name, 0L)
       TcoRuntime.tcoTrampoline(f, effArgs, null, interp)
