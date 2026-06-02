@@ -433,6 +433,33 @@ wins. `interp_patternMatch` is 118.6 ms vs `jvm_patternMatch` 0.56 ms in
 Both directions stay open in parallel; pick whichever has a clearer
 bench-driven win next.
 
+### Current baseline (2026-06-02 end-of-session)
+
+Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
+Cross-backend `RuntimeBench` (µs/op, default flags):
+
+```
+interp_recursionFib:    1190  vs jvm 1281   (interp 0.93× — FASTER than JVM)
+interp_recursionTco:      31  vs jvm   24   (interp 1.29× — parity)
+interp_arithLoop:       2717  vs jvm  240   (interp 11.3× off — future, not in C/D)
+interp_patternMatch:  114610  vs jvm  566   (interp 203× off — main Phase D gap)
+```
+
+`InterpreterBench` highlights (ms/op):
+
+```
+patternMatchHeavy: 113 (Phase D target)    recursionFib:  1.19 (at JVM speed)
+patternMatchSet:   113 (Phase D target)    recursionFibD: 1.44 (at JVM speed)
+patternMatchWide:   74 (Phase D target)    recursionTco:  0.032 (at JVM speed)
+pureCallSum:        12.5 (covered)         recursiveEval: 13.0 (Phase D target — HashMap floor)
+pureCallSum2:       13.9 (covered)         recursionFibMul: 6.06 (globals overhead)
+```
+
+A next-session A/B should re-establish these as the baseline before
+attacking the next slice. See `WORK_QUEUE.md §"Interpreter perf — Phase
+C + D continuation"` for the per-task implementation notes + gotchas
+that came out of today's session.
+
 ---
 
 ## Methodology (both phases)

@@ -47,37 +47,208 @@ remain. Spec: [`docs/vm-jit-next.md §"Phase C+D roadmap"`](docs/vm-jit-next.md)
 Each item below is one focused commit; same-session A/B, never ship a
 non-win.
 
-- [ ] **phase-c-bytecode-double** — Double-typed params/return for
-      non-match-bodied fns. Generate Java `double` instead of `long`;
-      handle `Lit.Double`, double-typed arithmetic ops; discriminator at
-      the MH return boundary so the caller wraps `DoubleV` vs `IntV`.
-      Bench: new `recursionFibD` (`def fibD(n: Double): Double = if n
-      <= 1 then n else fibD(n-1) + fibD(n-2)`). Expected ~24× over the
-      existing SscVm Double path.
+### Current baseline (2026-06-02 end-of-session, default flags ALL ON)
 
-- [ ] **phase-c-bytecode-mixed-type** — argument-by-argument
-      `paramIsRef` checking against the fn's declared param shapes so
-      `def g(x: Int, e: Expr): Int = match e ...` JITs (currently
-      `paramIsRef` is uniform per param-slot). Bench: AST eval with Int
-      accumulator + Expr scrutinee.
+Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
+Opt-out via `=off` on env or `-D…=off` on JMH forks. Numbers below are
+the baseline for any next A/B; if your stash-baseline gives wildly
+different numbers, sanity-check sbt picked up the worktree (`set current
+project to root (in build file:<worktree-path>/)` line) before trusting.
+
+`InterpreterBench` (ms/op, 1 fork × 3 iters):
+
+| Bench | Current | Notes |
+|---|---|---|
+| `arithLoop` | 2.73 | top-level loop, BytecodeJit doesn't cover; arithLoop and tupleMonoid are NOT current Phase C/D targets |
+| `effectPure` | 0.04 | trivially small |
+| `patternMatchHeavy` | **113** | Phase D primary target — Double accumulator over List foreach |
+| `patternMatchSet` | **113** | Just landed (commit `8f911f14`); same shape as Heavy but Set receiver |
+| `patternMatchWide` | 74 | Int accumulator, 12-arm match |
+| `pureCallSum` | 12.5 | covered by Phase D LApply + mixed-while |
+| `pureCallSum2` | 14.0 | 2-param LApply2 |
+| `recursionFib` | **1.19** | Phase C int-arith — at native JVM speed |
+| `recursionFibD` | **1.44** | Phase C Double — at native JVM speed |
+| `recursionFibMul` | 6.06 | Phase C globals — adds global read overhead |
+| `recursionTco` | **0.032** | Phase C TCO loop — at native JVM speed |
+| `recursiveEval` | 13.0 | Phase C ADT match — bottlenecked by HashMap field lookups |
+| `recursiveEvalMixed` | 13.2 | Same — already supported by existing code |
+| `tupleMonoid` | 397 | not in Phase C/D scope |
+
+`RuntimeBench` cross-backend (µs/op, default flags):
+
+```
+interp_recursionFib:   1190   vs jvm 1281  (interp 0.93× — FASTER than JVM!)
+interp_recursionTco:     31   vs jvm   24  (interp 1.29× — parity)
+interp_patternMatch:  114610  vs jvm  566  (interp 203× off — main Phase D gap)
+interp_arithLoop:       2717  vs jvm  240  (interp 11.3× off — top-level loop, future)
+```
+
+### Methodology for next focused commits
+
+These rules came out of today's session and apply specifically to the
+cross-module changes in the queue below. They are NOT bureaucracy — each
+maps to a concrete mistake that was caught (or nearly missed) on the
+verify step. Apply them.
+
+1. **JFR-profile-first before any invasive optimization.** Don't write
+   code to attack an assumed bottleneck. Take a JFR alloc + CPU sample
+   under the bench shape with default flags, identify the actual
+   dominant allocator / hot leaf, and only then design the fix.
+   `sbt "interpreterBench/Jmh/run -wi 2 -i 3 -f 1 -prof \"jfr:configName=profile\" .*<bench>.*"`
+   then parse `jdk.ObjectAllocationSample` events for top-class +
+   top-scalascript-site weight. A sampler can over-attribute to a hot
+   leaf — cross-check against deterministic `-prof gc` `alloc.rate.norm`
+   before committing to a design.
+
+2. **Small focused commits over cross-module megacommits.** For changes
+   that touch ≥3 modules (e.g. EvalRuntime + CallRuntime +
+   DispatchRuntime + FastTier), split into a sequence: infrastructure
+   first (e.g. the TLS plumbing alone), then the FastTier-side
+   integration behind an off-by-default flag, then the EvalRuntime
+   recognition that flips the flag for the matching pattern. Each
+   compiles + tests + benches separately. A single 4-file commit that
+   "all works together" is the highest-risk shape and the hardest to
+   bisect when something silently regresses.
+
+3. **Boolean-return guards on bytecode JIT-style emissions.** Anything
+   that emits a `long` return MUST guard against bodies whose top-level
+   result is Boolean (`< <= > >= == != && ||`, or a `Term.If` whose
+   branches end in such). The wrapping site will turn the result into
+   `IntV(0|1)` and quietly break every consumer that expected `BoolV`.
+   This is the bug pattern from commit `72aab9aa`'s verify step
+   (6 tests caught at the test-suite gate). See `BytecodeJit.isBoolReturning`.
+
+4. **try/finally is mandatory for TLS plumbing.** Any setter/clearer
+   pair on a `ThreadLocal[…]` must be wrapped `try { setter; thunk }
+   finally { clearer or restore-previous }`. A throwable from `thunk`
+   leaves a stale slot for the next call on this thread. Specifically
+   for the Phase D TLS items in this queue.
+
+5. **Always invoke sbt with explicit `cd <worktree-path>`.** The harness
+   shell CWD persists across Bash calls. Without `cd`, a previous
+   command's CWD may leak and sbt silently picks up the main repo's
+   `build.sbt` and target; edits appear to have no effect; benches
+   measure the wrong code. AGENTS.md has the rule; respect it.
+
+6. **Re-read files instead of trusting memory.** When you "remember"
+   what `FastTier.tryDoubleAccumForeach` checks or which `case _ => null`
+   exists in `collectFastAssignBody`, Read the file. The cost of
+   re-reading is small; the cost of an incorrect refactor based on
+   stale recall is a full debug cycle.
+
+7. **Trust the existing test suite as the safety net.** Full
+   `backendInterpreter/test` is ~50-60s. Run it in BOTH default and
+   explicit-off modes for the flag you touch. A green default + green
+   off is the only proof that the fallback works.
+
+- [x] **phase-c-bytecode-double** — ✓ Landed 2026-06-02 commit `ab7f782e`.
+      Double-typed params/return for non-match-bodied fns: `walkDouble`
+      parallel walker, `Result.resultIsDouble`, MH signature with
+      `classOf[Double]`, `JitRuntime.wrapBytecodeResult` discriminator.
+      `recursionFibD` 33.1 → 1.45 ms (22.8×).
+
+- [x] **phase-c-bytecode-mixed-type** — ✓ Validated 2026-06-02 commit
+      `c9bf3b48`. Per-param `paramIsRef` + per-arg `walkLong`/`walkRef`
+      dispatch already worked from the ADT-match slice (`aabc70b0`); the
+      bench `recursiveEvalMixed` codifies the guarantee. No code change
+      needed.
 
 - [ ] **phase-c-bytecode-double-globals** — emit
       `BytecodeJit.readGlobalDouble(name)` companion to the existing
-      `readGlobalLong` (commit `7162a155`). Skip if no high-value bench
-      exercises it.
+      `readGlobalLong` (commit `7162a155`). Same TLS-interpreter
+      mechanism. Skip if no high-value bench exercises it; consider it
+      after a real workload surfaces.
 
 - [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
       ref fns into a single Java class OR add a runtime MH registry
-      indexed by fn name. Lower priority — uncommon in practice.
+      indexed by fn name. Lower priority — uncommon in practice. Rough
+      design sketch: keep one `BytecodeJit` cache entry per fn but track
+      a "compile-unit" set; if compiling fn A finds a `Term.Apply` to
+      sibling fn B, recursively compile B first into the SAME class
+      (using a co-emit Java template with two static methods).
 
 - [ ] **phase-c-bytecode-wider-match** — guards, literal patterns,
       `Pat.Bind`/`Pat.Alternative`, nested matches. Each adds a handful
-      of Java-emission cases in `walkArm`.
+      of Java-emission cases in `walkArm`. Largely mechanical; treat as
+      cleanup work to be done when a bench shows a specific shape
+      bailing.
 
 - [ ] **phase-d-patternmatch-double-slot** — `tryMixedDoubleWhile`
       parallel of `tryMixedLongWhile` to carry the Double accumulator in
       a Long-bits slot; closes the per-iter `DoubleV` alloc gap in
       `patternMatchHeavy`'s outer while.
+
+      **Expected win:** modest. JFR-profile-first before committing
+      design: the outer while body already routes through
+      `tryMixedLongWhile` (for the `i = i + 1` long slot) which calls
+      `FastTier.tryDoubleAccumForeach` via `interp.eval` for the
+      `shapes.foreach(...)` leading apply. The DoubleV writeback inside
+      FastTier (`interp.globals(accName) = Value.doubleV(acc)`) is the
+      remaining per-iter alloc — for `patternMatchHeavy`'s 100k outer
+      iters that's ~3.2 MB / op out of the current ~4 MB total. The
+      time impact of removing 3.2 MB of allocs at the existing alloc
+      rate is small (~1-5% — confirm with profile before promising
+      more). If JFR shows DoubleV writeback is NOT the dominant
+      remaining cost (e.g. HashMap field lookups in `area`'s match
+      bodies are bigger), pivot to `phase-d-instancev-array-repr`
+      instead — much larger lever.
+
+      **Implementation sketch** (4-module change; apply the §"Methodology"
+      rule 2 above — split into 3 commits):
+      1. *Infrastructure:* add `FastTier.accSlotTls: ThreadLocal[Array[Long]]`
+         (single-element long array holding the Double bits). Add
+         `withAccSlot(slot)(thunk)` setter/clearer following the
+         `withInterp` pattern in `BytecodeJit`. Don't touch any consumers
+         yet — just the infrastructure compiles + tests stay green.
+      2. *FastTier hookup:* in `tryDoubleAccumForeach` (BOTH the List
+         and Set variants), at entry check `accSlotTls.get()`. If null,
+         keep the current globals-based path. If non-null, read initial
+         `acc` from `slot(0)` (decode via `jl.Double.longBitsToDouble`),
+         skip the globals lookup, and on exit write
+         `slot(0) = jl.Double.doubleToRawLongBits(acc)` instead of
+         touching globals. Add tests covering both paths (TLS set vs
+         unset) — should still pass with the wrapper not yet integrated.
+      3. *EvalRuntime recognition:* detect the
+         `Term.While(Term.Block(foreach_apply, i_assign))` shape WHERE
+         the foreach closure body is the `acc = acc + fn(s)` shape AND
+         `acc` resolves to `DoubleV` in globals at compile time. If
+         matched, pre-extract the slot (`Array[Long](1)` holding initial
+         `acc` bits), `FastTier.withAccSlot(slot) { runStandardLoop() }`,
+         materialize `interp.globals(accName) = Value.doubleV(...)`
+         once at the end.
+
+      **Gotchas** (each maps to a place a tired-context agent could
+      land subtle bugs):
+
+      - *scalameta `Stat` vs `Term`*: `Term.Block.stats` is
+        `List[Stat]`. Cast to `Term.Apply` / `Term.Assign` via
+        `isInstanceOf` first, then `.asInstanceOf[Term]`. See the same
+        pattern in `EvalRuntime.collectMixedAssignBody` for the
+        established convention.
+      - *Two FastTier touch points*: BOTH `tryDoubleAccumForeach` (List)
+        and `tryDoubleAccumForeachSet` (Set, just landed in `8f911f14`)
+        need the TLS check. Forgetting either silently keeps the
+        old slow path for that receiver type.
+      - *`try/finally` for TLS*: the eval'd apply can throw (FastTier
+        catches `ControlThrowable` but other code below may surface a
+        located error). Wrap setter/clearer per §"Methodology" rule 4.
+      - *Compile-time vs runtime acc type*: `acc` in globals must be
+        `DoubleV` at compile time. If it later is reassigned to a
+        non-DoubleV (e.g. a function call result that returns a
+        different shape), the slot path silently mis-types. Either bail
+        at runtime if the slot decode looks wrong OR re-verify the
+        globals shape after the loop. The simplest safe path: bail
+        wrapper if `accName`'s value in globals isn't `DoubleV` at
+        compile time, AND require the closure body shape to guarantee
+        the FastTier path will fire (i.e. the existing
+        `tryDoubleAccumForeach` shape checks must pass; the wrapper
+        runs the SAME compile-time checks against the closure before
+        committing to the slot path).
+      - *Pure inner loop*: the wrapper should call the same iteration
+        machinery, NOT duplicate it. If you find yourself copy-pasting
+        the `tryMixedLongWhile` loop body, stop and refactor or use
+        `interp.eval` against the original `Term.While` — the value is
+        in PRE-loading the slot, not in rewriting the loop.
 
 - [ ] **phase-d-instancev-array-repr** — replace `Map[String, Value]`
       fields with `Array[Value]` + typeName-keyed dispatch table.
@@ -87,6 +258,41 @@ non-win.
       reads. Likely the biggest single Phase D lever; needs careful
       design + capability check (`InstanceV` is used everywhere).
 
+      **Expected win:** large but uncertain — JFR-profile-first to
+      confirm HashMap lookups are the dominant remaining cost on
+      `patternMatchHeavy` AND `recursiveEval` before committing to the
+      interpreter-wide refactor. The current `recursiveEval` 13 ms vs
+      JVM ~500 µs gap is ~26×; if HashMap field reads account for
+      ~half, the lever closes ~half of that.
+
+      **Approach** (multi-day, multi-commit project — fresh agent
+      should plan it as its own milestone, NOT a single sitting):
+      1. *Design doc:* write `docs/instancev-array-repr.md` first.
+         Cover: new field layout, dispatch-table keyed by `typeName ==
+         interned-string-ref`, capability flag (`SSC_INSTANCEV_ARRAY`?),
+         migration path for the ~30+ sites that currently destructure
+         `InstanceV(t, fields)` via the Map shape. Land the spec, get
+         human review before any code.
+      2. *Capability flag scaffolding:* land the flag with a default-off
+         no-op; ensures no existing tests break.
+      3. *Parallel representation:* add `InstanceV.fields` as
+         `Map[String, Value]` AND new `fieldsArr: Array[Value] | Null`.
+         The array is populated when known; consumers prefer array
+         when non-null, fall back to map. Migrate one consumer at a
+         time.
+      4. *Backend-by-backend migration:* `BytecodeJit.walkArm`,
+         `PatternRuntime.compileSlotBody`, `DerivesRuntime`, etc. Each
+         is a separate commit with the per-bench validation.
+      5. *Final pass:* once all hot paths are array-backed, drop the
+         Map field. May require schema/wire-format changes (check
+         `ValueSerializer` — wire `inst` tag depends on Map).
+      6. *Flip flag default ON*, watch for a few days, then remove the
+         flag.
+
+      This is fundamentally NOT a single-session task. A fresh agent
+      starting from cold context will need ~2-3 dedicated days. Don't
+      try to compress.
+
 - [ ] **phase-d-patternmatch-fused-foreach** — once
       `phase-d-instancev-array-repr` lands, BytecodeJit could compile
       `area(s) match` directly to a Java method operating on the array
@@ -94,9 +300,11 @@ non-win.
       the path toward closing the remaining `interp_patternMatch` 213×
       off-JVM gap in `RuntimeBench`.
 
-- [ ] **phase-d-patternmatchset-direct** — direct `Set`-aware FastTier
-      path (skips `Set.toList` allocation in the current `dispatchSet`
-      route).
+- [x] **phase-d-patternmatchset-direct** — ✓ Landed 2026-06-02 commit
+      `8f911f14`. Direct `Set`-aware FastTier path
+      (`tryDoubleAccumForeachSet` + `tryLongAccumForeachSet`) hooked at
+      `dispatchSet`'s foreach case; skips the `set.toList` allocation.
+      `patternMatchSet` 148.5 → 116.4 ms (1.28×).
 
 - [ ] **ci-green-audit** — after the Phase C+D interpreter-perf
       continuation lands (or sooner if any blocks main), audit the GitHub
