@@ -806,6 +806,10 @@ private[interpreter] object DispatchRuntime:
         case Value.StringV(t) => Computation.pureIntV(s.indexOf(t).toLong)
         case Value.CharV(c)   => Computation.pureIntV(s.indexOf(c.toInt).toLong)
         case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
+      case "lastIndexOf" => arg match
+        case Value.StringV(t) => Computation.pureIntV(s.lastIndexOf(t).toLong)
+        case Value.CharV(c)   => Computation.pureIntV(s.lastIndexOf(c.toInt).toLong)
+        case _                => dispatchString(recv, s, name, arg :: Nil, env, interp)
       case "codePointAt" => arg match
         case Value.IntV(i) =>
           if i < 0 || i >= s.length then interp.located(s"index $i out of bounds for string of length ${s.length}")
@@ -2959,6 +2963,24 @@ private[interpreter] object DispatchRuntime:
           case ">"  => Value.boolV(a > b.toDouble)
           case "<=" => Value.boolV(a <= b.toDouble)
           case ">=" => Value.boolV(a >= b.toDouble)
+          case _    => null
+        case _ => null
+      case Value.CharV(a) => rhs match
+        case Value.CharV(b) => op match
+          case "<"  => Value.boolV(a < b)
+          case ">"  => Value.boolV(a > b)
+          case "<=" => Value.boolV(a <= b)
+          case ">=" => Value.boolV(a >= b)
+          case "==" => Value.boolV(a == b)
+          case "!=" => Value.boolV(a != b)
+          case _    => null
+        case Value.IntV(b) => op match
+          case "<"  => Value.boolV(a.toInt < b)
+          case ">"  => Value.boolV(a.toInt > b)
+          case "<=" => Value.boolV(a.toInt <= b)
+          case ">=" => Value.boolV(a.toInt >= b)
+          case "==" => Value.boolV(a.toInt == b)
+          case "!=" => Value.boolV(a.toInt != b)
           case _    => null
         case _ => null
       case _ => null
