@@ -673,13 +673,20 @@ private[interpreter] object PatternRuntime:
     case _              => Pure(v)
 
   /** Build the pattern env from precomputed field order and binding names.
-   *  Returns null if any required field is missing from `fields`. */
+   *  When `arr` is non-null (populated by Phase 3 constructors when the
+   *  `SSC_INSTANCEV_ARRAY` flag is on), field reads use positional
+   *  `arr(i)` access instead of `fields.getOrElse(fo(i), null)` HashMap
+   *  lookup. Returns null if any required field is missing. */
   private def buildPatEnv(
     fo:        Array[String],
     bindNames: Array[String | Null],
     fields:    Map[String, Value],
+    arr:       Array[Value] | Null,
     env:       Env
   ): Env | Null =
+    inline def at(i: Int): Value =
+      if arr != null then arr(i)
+      else                fields.getOrElse(fo(i), null)
     val n = fo.length
     n match
       case 0 => env
@@ -687,21 +694,21 @@ private[interpreter] object PatternRuntime:
         val bname = bindNames(0)
         if bname == null then env
         else
-          val v = fields.getOrElse(fo(0), null)
+          val v = at(0)
           if v == null then null else FrameMap.one(bname, v, env)
       case 2 =>
         val b0 = bindNames(0)
         val b1 = bindNames(1)
         if b0 == null && b1 == null then env
         else if b0 == null then
-          val v1 = fields.getOrElse(fo(1), null)
+          val v1 = at(1)
           if v1 == null then null else FrameMap.one(b1, v1, env)
         else if b1 == null then
-          val v0 = fields.getOrElse(fo(0), null)
+          val v0 = at(0)
           if v0 == null then null else FrameMap.one(b0, v0, env)
         else
-          val v0 = fields.getOrElse(fo(0), null)
-          val v1 = fields.getOrElse(fo(1), null)
+          val v0 = at(0)
+          val v1 = at(1)
           if v0 == null || v1 == null then null
           else FrameMap.two(b0, v0, b1, v1, env)
       case _ =>
@@ -720,7 +727,7 @@ private[interpreter] object PatternRuntime:
           while i < n do
             val bname = bindNames(i)
             if bname != null then
-              val v = fields.getOrElse(fo(i), null)
+              val v = at(i)
               if v == null then return null
               names(j) = bname
               vals(j)  = v
@@ -803,7 +810,8 @@ private[interpreter] object PatternRuntime:
               case Value.NoneV if tn == "None" && bindNames.isEmpty =>
                 if noGuard || evalGuard(c.cond, env, interp) then runBody(env)
                 else null
-              case Value.InstanceV(t, fields) if t == tn =>
+              case inst: Value.InstanceV if inst.typeName == tn =>
+                val fields = inst.fields
                 if fieldOrderCache == null then
                   fieldOrderCache = interp.typeFieldOrder
                     .getOrElse(tn, fields.keys.toList)
@@ -811,7 +819,13 @@ private[interpreter] object PatternRuntime:
                 val fo = fieldOrderCache
                 if bindNames.length != fo.length then null
                 else
-                  val patEnv = buildPatEnv(fo, bindNames, fields, env)
+                  // Phase 2a: prefer the positional fieldsArr side-table when
+                  // the InstanceV was constructed with the flag on (Phase 3).
+                  // Null → fall back to fields.getOrElse inside buildPatEnv.
+                  val arr =
+                    if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.get(inst)
+                    else null
+                  val patEnv = buildPatEnv(fo, bindNames, fields, arr, env)
                   if patEnv == null then null
                   else if noGuard || evalGuard(c.cond, patEnv, interp) then runBody(patEnv)
                   else null
@@ -1052,7 +1066,8 @@ private[interpreter] object PatternRuntime:
       val fn: (Value, Env) => AnyRef | Null =
         (scrutV, env) =>
           scrutV match
-            case Value.InstanceV(t, fields) if t == tn =>
+            case inst: Value.InstanceV if inst.typeName == tn =>
+              val fields = inst.fields
               if fieldOrderCache == null then
                 fieldOrderCache = interp.typeFieldOrder
                   .getOrElse(tn, fields.keys.toList)
@@ -1060,7 +1075,10 @@ private[interpreter] object PatternRuntime:
               val fo = fieldOrderCache
               if bindNames.length != fo.length then null
               else
-                val patEnv = buildPatEnv(fo, bindNames, fields, env)
+                val arr =
+                  if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.get(inst)
+                  else null
+                val patEnv = buildPatEnv(fo, bindNames, fields, arr, env)
                 if patEnv == null then null
                 else { val v = bt(patEnv); if v != null then v else NeedMonadic }
             case _ => null

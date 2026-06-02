@@ -14,17 +14,33 @@ private[interpreter] object StatRuntime:
       typeName: String,
       paramNames: List[String],
       args: List[Value],
-      fallback: List[Value] => Computation
+      fallback: List[Value] => Computation,
+      interp: Interpreter
   ): Computation =
+    // Phase 3 (Direction B narrow): when the SSC_INSTANCEV_ARRAY flag is on,
+    // populate the per-Interpreter side-table with a positional Array[Value]
+    // so PatternRuntime arm bindings (and future BytecodeJit walkArm) read
+    // fields by index instead of HashMap.get. The side-table is keyed by the
+    // InstanceV identity; weak references release entries when the value
+    // becomes unreachable.
+    inline def registerArr(inst: Value.InstanceV, arr: Array[Value]): Unit =
+      if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.put(inst, arr)
     paramNames match
       case Nil =>
         Pure(Value.InstanceV(typeName, Map.empty))
       case List(p0) if args.length == 1 =>
-        Pure(Value.InstanceV(typeName, new IMap.Map1(p0, args.head)))
+        val inst: Value.InstanceV = Value.InstanceV(typeName, new IMap.Map1(p0, args.head))
+        registerArr(inst, Array[Value](args.head))
+        Pure(inst)
       case List(p0, p1) if args.length == 2 =>
-        Pure(Value.InstanceV(typeName, new IMap.Map2(p0, args.head, p1, args(1))))
+        val inst: Value.InstanceV = Value.InstanceV(typeName, new IMap.Map2(p0, args.head, p1, args(1)))
+        registerArr(inst, Array[Value](args.head, args(1)))
+        Pure(inst)
       case _ if args.length >= paramNames.length =>
-        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(args))))
+        val take = args.take(paramNames.length)
+        val inst: Value.InstanceV = Value.InstanceV(typeName, Map.from(paramNames.lazyZip(take)))
+        registerArr(inst, take.toArray)
+        Pure(inst)
       case _ =>
         fallback(args)
 
@@ -156,12 +172,15 @@ private[interpreter] object StatRuntime:
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        Pure(Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled))))
+        val inst: Value.InstanceV = Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled)))
+        if Value.instanceVArrayEnabled then
+          interp.instanceVFieldsArr.put(inst, filled.toArray)
+        Pure(inst)
       }
       val noDefaults = paramDefaults.forall(_.isEmpty)
       env(typeName) = if noDefaults then
         Value.NativeFnV(typeName, args =>
-          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classFallbackCtor))
+          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classFallbackCtor, interp))
       else
         Value.NativeFnV(typeName, classFallbackCtor)
       // Methods defined inside the class body are stored in a separate
@@ -217,13 +236,16 @@ private[interpreter] object StatRuntime:
             interp.parentTypes(caseName) = enumName
             val enumFallbackCtor: List[Value] => Computation = args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              Pure(Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled))))
+              val inst: Value.InstanceV = Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled)))
+              if Value.instanceVArrayEnabled then
+                interp.instanceVFieldsArr.put(inst, filled.toArray)
+              Pure(inst)
             }
             val noEnumDefaults = paramDefaults.forall(_.isEmpty)
             val v: Value =
               if noEnumDefaults then
                 Value.NativeFnV(caseName, args =>
-                  constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor))
+                  constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor, interp))
               else Value.NativeFnV(caseName, enumFallbackCtor)
             env(caseName) = v
             caseFields(caseName) = v
