@@ -567,6 +567,15 @@ private[interpreter] object DispatchRuntime:
               return FlatMap(comp, loopFilt)
         Pure(Value.MapV(filtBuf.toMap))
       case "foreach"    =>
+        // FastTier 2-arg foreach short-circuit for the
+        // `m.foreach((k, v) => acc = acc + paramRef)` shape — single-arg
+        // dispatch site (the common case in `var total = 0; m.foreach(...)`).
+        if arg.isInstanceOf[Value.FunV] then
+          val fv = arg.asInstanceOf[Value.FunV]
+          val ftD = FastTier.tryDoubleAccumForeachMap(m, fv, interp)
+          if ftD != null then return ftD
+          val ftL = FastTier.tryLongAccumForeachMap(m, fv, interp)
+          if ftL != null then return ftL
         val it = m.iterator
         while it.hasNext do
           val (k, v) = it.next()
@@ -2039,6 +2048,15 @@ private[interpreter] object DispatchRuntime:
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "foreach"   => args match
         case List(f) =>
+          // FastTier 2-arg foreach short-circuit for the
+          // `m.foreach((k, v) => acc = acc + paramRef)` shape. Skips the
+          // per-entry callEntry allocation chain. Mirrors dispatchMap1's hook.
+          if f.isInstanceOf[Value.FunV] then
+            val fv = f.asInstanceOf[Value.FunV]
+            val ftD = FastTier.tryDoubleAccumForeachMap(m, fv, interp)
+            if ftD != null then return ftD
+            val ftL = FastTier.tryLongAccumForeachMap(m, fv, interp)
+            if ftL != null then return ftL
           val it = m.iterator
           while it.hasNext do
             val (k, v) = it.next()

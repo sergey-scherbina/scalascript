@@ -328,3 +328,110 @@ private[interpreter] object FastTier:
       PureUnit
     catch
       case _: scala.util.control.ControlThrowable => null
+
+  /** 2-arg closure shape: `(p1, p2) => { accName = accName + paramRef }` where
+   *  `paramRef` is a `Term.Name` reference to either `p1` or `p2`. Used for the
+   *  `Map.foreach((k, v) => acc = acc + v)` family (see `tryLongAccumForeachMap`,
+   *  `tryDoubleAccumForeachMap`). `useFirst` selects the first or second
+   *  closure param as the accumulator source. */
+  private final class MapAccumShape(val accName: String, val useFirst: Boolean)
+  private val MAP_MISS: MapAccumShape = new MapAccumShape("", false)
+  private val mapShapeCache: java.util.IdentityHashMap[Term, MapAccumShape] =
+    new java.util.IdentityHashMap[Term, MapAccumShape]()
+
+  private def analyzeMapAccum(body: Term, p1: String, p2: String): MapAccumShape | Null =
+    val cached = mapShapeCache.get(body)
+    if cached != null then return if cached eq MAP_MISS then null else cached
+    val r = analyzeMapAccumRaw(body, p1, p2)
+    mapShapeCache.put(body, if r == null then MAP_MISS else r)
+    r
+
+  private def analyzeMapAccumRaw(body: Term, p1: String, p2: String): MapAccumShape | Null =
+    val core = body match
+      case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+        b.stats.head match
+          case t: Term => t
+          case _       => return null
+      case t => t
+    core match
+      case a: Term.Assign =>
+        a.lhs match
+          case lhsName: Term.Name =>
+            val accName = lhsName.value
+            if accName == p1 || accName == p2 then null
+            else
+              a.rhs match
+                case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
+                    if op.value == "+" && lhs.value == accName && argClause.values.lengthCompare(1) == 0 =>
+                  argClause.values.head match
+                    case ref: Term.Name =>
+                      if ref.value == p1 then new MapAccumShape(accName, true)
+                      else if ref.value == p2 then new MapAccumShape(accName, false)
+                      else null
+                    case _ => null
+                case _ => null
+          case _ => null
+      case _ => null
+
+  /** Fast-tier handler for `m.foreach((k, v) => acc = acc + paramRef)` where
+   *  `acc` is `Int`-typed in globals and the picked entry component (`k` or
+   *  `v`) is `IntV` per iteration. Simpler than the list/set 1-arg paths
+   *  because there's no inner `fn` to resolve — the closure body adds one
+   *  component of the entry directly to the accumulator.
+   *
+   *  Bails on the first non-`IntV` source value with `globals` untouched
+   *  (safe — we accumulate locally and write back once at end of loop). */
+  def tryLongAccumForeachMap(
+    m:       scala.collection.immutable.Map[Value, Value],
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): Computation | Null =
+    if !enabled then return null
+    if closure.params.length != 2 then return null
+    if closure.usingParams.nonEmpty then return null
+    val p1    = closure.params(0)
+    val p2    = closure.params(1)
+    val shape = analyzeMapAccum(closure.body, p1, p2)
+    if shape == null then return null
+    val accV = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
+    var acc = accV.asInstanceOf[Value.IntV].v
+    val it = m.iterator
+    while it.hasNext do
+      val kv  = it.next()
+      val src = if shape.useFirst then kv._1 else kv._2
+      src match
+        case Value.IntV(x) => acc = acc + x
+        case _             => return null
+    interp.globals(shape.accName) = Value.intV(acc)
+    PureUnit
+
+  /** Double-typed parallel of `tryLongAccumForeachMap`. Accepts both `DoubleV`
+   *  and `IntV` (the latter widens to `double`) at the source position —
+   *  mirrors Scala's numeric promotion in `total = total + v` where `total` is
+   *  Double. Writes back once via `Value.doubleV`. */
+  def tryDoubleAccumForeachMap(
+    m:       scala.collection.immutable.Map[Value, Value],
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): Computation | Null =
+    if !enabled then return null
+    if closure.params.length != 2 then return null
+    if closure.usingParams.nonEmpty then return null
+    val p1    = closure.params(0)
+    val p2    = closure.params(1)
+    val shape = analyzeMapAccum(closure.body, p1, p2)
+    if shape == null then return null
+    val accV = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
+    var acc = accV.asInstanceOf[Value.DoubleV].v
+    val it = m.iterator
+    while it.hasNext do
+      val kv  = it.next()
+      val src = if shape.useFirst then kv._1 else kv._2
+      src match
+        case Value.DoubleV(x) => acc = acc + x
+        case Value.IntV(x)    => acc = acc + x.toDouble
+        case _                => return null
+    interp.globals(shape.accName) = Value.doubleV(acc)
+    PureUnit

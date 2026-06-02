@@ -183,13 +183,21 @@ verify step. Apply them.
       `recursiveEvalMixed`). JFR-profile after to verify
       `java.lang.Long` exits the top samples.
 
-- [ ] **fasttier-2arg-callentry** — extend FastTier with
-      `tryDoubleAccumForeachMap` / `tryLongAccumForeachMap` recognizing
-      a 2-arg foreach closure (`(k, v) =>`) and bypassing the entry
-      materialization. Floor bench `mapForeach` already in place
-      (~1.07 µs/callEntry, 87 bytes/callEntry, 43.6 MB/op alloc). Single
-      module change in `FastTier` + hookup in `DispatchRuntime.dispatchMap`
-      "foreach" case. See `docs/interpreter-perf-findings-2026-06.md` §6.
+- [x] **fasttier-2arg-callentry** — ✓ Landed 2026-06-02.
+      `tryLongAccumForeachMap` + `tryDoubleAccumForeachMap` parallel to
+      the existing list/set variants. Closure shape detected:
+      `(p1, p2) => acc = acc + paramRef` where `paramRef` is one of
+      the two closure params (covers the `total = total + v` family).
+      Direct entry-component extraction — no inner `fn` lookup, no
+      slot-match compile, no closure-env materialization. Hooked at
+      BOTH `dispatchMap1.foreach` (the single-arg dispatch site —
+      where `m.foreach(closure)` actually lands) AND `dispatchMap.foreach`
+      (defensive — the 2+arg path), with a per-AST shape cache. Bench
+      `mapForeach` **532 → 110 ms (4.8×)**. All other benches stable;
+      full 1205-test suite green in both default and `SSC_FASTTIER=off`
+      modes. **Gotcha for future agents**: `m.foreach(closure)` is 1-arg
+      → goes through `dispatchMap1`, NOT `dispatchMap`. The dispatchMap
+      site fires only for explicit multi-arg shapes.
 
 - [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
       ref fns into a single Java class OR add a runtime MH registry
