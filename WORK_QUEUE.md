@@ -32,7 +32,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
   `ModelParseTest` + `ModelPathResolverTest` + backwards-compat smoke (all existing
   backend suites pass). **Spec:** [`docs/typed-models-ir.md`](docs/typed-models-ir.md)
 
-- [ ] **v1.66.1-swiftui-typed-models** — SwiftUI emitter consumes the IR from
+- [x] **v1.66.1-swiftui-typed-models** — ✓ Landed 2026-06-02. SwiftUI emitter consumes the IR from
   v1.66.0: `emitModelStructs` → `struct X: Decodable [+ Identifiable]`; typed fetch
   via `JSONDecoder().decode`; `@State private var <id>: <T>? = nil` + companion vars;
   `ModelView` → `if let`; `ForModel` → `ForEach`; `ModelText` → `Text(path)`.
