@@ -165,6 +165,17 @@ non-win.
 
 ### Current baseline (2026-06-02 end-of-session, default flags ALL ON)
 
+> **Late-2026-06-02 update.** A second perf sweep this session
+> attacked the LongWhile compile prologue, the LMatch dispatch path,
+> the BytecodeJit val-globals path, and the slot-body DExpr eval
+> tail. Wins relative to the table immediately below (left column):
+> - `instanceFieldAccess` 16.6 → **8.4** ms (49%, 7 commits incl. SlotTable,
+>   ctorTagsInt, LMatch val-scrut cache, slot-body peephole)
+> - `recursionFibMul`     6.06 → **1.29** ms (78%, val-globals inline)
+> - `recursionFibMulD`    6.18 → **1.56** ms (75%, val-globals inline)
+> Commits on main: `0e8f3831 44c3812c 62b16bb8 b4eb11f1 dcc5dd34 6948784e 5b29e1c7`.
+> Other benches unchanged or within noise.
+
 Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
 Opt-out via `=off` on env or `-D…=off` on JMH forks. Numbers below are
 the baseline for any next A/B; if your stash-baseline gives wildly
