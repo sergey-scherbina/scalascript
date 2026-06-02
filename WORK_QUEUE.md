@@ -49,8 +49,13 @@ bearer-token API. Resume via the standard claim/worktree flow.
   `r.json()` branch; `v-if`/`v-for`/`{{ bs.field }}` for view nodes.
   **Spec:** `docs/typed-models-ir.md §Vue`
 
-- [ ] **v1.66.4-solid-typed-models** — Solid emitter: fix mount-fetch parity gap
-  (same pattern as Vue); `<Show when=...>`/`<For each=...>`/text binding.
+- [x] **v1.66.4-solid-typed-models** — ✓ Landed 2026-06-02. Solid emitter:
+  fix mount-fetch parity gap (`collectFetchSignals` + direct `fetch()` before DOM
+  construction, `createEffect` for tick); `FetchJsonSignal` → `r.json()` + companion
+  `_loading`/`_loaded`/`_error` signals; `ModelView` → `createEffect`-driven span with
+  `bindingVar = signal()`; `ForModel` → for-loop over `bindingVar.fieldPath`; `ModelText` →
+  `createTextNode(String(varName.fieldPath))`; `registerSignal` skips `FetchUrlSignal`.
+  11 new tests in `SolidTypedModelsTest`; all 46 Solid tests pass.
   **Spec:** `docs/typed-models-ir.md §Solid`
 
 - [ ] **v1.66.5-custom-typed-models** — Custom (StaticJs) emitter: mount-fetch via
