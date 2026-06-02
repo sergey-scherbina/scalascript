@@ -207,11 +207,13 @@ object BackendRegistry extends PluginRegistry:
         else
           val urls = extraJarPaths.map(_.toIO.toURI.toURL).toArray
           new java.net.URLClassLoader(urls, classOf[Backend].getClassLoader)
-      inProcessCache = ServiceLoader
-        .load(classOf[Backend], loader)
-        .iterator
-        .asScala
-        .toList
+      val iter     = ServiceLoader.load(classOf[Backend], loader).iterator.asScala
+      val backends = scala.collection.mutable.ListBuffer.empty[Backend]
+      while iter.hasNext do
+        try backends += iter.next()
+        catch case e: java.util.ServiceConfigurationError =>
+          log.warn(s"[ssc] skipping backend plugin (missing dependency): ${e.getMessage.take(120)}")
+      inProcessCache = backends.toList
       inProcessCache.foreach(registerDslHooks)
     inProcessCache
 

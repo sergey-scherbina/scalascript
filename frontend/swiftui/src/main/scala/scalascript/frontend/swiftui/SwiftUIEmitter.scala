@@ -725,6 +725,22 @@ object SwiftUIEmitter:
       }
       mods.mkString("\n")
 
+  private def headersBlock(headersId: Option[String], reqVar: String, indent: Int): String =
+    headersId match
+      case None => ""
+      case Some(hid) =>
+        val pad = " " * indent
+        s"""${pad}var $reqVar = URLRequest(url: _url)
+           |${pad}if let _hData = $hid.data(using: .utf8),
+           |${pad}   let _hDict = try? JSONSerialization.jsonObject(with: _hData) as? [String: String] {
+           |${pad}    for (k, v) in _hDict { $reqVar.setValue(v, forHTTPHeaderField: k) }
+           |${pad}}""".stripMargin
+
+  private def fetchDataLine(headersId: Option[String], reqVar: String, indent: Int): String =
+    val pad = " " * indent
+    if headersId.isDefined then s"${pad}let (data, _) = try await URLSession.shared.data(for: $reqVar)"
+    else                        s"${pad}let (data, _) = try await URLSession.shared.data(from: _url)"
+
   private def emitFetchMethods(fetchSigs: List[FetchUrlSignal], indent: Int): String =
     if fetchSigs.isEmpty then ""
     else
@@ -733,12 +749,15 @@ object SwiftUIEmitter:
       val pad3 = " " * (indent + 8)
       fetchSigs.map {
         case fjs: FetchJsonSignal =>
+          val hBlock = headersBlock(fjs.headersId, "_req", indent + 4)
+          val hSep   = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
+          val fetch  = fetchDataLine(fjs.headersId, "_req", indent + 8)
           s"""${pad}private func _load_${fjs.id}() async {
              |${pad2}guard let _url = URL(string: ${swiftStringLit(fjs.fetchUrl)}) else { return }
              |${pad2}${fjs.id}_loading = true
-             |${pad2}${fjs.id}_error = ""
+             |${pad2}${fjs.id}_error = ""$hSep
              |${pad2}do {
-             |${pad3}let (data, _) = try await URLSession.shared.data(from: _url)
+             |$fetch
              |${pad3}${fjs.id} = try JSONDecoder().decode(${fjs.modelTypeName}.self, from: data)
              |${pad3}${fjs.id}_loaded = true
              |${pad2}} catch {
@@ -748,10 +767,13 @@ object SwiftUIEmitter:
              |${pad}}
              |""".stripMargin
         case fs =>
+          val hBlock = headersBlock(fs.headersId, "_req", indent + 4)
+          val hSep   = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
+          val fetch  = fetchDataLine(fs.headersId, "_req", indent + 8)
           s"""${pad}private func _load_${fs.id}() async {
-             |${pad2}guard let _url = URL(string: ${swiftStringLit(fs.fetchUrl)}) else { return }
+             |${pad2}guard let _url = URL(string: ${swiftStringLit(fs.fetchUrl)}) else { return }$hSep
              |${pad2}do {
-             |${pad3}let (data, _) = try await URLSession.shared.data(from: _url)
+             |$fetch
              |${pad3}${fs.id} = String(data: data, encoding: .utf8) ?? ""
              |${pad2}} catch {}
              |${pad}}
@@ -820,10 +842,13 @@ object SwiftUIEmitter:
       val pad2 = " " * (indent + 4)
       val pad3 = " " * (indent + 8)
       dts.map { dt =>
+        val hBlock = headersBlock(dt.signal.headersId, "_req", indent + 4)
+        val hSep   = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
+        val fetch  = fetchDataLine(dt.signal.headersId, "_req", indent + 8)
         s"""${pad}private func _load_dt_${dt.signal.id}() async {
-           |${pad2}guard let _url = URL(string: ${swiftStringLit(dt.signal.fetchUrl)}) else { return }
+           |${pad2}guard let _url = URL(string: ${swiftStringLit(dt.signal.fetchUrl)}) else { return }$hSep
            |${pad2}do {
-           |${pad3}let (data, _) = try await URLSession.shared.data(from: _url)
+           |$fetch
            |${pad3}if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
            |${pad3}    ${dt.signal.id} = json
            |${pad3}}

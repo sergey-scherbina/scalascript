@@ -1,6 +1,7 @@
 ---
 name: coroutine-error
 description: v1.9 coroutine — error propagation and nested coroutines
+backends: [int, js]
 ---
 
 # Coroutine — error propagation

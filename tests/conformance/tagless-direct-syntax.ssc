@@ -1,6 +1,7 @@
 ---
 name: conformance-tagless-direct-syntax
 version: 1.0.0
+backends: [int, js]
 ---
 
 # Final Tagless — direct-syntax synergy (§5)

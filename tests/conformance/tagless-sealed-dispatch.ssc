@@ -1,6 +1,7 @@
 ---
 name: conformance-tagless-sealed-dispatch
 version: 1.0.0
+backends: [int]
 ---
 
 # Final Tagless — sealed-trait extension dispatch (§3.4)

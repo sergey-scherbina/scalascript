@@ -2,6 +2,7 @@
 ---
 name: async
 description: Built-in Async effect — delay / async / await / parallel via runAsync
+backends: [int, js]
 ---
 
 # Async

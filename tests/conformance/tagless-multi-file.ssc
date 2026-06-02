@@ -1,6 +1,7 @@
 ---
 name: conformance-tagless-multi-file
 version: 1.0.0
+backends: [int, js]
 ---
 
 # Final Tagless — cross-file trait inheritance with HKT (§3.3)

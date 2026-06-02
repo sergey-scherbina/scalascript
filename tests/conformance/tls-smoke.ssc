@@ -1,5 +1,6 @@
 ---
 name: tls-smoke
+backends: [int, js]
 ---
 
 # v1.5 Phase A — `tls(certPath, keyPath)` smoke test

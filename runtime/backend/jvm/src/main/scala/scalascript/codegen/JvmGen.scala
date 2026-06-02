@@ -8948,6 +8948,46 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |    _ssc_tab_items += ((v, label, if icon.isEmpty then None else Some(icon), tag))
          |    v
          |
+         |// ── DataTable / fetchUrlSignal primitives ────────────────────────────────────
+         |def fetchUrlSignal(name: String, url: String, refreshTick: Any, headers: Any = null): Any =
+         |  val _tick = refreshTick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+         |  val _hOpt = Option(headers)
+         |    .map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+         |    .filter(_.id != "__ssc_empty_headers").map(_.id)
+         |  new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
+         |
+         |def emptyHeaders: Any = new scalascript.frontend.ReactiveSignal[String]("__ssc_empty_headers", "")
+         |
+         |def fieldColumn(title: String, fieldPath: String, align: String = ""): Any =
+         |  scalascript.frontend.FieldColumnDef(title, fieldPath, Option(align).filter(_.nonEmpty))
+         |
+         |def rowDeleteAction(url: String, idField: String, tick: Any, headers: Any = null): Any =
+         |  scalascript.frontend.RowActionDef.RowDelete(url, idField,
+         |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+         |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
+         |
+         |def rowPostAction(label: String, method: String, url: String, bodyField: String,
+         |                  tick: Any, headers: Any = null): Any =
+         |  scalascript.frontend.RowActionDef.RowPost(label, method, url, bodyField,
+         |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
+         |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
+         |
+         |def rowLinkAction(label: String, signal: Any, fieldPath: String): Any =
+         |  scalascript.frontend.RowActionDef.RowLink(label,
+         |    signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], fieldPath)
+         |
+         |def dataTableView(signal: Any, columns: Any, actions: Any): scalascript.frontend.View[?] =
+         |  scalascript.frontend.View.DataTable(
+         |    signal.asInstanceOf[scalascript.frontend.FetchUrlSignal],
+         |    columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]],
+         |    actions.asInstanceOf[List[scalascript.frontend.RowActionDef]])
+         |
+         |def fcol(title: String, fieldPath: String, align: String = ""): Any = fieldColumn(title, fieldPath, align)
+         |def rowDelete(url: String, idField: String, tick: Any, headers: Any = null): Any = rowDeleteAction(url, idField, tick, headers)
+         |def rowPost(label: String, method: String, url: String, bodyField: String, tick: Any, headers: Any = null): Any = rowPostAction(label, method, url, bodyField, tick, headers)
+         |def rowLink(label: String, signal: Any, fieldPath: String): Any = rowLinkAction(label, signal, fieldPath)
+         |def dataTable(signal: Any, columns: Any, actions: Any = List()): scalascript.frontend.View[?] = dataTableView(signal, columns, actions)
+         |
          |// ── Widget children stack (for multi-statement DSL blocks) ─────────────────
          |private val _ssc_wstack = java.util.ArrayDeque[scala.collection.mutable.ArrayBuffer[scalascript.frontend.View[?]]]()
          |private val _ssc_tab_items = scala.collection.mutable.ArrayBuffer.empty[(scalascript.frontend.View[?], String, Option[String], Int)]

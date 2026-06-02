@@ -212,6 +212,10 @@ function _dispatch(obj, method, args) {
       case 'startsWith': return obj.startsWith(args[0]);
       case 'endsWith': return obj.endsWith(args[0]);
       case 'contains': return obj.includes(args[0]);
+      case 'indexOf': { const a = typeof args[0] === 'number' ? String.fromCharCode(args[0]) : args[0]; return obj.indexOf(a, args[1]); }
+      case 'lastIndexOf': { const a = typeof args[0] === 'number' ? String.fromCharCode(args[0]) : args[0]; return obj.lastIndexOf(a, args[1]); }
+      case 'forall': { for (const c of obj) { if (!args[0](c)) return false; } return true; }
+      case 'exists': { for (const c of obj) { if (args[0](c)) return true; } return false; }
       case 'toInt': return parseInt(obj);
       case 'toDouble': return parseFloat(obj);
       case 'toList': return [...obj];
@@ -226,7 +230,6 @@ function _dispatch(obj, method, args) {
       case 'nonEmpty': return obj.length > 0;
       case 'toString': return obj;
       case 'map': return [...obj].map(args[0]).join('');
-      case 'trim': return obj.trim();
     }
   }
   if (typeof obj === 'number') {

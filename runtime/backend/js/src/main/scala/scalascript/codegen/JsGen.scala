@@ -366,6 +366,9 @@ class JsGen(
   // Populated by collectFuncParamOrders before the main emit pass.
   // Used at call sites with named args to reorder them to positional order.
   private val funcParamOrder = scala.collection.mutable.Map.empty[String, List[String]]
+  // Functions with 2+ explicit (non-using) parameter clause groups.
+  // Call sites for these need flattened args: _call(f, a, b) not _call(_call(f, a), b).
+  private val multiParamGroupFns = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
   // `sqlBlockCounter` / `sqlPerSection`: sequential `_sqlBlock_<n>`
   // names, and per-section "first-only" tracking so only the first
@@ -391,10 +394,13 @@ class JsGen(
 
   private def collectFuncParamOrders(module: Module): Unit =
     funcParamOrder.clear()
+    multiParamGroupFns.clear()
     def collectDefs(stats: List[Stat]): Unit = stats.foreach {
       case d: Defn.Def =>
         val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
         if params.nonEmpty then funcParamOrder(d.name.value) = params
+        val explicitGroups = d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty)
+        if explicitGroups.size > 1 then multiParamGroupFns += d.name.value
       case _ => ()
     }
     def scanSection(section: Section): Unit =
@@ -3045,6 +3051,24 @@ class JsGen(
         case other             => (other, acc)
       val (baseFun, allArgs) = collectAllArgs(app.fun, app.argClause.values)
       return s"_call(${genExpr(baseFun)}, ${allArgs.map(genExpr).mkString(", ")})"
+
+    // f(a)(b) where f is a user-defined function with multiple explicit param groups:
+    // flatten to _call(f, a, b) so the flat JS function receives all args at once.
+    app.fun match
+      case inner: Term.Apply =>
+        def topName(t: Term): Option[String] = t match
+          case Term.Name(n)       => Some(n)
+          case a: Term.Apply      => topName(a.fun)
+          case _                  => None
+        topName(inner) match
+          case Some(n) if multiParamGroupFns(n) =>
+            def flattenArgs(t: Term, acc: List[Term]): (Term, List[Term]) = t match
+              case a: Term.Apply => flattenArgs(a.fun, a.argClause.values ++ acc)
+              case other         => (other, acc)
+            val (baseFun, allArgs) = flattenArgs(app, Nil)
+            return s"_call(${genExpr(baseFun)}, ${allArgs.map(genExpr).mkString(", ")})"
+          case _ => ()
+      case _ => ()
 
     // .copy(field = value, ...) — spread the receiver, override named fields.
     // Intercepted before argVals are computed so Term.Assign doesn't fall into

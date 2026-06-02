@@ -1,6 +1,7 @@
 ---
 name: conformance-direct-syntax
 version: 1.0.0
+backends: [int, js]
 ---
 
 # Direct Syntax — `direct[M] { ... }` do-notation

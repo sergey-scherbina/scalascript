@@ -1,6 +1,7 @@
 ---
 name: conformance-direct-control-flow
 version: 1.0.0
+backends: [int, js]
 ---
 
 # Direct-Syntax Control Flow
