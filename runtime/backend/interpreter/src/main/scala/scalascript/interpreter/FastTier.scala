@@ -560,9 +560,10 @@ private[interpreter] object FastTier:
   def runDoubleAccumForeachFast(
     list:     List[Value],
     resolved: ResolvedDoubleAccum,
-    interp:   Interpreter
+    interp:   Interpreter,
+    cachedSlot: Array[Long] | Null = null
   ): Computation | Null =
-    val slot    = accSlotTls.get()
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
     val useSlot = slot != null && slot(1) != 0L
     var acc =
       if useSlot then longBitsToDouble(slot(0))
@@ -607,9 +608,10 @@ private[interpreter] object FastTier:
   def runLongAccumForeachFast(
     list:     List[Value],
     resolved: ResolvedLongAccum,
-    interp:   Interpreter
+    interp:   Interpreter,
+    cachedSlot: Array[Long] | Null = null
   ): Computation | Null =
-    val slot    = accSlotTls.get()
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
     val useSlot = slot != null && slot(1) != 0L
     var acc =
       if useSlot then slot(0)
@@ -651,9 +653,10 @@ private[interpreter] object FastTier:
   def runDoubleAccumForeachSetFast(
     set:      scala.collection.immutable.Set[Value],
     resolved: ResolvedDoubleAccum,
-    interp:   Interpreter
+    interp:   Interpreter,
+    cachedSlot: Array[Long] | Null = null
   ): Computation | Null =
-    val slot    = accSlotTls.get()
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
     val useSlot = slot != null && slot(1) != 0L
     var acc =
       if useSlot then longBitsToDouble(slot(0))
@@ -692,9 +695,10 @@ private[interpreter] object FastTier:
   def runLongAccumForeachSetFast(
     set:      scala.collection.immutable.Set[Value],
     resolved: ResolvedLongAccum,
-    interp:   Interpreter
+    interp:   Interpreter,
+    cachedSlot: Array[Long] | Null = null
   ): Computation | Null =
-    val slot    = accSlotTls.get()
+    val slot    = if cachedSlot ne null then cachedSlot else accSlotTls.get()
     val useSlot = slot != null && slot(1) != 0L
     var acc =
       if useSlot then slot(0)

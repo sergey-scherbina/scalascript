@@ -329,6 +329,11 @@ private[interpreter] object EvalRuntime:
   private sealed abstract class PreResolvedForeach:
     def applyIdx: Int
     def run(interp: Interpreter): Computation | Null
+    /** Set the pre-hoisted accumulator slot (`tryFastWhileAssign` calls this
+     *  right after constructing the PreResolved + creating the slot). Only the
+     *  `Fast*` subclasses override; the non-Fast paths (which don't use the
+     *  slot mechanism at all) leave it as a no-op. */
+    def setCachedSlot(slot: Array[Long]): Unit = ()
 
   private final class PreResolvedListForeach(
     val applyIdx: Int,
@@ -368,32 +373,40 @@ private[interpreter] object EvalRuntime:
     val list:     List[Value],
     val resolved: FastTier.ResolvedDoubleAccum
   ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
     def run(interp: Interpreter): Computation | Null =
-      FastTier.runDoubleAccumForeachFast(list, resolved, interp)
+      FastTier.runDoubleAccumForeachFast(list, resolved, interp, cachedSlot)
 
   private final class PreResolvedFastLongListForeach(
     val applyIdx: Int,
     val list:     List[Value],
     val resolved: FastTier.ResolvedLongAccum
   ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
     def run(interp: Interpreter): Computation | Null =
-      FastTier.runLongAccumForeachFast(list, resolved, interp)
+      FastTier.runLongAccumForeachFast(list, resolved, interp, cachedSlot)
 
   private final class PreResolvedFastDoubleSetForeach(
     val applyIdx: Int,
     val set:      scala.collection.immutable.Set[Value],
     val resolved: FastTier.ResolvedDoubleAccum
   ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
     def run(interp: Interpreter): Computation | Null =
-      FastTier.runDoubleAccumForeachSetFast(set, resolved, interp)
+      FastTier.runDoubleAccumForeachSetFast(set, resolved, interp, cachedSlot)
 
   private final class PreResolvedFastLongSetForeach(
     val applyIdx: Int,
     val set:      scala.collection.immutable.Set[Value],
     val resolved: FastTier.ResolvedLongAccum
   ) extends PreResolvedForeach:
+    var cachedSlot: Array[Long] | Null = null
+    override def setCachedSlot(slot: Array[Long]): Unit = cachedSlot = slot
     def run(interp: Interpreter): Computation | Null =
-      FastTier.runLongAccumForeachSetFast(set, resolved, interp)
+      FastTier.runLongAccumForeachSetFast(set, resolved, interp, cachedSlot)
 
   /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
    *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
@@ -1247,6 +1260,11 @@ private[interpreter] object EvalRuntime:
                     foreachApplyIdx, isDouble = true,
                     interp, mixedBody.names, frameView
                   )
+                  // Hoist the accSlotTls.get out of the inner per-iter path:
+                  // when preResolved is a Fast variant it stores the slot in
+                  // a field; FastTier.runDoubleAccumForeachFast then reads
+                  // the field directly instead of probing TLS each iter.
+                  if preResolved ne null then preResolved.setCachedSlot(slot)
                   val r = FastTier.withAccSlot(doubleAccName, slot) {
                     tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
                   }
@@ -1270,6 +1288,7 @@ private[interpreter] object EvalRuntime:
                       foreachApplyIdx, isDouble = false,
                       interp, mixedBody.names, frameView
                     )
+                    if preResolved ne null then preResolved.setCachedSlot(slot)
                     val r = FastTier.withAccSlot(longAccName, slot) {
                       tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
                     }
@@ -1302,6 +1321,7 @@ private[interpreter] object EvalRuntime:
                         foreachApplyIdx, isDouble = mapIsDouble,
                         interp, mixedBody.names, frameView
                       )
+                      if preResolved ne null then preResolved.setCachedSlot(slot)
                       val r = FastTier.withAccSlot(mapAccName, slot) {
                         tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
                       }
