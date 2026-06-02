@@ -834,11 +834,13 @@ code is already on main.
 git fetch origin
 git ls-tree origin/main .work/active/   # all active claims on remote (authoritative)
 # or parse the content of each claim:
-git ls-tree origin/main .work/active/ | awk '{print $4}' | grep '\.claim$' | while read path; do
-  printf "%-40s %s\n" "$(basename $path .claim)" "$(git show origin/main:$path)"
+git ls-tree origin/main .work/active/ | awk '{print $4}' | grep '\.claim$' | while read claim_file; do
+  printf "%-40s %s\n" "$(basename "$claim_file" .claim)" "$(git show "origin/main:$claim_file")"
 done
 # ⚠ Do NOT use `ls .work/active/` or `cat .work/active/*.claim` from a worktree —
 #   those read from the local branch which may predate recent claim commits.
+# ⚠ In zsh, do not name the loop variable `path`: it is tied to `PATH` and can
+#   make commands like `git` and `basename` disappear inside the loop.
 ```
 
 ### Stale claims (agent died, timed out, or was interrupted)
