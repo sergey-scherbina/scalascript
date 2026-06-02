@@ -27,8 +27,9 @@ class AuNppProviderTest extends AnyFunSuite:
       responseBody: String,
       statusCode: Int = 200,
   )(body: String => Unit): Unit =
+    val executor = Executors.newSingleThreadExecutor()
     val server = HttpServer.create(new InetSocketAddress(0), 0)
-    server.setExecutor(Executors.newSingleThreadExecutor())
+    server.setExecutor(executor)
     server.createContext(path, (exchange: HttpExchange) => {
       val respBytes = responseBody.getBytes(StandardCharsets.UTF_8)
       exchange.getResponseHeaders.set("Content-Type", "application/json")
@@ -39,7 +40,7 @@ class AuNppProviderTest extends AnyFunSuite:
     server.start()
     val port = server.getAddress.getPort
     try body(s"http://localhost:$port")
-    finally server.stop(0)
+    finally { server.stop(0); executor.shutdownNow() }
 
   private val testWebhookSecret = "npp-webhook-secret-test"
 
@@ -288,8 +289,9 @@ class AuNppProviderTest extends AnyFunSuite:
     val resolveBody  = """{"bsb":"062-000","accountNumber":"11223344"}"""
     val paymentBody  = """{"transferId":"npp-tx-002","status":"pending"}"""
     // Two endpoints: resolve then payment — use a dispatch server
+    val executor2 = Executors.newSingleThreadExecutor()
     val server = HttpServer.create(new InetSocketAddress(0), 0)
-    server.setExecutor(Executors.newSingleThreadExecutor())
+    server.setExecutor(executor2)
     server.createContext("/v1/payid/resolve", (ex: HttpExchange) => {
       val resp = resolveBody.getBytes(StandardCharsets.UTF_8)
       ex.getResponseHeaders.set("Content-Type", "application/json")
@@ -328,7 +330,7 @@ class AuNppProviderTest extends AnyFunSuite:
       assert(transfer.id.value == "npp-tx-002")
       assert(transfer.rail     == RailKind.AU_NPP)
       assert(transfer.status   == BankTransferStatus.Pending)
-    finally server.stop(0)
+    finally { server.stop(0); executor2.shutdownNow() }
 
   // ── getTransfer delegates to AuNppApi.getPaymentStatus ────────────────────
 

@@ -138,4 +138,5 @@ jobs:
         run: sbt compile cli/assembly
 
       - name: Test via sbt
+        timeout-minutes: 60
         run: sbt test
