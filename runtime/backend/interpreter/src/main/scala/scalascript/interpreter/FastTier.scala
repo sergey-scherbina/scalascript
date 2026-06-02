@@ -71,6 +71,16 @@ private[interpreter] object FastTier:
    *  `xs.foreach(s => { acc = acc + fn(s) })` where `acc` is DoubleV in
    *  globals. Returns the accumulator name or null. AST-only — no eval. */
   def peekDoubleAccName(apply: Term, interp: Interpreter): String | Null =
+    peek1ArgAccName(apply, interp, classOf[Value.DoubleV])
+
+  /** Long-typed parallel of `peekDoubleAccName`. Returns the accumulator name
+   *  if `acc` resolves to `IntV` in globals; null otherwise. Used to gate the
+   *  Long-acc branch of the foreach-hoist in `EvalRuntime.tryFastWhileAssign`
+   *  (targets the `patternMatchWide`-style List+Long shape). */
+  def peekLongAccName(apply: Term, interp: Interpreter): String | Null =
+    peek1ArgAccName(apply, interp, classOf[Value.IntV])
+
+  private def peek1ArgAccName(apply: Term, interp: Interpreter, accCls: Class[?]): String | Null =
     apply match
       case ta: Term.Apply =>
         ta.fun match
@@ -86,8 +96,36 @@ private[interpreter] object FastTier:
                     val shape = analyzeClosure(fn.body, pName)
                     if shape == null then null
                     else
+                      val v = interp.globals.getOrElse(shape.accName, null)
+                      if v != null && accCls.isInstance(v) then shape.accName else null
+              case _ => null
+          case _ => null
+      case _ => null
+
+  /** 2-arg parallel of `peekDoubleAccName`/`peekLongAccName` for the
+   *  `m.foreach((k, v) => acc = acc + paramRef)` shape. Returns
+   *  `(accName, isDouble)` or null when the apply doesn't match the shape OR
+   *  the acc isn't `DoubleV` / `IntV` in globals. */
+  def peekMapAccName(apply: Term, interp: Interpreter): (String, Boolean) | Null =
+    apply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(_, Term.Name("foreach")) =>
+            ta.argClause.values match
+              case List(fn: Term.Function) =>
+                val pc = fn.paramClause
+                if pc.values.lengthCompare(2) != 0 then null
+                else
+                  val p1 = pc.values.head.name.value
+                  val p2 = pc.values(1).name.value
+                  if p1.isEmpty || p2.isEmpty then null
+                  else
+                    val shape = analyzeMapAccum(fn.body, p1, p2)
+                    if shape == null then null
+                    else
                       interp.globals.getOrElse(shape.accName, null) match
-                        case _: Value.DoubleV => shape.accName
+                        case _: Value.DoubleV => (shape.accName, true)
+                        case _: Value.IntV    => (shape.accName, false)
                         case _                => null
               case _ => null
           case _ => null

@@ -262,18 +262,47 @@ private[interpreter] object EvalRuntime:
   )
 
   /** Pre-resolved receiver and closure FunV for a
-   *  `receiver.foreach(s => { acc = acc + fn(s) })` leading apply.
-   *  Allows `tryMixedLongWhile` to bypass the eval→evalApplyGeneral→dispatch
-   *  path (which allocates `Pure(listValue)` per outer iteration) and call
-   *  the appropriate `FastTier.tryDoubleAccumForeach*` directly.
-   *  Exactly one of `list` / `set` is non-null per instance — the receiver
-   *  kind discriminator. */
-  private final class PreResolvedForeach(
+   *  `receiver.foreach(closure)` leading apply. Allows `tryMixedLongWhile` to
+   *  bypass the eval→evalApplyGeneral→dispatch path (which allocates
+   *  `Pure(listValue)` per outer iteration) and call the matching
+   *  `FastTier.try*AccumForeach*` directly. Receiver type + accumulator type
+   *  are determined at pre-resolution time; `run` virtual-dispatches to the
+   *  cell of the (List/Set/Map × Long/Double) table.
+   *  Targets: patternMatchHeavy (List+Double), patternMatchSet (Set+Double),
+   *  patternMatchWide (List+Long), mapForeach (Map+Long). */
+  private sealed abstract class PreResolvedForeach:
+    def applyIdx: Int
+    def run(interp: Interpreter): Computation | Null
+
+  private final class PreResolvedListForeach(
     val applyIdx: Int,
-    val list:     List[Value] | Null,
-    val set:      scala.collection.immutable.Set[Value] | Null,
-    val closure:  Value.FunV
-  )
+    val list:     List[Value],
+    val closure:  Value.FunV,
+    val isDouble: Boolean
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      if isDouble then FastTier.tryDoubleAccumForeach(list, closure, interp)
+      else            FastTier.tryLongAccumForeach(list, closure, interp)
+
+  private final class PreResolvedSetForeach(
+    val applyIdx: Int,
+    val set:      scala.collection.immutable.Set[Value],
+    val closure:  Value.FunV,
+    val isDouble: Boolean
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      if isDouble then FastTier.tryDoubleAccumForeachSet(set, closure, interp)
+      else            FastTier.tryLongAccumForeachSet(set, closure, interp)
+
+  private final class PreResolvedMapForeach(
+    val applyIdx: Int,
+    val map:      scala.collection.immutable.Map[Value, Value],
+    val closure:  Value.FunV,
+    val isDouble: Boolean
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      if isDouble then FastTier.tryDoubleAccumForeachMap(map, closure, interp)
+      else            FastTier.tryLongAccumForeachMap(map, closure, interp)
 
   /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
    *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
@@ -308,14 +337,18 @@ private[interpreter] object EvalRuntime:
       new MixedAssignBody(applies, names, rhs)
     case _ => null
 
-  /** Try to pre-resolve the receiver list and closure FunV for a
-   *  `receiver.foreach(s => { acc = acc + fn(s) })` leading apply.
-   *  Returns null if pre-resolution is not possible (receiver is not a
-   *  stable ListV global, not a Term.Name, or is one of the loop's
-   *  long-assign variables). */
+  /** Try to pre-resolve the receiver and closure FunV for a
+   *  `receiver.foreach(closure)` leading apply, choosing the matching
+   *  PreResolvedForeach subclass based on receiver kind (ListV / SetV / MapV)
+   *  and accumulator kind (DoubleV / IntV). `isDouble` is passed in by the
+   *  caller from the peek result so this function doesn't re-classify.
+   *  Returns null if pre-resolution is not possible (receiver isn't a stable
+   *  global of a supported kind, is a loop-slot var, or the closure FunV
+   *  can't be resolved). */
   private def tryPreResolveForeach(
     apply:           Term,
     applyIdx:        Int,
+    isDouble:        Boolean,
     interp:          Interpreter,
     longAssignNames: Array[String],
     frameView:       MutableEnvView
@@ -334,19 +367,11 @@ private[interpreter] object EvalRuntime:
                   if longAssignNames(k) == recvStr then isAssigned = true
                   k += 1
                 if isAssigned then return null
-                // Resolve the receiver from globals (immutable for this loop).
-                // Supported kinds: ListV → tryDoubleAccumForeach,
-                // SetV → tryDoubleAccumForeachSet. Anything else bails.
+                // Resolve the receiver from globals (immutable for this loop)
+                // and dispatch to the matching subclass. Anything outside
+                // {ListV, SetV, MapV} bails.
                 val recvV = interp.globals.getOrElse(recvStr, null)
-                val listV: List[Value] | Null = recvV match
-                  case lv: Value.ListV => lv.items
-                  case _               => null
-                val setV: scala.collection.immutable.Set[Value] | Null = recvV match
-                  case sv: Value.SetV => sv.items
-                  case _              => null
-                if listV == null && setV == null then return null
-                // Resolve the closure FunV. Check emptyClosureFunCache first;
-                // if missing, evaluate once (which will populate the cache).
+                if recvV == null then return null
                 ta.argClause.values match
                   case List(fn: Term.Function) =>
                     val cached = interp.emptyClosureFunCache.get(fn)
@@ -360,7 +385,15 @@ private[interpreter] object EvalRuntime:
                           case Pure(fv: Value.FunV) => fv
                           case _                    => null
                     if funV == null then null
-                    else new PreResolvedForeach(applyIdx, listV, setV, funV)
+                    else
+                      recvV match
+                        case lv: Value.ListV =>
+                          new PreResolvedListForeach(applyIdx, lv.items, funV, isDouble)
+                        case sv: Value.SetV =>
+                          new PreResolvedSetForeach(applyIdx, sv.items, funV, isDouble)
+                        case mv: Value.MapV =>
+                          new PreResolvedMapForeach(applyIdx, mv.entries, funV, isDouble)
+                        case _ => null
                   case _ => null
               case _ => null
           case _ => null
@@ -962,17 +995,13 @@ private[interpreter] object EvalRuntime:
         var ap = 0
         while ap < body.leadingApplies.length do
           if useFastForeach && ap == preResolved.applyIdx then
-            // Dispatch to the receiver-typed FastTier method based on the
-            // pre-resolved kind. Exactly one of list/set is non-null per
-            // PreResolvedForeach.
-            val fastResult: Computation | Null =
-              if preResolved.list != null then
-                FastTier.tryDoubleAccumForeach(preResolved.list, preResolved.closure, interp)
-              else
-                FastTier.tryDoubleAccumForeachSet(preResolved.set, preResolved.closure, interp)
-            if fastResult == null then
-              // FastTier bailed (NotDouble) — fall back to eval. The slot is
-              // already marked inactive by the FastTier method.
+            // Virtual-dispatch to the matching FastTier method for the
+            // receiver+accumulator kind cell. The sealed hierarchy
+            // (List/Set/Map × Long/Double) absorbs the branching cost off the
+            // per-inner-element path.
+            if preResolved.run(interp) == null then
+              // FastTier bailed (NotDouble/wrong-shape) — fall back to eval
+              // for this apply and skip the fast path for subsequent iters.
               useFastForeach = false
               Computation.run(interp.eval(body.leadingApplies(ap), frameView))
           else
@@ -1010,27 +1039,33 @@ private[interpreter] object EvalRuntime:
           fastPrimitiveValue(t.expr, frameView, interp) match
             case Value.BoolV(false) => Computation.PureUnit
             case Value.BoolV(true) =>
-              // Detect a double-acc foreach in the leading applies. If found,
-              // carry the acc in a raw-long slot so tryDoubleAccumForeach writes
-              // slot(0) instead of allocating a DoubleV per outer iteration.
-              var doubleAccName: String | Null = null
-              var pi2 = 0
-              while pi2 < mixedBody.leadingApplies.length && doubleAccName == null do
-                doubleAccName = FastTier.peekDoubleAccName(mixedBody.leadingApplies(pi2), interp)
-                pi2 += 1
-              if doubleAccName != null then
+              // Try four foreach-hoist peeks in priority order. The first to
+              // fire wins; on miss, fall through to plain tryMixedLongWhile.
+              //   (a) Double-acc 1-arg (List/Set) — gets the slot-bypass
+              //       (`withAccSlot`) that avoids per-outer-iter DoubleV writeback.
+              //   (b) Long-acc 1-arg (List/Set) — no slot bypass yet.
+              //   (c) Map foreach 2-arg, Double or Long acc — no slot bypass yet.
+              // Each peek is AST-only + a globals lookup; cheap to attempt.
+              def peekFirst[A <: AnyRef](f: Term => A | Null): (Int, A) | Null =
+                var idx = 0
+                while idx < mixedBody.leadingApplies.length do
+                  val r = f(mixedBody.leadingApplies(idx))
+                  if r != null then return (idx, r.asInstanceOf[A])
+                  idx += 1
+                null
+              val doublePeek = peekFirst(t => FastTier.peekDoubleAccName(t, interp))
+              if doublePeek != null then
+                val (foreachApplyIdx, doubleAccName) = doublePeek
                 val initV = interp.globals.getOrElse(doubleAccName, null)
                 if (initV ne null) && initV.isInstanceOf[Value.DoubleV] then
                   val slot = Array[Long](
                     doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v),
                     1L
                   )
-                  // Pre-resolve the foreach receiver and closure to avoid
-                  // Pure(listValue) allocation + dispatch overhead per outer iter.
-                  val foreachApplyIdx = pi2 - 1
                   val preResolved = tryPreResolveForeach(
                     mixedBody.leadingApplies(foreachApplyIdx),
-                    foreachApplyIdx, interp, mixedBody.names, frameView
+                    foreachApplyIdx, isDouble = true,
+                    interp, mixedBody.names, frameView
                   )
                   val r = FastTier.withAccSlot(doubleAccName, slot) {
                     tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
@@ -1040,7 +1075,27 @@ private[interpreter] object EvalRuntime:
                       Value.doubleV(longBitsToDouble(slot(0)))
                   r
                 else tryMixedLongWhile(t, mixedBody, frameView, interp)
-              else tryMixedLongWhile(t, mixedBody, frameView, interp)
+              else
+                val longPeek = peekFirst(t => FastTier.peekLongAccName(t, interp))
+                if longPeek != null then
+                  val (foreachApplyIdx, _) = longPeek
+                  val preResolved = tryPreResolveForeach(
+                    mixedBody.leadingApplies(foreachApplyIdx),
+                    foreachApplyIdx, isDouble = false,
+                    interp, mixedBody.names, frameView
+                  )
+                  tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                else
+                  val mapPeek = peekFirst(t => FastTier.peekMapAccName(t, interp))
+                  if mapPeek != null then
+                    val (foreachApplyIdx, accKind) = mapPeek
+                    val preResolved = tryPreResolveForeach(
+                      mixedBody.leadingApplies(foreachApplyIdx),
+                      foreachApplyIdx, isDouble = accKind._2,
+                      interp, mixedBody.names, frameView
+                    )
+                    tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                  else tryMixedLongWhile(t, mixedBody, frameView, interp)
             case _                  => null
       else
         fastPrimitiveValue(t.expr, frameView, interp) match
