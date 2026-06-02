@@ -49,9 +49,15 @@ object BytecodeJit:
       !sys.props.get("ssc.jit.bytecode").map(_.toLowerCase).contains("off")
 
   /** Compilation result. `paramIsRef(i)` is true when the i-th param is
-   *  passed as an `Object` (an `InstanceV`) — used to drive `JitRuntime`'s
-   *  per-arg marshaling (numeric → `long`, ref → `Object`). */
-  final class Result(val mh: MethodHandle, val paramIsRef: Array[Boolean])
+   *  passed as an `Object` (an `InstanceV`); otherwise the param is `long`
+   *  (the Int case) when `resultIsDouble=false`, or `double` (the all-double
+   *  case) when `resultIsDouble=true`. `resultIsDouble` also drives the
+   *  caller's IntV-vs-DoubleV result wrapping in `JitRuntime`. */
+  final class Result(
+    val mh:             MethodHandle,
+    val paramIsRef:     Array[Boolean],
+    val resultIsDouble: Boolean = false
+  )
 
   /** Per-thread interpreter handle for the free-name globals read path.
    *  `JitRuntime` sets this on each MH invocation; the generated Java code
@@ -102,6 +108,20 @@ object BytecodeJit:
     }
     result
 
+  /** True iff `t` contains a `Lit.Double` anywhere — heuristic for typing
+   *  the function as Double (params + return as `double`). Scala promotes
+   *  Int operands to Double when mixed in arith; a body with any Double
+   *  literal is Double-typed end-to-end. */
+  private def bodyHasDoubleLit(t: Term): Boolean =
+    var hit = false
+    def walk(tree: scala.meta.Tree): Unit =
+      if hit then ()
+      else tree match
+        case _: Lit.Double => hit = true
+        case _             => tree.children.foreach(walk)
+    walk(t)
+    hit
+
   /** True iff the body's top-level result is a Boolean (comparison or
    *  short-circuit). `BytecodeJit` returns `long` from every generated method
    *  and the caller wraps as `IntV(0|1)` — a Boolean-returning fn would then
@@ -131,10 +151,8 @@ object BytecodeJit:
             if idx >= 0 then paramIsRef(idx) = true
           case _ =>
       case _ =>
-    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, Map.empty, interp)
-    // For a Match-body fn the method body is a series of `if` statements ending
-    // in a throw; for an int-arith body it's a single `return <expr>;`. Either
-    // way `bodyStmts` carries the FULL Java statement sequence.
+    val isDouble = !paramIsRef.exists(identity) && bodyHasDoubleLit(f.body)
+    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp)
     val bodyStmts =
       f.body match
         case tm: Term.Match if paramIsRef.exists(identity) =>
@@ -142,6 +160,9 @@ object BytecodeJit:
         case other =>
           val tco = tryTcoBody(other.asInstanceOf[Term], ctx)
           if tco != null then tco
+          else if isDouble then
+            val e = walkDouble(other.asInstanceOf[Term], ctx)
+            if e == null then null else s"return $e;"
           else
             val e = walkLong(other.asInstanceOf[Term], ctx)
             if e == null then null else s"return $e;"
@@ -150,11 +171,13 @@ object BytecodeJit:
     val className = s"GenJit_${sanitize(f.name)}_${System.identityHashCode(f.body)}"
     val params = f.params.zipWithIndex.map { case (p, i) =>
       if paramIsRef(i) then s"Object ${sanitize(p)}"
+      else if isDouble then s"double ${sanitize(p)}"
       else s"long ${sanitize(p)}"
     }.mkString(", ")
+    val returnType = if isDouble then "double" else "long"
     val source =
       s"""public class $className {
-         |  public static long ${sanitize(f.name)}($params) {
+         |  public static $returnType ${sanitize(f.name)}($params) {
          |    $bodyStmts
          |  }
          |}
@@ -189,12 +212,17 @@ object BytecodeJit:
       try loader.loadClass(className)
       catch case _: Throwable => return null
 
-    val ptypes: Array[Class[?]] = paramIsRef.map(r => if r then classOf[Object] else classOf[Long])
-    val mt = MethodType.methodType(classOf[Long], ptypes.asInstanceOf[Array[Class[?]]])
+    val ptypes: Array[Class[?]] = paramIsRef.zipWithIndex.map { case (isRef, _) =>
+      if isRef then classOf[Object]
+      else if isDouble then classOf[Double]
+      else classOf[Long]
+    }
+    val rtype: Class[?] = if isDouble then classOf[Double] else classOf[Long]
+    val mt = MethodType.methodType(rtype, ptypes.asInstanceOf[Array[Class[?]]])
     val mh =
       try MethodHandles.lookup().findStatic(cls, sanitize(f.name), mt)
       catch case _: Throwable => return null
-    new Result(mh, paramIsRef)
+    new Result(mh, paramIsRef, isDouble)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
@@ -207,6 +235,7 @@ object BytecodeJit:
     val params:      Set[String],
     val paramNames:  Array[String],
     val paramIsRef:  Array[Boolean],
+    val isDouble:    Boolean,
     val bindings:    Map[String, (String, Boolean)],
     val interp:      scalascript.interpreter.Interpreter
   ):
@@ -222,7 +251,7 @@ object BytecodeJit:
         case None =>
           if params.contains(n) then sanitize(n) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, bindings ++ more, interp)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
@@ -295,13 +324,73 @@ object BytecodeJit:
       val opStr = op.value
       opStr match
         case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
-          val l = walkLong(lhs, ctx); if l == null then return null
-          val r = walkLong(argClause.values.head, ctx); if r == null then return null
+          // Use walkDouble for double-typed funcs, walkLong otherwise. Comparison
+          // operands are typed-by-context the same as the rest of the body.
+          val w: (Term, GenCtx) => String | Null = if ctx.isDouble then walkDouble else walkLong
+          val l = w(lhs, ctx); if l == null then return null
+          val r = w(argClause.values.head, ctx); if r == null then return null
           s"($l $opStr $r)"
         case "&&" | "||" =>
           val l = walkBool(lhs, ctx); if l == null then return null
           val r = walkBool(argClause.values.head, ctx); if r == null then return null
           s"($l $opStr $r)"
+        case _ => null
+    case _ => null
+
+  /** Double-typed parallel of `walkLong`. Used when `ctx.isDouble` is true
+   *  (the fn body contains a `Lit.Double` somewhere → Scala promotes all
+   *  arith to Double). Emits Java `double` expressions throughout. */
+  private def walkDouble(t: Term, ctx: GenCtx): String | Null = t match
+    case Lit.Double(v) => v.toString.toDouble.toString
+    case Lit.Int(v)    => s"((double) ${v}L)"
+    case Lit.Long(v)   => s"((double) ${v}L)"
+    case tn: Term.Name =>
+      if ctx.isRefName(tn.value) then null
+      else
+        val local = ctx.resolveLocal(tn.value)
+        if local != null then local
+        else
+          // Free name → no Double-globals support in the initial slice; bail.
+          null
+    case ti: Term.If =>
+      val c = walkBool(ti.cond, ctx); if c == null then return null
+      val a = walkDouble(ti.thenp, ctx); if a == null then return null
+      val b = walkDouble(ti.elsep, ctx); if b == null then return null
+      s"(($c) ? ($a) : ($b))"
+    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
+        if argClause.values.lengthCompare(1) == 0 =>
+      val opStr = op.value
+      opStr match
+        case "+" | "-" | "*" | "/" | "%" =>
+          val l = walkDouble(lhs, ctx); if l == null then return null
+          val r = walkDouble(argClause.values.head, ctx); if r == null then return null
+          s"($l $opStr $r)"
+        case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
+          // Boolean-result comparison in a non-cond position → not Double.
+          // Cast to double via ternary so the expression's type matches.
+          val l = walkDouble(lhs, ctx); if l == null then return null
+          val r = walkDouble(argClause.values.head, ctx); if r == null then return null
+          s"(($l $opStr $r) ? 1.0 : 0.0)"
+        case _ => null
+    case ap: Term.Apply =>
+      ap.fun match
+        case fn: Term.Name if fn.value == ctx.funName =>
+          val args = ap.argClause.values
+          if args.length != ctx.paramNames.length then return null
+          val sb = new StringBuilder
+          sb.append(sanitize(ctx.funName)).append('(')
+          var i = 0
+          var rem = args
+          while rem.nonEmpty do
+            if i > 0 then sb.append(", ")
+            val argStr =
+              if ctx.paramIsRef(i) then walkRef(rem.head, ctx)
+              else walkDouble(rem.head, ctx)
+            if argStr == null then return null
+            sb.append(argStr)
+            i += 1
+            rem = rem.tail
+          sb.append(')').toString
         case _ => null
     case _ => null
 

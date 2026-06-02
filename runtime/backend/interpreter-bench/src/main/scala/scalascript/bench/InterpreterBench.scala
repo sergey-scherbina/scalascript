@@ -196,6 +196,14 @@ class InterpreterBench:
       |fibMul(30)""".stripMargin
   )
 
+  // Double-typed recursive fib — exercises the BytecodeJit Double subset
+  // (params + return as `double`, `Lit.Double` constants, double arithmetic).
+  private val modFibD: Module = src(
+    """def fibD(n: Double): Double =
+      |  if n <= 1.0 then n else fibD(n - 1.0) + fibD(n - 2.0)
+      |fibD(30.0)""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -273,3 +281,7 @@ class InterpreterBench:
   @Benchmark
   def recursionFibMul(): Unit =
     Interpreter(devNull).runSections(modFibMul)
+
+  @Benchmark
+  def recursionFibD(): Unit =
+    Interpreter(devNull).runSections(modFibD)

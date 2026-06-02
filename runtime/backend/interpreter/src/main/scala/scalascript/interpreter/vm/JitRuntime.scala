@@ -176,35 +176,46 @@ object JitRuntime:
     e.bytecode
 
   /** Marshal one Value into the Java arg the bytecode method expects.
-   *  Ref param → the value as `Object` (must be `InstanceV` for the initial
-   *  Match-shape subset; bails otherwise). Int param → the raw `Long`. */
-  private def marshalBytecode(v: Value, isRef: Boolean): AnyRef | Null =
+   *  Ref param → the value as `Object` (must be `InstanceV`; bails
+   *  otherwise). Numeric param: when `resultIsDouble` is true the slots are
+   *  `double` and accept `IntV` (widened) or `DoubleV`; when false they
+   *  accept only `IntV`. */
+  private def marshalBytecode(v: Value, isRef: Boolean, isDouble: Boolean): AnyRef | Null =
     if isRef then
       v match
         case _: Value.InstanceV => v.asInstanceOf[AnyRef]
         case _                  => null
+    else if isDouble then
+      v match
+        case Value.DoubleV(x) => jl.Double.valueOf(x)
+        case Value.IntV(x)    => jl.Double.valueOf(x.toDouble)
+        case _                => null
     else
       v match
         case Value.IntV(x) => jl.Long.valueOf(x)
         case _             => null
 
+  private def wrapBytecodeResult(r: BytecodeJit.Result, out: AnyRef): Computation =
+    if r.resultIsDouble then Computation.Pure(Value.doubleV(out.asInstanceOf[jl.Double].doubleValue))
+    else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
+
   private def invokeBytecode1(r: BytecodeJit.Result, arg: Value, interp: Interpreter): Computation | Null =
-    val a0 = marshalBytecode(arg, r.paramIsRef(0))
+    val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble)
     if a0 == null then return null
     val out =
-      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[Long] }
+      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
       catch case _: Throwable => return null
-    Computation.pureIntV(out)
+    wrapBytecodeResult(r, out)
 
   private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value, interp: Interpreter): Computation | Null =
-    val a0 = marshalBytecode(a, r.paramIsRef(0))
+    val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)
     if a0 == null then return null
-    val b0 = marshalBytecode(b, r.paramIsRef(1))
+    val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble)
     if b0 == null then return null
     val out =
-      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[Long] }
+      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
       catch case _: Throwable => return null
-    Computation.pureIntV(out)
+    wrapBytecodeResult(r, out)
 
   /** Bytecode-JIT entry called from `CallRuntime.callFun` BEFORE the
    *  `TcoRuntime.tcoTrampoline` dispatch. Handles the same 1- and 2-param
