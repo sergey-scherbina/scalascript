@@ -53,6 +53,74 @@ when the surrounding conversation is in another language. The same rule
 applies to all other shared documentation files (`docs/`, `BACKLOG.md`,
 `docs/vm-jit-next.md`, etc.) unless they are explicitly localised.
 
+## MANDATORY: persist everything needed to continue from a fresh context
+
+The session that records is not the session that resumes. A parallel
+agent — or yourself after a `/clear` — must be able to pick up the work
+cold, without re-deriving baselines, re-discovering pitfalls, or
+re-investigating decisions you already made. **Anything in your active
+context that is not written down is one `/clear` away from being lost.**
+
+Treat persistence as a **continuous activity**, not an end-of-session
+chore. The moment you learn something durable, record it.
+
+**What to persist:**
+
+- *Decisions and rejected alternatives.* What you picked, what you
+  rejected, and the one-sentence reason for each. Save the next agent
+  from re-investigating the same fork.
+- *Baselines and measurements.* Current bench numbers, test count,
+  observed behaviour. The next agent needs a "before" to A/B against
+  without re-running expensive setup.
+- *Gotchas you hit or nearly hit.* Subtle bug patterns caught at the
+  verify step (boolean-return mis-wrap, stale TLS slot, forgotten
+  `case _ => null`, etc.), plus the pattern that catches them.
+- *State of toggles and defaults.* Which env vars / flags are on, off,
+  recently flipped. A bench under different default flags is a
+  different bench.
+- *Open questions and explicit non-goals.* What you didn't do and why
+  (so the next agent does not redo speculative work you already
+  rejected).
+- *Reusable wisdom across tasks.* Methodology that applies to more
+  than one work item belongs in
+  `~/.claude/projects/.../memory/feedback_*.md` so it survives this
+  project's lifetime.
+
+**Where to persist:**
+
+| Type of info | Location |
+|---|---|
+| Project rules, mandatory practices | `AGENTS.md` (this file) |
+| Open work + status, high-level | `BACKLOG.md` |
+| Ordered queue + per-task implementation notes + gotchas | `WORK_QUEUE.md` |
+| Design specs, roadmaps | `docs/*.md` |
+| Project-specific durable knowledge | `~/.claude/projects/.../memory/project_*.md` |
+| Reusable methodology, user preferences | `~/.claude/projects/.../memory/feedback_*.md` |
+| Point-in-time decisions tied to a specific change | Git commit messages |
+| Non-obvious WHY in surprising code | Source-code comments (only when removing them would confuse a future reader) |
+
+The same fact can — and often should — live in two places. A benchmark
+baseline written into both `WORK_QUEUE.md` (where the next agent looks
+first when asked "what to do") and `docs/vm-jit-next.md` (where the
+spec is self-contained reading) survives a careless edit to one of them.
+Defense in depth.
+
+**When to persist:** continuously, not as a wrap-up step. Specifically:
+
+- whenever you make a non-obvious decision,
+- whenever you measure something the next agent will need,
+- whenever you discover a gotcha you nearly missed,
+- whenever you find yourself thinking "I will remember this" — that is
+  the cue you will not, and the next agent definitely will not.
+
+**Validate before considering work complete (or before a `/clear`):**
+ask yourself "if my context cleared right now, could a fresh agent
+pick up this task cold without losing information?" If the honest
+answer is "only if they re-derive X" — record X first, then continue.
+
+The persistent files are the contract between parallel agents and
+between sessions. Treat them as load-bearing.
+
 ---
 
 ## What this project is
