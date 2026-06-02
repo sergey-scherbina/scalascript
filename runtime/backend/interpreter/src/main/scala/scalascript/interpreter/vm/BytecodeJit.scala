@@ -334,11 +334,15 @@ object BytecodeJit:
         val local = ctx.resolveLocal(tn.value)
         if local != null then local
         else
-          // Free name → try a top-level Int global. The Java code reads
-          // through `BytecodeJit.readGlobalLong(name)` which dereferences a
-          // thread-local interpreter handle set by `JitRuntime`'s
-          // bytecode entry points.
+          // Free name → try a top-level Int global. For a `val` binding (in
+          // `interp.valNames`) we inline the current value as a Java literal
+          // — saves one HashMap lookup per call site, which is the dominant
+          // overhead for recursionFibMul (`val mul = 7; def fibMul(n) = if n<=1
+          // then n * mul else …`). For `var`s and untagged names we keep the
+          // per-call `readGlobalLong` dispatch so reassignments are observed.
           ctx.interp.globals.getOrElse(tn.value, null) match
+            case Value.IntV(v) if ctx.interp.valNames.contains(tn.value) =>
+              s"${v}L"
             case _: Value.IntV =>
               s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalLong("${escape(tn.value)}")"""
             case _ => null
@@ -430,10 +434,13 @@ object BytecodeJit:
         val local = ctx.resolveLocal(tn.value)
         if local != null then local
         else
-          // Free name → resolve as a top-level `Double` global through
-          // `BytecodeJit.readGlobalDouble`. Parallel to `walkLong`'s Int
-          // globals path. Only DoubleV is supported; IntV/other bail.
+          // Free name → resolve as a top-level `Double` global. For a `val`
+          // binding inline the value as a Java literal (parallel to walkLong's
+          // val-globals constant-folding) — targets `recursionFibMulD`'s
+          // `val mul = 7.0` hot path. Var/untagged keeps `readGlobalDouble`.
           ctx.interp.globals.getOrElse(tn.value, null) match
+            case Value.DoubleV(v) if ctx.interp.valNames.contains(tn.value) =>
+              v.toString.toDouble.toString
             case _: Value.DoubleV =>
               s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalDouble("${escape(tn.value)}")"""
             case _ => null
