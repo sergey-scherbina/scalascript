@@ -527,6 +527,18 @@ private[interpreter] object EvalRuntime:
   private final class LOr(l: LCond, r: LCond) extends LCond:
     def eval(slots: Array[Long]): Boolean = l.eval(slots) || r.eval(slots)
 
+  /** Primitive-Long-arg function interface used by `LApply` / `LApply2`.
+   *  Scala's `Function2[Long, Env, Long]` / `Function3[Long, Long, Env, Long]`
+   *  are NOT specialized for `(Long, AnyRef) => Long` shapes, so each call
+   *  through them auto-boxes both the Long arg and the Long return via
+   *  `BoxesRunTime.boxToLong`. JFR-2026-06-02 showed ~24 MB/op alloc on
+   *  `pureCallSum`'s 1M-iter inner loop coming from this boxing. The custom
+   *  trait below sidesteps the Function2/3 specialization gap. */
+  private[interpreter] trait LongEnvFn1:
+    def apply(arg: Long, env: Env): Long
+  private[interpreter] trait LongEnvFn2:
+    def apply(a0: Long, a1: Long, env: Env): Long
+
   /** Raw-Long inlined function call. Folds `f(x)` (a 1-param pure-bodied
    *  function whose body is in the `compileSlotD` arith subset) into the
    *  enclosing `tryLongWhileAssign` loop without boxing the arg or result.
@@ -540,7 +552,7 @@ private[interpreter] object EvalRuntime:
     argL:         LExpr,
     fnName:       String,
     expectedBody: Term,
-    slotFn:       (Long, Env) => Long,
+    slotFn:       LongEnvFn1,
     interp:       Interpreter
   ) extends LExpr:
     def eval(slots: Array[Long]): Long =
@@ -559,7 +571,7 @@ private[interpreter] object EvalRuntime:
     arg1L:        LExpr,
     fnName:       String,
     expectedBody: Term,
-    slotFn:       (Long, Long, Env) => Long,
+    slotFn:       LongEnvFn2,
     interp:       Interpreter
   ) extends LExpr:
     def eval(slots: Array[Long]): Long =

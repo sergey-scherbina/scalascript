@@ -504,12 +504,14 @@ private[interpreter] object PatternRuntime:
    *  while-loop body without per-call `IntV` allocation. Returns null when the
    *  body is outside the arith-fold subset; throws `NotDouble` at run time if
    *  a free name resolves to non-`IntV`. */
-  private[interpreter] def compileSlotLongFn1(body: Term, paramName: String, interp: Interpreter): ((Long, Env) => Long) | Null =
+  private[interpreter] def compileSlotLongFn1(body: Term, paramName: String, interp: Interpreter): EvalRuntime.LongEnvFn1 | Null =
     if containsDoubleLit(body) then null
     else
       val de = compileSlotD(body, paramName, null)
       if de == null then null
-      else (arg, env) => evalSlotILongArg(de, arg, env, interp)
+      else
+        new EvalRuntime.LongEnvFn1:
+          def apply(arg: Long, env: Env): Long = evalSlotILongArg(de, arg, env, interp)
 
   /** 1-param Long-arg slot evaluator. The `DSlot(0)` case returns `arg`
    *  directly (no `Value` boxing); other slots bail (this is a 1-param-only
@@ -537,12 +539,14 @@ private[interpreter] object PatternRuntime:
    *  `arg0`, `n1` slot reads `arg1`. Used by `EvalRuntime.LApply2` to inline
    *  `g(x, y)` calls into an unboxed-Long while loop without boxing either
    *  arg or result. */
-  private[interpreter] def compileSlotLongFn2(body: Term, n0: String, n1: String, interp: Interpreter): ((Long, Long, Env) => Long) | Null =
+  private[interpreter] def compileSlotLongFn2(body: Term, n0: String, n1: String, interp: Interpreter): EvalRuntime.LongEnvFn2 | Null =
     if containsDoubleLit(body) then null
     else
       val de = compileSlotD(body, n0, n1)
       if de == null then null
-      else (a0, a1, env) => evalSlotILongArg2(de, a0, a1, env, interp)
+      else
+        new EvalRuntime.LongEnvFn2:
+          def apply(a0: Long, a1: Long, env: Env): Long = evalSlotILongArg2(de, a0, a1, env, interp)
 
   /** 2-param Long-arg slot evaluator. `DSlot(0)` → arg0, `DSlot(1)` → arg1,
    *  free names go through `slotToL`. Higher slot indices bail. */
