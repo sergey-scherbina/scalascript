@@ -204,6 +204,31 @@ class InterpreterBench:
       |fibD(30.0)""".stripMargin
   )
 
+  // Mixed-type self-recursion — `g(scale: Int, e: Expr): Int` carries an
+  // Int accumulator alongside an Expr ref scrutinee. Each recursive call
+  // re-passes the Int param and a child Expr field. Exercises the
+  // BytecodeJit per-param Object/long marshaling in a single MH signature.
+  private val modGEval: Module = src(
+    """sealed trait Expr
+      |case class Num(n: Int) extends Expr
+      |case class Add(l: Expr, r: Expr) extends Expr
+      |case class Mul(l: Expr, r: Expr) extends Expr
+      |def gEval(scale: Int, e: Expr): Int = e match
+      |  case Num(n)    => n * scale
+      |  case Add(l, r) => gEval(scale, l) + gEval(scale, r)
+      |  case Mul(l, r) => gEval(scale, l) * gEval(scale, r)
+      |def build(d: Int): Expr =
+      |  if d <= 0 then Num(1)
+      |  else Add(build(d - 1), Mul(build(d - 1), Num(2)))
+      |val tree = build(8)
+      |var total = 0
+      |var i = 0
+      |while i < 1000 do
+      |  total = total + gEval(3, tree)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -285,3 +310,7 @@ class InterpreterBench:
   @Benchmark
   def recursionFibD(): Unit =
     Interpreter(devNull).runSections(modFibD)
+
+  @Benchmark
+  def recursiveEvalMixed(): Unit =
+    Interpreter(devNull).runSections(modGEval)
