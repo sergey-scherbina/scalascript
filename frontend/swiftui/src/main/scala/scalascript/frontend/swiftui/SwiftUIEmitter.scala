@@ -458,6 +458,22 @@ object SwiftUIEmitter:
         s"${pad}// InputChange handled by TextField binding on $$${signal.id}"
       case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
         emitFetchTask(method, url, body.id, onSuccessTick.id, clearBody, indent)
+      case EventHandler.DeleteItem(idField, deleteUrl, onSuccessTick, _) =>
+        // Full impl requires itemVar from ForModel context; emit stub so
+        // the surrounding UI compiles and the handler is visible in source.
+        val pad2 = " " * (indent + 4)
+        val pad3 = " " * (indent + 8)
+        s"""${pad}Task { @MainActor in
+           |${pad2}// TODO: replace _itemId with the ForModel item's $idField value
+           |${pad2}guard let _url = URL(string: "${deleteUrl}") else { return }
+           |${pad2}var _req = URLRequest(url: _url)
+           |${pad2}_req.httpMethod = "POST"
+           |${pad2}_req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+           |${pad2}do {
+           |${pad3}let (_, _) = try await URLSession.shared.data(for: _req)
+           |${pad3}${onSuccessTick.id} += 1
+           |${pad2}} catch {}
+           |${pad}}""".stripMargin
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         s"${pad}// closure action (not serializable into generated Swift source)"
 
@@ -505,7 +521,8 @@ object SwiftUIEmitter:
         case EventHandler.InputChange(s)          => add(acc, s)
         case EventHandler.PushSignalLiteral(l, _) => addList(acc, l)
         case EventHandler.ClearSignalList(l)      => addList(acc, l)
-        case EventHandler.RemoveSelfFromList(l)   => addList(acc, l)
+        case EventHandler.RemoveSelfFromList(l)    => addList(acc, l)
+        case EventHandler.DeleteItem(_, _, s, _)  => add(acc, s)
         case _                                    => acc
     def loop(acc: Map[String, SignalInitial], v: View[?]): Map[String, SignalInitial] =
       v match
