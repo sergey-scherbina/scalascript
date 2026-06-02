@@ -73,10 +73,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
   injection. All 23 Electron tests pass.
   **Spec:** `docs/typed-models-ir.md §Electron`
 
-- [ ] **v1.66.7-swing-typed-models** — Swing: `ModelCaseClassEmitter` for Scala 3
-  case classes from models; extend `RuntimeState.fetchDispatcher` (~line 278) with
-  `JsonDecoder` hook (uPickle default); observer binding for `ModelText`/`ForModel`.
-  **Spec:** `docs/typed-models-ir.md §Swing`
+- [x] **v1.66.7-swing-typed-models** — Swing: `modelData` + `withModel` on `RuntimeState`; `modelField` dot-path traversal; `ModelView`/`ForModel`/`ModelText` cases in `addTo`; async fetch via `JsonDecoder` SPI; `buildViewTest` for unit tests. 7 new tests, all 19 Swing tests green.
 
 - [ ] **v1.66.8-javafx-typed-models** — JavaFX: same as Swing against
   `JavaFxRuntime.scala:255`; JavaFX-native observable property binding.
