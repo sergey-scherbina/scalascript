@@ -934,7 +934,8 @@ private[interpreter] object PatternRuntime:
                       val v = body(v0, null, env); if v != null then v else NeedMonadic
                     case Value.NoneV if tn == "None" && bindNames.isEmpty =>
                       val v = body(null, null, env); if v != null then v else NeedMonadic
-                    case Value.InstanceV(t, fields) if t == tn =>
+                    case inst: Value.InstanceV if inst.typeName == tn =>
+                      val fields = inst.fields
                       if fieldOrderCache == null then
                         fieldOrderCache = interp.typeFieldOrder
                           .getOrElse(tn, fields.keys.toList)
@@ -942,8 +943,18 @@ private[interpreter] object PatternRuntime:
                       val fo = fieldOrderCache
                       if bindNames.length != fo.length then null
                       else
-                        val v0 = if p0 >= 0 then fields.getOrElse(fo(p0), null) else null
-                        val v1 = if p1 >= 0 then fields.getOrElse(fo(p1), null) else null
+                        // Direct fieldsArr access when the array repr is
+                        // populated (default since Direction B activation);
+                        // fall back to fields.getOrElse otherwise.
+                        val arr = inst.fieldsArr
+                        val v0 =
+                          if p0 < 0 then null
+                          else if arr != null then arr(p0)
+                          else fields.getOrElse(fo(p0), null)
+                        val v1 =
+                          if p1 < 0 then null
+                          else if arr != null then arr(p1)
+                          else fields.getOrElse(fo(p1), null)
                         // A bound field missing from the instance means no match
                         // (parity with buildPatEnv), not a fold failure.
                         if (p0 >= 0 && v0 == null) || (p1 >= 0 && v1 == null) then null
@@ -967,7 +978,8 @@ private[interpreter] object PatternRuntime:
                         dbody(v0, null, env)
                       case Value.NoneV if tn2 == "None" && bnLen == 0 =>
                         dbody(null, null, env)
-                      case Value.InstanceV(t, fields) if t == tn2 =>
+                      case inst: Value.InstanceV if inst.typeName == tn2 =>
+                        val fields = inst.fields
                         if fieldOrderCache == null then
                           fieldOrderCache = interp.typeFieldOrder
                             .getOrElse(tn2, fields.keys.toList)
@@ -975,8 +987,15 @@ private[interpreter] object PatternRuntime:
                         val fo = fieldOrderCache
                         if bnLen != fo.length then NaNMiss
                         else
-                          val v0 = if p0c >= 0 then fields.getOrElse(fo(p0c), null) else null
-                          val v1 = if p1c >= 0 then fields.getOrElse(fo(p1c), null) else null
+                          val arr = inst.fieldsArr
+                          val v0 =
+                            if p0c < 0 then null
+                            else if arr != null then arr(p0c)
+                            else fields.getOrElse(fo(p0c), null)
+                          val v1 =
+                            if p1c < 0 then null
+                            else if arr != null then arr(p1c)
+                            else fields.getOrElse(fo(p1c), null)
                           if (p0c >= 0 && v0 == null) || (p1c >= 0 && v1 == null) then NaNMiss
                           else dbody(v0, v1, env)
                       case _ => NaNMiss
@@ -998,7 +1017,8 @@ private[interpreter] object PatternRuntime:
                         lbody(v0, null, env)
                       case Value.NoneV if tn3 == "None" && bnLen == 0 =>
                         lbody(null, null, env)
-                      case Value.InstanceV(t, fields) if t == tn3 =>
+                      case inst: Value.InstanceV if inst.typeName == tn3 =>
+                        val fields = inst.fields
                         if lFieldOrderCache == null then
                           lFieldOrderCache = interp.typeFieldOrder
                             .getOrElse(tn3, fields.keys.toList)
@@ -1006,8 +1026,15 @@ private[interpreter] object PatternRuntime:
                         val fo = lFieldOrderCache
                         if bnLen != fo.length then LongMiss
                         else
-                          val v0 = if p0d >= 0 then fields.getOrElse(fo(p0d), null) else null
-                          val v1 = if p1d >= 0 then fields.getOrElse(fo(p1d), null) else null
+                          val arr = inst.fieldsArr
+                          val v0 =
+                            if p0d < 0 then null
+                            else if arr != null then arr(p0d)
+                            else fields.getOrElse(fo(p0d), null)
+                          val v1 =
+                            if p1d < 0 then null
+                            else if arr != null then arr(p1d)
+                            else fields.getOrElse(fo(p1d), null)
                           if (p0d >= 0 && v0 == null) || (p1d >= 0 && v1 == null) then LongMiss
                           else lbody(v0, v1, env)
                       case _ => LongMiss
