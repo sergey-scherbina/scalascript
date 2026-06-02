@@ -324,6 +324,23 @@ enum Value:
   case Foreign(typeName: String, handle: Any)
 
 object Value:
+  /** Capability flag for the InstanceV positional array representation
+   *  (Direction B of the perf roadmap; spec at
+   *  `docs/instancev-array-repr-spec.md`). Default **OFF**: hot-path
+   *  consumers (PatternRuntime arm bindings, BytecodeJit walkArm,
+   *  DispatchRuntime.dispatchInstance) keep reading
+   *  `inst.fields.apply(name)` until the flag is ON. Phase 1 only adds
+   *  the flag + side-table (`Interpreter.instanceVFieldsArr`); Phase 2
+   *  migrates readers; Phase 3 (Activation) populates on construction
+   *  and verifies the projected `recursiveEval` 2-2.5× win.
+   *
+   *  Opt in via `SSC_INSTANCEV_ARRAY=on` env var (interactive) or
+   *  `-Dssc.instancev.array=on` system property (JMH forks / sbt —
+   *  env vars don't always propagate through forks). */
+  val instanceVArrayEnabled: Boolean =
+    sys.env.get("SSC_INSTANCEV_ARRAY").contains("on") ||
+      sys.props.get("ssc.instancev.array").contains("on")
+
   // Pool for common small integer values (-2048..16383). `intV(n)` returns a
   // cached instance for in-range values, avoiding a heap allocation on every
   // arithmetic result. Wider range covers typical loop counters beyond 1024
