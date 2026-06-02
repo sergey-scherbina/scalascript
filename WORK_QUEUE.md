@@ -19,26 +19,62 @@ bearer-token API. Resume via the standard claim/worktree flow.
 - [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
   real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
   attrs; `fetchTableView` also takes `headers`. All emitters updated.
-- [ ] **v1.66.1-swiftui-model-structs** — Parse `@model case class` into
-  `Module.models`; emit `struct X: Decodable` (+ `Identifiable` when
-  `id`/`code`/`seq`/`docId` field present); `FetchJsonSignal[T]` →
-  `@State var name: T? = nil` + `JSONDecoder` load func + `_loading`/`_loaded`/
-  `_error` companions; `signal.isLoaded` / `signal.isLoading` `ShowSignal` guards.
-  10 unit tests in `SwiftUIEmitterTest`.
-  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 1`](docs/swiftui-typed-models.md)
+- [ ] **v1.66.0-typed-models-ir** — Shared IR foundation (all backends depend on
+  this). Parser: recognize `@model case class` / `model case class` (mirrors
+  `@remote` in `Parser.scala:437`); store `ModelDef`/`ModelFieldDecl`/`ModelFieldType`
+  ADT on `Manifest.models`. Frontend IR: un-final `FetchUrlSignal`; add `CodecHint`
+  sealed trait (`RawText`/`Json`/`FormUrlEncoded`/`Custom`); add `FetchJsonSignal`
+  subtype; add `ModelView`/`ForModel`/`ModelText` to `View[+A]`. SPI: add
+  `FrontendModule.models: List[ModelDef] = Nil` + `Capability.TypedModels`. New
+  utilities: `ModelPathResolver`, `ModelCaseClassEmitter`, `JsonDecoder` trait.
+  Intrinsics: `fetchJsonSignal`, isLoading/isLoaded/error properties. All ~25
+  `FrontendModule(...)` construction sites unchanged (defaulted field). Tests:
+  `ModelParseTest` + `ModelPathResolverTest` + backwards-compat smoke (all existing
+  backend suites pass). **Spec:** [`docs/typed-models-ir.md`](docs/typed-models-ir.md)
 
-- [ ] **v1.66.2-swiftui-model-view-nodes** — Add `View.ModelView` /
-  `View.ForModel` / `View.ModelText` to `Primitives.scala`; emit
-  `if let binding = signal { ... }`, `ForEach(binding.path, ...) { item in ... }`,
-  `Text(var.path)` from the SwiftUI emitter; style modifiers on `ModelText`.
-  12 unit tests in `SwiftUIEmitterTest`.
-  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 2`](docs/swiftui-typed-models.md)
+- [ ] **v1.66.1-swiftui-typed-models** — SwiftUI emitter consumes the IR from
+  v1.66.0: `emitModelStructs` → `struct X: Decodable [+ Identifiable]`; typed fetch
+  via `JSONDecoder().decode`; `@State private var <id>: <T>? = nil` + companion vars;
+  `ModelView` → `if let`; `ForModel` → `ForEach`; `ModelText` → `Text(path)`.
+  Replaces the original `v1.66.1-swiftui-model-structs` + `v1.66.2-swiftui-model-view-nodes`.
+  **Spec:** `docs/swiftui-typed-models.md §7`
 
-- [ ] **v1.66.3-swiftui-busi-dashboard** — `examples/frontend/busi-dashboard/
-  busi-dashboard.ssc` with BalanceSheet + TrialBalance + AuditLog models,
-  three-tab layout; `ssc build --target mobile-ios` exits 0;
-  `SwiftUIModelSmokeTest` (`swiftc -parse` gate, 8 tests).
-  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 3`](docs/swiftui-typed-models.md)
+- [ ] **v1.66.2-react-typed-models** — React emitter: typed fetch (`r.json()` branch
+  in mount-fetch hook, lines 60-66); companion state vars; `ModelView`/`ForModel`/
+  `ModelText` as `signal && ...` / `.map(...)` / property access.
+  **Spec:** `docs/typed-models-ir.md §React`
+
+- [ ] **v1.66.3-vue-typed-models** — Vue emitter: fix existing mount-fetch parity
+  gap (Vue currently ignores `FetchUrlSignal.fetchUrl` on mount); then typed
+  `r.json()` branch; `v-if`/`v-for`/`{{ bs.field }}` for view nodes.
+  **Spec:** `docs/typed-models-ir.md §Vue`
+
+- [ ] **v1.66.4-solid-typed-models** — Solid emitter: fix mount-fetch parity gap
+  (same pattern as Vue); `<Show when=...>`/`<For each=...>`/text binding.
+  **Spec:** `docs/typed-models-ir.md §Solid`
+
+- [ ] **v1.66.5-custom-typed-models** — Custom (StaticJs) emitter: mount-fetch via
+  `__ssc_signals` runtime with `r.json()`; DOM patches for view nodes.
+  **Spec:** `docs/typed-models-ir.md §Custom`
+
+- [ ] **v1.66.6-electron-typed-models** — Electron emitter: verify typed flow
+  round-trips inside the Electron host; add typed branch smoke test.
+  **Spec:** `docs/typed-models-ir.md §Electron`
+
+- [ ] **v1.66.7-swing-typed-models** — Swing: `ModelCaseClassEmitter` for Scala 3
+  case classes from models; extend `RuntimeState.fetchDispatcher` (~line 278) with
+  `JsonDecoder` hook (uPickle default); observer binding for `ModelText`/`ForModel`.
+  **Spec:** `docs/typed-models-ir.md §Swing`
+
+- [ ] **v1.66.8-javafx-typed-models** — JavaFX: same as Swing against
+  `JavaFxRuntime.scala:255`; JavaFX-native observable property binding.
+  **Spec:** `docs/typed-models-ir.md §JavaFX`
+
+- [ ] **v1.66.9-busi-dashboard** — `examples/frontend/busi-dashboard/busi-dashboard.ssc`
+  with BalanceSheet + TrialBalance + AuditLog models, three-tab layout,
+  `fetchJsonSignal` per tab, `ModelView`/`ForModel`/`ModelText`; `SwiftUIModelSmokeTest`
+  (`swiftc -parse` gate, 8 tests). Replaces original `v1.66.3-swiftui-busi-dashboard`.
+  **Spec:** `docs/swiftui-typed-models.md §9 Phase 3`
 
 - [x] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
   `en(k)` instead of the map value. Root cause: `TcoRuntime.tcoTrampoline`
