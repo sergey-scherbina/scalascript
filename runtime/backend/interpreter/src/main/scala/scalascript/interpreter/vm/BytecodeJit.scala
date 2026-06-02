@@ -53,6 +53,34 @@ object BytecodeJit:
    *  per-arg marshaling (numeric → `long`, ref → `Object`). */
   final class Result(val mh: MethodHandle, val paramIsRef: Array[Boolean])
 
+  /** Per-thread interpreter handle for the free-name globals read path.
+   *  `JitRuntime` sets this on each MH invocation; the generated Java code
+   *  calls back into `readGlobalLong(name)` to resolve a free `Int` global
+   *  by name. The lookup adds one HashMap miss + a type cast per read, but
+   *  the rest of the function body still benefits from the bytecode-JIT'd
+   *  hot path. */
+  private val interpTls: ThreadLocal[scalascript.interpreter.Interpreter] =
+    new ThreadLocal[scalascript.interpreter.Interpreter]()
+
+  def withInterp[A](interp: scalascript.interpreter.Interpreter)(thunk: => A): A =
+    val prev = interpTls.get()
+    interpTls.set(interp)
+    try thunk
+    finally
+      if prev == null then interpTls.remove() else interpTls.set(prev)
+
+  /** Called by generated Java code: read a top-level `Int` global by name and
+   *  return its `Long` value. Throws `RuntimeException` if the name is
+   *  missing or not an `IntV` — caller's MH invocation catches and falls
+   *  back to the SscVm.exec / tree-walk path. */
+  def readGlobalLong(name: String): Long =
+    val interp = interpTls.get()
+    if interp == null then throw new RuntimeException("BytecodeJit.readGlobalLong: no interp in TLS")
+    val v = interp.globals.getOrElse(name, null)
+    v match
+      case Value.IntV(x) => x
+      case _             => throw new RuntimeException(s"BytecodeJit.readGlobalLong: '$name' not an Int")
+
   /** Cache by FunV body AST identity. Value is a `Result` on hit or the
    *  `BailSentinel` on miss (so we don't re-attempt compilation for the same
    *  body). Synchronized via the cache monitor. */
@@ -103,7 +131,7 @@ object BytecodeJit:
             if idx >= 0 then paramIsRef(idx) = true
           case _ =>
       case _ =>
-    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, Map.empty)
+    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, Map.empty, interp)
     // For a Match-body fn the method body is a series of `if` statements ending
     // in a throw; for an int-arith body it's a single `return <expr>;`. Either
     // way `bodyStmts` carries the FULL Java statement sequence.
@@ -179,7 +207,8 @@ object BytecodeJit:
     val params:      Set[String],
     val paramNames:  Array[String],
     val paramIsRef:  Array[Boolean],
-    val bindings:    Map[String, (String, Boolean)]
+    val bindings:    Map[String, (String, Boolean)],
+    val interp:      scalascript.interpreter.Interpreter
   ):
     def isRefName(n: String): Boolean =
       bindings.get(n) match
@@ -193,7 +222,7 @@ object BytecodeJit:
         case None =>
           if params.contains(n) then sanitize(n) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, bindings ++ more)
+      new GenCtx(funName, params, paramNames, paramIsRef, bindings ++ more, interp)
 
   private def walkLong(t: Term, ctx: GenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
@@ -202,7 +231,18 @@ object BytecodeJit:
       // Only int-typed names can be read into a Long expression. Ref-typed
       // names (param scrutinee, ref-classified bindings) cannot.
       if ctx.isRefName(tn.value) then null
-      else ctx.resolveLocal(tn.value)
+      else
+        val local = ctx.resolveLocal(tn.value)
+        if local != null then local
+        else
+          // Free name → try a top-level Int global. The Java code reads
+          // through `BytecodeJit.readGlobalLong(name)` which dereferences a
+          // thread-local interpreter handle set by `JitRuntime`'s
+          // bytecode entry points.
+          ctx.interp.globals.getOrElse(tn.value, null) match
+            case _: Value.IntV =>
+              s"""scalascript.interpreter.vm.BytecodeJit$$.MODULE$$.readGlobalLong("${escape(tn.value)}")"""
+            case _ => null
     case ti: Term.If =>
       val c = walkBool(ti.cond, ctx); if c == null then return null
       val a = walkLong(ti.thenp, ctx); if a == null then return null

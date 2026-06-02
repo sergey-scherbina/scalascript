@@ -188,21 +188,21 @@ object JitRuntime:
         case Value.IntV(x) => jl.Long.valueOf(x)
         case _             => null
 
-  private def invokeBytecode1(r: BytecodeJit.Result, arg: Value): Computation | Null =
+  private def invokeBytecode1(r: BytecodeJit.Result, arg: Value, interp: Interpreter): Computation | Null =
     val a0 = marshalBytecode(arg, r.paramIsRef(0))
     if a0 == null then return null
     val out =
-      try r.mh.invoke(a0).asInstanceOf[Long]
+      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[Long] }
       catch case _: Throwable => return null
     Computation.pureIntV(out)
 
-  private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value): Computation | Null =
+  private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value, interp: Interpreter): Computation | Null =
     val a0 = marshalBytecode(a, r.paramIsRef(0))
     if a0 == null then return null
     val b0 = marshalBytecode(b, r.paramIsRef(1))
     if b0 == null then return null
     val out =
-      try r.mh.invoke(a0, b0).asInstanceOf[Long]
+      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[Long] }
       catch case _: Throwable => return null
     Computation.pureIntV(out)
 
@@ -217,8 +217,8 @@ object JitRuntime:
     if n < 1 || n > 2 || args.length != n then return null
     val bc = bytecodeFor(f, interp)
     if bc == null then return null
-    if n == 1 then invokeBytecode1(bc, args.head)
-    else invokeBytecode2(bc, args.head, args(1))
+    if n == 1 then invokeBytecode1(bc, args.head, interp)
+    else invokeBytecode2(bc, args.head, args(1), interp)
 
   /** 1-arg entry. Returns a Pure(IntV/DoubleV) computation if JITted, else null.
    *  Accepts either a numeric arg (numeric param) or an InstanceV (ref param,
@@ -231,7 +231,7 @@ object JitRuntime:
       // pure-int subset BytecodeJit supports.
       val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
-        val r = invokeBytecode1(bcMh, arg)
+        val r = invokeBytecode1(bcMh, arg, interp)
         if r != null then return r
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
@@ -255,7 +255,7 @@ object JitRuntime:
     else
       val bcMh = bytecodeFor(f, interp)
       if bcMh != null then
-        val r = invokeBytecode2(bcMh, a, b)
+        val r = invokeBytecode2(bcMh, a, b, interp)
         if r != null then return r
       val cf = hotCompiled(f, interp, eager)
       if cf == null then null
@@ -277,8 +277,8 @@ object JitRuntime:
         if (n == 1 || n == 2) && BytecodeJit.enabled then
           val bc = bytecodeFor(f, interp)
           if bc != null then
-            val r = if n == 1 then invokeBytecode1(bc, args.head)
-                    else            invokeBytecode2(bc, args.head, args(1))
+            val r = if n == 1 then invokeBytecode1(bc, args.head, interp)
+                    else            invokeBytecode2(bc, args.head, args(1), interp)
             if r != null then return r
         val cf = hotCompiled(f, interp, eager)
         if cf == null then null else marshalAndRun(cf, args)

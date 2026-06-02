@@ -185,6 +185,17 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // Recursive int fib whose base case multiplies by a top-level `val`
+  // constant — exercises the BytecodeJit free-name (global) read path. Before
+  // the globals extension, the `mul` reference forces `walkLong` to bail and
+  // the function falls through to `SscVm.exec`.
+  private val modFibMul: Module = src(
+    """val mul = 7
+      |def fibMul(n: Int): Int =
+      |  if n <= 1 then n * mul else fibMul(n - 1) + fibMul(n - 2)
+      |fibMul(30)""".stripMargin
+  )
+
   private val devNull = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
 
   // ── benchmarks ───────────────────────────────────────────────────
@@ -258,3 +269,7 @@ class InterpreterBench:
   @Benchmark
   def pureCallSum2(): Unit =
     Interpreter(devNull).runSections(modPureCallSum2)
+
+  @Benchmark
+  def recursionFibMul(): Unit =
+    Interpreter(devNull).runSections(modFibMul)
