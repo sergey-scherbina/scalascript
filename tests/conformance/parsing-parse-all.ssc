@@ -1,6 +1,7 @@
 ---
 name: conformance-parsing-parse-all
 version: 1.0.0
+backends: [int]
 ---
 
 # Parser error recovery — multi-error accumulation (`parseAll`)
@@ -8,14 +9,20 @@ version: 1.0.0
 Demonstrates `parseAll`: the accumulating runner never short-circuits;
 every `PErrorNode` site collects its `ParseError` into the result list.
 
-```scalascript
+## Imports
+
 [Position, Span, ParseError, ParseOk, ParseErr, Parser,
  PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
  runParser](std/parsing/combinators.ssc)
-[PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
+
+[PRecoverUntil, PErrorNode, PParseAll, ErrorNode,
  runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
+## Test
+
+```scalascript
 // A simple keyword parser wrapped in errorNode so errors are collected.
 val pKeyword: Parser[Any] =
   Parser.string("SELECT").errorNode("<missing-SELECT>")
@@ -32,20 +39,15 @@ println("errors:" + errs2.length)
 println("error-msg-contains:" + errs2.head.message.contains("SELECT"))
 
 // IDE-style SQL parser — partial AST with two error nodes.
-// We compose two error-recovering parsers and collect all errors at once.
 val pFrom: Parser[Any] =
   Parser.string("FROM").errorNode("<missing-FROM>")
 
 // Parse "SELECT * BORKED" — SELECT succeeds, FROM fails with error node.
 val sqlInput = "SELECT * BORKED"
-// Use PSequence so both parsers run; first succeeds, second fails via errorNode
 val pSql: Parser[Any] = PSequence(
   PErrorNode(Parser.string("SELECT"), "<missing-SELECT>"),
   PErrorNode(Parser.string(" FROM"), "<missing-FROM>")
 )
 val (resSql, errsSql) = pSql.parseAll(sqlInput)
-// The PSequence path through runParserAll delegates to runParser which
-// succeeds for SELECT then hits PErrorNode for FROM at " * BORKED" — error fires.
-// We inspect errors collected.
 println("sql-errors-gte-1:" + (errsSql.length >= 1))
 ```

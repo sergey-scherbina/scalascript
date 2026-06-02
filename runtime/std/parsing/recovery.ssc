@@ -19,7 +19,7 @@ trees; recovery is implemented by adding new ADT nodes and a matching
 recursive-descent interpreter extension.
 
 [Position, Span, ParseError, ParseOk, ParseErr, Parser,
- PChar, PString, PRegex, PSatisfy, PSucceed, PFail](core.ssc)
+ PChar, PString, PRegex, PSatisfy, PSucceed, PFail, NoContext](core.ssc)
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
  runParser](combinators.ssc)
 
@@ -147,7 +147,7 @@ def advanceToSync(
   errs:   List[Any]
 ): Any =                     // (String, Position, List[ParseError])
   // Try sync at current position first.
-  runParser(syncOn, input, pos) match
+  runParser(syncOn, input, pos, NoContext) match
     case ParseOk(_, rest, pos2) =>
       (rest, pos2, errs)
     case ParseErr(_) =>
@@ -165,7 +165,7 @@ def runParserAll(
   p match
     // ── Phase 1: skip-to-sync ─────────────────────────────────────────────
     case PRecoverUntil(inner, syncOn, default) =>
-      runParser(inner, input, pos) match
+      runParser(inner, input, pos, NoContext) match
         case ok @ ParseOk(_, _, _) =>
           (Some(ok), errs)
         case ParseErr(err) =>
@@ -176,7 +176,7 @@ def runParserAll(
 
     // ── Phase 2: error node ───────────────────────────────────────────────
     case PErrorNode(inner, default) =>
-      runParser(inner, input, pos) match
+      runParser(inner, input, pos, NoContext) match
         case ok @ ParseOk(_, _, _) =>
           (Some(ok), errs)
         case ParseErr(ParseError(msg, epos)) =>
@@ -192,7 +192,7 @@ def runParserAll(
 
     // ── Delegate all other nodes to the standard runner ───────────────────
     case _ =>
-      runParser(p, input, pos) match
+      runParser(p, input, pos, NoContext) match
         case ok @ ParseOk(_, _, _) => (Some(ok), errs)
         case ParseErr(err)         => (None, errs :+ err)
 ```

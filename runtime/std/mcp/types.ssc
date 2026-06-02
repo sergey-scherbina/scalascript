@@ -36,7 +36,7 @@ case class McpError(message: String)
 enum Content:
   case Text(text: String)
   case Image(data: String, mimeType: String)   // data: base64-encoded bytes
-  case Resource(uri: String)
+  case EmbeddedResource(uri: String)
 
 // ─── Result types ────────────────────────────────────────────────────────────
 
@@ -74,10 +74,10 @@ object Tool:
     ToolResult(List(Content.Text(msg)), isError = true)
 
 object Resource:
+  def textWithUri(uri: String, s: String, mimeType: String): ResourceResult =
+    ResourceResult(uri, List(Content.Text(s)))
   def text(s: String, mimeType: String = "text/plain"): ResourceResult =
     ResourceResult("", List(Content.Text(s)))
-  def text(uri: String, s: String, mimeType: String): ResourceResult =
-    ResourceResult(uri, List(Content.Text(s)))
 
 object Prompt:
   def messages(msgs: Message*): PromptResult =

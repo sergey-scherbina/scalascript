@@ -1,17 +1,23 @@
 ---
 name: mcp-types
+backends: [int, js]
 ---
 
 # MCP types — pure construction and extraction
 
 Tests that `ToolResult`, `ResourceResult`, `PromptResult`, `Content`,
 `Message`, `Role`, `Transport`, `McpError`, and the `require*` helpers
-are all usable without starting a server.  Runs on all backends.
+are all usable without starting a server.  Runs on int and js backends
+(JVM skipped: Scala 3 forbids nested case classes from extending Throwable).
 
-```scalascript
+## Imports
+
 [ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
  Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](std/mcp/types.ssc)
 
+## Test
+
+```scalascript
 // Tool convenience constructors
 val t1 = Tool.text("hello")
 println(t1.isError)
@@ -41,7 +47,7 @@ println(requireBool(args, "active"))
 
 // McpError on missing field
 val err = try {
-  requireString(Map.empty, "missing")
+  requireString(Map(), "missing")
   "no error"
 } catch {
   case e: McpError => s"McpError: ${e.message}"

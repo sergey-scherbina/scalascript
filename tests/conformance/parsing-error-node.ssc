@@ -1,6 +1,7 @@
 ---
 name: conformance-parsing-error-node
 version: 1.0.0
+backends: [int]
 ---
 
 # Parser error recovery — error nodes in AST (`errorNode`)
@@ -9,14 +10,20 @@ Demonstrates `PErrorNode`: when the inner parser fails, an `ErrorNode` is
 inserted into the result pair alongside the fallback value, and parsing
 continues from the original position.
 
-```scalascript
+## Imports
+
 [Position, Span, ParseError, ParseOk, ParseErr, Parser,
  PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
  runParser](std/parsing/combinators.ssc)
-[PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
+
+[PRecoverUntil, PErrorNode, PParseAll, ErrorNode,
  runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
+## Test
+
+```scalascript
 // Parser that expects an integer literal (one or more digits).
 val pInt: Parser[String] = Parser.regex("[0-9]+")
 

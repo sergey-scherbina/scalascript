@@ -1313,8 +1313,16 @@ private[interpreter] object PatternRuntime:
     case t: Term.Name =>
       val v = env.getOrElse(t.value, interp.globals.getOrElse(t.value, null))
       if v != null && v == scrutinee then env else null
-    case Term.Select(_, Term.Name(n)) =>
-      val v = env.getOrElse(n, interp.globals.getOrElse(n, null))
+    case Term.Select(qual, Term.Name(n)) =>
+      // Evaluate the qualifier to support imported enum singletons like `Role.User`.
+      // For `case Role.User =>`, look up `Role` then access its `User` field.
+      // Fall back to the bare-name lookup for unknown or non-InstanceV qualifiers.
+      val recv: Value | Null = qual match
+        case Term.Name(qn) => env.getOrElse(qn, interp.globals.getOrElse(qn, null))
+        case _             => null
+      val v: Value | Null = recv match
+        case inst: Value.InstanceV => inst.fields.getOrElse(n, null)
+        case _                     => env.getOrElse(n, interp.globals.getOrElse(n, null))
       if v != null && v == scrutinee then env else null
     case _ => null
 

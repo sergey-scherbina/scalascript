@@ -9,6 +9,29 @@ import scala.meta.*
  */
 private[interpreter] object SectionRuntime:
 
+  private val inlineImportPat =
+    """^\s*// list-import: \[([^\]]+)\]\(([^)]+)\)\s*$""".r
+
+  private def runInlineImports(source: String, interp: Interpreter): Unit =
+    if !source.contains("](") then return
+    import scalascript.parser.Parser
+    val preprocessed = Parser.rewriteInlineImports(source)
+    if !preprocessed.contains("// list-import:") then return
+    val asPattern = """^([A-Za-z_]\w*)\s+as\s+([A-Za-z_]\w*)$""".r
+    preprocessed.linesIterator.foreach { line =>
+      inlineImportPat.findFirstMatchIn(line).foreach { m =>
+        val bindingStr = m.group(1)
+        val path       = m.group(2).trim
+        val bindings = bindingStr.split(",").map(_.trim).filter(_.nonEmpty).map { s =>
+          s.trim match
+            case asPattern(name, alias) => ImportBinding(name, alias = Some(alias))
+            case bare                   => ImportBinding(bare)
+        }.toList
+        if bindings.nonEmpty && path.nonEmpty then
+          runImport(Content.Import(path, bindings), interp)
+      }
+    }
+
   def runSection(section: Section, interp: Interpreter): Unit =
     section.content.foreach {
       case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
@@ -21,6 +44,7 @@ private[interpreter] object SectionRuntime:
           case None => 0
         // Phase 2 DAP: record document-level line where this code block starts.
         interp.debugBlockDocLine = cb.lineOffset
+        runInlineImports(cb.source, interp)
         cb.tree.foreach(t => execBlock(t, interp))
       case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
         runStringBlock(cb, section, interp)

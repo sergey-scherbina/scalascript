@@ -13,11 +13,11 @@ Skipped on backends without `Feature.McpServer`.
 
 mcpServer { srv =>
   srv.resource("file:///readme.md", "README", "text/markdown") { uri =>
-    Resource.text(uri, "# Hello from ScalaScript MCP", "text/markdown")
+    Resource.textWithUri(uri, "# Hello from ScalaScript MCP", "text/markdown")
   }
 
   srv.resource("data://users") { uri =>
-    Resource.text("""[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]""", "application/json")
+    Resource.textWithUri("""[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]""", "application/json")
   }
 }
 

@@ -117,6 +117,8 @@ object Parser:
   def parseFile(path: os.Path): Module =
     RouteDeriver.derive(parse(os.read(path)), Some(path / os.up))
 
+  def rewriteInlineImports(code: String): String = preprocessInlineImports(code)
+
   // A source is "pure Scala" when it has no Markdown headings (# ...) or fences (```).
   // After shebang stripping, this reliably distinguishes plain scripts from .ssc documents.
   private def isPureScala(src: String): Boolean =

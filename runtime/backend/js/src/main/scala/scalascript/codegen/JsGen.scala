@@ -797,9 +797,12 @@ class JsGen(
                  allText.contains("OAuth2.") || allText.contains("bearerToken") ||
                  allText.contains("csrf")
     if hasJwt then caps += Jwt
-    // WsServer — Part1d: WebSocket connections, SSE, CORS
+    // WsServer — Part1d: WebSocket connections, SSE, CORS, outbound HTTP client
     val hasWsServer = allText.contains("WsConnection(") || allText.contains("WsRoom(") ||
-                      allText.contains("sse(") || allText.contains("cors(")
+                      allText.contains("sse(") || allText.contains("cors(") ||
+                      allText.contains("httpGet(") || allText.contains("httpPost(") ||
+                      allText.contains("httpPut(") || allText.contains("httpPatch(") ||
+                      allText.contains("httpDelete(") || allText.contains("httpClient(")
     if hasWsServer then caps += WsServer
     // Optics — Lens/Optional/Traversal/Prism
     val hasOptics = allText.contains("Lens(") || allText.contains("Optional(") ||
@@ -2236,16 +2239,18 @@ class JsGen(
       }.mkString(" else ")
       s"  const $scrutVar = $scrutExpr;\n$casesJs"
     case Term.Throw(expr) =>
-      val errMsg = expr match
+      expr match
         case Term.New(init) =>
-          init.argClauses.headOption.flatMap(_.values.headOption)
+          val errMsg = init.argClauses.headOption.flatMap(_.values.headOption)
             .map(v => genExpr(v.asInstanceOf[Term]))
             .getOrElse("'error'")
+          s"  throw new Error($errMsg);"
         case Term.Apply.After_4_6_0(Term.Name("RuntimeException" | "Exception" | "Error"), argClause)
             if argClause.values.size == 1 =>
-          genExpr(argClause.values.head.asInstanceOf[Term])
-        case _ => genGenExpr(expr)
-      s"  throw new Error($errMsg);"
+          val errMsg = genExpr(argClause.values.head.asInstanceOf[Term])
+          s"  throw new Error($errMsg);"
+        case _ =>
+          s"  throw ${genGenExpr(expr)};"
     case t: Term => s"  ${genGenExpr(t)};"
     case _       => s"  ${genStatInline(s)}"
 
@@ -2404,6 +2409,9 @@ class JsGen(
    *  (Term.Name(fname), args) sites BEFORE the existing hardcoded
    *  pattern matches, so a registered intrinsic always wins. */
   private def dispatchIntrinsicJs(fname: String, argClause: Term.ArgClause): Option[String] =
+    // If the name has been shadowed by an explicit import binding (const fname = ...), skip
+    // the intrinsic so the local binding takes precedence.
+    if declaredBindings.contains(fname) then return None
     val qn = scalascript.ir.QualifiedName(fname)
     intrinsics.get(qn).map {
       case scalascript.backend.spi.RuntimeCall(target) =>
@@ -3221,16 +3229,20 @@ class JsGen(
     // usable in expression position (e.g. inside a ternary). Mirrors the
     // Term.Throw lowering in genGenStatItem.
     case Term.Throw(expr) =>
-      val errMsg = expr match
+      expr match
         case Term.New(init) =>
-          init.argClauses.headOption.flatMap(_.values.headOption)
+          val errMsg = init.argClauses.headOption.flatMap(_.values.headOption)
             .map(v => genExpr(v.asInstanceOf[Term]))
             .getOrElse("'error'")
+          s"(() => { throw new Error($errMsg); })()"
         case Term.Apply.After_4_6_0(Term.Name("RuntimeException" | "Exception" | "Error"), argClause)
             if argClause.values.size == 1 =>
-          genExpr(argClause.values.head.asInstanceOf[Term])
-        case _ => genExpr(expr)
-      s"(() => { throw new Error($errMsg); })()"
+          val errMsg = genExpr(argClause.values.head.asInstanceOf[Term])
+          s"(() => { throw new Error($errMsg); })()"
+        case _ =>
+          // User-defined throwable (e.g. McpError("msg")): throw the value directly so
+          // catch clauses can match on _type rather than instanceof Error.
+          s"(() => { throw ${genExpr(expr)}; })()"
 
     // try { body } catch { case ... => ... } finally { ... }
     // Lowered to an IIFE so it works in expression position (val x = try …).
@@ -4168,9 +4180,12 @@ class JsGen(
         case "None" => (s"($scrutVar && $scrutVar._type === '_None')", Nil)
         case n      => (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
-    case Term.Select(_, Term.Name(n)) =>
+    case Term.Select(qual, Term.Name(n)) =>
+      val qualJs = qual match
+        case Term.Name(q) => s"$q.$n"
+        case _            => n
       if n == "None" then (s"($scrutVar && $scrutVar._type === '_None')", Nil)
-      else (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
+      else (s"($scrutVar === $qualJs || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
     case _ =>
       ("true", Nil)

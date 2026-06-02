@@ -126,6 +126,13 @@ private[codegen] trait JvmGenBlockAnalysis:
           // — must pull `serveRuntime` in so the inlined ProxyRuntime
           // `def serveAsync` is in scope.
           case Term.Apply.After_4_6_0(Term.Name("serveAsync"),   _) => found = true
+          // Outbound HTTP client calls — pull in serveRuntime for httpGet/httpPost/etc.
+          case Term.Apply.After_4_6_0(Term.Name("httpGet"),      _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpPost"),     _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpPut"),      _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpPatch"),    _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpDelete"),   _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("httpClient"),   _) => found = true
         }
       }
       found

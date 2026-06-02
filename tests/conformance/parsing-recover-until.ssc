@@ -1,6 +1,7 @@
 ---
 name: conformance-parsing-recover-until
 version: 1.0.0
+backends: [int]
 ---
 
 # Parser error recovery — skip-to-sync-token (`recoverUntil`)
@@ -8,14 +9,20 @@ version: 1.0.0
 Demonstrates `PRecoverUntil`: when the inner parser fails, the runner
 advances to the next occurrence of the sync token and continues parsing.
 
-```scalascript
+## Imports
+
 [Position, ParseError, ParseOk, ParseErr, Parser,
  PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+
 [PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed,
  runParser](std/parsing/combinators.ssc)
-[PRecoverUntil, PErrorNode, PParseAll, ErrorNode, ParseErrors,
+
+[PRecoverUntil, PErrorNode, PParseAll, ErrorNode,
  runParserAll, advanceToSync](std/parsing/recovery.ssc)
 
+## Test
+
+```scalascript
 // A parser that expects the keyword "val".
 val pVal: Parser[String] = Parser.string("val")
 
@@ -31,7 +38,6 @@ ok1 match
   case _ => println("unexpected")
 
 // Input 2: bad keyword, semicolon at position 3.
-// Runner skips "foo" and consumes ";", then returns default "<error>".
 val ok2 = runParserAll(PRecoverUntil(pVal, Parser.string(";"), "<error>"), "foo;rest", Position(0), Nil)
 ok2 match
   case (Some(ParseOk(v, rest, _)), errs) =>

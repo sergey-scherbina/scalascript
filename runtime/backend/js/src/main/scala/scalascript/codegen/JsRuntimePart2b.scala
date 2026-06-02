@@ -506,7 +506,7 @@ function _recordOrThrow(name, msg, defaultValue) {
   throw _restValidationError(msg);
 }
 
-function requireString(req, name) {
+function _restRequireString(req, name) {
   const v = _restFieldOf(req, name);
   if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, '');
   return String(v);
@@ -515,7 +515,7 @@ function optionalString(req, name) {
   const v = _restFieldOf(req, name);
   return v === undefined ? _None : _Some(String(v));
 }
-function requireInt(req, name) {
+function _restRequireInt(req, name) {
   const v = _restFieldOf(req, name);
   if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, 0);
   const s = String(v).trim();
@@ -529,7 +529,7 @@ function optionalInt(req, name) {
   if (!/^-?[0-9]+$/.test(s)) return _None;
   return _Some(Number(s));
 }
-function requireDouble(req, name) {
+function _restRequireDouble(req, name) {
   const v = _restFieldOf(req, name);
   if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, 0.0);
   const n = Number(String(v).trim());
@@ -542,7 +542,7 @@ function optionalDouble(req, name) {
   const n = Number(String(v).trim());
   return Number.isNaN(n) ? _None : _Some(n);
 }
-function requireBool(req, name) {
+function _restRequireBool(req, name) {
   const v = _restFieldOf(req, name);
   if (v === undefined) return _recordOrThrow(name, 'missing field: ' + name, false);
   const s = String(v).trim().toLowerCase();
