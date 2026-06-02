@@ -524,22 +524,29 @@ object BytecodeJit:
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
         sb.append(s"""  case "${escape(ctorName)}": {\n      """)
+        // Hoist the fieldsArr lookup once per arm. inst is already typed as InstanceV.
+        val faVar = s"__fa_${sanitize(ctorName)}"
+        if n > 0 then
+          sb.append(s"scalascript.interpreter.Value[] $faVar = inst.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
             val (jvar, isRef) = bindingMap(bindNames(fi))
             val fname = fieldOrder(fi)
+            val readExpr =
+              if n > 0 then
+                s"""$faVar != null ? $faVar[$fi] : inst.fields().apply("${escape(fname)}")"""
+              else
+                s"""inst.fields().apply("${escape(fname)}")"""
             if isRef then
-              sb.append(s"""Object $jvar = inst.fields().apply("${escape(fname)}");\n      """)
+              sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
               // A: flexible DoubleV/IntV extraction for double-returning functions.
-              // Emits a ternary so both field kinds work at runtime; auto-promotes
-              // IntV.v() (long) to double in the containing arithmetic expression.
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
-              sb.append(s"""Object $raw = inst.fields().apply("${escape(fname)}");\n      """)
+              sb.append(s"""Object $raw = $readExpr;\n      """)
               sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n      """)
             else
-              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) inst.fields().apply("${escape(fname)}")).v();\n      """)
+              sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n      """)
           fi += 1
         // A: walk body as double when ctx.isDouble, long otherwise
         val armBodyJava =

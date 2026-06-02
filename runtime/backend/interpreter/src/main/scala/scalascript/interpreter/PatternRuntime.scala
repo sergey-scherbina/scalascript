@@ -819,12 +819,7 @@ private[interpreter] object PatternRuntime:
                 val fo = fieldOrderCache
                 if bindNames.length != fo.length then null
                 else
-                  // Phase 2a: prefer the positional fieldsArr side-table when
-                  // the InstanceV was constructed with the flag on (Phase 3).
-                  // Null → fall back to fields.getOrElse inside buildPatEnv.
-                  val arr =
-                    if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.get(inst)
-                    else null
+                  val arr = inst.fieldsArr
                   val patEnv = buildPatEnv(fo, bindNames, fields, arr, env)
                   if patEnv == null then null
                   else if noGuard || evalGuard(c.cond, patEnv, interp) then runBody(patEnv)
@@ -1075,9 +1070,7 @@ private[interpreter] object PatternRuntime:
               val fo = fieldOrderCache
               if bindNames.length != fo.length then null
               else
-                val arr =
-                  if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.get(inst)
-                  else null
+                val arr = inst.fieldsArr
                 val patEnv = buildPatEnv(fo, bindNames, fields, arr, env)
                 if patEnv == null then null
                 else { val v = bt(patEnv); if v != null then v else NeedMonadic }
