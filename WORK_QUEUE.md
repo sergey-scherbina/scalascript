@@ -66,8 +66,11 @@ bearer-token API. Resume via the standard claim/worktree flow.
   `registerSignal` skips `FetchUrlSignal`; tick auto-registered. 12 new tests; all 63 Custom tests pass.
   **Spec:** `docs/typed-models-ir.md §Custom`
 
-- [ ] **v1.66.6-electron-typed-models** — Electron emitter: verify typed flow
-  round-trips inside the Electron host; add typed branch smoke test.
+- [x] **v1.66.6-electron-typed-models** — ✓ Landed 2026-06-02. Electron delegates renderer
+  output to Custom (StaticJs) emitter — typed models inherited from v1.66.5 with zero emitter
+  changes. Added `ElectronTypedModelsTest` (4 tests): FetchJsonSignal null-init round-trip,
+  ModelView rebuild fn, ForModel+ModelText field access, bundle-builder `_ssc_frontend_name`
+  injection. All 23 Electron tests pass.
   **Spec:** `docs/typed-models-ir.md §Electron`
 
 - [ ] **v1.66.7-swing-typed-models** — Swing: `ModelCaseClassEmitter` for Scala 3
