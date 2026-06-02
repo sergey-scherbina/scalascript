@@ -75,9 +75,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
 
 - [x] **v1.66.7-swing-typed-models** — Swing: `modelData` + `withModel` on `RuntimeState`; `modelField` dot-path traversal; `ModelView`/`ForModel`/`ModelText` cases in `addTo`; async fetch via `JsonDecoder` SPI; `buildViewTest` for unit tests. 7 new tests, all 19 Swing tests green.
 
-- [ ] **v1.66.8-javafx-typed-models** — JavaFX: same as Swing against
-  `JavaFxRuntime.scala:255`; JavaFX-native observable property binding.
-  **Spec:** `docs/typed-models-ir.md §JavaFX`
+- [x] **v1.66.8-javafx-typed-models** — JavaFX: `modelData` + `withModel` on `RuntimeState`; `modelField` dot-path traversal; `ModelView`/`ForModel`/`ModelText` cases in `addTo`; async fetch via `JsonDecoder` SPI + `Platform.runLater`; `buildViewTest` for unit tests. 7 new tests, all 15 JavaFX tests green.
 
 - [ ] **v1.66.9-busi-dashboard** — `examples/frontend/busi-dashboard/busi-dashboard.ssc`
   with BalanceSheet + TrialBalance + AuditLog models, three-tab layout,
