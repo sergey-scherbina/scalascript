@@ -77,11 +77,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
 
 - [x] **v1.66.8-javafx-typed-models** — JavaFX: `modelData` + `withModel` on `RuntimeState`; `modelField` dot-path traversal; `ModelView`/`ForModel`/`ModelText` cases in `addTo`; async fetch via `JsonDecoder` SPI + `Platform.runLater`; `buildViewTest` for unit tests. 7 new tests, all 15 JavaFX tests green.
 
-- [ ] **v1.66.9-busi-dashboard** — `examples/frontend/busi-dashboard/busi-dashboard.ssc`
-  with BalanceSheet + TrialBalance + AuditLog models, three-tab layout,
-  `fetchJsonSignal` per tab, `ModelView`/`ForModel`/`ModelText`; `SwiftUIModelSmokeTest`
-  (`swiftc -parse` gate, 8 tests). Replaces original `v1.66.3-swiftui-busi-dashboard`.
-  **Spec:** `docs/swiftui-typed-models.md §9 Phase 3`
+- [x] **v1.66.9-busi-dashboard** — `busi-dashboard.ssc` example with BalanceSheet/TrialBalance/AuditLog models, three-tab SwiftUI layout, `fetchJsonSignal` per tab, `ModelView`/`ForModel`/`ModelText`; `SwiftUIModelSmokeTest` with 11 assertions (model structs, @State decls, JSONDecoder, if-let bindings, ForEach, ModelText, swiftc-parse gate). All 101 SwiftUI tests green.
 
 - [x] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
   `en(k)` instead of the map value. Root cause: `TcoRuntime.tcoTrampoline`
