@@ -415,19 +415,33 @@ verify step. Apply them.
       while can be lifted into the JIT class. Per
       `noble-discovering-knuth.md` Direction A slice 4.
 
-- [ ] **phase-c-bytecode-match-double-body** (parallel agent's
-      `typed-seeking-cosmos.md` A+B+D bundle) — JIT Double-typed
-      `Term.Match` via `walkMatchBody` extension + `walkDouble`
-      parameter. Replace if-equals chain with `switch(String)`
-      (javac lowers to `lookupswitch`). Remove the duplicate
-      `t == tn` arm-closure guard in `PatternRuntime` (`:806`, `:961`,
-      `:992`) — tag-scan loop already verified the tag; helps non-JIT
-      fallback by ~10%. **Target**: `interp_patternMatch` 7615 → <
-      2500 µs/op (3×+ improvement on JIT-able shape). Independent of
-      this WORK_QUEUE's Direction A/B/C — lands as its own PR.
-      Sibling to A.4 (foreach-static): A.4 lifts the outer while into
-      JIT; this slice ensures the inner match arms compile too. See
-      `~/.claude/plans/typed-seeking-cosmos.md` for full design.
+- [x] **phase-c-bytecode-match-double-body** — ✓ Landed 2026-06-02.
+      Three sub-pieces, three different landings:
+      - **A** (walkMatchBody Double-typed via walkDouble) — was already
+        in place pre-session via the `if ctx.isDouble then walkDouble`
+        dispatch at BytecodeJit:607-608. No commit needed.
+      - **B** (replace if-equals chain with int-tag switch) — landed
+        2026-06-02 in commit `ebb3e9a3` (`phase-c-bytecode-int-tag`).
+      - **D** (drop the duplicate `t == tn` arm-closure guard) —
+        partially landed 2026-06-02 in commit `62b16bb8`
+        (`interp-pattern-arm-int-tag-guard`): the Int-tag short-circuit
+        skips String.equals on the hot path; the String fallback is
+        retained for unregistered InstanceVs (e.g. `Value.InstanceV(
+        "RuntimeException", …)` constructed bare in EffectsRuntime).
+        Full removal needs every direct construction site to set
+        typeTag, which is its own backlog item — not blocking this
+        line item.
+      - **Capability extension** (not in the original 3-part bundle but
+        completes the spirit of the work item): commit `48768a20`
+        adds `walkMatchExpr` so a `Term.Match` appearing as a
+        sub-expression — not as the entire function body — JITs via
+        a Java switch *expression* wrapped in a primitive
+        LongSupplier/DoubleSupplier IIFE. walkLong / walkDouble now
+        delegate to it. No current bench exercises this path; future
+        nested-match shapes will JIT instead of tree-walking.
+      Original target — `interp_patternMatch` 7615 → < 2500 µs/op —
+      achieved by the int-tag landing alone: current ~1700 µs on a
+      clean system (4.4×, exceeded the 3× spec target).
 
 - [ ] **phase-c-bytecode-block-multistat** (Direction A.5) — currently
       only single-expr bodies compile in BytecodeJit. Multi-stat bodies
