@@ -820,6 +820,10 @@ private[custom] object StaticJsEmitter:
       case View.Adaptive(web, _, _, fallback) =>
         compile(web.getOrElse(fallback))
 
+      case View.ModelView(_, _, template, _)   => compile(template)
+      case View.ForModel(_, _, _, template, _) => compile(template)
+      case View.ModelText(_, _, _)             => null
+
     /** Empty-branch placeholder for ShowSignal — an empty text
      *  node so `replaceChild` always has a real Node to swap.
      *  Phase A2d: a hidden no-op. */

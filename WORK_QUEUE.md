@@ -164,7 +164,7 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 |---|---|---|
 | `arithLoop` | 2.73 | top-level loop, BytecodeJit doesn't cover; arithLoop and tupleMonoid are NOT current Phase C/D targets |
 | `effectPure` | 0.04 | trivially small |
-| `patternMatchHeavy` | **113** | Phase D primary target — Double accumulator over List foreach |
+| `patternMatchHeavy` | **10** | foreach-hoist win: 113 → 10 ms (11×, pre-resolve list+closure before outer loop) |
 | `patternMatchSet` | **113** | Just landed (commit `8f911f14`); same shape as Heavy but Set receiver |
 | `patternMatchWide` | 74 | Int accumulator, 12-arm match |
 | `pureCallSum` | 12.5 | covered by Phase D LApply + mixed-while |
@@ -321,6 +321,20 @@ verify step. Apply them.
       TLS active; bail clears `slot(1)=0L` to signal validity.
       **Result**: `patternMatchHeavy` GC alloc 4.9 MB/op → 1.7 MB/op (−65%); wall-clock ~113 ms
       (CPU-bound — GC not the bottleneck at this alloc rate, as predicted by JFR profile).
+
+- [x] **phase-d-foreach-hoist** — ✓ Landed 2026-06-02.
+      Pre-resolve list receiver + closure `FunV` once before the outer `while` loop
+      in `tryFastWhileAssign`, then call `FastTier.tryDoubleAccumForeach` directly
+      from `tryMixedLongWhile` instead of routing through
+      `interp.eval → evalCore → evalApplyGeneral` per outer iteration.
+      Safety guard: only pre-resolve when the list receiver is a stable global
+      (not in `longAssignNames`). Bail-out path falls through to standard eval.
+      `PreResolvedForeach` carries `(applyIdx, list, closure)`.
+      `tryPreResolveForeach` extracts a `Value.FunV` from `emptyClosureFunCache`
+      or falls back to `interp.eval` (always fast for an empty-capture function).
+      **Result**: `patternMatchHeavy` 113 → 10 ms (11×). 1205 tests green.
+      Also fixed pre-existing frontend exhaustivity errors (ModelView/ForModel/ModelText
+      stubs in StaticJsEmitter, SolidEmitter, VueEmitter) that were blocking test runs.
 
 - [ ] **phase-d-instancev-array-repr** — replace `Map[String, Value]`
       fields with `Array[Value]` + typeName-keyed dispatch table.

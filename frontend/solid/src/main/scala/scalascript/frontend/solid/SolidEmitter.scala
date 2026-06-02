@@ -740,6 +740,10 @@ private[solid] object SolidEmitter:
       case View.Adaptive(web, _, _, fallback) =>
         compile(web.getOrElse(fallback))
 
+      case View.ModelView(_, _, template, _)   => compile(template)
+      case View.ForModel(_, _, _, template, _) => compile(template)
+      case View.ModelText(_, _, _)             => null
+
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
         case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>

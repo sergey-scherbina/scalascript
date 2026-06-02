@@ -261,6 +261,17 @@ private[interpreter] object EvalRuntime:
     val rhs:            Array[Term]
   )
 
+  /** Pre-resolved receiver list and closure FunV for a
+   *  `receiver.foreach(s => { acc = acc + fn(s) })` leading apply.
+   *  Allows `tryMixedLongWhile` to bypass the eval→evalApplyGeneral→dispatch
+   *  path (which allocates `Pure(listValue)` per outer iteration) and call
+   *  `tryDoubleAccumForeach` directly. */
+  private final class PreResolvedForeach(
+    val applyIdx: Int,
+    val list:     List[Value],
+    val closure:  Value.FunV
+  )
+
   /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
    *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
    *  (use the plain `collectFastAssignBody` path), no trailing assigns, or any
@@ -293,6 +304,57 @@ private[interpreter] object EvalRuntime:
         j += 1
       new MixedAssignBody(applies, names, rhs)
     case _ => null
+
+  /** Try to pre-resolve the receiver list and closure FunV for a
+   *  `receiver.foreach(s => { acc = acc + fn(s) })` leading apply.
+   *  Returns null if pre-resolution is not possible (receiver is not a
+   *  stable ListV global, not a Term.Name, or is one of the loop's
+   *  long-assign variables). */
+  private def tryPreResolveForeach(
+    apply:           Term,
+    applyIdx:        Int,
+    interp:          Interpreter,
+    longAssignNames: Array[String],
+    frameView:       MutableEnvView
+  ): PreResolvedForeach | Null =
+    apply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case sel: Term.Select if sel.name.value == "foreach" =>
+            sel.qual match
+              case recvTerm: Term.Name =>
+                val recvStr = recvTerm.value
+                // Only pre-resolve if receiver is not a slot-assigned loop var.
+                var isAssigned = false
+                var k = 0
+                while k < longAssignNames.length do
+                  if longAssignNames(k) == recvStr then isAssigned = true
+                  k += 1
+                if isAssigned then return null
+                // Resolve the list from globals (immutable for this loop).
+                val recvV = interp.globals.getOrElse(recvStr, null)
+                if recvV == null || !recvV.isInstanceOf[Value.ListV] then return null
+                val list = recvV.asInstanceOf[Value.ListV].items
+                // Resolve the closure FunV. Check emptyClosureFunCache first;
+                // if missing, evaluate once (which will populate the cache).
+                ta.argClause.values match
+                  case List(fn: Term.Function) =>
+                    val cached = interp.emptyClosureFunCache.get(fn)
+                    val funV: Value.FunV | Null =
+                      if cached != null then
+                        cached match
+                          case Pure(fv: Value.FunV) => fv
+                          case _                    => null
+                      else
+                        interp.eval(fn, frameView) match
+                          case Pure(fv: Value.FunV) => fv
+                          case _                    => null
+                    if funV == null then null
+                    else new PreResolvedForeach(applyIdx, list, funV)
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
 
   /** True if `t` references any `Term.Name` whose value is in `names` (read OR
    *  write — conservative). Used to verify that the leading applies in
@@ -633,7 +695,13 @@ private[interpreter] object EvalRuntime:
    *  through `frameView`, so they observe the entry-state of the slot vars
    *  for the iteration — but since they don't touch them, the in-loop slot
    *  values stay authoritative without any per-iter resync. */
-  private def tryMixedLongWhile(t: Term.While, body: MixedAssignBody, frameView: MutableEnvView, interp: Interpreter): Computation | Null =
+  private def tryMixedLongWhile(
+    t: Term.While,
+    body: MixedAssignBody,
+    frameView: MutableEnvView,
+    interp: Interpreter,
+    preResolved: PreResolvedForeach | Null = null
+  ): Computation | Null =
     val slotOfName = mutable.LinkedHashMap.empty[String, Int]
     def slotOf(name: String): Int =
       slotOfName.get(name) match
@@ -793,12 +861,22 @@ private[interpreter] object EvalRuntime:
 
     try
       var running = true
+      var useFastForeach = preResolved != null
       while running do
-        // 1. Run leading side-effect applies (FastTier handles the bench shape
-        //    cheaply; any monadic result is `run` to a Value and discarded).
+        // 1. Run leading side-effect applies. For the pre-resolved foreach apply
+        //    (if available), call tryDoubleAccumForeach directly, skipping the
+        //    eval→evalApplyGeneral→dispatch overhead (~50% CPU on patternMatchHeavy).
+        //    On bail, fall back to standard eval for this and subsequent applies.
         var ap = 0
         while ap < body.leadingApplies.length do
-          Computation.run(interp.eval(body.leadingApplies(ap), frameView))
+          if useFastForeach && ap == preResolved.applyIdx then
+            if FastTier.tryDoubleAccumForeach(preResolved.list, preResolved.closure, interp) == null then
+              // tryDoubleAccumForeach bailed (NotDouble) — fall back to eval.
+              // The slot is already marked inactive by tryDoubleAccumForeach.
+              useFastForeach = false
+              Computation.run(interp.eval(body.leadingApplies(ap), frameView))
+          else
+            Computation.run(interp.eval(body.leadingApplies(ap), frameView))
           ap += 1
         // 2. Long-slot assigns.
         var i = 0
@@ -847,8 +925,15 @@ private[interpreter] object EvalRuntime:
                     doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v),
                     1L
                   )
+                  // Pre-resolve the foreach receiver and closure to avoid
+                  // Pure(listValue) allocation + dispatch overhead per outer iter.
+                  val foreachApplyIdx = pi2 - 1
+                  val preResolved = tryPreResolveForeach(
+                    mixedBody.leadingApplies(foreachApplyIdx),
+                    foreachApplyIdx, interp, mixedBody.names, frameView
+                  )
                   val r = FastTier.withAccSlot(doubleAccName, slot) {
-                    tryMixedLongWhile(t, mixedBody, frameView, interp)
+                    tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
                   }
                   if r != null && slot(1) != 0L then
                     interp.globals(doubleAccName) =
