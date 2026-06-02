@@ -185,6 +185,35 @@ class InterpreterBench:
       |total""".stripMargin
   )
 
+  // Direction A.2 validation: 1-param pure fn whose body is a `Term.If`
+  // expression. Before the walkLocalSlotCtx Term.If extension, `walkLocalSlot`
+  // bailed on the `if x < 0 then -x else x` body, forcing the call site to
+  // route through the LExpr LApply path (~13 ms). After A.2, the callee
+  // compiles to a Java ternary inside the same while-JIT class, matching
+  // pureCallSum's JVM-parity speed.
+  private val modPureCallSumIf: Module = src(
+    """def absIf(x: Int): Int = if x < 0 then -x else x
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + absIf(i)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
+  // Direction A.1 validation: 1-param pure fn whose body is a single-stmt
+  // block (`{ x + 1 }`). Same JIT-able subset as pureCallSum but with an
+  // extra Term.Block wrapper that walkLocalSlotCtx bailed on before A.1.
+  private val modPureCallSumBlock: Module = src(
+    """def fblk(x: Int): Int = { x + 1 }
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + fblk(i)
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   // Recursive int fib whose base case multiplies by a top-level `val`
   // constant — exercises the BytecodeJit free-name (global) read path. Before
   // the globals extension, the `mul` reference forces `walkLong` to bail and
@@ -347,6 +376,14 @@ class InterpreterBench:
   @Benchmark
   def pureCallSum2(): Unit =
     Interpreter(devNull).runSections(modPureCallSum2)
+
+  @Benchmark
+  def pureCallSumIf(): Unit =
+    Interpreter(devNull).runSections(modPureCallSumIf)
+
+  @Benchmark
+  def pureCallSumBlock(): Unit =
+    Interpreter(devNull).runSections(modPureCallSumBlock)
 
   @Benchmark
   def recursionFibMul(): Unit =

@@ -778,6 +778,12 @@ object BytecodeJit:
   private def walkLocalSlotCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
     case Lit.Long(v) => s"${v}L"
+    // Direction A.1: 1-stmt blocks (`{ expr }`) unwrap transparently.
+    // Multi-stmt blocks (let-bindings + sequences) bail until A.5 lands.
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkLocalSlotCtx(inner, ctx)
+        case _           => null
     case tn: Term.Name =>
       var idx = 0
       while idx < ctx.slots.length do
@@ -792,6 +798,21 @@ object BytecodeJit:
           val r = walkLocalSlotCtx(argClause.values.head, ctx); if r == null then return null
           s"($l ${op.value} $r)"
         case _ => null
+    // Direction A.2 companion: unary `-x` / `+x` emit a Java prefix op so
+    // callees like `def absIf(x) = if x < 0 then -x else x` compile cleanly.
+    case Term.ApplyUnary(op, arg) if op.value == "-" || op.value == "+" =>
+      val a = walkLocalSlotCtx(arg, ctx); if a == null then return null
+      s"(${op.value}$a)"
+    // Direction A.2: ternary emission for `if cond then thenExpr else elseExpr`.
+    // Cond walked via walkLocalBoolCtx (which handles cmp + && + ||); branches
+    // walked via this same slot walker — so callees with `if … then a else b`
+    // bodies and while-loops with `x = if cond then … else …` RHSes both
+    // compile to a single Java conditional expression.
+    case ti: Term.If =>
+      val c = walkLocalBoolCtx(ti.cond, ctx); if c == null then return null
+      val a = walkLocalSlotCtx(ti.thenp, ctx); if a == null then return null
+      val b = walkLocalSlotCtx(ti.elsep, ctx); if b == null then return null
+      s"(($c) ? ($a) : ($b))"
     case ap: Term.Apply =>
       ap.fun match
         case fnName: Term.Name if ctx.interp != null =>
@@ -855,6 +876,11 @@ object BytecodeJit:
    *  Handles comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) and `&&`/`||`
    *  over slot-name / literal operands (via `walkLocalSlotCtx`). */
   private def walkLocalBoolCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
+    // Direction A.1: 1-stmt block unwrap mirrors the slot walker.
+    case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+      b.stats.head match
+        case inner: Term => walkLocalBoolCtx(inner, ctx)
+        case _           => null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       op.value match
