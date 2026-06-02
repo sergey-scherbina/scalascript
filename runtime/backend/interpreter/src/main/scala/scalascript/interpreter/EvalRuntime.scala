@@ -1134,23 +1134,59 @@ private[interpreter] object EvalRuntime:
               else
                 val longPeek = peekFirst(t => FastTier.peekLongAccName(t, interp))
                 if longPeek != null then
-                  val (foreachApplyIdx, _) = longPeek
-                  val preResolved = tryPreResolveForeach(
-                    mixedBody.leadingApplies(foreachApplyIdx),
-                    foreachApplyIdx, isDouble = false,
-                    interp, mixedBody.names, frameView
-                  )
-                  tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                  val (foreachApplyIdx, longAccName) = longPeek
+                  val initV = interp.globals.getOrElse(longAccName, null)
+                  if (initV ne null) && initV.isInstanceOf[Value.IntV] then
+                    // Long-acc slot bypass — mirror of the Double-acc path.
+                    // The slot stores raw Long bits (no encoding), so the
+                    // FastTier methods read/write `acc` directly.
+                    val slot = Array[Long](initV.asInstanceOf[Value.IntV].v, 1L)
+                    val preResolved = tryPreResolveForeach(
+                      mixedBody.leadingApplies(foreachApplyIdx),
+                      foreachApplyIdx, isDouble = false,
+                      interp, mixedBody.names, frameView
+                    )
+                    val r = FastTier.withAccSlot(longAccName, slot) {
+                      tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                    }
+                    if r != null && slot(1) != 0L then
+                      interp.globals(longAccName) = Value.intV(slot(0))
+                    r
+                  else tryMixedLongWhile(t, mixedBody, frameView, interp)
                 else
                   val mapPeek = peekFirst(t => FastTier.peekMapAccName(t, interp))
                   if mapPeek != null then
                     val (foreachApplyIdx, accKind) = mapPeek
-                    val preResolved = tryPreResolveForeach(
-                      mixedBody.leadingApplies(foreachApplyIdx),
-                      foreachApplyIdx, isDouble = accKind._2,
-                      interp, mixedBody.names, frameView
-                    )
-                    tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                    val mapAccName = accKind._1
+                    val mapIsDouble = accKind._2
+                    val initV = interp.globals.getOrElse(mapAccName, null)
+                    if (initV ne null) && (
+                         (mapIsDouble && initV.isInstanceOf[Value.DoubleV])
+                         || (!mapIsDouble && initV.isInstanceOf[Value.IntV])
+                       )
+                    then
+                      // Map foreach slot bypass — encodes Double as raw bits,
+                      // Long directly. Same slot/TLS as the Double List path.
+                      val initBits =
+                        if mapIsDouble then
+                          doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v)
+                        else
+                          initV.asInstanceOf[Value.IntV].v
+                      val slot = Array[Long](initBits, 1L)
+                      val preResolved = tryPreResolveForeach(
+                        mixedBody.leadingApplies(foreachApplyIdx),
+                        foreachApplyIdx, isDouble = mapIsDouble,
+                        interp, mixedBody.names, frameView
+                      )
+                      val r = FastTier.withAccSlot(mapAccName, slot) {
+                        tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                      }
+                      if r != null && slot(1) != 0L then
+                        interp.globals(mapAccName) =
+                          if mapIsDouble then Value.doubleV(longBitsToDouble(slot(0)))
+                          else                Value.intV(slot(0))
+                      r
+                    else tryMixedLongWhile(t, mixedBody, frameView, interp)
                   else tryMixedLongWhile(t, mixedBody, frameView, interp)
             case _                  => null
       else

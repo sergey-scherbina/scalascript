@@ -300,7 +300,13 @@ private[interpreter] object FastTier:
 
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
-    var acc = accV.asInstanceOf[Value.IntV].v
+    // Use raw-long slot if EvalRuntime pre-extracted the long-acc for this name.
+    // The slot stores `acc` directly (no bit-encoding needed since Long is raw).
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then slot(0)
+      else accV.asInstanceOf[Value.IntV].v
 
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
 
@@ -309,10 +315,13 @@ private[interpreter] object FastTier:
       while rem.nonEmpty do
         acc = acc + compiled.runValueLong(rem.head, fnEnv)
         rem = rem.tail
-      interp.globals(shape.accName) = Value.intV(acc)
+      if useSlot then slot(0) = acc
+      else interp.globals(shape.accName) = Value.intV(acc)
       PureUnit
     catch
-      case _: scala.util.control.ControlThrowable => null
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
 
   /** Set-receiver variant of `tryDoubleAccumForeach`. Mirrors the List path
    *  but iterates via `set.iterator` so the dispatch site can hand the
@@ -411,16 +420,23 @@ private[interpreter] object FastTier:
     if freeNames == null || freeNames.contains(fnParam) then return null
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
-    var acc = accV.asInstanceOf[Value.IntV].v
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then slot(0)
+      else accV.asInstanceOf[Value.IntV].v
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
     try
       val it = set.iterator
       while it.hasNext do
         acc = acc + compiled.runValueLong(it.next(), fnEnv)
-      interp.globals(shape.accName) = Value.intV(acc)
+      if useSlot then slot(0) = acc
+      else interp.globals(shape.accName) = Value.intV(acc)
       PureUnit
     catch
-      case _: scala.util.control.ControlThrowable => null
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
 
   /** 2-arg closure shape: `(p1, p2) => { accName = accName + paramRef }` where
    *  `paramRef` is a `Term.Name` reference to either `p1` or `p2`. Used for the
@@ -488,15 +504,22 @@ private[interpreter] object FastTier:
     if shape == null then return null
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
-    var acc = accV.asInstanceOf[Value.IntV].v
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then slot(0)
+      else accV.asInstanceOf[Value.IntV].v
     val it = m.iterator
     while it.hasNext do
       val kv  = it.next()
       val src = if shape.useFirst then kv._1 else kv._2
       src match
         case Value.IntV(x) => acc = acc + x
-        case _             => return null
-    interp.globals(shape.accName) = Value.intV(acc)
+        case _             =>
+          if useSlot then slot(1) = 0L
+          return null
+    if useSlot then slot(0) = acc
+    else interp.globals(shape.accName) = Value.intV(acc)
     PureUnit
 
   /** Double-typed parallel of `tryLongAccumForeachMap`. Accepts both `DoubleV`
@@ -517,7 +540,11 @@ private[interpreter] object FastTier:
     if shape == null then return null
     val accV = interp.globals.getOrElse(shape.accName, null)
     if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
-    var acc = accV.asInstanceOf[Value.DoubleV].v
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L && accNameTls.get() == shape.accName
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else accV.asInstanceOf[Value.DoubleV].v
     val it = m.iterator
     while it.hasNext do
       val kv  = it.next()
@@ -525,6 +552,9 @@ private[interpreter] object FastTier:
       src match
         case Value.DoubleV(x) => acc = acc + x
         case Value.IntV(x)    => acc = acc + x.toDouble
-        case _                => return null
-    interp.globals(shape.accName) = Value.doubleV(acc)
+        case _                =>
+          if useSlot then slot(1) = 0L
+          return null
+    if useSlot then slot(0) = doubleToRawLongBits(acc)
+    else interp.globals(shape.accName) = Value.doubleV(acc)
     PureUnit
