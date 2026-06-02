@@ -197,7 +197,12 @@ object BytecodeJit:
             if idx >= 0 then paramIsRef(idx) = true
           case _ =>
       case _ =>
-    val isDouble = !paramIsRef.exists(identity) && bodyHasDoubleLit(f.body)
+    // For ref-param match functions (ADT match → result) also treat the body as
+    // Double when it contains any Lit.Double — `walkMatchBody` will call
+    // `walkDouble` per arm body, which propagates auto-promotion correctly.
+    // The old `!paramIsRef.exists(identity)` guard blocked this path; removing
+    // it lets `area(s: Shape): Double` compile to `static double area(Object s)`.
+    val isDouble = bodyHasDoubleLit(f.body)
     val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp)
     val bodyStmts =
       f.body match
@@ -457,10 +462,14 @@ object BytecodeJit:
         case _ => null
     case _ => null
 
-  /** Emit the body of a `Term.Match` over an `InstanceV` scrutinee. The
-   *  generated Java is a sequence of `if (tn.equals("Ctor")) { … return … }`
-   *  arms ending in a throw, mirroring the `runValue` linear-scan dispatch
-   *  without the per-arm Computation/Pure allocation. */
+  /** Emit the body of a `Term.Match` over an `InstanceV` scrutinee.
+   *
+   *  Generated Java uses a `switch(tn)` statement (javac lowers
+   *  `switch(String)` to a `lookupswitch` on `String.hashCode`, then an
+   *  equality check — one comparison on the hot path vs O(N) comparisons for
+   *  the old if-chain). Each arm is a `case "Ctor": { … return …; }` block;
+   *  the `default:` throws a match-failure exception. Arm bodies call
+   *  `walkDouble` when `ctx.isDouble`, otherwise `walkLong`. */
   private def walkMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
     val scrutName = tm.expr match
       case n: Term.Name => n.value
@@ -470,13 +479,14 @@ object BytecodeJit:
     val sb = new StringBuilder
     sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
     sb.append("String tn = inst.typeName();\n    ")
+    sb.append("switch (tn) {\n    ")
     var rest = tm.casesBlock.cases
     while rest.nonEmpty do
       val arm = walkArm(rest.head, ctx, interp)
       if arm == null then return null
       sb.append(arm)
       rest = rest.tail
-    sb.append("throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);")
+    sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);\n    }")
     sb.toString
 
   private def walkArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
@@ -498,8 +508,6 @@ object BytecodeJit:
           i += 1
         val fieldOrder = interp.typeFieldOrder.getOrElse(ctorName, Nil).toArray
         if fieldOrder.length != n then return null
-        // Classify each binding by its usage in the arm body (ref if appears
-        // as an arg to a self-recursive call to `funName`).
         val bindIsRef = new Array[Boolean](n)
         var bi = 0
         while bi < n do
@@ -515,7 +523,8 @@ object BytecodeJit:
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
-        sb.append(s"""if ("${ctorName}".equals(tn)) {\n      """)
+        // switch-case block for this constructor (B: switch(String) → lookupswitch)
+        sb.append(s"""  case "${escape(ctorName)}": {\n      """)
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -523,12 +532,22 @@ object BytecodeJit:
             val fname = fieldOrder(fi)
             if isRef then
               sb.append(s"""Object $jvar = inst.fields().apply("${escape(fname)}");\n      """)
+            else if ctx.isDouble then
+              // A: flexible DoubleV/IntV extraction for double-returning functions.
+              // Emits a ternary so both field kinds work at runtime; auto-promotes
+              // IntV.v() (long) to double in the containing arithmetic expression.
+              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              sb.append(s"""Object $raw = inst.fields().apply("${escape(fname)}");\n      """)
+              sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n      """)
             else
               sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) inst.fields().apply("${escape(fname)}")).v();\n      """)
           fi += 1
-        val armBodyJava = walkLong(c.body, newCtx)
+        // A: walk body as double when ctx.isDouble, long otherwise
+        val armBodyJava =
+          if ctx.isDouble then walkDouble(c.body, newCtx)
+          else              walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        sb.append(s"return $armBodyJava;\n    }\n    ")
+        sb.append(s"return $armBodyJava;\n      }\n    ")
         sb.toString
       case _ => null
 

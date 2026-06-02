@@ -3,6 +3,7 @@ package scalascript.interpreter
 import scala.meta.Term
 import Computation.PureUnit
 import java.lang.Double.{doubleToRawLongBits, longBitsToDouble}
+import scalascript.interpreter.vm.{ObjToDouble, ObjToLong}
 
 /** Gated fast-tier (binary-strolling-river plan A3/A4).
  *
@@ -70,15 +71,24 @@ private[interpreter] object FastTier:
   // Pre-resolved guard results for the foreach fast path.
   // Created ONCE at while-loop setup; reused every outer iteration to skip
   // the ~12 guard checks that `tryDoubleAccumForeach` runs per call.
+  //
+  // `jitDouble`/`jitLong` — optional JIT-compiled direct interface for the
+  // inner `fn`. When non-null, `runDoubleAccumForeachFast` uses it instead of
+  // `compiled.runValueDouble`, skipping the ctorTags scan, closure dispatch,
+  // and DExpr tree-walk entirely. Only populated when `slotFreeNames.isEmpty`
+  // so the generated Java code never needs `BytecodeJit.interpTls`; callers
+  // can therefore invoke the interface directly without `withInterp` overhead.
   final class ResolvedDoubleAccum(
-    val compiled: PatternRuntime.CompiledMatch,
-    val fnEnv:    Env,
-    val accName:  String
+    val compiled:  PatternRuntime.CompiledMatch,
+    val fnEnv:     Env,
+    val accName:   String,
+    val jitDouble: ObjToDouble | Null = null
   )
   final class ResolvedLongAccum(
     val compiled: PatternRuntime.CompiledMatch,
     val fnEnv:    Env,
-    val accName:  String
+    val accName:  String,
+    val jitLong:  ObjToLong | Null = null
   )
 
   /** Peek at a leading foreach `apply` term to detect
@@ -491,7 +501,14 @@ private[interpreter] object FastTier:
     val freeNames = compiled.slotFreeNames
     if freeNames == null || freeNames.contains(fnParam) then return null
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
-    new ResolvedDoubleAccum(compiled, fnEnv, shape.accName)
+    // Try to JIT-compile `fn` as an `ObjToDouble`. Only when there are no free
+    // names (slotFreeNames.isEmpty) can the caller skip `withInterp` — the
+    // generated Java code then never calls `readGlobalDouble`.
+    val jitFn: ObjToDouble | Null =
+      if freeNames != null && freeNames.isEmpty then
+        scalascript.interpreter.vm.JitRuntime.tryGetObjToDouble(fn, interp)
+      else null
+    new ResolvedDoubleAccum(compiled, fnEnv, shape.accName, jitFn)
 
   /** Long-typed parallel of `tryResolveDoubleAccum`. */
   def tryResolveLongAccum(
@@ -527,12 +544,19 @@ private[interpreter] object FastTier:
     val freeNames = compiled.slotFreeNames
     if freeNames == null || freeNames.contains(fnParam) then return null
     val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
-    new ResolvedLongAccum(compiled, fnEnv, shape.accName)
+    val jitFn: ObjToLong | Null =
+      if freeNames != null && freeNames.isEmpty then
+        scalascript.interpreter.vm.JitRuntime.tryGetObjToLong(fn, interp)
+      else null
+    new ResolvedLongAccum(compiled, fnEnv, shape.accName, jitFn)
 
   // ── Fast inner loops: guards already resolved, only slot + iterate ────────────
 
   /** Inner loop for double-acc List foreach with pre-resolved guards.
-   *  Reads the acc from TLS slot (when active) or globals; writes back once. */
+   *  Reads the acc from TLS slot (when active) or globals; writes back once.
+   *  When `resolved.jitDouble` is non-null (bytecode-JIT compiled, no free
+   *  names), the inner `fn` is invoked via the direct unboxed interface,
+   *  bypassing ctorTags scan + closure dispatch + DExpr arithmetic entirely. */
   def runDoubleAccumForeachFast(
     list:     List[Value],
     resolved: ResolvedDoubleAccum,
@@ -546,18 +570,38 @@ private[interpreter] object FastTier:
         val v = interp.globals.getOrElse(resolved.accName, null)
         if (v eq null) || !v.isInstanceOf[Value.DoubleV] then return null
         v.asInstanceOf[Value.DoubleV].v
-    try
-      var rem = list
-      while rem.nonEmpty do
-        acc = acc + resolved.compiled.runValueDouble(rem.head, resolved.fnEnv)
-        rem = rem.tail
-      if useSlot then slot(0) = doubleToRawLongBits(acc)
-      else interp.globals(resolved.accName) = Value.doubleV(acc)
-      PureUnit
-    catch
-      case _: scala.util.control.ControlThrowable =>
-        if useSlot then slot(1) = 0L
-        null
+    val jitFn = resolved.jitDouble
+    if jitFn != null then
+      // JIT path: no free names → no withInterp TLS needed; call direct interface.
+      try
+        var rem = list
+        while rem.nonEmpty do
+          acc = acc + jitFn.apply(rem.head.asInstanceOf[AnyRef])
+          rem = rem.tail
+        if useSlot then slot(0) = doubleToRawLongBits(acc)
+        else interp.globals(resolved.accName) = Value.doubleV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
+        case _: Throwable =>
+          // Unexpected JIT error (e.g. wrong instance type); return null so
+          // the caller falls back to the standard foreach path for correctness.
+          null
+    else
+      try
+        var rem = list
+        while rem.nonEmpty do
+          acc = acc + resolved.compiled.runValueDouble(rem.head, resolved.fnEnv)
+          rem = rem.tail
+        if useSlot then slot(0) = doubleToRawLongBits(acc)
+        else interp.globals(resolved.accName) = Value.doubleV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
 
   /** Long-typed parallel of `runDoubleAccumForeachFast`. */
   def runLongAccumForeachFast(
@@ -573,18 +617,35 @@ private[interpreter] object FastTier:
         val v = interp.globals.getOrElse(resolved.accName, null)
         if (v eq null) || !v.isInstanceOf[Value.IntV] then return null
         v.asInstanceOf[Value.IntV].v
-    try
-      var rem = list
-      while rem.nonEmpty do
-        acc = acc + resolved.compiled.runValueLong(rem.head, resolved.fnEnv)
-        rem = rem.tail
-      if useSlot then slot(0) = acc
-      else interp.globals(resolved.accName) = Value.intV(acc)
-      PureUnit
-    catch
-      case _: scala.util.control.ControlThrowable =>
-        if useSlot then slot(1) = 0L
-        null
+    val jitFn = resolved.jitLong
+    if jitFn != null then
+      try
+        var rem = list
+        while rem.nonEmpty do
+          acc = acc + jitFn.apply(rem.head.asInstanceOf[AnyRef])
+          rem = rem.tail
+        if useSlot then slot(0) = acc
+        else interp.globals(resolved.accName) = Value.intV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
+        case _: Throwable =>
+          null
+    else
+      try
+        var rem = list
+        while rem.nonEmpty do
+          acc = acc + resolved.compiled.runValueLong(rem.head, resolved.fnEnv)
+          rem = rem.tail
+        if useSlot then slot(0) = acc
+        else interp.globals(resolved.accName) = Value.intV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
 
   /** Set-receiver fast variant of `runDoubleAccumForeachFast`. */
   def runDoubleAccumForeachSetFast(
@@ -600,17 +661,32 @@ private[interpreter] object FastTier:
         val v = interp.globals.getOrElse(resolved.accName, null)
         if (v eq null) || !v.isInstanceOf[Value.DoubleV] then return null
         v.asInstanceOf[Value.DoubleV].v
-    try
-      val it = set.iterator
-      while it.hasNext do
-        acc = acc + resolved.compiled.runValueDouble(it.next(), resolved.fnEnv)
-      if useSlot then slot(0) = doubleToRawLongBits(acc)
-      else interp.globals(resolved.accName) = Value.doubleV(acc)
-      PureUnit
-    catch
-      case _: scala.util.control.ControlThrowable =>
-        if useSlot then slot(1) = 0L
-        null
+    val jitFn = resolved.jitDouble
+    if jitFn != null then
+      try
+        val it = set.iterator
+        while it.hasNext do
+          acc = acc + jitFn.apply(it.next().asInstanceOf[AnyRef])
+        if useSlot then slot(0) = doubleToRawLongBits(acc)
+        else interp.globals(resolved.accName) = Value.doubleV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
+        case _: Throwable => null
+    else
+      try
+        val it = set.iterator
+        while it.hasNext do
+          acc = acc + resolved.compiled.runValueDouble(it.next(), resolved.fnEnv)
+        if useSlot then slot(0) = doubleToRawLongBits(acc)
+        else interp.globals(resolved.accName) = Value.doubleV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
 
   /** Set-receiver fast variant of `runLongAccumForeachFast`. */
   def runLongAccumForeachSetFast(
@@ -626,17 +702,32 @@ private[interpreter] object FastTier:
         val v = interp.globals.getOrElse(resolved.accName, null)
         if (v eq null) || !v.isInstanceOf[Value.IntV] then return null
         v.asInstanceOf[Value.IntV].v
-    try
-      val it = set.iterator
-      while it.hasNext do
-        acc = acc + resolved.compiled.runValueLong(it.next(), resolved.fnEnv)
-      if useSlot then slot(0) = acc
-      else interp.globals(resolved.accName) = Value.intV(acc)
-      PureUnit
-    catch
-      case _: scala.util.control.ControlThrowable =>
-        if useSlot then slot(1) = 0L
-        null
+    val jitFn = resolved.jitLong
+    if jitFn != null then
+      try
+        val it = set.iterator
+        while it.hasNext do
+          acc = acc + jitFn.apply(it.next().asInstanceOf[AnyRef])
+        if useSlot then slot(0) = acc
+        else interp.globals(resolved.accName) = Value.intV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
+        case _: Throwable => null
+    else
+      try
+        val it = set.iterator
+        while it.hasNext do
+          acc = acc + resolved.compiled.runValueLong(it.next(), resolved.fnEnv)
+        if useSlot then slot(0) = acc
+        else interp.globals(resolved.accName) = Value.intV(acc)
+        PureUnit
+      catch
+        case _: scala.util.control.ControlThrowable =>
+          if useSlot then slot(1) = 0L
+          null
 
   /** 2-arg closure shape: `(p1, p2) => { accName = accName + paramRef }` where
    *  `paramRef` is a `Term.Name` reference to either `p1` or `p2`. Used for the
