@@ -318,6 +318,10 @@ object Value:
     /** Positional fields; null when the instance bypasses StatRuntime.
      *  Index matches `Interpreter.typeFieldOrder(typeName)`. */
     var fieldsArr: Array[Value] | Null = null
+    /** Opaque int tag assigned by `Interpreter.typeTagFor`; 0 means unregistered.
+     *  BytecodeJit emits `switch(inst.typeTag())` → JVM `tableswitch` (O(1))
+     *  instead of `switch(inst.typeName())` → string hash+equals per arm. */
+    var typeTag: Int = 0
   final case class ListV(items: List[Value])     extends Value
   final case class OptionV(inner: Value | Null)  extends Value
   final case class TupleV(elems: List[Value])    extends Value

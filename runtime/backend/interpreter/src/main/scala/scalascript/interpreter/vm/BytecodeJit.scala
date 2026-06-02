@@ -464,32 +464,59 @@ object BytecodeJit:
 
   /** Emit the body of a `Term.Match` over an `InstanceV` scrutinee.
    *
-   *  Generated Java uses a `switch(tn)` statement (javac lowers
-   *  `switch(String)` to a `lookupswitch` on `String.hashCode`, then an
-   *  equality check — one comparison on the hot path vs O(N) comparisons for
-   *  the old if-chain). Each arm is a `case "Ctor": { … return …; }` block;
-   *  the `default:` throws a match-failure exception. Arm bodies call
-   *  `walkDouble` when `ctx.isDouble`, otherwise `walkLong`. */
+   *  When all constructor arms have a registered int tag in `interp.typeTagMap`,
+   *  emits `switch(inst.typeTag())` — javac lowers `switch(int)` to a JVM
+   *  `tableswitch` (O(1), no string ops). Falls back to `switch(inst.typeName())`
+   *  (String hash+equals lookupswitch) when any arm's tag is unknown (0). */
   private def walkMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
     val scrutName = tm.expr match
       case n: Term.Name => n.value
       case _            => return null
     if !ctx.params.contains(scrutName) then return null
     val scrutJava = sanitize(scrutName)
+    // Pre-resolve int tags for all arms so we can decide switch type upfront.
+    val cases = tm.casesBlock.cases
+    val armTags = new Array[Int](cases.length)
+    var allTagged = true
+    var ai = 0
+    val casesArr = cases.toArray
+    while ai < casesArr.length do
+      val ctorNameOpt = casesArr(ai).pat match
+        case ext: scala.meta.Pat.Extract => ext.fun match
+          case Term.Name(n) => Some(n)
+          case _            => None
+        case _ => None
+      ctorNameOpt match
+        case Some(cn) =>
+          val tag = interp.typeTagMap.getOrElse(cn, 0)
+          if tag == 0 then allTagged = false
+          armTags(ai) = tag
+        case None => allTagged = false
+      ai += 1
     val sb = new StringBuilder
     sb.append(s"scalascript.interpreter.Value.InstanceV inst = (scalascript.interpreter.Value.InstanceV) $scrutJava;\n    ")
-    sb.append("String tn = inst.typeName();\n    ")
-    sb.append("switch (tn) {\n    ")
-    var rest = tm.casesBlock.cases
-    while rest.nonEmpty do
-      val arm = walkArm(rest.head, ctx, interp)
+    if allTagged then
+      sb.append("switch (inst.typeTag()) {\n    ")
+    else
+      sb.append("String tn = inst.typeName();\n    ")
+      sb.append("switch (tn) {\n    ")
+    var ci = 0
+    var restList = cases
+    while restList.nonEmpty do
+      val arm = walkArm(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
       if arm == null then return null
       sb.append(arm)
-      rest = rest.tail
-    sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);\n    }")
+      restList = restList.tail
+      ci += 1
+    if allTagged then
+      sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, tag=\" + inst.typeTag());\n    }")
+    else
+      sb.append("  default: throw new RuntimeException(\"BytecodeJit: no case matched, typeName=\" + tn);\n    }")
     sb.toString
 
-  private def walkArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
+  /** `intTag > 0` means emit `case $intTag:` (int switch); `intTag == 0` means
+   *  emit `case "CtorName":` (String switch fallback). */
+  private def walkArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
     if c.cond.nonEmpty then return null   // guards not supported in initial slice
     c.pat match
       case ext: scala.meta.Pat.Extract =>
@@ -523,7 +550,11 @@ object BytecodeJit:
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
-        sb.append(s"""  case "${escape(ctorName)}": {\n      """)
+        // Int-tag switch emits `case N:`, string switch emits `case "Ctor":`.
+        if intTag > 0 then
+          sb.append(s"""  case $intTag: {\n      """)
+        else
+          sb.append(s"""  case "${escape(ctorName)}": {\n      """)
         // Hoist the fieldsArr lookup once per arm. inst is already typed as InstanceV.
         val faVar = s"__fa_${sanitize(ctorName)}"
         if n > 0 then
@@ -541,14 +572,13 @@ object BytecodeJit:
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
-              // A: flexible DoubleV/IntV extraction for double-returning functions.
+              // Flexible DoubleV/IntV extraction for double-returning functions.
               val raw = s"_rf${fi}_${sanitize(ctorName)}"
               sb.append(s"""Object $raw = $readExpr;\n      """)
               sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.Value.DoubleV ? ((scalascript.interpreter.Value.DoubleV) $raw).v() : (double) ((scalascript.interpreter.Value.IntV) $raw).v();\n      """)
             else
               sb.append(s"""long $jvar = ((scalascript.interpreter.Value.IntV) ($readExpr)).v();\n      """)
           fi += 1
-        // A: walk body as double when ctx.isDouble, long otherwise
         val armBodyJava =
           if ctx.isDouble then walkDouble(c.body, newCtx)
           else              walkLong(c.body, newCtx)
