@@ -360,6 +360,41 @@ private[interpreter] object EvalRuntime:
       if isDouble then FastTier.tryDoubleAccumForeachMap(map, closure, interp)
       else            FastTier.tryLongAccumForeachMap(map, closure, interp)
 
+  // Fast variants: guards pre-resolved once at setup; run() calls straight to
+  // the inner loop without re-running ~12 guard checks per outer iteration.
+
+  private final class PreResolvedFastDoubleListForeach(
+    val applyIdx: Int,
+    val list:     List[Value],
+    val resolved: FastTier.ResolvedDoubleAccum
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runDoubleAccumForeachFast(list, resolved, interp)
+
+  private final class PreResolvedFastLongListForeach(
+    val applyIdx: Int,
+    val list:     List[Value],
+    val resolved: FastTier.ResolvedLongAccum
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runLongAccumForeachFast(list, resolved, interp)
+
+  private final class PreResolvedFastDoubleSetForeach(
+    val applyIdx: Int,
+    val set:      scala.collection.immutable.Set[Value],
+    val resolved: FastTier.ResolvedDoubleAccum
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runDoubleAccumForeachSetFast(set, resolved, interp)
+
+  private final class PreResolvedFastLongSetForeach(
+    val applyIdx: Int,
+    val set:      scala.collection.immutable.Set[Value],
+    val resolved: FastTier.ResolvedLongAccum
+  ) extends PreResolvedForeach:
+    def run(interp: Interpreter): Computation | Null =
+      FastTier.runLongAccumForeachSetFast(set, resolved, interp)
+
   /** Recognize `while cond do { apply1; ...; applyN; assign1; ...; assignM }`
    *  with `N ≥ 1` and `M ≥ 1`. Returns null if the body has no leading applies
    *  (use the plain `collectFastAssignBody` path), no trailing assigns, or any
@@ -444,9 +479,23 @@ private[interpreter] object EvalRuntime:
                     else
                       recvV match
                         case lv: Value.ListV =>
-                          new PreResolvedListForeach(applyIdx, lv.items, funV, isDouble)
+                          if isDouble then
+                            val r = FastTier.tryResolveDoubleAccum(funV, interp)
+                            if r != null then new PreResolvedFastDoubleListForeach(applyIdx, lv.items, r)
+                            else new PreResolvedListForeach(applyIdx, lv.items, funV, isDouble)
+                          else
+                            val r = FastTier.tryResolveLongAccum(funV, interp)
+                            if r != null then new PreResolvedFastLongListForeach(applyIdx, lv.items, r)
+                            else new PreResolvedListForeach(applyIdx, lv.items, funV, isDouble)
                         case sv: Value.SetV =>
-                          new PreResolvedSetForeach(applyIdx, sv.items, funV, isDouble)
+                          if isDouble then
+                            val r = FastTier.tryResolveDoubleAccum(funV, interp)
+                            if r != null then new PreResolvedFastDoubleSetForeach(applyIdx, sv.items, r)
+                            else new PreResolvedSetForeach(applyIdx, sv.items, funV, isDouble)
+                          else
+                            val r = FastTier.tryResolveLongAccum(funV, interp)
+                            if r != null then new PreResolvedFastLongSetForeach(applyIdx, sv.items, r)
+                            else new PreResolvedSetForeach(applyIdx, sv.items, funV, isDouble)
                         case mv: Value.MapV =>
                           new PreResolvedMapForeach(applyIdx, mv.entries, funV, isDouble)
                         case _ => null

@@ -67,6 +67,20 @@ private[interpreter] object FastTier:
     accNameTls.set(name)
     try thunk finally { accSlotTls.set(null); accNameTls.set(null) }
 
+  // Pre-resolved guard results for the foreach fast path.
+  // Created ONCE at while-loop setup; reused every outer iteration to skip
+  // the ~12 guard checks that `tryDoubleAccumForeach` runs per call.
+  final class ResolvedDoubleAccum(
+    val compiled: PatternRuntime.CompiledMatch,
+    val fnEnv:    Env,
+    val accName:  String
+  )
+  final class ResolvedLongAccum(
+    val compiled: PatternRuntime.CompiledMatch,
+    val fnEnv:    Env,
+    val accName:  String
+  )
+
   /** Peek at a leading foreach `apply` term to detect
    *  `xs.foreach(s => { acc = acc + fn(s) })` where `acc` is DoubleV in
    *  globals. Returns the accumulator name or null. AST-only — no eval. */
@@ -432,6 +446,192 @@ private[interpreter] object FastTier:
         acc = acc + compiled.runValueLong(it.next(), fnEnv)
       if useSlot then slot(0) = acc
       else interp.globals(shape.accName) = Value.intV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
+
+  // ── Pre-resolve: run guards ONCE at while-loop setup ─────────────────────────
+
+  /** Run all guard checks for the double-acc foreach path, returning a
+   *  `ResolvedDoubleAccum` on success or null on miss.  The caller stores it and
+   *  passes it to `runDoubleAccumForeachFast` on every outer iteration, bypassing
+   *  the ~12 per-call guard checks in `tryDoubleAccumForeach`. */
+  def tryResolveDoubleAccum(
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): ResolvedDoubleAccum | Null =
+    if !enabled then return null
+    if closure.params.length != 1 then return null
+    val paramName = closure.params.head
+    val shape = analyzeClosure(closure.body, paramName)
+    if shape == null then return null
+    val fnVal = {
+      val c = closure.closure.getOrElse(shape.fnName, null)
+      if c != null then c else interp.globals.getOrElse(shape.fnName, null)
+    }
+    if (fnVal eq null) || !fnVal.isInstanceOf[Value.FunV] then return null
+    val fn = fnVal.asInstanceOf[Value.FunV]
+    if fn.params.length != 1 || fn.usingParams.nonEmpty || fn.returnsThrows then return null
+    if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
+    if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
+    if !fn.body.isInstanceOf[Term.Match] then return null
+    val mt = fn.body.asInstanceOf[Term.Match]
+    val fnParam = fn.params.head
+    val scrutMatchesParam = mt.expr match
+      case n: Term.Name => n.value == fnParam
+      case _            => false
+    if !scrutMatchesParam then return null
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.doubleCapable || !compiled.allSlot then return null
+    val freeNames = compiled.slotFreeNames
+    if freeNames == null || freeNames.contains(fnParam) then return null
+    val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
+    new ResolvedDoubleAccum(compiled, fnEnv, shape.accName)
+
+  /** Long-typed parallel of `tryResolveDoubleAccum`. */
+  def tryResolveLongAccum(
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): ResolvedLongAccum | Null =
+    if !enabled then return null
+    if closure.params.length != 1 then return null
+    val paramName = closure.params.head
+    val shape = analyzeClosure(closure.body, paramName)
+    if shape == null then return null
+    val fnVal = {
+      val c = closure.closure.getOrElse(shape.fnName, null)
+      if c != null then c else interp.globals.getOrElse(shape.fnName, null)
+    }
+    if (fnVal eq null) || !fnVal.isInstanceOf[Value.FunV] then return null
+    val fn = fnVal.asInstanceOf[Value.FunV]
+    if fn.params.length != 1 || fn.usingParams.nonEmpty || fn.returnsThrows then return null
+    if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
+    if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
+    if !fn.body.isInstanceOf[Term.Match] then return null
+    val mt = fn.body.asInstanceOf[Term.Match]
+    val fnParam = fn.params.head
+    val scrutMatchesParam = mt.expr match
+      case n: Term.Name => n.value == fnParam
+      case _            => false
+    if !scrutMatchesParam then return null
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.longCapable || !compiled.allSlot then return null
+    val freeNames = compiled.slotFreeNames
+    if freeNames == null || freeNames.contains(fnParam) then return null
+    val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
+    new ResolvedLongAccum(compiled, fnEnv, shape.accName)
+
+  // ── Fast inner loops: guards already resolved, only slot + iterate ────────────
+
+  /** Inner loop for double-acc List foreach with pre-resolved guards.
+   *  Reads the acc from TLS slot (when active) or globals; writes back once. */
+  def runDoubleAccumForeachFast(
+    list:     List[Value],
+    resolved: ResolvedDoubleAccum,
+    interp:   Interpreter
+  ): Computation | Null =
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.DoubleV] then return null
+        v.asInstanceOf[Value.DoubleV].v
+    try
+      var rem = list
+      while rem.nonEmpty do
+        acc = acc + resolved.compiled.runValueDouble(rem.head, resolved.fnEnv)
+        rem = rem.tail
+      if useSlot then slot(0) = doubleToRawLongBits(acc)
+      else interp.globals(resolved.accName) = Value.doubleV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
+
+  /** Long-typed parallel of `runDoubleAccumForeachFast`. */
+  def runLongAccumForeachFast(
+    list:     List[Value],
+    resolved: ResolvedLongAccum,
+    interp:   Interpreter
+  ): Computation | Null =
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then slot(0)
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.IntV] then return null
+        v.asInstanceOf[Value.IntV].v
+    try
+      var rem = list
+      while rem.nonEmpty do
+        acc = acc + resolved.compiled.runValueLong(rem.head, resolved.fnEnv)
+        rem = rem.tail
+      if useSlot then slot(0) = acc
+      else interp.globals(resolved.accName) = Value.intV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
+
+  /** Set-receiver fast variant of `runDoubleAccumForeachFast`. */
+  def runDoubleAccumForeachSetFast(
+    set:      scala.collection.immutable.Set[Value],
+    resolved: ResolvedDoubleAccum,
+    interp:   Interpreter
+  ): Computation | Null =
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then longBitsToDouble(slot(0))
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.DoubleV] then return null
+        v.asInstanceOf[Value.DoubleV].v
+    try
+      val it = set.iterator
+      while it.hasNext do
+        acc = acc + resolved.compiled.runValueDouble(it.next(), resolved.fnEnv)
+      if useSlot then slot(0) = doubleToRawLongBits(acc)
+      else interp.globals(resolved.accName) = Value.doubleV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable =>
+        if useSlot then slot(1) = 0L
+        null
+
+  /** Set-receiver fast variant of `runLongAccumForeachFast`. */
+  def runLongAccumForeachSetFast(
+    set:      scala.collection.immutable.Set[Value],
+    resolved: ResolvedLongAccum,
+    interp:   Interpreter
+  ): Computation | Null =
+    val slot    = accSlotTls.get()
+    val useSlot = slot != null && slot(1) != 0L
+    var acc =
+      if useSlot then slot(0)
+      else
+        val v = interp.globals.getOrElse(resolved.accName, null)
+        if (v eq null) || !v.isInstanceOf[Value.IntV] then return null
+        v.asInstanceOf[Value.IntV].v
+    try
+      val it = set.iterator
+      while it.hasNext do
+        acc = acc + resolved.compiled.runValueLong(it.next(), resolved.fnEnv)
+      if useSlot then slot(0) = acc
+      else interp.globals(resolved.accName) = Value.intV(acc)
       PureUnit
     catch
       case _: scala.util.control.ControlThrowable =>
