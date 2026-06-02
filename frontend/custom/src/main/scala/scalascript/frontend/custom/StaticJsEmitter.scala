@@ -2,6 +2,7 @@ package scalascript.frontend.custom
 
 import scala.annotation.nowarn
 import scalascript.frontend.*
+import scalascript.frontend.FetchJsonSignal
 
 /** Walks a `View` tree at emit time and produces JS source that
  *  builds the corresponding DOM via imperative
@@ -153,6 +154,7 @@ private[custom] object StaticJsEmitter:
      *  initial values throws — that's a user error worth catching
      *  early). */
     private def registerSignal(signal: ReactiveSignal[?]): Unit =
+      if signal.isInstanceOf[FetchUrlSignal] then return
       val name = signal.id
       if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
         throw new IllegalArgumentException(
@@ -820,9 +822,64 @@ private[custom] object StaticJsEmitter:
       case View.Adaptive(web, _, _, fallback) =>
         compile(web.getOrElse(fallback))
 
-      case View.ModelView(_, _, template, _)   => compile(template)
-      case View.ForModel(_, _, _, template, _) => compile(template)
-      case View.ModelText(_, _, _)             => null
+      // v1.66 — typed model data binding ────────────────────────────────────────
+
+      case View.ModelView(signal, bindingVar, template, _) =>
+        val wrap      = freshVar()
+        val rebuildFn = s"__modelview_${signal.id}"
+        val sigJs     = jsString(signal.id)
+        val urlJs     = jsString(signal.fetchUrl)
+        val headersJs = signal.headersId.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h)}].value || '{}')").getOrElse("")
+        // Register fetch signal state in reactiveSignals
+        signal match
+          case fjs: FetchJsonSignal =>
+            reactiveSignals.update(fjs.id, "null")
+            reactiveSignals.update(s"${fjs.id}_loading", "false")
+            reactiveSignals.update(s"${fjs.id}_loaded", "false")
+            reactiveSignals.update(s"${fjs.id}_error", "''")
+          case _ =>
+            reactiveSignals.update(signal.id, "''")
+        // Ensure tick signal is registered so its cell exists
+        if !reactiveSignals.contains(signal.tickId) then reactiveSignals.update(signal.tickId, "0")
+        statements += s"const $wrap = document.createElement('span'); $wrap.style.display = 'contents';"
+        // Capture template compilation; bindingVar becomes a parameter of the rebuild fn
+        val (innerVar, body) = captureStatements(compile(template))
+        statements += s"function $rebuildFn($bindingVar) {"
+        statements += s"  while ($wrap.firstChild) $wrap.removeChild($wrap.firstChild);"
+        body.foreach(stmt => statements += s"  $stmt")
+        if innerVar != null then statements += s"  $wrap.appendChild($innerVar);"
+        statements += s"}"
+        statements += s"__ssc_signals[$sigJs].subs.add((data) => { if (data) $rebuildFn(data); });"
+        val tickJs = jsString(signal.tickId)
+        signal match
+          case fjs: FetchJsonSignal =>
+            val loadedJs  = jsString(s"${fjs.id}_loaded")
+            val loadingJs = jsString(s"${fjs.id}_loading")
+            val errorJs   = jsString(s"${fjs.id}_error")
+            statements += s"__setSignal($loadingJs, true); fetch($urlJs$headersJs).then(r => r.json()).then(data => { __setSignal($sigJs, data); __setSignal($loadedJs, true); __setSignal($loadingJs, false); }).catch(e => { __setSignal($errorJs, String(e)); __setSignal($loadingJs, false); });"
+            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.json()).then(data => __setSignal($sigJs, data)); });"
+          case _ =>
+            statements += s"fetch($urlJs$headersJs).then(r => r.text()).then(data => __setSignal($sigJs, data));"
+            statements += s"__ssc_signals[$tickJs].subs.add((t) => { if (t > 0) fetch($urlJs$headersJs).then(r => r.text()).then(data => __setSignal($sigJs, data)); });"
+        wrap
+
+      case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
+        val forWrap   = freshVar()
+        val renderFn  = s"__formodel_${forWrap}"
+        statements += s"const $forWrap = document.createElement('span'); $forWrap.style.display = 'contents';"
+        val (innerVar, body) = captureStatements(compile(template))
+        statements += s"function $renderFn($itemVar) {"
+        body.foreach(stmt => statements += s"  $stmt")
+        if innerVar != null then statements += s"  return $innerVar;"
+        else statements += s"  return document.createTextNode('');"
+        statements += s"}"
+        statements += s"for (const $itemVar of ($bindingVar.$fieldPath || [])) { $forWrap.appendChild($renderFn($itemVar)); }"
+        forWrap
+
+      case View.ModelText(varName, fieldPath, _) =>
+        val v = freshVar()
+        statements += s"const $v = document.createTextNode(String($varName.$fieldPath));"
+        v
 
     /** Empty-branch placeholder for ShowSignal — an empty text
      *  node so `replaceChild` always has a real Node to swap.
