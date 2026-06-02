@@ -39,6 +39,65 @@ bearer-token API. Resume via the standard claim/worktree flow.
   within historical baseline (the filter runs only on `envStable` rebuild,
   i.e. once per `curFun` transition, not per iter).
 
+## Interpreter perf — Phase C + D continuation (open)
+
+After the 2026-06-02 wins (recursive cluster at JVM-codegen speed,
+foreach cluster 4–8× faster, pureCallSum 205×), two open directions
+remain. Spec: [`docs/vm-jit-next.md §"Phase C+D roadmap"`](docs/vm-jit-next.md).
+Each item below is one focused commit; same-session A/B, never ship a
+non-win.
+
+- [ ] **phase-c-bytecode-double** — Double-typed params/return for
+      non-match-bodied fns. Generate Java `double` instead of `long`;
+      handle `Lit.Double`, double-typed arithmetic ops; discriminator at
+      the MH return boundary so the caller wraps `DoubleV` vs `IntV`.
+      Bench: new `recursionFibD` (`def fibD(n: Double): Double = if n
+      <= 1 then n else fibD(n-1) + fibD(n-2)`). Expected ~24× over the
+      existing SscVm Double path.
+
+- [ ] **phase-c-bytecode-mixed-type** — argument-by-argument
+      `paramIsRef` checking against the fn's declared param shapes so
+      `def g(x: Int, e: Expr): Int = match e ...` JITs (currently
+      `paramIsRef` is uniform per param-slot). Bench: AST eval with Int
+      accumulator + Expr scrutinee.
+
+- [ ] **phase-c-bytecode-double-globals** — emit
+      `BytecodeJit.readGlobalDouble(name)` companion to the existing
+      `readGlobalLong` (commit `7162a155`). Skip if no high-value bench
+      exercises it.
+
+- [ ] **phase-c-bytecode-mutual** — co-compile mutually recursive int /
+      ref fns into a single Java class OR add a runtime MH registry
+      indexed by fn name. Lower priority — uncommon in practice.
+
+- [ ] **phase-c-bytecode-wider-match** — guards, literal patterns,
+      `Pat.Bind`/`Pat.Alternative`, nested matches. Each adds a handful
+      of Java-emission cases in `walkArm`.
+
+- [ ] **phase-d-patternmatch-double-slot** — `tryMixedDoubleWhile`
+      parallel of `tryMixedLongWhile` to carry the Double accumulator in
+      a Long-bits slot; closes the per-iter `DoubleV` alloc gap in
+      `patternMatchHeavy`'s outer while.
+
+- [ ] **phase-d-instancev-array-repr** — replace `Map[String, Value]`
+      fields with `Array[Value]` + typeName-keyed dispatch table.
+      Interpreter-wide change; gate behind a feature flag. Eliminates
+      HashMap lookups in `field("name")`, which today dominate
+      `recursiveEval` (2.5× → ~10× target) and `patternMatch` arm field
+      reads. Likely the biggest single Phase D lever; needs careful
+      design + capability check (`InstanceV` is used everywhere).
+
+- [ ] **phase-d-patternmatch-fused-foreach** — once
+      `phase-d-instancev-array-repr` lands, BytecodeJit could compile
+      `area(s) match` directly to a Java method operating on the array
+      repr; combined with FastTier-style foreach driver fusion this is
+      the path toward closing the remaining `interp_patternMatch` 213×
+      off-JVM gap in `RuntimeBench`.
+
+- [ ] **phase-d-patternmatchset-direct** — direct `Set`-aware FastTier
+      path (skips `Set.toList` allocation in the current `dispatchSet`
+      route).
+
 ## Tooling
 
 - [x] **cli-bundle-frontend** — bundle `frontendPlugin` + `fetchPlugin` into the CLI (Compile) so `ssc run` resolves the std/ui frontend externs (`signal`/`lower`/`emit`) and `fetch`. Previously `% Test`, so frontend programs failed with `'signal' not found`. ✓ Landed 2026-05-31: std-ui smoke now emits index.html+app.js and prints `smoke:ok` via the jar; assembly clean; busi domain regression-green. (frontendReact was already Compile.)

@@ -354,6 +354,87 @@ Cross-backend interpreter-vs-JVM gap on `patternMatch` shape now ~208× off
 
 ---
 
+## Phase C+D roadmap (2026-06-02, post the recursive-cluster wins)
+
+After three Phase C slices (int-arith, ADT match, TCO loop) plus the
+free-name globals subset, the recursive cluster is at JVM-codegen speed
+or faster (`recursionFib` 1.20 vs JVM 1.27 ms). The remaining
+high-leverage gap is `patternMatch`: 213× off JVM in `RuntimeBench`.
+Both directions stay open and are queued in order of bench impact.
+
+### Phase C — wider subset (focused commits, in order)
+
+1. **Double-typed params/return** — non-match-bodied fns whose params or
+   result are `Double`. Generate Java `double` instead of `long`; handle
+   `Lit.Double`, double-typed arithmetic ops, and a discriminator at the
+   MH return boundary so the caller wraps `DoubleV` vs `IntV`. Bench:
+   `recursionFibD`. Expected ~24× over the existing SscVm Double path
+   (mirrors the int fib ratio).
+
+2. **Mixed-type self-recursion** — `paramIsRef` is currently uniform per
+   param-slot in `JitRuntime.marshalBytecode`. `def g(x: Int, e: Expr):
+   Int = match e ...` needs argument-by-argument type-checking against
+   the fn's declared param shapes. Bench: an AST eval with an Int
+   accumulator + Expr scrutinee.
+
+3. **Free-name `Double` globals** — companion to the Int globals work
+   (commit `7162a155`). Emit `BytecodeJit.readGlobalDouble(name)`.
+
+4. **Mutual recursion** — each `BytecodeJit` compile yields a self-
+   contained class today. A pair / cycle of mutually recursive funcs
+   needs either co-compilation OR a runtime MH registry indexed by fn
+   name. Lower priority — uncommon in practice.
+
+5. **Wider `Term.Match` arms** — guards, literal patterns, `Pat.Bind`,
+   `Pat.Alternative`, nested matches. Each adds a few Java-emission
+   cases in `walkArm`.
+
+6. **`Term.Block` bodies** — multi-stmt blocks need local-var decls and
+   sequence handling.
+
+### Phase D — `patternMatch` (the 213× off-JVM gap)
+
+The dominant interpreter/JVM gap remaining after the foreach-cluster
+wins. `interp_patternMatch` is 118.6 ms vs `jvm_patternMatch` 0.56 ms in
+`RuntimeBench`. Subsequent slices to attack, in order:
+
+1. **`var total: Double` slot in the outer while** —
+   `tryMixedLongWhile` keeps Int counters in Long slots but the
+   Double-typed accumulator falls back to per-iter `DoubleV` alloc. A
+   parallel `tryMixedDoubleWhile` (or extending the existing path to a
+   dual-bank slot frame) closes the remaining accumulator alloc gap.
+
+2. **`Pure` wrapper elimination on the foreach driver** — FastTier
+   returns `Computation.PureUnit` once per outer iter; the `evalBlock`
+   threading STILL allocates per-stmt `FlatMap`/`Pure` wrappers in the
+   value-space fallback that some inner shapes still take.
+
+3. **`InstanceV` ordered-array repr** (the C-opt in §"Phase C" above) —
+   replaces `Map[String, Value]` with `Array[Value]` + a typeName-keyed
+   dispatch table. Eliminates the HashMap lookup in `field("name")`
+   calls, both for BytecodeJit `recursiveEval` (2.5× → ~10× target) AND
+   for `patternMatch` arm field reads. Interpreter-wide change; gate
+   behind a feature flag like the existing perf flags.
+
+4. **Pattern compilation across multiple match-bodied callees** — detect
+   that `area(s) match` is a slot-compilable double match AND `s` is
+   iterated via `shapes.foreach`, then fuse the foreach driver + the
+   match into a single bytecode-JIT-style loop. Likely needs (3) first.
+
+5. **`patternMatchSet` extension** — direct `Set`-aware FastTier path
+   (skips `Set.toList` allocation in the current dispatchSet path).
+
+6. **`patternMatch` cross-Phase-C-D synergy** — once `InstanceV` array
+   repr lands, BytecodeJit could compile `area(s) match` directly to a
+   Java method that operates on the array repr, removing both HashMap
+   lookups AND per-element foreach call overhead. This is the path
+   toward closing the remaining 213× gap.
+
+Both directions stay open in parallel; pick whichever has a clearer
+bench-driven win next.
+
+---
+
 ## Methodology (both phases)
 
 Carry the project's hard-won rules:

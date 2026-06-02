@@ -1848,6 +1848,55 @@ gated on same-session A/B + full suite green with the gate off AND on.
           interpreter is at native JVM-codegen speed on this shape (24-25 µs).
         - `recursionFib` reconfirmed at 1.211 ms; `recursiveEval` at 12.81 ms.
       All other benches stable. Full 1205-test suite green in both modes.
+      **2026-06-02 (d): default flipped ON** (commit `9bc2a32d`). All three
+      slices shipped suite-green; opt-out retained via `SSC_JIT_BYTECODE=off`
+      / `-Dssc.jit.bytecode=off`. Default vs OFF A/B: `recursionFib` 1.20 vs
+      29 ms (24×), `recursionTco` 0.033 vs 0.97 ms (29×), `recursiveEval`
+      12.86 vs 32 ms (2.5×). RuntimeBench cross-backend: interp now
+      OUTPERFORMS the JVM-codegen backend on `recursionFib` (1.20 vs 1.27 ms)
+      and at parity on `recursionTco` (32 vs 24 µs).
+      **2026-06-02 (e): free-name Int globals subset landed** (commit
+      `7162a155`). `BytecodeJit` now compiles bodies that reference top-level
+      `val` constants: a free `Term.Name` resolving to an `IntV` in
+      `interp.globals` at compile time emits a Java call to
+      `BytecodeJit.readGlobalLong("name")` which dereferences a
+      `ThreadLocal[Interpreter]` set by `JitRuntime` around every MH
+      invocation. New bench `recursionFibMul` (`val mul = 7; def fibMul(n)
+      = if n <= 1 then n * mul else fibMul(n-1) + fibMul(n-2)`): 6,992 →
+      **5.802 ms/op (−99.92%, 1,205×)**. The huge ratio reflects fib(30)'s
+      exponential cost amplifying tree-walk overhead in the OFF case; the
+      5.8 ms vs plain `recursionFib`'s 1.21 ms gap is the ~1.35M base-case
+      global-read overhead at ~3 ns / read.
+
+      **Phase C wider-subset roadmap (queued, each a focused commit):**
+      - **Double-typed params/return** — for non-match-bodied fns whose
+        params or result are `Double`. Generate Java `double` instead of
+        `long`; handle `Lit.Double`, double-typed arithmetic ops, and a
+        `BoolV`/`DoubleV`/`IntV` discriminator at the MH return boundary.
+        Bench: `recursionFibD` (`def fibD(n: Double): Double = if n <= 1
+        then n else fibD(n - 1) + fibD(n - 2)`). Expected: comparable to
+        the int fib ratio (~24× over the existing SscVm Double path).
+      - **Mixed-type self-recursion** — currently `paramIsRef` is uniform
+        per param-slot. `def g(x: Int, e: Expr): Int = match e ...`
+        would need argument-by-argument type-checking against the fn's
+        declared param shapes (a `Term.Match` over `e` makes param 1 ref;
+        `x + something` makes param 0 int). Bench: an AST eval with an
+        Int accumulator + Expr scrutinee.
+      - **Free-name `Double` globals** — companion to the Int globals work,
+        emit `readGlobalDouble(name)`. Skip when no high-value bench
+        exercises it.
+      - **Mutual recursion** — currently each `BytecodeJit` compile yields
+        a self-contained Java class. A pair (or cycle) of mutually
+        recursive int/ref functions would need either co-compilation into
+        one class OR a runtime MH registry indexed by `funName`. Lower
+        priority — uncommon in practice; revisit if a real workload shows
+        up.
+      - **Wider `Term.Match` arms** — guards, literal patterns,
+        `Pat.Bind`/`Pat.Alternative`, and nested matches. Each adds a
+        handful of Java-emission cases in `walkArm`.
+      - **`Term.Block` bodies** — single-stmt blocks already fold via the
+        body shape; multi-stmt blocks would need local-var declarations and
+        sequence handling.
 - [~] **interp-tier2b-foreach (Phase D)** — the A3/A4 remainder of the
       binary-strolling-river gated fast-tier: unboxed numeric slots + a
       Computation-free direct-style runner for the pure subset, boxing only at
@@ -1950,6 +1999,49 @@ gated on same-session A/B + full suite green with the gate off AND on.
         documented.
       All concrete high-value Phase D targets shipped; further work needs a
       specific user workload bench to justify the design risk.
+
+      **2026-06-02: Phase D RE-OPENED — patternMatch still 213× off JVM** in
+      `RuntimeBench` cross-backend (`interp_patternMatch` 118.6 ms vs
+      `jvm_patternMatch` 0.56 ms). Even after the foreach-cluster wins
+      (Heavy 491 → 115 ms, Wide 630 → 73 ms) and Phase C's recursive-cluster
+      wins, the `patternMatch` shape — `var total = 0.0; while i { shapes
+      .foreach(s => total = total + area(s)); i = i + 1 }` — remains the
+      dominant interpreter/JVM gap. Subsequent slices to attack:
+
+      - **`var total: Double` slot in the outer while** —
+        `tryMixedLongWhile` keeps Int counters in Long slots but the
+        `Double`-typed accumulator falls back to per-iter `DoubleV` alloc.
+        A parallel `tryMixedDoubleWhile` (or extending the existing path to
+        a dual-bank slot frame) would close the remaining accumulator
+        alloc gap.
+      - **`Pure` wrapper elimination on the foreach driver** — FastTier
+        returns `Computation.PureUnit` once per outer iter; the
+        `evalBlock` threading STILL allocates per-stmt `FlatMap`/`Pure`
+        wrappers in the value-space fallback path that some inner shapes
+        still take.
+      - **`InstanceV` ordered-array repr (C-opt in `docs/vm-jit-next.md`)**
+        — replaces the `Map[String, Value]` field store with an
+        ordered `Array[Value]` + a typeName-keyed dispatch table.
+        Eliminates the HashMap lookup in `field("name")` calls, both for
+        BytecodeJit `recursiveEval` (2.5× → ~10× target) AND for
+        `patternMatch` arm field reads (also bottlenecked by HashMap).
+        Interpreter-wide change; gate behind a feature flag like the
+        existing perf flags.
+      - **Pattern compilation across multiple match-bodied callees** —
+        e.g. detect that `area(s) match` is a slot-compilable double match
+        AND `s` is iterated via `shapes.foreach`, then fuse the foreach
+        driver + the match into a single bytecode-JIT-style loop.
+      - **`patternMatchSet` extension** — same direction as patternMatch
+        but for non-List receivers; currently lands at 148 ms via the
+        FastTier-routed Set.foreach work but bottlenecked by `Set.toList`
+        + the HashSet iteration. A direct `Set`-aware FastTier path would
+        skip the toList allocation.
+      - **`patternMatchHeavy` / `Wide` cross-Phase-C-D synergy** — once
+        the `InstanceV` array repr lands, BytecodeJit could compile the
+        `area(s) match` body of patternMatch's `area` to a Java method
+        that operates on the array repr directly, removing both the
+        HashMap lookups AND the per-element foreach call overhead. This
+        is the path toward closing the remaining 213× gap.
 
 ## v1.55 — First-class XML / Generic Markup
 
