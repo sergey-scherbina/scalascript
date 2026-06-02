@@ -830,6 +830,16 @@ code is already on main.
 
 ### Checking who's doing what
 
+Preferred quick check:
+
+```bash
+scripts/coord-status
+```
+
+It reads `origin/main` for the queue and claims, shows local worktrees,
+flags stale-looking claims, and avoids shell-specific pitfalls in the
+manual commands below.
+
 ```bash
 git fetch origin
 git ls-tree origin/main .work/active/   # all active claims on remote (authoritative)

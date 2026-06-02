@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Read-only coordination status for parallel agents.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REMOTE_REF="${SSC_COORD_REF:-origin/main}"
+DO_FETCH=true
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/coord-status [--no-fetch]
+
+Shows the authoritative remote queue/claims plus local worktree state:
+  - current origin/main commit
+  - active .work/active/*.claim files from origin/main
+  - live and prunable git worktrees
+  - first unclaimed pending WORK_QUEUE.md item
+
+This script is read-only except for `git fetch origin`.
+
+Environment:
+  SSC_COORD_REF=origin/main   remote ref to inspect
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-fetch) DO_FETCH=false; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "coord-status: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if $DO_FETCH; then
+  git -C "$ROOT" fetch origin --quiet
+fi
+
+echo "== $REMOTE_REF =="
+git -C "$ROOT" log --oneline -1 "$REMOTE_REF"
+echo
+
+claim_files="$(
+  git -C "$ROOT" ls-tree -r --name-only "$REMOTE_REF" .work/active 2>/dev/null |
+    grep '\.claim$' || true
+)"
+
+claimed_slugs=""
+echo "== active claims =="
+if [[ -z "$claim_files" ]]; then
+  echo "none"
+else
+  while IFS= read -r claim_file; do
+    [[ -n "$claim_file" ]] || continue
+    slug="${claim_file##*/}"
+    slug="${slug%.claim}"
+    owner="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null || true)"
+    owner="${owner//$'\n'/ }"
+    printf '%-42s %s\n' "$slug" "$owner"
+    claimed_slugs="${claimed_slugs}"$'\n'"${slug}"
+  done <<<"$claim_files"
+fi
+echo
+
+live_keys=""
+print_worktree() {
+  local wt_dir="$1"
+  local branch="$2"
+  local prunable="$3"
+  local branch_name="$branch"
+  local base_name
+  base_name="${wt_dir##*/}"
+
+  [[ -n "$branch_name" ]] || branch_name="(detached)"
+  printf '%s\n' "$wt_dir"
+  printf '  branch: %s\n' "$branch_name"
+
+  if [[ -n "$prunable" ]]; then
+    printf '  prunable: %s\n' "$prunable"
+    return
+  fi
+
+  live_keys="${live_keys}"$'\n'"${base_name}"
+  if [[ "$branch_name" != "(detached)" ]]; then
+    live_keys="${live_keys}"$'\n'"${branch_name}"$'\n'"${branch_name//\//+}"
+  fi
+
+  local status
+  status="$(git -C "$wt_dir" status -s 2>/dev/null | head -5 || true)"
+  if [[ -n "$status" ]]; then
+    printf '  status:\n%s\n' "$(printf '%s\n' "$status" | sed 's/^/    /')"
+  else
+    printf '  status: clean\n'
+  fi
+
+  local ahead
+  ahead="$(git -C "$wt_dir" log --oneline "$REMOTE_REF"..HEAD 2>/dev/null | head -5 || true)"
+  if [[ -n "$ahead" ]]; then
+    printf '  ahead of %s:\n%s\n' "$REMOTE_REF" "$(printf '%s\n' "$ahead" | sed 's/^/    /')"
+  fi
+}
+
+echo "== worktrees =="
+wt_dir=""
+wt_branch=""
+wt_prunable=""
+while IFS= read -r line; do
+  case "$line" in
+    worktree\ *)
+      if [[ -n "$wt_dir" ]]; then
+        print_worktree "$wt_dir" "$wt_branch" "$wt_prunable"
+      fi
+      wt_dir="${line#worktree }"
+      wt_branch=""
+      wt_prunable=""
+      ;;
+    branch\ refs/heads/*)
+      wt_branch="${line#branch refs/heads/}"
+      ;;
+    prunable\ *)
+      wt_prunable="${line#prunable }"
+      ;;
+  esac
+done < <(git -C "$ROOT" worktree list --porcelain)
+if [[ -n "$wt_dir" ]]; then
+  print_worktree "$wt_dir" "$wt_branch" "$wt_prunable"
+fi
+echo
+
+echo "== stale-claim check =="
+if [[ -z "$claim_files" ]]; then
+  echo "no claims"
+else
+  found_stale=false
+  while IFS= read -r claim_file; do
+    [[ -n "$claim_file" ]] || continue
+    slug="${claim_file##*/}"
+    slug="${slug%.claim}"
+    owner="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -n "$owner" ]] && printf '%s\n' "$live_keys" | grep -Fxq "$owner"; then
+      continue
+    fi
+    printf 'maybe stale: %s (%s)\n' "$slug" "${owner:-unknown owner}"
+    found_stale=true
+  done <<<"$claim_files"
+  if ! $found_stale; then
+    echo "no stale-looking claims"
+  fi
+fi
+echo
+
+echo "== next unclaimed WORK_QUEUE.md item =="
+queue="$(git -C "$ROOT" show "$REMOTE_REF:WORK_QUEUE.md" 2>/dev/null || true)"
+if [[ -z "$queue" ]]; then
+  echo "WORK_QUEUE.md not found on $REMOTE_REF"
+else
+  section=""
+  next_item=""
+  while IFS= read -r line; do
+    case "$line" in
+      "## "*)
+        section="${line#\#\# }"
+        ;;
+      "- [ ] **"*)
+        slug="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*\([^*][^*]*\)\*\*.*/\1/p')"
+        [[ -n "$slug" ]] || continue
+        if ! printf '%s\n' "$claimed_slugs" | grep -Fxq "$slug"; then
+          desc="$(printf '%s\n' "$line" | sed -n 's/^- \[ \] \*\*[^*][^*]*\*\*[[:space:]]*//p')"
+          next_item="${section}: ${slug} ${desc}"
+          break
+        fi
+        ;;
+    esac
+  done <<<"$queue"
+  if [[ -n "$next_item" ]]; then
+    echo "$next_item"
+  else
+    echo "no unclaimed pending items found"
+  fi
+fi
