@@ -298,11 +298,7 @@ enum View[+A]:
   case Portal(target: String, children: Seq[View[?]]) extends View[Nothing]
 ```
 
-> **Note**: `FetchTable` (data table backed by a REST endpoint) was part of View IR in v0.2. In v0.3 it is a **helper function** in `frontend/core/toolkit`:
-> ```scala
-> def fetchTable(tableId: String, fetchUrl: String, deleteUrl: String, tick: ReactiveSignal[Int]): View[?]
-> ```
-> It composes `Element`, `Column`, and `Button` — it is not a primitive View case.
+> **Note**: The old monolithic `FetchTable` IR node was removed in v0.4. Use `View.DataTable(signal, columns, actions)` instead, or the `.ssc` surface `dataTable(fetchUrl, tick, columns, actions)`. `DataTableLowering` produces standard `<table><thead><tbody>` chrome via `ModelView/ForModel/ModelText/Button`.
 
 ### 5.3 Supporting types
 
@@ -1569,5 +1565,5 @@ Step-by-step: run `ssc migrate-deps`, run `ssc migrate-native-platform`, rebuild
 7. **`Style` refactored into sub-records** — `LayoutStyle`, `TextStyle`, `DecorationStyle`, `EffectsStyle`; public modifier DSL unchanged.
 8. **Deprecated aliases removed** — `jsName`, `DomRef`, `EmittedSpaArtifact`; codemod covers all call sites.
 9. **`Color.System` token vocabulary closed** — 12 canonical tokens with platform mapping table added as §6.4b.
-10. **`FetchTable` removed from View IR** — now a `def fetchTable(...): View[?]` helper in `frontend/core/toolkit`.
+10. **`FetchTable` removed from View IR** — superseded by `View.DataTable(signal, columns, actions)` + `DataTableLowering`. All legacy references deleted; `.ssc` surface via `dataTable`/`fcol`/`rowDelete`/`rowPost`/`rowLink` in `std/ui/data.ssc`.
 11. **Web-only codegen contract clarified** — `View.Element` / `View.Portal` on non-web targets emit a compile error with sourceloc; §7.2 "convention" wording replaced with explicit contract.

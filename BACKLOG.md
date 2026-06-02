@@ -188,10 +188,12 @@ small and dependency-aware because multiple agents are working in parallel.
       `ModelPathValidator` in `frontend/core` validates in-scope `ModelText` /
       `ForModel` paths against `ModelDef` descriptors and exposes full-module
       checks. Spec: `docs/typed-models-ir.md`.
-- [ ] **fetchtable-semantic-lowering** - Replace backend-specific `View.FetchTable`
-      lowering with semantic typed-list/table nodes backed by fetch signals, then
-      deprecate the old web-shaped `FetchTable` path backend by backend. Spec:
-      `docs/typed-models-ir.md §Maintenance notes`.
+- [x] **datatable-generalize** - ✓ Landed 2026-06-02. Replaced monolithic
+      `View.FetchTable` with `View.DataTable(signal, columns, actions)`. Added
+      `EventHandler.ItemAction` + `SetFieldToSignal`; `DataTableLowering`; native
+      Swing `JTable` renderer; `dataTable`/`fcol`/`rowDelete`/`rowPost`/`rowLink`
+      .ssc authoring surface; grep gate confirms zero `FetchTable` references.
+      See `examples/frontend/data-table/data-table.ssc`.
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
       internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
       registry dispatch results, and top-level exit-code propagation. `LspCmd`

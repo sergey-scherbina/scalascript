@@ -127,12 +127,14 @@ being landed backend by backend.
 
 - [x] **typed-models-structural-types** — `ModelPathValidator` in `frontend/core`: walks View tree tracking binding context from `ModelView`/`ForModel`, calls `ModelPathResolver` for every in-scope `ModelText`/`ForModel` path, produces typed `PathError` list. Unbound vars silently skipped. `validateModule` for full-module checks. 14 new tests, all 41 frontendCore tests green.
 
-- [x] **fetchtable-semantic-lowering** — ✓ Landed 2026-06-02. Semantic lowering
-  of deprecated `View.FetchTable` to `ModelView + ForModel(empty fieldPath) +
-  ModelText + Button(DeleteItem)` via `FetchTableLowering.lower()`. React and Vue
-  get full lowering; Solid and Custom get ForModel empty-fieldPath fix +
-  `EventHandler.DeleteItem` support (Solid keeps direct DOM impl to avoid TDZ).
-  262 tests passing across all 5 backends.
+- [x] **datatable-generalize** — ✓ Landed 2026-06-02. Full replacement of
+  `View.FetchTable` with `View.DataTable(signal, columns, actions)`. Added
+  `EventHandler.ItemAction` + `SetFieldToSignal`; `DataTableLowering`
+  (`<table><thead><tbody>` chrome via `ModelView/ForModel/ModelText/Button`);
+  Solid/Custom Phase 2 tbody span fix; native Swing `JTable` renderer;
+  `dataTable`/`fcol`/`rowDelete`/`rowPost`/`rowLink` .ssc surface;
+  `FetchTable` and all its plumbing deleted (grep gate: 0 hits).
+  React (56), Vue (58), Solid (63), Custom (63), Swing (19), FetchPlugin (5) tests pass.
 
 - [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced
   internal `ExitCode` / `CommandResult`, `CliCommand.runResult` compatibility
