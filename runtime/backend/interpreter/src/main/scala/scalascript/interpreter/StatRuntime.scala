@@ -49,11 +49,16 @@ private[interpreter] object StatRuntime:
     case Defn.Val(_, pats, _, rhs) =>
       val rhsVal = Computation.run(interp.eval(rhs, envView))
       pats match
-        case List(Pat.Var(n)) => env(n.value) = rhsVal
+        case List(Pat.Var(n)) =>
+          env(n.value) = rhsVal
+          // Register as immutable so BytecodeJit can inline reads as Java
+          // literals instead of emitting `readGlobalLong("name")` HashMap
+          // probes (Direction A free-name globals constant-folding).
+          interp.valNames += n.value
         case List(pat) =>
           val patEnv = PatternRuntime.matchPat(pat, rhsVal, envView, interp)
           if patEnv == null then interp.located(s"Val pattern match failed")
-          else patEnv.foreach { (k, v) => env(k) = v }
+          else patEnv.foreach { (k, v) => env(k) = v; interp.valNames += k }
         case _ => ()
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>

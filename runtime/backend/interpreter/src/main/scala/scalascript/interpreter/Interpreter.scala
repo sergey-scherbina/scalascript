@@ -81,7 +81,8 @@ private[scalascript] case class InterpCheckpoint(
   mainCalled:          Boolean,
   sqlBlockCounter:     Int,
   typeTagMap:          Map[String, Int] = Map.empty,
-  typeTagCounter:      Int = 0
+  typeTagCounter:      Int = 0,
+  valNames:            Set[String] = Set.empty
 )
 
 /** Tree-walking interpreter for ScalaScript documents.
@@ -114,6 +115,15 @@ class Interpreter(
   val wsRoutes: scalascript.server.WsRoutes = new scalascript.server.WsRoutes()
   val routeRegistry: scalascript.server.RouteRegistry = scalascript.server.Routes
   private[interpreter] val globals      = mutable.HashMap.empty[String, Value]
+  /** Set of top-level names defined via `Defn.Val` (immutable). Populated by
+   *  `StatRuntime.execStat` at module load. `BytecodeJit.walkLong` /
+   *  `walkDouble` use this to inline an `IntV` / `DoubleV` global value as a
+   *  Java literal in the compiled body instead of emitting a per-call
+   *  `readGlobalLong("name")` HashMap lookup. Names *not* in this set are
+   *  treated as potentially mutable (either declared `var`, or reassigned
+   *  imperatively elsewhere — `def` rebindings also fall through here since
+   *  they're not constants in the readGlobalLong sense). */
+  private[interpreter] val valNames     = mutable.HashSet.empty[String]
   private[interpreter] val extensions   = mutable.HashMap.empty[String, mutable.HashMap[String, Value.FunV]]
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.
@@ -837,7 +847,8 @@ class Interpreter(
       mainCalled          = mainCalled,
       sqlBlockCounter     = sqlBlockCounter,
       typeTagMap          = typeTagMap.toMap,
-      typeTagCounter      = typeTagCounter
+      typeTagCounter      = typeTagCounter,
+      valNames            = valNames.toSet
     )
 
   /** Restore interpreter to an earlier checkpoint, undoing any state added
@@ -860,6 +871,7 @@ class Interpreter(
     sqlBlockCounter = cp.sqlBlockCounter
     typeTagMap.clear();          typeTagMap          ++= cp.typeTagMap
     typeTagCounter  = cp.typeTagCounter
+    valNames.clear();            valNames            ++= cp.valNames
 
   /** Run `module` and record a checkpoint after every top-level section.
    *  Used by `ssc watch` on the first cycle so subsequent cycles can use
