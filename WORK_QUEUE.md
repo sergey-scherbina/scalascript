@@ -132,9 +132,12 @@ being landed backend by backend.
   fetch signals, one backend at a time. Spec:
   `docs/typed-models-ir.md §Maintenance notes`.
 
-- [ ] **cli-command-result-exitcode** - Introduce an internal `CommandResult` /
-  `ExitCode` flow for CLI commands after leaf providers are split, keeping
-  plugin command SPI work deferred. Spec: `docs/cli-command-spi.md`.
+- [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced
+  internal `ExitCode` / `CommandResult`, `CliCommand.runResult` compatibility
+  default, `CommandRegistry.dispatchResult`, and top-level launcher propagation.
+  `LspCmd` is the first command migrated off direct `System.exit` on the main
+  dispatch path; legacy `run(args): Unit` remains for the plugin SPI and
+  existing commands. Tests: `CommandResultTest` + `CommandRegistryTest` (11).
 
 - [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
   cleanup around UI bridge/runtime clusters. Require byte-identical generated

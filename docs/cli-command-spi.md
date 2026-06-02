@@ -104,6 +104,11 @@ Command functions that providers delegate to are widened from file-private to
 - ✅ Command bodies migrated into their `CliCommand` classes — the `xxxCommand`
   free functions are gone. Only thin adapters remain (`DebugCmd`/`OauthCmd`/
   `ToolchainCmd` wrap existing objects; `Help`/`ListBackends`/`Install` specials).
+- ✅ Internal result flow introduced: `ExitCode`, `CommandResult`,
+  `CliCommand.runResult(args)` with a compatibility default over `run(args)`,
+  and `CommandRegistry.dispatchResult`. The launcher now propagates non-zero
+  `CommandResult`s from the top-level command path. `LspCmd` is the first
+  migrated command; the external command SPI still exposes `run(args): Unit`.
 
 ## Plugin-provided commands (§plugin-commands) — design, deferred
 
@@ -166,7 +171,6 @@ surface is designed against that command's actual needs rather than guessed.
 - Continue moving leaf command providers out of `Main.scala` when they do not
   depend on large shared helper clusters. Good candidates are commands with
   self-contained argument parsing and no dispatch fallback behavior.
-- Introduce an internal `CommandResult` / `ExitCode` return value once the next
-  behavior-preserving split is complete. Today most commands call `System.exit`
-  directly, which makes focused command tests harder than necessary. This is an
-  internal CLI cleanup, not a plugin SPI change.
+- Continue migrating in-tree commands from direct `System.exit` to
+  `runResult`. Prefer leaf commands first; keep the external `run(args): Unit`
+  compatibility method until plugin command SPI work has a real consumer.

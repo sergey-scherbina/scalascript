@@ -184,16 +184,19 @@ small and dependency-aware because multiple agents are working in parallel.
       a React typed JSON fetch nested in semantic `Column`. Remaining collectors
       can migrate incrementally. Spec:
       `docs/frontend-abstract-model.md §Implementation maintenance notes`.
-- [ ] **typed-models-structural-types** - After v1.66 backend parity, tighten
-      model path validation so `ModelText` / `ForModel` paths fail early against
-      `ModelDef` descriptors where possible. Spec: `docs/typed-models-ir.md`.
+- [x] **typed-models-structural-types** - ✓ Landed 2026-06-02.
+      `ModelPathValidator` in `frontend/core` validates in-scope `ModelText` /
+      `ForModel` paths against `ModelDef` descriptors and exposes full-module
+      checks. Spec: `docs/typed-models-ir.md`.
 - [ ] **fetchtable-semantic-lowering** - Replace backend-specific `View.FetchTable`
       lowering with semantic typed-list/table nodes backed by fetch signals, then
       deprecate the old web-shaped `FetchTable` path backend by backend. Spec:
       `docs/typed-models-ir.md §Maintenance notes`.
-- [ ] **cli-command-result-exitcode** - Introduce an internal command result /
-      exit-code path after the next leaf command splits, reducing direct
-      `System.exit` usage in command bodies. Spec: `docs/cli-command-spi.md`.
+- [x] **cli-command-result-exitcode** - ✓ Landed 2026-06-02. Introduced an
+      internal `CommandResult` / `ExitCode` path, `CliCommand.runResult`,
+      registry dispatch results, and top-level exit-code propagation. `LspCmd`
+      is the first migrated command; plugin command SPI stays unchanged. Spec:
+      `docs/cli-command-spi.md`.
 - [ ] **jvmgen-ui-bridge-split** - Continue behavior-preserving `JvmGen.scala`
       cleanup around UI bridge/runtime clusters only where generated output can
       be proved byte-identical.

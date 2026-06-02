@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-02 — CLI command result flow
+
+- **cli-command-result-exitcode** — Added internal `ExitCode` /
+  `CommandResult`, `CliCommand.runResult`, registry result dispatch, and
+  top-level exit-code propagation. `LspCmd` is the first migrated command; the
+  public command SPI remains `run(args): Unit` for compatibility.
+
 ## 2026-06-02 — frontend view traversal core
 
 - **frontend-view-traversal-core** — Added `frontend/core` `ViewTraversal`
