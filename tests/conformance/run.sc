@@ -44,7 +44,7 @@ var passed = 0
 var failed = 0
 
 def run(cmd: os.proc): String =
-  cmd.call(stderr = os.Pipe, check = false).out.text().stripTrailing()
+  cmd.call(stdin = "", stderr = os.Pipe, check = false).out.text().stripTrailing()
 
 def check(label: String, got: String, expected: String): Boolean =
   if got == expected then
@@ -222,13 +222,13 @@ for test <- tests do
         ).out.text().stripTrailing()
         check("JS ", jsOut, expected)
 
-    // JVM via JvmGen + scala-cli compile
+    // JVM via JvmGen + scala-cli compile+run
     val jvmOk =
       if !backendSupports("jvm") then
         println(s"  SKIP [JVM] (${skipReason("jvm")})")
         true
       else
-        val jvmOut = run(ssc("compile", test.toString))
+        val jvmOut = run(ssc("run-jvm", test.toString))
         check("JVM", jvmOut, expected)
 
     if intOk && jsOk && jvmOk then passed += 1 else failed += 1
