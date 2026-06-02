@@ -119,6 +119,7 @@ private[solid] object SolidEmitter:
     // A2e.2 — sub-scope state for capturing a render-item body.
     private var inItemTemplate: Boolean                          = false
     private var currentItemList: Option[ReactiveSignalList[?]]   = None
+    private var currentItemVar: String                           = ""
     private val statementStack: scala.collection.mutable.Stack[scala.collection.mutable.ArrayBuffer[String]] =
       scala.collection.mutable.Stack.empty
 
@@ -782,10 +783,14 @@ private[solid] object SolidEmitter:
         wrap
 
       case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
-        val forWrap = freshVar()
+        val forWrap    = freshVar()
+        val prevItemVar = currentItemVar
+        currentItemVar  = itemVar
         statements += s"const $forWrap = document.createElement('span'); $forWrap.style.display = 'contents';"
         val (innerVar, body) = captureStatements(compile(template))
-        statements += s"{ const __items = ($bindingVar.$fieldPath || []);"
+        currentItemVar = prevItemVar
+        val listExpr = if fieldPath.isEmpty then bindingVar else s"$bindingVar.$fieldPath"
+        statements += s"{ const __items = ($listExpr || []);"
         statements += s"  for (let __i = 0; __i < __items.length; __i++) {"
         statements += s"    const $itemVar = __items[__i];"
         body.foreach(stmt => statements += s"    $stmt")
@@ -859,6 +864,19 @@ private[solid] object SolidEmitter:
           else
             statements +=
               s"// $targetVar: '$eventName' is RemoveSelfFromList used outside an item template — no-op."
+        case EventHandler.DeleteItem(idField, deleteUrl, tick, hOpt) =>
+          if currentItemVar.nonEmpty then
+            registerSignal(tick)
+            hOpt.foreach(registerSignal)
+            val setter    = setterName(tick.id)
+            val delUrlJs  = jsString(deleteUrl)
+            val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id}() || '{}')").getOrElse("")
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+              s"fetch($delUrlJs, {method: 'POST', body: String($currentItemVar.$idField)$headersJs})" +
+              s".then(r => r.text()).then(_ => $setter(t => t + 1)));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is DeleteItem outside ForModel context — no-op."
 
     /** Empty-branch placeholder for ShowSignal — empty text node. */
     private def placeholderNode(): String =

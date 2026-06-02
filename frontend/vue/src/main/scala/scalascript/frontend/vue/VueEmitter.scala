@@ -188,6 +188,7 @@ private[vue] object VueEmitter:
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
       case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
+      case EventHandler.DeleteItem(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case _ => ()
     walk(view)
     acc
@@ -333,12 +334,12 @@ private[vue] object VueEmitter:
       itemTemplate.exists(containsPortal)
     case _ => false
 
-  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
+  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None, modelItemVar: String = ""): String = view match
     case View.Element(tag, attrs, events, children) =>
-      val propsJs = renderProps(attrs, events, itemCtx)
+      val propsJs = renderProps(attrs, events, itemCtx, modelItemVar = modelItemVar)
       val childrenJs =
         if children.isEmpty then ""
-        else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
+        else ", [" + children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ") + "]"
       s"h(${jsString(tag)}, $propsJs$childrenJs)"
 
     case View.TextNode(thunk) =>
@@ -355,25 +356,25 @@ private[vue] object VueEmitter:
 
     case View.Fragment(children) =>
       if children.isEmpty then "null"
-      else s"h(Fragment, null, [${children.map(c => renderView(c, itemCtx)).mkString(", ")}])"
+      else s"h(Fragment, null, [${children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")}])"
 
     case View.ComponentInstance(component, props) =>
-      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx)
+      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx, modelItemVar)
 
     case View.Show(cond, whenTrue, whenFalse) =>
       val branch = if cond() then whenTrue() else whenFalse()
-      renderView(branch, itemCtx)
+      renderView(branch, itemCtx, modelItemVar)
 
     case View.ShowSignal(cond, whenTrue, whenFalse) =>
       // Ternary inside render — Vue re-runs render when the ref
       // (read via proxy) changes; the ternary re-evaluates.
-      s"(this.${cond.id} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
+      s"(this.${cond.id} ? ${renderView(whenTrue, itemCtx, modelItemVar)} : ${renderView(whenFalse, itemCtx, modelItemVar)})"
 
     case View.For(items, render) =>
       val realised = items().toList
       if realised.isEmpty then "null"
       else
-        val parts = realised.map(item => renderView(render(item), itemCtx))
+        val parts = realised.map(item => renderView(render(item), itemCtx, modelItemVar))
         s"[${parts.mkString(", ")}]"
 
     case View.ForSignal(list, tag, attrs, itemTemplate) =>
@@ -398,10 +399,10 @@ private[vue] object VueEmitter:
               val propsJs    = renderProps(attrs, events, Some(list), injectKey = true)
               val childrenJs =
                 if children.isEmpty then ""
-                else ", [" + children.map(c => renderView(c, Some(list))).mkString(", ") + "]"
+                else ", [" + children.map(c => renderView(c, Some(list), modelItemVar)).mkString(", ") + "]"
               s"h(${jsString(tag)}, $propsJs$childrenJs)"
             case other =>
-              renderView(other, Some(list))
+              renderView(other, Some(list), modelItemVar)
           s"this.${list.id}.map((item, index) => $body)"
 
     case View.Portal(target, children) =>
@@ -411,28 +412,11 @@ private[vue] object VueEmitter:
       val targetJs = jsString(target)
       val childrenJs =
         if children.isEmpty then ""
-        else ", [" + children.map(c => renderView(c, itemCtx)).mkString(", ") + "]"
+        else ", [" + children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ") + "]"
       s"h(Teleport, { 'to': $targetJs }$childrenJs)"
 
-    case View.FetchTable(tableId, _, deleteUrl, tick, hOpt) =>
-      val tickName   = tick.id
-      val delUrlJs   = jsString(deleteUrl)
-      val headersJs  = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
-      val thStyle    = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827' }"
-      val tdStyle    = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle' }"
-      val btnStyle   = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }"
-      val tableStyle = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'inherit', fontSize: 'inherit' }"
-      val theadStyle = "{ background: '#f9fafb' }"
-      val rowFn =
-        s"this.$tableId.map((row, _i) => " +
-        s"h('tr', { key: String(row.id) }, [" +
-        s"h('td', { style: $tdStyle }, String(row.text)), " +
-        s"h('td', { style: $tdStyle }, [" +
-        s"h('button', { style: $btnStyle, onClick: () => { fetch($delUrlJs, { method: 'POST', body: String(row.id)$headersJs }).then(r => r.text()).then(_ => { this.$tickName++; }); } }, 'Delete')" +
-        s"])]))"
-      s"h('table', { style: $tableStyle }, [" +
-        s"h('thead', { style: $theadStyle }, [h('tr', null, [h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, '')])]), " +
-        s"h('tbody', null, $rowFn)])"
+    case ft: View.FetchTable =>
+      renderView(FetchTableLowering.lower(ft), itemCtx, modelItemVar)
 
     // ── P2 semantic View cases ─────────────────────────────────────────────────
     // Vue h() children must be in an array; style prop accepts CSS string.
@@ -441,19 +425,19 @@ private[vue] object VueEmitter:
       val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
       val base   = s"display: flex; flex-direction: column; align-items: ${StyleUtils.hAlignToCSS(align)}$gapCss"
       val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      val kids   = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids   = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: ${jsString(css)} }, [$kids])"
 
     case View.Row(children, spacing, align, style) =>
       val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
       val base   = s"display: flex; flex-direction: row; align-items: ${StyleUtils.vAlignToCSS(align)}$gapCss"
       val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      val kids   = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids   = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: ${jsString(css)} }, [$kids])"
 
     case View.Stack(children, style) =>
       val css  = StyleUtils.mergeCSS("position: relative", StyleUtils.styleToCSS(style))
-      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: ${jsString(css)} }, [$kids])"
 
     case View.ScrollView(child, axis, style) =>
@@ -462,7 +446,7 @@ private[vue] object VueEmitter:
         case Axis.Vertical   => "overflow-y: auto; overflow-x: hidden"
         case Axis.Both       => "overflow: auto"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx, modelItemVar)}])"
 
     case View.Spacer(size) =>
       val css = size match
@@ -499,10 +483,10 @@ private[vue] object VueEmitter:
     case View.Button(label, action, enabled, style) =>
       val base = "cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: none; padding: 6px 16px; border-radius: 4px"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      val onClickJs = eventHandlerJs("click", action, itemCtx)
+      val onClickJs = eventHandlerJs("click", action, itemCtx, modelItemVar)
       val disabledField = if !enabled() then ", 'disabled': true" else ""
       val clickField    = onClickJs.map(f => s", $f").getOrElse("")
-      s"h('button', { style: ${jsString(css)}$clickField$disabledField }, [${renderView(label, itemCtx)}])"
+      s"h('button', { style: ${jsString(css)}$clickField$disabledField }, [${renderView(label, itemCtx, modelItemVar)}])"
 
     case View.TextInput(value, placeholder, multiline, secure, style) =>
       val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
@@ -538,7 +522,7 @@ private[vue] object VueEmitter:
 
     case View.LazyList(items, render, _, style) =>
       val css  = StyleUtils.mergeCSS("overflow-y: auto", StyleUtils.styleToCSS(style))
-      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      val kids = items().toList.map(item => renderView(render(item), itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: ${jsString(css)} }, [$kids])"
 
     case View.LazyGrid(items, render, columns, spacing, style) =>
@@ -546,7 +530,7 @@ private[vue] object VueEmitter:
       val gapCss  = if spacing > 0 then s"; gap: ${spacing}px" else ""
       val base    = s"display: grid; grid-template-columns: $colsCss$gapCss"
       val css     = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      val kids = items().toList.map(item => renderView(render(item), itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: ${jsString(css)} }, [$kids])"
 
     case View.TabBar(tabs, current, style) =>
@@ -560,7 +544,7 @@ private[vue] object VueEmitter:
         s"h('button', { style: $styleProp, 'onClick': () => { this.${current.id} = $i; } }, ${jsString(tab.label)})"
       }.mkString(", ")
       val tabContents = tabs.zipWithIndex.map { (tab, i) =>
-        s"this.${current.id} === $i ? ${renderView(tab.content, itemCtx)} : null"
+        s"this.${current.id} === $i ? ${renderView(tab.content, itemCtx, modelItemVar)} : null"
       }.mkString(", ")
       s"h('div', $outerField, [h('div', { style: ${jsString(headerCss)} }, [$tabHeaders]), $tabContents])"
 
@@ -568,14 +552,14 @@ private[vue] object VueEmitter:
       val outerCss   = StyleUtils.styleToCSS(style)
       val outerField = if outerCss.isEmpty then "null" else s"{ style: ${jsString(outerCss)} }"
       val branches   = routes.toList.map { (key, fn) =>
-        s"this.${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx)} : null"
+        s"this.${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx, modelItemVar)} : null"
       }.mkString(", ")
       s"h('div', $outerField, [$branches])"
 
     case View.Sheet(content, isPresented) =>
       val overlayCss  = "position: fixed; bottom: 0; left: 0; right: 0; background: #fff; box-shadow: 0 -4px 12px rgba(0,0,0,0.15); border-radius: 12px 12px 0 0; padding: 16px; z-index: 1000"
       val backdropCss = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999"
-      s"this.${isPresented.id} ? h('div', null, [h('div', { style: ${jsString(backdropCss)}, 'onClick': () => { this.${isPresented.id} = false; } }), h('div', { style: ${jsString(overlayCss)} }, [${renderView(content, itemCtx)}])]) : null"
+      s"this.${isPresented.id} ? h('div', null, [h('div', { style: ${jsString(backdropCss)}, 'onClick': () => { this.${isPresented.id} = false; } }), h('div', { style: ${jsString(overlayCss)} }, [${renderView(content, itemCtx, modelItemVar)}])]) : null"
 
     case View.AlertDialog(title, message, buttons, isPresented) =>
       val dialogCss   = "position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.2); z-index: 1001; min-width: 300px"
@@ -601,7 +585,7 @@ private[vue] object VueEmitter:
         case _ => ""
       val css = StyleUtils.styleToCSS(style)
       val styleField = if css.isEmpty then "null" else s"{ style: ${jsString(css)} }"
-      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }, ...($styleField === null ? {} : $styleField) }, [${renderView(child, itemCtx)}])"
+      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }, ...($styleField === null ? {} : $styleField) }, [${renderView(child, itemCtx, modelItemVar)}])"
 
     case View.FormField(label, value, validate, style) =>
       val errorMsg   = try validate(value().asInstanceOf[Nothing]) catch { case _: Throwable => None }
@@ -623,41 +607,44 @@ private[vue] object VueEmitter:
       val bottom = if edges.contains(Edge.Bottom)   then "env(safe-area-inset-bottom, 0)" else "0"
       val left   = if edges.contains(Edge.Leading)  then "env(safe-area-inset-left, 0)" else "0"
       val css    = s"padding-top: $top; padding-right: $right; padding-bottom: $bottom; padding-left: $left"
-      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx, modelItemVar)}])"
 
     case View.KeyboardAvoiding(child) =>
-      renderView(child, itemCtx)
+      renderView(child, itemCtx, modelItemVar)
 
     case View.Animated(child, transition, style) =>
       val dur    = transition.duration.toLong
       val delay  = if transition.delay > 0 then s" ${transition.delay.toLong}ms" else ""
       val base   = s"transition: all ${dur}ms ${StyleUtils.curveToCSS(transition.curve)}$delay"
       val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
-      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+      s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx, modelItemVar)}])"
 
     case View.Styled(child, style) =>
       val css = StyleUtils.styleToCSS(style)
-      if css.isEmpty then renderView(child, itemCtx)
-      else s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx)}])"
+      if css.isEmpty then renderView(child, itemCtx, modelItemVar)
+      else s"h('div', { style: ${jsString(css)} }, [${renderView(child, itemCtx, modelItemVar)}])"
 
     case View.ModelView(signal, _, template, _) =>
-      s"this.${signal.id} && h(Fragment, null, ${renderView(template, itemCtx)})"
+      s"this.${signal.id} && h(Fragment, null, ${renderView(template, itemCtx, modelItemVar)})"
 
     case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
-      val body = renderView(template, itemCtx)
-      s"(this.${bindingVar}.${fieldPath} || []).map(($itemVar, _idx) => h(Fragment, {'key': _idx}, $body))"
+      val body     = renderView(template, itemCtx, itemVar)
+      val listExpr = if fieldPath.isEmpty then s"this.$bindingVar" else s"this.$bindingVar.$fieldPath"
+      s"($listExpr || []).map(($itemVar, _idx) => h(Fragment, {'key': _idx}, $body))"
 
     case View.ModelText(varName, fieldPath, _) =>
-      s"String(this.${varName}.${fieldPath})"
+      val ref = if varName == modelItemVar then varName else s"this.$varName"
+      s"String($ref.$fieldPath)"
 
     case View.Adaptive(web, _, _, fallback) =>
-      renderView(web.getOrElse(fallback), itemCtx)
+      renderView(web.getOrElse(fallback), itemCtx, modelItemVar)
 
   private def renderProps(
-      attrs:     Map[String, AttrValue],
-      events:    Map[String, EventHandler],
-      itemCtx:   Option[ReactiveSignalList[?]],
-      injectKey: Boolean = false
+      attrs:        Map[String, AttrValue],
+      events:       Map[String, EventHandler],
+      itemCtx:      Option[ReactiveSignalList[?]],
+      injectKey:    Boolean = false,
+      modelItemVar: String = ""
   ): String =
     val attrFields = attrs.flatMap { (k, v) =>
       v match
@@ -674,7 +661,7 @@ private[vue] object VueEmitter:
           }
     }
     val eventFields = events.flatMap { (eventName, handler) =>
-      eventHandlerJs(eventName, handler, itemCtx)
+      eventHandlerJs(eventName, handler, itemCtx, modelItemVar)
     }
     val keyField = if injectKey then List("'key': String(item)") else Nil
     val all = keyField ++ attrFields ++ eventFields
@@ -690,9 +677,10 @@ private[vue] object VueEmitter:
     case AttrValue.RefBinding(_)    => None  // handled inline in renderProps as the Vue `ref` prop
 
   private def eventHandlerJs(
-      eventName: String,
-      handler:   EventHandler,
-      itemCtx:   Option[ReactiveSignalList[?]]
+      eventName:    String,
+      handler:      EventHandler,
+      itemCtx:      Option[ReactiveSignalList[?]],
+      modelItemVar: String
   ): Option[String] =
     val onKey = onProp(eventName)
     // Arrow functions defined INSIDE render() lexically capture
@@ -728,6 +716,12 @@ private[vue] object VueEmitter:
           s".then(r => r.text()).then(_ => { this.${tick.id}++;$clearJs }); }")
       case EventHandler.InputChange(signal) =>
         Some(s"'onInput': (e) => { this.${signal.id} = e.target.value; }")
+      case EventHandler.DeleteItem(idField, deleteUrl, tick, hOpt) if modelItemVar.nonEmpty =>
+        val delUrlJs  = jsString(deleteUrl)
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
+        Some(s"${jsString(onKey)}: () => { fetch($delUrlJs, {method: 'POST', body: String($modelItemVar.$idField)$headersJs}).then(r => r.text()).then(_ => { this.${tick.id}++; }); }")
+      case EventHandler.DeleteItem(_, _, _, _) =>
+        Some(s"/* '$eventName' is DeleteItem outside ForModel context — no-op */")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         Some(s"/* '$eventName' is a JVM closure — A5 can't translate (richer IR coming later) */")
 

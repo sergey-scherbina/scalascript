@@ -124,6 +124,7 @@ private[custom] object StaticJsEmitter:
     // detect they're inside the template and emit iteration-aware code.
     private var inItemTemplate: Boolean                          = false
     private var currentItemList: Option[ReactiveSignalList[?]]   = None
+    private var currentItemVar: String                           = ""
     private val statementStack: scala.collection.mutable.Stack[scala.collection.mutable.ArrayBuffer[String]] =
       scala.collection.mutable.Stack.empty
 
@@ -864,16 +865,20 @@ private[custom] object StaticJsEmitter:
         wrap
 
       case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
-        val forWrap   = freshVar()
-        val renderFn  = s"__formodel_${forWrap}"
+        val forWrap    = freshVar()
+        val renderFn   = s"__formodel_${forWrap}"
+        val prevItemVar = currentItemVar
+        currentItemVar  = itemVar
         statements += s"const $forWrap = document.createElement('span'); $forWrap.style.display = 'contents';"
         val (innerVar, body) = captureStatements(compile(template))
+        currentItemVar = prevItemVar
+        val listExpr = if fieldPath.isEmpty then bindingVar else s"$bindingVar.$fieldPath"
         statements += s"function $renderFn($itemVar) {"
         body.foreach(stmt => statements += s"  $stmt")
         if innerVar != null then statements += s"  return $innerVar;"
         else statements += s"  return document.createTextNode('');"
         statements += s"}"
-        statements += s"for (const $itemVar of ($bindingVar.$fieldPath || [])) { $forWrap.appendChild($renderFn($itemVar)); }"
+        statements += s"for (const $itemVar of ($listExpr || [])) { $forWrap.appendChild($renderFn($itemVar)); }"
         forWrap
 
       case View.ModelText(varName, fieldPath, _) =>
@@ -969,6 +974,17 @@ private[custom] object StaticJsEmitter:
           else
             statements +=
               s"// $targetVar: '$eventName' is RemoveSelfFromList used outside an item template — no-op."
+        case EventHandler.DeleteItem(idField, deleteUrl, tick, hOpt) =>
+          if currentItemVar.nonEmpty then
+            val tickJs    = jsString(tick.id)
+            val delUrlJs  = jsString(deleteUrl)
+            val headersJs = hOpt.map(h => s", headers: JSON.parse(__ssc_signals[${jsString(h.id)}].value || '{}')").getOrElse("")
+            statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => " +
+              s"fetch($delUrlJs, {method: 'POST', body: String($currentItemVar.$idField)$headersJs})" +
+              s".then(r => r.text()).then(_ => { __setSignal($tickJs, __ssc_signals[$tickJs].value + 1); }));"
+          else
+            statements +=
+              s"// $targetVar: '$eventName' is DeleteItem outside ForModel context — no-op."
 
   /** A2e — JS array literal for a `ReactiveSignalList`'s initial
    *  value.  Each element goes through `jsLiteral` (same primitive

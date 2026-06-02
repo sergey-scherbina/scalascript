@@ -201,6 +201,7 @@ private[react] object ReactEmitter:
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
       case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
+      case EventHandler.DeleteItem(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case _ => ()
     walk(view)
     acc
@@ -370,10 +371,10 @@ private[react] object ReactEmitter:
    *  `EventHandler.RemoveSelfFromList` know they're inside an
    *  iteration and can emit code that references the `item` /
    *  `index` map-callback parameters. */
-  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None): String = view match
+  private def renderView(view: View[?], itemCtx: Option[ReactiveSignalList[?]] = None, modelItemVar: String = ""): String = view match
     case View.Element(tag, attrs, events, children) =>
-      val propsJs    = renderProps(attrs, events, itemCtx)
-      val childrenJs = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val propsJs    = renderProps(attrs, events, itemCtx, modelItemVar = modelItemVar)
+      val childrenJs = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       val tail       = if children.isEmpty then "" else ", " + childrenJs
       s"h(${jsString(tag)}, $propsJs$tail)"
 
@@ -392,30 +393,30 @@ private[react] object ReactEmitter:
     case View.Fragment(children) =>
       if children.isEmpty then "null"
       else
-        val childrenJs = children.map(c => renderView(c, itemCtx)).mkString(", ")
+        val childrenJs = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
         s"h(Fragment, null, $childrenJs)"
 
     case View.ComponentInstance(component, props) =>
-      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx)
+      renderView(component.render(props.asInstanceOf[Nothing]), itemCtx, modelItemVar)
 
     case View.Show(cond, whenTrue, whenFalse) =>
       // Snapshot the condition AT EMIT TIME — `Show` is the
       // non-reactive variant.  Use `ShowSignal` for live swap.
       val branch = if cond() then whenTrue() else whenFalse()
-      renderView(branch, itemCtx)
+      renderView(branch, itemCtx, modelItemVar)
 
     case View.ShowSignal(cond, whenTrue, whenFalse) =>
       // Ternary inside render — React re-runs render on useState
       // change, the ternary re-evaluates, reconciliation handles
       // the DOM swap.  Idiomatic React conditional rendering.
-      s"(${cond.id} ? ${renderView(whenTrue, itemCtx)} : ${renderView(whenFalse, itemCtx)})"
+      s"(${cond.id} ? ${renderView(whenTrue, itemCtx, modelItemVar)} : ${renderView(whenFalse, itemCtx, modelItemVar)})"
 
     case View.For(items, render) =>
       // Emit a literal array; React handles list rendering.
       val realised = items().toList
       if realised.isEmpty then "null"
       else
-        val parts = realised.map(item => renderView(render(item), itemCtx))
+        val parts = realised.map(item => renderView(render(item), itemCtx, modelItemVar))
         s"[${parts.mkString(", ")}]"
 
     case View.ForSignal(list, tag, attrs, itemTemplate) =>
@@ -462,29 +463,12 @@ private[react] object ReactEmitter:
       val targetJs = jsString(target)
       val childJs  =
         if children.isEmpty then "null"
-        else if children.size == 1 then renderView(children.head, itemCtx)
-        else s"h(Fragment, null, ${children.map(c => renderView(c, itemCtx)).mkString(", ")})"
+        else if children.size == 1 then renderView(children.head, itemCtx, modelItemVar)
+        else s"h(Fragment, null, ${children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")})"
       s"ReactDOM.createPortal($childJs, document.querySelector($targetJs))"
 
-    case View.FetchTable(tableId, _, deleteUrl, tick, hOpt) =>
-      val setter       = setterName(tick.id)
-      val delUrlJs     = jsString(deleteUrl)
-      val headersJs    = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
-      val thStyle      = "{ textAlign: 'left', padding: '6px 12px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#111827', fontSize: 'inherit', fontFamily: 'inherit' }"
-      val tdStyle      = "{ padding: '6px 12px', borderBottom: '1px solid #e5e7eb', color: '#374151', verticalAlign: 'middle', fontSize: 'inherit', fontFamily: 'inherit' }"
-      val btnStyle     = "{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: 'inherit', fontFamily: 'inherit' }"
-      val tableStyle   = "{ borderCollapse: 'collapse', width: '100%', fontFamily: 'inherit', fontSize: 'inherit' }"
-      val theadStyle   = "{ background: '#f9fafb' }"
-      val rowFn =
-        s"$tableId.map((row, _i) => " +
-        s"h('tr', { key: row.id }, " +
-        s"h('td', { style: $tdStyle }, String(row.text)), " +
-        s"h('td', { style: $tdStyle }, " +
-        s"h('button', { style: $btnStyle, onClick: () => fetch($delUrlJs, { method: 'POST', body: String(row.id)$headersJs }).then(r => r.text()).then(_ => $setter(t => t + 1)) }, 'Delete')" +
-        s")))"
-      s"h('table', { style: $tableStyle }, " +
-        s"h('thead', { style: $theadStyle }, h('tr', null, h('th', { style: $thStyle }, 'Task'), h('th', { style: $thStyle }, ''))), " +
-        s"h('tbody', null, $rowFn))"
+    case ft: View.FetchTable =>
+      renderView(FetchTableLowering.lower(ft), itemCtx, modelItemVar)
 
     // ── P2 semantic View cases ─────────────────────────────────────────────────
 
@@ -492,7 +476,7 @@ private[react] object ReactEmitter:
       val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
       val base   = s"display: flex; flex-direction: column; align-items: ${StyleUtils.hAlignToCSS(align)}$gapCss"
       val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
-      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       if kids.isEmpty then s"h('div', { style: $styleObj })"
       else s"h('div', { style: $styleObj }, $kids)"
 
@@ -500,14 +484,14 @@ private[react] object ReactEmitter:
       val gapCss = if spacing > 0 then s"; gap: ${spacing}px" else ""
       val base   = s"display: flex; flex-direction: row; align-items: ${StyleUtils.vAlignToCSS(align)}$gapCss"
       val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
-      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       if kids.isEmpty then s"h('div', { style: $styleObj })"
       else s"h('div', { style: $styleObj }, $kids)"
 
     case View.Stack(children, style) =>
       val base   = "position: relative"
       val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
-      val kids = children.map(c => renderView(c, itemCtx)).mkString(", ")
+      val kids = children.map(c => renderView(c, itemCtx, modelItemVar)).mkString(", ")
       if kids.isEmpty then s"h('div', { style: $styleObj })"
       else s"h('div', { style: $styleObj }, $kids)"
 
@@ -517,7 +501,7 @@ private[react] object ReactEmitter:
         case Axis.Vertical   => "overflow-y: auto; overflow-x: hidden"
         case Axis.Both       => "overflow: auto"
       val styleObj = cssStringToReactObject(StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style)))
-      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx)})"
+      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx, modelItemVar)})"
 
     case View.Spacer(size) =>
       val css = size match
@@ -555,10 +539,10 @@ private[react] object ReactEmitter:
       val base = "cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: none; padding: 6px 16px; border-radius: 4px"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj  = cssStringToReactObject(css)
-      val onClickJs = eventHandlerJs("click", action, itemCtx)
+      val onClickJs = eventHandlerJs("click", action, itemCtx, modelItemVar)
       val disabledJs = if !enabled() then ", 'disabled': true" else ""
       val clickField = onClickJs.map(f => s", $f").getOrElse("")
-      s"h('button', { style: $styleObj$clickField$disabledJs }, ${renderView(label, itemCtx)})"
+      s"h('button', { style: $styleObj$clickField$disabledJs }, ${renderView(label, itemCtx, modelItemVar)})"
 
     case View.TextInput(value, placeholder, multiline, secure, style) =>
       val base = "padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: inherit; font-family: inherit"
@@ -603,7 +587,7 @@ private[react] object ReactEmitter:
       val base = "overflow-y: auto"
       val css  = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj = cssStringToReactObject(css)
-      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      val kids = items().toList.map(item => renderView(render(item), itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: $styleObj }, $kids)"
 
     case View.LazyGrid(items, render, columns, spacing, style) =>
@@ -612,7 +596,7 @@ private[react] object ReactEmitter:
       val base    = s"display: grid; grid-template-columns: $colsCss$gapCss"
       val css     = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj = cssStringToReactObject(css)
-      val kids = items().toList.map(item => renderView(render(item), itemCtx)).mkString(", ")
+      val kids = items().toList.map(item => renderView(render(item), itemCtx, modelItemVar)).mkString(", ")
       s"h('div', { style: $styleObj }, $kids)"
 
     case View.TabBar(tabs, current, style) =>
@@ -624,7 +608,7 @@ private[react] object ReactEmitter:
         s"h('button', { style: ${current.id} === $i ? ${cssStringToReactObject(s"$activeBase #3b82f6; font-weight: bold")} : ${cssStringToReactObject(s"$activeBase transparent")}, 'onClick': () => ${setterName(current.id)}($i) }, ${jsString(tab.label)})"
       }.mkString(", ")
       val tabContents = tabs.zipWithIndex.map { (tab, i) =>
-        s"${current.id} === $i ? ${renderView(tab.content, itemCtx)} : null"
+        s"${current.id} === $i ? ${renderView(tab.content, itemCtx, modelItemVar)} : null"
       }.mkString(", ")
       s"h('div', { style: $outerObj }, h('div', { style: $headerObj }, $tabHeaders), $tabContents)"
 
@@ -632,7 +616,7 @@ private[react] object ReactEmitter:
       val base     = StyleUtils.styleToCSS(style)
       val outerObj = if base.isEmpty then "null" else cssStringToReactObject(base)
       val branches = routes.toList.map { (key, fn) =>
-        s"${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx)} : null"
+        s"${current.id} === ${jsString(key)} ? ${renderView(fn(), itemCtx, modelItemVar)} : null"
       }.mkString(", ")
       s"h('div', { style: $outerObj }, $branches)"
 
@@ -640,7 +624,7 @@ private[react] object ReactEmitter:
       val overlayObj  = cssStringToReactObject("position: fixed; bottom: 0; left: 0; right: 0; background: #fff; box-shadow: 0 -4px 12px rgba(0,0,0,0.15); border-radius: 12px 12px 0 0; padding: 16px; z-index: 1000")
       val backdropObj = cssStringToReactObject("position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999")
       val setter      = setterName(isPresented.id)
-      s"${isPresented.id} ? h('div', null, h('div', { style: $backdropObj, 'onClick': () => $setter(false) }), h('div', { style: $overlayObj }, ${renderView(content, itemCtx)})) : null"
+      s"${isPresented.id} ? h('div', null, h('div', { style: $backdropObj, 'onClick': () => $setter(false) }), h('div', { style: $overlayObj }, ${renderView(content, itemCtx, modelItemVar)})) : null"
 
     case View.AlertDialog(title, message, buttons, isPresented) =>
       val dialogObj   = cssStringToReactObject("position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 32px rgba(0,0,0,0.2); z-index: 1001; min-width: 300px")
@@ -668,7 +652,7 @@ private[react] object ReactEmitter:
         case _ => ""
       val css = StyleUtils.styleToCSS(style)
       val styleField = if css.isEmpty then "" else s", style: ${cssStringToReactObject(css)}"
-      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }$styleField }, ${renderView(child, itemCtx)})"
+      s"h('form', { 'onSubmit': (e) => { e.preventDefault(); $handlerBody }$styleField }, ${renderView(child, itemCtx, modelItemVar)})"
 
     case View.FormField(label, value, validate, style) =>
       val currentVal = value()
@@ -693,10 +677,10 @@ private[react] object ReactEmitter:
       val bottom = if edges.contains(Edge.Bottom)   then "env(safe-area-inset-bottom, 0)" else "0"
       val left   = if edges.contains(Edge.Leading)  then "env(safe-area-inset-left, 0)" else "0"
       val css    = s"padding-top: $top; padding-right: $right; padding-bottom: $bottom; padding-left: $left"
-      s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx)})"
+      s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx, modelItemVar)})"
 
     case View.KeyboardAvoiding(child) =>
-      renderView(child, itemCtx)
+      renderView(child, itemCtx, modelItemVar)
 
     case View.Animated(child, transition, style) =>
       val dur    = transition.duration.toLong
@@ -704,25 +688,26 @@ private[react] object ReactEmitter:
       val base   = s"transition: all ${dur}ms ${StyleUtils.curveToCSS(transition.curve)}$delay"
       val css    = StyleUtils.mergeCSS(base, StyleUtils.styleToCSS(style))
       val styleObj = cssStringToReactObject(css)
-      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx)})"
+      s"h('div', { style: $styleObj }, ${renderView(child, itemCtx, modelItemVar)})"
 
     case View.Styled(child, style) =>
       val css = StyleUtils.styleToCSS(style)
-      if css.isEmpty then renderView(child, itemCtx)
-      else s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx)})"
+      if css.isEmpty then renderView(child, itemCtx, modelItemVar)
+      else s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx, modelItemVar)})"
 
     case View.ModelView(signal, _, template, _) =>
-      s"${signal.id} && h(Fragment, null, ${renderView(template, itemCtx)})"
+      s"${signal.id} && h(Fragment, null, ${renderView(template, itemCtx, modelItemVar)})"
 
     case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
-      val body = renderView(template, itemCtx)
-      s"(${bindingVar}.${fieldPath} || []).map(($itemVar, _idx) => h(Fragment, {'key': _idx}, $body))"
+      val body     = renderView(template, itemCtx, itemVar)
+      val listExpr = if fieldPath.isEmpty then bindingVar else s"$bindingVar.$fieldPath"
+      s"($listExpr || []).map(($itemVar, _idx) => h(Fragment, {'key': _idx}, $body))"
 
     case View.ModelText(varName, fieldPath, _) =>
       s"String(${varName}.${fieldPath})"
 
     case View.Adaptive(web, _, _, fallback) =>
-      renderView(web.getOrElse(fallback), itemCtx)
+      renderView(web.getOrElse(fallback), itemCtx, modelItemVar)
 
   /** Props object — combines attributes + event handlers into the
    *  single second argument of `React.createElement`.  When
@@ -730,10 +715,11 @@ private[react] object ReactEmitter:
    *  ForSignal.itemTemplate and gets a synthetic `key: String(item)`
    *  injected (React requires keys on map'd children). */
   private def renderProps(
-      attrs:     Map[String, AttrValue],
-      events:    Map[String, EventHandler],
-      itemCtx:   Option[ReactiveSignalList[?]],
-      injectKey: Boolean = false
+      attrs:        Map[String, AttrValue],
+      events:       Map[String, EventHandler],
+      itemCtx:      Option[ReactiveSignalList[?]],
+      injectKey:    Boolean = false,
+      modelItemVar: String = ""
   ): String =
     val attrFields = attrs.flatMap { (k, v) =>
       v match
@@ -753,7 +739,7 @@ private[react] object ReactEmitter:
           }
     }
     val eventFields = events.flatMap { (eventName, handler) =>
-      eventHandlerJs(eventName, handler, itemCtx)
+      eventHandlerJs(eventName, handler, itemCtx, modelItemVar)
     }
     val keyField = if injectKey then List("'key': String(item)") else Nil
     // If `value` is set but no onChange was emitted (input handler is an
@@ -789,12 +775,14 @@ private[react] object ReactEmitter:
    *  pair as a single JS field source, or `None` for unsupported
    *  handlers (the marker is emitted as a separate `/* */` comment
    *  in the props object).  `itemCtx` is set when this handler is
-   *  rendered inside a `ForSignal.itemTemplate` — used by
-   *  `RemoveSelfFromList` to reference the iteration `index`. */
+   *  rendered inside a `ForSignal.itemTemplate`; `modelItemVar` names
+   *  the iteration variable of the enclosing ForModel (needed by
+   *  DeleteItem to emit `$itemVar.$idField` in the delete body). */
   private def eventHandlerJs(
-      eventName: String,
-      handler:   EventHandler,
-      itemCtx:   Option[ReactiveSignalList[?]]
+      eventName:    String,
+      handler:      EventHandler,
+      itemCtx:      Option[ReactiveSignalList[?]],
+      modelItemVar: String
   ): Option[String] =
     val onKey = onProp(eventName)
     handler match
@@ -839,6 +827,13 @@ private[react] object ReactEmitter:
         val clearJs   = if clearBody then s"; $setBody('')" else ""
         val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
         Some(s"${jsString(onKey)}: () => fetch($urlJs, {method: $methodJs, body: $getBody$headersJs}).then(r => r.text()).then(_ => { $setTick(t => t + 1)$clearJs })")
+      case EventHandler.DeleteItem(idField, deleteUrl, tick, hOpt) if modelItemVar.nonEmpty =>
+        val setter    = setterName(tick.id)
+        val delUrlJs  = jsString(deleteUrl)
+        val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
+        Some(s"${jsString(onKey)}: () => fetch($delUrlJs, {method: 'POST', body: String($modelItemVar.$idField)$headersJs}).then(r => r.text()).then(_ => $setter(t => t + 1))")
+      case EventHandler.DeleteItem(_, _, _, _) =>
+        Some(s"/* '$eventName' is DeleteItem outside ForModel context — no-op */")
       case EventHandler.Simple(_) | EventHandler.WithEvent(_) =>
         // JVM closure — emit a comment-prop that doesn't bind anything.
         // The presence of the marker tells dev "you wrote Simple/WithEvent

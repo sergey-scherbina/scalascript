@@ -520,6 +520,12 @@ object EventHandler:
   final case class FetchAction(method: String, url: String, body: ReactiveSignal[String],
                                onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false,
                                headers: Option[ReactiveSignal[String]] = None)                extends EventHandler
+  /** Delete a list row by its `idField` value.  Used inside `ForModel` iteration —
+   *  the row object is the current iteration item and `idField` names its id key.
+   *  POSTs `item[idField]` to `deleteUrl`; increments `onSuccessTick` on success. */
+  final case class DeleteItem(idField: String, deleteUrl: String,
+                              onSuccessTick: ReactiveSignal[Int],
+                              headers: Option[ReactiveSignal[String]] = None) extends EventHandler
 
 // ── Codec hint (v1.66) ───────────────────────────────────────────────────────
 
