@@ -6665,50 +6665,61 @@ Effort: ~3 days (notarize flow + DMG + fastlane Mac lanes + toolchain setup-sign
 
 ---
 
-## v1.65 — `ssc emit --frontend swiftui` pathway
+## v1.65 — `ssc emit --frontend swiftui` pathway ✓ Landed 2026-06-02
+
+**Status:** Done.
+**Spec:** [`docs/swiftui.md §8`](docs/swiftui.md#8-v165--ssc-emit---frontend-swiftui-pathway)
+
+- [x] **v1.65.1-swiftui-spi-reg** — `META-INF/services` SPI registration;
+  `SwiftUIEmitPathwayTest` (8 tests); suite 57 green. ✓ 2026-06-02
+- [x] **v1.65.2-swiftui-fetch-emit** — `FetchAction` → `Task { @MainActor URLSession }`;
+  `FetchUrlSignal` → `.task`/`.onChange` async load; 5 new tests; suite 62 green. ✓ 2026-06-02
+- [x] **v1.65.3-swiftui-dashboard-smoke** — `swiftc -parse` gate;
+  `SwiftUIDashboardSmokeTest` (13 tests); suite 75 green. ✓ 2026-06-02
+
+---
+
+## v1.66 — SwiftUI typed JSON models (`@model` + `FetchJsonSignal`)
 
 **Status:** Pending.
-**Spec:** [`docs/swiftui.md §8`](docs/swiftui.md#8-v165--ssc-emit---frontend-swiftui-pathway)
-**Depends on:** v1.48 ✓ (`SwiftUIFrameworkBackend` + `SwiftUIEmitter` exist)
+**Spec:** [`docs/swiftui-typed-models.md`](docs/swiftui-typed-models.md)
+**Depends on:** v1.65 ✓
 
-Closes the gap between the existing `ssc run --target ios/macos` path (which
-works) and the `ssc emit --frontend swiftui` path (which currently fails with
-"No FrontendFrameworkSpi impl named 'swiftui' on classpath").
+`FetchUrlSignal` stores raw JSON as `String`.  For structured accounting data
+(nested sections, line arrays, money formatting) this is not renderable.  The
+`busi` accounting app (Phase 20) had to hand-write all SwiftUI views in Swift.
 
-The `busi` accounting app (Phase 20) had to be written in hand-crafted Swift
-because this path was unavailable.
-
-### Root cause
-
-`frontend/swiftui/` has no `META-INF/services/scalascript.frontend.FrontendFrameworkSpi`
-file.  `ServiceLoader` never discovers `SwiftUIFrameworkBackend` even though the
-class is on the CLI classpath.  Secondary: `SwiftUIFrameworkBackend.emit()` throws
-instead of routing to `emitNative`, so the CLI emit command fails even if the
-backend were discovered.
+This milestone adds `@model case class` → `Decodable` structs, a
+`FetchJsonSignal[T]` that decodes into `T?` via `JSONDecoder`, and three new
+View IR nodes (`ModelView` / `ForModel` / `ModelText`) for typed template
+rendering — all without changing the interpreter or any non-SwiftUI backend.
 
 ### Phases
 
-- [ ] **v1.65.1-swiftui-spi-reg** — Add `META-INF/services` registration for
-  `SwiftUIFrameworkBackend`; fix `emit()` to route through `emitNative` (or fix
-  CLI to detect native-platform backends and call `emitNative` directly);
-  `SwiftUIEmitPathwayTest` asserts `ssc emit --frontend swiftui ios-hello.ssc`
-  produces `ContentView.swift` + `Package.swift` + `<App>App.swift`.
-  _Effort: ~1 day._
+- [ ] **v1.66.1-swiftui-model-structs** — Parse `@model case class` into
+  `Module.models: List[ModelDef]`; emit `struct X: Decodable` (+ `Identifiable`
+  when `id`/`code`/`seq`/`docId` field present); add `FetchJsonSignal[T]` that
+  emits `@State var name: T? = nil` + `JSONDecoder` load func + companion
+  `_loading`/`_loaded`/`_error` vars; `balance.isLoaded` / `balance.isLoading`
+  `ShowSignal` guards.  **10 unit tests** in `SwiftUIEmitterTest`.
+  _Effort: ~2 days._
 
-- [ ] **v1.65.2-swiftui-fetch-emit** — Replace `FetchAction` stub comment in
-  `SwiftUIEmitter` with real `Task { @MainActor in URLSession … }` emit;
-  implement `FetchUrlSignal` → `onAppear`/`onChange` async load pattern with
-  `@State` companion vars.  ≥ 4 new tests in `SwiftUIEmitterTest`.
-  _Effort: ~1–2 days._
+- [ ] **v1.66.2-swiftui-model-view-nodes** — Add `View.ModelView` /
+  `View.ForModel` / `View.ModelText` to `Primitives.scala`; emit
+  `if let binding = signal { ... }`, `ForEach(binding.path) { item in ... }`,
+  `Text(var.path)` respectively; `inferIdentifiableKey` from model registry;
+  style modifier support on `ModelText`.  **12 unit tests** in
+  `SwiftUIEmitterTest`.  _Effort: ~2 days._
 
-- [ ] **v1.65.3-swiftui-dashboard-smoke** — `ssc emit --frontend swiftui
-  web/dashboard.ssc` produces Swift Package that passes `swiftc -parse
-  Sources/*/ContentView.swift` (skipped when `swift` not on PATH).
-  Unsupported View IR nodes emit `// TODO: unsupported — <NodeType>` comments
-  rather than crashing.  _Effort: ~1 day._
+- [ ] **v1.66.3-swiftui-busi-dashboard** — Add
+  `examples/frontend/busi-dashboard/busi-dashboard.ssc` with BalanceSheet +
+  TrialBalance + AuditLog models, three-tab layout, all new nodes;
+  `ssc build --target mobile-ios` exits 0; `SwiftUIModelSmokeTest`
+  (`swiftc -parse` gate, 8 tests).  _Effort: ~1 day._
 
 ### Out of scope
 
-- HMR / SwiftUI Preview pipeline (deferred post-v1.0)
-- watchOS / tvOS / visionOS targets
-- Kotlin/Compose parity (separate milestone)
+- JS/React/Vue/Solid typed model support (orthogonal; can follow)
+- Compile-time path validation against model schema
+- Lambda-template syntax `ModelView(s) { bs => ... }` (deferred; needs proxy
+  evaluation in interpreter — see §10.A of spec)

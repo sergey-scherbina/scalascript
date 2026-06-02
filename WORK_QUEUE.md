@@ -19,6 +19,27 @@ bearer-token API. Resume via the standard claim/worktree flow.
 - [x] **ui-fetch-auth-v2** — ✓ Landed 2026-06-01. `fetchUrlSignal` now performs
   real GET on mount + tick; `_fetchGet` metadata on Signal drives `data-ssc-fetch-get-*`
   attrs; `fetchTableView` also takes `headers`. All emitters updated.
+- [ ] **v1.66.1-swiftui-model-structs** — Parse `@model case class` into
+  `Module.models`; emit `struct X: Decodable` (+ `Identifiable` when
+  `id`/`code`/`seq`/`docId` field present); `FetchJsonSignal[T]` →
+  `@State var name: T? = nil` + `JSONDecoder` load func + `_loading`/`_loaded`/
+  `_error` companions; `signal.isLoaded` / `signal.isLoading` `ShowSignal` guards.
+  10 unit tests in `SwiftUIEmitterTest`.
+  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 1`](docs/swiftui-typed-models.md)
+
+- [ ] **v1.66.2-swiftui-model-view-nodes** — Add `View.ModelView` /
+  `View.ForModel` / `View.ModelText` to `Primitives.scala`; emit
+  `if let binding = signal { ... }`, `ForEach(binding.path, ...) { item in ... }`,
+  `Text(var.path)` from the SwiftUI emitter; style modifiers on `ModelText`.
+  12 unit tests in `SwiftUIEmitterTest`.
+  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 2`](docs/swiftui-typed-models.md)
+
+- [ ] **v1.66.3-swiftui-busi-dashboard** — `examples/frontend/busi-dashboard/
+  busi-dashboard.ssc` with BalanceSheet + TrialBalance + AuditLog models,
+  three-tab layout; `ssc build --target mobile-ios` exits 0;
+  `SwiftUIModelSmokeTest` (`swiftc -parse` gate, 8 tests).
+  **Spec:** [`docs/swiftui-typed-models.md §9 Phase 3`](docs/swiftui-typed-models.md)
+
 - [x] **interp-getOrElse-fn-default** — Bug: `m.getOrElse(k, en(k))` returns
   `en(k)` instead of the map value. Root cause: `TcoRuntime.tcoTrampoline`
   replaces mutual-tail-call targets (like `en`, found in tail pos at `case None
