@@ -77,7 +77,7 @@ method name).
 | `pureCallSum2` | 2-param parallel: `g(x, y) = x + y` — exercises `LApply2` raw-Long inlining. |
 | `tupleMonoid` | `(1, 2) ++ (3, 4)` in a loop — tuple-concat intrinsic. |
 | `effectPure` | `runLogger { compute(10000) }` — algebraic-effects baseline. |
-| `instanceFieldAccess` | Inline `(p match { case Pair(a, b) => a + b })` — the InstanceV HashMap field-read floor. Floor for the InstanceV array-repr work. |
+| `instanceFieldAccess` | Inline `while: total += p match { case Pair(a,b) => a+b }`. Post-LMatch (2026-06-02): whole loop in Long-slot array, ~16.6 ms/op (1M iters, 162× vs baseline 2690 ms). Remaining cost: HashMap reads inside `CompiledMatch.runValueLong`. |
 | `mapForeach` | `Map(...).foreach((k, v) => …)` — 2-arg callEntry path; not yet FastTier-covered. |
 
 ## Off-mode A/B (proving fall-backs work)
