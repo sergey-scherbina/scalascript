@@ -1153,5 +1153,82 @@ ScalaScript's own registry work stays queued.
 
 ---
 
+## Conformance fixes — cross-backend gaps (2026-06-02)
+
+Root cause analysis: 10 conformance tests fail on all backends due to 4 distinct
+bugs. Spec in BACKLOG.md §"Conformance Fixes".  Each item below is one focused
+commit. Do them in order — triple-quote fix unblocks the std-ui-extended tests
+which are the most numerous.
+
+- [ ] **conf-fix-triple-quote-macro** — Fix `preprocessQuotedMacros` in
+  `lang/core/src/main/scala/scalascript/parser/Parser.scala`.
+  **Root cause**: `skipString` (around line 1476) only handles `"…"` single-quoted
+  strings.  When `html"""<div class="${cls}">"""` is processed, it exits after
+  the first `""` (empty string boundary), the third `"` starts a new string ending
+  at the `"` in `class="`, then `${cls}` is treated as a top-level macro
+  entrypoint → `__ssc_macro_error__(…)` → `Undefined: impl` at runtime.
+  **Fix** (single file, ~15 lines):
+  1. In `skipString`, before the standard single-quote handler, check if `in(i) == '"'
+     && i + 2 < n && in(i+1) == '"' && in(i+2) == '"'` → scan forward for the
+     matching `"""` closer, skipping all content including `${…}` inside.
+  2. The triple-quote section must NOT feed any `${ }` slices to `rewriteQuotedArgs`.
+  **Verify**: `bin/ssc run tests/conformance/std-ui-extended.ssc` should pass (no
+  `impl` error); also run `std-ui-aggregator`, `std-ui-extended-b/c/d`.  Full
+  conformance suite should show 5 fewer failures.
+  **Tests**: 5 std-ui-extended* conformance tests + any `html"""…"""` unit tests.
+
+- [ ] **conf-fix-mcp-types-import** — Fix `std/mcp/types.ssc` import so
+  `[Tool, Content, …](std/mcp/types.ssc)` binds the names locally.
+  **Root cause**: `types.ssc` has `package: std.mcp` in its frontmatter.  When the
+  interpreter (or other backends) resolves an explicit import list, package-namespaced
+  exports are stored as `std.mcp.Tool` in the module's export table but the
+  import-list binding looks for bare `Tool`.  The symbol lookup fails silently.
+  **Investigation steps**:
+  1. Add a `println(sectionEnv.keys.mkString(","))` at the import resolution site in
+     `SectionRuntime.runImport` to confirm which keys are actually bound.
+  2. If keys are `std.mcp.Tool` etc., the fix is to also expose them under their
+     short (last-segment) names when an explicit import list is provided.
+  **Files**: `runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala`
+  (or wherever `runImport` resolves explicit import lists).
+  **Verify**: `bin/ssc run tests/conformance/mcp-types.ssc` should produce
+  correct output; JS and JVM emit should also work.
+
+- [ ] **conf-fix-parsing-stdlib** — Fix `std/parsing/core.ssc` import so `Parser`,
+  `PChar`, `PString`, etc. are accessible after import.
+  **Root cause**: Two hypotheses — (a) same package-namespace issue as mcp-types
+  (`package: std.parsing` prefixes all exports as `std.parsing.Parser`), or (b)
+  name collision with the JVM-class `scalascript.parser.Parser` visible in the
+  interpreter's classloader leaks into the interpreter symbol table.
+  **Investigation steps**:
+  1. Check `runtime/std/parsing/core.ssc` frontmatter — does it have `package: std.parsing`?
+     If yes, same fix as mcp-types (expose short names on explicit import list).
+  2. If no package prefix: add debug println in `runImport` to see what names are bound.
+  3. If name collision: the interpreter needs to shadow the JVM class with the
+     `.ssc` definition; check lookup order in `EvalRuntime.evalCore`.
+  **Files**: same `SectionRuntime.runImport` + possibly `EvalRuntime.scala`.
+  **Verify**: `bin/ssc run tests/conformance/parsing-error-node.ssc` produces correct
+  output on INT; also check JS emit (`bin/ssc emit-js …`) and JVM (`bin/ssc run-jvm …`).
+  **Tests**: 3 parsing-* conformance tests.
+
+- [ ] **conf-fix-http-client-js-jvm** — Implement `httpGet`/`httpPost`/`httpClient`
+  on JS and JVM backends, and gate the test on `requires: HttpClient` to skip in
+  network-restricted CI.
+  **Root cause**: Only the interpreter has these intrinsics; JS/JVM codegens have
+  no runtime support.
+  **Changes**:
+  1. Add `requires: HttpClient` to `tests/conformance/http-client.ssc` frontmatter.
+  2. Add `"HttpClient"` to the `backendFeatures` map in `tests/conformance/run.sc`
+     for `int`, `js`, `jvm` (or omit from `js`/`jvm` if not implementing there yet).
+  3. **JS backend** (`JsGen.scala`): emit a `_httpGet(url, headers)` helper in the
+     JS runtime preamble using Node.js `https`/`http` modules (sync via
+     `spawnSync` or async with await). Expose as `httpGet`, `httpPost`, `httpClient`.
+  4. **JVM backend** (`JvmGen.scala`): emit `def httpGet(url: String, headers: Map[String, String] = Map.empty)` using `java.net.http.HttpClient` in the JVM preamble (same
+     as the interpreter's `BuiltinsRuntime` implementation).
+  **Note**: The CI network-access constraint means these tests should use
+  `--network` in the GitHub Actions job or be marked as skip-if-no-network.
+  **Tests**: `http-client` conformance test on all 3 backends (with network).
+
+---
+
 > Finish a task: remove `.work/active/<slug>.claim`, mark `[x]` here — same push.
 > See `AGENTS.md §"Task claiming protocol"`.

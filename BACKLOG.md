@@ -4,6 +4,58 @@ Open and planned milestones — what still needs to be done.
 Active in-progress work is in [ACTIVE.md](ACTIVE.md).
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## Conformance Fixes — cross-backend gaps (2026-06-02)
+
+Four categories of conformance test failures that affect all backends or specific
+non-interpreter backends.  Root-cause analysis 2026-06-02; see WORK_QUEUE.md for
+implementation notes.
+
+- [ ] **conf-fix-triple-quote-macro** — Fix `preprocessQuotedMacros` in
+      `lang/core/.../Parser.scala` so `skipString` handles triple-quoted strings
+      (`"""..."""`).  Current bug: `skipString` exits the string on the first `""`
+      (empty string), then the third `"` starts a new pseudo-string that terminates
+      inside the HTML attribute — e.g. `class="…"`.  This causes every `${expr}`
+      inside `html"""…"""` to be treated as a restricted quoted-macro entrypoint,
+      generating `__ssc_macro_error__(…)` / `Undefined: impl` at runtime.
+      **Affected tests** (all backends): `std-ui-aggregator`, `std-ui-extended`,
+      `std-ui-extended-b`, `std-ui-extended-c`, `std-ui-extended-d`.
+      **Fix**: detect `"""` opener; skip until matching `"""` closer; do not
+      process `${…}` inside triple-quoted strings as macro entrypoints.
+      Spec: `docs/triple-quote-macro-fix.md` (to be created).
+
+- [ ] **conf-fix-parsing-stdlib** — Fix `std/parsing/core.ssc` import so that
+      `Parser`, `PChar`, `PString`, `PRegex`, `PSatisfy`, `PSucceed`, `PFail` and
+      the combinators/recovery exports are resolvable after
+      `[Parser, …](std/parsing/core.ssc)`.  Current bug: the import completes
+      silently but the exported names are not in the caller's scope (silent `Parser
+      is not defined` failure or name collision with the internal `scalascript.parser.Parser`
+      class visible in the interpreter).  **Affected tests** (all backends):
+      `parsing-error-node`, `parsing-parse-all`, `parsing-recover-until`.
+      The parsing stdlib files exist (775 lines; `core.ssc` + `combinators.ssc` +
+      `recovery.ssc`); the bug is in the import/namespace layer, not the stdlib itself.
+      Spec: `docs/parsing-stdlib-import-fix.md` (to be created).
+
+- [ ] **conf-fix-mcp-types-import** — Fix `std/mcp/types.ssc` import so that
+      `Tool`, `Resource`, `Prompt`, `Content`, `Message`, `Role`, `Transport`,
+      `McpError`, `ToolResult`, `ResourceResult`, `PromptResult` and the `require*`
+      helpers are accessible after `[Tool, …](std/mcp/types.ssc)`.  Current bug:
+      names are not in the caller's local scope even though the file emits them
+      under `std.mcp.*`.  Likely cause: package-namespaced import (file has
+      `package: std.mcp`) combined with explicit import-list binding does not
+      expose the symbols locally on the interpreter or other backends.
+      **Affected tests** (all backends): `mcp-types`.
+      Spec: `docs/mcp-types-import-fix.md` (to be created).
+
+- [ ] **conf-fix-http-client-js-jvm** — Implement `httpGet`, `httpPost`, and
+      `httpClient` on the JS and JVM backends.  The interpreter already supports
+      them (uses `java.net.http.HttpClient`); JS backend emits `httpGet(…)` as a
+      raw reference with no runtime support; JVM backend generates Scala 3 with
+      no `httpGet` binding.  The conformance test also requires outbound network
+      access to `httpbin.org` and should be gated with a `requires: HttpClient`
+      frontmatter key so CI can skip it in network-restricted environments.
+      **Affected tests** (JS + JVM): `http-client`.
+      Spec: `docs/http-client-cross-backend.md` (to be created).
+
 ## Tooling
 
 - [x] **cli-bundle-frontend** - Bundle frontendPlugin + fetchPlugin in the CLI
