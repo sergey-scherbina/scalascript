@@ -3011,9 +3011,12 @@ final class CompileJvmCmd extends CliCommand:
       System.err.println("Usage: ssc compile-jvm <file.ssc> [-o <file.scjvm>] [--iface-dir <dir>] [--artifact-dir <dir>] [--no-auto-deps] [--bytecode]")
       System.exit(1)
 
-    // `--bytecode` is opt-in.  When requested, scala-cli must be on PATH —
-    // fail loudly rather than silently downgrade to source-only.
-    if bytecode && !JvmBytecode.scalaCliAvailable then
+    // `--bytecode` is opt-in.  When the external scala-cli path is forced via
+    // SSC_EXTERNAL_SCALA_CLI=1, scala-cli must be on PATH — fail loudly rather
+    // than silently downgrade to source-only.  The default in-process Scala 3
+    // driver does NOT require scala-cli, so we only gate when external mode is
+    // explicitly requested.
+    if bytecode && JvmBytecode.useExternalScalaCli && !JvmBytecode.scalaCliAvailable then
       System.err.println(s"compile-jvm: ${JvmBytecode.scalaCliMissingMessage}")
       System.exit(1)
 

@@ -2,6 +2,7 @@
 ---
 name: actors-cluster-self-health
 description: Actor v1.23 — selfNode() + clusterHealth() single-node snapshot
+backends: [int, jvm]
 ---
 
 # selfNode + clusterHealth — single-node

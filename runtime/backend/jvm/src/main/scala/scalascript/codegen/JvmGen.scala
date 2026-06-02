@@ -343,7 +343,9 @@ class JvmGen(
     // that do not otherwise use explicit effects.
     sb.append(effectsRuntime)
     if mutualGroups.nonEmpty                               then sb.append(JvmRuntimeMutualTco.source)
-    if blocksUseReactive(blocks)                           then sb.append(reactiveRuntime)
+    // SwiftUI builds get a dedicated reactive preamble (ReactiveSignal-based)
+    // in uiHelperFunctions instead of the JVM-only Signal runtime.
+    if blocksUseReactive(blocks) && !effectiveFrontend.contains("swiftui") then sb.append(reactiveRuntime)
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
@@ -432,6 +434,15 @@ class JvmGen(
       .flatMap(_.raw.get("main"))
       .collect { case s: String => s }
     mainEntry.foreach { name => sb.append(s"$name()\n") }
+    // SwiftUI builds: auto-add serve(view(), 0) when def view() exists and
+    // no explicit main: is set (serve reads ssc.build.outdir/-platform JVM props).
+    if effectiveFrontend.contains("swiftui") && mainEntry.isEmpty then
+      val hasViewDef = blocks.exists { b =>
+        ScalaNode.fold(b.node) { tree =>
+          tree.collect { case d: Defn.Def if d.name.value == "view" => () }.nonEmpty
+        }
+      }
+      if hasViewDef then sb.append("serve(view(), 0)\n")
 
     val fixedHead = sb.substring(0, preambleLen)
     val userSrc   = sb.substring(preambleLen)
@@ -2785,6 +2796,24 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case d: Defn.Class if
         d.collect { case dd: Defn.Def if globalEffectfulDeps(dd.name.value) => () }.nonEmpty =>
       emitClassWithRewrittenBody(d)
+
+    // Strip @model annotation — synthetic marker added by `model case class Foo(...)`.
+    // Not valid Scala, so must be removed before emitting via scalameta's printer.
+    case d: Defn.Class if d.mods.exists {
+      case Mod.Annot(init) => init.tpe match
+        case Type.Name(n)          => n == "model"
+        case Type.Select(_, Type.Name(n)) => n == "model"
+        case _ => false
+      case _ => false
+    } =>
+      val stripped = d.mods.filterNot {
+        case Mod.Annot(init) => init.tpe match
+          case Type.Name(n)          => n == "model"
+          case Type.Select(_, Type.Name(n)) => n == "model"
+          case _ => false
+        case _ => false
+      }
+      d.copy(mods = stripped).syntax
 
     case t: Term => emitExpr(t)
 
@@ -8736,73 +8765,308 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
        |    scala.concurrent.duration.Duration.Inf
        |  )
        |
-       |def _ssc_ui_inprocess_fetch(methodRaw: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
-       |  val response = _ssc_ui_backend_request(methodRaw, url, body)
-       |  scalascript.frontend.swing.SwingRuntime.FetchResponse(
-       |    response.status,
-       |    String(response.body, java.nio.charset.StandardCharsets.UTF_8),
-       |    response.headers
-       |  )
-       |
-       |def _ssc_ui_inprocess_fetch_javafx(methodRaw: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
-       |  val response = _ssc_ui_backend_request(methodRaw, url, body)
-       |  scalascript.frontend.javafx.JavaFxRuntime.FetchResponse(
-       |    response.status,
-       |    String(response.body, java.nio.charset.StandardCharsets.UTF_8),
-       |    response.headers
-       |  )
-       |
-       |def _ssc_ui_run_native(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
-       |  val _mod = _ssc_ui_buildModule(view, extraCss)
-       |  println("ssc: launching Swing")
-       |  println("     mode:   same-process JVM")
-       |  scalascript.frontend.swing.SwingRuntime.run(
-       |    _mod,
-       |    scalascript.frontend.swing.SwingRuntime.Options(
-       |      fetchDispatcher = Some(new scalascript.frontend.swing.SwingRuntime.FetchDispatcher:
-       |        def request(method: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
-       |          _ssc_ui_inprocess_fetch(method, url, body)
-       |      )${appIcon.map(p => s""",\n      iconPath = Some("${escapeStringLit(p)}")""").getOrElse("")}
-       |    )
-       |  )
-       |
-       |def _ssc_ui_run_native_javafx(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
-       |  val _mod = _ssc_ui_buildModule(view, extraCss)
-       |  println("ssc: launching JavaFX")
-       |  println("     mode:   same-process JVM")
-       |  scalascript.frontend.javafx.JavaFxRuntime.run(
-       |    _mod,
-       |    scalascript.frontend.javafx.JavaFxRuntime.Options(
-       |      fetchDispatcher = Some(new scalascript.frontend.javafx.JavaFxRuntime.FetchDispatcher:
-       |        def request(method: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
-       |          _ssc_ui_inprocess_fetch_javafx(method, url, body)
-       |      )
-       |    )
-       |  )
-       |
-       |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
-       |  if _ssc_frontend_name == "swing" then
-       |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
-       |  else if _ssc_frontend_name == "javafx" then
-       |    _ssc_ui_run_native_javafx(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
-       |  else if _ssc_frontend_name == "swiftui" then
-       |    val _outDir = Option(System.getProperty("ssc.build.outdir"))
-       |      .getOrElse { System.err.println("swiftui: ssc.build.outdir system property not set"); System.exit(1); "" }
-       |    val _platformStr = Option(System.getProperty("ssc.build.platform")).getOrElse("ios")
-       |    val _platform: scalascript.frontend.Platform = _platformStr match
-       |      case "macos" => scalascript.frontend.Platform.Desktop(scalascript.frontend.DesktopOs.MacOS)
-       |      case _       => scalascript.frontend.Platform.Mobile(scalascript.frontend.MobileOs.iOS)
-       |    _ssc_ui_emit_native_platform_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], _outDir, _platform)
-       |  else
-       |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
-       |    _ssc_static_root = _outDir
-       |    serve(port)
-       |
-       |// ── Overloads to shadow preamble names that conflict with UI widget imports ──
-       |// serve(view, port[, extraCss]): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
-       |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
-       |def serve(tree: Any, port: Int, extraCss: String): Unit = _ssc_ui_serve(tree, port, extraCss)
-       |// text(String): beats extension (r: Response.type) def text(body: Any)
-       |def text(content: String) = std.ui.typography.text(content)
-       |
-       |""".stripMargin
+       |""".stripMargin +
+    (if frontendName != "swiftui" then
+      s"""|def _ssc_ui_inprocess_fetch(methodRaw: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
+         |  val response = _ssc_ui_backend_request(methodRaw, url, body)
+         |  scalascript.frontend.swing.SwingRuntime.FetchResponse(
+         |    response.status,
+         |    String(response.body, java.nio.charset.StandardCharsets.UTF_8),
+         |    response.headers
+         |  )
+         |
+         |def _ssc_ui_inprocess_fetch_javafx(methodRaw: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
+         |  val response = _ssc_ui_backend_request(methodRaw, url, body)
+         |  scalascript.frontend.javafx.JavaFxRuntime.FetchResponse(
+         |    response.status,
+         |    String(response.body, java.nio.charset.StandardCharsets.UTF_8),
+         |    response.headers
+         |  )
+         |
+         |def _ssc_ui_run_native(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
+         |  val _mod = _ssc_ui_buildModule(view, extraCss)
+         |  println("ssc: launching Swing")
+         |  println("     mode:   same-process JVM")
+         |  scalascript.frontend.swing.SwingRuntime.run(
+         |    _mod,
+         |    scalascript.frontend.swing.SwingRuntime.Options(
+         |      fetchDispatcher = Some(new scalascript.frontend.swing.SwingRuntime.FetchDispatcher:
+         |        def request(method: String, url: String, body: String): scalascript.frontend.swing.SwingRuntime.FetchResponse =
+         |          _ssc_ui_inprocess_fetch(method, url, body)
+         |      )${appIcon.map(p => s""",\n      iconPath = Some("${escapeStringLit(p)}")""").getOrElse("")}
+         |    )
+         |  )
+         |
+         |def _ssc_ui_run_native_javafx(view: scalascript.frontend.View[?], extraCss: String = ""): Unit =
+         |  val _mod = _ssc_ui_buildModule(view, extraCss)
+         |  println("ssc: launching JavaFX")
+         |  println("     mode:   same-process JVM")
+         |  scalascript.frontend.javafx.JavaFxRuntime.run(
+         |    _mod,
+         |    scalascript.frontend.javafx.JavaFxRuntime.Options(
+         |      fetchDispatcher = Some(new scalascript.frontend.javafx.JavaFxRuntime.FetchDispatcher:
+         |        def request(method: String, url: String, body: String): scalascript.frontend.javafx.JavaFxRuntime.FetchResponse =
+         |          _ssc_ui_inprocess_fetch_javafx(method, url, body)
+         |      )
+         |    )
+         |  )
+         |
+         |def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
+         |  if _ssc_frontend_name == "swing" then
+         |    _ssc_ui_run_native(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
+         |  else if _ssc_frontend_name == "javafx" then
+         |    _ssc_ui_run_native_javafx(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
+         |  else
+         |    val _outDir = _ssc_ui_emit_to_tempdir(tree.asInstanceOf[scalascript.frontend.View[?]], extraCss)
+         |    _ssc_static_root = _outDir
+         |    serve(port)
+         |
+         |// ── Overloads to shadow preamble names that conflict with UI widget imports ──
+         |// serve(view, port[, extraCss]): beats preamble serve(Int) / serve(Int,String) / serve(Int,TlsConfig)
+         |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
+         |def serve(tree: Any, port: Int, extraCss: String): Unit = _ssc_ui_serve(tree, port, extraCss)
+         |// text(String): beats extension (r: Response.type) def text(body: Any)
+         |def text(content: String) = std.ui.typography.text(content)
+         |
+         |""".stripMargin
+    else
+      s"""|def _ssc_ui_serve(tree: Any, port: Int, extraCss: String = ""): Unit =
+         |  val _outDir = Option(System.getProperty("ssc.build.outdir"))
+         |    .getOrElse { System.err.println("swiftui: ssc.build.outdir system property not set"); System.exit(1); "" }
+         |  val _platformStr = Option(System.getProperty("ssc.build.platform")).getOrElse("ios")
+         |  val _platform: scalascript.frontend.Platform = _platformStr match
+         |    case "macos" => scalascript.frontend.Platform.Desktop(scalascript.frontend.DesktopOs.MacOS)
+         |    case _       => scalascript.frontend.Platform.Mobile(scalascript.frontend.MobileOs.iOS)
+         |  _ssc_ui_emit_native_platform_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], _outDir, _platform)
+         |
+         |def serve(tree: Any, port: Int): Unit = _ssc_ui_serve(tree, port)
+         |def serve(tree: Any, port: Int, extraCss: String): Unit = _ssc_ui_serve(tree, port, extraCss)
+         |
+         |// Bring View extension methods (foreground, background, fontWeight, etc.) into scope
+         |import scalascript.frontend.{foreground, background, fontWeight, fontSize, cornerRadius, opacity, padding}
+         |
+         |// ── SwiftUI reactive Signal (frontend.ReactiveSignal-backed) ──────────────
+         |private var _ssc_sig_seq: Long = 0L
+         |private def _ssc_fresh_id(): String = { _ssc_sig_seq += 1; s"_sig$${_ssc_sig_seq}" }
+         |
+         |type Signal[A] = scalascript.frontend.ReactiveSignal[A]
+         |object Signal:
+         |  def apply[A](initial: A): scalascript.frontend.ReactiveSignal[A] =
+         |    new scalascript.frontend.ReactiveSignal[A](_ssc_fresh_id(), initial)
+         |
+         |extension [A](s: scalascript.frontend.ReactiveSignal[A])
+         |  def +=(v: A)(using n: Numeric[A]): Unit = s.update(x => n.plus(x, v))
+         |  def -=(v: A)(using n: Numeric[A]): Unit = s.update(x => n.minus(x, v))
+         |
+         |extension (s: scalascript.frontend.ReactiveSignal[String])
+         |  def nonEmpty: scalascript.frontend.ReactiveSignal[Boolean] =
+         |    new scalascript.frontend.ReactiveSignal[Boolean](s.id + "__nonempty", s().nonEmpty)
+         |  def isEmpty: scalascript.frontend.ReactiveSignal[Boolean] =
+         |    new scalascript.frontend.ReactiveSignal[Boolean](s.id + "__empty", s().isEmpty)
+         |
+         |extension (s: scalascript.frontend.FetchUrlSignal)
+         |  def isLoading: scalascript.frontend.ReactiveSignal[Boolean] =
+         |    new scalascript.frontend.ReactiveSignal[Boolean](s.id + "_loading", false)
+         |  def isLoaded: scalascript.frontend.ReactiveSignal[Boolean] =
+         |    new scalascript.frontend.ReactiveSignal[Boolean](s.id + "_loaded", false)
+         |  def isError: scalascript.frontend.ReactiveSignal[Boolean] =
+         |    new scalascript.frontend.ReactiveSignal[Boolean](s.id + "_error", false)
+         |
+         |// ── FetchJsonSignal[T] typed helper ───────────────────────────────────────
+         |def FetchJsonSignal[T: scala.reflect.ClassTag](
+         |  id: String, url: String, tick: Any, headers: Any = null
+         |): scalascript.frontend.FetchJsonSignal =
+         |  val modelName = scala.reflect.classTag[T].runtimeClass.getSimpleName
+         |  val tickId    = tick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].id
+         |  val headersId = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[?]].id)
+         |  new scalascript.frontend.FetchJsonSignal(id, url, tickId, modelName, headersId)
+         |
+         |// ── Font / alignment constants ────────────────────────────────────────────
+         |val Bold     = scalascript.frontend.FontWeight.Bold
+         |val SemiBold = scalascript.frontend.FontWeight.SemiBold
+         |val Regular  = scalascript.frontend.FontWeight.Regular
+         |val Light    = scalascript.frontend.FontWeight.Light
+         |val Start    = scalascript.frontend.HAlign.Start
+         |val Center   = scalascript.frontend.HAlign.Center
+         |val End      = scalascript.frontend.HAlign.End
+         |val Top      = scalascript.frontend.VAlign.Top
+         |val Bottom   = scalascript.frontend.VAlign.Bottom
+         |val Stretch  = scalascript.frontend.HAlign.Stretch
+         |
+         |// ── Color companion helpers ───────────────────────────────────────────────
+         |extension (c: scalascript.frontend.Color.type)
+         |  def blue:      scalascript.frontend.Color = scalascript.frontend.Color.Named("blue")
+         |  def red:       scalascript.frontend.Color = scalascript.frontend.Color.Named("red")
+         |  def green:     scalascript.frontend.Color = scalascript.frontend.Color.Named("green")
+         |  def orange:    scalascript.frontend.Color = scalascript.frontend.Color.Named("orange")
+         |  def gray:      scalascript.frontend.Color = scalascript.frontend.Color.Named("gray")
+         |  def purple:    scalascript.frontend.Color = scalascript.frontend.Color.Named("purple")
+         |  def yellow:    scalascript.frontend.Color = scalascript.frontend.Color.Named("yellow")
+         |  def white:     scalascript.frontend.Color = scalascript.frontend.Color.Named("white")
+         |  def black:     scalascript.frontend.Color = scalascript.frontend.Color.Named("black")
+         |  def secondary: scalascript.frontend.Color = scalascript.frontend.Color.System("secondary")
+         |  def primary:   scalascript.frontend.Color = scalascript.frontend.Color.System("primary")
+         |  def accent:    scalascript.frontend.Color = scalascript.frontend.Color.System("accent")
+         |  def systemGray6: scalascript.frontend.Color = scalascript.frontend.Color.System("systemGray6")
+         |
+         |// ── View style / padding extensions (named-arg overloads) ─────────────────
+         |extension (v: scalascript.frontend.View[?])
+         |  def style(
+         |    foreground:  scalascript.frontend.Color    = null,
+         |    background:  scalascript.frontend.Color    = null,
+         |    fontWeight:  scalascript.frontend.FontWeight = null,
+         |    fontSize:    Double = -1,
+         |    borderRadius: Double = -1,
+         |    opacity:     Double = -1
+         |  ): scalascript.frontend.View[?] =
+         |    var r: scalascript.frontend.View[?] = v
+         |    if foreground  != null then r = r.foreground(foreground)
+         |    if background  != null then r = r.background(background)
+         |    if fontWeight  != null then r = r.fontWeight(fontWeight)
+         |    if fontSize    >= 0    then r = r.fontSize(fontSize)
+         |    if borderRadius >= 0   then r = r.cornerRadius(borderRadius)
+         |    if opacity     >= 0    then r = r.opacity(opacity)
+         |    r
+         |  def padding(
+         |    horizontal: Double = -1,
+         |    vertical:   Double = -1,
+         |    top:        Double = -1,
+         |    bottom:     Double = -1,
+         |    left:       Double = -1,
+         |    right:      Double = -1
+         |  ): scalascript.frontend.View[?] =
+         |    if horizontal >= 0 || vertical >= 0 || top >= 0 || bottom >= 0 || left >= 0 || right >= 0 then
+         |      val h = if horizontal >= 0 then horizontal else 0.0
+         |      val vc = if vertical   >= 0 then vertical  else 0.0
+         |      val t = if top    >= 0 then top    else vc
+         |      val b = if bottom >= 0 then bottom else vc
+         |      val l = if left   >= 0 then left   else h
+         |      val r = if right  >= 0 then right  else h
+         |      v.padding(scalascript.frontend.EdgeInsets(t, r, b, l))
+         |    else v
+         |  def tabItem(label: String, icon: String = "", tag: Int = 0): scalascript.frontend.View[?] =
+         |    _ssc_tab_items += ((v, label, if icon.isEmpty then None else Some(icon), tag))
+         |    v
+         |
+         |// ── Widget children stack (for multi-statement DSL blocks) ─────────────────
+         |private val _ssc_wstack = java.util.ArrayDeque[scala.collection.mutable.ArrayBuffer[scalascript.frontend.View[?]]]()
+         |private val _ssc_tab_items = scala.collection.mutable.ArrayBuffer.empty[(scalascript.frontend.View[?], String, Option[String], Int)]
+         |
+         |private def _ssc_pcollect(block: => Any): List[scalascript.frontend.View[?]] =
+         |  val buf = scala.collection.mutable.ArrayBuffer.empty[scalascript.frontend.View[?]]
+         |  _ssc_wstack.push(buf)
+         |  block
+         |  _ssc_wstack.pop()
+         |  buf.toList
+         |
+         |private def _ssc_push[V <: scalascript.frontend.View[?]](v: V): V =
+         |  val peek = _ssc_wstack.peek()
+         |  if peek != null then peek += v
+         |  v
+         |
+         |// ── Layout widgets ────────────────────────────────────────────────────────
+         |def Column(
+         |  spacing: Double = 0,
+         |  align: scalascript.frontend.HAlign = scalascript.frontend.HAlign.Start,
+         |  style: scalascript.frontend.Style = scalascript.frontend.Style()
+         |)(block: => Any): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Column(_ssc_pcollect(block), spacing, align, style))
+         |
+         |def Row(
+         |  spacing: Double = 0,
+         |  align: scalascript.frontend.VAlign = scalascript.frontend.VAlign.Center,
+         |  style: scalascript.frontend.Style = scalascript.frontend.Style()
+         |)(block: => Any): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Row(_ssc_pcollect(block), spacing, align, style))
+         |
+         |def ScrollView(
+         |  axis: scalascript.frontend.Axis = scalascript.frontend.Axis.Vertical,
+         |  style: scalascript.frontend.Style = scalascript.frontend.Style()
+         |)(block: => Any): scalascript.frontend.View[?] =
+         |  val ch = _ssc_pcollect(block)
+         |  val child = if ch.length == 1 then ch.head else scalascript.frontend.View.Fragment(ch)
+         |  _ssc_push(scalascript.frontend.View.ScrollView(child, axis, style))
+         |
+         |// ── Text ─────────────────────────────────────────────────────────────────
+         |def Text(content: => String, style: scalascript.frontend.Style = scalascript.frontend.Style()): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Text(() => content, style))
+         |
+         |// ── Spacer / Divider ──────────────────────────────────────────────────────
+         |def Spacer(size: Option[Double] = None): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Spacer(size))
+         |
+         |def Divider(axis: scalascript.frontend.Axis = scalascript.frontend.Axis.Horizontal, style: scalascript.frontend.Style = scalascript.frontend.Style()): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Divider(axis, style))
+         |
+         |// ── Interactive widgets ───────────────────────────────────────────────────
+         |def Button(label: String)(action: => Unit): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Button(
+         |    scalascript.frontend.View.Text(() => label, scalascript.frontend.Style()),
+         |    scalascript.frontend.EventHandler.Simple(() => action)
+         |  ))
+         |
+         |def TextInput(value: Any, placeholder: String = "", multiline: Boolean = false, secure: Boolean = false, style: scalascript.frontend.Style = scalascript.frontend.Style()): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.TextInput(
+         |    value.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+         |    placeholder, multiline, secure, style
+         |  ))
+         |
+         |def Toggle(checked: Any, label: String = "", style: scalascript.frontend.Style = scalascript.frontend.Style()): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.Toggle(
+         |    checked.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]],
+         |    label, style
+         |  ))
+         |
+         |// ── Show ─────────────────────────────────────────────────────────────────
+         |def Show(cond: Any)(block: => Any): scalascript.frontend.View[?] =
+         |  val ch = _ssc_pcollect(block)
+         |  val content = if ch.length == 1 then ch.head else scalascript.frontend.View.Fragment(ch)
+         |  cond match
+         |    case rs: scalascript.frontend.ReactiveSignal[?] =>
+         |      _ssc_push(scalascript.frontend.View.ShowSignal(
+         |        rs.asInstanceOf[scalascript.frontend.ReactiveSignal[Boolean]],
+         |        content
+         |      ))
+         |    case b: Boolean if b =>
+         |      _ssc_push(content)
+         |    case _ =>
+         |      _ssc_push(scalascript.frontend.View.Fragment(Nil))
+         |
+         |// ── Data-binding widgets ──────────────────────────────────────────────────
+         |def ModelView(signal: Any, bindingVar: String)(block: => Any): scalascript.frontend.View[?] =
+         |  val ch = _ssc_pcollect(block)
+         |  val template = if ch.length == 1 then ch.head else scalascript.frontend.View.Fragment(ch)
+         |  _ssc_push(scalascript.frontend.View.ModelView(
+         |    signal.asInstanceOf[scalascript.frontend.FetchUrlSignal],
+         |    bindingVar, template
+         |  ))
+         |
+         |def ForModel(bindingVar: String, fieldPath: String, itemVar: String)(block: => Any): scalascript.frontend.View[?] =
+         |  val ch = _ssc_pcollect(block)
+         |  val template = if ch.length == 1 then ch.head else scalascript.frontend.View.Fragment(ch)
+         |  _ssc_push(scalascript.frontend.View.ForModel(bindingVar, fieldPath, itemVar, template))
+         |
+         |def ModelText(varName: String, fieldPath: String, style: scalascript.frontend.Style = scalascript.frontend.Style()): scalascript.frontend.View[?] =
+         |  _ssc_push(scalascript.frontend.View.ModelText(varName, fieldPath, style))
+         |
+         |// ── TabView ───────────────────────────────────────────────────────────────
+         |def TabView(selection: Any)(block: => Any): scalascript.frontend.View[?] =
+         |  _ssc_tab_items.clear()
+         |  _ssc_pcollect(block)
+         |  val tabs = _ssc_tab_items.toList.sortBy(_._4).map { case (content, label, icon, _) =>
+         |    scalascript.frontend.Tab(label, icon, content)
+         |  }
+         |  _ssc_tab_items.clear()
+         |  _ssc_push(scalascript.frontend.View.TabBar(
+         |    tabs    = tabs,
+         |    current = selection.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]]
+         |  ))
+         |
+         |// ── NavigationStack (pass-through wrapper) ────────────────────────────────
+         |def NavigationStack(style: scalascript.frontend.Style = scalascript.frontend.Style())(block: => Any): scalascript.frontend.View[?] =
+         |  val ch = _ssc_pcollect(block)
+         |  val child = if ch.length == 1 then ch.head else scalascript.frontend.View.Fragment(ch)
+         |  _ssc_push(child)
+         |
+         |""".stripMargin
+    )

@@ -2,6 +2,7 @@
 ---
 name: actors-process-info
 description: v1.6.x processInfo — mailbox size, links, status introspection
+backends: [int, jvm]
 ---
 
 # processInfo

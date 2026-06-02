@@ -30,8 +30,8 @@ private[cli] def buildSwiftUIPackage(
   try
     val result = os.proc(
       "scala-cli", "run", tmp, "--server=false",
-      s"-J-Dssc.build.outdir=${outDir}",
-      s"-J-Dssc.build.platform=$platform"
+      "-J", s"-Dssc.build.outdir=${outDir}",
+      "-J", s"-Dssc.build.platform=$platform"
     ).call(stdout = os.Inherit, stderr = os.Inherit, cwd = os.pwd, check = false)
     if result.exitCode != 0 then System.exit(result.exitCode)
   finally

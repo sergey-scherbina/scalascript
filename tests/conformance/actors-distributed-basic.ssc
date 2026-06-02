@@ -2,6 +2,7 @@
 ---
 name: actors-distributed-basic
 description: Actor Phase 3 — distributed node registry (register / whereis)
+backends: [int, jvm]
 ---
 
 # Distributed Actors — Basic

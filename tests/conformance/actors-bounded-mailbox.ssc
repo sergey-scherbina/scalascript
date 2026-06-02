@@ -2,6 +2,7 @@
 ---
 name: actors-bounded-mailbox
 description: v1.6.x bounded mailboxes — DropOldest / DropNewest / Block overflow strategies
+backends: [jvm]
 ---
 
 # Bounded Mailbox

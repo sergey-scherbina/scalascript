@@ -321,7 +321,10 @@ object SwiftUIEmitter:
         emitView(if cond() then whenTrue() else whenFalse(), indent, ctx)
 
       case View.ShowSignal(cond, whenTrue, whenFalse) =>
-        emitView(if cond.apply() then whenTrue else whenFalse, indent, ctx)
+        val truePart  = emitView(whenTrue, indent + 4, ctx)
+        val falsePart = emitView(whenFalse, indent + 4, ctx)
+        val elseClause = if falsePart.trim.isEmpty then "" else s"\n${pad}} else {\n$falsePart"
+        s"${pad}if ${cond.id} {\n$truePart\n$pad}$elseClause"
 
       case View.For(items, render) =>
         items().map(item => emitView(render(item), indent, ctx)).mkString("\n")

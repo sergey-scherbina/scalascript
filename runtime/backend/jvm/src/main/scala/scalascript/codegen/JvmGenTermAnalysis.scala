@@ -19,7 +19,20 @@ private[codegen] trait JvmGenTermAnalysis:
     blockUsesIntrinsics(node)                 ||
     blockContainsExternDef(node)              ||
     blockContainsDirectBlock(node)            ||
-    blockContainsRegisteredInterpolator(node)
+    blockContainsRegisteredInterpolator(node) ||
+    blockContainsModelAnnotation(node)
+
+  private[codegen] def blockContainsModelAnnotation(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case d: Defn.Class => d.mods.exists {
+        case Mod.Annot(init) => init.tpe match
+          case Type.Name(n) => n == "model"
+          case Type.Select(_, Type.Name(n)) => n == "model"
+          case _ => false
+        case _ => false
+      }
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   // Interpolator prefixes that JvmGen handles natively via other code paths
   // (emitCpsExpr top case, emitExpr top case, or raw Scala emission).
