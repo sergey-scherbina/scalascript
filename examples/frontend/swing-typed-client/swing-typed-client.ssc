@@ -30,7 +30,7 @@ apiClients:
 JVM Swing frontend and JVM backend routes run in one process. The `Messages`
 client object is generated from front-matter and calls the backend route
 registry through the same Swing in-process dispatcher as `fetchAction` and
-`fetchTable`.
+`dataTable`.
 
 ## Shared Types
 
