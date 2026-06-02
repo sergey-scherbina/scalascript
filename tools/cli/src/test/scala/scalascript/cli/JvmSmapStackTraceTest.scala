@@ -53,7 +53,7 @@ class JvmSmapStackTraceTest extends AnyFunSuite:
     val jar = requireJar()
     val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
       args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, env = env, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    os.proc(cmd).call(cwd = cwd, env = env, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     runSsc(cwd, Map.empty, args*)
@@ -252,7 +252,7 @@ class JvmSmapStackTraceTest extends AnyFunSuite:
         case _                    => cancel("Scala stdlib not in Coursier cache")
 
       val runRes = os.proc("java", "-cp", s"$outJar:$stdlib", "a_sc").call(
-        check = false, stderr = os.Pipe, stdout = os.Pipe
+        stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe
       )
       // Process must crash (the script throws); we use the trace to
       // identify the line numbers the JVM blamed.

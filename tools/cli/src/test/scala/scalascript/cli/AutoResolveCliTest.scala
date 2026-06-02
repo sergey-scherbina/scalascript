@@ -49,6 +49,7 @@ class AutoResolveCliTest extends AnyFunSuite:
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(
       cwd    = cwd,
+      stdin  = "",
       check  = false,
       stderr = os.Pipe,
       stdout = os.Pipe
