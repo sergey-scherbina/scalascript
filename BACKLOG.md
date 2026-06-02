@@ -178,9 +178,11 @@ small and dependency-aware because multiple agents are working in parallel.
       `docs/architecture.md`, `docs/typed-models-ir.md`,
       `docs/frontend-abstract-model.md`, `docs/cli-command-spi.md`,
       `docs/arch-build-registry.md`.
-- [ ] **frontend-view-traversal-core** - Add a small `frontend/core` traversal
-      utility for `View[?]` trees and migrate one backend collector first. Keep
-      emitted output behavior-identical. Spec:
+- [x] **frontend-view-traversal-core** - ✓ Landed 2026-06-02. Added a small
+      `frontend/core` `ViewTraversal` utility for `View[?]` trees and migrated
+      React's fetch-signal collector first. Covered by core traversal tests and
+      a React typed JSON fetch nested in semantic `Column`. Remaining collectors
+      can migrate incrementally. Spec:
       `docs/frontend-abstract-model.md §Implementation maintenance notes`.
 - [ ] **typed-models-structural-types** - After v1.66 backend parity, tighten
       model path validation so `ModelText` / `ForModel` paths fail early against

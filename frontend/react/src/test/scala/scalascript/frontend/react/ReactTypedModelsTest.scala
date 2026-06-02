@@ -32,6 +32,16 @@ class ReactTypedModelsTest extends AnyFunSuite:
     assert(js.contains("fetch('/api/sheet').then(r => r.json()).then(t => setSheet(t));"))
   }
 
+  test("FetchJsonSignal: collected inside semantic containers") {
+    val sig = new FetchJsonSignal("sheet", "/api/sheet", tick.id, "BalanceSheet")
+    val view = View.Column(
+      Seq(View.ModelView(sig, "sheet", View.TextNode(() => "ok")))
+    )
+    val js = emitJs(view)
+    assert(js.contains("const [sheet, setSheet] = useState(null);"))
+    assert(js.contains("fetch('/api/sheet').then(r => r.json()).then(t => setSheet(t));"))
+  }
+
   test("FetchJsonSignal: tick-refresh also uses r.json()") {
     val sig  = new FetchJsonSignal("bs", "/api/bs", tick.id, "BalanceSheet")
     val view = View.ModelView(sig, "bs", View.TextNode(() => "x"))

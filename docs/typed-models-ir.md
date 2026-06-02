@@ -161,8 +161,10 @@ reachable in the IR.  Backends keep their own lowering code.
 4. `v1.66.3-vue-typed-models` - landed Vue support.
 5. `v1.66.4` through `v1.66.8` - remaining backend parity.
 6. `v1.66.9-busi-dashboard` - end-to-end user-facing example.
-7. `frontend-view-traversal-core` - shared traversal/collector layer after the
-   current backend-specific typed-model work stops moving under active agents.
+7. `frontend-view-traversal-core` - landed 2026-06-02: `frontend/core`
+   now has `ViewTraversal.children` / `foreachDepthFirst`, with adaptive
+   branch options. React's fetch-signal collector is the first migrated
+   backend collector; other collectors/backends remain incremental follow-ups.
 
 ## Testing strategy
 

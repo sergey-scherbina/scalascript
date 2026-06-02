@@ -633,6 +633,12 @@ registration, fetch registration, refs, and typed model scopes. Backends can
 adopt it incrementally. The goal is not a new rendering abstraction; it is to
 make future `View` cases harder to miss in collector code.
 
+2026-06-02 status: the first slice landed as `ViewTraversal.children` and
+`ViewTraversal.foreachDepthFirst` in `frontend/core`, including adaptive-branch
+options for rendered web/desktop/mobile traversal. React's fetch-signal
+collector is the first migrated backend collector. Signal/ref/list/table
+collectors and the remaining backends should move over incrementally.
+
 ## When NOT to build this
 
 - When no user has asked.  The abstract model is the kind of

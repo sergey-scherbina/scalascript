@@ -118,10 +118,12 @@ being landed backend by backend.
   overrides removing `-Werror` only from those frontend deps:
   `cli/compile` and `cli/testOnly scalascript.cli.CommandRegistryTest` (8 tests).
 
-- [ ] **frontend-view-traversal-core** - Add a shared `frontend/core` traversal
-  helper for `View[?]` and migrate one backend collector first. Do not take this
-  while another active claim is editing the same backend emitter. Spec:
-  `docs/frontend-abstract-model.md §Implementation maintenance notes`.
+- [x] **frontend-view-traversal-core** - ✓ Landed 2026-06-02. Added
+  `ViewTraversal` in `frontend/core` (`children` + `foreachDepthFirst`) with
+  adaptive-branch options and migrated React's fetch-signal collector to it.
+  Regression coverage: core traversal tests plus React typed JSON fetch nested
+  inside semantic `Column`. Remaining collectors/backends can migrate
+  incrementally.
 
 - [ ] **typed-models-structural-types** - After v1.66 parity lands, validate
   `ModelText` / `ForModel` paths structurally through `ModelPathResolver` where

@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-02 — frontend view traversal core
+
+- **frontend-view-traversal-core** — Added `frontend/core` `ViewTraversal`
+  (`children` + `foreachDepthFirst`) so backend collectors can share one
+  exhaustive `View[?]` walk without sharing renderer logic. The first migrated
+  collector is React's fetch-signal pass, which now finds typed JSON fetches
+  inside semantic containers such as `Column`.
+
 ## 2026-06-01 — ui-fetch-auth v1 + v2
 
 - **ui-fetch-auth-v1** — `fetchAction`/`fetchActionClear` gain optional

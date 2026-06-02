@@ -315,31 +315,34 @@ private[react] object ReactEmitter:
     def checkSig(sig: ReactiveSignal[?]): Unit = sig match
       case fs: FetchUrlSignal if !seen.contains(fs.id) => seen(fs.id) = fs
       case _ => ()
-    def walk(v: View[?]): Unit = v match
+    def checkHandler(handler: EventHandler): Unit = handler match
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.SetSignalLiteral(sig, _)               => checkSig(sig)
+      case EventHandler.IncrementSignal(sig, _)                => checkSig(sig)
+      case EventHandler.ToggleSignal(sig)                      => checkSig(sig)
+      case EventHandler.InputChange(sig)                       => checkSig(sig)
+      case _                                                   => ()
+    ViewTraversal.foreachDepthFirst(view, ViewTraversal.Options.Web) {
       case View.SignalText(sig, _) => checkSig(sig)
-      case View.Element(_, attrs, events, children) =>
+      case View.Element(_, attrs, events, _) =>
         attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
-        events.foreach { (_, handler) =>
-          handler match
-            case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
-            case EventHandler.SetSignalLiteral(sig, _)      => checkSig(sig)
-            case EventHandler.IncrementSignal(sig, _)       => checkSig(sig)
-            case EventHandler.ToggleSignal(sig)             => checkSig(sig)
-            case EventHandler.InputChange(sig)              => checkSig(sig)
-            case _ => ()
-        }
-        children.foreach(walk)
-      case View.Fragment(children)                        => children.foreach(walk)
-      case View.ShowSignal(cond, whenTrue, whenFalse)    => checkSig(cond); walk(whenTrue); walk(whenFalse)
-      case View.Show(_, whenTrue, whenFalse)             => walk(whenTrue()); walk(whenFalse())
-      case View.For(items, render)                       => items().foreach(item => walk(render(item)))
-      case View.ForSignal(_, _, _, itemTemplate)         => itemTemplate.foreach(walk)
-      case View.Portal(_, children)                      => children.foreach(walk)
-      case View.ComponentInstance(component, props)      => walk(component.render(props.asInstanceOf[Nothing]))
-      case View.ModelView(signal, _, template, _)        => checkSig(signal); walk(template)
-      case View.ForModel(_, _, _, template, _)           => walk(template)
+        events.values.foreach(checkHandler)
+      case View.ShowSignal(cond, _, _)                    => checkSig(cond)
+      case View.ModelView(signal, _, _, _)                => checkSig(signal)
+      case View.Button(_, action, _, _)                   => checkHandler(action)
+      case View.TextInput(value, _, _, _, _)              => checkSig(value)
+      case View.Toggle(checked, _, _)                     => checkSig(checked)
+      case View.Slider(value, _, _, _, _)                 => checkSig(value)
+      case View.Picker(_, selected, _, _)                 => checkSig(selected)
+      case View.TabBar(_, current, _)                     => checkSig(current)
+      case View.NavigationStack(_, current, _)            => checkSig(current)
+      case View.Sheet(_, isPresented)                     => checkSig(isPresented)
+      case View.AlertDialog(_, _, _, isPresented)         => checkSig(isPresented)
+      case View.Form(_, onSubmit, _)                      => checkHandler(onSubmit)
+      case View.FormField(_, value, _, _)                 => checkSig(value)
+      case View.FetchTable(_, _, _, tick, hOpt)           => checkSig(tick); hOpt.foreach(checkSig)
       case _ => ()
-    walk(view)
+    }
     seen.values.toSeq
 
   /** Collect all FetchTable instances reachable from the view tree (stable order, by tableId). */
