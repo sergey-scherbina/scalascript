@@ -217,13 +217,12 @@ class InterpreterBench:
       |fibMulD(30.0)""".stripMargin
   )
 
-  // Isolates the InstanceV field-read floor — the cost of one Term.Match
-  // dispatch + two HashMap field reads (Pair.a, Pair.b) on a single live
-  // InstanceV, in a million-iteration hot loop. Intentionally inline (no
-  // function call) so the bench is dominated by match dispatch + fields()
-  // lookups, not call dispatch. Baseline for phase-d-instancev-array-repr:
-  // replacing the HashMap with a positional Array[Value] should show its
-  // floor here first.
+  // Inline match-in-hot-loop: `while i < 1M: total += p match { case Pair(a,b) => a+b }`.
+  // Since 2026-06-02 (LMatch in tryLongWhileAssign) the whole while runs in the Long-slot
+  // array — no FrameMap2, no Pure, no IntV per iter. Floor: ~16.6 ms/op (1M iters)
+  // via `scripts/bench interp instanceFieldAccess` (2-fork, 2026-06-02). Remaining
+  // cost is one HashMap lookup per field read inside CompiledMatch.runValueLong;
+  // replacing with Array[Value] slots would shave a further ~5-10 ms.
   private val modInstanceFieldAccess: Module = src(
     """case class Pair(a: Int, b: Int)
       |val p = Pair(3, 4)
