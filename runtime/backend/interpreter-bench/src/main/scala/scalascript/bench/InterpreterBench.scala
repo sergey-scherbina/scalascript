@@ -204,6 +204,39 @@ class InterpreterBench:
       |fibD(30.0)""".stripMargin
   )
 
+  // Isolates the InstanceV field-read floor — the cost of one Term.Match
+  // dispatch + two HashMap field reads (Pair.a, Pair.b) on a single live
+  // InstanceV, in a million-iteration hot loop. Intentionally inline (no
+  // function call) so the bench is dominated by match dispatch + fields()
+  // lookups, not call dispatch. Baseline for phase-d-instancev-array-repr:
+  // replacing the HashMap with a positional Array[Value] should show its
+  // floor here first.
+  private val modInstanceFieldAccess: Module = src(
+    """case class Pair(a: Int, b: Int)
+      |val p = Pair(3, 4)
+      |var total = 0
+      |var i = 0
+      |while i < 1000000 do
+      |  total = total + (p match { case Pair(a, b) => a + b })
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
+  // Map.foreach with a 2-arg `(k, v) =>` closure — exercises the callEntry
+  // path in `DispatchRuntime.dispatchMap` "foreach" case. Not currently
+  // covered by FastTier (which only handles 1-arg foreach closures via
+  // `tryDoubleAccumForeach*`/`tryLongAccumForeach*`); the natural follow-up
+  // is a 2-arg LApply2-style fast path for entry-style closures.
+  private val modMapForeach: Module = src(
+    """val m = Map("a" -> 1, "b" -> 2, "c" -> 3, "d" -> 4, "e" -> 5)
+      |var total = 0
+      |var i = 0
+      |while i < 100000 do
+      |  m.foreach((k, v) => { total = total + v })
+      |  i = i + 1
+      |total""".stripMargin
+  )
+
   // Mixed-type self-recursion — `g(scale: Int, e: Expr): Int` carries an
   // Int accumulator alongside an Expr ref scrutinee. Each recursive call
   // re-passes the Int param and a child Expr field. Exercises the
@@ -314,3 +347,11 @@ class InterpreterBench:
   @Benchmark
   def recursiveEvalMixed(): Unit =
     Interpreter(devNull).runSections(modGEval)
+
+  @Benchmark
+  def instanceFieldAccess(): Unit =
+    Interpreter(devNull).runSections(modInstanceFieldAccess)
+
+  @Benchmark
+  def mapForeach(): Unit =
+    Interpreter(devNull).runSections(modMapForeach)
