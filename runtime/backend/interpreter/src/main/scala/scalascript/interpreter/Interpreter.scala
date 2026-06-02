@@ -448,23 +448,6 @@ class Interpreter(
     java.util.IdentityHashMap()
   private[interpreter] val NotPure: AnyRef = new AnyRef
 
-  /** Per-Interpreter side-table for the InstanceV positional array
-   *  representation (Direction B Phase 1 of the perf roadmap, see
-   *  `docs/instancev-array-repr-spec.md`). Maps an `InstanceV` instance to
-   *  its `Array[Value]` of field values in `typeFieldOrder` order. Hot-path
-   *  consumers (PatternRuntime arm bindings, BytecodeJit walkArm,
-   *  DispatchRuntime.dispatchInstance) will check this table when the
-   *  `SSC_INSTANCEV_ARRAY` flag is on; absent → fall back to
-   *  `inst.fields.apply(name)`. WeakHashMap so unreferenced InstanceVs
-   *  don't leak entries.
-   *
-   *  Phase 1 only adds the table + flag; no consumers populate or read
-   *  yet. Phase 2a/2b/2c migrate readers; Phase 3 (Activation) populates
-   *  on construction. */
-  private[interpreter] val instanceVFieldsArr: java.util.WeakHashMap[Value.InstanceV, Array[Value]] =
-    new java.util.WeakHashMap[Value.InstanceV, Array[Value]]()
-
-
   // ── v1.10 Generator — thread-per-generator, SynchronousQueue handshake ─
   // Each `generator { body }` spins a virtual thread that runs the body.
   // `suspend(v)` inside the body does queue.put(Some(v)), blocking until

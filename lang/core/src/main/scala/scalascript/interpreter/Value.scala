@@ -261,22 +261,28 @@ final class MutableEnvView(m: scala.collection.mutable.Map[String, Value])
     (m.toMap: Map[String, Value]).updated(key, value).asInstanceOf[Map[String, V1]]
   override def removed(key: String): Map[String, Value] = m.toMap.removed(key)
 
-enum Value:
-  case IntV(v: Long)
-  case DoubleV(v: Double)
+/** Runtime value ADT for the ScalaScript interpreter.  Defined as a
+ *  `sealed trait` (not `enum`) so `InstanceV` can carry a mutable
+ *  `fieldsArr: Array[Value]` without breaking the 399+ pattern-match
+ *  sites that bind `(typeName, fields)` positionally. */
+sealed trait Value
+
+object Value:
+  final case class IntV(v: Long)    extends Value
+  final case class DoubleV(v: Double) extends Value
   /** Arbitrary-precision signed integer (exact-numerics v1.64). Produced by
    *  the `BigInt(...)` built-in and by Int→BigInt widening in arithmetic. */
-  case BigIntV(v: BigInt)
+  final case class BigIntV(v: BigInt) extends Value
   /** Arbitrary-precision signed decimal with explicit scale (exact-numerics
    *  v1.64). Backed by `scala.math.BigDecimal`, whose `equals`/`hashCode` are
    *  value-based (`Decimal("1.0") == Decimal("1.00")`) — so numeric `==` and
    *  consistent hashing come for free. The workhorse for money. */
-  case DecimalV(v: BigDecimal)
-  case StringV(v: String)
-  case BoolV(v: Boolean)
-  case CharV(v: Char)
-  case UnitV
-  case NullV
+  final case class DecimalV(v: BigDecimal) extends Value
+  final case class StringV(v: String)  extends Value
+  final case class BoolV(v: Boolean)   extends Value
+  final case class CharV(v: Char)      extends Value
+  case object UnitV extends Value
+  case object NullV extends Value
   /** A closure. `defaults(i)` is the default-value expression for parameter
    *  `params(i)`, or `None` if the parameter is required. The list may be
    *  shorter than `params` (in which case missing tail entries are treated
@@ -290,7 +296,7 @@ enum Value:
    *  arguments, the interpreter resolves them automatically from the given
    *  table.
    */
-  case FunV(
+  final case class FunV(
     params: List[String],
     body: Term,
     closure: Env,
@@ -299,47 +305,47 @@ enum Value:
     paramTypes: List[String] = Nil,
     usingParams: List[(String, String)] = Nil,
     returnsThrows: Boolean = false
-  )
+  ) extends Value
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
-  case NativeFnV(name: String, f: List[Value] => Computation)
-  case InstanceV(typeName: String, fields: Map[String, Value])
-  case ListV(items: List[Value])
-  case OptionV(inner: Value | Null)
-  case TupleV(elems: List[Value])
-  case MapV(entries: Map[Value, Value])
+  final case class NativeFnV(name: String, f: List[Value] => Computation) extends Value
+  /** ADT / class instance value. `fieldsArr` is populated by StatRuntime at
+   *  construction when field order is known; hot readers (PatternRuntime,
+   *  BytecodeJit) prefer `fieldsArr(idx)` over `fields.apply(name)`.
+   *  Defined as a `final case class` (not an enum case) so we can add this
+   *  mutable field without breaking existing two-arg pattern-match sites. */
+  final case class InstanceV(typeName: String, fields: Map[String, Value]) extends Value:
+    /** Positional fields; null when the instance bypasses StatRuntime.
+     *  Index matches `Interpreter.typeFieldOrder(typeName)`. */
+    var fieldsArr: Array[Value] | Null = null
+  final case class ListV(items: List[Value])     extends Value
+  final case class OptionV(inner: Value | Null)  extends Value
+  final case class TupleV(elems: List[Value])    extends Value
+  final case class MapV(entries: Map[Value, Value]) extends Value
   /** An unordered, deduplicated collection. `Set(...)` builds one; `toSet`
    *  produces one from a list. Element identity is `Value` equality. */
-  case SetV(items: Set[Value])
-  case DocV(parts: List[Value])
+  final case class SetV(items: Set[Value])       extends Value
+  final case class DocV(parts: List[Value])      extends Value
   /** Parsed XML document produced by a fenced ` ```xml ` block.
    *  The `doc` value is the root `Markup.Doc` from `markup-core`. */
-  case MarkupV(doc: scalascript.markup.Markup.Doc)
+  final case class MarkupV(doc: scalascript.markup.Markup.Doc) extends Value
   /** Opaque JVM-handle bridge.  Wraps a Java object that the interpreter
    *  cannot inspect structurally but needs to thread through user code
    *  (e.g. `java.sql.Connection` for v1.26 sql blocks).  `typeName` is
    *  the human-readable Scala type name (`"Connection"`,
    *  `"DataSource"`, …) used by `resolveGiven` keyed lookups; `handle`
    *  is the JVM object passed verbatim to / from intrinsics. */
-  case Foreign(typeName: String, handle: Any)
-
-object Value:
+  final case class Foreign(typeName: String, handle: Any) extends Value
   /** Capability flag for the InstanceV positional array representation
-   *  (Direction B of the perf roadmap; spec at
-   *  `docs/instancev-array-repr-spec.md`). Default **OFF**: hot-path
-   *  consumers (PatternRuntime arm bindings, BytecodeJit walkArm,
-   *  DispatchRuntime.dispatchInstance) keep reading
-   *  `inst.fields.apply(name)` until the flag is ON. Phase 1 only adds
-   *  the flag + side-table (`Interpreter.instanceVFieldsArr`); Phase 2
-   *  migrates readers; Phase 3 (Activation) populates on construction
-   *  and verifies the projected `recursiveEval` 2-2.5× win.
+   *  (Direction B of the perf roadmap). Default ON: `InstanceV.fieldsArr`
+   *  is populated at construction; hot readers (PatternRuntime, BytecodeJit)
+   *  use `fieldsArr(idx)` instead of `fields.apply(name)`.
    *
-   *  Opt in via `SSC_INSTANCEV_ARRAY=on` env var (interactive) or
-   *  `-Dssc.instancev.array=on` system property (JMH forks / sbt —
-   *  env vars don't always propagate through forks). */
+   *  Opt OUT via `SSC_INSTANCEV_ARRAY=off` env var or
+   *  `-Dssc.instancev.array=off` system property. */
   val instanceVArrayEnabled: Boolean =
-    sys.env.get("SSC_INSTANCEV_ARRAY").contains("on") ||
-      sys.props.get("ssc.instancev.array").contains("on")
+    !sys.env.get("SSC_INSTANCEV_ARRAY").contains("off") &&
+      !sys.props.get("ssc.instancev.array").contains("off")
 
   // Pool for common small integer values (-2048..16383). `intV(n)` returns a
   // cached instance for in-range values, avoiding a heap allocation on every
