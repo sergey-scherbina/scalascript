@@ -45,7 +45,7 @@ class CleanCliTest extends AnyFunSuite:
     val jar = requireJar()
     val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
       args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
 
   /** Lay out a workspace with `src/<modules>.ssc` and
    *  `artifacts/<modules>.scjvm` + matching `.scim` + a stale

@@ -58,6 +58,7 @@ class SscpkgArtifactDistributionTest extends AnyFunSuite:
       case None    => Map.empty
     os.proc(cmd).call(
       cwd    = cwd,
+      stdin  = "",
       env    = env,
       check  = false,
       stderr = os.Pipe,

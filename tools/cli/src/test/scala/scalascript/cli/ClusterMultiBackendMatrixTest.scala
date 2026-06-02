@@ -222,7 +222,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       "java", "-jar", jar.toString,
       "compile-jvm", "--bytecode", sscFile.toString,
       "-o", (artifactDir / s"$nodeId.scjvm").toString
-    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
     if cmpRes.exitCode != 0 then
       cancel(s"compile-jvm --bytecode failed for $nodeId:\n" +
              s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
@@ -231,7 +231,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       "java", "-jar", jar.toString,
       "link", "--backend", "jvm", "--bytecode",
       artifactDir.toString, "-o", outJar.toString
-    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
     if linkRes.exitCode != 0 then
       cancel(s"link --backend jvm --bytecode failed for $nodeId:\n" +
              s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
@@ -250,7 +250,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       "java", "-jar", jar.toString,
       "compile-js", sscFile.toString,
       "-o", (artifactDir / s"$nodeId.scjs").toString
-    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
     if cmpRes.exitCode != 0 then
       cancel(s"compile-js failed for $nodeId:\n" +
              s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
@@ -259,7 +259,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       "java", "-jar", jar.toString,
       "link", "--backend", "js",
       artifactDir.toString, "-o", outJs.toString
-    ).call(cwd = sandbox, check = false, stderr = os.Pipe, stdout = os.Pipe)
+    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
     if linkRes.exitCode != 0 then
       cancel(s"link --backend js failed for $nodeId:\n" +
              s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")

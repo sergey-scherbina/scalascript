@@ -110,6 +110,7 @@ private def dispatchCommand(args: List[String]): Unit =
  *  so that scripts piped other content don't break unexpectedly. */
 private def loadSopsSecrets(): Unit =
   try
+    if System.in.available() == 0 then return
     val raw = scala.io.Source.stdin.mkString
     if raw.nonEmpty then
       val doc = scalascript.parser.SimpleYaml.load[Any](raw)
