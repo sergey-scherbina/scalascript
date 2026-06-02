@@ -2086,6 +2086,39 @@ gated on same-session A/B + full suite green with the gate off AND on.
         HashMap lookups AND the per-element foreach call overhead. This
         is the path toward closing the remaining 213× gap.
 
+      **2026-06-02: strategic roadmap landed** (`docs/instancev-array-repr-spec.md`,
+      planning file `~/.claude/plans/noble-discovering-knuth.md`). Three
+      directions sequenced:
+      - **Direction A** — incremental BytecodeJit extensions (5 slices,
+        proven pattern). WORK_QUEUE: `phase-c-bytecode-block-single`,
+        `…-if-in-while`, `…-pure-fn-call`, `…-foreach-static`,
+        `…-block-multistat`. A.1-A.3 independent and runnable now;
+        A.4/A.5 gated on Direction B Activation.
+      - **Direction B** — `InstanceV` positional array fields
+        (multi-day, 5 sub-phases). See `docs/instancev-array-repr-spec.md`.
+        Biggest single remaining lever (`recursiveEval` 13 → ~5-7 ms
+        projected). WORK_QUEUE: `phase-d-instancev-array-repr-infra` →
+        `…-integration-patternruntime` → `…-integration-bytecodejit` →
+        `…-integration-dispatchruntime` → `…-activation` → `…-flag-flip`.
+      - **Direction C** — direct-style eval refactor (architectural,
+        multi-week, deferred). 530+ sites concentrated 62% in
+        `EvalRuntime` / `BlockRuntime` / `PatternRuntime`. Blocked on
+        `direct-style-eval-spec` (WORK_QUEUE item, to be written before
+        any Direction C code).
+
+- [ ] **direct-style-eval** (deferred multi-week, post Directions A+B) —
+      Migrate `eval(term, env, interp): Computation` to direct-style
+      `eval(...): Value` returning the raw value, with effects via
+      control-flow exceptions. Eliminates per-call `Computation.Pure` /
+      `FlatMap` allocation across every hot eval path. 530+ call sites
+      total; 62% concentrated in 3 files (`EvalRuntime` 230, `BlockRuntime`
+      41, `PatternRuntime` 37). Multi-shot continuation compatibility
+      needs careful design — verify against the `multishot-stack` agent
+      worktree's findings before any code lands. Blocking task:
+      `direct-style-eval-spec` (WORK_QUEUE) — write the migration plan
+      doc first. **Not for this quarter; placeholder for the next
+      architectural cycle.**
+
 ## v1.55 — First-class XML / Generic Markup
 
 **Status: spec landed 2026-05-27.**  See `/Users/sergiy/.claude/plans/majestic-napping-moonbeam.md`.

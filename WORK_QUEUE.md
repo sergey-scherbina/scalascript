@@ -323,6 +323,65 @@ verify step. Apply them.
       cleanup work to be done when a bench shows a specific shape
       bailing.
 
+- [ ] **phase-c-bytecode-block-single** (Direction A.1) — every walker
+      in `BytecodeJit.scala` (`walkLong`, `walkDouble`, `walkRef`) bails
+      on `Term.Block` even when it has one statement. Unwrap a
+      1-stmt block to the inner term in each walker (~10 lines × 3
+      walkers). Helps any closure body wrapped in `{ ... }`. Per
+      `noble-discovering-knuth.md` Direction A slice 1. Independent of
+      other slices — single-session win.
+
+- [ ] **phase-c-bytecode-if-in-while** (Direction A.2) — `tryCompileWhileLong`'s
+      `walkLocalSlot` / `walkLocalBool` bail on `Term.If` in RHS. Mirror
+      the `walkLong` ternary emission for the locals-based walker
+      (~30 lines). Helps loops with `x = if cond then a else b`
+      shapes. Per `noble-discovering-knuth.md` Direction A slice 2.
+
+- [ ] **phase-c-bytecode-pure-fn-call** (Direction A.3) — `walkLong`
+      only emits the self-recursive case for `Term.Apply`. Add a path
+      that detects a globals-bound `def` whose body is
+      `compileSlotD`-foldable, compiles it to its own Java class
+      (cached), and emits a static call by sanitised name. Add `LongFn1`
+      / `LongFn2` traits per arity in `JitInterfaces.scala` parallel to
+      the existing typed interfaces. **Helps `pureCallSum`/`pureCallSum2`
+      (13–14 ms each)** — currently the per-iter eval dispatch is the
+      bottleneck. Per `noble-discovering-knuth.md` Direction A slice 3.
+      ~60 lines + traits.
+
+- [ ] **phase-c-bytecode-foreach-static** (Direction A.4) — combine
+      `tryCompileWhileLong` with `walkArm`: detect
+      `xs.foreach(s => acc = acc + fn(s))` over a stable
+      `ListV` / `SetV` global and emit a Java `for` loop directly. Gated
+      on `phase-d-instancev-array-repr-activation` landing first so
+      `walkArm` field reads use array indexing AND on
+      `phase-c-bytecode-match-double-body` (sibling plan
+      `typed-seeking-cosmos.md`) so the inner match arms compile too.
+      Helps `patternMatchHeavy` / `Set` / `Wide` if/when the outer
+      while can be lifted into the JIT class. Per
+      `noble-discovering-knuth.md` Direction A slice 4.
+
+- [ ] **phase-c-bytecode-match-double-body** (parallel agent's
+      `typed-seeking-cosmos.md` A+B+D bundle) — JIT Double-typed
+      `Term.Match` via `walkMatchBody` extension + `walkDouble`
+      parameter. Replace if-equals chain with `switch(String)`
+      (javac lowers to `lookupswitch`). Remove the duplicate
+      `t == tn` arm-closure guard in `PatternRuntime` (`:806`, `:961`,
+      `:992`) — tag-scan loop already verified the tag; helps non-JIT
+      fallback by ~10%. **Target**: `interp_patternMatch` 7615 → <
+      2500 µs/op (3×+ improvement on JIT-able shape). Independent of
+      this WORK_QUEUE's Direction A/B/C — lands as its own PR.
+      Sibling to A.4 (foreach-static): A.4 lifts the outer while into
+      JIT; this slice ensures the inner match arms compile too. See
+      `~/.claude/plans/typed-seeking-cosmos.md` for full design.
+
+- [ ] **phase-c-bytecode-block-multistat** (Direction A.5) — currently
+      only single-expr bodies compile in BytecodeJit. Multi-stat bodies
+      (let-bindings + sequences) bail. Generate Java `{ … }` blocks
+      with local variables for binding values; track scope. Benefits
+      compound with `phase-d-instancev-array-repr-activation` because
+      bound values can be array indices. Per `noble-discovering-knuth.md`
+      Direction A slice 5. ~50 lines.
+
 - [x] **phase-d-patternmatch-double-slot** — ✓ Landed 2026-06-02 commits `c2986e33` / `e583843c`.
       Double-acc slot bypass: `FastTier.accSlotTls`/`accNameTls` `ThreadLocal[Array[Long]]` pair;
       `withAccSlot(name, slot)(thunk)` setter/clearer (try/finally); `peekDoubleAccName(apply, interp)`
@@ -390,33 +449,53 @@ verify step. Apply them.
       **Expected win (post-LMatch):** `instanceFieldAccess` 16.6 → ~8 ms (~2×);
       `patternMatchHeavy` effect TBD (needs fresh profile after double-slot win).
 
-      **Approach** (multi-day, multi-commit project — fresh agent
-      should plan it as its own milestone, NOT a single sitting):
-      1. *Design doc:* write `docs/instancev-array-repr.md` first.
-         Cover: new field layout, dispatch-table keyed by `typeName ==
-         interned-string-ref`, capability flag (`SSC_INSTANCEV_ARRAY`?),
-         migration path for the ~30+ sites that currently destructure
-         `InstanceV(t, fields)` via the Map shape. Land the spec, get
-         human review before any code.
-      2. *Capability flag scaffolding:* land the flag with a default-off
-         no-op; ensures no existing tests break.
-      3. *Parallel representation:* add `InstanceV.fields` as
-         `Map[String, Value]` AND new `fieldsArr: Array[Value] | Null`.
-         The array is populated when known; consumers prefer array
-         when non-null, fall back to map. Migrate one consumer at a
-         time.
-      4. *Backend-by-backend migration:* `BytecodeJit.walkArm`,
-         `PatternRuntime.compileSlotBody`, `DerivesRuntime`, etc. Each
-         is a separate commit with the per-bench validation.
-      5. *Final pass:* once all hot paths are array-backed, drop the
-         Map field. May require schema/wire-format changes (check
-         `ValueSerializer` — wire `inst` tag depends on Map).
-      6. *Flip flag default ON*, watch for a few days, then remove the
-         flag.
+      **Approach** (split into 5 sub-items per `noble-discovering-knuth.md`
+      Direction B. Spec lives at `docs/instancev-array-repr-spec.md`.
+      Each sub-item is its own commit; full protocol per
+      `feedback-cross-module-commit-safety.md`):
 
-      This is fundamentally NOT a single-session task. A fresh agent
-      starting from cold context will need ~2-3 dedicated days. Don't
-      try to compress.
+      See sub-items `phase-d-instancev-array-repr-infra`,
+      `…-integration-patternruntime`, `…-integration-bytecodejit`,
+      `…-integration-dispatchruntime`, `…-activation` below.
+
+- [ ] **phase-d-instancev-array-repr-infra** (Direction B Phase 1) —
+      Add `Value.InstanceV.fieldsArr: Array[Value] | Null` parallel to
+      existing `fields: Map[String, Value]`. Add capability flag
+      `SSC_INSTANCEV_ARRAY` (default OFF). No consumers flipped yet;
+      tests stay green. Per `docs/instancev-array-repr-spec.md`
+      Phase 1.
+
+- [ ] **phase-d-instancev-array-repr-integration-patternruntime**
+      (Direction B Phase 2a) — `PatternRuntime.compileCase` /
+      `buildPatEnv` read from `fieldsArr[idx]` when non-null
+      (`interp.typeFieldOrder` gives the index). Map fallback when
+      array is null. Per `docs/instancev-array-repr-spec.md` Phase 2.
+      Bench A/B on `recursiveEval` / `patternMatchHeavy` arm bindings.
+
+- [ ] **phase-d-instancev-array-repr-integration-bytecodejit**
+      (Direction B Phase 2b) — `BytecodeJit.walkArm` emits
+      `inst.fieldsArr()[idx]` instead of `inst.fields().apply(name)`.
+      Map fallback retained. Per `docs/instancev-array-repr-spec.md`
+      Phase 2. Bench A/B on `recursiveEval`.
+
+- [ ] **phase-d-instancev-array-repr-integration-dispatchruntime**
+      (Direction B Phase 2c) — `DispatchRuntime.dispatchInstance` uses
+      the index path for typed dispatches. Per
+      `docs/instancev-array-repr-spec.md` Phase 2.
+
+- [ ] **phase-d-instancev-array-repr-activation** (Direction B Phase 3) —
+      Every `InstanceV(...)` construction site populates `fieldsArr`
+      from `interp.typeFieldOrder`. Touches all 378 construction sites
+      (most are `DispatchRuntime` builtin returns; mechanically
+      surgical). Bench A/B confirms 2-2.5× projected win on
+      `recursiveEval`. Per `docs/instancev-array-repr-spec.md` Phase 3.
+
+- [ ] **phase-d-instancev-array-repr-flag-flip** (Direction B Phase 4) —
+      After 1-2 weeks of bench stability across all 5 sub-items, flip
+      `SSC_INSTANCEV_ARRAY` default ON. Once all hot paths array-backed,
+      drop the `fields: Map` field. Check `ValueSerializer` for wire-
+      format implications. Per `docs/instancev-array-repr-spec.md`
+      Phase 4.
 
 - [ ] **phase-d-patternmatch-fused-foreach** — once
       `phase-d-instancev-array-repr` lands, BytecodeJit could compile
@@ -430,6 +509,18 @@ verify step. Apply them.
       (`tryDoubleAccumForeachSet` + `tryLongAccumForeachSet`) hooked at
       `dispatchSet`'s foreach case; skips the `set.toList` allocation.
       `patternMatchSet` 148.5 → 116.4 ms (1.28×).
+
+- [ ] **direct-style-eval-spec** (Direction C blocking task) — write
+      `docs/direct-style-eval-spec.md` covering: migration strategy
+      (capability flag, phased per-call-site migration), effect
+      handling design (control-flow exceptions vs coroutines vs
+      cont-aware stack), multi-shot continuation compatibility (verify
+      against the `multishot-stack` agent worktree findings), per-file
+      migration order (`EvalRuntime` 230 sites → `BlockRuntime` 41 →
+      `PatternRuntime` 37 → tail in `DispatchRuntime`). 530+ sites
+      total. Multi-week project — **defer until Directions A + B are
+      stable**. No Direction C code changes until this spec lands and
+      is reviewed. Per `noble-discovering-knuth.md` Direction C.
 
 - [ ] **ci-green-audit** — after the Phase C+D interpreter-perf
       continuation lands (or sooner if any blocks main), audit the GitHub

@@ -208,3 +208,73 @@ The `withInterp` fix in this session was the only fix landed: the alloc
 samples showed the leak unambiguously, the fix was a single line, and the
 post-fix profile confirmed `ThreadLocalMap$Entry` left the top-10.
 Everything else surfaced is documented above for a fresh-context session.
+
+---
+
+## Session 2026-06-02 wins (post-original-survey)
+
+Following the survey above, a second session landed 12+ commits on
+top of the JFR findings. Each was JFR-validated or A/B-proven.
+
+### Shipped commits
+
+| commit | scope | bench δ |
+|---|---|---|
+| `e17c048a` | Double-globals reads via `readGlobalDouble` (Phase C extension) | `recursionFibMulD` parity with Int-globals shape (~6 ms) |
+| `46e8a2d2` | `BytecodeJit.withInterp` TLS-Entry hygiene + JFR profile survey | alloc cleanup; next-wave roadmap |
+| `280ae07f` | FastTier 2-arg foreach Map fast path | **mapForeach 532 → 110 ms (4.8×)** |
+| `88f2179f` | Pure-const cache for `Term.Tuple` + `Term.ApplyInfix` | **tupleMonoid 415 → 132 ms (3.2×)** |
+| `5f1b4ec1` | Pure-RHS hoist out of long-while loop | **tupleMonoid 132 → 0.2 ms (660×)** |
+| `262ac02d` | foreach-hoist Set receiver | **patternMatchSet 117 → 8 ms (14.6×)** |
+| `b0846e41` | foreach-hoist hierarchy (List/Set/Map × Long/Double) | **mapForeach 117 → 2.85 ms (41×), patternMatchWide 77 → 21 ms (3.7×)** |
+| `4a983de6` | foreach-hoist (parallel agent) | **patternMatchHeavy 113 → 10 ms (11×)** |
+| `7e7ebb71` | while-loop BytecodeJIT (parallel agent) | **arithLoop 2.86 → 0.28 ms (10.1×, JVM parity)** |
+| `c2986e33` | phase-d-patternmatch-double-slot (parallel agent) | patternMatchHeavy alloc 4.9 MB/op → 1.7 MB/op (−65%) |
+| `d48a2259` | Long + Map slot bypass | **patternMatchWide 38 → 29 ms (−24%), mapForeach 4.7 → 3.95 ms (−17%)** |
+| `14c23556` | `LongEnvFn1`/`LongEnvFn2` traits — eliminate Long boxing in LApply/LApply2 | **pureCallSum alloc 24 MB/op → 34 KB/op (−99.9%); pureCallSum2 48 MB/op → 115 KB/op (−99.8%); wall-clock pureCallSum −28%, pureCallSum2 −32%** |
+| `54a65870` | `Computation.purify` reuses cached `Pure` wrappers | recursiveEval Pure samples 34 → 21 (−38%) |
+| `471b38d1` | invokeExact via typed JitInterfaces (parallel agent) | unboxed dispatch for bytecode-jitted fns |
+
+### Final bench state (2026-06-02, ms/op, tight n=30)
+
+| bench | ms/op | status |
+|---|---:|---|
+| arithLoop | 0.28 | JVM parity (while-JIT) |
+| effectPure | 0.04 | floor |
+| recursionTco | 0.034 | JVM parity (TCO loop) |
+| tupleMonoid | 0.20 | floor (RHS hoist) |
+| recursionFib | 1.20 | beats JVM-codegen (Phase C) |
+| recursionFibD | 1.45 | floor |
+| mapForeach | 3.31 | near floor (foreach-hoist + Map slot) |
+| recursionFibMul | 5.85 | bound (Int globals HashMap) |
+| recursionFibMulD | 6.0 | bound (Double globals) |
+| patternMatchHeavy | 7.82 | foreach-hoist + double-slot |
+| patternMatchSet | 8.0 | foreach-hoist Set |
+| pureCallSum | 13 | per-iter eval dispatch — A.3 target |
+| recursiveEval | 13 | HashMap field reads — **B target** |
+| recursiveEvalMixed | 13.6 | same — B target |
+| pureCallSum2 | 14 | per-iter eval dispatch — A.3 target |
+| instanceFieldAccess | 15.6 | LMatch ceiling (HashMap residual) |
+| patternMatchWide | 20.8 | 12-arm dispatch + Long slot |
+
+### Strategic next phase
+
+After this session, the cumulative wins exhausted every micro-opt the
+JFR survey suggested. The remaining headroom is in three strategic
+directions captured in `~/.discovering-knuth.md` and
+`docs/instancev-array-repr-spec.md`:
+
+- **Direction A** — BytecodeJit incremental extensions (5 slices,
+  proven pattern). `WORK_QUEUE.md` items `phase-c-bytecode-block-single`,
+  `phase-c-bytecode-if-in-while`, `phase-c-bytecode-pure-fn-call`,
+  `phase-c-bytecode-foreach-static`, `phase-c-bytecode-block-multistat`.
+- **Direction B** — `InstanceV` positional array fields (multi-day,
+  5 sub-phases). `WORK_QUEUE.md` items
+  `phase-d-instancev-array-repr-infra` through `…-flag-flip`.
+- **Direction C** — direct-style eval (architectural, multi-week,
+  deferred until A+B stable). Blocked on `direct-style-eval-spec`.
+
+Each direction's verification protocol carries forward from this
+survey: JFR-profile target bench → cross-check `gc.alloc.rate.norm`
+→ A/B against pre-commit baseline → verify the target allocator class
+drops out of the top-10 samples.

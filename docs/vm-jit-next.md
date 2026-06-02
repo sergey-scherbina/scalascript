@@ -462,6 +462,100 @@ that came out of today's session.
 
 ---
 
+## Direction A — incremental BytecodeJit extensions (2026-06-02 roadmap)
+
+Per `~/.claude/plans/noble-discovering-knuth.md`, after Phase C / D
+landed JVM parity on `arithLoop` / `recursionFib` / `recursionTco`,
+the next-tier benches (`pureCallSum`/`2` 13–14 ms,
+`patternMatchHeavy`/`Set`/`Wide` 7.8–20.8 ms,
+`recursiveEval`/`Mixed` 13 ms) still tree-walk because their AST
+shapes hit `return null` paths in the BytecodeJit walkers. The Direction
+A roadmap extends walker coverage one shape at a time. Each slice is
+independently A/B-provable and bails to SscVm.exec / tree-walk on
+shape miss.
+
+### Bail-shape → bench-target mapping
+
+| WORK_QUEUE item | Walker(s) | Bail shape | Bench target |
+|---|---|---|---|
+| `phase-c-bytecode-block-single` (A.1) | `walkLong`, `walkDouble`, `walkRef` | `Term.Block(single stat)` | any 1-stmt-block closure body |
+| `phase-c-bytecode-if-in-while` (A.2) | `tryCompileWhileLong.walkLocalSlot`, `walkLocalBool` | `Term.If` in RHS | loops with `x = if c then a else b` |
+| `phase-c-bytecode-pure-fn-call` (A.3) | `walkLong` Term.Apply | non-self-recursive Apply on a pure top-level def | `pureCallSum` / `pureCallSum2` |
+| `phase-c-bytecode-foreach-static` (A.4) | new path combining `tryCompileWhileLong` + `walkArm` | `xs.foreach(s => acc = acc + fn(s))` over stable global | `patternMatchHeavy`/`Set`/`Wide` outer loop |
+| `phase-c-bytecode-block-multistat` (A.5) | all walkers | `Term.Block(multi-stat)` with let-bindings | compound function bodies |
+
+### Slice dependencies
+
+- A.1, A.2, A.3 are independent — can run in parallel sessions.
+- A.4 gated on `phase-d-instancev-array-repr-activation` (Direction B
+  Phase 3) so `walkArm` field reads compile to `inst.fieldsArr()[idx]`,
+  AND on `phase-c-bytecode-match-double-body` (sibling plan
+  `~/.claude/plans/typed-seeking-cosmos.md`) so the inner match arms
+  compile too.
+- A.5 benefits from B Activation similarly (bound values can be
+  array indices) but is not gated.
+
+### Sibling — patternMatch JIT (parallel agent, `typed-seeking-cosmos.md`)
+
+A parallel agent's plan `~/.claude/plans/typed-seeking-cosmos.md`
+(`phase-c-bytecode-match-double-body` in WORK_QUEUE) extends
+`BytecodeJit` to JIT Double-typed `Term.Match`. Three changes:
+
+- **A** — `walkMatchBody` becomes parametric by return type
+  (`long`/`double`/`Object`); `walkDouble`/`walkLong` recursively
+  invoke it (currently `Term.Match` only fires when match IS the
+  entire function body, blocking nested match in compiled bodies).
+- **B** — Replace if-equals chain in `walkMatchBody` with
+  `switch (tn) { case … }`; javac lowers `switch(String)` to
+  `lookupswitch` by `String.hashCode`.
+- **D** — Remove the duplicate `t == tn` check in
+  `PatternRuntime.scala:806/961/992` arm-closures (the tag-scan loop
+  in `runValueDouble/Long` already verified the tag, so the closure-
+  internal re-check is dead work). Also helps the non-JIT fallback
+  by ~10%.
+
+Target: `interp_patternMatch` 7615 → < 2500 µs/op (3×+).
+**Independent of Direction A.1-A.5 here**; lands as its own PR.
+A.4 (foreach-static) is gated on it landing.
+
+### Per-slice protocol
+
+Same as Phase C / D: one worktree per slice; compile + test green
+default AND `SSC_JIT_BYTECODE=off`; bench A/B target bench (must
+move) + `scripts/bench interp` full set (no regression); JFR-profile
+target bench to confirm `SscVm.exec` / tree-walk dropped from the
+top of the allocator samples.
+
+### Reusable infrastructure
+
+- `BytecodeJit.cache: IdentityHashMap[Term, AnyRef]` with sentinel
+  `BailSentinel` — model for compile-once memoisation. A.3 needs a
+  per-pure-fn cache keyed by the fn's body AST.
+- `JitInterfaces.scala` traits (`LongFn1`/`DoubleFn1`/`ObjToLong`/…)
+  — model for typed-primitive dispatch. A.3 adds arity-N variants
+  parallel to existing ones.
+- `interp.typeFieldOrder` — A.4 / A.5 field-index emission references
+  this directly (after B Activation).
+
+---
+
+## Direction B — InstanceV positional array fields
+
+Detailed in `docs/instancev-array-repr-spec.md`. Direction B is the
+biggest single lever remaining (`recursiveEval` 2-2.5× projected) and
+unblocks A.4 / A.5. The Direction A slices that don't depend on B can
+run first or in parallel.
+
+---
+
+## Direction C — Direct-style eval (deferred)
+
+`docs/direct-style-eval-spec.md` to be written before any Direction C
+code. Multi-week project, 530+ sites. See WORK_QUEUE item
+`direct-style-eval-spec`.
+
+---
+
 ## Methodology (both phases)
 
 Carry the project's hard-won rules:
