@@ -523,7 +523,6 @@ object BytecodeJit:
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
-        // switch-case block for this constructor (B: switch(String) → lookupswitch)
         sb.append(s"""  case "${escape(ctorName)}": {\n      """)
         var fi = 0
         while fi < n do

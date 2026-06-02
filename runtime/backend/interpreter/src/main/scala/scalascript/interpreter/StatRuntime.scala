@@ -17,28 +17,23 @@ private[interpreter] object StatRuntime:
       fallback: List[Value] => Computation,
       interp: Interpreter
   ): Computation =
-    // Phase 3 (Direction B narrow): when the SSC_INSTANCEV_ARRAY flag is on,
-    // populate the per-Interpreter side-table with a positional Array[Value]
-    // so PatternRuntime arm bindings (and future BytecodeJit walkArm) read
-    // fields by index instead of HashMap.get. The side-table is keyed by the
-    // InstanceV identity; weak references release entries when the value
-    // becomes unreachable.
+    val itn = typeName.intern()
     inline def registerArr(inst: Value.InstanceV, arr: Array[Value]): Unit =
       if Value.instanceVArrayEnabled then interp.instanceVFieldsArr.put(inst, arr)
     paramNames match
       case Nil =>
-        Pure(Value.InstanceV(typeName, Map.empty))
+        Pure(Value.InstanceV(itn, Map.empty))
       case List(p0) if args.length == 1 =>
-        val inst: Value.InstanceV = Value.InstanceV(typeName, new IMap.Map1(p0, args.head))
+        val inst: Value.InstanceV = Value.InstanceV(itn, new IMap.Map1(p0, args.head))
         registerArr(inst, Array[Value](args.head))
         Pure(inst)
       case List(p0, p1) if args.length == 2 =>
-        val inst: Value.InstanceV = Value.InstanceV(typeName, new IMap.Map2(p0, args.head, p1, args(1)))
+        val inst: Value.InstanceV = Value.InstanceV(itn, new IMap.Map2(p0, args.head, p1, args(1)))
         registerArr(inst, Array[Value](args.head, args(1)))
         Pure(inst)
       case _ if args.length >= paramNames.length =>
         val take = args.take(paramNames.length)
-        val inst: Value.InstanceV = Value.InstanceV(typeName, Map.from(paramNames.lazyZip(take)))
+        val inst: Value.InstanceV = Value.InstanceV(itn, Map.from(paramNames.lazyZip(take)))
         registerArr(inst, take.toArray)
         Pure(inst)
       case _ =>
@@ -172,7 +167,7 @@ private[interpreter] object StatRuntime:
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-        val inst: Value.InstanceV = Value.InstanceV(typeName, Map.from(paramNames.lazyZip(filled)))
+        val inst: Value.InstanceV = Value.InstanceV(typeName.intern(), Map.from(paramNames.lazyZip(filled)))
         if Value.instanceVArrayEnabled then
           interp.instanceVFieldsArr.put(inst, filled.toArray)
         Pure(inst)
@@ -236,7 +231,7 @@ private[interpreter] object StatRuntime:
             interp.parentTypes(caseName) = enumName
             val enumFallbackCtor: List[Value] => Computation = args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
-              val inst: Value.InstanceV = Value.InstanceV(caseName, Map.from(paramNames.lazyZip(filled)))
+              val inst: Value.InstanceV = Value.InstanceV(caseName.intern(), Map.from(paramNames.lazyZip(filled)))
               if Value.instanceVArrayEnabled then
                 interp.instanceVFieldsArr.put(inst, filled.toArray)
               Pure(inst)
