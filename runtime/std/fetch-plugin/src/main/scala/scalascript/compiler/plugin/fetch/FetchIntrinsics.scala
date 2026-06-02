@@ -117,14 +117,18 @@ object FetchIntrinsics:
         case _ => throw InterpretError("incSignal(signal)")
     },
 
-    // fieldColumn(title, fieldPath[, align]): FieldColumnDef
+    // fieldColumn(title, fieldPath[, align[, editAction]]): FieldColumnDef
     QualifiedName("fieldColumn") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(title: String, fieldPath: String) =>
           Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath))
         case List(title: String, fieldPath: String, align: String) =>
           Value.Foreign("FieldColumnDef", FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty)))
-        case _ => throw InterpretError("fieldColumn(title, fieldPath[, align])")
+        case List(title: String, fieldPath: String, align: String,
+                  Value.Foreign("RowActionDef", ea: RowActionDef.RowInlineEdit)) =>
+          Value.Foreign("FieldColumnDef",
+            FieldColumnDef(title, fieldPath, Some(align).filter(_.nonEmpty), Some(ea)))
+        case _ => throw InterpretError("fieldColumn(title, fieldPath[, align[, editAction]])")
     },
 
     // rowDeleteAction(url, idField, tick[, headers]): RowActionDef
@@ -170,6 +174,23 @@ object FetchIntrinsics:
           Value.Foreign("RowActionDef",
             RowActionDef.RowLink(label, sig.asInstanceOf[ReactiveSignal[String]], fieldPath))
         case _ => throw InterpretError("rowLinkAction(label, signal, fieldPath)")
+    },
+
+    // rowEditAction(method, url, idField, tick[, headers]): RowActionDef
+    QualifiedName("rowEditAction") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(method: String, url: String, idField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+        case List(method: String, url: String, idField: String,
+                  Value.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  Value.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val h = headers.asInstanceOf[ReactiveSignal[String]]
+          Value.Foreign("RowActionDef",
+            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
+              if h.id == "__ssc_empty_headers" then None else Some(h)))
+        case _ => throw InterpretError("rowEditAction(method, url, idField, tick[, headers])")
     },
 
     // dataTableView(signal, columns, actions): View

@@ -399,6 +399,15 @@ enum View[+A]:
    *  - React/Vue/Solid: `<span>{<varName>.<path>}</span>` or plain text node */
   case ModelText(varName: String, fieldPath: String, style: Style = Style()) extends View[Nothing]
 
+  /** Inline-editable cell.  Produced by `DataTableLowering` when a `FieldColumnDef`
+   *  carries an `editAction`.  Renders as a transparent `<input>` that fires the
+   *  HTTP edit call on blur / Enter; native backends use their own cell-editor paths.
+   *
+   *  `varName` is the ForModel item variable (e.g. `"row"`);
+   *  `fieldPath` is the column's dot-path (e.g. `"name"`). */
+  case EditableCell(varName: String, fieldPath: String,
+                    action: RowActionDef.RowInlineEdit) extends View[Nothing]
+
   /** Reactive data table with typed columns and per-row actions.  Backed by
    *  `signal` (a `FetchUrlSignal`, typically `FetchJsonSignal` resolving to a
    *  JSON array), renders a `<table>` with a header row from `columns` and a
@@ -543,7 +552,8 @@ object EventHandler:
 
 /** A single column in a `View.DataTable` — renders the row's `fieldPath` value
  *  under the header `title`.  `align` is an optional CSS text-align value. */
-final case class FieldColumnDef(title: String, fieldPath: String, align: Option[String] = None)
+final case class FieldColumnDef(title: String, fieldPath: String, align: Option[String] = None,
+                                editAction: Option[RowActionDef.RowInlineEdit] = None)
 
 /** A per-row action in a `View.DataTable`.  Each lowers to a `View.Button` whose
  *  `EventHandler` is bound to the current iteration item. */
@@ -558,6 +568,13 @@ enum RowActionDef:
                headers: Option[ReactiveSignal[String]] = None)
   /** Navigate / select button labelled `label` — writes `item.fieldPath` into `signal`. */
   case RowLink(label: String, signal: ReactiveSignal[String], fieldPath: String)
+
+  /** Inline-edit a cell in place.  On blur / Enter fires `method` to `url` with
+   *  JSON body `{idField: row[idField], fieldPath: newValue}`.  `onSuccessTick`
+   *  is bumped on a 2xx response so the table re-fetches fresh data. */
+  case RowInlineEdit(method: String, url: String, idField: String,
+                     onSuccessTick: ReactiveSignal[Int],
+                     headers: Option[ReactiveSignal[String]] = None)
 
 // ── Codec hint (v1.66) ───────────────────────────────────────────────────────
 

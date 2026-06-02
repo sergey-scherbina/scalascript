@@ -158,7 +158,15 @@ private[vue] object VueEmitter:
           case RowActionDef.RowDelete(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
           case RowActionDef.RowPost(_, _, _, _, tick, hOpt) => register(tick); hOpt.foreach(register)
           case RowActionDef.RowLink(_, sig, _)           => register(sig)
+          case _                                         => ()
         }
+        dt.columns.foreach {
+          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt))) =>
+            register(tick); hOpt.foreach(register)
+          case _ => ()
+        }
+      case View.EditableCell(_, _, action) =>
+        register(action.onSuccessTick); action.headers.foreach(register)
       // P2
       case View.Column(children, _, _, _)     => children.foreach(walk)
       case View.Row(children, _, _, _)        => children.foreach(walk)
@@ -643,6 +651,19 @@ private[vue] object VueEmitter:
     case View.ModelText(varName, fieldPath, _) =>
       val ref = if varName == modelItemVar then varName else s"this.$varName"
       s"String($ref.$fieldPath)"
+
+    case View.EditableCell(varName, fieldPath, action) =>
+      val ref      = if varName == modelItemVar then varName else s"this.$varName"
+      val urlJs    = jsString(action.url)
+      val methodJs = jsString(action.method.toUpperCase)
+      val tickRef  = s"this.${action.onSuccessTick.id}"
+      val idKey    = jsString(action.idField.split('.').last)
+      val valKey   = jsString(fieldPath.split('.').last)
+      val idExpr   = s"String($ref.${action.idField})"
+      val css      = "border:1px solid transparent;background:transparent;width:100%;font-family:inherit;font-size:inherit;color:inherit;outline:none;padding:0"
+      val blurJs   = s"(e) => { const _v = e.target.value; fetch($urlJs, {method: $methodJs, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[$idKey]: $idExpr, [$valKey]: _v})}).then(r => r.text()).then(() => $tickRef++) }"
+      val kdJs     = s"(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = String($ref.$fieldPath); e.target.blur(); } }"
+      s"h('input', { 'type': 'text', 'value': String($ref.$fieldPath), style: ${jsString(css)}, 'onFocus': (e) => { e.target.style.border = '1px solid #3b82f6'; e.target.style.background = '#fff'; }, 'onBlur': $blurJs, 'onKeyDown': $kdJs })"
 
     case View.Adaptive(web, _, _, fallback) =>
       renderView(web.getOrElse(fallback), itemCtx, modelItemVar)

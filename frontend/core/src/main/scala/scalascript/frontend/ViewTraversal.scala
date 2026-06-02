@@ -86,4 +86,5 @@ object ViewTraversal:
          View.ItemText |
          View.DataTable(_, _, _, _) |
          View.ModelText(_, _, _) |
+         View.EditableCell(_, _, _) |
          View.TextNode(_) => Nil

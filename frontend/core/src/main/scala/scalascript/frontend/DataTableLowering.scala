@@ -27,7 +27,11 @@ object DataTableLowering:
     val headerRow  = elem("tr",
       dt.columns.map(c => elem("th", List(View.Text(() => c.title, Style())))))
     val thead = elem("thead", List(headerRow))
-    val dataCells = dt.columns.map(c => elem("td", List(View.ModelText(itemVar, c.fieldPath))))
+    val dataCells = dt.columns.map { c =>
+      c.editAction match
+        case Some(ea) => elem("td", List(View.EditableCell(itemVar, c.fieldPath, ea)))
+        case None     => elem("td", List(View.ModelText(itemVar, c.fieldPath)))
+    }
     val actionCells = dt.actions.map(a => elem("td", List(actionButton(a))))
     val bodyRow = elem("tr", dataCells ++ actionCells)
     val tbody = elem("tbody",
@@ -45,3 +49,7 @@ object DataTableLowering:
     case RowActionDef.RowLink(label, signal, fieldPath) =>
       View.Button(View.Text(() => label, Style()),
         EventHandler.SetFieldToSignal(signal, fieldPath))
+    case RowActionDef.RowInlineEdit(_, _, _, _, _) =>
+      // RowInlineEdit appears on FieldColumnDef.editAction, never in dt.actions;
+      // this arm is unreachable but needed for exhaustivity.
+      View.Button(View.Text(() => "", Style()), EventHandler.Simple(() => ()))

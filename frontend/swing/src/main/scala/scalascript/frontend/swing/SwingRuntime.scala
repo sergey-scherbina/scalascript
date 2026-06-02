@@ -362,9 +362,31 @@ object SwingRuntime:
       case _ => ()
 
   private def nativeDataTable(dt: View.DataTable, state: RuntimeState): JComponent =
-    val colHeaders = dt.columns.map(_.title).toArray[Object]
+    val colHeaders      = dt.columns.map(_.title).toArray[Object]
+    val editableCols    = dt.columns.zipWithIndex.collect {
+      case (c, i) if c.editAction.isDefined => i
+    }.toSet
     val tableModel = new DefaultTableModel(colHeaders, 0) {
-      override def isCellEditable(row: Int, col: Int) = false
+      override def isCellEditable(row: Int, col: Int) = editableCols.contains(col)
+      override def setValueAt(value: Object, row: Int, col: Int): Unit =
+        super.setValueAt(value, row, col)
+        if editableCols.contains(col) then
+          val ea        = dt.columns(col).editAction.get
+          val fieldPath = dt.columns(col).fieldPath
+          val idColIdx  = dt.columns.indexWhere(_.fieldPath == ea.idField)
+          val idValue   = if idColIdx >= 0 then String.valueOf(getValueAt(row, idColIdx)) else ""
+          val idKey     = ea.idField.split('.').last
+          val valKey    = fieldPath.split('.').last
+          val newVal    = String.valueOf(value)
+          def esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+          val body = s"""{"${esc(idKey)}":"${esc(idValue)}","${esc(valKey)}":"${esc(newVal)}"}"""
+          Thread(() =>
+            try state.fetchDispatcher.foreach { d =>
+              val r = d.request(ea.method, ea.url, body)
+              if r.status >= 200 && r.status < 300 then
+                SwingUtilities.invokeLater(() => state.incrementSignal(ea.onSuccessTick.id, 1))
+            } catch case _: Exception => ()
+          ).start()
     }
     val table = JTable(tableModel)
     table.setFillsViewportHeight(true)
@@ -402,6 +424,7 @@ object SwingRuntime:
           case RowActionDef.RowDelete(_, _, _, _)          => "Delete"
           case RowActionDef.RowPost(lbl, _, _, _, _, _)    => lbl
           case RowActionDef.RowLink(lbl, _, _)             => lbl
+          case RowActionDef.RowInlineEdit(_, _, _, _, _)   => ""
         val btn = JButton(label)
         btn.addActionListener { _ =>
           val sel = table.getSelectedRow
@@ -424,6 +447,7 @@ object SwingRuntime:
               val colIdx   = dt.columns.indexWhere(_.fieldPath == fieldPath)
               val fieldVal = if colIdx >= 0 then String.valueOf(tableModel.getValueAt(sel, colIdx)) else ""
               state.setSignal(signal.id, fieldVal)
+            case RowActionDef.RowInlineEdit(_, _, _, _, _) => ()
         }
         btnPanel.add(btn)
       }
@@ -529,9 +553,10 @@ object SwingRuntime:
         case dt: View.DataTable =>
           val base = add(acc, dt.signal)
           dt.actions.foldLeft(base) {
-            case (a, RowActionDef.RowDelete(_, _, tick, _))    => add(a, tick)
-            case (a, RowActionDef.RowPost(_, _, _, _, tick, _)) => add(a, tick)
-            case (a, RowActionDef.RowLink(_, sig, _))          => add(a, sig)
+            case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)
+            case (a, RowActionDef.RowPost(_, _, _, _, tick, _))      => add(a, tick)
+            case (a, RowActionDef.RowLink(_, sig, _))               => add(a, sig)
+            case (a, RowActionDef.RowInlineEdit(_, _, _, tick, _))  => add(a, tick)
           }
         case View.Column(children, _, _, _) => children.foldLeft(acc)(loop)
         case View.Row(children, _, _, _) => children.foldLeft(acc)(loop)

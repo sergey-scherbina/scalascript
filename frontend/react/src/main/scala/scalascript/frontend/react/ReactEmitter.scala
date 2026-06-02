@@ -167,7 +167,15 @@ private[react] object ReactEmitter:
           case RowActionDef.RowDelete(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
           case RowActionDef.RowPost(_, _, _, _, tick, hOpt) => register(tick); hOpt.foreach(register)
           case RowActionDef.RowLink(_, sig, _)           => register(sig)
+          case _                                         => ()
         }
+        dt.columns.foreach {
+          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt))) =>
+            register(tick); hOpt.foreach(register)
+          case _ => ()
+        }
+      case View.EditableCell(_, _, action) =>
+        register(action.onSuccessTick); action.headers.foreach(register)
       // P2 — new semantic View cases
       case View.Column(children, _, _, _)     => children.foreach(walk)
       case View.Row(children, _, _, _)        => children.foreach(walk)
@@ -702,6 +710,21 @@ private[react] object ReactEmitter:
 
     case View.ModelText(varName, fieldPath, _) =>
       s"String(${varName}.${fieldPath})"
+
+    case View.EditableCell(varName, fieldPath, action) =>
+      val urlJs      = jsString(action.url)
+      val methodJs   = jsString(action.method.toUpperCase)
+      val tickSetter = setterName(action.onSuccessTick.id)
+      val idKey      = jsString(action.idField.split('.').last)
+      val valKey     = jsString(fieldPath.split('.').last)
+      val idExpr     = s"String($varName.${action.idField})"
+      val inpCss     = "border:1px solid transparent;background:transparent;width:100%;font-family:inherit;font-size:inherit;color:inherit;outline:none;padding:0"
+      val focusCss   = "border:1px solid #3b82f6;background:#fff;"
+      val inpStyle   = cssStringToReactObject(inpCss)
+      val focStyle   = cssStringToReactObject(focusCss)
+      val blurJs     = s"(e) => { const _v = e.target.value; fetch($urlJs, {method: $methodJs, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[$idKey]: $idExpr, [$valKey]: _v})}).then(r => r.text()).then(_ => $tickSetter(t => t + 1)) }"
+      val kdJs       = s"(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = String($varName.$fieldPath); e.target.blur(); } }"
+      s"h('input', { 'type': 'text', defaultValue: String($varName.$fieldPath), style: $inpStyle, onFocus: (e) => Object.assign(e.target.style, $focStyle), onBlur: $blurJs, onKeyDown: $kdJs })"
 
     case View.Adaptive(web, _, _, fallback) =>
       renderView(web.getOrElse(fallback), itemCtx, modelItemVar)

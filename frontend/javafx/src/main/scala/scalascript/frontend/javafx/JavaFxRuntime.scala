@@ -266,12 +266,36 @@ object JavaFxRuntime:
     val tableView = new TableView[Row](rows)
     tableView.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY)
 
+    val hasEditable = dt.columns.exists(_.editAction.isDefined)
+    if hasEditable then tableView.setEditable(true)
+
     dt.columns.zipWithIndex.foreach { (col, idx) =>
       val tc = new TableColumn[Row, String](col.title)
       tc.setCellValueFactory { cellData =>
         val v = cellData.getValue
         val s = if idx < v.size then v.get(idx) else ""
         new _root_.javafx.beans.property.SimpleStringProperty(s)
+      }
+      col.editAction.foreach { ea =>
+        tc.setCellFactory(_root_.javafx.scene.control.cell.TextFieldTableCell.forTableColumn())
+        tc.setOnEditCommit { event =>
+          val newValue = event.getNewValue
+          val rowData  = event.getRowValue
+          rowData.set(idx, newValue)
+          val idColIdx = dt.columns.indexWhere(_.fieldPath == ea.idField)
+          val idValue  = if idColIdx >= 0 then rowData.get(idColIdx) else ""
+          val idKey    = ea.idField.split('.').last
+          val valKey   = col.fieldPath.split('.').last
+          def esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+          val body = s"""{"${esc(idKey)}":"${esc(idValue)}","${esc(valKey)}":"${esc(newValue)}"}"""
+          Thread(() =>
+            try state.fetchDispatcher.foreach { d =>
+              val r = d.request(ea.method, ea.url, body)
+              if r.status >= 200 && r.status < 300 then
+                Platform.runLater(() => state.incrementSignal(ea.onSuccessTick.id, 1))
+            } catch case _: Exception => ()
+          ).start()
+        }
       }
       tableView.getColumns.add(tc)
     }
@@ -312,6 +336,7 @@ object JavaFxRuntime:
           case RowActionDef.RowDelete(_, _, _, _)          => "Delete"
           case RowActionDef.RowPost(lbl, _, _, _, _, _)    => lbl
           case RowActionDef.RowLink(lbl, _, _)             => lbl
+          case RowActionDef.RowInlineEdit(_, _, _, _, _)   => ""
         val btn = new Button(label)
         btn.setOnAction { _ =>
           val sel = tableView.getSelectionModel.getSelectedIndex
@@ -342,6 +367,7 @@ object JavaFxRuntime:
                 val colIdx   = dt.columns.indexWhere(_.fieldPath == fieldPath)
                 val fieldVal = if colIdx >= 0 then row.get(colIdx) else ""
                 Platform.runLater(() => state.setSignal(signal.id, fieldVal))
+              case RowActionDef.RowInlineEdit(_, _, _, _, _) => ()
         }
         btnBox.getChildren.add(btn)
       }
@@ -519,9 +545,10 @@ object JavaFxRuntime:
         case dt: View.DataTable =>
           val base = add(acc, dt.signal)
           dt.actions.foldLeft(base) {
-            case (a, RowActionDef.RowDelete(_, _, tick, _))       => add(a, tick)
-            case (a, RowActionDef.RowPost(_, _, _, _, tick, _))   => add(a, tick)
-            case (a, RowActionDef.RowLink(_, sig, _))             => add(a, sig)
+            case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)
+            case (a, RowActionDef.RowPost(_, _, _, _, tick, _))      => add(a, tick)
+            case (a, RowActionDef.RowLink(_, sig, _))               => add(a, sig)
+            case (a, RowActionDef.RowInlineEdit(_, _, _, tick, _))  => add(a, tick)
           }
         case _                               => acc
     loop(Map.empty, view).values.toList.sortBy(_.id)

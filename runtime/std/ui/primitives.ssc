@@ -29,6 +29,7 @@ exports:
   - rowDeleteAction
   - rowPostAction
   - rowLinkAction
+  - rowEditAction
   - dataTableView
 ---
 
@@ -110,7 +111,9 @@ extern def fetchActionClear(method: String, url: String, body: Signal[String], o
 
 // ── DataTable primitives ──────────────────────────────────────────────────
 // fieldColumn — descriptor for a data column: title shown in header + dot-path field.
-extern def fieldColumn(title: String, fieldPath: String, align: String = ""): Any
+// Optional editAction (a rowEditAction) enables inline cell editing for this column.
+extern def fieldColumn(title: String, fieldPath: String, align: String = "",
+                       editAction: Any = null): Any
 
 // rowDeleteAction — per-row delete button: POSTs idField value, bumps tick.
 extern def rowDeleteAction(url: String, idField: String, tick: Signal[Int],
@@ -122,6 +125,11 @@ extern def rowPostAction(label: String, method: String, url: String, bodyField: 
 
 // rowLinkAction — per-row navigate/select: writes item.fieldPath into signal on click.
 extern def rowLinkAction(label: String, signal: Signal[String], fieldPath: String): Any
+
+// rowEditAction — inline cell-edit descriptor: on blur/Enter fires method to url with
+// JSON body {idField: row[idField], fieldPath: newValue}, bumps tick on 2xx.
+extern def rowEditAction(method: String, url: String, idField: String,
+                         tick: Signal[Int], headers: Signal[String] = emptyHeaders): Any
 
 // dataTableView — builds a View.DataTable from a FetchUrlSignal + column/action descriptors.
 // Web backends lower to <table><thead><tbody> chrome via DataTableLowering.

@@ -375,9 +375,38 @@ object SwiftUIEmitter:
         val pad3 = " " * (indent + 8)
         val pad4 = " " * (indent + 12)
         val headerCols = dt.columns.map(c => s"""${pad3}Text(${swiftStringLit(c.title)}).bold()""").mkString("\n")
+        val editBuf  = s"_edit_${dt.signal.id}"
         val dataCols = dt.columns.map { c =>
           val key = c.fieldPath.split("\\.").head
-          s"""${pad4}Text((_row[${swiftStringLit(key)}] as? String) ?? String(describing: _row[${swiftStringLit(key)}] ?? ""))"""
+          c.editAction match
+            case None =>
+              s"""${pad4}Text((_row[${swiftStringLit(key)}] as? String) ?? String(describing: _row[${swiftStringLit(key)}] ?? ""))"""
+            case Some(ea) =>
+              val editKey    = swiftStringLit(key)
+              val idKey      = swiftStringLit(ea.idField.split("\\.").head)
+              val urlLit     = swiftStringLit(ea.url)
+              val methodLit  = swiftStringLit(ea.method.toUpperCase)
+              val fieldLit   = swiftStringLit(c.fieldPath.split("\\.").last)
+              val idFieldLit = swiftStringLit(ea.idField.split("\\.").last)
+              val bufKey     = s"\\(_idx)_${key}"
+              s"""${pad4}TextField("", text: Binding(
+                 |${pad4}    get: { $editBuf["$bufKey"] ?? ((_row[$editKey] as? String) ?? "") },
+                 |${pad4}    set: { $editBuf["$bufKey"] = $$0 }
+                 |${pad4}))
+                 |${pad4}.textFieldStyle(.plain)
+                 |${pad4}.onSubmit {
+                 |${pad4}    let _val = $editBuf["$bufKey"] ?? ((_row[$editKey] as? String) ?? "")
+                 |${pad4}    let _id  = (_row[$idKey] as? String) ?? ""
+                 |${pad4}    Task { @MainActor in
+                 |${pad4}        guard let _url = URL(string: $urlLit) else { return }
+                 |${pad4}        var _req = URLRequest(url: _url)
+                 |${pad4}        _req.httpMethod = $methodLit
+                 |${pad4}        _req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                 |${pad4}        _req.httpBody = try? JSONSerialization.data(withJSONObject: [$idFieldLit: _id, $fieldLit: _val])
+                 |${pad4}        let _ = try? await URLSession.shared.data(for: _req)
+                 |${pad4}        ${ea.onSuccessTick.id} += 1
+                 |${pad4}    }
+                 |${pad4}}""".stripMargin
         }.mkString("\n")
         val actionBtns = dt.actions.map {
           case RowActionDef.RowDelete(url, idField, tick, _) =>
@@ -405,7 +434,8 @@ object SwiftUIEmitter:
             s"""${pad4}Button(${swiftStringLit(label)}) {
                |${pad4}  ${signal.id} = (_row[${swiftStringLit(key)}] as? String) ?? ""
                |${pad4}}""".stripMargin
-        }.mkString("\n")
+          case RowActionDef.RowInlineEdit(_, _, _, _, _) => ""
+        }.filter(_.nonEmpty).mkString("\n")
         val rowBody = if actionBtns.nonEmpty then
           s"${pad3}HStack {\n$dataCols\n$actionBtns\n${pad3}}"
         else
@@ -630,9 +660,10 @@ object SwiftUIEmitter:
         case View.ForModel(_, _, _, tmpl, _)     => loop(acc, tmpl)
         case dt: View.DataTable =>
           dt.actions.foldLeft(acc) {
-            case (a, RowActionDef.RowDelete(_, _, tick, _))     => add(a, tick)
-            case (a, RowActionDef.RowPost(_, _, _, _, tick, _)) => add(a, tick)
-            case (a, RowActionDef.RowLink(_, sig, _))           => add(a, sig)
+            case (a, RowActionDef.RowDelete(_, _, tick, _))        => add(a, tick)
+            case (a, RowActionDef.RowPost(_, _, _, _, tick, _))    => add(a, tick)
+            case (a, RowActionDef.RowLink(_, sig, _))              => add(a, sig)
+            case (a, RowActionDef.RowInlineEdit(_, _, _, tick, _)) => add(a, tick)
           }
         case _ => acc
     loop(Map.empty, view).values.toList.sortBy(_.id)
@@ -817,7 +848,13 @@ object SwiftUIEmitter:
     if dts.isEmpty then ""
     else
       val pad = " " * indent
-      dts.map(dt => s"${pad}@State private var ${dt.signal.id}: [[String: Any]] = []").mkString("\n")
+      dts.flatMap { dt =>
+        val rowState  = s"${pad}@State private var ${dt.signal.id}: [[String: Any]] = []"
+        val editState = if dt.columns.exists(_.editAction.isDefined) then
+          Some(s"${pad}@State private var _edit_${dt.signal.id}: [String: String] = [:]")
+        else None
+        rowState :: editState.toList
+      }.mkString("\n")
 
   private def emitDataTableModifiers(dts: List[View.DataTable], indent: Int): String =
     if dts.isEmpty then ""

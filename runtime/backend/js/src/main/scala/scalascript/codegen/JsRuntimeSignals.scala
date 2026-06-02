@@ -454,9 +454,10 @@ function _ssc_ui_fetchUrlSignal(name, url, tick, headers) {
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
 function _ssc_ui_incSignal(s) { return { _type: '_IncSignal', s }; }
 function _ssc_ui_fetchActionClear(method, url, body, tick, headers) { return { _type: '_FetchActionClear', method, url, body, tick, headers: headers || null }; }
-function _ssc_ui_fieldColumn(title, fieldPath, align) { return { title, fieldPath, align: align || '' }; }
+function _ssc_ui_fieldColumn(title, fieldPath, align, editAction) { return { title, fieldPath, align: align || '', editAction: editAction || null }; }
 function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField, tick, headers: headers || null }; }
 function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }
 function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }
+function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _type: '_RowInlineEdit', method, url, idField, tick, headers: headers || null }; }
 function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [] }; }
 """

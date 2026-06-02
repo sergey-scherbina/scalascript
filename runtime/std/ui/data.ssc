@@ -12,6 +12,7 @@ exports:
   - rowDelete
   - rowPost
   - rowLink
+  - rowEdit
   - dataTable
 ---
 
@@ -39,8 +40,9 @@ def sortableTable(sortCol: Any, cols: List[TableColumn], rows: List[List[TkNode]
 
 // ── DataTable authoring helpers ───────────────────────────────────────────
 // fcol — shorthand for fieldColumn; defines one data column by title + dot-path.
-def fcol(title: String, fieldPath: String, align: String = ""): Any =
-  fieldColumn(title, fieldPath, align)
+// Pass editable = rowEdit(...) to enable inline cell editing for this column.
+def fcol(title: String, fieldPath: String, align: String = "", editable: Any = null): Any =
+  fieldColumn(title, fieldPath, align, editable)
 
 // rowDelete — per-row Delete action: POSTs item.idField to url, bumps tick.
 def rowDelete(url: String, idField: String, tick: Any,
@@ -55,6 +57,12 @@ def rowPost(label: String, method: String, url: String, bodyField: String,
 // rowLink — per-row navigate/select: writes item.fieldPath into signal on click.
 def rowLink(label: String, signal: Any, fieldPath: String): Any =
   rowLinkAction(label, signal, fieldPath)
+
+// rowEdit — inline cell-edit descriptor: on blur/Enter PATCHes/POSTs the new value.
+// Use as editable param of fcol: fcol("Name", "name", editable = rowEdit("PATCH", "/api/emp/update", "id", tick))
+def rowEdit(method: String, url: String, idField: String, tick: Any,
+            headers: Any = emptyHeaders): Any =
+  rowEditAction(method, url, idField, tick, headers)
 
 // dataTable — builds a DataTableNode from a FetchUrlSignal + column/action lists.
 // Lower with lower.ssc; web backends render as <table>, Swing as JTable.

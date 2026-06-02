@@ -89,8 +89,11 @@ object JvmRuntimeUiPrimitives:
        |          clearBody = true,
        |          headers = _hOpt)
        |
-       |      def fieldColumn(title: String, fieldPath: String, align: String = ""): Any =
-       |        scalascript.frontend.FieldColumnDef(title, fieldPath, Option(align).filter(_.nonEmpty))
+       |      def fieldColumn(title: String, fieldPath: String, align: String = "",
+       |                      editAction: Any = null): Any =
+       |        val _ea = Option(editAction).collect {
+       |          case a: scalascript.frontend.RowActionDef.RowInlineEdit => a }
+       |        scalascript.frontend.FieldColumnDef(title, fieldPath, Option(align).filter(_.nonEmpty), _ea)
        |
        |      def rowDeleteAction(url: String, idField: String, tick: Any, headers: Any = null): Any =
        |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
@@ -108,6 +111,13 @@ object JvmRuntimeUiPrimitives:
        |      def rowLinkAction(label: String, signal: Any, fieldPath: String): Any =
        |        scalascript.frontend.RowActionDef.RowLink(label,
        |          signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], fieldPath)
+       |
+       |      def rowEditAction(method: String, url: String, idField: String,
+       |                        tick: Any, headers: Any = null): Any =
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers")
+       |        scalascript.frontend.RowActionDef.RowInlineEdit(method, url, idField,
+       |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
        |      def dataTableView(signal: Any, columns: Any, actions: Any): View =
        |        val _cols = columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]]

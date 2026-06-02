@@ -370,6 +370,12 @@ private[solid] object SolidEmitter:
           case RowActionDef.RowDelete(_, _, tick, hOpt) => registerSignal(tick); hOpt.foreach(registerSignal)
           case RowActionDef.RowPost(_, _, _, _, tick, hOpt) => registerSignal(tick); hOpt.foreach(registerSignal)
           case RowActionDef.RowLink(_, sig, _)           => registerSignal(sig)
+          case _                                         => ()
+        }
+        dt.columns.foreach {
+          case FieldColumnDef(_, _, _, Some(RowActionDef.RowInlineEdit(_, _, _, tick, hOpt))) =>
+            registerSignal(tick); hOpt.foreach(registerSignal)
+          case _ => ()
         }
         val tableId   = dt.signal.id
         val tickId    = dt.signal.tickId
@@ -405,7 +411,23 @@ private[solid] object SolidEmitter:
         statements += s"    const __tr = document.createElement('tr');"
         dt.columns.foreach { col =>
           val tdVar = freshVar()
-          statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle); $tdVar.textContent = String(__row.${col.fieldPath}); __tr.appendChild($tdVar);"
+          col.editAction match
+            case None =>
+              statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle); $tdVar.textContent = String(__row.${col.fieldPath}); __tr.appendChild($tdVar);"
+            case Some(ea) =>
+              val inpVar    = freshVar()
+              val actSetter = setterName(ea.onSuccessTick.id)
+              val urlJs     = jsString(ea.url)
+              val methodJs  = jsString(ea.method.toUpperCase)
+              val idKey     = jsString(ea.idField.split('.').last)
+              val valKey    = jsString(col.fieldPath.split('.').last)
+              val inpStyle  = jsString("border:1px solid transparent;background:transparent;width:100%;font-family:inherit;font-size:inherit;color:inherit;outline:none;padding:0")
+              statements += s"    const $tdVar = document.createElement('td'); $tdVar.setAttribute('style', $tdStyle);"
+              statements += s"    const $inpVar = document.createElement('input'); $inpVar.type = 'text'; $inpVar.value = String(__row.${col.fieldPath}); $inpVar.setAttribute('style', $inpStyle);"
+              statements += s"    $inpVar.addEventListener('focus', (e) => { e.target.style.border = '1px solid #3b82f6'; e.target.style.background = '#fff'; });"
+              statements += s"    $inpVar.addEventListener('blur', ((r) => (e) => { const _v = e.target.value; fetch($urlJs, {method: $methodJs, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[$idKey]: String(r.${ea.idField}), [$valKey]: _v})}).then(x => x.text()).then(_ => $actSetter(t => t + 1)); })(__row));"
+              statements += s"    $inpVar.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = String(__row.${col.fieldPath}); e.target.blur(); } });"
+              statements += s"    $tdVar.appendChild($inpVar); __tr.appendChild($tdVar);"
         }
         if dt.actions.nonEmpty then
           val tdActVar = freshVar()
@@ -434,6 +456,7 @@ private[solid] object SolidEmitter:
               statements += s"    const $btnVar = document.createElement('button'); $btnVar.setAttribute('style', $btnStyle); $btnVar.textContent = ${jsString(label)};"
               statements += s"    $btnVar.addEventListener('click', () => $actSetter(String(__row.$fieldPath)));"
               statements += s"    $tdActVar.appendChild($btnVar);"
+            case _ => ()
           }
           statements += s"    __tr.appendChild($tdActVar);"
         statements += s"    $tbodyVar.appendChild(__tr);"
@@ -844,6 +867,13 @@ private[solid] object SolidEmitter:
 
       case View.Adaptive(web, _, _, fallback) =>
         compile(web.getOrElse(fallback))
+
+      case View.EditableCell(varName, fieldPath, action) =>
+        // Solid handles DataTable natively; EditableCell is emitted inline there
+        // and should never reach compile(). Fallback: plain text node.
+        val v = freshVar()
+        statements += s"const $v = document.createTextNode(String($varName.$fieldPath));"
+        v
 
     private def compileEventHandler(targetVar: String, eventName: String, handler: EventHandler): Unit =
       handler match
