@@ -61,7 +61,9 @@ if $RUN_JMH; then
     exit 1
   fi
   echo "== JMH smoke =="
-  (cd "$ROOT" && sbt 'interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*')
+  # Absolute path: JMH forks run in the subproject baseDirectory, so a
+  # relative bench/... would resolve under runtime/backend/interpreter-bench.
+  (cd "$ROOT" && sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff ${ROOT}/bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*")
 else
   echo "JMH smoke skipped; pass --jmh to run one short JMH benchmark."
 fi

@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Single-entry benchmark runner. See docs/benchmarks.md for what each
+# command measures and when to use it.
+#
+# Usage:
+#   scripts/bench <command> [name-pattern]
+#
+# Run `scripts/bench help` for the full command list.
+
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+# JMH defaults (override via env): 3 warmup x 5 measure x 1 fork ~= 25 s/bench.
+WI="${BENCH_WI:-3}"
+MI="${BENCH_MI:-5}"
+F="${BENCH_F:-1}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/bench <command> [name-pattern]
+
+Commands:
+  interp [pat]    Interpreter microbenchmarks (InterpreterBench).
+                  Use this for everyday interpreter perf A/B.
+  cross [pat]     Cross-backend execution speed
+                  (RuntimeBench: interp_X vs js_X vs jvm_X).
+                  Use this to see how far interp is from JVM/JS backends.
+  gen [pat]       Codegen-time benchmarks (CrossBackendBench: jvmGen_X / jsGen_X).
+                  Use this to track how long backends take to PRODUCE code.
+  compile [pat]   Compiler perf (CompilerBench: parser / typer / unifier).
+
+  off <pat>       Same as `interp <pat>` but with SSC_JIT_BYTECODE=off
+                  and SSC_FASTTIER=off — proves the fall-back paths still
+                  run correctly.
+  profile <pat>   `interp <pat>` + JFR alloc samples + JMH gc profiler.
+                  Use this when you need to know WHY a bench is slow.
+
+  smoke           One-iteration smoke (proves the bench infra is wired up).
+                  Same command as the perf-manifest smoke target.
+  wall            Wall-clock cross-language run (tests/bench/run.sc):
+                  ssc-interp / ssc-jvm / ssc-js / scala-direct / node-direct.
+                  Use this for cold-JVM, fresh-process numbers.
+
+  list            List all available @Benchmark methods.
+  help            This message.
+
+Examples:
+  scripts/bench interp                  # all interp benches
+  scripts/bench interp recursionFib     # filter to one bench
+  scripts/bench off recursionFib        # same bench with optimizations off
+  scripts/bench profile instanceFieldAccess
+  scripts/bench cross arithLoop         # interp vs JS vs JVM, one workload
+
+Env overrides:
+  BENCH_WI=N   warmup iterations (default 3)
+  BENCH_MI=N   measure iterations (default 5)
+  BENCH_F=N    forks (default 1; use 2 for higher-confidence A/B)
+EOF
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  help|-h|--help) usage; exit 0 ;;
+esac
+shift
+pat="${1:-.*}"
+
+# Class-scoped JMH pattern. `.*Class.*pat.*` is permissive on both ends so
+# `interp_X` / `jvmGen_X` prefixes inside the class match a bare workload
+# name like `arithLoop`.
+jmh_run() {
+  local project="$1"; shift
+  local cls="$1"; shift
+  local extra=("$@")
+  local regex=".*${cls}.*${pat}.*"
+  sbt "${project}/Jmh/run -wi ${WI} -i ${MI} -f ${F} ${extra[*]} ${regex}"
+}
+
+require_pat() {
+  if [[ "$pat" == ".*" ]]; then
+    echo "scripts/bench $cmd: requires a name pattern" >&2
+    exit 2
+  fi
+}
+
+case "$cmd" in
+  interp)   jmh_run interpreterBench InterpreterBench ;;
+  cross)    jmh_run interpreterBench RuntimeBench ;;
+  gen)      jmh_run interpreterBench CrossBackendBench ;;
+  compile)  jmh_run compilerBench CompilerBench ;;
+
+  off)
+    require_pat
+    # Set BOTH env and system properties so the off-mode reaches the JMH-forked
+    # JVM regardless of which one BytecodeJit/FastTier sees first.
+    SSC_JIT_BYTECODE=off SSC_FASTTIER=off \
+      jmh_run interpreterBench InterpreterBench \
+        '-jvmArgsPrepend' '"-Dssc.jit.bytecode=off -Dssc.fasttier=off"'
+    ;;
+
+  profile)
+    require_pat
+    jmh_run interpreterBench InterpreterBench '-prof' 'gc' '-prof' '"jfr:configName=profile"'
+    ;;
+
+  smoke)
+    # Absolute path: JMH forks run in the subproject baseDirectory, so a
+    # relative `bench/...` would resolve under runtime/backend/interpreter-bench.
+    sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff ${ROOT}/bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*"
+    ;;
+
+  wall)
+    if ! command -v scala-cli >/dev/null 2>&1; then
+      echo "scripts/bench wall: scala-cli not found; install it or skip" >&2
+      exit 1
+    fi
+    scala-cli tests/bench/run.sc
+    ;;
+
+  list)
+    sbt 'interpreterBench/Jmh/run -lp .*' 2>/dev/null | \
+      grep -E 'scalascript\.bench\.' | sort
+    ;;
+
+  *)
+    echo "scripts/bench: unknown command '$cmd'" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

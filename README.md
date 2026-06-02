@@ -505,23 +505,28 @@ accessed.  Scripts that never call a plugin skip the scan entirely.
 | `hello.ssc` (no plugins) | ~0.31 s |
 | Script with HTTP/SQL/auth | ~0.35 s (scan runs on first access) |
 
-### Cross-backend micro-benchmarks
+### Microbenchmarks (`scripts/bench`)
 
-Cross-backend micro-benchmarks (fib, tail-recursive sum, list ops) comparing
-ScalaScript's three backends against hand-written Scala 3 and JavaScript:
+Everything benchmark-related goes through one wrapper:
 
 ```bash
-scala-cli bench/run.sc
+scripts/bench interp                  # all interpreter microbenchmarks
+scripts/bench interp recursionFib     # filter to one bench
+scripts/bench cross                   # interp vs JS vs JVM (RuntimeBench)
+scripts/bench off recursionFib        # prove the off-mode fall-back works
+scripts/bench profile recursionFib    # JFR alloc + GC profile
+scripts/bench wall                    # cross-language wall-clock (ssc/scala/node)
+scripts/bench help                    # full command list
 ```
 
-See [`bench/README.md`](bench/README.md) for the workload list, methodology,
-and a sample results table.
+The canonical reference — what each bench measures, when to use it, how to
+add a new one — is [`docs/benchmarks.md`](docs/benchmarks.md).
 
-Quick non-blocking smoke checks are available for perf-sensitive changes:
+Quick non-blocking smoke checks for perf-sensitive changes:
 
 ```bash
-ssc bench --smoke
-scripts/perf-smoke.sh --jmh   # opt-in short JMH smoke
+ssc bench --smoke               # corpus-driven CLI smoke
+scripts/bench smoke             # one-iter JMH smoke (writes bench/jmh-smoke.json)
 ```
 
 The checked-in workflow and baseline policy live in

@@ -45,6 +45,31 @@ Trust the line `set current project to root (in build file:<path>/)` in
 sbt's startup output: if `<path>` is NOT your worktree, the previous shell
 CWD leaked. Re-run with explicit `cd`.
 
+## MANDATORY: benchmarks go through `scripts/bench`
+
+For any perf A/B work, use the `scripts/bench` wrapper instead of typing
+raw `sbt "interpreterBench/Jmh/run …"` invocations. One command per case:
+
+```bash
+scripts/bench interp [pat]     # InterpreterBench microbenchmarks
+scripts/bench cross [pat]      # cross-backend execution (RuntimeBench)
+scripts/bench gen [pat]        # codegen-time (CrossBackendBench)
+scripts/bench compile [pat]    # parser/typer/unifier (CompilerBench)
+scripts/bench off <pat>        # interp bench with BYTECODE+FASTTIER off
+scripts/bench profile <pat>    # interp bench + JFR alloc + GC profile
+scripts/bench smoke            # one-iter JMH smoke
+scripts/bench wall             # cross-language wall-clock
+scripts/bench help / list      # usage / list every @Benchmark
+```
+
+The canonical reference is [`docs/benchmarks.md`](docs/benchmarks.md): what
+each bench measures, when to use it, how to add a new one, and the gotchas
+(e.g. `Set(...)` does not work in the bench harness because
+`BuiltinsRuntime.initBuiltins` is skipped; use `.toSet`). When recording
+baselines in `WORK_QUEUE.md` / `docs/vm-jit-next.md`, **name the
+`scripts/bench` command that produced the number** so the next agent
+re-runs the same configuration.
+
 ## MANDATORY: write to `AGENTS.md` in English only
 
 Project documentation in `AGENTS.md` is the durable session brief used by
