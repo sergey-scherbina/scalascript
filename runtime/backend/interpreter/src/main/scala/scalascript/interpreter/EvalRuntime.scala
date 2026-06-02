@@ -237,7 +237,7 @@ private[interpreter] object EvalRuntime:
         else cached.asInstanceOf[java.lang.reflect.Method]
       else
         val m = scalascript.interpreter.vm.BytecodeJit.tryCompileWhileLong(
-          t.expr, body.names, body.rhs
+          t.expr, body.names, body.rhs, interp
         )
         interp.whileJitCache.put(t, if m == null then WhileJitMiss else m.asInstanceOf[AnyRef])
         m

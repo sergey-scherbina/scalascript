@@ -665,22 +665,41 @@ object BytecodeJit:
     java.util.IdentityHashMap()
   private val WhileLongMiss: AnyRef = new AnyRef
 
+  /** Per-tryCompileWhileLong walker context: holds the slot name list,
+   *  optional `interp` for resolving callees, and an ordered emission map
+   *  of `pureFnEmissions` — sanitised-fn-name → Java method source. Each
+   *  unique pure top-level def referenced from a body RHS gets co-emitted
+   *  as a static method in the generated class; the body emits
+   *  `<sanitisedName>(<arg>)` instead of bailing. Helps `pureCallSum` /
+   *  `pureCallSum2` (the 13-14 ms per-iter eval dispatch). */
+  private final class WhileGenCtx(
+    val slots:            Array[String],
+    val interp:           scalascript.interpreter.Interpreter | Null,
+    val pureFnEmissions:  scala.collection.mutable.LinkedHashMap[String, String]
+  )
+
   def tryCompileWhileLong(
     cond:  Term,
     names: Array[String],
-    rhs:   Array[Term]
+    rhs:   Array[Term],
+    interp: scalascript.interpreter.Interpreter | Null = null
   ): java.lang.reflect.Method | Null =
     if !enabled then return null
     // Global cache: avoid javac on every Interpreter instance / benchmark iter.
     val globalCached = whileLongGlobalCache.get(cond)
     if globalCached eq WhileLongMiss then return null
     if globalCached != null then return globalCached.asInstanceOf[java.lang.reflect.Method]
-    val condJava = walkLocalBool(cond, names)
+    val ctx = new WhileGenCtx(
+      names,
+      interp,
+      scala.collection.mutable.LinkedHashMap.empty[String, String]
+    )
+    val condJava = walkLocalBoolCtx(cond, ctx)
     if condJava == null then return null
     val rhsJava = new Array[String](names.length)
     var k = 0
     while k < names.length do
-      rhsJava(k) = walkLocalSlot(rhs(k), names)
+      rhsJava(k) = walkLocalSlotCtx(rhs(k), ctx)
       if rhsJava(k) == null then return null
       k += 1
     val className = s"WhileLong_${Integer.toUnsignedString(System.identityHashCode(cond))}"
@@ -704,7 +723,15 @@ object BytecodeJit:
     while i < names.length do
       sb.append(s"    v[$i] = _v$i;\n")
       i += 1
-    sb.append("  }\n}\n")
+    sb.append("  }\n")
+    // Co-emit each unique pure-fn callee as a static method in the same class.
+    // walkLocalSlotCtx populates `ctx.pureFnEmissions` lazily during the body
+    // walk above; we append the method sources after `run` so the class is
+    // self-contained (no cross-class linking required).
+    val emissionIt = ctx.pureFnEmissions.valuesIterator
+    while emissionIt.hasNext do
+      sb.append(emissionIt.next())
+    sb.append("}\n")
     val source = sb.toString
     val compiler = ToolProvider.getSystemJavaCompiler
     if compiler == null then
@@ -744,41 +771,101 @@ object BytecodeJit:
   /** Walk a Term to a Java `long` expression using `_v$idx` local variables
    *  (as declared in the generated method prologue). Supports:
    *  `Lit.Int`/`Lit.Long`, slot `Term.Name`, `Term.ApplyInfix` with
-   *  `{+, -, *, /, %}`. Returns null for anything outside this subset
-   *  (free names, nested function calls, etc.) — caller bails to LExpr path. */
-  private def walkLocalSlot(t: Term, slots: Array[String]): String | Null = t match
+   *  `{+, -, *, /, %}`, and (when `ctx.interp` is non-null) `Term.Apply`
+   *  to a pure top-level def whose body is itself walkable via this
+   *  function — the callee is co-emitted as a static method in the
+   *  generated class (Direction A.3 of the perf roadmap). Returns null
+   *  for anything outside this subset — caller bails to LExpr path. */
+  private def walkLocalSlotCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
     case Lit.Int(v)  => s"${v}L"
     case Lit.Long(v) => s"${v}L"
     case tn: Term.Name =>
       var idx = 0
-      while idx < slots.length do
-        if slots(idx) == tn.value then return s"_v$idx"
+      while idx < ctx.slots.length do
+        if ctx.slots(idx) == tn.value then return s"_v$idx"
         idx += 1
       null
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       op.value match
         case "+" | "-" | "*" | "/" | "%" =>
-          val l = walkLocalSlot(lhs, slots); if l == null then return null
-          val r = walkLocalSlot(argClause.values.head, slots); if r == null then return null
+          val l = walkLocalSlotCtx(lhs, ctx); if l == null then return null
+          val r = walkLocalSlotCtx(argClause.values.head, ctx); if r == null then return null
           s"($l ${op.value} $r)"
+        case _ => null
+    case ap: Term.Apply =>
+      ap.fun match
+        case fnName: Term.Name if ctx.interp != null =>
+          val sanitised = pureFnMethodName(fnName.value)
+          // Resolve callee → check it's a pure FunV of the right arity →
+          // ensure (or emit) its co-compiled method in this class.
+          val nargs = ap.argClause.values.length
+          if (nargs != 1 && nargs != 2) then return null
+          // Compile arg expressions first (each must itself fit the slot subset).
+          val args = ap.argClause.values
+          val a0 = walkLocalSlotCtx(args.head, ctx); if a0 == null then return null
+          val a1 =
+            if nargs == 2 then
+              val r = walkLocalSlotCtx(args(1), ctx); if r == null then return null else r
+            else ""
+          if ctx.pureFnEmissions.contains(sanitised) then
+            if nargs == 1 then s"$sanitised($a0)"
+            else                s"$sanitised($a0, $a1)"
+          else
+            // Look up callee in interp.globals; must be a pure FunV.
+            val fnV = ctx.interp.globals.getOrElse(fnName.value, null)
+            if (fnV eq null) || !fnV.isInstanceOf[Value.FunV] then return null
+            val fn = fnV.asInstanceOf[Value.FunV]
+            if fn.params.length != nargs then return null
+            if fn.usingParams.nonEmpty || fn.returnsThrows then return null
+            if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
+            if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
+            // Walk the callee body with the callee's params as the slot list —
+            // walkLocalSlotCtx then emits param refs as `_v0` / `_v1`.
+            val calleeCtx = new WhileGenCtx(
+              fn.params.toArray, ctx.interp, ctx.pureFnEmissions
+            )
+            val bodyJava = walkLocalSlotCtx(fn.body, calleeCtx); if bodyJava == null then return null
+            // Pre-stamp the emission so a recursive call to self resolves to
+            // an existing entry (prevents infinite walk).
+            val params =
+              if nargs == 1 then "long _v0"
+              else                "long _v0, long _v1"
+            val methodSrc =
+              s"  public static long $sanitised($params) {\n    return $bodyJava;\n  }\n"
+            ctx.pureFnEmissions(sanitised) = methodSrc
+            if nargs == 1 then s"$sanitised($a0)"
+            else                s"$sanitised($a0, $a1)"
         case _ => null
     case _ => null
 
+  /** Sanitise a fn name into a valid Java identifier with a `fn_` prefix
+   *  to avoid collisions with the generated `run` method or Java keywords. */
+  private def pureFnMethodName(name: String): String =
+    val sb = new StringBuilder("fn_")
+    var i = 0
+    while i < name.length do
+      val c = name.charAt(i)
+      if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9') || c == '_' then sb.append(c)
+      else sb.append('_')
+      i += 1
+    sb.toString
+
   /** Walk a condition Term to a Java boolean expression for the while guard.
    *  Handles comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) and `&&`/`||`
-   *  over slot-name / literal operands (via `walkLocalSlot`). */
-  private def walkLocalBool(t: Term, slots: Array[String]): String | Null = t match
+   *  over slot-name / literal operands (via `walkLocalSlotCtx`). */
+  private def walkLocalBoolCtx(t: Term, ctx: WhileGenCtx): String | Null = t match
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause)
         if argClause.values.lengthCompare(1) == 0 =>
       op.value match
         case "<" | "<=" | ">" | ">=" | "==" | "!=" =>
-          val l = walkLocalSlot(lhs, slots); if l == null then return null
-          val r = walkLocalSlot(argClause.values.head, slots); if r == null then return null
+          val l = walkLocalSlotCtx(lhs, ctx); if l == null then return null
+          val r = walkLocalSlotCtx(argClause.values.head, ctx); if r == null then return null
           s"($l ${op.value} $r)"
         case "&&" | "||" =>
-          val l = walkLocalBool(lhs, slots); if l == null then return null
-          val r = walkLocalBool(argClause.values.head, slots); if r == null then return null
+          val l = walkLocalBoolCtx(lhs, ctx); if l == null then return null
+          val r = walkLocalBoolCtx(argClause.values.head, ctx); if r == null then return null
           s"($l ${op.value} $r)"
         case _ => null
     case _ => null
