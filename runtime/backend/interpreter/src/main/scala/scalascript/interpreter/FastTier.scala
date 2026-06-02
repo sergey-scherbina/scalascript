@@ -227,3 +227,104 @@ private[interpreter] object FastTier:
       PureUnit
     catch
       case _: scala.util.control.ControlThrowable => null
+
+  /** Set-receiver variant of `tryDoubleAccumForeach`. Mirrors the List path
+   *  but iterates via `set.iterator` so the dispatch site can hand the
+   *  receiver `Set[Value]` directly instead of pre-allocating
+   *  `set.toList` (the path the generic `dispatchList(s.toList, …)`
+   *  detour pays). Saves O(N) `::`-cons allocations per outer iter for
+   *  benches like `patternMatchSet`. */
+  def tryDoubleAccumForeachSet(
+    set:     scala.collection.immutable.Set[Value],
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): Computation | Null =
+    if !enabled then return null
+    if closure.params.length != 1 then return null
+    val paramName = closure.params.head
+    val shape = analyzeClosure(closure.body, paramName)
+    if shape == null then return null
+    val fnVal = {
+      val c = closure.closure.getOrElse(shape.fnName, null)
+      if c != null then c else interp.globals.getOrElse(shape.fnName, null)
+    }
+    if (fnVal eq null) || !fnVal.isInstanceOf[Value.FunV] then return null
+    val fn = fnVal.asInstanceOf[Value.FunV]
+    if fn.params.length != 1 || fn.usingParams.nonEmpty || fn.returnsThrows then return null
+    if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
+    if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
+    if !fn.body.isInstanceOf[Term.Match] then return null
+    val mt = fn.body.asInstanceOf[Term.Match]
+    val fnParam = fn.params.head
+    val scrutMatchesParam = mt.expr match
+      case n: Term.Name => n.value == fnParam
+      case _            => false
+    if !scrutMatchesParam then return null
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.doubleCapable then return null
+    if !compiled.allSlot then return null
+    val freeNames = compiled.slotFreeNames
+    if freeNames == null || freeNames.contains(fnParam) then return null
+    val accV = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.DoubleV] then return null
+    var acc = accV.asInstanceOf[Value.DoubleV].v
+    val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
+    try
+      val it = set.iterator
+      while it.hasNext do
+        acc = acc + compiled.runValueDouble(it.next(), fnEnv)
+      interp.globals(shape.accName) = Value.doubleV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable => null
+
+  /** Long-typed parallel of `tryDoubleAccumForeachSet`. */
+  def tryLongAccumForeachSet(
+    set:     scala.collection.immutable.Set[Value],
+    closure: Value.FunV,
+    interp:  Interpreter
+  ): Computation | Null =
+    if !enabled then return null
+    if closure.params.length != 1 then return null
+    val paramName = closure.params.head
+    val shape = analyzeClosure(closure.body, paramName)
+    if shape == null then return null
+    val fnVal = {
+      val c = closure.closure.getOrElse(shape.fnName, null)
+      if c != null then c else interp.globals.getOrElse(shape.fnName, null)
+    }
+    if (fnVal eq null) || !fnVal.isInstanceOf[Value.FunV] then return null
+    val fn = fnVal.asInstanceOf[Value.FunV]
+    if fn.params.length != 1 || fn.usingParams.nonEmpty || fn.returnsThrows then return null
+    if fn.defaults.nonEmpty && fn.defaults.exists(_.nonEmpty) then return null
+    if fn.paramTypes.nonEmpty && fn.paramTypes.exists(_.endsWith("*")) then return null
+    if !fn.body.isInstanceOf[Term.Match] then return null
+    val mt = fn.body.asInstanceOf[Term.Match]
+    val fnParam = fn.params.head
+    val scrutMatchesParam = mt.expr match
+      case n: Term.Name => n.value == fnParam
+      case _            => false
+    if !scrutMatchesParam then return null
+    var compiled = interp.matchCache.get(mt)
+    if compiled == null then
+      compiled = PatternRuntime.compileMatch(mt, interp)
+      interp.matchCache.put(mt, compiled)
+    if !compiled.longCapable then return null
+    if !compiled.allSlot then return null
+    val freeNames = compiled.slotFreeNames
+    if freeNames == null || freeNames.contains(fnParam) then return null
+    val accV = interp.globals.getOrElse(shape.accName, null)
+    if (accV eq null) || !accV.isInstanceOf[Value.IntV] then return null
+    var acc = accV.asInstanceOf[Value.IntV].v
+    val fnEnv: Env = if fn.name.nonEmpty then interp.closureWithSelfFor(fn) else fn.closure
+    try
+      val it = set.iterator
+      while it.hasNext do
+        acc = acc + compiled.runValueLong(it.next(), fnEnv)
+      interp.globals(shape.accName) = Value.intV(acc)
+      PureUnit
+    catch
+      case _: scala.util.control.ControlThrowable => null

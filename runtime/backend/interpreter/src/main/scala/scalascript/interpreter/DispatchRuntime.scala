@@ -1359,7 +1359,21 @@ private[interpreter] object DispatchRuntime:
           case Value.ListV(xs) => Value.SetV(xs.toSet)
           case other           => other
         }
-      case "foreach" | "exists" | "forall" | "foldLeft" | "find" | "count" |
+      case "foreach" =>
+        // Direct Set-aware FastTier path: skips the `s.toList` allocation
+        // that the generic `dispatchList(s.toList, …)` detour pays. For the
+        // `patternMatchSet` shape — `var total: Double; set.foreach(s =>
+        // total = total + area(s))` — FastTier iterates the Set via
+        // `set.iterator` instead, saving O(N) `::`-cons cells per call.
+        args match
+          case List(f: Value.FunV) =>
+            val ftD = FastTier.tryDoubleAccumForeachSet(s, f, interp)
+            if ftD != null then return ftD
+            val ftL = FastTier.tryLongAccumForeachSet(s, f, interp)
+            if ftL != null then return ftL
+            dispatchList(s.toList, name, args, env, interp)
+          case _ => dispatchList(s.toList, name, args, env, interp)
+      case "exists" | "forall" | "foldLeft" | "find" | "count" |
            "mkString" | "isEmpty" | "max" | "min" | "sum" =>
         dispatchList(s.toList, name, args, env, interp)
       case _ => dispatchFallback(recv, name, args, env, interp)
