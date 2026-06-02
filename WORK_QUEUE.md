@@ -129,6 +129,7 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 | `recursionTco` | **0.032** | Phase C TCO loop — at native JVM speed |
 | `recursiveEval` | 13.0 | Phase C ADT match — bottlenecked by HashMap field lookups |
 | `recursiveEvalMixed` | 13.2 | Same — already supported by existing code |
+| `instanceFieldAccess` | **16.6** | Phase D LMatch win: 2690 → 16.6 ms (162×, commit `47435cf4`) |
 | `tupleMonoid` | 397 | not in Phase C/D scope |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
@@ -263,97 +264,44 @@ verify step. Apply them.
       cleanup work to be done when a bench shows a specific shape
       bailing.
 
-- [ ] **phase-d-patternmatch-double-slot** — `tryMixedDoubleWhile`
-      parallel of `tryMixedLongWhile` to carry the Double accumulator in
-      a Long-bits slot; closes the per-iter `DoubleV` alloc gap in
-      `patternMatchHeavy`'s outer while.
-
-      **Expected win:** modest. JFR-profile-first before committing
-      design: the outer while body already routes through
-      `tryMixedLongWhile` (for the `i = i + 1` long slot) which calls
-      `FastTier.tryDoubleAccumForeach` via `interp.eval` for the
-      `shapes.foreach(...)` leading apply. The DoubleV writeback inside
-      FastTier (`interp.globals(accName) = Value.doubleV(acc)`) is the
-      remaining per-iter alloc — for `patternMatchHeavy`'s 100k outer
-      iters that's ~3.2 MB / op out of the current ~4 MB total. The
-      time impact of removing 3.2 MB of allocs at the existing alloc
-      rate is small (~1-5% — confirm with profile before promising
-      more). If JFR shows DoubleV writeback is NOT the dominant
-      remaining cost (e.g. HashMap field lookups in `area`'s match
-      bodies are bigger), pivot to `phase-d-instancev-array-repr`
-      instead — much larger lever.
-
-      **Implementation sketch** (4-module change; apply the §"Methodology"
-      rule 2 above — split into 3 commits):
-      1. *Infrastructure:* add `FastTier.accSlotTls: ThreadLocal[Array[Long]]`
-         (single-element long array holding the Double bits). Add
-         `withAccSlot(slot)(thunk)` setter/clearer following the
-         `withInterp` pattern in `BytecodeJit`. Don't touch any consumers
-         yet — just the infrastructure compiles + tests stay green.
-      2. *FastTier hookup:* in `tryDoubleAccumForeach` (BOTH the List
-         and Set variants), at entry check `accSlotTls.get()`. If null,
-         keep the current globals-based path. If non-null, read initial
-         `acc` from `slot(0)` (decode via `jl.Double.longBitsToDouble`),
-         skip the globals lookup, and on exit write
-         `slot(0) = jl.Double.doubleToRawLongBits(acc)` instead of
-         touching globals. Add tests covering both paths (TLS set vs
-         unset) — should still pass with the wrapper not yet integrated.
-      3. *EvalRuntime recognition:* detect the
-         `Term.While(Term.Block(foreach_apply, i_assign))` shape WHERE
-         the foreach closure body is the `acc = acc + fn(s)` shape AND
-         `acc` resolves to `DoubleV` in globals at compile time. If
-         matched, pre-extract the slot (`Array[Long](1)` holding initial
-         `acc` bits), `FastTier.withAccSlot(slot) { runStandardLoop() }`,
-         materialize `interp.globals(accName) = Value.doubleV(...)`
-         once at the end.
-
-      **Gotchas** (each maps to a place a tired-context agent could
-      land subtle bugs):
-
-      - *scalameta `Stat` vs `Term`*: `Term.Block.stats` is
-        `List[Stat]`. Cast to `Term.Apply` / `Term.Assign` via
-        `isInstanceOf` first, then `.asInstanceOf[Term]`. See the same
-        pattern in `EvalRuntime.collectMixedAssignBody` for the
-        established convention.
-      - *Two FastTier touch points*: BOTH `tryDoubleAccumForeach` (List)
-        and `tryDoubleAccumForeachSet` (Set, just landed in `8f911f14`)
-        need the TLS check. Forgetting either silently keeps the
-        old slow path for that receiver type.
-      - *`try/finally` for TLS*: the eval'd apply can throw (FastTier
-        catches `ControlThrowable` but other code below may surface a
-        located error). Wrap setter/clearer per §"Methodology" rule 4.
-      - *Compile-time vs runtime acc type*: `acc` in globals must be
-        `DoubleV` at compile time. If it later is reassigned to a
-        non-DoubleV (e.g. a function call result that returns a
-        different shape), the slot path silently mis-types. Either bail
-        at runtime if the slot decode looks wrong OR re-verify the
-        globals shape after the loop. The simplest safe path: bail
-        wrapper if `accName`'s value in globals isn't `DoubleV` at
-        compile time, AND require the closure body shape to guarantee
-        the FastTier path will fire (i.e. the existing
-        `tryDoubleAccumForeach` shape checks must pass; the wrapper
-        runs the SAME compile-time checks against the closure before
-        committing to the slot path).
-      - *Pure inner loop*: the wrapper should call the same iteration
-        machinery, NOT duplicate it. If you find yourself copy-pasting
-        the `tryMixedLongWhile` loop body, stop and refactor or use
-        `interp.eval` against the original `Term.While` — the value is
-        in PRE-loading the slot, not in rewriting the loop.
+- [x] **phase-d-patternmatch-double-slot** — ✓ Landed 2026-06-02 commits `c2986e33` / `e583843c`.
+      Double-acc slot bypass: `FastTier.accSlotTls`/`accNameTls` `ThreadLocal[Array[Long]]` pair;
+      `withAccSlot(name, slot)(thunk)` setter/clearer (try/finally); `peekDoubleAccName(apply, interp)`
+      reads the AST to detect `xs.foreach(s => acc = acc + fn(s))` double-acc closures. In
+      `EvalRuntime.tryFastWhileAssign` (BoolV(true) branch), `mixedBody.leadingApplies` is scanned
+      for a double-acc name; if found, `initV` bits are stored in an `Array[Long](doubleToRawLongBits, 1L)`,
+      `withAccSlot` wraps `tryMixedLongWhile`, and globals are written back once after the loop.
+      `tryDoubleAccumForeach` + `tryDoubleAccumForeachSet` read/write the slot instead of globals when
+      TLS active; bail clears `slot(1)=0L` to signal validity.
+      **Result**: `patternMatchHeavy` GC alloc 4.9 MB/op → 1.7 MB/op (−65%); wall-clock ~113 ms
+      (CPU-bound — GC not the bottleneck at this alloc rate, as predicted by JFR profile).
 
 - [ ] **phase-d-instancev-array-repr** — replace `Map[String, Value]`
       fields with `Array[Value]` + typeName-keyed dispatch table.
       Interpreter-wide change; gate behind a feature flag. Eliminates
-      HashMap lookups in `field("name")`, which today dominate
-      `recursiveEval` (2.5× → ~10× target) and `patternMatch` arm field
-      reads. Likely the biggest single Phase D lever; needs careful
-      design + capability check (`InstanceV` is used everywhere).
+      HashMap lookups in `field("name")` which are the remaining hot
+      cost in `instanceFieldAccess` (~5–10 ms of the 16.6 ms floor)
+      and in `patternMatchHeavy` arm field reads.
 
-      **Expected win:** large but uncertain — JFR-profile-first to
-      confirm HashMap lookups are the dominant remaining cost on
-      `patternMatchHeavy` AND `recursiveEval` before committing to the
-      interpreter-wide refactor. The current `recursiveEval` 13 ms vs
-      JVM ~500 µs gap is ~26×; if HashMap field reads account for
-      ~half, the lever closes ~half of that.
+      **Progress (2026-06-02):** The `phase-d-instancev-array-repr` worktree
+      (`perf/phase-d-instancev-array-repr`, commits `939b2164`–`47435cf4`, merged
+      to main) achieved `instanceFieldAccess` 2690 → 16.6 ms (162×) via a
+      **different approach**: `LMatch` `LExpr` in `tryLongWhileAssign` /
+      `tryMixedLongWhile` — compiles `Term.Match` scrutinees in-loop by reusing
+      `interp.matchCache` CompiledMatch, so the entire while body runs in a
+      Long-slot array with zero FrameMap2/Pure allocation per iter. JFR showed
+      HashMap was NOT the dominant cost (only 0.2% CPU); FrameMap2 (31.8%) and
+      Pure (37.9%) were. LMatch eliminates both. Remaining ~5–10 ms is HashMap
+      reads inside `CompiledMatch.runValueLong` lhandlers.
+
+      **Remaining scope:** The actual `Map[String, Value]` → `Array[Value]`
+      change is still open. After LMatch the HashMap cost is smaller (~5–10 ms)
+      but still real. JFR-profile-first on current `patternMatchHeavy` (113 ms)
+      to confirm HashMap field reads are the next dominant cost before
+      committing to the interpreter-wide refactor.
+
+      **Expected win (post-LMatch):** `instanceFieldAccess` 16.6 → ~8 ms (~2×);
+      `patternMatchHeavy` effect TBD (needs fresh profile after double-slot win).
 
       **Approach** (multi-day, multi-commit project — fresh agent
       should plan it as its own milestone, NOT a single sitting):
