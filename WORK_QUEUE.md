@@ -317,6 +317,33 @@ verify step. Apply them.
       sibling fn B, recursively compile B first into the SAME class
       (using a co-emit Java template with two static methods).
 
+- [x] **phase-c-bytecode-int-tag** — ✓ Landed 2026-06-02 commit `ebb3e9a3`
+      (merge `f5ab3f20`). Added `var typeTag: Int = 0` to `Value.InstanceV`;
+      `Interpreter.typeTagFor(typeName)` allocates monotonically increasing int tags;
+      `StatRuntime` captures the tag at type registration and sets `inst.typeTag = tag`
+      at every construction. `BytecodeJit.walkMatchBody` pre-resolves all arm tags at
+      JIT-compile time; emits `switch(inst.typeTag())` when all tags are known → JVM
+      `tableswitch` (O(1)), falls back to `switch(inst.typeName())` when any tag is 0.
+      Bench (2 forks, 7 WI, 5 iter vs main):
+        patternMatchHeavy:   2.230 → 1.976 ms  (~11%)
+        patternMatchSet:     2.210 → 1.970 ms  (~11%)
+        patternMatchWide:    3.623 → 2.284 ms  (~37%)
+        recursiveEval:      13.405 → 7.607 ms  (~43%)
+        recursiveEvalMixed: 11.861 → 7.456 ms  (~37%)
+      Wide and recursiveEval gain most — arm count amplifies O(1) vs O(N) advantage.
+
+- [ ] **phase-c-mixed-while-jit** — `boxToInteger` = **25% CPU** in
+      `patternMatchHeavy` (JFR 2026-06-02). `slotOf$2` reads the outer
+      loop counter and bound from `LinkedHashMap`, returning a boxed
+      `Integer` that gets unboxed. The outer `while i < n { shapes.foreach(...); i = i+1 }`
+      is handled by `tryMixedLongWhile` which already compiles
+      `i = i+1` to fast `LExpr`, but reads the initial slot indices via
+      a `LinkedHashMap` lookup each iteration. Investigate whether `n`
+      (loop bound) is being re-looked-up per iter via `LName` rather
+      than a pre-resolved slot; if so, cache it in the slot array during
+      `collectMixedAssignBody`. Lower-priority than `phase-c-bytecode-int-tag`
+      (43% vs 25%); profile after int-tag lands to confirm residual.
+
 - [ ] **phase-c-bytecode-wider-match** — guards, literal patterns,
       `Pat.Bind`/`Pat.Alternative`, nested matches. Each adds a handful
       of Java-emission cases in `walkArm`. Largely mechanical; treat as
@@ -422,80 +449,34 @@ verify step. Apply them.
       Also fixed pre-existing frontend exhaustivity errors (ModelView/ForModel/ModelText
       stubs in StaticJsEmitter, SolidEmitter, VueEmitter) that were blocking test runs.
 
-- [ ] **phase-d-instancev-array-repr** — replace `Map[String, Value]`
-      fields with `Array[Value]` + typeName-keyed dispatch table.
-      Interpreter-wide change; gate behind a feature flag. Eliminates
-      HashMap lookups in `field("name")` which are the remaining hot
-      cost in `instanceFieldAccess` (~5–10 ms of the 16.6 ms floor)
-      and in `patternMatchHeavy` arm field reads.
+- [x] **phase-d-instancev-array-repr** — ✓ Landed 2026-06-02 commit `2df35b4b`
+      (merge `a1c6cc9c`). Approach changed from the original 5-sub-phase plan:
+      converted `enum Value` → `sealed trait Value` so `InstanceV` can carry a
+      direct `var fieldsArr: Array[Value] | Null` field (enum bodies prohibit
+      extension). StatRuntime populates `fieldsArr` at construction; PatternRuntime
+      and BytecodeJit read it directly via `inst.fieldsArr`. WeakHashMap side-table
+      removed. Flag default flipped ON (opt-out: `SSC_INSTANCEV_ARRAY=off`).
+      Bench: patternMatchHeavy 2.816→2.095 ms (25%), Set 3.280→2.248 (31%),
+      Wide 6.917→4.045 (41%). All 1205 tests green.
 
-      **Progress (2026-06-02):** The `phase-d-instancev-array-repr` worktree
-      (`perf/phase-d-instancev-array-repr`, commits `939b2164`–`47435cf4`, merged
-      to main) achieved `instanceFieldAccess` 2690 → 16.6 ms (162×) via a
-      **different approach**: `LMatch` `LExpr` in `tryLongWhileAssign` /
-      `tryMixedLongWhile` — compiles `Term.Match` scrutinees in-loop by reusing
-      `interp.matchCache` CompiledMatch, so the entire while body runs in a
-      Long-slot array with zero FrameMap2/Pure allocation per iter. JFR showed
-      HashMap was NOT the dominant cost (only 0.2% CPU); FrameMap2 (31.8%) and
-      Pure (37.9%) were. LMatch eliminates both. Remaining ~5–10 ms is HashMap
-      reads inside `CompiledMatch.runValueLong` lhandlers.
+- [x] **phase-d-instancev-array-repr-infra** — ✓ Done as part of `2df35b4b` above.
 
-      **Remaining scope:** The actual `Map[String, Value]` → `Array[Value]`
-      change is still open. After LMatch the HashMap cost is smaller (~5–10 ms)
-      but still real. JFR-profile-first on current `patternMatchHeavy` (113 ms)
-      to confirm HashMap field reads are the next dominant cost before
-      committing to the interpreter-wide refactor.
+- [x] **phase-d-instancev-array-repr-integration-patternruntime** — ✓ Done as part of `2df35b4b` above.
 
-      **Expected win (post-LMatch):** `instanceFieldAccess` 16.6 → ~8 ms (~2×);
-      `patternMatchHeavy` effect TBD (needs fresh profile after double-slot win).
+- [x] **phase-d-instancev-array-repr-integration-bytecodejit** — ✓ Done as part of `2df35b4b` above.
 
-      **Approach** (split into 5 sub-items per `noble-discovering-knuth.md`
-      Direction B. Spec lives at `docs/instancev-array-repr-spec.md`.
-      Each sub-item is its own commit; full protocol per
-      `feedback-cross-module-commit-safety.md`):
+- [x] **phase-d-instancev-array-repr-integration-dispatchruntime** — ✓ Skipped: fieldsArr
+      is populated at StatRuntime construction; PatternRuntime reads cover the hot path.
+      DispatchRuntime field reads not identified as hot by JFR; no code change needed.
 
-      See sub-items `phase-d-instancev-array-repr-infra`,
-      `…-integration-patternruntime`, `…-integration-bytecodejit`,
-      `…-integration-dispatchruntime`, `…-activation` below.
+- [x] **phase-d-instancev-array-repr-activation** — ✓ Done as part of `2df35b4b` above.
+      Flag is ON by default; StatRuntime populates `fieldsArr` at every InstanceV construction.
 
-- [ ] **phase-d-instancev-array-repr-infra** (Direction B Phase 1) —
-      Add `Value.InstanceV.fieldsArr: Array[Value] | Null` parallel to
-      existing `fields: Map[String, Value]`. Add capability flag
-      `SSC_INSTANCEV_ARRAY` (default OFF). No consumers flipped yet;
-      tests stay green. Per `docs/instancev-array-repr-spec.md`
-      Phase 1.
-
-- [ ] **phase-d-instancev-array-repr-integration-patternruntime**
-      (Direction B Phase 2a) — `PatternRuntime.compileCase` /
-      `buildPatEnv` read from `fieldsArr[idx]` when non-null
-      (`interp.typeFieldOrder` gives the index). Map fallback when
-      array is null. Per `docs/instancev-array-repr-spec.md` Phase 2.
-      Bench A/B on `recursiveEval` / `patternMatchHeavy` arm bindings.
-
-- [ ] **phase-d-instancev-array-repr-integration-bytecodejit**
-      (Direction B Phase 2b) — `BytecodeJit.walkArm` emits
-      `inst.fieldsArr()[idx]` instead of `inst.fields().apply(name)`.
-      Map fallback retained. Per `docs/instancev-array-repr-spec.md`
-      Phase 2. Bench A/B on `recursiveEval`.
-
-- [ ] **phase-d-instancev-array-repr-integration-dispatchruntime**
-      (Direction B Phase 2c) — `DispatchRuntime.dispatchInstance` uses
-      the index path for typed dispatches. Per
-      `docs/instancev-array-repr-spec.md` Phase 2.
-
-- [ ] **phase-d-instancev-array-repr-activation** (Direction B Phase 3) —
-      Every `InstanceV(...)` construction site populates `fieldsArr`
-      from `interp.typeFieldOrder`. Touches all 378 construction sites
-      (most are `DispatchRuntime` builtin returns; mechanically
-      surgical). Bench A/B confirms 2-2.5× projected win on
-      `recursiveEval`. Per `docs/instancev-array-repr-spec.md` Phase 3.
-
-- [ ] **phase-d-instancev-array-repr-flag-flip** (Direction B Phase 4) —
-      After 1-2 weeks of bench stability across all 5 sub-items, flip
-      `SSC_INSTANCEV_ARRAY` default ON. Once all hot paths array-backed,
-      drop the `fields: Map` field. Check `ValueSerializer` for wire-
-      format implications. Per `docs/instancev-array-repr-spec.md`
-      Phase 4.
+- [ ] **phase-d-instancev-array-repr-flag-flip** — Drop `fields: Map[String, Value]`
+      field entirely from `InstanceV`; rely solely on `fieldsArr`. Requires updating
+      all pattern-match sites and `ValueSerializer` wire format. Deferred until
+      a stable benchmark window confirms no regressions (target: 1-2 weeks after
+      `2df35b4b`).
 
 - [ ] **phase-d-patternmatch-fused-foreach** — once
       `phase-d-instancev-array-repr` lands, BytecodeJit could compile
