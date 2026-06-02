@@ -434,6 +434,20 @@ class Interpreter(
   private[interpreter] val litCache: java.util.IdentityHashMap[Lit, Computation] =
     java.util.IdentityHashMap()
 
+  /** Cache of fully-pure-literal compound expressions to their evaluated
+   *  Value. A Term qualifies if its entire subtree is built from `Lit.*`,
+   *  `Term.Tuple`, and `Term.ApplyInfix` with pure ops (`+`, `-`, `*`, `/`,
+   *  `%`, `++`) — no `Term.Name` reads, no Term.Apply, no dispatch through
+   *  env. Such a term evaluates to the same Value on every visit, so a
+   *  per-AST-identity memo turns N evaluations into N–1 HashMap.gets.
+   *
+   *  Sentinel `NotPure` (a marker AnyRef) records "we checked purity and it
+   *  bailed", so subsequent visits skip the purity walk. Populated lazily
+   *  via `pureConstFor(t)` at the Term.Tuple and Term.ApplyInfix eval cases. */
+  private[interpreter] val pureConstCache: java.util.IdentityHashMap[Term, AnyRef] =
+    java.util.IdentityHashMap()
+  private[interpreter] val NotPure: AnyRef = new AnyRef
+
 
   // ── v1.10 Generator — thread-per-generator, SynchronousQueue handshake ─
   // Each `generator { body }` spins a virtual thread that runs the body.

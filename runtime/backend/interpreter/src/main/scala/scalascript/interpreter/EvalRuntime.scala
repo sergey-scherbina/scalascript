@@ -952,6 +952,58 @@ private[interpreter] object EvalRuntime:
           interp.threadValues(argComps)(argVals => interp.callValue(fv, argVals, env)))
 
   def eval(term: Term, env: Env, interp: Interpreter): Computation =
+    // Pure-const cache fast path: for `Term.Tuple` and `Term.ApplyInfix` whose
+    // subtree is fully literal (e.g. `(1, 2) ++ (3, 4)` in a hot loop), memoise
+    // the result by AST identity. First visit computes + classifies + stores;
+    // subsequent visits return a single HashMap.get + Pure wrap. Limited to
+    // these two kinds because they're the heavyweight allocators that benefit
+    // from caching — Lit is already interned via litCache.
+    val isCacheKind = term.isInstanceOf[Term.Tuple] || term.isInstanceOf[Term.ApplyInfix]
+    if isCacheKind then
+      val cv = interp.pureConstCache.get(term)
+      if cv != null && (cv ne interp.NotPure) then
+        return Pure(cv.asInstanceOf[Value])
+    val result = evalCore(term, env, interp)
+    if isCacheKind && (interp.pureConstCache.get(term) == null) then
+      // Lazily classify + populate. Pure result + literal subtree → cache the
+      // value. Otherwise stamp NotPure so the next visit skips the purity walk.
+      if isPureConstExpr(term) then
+        result match
+          case Pure(v) => interp.pureConstCache.put(term, v.asInstanceOf[AnyRef])
+          case _       => interp.pureConstCache.put(term, interp.NotPure)
+      else
+        interp.pureConstCache.put(term, interp.NotPure)
+    result
+
+  /** True iff `t`'s subtree is built only from `Lit.*`, `Term.Tuple`, and
+   *  `Term.ApplyInfix` on pure ops (`+`, `-`, `*`, `/`, `%`, `++`). Used to
+   *  decide whether a Term's evaluation is deterministic + env-independent and
+   *  therefore cacheable. Caching is otherwise inserted by `eval` for the
+   *  `Term.Tuple`/`Term.ApplyInfix` outer kinds only. */
+  private def isPureConstExpr(t: Term): Boolean = t match
+    case _: Lit         => true
+    case tu: Term.Tuple =>
+      var ok = true
+      var xs = tu.args
+      while ok && xs.nonEmpty do
+        ok = isPureConstExpr(xs.head)
+        xs = xs.tail
+      ok
+    case app: Term.ApplyInfix =>
+      val s = app.op.value
+      val opPure = s == "+" || s == "-" || s == "*" || s == "/" || s == "%" || s == "++"
+      if !opPure then false
+      else if !isPureConstExpr(app.lhs) then false
+      else
+        var ok = true
+        var xs = app.argClause.values
+        while ok && xs.nonEmpty do
+          ok = isPureConstExpr(xs.head)
+          xs = xs.tail
+        ok
+    case _ => false
+
+  private def evalCore(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
     // DAP step/breakpoint hook: called for every term so DebugHooks can decide
     // whether to suspend (breakpoint, stepIn, stepOver, stepOut).
