@@ -98,6 +98,18 @@ non-win.
       path (skips `Set.toList` allocation in the current `dispatchSet`
       route).
 
+- [ ] **ci-green-audit** — after the Phase C+D interpreter-perf
+      continuation lands (or sooner if any blocks main), audit the GitHub
+      Actions CI: list all currently failing / red workflows via
+      `gh run list --limit 30 --status failure` and `gh workflow list`,
+      open the latest failed run for each, classify
+      (real regression | env / flake | obsolete config | needs update),
+      and fix or unblock each. Bias toward landing the fix in the same
+      commit as the diagnosis; if the failure is environmental and a
+      retry succeeds, document it (don't just re-run blindly). Includes
+      `.github/workflows/*.yml` updates if obsolete Java / Scala / SBT
+      versions are pinned.
+
 ## Tooling
 
 - [x] **cli-bundle-frontend** — bundle `frontendPlugin` + `fetchPlugin` into the CLI (Compile) so `ssc run` resolves the std/ui frontend externs (`signal`/`lower`/`emit`) and `fetch`. Previously `% Test`, so frontend programs failed with `'signal' not found`. ✓ Landed 2026-05-31: std-ui smoke now emits index.html+app.js and prints `smoke:ok` via the jar; assembly clean; busi domain regression-green. (frontendReact was already Compile.)
