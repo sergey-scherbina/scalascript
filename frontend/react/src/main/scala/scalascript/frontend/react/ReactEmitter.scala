@@ -2,6 +2,7 @@ package scalascript.frontend.react
 
 import scala.annotation.nowarn
 import scalascript.frontend.*
+import scalascript.frontend.FetchJsonSignal
 
 /** Two-pass emit:
  *
@@ -57,12 +58,24 @@ private[react] object ReactEmitter:
       sb ++= s"    const $name = useRef(null);\n"
       sb ++= s"    if (typeof window !== 'undefined') window[${jsString(name)}] = $name;\n"
     }
+    // FetchJsonSignal typed state: null + companion loading/loaded/error vars.
+    fetchSignals.collect { case fjs: FetchJsonSignal => fjs }.foreach { fjs =>
+      sb ++= s"    const [${fjs.id}, ${setterName(fjs.id)}] = useState(null);\n"
+      sb ++= s"    const [${fjs.id}_loading, ${setterName(s"${fjs.id}_loading")}] = useState(false);\n"
+      sb ++= s"    const [${fjs.id}_loaded, ${setterName(s"${fjs.id}_loaded")}] = useState(false);\n"
+      sb ++= s"    const [${fjs.id}_error, ${setterName(s"${fjs.id}_error")}] = useState(\"\");\n"
+    }
     // Fetch signals: mount-fetch + tick-driven re-fetch via useEffect.
     fetchSignals.foreach { fs =>
       val setter = setterName(fs.id)
       val urlJs  = jsString(fs.fetchUrl)
-      sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, []);\n"
-      sb ++= s"    useEffect(() => { if (${fs.tickId} > 0) fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, [${fs.tickId}]);\n"
+      fs match
+        case fjs: FetchJsonSignal =>
+          sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.json()).then(t => $setter(t)); }, []);\n"
+          sb ++= s"    useEffect(() => { if (${fjs.tickId} > 0) fetch($urlJs).then(r => r.json()).then(t => $setter(t)); }, [${fjs.tickId}]);\n"
+        case _ =>
+          sb ++= s"    useEffect(() => { fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, []);\n"
+          sb ++= s"    useEffect(() => { if (${fs.tickId} > 0) fetch($urlJs).then(r => r.text()).then(t => $setter(t)); }, [${fs.tickId}]);\n"
     }
     // FetchTable: mount-fetch + tick-driven re-fetch, parsed as JSON array.
     fetchTables.foreach { ft =>
@@ -164,6 +177,8 @@ private[react] object ReactEmitter:
         web.foreach(walk); walk(fallback)
       case View.LazyList(items, render, _, _) => items().foreach(item => walk(render(item)))
       case View.LazyGrid(items, render, _, _, _) => items().foreach(item => walk(render(item)))
+      case View.ModelView(_, _, template, _)    => walk(template)
+      case View.ForModel(_, _, _, template, _)  => walk(template)
       case View.Button(label, action, _, _) =>
         walkHandler(action); walk(label)
       case View.TextInput(value, _, _, _, _)  => register(value)
@@ -321,6 +336,8 @@ private[react] object ReactEmitter:
       case View.ForSignal(_, _, _, itemTemplate)         => itemTemplate.foreach(walk)
       case View.Portal(_, children)                      => children.foreach(walk)
       case View.ComponentInstance(component, props)      => walk(component.render(props.asInstanceOf[Nothing]))
+      case View.ModelView(signal, _, template, _)        => checkSig(signal); walk(template)
+      case View.ForModel(_, _, _, template, _)           => walk(template)
       case _ => ()
     walk(view)
     seen.values.toSeq
@@ -690,6 +707,16 @@ private[react] object ReactEmitter:
       val css = StyleUtils.styleToCSS(style)
       if css.isEmpty then renderView(child, itemCtx)
       else s"h('div', { style: ${cssStringToReactObject(css)} }, ${renderView(child, itemCtx)})"
+
+    case View.ModelView(signal, _, template, _) =>
+      s"${signal.id} && h(Fragment, null, ${renderView(template, itemCtx)})"
+
+    case View.ForModel(bindingVar, fieldPath, itemVar, template, _) =>
+      val body = renderView(template, itemCtx)
+      s"(${bindingVar}.${fieldPath} || []).map(($itemVar, _idx) => h(Fragment, {'key': _idx}, $body))"
+
+    case View.ModelText(varName, fieldPath, _) =>
+      s"String(${varName}.${fieldPath})"
 
     case View.Adaptive(web, _, _, fallback) =>
       renderView(web.getOrElse(fallback), itemCtx)

@@ -39,7 +39,7 @@ bearer-token API. Resume via the standard claim/worktree flow.
   Replaces the original `v1.66.1-swiftui-model-structs` + `v1.66.2-swiftui-model-view-nodes`.
   **Spec:** `docs/swiftui-typed-models.md §7`
 
-- [ ] **v1.66.2-react-typed-models** — React emitter: typed fetch (`r.json()` branch
+- [x] **v1.66.2-react-typed-models** — ✓ Landed 2026-06-02. — React emitter: typed fetch (`r.json()` branch
   in mount-fetch hook, lines 60-66); companion state vars; `ModelView`/`ForModel`/
   `ModelText` as `signal && ...` / `.map(...)` / property access.
   **Spec:** `docs/typed-models-ir.md §React`
