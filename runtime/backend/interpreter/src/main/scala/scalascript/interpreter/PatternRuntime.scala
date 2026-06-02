@@ -62,6 +62,15 @@ private[interpreter] object PatternRuntime:
      *  dispatch + InstanceV match + return-sentinel at ~20 ns per failed arm.
      *  Also used by `runValue` for the same reason. */
     private val ctorTags:  Array[String | Null] | Null,
+    /** Int-tag parallel of `ctorTags` — populated when every non-null arm name
+     *  is a registered ADT type (`interp.typeTagFor(name) > 0`). When non-null,
+     *  the `runValue*` tag-scan compares `inst.typeTag` (single Int load) against
+     *  these entries instead of doing a String equality probe; on a 5-arm match
+     *  this drops the per-iter scan cost from ~25 ns to ~3 ns. Sentinel `-1`
+     *  marks a catch-all entry (mirrors `ctorTags(i) == null`). The String
+     *  array stays around for paths that still need the name (OptionV/NoneV
+     *  arms whose ctor names aren't InstanceV-backed). */
+    private val ctorTagsInt: Array[Int] | Null,
     val allSlot:           Boolean,
     /** Union of free names read across all value-handler bodies, or null if any
      *  arm had an unknown shape. Lets a caller verify a name (e.g. the function
@@ -97,6 +106,27 @@ private[interpreter] object PatternRuntime:
       val vh = vhandlers
       if vh == null then return null
       // Fast path for InstanceV scrutinees when ctor tags are known.
+      // Prefer the Int-tag scan when available; if the scrutinee's typeTag is
+      // 0 (unregistered InstanceV, e.g. constructed without going through
+      // StatRuntime) the Int scan misses and we fall through to the String
+      // scan as a safety net so semantics never diverge.
+      val cti = ctorTagsInt
+      if cti != null then
+        scrutV match
+          case inst: Value.InstanceV if inst.typeTag != 0 =>
+            val tag = inst.typeTag
+            var i = 0
+            while i < cti.length do
+              val t = cti(i)
+              if t == -1 then                  // catch-all arm
+                val r = vh(i)(inst, env)
+                return if r == null || (r eq NeedMonadic) then null else r.asInstanceOf[Value]
+              if t == tag then                 // ctor match (Int compare)
+                val r = vh(i)(inst, env)
+                return if r == null || (r eq NeedMonadic) then null else r.asInstanceOf[Value]
+              i += 1
+            return null
+          case _ =>
       val ct = ctorTags
       if ct != null then
         scrutV match
@@ -136,10 +166,26 @@ private[interpreter] object PatternRuntime:
     def runValueDouble(scrutV: Value, env: Env): Double =
       val dh = dhandlers
       if dh == null then throw NotDouble
-      // Fast path: for InstanceV scrutinees, scan ctor tags (cheap String ==)
-      // instead of calling every handler (expensive lambda dispatch per miss).
-      // O(N) comparisons at ~3 ns each vs O(N) handler calls at ~20 ns each —
-      // ~7× cheaper per failed arm; biggest win for wide matches (12+ arms).
+      // Fast path: for InstanceV scrutinees, scan Int tags (a single Int load +
+      // compare per arm; the JIT lowers this to a tight CPU loop) instead of
+      // String.equals chains. Falls through to the String-tag scan when either
+      // (a) the match has any ctor name that isn't a registered ADT type, or
+      // (b) the scrutinee's `typeTag` is 0 (constructed without going through
+      // StatRuntime). The final linear scan still catches non-InstanceV
+      // scrutinees and ctor-less matches.
+      val cti = ctorTagsInt
+      if cti != null then
+        scrutV match
+          case inst: Value.InstanceV if inst.typeTag != 0 =>
+            val tag = inst.typeTag
+            var i = 0
+            while i < cti.length do
+              val t = cti(i)
+              if t == -1 then return dh(i)(inst, env)  // catch-all arm
+              if t == tag then return dh(i)(inst, env) // ctor match (Int compare)
+              i += 1
+            throw NotDouble
+          case _ =>
       val ct = ctorTags
       if ct != null then
         scrutV match
@@ -169,6 +215,19 @@ private[interpreter] object PatternRuntime:
     def runValueLong(scrutV: Value, env: Env): Long =
       val lh = lhandlers
       if lh == null then throw NotDouble
+      val cti = ctorTagsInt
+      if cti != null then
+        scrutV match
+          case inst: Value.InstanceV if inst.typeTag != 0 =>
+            val tag = inst.typeTag
+            var i = 0
+            while i < cti.length do
+              val t = cti(i)
+              if t == -1 then return lh(i)(inst, env)  // catch-all arm
+              if t == tag then return lh(i)(inst, env) // ctor match (Int compare)
+              i += 1
+            throw NotDouble
+          case _ =>
       val ct = ctorTags
       if ct != null then
         scrutV match
@@ -233,18 +292,20 @@ private[interpreter] object PatternRuntime:
     val vh = new Array[(Value, Env) => AnyRef | Null](n)
     val dh = new Array[(Value, Env) => Double](n)
     val lh = new Array[(Value, Env) => Long](n)
-    val ct = new Array[String | Null](n)  // ctor tags for fast dispatch
+    val ct  = new Array[String | Null](n)  // ctor tags for fast dispatch
+    val cti = new Array[Int](n)             // parallel Int tags (0 = unregistered fallback)
     var allSlot   = true
     var allDouble = true
     var allLong   = true
     var hasCtorArm = false
+    var allIntTagged = true     // every non-catch-all arm resolves to a registered Int tag
     var free: Set[String] | Null = Set.empty
     var rest = cases
     var i = 0
     while rest.nonEmpty do
       val c = rest.head
       val h = valueHandlerFor(c, interp)
-      if h == null then return new CompiledMatch(handlers, null, null, null, null, false, null)
+      if h == null then return new CompiledMatch(handlers, null, null, null, null, null, false, null)
       vh(i) = h.fn
       if h.dfn != null then dh(i) = h.dfn else allDouble = false
       if h.lfn != null then lh(i) = h.lfn else allLong   = false
@@ -253,7 +314,17 @@ private[interpreter] object PatternRuntime:
         if h.freeNames == null then free = null else free = free ++ h.freeNames
       val tag = armCtorTag(c)
       ct(i) = tag
-      if tag != null then hasCtorArm = true
+      if tag != null then
+        hasCtorArm = true
+        // Resolve to a registered Int tag if the ctor name is an ADT type.
+        // OptionV ("Some"/"None") and other non-InstanceV ctor names won't be
+        // in `typeTagMap` — those arms keep `cti(i) = 0` and force allIntTagged
+        // false, so the String-based scan stays the dispatch path.
+        val it = interp.typeTagMap.getOrElse(tag, 0)
+        if it == 0 then allIntTagged = false
+        cti(i) = it
+      else
+        cti(i) = -1 // catch-all sentinel
       i += 1
       rest = rest.tail
     new CompiledMatch(
@@ -261,6 +332,7 @@ private[interpreter] object PatternRuntime:
       if allDouble then dh else null,
       if allLong   then lh else null,
       if hasCtorArm then ct else null,
+      if hasCtorArm && allIntTagged then cti else null,
       allSlot, free
     )
 
@@ -1007,6 +1079,12 @@ private[interpreter] object PatternRuntime:
                   // closure from dfn so the two never alias state).
                   var lFieldOrderCache: Array[String] = null
                   val tn3 = tn
+                  // Pre-resolve the Int tag once; 0 marks "unregistered name"
+                  // (OptionV "Some"/"None" or any non-ADT ctor) — the Int
+                  // short-circuit then always misses and the String compare
+                  // path stays correct. JFR-targeted: dropping the per-iter
+                  // String.equals from the hot arm-closure guard.
+                  val tn3Tag = interp.typeTagMap.getOrElse(tn3, 0)
                   val p0d = p0
                   val p1d = p1
                   val bnLen = bindNames.length
@@ -1017,7 +1095,7 @@ private[interpreter] object PatternRuntime:
                         lbody(v0, null, env)
                       case Value.NoneV if tn3 == "None" && bnLen == 0 =>
                         lbody(null, null, env)
-                      case inst: Value.InstanceV if inst.typeName == tn3 =>
+                      case inst: Value.InstanceV if (tn3Tag != 0 && inst.typeTag == tn3Tag) || inst.typeName == tn3 =>
                         val fields = inst.fields
                         if lFieldOrderCache == null then
                           lFieldOrderCache = interp.typeFieldOrder
