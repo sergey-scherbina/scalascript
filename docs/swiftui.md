@@ -165,17 +165,30 @@ that don't declare `frontend: swiftui` are unaffected.
     its own `@State` vars for single-view usage.
   - 11 new unit tests; total test count: 41.
 
+- **Phase 4 (v1.65.1) ✓ Landed (2026-06-02)** — SPI registration + emit pathway:
+  - Added `frontend/swiftui/src/main/resources/META-INF/services/scalascript.frontend.FrontendFrameworkSpi`
+    so `SwiftUIFrameworkBackend` is discoverable via `ServiceLoader` (the file was
+    missing, causing `ssc emit --frontend swiftui` to silently fall back to the
+    first registered backend instead of SwiftUI).
+  - `SwiftUIEmitPathwayTest` (8 tests): ServiceLoader discovery, correct name + platforms,
+    iOS and macOS `emitNative` produce `Package.swift`, `<App>App.swift`,
+    `ContentView.swift`, `buildScript == "swift build"`, `format == SwiftUIApp`.
+  - Total test count: 57.
+
 ## 6. Testing strategy
 
-- Unit: `SwiftUIEmitterTest` — 41 tests covering View cases, EventHandlers,
+- Unit: `SwiftUIEmitterTest` — 49 tests covering View cases, EventHandlers,
   style modifiers, Package.swift, App entry, platform selection, escape helpers,
-  ForSignal → ForEach, RemoveSelfFromList context tracking, AppModel generation.
+  ForSignal → ForEach, RemoveSelfFromList context tracking, AppModel generation,
+  SignalBridge.
+- Pathway: `SwiftUIEmitPathwayTest` — 8 tests; ServiceLoader discovery + full
+  emit pathway for iOS and macOS (does not require Swift on CI).
 - Integration (Phase 2): `ssc build --target mobile-ios` smoke test that
   invokes `swift build` on the generated package (requires Xcode on CI).
 
 ## 7. Open questions
 
-*(All Phase 3 open questions resolved.)*
+*(All open questions resolved.)*
 
 ---
 

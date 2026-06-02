@@ -740,8 +740,7 @@ ScalaScript's own registry work stays queued.
 
 - [x] **v1.49-macos-distribution** — `ssc package/publish --target macos` (notarize + DMG + Mac App Store) (2026-05-26)
 
-- [ ] **v1.65.1-swiftui-spi-reg** — Add `META-INF/services` SPI registration for `SwiftUIFrameworkBackend`; fix `emit()` / CLI emit routing so `ssc emit --frontend swiftui` resolves the backend; `SwiftUIEmitPathwayTest` asserts emitted `ContentView.swift` + `Package.swift` + `<App>App.swift`.
-  _Context: root cause — no `META-INF/services/scalascript.frontend.FrontendFrameworkSpi` file in `frontend/swiftui/`. Spec: `docs/swiftui.md §8`._
+- [x] **v1.65.1-swiftui-spi-reg** — Add `META-INF/services` SPI registration for `SwiftUIFrameworkBackend`; fix `emit()` / CLI emit routing so `ssc emit --frontend swiftui` resolves the backend; `SwiftUIEmitPathwayTest` asserts emitted `ContentView.swift` + `Package.swift` + `<App>App.swift`. ✓ Landed 2026-06-02: created `frontend/swiftui/src/main/resources/META-INF/services/scalascript.frontend.FrontendFrameworkSpi`; 8 pathway tests; suite 57 green.
 
 - [ ] **v1.65.2-swiftui-fetch-emit** — `FetchAction` → `Task { @MainActor URLSession }` emit; `FetchUrlSignal` → `onAppear`/`onChange` async load with `@State` companion var. ≥ 4 new `SwiftUIEmitterTest` assertions.
   _Context: currently stubbed as `// FetchAction METHOD: url` comments. Spec: `docs/swiftui.md §8.4`._
