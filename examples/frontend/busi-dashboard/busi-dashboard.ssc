@@ -1,0 +1,128 @@
+#!/usr/bin/env ssc
+---
+name: busi-dashboard
+version: 1.0.0
+frontend: swiftui
+bundle-id: com.example.busi-dashboard
+min-os:
+  ios: "17"
+  macos: "14"
+---
+
+# Business Dashboard Example
+
+Three-tab business dashboard demonstrating typed model data binding:
+`@model case class` structs, `fetchJsonSignal` per tab, `ModelView`,
+`ForModel`, and `ModelText`.
+
+Compile with: `ssc build --target mobile-ios busi-dashboard.ssc`
+
+```ssc
+@model case class AssetLine(
+  code:   String,
+  amount: Double
+)
+
+@model case class BalanceSheet(
+  id:     String,
+  total:  Double,
+  lines:  List[AssetLine],
+  note:   Option[String]
+)
+
+@model case class TrialEntry(
+  account: String,
+  debit:   Double,
+  credit:  Double
+)
+
+@model case class TrialBalance(
+  id:      String,
+  period:  String,
+  entries: List[TrialEntry]
+)
+
+@model case class AuditEvent(
+  seq:       String,
+  timestamp: String,
+  action:    String,
+  user:      String
+)
+
+@model case class AuditLog(
+  id:     String,
+  events: List[AuditEvent]
+)
+
+val selectedTab  = Signal(0)
+val bsTick       = Signal(0)
+val tbTick       = Signal(0)
+val auditTick    = Signal(0)
+val balanceSheet = fetchJsonSignal("balanceSheet", "/api/balance-sheet", bsTick, "BalanceSheet")
+val trialBalance = fetchJsonSignal("trialBalance", "/api/trial-balance", tbTick, "TrialBalance")
+val auditLog     = fetchJsonSignal("auditLog",     "/api/audit-log",     auditTick, "AuditLog")
+
+def balanceTab() =
+  ModelView(balanceSheet, "bs") {
+    Column(spacing = 8) {
+      Row(spacing = 4) {
+        Text("Total:")
+        ModelText("bs", "total")
+      }
+      Text("Lines:")
+      ForModel("bs", "lines", "line") {
+        Row(spacing = 8) {
+          ModelText("line", "code")
+          ModelText("line", "amount")
+        }
+      }
+      ModelText("bs", "note")
+    }
+  }
+
+def trialTab() =
+  ModelView(trialBalance, "tb") {
+    Column(spacing = 8) {
+      Row(spacing = 4) {
+        Text("Period:")
+        ModelText("tb", "period")
+      }
+      Text("Entries:")
+      ForModel("tb", "entries", "entry") {
+        Row(spacing = 8) {
+          ModelText("entry", "account")
+          ModelText("entry", "debit")
+          ModelText("entry", "credit")
+        }
+      }
+    }
+  }
+
+def auditTab() =
+  ModelView(auditLog, "al") {
+    Column(spacing = 8) {
+      Text("Events:")
+      ForModel("al", "events", "event") {
+        Column(spacing = 2) {
+          Row(spacing = 4) {
+            ModelText("event", "timestamp")
+            ModelText("event", "action")
+          }
+          ModelText("event", "user")
+        }
+      }
+    }
+  }
+
+def view() =
+  NavigationStack {
+    TabView(selection = selectedTab) {
+      balanceTab()
+        .tabItem("Balance", icon = "chart.bar.fill", tag = 0)
+      trialTab()
+        .tabItem("Trial",   icon = "list.number",    tag = 1)
+      auditTab()
+        .tabItem("Audit",   icon = "doc.text.magnifyingglass", tag = 2)
+    }
+  }
+```
