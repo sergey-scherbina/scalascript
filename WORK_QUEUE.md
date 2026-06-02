@@ -58,8 +58,12 @@ bearer-token API. Resume via the standard claim/worktree flow.
   11 new tests in `SolidTypedModelsTest`; all 46 Solid tests pass.
   **Spec:** `docs/typed-models-ir.md §Solid`
 
-- [ ] **v1.66.5-custom-typed-models** — Custom (StaticJs) emitter: mount-fetch via
-  `__ssc_signals` runtime with `r.json()`; DOM patches for view nodes.
+- [x] **v1.66.5-custom-typed-models** — ✓ Landed 2026-06-02. Custom (StaticJs) emitter:
+  `__ssc_signals` cells for fetch signal state (null/false/false/'' for JSON); `r.json()` decode
+  via `__setSignal` + companion updates; tick subscriber + guard; `ModelView` → `__modelview_<id>`
+  rebuild fn subscribed to signal, DOM-clear + re-render; `ForModel` → `__formodel_<n>` per-item fn
+  + for-loop over `bindingVar.fieldPath`; `ModelText` → `createTextNode(String(varName.fieldPath))`;
+  `registerSignal` skips `FetchUrlSignal`; tick auto-registered. 12 new tests; all 63 Custom tests pass.
   **Spec:** `docs/typed-models-ir.md §Custom`
 
 - [ ] **v1.66.6-electron-typed-models** — Electron emitter: verify typed flow
