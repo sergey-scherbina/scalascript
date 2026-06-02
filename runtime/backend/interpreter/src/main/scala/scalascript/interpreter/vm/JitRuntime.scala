@@ -200,22 +200,67 @@ object JitRuntime:
     else Computation.pureIntV(out.asInstanceOf[jl.Long].longValue)
 
   private def invokeBytecode1(r: BytecodeJit.Result, arg: Value, interp: Interpreter): Computation | Null =
-    val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble)
-    if a0 == null then return null
-    val out =
-      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
-      catch case _: Throwable => return null
-    wrapBytecodeResult(r, out)
+    val d = r.direct
+    if d != null then
+      try
+        if !r.paramIsRef(0) then
+          if r.resultIsDouble then
+            val n = arg match
+              case Value.IntV(x)    => x.toDouble
+              case Value.DoubleV(x) => x
+              case _                => return null
+            val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[DoubleFn1].apply(n) }
+            Computation.Pure(Value.doubleV(result))
+          else
+            val n = arg match
+              case Value.IntV(x) => x
+              case _             => return null
+            val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[LongFn1].apply(n) }
+            Computation.pureIntV(result)
+        else
+          arg match
+            case _: Value.InstanceV =>
+              if r.resultIsDouble then
+                val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[ObjToDouble].apply(arg.asInstanceOf[AnyRef]) }
+                Computation.Pure(Value.doubleV(result))
+              else
+                val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[ObjToLong].apply(arg.asInstanceOf[AnyRef]) }
+                Computation.pureIntV(result)
+            case _ => null
+      catch case _: Throwable => null
+    else
+      val a0 = marshalBytecode(arg, r.paramIsRef(0), r.resultIsDouble)
+      if a0 == null then return null
+      val out =
+        try BytecodeJit.withInterp(interp) { r.mh.invoke(a0).asInstanceOf[AnyRef] }
+        catch case _: Throwable => return null
+      wrapBytecodeResult(r, out)
 
   private def invokeBytecode2(r: BytecodeJit.Result, a: Value, b: Value, interp: Interpreter): Computation | Null =
-    val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)
-    if a0 == null then return null
-    val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble)
-    if b0 == null then return null
-    val out =
-      try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
-      catch case _: Throwable => return null
-    wrapBytecodeResult(r, out)
+    val d = r.direct
+    if d != null then
+      // unboxed path: only pure-long or pure-double 2-param (no mixed ref+numeric)
+      try
+        if r.resultIsDouble then
+          val x = a match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
+          val y = b match { case Value.IntV(v) => v.toDouble; case Value.DoubleV(v) => v; case _ => return null }
+          val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[DoubleFn2].apply(x, y) }
+          Computation.Pure(Value.doubleV(result))
+        else
+          val x = a match { case Value.IntV(v) => v; case _ => return null }
+          val y = b match { case Value.IntV(v) => v; case _ => return null }
+          val result = BytecodeJit.withInterp(interp) { d.asInstanceOf[LongFn2].apply(x, y) }
+          Computation.pureIntV(result)
+      catch case _: Throwable => null
+    else
+      val a0 = marshalBytecode(a, r.paramIsRef(0), r.resultIsDouble)
+      if a0 == null then return null
+      val b0 = marshalBytecode(b, r.paramIsRef(1), r.resultIsDouble)
+      if b0 == null then return null
+      val out =
+        try BytecodeJit.withInterp(interp) { r.mh.invoke(a0, b0).asInstanceOf[AnyRef] }
+        catch case _: Throwable => return null
+      wrapBytecodeResult(r, out)
 
   /** Bytecode-JIT entry called from `CallRuntime.callFun` BEFORE the
    *  `TcoRuntime.tcoTrampoline` dispatch. Handles the same 1- and 2-param

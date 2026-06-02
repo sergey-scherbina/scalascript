@@ -52,11 +52,20 @@ object BytecodeJit:
    *  passed as an `Object` (an `InstanceV`); otherwise the param is `long`
    *  (the Int case) when `resultIsDouble=false`, or `double` (the all-double
    *  case) when `resultIsDouble=true`. `resultIsDouble` also drives the
-   *  caller's IntV-vs-DoubleV result wrapping in `JitRuntime`. */
+   *  caller's IntV-vs-DoubleV result wrapping in `JitRuntime`.
+   *
+   *  `direct`, when non-null, is an instance of one of the `JitInterfaces`
+   *  traits (LongFn1 / DoubleFn1 / ObjToLong / ObjToDouble / LongFn2 /
+   *  DoubleFn2) whose `apply` method calls the JIT-generated static method
+   *  directly with unboxed primitives, eliminating the Long.valueOf allocations
+   *  that `MethodHandle.invoke` produces. `JitRuntime.invokeBytecode*` uses
+   *  this when non-null; falls back to `mh` when null (mixed-param functions
+   *  or functions where instantiation failed). */
   final class Result(
     val mh:             MethodHandle,
     val paramIsRef:     Array[Boolean],
-    val resultIsDouble: Boolean = false
+    val resultIsDouble: Boolean = false,
+    val direct:         AnyRef | Null = null
   )
 
   /** Per-thread interpreter handle for the free-name globals read path.
@@ -158,6 +167,20 @@ object BytecodeJit:
       isBoolReturning(ti.thenp) || isBoolReturning(ti.elsep)
     case _ => false
 
+  /** Returns the fully-qualified name of the JitInterface that matches the
+   *  compiled function's signature, or null for unsupported shapes (e.g.
+   *  mixed ref+long 2-param). The generated class `implements` this interface
+   *  and exposes a primitive `apply` method so JitRuntime can dispatch without
+   *  boxing. */
+  private def determineInterface(n: Int, paramIsRef: Array[Boolean], isDouble: Boolean): String | Null =
+    val pkg = "scalascript.interpreter.vm"
+    if n == 1 then
+      if paramIsRef(0) then if isDouble then s"$pkg.ObjToDouble" else s"$pkg.ObjToLong"
+      else if isDouble then s"$pkg.DoubleFn1" else s"$pkg.LongFn1"
+    else if n == 2 && !paramIsRef(0) && !paramIsRef(1) then
+      if isDouble then s"$pkg.DoubleFn2" else s"$pkg.LongFn2"
+    else null
+
   private def doCompile(f: Value.FunV, interp: scalascript.interpreter.Interpreter): Result | Null =
     if isBoolReturning(f.body) then return null
     val paramSet = f.params.toSet
@@ -198,11 +221,18 @@ object BytecodeJit:
       else s"long ${sanitize(p)}"
     }.mkString(", ")
     val returnType = if isDouble then "double" else "long"
+    val ifaceName = determineInterface(f.params.length, paramIsRef, isDouble)
+    val implementsClause = if ifaceName != null then s" implements $ifaceName" else ""
+    val argList = f.params.map(p => sanitize(p)).mkString(", ")
+    val applyMethod =
+      if ifaceName != null then
+        s"\n  public $returnType apply($params) { return ${sanitize(f.name)}($argList); }"
+      else ""
     val source =
-      s"""public class $className {
+      s"""public class $className$implementsClause {
          |  public static $returnType ${sanitize(f.name)}($params) {
          |    $bodyStmts
-         |  }
+         |  }$applyMethod
          |}
          |""".stripMargin
 
@@ -245,7 +275,12 @@ object BytecodeJit:
     val mh =
       try MethodHandles.lookup().findStatic(cls, sanitize(f.name), mt)
       catch case _: Throwable => return null
-    new Result(mh, paramIsRef, isDouble)
+    val direct: AnyRef | Null =
+      if ifaceName != null then
+        try cls.getConstructor().newInstance().asInstanceOf[AnyRef]
+        catch case _: Throwable => null
+      else null
+    new Result(mh, paramIsRef, isDouble, direct)
 
   // ── AST → Java source walker ──────────────────────────────────────────────
 
