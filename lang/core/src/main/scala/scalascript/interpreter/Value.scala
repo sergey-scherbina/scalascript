@@ -493,6 +493,27 @@ object Computation:
     if n >= -2048L && n <= 16383L then Value._pureIntPool((n + 2048L).toInt)
     else Pure(Value.IntV(n))
 
+  /** Wrap a `Value` in `Pure` using the singleton/pool-cached `Pure` wrapper
+   *  when possible, falling back to fresh `Pure(v)` otherwise. Targets the
+   *  hot `Term.Name` eval path in `EvalRuntime.evalCore` (JFR-2026-06-02
+   *  showed Pure wrappers as a top allocator on `recursiveEval`).
+   *
+   *  Pool-cached IntV in the [-2048, 16383] range maps to its pre-built
+   *  `_pureIntPool` entry; BoolV/UnitV/NullV/NoneV/EmptyList/EmptyStr each
+   *  reuse their existing singleton `Pure`. Other values allocate fresh —
+   *  the fall-through stays minimal so non-pool values pay only one extra
+   *  pattern match. */
+  def purify(v: Value): Pure = v match
+    case Value.IntV(n) if n >= -2048L && n <= 16383L =>
+      Value._pureIntPool((n + 2048L).toInt)
+    case _: Value.BoolV    => if v eq Value.True then PureTrue else PureFalse
+    case Value.UnitV       => PureUnit
+    case Value.NullV       => PureNull
+    case Value.NoneV       => PureNone
+    case Value.EmptyList   => PureEmptyList
+    case Value.EmptyStr    => PureEmptyStr
+    case _                 => Pure(v)
+
   /** Sequence: feed the result of `c` into `f`. O(1) — just wraps in FlatMap. */
   def flatMap(c: Computation, f: Value => Computation): Computation = c match
     case Pure(v) => f(v)

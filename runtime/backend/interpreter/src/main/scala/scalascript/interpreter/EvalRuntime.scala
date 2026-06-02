@@ -1340,7 +1340,7 @@ private[interpreter] object EvalRuntime:
     if isCacheKind then
       val cv = interp.pureConstCache.get(term)
       if cv != null && (cv ne interp.NotPure) then
-        return Pure(cv.asInstanceOf[Value])
+        return Computation.purify(cv.asInstanceOf[Value])
     val result = evalCore(term, env, interp)
     if isCacheKind && (interp.pureConstCache.get(term) == null) then
       // Lazily classify + populate. Pure result + literal subtree → cache the
@@ -1433,11 +1433,15 @@ private[interpreter] object EvalRuntime:
       // null-default lookups (not by-name getOrElse) to avoid a Function0 thunk per name.
       val ev = env.getOrElse(name, null)
       val v = if ev != null then ev else interp.globals.getOrElse(name, null)
-      if v != null then Pure(v)
+      // `Computation.purify` reuses the cached `Pure` wrapper for pool-cached
+      // IntV / BoolV / Unit / Null / None / EmptyList / EmptyStr. Term.Name
+      // is the hottest Pure-allocating eval path (JFR-2026-06-02 on
+      // `recursiveEval` showed Pure as the top sampled allocator).
+      if v != null then Computation.purify(v)
       else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
       else
         interp.ensurePluginsLoaded()
-        Pure(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
+        Computation.purify(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
 
     // Fast path: plain application `f(args)` where the head is a user-level
     // `Term.Name` that is NOT a reserved special form. Skips the ~40
