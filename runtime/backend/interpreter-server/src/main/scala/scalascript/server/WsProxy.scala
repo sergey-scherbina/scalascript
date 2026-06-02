@@ -68,7 +68,7 @@ final class WsProxy(
     server.bind(InetSocketAddress(publicPort))
     running = true
     val t = Thread(() => acceptLoop(), s"ws-proxy-accept-$publicPort")
-    t.setDaemon(false)
+    t.setDaemon(true)
     acceptThread = t
     t.start()
 

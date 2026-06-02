@@ -48,7 +48,9 @@ private val _svcLog = Logger("scalascript.server")
 // in JDK 24; we keep the lock for portability.)
 
 private val _serverExecutor: java.util.concurrent.ExecutorService =
-  java.util.concurrent.Executors.newSingleThreadExecutor()
+  java.util.concurrent.Executors.newSingleThreadExecutor(r => {
+    val t = Thread(r, "ssc-server"); t.setDaemon(true); t
+  })
 
 // Shared scheduler driving the periodic Ping heartbeat across every
 // active WebSocket — single daemon thread, cheap.
