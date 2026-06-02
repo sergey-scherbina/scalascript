@@ -567,7 +567,31 @@ private[interpreter] object PatternRuntime:
     else
       val de = compileSlotD(term, n0, n1)
       if de == null then null
-      else (v0, v1, env) => evalSlotI(de, v0, v1, env, interp)
+      else
+        // Peephole for the canonical 2-slot binop body (`case Pair(a, b) => a OP b`)
+        // — the most common shape on real arms. Bypasses the recursive evalSlotI
+        // (1 DBin frame + 2 DSlot frames per iter) with a direct two-load + arith
+        // closure. JFR-targeted: instanceFieldAccess's `Pair(a, b) => a + b`
+        // had ~25% CPU split between evalSlotI / slotToL recursion.
+        de match
+          case DBin('+', DSlot(0), DSlot(1)) =>
+            (v0, v1, _) => slotToL(v0) + slotToL(v1)
+          case DBin('-', DSlot(0), DSlot(1)) =>
+            (v0, v1, _) => slotToL(v0) - slotToL(v1)
+          case DBin('*', DSlot(0), DSlot(1)) =>
+            (v0, v1, _) => slotToL(v0) * slotToL(v1)
+          case DBin('/', DSlot(0), DSlot(1)) =>
+            (v0, v1, _) => slotToL(v0) / slotToL(v1)
+          case DBin('%', DSlot(0), DSlot(1)) =>
+            (v0, v1, _) => slotToL(v0) % slotToL(v1)
+          // Single-slot identity (`case Num(n) => n`) — also common on the
+          // recursiveEval-style Num/Add/Mul shape.
+          case DSlot(0) =>
+            (v0, _, _) => slotToL(v0)
+          case DSlot(_) =>
+            (_, v1, _) => slotToL(v1)
+          case _ =>
+            (v0, v1, env) => evalSlotI(de, v0, v1, env, interp)
 
   /** Raw-Long-arg variant of `compileSlotLongBody` for the `EvalRuntime.LApply`
    *  path: instead of taking the arg as a `Value` slot and re-boxing through
