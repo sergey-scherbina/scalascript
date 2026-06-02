@@ -5,9 +5,11 @@ import scalascript.frontend.{FetchJsonSignal, JsonDecoder}
 
 import _root_.javafx.application.Application
 import _root_.javafx.application.Platform
+import _root_.javafx.collections.FXCollections
 import _root_.javafx.geometry.{Insets, Orientation}
 import _root_.javafx.scene.control.*
 import _root_.javafx.scene.layout.*
+import _root_.javafx.util.Callback
 import scala.annotation.nowarn
 import scala.collection.mutable
 
@@ -252,8 +254,108 @@ object JavaFxRuntime:
         val value = if data != null then String.valueOf(modelField(data, fieldPath)) else ""
         parent.getChildren.add(styledNode(Label(value), style))
 
+      case dt: View.DataTable =>
+        parent.getChildren.add(nativeDataTable(dt, state))
+
       case other =>
         parent.getChildren.add(Label(s"[unsupported JavaFX view: ${other.productPrefix}]"))
+
+  private def nativeDataTable(dt: View.DataTable, state: RuntimeState): _root_.javafx.scene.Node =
+    type Row = _root_.javafx.collections.ObservableList[String]
+    val rows = FXCollections.observableArrayList[Row]()
+    val tableView = new TableView[Row](rows)
+    tableView.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY)
+
+    dt.columns.zipWithIndex.foreach { (col, idx) =>
+      val tc = new TableColumn[Row, String](col.title)
+      tc.setCellValueFactory { cellData =>
+        val v = cellData.getValue
+        val s = if idx < v.size then v.get(idx) else ""
+        new _root_.javafx.beans.property.SimpleStringProperty(s)
+      }
+      tableView.getColumns.add(tc)
+    }
+
+    def rebuildRows(decoded: Any): Unit =
+      val items = decoded match
+        case list: List[Any @unchecked]  => list
+        case seq:  Seq[Any @unchecked]   => seq.toList
+        case arr:  Array[Any @unchecked] => arr.toList
+        case _                            => Nil
+      val newRows = items.map { row =>
+        val cells = dt.columns.map(c => String.valueOf(modelField(row, c.fieldPath)))
+        FXCollections.observableArrayList(cells*)
+      }
+      Platform.runLater(() => { rows.setAll(newRows*) })
+
+    def doFetch(): Unit =
+      Thread(() =>
+        try state.fetchDispatcher.foreach { dispatcher =>
+          val typeName = dt.signal match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
+          val response = dispatcher.request("GET", dt.signal.fetchUrl, "")
+          if response.status >= 200 && response.status < 300 then
+            val decoded = JsonDecoder.current.decodeString(response.body, typeName)
+            rebuildRows(decoded)
+        } catch case _: Exception => ()
+      ).start()
+
+    val wrapper = VBox(4.0)
+    wrapper.getChildren.add(new ScrollPane(tableView) {
+      setFitToWidth(true)
+      setPrefHeight(300)
+    })
+
+    if dt.actions.nonEmpty then
+      val btnBox = HBox(4.0)
+      dt.actions.foreach { action =>
+        val label = action match
+          case RowActionDef.RowDelete(_, _, _, _)          => "Delete"
+          case RowActionDef.RowPost(lbl, _, _, _, _, _)    => lbl
+          case RowActionDef.RowLink(lbl, _, _)             => lbl
+        val btn = new Button(label)
+        btn.setOnAction { _ =>
+          val sel = tableView.getSelectionModel.getSelectedIndex
+          if sel >= 0 then
+            val row = rows.get(sel)
+            action match
+              case RowActionDef.RowDelete(url, idField, tick, _) =>
+                val colIdx = dt.columns.indexWhere(_.fieldPath == idField)
+                val idVal  = if colIdx >= 0 then row.get(colIdx) else ""
+                Thread(() =>
+                  try state.fetchDispatcher.foreach { d =>
+                    val r = d.request("POST", url, idVal)
+                    if r.status >= 200 && r.status < 300 then
+                      Platform.runLater(() => state.incrementSignal(tick.id, 1))
+                  } catch case _: Exception => ()
+                ).start()
+              case RowActionDef.RowPost(_, method, url, bodyField, tick, _) =>
+                val colIdx  = dt.columns.indexWhere(_.fieldPath == bodyField)
+                val bodyVal = if colIdx >= 0 then row.get(colIdx) else ""
+                Thread(() =>
+                  try state.fetchDispatcher.foreach { d =>
+                    val r = d.request(method, url, bodyVal)
+                    if r.status >= 200 && r.status < 300 then
+                      Platform.runLater(() => state.incrementSignal(tick.id, 1))
+                  } catch case _: Exception => ()
+                ).start()
+              case RowActionDef.RowLink(_, signal, fieldPath) =>
+                val colIdx   = dt.columns.indexWhere(_.fieldPath == fieldPath)
+                val fieldVal = if colIdx >= 0 then row.get(colIdx) else ""
+                Platform.runLater(() => state.setSignal(signal.id, fieldVal))
+        }
+        btnBox.getChildren.add(btn)
+      }
+      wrapper.getChildren.add(btnBox)
+      dt.actions.foreach {
+        case RowActionDef.RowDelete(_, _, tick, _)       =>
+          state.bindings.getOrElseUpdate(tick.id, mutable.Buffer.empty) += (() => doFetch())
+        case RowActionDef.RowPost(_, _, _, _, tick, _)   =>
+          state.bindings.getOrElseUpdate(tick.id, mutable.Buffer.empty) += (() => doFetch())
+        case _ => ()
+      }
+
+    doFetch()
+    wrapper
 
   private def box(children: Seq[View[?]], vertical: Boolean, spacing: Double, style: Style, state: RuntimeState): Pane =
     val pane: Pane = if vertical then VBox(spacing) else HBox(spacing)
@@ -414,5 +516,12 @@ object JavaFxRuntime:
         case View.Adaptive(w, d, m, f)       => List(w, d, m).flatten.foldLeft(loop(acc, f))(loop)
         case View.ModelView(_, _, tmpl, _)   => loop(acc, tmpl)
         case View.ForModel(_, _, _, tmpl, _) => loop(acc, tmpl)
+        case dt: View.DataTable =>
+          val base = add(acc, dt.signal)
+          dt.actions.foldLeft(base) {
+            case (a, RowActionDef.RowDelete(_, _, tick, _))       => add(a, tick)
+            case (a, RowActionDef.RowPost(_, _, _, _, tick, _))   => add(a, tick)
+            case (a, RowActionDef.RowLink(_, sig, _))             => add(a, sig)
+          }
         case _                               => acc
     loop(Map.empty, view).values.toList.sortBy(_.id)
