@@ -20,7 +20,19 @@ private[codegen] trait JvmGenTermAnalysis:
     blockContainsExternDef(node)              ||
     blockContainsDirectBlock(node)            ||
     blockContainsRegisteredInterpolator(node) ||
-    blockContainsModelAnnotation(node)
+    blockContainsModelAnnotation(node)        ||
+    blockContainsNamedArgAscription(node)     ||
+    blockContainsBareNameBlockCall(node)
+
+  private[codegen] def blockContainsBareNameBlockCall(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case app: Term.Apply =>
+        (app.fun.isInstanceOf[Term.Name] &&
+         app.argClause.values.size == 1 &&
+         app.argClause.values.head.isInstanceOf[Term.Block]) ||
+        app.children.exists(go)
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
 
   private[codegen] def blockContainsModelAnnotation(node: ScalaNode): Boolean =
     def go(t: scala.meta.Tree): Boolean = t match
@@ -33,6 +45,43 @@ private[codegen] trait JvmGenTermAnalysis:
       }
       case other => other.children.exists(go)
     ScalaNode.fold(node)(go)
+
+  /** True if any Term.Apply has an argument of the form `name: value` (SSC
+   *  named-arg syntax). Forces the block through emitStats so emitExprDeep
+   *  can convert `name: value` → `name = value`. */
+  private[codegen] def blockContainsNamedArgAscription(node: ScalaNode): Boolean =
+    def go(t: scala.meta.Tree): Boolean = t match
+      case app: Term.Apply =>
+        app.argClause.values.exists {
+          case Term.Ascribe(Term.Name(_), _) => true
+          case _                             => false
+        } || app.children.exists(go)
+      case other => other.children.exists(go)
+    ScalaNode.fold(node)(go)
+
+  private[codegen] def termContainsNamedArgAscription(t: Term): Boolean =
+    def go(n: scala.meta.Tree): Boolean = n match
+      case app: Term.Apply =>
+        app.argClause.values.exists {
+          case Term.Ascribe(Term.Name(_), _) => true
+          case _                             => false
+        } || app.children.exists(go)
+      case other => other.children.exists(go)
+    go(t)
+
+  /** True when any `Term.Apply(Term.Name(_), [Term.Block])` appears — i.e.
+   *  a bare-name widget call like `Row { ... }` or `ScrollView { ... }`.
+   *  Forces emission through emitExprDeep so the `f() { block }` rewrite
+   *  fires (otherwise the block is passed to the first positional slot). */
+  private[codegen] def termContainsBareNameBlockCall(t: Term): Boolean =
+    def go(n: scala.meta.Tree): Boolean = n match
+      case app: Term.Apply =>
+        (app.fun.isInstanceOf[Term.Name] &&
+         app.argClause.values.size == 1 &&
+         app.argClause.values.head.isInstanceOf[Term.Block]) ||
+        app.children.exists(go)
+      case other => other.children.exists(go)
+    go(t)
 
   // Interpolator prefixes that JvmGen handles natively via other code paths
   // (emitCpsExpr top case, emitExpr top case, or raw Scala emission).
@@ -173,7 +222,7 @@ private[codegen] trait JvmGenTermAnalysis:
    *  Focus → Lens expansion, Prism[O, V] → Prism literal) rather than
    *  verbatim Scala source emission. */
   private[codegen] def termNeedsCustomEmit(t: Term): Boolean =
-    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t)
+    termUsesEffects(t) || termContainsFocus(t) || termContainsPrism(t) || termContainsIntrinsic(t) || termContainsDirectBlock(t) || termContainsRegisteredInterpolator(t) || termContainsNamedArgAscription(t) || termContainsBareNameBlockCall(t)
 
   private[codegen] def termContainsRegisteredInterpolator(t: Term): Boolean =
     def walk(n: Tree): Boolean = n match

@@ -139,7 +139,10 @@ object SwiftUIEmitter:
     val signals       = collectSignals(root)
     val fetchSigs     = collectFetchSignals(root)
     val dtSigs        = collectDataTableSignals(root)
-    val stateDecls    = emitStateDecls(signals, indent = 4)
+    val fetchOwnedIds = fetchSigs.flatMap { fs =>
+      List(fs.id, fs.id + "_loading", fs.id + "_loaded", fs.id + "_error")
+    }.toSet
+    val stateDecls    = emitStateDecls(signals.filterNot(s => fetchOwnedIds(s.id)), indent = 4)
     val fetchState    = emitFetchStateDecls(fetchSigs, indent = 4)
     val dtState       = emitDataTableStateDecls(dtSigs, indent = 4)
     val allState      = List(stateDecls, fetchState, dtState).filter(_.nonEmpty).mkString("\n")

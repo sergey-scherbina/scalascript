@@ -460,10 +460,11 @@ class JvmGen(
     val nativeVersion    = module.manifest.flatMap(_.version)
     val withUi =
       if effectiveFrontend.isDefined then
+        val webPrimitives = if effectiveFrontend.contains("swiftui") then "" else "\n" + JvmRuntimeUiPrimitives.source
         uiHelperFunctions(
           effectiveFrontend.getOrElse("react"), appIcon,
           bundleId = nativeBundleId, displayName = nativeDisplayName, version = nativeVersion
-        ) + "\n" + userSrc + (if effectiveFrontend.contains("swiftui") then "" else "\n" + JvmRuntimeUiPrimitives.source)
+        ) + "\n" + userSrc + webPrimitives
       else userSrc
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
@@ -2755,6 +2756,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case d: Defn.Def if isInMutualClique(d.name.value) =>
       emitMutualTcoFun(d)
 
+    // Body needs custom emit (e.g. SSC named-arg `name: value` syntax in
+    // Column/Row calls): re-emit the body through emitExpr so emitCallArg
+    // converts `name: value` ascriptions to `name = value` named args.
+    case d: Defn.Def if termNeedsCustomEmit(d.body) =>
+      val modStr  = if d.mods.isEmpty then "" else d.mods.map(_.syntax).mkString(" ") + " "
+      val paramStr = d.paramClauseGroups.map(_.syntax).mkString
+      val retStr  = d.decltpe.map(t => s": ${t.syntax}").getOrElse("")
+      s"${modStr}def ${d.name.value}$paramStr$retStr = ${emitExpr(d.body)}"
+
     // Strategy D, Step 3 — Defn.Object wrapping dep blocks may contain
     // effectful dep defs (marked by analyzeDepEffectfulness).  Recurse
     // into the body so the `Defn.Def if isEffectfulFun` arm above fires
@@ -3644,6 +3654,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val v = s"_p$counter"
       s"$target.get($k).map($v => $target.updated($k, ${emitTraversalModify(rest, v, fName, counter + 1)})).getOrElse($target)"
 
+  /** Emit a single function call argument, converting SSC `name: value` named-arg
+   *  syntax (represented as Term.Ascribe) to Scala `name = value`. */
+  private def emitCallArg(arg: Term): String = arg match
+    case Term.Ascribe(Term.Name(n), tpe) => s"$n = ${tpe.syntax}"
+    case other                           => emitExpr(other)
+
   /** Emit a term that contains effect-related content, walking children. */
   private def emitExprDeep(term: Term): String = term match
     case Term.Block(stats) =>
@@ -3669,12 +3685,21 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           emitFocus(app)
         case Term.Select(qual, Term.Name(m)) =>
           val q = emitExpr(qual)
-          val args = app.argClause.values.map(emitExpr).mkString(", ")
+          val args = app.argClause.values.map(emitCallArg).mkString(", ")
           s"$q.$m($args)"
         case fun =>
           val f = emitExpr(fun)
-          val args = app.argClause.values.map(emitExpr).mkString(", ")
-          s"$f($args)"
+          // Widget { body } pattern: bare-name call with a single block arg.
+          // Emit as `Widget() { body }` (empty first clause + trailing block)
+          // so the block goes to the last curried arg clause, not the first
+          // positional slot.  Only apply when `fun` is a Term.Name (not
+          // already a partial application via Term.Apply).
+          app.argClause.values match
+            case List(block: Term.Block) if fun.isInstanceOf[Term.Name] =>
+              s"$f() ${emitExprDeep(block)}"
+            case _ =>
+              val args = app.argClause.values.map(emitCallArg).mkString(", ")
+              s"$f($args)"
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val args = argClause.values
       val constResult =
@@ -8896,6 +8921,9 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |val Bottom   = scalascript.frontend.VAlign.Bottom
          |val Stretch  = scalascript.frontend.HAlign.Stretch
          |
+         |// ── Color alias so user code can write Color.blue, Color.secondary, etc. ─
+         |val Color = scalascript.frontend.Color
+         |
          |// ── Color companion helpers ───────────────────────────────────────────────
          |extension (c: scalascript.frontend.Color.type)
          |  def blue:      scalascript.frontend.Color = scalascript.frontend.Color.Named("blue")
@@ -8930,6 +8958,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
          |    if borderRadius >= 0   then r = r.cornerRadius(borderRadius)
          |    if opacity     >= 0    then r = r.opacity(opacity)
          |    r
+         |  def padding(e: scalascript.frontend.EdgeInsets): scalascript.frontend.View[?] =
+         |    v match
+         |      case scalascript.frontend.View.Styled(_c, _s) =>
+         |        scalascript.frontend.View.Styled(_c, _s.copy(layout = _s.layout.copy(padding = e)))
+         |      case _other =>
+         |        scalascript.frontend.View.Styled(_other, scalascript.frontend.Style(layout = scalascript.frontend.LayoutStyle(padding = e)))
          |  def padding(
          |    horizontal: Double = -1,
          |    vertical:   Double = -1,
