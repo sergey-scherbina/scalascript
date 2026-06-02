@@ -20,7 +20,7 @@ If you are **not** in a worktree — create one before doing anything else:
 
 ```bash
 BRANCH="feature/your-task-name"
-WT="/Users/sergiy/work/my/scalascript/.claude/worktrees/$BRANCH"
+WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript fetch origin
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH" origin/main
 ```
@@ -360,7 +360,7 @@ with plain git — no tool needed:
 
 ```bash
 BRANCH="feature/your-task-name"
-WT="/Users/sergiy/work/my/scalascript/.claude/worktrees/$BRANCH"
+WT="/Users/sergiy/work/my/scalascript/.worktrees/$BRANCH"
 git -C /Users/sergiy/work/my/scalascript worktree add "$WT" -b "$BRANCH"
 ```
 
@@ -389,7 +389,7 @@ exactly the same isolation guarantee.
 
 The single most common way agents accidentally edit shared `main` is
 the **absolute-path trap**: you're running in a worktree at
-`/Users/sergiy/work/my/scalascript/.claude/worktrees/agent-XXX/`, but
+`/Users/sergiy/work/my/scalascript/.worktrees/agent-XXX/`, but
 you call `Write(file_path="/Users/sergiy/work/my/scalascript/docs/foo.md", ...)`
 out of habit — the project lives at that root, and the path looks
 right.  The Write tool happily writes to shared `main` instead of
@@ -436,7 +436,7 @@ How to break the cycle after compaction:
    you are in the worktree.  If not, `cd` there first.
 3. Scan the summary for absolute paths.  Any path that starts with
    `/Users/sergiy/work/my/scalascript/` but does *not* start with
-   `/Users/sergiy/work/my/scalascript/.claude/worktrees/<name>/` is a
+   `/Users/sergiy/work/my/scalascript/.worktrees/<name>/` is a
    shared-main path.  Treat it as a hint about *which file*, never as
    the write destination.  Rebuild the correct path by prepending the
    worktree root from step 1.
