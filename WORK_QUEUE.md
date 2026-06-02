@@ -125,9 +125,7 @@ being landed backend by backend.
   inside semantic `Column`. Remaining collectors/backends can migrate
   incrementally.
 
-- [ ] **typed-models-structural-types** - After v1.66 parity lands, validate
-  `ModelText` / `ForModel` paths structurally through `ModelPathResolver` where
-  emitters have enough binding context. Spec: `docs/typed-models-ir.md`.
+- [x] **typed-models-structural-types** — `ModelPathValidator` in `frontend/core`: walks View tree tracking binding context from `ModelView`/`ForModel`, calls `ModelPathResolver` for every in-scope `ModelText`/`ForModel` path, produces typed `PathError` list. Unbound vars silently skipped. `validateModule` for full-module checks. 14 new tests, all 41 frontendCore tests green.
 
 - [ ] **fetchtable-semantic-lowering** - Replace legacy `View.FetchTable`
   backend-specific lowering with semantic typed-list/table nodes backed by
