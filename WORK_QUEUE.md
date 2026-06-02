@@ -188,21 +188,14 @@ verify step. Apply them.
       12.82 ms, patternMatchHeavy 115.2 ms). Full 1205-test suite green
       in both default and `SSC_JIT_BYTECODE=off` modes.
 
-- [ ] **phase-c-bytecode-invokeExact** — `JitRuntime.invokeBytecode1/2`
-      currently uses `r.mh.invoke(arg)` which performs primitive
-      autoboxing on the `long`/`double` return paths. JFR-profile on
-      `recursiveEval` (`docs/interpreter-perf-findings-2026-06.md` §2)
-      showed `java.lang.Long.valueOf` via `sun.invoke.util.ValueConversions.boxLong`
-      as the second-largest allocator on the bytecode-JIT hot path.
-      Fix: specialize `invokeBytecode1/2` into branches by
-      `(paramIsRef, resultIsDouble)` and call `mh.invokeExact(...)` per
-      signature (4–5 cases). Risk: a wrong type ascription throws
-      `WrongMethodTypeException` at runtime — test suite catches but a
-      missed combo would land a regression. Expected win: 1–5%
-      wall-clock + meaningful alloc-rate reduction on every
-      bytecode-JIT'd shape (`recursiveEval`, `recursionFib*`,
-      `recursiveEvalMixed`). JFR-profile after to verify
-      `java.lang.Long` exits the top samples.
+- [x] **phase-c-bytecode-invokeExact** — ✓ Landed 2026-06-02 commit `471b38d1`.
+      Added `JitInterfaces.scala` (6 traits: LongFn1/DoubleFn1/ObjToLong/ObjToDouble/LongFn2/DoubleFn2).
+      BytecodeJit.doCompile now adds `implements` clause + forwarding `apply` method to
+      generated Java source and stores a `Result.direct` instance. JitRuntime.invokeBytecode1/2
+      dispatches through `direct` without boxing when non-null; mixed-param functions fall back
+      to the existing `mh.invoke` boxed path. HotSpot EA was already eliminating most boxing
+      at steady state (recursionFib ≈1.26 ms unchanged), but the typed path removes the EA
+      reliance. All 1205 tests pass.
 
 - [x] **fasttier-2arg-callentry** — ✓ Landed 2026-06-02.
       `tryLongAccumForeachMap` + `tryDoubleAccumForeachMap` parallel to
