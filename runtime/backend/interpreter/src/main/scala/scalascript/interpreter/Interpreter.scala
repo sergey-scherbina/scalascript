@@ -79,7 +79,9 @@ private[scalascript] case class InterpCheckpoint(
   givenFactories:      IndexedSeq[ParametricGiven],
   givenCandidateCount: Map[String, Int],
   mainCalled:          Boolean,
-  sqlBlockCounter:     Int
+  sqlBlockCounter:     Int,
+  typeTagMap:          Map[String, Int] = Map.empty,
+  typeTagCounter:      Int = 0
 )
 
 /** Tree-walking interpreter for ScalaScript documents.
@@ -124,6 +126,14 @@ class Interpreter(
   // since `InstanceV.fields` is an unordered Map for instances with more
   // than four fields.
   private[interpreter] val typeFieldOrder = mutable.Map.empty[String, List[String]]
+  // Opaque int tags for ADT constructors — enables switch(int) tableswitch in BytecodeJit
+  // instead of switch(String) lookupswitch+equals. Tags start at 1 (0 = unregistered).
+  private[interpreter] val typeTagMap = mutable.HashMap.empty[String, Int]
+  private[interpreter] var typeTagCounter: Int = 0
+  /** Return the int tag for `typeName`, allocating a new one if needed. Thread-unsafe
+   *  but called only from single-threaded interpreter-init paths in StatRuntime. */
+  private[interpreter] def typeTagFor(typeName: String): Int =
+    typeTagMap.getOrElseUpdate(typeName, { typeTagCounter += 1; typeTagCounter })
   // Field type names for each case class, parallel to typeFieldOrder.
   // Populated in StatRuntime when a Defn.Class is processed; used by
   // TypedHandlerWrapper.deserializeCaseClass to coerce path/query/body values.
@@ -825,7 +835,9 @@ class Interpreter(
       givenFactories      = givenFactories.toIndexedSeq,
       givenCandidateCount = givenCandidateCount.toMap,
       mainCalled          = mainCalled,
-      sqlBlockCounter     = sqlBlockCounter
+      sqlBlockCounter     = sqlBlockCounter,
+      typeTagMap          = typeTagMap.toMap,
+      typeTagCounter      = typeTagCounter
     )
 
   /** Restore interpreter to an earlier checkpoint, undoing any state added
@@ -846,6 +858,8 @@ class Interpreter(
     givenCandidateCount.clear(); givenCandidateCount ++= cp.givenCandidateCount
     mainCalled      = cp.mainCalled
     sqlBlockCounter = cp.sqlBlockCounter
+    typeTagMap.clear();          typeTagMap          ++= cp.typeTagMap
+    typeTagCounter  = cp.typeTagCounter
 
   /** Run `module` and record a checkpoint after every top-level section.
    *  Used by `ssc watch` on the first cycle so subsequent cycles can use

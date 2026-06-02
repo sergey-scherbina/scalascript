@@ -14,24 +14,30 @@ private[interpreter] object StatRuntime:
       typeName: String,
       paramNames: List[String],
       args: List[Value],
+      tag: Int,
       fallback: List[Value] => Computation
   ): Computation =
     val itn = typeName.intern()
     paramNames match
       case Nil =>
-        Pure(Value.InstanceV(itn, Map.empty))
+        val inst = Value.InstanceV(itn, Map.empty)
+        inst.typeTag = tag
+        Pure(inst)
       case List(p0) if args.length == 1 =>
         val inst = Value.InstanceV(itn, new IMap.Map1(p0, args.head))
         if Value.instanceVArrayEnabled then inst.fieldsArr = Array[Value](args.head)
+        inst.typeTag = tag
         Pure(inst)
       case List(p0, p1) if args.length == 2 =>
         val inst = Value.InstanceV(itn, new IMap.Map2(p0, args.head, p1, args(1)))
         if Value.instanceVArrayEnabled then inst.fieldsArr = Array[Value](args.head, args(1))
+        inst.typeTag = tag
         Pure(inst)
       case _ if args.length >= paramNames.length =>
         val take = args.take(paramNames.length)
         val inst = Value.InstanceV(itn, Map.from(paramNames.lazyZip(take)))
         if Value.instanceVArrayEnabled then inst.fieldsArr = take.toArray
+        inst.typeTag = tag
         Pure(inst)
       case _ =>
         fallback(args)
@@ -162,16 +168,18 @@ private[interpreter] object StatRuntime:
       }
       DerivesRuntime.registerMirror(typeName, env, interp)
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
+      val classTag = interp.typeTagFor(typeName)
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         val inst = Value.InstanceV(typeName.intern(), Map.from(paramNames.lazyZip(filled)))
         if Value.instanceVArrayEnabled then inst.fieldsArr = filled.toArray
+        inst.typeTag = classTag
         Pure(inst)
       }
       val noDefaults = paramDefaults.forall(_.isEmpty)
       env(typeName) = if noDefaults then
         Value.NativeFnV(typeName, args =>
-          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classFallbackCtor))
+          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classTag, classFallbackCtor))
       else
         Value.NativeFnV(typeName, classFallbackCtor)
       // Methods defined inside the class body are stored in a separate
@@ -225,17 +233,19 @@ private[interpreter] object StatRuntime:
             interp.typeFieldSchemas(caseName) = ecParams.map(p => fieldSchema(caseName, p, ctorEnv, interp))
             if hasAnnot(ec.mods, "rejectUnknown") || interp.frontmatterSchemas.get(caseName).exists(_.rejectUnknown) then interp.rejectUnknownTypes += caseName
             interp.parentTypes(caseName) = enumName
+            val enumTag = interp.typeTagFor(caseName)
             val enumFallbackCtor: List[Value] => Computation = args => {
               val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
               val inst = Value.InstanceV(caseName.intern(), Map.from(paramNames.lazyZip(filled)))
               if Value.instanceVArrayEnabled then inst.fieldsArr = filled.toArray
+              inst.typeTag = enumTag
               Pure(inst)
             }
             val noEnumDefaults = paramDefaults.forall(_.isEmpty)
             val v: Value =
               if noEnumDefaults then
                 Value.NativeFnV(caseName, args =>
-                  constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumFallbackCtor))
+                  constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumTag, enumFallbackCtor))
               else Value.NativeFnV(caseName, enumFallbackCtor)
             env(caseName) = v
             caseFields(caseName) = v
