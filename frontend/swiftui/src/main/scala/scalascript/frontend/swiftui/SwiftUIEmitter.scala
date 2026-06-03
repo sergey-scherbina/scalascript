@@ -18,9 +18,14 @@ import scalascript.ast.{ModelDef, ModelFieldType}
  *  by the parent (TextInput, Toggle, Picker). */
 object SwiftUIEmitter:
 
-  /** Context injected when emitting inside a `ForSignal` loop body.
-   *  Enables index-based operations such as `RemoveSelfFromList`. */
-  private final case class ForCtx(listId: String, indexVar: String)
+  /** Context injected when emitting inside a `ForSignal` or `ForModel` loop body.
+   *  `listId`/`indexVar` support `RemoveSelfFromList`; `modelItemVar` carries the
+   *  Swift item variable name from a surrounding `ForModel` for `DeleteItem`. */
+  private final case class ForCtx(
+    listId:       String,
+    indexVar:     String,
+    modelItemVar: Option[String] = None
+  )
 
   // ── Package.swift ─────────────────────────────────────────────────────────
 
@@ -367,7 +372,9 @@ object SwiftUIEmitter:
         val bv       = escapeSwiftIdent(bindingVar)
         val iv       = escapeSwiftIdent(itemVar)
         val dotPath  = fieldPath.replace('.', '.')
-        val innerBody = emitView(template, indent + 4, ctx)
+        val fmCtx    = ctx.map(_.copy(modelItemVar = Some(iv)))
+                          .orElse(Some(ForCtx("", "", Some(iv))))
+        val innerBody = emitView(template, indent + 4, fmCtx)
         emitMods(
           s"${pad}ForEach(Array($bv.$dotPath.enumerated()), id: \\.offset) { _, $iv in\n$innerBody\n${pad}}",
           style, indent)
@@ -563,16 +570,19 @@ object SwiftUIEmitter:
       case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
         emitFetchTask(method, url, body.id, onSuccessTick.id, clearBody, indent)
       case EventHandler.DeleteItem(idField, deleteUrl, onSuccessTick, _) =>
-        // Full impl requires itemVar from ForModel context; emit stub so
-        // the surrounding UI compiles and the handler is visible in source.
         val pad2 = " " * (indent + 4)
         val pad3 = " " * (indent + 8)
+        val bodyLine = ctx.flatMap(_.modelItemVar) match
+          case Some(iv) =>
+            s"""${pad2}_req.httpBody = "\\($iv.${escapeSwiftIdent(idField)})".data(using: .utf8)"""
+          case None =>
+            s"""${pad2}// DeleteItem: no ForModel context — $idField unresolved"""
         s"""${pad}Task { @MainActor in
-           |${pad2}// TODO: replace _itemId with the ForModel item's $idField value
-           |${pad2}guard let _url = URL(string: "${deleteUrl}") else { return }
+           |${pad2}guard let _url = URL(string: ${swiftStringLit(deleteUrl)}) else { return }
            |${pad2}var _req = URLRequest(url: _url)
            |${pad2}_req.httpMethod = "POST"
            |${pad2}_req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+           |$bodyLine
            |${pad2}do {
            |${pad3}let (_, _) = try await URLSession.shared.data(for: _req)
            |${pad3}${onSuccessTick.id} += 1

@@ -143,3 +143,34 @@ class SwiftUITypedModelsTest extends AnyFunSuite:
     val cv   = contentViewOf(view)
     assert(cv.contains("""Text("\(bs.total)")"""))
   }
+
+  // ── DeleteItem in ForModel context ────────────────────────────────────────
+
+  test("DeleteItem inside ForModel emits item.idField in httpBody") {
+    val tick   = new ReactiveSignal[Int]("delTick", 0)
+    val delBtn = View.Button(
+      label   = View.Text(() => "Delete", Style()),
+      action  = EventHandler.DeleteItem("id", "/api/balance/delete", tick),
+      enabled = () => true,
+      style   = Style()
+    )
+    val view = View.ForModel("bs", "lines", "line", delBtn)
+    val cv   = contentViewOf(view)
+    assert(cv.contains("""_req.httpBody = "\(line.id)".data(using: .utf8)"""), "item.idField missing")
+    assert(cv.contains("delTick += 1"), "tick bump missing")
+    assert(!cv.contains("TODO"), "TODO stub should not appear when ForModel context present")
+  }
+
+  test("DeleteItem outside ForModel emits unresolved-idField comment") {
+    val tick   = new ReactiveSignal[Int]("delTick", 0)
+    val delBtn = View.Button(
+      label   = View.Text(() => "Delete", Style()),
+      action  = EventHandler.DeleteItem("id", "/api/balance/delete", tick),
+      enabled = () => true,
+      style   = Style()
+    )
+    val cv = contentViewOf(delBtn)
+    assert(cv.contains("// DeleteItem: no ForModel context"), "comment missing when no ForModel")
+    assert(cv.contains("delTick += 1"), "tick bump missing")
+    assert(!cv.contains("""httpBody = "\("""), "httpBody should not be set without item var")
+  }

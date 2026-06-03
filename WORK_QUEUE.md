@@ -37,6 +37,9 @@ bearer-token API. Resume via the standard claim/worktree flow.
   via `JSONDecoder().decode`; `@State private var <id>: <T>? = nil` + companion vars;
   `ModelView` → `if let`; `ForModel` → `ForEach`; `ModelText` → `Text(path)`.
   Replaces the original `v1.66.1-swiftui-model-structs` + `v1.66.2-swiftui-model-view-nodes`.
+  Fix 2026-06-03: `DeleteItem` inside `ForModel` now emits `"\(itemVar.idField)"` in
+  `httpBody` instead of the TODO stub; `ForCtx.modelItemVar` threads the item var into
+  nested emitAction. 2 new tests; suite 115 green.
   **Spec:** `docs/swiftui-typed-models.md §7`
 
 - [x] **v1.66.2-react-typed-models** — ✓ Landed 2026-06-02. — React emitter: typed fetch (`r.json()` branch
