@@ -266,7 +266,8 @@ non-win.
 > - AsmJitBackend Phase 1+2 at full Javac parity (asm-jit-parity-optimizations)
 > Physical floors confirmed:
 > - `recursiveEval` / `recursiveEvalMixed` at ~3.7 ms — 3.5 ns/node INVOKESTATIC, unreducible
-> Open targets: `patternMatchWide` 1.41 ms, `tupleMonoid` interp 0.212 ms vs JVM 0.137 ms.
+> Open targets: `tupleMonoid` interp 0.212 ms vs JVM 0.137 ms (jit-tuple-concat-hoist).
+> - `patternMatchWide` 1.414 → **0.670** ms (2.1×, phase-d-patternmatch-fused-foreach)
 > Full analysis: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
 Default flags ON: `SSC_JIT=on`, `SSC_FASTTIER=on`, `SSC_JIT_BYTECODE=on`.
@@ -279,34 +280,34 @@ project to root (in build file:<worktree-path>/)` line) before trusting.
 **Benchmark protocol:** `bash install.sh` first (rebuilds ssc binary used by bench.sh),
 then `bash bench.sh` (wall-clock), then `scripts/bench interp` (JMH).
 
-`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-04):
+`InterpreterBench` (ms/op, 1 fork × 5 iters, 2026-06-04 — Javac default / ASM comparison):
 
-| Bench | Current | Notes |
-|---|---|---|
-| `arithLoop` | **0.283** | JVM parity |
-| `effectPure` | 0.016 | — |
-| `instanceFieldAccess` | **0.041** | while-jit-inline-match 195× |
-| `mapForeach` | **0.189** | while-jit-map-foreach 11.4× (was 2.14) |
-| `matchBodyBaseline` | 0.044 | — |
-| `nestedMatchExpr` | 0.044 | — |
-| `patternGuard` | 0.045 | — |
-| `patternMatchHeavy` | **0.414** | BEATS JVM (0.577 wall-clock) |
-| `patternMatchSet` | **0.202** | — |
-| `patternMatchWide` | 1.414 | **OPEN** — phase-d-patternmatch-fused-foreach target ~0.3 ms |
-| `pureCallSum` | **0.263** | JVM parity |
-| `pureCallSum2` | **0.260** | JVM parity |
-| `pureCallSumIf` | **0.265** | JVM parity |
-| `pureCallSumBlock` | **0.253** | JVM parity |
-| `recursionFib` | **1.237** | BEATS JVM (1.28 wall-clock) |
-| `recursionFibD` | **1.462** | JVM parity |
-| `recursionFibMul` | **1.321** | JVM parity |
-| `recursionFibMulD` | **1.602** | JVM parity |
-| `recursionTco` | **0.033** | JVM parity |
-| `recursiveEval` | 3.739 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
-| `recursiveEvalMixed` | 3.661 | physical floor |
-| `refChainArg` | 0.367 | — |
-| `refFieldArg` | 0.046 | — |
-| `tupleMonoid` | 0.212 | **OPEN** — 55% slower than JVM (0.137); jit-tuple-concat-hoist target |
+| Bench | Javac | ASM | Notes |
+|---|---|---|---|
+| `arithLoop` | **0.276** | 0.277 | parity ✓ |
+| `effectPure` | 0.015 | 0.015 | parity ✓ |
+| `instanceFieldAccess` | **0.039** | 0.041 | parity ✓ |
+| `mapForeach` | **0.201** | 0.187 | parity ✓ |
+| `matchBodyBaseline` | 0.047 | 0.044 | parity ✓ |
+| `nestedMatchExpr` | 0.045 | 0.045 | parity ✓ |
+| `patternGuard` | 0.046 | 0.048 | parity ✓ |
+| `patternMatchHeavy` | **0.438** | 0.720 | **ASM +64%** — asm-jit-patternmatch-regression |
+| `patternMatchSet` | **0.211** | 0.838 | **ASM +297%** — asm-jit-patternmatch-regression |
+| `patternMatchWide` | **0.670** | 1.685 | phase-d landed (2.1×); ASM still lagging |
+| `pureCallSum` | **0.295** | 11.215 | **ASM BUG +3700%** — asm-jit-purecall-bug |
+| `pureCallSum2` | **0.283** | 12.175 | **ASM BUG +4300%** — asm-jit-purecall-bug |
+| `pureCallSumIf` | **0.279** | 2774 | **ASM BUG ~10000×** — asm-jit-purecall-bug |
+| `pureCallSumBlock` | **0.259** | 2676 | **ASM BUG ~10000×** — asm-jit-purecall-bug |
+| `recursionFib` | **1.278** | 1.247 | parity ✓ |
+| `recursionFibD` | **1.457** | 1.462 | parity ✓ |
+| `recursionFibMul` | **1.305** | 1.341 | parity ✓ |
+| `recursionFibMulD` | **1.599** | 1.643 | parity ✓ |
+| `recursionTco` | **0.036** | 0.035 | parity ✓ |
+| `recursiveEval` | 3.648 | 3.706 | physical floor — 3.5 ns/node INVOKESTATIC, unreducible |
+| `recursiveEvalMixed` | 3.622 | 3.697 | physical floor |
+| `refChainArg` | 0.395 | 0.047 | ASM faster ✓ |
+| `refFieldArg` | 0.049 | 0.047 | parity ✓ |
+| `tupleMonoid` | 0.207 | 0.202 | parity ✓; **OPEN** — 51% slower than JVM (0.137); jit-tuple-concat-hoist |
 
 `RuntimeBench` cross-backend (µs/op, default flags):
 
@@ -899,6 +900,37 @@ highest-impact item.
       SectionRuntime, ValueSerializer all updated. instanceVArrayEnabled flag removed.
       1233/1233 green. Bench: patternMatchSet 0.283 → 0.197 ms (~30%).
 
+- [ ] **asm-jit-purecall-bug** — Pure-call benchmarks regress catastrophically in ASM mode
+      (2026-06-04 JMH, `SSC_JIT_BACKEND=asm` vs Javac default):
+        - `pureCallSum`:      0.295 → 11.215 ms/op (+3700%)
+        - `pureCallSum2`:     0.283 → 12.175 ms/op (+4300%)
+        - `pureCallSumBlock`: 0.259 → 2676 ms/op (~10,000×)
+        - `pureCallSumIf`:    0.279 → 2774 ms/op (~10,000×)
+      The Block and If variants (10,000×) are almost certainly broken bytecode — the
+      JVM is running fall-through evaluation at interpreter speed, not the fast path.
+      The Sum/Sum2 variants (38–43×) suggest the FastTier `LApply1/2` path is active
+      but generating inefficient bytecode for those shapes.
+
+      Investigation steps:
+      1. `SSC_JIT_BACKEND=asm scripts/bench profile pureCallSum` — JFR CPU sample to
+         see where time is spent.
+      2. Check `AsmJitBackend` block-expression emission (let bindings in function body)
+         and if-expression emission — compare generated ASM bytecode vs Javac output.
+      3. Verify `fn.body eq expectedBody` identity check fires correctly in ASM mode;
+         the cache key may differ if ASM reconstructs AST nodes vs reusing them.
+      **Bench target:** parity with Javac (all four ≤ 0.31 ms, within ±5%).
+
+- [ ] **asm-jit-patternmatch-regression** — Pattern-match benchmarks slower in ASM mode
+      (2026-06-04 JMH):
+        - `patternMatchHeavy`: 0.438 → 0.720 ms/op (+64%)
+        - `patternMatchSet`:   0.211 → 0.838 ms/op (+297%)
+        - `patternMatchWide`:  1.416 → 1.685 ms/op (+19%)
+      Likely: the FastTier match-dispatch or `tryLongAccumForeach` path doesn't
+      recognize ASM-generated function shapes (different closure type or body
+      structure).  Profile with `SSC_JIT_BACKEND=asm scripts/bench profile patternMatchSet`
+      to confirm whether the issue is the foreach driver or the inner match dispatch.
+      **Bench target:** parity with Javac (within ±5%).
+
 - [ ] **jit-tuple-concat-hoist** — `tupleMonoid` interp 0.212 ms vs jvm 0.137 ms (55% gap).
       Bench: `while i < 100000 do last = (1,2)++(3,4)`.  Every iteration allocates
       three `TupleV` objects; JVM backend constant-folds to a pre-built object.
@@ -930,21 +962,13 @@ highest-impact item.
       confirmed and a concrete intervention identified.
       Spec: [`docs/bench-analysis-2026-06-04.md`](docs/bench-analysis-2026-06-04.md).
 
-- [ ] **phase-d-patternmatch-fused-foreach** — `patternMatchWide` at 1.414 ms
-      (12-constructor ADT, 50K × 12 = 600K `eval` calls via `while-jit-mixed`).
-      2.36 ns/call is good but the per-element `ObjToLong.apply(o)` is still one
-      indirect JVM call per node.
-
-      If `JavacJitBackend` compiled the entire foreach body inline — emitting
-      `switch(inst.typeTag) { ... }` inside the fused Java method rather than
-      calling `_fn0.apply(o)` — HotSpot could devirtualize and eliminate the
-      indirect call.  Implementation: extend `tryCompileWhileMixed` to detect
-      when the inner `fn` is a JIT-compiled match-body `ObjToLong` and inline
-      its switch directly into the fused method.
-
-      Also closes the `interp_patternMatch` 213× off-JVM gap in `RuntimeBench`
-      once fused foreach + fieldsArr access is combined.
-      **Bench target:** `patternMatchWide` 1.414 → ~0.3 ms (~5×).
+- [x] **phase-d-patternmatch-fused-foreach** — ✓ Landed 2026-06-04.
+      Inline match body into `while-jit-mixed` foreach loop.
+      Two optimisations: (1) `tryBuildInlineMatchAccum` + `walkArmForAccum` inline
+      the switch directly, eliminating `_fn0.apply()` virtual dispatch; (2)
+      `listPreExtract` pre-extracts `ListV.items` to `Object[]` at call time,
+      replacing head()/tail() traversal with a plain for loop.
+      `patternMatchWide`: 1.414 → 0.670 ms (2.1×). All 1257 tests pass.
 
 - [x] **phase-d-patternmatchset-direct** — ✓ Landed 2026-06-02 commit
       `8f911f14`. Direct `Set`-aware FastTier path
