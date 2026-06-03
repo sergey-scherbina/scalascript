@@ -18,6 +18,7 @@ exports:
   - toggleSignal
   - eqSignal
   - hashSignal
+  - computedSignal
   - emit
   - serve
   - fetchUrlSignal
@@ -91,6 +92,11 @@ extern def eqSignal[T](s: Signal[T], value: T): Signal[Boolean]
 // hashSignal: tracks window.location.hash (empty string on JVM).
 // React emitter wires "__hash__" to a hashchange listener.
 extern def hashSignal(): Signal[String]
+
+// computedSignal: derives a String signal from a thunk that reads other
+// signals. Re-evaluates automatically whenever a dependency changes.
+// Use to assemble composite values (e.g. JSON body) from individual fields.
+extern def computedSignal(f: () => String): Signal[String]
 
 // ── Output ────────────────────────────────────────────────────────────────
 extern def emit(tree: View, outDir: String): Unit

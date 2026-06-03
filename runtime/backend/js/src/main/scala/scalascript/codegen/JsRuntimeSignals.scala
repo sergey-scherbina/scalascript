@@ -14,11 +14,12 @@ val JsRuntimeSignals: String = """
 // effect at most once per synchronous transaction.
 
 let _signalSeq = 0;
-const _signals = new Map();   // id → { value, subs:Set<eid> }
+const _signals = new Map();   // id → { value, subs:Set<eid>, _isComputed?, _f?, _deps? }
 const _effects = new Map();   // eid → { thunk, deps:Set<sid> }
 const _effectStack = [];
 const _pendingEffects = new Set();  // insertion-ordered in JS Sets
 let _reactiveFlushing = false;
+let _trackingDeps = null;     // Set<id> while inside computedSignal init
 
 function _freshReactiveId() { _signalSeq += 1; return _signalSeq; }
 
@@ -31,6 +32,7 @@ function _signalGet(id) {
     const e = _effects.get(eid);
     if (e) e.deps.add(id);
   }
+  if (_trackingDeps !== null) _trackingDeps.add(id);
   return s.value;
 }
 
@@ -127,6 +129,15 @@ function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
 function _ssc_ui_eqSignal(s, value) { return computed(() => (s && s.get) ? s.get() === value : false); }
 function _ssc_ui_hashSignal() { return Signal(''); }
+function _ssc_ui_computedSignal(f) {
+  const id = _freshReactiveId();
+  _trackingDeps = new Set();
+  var initial = '';
+  try { initial = (typeof f === 'function') ? f() : (f && f.apply) ? f.apply() : ''; } catch(_e) {}
+  const deps = _trackingDeps; _trackingDeps = null;
+  _signals.set(id, { value: String(initial == null ? '' : initial), subs: new Set(), _isComputed: true, _f: f, _deps: deps });
+  return { _type: 'Signal', id, get: () => _signalGet(id), set: () => { throw new Error('computed signal is read-only'); }, apply: () => _signalGet(id) };
+}
 function _ssc_ui_emit(tree, outDir) {}
 
 // Walk the View IR tree and produce a static HTML string + a Map of signal
@@ -244,9 +255,27 @@ function _ssc_ui_renderBody(view) {
 function _ssc_ui_mount(sigs) {
   var _sv = {};
   sigs.forEach(function(v, id) { _sv[String(id)] = v; });
+  // Seed reactive system with initial values so computedSignal reads are current
+  sigs.forEach(function(v, id) { var s = _signals.get(id); if (s && !s._isComputed) s.value = v; });
   var _sb = {};
   function _sub(id, fn) { (_sb[id] = _sb[id] || []).push(fn); fn(_sv[id]); }
-  function _set(id, v) { _sv[id] = v; (_sb[id] || []).forEach(function(fn){ fn(v); }); }
+  function _set(id, v) {
+    _sv[id] = v;
+    (_sb[id] || []).forEach(function(fn){ fn(v); });
+    // Bridge: update reactive system and recompute dependent computed signals
+    var rid = parseInt(id, 10);
+    var rs = _signals.get(rid);
+    if (rs && !rs._isComputed) {
+      rs.value = v;
+      _signals.forEach(function(cs, csid) {
+        if (cs._isComputed && cs._deps && cs._deps.has(rid)) {
+          var nv = ''; try { nv = String((typeof cs._f === 'function') ? cs._f() : ''); } catch(_e) {}
+          var csStr = String(csid);
+          if (_sv[csStr] !== nv) { _sv[csStr] = nv; (_sb[csStr] || []).forEach(function(fn){ fn(nv); }); }
+        }
+      });
+    }
+  }
   // show/hide branches
   document.querySelectorAll('[data-ssc-cond]').forEach(function(el) {
     var id = el.getAttribute('data-ssc-cond');
