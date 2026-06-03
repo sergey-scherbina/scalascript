@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-06-03 — dual-bank-lref-match + AsmJit 2-param ref-mixed parity
+
+- **dual-bank-lref-match** — `LRefMatch(scrutR: LRefExpr, cm: CompiledMatch)`
+  extends `LRefExpr`. When `cm.valueCapable`, eval calls `cm.runValue(scrutV,
+  emptyEnv)` — no Computation allocation. `compileRefExpr` in both
+  `tryLongWhileAssign` and `tryMixedLongWhile` gains a `Term.Match` case,
+  enabling `f(e match { ... })` ref-arg patterns inside hot while loops.
+  Test: LRefMatch with val-bound Shape in 100-iteration loop. 1229/1229 green.
+  Commit `2305e321`.
+
+- **asm-jit-lapplyobjref-parity** (partial) — `AsmJitBackend.determineInterface`
+  now returns `LongObjToLong`, `ObjLongToLong`, `LongObjToDouble`,
+  `ObjLongToDouble` for 2-param ref-mixed functions, matching
+  `JavacJitBackend`. Commit `5152e001`.
+
+---
+
 ## 2026-06-03 — JIT Direction A.5 — multi-stat block bodies
 
 - **phase-c-bytecode-block-multistat** — `JavacJitBackend` gains

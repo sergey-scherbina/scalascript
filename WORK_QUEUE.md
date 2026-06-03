@@ -488,13 +488,13 @@ verify step. Apply them.
       backends support block-ends-with-match. 1228/1228 tests green.
 
 - [ ] **asm-jit-lapplyobjref-parity** — `AsmJitBackend` landed (2026-06-03,
-      `SSC_JIT_BACKEND=asm`). Now port the `LApplyObjRef` LExpr fast-path
+      `SSC_JIT_BACKEND=asm`). **Partial progress 2026-06-03 commit `5152e001`**:
+      `determineInterface` now returns `LongObjToLong`, `ObjLongToLong`,
+      `LongObjToDouble`, `ObjLongToDouble` for 2-param mixed cases (parity
+      with JavacJit). Remaining: port `LApplyObjRef` LExpr fast-path
       (commit `13af281f`) to route through `JitBackend.default.tryCompile` so
-      the ref-arg JIT dispatch works regardless of which backend produced the
-      `ObjToLong` direct interface. Also `LApplyR1ToRef`, `LApplyR2LongObj`,
-      `LApplyR2ObjLong`, and the typed interface set `LongObjToLong` /
-      `ObjLongToLong` / `LongObjToDouble` / `ObjLongToDouble` need
-      ASM-backend support. Bench gates: `nestedMatchExpr`, `refFieldArg`,
+      ref-arg JIT dispatch works regardless of which backend produced the
+      `ObjToLong` direct interface. Bench gates: `nestedMatchExpr`, `refFieldArg`,
       `recursiveEvalMixed` — all locked in `InterpreterBench`.
 
 ## Interpreter perf — Dual-bank LExpr roadmap (2026-06-03)
@@ -555,12 +555,12 @@ highest-impact item.
       win once the JIT side lands. Estimated 2 commits (JIT walker
       + LExpr wire-up).
 
-- [ ] **dual-bank-lref-match** — `LRefMatch(scrutR, cm)` — match returning
-      ref in LExpr position. Today only Long-returning match (`LMatch`)
-      is wired. Use case: `f(e match { case Add(_, r) => r; case x => x })`
-      where the match's result is the ref arg to `f`. Lower priority than
-      `LApplyR1ToRef` because the explicit field-access shape (`e.right`)
-      already covers most cases via `LRefFieldGet`. ~80 lines.
+- [x] **dual-bank-lref-match** — ✓ Landed 2026-06-03 commit `2305e321`.
+      `LRefMatch(scrutR: LRefExpr, cm: CompiledMatch)` extends `LRefExpr`.
+      `compileRefExpr` in both tryLongWhileAssign + tryMixedLongWhile gains
+      `Term.Match` case (gates on `cm.valueCapable`). Use case:
+      `f(e match { case Circle(r) => r; case x => x })` ref-arg in hot loop.
+      Test: LRefMatch with val-bound Shape in 100-iter loop. 1229/1229 green.
 
 - [x] **jit-pattern-guard-conditional-arm** — ✓ Landed 2026-06-03 commit `8924f4e6`.
       `walkMatchBody` detects `hasAnyGuard`; when true emits an if-chain form
