@@ -147,6 +147,14 @@ private[interpreter] object TcoRuntime:
         case mc: MutualTailCall =>
           val next = mc.f
           if next.name.nonEmpty && tcoInfoFor(next, interp).noNonTailSelf then
+            // Prefer JIT (bytecode or register-VM) over the tree-walk trampoline.
+            // Case: `def workload() = sumTco(100000, 0)` — workload's tail call to
+            // sumTco triggers a MutualTailCall; without this check the trampoline
+            // would tree-walk sumTco's body 100K times (each iteration throws
+            // TailCall), bypassing the bytecode-JIT while-loop entirely.
+            val jitResult = scalascript.interpreter.vm.JitRuntime.tryRunList(
+              next, mc.args, interp, eager = true)
+            if jitResult != null then return jitResult
             // Mutual tail call counts as one call to `next`.
             val profileNext = Profiler.enabled && next.name.nonEmpty
             if profileNext then
