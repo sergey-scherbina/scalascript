@@ -831,7 +831,7 @@ object AsmJitBackend extends JitBackend:
     if method == null then
       whileCache.put(cond, WhileMiss)
       return null
-    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong])
+    val entry = new WhileJitEntry(method, Array.empty[String], Array.empty[ObjToLong], Array.empty[ObjToObject])
     whileCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
 

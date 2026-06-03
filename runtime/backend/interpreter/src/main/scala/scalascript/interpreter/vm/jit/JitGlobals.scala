@@ -10,9 +10,10 @@ import scalascript.interpreter.{Interpreter, Value}
  *  hot path. */
 object JitGlobals:
 
-  private val interpTls:  ThreadLocal[Interpreter]    = new ThreadLocal[Interpreter]()
-  private val refsTls:    ThreadLocal[Array[AnyRef]]   = new ThreadLocal[Array[AnyRef]]()
-  private val refFnsTls:  ThreadLocal[Array[ObjToLong]] = new ThreadLocal[Array[ObjToLong]]()
+  private val interpTls:     ThreadLocal[Interpreter]       = new ThreadLocal[Interpreter]()
+  private val refsTls:       ThreadLocal[Array[AnyRef]]     = new ThreadLocal[Array[AnyRef]]()
+  private val refFnsTls:     ThreadLocal[Array[ObjToLong]]  = new ThreadLocal[Array[ObjToLong]]()
+  private val refObjFnsTls:  ThreadLocal[Array[ObjToObject]] = new ThreadLocal[Array[ObjToObject]]()
 
   def withInterp[A](interp: Interpreter)(thunk: => A): A =
     val prev = interpTls.get()
@@ -31,21 +32,26 @@ object JitGlobals:
 
   /** Set per-invocation ref arrays for a `WhileJitEntry` that uses InstanceV
    *  arguments.  The generated `run(long[])` method calls `getRefs()` /
-   *  `getRefFns()` to read the Object and ObjToLong slots; the caller wraps
-   *  `method.invoke` in this block.  Uses the same `set(prev)` restore
-   *  pattern as `withInterp` to avoid ThreadLocalMap.Entry churn. */
-  def withRefs[A](refs: Array[AnyRef], fns: Array[ObjToLong])(thunk: => A): A =
-    val prevR = refsTls.get()
-    val prevF = refFnsTls.get()
+   *  `getRefFns()` / `getRefObjFns()` to read the Object, ObjToLong, and
+   *  ObjToObject slots; the caller wraps `method.invoke` in this block.
+   *  Uses the same `set(prev)` restore pattern as `withInterp` to avoid
+   *  ThreadLocalMap.Entry churn. */
+  def withRefs[A](refs: Array[AnyRef], fns: Array[ObjToLong], objFns: Array[ObjToObject])(thunk: => A): A =
+    val prevR  = refsTls.get()
+    val prevF  = refFnsTls.get()
+    val prevOF = refObjFnsTls.get()
     refsTls.set(refs)
     refFnsTls.set(fns)
+    refObjFnsTls.set(objFns)
     try thunk
     finally
       refsTls.set(prevR)
       refFnsTls.set(prevF)
+      refObjFnsTls.set(prevOF)
 
-  def getRefs(): Array[AnyRef]    = refsTls.get()
-  def getRefFns(): Array[ObjToLong] = refFnsTls.get()
+  def getRefs(): Array[AnyRef]         = refsTls.get()
+  def getRefFns(): Array[ObjToLong]    = refFnsTls.get()
+  def getRefObjFns(): Array[ObjToObject] = refObjFnsTls.get()
 
   /** Called by generated Java code: read a top-level `Int` global by name and
    *  return its `Long` value. Throws `RuntimeException` if the name is
