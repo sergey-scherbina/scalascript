@@ -384,93 +384,97 @@ object SwiftUIEmitter:
         emitMods(s"""${pad}Text("\\(${escapeSwiftIdent(varName)}.$dotPath)")""", style, indent)
 
       case dt: View.DataTable =>
-        val pad2 = " " * (indent + 4)
-        val pad3 = " " * (indent + 8)
-        val pad4 = " " * (indent + 12)
-        val headerCols = dt.columns.map(c => s"""${pad3}Text(${swiftStringLit(c.title)}).bold()""").mkString("\n")
-        val editBuf  = s"_edit_${dt.signal.id}"
-        val dataCols = dt.columns.map { c =>
-          val key = c.fieldPath.split("\\.").head
-          c.editAction match
-            case None =>
-              s"""${pad4}Text((_row[${swiftStringLit(key)}] as? String) ?? String(describing: _row[${swiftStringLit(key)}] ?? ""))"""
-            case Some(ea) =>
-              val editKey    = swiftStringLit(key)
-              val idKey      = swiftStringLit(ea.idField.split("\\.").head)
-              val urlLit     = swiftStringLit(ea.url)
-              val methodLit  = swiftStringLit(ea.method.toUpperCase)
-              val fieldLit   = swiftStringLit(c.fieldPath.split("\\.").last)
-              val idFieldLit = swiftStringLit(ea.idField.split("\\.").last)
-              val bufKey     = s"\\(_idx)_${key}"
-              // Fallback for numeric/bool cells: cast to String, then String(describing:)
-              val rawVal     = s"""(_row[$editKey] as? String) ?? String(describing: _row[$editKey] ?? "")"""
-              val hApply     = dt.signal.headersId.map { hid =>
-                s"""${pad4}        if let _hData = $hid.data(using: .utf8),
-                   |${pad4}           let _hDict = try? JSONSerialization.jsonObject(with: _hData) as? [String: String] {
-                   |${pad4}            for (k, v) in _hDict { _req.setValue(v, forHTTPHeaderField: k) }
-                   |${pad4}        }""".stripMargin
-              }.getOrElse("")
-              val hSep = if hApply.nonEmpty then s"\n$hApply" else ""
-              s"""${pad4}TextField("", text: Binding(
-                 |${pad4}    get: { $editBuf["$bufKey"] ?? ($rawVal) },
-                 |${pad4}    set: { $editBuf["$bufKey"] = $$0 }
-                 |${pad4}))
-                 |${pad4}.textFieldStyle(.plain)
-                 |${pad4}.frame(maxWidth: .infinity)
-                 |${pad4}.onSubmit {
-                 |${pad4}    let _val = $editBuf["$bufKey"] ?? ($rawVal)
-                 |${pad4}    let _id  = (_row[$idKey] as? String) ?? String(describing: _row[$idKey] ?? "")
-                 |${pad4}    Task { @MainActor in
-                 |${pad4}        guard let _url = URL(string: $urlLit) else { return }
-                 |${pad4}        var _req = URLRequest(url: _url)
-                 |${pad4}        _req.httpMethod = $methodLit
-                 |${pad4}        _req.setValue("application/json", forHTTPHeaderField: "Content-Type")$hSep
-                 |${pad4}        _req.httpBody = try? JSONSerialization.data(withJSONObject: [$idFieldLit: _id, $fieldLit: _val])
-                 |${pad4}        let _ = try? await URLSession.shared.data(for: _req)
-                 |${pad4}        ${ea.onSuccessTick.id} += 1
-                 |${pad4}    }
-                 |${pad4}}""".stripMargin
-        }.mkString("\n")
-        val actionBtns = dt.actions.map {
-          case RowActionDef.RowDelete(url, idField, tick, _) =>
-            val key = idField.split("\\.").head
-            s"""${pad4}Button("Delete") { Task { @MainActor in
-               |${pad4}  guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
-               |${pad4}  var _req = URLRequest(url: _url)
-               |${pad4}  _req.httpMethod = "POST"
-               |${pad4}  _req.httpBody = ((_row[${swiftStringLit(key)}] as? String) ?? "").data(using: .utf8)
-               |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
-               |${pad4}  ${tick.id} += 1
-               |${pad4}} }""".stripMargin
-          case RowActionDef.RowPost(label, method, url, bodyField, tick, _) =>
-            val key = bodyField.split("\\.").head
-            s"""${pad4}Button(${swiftStringLit(label)}) { Task { @MainActor in
-               |${pad4}  guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
-               |${pad4}  var _req = URLRequest(url: _url)
-               |${pad4}  _req.httpMethod = ${swiftStringLit(method.toUpperCase)}
-               |${pad4}  _req.httpBody = ((_row[${swiftStringLit(key)}] as? String) ?? "").data(using: .utf8)
-               |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
-               |${pad4}  ${tick.id} += 1
-               |${pad4}} }""".stripMargin
-          case RowActionDef.RowLink(label, signal, fieldPath) =>
-            val key = fieldPath.split("\\.").head
-            s"""${pad4}Button(${swiftStringLit(label)}) {
-               |${pad4}  ${signal.id} = (_row[${swiftStringLit(key)}] as? String) ?? ""
-               |${pad4}}""".stripMargin
-          case RowActionDef.RowInlineEdit(_, _, _, _, _) => ""
-        }.filter(_.nonEmpty).mkString("\n")
-        val rowBody = if actionBtns.nonEmpty then
-          s"${pad3}HStack {\n$dataCols\n$actionBtns\n${pad3}}"
-        else
-          s"${pad3}HStack {\n$dataCols\n${pad3}}"
-        s"""${pad}List {
-           |${pad2}HStack {
-           |$headerCols
-           |${pad2}}
-           |${pad2}ForEach(Array(${dt.signal.id}.enumerated()), id: \\.offset) { _idx, _row in
-           |$rowBody
-           |${pad2}}
-           |${pad}}""".stripMargin
+        dt.source match
+          case TableDataSource.Remote(sig) =>
+            val pad2 = " " * (indent + 4)
+            val pad3 = " " * (indent + 8)
+            val pad4 = " " * (indent + 12)
+            val headerCols = dt.columns.map(c => s"""${pad3}Text(${swiftStringLit(c.title)}).bold()""").mkString("\n")
+            val editBuf  = s"_edit_${sig.id}"
+            val dataCols = dt.columns.map { c =>
+              val key = c.fieldPath.split("\\.").head
+              c.editAction match
+                case None =>
+                  s"""${pad4}Text((_row[${swiftStringLit(key)}] as? String) ?? String(describing: _row[${swiftStringLit(key)}] ?? ""))"""
+                case Some(ea) =>
+                  val editKey    = swiftStringLit(key)
+                  val idKey      = swiftStringLit(ea.idField.split("\\.").head)
+                  val urlLit     = swiftStringLit(ea.url)
+                  val methodLit  = swiftStringLit(ea.method.toUpperCase)
+                  val fieldLit   = swiftStringLit(c.fieldPath.split("\\.").last)
+                  val idFieldLit = swiftStringLit(ea.idField.split("\\.").last)
+                  val bufKey     = s"\\(_idx)_${key}"
+                  val rawVal     = s"""(_row[$editKey] as? String) ?? String(describing: _row[$editKey] ?? "")"""
+                  val hApply     = sig.headersId.map { hid =>
+                    s"""${pad4}        if let _hData = $hid.data(using: .utf8),
+                       |${pad4}           let _hDict = try? JSONSerialization.jsonObject(with: _hData) as? [String: String] {
+                       |${pad4}            for (k, v) in _hDict { _req.setValue(v, forHTTPHeaderField: k) }
+                       |${pad4}        }""".stripMargin
+                  }.getOrElse("")
+                  val hSep = if hApply.nonEmpty then s"\n$hApply" else ""
+                  s"""${pad4}TextField("", text: Binding(
+                     |${pad4}    get: { $editBuf["$bufKey"] ?? ($rawVal) },
+                     |${pad4}    set: { $editBuf["$bufKey"] = $$0 }
+                     |${pad4}))
+                     |${pad4}.textFieldStyle(.plain)
+                     |${pad4}.frame(maxWidth: .infinity)
+                     |${pad4}.onSubmit {
+                     |${pad4}    let _val = $editBuf["$bufKey"] ?? ($rawVal)
+                     |${pad4}    let _id  = (_row[$idKey] as? String) ?? String(describing: _row[$idKey] ?? "")
+                     |${pad4}    Task { @MainActor in
+                     |${pad4}        guard let _url = URL(string: $urlLit) else { return }
+                     |${pad4}        var _req = URLRequest(url: _url)
+                     |${pad4}        _req.httpMethod = $methodLit
+                     |${pad4}        _req.setValue("application/json", forHTTPHeaderField: "Content-Type")$hSep
+                     |${pad4}        _req.httpBody = try? JSONSerialization.data(withJSONObject: [$idFieldLit: _id, $fieldLit: _val])
+                     |${pad4}        let _ = try? await URLSession.shared.data(for: _req)
+                     |${pad4}        ${ea.onSuccessTick.id} += 1
+                     |${pad4}    }
+                     |${pad4}}""".stripMargin
+            }.mkString("\n")
+            val actionBtns = dt.actions.map {
+              case RowActionDef.RowDelete(url, idField, tick, _) =>
+                val key = idField.split("\\.").head
+                s"""${pad4}Button("Delete") { Task { @MainActor in
+                   |${pad4}  guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
+                   |${pad4}  var _req = URLRequest(url: _url)
+                   |${pad4}  _req.httpMethod = "POST"
+                   |${pad4}  _req.httpBody = ((_row[${swiftStringLit(key)}] as? String) ?? "").data(using: .utf8)
+                   |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
+                   |${pad4}  ${tick.id} += 1
+                   |${pad4}} }""".stripMargin
+              case RowActionDef.RowPost(label, method, url, bodyField, tick, _) =>
+                val key = bodyField.split("\\.").head
+                s"""${pad4}Button(${swiftStringLit(label)}) { Task { @MainActor in
+                   |${pad4}  guard let _url = URL(string: ${swiftStringLit(url)}) else { return }
+                   |${pad4}  var _req = URLRequest(url: _url)
+                   |${pad4}  _req.httpMethod = ${swiftStringLit(method.toUpperCase)}
+                   |${pad4}  _req.httpBody = ((_row[${swiftStringLit(key)}] as? String) ?? "").data(using: .utf8)
+                   |${pad4}  let _ = try? await URLSession.shared.data(for: _req)
+                   |${pad4}  ${tick.id} += 1
+                   |${pad4}} }""".stripMargin
+              case RowActionDef.RowLink(label, signal, fieldPath) =>
+                val key = fieldPath.split("\\.").head
+                s"""${pad4}Button(${swiftStringLit(label)}) {
+                   |${pad4}  ${signal.id} = (_row[${swiftStringLit(key)}] as? String) ?? ""
+                   |${pad4}}""".stripMargin
+              case RowActionDef.RowInlineEdit(_, _, _, _, _) => ""
+            }.filter(_.nonEmpty).mkString("\n")
+            val rowBody = if actionBtns.nonEmpty then
+              s"${pad3}HStack {\n$dataCols\n$actionBtns\n${pad3}}"
+            else
+              s"${pad3}HStack {\n$dataCols\n${pad3}}"
+            s"""${pad}List {
+               |${pad2}HStack {
+               |$headerCols
+               |${pad2}}
+               |${pad2}ForEach(Array(${sig.id}.enumerated()), id: \\.offset) { _idx, _row in
+               |$rowBody
+               |${pad2}}
+               |${pad}}""".stripMargin
+          case _ =>
+            // StaticRows / SignalRows: stub — emit a comment placeholder; full rendering in Phase 3
+            s"${" " * indent}// DataTable: non-remote source not yet rendered\n${" " * indent}EmptyView()"
 
       case other =>
         s"${pad}// TODO: unsupported IR node: ${other.productPrefix}\n${pad}EmptyView()"
@@ -842,7 +846,10 @@ object SwiftUIEmitter:
   private[swiftui] def collectDataTableSignals(view: View[?]): List[View.DataTable] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, View.DataTable]
     def walk(v: View[?]): Unit = v match
-      case dt: View.DataTable                            => seen(dt.signal.id) = dt
+      case dt: View.DataTable =>
+        dt.source match
+          case TableDataSource.Remote(sig) => seen(sig.id) = dt
+          case _ => ()
       case View.Column(ch, _, _, _)                     => ch.foreach(walk)
       case View.Row(ch, _, _, _)                        => ch.foreach(walk)
       case View.Stack(ch, _)                            => ch.foreach(walk)
@@ -875,11 +882,14 @@ object SwiftUIEmitter:
     else
       val pad = " " * indent
       dts.flatMap { dt =>
-        val rowState  = s"${pad}@State private var ${dt.signal.id}: [[String: Any]] = []"
-        val editState = if dt.columns.exists(_.editAction.isDefined) then
-          Some(s"${pad}@State private var _edit_${dt.signal.id}: [String: String] = [:]")
-        else None
-        rowState :: editState.toList
+        dt.source match
+          case TableDataSource.Remote(sig) =>
+            val rowState  = s"${pad}@State private var ${sig.id}: [[String: Any]] = []"
+            val editState = if dt.columns.exists(_.editAction.isDefined) then
+              Some(s"${pad}@State private var _edit_${sig.id}: [String: String] = [:]")
+            else None
+            rowState :: editState.toList
+          case _ => Nil
       }.mkString("\n")
 
   private def emitDataTableModifiers(dts: List[View.DataTable], indent: Int): String =
@@ -887,17 +897,20 @@ object SwiftUIEmitter:
     else
       val pad = " " * indent
       dts.flatMap { dt =>
-        val fn      = s"_load_dt_${dt.signal.id}"
-        val tickIds = scala.collection.mutable.LinkedHashSet(dt.signal.tickId)
-        dt.actions.foreach {
-          case RowActionDef.RowDelete(_, _, tick, _)        => tickIds += tick.id
-          case RowActionDef.RowPost(_, _, _, _, tick, _)    => tickIds += tick.id
-          case RowActionDef.RowInlineEdit(_, _, _, tick, _) => tickIds += tick.id
-          case _                                            => ()
-        }
-        dt.columns.foreach(c => c.editAction.foreach(ea => tickIds += ea.onSuccessTick.id))
-        s"${pad}.task { await $fn() }" ::
-          tickIds.map(tid => s"${pad}.onChange(of: $tid) { _, _ in Task { @MainActor in await $fn() } }").toList
+        dt.source match
+          case TableDataSource.Remote(sig) =>
+            val fn      = s"_load_dt_${sig.id}"
+            val tickIds = scala.collection.mutable.LinkedHashSet(sig.tickId)
+            dt.actions.foreach {
+              case RowActionDef.RowDelete(_, _, tick, _)        => tickIds += tick.id
+              case RowActionDef.RowPost(_, _, _, _, tick, _)    => tickIds += tick.id
+              case RowActionDef.RowInlineEdit(_, _, _, tick, _) => tickIds += tick.id
+              case _                                            => ()
+            }
+            dt.columns.foreach(c => c.editAction.foreach(ea => tickIds += ea.onSuccessTick.id))
+            (s"${pad}.task { await $fn() }" ::
+              tickIds.map(tid => s"${pad}.onChange(of: $tid) { _, _ in Task { @MainActor in await $fn() } }").toList)
+          case _ => Nil
       }.mkString("\n")
 
   private def emitDataTableMethods(dts: List[View.DataTable], indent: Int): String =
@@ -906,22 +919,25 @@ object SwiftUIEmitter:
       val pad  = " " * indent
       val pad2 = " " * (indent + 4)
       val pad3 = " " * (indent + 8)
-      dts.map { dt =>
-        val hBlock    = headersBlock(dt.signal.headersId, "_req", indent + 4)
-        val hSep      = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
-        val fetch     = fetchDataLine(dt.signal.headersId, "_req", indent + 8)
-        val hasEditable = dt.columns.exists(_.editAction.isDefined)
-        val clearBuf  = if hasEditable then s"\n${pad3}_edit_${dt.signal.id} = [:]" else ""
-        s"""${pad}private func _load_dt_${dt.signal.id}() async {
-           |${pad2}guard let _url = URL(string: ${swiftStringLit(dt.signal.fetchUrl)}) else { return }$hSep
-           |${pad2}do {
-           |$fetch
-           |${pad3}if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {$clearBuf
-           |${pad3}    ${dt.signal.id} = json
-           |${pad3}}
-           |${pad2}} catch {}
-           |${pad}}
-           |""".stripMargin
+      dts.flatMap { dt =>
+        dt.source match
+          case TableDataSource.Remote(sig) =>
+            val hBlock    = headersBlock(sig.headersId, "_req", indent + 4)
+            val hSep      = if hBlock.nonEmpty then "\n" + hBlock + "\n" else ""
+            val fetch     = fetchDataLine(sig.headersId, "_req", indent + 8)
+            val hasEditable = dt.columns.exists(_.editAction.isDefined)
+            val clearBuf  = if hasEditable then s"\n${pad3}_edit_${sig.id} = [:]" else ""
+            Some(s"""${pad}private func _load_dt_${sig.id}() async {
+               |${pad2}guard let _url = URL(string: ${swiftStringLit(sig.fetchUrl)}) else { return }$hSep
+               |${pad2}do {
+               |$fetch
+               |${pad3}if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {$clearBuf
+               |${pad3}    ${sig.id} = json
+               |${pad3}}
+               |${pad2}} catch {}
+               |${pad}}
+               |""".stripMargin)
+          case _ => None
       }.mkString("\n")
 
   // ── Helpers ───────────────────────────────────────────────────────────────

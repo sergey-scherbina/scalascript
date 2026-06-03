@@ -363,7 +363,10 @@ private[react] object ReactEmitter:
   private def collectDataTableSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     ViewTraversal.foreachDepthFirst(view, ViewTraversal.Options.Web) {
-      case dt: View.DataTable if !seen.contains(dt.signal.id) => seen(dt.signal.id) = dt.signal
+      case dt: View.DataTable =>
+        dt.source match
+          case TableDataSource.Remote(sig) if !seen.contains(sig.id) => seen(sig.id) = sig
+          case _ => ()
       case _ => ()
     }
     seen.values.toSeq

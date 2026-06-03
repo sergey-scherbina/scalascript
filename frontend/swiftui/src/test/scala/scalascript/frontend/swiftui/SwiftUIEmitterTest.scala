@@ -584,7 +584,7 @@ class SwiftUIEmitterTest extends AnyFunSuite:
       Some(RowActionDef.RowInlineEdit("PUT", "/api/employees/update", "id", editTick))
     else None
     val dt: View.DataTable = View.DataTable(
-      signal  = signal,
+      source  = TableDataSource.Remote(signal),
       columns = List(
         FieldColumnDef("Name",       "name"),
         FieldColumnDef("Department", "department", editAction = editAction)
@@ -636,7 +636,10 @@ class SwiftUIEmitterTest extends AnyFunSuite:
     val (sig, _, dt) = makeDataTableView()
     val view = View.Column(List(dt), 8, HAlign.Start, Style())
     val found = SwiftUIEmitter.collectDataTableSignals(view)
-    assert(found.exists(_.signal.id == sig.id), s"DataTable not collected in: ${found.map(_.signal.id)}")
+    def sigId(d: View.DataTable): String = d.source match
+      case TableDataSource.Remote(s) => s.id
+      case _ => ""
+    assert(found.exists(sigId(_) == sig.id), s"DataTable not collected in: ${found.map(sigId)}")
   }
 
   test("DataTable editable column emits TextField with Binding") {

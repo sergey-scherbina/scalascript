@@ -221,7 +221,7 @@ class SwingFrameworkBackendTest extends AnyFunSuite:
     val testDecoder: JsonDecoder = (_, _) => testRows
 
     val dt = View.DataTable(
-      signal  = signal,
+      source  = TableDataSource.Remote(signal),
       columns = List(FieldColumnDef("ID", "id"), FieldColumnDef("Name", "name")),
       actions = List(RowActionDef.RowDelete("/api/employees/delete", "id", tick))
     )

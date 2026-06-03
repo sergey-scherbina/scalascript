@@ -238,7 +238,10 @@ private[vue] object VueEmitter:
   private def collectDataTableSignals(view: View[?]): Seq[FetchUrlSignal] =
     val seen = scala.collection.mutable.LinkedHashMap.empty[String, FetchUrlSignal]
     def walk(v: View[?]): Unit = v match
-      case dt: View.DataTable if !seen.contains(dt.signal.id) => seen(dt.signal.id) = dt.signal
+      case dt: View.DataTable =>
+        dt.source match
+          case TableDataSource.Remote(sig) if !seen.contains(sig.id) => seen(sig.id) = sig
+          case _ => ()
       case View.Fragment(children)                    => children.foreach(walk)
       case View.Element(_, _, _, children)            => children.foreach(walk)
       case View.Column(children, _, _, _)             => children.foreach(walk)

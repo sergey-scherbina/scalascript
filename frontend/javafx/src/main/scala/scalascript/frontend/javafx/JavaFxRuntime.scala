@@ -313,15 +313,18 @@ object JavaFxRuntime:
       Platform.runLater(() => { rows.setAll(newRows*) })
 
     def doFetch(): Unit =
-      Thread(() =>
-        try state.fetchDispatcher.foreach { dispatcher =>
-          val typeName = dt.signal match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
-          val response = dispatcher.request("GET", dt.signal.fetchUrl, "")
-          if response.status >= 200 && response.status < 300 then
-            val decoded = JsonDecoder.current.decodeString(response.body, typeName)
-            rebuildRows(decoded)
-        } catch case _: Exception => ()
-      ).start()
+      dt.source match
+        case TableDataSource.Remote(sig) =>
+          Thread(() =>
+            try state.fetchDispatcher.foreach { dispatcher =>
+              val typeName = sig match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
+              val response = dispatcher.request("GET", sig.fetchUrl, "")
+              if response.status >= 200 && response.status < 300 then
+                val decoded = JsonDecoder.current.decodeString(response.body, typeName)
+                rebuildRows(decoded)
+            } catch case _: Exception => ()
+          ).start()
+        case _ => () // StaticRows / SignalRows: not yet implemented in JavaFX
 
     val wrapper = VBox(4.0)
     wrapper.getChildren.add(new ScrollPane(tableView) {
@@ -543,7 +546,9 @@ object JavaFxRuntime:
         case View.ModelView(_, _, tmpl, _)   => loop(acc, tmpl)
         case View.ForModel(_, _, _, tmpl, _) => loop(acc, tmpl)
         case dt: View.DataTable =>
-          val base = add(acc, dt.signal)
+          val base = dt.source match
+            case TableDataSource.Remote(sig) => add(acc, sig)
+            case _ => acc
           dt.actions.foldLeft(base) {
             case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)
             case (a, RowActionDef.RowPost(_, _, _, _, tick, _))      => add(a, tick)

@@ -405,13 +405,16 @@ object SwingRuntime:
       }
 
     def doFetch(): Unit =
-      state.fetchDispatcher.foreach { dispatcher =>
-        val typeName = dt.signal match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
-        val response = dispatcher.request("GET", dt.signal.fetchUrl, "")
-        if response.status >= 200 && response.status < 300 then
-          val decoded = JsonDecoder.current.decodeString(response.body, typeName)
-          rebuildRows(decoded)
-      }
+      dt.source match
+        case TableDataSource.Remote(sig) =>
+          state.fetchDispatcher.foreach { dispatcher =>
+            val typeName = sig match { case fjs: FetchJsonSignal => fjs.modelTypeName; case _ => "" }
+            val response = dispatcher.request("GET", sig.fetchUrl, "")
+            if response.status >= 200 && response.status < 300 then
+              val decoded = JsonDecoder.current.decodeString(response.body, typeName)
+              rebuildRows(decoded)
+          }
+        case _ => () // StaticRows / SignalRows: not yet implemented in Swing
 
     val wrapper = JPanel(BorderLayout())
     wrapper.add(JScrollPane(table), BorderLayout.CENTER)
@@ -551,7 +554,9 @@ object SwingRuntime:
         case View.TextInput(value, _, _, _, _) => add(acc, value)
         case View.Toggle(checked, _, _) => add(acc, checked)
         case dt: View.DataTable =>
-          val base = add(acc, dt.signal)
+          val base = dt.source match
+            case TableDataSource.Remote(sig) => add(acc, sig)
+            case _ => acc
           dt.actions.foldLeft(base) {
             case (a, RowActionDef.RowDelete(_, _, tick, _))         => add(a, tick)
             case (a, RowActionDef.RowPost(_, _, _, _, tick, _))      => add(a, tick)

@@ -13,7 +13,7 @@ class DataTableEmitTest extends AnyFunSuite:
 
   private def makeDataTable(): View.DataTable =
     View.DataTable(
-      signal  = new FetchUrlSignal("empRows", "/api/employees", tick.id),
+      source  = TableDataSource.Remote(new FetchUrlSignal("empRows", "/api/employees", tick.id)),
       columns = List(FieldColumnDef("Name", "name"), FieldColumnDef("Dept", "department")),
       actions = List(RowActionDef.RowDelete("/api/emp/delete", "id", tick))
     )
