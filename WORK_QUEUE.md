@@ -1174,7 +1174,7 @@ bugs. Spec in BACKLOG.md §"Conformance Fixes".  Each item below is one focused
 commit. Do them in order — triple-quote fix unblocks the std-ui-extended tests
 which are the most numerous.
 
-- [ ] **conf-fix-triple-quote-macro** — Fix `preprocessQuotedMacros` in
+- [x] **conf-fix-triple-quote-macro** ✓ Landed 2026-06-03 — Fix `preprocessQuotedMacros` in
   `lang/core/src/main/scala/scalascript/parser/Parser.scala`.
   **Root cause**: `skipString` (around line 1476) only handles `"…"` single-quoted
   strings.  When `html"""<div class="${cls}">"""` is processed, it exits after

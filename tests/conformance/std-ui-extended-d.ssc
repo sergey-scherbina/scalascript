@@ -68,13 +68,13 @@ println(r2.contains("value=\"300\""))
 val s1 = Carousel.slide("/img/a.jpg", "Slide A", "First slide")
 val s2 = Carousel.slide("/img/b.jpg", "Slide B", "")
 val s3 = Carousel.slide("/img/c.jpg", "Slide C", "Last slide")
-val body = s1 + s2 + s3
-val car1 = Carousel.render(body, 3, "320px", true, true)
+val slides = s1 + s2 + s3
+val car1 = Carousel.render(slides, 3, "320px", true, true)
 println(car1.contains("slide__Carousel"))
 println(car1.contains("/img/a.jpg"))
 println(car1.contains("First slide"))
 println(car1.contains("prev__Carousel"))
 println(car1.contains("dots__Carousel"))
-val car2 = Carousel.render(body, 3, "50vh", false, false)
+val car2 = Carousel.render(slides, 3, "50vh", false, false)
 println(!car2.contains("prev__Carousel"))
 ```

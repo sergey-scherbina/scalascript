@@ -1437,13 +1437,20 @@ object Parser:
     def isIdentPart(c: Char): Boolean = c.isLetterOrDigit || c == '_'
 
     def skipString(start: Int): Int =
-      val q = in(start)
-      var j = start + 1
-      var esc = false
-      while j < n && (esc || in(j) != q) do
-        esc = !esc && in(j) == '\\'
-        j += 1
-      if j < n then j + 1 else j
+      // Triple-quoted string — skip past matching """ without processing ${…} inside
+      if start + 2 < n && in(start) == '"' && in(start+1) == '"' && in(start+2) == '"' then
+        var j = start + 3
+        while j + 2 < n && !(in(j) == '"' && in(j+1) == '"' && in(j+2) == '"') do
+          j += 1
+        if j + 2 < n then j + 3 else n
+      else
+        val q = in(start)
+        var j = start + 1
+        var esc = false
+        while j < n && (esc || in(j) != q) do
+          esc = !esc && in(j) == '\\'
+          j += 1
+        if j < n then j + 1 else j
 
     def rewriteQuotedArgs(s: String): String =
       val sb = new StringBuilder(s.length + 16)
