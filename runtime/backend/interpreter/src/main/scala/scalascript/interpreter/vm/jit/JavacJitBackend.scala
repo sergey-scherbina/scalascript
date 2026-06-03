@@ -1326,6 +1326,224 @@ object JavacJitBackend extends JitBackend:
     whileLongGlobalCache.put(cond, entry.asInstanceOf[AnyRef])
     entry
 
+  // ── mixed while + foreach fused JIT ─────────────────────────────────────
+
+  private val whileMixedGlobalCache: java.util.IdentityHashMap[Term, AnyRef] =
+    java.util.IdentityHashMap()
+  private val WhileMixedMiss: AnyRef = new AnyRef
+
+  /** Analyse `xs.foreach(p => { acc = acc + fn(p) })` and extract
+   *  `(listName, fnName)` or return null if the pattern doesn't match. */
+  private def analyzeForeachApply(foreachApply: Term, accName: String): (String, String) | Null =
+    foreachApply match
+      case ta: Term.Apply =>
+        ta.fun match
+          case Term.Select(qual, Term.Name("foreach")) =>
+            val listName = qual match
+              case Term.Name(n) => n
+              case _            => return null
+            ta.argClause.values match
+              case List(fn: Term.Function) if fn.paramClause.values.lengthCompare(1) == 0 =>
+                val paramName = fn.paramClause.values.head.name.value
+                if paramName.isEmpty then return null
+                // Expect `{ accName = accName + fnName(paramName) }` in body
+                val core = fn.body match
+                  case b: Term.Block if b.stats.lengthCompare(1) == 0 =>
+                    b.stats.head match
+                      case t: Term => t
+                      case _       => return null
+                  case t => t
+                core match
+                  case a: Term.Assign =>
+                    a.lhs match
+                      case Term.Name(`accName`) =>
+                        a.rhs match
+                          case Term.ApplyInfix.After_4_6_0(Term.Name(`accName`), op, _, argClause)
+                              if op.value == "+" && argClause.values.lengthCompare(1) == 0 =>
+                            argClause.values.head match
+                              case ap: Term.Apply
+                                  if ap.argClause.values.lengthCompare(1) == 0 =>
+                                ap.fun match
+                                  case Term.Name(fnName) =>
+                                    ap.argClause.values.head match
+                                      case Term.Name(`paramName`) => (listName, fnName)
+                                      case _                      => null
+                                  case _ => null
+                              case _ => null
+                          case _ => null
+                      case _ => null
+                  case _ => null
+              case _ => null
+          case _ => null
+      case _ => null
+
+  override def tryCompileWhileMixed(
+    cond:         Term,
+    names:        Array[String],
+    rhs:          Array[Term],
+    foreachApply: Term,
+    accName:      String,
+    accIsDouble:  Boolean,
+    interp:       scalascript.interpreter.Interpreter
+  ): WhileJitEntry | Null =
+    if !enabled then return null
+    val cached = whileMixedGlobalCache.get(foreachApply)
+    if cached eq WhileMixedMiss then return null
+    if cached != null then return cached.asInstanceOf[WhileJitEntry]
+
+    val info = analyzeForeachApply(foreachApply, accName)
+    if info == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val (listName, fnName) = info
+
+    // Verify the list receiver is a val-bound ListV (SetV support later).
+    val listVal = interp.globals.getOrElse(listName, null)
+    if !listVal.isInstanceOf[scalascript.interpreter.Value.ListV] then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    // Resolve and JIT-compile the inner function.
+    val fnVal = interp.globals.getOrElse(fnName, null)
+    if !fnVal.isInstanceOf[scalascript.interpreter.Value.FunV] then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val jitR = tryCompile(fnVal.asInstanceOf[scalascript.interpreter.Value.FunV], interp)
+    if jitR == null || jitR.direct == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val (isDoubleOk, fnObjToDouble, fnObjToLong) =
+      if accIsDouble then
+        jitR.direct match
+          case f: ObjToDouble => (true, f, null)
+          case _              => (false, null, null)
+      else
+        jitR.direct match
+          case f: ObjToLong => (true, null, f)
+          case _            => (false, null, null)
+    if !isDoubleOk then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    // Compile cond + int-assign RHSes via existing walkers.
+    val ctx = new WhileGenCtx(names, interp, scala.collection.mutable.LinkedHashMap.empty)
+    val condJava = walkLocalBoolCtx(cond, ctx)
+    if condJava == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val rhsJava = new Array[String](names.length)
+    var k = 0
+    while k < names.length do
+      rhsJava(k) = walkLocalSlotCtx(rhs(k), ctx)
+      if rhsJava(k) == null then
+        whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+        return null
+      k += 1
+
+    // Generate the fused Java class.
+    val accSlotIdx = names.length
+    val className  = s"WhileMixed_${Integer.toUnsignedString(System.identityHashCode(foreachApply))}"
+    val jitPkg     = "scalascript.interpreter.vm.jit"
+    val valuePkg   = "scalascript.interpreter"
+    val sb = new StringBuilder
+    sb.append(s"public final class $className {\n")
+    sb.append(s"  @SuppressWarnings(\"unchecked\")\n")
+    sb.append(s"  public static void run(long[] v) {\n")
+    // Load function and list from TLS once before the loop.
+    if accIsDouble then
+      sb.append(s"    $jitPkg.ObjToDouble _dfn0 = $jitPkg.JitGlobals.getRefDoubleFns()[0];\n")
+    else
+      sb.append(s"    $jitPkg.ObjToLong _fn0 = $jitPkg.JitGlobals.getRefFns()[0];\n")
+    sb.append(s"    $valuePkg.Value.ListV _list0 = ($valuePkg.Value.ListV) $jitPkg.JitGlobals.getRefs()[0];\n")
+    // Load int slots.
+    k = 0
+    while k < names.length do
+      sb.append(s"    long _v$k = v[$k];\n")
+      k += 1
+    // Load accumulator.
+    if accIsDouble then
+      sb.append(s"    double _acc = Double.longBitsToDouble(v[$accSlotIdx]);\n")
+    else
+      sb.append(s"    long _acc = v[$accSlotIdx];\n")
+    // Outer while.
+    sb.append(s"    while ($condJava) {\n")
+    // Inner foreach loop over list items.
+    sb.append(s"      scala.collection.immutable.List<?> _items = _list0.items();\n")
+    sb.append(s"      while (!_items.isEmpty()) {\n")
+    if accIsDouble then
+      sb.append(s"        _acc += _dfn0.apply(_items.head());\n")
+    else
+      sb.append(s"        _acc += _fn0.apply(_items.head());\n")
+    sb.append(s"        _items = (scala.collection.immutable.List<?>) _items.tail();\n")
+    sb.append(s"      }\n")
+    // Int-assign RHSes.
+    k = 0
+    while k < names.length do
+      sb.append(s"      _v$k = ${rhsJava(k)};\n")
+      k += 1
+    sb.append(s"    }\n")
+    // Write back slots.
+    k = 0
+    while k < names.length do
+      sb.append(s"    v[$k] = _v$k;\n")
+      k += 1
+    if accIsDouble then
+      sb.append(s"    v[$accSlotIdx] = Double.doubleToRawLongBits(_acc);\n")
+    else
+      sb.append(s"    v[$accSlotIdx] = _acc;\n")
+    sb.append(s"  }\n")
+    // Co-emit any pure-fn callees referenced in rhs/cond.
+    val emissionIt = ctx.pureFnEmissions.valuesIterator
+    while emissionIt.hasNext do sb.append(emissionIt.next())
+    sb.append("}\n")
+
+    val source = sb.toString
+    val compiler = ToolProvider.getSystemJavaCompiler
+    if compiler == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val classBytes = new ByteArrayOutputStream()
+    val javaFile = new SimpleJavaFileObject(URI.create(s"string:///$className.java"), JavaFileObject.Kind.SOURCE):
+      override def getCharContent(ignoreEncodingErrors: Boolean): CharSequence = source
+    val standard = compiler.getStandardFileManager(null, null, null)
+    val fm = new ForwardingJavaFileManager[JavaFileManager](standard):
+      override def getJavaFileForOutput(loc: JavaFileManager.Location, name: String, kind: JavaFileObject.Kind, sib: FileObject) =
+        new SimpleJavaFileObject(URI.create(s"mem:///$name.class"), kind):
+          override def openOutputStream(): OutputStream = classBytes
+    val task = compiler.getTask(null, fm, null, null, null, java.util.Arrays.asList(javaFile))
+    val ok = try task.call().booleanValue() catch case _: Throwable => false
+    if !ok then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val loader = new ClassLoader(classOf[JavacJitBackend.type].getClassLoader):
+      override def findClass(name: String): Class[?] =
+        if name == className then
+          val bytes = classBytes.toByteArray
+          defineClass(name, bytes, 0, bytes.length)
+        else super.findClass(name)
+    val cls = try loader.loadClass(className) catch case _: Throwable =>
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+    val method =
+      try
+        val m = cls.getMethod("run", classOf[Array[Long]])
+        m.setAccessible(true)
+        m
+      catch case _: Throwable => null
+    if method == null then
+      whileMixedGlobalCache.put(foreachApply, WhileMixedMiss)
+      return null
+
+    val entry = new WhileJitEntry(
+      method,
+      Array.empty[String],
+      if fnObjToLong  != null then Array(fnObjToLong)  else Array.empty[ObjToLong],
+      Array.empty[ObjToObject],
+      if fnObjToDouble != null then Array(fnObjToDouble) else Array.empty[ObjToDouble]
+    )
+    whileMixedGlobalCache.put(foreachApply, entry.asInstanceOf[AnyRef])
+    entry
+
   /** Walk a Term to a Java `long` expression using `_v$idx` local variables
    *  (as declared in the generated method prologue). Supports:
    *  `Lit.Int`/`Lit.Long`, slot `Term.Name`, `Term.ApplyInfix` with

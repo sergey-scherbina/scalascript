@@ -613,6 +613,12 @@ class Interpreter(
   private[interpreter] val whileJitCache: java.util.IdentityHashMap[scala.meta.Term.While, AnyRef] =
     java.util.IdentityHashMap()
 
+  /** Parallel cache for `tryWhileJitMixed` (fused while + foreach). Keyed by
+   *  the foreach `Term.Apply` node (unique per while body), not the While node,
+   *  to avoid collision with `whileJitCache`. */
+  private[interpreter] val whileMixedJitCache: java.util.IdentityHashMap[scala.meta.Term, AnyRef] =
+    java.util.IdentityHashMap()
+
   private[interpreter] def closureWithSelfFor(f: Value.FunV): Env =
     if f.name.isEmpty then f.closure
     else

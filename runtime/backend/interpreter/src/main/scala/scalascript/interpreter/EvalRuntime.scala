@@ -301,6 +301,109 @@ private[interpreter] object EvalRuntime:
       k += 1
     Computation.PureUnit
 
+  /** Fused while + foreach JIT path.  Compiles (once) the outer while + inner
+   *  list-foreach into a single Java method; invokes it with the list receiver
+   *  and JIT-compiled inner function wired via TLS.
+   *
+   *  `accIsDouble` true → Double accumulator stored as raw bits in slots[n].
+   *  `accIsDouble` false → Long (Int) accumulator stored raw in slots[n].
+   *  The list receiver is resolved from globals by name at each call.
+   *  Returns PureUnit on success; null to fall back to tryMixedLongWhile. */
+  private def tryWhileJitMixed(
+    t:              scala.meta.Term.While,
+    body:           MixedAssignBody,
+    foreachApplyIdx: Int,
+    accName:        String,
+    accIsDouble:    Boolean,
+    accInitVal:     Double,
+    frameView:      MutableEnvView,
+    interp:         Interpreter
+  ): Computation | Null =
+    val foreachApply = body.leadingApplies(foreachApplyIdx)
+    // Per-interpreter cache keyed on the foreach apply Term node.
+    val cached = interp.whileMixedJitCache.get(foreachApply)
+    val entry: scalascript.interpreter.vm.jit.WhileJitEntry | Null =
+      if cached != null then
+        if cached eq WhileJitMiss then return null
+        else cached.asInstanceOf[scalascript.interpreter.vm.jit.WhileJitEntry]
+      else
+        val e = scalascript.interpreter.vm.jit.JitBackend.default.tryCompileWhileMixed(
+          t.expr, body.names, body.rhs,
+          foreachApply, accName, accIsDouble, interp
+        )
+        interp.whileMixedJitCache.put(foreachApply, if e == null then WhileJitMiss else e.asInstanceOf[AnyRef])
+        e
+    if entry == null then return null
+
+    // Build slots: int assigns + accumulator.
+    val n = body.names.length
+    val slots = new Array[Long](n + 1)
+    var k = 0
+    while k < n do
+      frameView.getOrElse(body.names(k), null) match
+        case Value.IntV(v) => slots(k) = v
+        case _             => return null
+      k += 1
+    val accSlotIdx = n
+    slots(accSlotIdx) =
+      if accIsDouble then java.lang.Double.doubleToRawLongBits(accInitVal)
+      else interp.globals.getOrElse(accName, null) match
+        case Value.IntV(v) => v
+        case _             => return null
+
+    // Resolve the list receiver from globals at call time (val-bound, stable).
+    val listVal: scalascript.interpreter.Value.ListV | Null =
+      foreachApply match
+        case ta: scala.meta.Term.Apply =>
+          ta.fun match
+            case scala.meta.Term.Select(qual, scala.meta.Term.Name("foreach")) =>
+              qual match
+                case scala.meta.Term.Name(n2) =>
+                  interp.globals.getOrElse(n2, null) match
+                    case lv: Value.ListV => lv
+                    case _              => null
+                case _ => null
+            case _ => null
+        case _ => null
+    if listVal == null then return null
+
+    val refs = Array[AnyRef](listVal.asInstanceOf[AnyRef])
+    try
+      if accIsDouble then
+        scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+          scalascript.interpreter.vm.jit.JitGlobals.withRefs(
+            refs, Array.empty, Array.empty, entry.refDoubleFns
+          ) {
+            entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+          }
+        }
+      else
+        scalascript.interpreter.vm.jit.JitGlobals.withInterp(interp) {
+          scalascript.interpreter.vm.jit.JitGlobals.withRefs(
+            refs, entry.refFns, Array.empty
+          ) {
+            entry.method.invoke(null, slots.asInstanceOf[AnyRef])
+          }
+        }
+    catch
+      case _: Throwable => return null
+
+    // Write back int assigns.
+    val local = frameView.underlying
+    k = 0
+    while k < n do
+      val v = Value.intV(slots(k))
+      local(body.names(k)) = v
+      interp.globals(body.names(k)) = v
+      k += 1
+    // Write back accumulator.
+    val accVal =
+      if accIsDouble then Value.doubleV(java.lang.Double.longBitsToDouble(slots(accSlotIdx)))
+      else Value.intV(slots(accSlotIdx))
+    local(accName)         = accVal
+    interp.globals(accName) = accVal
+    Computation.PureUnit
+
   private final class OverlayEnvView(base: Env, overlay: mutable.HashMap[String, Value])
       extends scala.collection.immutable.AbstractMap[String, Value]:
     override def get(key: String): Option[Value] =
@@ -1697,27 +1800,33 @@ private[interpreter] object EvalRuntime:
                 val (foreachApplyIdx, doubleAccName) = doublePeek
                 val initV = interp.globals.getOrElse(doubleAccName, null)
                 if (initV ne null) && initV.isInstanceOf[Value.DoubleV] then
-                  val slot = Array[Long](
-                    doubleToRawLongBits(initV.asInstanceOf[Value.DoubleV].v),
-                    1L
+                  val initDouble = initV.asInstanceOf[Value.DoubleV].v
+                  // Fused JIT path: compile outer while + inner foreach into one
+                  // Java method, eliminating per-outer-iter TLS round-trips and
+                  // enabling JVM devirtualization of the monomorphic fn call.
+                  val jitR = tryWhileJitMixed(
+                    t, mixedBody, foreachApplyIdx, doubleAccName, true, initDouble, frameView, interp
                   )
-                  val preResolved = tryPreResolveForeach(
-                    mixedBody.leadingApplies(foreachApplyIdx),
-                    foreachApplyIdx, isDouble = true,
-                    interp, mixedBody.names, frameView
-                  )
-                  // Hoist the accSlotTls.get out of the inner per-iter path:
-                  // when preResolved is a Fast variant it stores the slot in
-                  // a field; FastTier.runDoubleAccumForeachFast then reads
-                  // the field directly instead of probing TLS each iter.
-                  if preResolved ne null then preResolved.setCachedSlot(slot)
-                  val r = FastTier.withAccSlot(doubleAccName, slot) {
-                    tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
-                  }
-                  if r != null && slot(1) != 0L then
-                    interp.globals(doubleAccName) =
-                      Value.doubleV(longBitsToDouble(slot(0)))
-                  r
+                  if jitR != null then jitR
+                  else
+                    val slot = Array[Long](doubleToRawLongBits(initDouble), 1L)
+                    val preResolved = tryPreResolveForeach(
+                      mixedBody.leadingApplies(foreachApplyIdx),
+                      foreachApplyIdx, isDouble = true,
+                      interp, mixedBody.names, frameView
+                    )
+                    // Hoist the accSlotTls.get out of the inner per-iter path:
+                    // when preResolved is a Fast variant it stores the slot in
+                    // a field; FastTier.runDoubleAccumForeachFast then reads
+                    // the field directly instead of probing TLS each iter.
+                    if preResolved ne null then preResolved.setCachedSlot(slot)
+                    val r = FastTier.withAccSlot(doubleAccName, slot) {
+                      tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                    }
+                    if r != null && slot(1) != 0L then
+                      interp.globals(doubleAccName) =
+                        Value.doubleV(longBitsToDouble(slot(0)))
+                    r
                 else tryMixedLongWhile(t, mixedBody, frameView, interp)
               else
                 val longPeek = peekFirst(t => FastTier.peekLongAccName(t, interp))
@@ -1725,22 +1834,29 @@ private[interpreter] object EvalRuntime:
                   val (foreachApplyIdx, longAccName) = longPeek
                   val initV = interp.globals.getOrElse(longAccName, null)
                   if (initV ne null) && initV.isInstanceOf[Value.IntV] then
-                    // Long-acc slot bypass — mirror of the Double-acc path.
-                    // The slot stores raw Long bits (no encoding), so the
-                    // FastTier methods read/write `acc` directly.
-                    val slot = Array[Long](initV.asInstanceOf[Value.IntV].v, 1L)
-                    val preResolved = tryPreResolveForeach(
-                      mixedBody.leadingApplies(foreachApplyIdx),
-                      foreachApplyIdx, isDouble = false,
-                      interp, mixedBody.names, frameView
+                    val initLong = initV.asInstanceOf[Value.IntV].v.toDouble
+                    // Fused JIT path for Long-acc (patternMatchWide shape).
+                    val jitR = tryWhileJitMixed(
+                      t, mixedBody, foreachApplyIdx, longAccName, false, initLong, frameView, interp
                     )
-                    if preResolved ne null then preResolved.setCachedSlot(slot)
-                    val r = FastTier.withAccSlot(longAccName, slot) {
-                      tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
-                    }
-                    if r != null && slot(1) != 0L then
-                      interp.globals(longAccName) = Value.intV(slot(0))
-                    r
+                    if jitR != null then jitR
+                    else
+                      // Fallback: Long-acc slot bypass — mirror of the Double-acc path.
+                      // The slot stores raw Long bits (no encoding), so the
+                      // FastTier methods read/write `acc` directly.
+                      val slot = Array[Long](initV.asInstanceOf[Value.IntV].v, 1L)
+                      val preResolved = tryPreResolveForeach(
+                        mixedBody.leadingApplies(foreachApplyIdx),
+                        foreachApplyIdx, isDouble = false,
+                        interp, mixedBody.names, frameView
+                      )
+                      if preResolved ne null then preResolved.setCachedSlot(slot)
+                      val r = FastTier.withAccSlot(longAccName, slot) {
+                        tryMixedLongWhile(t, mixedBody, frameView, interp, preResolved)
+                      }
+                      if r != null && slot(1) != 0L then
+                        interp.globals(longAccName) = Value.intV(slot(0))
+                      r
                   else tryMixedLongWhile(t, mixedBody, frameView, interp)
                 else
                   val mapPeek = peekFirst(t => FastTier.peekMapAccName(t, interp))

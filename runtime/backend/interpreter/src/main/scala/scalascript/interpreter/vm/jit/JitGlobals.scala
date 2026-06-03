@@ -10,10 +10,11 @@ import scalascript.interpreter.{Interpreter, Value}
  *  hot path. */
 object JitGlobals:
 
-  private val interpTls:     ThreadLocal[Interpreter]       = new ThreadLocal[Interpreter]()
-  private val refsTls:       ThreadLocal[Array[AnyRef]]     = new ThreadLocal[Array[AnyRef]]()
-  private val refFnsTls:     ThreadLocal[Array[ObjToLong]]  = new ThreadLocal[Array[ObjToLong]]()
-  private val refObjFnsTls:  ThreadLocal[Array[ObjToObject]] = new ThreadLocal[Array[ObjToObject]]()
+  private val interpTls:       ThreadLocal[Interpreter]        = new ThreadLocal[Interpreter]()
+  private val refsTls:         ThreadLocal[Array[AnyRef]]      = new ThreadLocal[Array[AnyRef]]()
+  private val refFnsTls:       ThreadLocal[Array[ObjToLong]]   = new ThreadLocal[Array[ObjToLong]]()
+  private val refObjFnsTls:    ThreadLocal[Array[ObjToObject]] = new ThreadLocal[Array[ObjToObject]]()
+  private val refDoubleFnsTls: ThreadLocal[Array[ObjToDouble]] = new ThreadLocal[Array[ObjToDouble]]()
 
   def withInterp[A](interp: Interpreter)(thunk: => A): A =
     val prev = interpTls.get()
@@ -35,7 +36,10 @@ object JitGlobals:
    *  `getRefFns()` / `getRefObjFns()` to read the Object, ObjToLong, and
    *  ObjToObject slots; the caller wraps `method.invoke` in this block.
    *  Uses the same `set(prev)` restore pattern as `withInterp` to avoid
-   *  ThreadLocalMap.Entry churn. */
+   *  ThreadLocalMap.Entry churn.
+   *
+   *  The 4-arg overload also sets `refDoubleFns` for `tryCompileWhileMixed`
+   *  (fused while + foreach with a Double accumulator). */
   def withRefs[A](refs: Array[AnyRef], fns: Array[ObjToLong], objFns: Array[ObjToObject])(thunk: => A): A =
     val prevR  = refsTls.get()
     val prevF  = refFnsTls.get()
@@ -49,9 +53,27 @@ object JitGlobals:
       refFnsTls.set(prevF)
       refObjFnsTls.set(prevOF)
 
-  def getRefs(): Array[AnyRef]         = refsTls.get()
-  def getRefFns(): Array[ObjToLong]    = refFnsTls.get()
+  def withRefs[A](refs: Array[AnyRef], fns: Array[ObjToLong], objFns: Array[ObjToObject],
+                  doubleFns: Array[ObjToDouble])(thunk: => A): A =
+    val prevR  = refsTls.get()
+    val prevF  = refFnsTls.get()
+    val prevOF = refObjFnsTls.get()
+    val prevDF = refDoubleFnsTls.get()
+    refsTls.set(refs)
+    refFnsTls.set(fns)
+    refObjFnsTls.set(objFns)
+    refDoubleFnsTls.set(doubleFns)
+    try thunk
+    finally
+      refsTls.set(prevR)
+      refFnsTls.set(prevF)
+      refObjFnsTls.set(prevOF)
+      refDoubleFnsTls.set(prevDF)
+
+  def getRefs(): Array[AnyRef]           = refsTls.get()
+  def getRefFns(): Array[ObjToLong]      = refFnsTls.get()
   def getRefObjFns(): Array[ObjToObject] = refObjFnsTls.get()
+  def getRefDoubleFns(): Array[ObjToDouble] = refDoubleFnsTls.get()
 
   /** Called by generated Java code: read a top-level `Int` global by name and
    *  return its `Long` value. Throws `RuntimeException` if the name is
