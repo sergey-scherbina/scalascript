@@ -1,0 +1,4 @@
+feature/jit-tuple-concat-hoist-20260604 2026-06-03T23:20:40Z
+status: not-started
+done-so-far:
+next: read tryLongWhileAssign + while-JIT infra, detect const-RHS assignments, pre-evaluate before loop
